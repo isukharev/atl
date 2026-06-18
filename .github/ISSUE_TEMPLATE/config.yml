@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Discussions (questions & ideas)
+    url: https://github.com/isukharev/atl/discussions
+    about: Ask questions and discuss ideas in GitHub Discussions.
+  - name: Security vulnerability
+    url: https://github.com/isukharev/atl/blob/main/SECURITY.md
+    about: Please read SECURITY.md before reporting a vulnerability.

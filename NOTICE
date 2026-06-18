@@ -1,0 +1,34 @@
+atl — an agent-native CLI for Confluence and Jira
+Copyright (c) 2026 Ivan Sukharev
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+------------------------------------------------------------------------------
+Trademarks and non-affiliation
+------------------------------------------------------------------------------
+
+This project is an independent, community open-source tool. It is NOT affiliated
+with, endorsed by, sponsored by, or in any way officially connected to Atlassian
+Pty Ltd or any of its subsidiaries.
+
+"Atlassian", "Confluence", and "Jira" are trademarks or registered trademarks of
+Atlassian Pty Ltd. They are used in this project only nominatively — to describe
+the third-party systems that this tool interoperates with — and no claim of
+ownership, partnership, or endorsement is made or implied.
+
+The name "atl" is an abbreviation chosen for brevity and does not represent
+Atlassian or any company.
+
+------------------------------------------------------------------------------
+Third-party dependencies
+------------------------------------------------------------------------------
+
+This software is written in Go and uses the following third-party modules, each
+under its own permissive license (retrieved automatically via Go modules):
+
+  github.com/spf13/cobra            Apache-2.0
+  github.com/spf13/pflag            BSD-3-Clause
+  github.com/inconshreveable/mousetrap  Apache-2.0
+
+All other functionality is built on the Go standard library. No source code was
+copied from any third-party project; this is an independent implementation.

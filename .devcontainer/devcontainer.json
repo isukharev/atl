@@ -1,0 +1,38 @@
+{
+  "name": "atl dev",
+  "image": "mcr.microsoft.com/devcontainers/go:1-1.26-bookworm",
+
+  "features": {
+    "ghcr.io/devcontainers/features/go:1": {
+      "version": "1.26"
+    }
+  },
+
+  "postCreateCommand": "bash -c 'curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin latest && sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ripgrep'",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "editorconfig.editorconfig"
+      ],
+      "settings": {
+        "go.useLanguageServer": true,
+        "go.lintTool": "golangci-lint",
+        "go.formatTool": "goimports",
+        "editor.formatOnSave": true,
+        "[go]": {
+          "editor.defaultFormatter": "golang.go",
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+          }
+        },
+        "gopls": {
+          "ui.semanticTokens": true
+        }
+      }
+    }
+  },
+
+  "remoteUser": "vscode"
+}

@@ -1,0 +1,11 @@
+<h2>Sample page</h2>
+<p>Intro paragraph with <strong>bold</strong>, <em>italic</em> and <code>inline</code>.</p>
+<p>A mention of <ac:link><ri:user ri:userkey="ff8080816abc0001016abc0002000001"/></ac:link> and a link to <ac:link><ri:page ri:content-title="Another Page"/><ac:plain-text-link-body>Another Page</ac:plain-text-link-body></ac:link>.</p>
+<table><tbody><tr><th>Key</th><th>Value</th></tr><tr><td>alpha</td><td>1</td></tr><tr><td>beta</td><td>2</td></tr></tbody></table>
+<ac:structured-macro ac:name="info" ac:schema-version="1"><ac:rich-text-body><p>Info panel body with a &nbsp; entity and an em&mdash;dash.</p></ac:rich-text-body></ac:structured-macro>
+<ac:structured-macro ac:name="code" ac:schema-version="1"><ac:parameter ac:name="language">python</ac:parameter><ac:plain-text-body><![CDATA[if a < b && c > d:
+    print("ok")]]></ac:plain-text-body></ac:structured-macro>
+<p>Status: <ac:structured-macro ac:name="status"><ac:parameter ac:name="colour">Green</ac:parameter><ac:parameter ac:name="title">DONE</ac:parameter></ac:structured-macro></p>
+<p><ac:structured-macro ac:name="drawio"><ac:parameter ac:name="diagramName">my-diagram</ac:parameter><ac:parameter ac:name="revision">7</ac:parameter></ac:structured-macro></p>
+<p><ac:image><ri:attachment ri:filename="screenshot.png"/></ac:image></p>
+<p>Download: <ac:link><ri:attachment ri:filename="report.pdf"/></ac:link></p>

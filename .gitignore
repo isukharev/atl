@@ -1,0 +1,36 @@
+# Compiled binaries
+/atl
+/atl.exe
+/dist/
+*.exe
+
+# Test artifacts
+*.out
+coverage.txt
+coverage.html
+coverage/
+
+# Editor cruft
+.idea/
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Local environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Signing keys — must never be committed
+*.pem
+*.key
+atl-release-key*
+
+# Go tool cache / workspace
+vendor/

@@ -1,0 +1,72 @@
+# golangci-lint v2 configuration. https://golangci-lint.run/
+version: "2"
+
+linters:
+  # Default set (errcheck, govet, ineffassign, staticcheck, unused) plus opt-ins.
+  enable:
+    - bodyclose
+    - gosec
+    - misspell
+    - revive
+    - unconvert
+
+  settings:
+    revive:
+      rules:
+        # Note: the `exported` rule is intentionally omitted — everything lives
+        # under internal/ (no public Go API), so doc-comments-on-every-method is
+        # noise here. The rules below catch real readability/correctness smells.
+        - name: unused-parameter
+        - name: error-return
+        - name: error-strings
+        - name: if-return
+        - name: increment-decrement
+        - name: var-naming
+    staticcheck:
+      # QF1002 (prefer tagged switch) is a style quick-fix; the existing
+      # condition switches are clearer as-is.
+      checks:
+        - all
+        - -QF1002
+    errcheck:
+      # Errors from these are not actionable: writing to already-acquired
+      # stdout/stderr, and closing a body/file on a best-effort cleanup path.
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    gosec:
+      excludes:
+        - G104 # unhandled errors — covered by errcheck where it matters
+        - G204 # subprocess with variable — the self-update re-exec of our own resolved path
+        - G301 # dir 0755 — the mirror is user-readable document content, by design
+        - G302 # file 0755 — the installed binary must be executable
+        - G304 # file inclusion via variable — a CLI reads the .csf/body files the user names
+        - G306 # WriteFile 0644 — mirror/output files are meant to be readable & git-committed
+        - G702 # taint: re-exec of our own os.Executable()-resolved path, not user input
+        - G703 # taint: build-time signing tool writes the .sig beside its --manifest input
+    misspell:
+      locale: US
+
+  exclusions:
+    rules:
+      # Tests may ignore errors on setup/teardown helpers freely.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+
+issues:
+  max-same-issues: 10
+  max-issues-per-linter: 50
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/isukharev/atl
