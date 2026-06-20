@@ -10,4 +10,4 @@ package selfupdate
 // never apply an unsigned or unverifiable update, so a compromised release
 // (swapped binary AND hash) still cannot push code to users without the private
 // key. Manual installation via the published install.sh remains available.
-const trustedPublicKeyB64 = ""
+const trustedPublicKeyB64 = "MgV9ZZWYrgEGU0pnEt1dPE510hxEs3u9ih6/9ITITbE="

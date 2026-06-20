@@ -61,11 +61,15 @@ func TestFetchSignedManifest(t *testing.T) {
 	}
 }
 
-func TestTrustedPublicKeyFailClosed(t *testing.T) {
-	// The committed source ships with no key, so auto-update is disabled by
-	// default until a release key is embedded.
-	if _, ok := trustedPublicKey(); ok {
-		t.Error("expected no embedded key in source (fail-closed default)")
+func TestTrustedPublicKeyEmbedded(t *testing.T) {
+	// A release signing key is embedded; verify it decodes to a valid ed25519
+	// public key (guards against a typo in the committed base64).
+	pub, ok := trustedPublicKey()
+	if !ok {
+		t.Fatal("expected an embedded signing key")
+	}
+	if len(pub) != ed25519.PublicKeySize {
+		t.Errorf("embedded key has wrong size %d, want %d", len(pub), ed25519.PublicKeySize)
 	}
 }
 
