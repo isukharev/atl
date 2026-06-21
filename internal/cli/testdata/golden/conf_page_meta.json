@@ -1,0 +1,15 @@
+{
+  "id": "12345",
+  "title": "Design Doc",
+  "space": "ENG",
+  "version": 7,
+  "ancestors": [
+    "Home",
+    "Specs"
+  ],
+  "labels": [
+    "spec",
+    "approved"
+  ],
+  "restricted": false
+}

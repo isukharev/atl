@@ -1,0 +1,29 @@
+{
+  "key": "ENG-42",
+  "summary": "Fix the thing",
+  "status": "In Progress",
+  "type": "Bug",
+  "project": "ENG",
+  "description": "h1. Steps\n\nDo the work.",
+  "fields": {
+    "description": "h1. Steps\n\nDo the work.",
+    "issuetype": {
+      "name": "Bug"
+    },
+    "labels": [
+      "backend",
+      "urgent"
+    ],
+    "project": {
+      "key": "ENG"
+    },
+    "status": {
+      "name": "In Progress"
+    },
+    "summary": "Fix the thing"
+  },
+  "labels": [
+    "backend",
+    "urgent"
+  ]
+}
