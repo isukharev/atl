@@ -41,3 +41,15 @@ func TestWhoamiUnauthorizedMapsToErrAuth(t *testing.T) {
 		t.Fatalf("got %v, want ErrAuth", err)
 	}
 }
+
+func TestWhoamiForbiddenMapsToErrForbidden(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	j := newTestJira(srv)
+	if _, err := j.Whoami(context.Background()); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("got %v, want ErrForbidden", err)
+	}
+}

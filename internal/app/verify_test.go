@@ -45,4 +45,7 @@ func TestVerifyRejectsInsecureURL(t *testing.T) {
 	if _, err := VerifyConfluence("http://confluence.example.com", "tok", "test"); !errors.Is(err, domain.ErrUsage) {
 		t.Fatalf("got %v, want ErrUsage for non-https non-loopback URL", err)
 	}
+	if _, err := VerifyJira("http://jira.example.com", "tok", "test"); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("VerifyJira: got %v, want ErrUsage for non-https non-loopback URL", err)
+	}
 }

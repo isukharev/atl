@@ -141,6 +141,22 @@ func TestWizardURLPromptEOFDoesNotHang(t *testing.T) {
 	}
 }
 
+func TestWizardRetryEOFDoesNotHang(t *testing.T) {
+	cleanAuthEnv(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	// configure Confluence=y, URL, PAT canned, validation 401, then EOF at "Retry?"
+	sum, err := runLoginWizard(wizardFrom("y\n" + srv.URL + "\n"))
+	if err != nil {
+		t.Fatalf("wizard: %v", err)
+	}
+	if sum.Confluence.Status != "skipped" {
+		t.Fatalf("confluence = %+v, want skipped after EOF at retry", sum.Confluence)
+	}
+}
+
 // authLoginForTest seeds a stored PAT through the same path the wizard uses.
 func authLoginForTest(svc, token string) error {
 	s, err := svcOf(svc)

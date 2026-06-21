@@ -196,8 +196,9 @@ func readNewToken(wz wizardIO) (string, error) {
 	return tok, nil
 }
 
-// promptYesNo asks a yes/no question with a default, reading one line. EOF or a
-// blank line yields the default.
+// promptYesNo asks a yes/no question with a default, reading one line. A blank
+// line (real Enter) yields the shown default. EOF with no input returns false
+// (decline) so a Ctrl+D / exhausted stdin never spins the retry loop.
 func promptYesNo(wz wizardIO, q string, def bool) (bool, error) {
 	suffix := "(Y/n)"
 	if !def {
@@ -205,7 +206,8 @@ func promptYesNo(wz wizardIO, q string, def bool) (bool, error) {
 	}
 	fmt.Fprintf(wz.out, "? %s %s ", q, suffix)
 	line, err := wz.in.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
+	eof := errors.Is(err, io.EOF)
+	if err != nil && !eof {
 		return false, err
 	}
 	switch strings.ToLower(strings.TrimSpace(line)) {
@@ -213,6 +215,11 @@ func promptYesNo(wz wizardIO, q string, def bool) (bool, error) {
 		return true, nil
 	case "n", "no":
 		return false, nil
+	case "":
+		if eof {
+			return false, nil // EOF (Ctrl+D): decline, never loop on the default
+		}
+		return def, nil // blank line: accept the shown default
 	default:
 		return def, nil
 	}
