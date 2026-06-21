@@ -96,6 +96,9 @@ func TestWizardBadTokenRetryDecline(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(os.Getenv("ATL_CONFIG_DIR"), "credentials.json")); !os.IsNotExist(err) {
 		t.Fatalf("a failed validation must not write credentials.json")
 	}
+	if _, err := os.Stat(filepath.Join(os.Getenv("ATL_CONFIG_DIR"), "config.json")); !os.IsNotExist(err) {
+		t.Fatalf("a failed validation must not write config.json")
+	}
 }
 
 func TestWizardKeepExistingPAT(t *testing.T) {
@@ -122,6 +125,15 @@ func TestWizardKeepExistingPAT(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(os.Getenv("ATL_CONFIG_DIR"), "credentials.json")); !strings.Contains(string(b), "stored-pat") {
 		t.Fatalf("kept PAT should remain in credentials.json: %s", b)
+	}
+}
+
+func TestWizardURLPromptEOFDoesNotHang(t *testing.T) {
+	cleanAuthEnv(t)
+	// "y" configures Confluence, then input is exhausted at the URL prompt (EOF).
+	_, err := runLoginWizard(wizardFrom("y\n"))
+	if err == nil {
+		t.Fatalf("expected an error when stdin is exhausted at the URL prompt, got nil")
 	}
 }
 

@@ -146,6 +146,9 @@ func promptURL(wz wizardIO, sp svcSpec, cfg *config.Config) (string, error) {
 	cur := sp.getURL(cfg)
 	for {
 		u, err := promptLine(wz, fmt.Sprintf("    %s base URL", sp.label), cur)
+		if errors.Is(err, io.EOF) {
+			return "", usageErr("no URL provided")
+		}
 		if err != nil {
 			return "", err
 		}
@@ -211,7 +214,14 @@ func promptYesNo(wz wizardIO, q string, def bool) (bool, error) {
 	}
 }
 
-// promptLine reads one line, returning def on a blank line or EOF.
+// promptLine reads one line from wz.in.
+//
+// Behavior:
+//   - Non-empty trimmed input → return it.
+//   - Blank line (no error) → return "" so the caller can re-prompt.
+//   - EOF with a non-empty default → return the default (Ctrl+D keeps stored value).
+//   - EOF with no default and no input → return io.EOF so the caller can abort.
+//   - Any other read error → propagated unchanged.
 func promptLine(wz wizardIO, label, def string) (string, error) {
 	if def != "" {
 		fmt.Fprintf(wz.out, "%s [%s]: ", label, def)
@@ -219,11 +229,18 @@ func promptLine(wz wizardIO, label, def string) (string, error) {
 		fmt.Fprintf(wz.out, "%s: ", label)
 	}
 	line, err := wz.in.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
+	eof := errors.Is(err, io.EOF)
+	if err != nil && !eof {
 		return "", err
 	}
 	if v := strings.TrimSpace(line); v != "" {
 		return v, nil
 	}
-	return def, nil
+	if def != "" {
+		return def, nil // Enter (or EOF) keeps the default
+	}
+	if eof {
+		return "", io.EOF // no default and stdin exhausted: cannot proceed
+	}
+	return "", nil // blank line, no default: caller re-prompts
 }
