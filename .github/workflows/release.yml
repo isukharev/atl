@@ -66,6 +66,12 @@ jobs:
       - name: Generate manifest
         run: make manifest
 
+      - name: Generate Homebrew formula
+        # Emits dist/atl.rb pinned to this release's binaries + sha256. Published
+        # as a release asset so a Homebrew tap can vendor it; no tap is written to
+        # from here.
+        run: make homebrew
+
       - name: Sign manifest
         if: env.HAS_SIGNING_KEY == 'true'
         env:
@@ -100,7 +106,7 @@ jobs:
                   dist/atl-linux-arm64 dist/atl-linux-arm64.sha256 \
                   dist/atl-darwin-amd64 dist/atl-darwin-amd64.sha256 \
                   dist/atl-darwin-arm64 dist/atl-darwin-arm64.sha256 \
-                  dist/manifest.json install.sh"
+                  dist/manifest.json dist/atl.rb install.sh"
           if [ -f dist/manifest.json.sig ]; then
             assets="$assets dist/manifest.json.sig"
           fi

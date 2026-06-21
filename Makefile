@@ -7,9 +7,11 @@
 #   make vet              go vet
 #   make dist             cross-compile release binaries into ./dist
 #   make manifest         generate dist/manifest.json from ./dist binaries
+#   make homebrew         generate dist/atl.rb (Homebrew formula) from ./dist
 #   make genkey           generate an ed25519 release signing key (off-CI)
 
 MODULE   := github.com/isukharev/atl
+REPO     := isukharev/atl
 VERSION  := $(shell cat VERSION 2>/dev/null || echo dev)
 LDFLAGS  := -s -w -X $(MODULE)/internal/version.Version=$(VERSION)
 GOFLAGS  := -trimpath
@@ -69,6 +71,15 @@ dist: clean
 manifest:
 	go run ./scripts/gen-manifest --dist dist --version "$(VERSION)" > dist/manifest.json
 	@echo "wrote dist/manifest.json"
+
+# Generate the Homebrew formula (dist/atl.rb) from ./dist: each platform's
+# release-asset URL pinned to its sha256. Published as a release asset; the tap
+# repository that serves it (`brew install <owner>/tap/atl`) is created and
+# maintained by the project owner — copy dist/atl.rb into its Formula/ dir.
+.PHONY: homebrew
+homebrew:
+	go run ./scripts/gen-homebrew-formula --dist dist --version "$(VERSION)" --repo "$(REPO)" > dist/atl.rb
+	@echo "wrote dist/atl.rb"
 
 # Generate an ed25519 signing keypair OUTSIDE CI. Prints the public key to embed
 # in internal/selfupdate/pubkey.go and writes the private key to a gitignored
