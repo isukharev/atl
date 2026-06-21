@@ -6,9 +6,13 @@ description: Search, pull, read, and edit Jira issues with the atl CLI — searc
 # Jira issues with `atl`
 
 Read Jira issues as local files; **change them only through commands** (there is no file→push path
-for Jira). If `atl` is missing, run `/atl:setup` first. Use the mirror root `~/.atl/<workspace>/`.
-`atl` prints JSON by default. Issue keys are **positional** arguments (`atl jira issue get PROJ-1`),
-except the meta command `atl jira transitions --key PROJ-1`.
+for Jira). `atl` prints JSON by default. Issue keys are **positional** arguments
+(`atl jira issue get PROJ-1`), except the meta command `atl jira transitions --key PROJ-1`.
+
+**Preflight:** `atl` must be installed and configured (Jira URL + PAT). If `command -v atl` fails or
+`atl config show` has an empty `jira_url` (or any command exits `7` = "not configured"), **run
+`/atl:setup` and stop** instead of pushing on. The mirror root is `~/.atl/<workspace>/`; when the
+workspace exported `ATL_MIRROR_ROOT`, `jira pull --into` already defaults to it.
 
 ## The canonical loop
 

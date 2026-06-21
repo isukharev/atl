@@ -6,9 +6,22 @@ description: Pull, read, edit, validate, and push Confluence pages with the atl 
 # Confluence pages with `atl`
 
 Edit Confluence by editing the page's **`.csf`** bytes on disk and pushing under a version gate.
-If `atl` is missing, run `/atl:setup` first. The mirror lives at `~/.atl/<workspace>/` by default
-(see the `atl` skill's workflow reference for the rationale and overrides). `atl` prints JSON by
-default.
+`atl` prints JSON by default.
+
+## Before the first command (preflight)
+
+`atl` must be installed **and** configured (Confluence URL + PAT). Check once at the start of a
+session; if either is missing, **run `/atl:setup` and stop** rather than letting a command fail with
+an obscure error:
+
+```bash
+command -v atl >/dev/null || echo 'NOT INSTALLED → run /atl:setup'
+atl config show   # confluence_url must be non-empty; exit 7 from any command also means "not set up"
+```
+
+The mirror lives at `~/.atl/<workspace>/` by default; if the workspace exported `ATL_MIRROR_ROOT`,
+the commands below already default `--into`/the status dir to it, so you can omit `--into` (an
+explicit `--into` still wins). See the `atl` skill's workflow reference for the rationale.
 
 ## The canonical loop
 
@@ -24,10 +37,15 @@ For a whole space's hierarchy: `atl conf space tree --space <KEY> [--depth N]`.
 ### 2. Pull only what you need
 ```bash
 atl conf pull --id <id> --assets --into ~/.atl/<workspace>/
-# or:  --cql '<CQL>'   (caps silently at 1000 pages)
+# or:  --cql '<CQL>'   (caps at 1000 pages — see warning below)
 # or:  --space <KEY>   (caps at 2000 pages; --depth N to limit)
 ```
 → `{ "root": "...", "pages": [ {id, title, path, version, assets} ] }`
+
+> ⚠️ **`--cql` stops at 1000 pages.** When the cap is hit, the result includes
+> `"truncated": true, "truncated_at": 1000` and `atl` prints a `warning:` line to stderr — the
+> remaining matches are **not** mirrored. If you see this, narrow the CQL or pull by `--space`
+> instead of assuming you got everything.
 
 On disk per page:
 ```

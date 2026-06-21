@@ -89,3 +89,22 @@ case ":$PATH:" in
 esac
 
 "$INSTALL_DIR/atl" version 2>/dev/null || true
+
+# --- next steps --------------------------------------------------------------
+# A bare binary is not yet usable: atl needs a backend URL and a PAT. Print the
+# exact commands so the first run does not fail with an unexplained config error.
+cat >&2 <<'EOF'
+
+atl-install: next steps (Confluence/Jira are Server/Data Center)
+  1. Point atl at your instance(s):
+       atl config set --confluence-url https://confluence.example.com \
+                      --jira-url       https://jira.example.com
+  2. Add a Personal Access Token (no-echo prompt; never pass it on argv):
+       atl auth login --service confluence
+       atl auth login --service jira
+  3. Verify, then run a cheap read:
+       atl auth status
+       atl conf search --cql 'type = page' --limit 1
+
+Quick start & scripting/CI guide: https://github.com/isukharev/atl#quick-start
+EOF
