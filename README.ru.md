@@ -70,6 +70,32 @@ go install github.com/isukharev/atl/cmd/atl@latest
 
 ---
 
+## Использование с Claude Code
+
+`atl` поставляет плагин для [Claude Code](https://claude.com/claude-code) (этот репозиторий
+одновременно является и marketplace плагинов), так что агент может сам установить CLI и работать
+с ним за вас. Добавьте marketplace и установите плагин:
+
+```
+/plugin marketplace add isukharev/atl
+/plugin install atl@atl
+/atl:setup
+```
+
+`/atl:setup` устанавливает бинарник `atl`, если его нет, настраивает аутентификацию и базовые URL
+Confluence/Jira и согласовывает локальную директорию зеркала. После этого Claude Code автоматически
+использует встроенные скиллы по мере необходимости:
+
+- **`atl`** — ориентация: когда использовать `atl` (а когда live Atlassian MCP), workflow
+  «сначала поиск» и где живёт зеркало.
+- **`confluence`** — pull, правка `.csf`, валидация и публикация страниц под version gate.
+- **`jira`** — поиск/выгрузка задач и create/update/transition/comment/link через команды.
+
+Скиллы лежат в [`skills/`](skills/) и описаны в [`.claude-plugin/`](.claude-plugin/); их можно
+проверить локально командой `claude plugin validate .`.
+
+---
+
 ## Аутентификация
 
 ```sh

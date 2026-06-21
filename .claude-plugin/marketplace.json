@@ -1,0 +1,14 @@
+{
+  "name": "atl",
+  "owner": {
+    "name": "Ivan Sukharev"
+  },
+  "description": "Confluence & Jira tooling for coding agents — the atl CLI plugin",
+  "plugins": [
+    {
+      "name": "atl",
+      "source": "./",
+      "description": "Mirror, edit, validate, and push Confluence pages and Jira issues with the atl CLI"
+    }
+  ]
+}

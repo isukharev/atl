@@ -66,6 +66,33 @@ page. Checksums and signatures are published alongside each release.
 
 ---
 
+## Use with Claude Code
+
+`atl` ships a [Claude Code](https://claude.com/claude-code) plugin (this repo is also a plugin
+marketplace), so an agent can install the CLI and drive it for you. Add the marketplace and install
+the plugin:
+
+```
+/plugin marketplace add isukharev/atl
+/plugin install atl@atl
+/atl:setup
+```
+
+`/atl:setup` installs the `atl` binary if it is missing, configures your Confluence/Jira auth and
+backend URLs, and agrees on a local mirror directory. After that, Claude Code automatically uses the
+bundled skills when relevant:
+
+- **`atl`** — orientation: when to use `atl` (vs a live Atlassian MCP), the search-first workflow,
+  and where the mirror lives.
+- **`confluence`** — pull, edit `.csf`, validate, and push pages under the version gate.
+- **`jira`** — search/pull issues and create/update/transition/comment/link via commands.
+
+The skills are bundled under [`skills/`](skills/) and defined by
+[`.claude-plugin/`](.claude-plugin/); you can also try them locally with
+`claude plugin validate .`.
+
+---
+
 ## Authenticate
 
 ```sh
