@@ -39,6 +39,9 @@ func newAuthCmd() *cobra.Command {
 			"prompt — the token is never accepted on the command line.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if service == "" {
+				if fromFile != "" {
+					return usageErr("--from-file requires --service")
+				}
 				return runInteractiveLogin(cmd)
 			}
 			svc, err := svcOf(service)

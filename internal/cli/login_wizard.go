@@ -271,11 +271,11 @@ func runInteractiveLogin(cmd *cobra.Command) error {
 
 // wizardText renders the summary for `-o text`.
 func wizardText(s loginSummary) string {
-	line := func(label string, r svcResult) string {
+	render := func(label string, r svcResult) string {
 		if r.Status == "configured" {
 			return fmt.Sprintf("%s: configured (%s)", label, r.User)
 		}
 		return fmt.Sprintf("%s: %s", label, r.Status)
 	}
-	return line("confluence", s.Confluence) + "\n" + line("jira", s.Jira)
+	return render("confluence", s.Confluence) + "\n" + render("jira", s.Jira)
 }

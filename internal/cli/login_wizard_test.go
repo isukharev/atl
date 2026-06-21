@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -147,6 +148,26 @@ func authLoginForTest(svc, token string) error {
 		return err
 	}
 	return authLogin(s, token)
+}
+
+func TestAuthLoginFromFileWithoutServiceErrors(t *testing.T) {
+	t.Setenv("ATL_NO_UPDATE", "1")
+	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+	pat := filepath.Join(t.TempDir(), "pat")
+	if err := os.WriteFile(pat, []byte("tok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := newRoot()
+	root.SetArgs([]string{"auth", "login", "--from-file", pat})
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	err := root.ExecuteContext(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "--from-file requires --service") {
+		t.Fatalf("want --from-file-requires-service usage error, got %v", err)
+	}
+	if codeFor(err) != exitUsage {
+		t.Fatalf("want exit %d, got %d (err=%v)", exitUsage, codeFor(err), err)
+	}
 }
 
 func TestAuthLoginNonTTYIsUsageError(t *testing.T) {
