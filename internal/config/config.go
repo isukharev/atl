@@ -66,7 +66,7 @@ func Load() (*Config, error) {
 	return c, nil
 }
 
-// Save persists non-secret config to disk (0600 dir, 0644 file).
+// Save persists non-secret config to disk (0700 dir, 0600 file).
 func Save(c *Config) error {
 	if err := os.MkdirAll(Dir(), 0o700); err != nil {
 		return err
