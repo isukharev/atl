@@ -4,6 +4,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/isukharev/atl/internal/adapter/confluence"
@@ -37,10 +38,15 @@ func NewConfluence(cfg *config.Config, version string) (*ConfluenceService, erro
 	}
 	tok, err := auth.Token(auth.Confluence)
 	if err != nil {
-		// A missing/unreadable token is a setup problem (ErrConfig → exit 7), not a
-		// server-side auth rejection (ErrAuth → exit 3); keep the two distinct so a
-		// script can tell "run `atl auth login`" from "the token was refused".
-		return nil, fmt.Errorf("%w: %v", domain.ErrConfig, err)
+		// A token that is simply *not configured* is a setup problem (ErrConfig →
+		// exit 7), distinct from a server-side rejection (ErrAuth → exit 3) — so a
+		// script can tell "run `atl auth login`" from "the token was refused". A
+		// corrupt/unreadable credentials file is neither; let it stay a generic
+		// error (exit 1) rather than misreport it as "not set up".
+		if errors.Is(err, auth.ErrNoToken) {
+			return nil, fmt.Errorf("%w: %v", domain.ErrConfig, err)
+		}
+		return nil, err
 	}
 	cf := confluence.New(cfg.ConfluenceURL, tok, version)
 	return &ConfluenceService{store: cf, users: cf.ResolveUser, assets: cf, baseURL: cfg.ConfluenceURL}, nil
@@ -56,9 +62,12 @@ func NewJira(cfg *config.Config, version string) (*JiraService, error) {
 	}
 	tok, err := auth.Token(auth.Jira)
 	if err != nil {
-		// Missing/unreadable token → setup problem (ErrConfig → exit 7), distinct
-		// from a server-side rejection (ErrAuth → exit 3).
-		return nil, fmt.Errorf("%w: %v", domain.ErrConfig, err)
+		// Not-configured token → setup problem (ErrConfig → exit 7); a corrupt or
+		// unreadable store stays a generic error (exit 1). See NewConfluence.
+		if errors.Is(err, auth.ErrNoToken) {
+			return nil, fmt.Errorf("%w: %v", domain.ErrConfig, err)
+		}
+		return nil, err
 	}
 	return &JiraService{tr: jira.New(cfg.JiraURL, tok, version), baseURL: cfg.JiraURL}, nil
 }

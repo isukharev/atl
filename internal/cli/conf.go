@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -10,6 +11,17 @@ import (
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/version"
 )
+
+// warnIfTruncated writes a one-line stderr warning when a --cql pull hit the
+// silent page cap, so the caller is told the mirror is incomplete. It writes to
+// w (the command's stderr) and never to stdout, keeping the JSON result clean.
+func warnIfTruncated(w io.Writer, res *app.PullResult) {
+	if res != nil && res.Truncated {
+		fmt.Fprintf(w,
+			"warning: --cql selection truncated at %d pages (silent cap); narrow the query or pull by --space to get the rest\n",
+			res.TruncatedAt)
+	}
+}
 
 func confService() (*app.ConfluenceService, error) {
 	cfg, err := loadConfig()
@@ -277,13 +289,8 @@ func confPullCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if res.Truncated {
-				// Warn on stderr (never stdout — that would corrupt the JSON result):
-				// a --cql pull that hit the cap mirrored only the first N matches.
-				fmt.Fprintf(cmd.ErrOrStderr(),
-					"warning: --cql selection truncated at %d pages (silent cap); narrow the query or pull by --space to get the rest\n",
-					res.TruncatedAt)
-			}
+			// Warn on stderr (never stdout — that would corrupt the JSON result).
+			warnIfTruncated(cmd.ErrOrStderr(), res)
 			return emit(cmd, res, func() string {
 				var b strings.Builder
 				fmt.Fprintf(&b, "mirror: %s (%d pages)\n", res.Root, len(res.Pages))

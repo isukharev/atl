@@ -420,11 +420,51 @@ func TestCollectSearchSilent1000Cap(t *testing.T) {
 	if !truncated {
 		t.Errorf("collectSearch hit the cap with more results pending; truncated must be true")
 	}
-	// 100-per-page * 10 pages == 1000; the loop condition `len(ids) < cap` admits
-	// one final page that overshoots to exactly 1000, then stops.
-	if st.calls != 10 {
-		t.Errorf("expected 10 search calls to reach 1000, got %d", st.calls)
+	// 100-per-page * 10 pages == 1000 to reach the cap, then one extra probe call
+	// confirms more results exist before flagging truncation.
+	if st.calls != 11 {
+		t.Errorf("expected 10 search calls to reach 1000 + 1 truncation probe, got %d", st.calls)
 	}
+}
+
+// At exactly the cap with no further page, collectSearch must NOT flag
+// truncation: the one-row probe past the cap comes back empty.
+func TestCollectSearchExactCapNotTruncated(t *testing.T) {
+	st := &exactlyCapStore{}
+	svc := &ConfluenceService{store: st}
+	ids, truncated, err := svc.collectSearch(context.Background(), "type = page")
+	if err != nil {
+		t.Fatalf("collectSearch: %v", err)
+	}
+	if len(ids) != 1000 {
+		t.Fatalf("got %d ids, want exactly 1000", len(ids))
+	}
+	if truncated {
+		t.Errorf("results ended exactly at the cap; the probe is empty so truncated must be false")
+	}
+	if st.calls != 11 {
+		t.Errorf("expected 10 fill calls + 1 (empty) probe, got %d", st.calls)
+	}
+}
+
+// exactlyCapStore serves 10 full pages (1000 ids) each advertising a next
+// cursor, but the 11th call (the truncation probe) returns no results — modeling
+// a query whose matches end precisely at the cap.
+type exactlyCapStore struct {
+	domain.DocStore
+	calls int
+}
+
+func (s *exactlyCapStore) Search(_ context.Context, _ string, limit int, _ string) ([]domain.PageRef, string, error) {
+	s.calls++
+	if s.calls > 10 {
+		return nil, "", nil // probe past the cap: nothing more
+	}
+	refs := make([]domain.PageRef, 0, limit)
+	for i := 0; i < limit; i++ {
+		refs = append(refs, domain.PageRef{ID: idFor(s.calls, i)})
+	}
+	return refs, "more", nil
 }
 
 // collectSearch must NOT flag truncation when the backend runs out of results at

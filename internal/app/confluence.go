@@ -178,9 +178,8 @@ func (s *ConfluenceService) resolveIDs(ctx context.Context, o PullOpts) (ids []s
 }
 
 // collectSearch pages a CQL query into ids, stopping at cqlPullCap. truncated is
-// true when the cap was reached while the backend still advertised a next page
-// — i.e. matches were left behind — so the caller can warn rather than imply the
-// result is complete.
+// true only when matches genuinely remain beyond the cap, so the caller can warn
+// without crying wolf when the results happen to end exactly at the cap.
 func (s *ConfluenceService) collectSearch(ctx context.Context, cql string) (ids []string, truncated bool, err error) {
 	cursor := ""
 	for len(ids) < cqlPullCap {
@@ -194,13 +193,19 @@ func (s *ConfluenceService) collectSearch(ctx context.Context, cql string) (ids 
 			}
 		}
 		if next == "" || len(hits) == 0 {
-			return ids, false, nil
+			return ids, false, nil // backend exhausted at or under the cap
 		}
 		cursor = next
 	}
-	// Loop exited on the cap (not a natural end) and the last page carried a
-	// non-empty next cursor, so there are more matches we are not mirroring.
-	return ids, true, nil
+	// Reached the cap. A dangling next cursor does not prove more matches exist
+	// (the next page may be empty), so probe one row rather than warn falsely.
+	hits, _, perr := s.store.Search(ctx, cql, 1, cursor)
+	if perr != nil {
+		// Don't fail the pull over a truncation probe; assume truncated so we
+		// under-claim completeness rather than over-claim it.
+		return ids, true, nil
+	}
+	return ids, len(hits) > 0, nil
 }
 
 // ---- status ----
