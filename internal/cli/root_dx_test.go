@@ -97,6 +97,10 @@ func TestCorruptCredentialsExitGeneric(t *testing.T) {
 	env := map[string]string{
 		"ATL_CONFIG_DIR":     dir,
 		"ATL_CONFLUENCE_URL": "https://confluence.example.com",
+		// Neutralize any ambient PAT so resolution must fall through to the
+		// (corrupt) credentials file rather than a stray env token in a dev shell.
+		"ATL_CONFLUENCE_PAT": "",
+		"CONFLUENCE_PAT":     "",
 	}
 	out, code := runCLI(t, env, "conf", "page", "meta", "--id", "1")
 	if code != exitGeneric {

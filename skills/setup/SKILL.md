@@ -91,11 +91,13 @@ fully greppable by the agent and never committed into their project's git histor
 
 - **Default:** `~/.atl/<workspace>/`, where `<workspace>` is a meaningful name (the code repo's
   basename or the Confluence space key). Example: `~/.atl/payments-service/`.
-- **Fix it once with `ATL_MIRROR_ROOT`** so pull/status/push all default to the same place without
-  re-passing `--into` every time. Record it where later sessions will pick it up — either export it
-  in the shell profile, or add a line to the project's `CLAUDE.md`:
+- **Fix it once with `ATL_MIRROR_ROOT`** so `conf pull` / `conf status` / `jira pull` default to the
+  same place without re-passing `--into` every time. Record it where later sessions will pick it up —
+  either export it in the shell profile, or add a line to the project's `CLAUDE.md`:
   `atl mirror lives at ~/.atl/<workspace>/ (export ATL_MIRROR_ROOT=~/.atl/<workspace>/)`.
-- An explicit `--into <dir>` on any command still overrides `ATL_MIRROR_ROOT`.
+- An explicit `--into <dir>` still overrides `ATL_MIRROR_ROOT`. `conf push` does not read the env
+  var — it finds the mirror root by walking up from the target file to the nearest `.atl`, so as long
+  as you push files from inside that same root it lines up automatically.
 
 (See the `atl` orientation skill's workflow reference for the full rationale and the in-repo /
 scratch alternatives.)
