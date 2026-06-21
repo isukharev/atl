@@ -34,3 +34,6 @@ atl-release-key*
 
 # Go tool cache / workspace
 vendor/
+
+# Local-only dev planning artifacts (specs, plans, scratch) — never published
+docs/superpowers/
