@@ -39,12 +39,16 @@ jobs:
       # non-atomic coverage counters would themselves be a data race. -count=1
       # defeats the test cache so a stale pass can't masquerade as green; -timeout
       # dumps goroutine stacks instead of hanging the job on a deadlock.
+      # -coverpkg=./internal/... attributes coverage across package boundaries, so
+      # the CLI/app tests that exercise the adapters count toward them; the summary
+      # below reports the true cross-package total, not each package in isolation
+      # (cmd/scripts are excluded — they are thin mains/build tooling).
       - name: Test
-        run: go test -race -covermode=atomic -coverprofile=cover.out -count=1 -timeout=10m ./...
+        run: go test -race -covermode=atomic -coverprofile=cover.out -coverpkg=./internal/... -count=1 -timeout=10m ./...
       - name: Coverage summary
         run: |
           {
-            echo "### Coverage — ${{ matrix.os }}"
+            echo "### Coverage — cross-package (${{ matrix.os }})"
             echo '```'
             go tool cover -func=cover.out | tail -1
             echo '```'
