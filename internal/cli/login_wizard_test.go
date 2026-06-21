@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 // whoamiServer replies with a fixed display name on any path.
@@ -144,4 +147,36 @@ func authLoginForTest(svc, token string) error {
 		return err
 	}
 	return authLogin(s, token)
+}
+
+func TestAuthLoginNonTTYIsUsageError(t *testing.T) {
+	// In `go test`, os.Stdin is not a TTY, so bare `auth login` must refuse.
+	_, code := runCLI(t, nil, "auth", "login")
+	if code != exitUsage {
+		t.Fatalf("exit = %d, want %d (usage)", code, exitUsage)
+	}
+}
+
+func TestAuthLoginWizardGolden(t *testing.T) {
+	cleanAuthEnv(t)
+	srv := whoamiServer(t)
+	defer srv.Close()
+
+	sum, err := runLoginWizard(wizardFrom("y\n" + srv.URL + "\nn\n"))
+	if err != nil {
+		t.Fatalf("wizard: %v", err)
+	}
+	// emit() is called directly (no flag parse), so pin the package-global
+	// output format to JSON rather than depend on whatever a prior test left.
+	prev := outputFormat
+	outputFormat = "json"
+	defer func() { outputFormat = prev }()
+
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
+	if err := emit(cmd, sum, nil); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	assertGolden(t, "auth_login_wizard.json", buf.Bytes())
 }

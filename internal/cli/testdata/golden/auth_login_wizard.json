@@ -1,0 +1,9 @@
+{
+  "confluence": {
+    "status": "configured",
+    "user": "Jane Doe"
+  },
+  "jira": {
+    "status": "skipped"
+  }
+}

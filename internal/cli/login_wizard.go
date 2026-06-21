@@ -5,7 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
+
+	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/auth"
@@ -243,4 +247,35 @@ func promptLine(wz wizardIO, label, def string) (string, error) {
 		return "", io.EOF // no default and stdin exhausted: cannot proceed
 	}
 	return "", nil // blank line, no default: caller re-prompts
+}
+
+// runInteractiveLogin runs the wizard against the real terminal. It requires a
+// TTY; a non-interactive invocation gets a usage error pointing at the scriptable
+// paths.
+func runInteractiveLogin(cmd *cobra.Command) error {
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		return usageErr("interactive setup needs a terminal; use `--service` with piped stdin or --from-file, or `atl config set` for non-interactive setup")
+	}
+	wz := wizardIO{
+		in:         bufio.NewReader(os.Stdin),
+		out:        os.Stderr,
+		readSecret: func() (string, error) { return readSecretNoEcho(fd) },
+	}
+	sum, err := runLoginWizard(wz)
+	if err != nil {
+		return err
+	}
+	return emit(cmd, sum, func() string { return wizardText(sum) })
+}
+
+// wizardText renders the summary for `-o text`.
+func wizardText(s loginSummary) string {
+	line := func(label string, r svcResult) string {
+		if r.Status == "configured" {
+			return fmt.Sprintf("%s: configured (%s)", label, r.User)
+		}
+		return fmt.Sprintf("%s: %s", label, r.Status)
+	}
+	return line("confluence", s.Confluence) + "\n" + line("jira", s.Jira)
 }
