@@ -1,0 +1,2 @@
+INVALID	<CSF>
+   ! error:1:21 malformed CSF: XML syntax error on line 1: element <strong> closed by </p>
