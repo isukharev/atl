@@ -138,7 +138,8 @@ Verify the published release:
 
 ```bash
 gh attestation verify <(curl -fsSL https://github.com/isukharev/atl/releases/download/v0.1.0/atl-linux-amd64) \
-  --repo isukharev/atl
+  --repo isukharev/atl \
+  --signer-workflow isukharev/atl/.github/workflows/release.yml
 curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh
 atl version
 ```

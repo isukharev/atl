@@ -64,8 +64,19 @@ type content struct {
 			} `json:"results"`
 		} `json:"labels"`
 	} `json:"metadata"`
-	Restrictions json.RawMessage `json:"restrictions"`
-	Links        struct {
+	Restrictions struct {
+		Read struct {
+			Restrictions struct {
+				User struct {
+					Results []json.RawMessage `json:"results"`
+				} `json:"user"`
+				Group struct {
+					Results []json.RawMessage `json:"results"`
+				} `json:"group"`
+			} `json:"restrictions"`
+		} `json:"read"`
+	} `json:"restrictions"`
+	Links struct {
 		WebUI string `json:"webui"`
 	} `json:"_links"`
 }
@@ -111,7 +122,8 @@ func (cf *Confluence) GetPage(ctx context.Context, id string, opts domain.PullOp
 func (cf *Confluence) GetMeta(ctx context.Context, id string) (*domain.PageMeta, error) {
 	var ct content
 	if err := cf.c.GetJSON(ctx, "/rest/api/content/"+url.PathEscape(id)+
-		"?expand=version,space,ancestors,metadata.labels,restrictions.read.restrictions.user", &ct); err != nil {
+		"?expand=version,space,ancestors,metadata.labels,"+
+		"restrictions.read.restrictions.user,restrictions.read.restrictions.group", &ct); err != nil {
 		return nil, err
 	}
 	m := &domain.PageMeta{ID: ct.ID, Title: ct.Title, Space: ct.Space.Key, Version: ct.Version.Number}
@@ -121,7 +133,8 @@ func (cf *Confluence) GetMeta(ctx context.Context, id string) (*domain.PageMeta,
 	for _, l := range ct.Metadata.Labels.Results {
 		m.Labels = append(m.Labels, l.Name)
 	}
-	m.Restrictions = len(ct.Restrictions) > 0 && !strings.Contains(string(ct.Restrictions), `"results":[]`)
+	read := ct.Restrictions.Read.Restrictions
+	m.Restrictions = len(read.User.Results) > 0 || len(read.Group.Results) > 0
 	if ct.Links.WebUI != "" {
 		m.URL = cf.base + ct.Links.WebUI
 	}

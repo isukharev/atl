@@ -2,9 +2,13 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/isukharev/atl/internal/auth"
 	"github.com/isukharev/atl/internal/config"
@@ -25,27 +29,27 @@ func newVersionCmd() *cobra.Command {
 func newAuthCmd() *cobra.Command {
 	c := &cobra.Command{Use: "auth", Short: "Manage Personal Access Tokens (per-user, never in repo)"}
 
-	var service, token, fromFile string
+	var service, fromFile string
 	login := &cobra.Command{
 		Use:   "login",
 		Short: "Store a PAT for a service (confluence|jira)",
+		Long: "Store a PAT for a service. The token is read from --from-file, from piped\n" +
+			"stdin, or prompted without echo — it is never accepted on the command line,\n" +
+			"which would leak it to the process list and shell history.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			svc, err := svcOf(service)
 			if err != nil {
 				return err
 			}
-			tok := token
-			if tok == "" {
-				b, err := readBody(fromFile)
-				if err != nil {
-					return err
-				}
-				tok = string(b)
+			tok, err := readPAT(fromFile)
+			if err != nil {
+				return err
 			}
+			tok = strings.TrimSpace(tok)
 			if tok == "" {
-				return usageErr("provide --token or --from-file -")
+				return usageErr("no PAT provided (use --from-file, pipe via stdin, or type it at the prompt)")
 			}
-			if err := auth.Login(svc, strings.TrimSpace(tok)); err != nil {
+			if err := auth.Login(svc, tok); err != nil {
 				return err
 			}
 			return emit(cmd, map[string]string{"service": service, "status": "stored"},
@@ -53,8 +57,7 @@ func newAuthCmd() *cobra.Command {
 		},
 	}
 	login.Flags().StringVar(&service, "service", "", "confluence|jira")
-	login.Flags().StringVar(&token, "token", "", "the PAT (or use --from-file)")
-	login.Flags().StringVar(&fromFile, "from-file", "", "read PAT from file or - for stdin")
+	login.Flags().StringVar(&fromFile, "from-file", "", "read PAT from a file, or - for stdin")
 
 	status := &cobra.Command{
 		Use:   "status",
@@ -118,10 +121,18 @@ func newConfigCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Reject an insecure (cleartext) backend URL at set time, not only at
+			// run time, so a PAT-leaking URL is never silently persisted.
 			if confluenceURL != "" {
+				if err := config.CheckSecureURL(confluenceURL); err != nil {
+					return usageErr("%v", err)
+				}
 				cfg.ConfluenceURL = confluenceURL
 			}
 			if jiraURL != "" {
+				if err := config.CheckSecureURL(jiraURL); err != nil {
+					return usageErr("%v", err)
+				}
 				cfg.JiraURL = jiraURL
 			}
 			if updateURL != "" {
@@ -139,6 +150,41 @@ func newConfigCmd() *cobra.Command {
 
 	c.AddCommand(show, set)
 	return c
+}
+
+// readPAT obtains a PAT without ever placing it on the command line. With
+// --from-file it reads that file (or stdin for "-"); otherwise it prompts on a
+// TTY without echo, or reads piped stdin when not attached to a terminal.
+func readPAT(fromFile string) (string, error) {
+	if fromFile != "" {
+		b, err := readBody(fromFile)
+		return string(b), err
+	}
+	if fd := int(os.Stdin.Fd()); term.IsTerminal(fd) {
+		// term.ReadPassword puts the TTY into no-echo and restores it on a normal
+		// return, but a signal delivered mid-read would otherwise leave the shell
+		// with input hidden. Restore the terminal and exit on interrupt/terminate.
+		if prev, err := term.GetState(fd); err == nil {
+			sig := make(chan os.Signal, 1)
+			signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+			done := make(chan struct{})
+			defer func() { signal.Stop(sig); close(done) }()
+			go func() {
+				select {
+				case <-sig:
+					_ = term.Restore(fd, prev)
+					os.Exit(130) // 128 + SIGINT, the conventional interrupted code
+				case <-done:
+				}
+			}()
+		}
+		fmt.Fprint(os.Stderr, "Enter PAT (input hidden): ")
+		b, err := term.ReadPassword(fd)
+		fmt.Fprintln(os.Stderr)
+		return string(b), err
+	}
+	b, err := readBody("-")
+	return string(b), err
 }
 
 func svcOf(s string) (auth.Service, error) {

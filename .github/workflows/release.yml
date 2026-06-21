@@ -53,11 +53,17 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
+          # Attest install.sh too so a security-conscious user can verify the
+          # script out-of-band (gh attestation verify install.sh --signer-workflow
+          # …/release.yml) before running it. A piped `curl | sh` install runs the
+          # script before it could verify itself; that path relies on the in-script
+          # sha256 check, with SLSA provenance available for out-of-band verification.
           subject-path: |
             dist/atl-linux-amd64
             dist/atl-linux-arm64
             dist/atl-darwin-amd64
             dist/atl-darwin-arm64
+            install.sh
 
       - name: Publish release
         env:

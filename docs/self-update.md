@@ -98,18 +98,19 @@ the manifest. It is downloaded with a 90-second timeout. Its sha256 is checked
 against the value in the (already-verified) manifest. A mismatch causes `Run`
 to return with no update.
 
-### 9. Atomic replacement and re-exec
+### 9. Atomic replacement (applied on the next invocation)
 
 The new binary is written to a temporary file in the same directory as the
-running executable, `chmod 0755`, then `os.Rename`-d over the current
-executable. On Linux and macOS this is safe while the binary is running (the
-OS keeps the old inode open; only the directory entry changes). On a successful
-rename, `syscall.Exec` replaces the current process image with the new binary
-using the original `os.Args` and `os.Environ` — the command the user typed
-runs as if nothing happened, but now on the new version.
+running executable, then `os.Rename`-d over the current executable. The original
+file's permission bits are preserved (a hardened `0700`/`0750` install is not
+silently widened), with the executable bit forced on. On Linux and macOS this is
+safe while the binary is running (the OS keeps the old inode open; only the
+directory entry changes). The current process is **not** re-execed — the running
+command finishes on the already-loaded image and the new version takes effect on
+the next invocation, so a command is never transparently replaced mid-run.
 
-If any step from 8 onwards fails (unwritable directory, rename error, exec
-error), `Run` returns with no side effects visible to the user.
+If any step from 8 onwards fails (unwritable directory, rename error), `Run`
+returns with no side effects visible to the user.
 
 ---
 
@@ -173,8 +174,8 @@ automatically.
 ### 5. Verify end-to-end
 
 After a release, install the previous version and run any `atl` command with
-`ATL_UPDATE_DEBUG=1`. You should see the manifest fetch, signature check, and
-re-exec logged to stderr.
+`ATL_UPDATE_DEBUG=1`. You should see the manifest fetch and signature check
+logged to stderr; the swapped-in binary takes effect on the next invocation.
 
 ---
 

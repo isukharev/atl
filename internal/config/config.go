@@ -5,9 +5,14 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/isukharev/atl/internal/safepath"
 )
 
 // Config holds non-secret settings.
@@ -70,9 +75,34 @@ func Save(c *Config) error {
 	if err != nil {
 		return err
 	}
-	// 0600: config carries the self-update source URL; keep it owner-only,
-	// consistent with the credentials/sidecar files.
-	return os.WriteFile(path(), append(b, '\n'), 0o600)
+	// 0600 written atomically: config carries the self-update source URL; keep it
+	// owner-only, consistent with the credentials/sidecar files.
+	return safepath.WriteFileAtomic(path(), append(b, '\n'), 0o600)
+}
+
+// CheckSecureURL rejects a backend base URL that would transmit the PAT in
+// cleartext: any non-https scheme for a non-loopback host. Loopback hosts (test
+// servers) are always allowed, and ATL_ALLOW_INSECURE=1 overrides the check for
+// an internal http-only instance the operator explicitly trusts.
+func CheckSecureURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid URL %q: %v", raw, err)
+	}
+	if u.Scheme == "https" || isLoopbackHost(u.Hostname()) || os.Getenv("ATL_ALLOW_INSECURE") != "" {
+		return nil
+	}
+	return fmt.Errorf("refusing to send the PAT over %q to %q (use https, or set ATL_ALLOW_INSECURE=1 to override)", u.Scheme, u.Host)
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
 
 func firstEnv(keys ...string) string {

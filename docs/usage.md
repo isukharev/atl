@@ -144,12 +144,19 @@ never stored in the mirror or the repository.
 
 Store a PAT for a service.
 
-```bash
-# pass the token as a flag
-atl auth login --service confluence --token <your-pat>
+The token is never accepted on the command line (which would leak it to the
+process list and shell history). Provide it via `--from-file`, piped stdin, or
+an interactive no-echo prompt:
 
-# read from stdin (avoids shell history)
-read -s PAT && echo "$PAT" | atl auth login --service jira --from-file -
+```bash
+# interactive: prompts without echo when run on a terminal
+atl auth login --service confluence
+
+# read from stdin without echo (bash; -s is not POSIX sh); avoids shell history
+read -rs PAT && echo "$PAT" | atl auth login --service jira --from-file -
+
+# from a file
+atl auth login --service jira --from-file ./jira.pat
 ```
 
 Flags:
@@ -157,8 +164,7 @@ Flags:
 | flag | description |
 |---|---|
 | `--service` | `confluence` or `jira` (required) |
-| `--token` | the PAT value |
-| `--from-file` | file path or `-` for stdin |
+| `--from-file` | file path, or `-` for stdin; omit to be prompted without echo |
 
 ### `atl auth status`
 
@@ -484,10 +490,12 @@ atl jira issue create \
   --summary "Crash on empty input" \
   --from-file description.wiki
 
-# with extra fields
+# with extra fields. A --field value that parses as JSON is sent as that JSON
+# type, so structured fields work; a plain string is sent as a string.
 atl jira issue create \
   --project PROJ --type Task --summary "Deploy docs" \
-  --field priority=High \
+  --field 'priority={"name":"High"}' \
+  --field 'labels=["docs","infra"]' \
   --field customfield_10001=foo
 ```
 
@@ -508,7 +516,7 @@ Update summary, description, or arbitrary fields.
 ```bash
 atl jira issue update PROJ-1 --summary "Crash on empty input (critical)"
 atl jira issue update PROJ-1 --from-file updated-desc.wiki
-atl jira issue update PROJ-1 --field priority=Highest
+atl jira issue update PROJ-1 --field 'priority={"name":"Highest"}'
 ```
 
 Flags:

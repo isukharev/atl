@@ -49,10 +49,12 @@
 ### Быстрая установка (Linux / macOS)
 
 ```sh
-curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh
 ```
 
-Устанавливает в `~/.local/bin/atl` и проверяет SHA-256 контрольную сумму.
+Устанавливает в `~/.local/bin/atl` и проверяет SHA-256 контрольную сумму. С каждым
+релизом публикуется SLSA build provenance для опциональной проверки out-of-band
+(см. [docs/RELEASING.md](docs/RELEASING.md)); сам установщик не требует `gh`.
 
 ### go install
 
@@ -76,9 +78,10 @@ atl config set \
   --confluence-url https://confluence.example.com \
   --jira-url       https://jira.example.com
 
-# 2. Передайте Personal Access Token (PAT) — только Server/Data Center
-atl auth login --service confluence --token <PAT>
-atl auth login --service jira       --token <PAT>
+# 2. Передайте Personal Access Token (PAT) — только Server/Data Center.
+#    Токен читается из скрытого ввода, stdin или --from-file — никогда из argv.
+atl auth login --service confluence   # запросит ввод без эха
+atl auth login --service jira         # запросит ввод без эха
 
 # Или используйте переменные окружения (рекомендуется для CI / агентских сессий):
 export ATL_CONFLUENCE_PAT=<PAT>

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/safepath"
 )
 
 func (s *JiraService) Issue(ctx context.Context, key string, fields []string) (*domain.Issue, error) {
@@ -77,11 +78,20 @@ func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, er
 		if err != nil {
 			continue
 		}
+		// name is a server-supplied attachment filename: reduce to a safe base
+		// name and confine the write to dir so it cannot escape via "../".
+		safeName, ok := safepath.Base(name)
+		if !ok {
+			continue
+		}
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return paths, err
 		}
-		p := filepath.Join(dir, name)
-		if err := os.WriteFile(p, data, 0o644); err != nil {
+		p := filepath.Join(dir, safeName)
+		if !safepath.Within(dir, p) {
+			continue
+		}
+		if err := safepath.WriteFile(p, data, 0o644); err != nil {
 			return paths, err
 		}
 		paths = append(paths, p)
@@ -112,16 +122,22 @@ func (s *JiraService) Pull(ctx context.Context, jql, into string, limit int) ([]
 			if err != nil {
 				full = &is
 			}
-			dir := filepath.Join(into, safe(full.Project))
+			dir := filepath.Join(into, safepath.Segment(full.Project))
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return out, err
 			}
-			mdPath := filepath.Join(dir, full.Key+".md")
-			if err := os.WriteFile(mdPath, renderIssueMarkdown(full), 0o644); err != nil {
+			// full.Key is server-supplied; sanitize it before using it as a
+			// filename and assert the result stays inside dir.
+			keySeg := safepath.Segment(full.Key)
+			mdPath := filepath.Join(dir, keySeg+".md")
+			if !safepath.Within(dir, mdPath) {
+				return out, fmt.Errorf("refusing unsafe issue key %q", full.Key)
+			}
+			if err := safepath.WriteFile(mdPath, renderIssueMarkdown(full), 0o644); err != nil {
 				return out, err
 			}
 			if jb, err := json.MarshalIndent(full.Fields, "", "  "); err == nil {
-				_ = os.WriteFile(filepath.Join(dir, full.Key+".json"), append(jb, '\n'), 0o644)
+				_ = safepath.WriteFile(filepath.Join(dir, keySeg+".json"), append(jb, '\n'), 0o644)
 			}
 			rel, _ := filepath.Rel(into, mdPath)
 			out = append(out, JiraPulled{Key: full.Key, Path: rel})
@@ -177,16 +193,4 @@ func yamlEscape(s string) string {
 		return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
 	}
 	return s
-}
-
-func safe(s string) string {
-	if s == "" {
-		return "_"
-	}
-	return strings.Map(func(r rune) rune {
-		if r == '/' || r == '\\' || r == ':' {
-			return '-'
-		}
-		return r
-	}, s)
 }

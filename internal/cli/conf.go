@@ -105,6 +105,9 @@ func confPageCmd() *cobra.Command {
 			if id == "" {
 				return usageErr("--id is required")
 			}
+			if format != "csf" && format != "view" {
+				return usageErr("--format must be csf or view")
+			}
 			svc, err := confService()
 			if err != nil {
 				return err
@@ -182,7 +185,10 @@ func confPageCmd() *cobra.Command {
 				return err
 			}
 			if probs := csf.Validate(body); csf.HasErrors(probs) {
-				return emit(cmd, map[string]any{"problems": probs}, nil)
+				// Emit the problems, but exit non-zero so an agent learns the page
+				// was NOT created (previously this returned exit 0 — a silent no-op).
+				_ = emit(cmd, map[string]any{"problems": probs}, nil)
+				return usageErr("CSF not well-formed (see problems); page not created")
 			}
 			svc, err := confService()
 			if err != nil {
@@ -251,6 +257,18 @@ func confPullCmd() *cobra.Command {
 		Use:   "pull",
 		Short: "Mirror pages (.csf + .md + .meta.json + assets) by --id/--cql/--space",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// Mutually exclusive selectors. Checked here (not via
+			// MarkFlagsMutuallyExclusive) so the violation is a usage error (exit 2)
+			// rather than cobra's generic error (exit 1).
+			set := 0
+			for _, v := range []string{o.ID, o.CQL, o.Space} {
+				if v != "" {
+					set++
+				}
+			}
+			if set > 1 {
+				return usageErr("--id, --cql and --space are mutually exclusive")
+			}
 			svc, err := confService()
 			if err != nil {
 				return err
@@ -307,7 +325,20 @@ func confStatusCmd() *cobra.Command {
 					if e.Drifted {
 						flag = "M↯ "
 					}
-					fmt.Fprintf(&b, "%s%s\t%s\n", flag, e.ID, e.Path)
+					// A page whose remote check failed must not read as clean/in-sync;
+					// mark it so the human "safe to push?" view shows the uncertainty.
+					if e.RemoteError != "" {
+						if e.LocallyEdited {
+							flag = "M? "
+						} else {
+							flag = " ? "
+						}
+					}
+					fmt.Fprintf(&b, "%s%s\t%s", flag, e.ID, e.Path)
+					if e.RemoteError != "" {
+						fmt.Fprintf(&b, "\t(remote: %s)", e.RemoteError)
+					}
+					b.WriteByte('\n')
 				}
 				return strings.TrimRight(b.String(), "\n")
 			})
@@ -365,10 +396,15 @@ func pushText(res *app.PushResult) string {
 	for _, it := range res.Items {
 		state := "ok"
 		switch {
+		case it.Failed != "":
+			state = "FAILED(" + it.Failed + ")"
 		case it.Skipped != "":
 			state = it.Skipped
 		case it.DryRun:
 			state = "dry-run"
+			if it.Drifted {
+				state = "dry-run/DRIFTED"
+			}
 		case it.Pushed:
 			state = fmt.Sprintf("pushed v%d", it.NewVersion)
 		case len(it.Problems) > 0 && csfHasErr(it.Problems):

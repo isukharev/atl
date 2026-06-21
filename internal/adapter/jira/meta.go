@@ -2,6 +2,7 @@ package jira
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -53,10 +54,12 @@ func (j *Jira) FieldOptions(ctx context.Context, project, issueType, field strin
 		return nil, err
 	}
 	var out []string
+	matched := false
 	for _, p := range resp.Projects {
 		for _, it := range p.IssueTypes {
 			for id, fd := range it.Fields {
 				if id == field || fd.Name == field {
+					matched = true
 					for _, av := range fd.AllowedValues {
 						if av.Name != "" {
 							out = append(out, av.Name)
@@ -67,6 +70,9 @@ func (j *Jira) FieldOptions(ctx context.Context, project, issueType, field strin
 				}
 			}
 		}
+	}
+	if !matched {
+		return nil, fmt.Errorf("%w: field %q not found in createmeta for project %q", domain.ErrNotFound, field, project)
 	}
 	return out, nil
 }

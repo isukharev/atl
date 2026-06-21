@@ -2,8 +2,11 @@ package mirror
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/isukharev/atl/internal/safepath"
 )
 
 // SyncState is the last-synced snapshot of one resource.
@@ -41,7 +44,7 @@ func (m *Mirror) saveSidecar(sc sidecarFile) error {
 		return err
 	}
 	b, _ := json.MarshalIndent(sc, "", "  ")
-	return os.WriteFile(m.sidecarPath(), append(b, '\n'), 0o600)
+	return safepath.WriteFile(m.sidecarPath(), append(b, '\n'), 0o600)
 }
 
 // recordSync updates the last-synced state for one resource.
@@ -67,12 +70,24 @@ func (m *Mirror) saveBase(id string, body []byte) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, id+".csf"), body, 0o600)
+	// id is a backend-supplied content id: sanitize it to a single safe segment
+	// so a hostile server cannot use it to traverse out of the base store, and
+	// assert containment as defense in depth.
+	target := filepath.Join(dir, safepath.Segment(id)+".csf")
+	if !safepath.Within(dir, target) {
+		return fmt.Errorf("refusing unsafe base path for id %q", id)
+	}
+	return safepath.WriteFile(target, body, 0o600)
 }
 
 // BaseBody returns the pristine last-synced body for an id, if present.
 func (m *Mirror) BaseBody(id string) ([]byte, bool) {
-	b, err := os.ReadFile(filepath.Join(m.Root, ".atl", "base", id+".csf"))
+	dir := filepath.Join(m.Root, ".atl", "base")
+	target := filepath.Join(dir, safepath.Segment(id)+".csf")
+	if !safepath.Within(dir, target) {
+		return nil, false
+	}
+	b, err := os.ReadFile(target)
 	if err != nil {
 		return nil, false
 	}

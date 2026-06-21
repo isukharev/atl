@@ -84,13 +84,19 @@ func decoder(raw []byte) *xml.Decoder {
 	return d
 }
 
-// Parse builds a read-only DOM. The returned root is the synthetic wrapper; its
-// Children are the top-level CSF nodes. A non-nil error means the body is not
-// well-formed (use Validate for line-aware diagnostics).
+// Parse builds a read-only DOM. The returned root's Children are the top-level
+// CSF nodes (the synthetic wrapper element is not represented in the tree). A
+// non-nil error means the body is not well-formed (use Validate for line-aware
+// diagnostics).
 func Parse(raw []byte) (*Node, error) {
 	d := decoder(raw)
+	// root represents the synthetic wrapper itself: its Children are the actual
+	// top-level CSF nodes. The decoder emits the textual <root> wrapper as the
+	// first StartElement, which we recognize and fold into this node instead of
+	// nesting an extra layer.
 	root := &Node{Type: Element, Name: Name{Local: "root"}}
 	stack := []*Node{root}
+	wrapperSeen := false
 	for {
 		tok, err := d.Token()
 		if err == io.EOF {
@@ -101,6 +107,12 @@ func Parse(raw []byte) (*Node, error) {
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
+			if !wrapperSeen {
+				// The outermost element is the synthetic <root> wrapper; reuse
+				// the existing root node rather than nesting a duplicate layer.
+				wrapperSeen = true
+				continue
+			}
 			el := &Node{Type: Element, Name: Name{Space: t.Name.Space, Local: t.Name.Local}}
 			for _, a := range t.Attr {
 				if a.Name.Local == "xmlns" || a.Name.Space == "xmlns" {

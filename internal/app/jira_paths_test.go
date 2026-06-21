@@ -1,0 +1,102 @@
+package app
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/isukharev/atl/internal/domain"
+)
+
+// partialTracker embeds the interface so only the methods a test needs are
+// implemented; any unexpected call panics with a nil-method dispatch.
+type partialTracker struct {
+	domain.Tracker
+	atts   []domain.Attachment
+	data   []byte
+	name   string
+	issues []domain.Issue
+}
+
+func (t partialTracker) ListAttachments(context.Context, string) ([]domain.Attachment, error) {
+	return t.atts, nil
+}
+
+func (t partialTracker) DownloadAttachment(context.Context, string, string) ([]byte, string, error) {
+	return t.data, t.name, nil
+}
+
+func (t partialTracker) Search(context.Context, string, []string, int, string) ([]domain.Issue, string, error) {
+	return t.issues, "", nil
+}
+
+func (t partialTracker) GetIssue(_ context.Context, key string, _ []string) (*domain.Issue, error) {
+	for i := range t.issues {
+		if t.issues[i].Key == key {
+			is := t.issues[i]
+			return &is, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+// A hostile Jira attachment filename must not let `jira images` escape the
+// output directory.
+func TestJiraImagesRejectsTraversalFilename(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "mirror")
+	s := &JiraService{tr: partialTracker{
+		atts: []domain.Attachment{{ID: "1", MediaType: "image/png"}},
+		data: []byte("evil"),
+		name: "../../../../tmp/atl-evil.png",
+	}}
+	if _, err := s.Images(context.Background(), "PROJ-1", dir); err != nil {
+		t.Logf("Images returned %v (acceptable: rejected)", err)
+	}
+	assertNothingOutside(t, root, dir)
+	escaped := filepath.Clean(filepath.Join(root, "..", "..", "..", "..", "tmp", "atl-evil.png"))
+	if _, err := os.Stat(escaped); err == nil {
+		t.Fatalf("attachment escaped to %s", escaped)
+	}
+}
+
+// A hostile Jira issue key must not let `jira pull` escape the --into directory.
+func TestJiraPullRejectsTraversalKey(t *testing.T) {
+	root := t.TempDir()
+	into := filepath.Join(root, "mirror")
+	s := &JiraService{tr: partialTracker{
+		issues: []domain.Issue{{Key: "../../../../tmp/atl-evil", Project: "PROJ"}},
+	}}
+	out, err := s.Pull(context.Background(), "project = PROJ", into, 1)
+	if err != nil {
+		t.Logf("Pull returned %v (acceptable: rejected)", err)
+	}
+	for _, p := range out {
+		// p.Path is relative to --into; it must not climb out of it. (A single
+		// sanitized filename may contain ".." as literal characters — that is not
+		// a traversal — so test path semantics, not a substring.)
+		if rel := filepath.Clean(p.Path); rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			t.Fatalf("returned escaping path %q", p.Path)
+		}
+	}
+	assertNothingOutside(t, root, into)
+}
+
+// assertNothingOutside fails if any regular file under root lies outside allowed.
+func assertNothingOutside(t *testing.T, root, allowed string) {
+	t.Helper()
+	allowed = filepath.Clean(allowed)
+	_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		clean := filepath.Clean(p)
+		rel, rerr := filepath.Rel(allowed, clean)
+		if rerr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			t.Errorf("file written outside the output dir: %s", clean)
+		}
+		return nil
+	})
+}

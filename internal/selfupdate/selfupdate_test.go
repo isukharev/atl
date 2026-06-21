@@ -1,13 +1,17 @@
 package selfupdate
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 // signedManifestServer serves a manifest.json signed with priv, plus its
@@ -39,7 +43,7 @@ func TestFetchSignedManifest(t *testing.T) {
 	// A correctly signed manifest verifies and parses.
 	srv := signedManifestServer(t, priv, mf, false)
 	defer srv.Close()
-	got, err := fetchSignedManifest(srv.URL, pub)
+	got, err := fetchSignedManifest(context.Background(), srv.URL, pub)
 	if err != nil {
 		t.Fatalf("valid manifest rejected: %v", err)
 	}
@@ -50,14 +54,104 @@ func TestFetchSignedManifest(t *testing.T) {
 	// A tampered signature must be refused — no update may proceed.
 	bad := signedManifestServer(t, priv, mf, true)
 	defer bad.Close()
-	if _, err := fetchSignedManifest(bad.URL, pub); err == nil {
+	if _, err := fetchSignedManifest(context.Background(), bad.URL, pub); err == nil {
 		t.Error("tampered signature accepted")
 	}
 
 	// A signature made by a different key must be refused.
 	otherPub, _, _ := ed25519.GenerateKey(rand.Reader)
-	if _, err := fetchSignedManifest(srv.URL, otherPub); err == nil {
+	if _, err := fetchSignedManifest(context.Background(), srv.URL, otherPub); err == nil {
 		t.Error("signature from wrong key accepted")
+	}
+}
+
+func TestHighWaterVersionBlocksRollback(t *testing.T) {
+	dir := t.TempDir()
+	// No stamp yet: high-water is just the running version.
+	if hw := highWaterVersion(dir, "1.0.0"); hw != "1.0.0" {
+		t.Fatalf("highWaterVersion = %q, want 1.0.0", hw)
+	}
+	// After applying 1.5.0, a replayed 1.2.0 manifest must not be considered newer.
+	recordVersion(dir, "1.5.0")
+	hw := highWaterVersion(dir, "1.0.0")
+	if hw != "1.5.0" {
+		t.Fatalf("highWaterVersion = %q, want 1.5.0", hw)
+	}
+	if semverLess(hw, "1.2.0") {
+		t.Error("replayed older signed manifest (1.2.0) must not pass the rollback gate")
+	}
+	if !semverLess(hw, "1.6.0") {
+		t.Error("a genuinely newer version (1.6.0) should still pass")
+	}
+}
+
+func TestDueForCheck(t *testing.T) {
+	dir := t.TempDir()
+	if !dueForCheck(dir) {
+		t.Error("a never-checked dir should be due")
+	}
+	stampCheck(dir)
+	if dueForCheck(dir) {
+		t.Error("a freshly stamped dir should not be due")
+	}
+	// Once the cooldown has elapsed the dir is due again (the throttle expires).
+	old := time.Now().Add(-checkInterval - time.Hour)
+	if err := os.Chtimes(stampPath(dir), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if !dueForCheck(dir) {
+		t.Error("a stamp older than the cooldown should be due")
+	}
+}
+
+func TestHighWaterIgnoresCorruptStamp(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(versionStampPath(dir), []byte("not-a-version"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A garbage stamp must be ignored, not adopted as the high-water mark — else
+	// it would brick every future update via semverLess's string fallback.
+	if hw := highWaterVersion(dir, "1.0.0"); hw != "1.0.0" {
+		t.Fatalf("highWaterVersion with corrupt stamp = %q, want 1.0.0", hw)
+	}
+	// A valid higher stamp is still honored.
+	recordVersion(dir, "2.0.0")
+	if hw := highWaterVersion(dir, "1.0.0"); hw != "2.0.0" {
+		t.Fatalf("highWaterVersion = %q, want 2.0.0", hw)
+	}
+}
+
+func TestReplaceFilePreservesMode(t *testing.T) {
+	cases := []struct {
+		name        string
+		start, want os.FileMode
+	}{
+		{"hardened install stays 0700", 0o700, 0o700},
+		{"non-executable gets +x", 0o644, 0o755},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "atl")
+			if err := os.WriteFile(path, []byte("OLD"), tc.start); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(path, tc.start); err != nil { // defeat umask
+				t.Fatal(err)
+			}
+			if err := replaceFile(path, []byte("NEW")); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := os.ReadFile(path); err != nil || string(got) != "NEW" {
+				t.Fatalf("content = %q err=%v, want NEW", got, err)
+			}
+			fi, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fi.Mode().Perm() != tc.want {
+				t.Errorf("mode = %o, want %o", fi.Mode().Perm(), tc.want)
+			}
+		})
 	}
 }
 

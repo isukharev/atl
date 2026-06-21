@@ -1,0 +1,132 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+`atl` is a single static Go binary: a Git-style CLI that mirrors Confluence pages and Jira
+issues to disk in their **native storage formats** (Confluence Storage Format `.csf`; Jira
+wiki), lets agents edit/search the bytes directly, and pushes under an optimistic version
+gate. The `.csf` bytes are the substrate — there is no lossy Markdown round-trip, so the
+write path must never convert bodies. The `.md` files in a mirror are read-only views and
+are regenerated best-effort (a render failure is swallowed; it never fails a pull).
+
+## Commands
+
+```sh
+make build    # CGO_ENABLED=0 build -> ./atl (version-stamped via -ldflags)
+make test     # go test ./...
+make race     # go test -race ./...
+make lint     # golangci-lint run (v2 config in .golangci.yml)
+make vet      # go vet ./...
+go test ./internal/csf/ -run TestParse   # single package / single test
+```
+
+Live integration tests hit a real backend and are gated by env so they never run in CI:
+
+```sh
+ATL_INTEGRATION=1 ATL_TEST_PAGE_ID=<throwaway-page-id> go test ./... -run Integration
+```
+
+Requires Go 1.26+. CI enforces `gofmt` and `goimports` (`local-prefixes = github.com/isukharev/atl`)
+and pins `golangci-lint` (v2.12.2) and `govulncheck` (v1.4.0) — match these locally to avoid lint drift.
+
+## Architecture
+
+Hexagonal (ports & adapters). The dependency rule is strict — internalize it before adding code:
+
+- **`internal/domain`** — the hub. Ports (`DocStore`, `Tracker`), the `Resource`/`Ref` model,
+  registry ports (`AssetSink`, `AssetResolver`, `UserResolver`), and sentinel errors.
+  Imports nothing from the rest of the tree; everything else implements or consumes it.
+  Adapters and CLI never import each other.
+- **`internal/adapter/{confluence,jira}`** — REST adapters implementing the ports. All HTTP
+  goes through `internal/httpx`. Bodies are passed verbatim, never converted.
+- **`internal/app`** — transport-agnostic use-cases (`ConfluenceService`, `JiraService`),
+  assembled in `wire.go`. No cobra, no stdin, no filesystem beyond the mirror. A future
+  server/MCP tier would call this layer directly. Note: a service method name here may differ
+  from the `domain` port method it calls (e.g. `JiraService.Comment` → `Tracker.AddComment`),
+  so grepping one name won't always reveal the full service→port→adapter chain.
+- **`internal/cli`** — thin cobra layer: parse flags → call one use-case → `emit()` → return
+  error. Command tree: `conf` (search, space tree, page {get,meta,history,create,move,delete},
+  pull, status, validate, push, comment {list,add}), `jira` (issue {get,search,create,update,
+  transition,comment,link,link-epic,images}, pull, fields, field-options, transitions,
+  link-types), `auth` (login,status,logout), `config` (show,set), `version`.
+- **`internal/csf`** — read-only DOM parser + validator for Confluence Storage Format.
+- **`internal/fragment`** — extracts/resolves opaque fragments (drawio, image, user,
+  page-link, attachment) from a CSF DOM.
+- **`internal/mirror`** — on-disk layout + sidecar (`.atl/state.json`, `.atl/base/`) +
+  dirty/drift detection. Backend-agnostic; stores `Resource` bytes, knows nothing of HTTP/CSF.
+- Shared infra: `internal/httpx` (bearer PAT auth, retries, status→sentinel mapping),
+  `internal/auth` (PAT resolution: env → credentials.json), `internal/config`,
+  `internal/safepath` (sanitize server-controlled path components + containment + safe writes),
+  `internal/selfupdate`, `internal/version`.
+
+Full detail: `docs/architecture.md`. Extension points (new backend, new fragment type) are
+documented there.
+
+## Conventions that affect correctness
+
+- **Sentinel errors drive exit codes.** Adapters wrap every error as
+  `fmt.Errorf("%w: ...", domain.ErrXxx)`; the CLI's `codeFor` uses `errors.Is` to map to an
+  exit code: `ErrUsage`→2, `ErrAuth`→3, `ErrNotFound`→4, `ErrVersionConflict`→5,
+  `ErrForbidden`→6 (anything else→1). Do not return bare errors from layers below the CLI
+  for these conditions, or the exit code degrades to 1.
+- **Output is JSON by default.** `emit(cmd, v, textFn)` writes indented, HTML-unescaped JSON
+  to stdout unless `-o text` AND a non-nil `textFn` are both present (pass `nil` for textFn
+  when there is no human view). Logs/errors go to stderr; never interactive.
+- **Optimistic version gate.** `UpdatePage` sends `expectVersion+1`; a 409 maps to
+  `ErrVersionConflict` (exit 5). `--force` re-reads current and targets `current+1`. After a
+  successful push, the code re-fetches to refresh the mirror; a failure there is a warning,
+  not an error.
+- **PAT is host-scoped.** `httpx` injects the bearer token only when the request host is empty
+  or matches the configured backend host (case-insensitive) — server-supplied attachment URLs
+  on other hosts get no token, and cross-host / scheme-downgrade redirects are refused. Retries:
+  3 (4 attempts total); 429 for any method, but transport/5xx only for idempotent methods (POST
+  is never retried, to avoid a double write); exp backoff 200ms→×2 capped at 5s with jitter,
+  honoring `Retry-After` (itself capped at 30s).
+- **Backend URLs must be https.** `config.CheckSecureURL` rejects a non-https backend URL for a
+  non-loopback host (enforced at `config set` time and in `wire.go`); `ATL_ALLOW_INSECURE=1`
+  overrides for a trusted internal http instance. `auth login` never accepts the PAT on argv —
+  it reads a no-echo prompt, piped stdin, or `--from-file`.
+- **CSF parsing is read-only and byte-stable.** `Parse` wraps raw bytes in a synthetic
+  `<root>` (6-byte prefix; subtract when mapping error offsets) and never mutates input — the
+  write path relies on this. `Validate` returns `[]Problem`; `HasErrors` (any `error`-severity
+  problem) is the push gate. Warnings are advisory and do not block.
+- **Fragment resolution never errors.** `fragment.Resolve` swallows all failures; an
+  unresolved ref keeps its raw display/empty asset rather than failing the pull.
+
+## Mirror & config gotchas
+
+- **Silent CQL pull cap: 1000 pages.** `conf pull --cql` stops after 1000 IDs with no
+  warning. Confluence has no "unbounded" escape; Jira `pull --limit 0` *does* mean unbounded.
+- **Mirror root auto-detection.** Commands resolve the mirror root by walking up from the
+  target ≤12 levels looking for an `.atl` marker dir; if none is found it defaults to
+  `"mirror"`. Watch this in multi-workspace setups.
+- **Drift needs a baseline.** A page is reported `Drifted` only when it has a prior synced
+  version (`SyncedVersion > 0`); never-pushed pages read as clean even if the remote changed.
+  Dirty detection is content-hash based, not timestamp.
+- **Slugify is unicode-safe.** Page dir slugs lowercase, keep unicode letters/digits
+  (Cyrillic preserved), hyphenate the rest, truncate at 80 runes, fall back to `"untitled"`.
+  Space keys go through `safeSeg`, which neutralizes `.`/`..`/separators to block path
+  traversal from hostile server input.
+- **stdin bodies are capped at 64 MiB** (`--from-file -`); larger input is silently truncated.
+- **PAT resolution order** (per service, first non-empty wins): `ATL_<SVC>_PAT` → `<SVC>_PAT`
+  → `TEST_<SVC>_PAT` (only when `ATL_INTEGRATION` is set) → `~/.config/atl/credentials.json`
+  (mode 0600, written atomically). Config dir:
+  `ATL_CONFIG_DIR` → `$XDG_CONFIG_HOME/atl` → `~/.config/atl`. Env URLs always overlay the
+  config file.
+- **Self-update** runs in `PersistentPreRun` before every subcommand, best-effort (never
+  blocks/errors). Throttled to 6h; skipped for dev/empty version builds or when
+  `ATL_NO_UPDATE` is set; the source URL must be https. Verifies the ed25519 signature over the
+  exact manifest bytes *before* parsing, then SHA-256 of the binary (public key embedded in
+  `internal/selfupdate/pubkey.go`), enforces a persisted version high-water-mark (anti-rollback),
+  and fails closed. It does NOT re-exec — the swapped binary takes effect on the next invocation.
+
+## House rules
+
+- Tests live alongside code in the same package; new logic needs unit tests. Tests use
+  `httptest` servers, `t.Setenv`, `t.TempDir`, and `internal/csf/testdata/sample.csf` — no
+  build tags.
+- Never commit secrets/PATs (see `.gitignore`). The ed25519 release signing private key is
+  never committed.
+- Keep PRs small; commit subjects `<type>: <summary>` (e.g. `fix: handle empty body in push`).

@@ -46,10 +46,12 @@ under an **optimistic version gate** that refuses to silently overwrite concurre
 ### Quick install (Linux / macOS)
 
 ```sh
-curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh
 ```
 
-Installs to `~/.local/bin/atl` and verifies the SHA-256 checksum.
+Installs to `~/.local/bin/atl` and verifies the SHA-256 checksum. SLSA build
+provenance is published with every release for optional out-of-band verification
+(see [docs/RELEASING.md](docs/RELEASING.md)); the installer itself does not require `gh`.
 
 ### go install
 
@@ -72,9 +74,10 @@ atl config set \
   --confluence-url https://confluence.example.com \
   --jira-url       https://jira.example.com
 
-# 2. Supply Personal Access Tokens (PAT) — Server/Data Center only
-atl auth login --service confluence --token <PAT>
-atl auth login --service jira       --token <PAT>
+# 2. Supply Personal Access Tokens (PAT) — Server/Data Center only.
+#    The token is read from a no-echo prompt, stdin, or --from-file — never argv.
+atl auth login --service confluence   # prompts without echo
+atl auth login --service jira         # prompts without echo
 
 # Or use environment variables (preferred for CI / agent sessions):
 export ATL_CONFLUENCE_PAT=<PAT>

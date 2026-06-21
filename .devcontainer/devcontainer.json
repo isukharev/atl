@@ -1,20 +1,32 @@
 {
   "name": "atl dev",
-  "image": "mcr.microsoft.com/devcontainers/go:1-1.26-bookworm",
+  "image": "mcr.microsoft.com/devcontainers/go:1.26-bookworm",
 
   "features": {
-    "ghcr.io/devcontainers/features/go:1": {
-      "version": "1.26"
-    }
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
   },
 
-  "postCreateCommand": "bash -c 'curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin latest && sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ripgrep'",
+  "mounts": [
+    "source=atl-claude-config,target=/home/vscode/.claude,type=volume",
+    "source=atl-gh-config,target=/home/vscode/.config/gh,type=volume"
+  ],
+
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+  },
+
+  "postCreateCommand": "bash -c 'sudo chown -R vscode:vscode /home/vscode/.claude /home/vscode/.config/gh && sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ripgrep && curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.12.2'",
 
   "customizations": {
     "vscode": {
       "extensions": [
         "golang.go",
-        "editorconfig.editorconfig"
+        "editorconfig.editorconfig",
+        "Anthropic.claude-code"
       ],
       "settings": {
         "go.useLanguageServer": true,
