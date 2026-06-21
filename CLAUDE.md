@@ -126,7 +126,20 @@ documented there.
 
 - Tests live alongside code in the same package; new logic needs unit tests. Tests use
   `httptest` servers, `t.Setenv`, `t.TempDir`, and `internal/csf/testdata/sample.csf` — no
-  build tags.
+  build tags. (Never pair `t.Parallel` with `t.Setenv` — it panics.)
+- **Fuzz the code that ingests server-controlled bytes.** The CSF parser and the path
+  sanitizers (`internal/csf`, `internal/safepath`, `internal/mirror`) have `fuzz_test.go`
+  targets whose `f.Add` seeds double as deterministic regression tests under plain `go test`;
+  add seeds (and keep any `testdata/fuzz/` crash corpus) when you touch that code. Containment
+  fuzzers join the sanitized segment as its own path component, not a `+".csf"` suffix (a
+  suffix masks a bare-`..` regression into a harmless filename).
+- **CLI output is a contract.** `internal/cli` golden tests (`testdata/golden/` + `assertGolden`,
+  regenerate with `go test ./internal/cli/ -run … -update`) pin `emit()`'s JSON; keep canned
+  responses free of volatile data (httptest ports, timestamps). The sentinel→exit-code matrix
+  is locked in `cli_contract_test.go` — extend it when you add a sentinel.
+- **Security-boundary tests assert the guarantee fails when the control is removed** (O_NOFOLLOW,
+  atomic symlink-replace, ed25519 verify-before-parse). Tamper *inside a valid payload* so the
+  control under test — not an incidental parse failure — is what rejects it.
 - Never commit secrets/PATs (see `.gitignore`). The ed25519 release signing private key is
   never committed.
 - Keep PRs small; commit subjects `<type>: <summary>` (e.g. `fix: handle empty body in push`).
