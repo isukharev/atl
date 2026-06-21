@@ -32,6 +32,9 @@ func NewConfluence(cfg *config.Config, version string) (*ConfluenceService, erro
 	if cfg.ConfluenceURL == "" {
 		return nil, fmt.Errorf("%w: Confluence URL not set (ATL_CONFLUENCE_URL / CONFLUENCE_URL or `atl config`)", domain.ErrUsage)
 	}
+	if err := config.CheckSecureURL(cfg.ConfluenceURL); err != nil {
+		return nil, fmt.Errorf("%w: %v", domain.ErrUsage, err)
+	}
 	tok, err := auth.Token(auth.Confluence)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", domain.ErrAuth, err)
@@ -44,6 +47,9 @@ func NewConfluence(cfg *config.Config, version string) (*ConfluenceService, erro
 func NewJira(cfg *config.Config, version string) (*JiraService, error) {
 	if cfg.JiraURL == "" {
 		return nil, fmt.Errorf("%w: Jira URL not set (ATL_JIRA_URL / JIRA_URL or `atl config`)", domain.ErrUsage)
+	}
+	if err := config.CheckSecureURL(cfg.JiraURL); err != nil {
+		return nil, fmt.Errorf("%w: %v", domain.ErrUsage, err)
 	}
 	tok, err := auth.Token(auth.Jira)
 	if err != nil {

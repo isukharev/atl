@@ -9,38 +9,61 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 )
 
-// ListComments returns a page's comments (storage bodies, rendered to text).
+// pagination safety caps shared by the paged list endpoints below: stop after
+// maxPages requests or maxItems collected, so a server that keeps signaling
+// _links.next can never spin forever.
+const (
+	maxPages = 100
+	maxItems = 100_000
+)
+
+// ListComments returns a page's comments (storage bodies, rendered to text). It
+// follows _links.next, paging until the server stops signaling more.
 func (cf *Confluence) ListComments(ctx context.Context, id string) ([]domain.Comment, error) {
-	var resp struct {
-		Results []struct {
-			ID      string `json:"id"`
-			History struct {
-				CreatedDate string `json:"createdDate"`
-				CreatedBy   struct {
-					DisplayName string `json:"displayName"`
-				} `json:"createdBy"`
-			} `json:"history"`
-			Body struct {
-				Storage struct {
-					Value string `json:"value"`
-				} `json:"storage"`
-			} `json:"body"`
-		} `json:"results"`
-	}
-	path := "/rest/api/content/" + url.PathEscape(id) + "/child/comment?expand=body.storage,history&limit=100"
-	if err := cf.c.GetJSON(ctx, path, &resp); err != nil {
-		return nil, err
-	}
-	out := make([]domain.Comment, 0, len(resp.Results))
-	for _, r := range resp.Results {
-		body := r.Body.Storage.Value
-		if root, err := csf.Parse([]byte(body)); err == nil {
-			body = csf.TextContent(root)
+	start := 0
+	var out []domain.Comment
+	for page := 0; page < maxPages && len(out) < maxItems; page++ {
+		var resp struct {
+			Results []struct {
+				ID      string `json:"id"`
+				History struct {
+					CreatedDate string `json:"createdDate"`
+					CreatedBy   struct {
+						DisplayName string `json:"displayName"`
+					} `json:"createdBy"`
+				} `json:"history"`
+				Body struct {
+					Storage struct {
+						Value string `json:"value"`
+					} `json:"storage"`
+				} `json:"body"`
+			} `json:"results"`
+			Links struct {
+				Next string `json:"next"`
+			} `json:"_links"`
 		}
-		out = append(out, domain.Comment{
-			ID: r.ID, Author: r.History.CreatedBy.DisplayName,
-			Created: r.History.CreatedDate, Body: body,
-		})
+		q := url.Values{}
+		q.Set("expand", "body.storage,history")
+		q.Set("limit", "100")
+		q.Set("start", strconv.Itoa(start))
+		path := "/rest/api/content/" + url.PathEscape(id) + "/child/comment?" + q.Encode()
+		if err := cf.c.GetJSON(ctx, path, &resp); err != nil {
+			return nil, err
+		}
+		for _, r := range resp.Results {
+			body := r.Body.Storage.Value
+			if root, err := csf.Parse([]byte(body)); err == nil {
+				body = csf.TextContent(root)
+			}
+			out = append(out, domain.Comment{
+				ID: r.ID, Author: r.History.CreatedBy.DisplayName,
+				Created: r.History.CreatedDate, Body: body,
+			})
+		}
+		if resp.Links.Next == "" || len(resp.Results) == 0 {
+			break
+		}
+		start += len(resp.Results)
 	}
 	return out, nil
 }
@@ -63,38 +86,53 @@ func (cf *Confluence) AddComment(ctx context.Context, id string, body []byte) (*
 	return &domain.Comment{ID: out.ID, Body: string(body)}, nil
 }
 
-// ListAttachments returns a page's attachments.
+// ListAttachments returns a page's attachments. It follows _links.next, paging
+// until the server stops signaling more.
 func (cf *Confluence) ListAttachments(ctx context.Context, id string) ([]domain.Attachment, error) {
-	var resp struct {
-		Results []struct {
-			ID       string `json:"id"`
-			Title    string `json:"title"`
-			Metadata struct {
-				MediaType string `json:"mediaType"`
-			} `json:"metadata"`
-			Extensions struct {
-				FileSize int64  `json:"fileSize"`
-				Comment  string `json:"comment"`
-			} `json:"extensions"`
-			Version struct {
-				Number int `json:"number"`
-			} `json:"version"`
+	start := 0
+	var out []domain.Attachment
+	for page := 0; page < maxPages && len(out) < maxItems; page++ {
+		var resp struct {
+			Results []struct {
+				ID       string `json:"id"`
+				Title    string `json:"title"`
+				Metadata struct {
+					MediaType string `json:"mediaType"`
+				} `json:"metadata"`
+				Extensions struct {
+					FileSize int64  `json:"fileSize"`
+					Comment  string `json:"comment"`
+				} `json:"extensions"`
+				Version struct {
+					Number int `json:"number"`
+				} `json:"version"`
+				Links struct {
+					Download string `json:"download"`
+				} `json:"_links"`
+			} `json:"results"`
 			Links struct {
-				Download string `json:"download"`
+				Next string `json:"next"`
 			} `json:"_links"`
-		} `json:"results"`
-	}
-	path := "/rest/api/content/" + url.PathEscape(id) + "/child/attachment?expand=version,metadata&limit=200"
-	if err := cf.c.GetJSON(ctx, path, &resp); err != nil {
-		return nil, err
-	}
-	out := make([]domain.Attachment, 0, len(resp.Results))
-	for _, r := range resp.Results {
-		out = append(out, domain.Attachment{
-			ID: r.ID, Title: r.Title, MediaType: r.Metadata.MediaType,
-			FileSize: r.Extensions.FileSize, Version: r.Version.Number,
-			Comment: r.Extensions.Comment, DownPath: r.Links.Download,
-		})
+		}
+		q := url.Values{}
+		q.Set("expand", "version,metadata")
+		q.Set("limit", "200")
+		q.Set("start", strconv.Itoa(start))
+		path := "/rest/api/content/" + url.PathEscape(id) + "/child/attachment?" + q.Encode()
+		if err := cf.c.GetJSON(ctx, path, &resp); err != nil {
+			return nil, err
+		}
+		for _, r := range resp.Results {
+			out = append(out, domain.Attachment{
+				ID: r.ID, Title: r.Title, MediaType: r.Metadata.MediaType,
+				FileSize: r.Extensions.FileSize, Version: r.Version.Number,
+				Comment: r.Extensions.Comment, DownPath: r.Links.Download,
+			})
+		}
+		if resp.Links.Next == "" || len(resp.Results) == 0 {
+			break
+		}
+		start += len(resp.Results)
 	}
 	return out, nil
 }

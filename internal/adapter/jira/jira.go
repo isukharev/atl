@@ -5,7 +5,9 @@ package jira
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"net/url"
 	"strconv"
 	"strings"
@@ -37,8 +39,15 @@ type issueDTO struct {
 }
 
 func (j *Jira) mapIssue(d issueDTO) *domain.Issue {
-	is := &domain.Issue{Key: d.Key, Fields: d.Fields, Raw: d.Fields, FieldText: map[string]string{}}
+	// Raw gets its own clone so that adding/removing a top-level key on one map
+	// cannot affect the other (Fields is the exported on-disk view; Raw is for
+	// internal resolution). The clone is shallow: nested map/slice values are
+	// still shared, which is fine as neither map's nested values are mutated.
+	is := &domain.Issue{Key: d.Key, Fields: d.Fields, Raw: maps.Clone(d.Fields), FieldText: map[string]string{}}
 	f := d.Fields
+	// Version is intentionally left at 0: Jira Server/DC exposes no per-issue
+	// integer version counter under fields (only a string "updated" timestamp),
+	// so there is no reliable optimistic-gate value to populate here.
 	is.Summary = str(f["summary"])
 	is.Body = str(f["description"])
 	is.Status = nestedName(f["status"])
@@ -126,7 +135,9 @@ func (j *Jira) Search(ctx context.Context, jql string, fields []string, limit in
 	return out, next, nil
 }
 
-// Create creates an issue. fields are extra string fields set verbatim.
+// Create creates an issue. Each extra field value that parses as valid JSON is
+// sent as the decoded JSON value (so callers can pass objects, arrays or
+// numbers, e.g. priority={"name":"High"}); otherwise it is sent as a string.
 func (j *Jira) Create(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]string) (*domain.Issue, error) {
 	fl := map[string]any{
 		"project":   map[string]string{"key": project},
@@ -137,7 +148,7 @@ func (j *Jira) Create(ctx context.Context, project, issueType, summary string, b
 		fl["description"] = string(body)
 	}
 	for k, v := range fields {
-		fl[k] = v
+		fl[k] = coerceField(v)
 	}
 	var out struct {
 		Key string `json:"key"`
@@ -148,7 +159,12 @@ func (j *Jira) Create(ctx context.Context, project, issueType, summary string, b
 	return &domain.Issue{Key: out.Key, Summary: summary, Project: project, Type: issueType, Body: string(body)}, nil
 }
 
-// Update edits summary/description/extra fields.
+// Update edits summary/description/extra fields. Extra field values are coerced
+// the same way as in Create (JSON-decoded when valid, else sent as a string).
+//
+// Update is last-writer-wins: it issues a bare PUT with no optimistic version
+// gate. Jira Server/DC has no per-field compare-and-set and exposes no per-issue
+// version counter, so concurrent edits silently overwrite each other.
 func (j *Jira) Update(ctx context.Context, key, summary string, body []byte, fields map[string]string) error {
 	fl := map[string]any{}
 	if summary != "" {
@@ -158,7 +174,7 @@ func (j *Jira) Update(ctx context.Context, key, summary string, body []byte, fie
 		fl["description"] = string(body)
 	}
 	for k, v := range fields {
-		fl[k] = v
+		fl[k] = coerceField(v)
 	}
 	if len(fl) == 0 {
 		return fmt.Errorf("%w: nothing to update", domain.ErrUsage)
@@ -240,6 +256,22 @@ func (j *Jira) LinkEpic(ctx context.Context, issue, epic string) error {
 }
 
 // --- small helpers for untyped field access ---
+
+// coerceField decodes an extra --field value. Only a structured value — a JSON
+// object or array — is decoded (that is the case needing a non-string type, e.g.
+// priority={"name":"High"} or labels=["a","b"]). A bare scalar is kept verbatim
+// as a string, so a text/label/version field whose value merely looks like JSON
+// (123, true, null) is NOT silently retyped into a number/bool/null and rejected
+// or mis-stored by Jira.
+func coerceField(v string) any {
+	if t := strings.TrimSpace(v); strings.HasPrefix(t, "{") || strings.HasPrefix(t, "[") {
+		var decoded any
+		if err := json.Unmarshal([]byte(v), &decoded); err == nil {
+			return decoded
+		}
+	}
+	return v
+}
 
 func str(v any) string {
 	switch t := v.(type) {

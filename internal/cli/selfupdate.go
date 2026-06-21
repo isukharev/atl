@@ -8,14 +8,31 @@ import (
 	"github.com/isukharev/atl/internal/version"
 )
 
-// runSelfUpdate performs a best-effort, checksum-verified, throttled
+// runSelfUpdate performs a best-effort, signature-verified, throttled
 // self-replacement before a command runs. It resolves the distribution server
 // from config/env, falling back to the build-time default. It never blocks or
-// errors a command; on a successful update it re-execs and does not return.
-func runSelfUpdate(_ *cobra.Command) {
+// errors a command, honors the command's (signal-aware) context so Ctrl-C can
+// cancel an in-flight download, and applies any update for the NEXT invocation
+// rather than re-execing the current one. Offline/trivial commands skip it.
+func runSelfUpdate(cmd *cobra.Command) {
+	if skipSelfUpdate(cmd) {
+		return
+	}
 	base := version.DefaultUpdateURL
 	if cfg, err := config.Load(); err == nil && cfg.UpdateBaseURL != "" {
 		base = cfg.UpdateBaseURL
 	}
-	selfupdate.Run(base, version.Version, config.Dir())
+	selfupdate.Run(cmd.Context(), base, version.Version, config.Dir())
+}
+
+// skipSelfUpdate disables the update check for offline/trivial commands where
+// any network latency is unwelcome (version, auth, config and their children).
+func skipSelfUpdate(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		switch c.Name() {
+		case "version", "auth", "config":
+			return true
+		}
+	}
+	return false
 }

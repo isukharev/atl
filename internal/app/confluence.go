@@ -191,6 +191,7 @@ type StatusEntry struct {
 	SyncedVersion int    `json:"synced_version"`
 	RemoteVersion int    `json:"remote_version,omitempty"`
 	Drifted       bool   `json:"remote_drifted"`
+	RemoteError   string `json:"remote_error,omitempty"`
 }
 
 // Status reports locally-edited and remote-drifted pages under dir.
@@ -210,9 +211,14 @@ func (s *ConfluenceService) Status(ctx context.Context, dir string, checkRemote 
 			e.SyncedVersion = lc.Synced.Version
 		}
 		if checkRemote && lc.Meta.ID != "" {
+			// Record the reason a remote check failed (deleted/forbidden/network)
+			// so a page that could not be checked is not silently reported as
+			// in-sync — which would mislead a "safe to push?" decision.
 			if meta, err := s.store.GetMeta(ctx, lc.Meta.ID); err == nil {
 				e.RemoteVersion = meta.Version
 				e.Drifted = e.SyncedVersion > 0 && meta.Version != e.SyncedVersion
+			} else {
+				e.RemoteError = failReason(err)
 			}
 		}
 		out = append(out, e)
@@ -240,6 +246,8 @@ type PushItem struct {
 	DryRun     bool          `json:"dry_run,omitempty"`
 	NewVersion int           `json:"new_version,omitempty"`
 	Skipped    string        `json:"skipped,omitempty"`
+	Drifted    bool          `json:"remote_drifted,omitempty"`
+	Failed     string        `json:"failed,omitempty"`
 	Warning    string        `json:"warning,omitempty"`
 }
 
@@ -265,11 +273,57 @@ func (s *ConfluenceService) Push(ctx context.Context, target string, o PushOpts)
 	for _, f := range files {
 		item, ferr := s.pushOne(ctx, m, f, o)
 		res.Items = append(res.Items, item)
-		if ferr != nil && worst == nil {
-			worst = ferr
-		}
+		// Keep the most actionable failure so a batch push surfaces a version
+		// conflict (exit 5) rather than whichever file happens to sort first.
+		worst = moreSevereErr(worst, ferr)
 	}
 	return res, worst
+}
+
+// errRank orders push failures by actionability so the aggregate exit code
+// reflects the most useful one (version-conflict highest: it tells an agent to
+// re-pull and retry). The rank is NOT the exit code: forbidden ranks below
+// version-conflict here yet maps to exit 6, while version-conflict maps to 5 —
+// the rank only decides which error wins; codeFor then maps the winner.
+func errRank(err error) int {
+	switch {
+	case err == nil:
+		return -1
+	case errors.Is(err, domain.ErrVersionConflict):
+		return 5
+	case errors.Is(err, domain.ErrForbidden):
+		return 4
+	case errors.Is(err, domain.ErrAuth):
+		return 3
+	case errors.Is(err, domain.ErrNotFound):
+		return 2
+	case errors.Is(err, domain.ErrUsage):
+		return 1
+	default:
+		return 0
+	}
+}
+
+func moreSevereErr(a, b error) error {
+	if errRank(b) > errRank(a) {
+		return b
+	}
+	return a
+}
+
+func failReason(err error) string {
+	switch {
+	case errors.Is(err, domain.ErrForbidden):
+		return "forbidden"
+	case errors.Is(err, domain.ErrNotFound):
+		return "not-found"
+	case errors.Is(err, domain.ErrAuth):
+		return "auth"
+	case errors.Is(err, domain.ErrUsage):
+		return "usage"
+	default:
+		return "error"
+	}
 }
 
 func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path string, o PushOpts) (PushItem, error) {
@@ -285,11 +339,31 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 	if csf.HasErrors(problems) {
 		return item, fmt.Errorf("%s: malformed CSF (see problems)", path)
 	}
+	// Nothing to push if the file still matches its last-synced state (unless
+	// forced): pushing an unchanged body would create a no-op remote revision.
+	if !lc.Dirty && !o.Force {
+		item.Skipped = "unchanged"
+		return item, nil
+	}
 	// Consequence diff against the pristine base.
 	if base, ok := m.BaseBody(lc.Meta.ID); ok {
 		item.Removed, item.Added = diffFragments(base, body)
 	}
 	if o.DryRun {
+		// Report whether a real push would be refused by the version gate, so the
+		// consequence preview is not silently wrong about a drifted page.
+		if lc.Synced != nil && lc.Meta.ID != "" {
+			if meta, merr := s.store.GetMeta(ctx, lc.Meta.ID); merr == nil {
+				if meta.Version != lc.Synced.Version {
+					item.Drifted = true
+					item.Warning = fmt.Sprintf("remote drifted to v%d (synced v%d); a real push would be refused (exit 5) without --force", meta.Version, lc.Synced.Version)
+				}
+			} else {
+				// Be honest when drift could not be checked (mirrors `status`): a
+				// failed probe must not read as "no drift" in the preview.
+				item.Warning = "could not verify remote drift (" + failReason(merr) + "); a real push may still be refused by the version gate"
+			}
+		}
 		return item, nil
 	}
 	if lc.Meta.ID == "" {
@@ -303,6 +377,8 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 	if err != nil {
 		if errors.Is(err, domain.ErrVersionConflict) {
 			item.Skipped = "version-conflict"
+		} else {
+			item.Failed = failReason(err)
 		}
 		return item, err
 	}
@@ -342,6 +418,10 @@ func (s *ConfluenceService) pushTargets(m *mirror.Mirror, target string) ([]stri
 	}
 	var files []string
 	for _, lc := range locals {
+		// A directory push operates on the dirty set; --force overrides the version
+		// gate for those files (see pushOne) but deliberately does not resurrect
+		// locally-clean pages — that would create no-op revisions or revert remote
+		// changes. Force a specific clean page by naming it as the target instead.
 		if lc.Dirty && within(target, lc.Path) {
 			files = append(files, lc.Path)
 		}
@@ -362,9 +442,14 @@ func diffFragments(oldBody, newBody []byte) (removed, added []domain.Ref) {
 	for _, r := range newRefs {
 		nm[key(r)] = true
 	}
-	for k, r := range om {
-		if !nm[k] {
+	// Iterate the ordered oldRefs (not the map) so removed_fragments is emitted
+	// in a stable, document order across runs; dedup with seen.
+	seen := map[string]bool{}
+	for _, r := range oldRefs {
+		k := key(r)
+		if !nm[k] && !seen[k] {
 			removed = append(removed, r)
+			seen[k] = true
 		}
 	}
 	for _, r := range newRefs {

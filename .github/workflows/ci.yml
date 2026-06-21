@@ -41,9 +41,10 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9.2.1
         with:
-          # Must be a v2 build compiled with Go >= 1.26 (the module's go directive);
-          # older builds refuse to load. "latest" tracks a compatible v2 release.
-          version: latest
+          # Pinned (not "latest") so a compromised/yanked upstream release cannot
+          # silently enter CI. Must be a v2 build compiled with Go >= 1.26 (the
+          # module's go directive); bump deliberately when the toolchain moves.
+          version: v2.12.2
 
   govulncheck:
     runs-on: ubuntu-latest
@@ -55,5 +56,7 @@ jobs:
           check-latest: true
       - name: govulncheck
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          # Pinned (not "@latest") so a yanked/compromised upstream release cannot
+          # silently enter CI; bump deliberately.
+          go install golang.org/x/vuln/cmd/govulncheck@v1.4.0
           govulncheck ./...

@@ -29,6 +29,32 @@ func TestValidateWellFormed(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsProlog(t *testing.T) {
+	// A leading <?xml ...?> or <!DOCTYPE ...> is accepted by encoding/xml once
+	// the body is wrapped in <root> (it lands out of prolog position), but the
+	// server rejects these in storage-format body content. Validate must too.
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"xml decl", `<?xml version="1.0"?><p>hi</p>`},
+		{"doctype", `<!DOCTYPE html><p>hi</p>`},
+		{"mid-body processing instruction", `<p>ok</p><?target data?>`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ps := Validate([]byte(c.body))
+			if !HasErrors(ps) {
+				t.Fatalf("Validate(%q) HasErrors=false, want true (%+v)", c.body, ps)
+			}
+		})
+	}
+	// A normal body without a prolog still passes.
+	if ps := Validate([]byte("<p>hi</p>")); HasErrors(ps) {
+		t.Fatalf("plain body should pass, got %+v", ps)
+	}
+}
+
 func TestValidateLineCol(t *testing.T) {
 	body := "<p>line one</p>\n<p>bad <b>x</p>"
 	ps := Validate([]byte(body))
@@ -55,6 +81,23 @@ func TestSanityWarnings(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected drawio-params warning, got %+v", ps)
+	}
+}
+
+func TestParseNoWrapperLayer(t *testing.T) {
+	// The returned root's Children must be the actual top-level CSF nodes; the
+	// synthetic <root> wrapper must not appear as an extra layer.
+	root, err := Parse([]byte(`<p>a</p><p>b</p>`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(root.Children) != 2 {
+		t.Fatalf("root has %d children, want 2 (%+v)", len(root.Children), root.Children)
+	}
+	for i, c := range root.Children {
+		if c.Type != Element || c.Name.Local != "p" {
+			t.Errorf("child %d = %+v, want element <p>", i, c)
+		}
 	}
 }
 

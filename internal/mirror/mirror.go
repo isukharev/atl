@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/safepath"
 )
 
 // Mirror is rooted at a directory holding one or more spaces.
@@ -64,15 +66,24 @@ type pageSink struct {
 }
 
 func (s pageSink) Put(name string, data []byte) (string, error) {
-	name = filepath.Base(name)
+	// name is a backend-supplied attachment filename: reduce it to a single safe
+	// base name and refuse anything with no usable basename ("." / "..").
+	safe, ok := safepath.Base(name)
+	if !ok {
+		return "", fmt.Errorf("refusing unsafe asset name %q", name)
+	}
 	adir := filepath.Join(s.dir, s.slug+".assets")
 	if err := os.MkdirAll(adir, 0o755); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(adir, name), data, 0o644); err != nil {
+	target := filepath.Join(adir, safe)
+	if !safepath.Within(adir, target) {
+		return "", fmt.Errorf("refusing unsafe asset path %q", name)
+	}
+	if err := safepath.WriteFile(target, data, 0o644); err != nil {
 		return "", err
 	}
-	return s.slug + ".assets/" + name, nil
+	return s.slug + ".assets/" + safe, nil
 }
 
 // AssetSink returns the asset sink for a page directory.
@@ -85,13 +96,13 @@ func (m *Mirror) Write(dir, slug string, page *domain.Resource, refs []domain.Re
 		return err
 	}
 	csfPath := filepath.Join(dir, slug+".csf")
-	if err := os.WriteFile(csfPath, page.Body, 0o644); err != nil {
+	if err := safepath.WriteFile(csfPath, page.Body, 0o644); err != nil {
 		return err
 	}
 	// Markdown view (best-effort: never fail a pull because rendering choked).
 	if root, err := csf.Parse(page.Body); err == nil {
 		md := RenderMarkdown(root, refs)
-		if err := os.WriteFile(filepath.Join(dir, slug+".md"), md, 0o644); err != nil {
+		if err := safepath.WriteFile(filepath.Join(dir, slug+".md"), md, 0o644); err != nil {
 			return err
 		}
 	}
@@ -100,7 +111,7 @@ func (m *Mirror) Write(dir, slug string, page *domain.Resource, refs []domain.Re
 		Hash: Hash(page.Body), Parent: page.Parent, Labels: page.Labels, Refs: refs,
 	}
 	mb, _ := json.MarshalIndent(meta, "", "  ")
-	if err := os.WriteFile(filepath.Join(dir, slug+".meta.json"), append(mb, '\n'), 0o644); err != nil {
+	if err := safepath.WriteFile(filepath.Join(dir, slug+".meta.json"), append(mb, '\n'), 0o644); err != nil {
 		return err
 	}
 	rel, _ := filepath.Rel(m.Root, csfPath)
@@ -117,7 +128,7 @@ func (m *Mirror) EnsureScaffold() error {
 	}
 	gi := filepath.Join(m.Root, ".gitignore")
 	if _, err := os.Stat(gi); os.IsNotExist(err) {
-		_ = os.WriteFile(gi, []byte("# atl mirror — never commit secrets\n.atl/\ncredentials.json\n*.pat\n"), 0o644)
+		_ = safepath.WriteFile(gi, []byte("# atl mirror — never commit secrets\n.atl/\ncredentials.json\n*.pat\n"), 0o644)
 	}
 	return nil
 }
@@ -204,19 +215,10 @@ func slugify(s string) string {
 	return out
 }
 
-// safeSeg sanitizes a single path segment (space key) without lowercasing.
+// safeSeg sanitizes a single path segment (space key) without lowercasing. It
+// neutralizes separators and "." / ".." and escapes dot-prefixed names so a
+// hostile server space key (including the reserved ".atl") can neither traverse
+// upward nor collide with the mirror's internal state directory.
 func safeSeg(s string) string {
-	s = strings.Map(func(r rune) rune {
-		if r == '/' || r == '\\' || r == ':' || r == 0 {
-			return '-'
-		}
-		return r
-	}, s)
-	// Never let a segment escape the mirror root. "." / ".." can only arrive via
-	// a hostile server space key or a hand-typed --space, but neutralize them
-	// regardless so a segment can never traverse upward.
-	if s == "" || s == "." || s == ".." {
-		return "_"
-	}
-	return s
+	return safepath.Segment(s)
 }

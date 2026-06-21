@@ -8,8 +8,11 @@
 #   ATL_VERSION       install a specific tag (e.g. v0.1.0); default: latest
 #   ATL_INSTALL_DIR   install directory; default: $HOME/.local/bin
 #
-# This script verifies the SHA-256 checksum published alongside each binary. If
-# the GitHub CLI (gh) is installed, it additionally verifies build provenance.
+# This script verifies the SHA-256 checksum published alongside each binary. The
+# checksum lives in the same release as the binary, so it detects corruption in
+# transit. For a stronger authenticity guarantee (SLSA build provenance), verify
+# the binary out-of-band with the GitHub CLI — see docs/RELEASING.md / SECURITY.md.
+# The installer itself does not require gh.
 set -eu
 
 REPO="isukharev/atl"
@@ -68,14 +71,11 @@ fi
 [ "$got" = "$want" ] || err "checksum mismatch (expected $want, got $got)"
 echo "atl-install: sha256 verified" >&2
 
-# --- optional provenance verification ---------------------------------------
-if command -v gh >/dev/null 2>&1; then
-	if gh attestation verify "$tmp/atl" --repo "$REPO" >/dev/null 2>&1; then
-		echo "atl-install: build provenance verified" >&2
-	else
-		echo "atl-install: note: could not verify provenance (continuing; sha256 already checked)" >&2
-	fi
-fi
+# Note: the sha256 above detects corruption in transit, not a tampered release.
+# SLSA build provenance is published with every release; a security-conscious
+# user can verify it out-of-band with the GitHub CLI (see docs/RELEASING.md).
+# This installer deliberately does not require or invoke gh — it never runs extra
+# tooling on your machine.
 
 # --- install -----------------------------------------------------------------
 mkdir -p "$INSTALL_DIR"

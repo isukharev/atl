@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/isukharev/atl/internal/config"
+	"github.com/isukharev/atl/internal/safepath"
 )
 
 // Service identifies which backend a token is for.
@@ -21,17 +22,36 @@ const (
 	Jira       Service = "jira"
 )
 
-// envKeys lists, in priority order, the env vars consulted for each service.
-// ATL_* are the canonical names; TEST_*_PAT match the repo's .env.local so
-// integration runs work out of the box.
+// envKeys lists, in priority order, the canonical env vars consulted for each
+// service. ATL_* are preferred; CONFLUENCE_PAT/JIRA_PAT are common aliases.
 var envKeys = map[Service][]string{
-	Confluence: {"ATL_CONFLUENCE_PAT", "CONFLUENCE_PAT", "TEST_CONFLUENCE_PAT"},
-	Jira:       {"ATL_JIRA_PAT", "JIRA_PAT", "TEST_JIRA_PAT"},
+	Confluence: {"ATL_CONFLUENCE_PAT", "CONFLUENCE_PAT"},
+	Jira:       {"ATL_JIRA_PAT", "JIRA_PAT"},
+}
+
+// testEnvKeys are the integration-only fallbacks matching the repo's .env.local.
+// They are consulted ONLY when ATL_INTEGRATION is set, so a stray TEST_*_PAT in
+// a CI/dev shell can never be silently used for real operations.
+var testEnvKeys = map[Service]string{
+	Confluence: "TEST_CONFLUENCE_PAT",
+	Jira:       "TEST_JIRA_PAT",
+}
+
+// envKeysFor returns the env vars to consult for a service, appending the
+// integration-only TEST_*_PAT fallback when ATL_INTEGRATION is set.
+func envKeysFor(s Service) []string {
+	keys := envKeys[s]
+	if os.Getenv("ATL_INTEGRATION") != "" {
+		if tk := testEnvKeys[s]; tk != "" {
+			keys = append(append([]string{}, keys...), tk)
+		}
+	}
+	return keys
 }
 
 // Token returns the PAT for a service, or an error if none is configured.
 func Token(s Service) (string, error) {
-	for _, k := range envKeys[s] {
+	for _, k := range envKeysFor(s) {
 		if v := os.Getenv(k); v != "" {
 			return v, nil
 		}
@@ -49,7 +69,7 @@ func Token(s Service) (string, error) {
 
 // Source describes where a token (if any) was found, without revealing it.
 func Source(s Service) string {
-	for _, k := range envKeys[s] {
+	for _, k := range envKeysFor(s) {
 		if os.Getenv(k) != "" {
 			return "env:" + k
 		}
@@ -83,7 +103,13 @@ func Logout(s Service) error {
 func credPath() string { return filepath.Join(config.Dir(), "credentials.json") }
 
 func loadStore() (map[string]string, error) {
-	b, err := os.ReadFile(credPath())
+	p := credPath()
+	// We do not reject a symlinked credentials file. The write path
+	// (WriteFileAtomic) replaces it by rename, so a planted symlink is overwritten
+	// rather than followed; reading through one is harmless (tokens go only to the
+	// configured host). The previous Lstat refusal was TOCTOU-racy and broke a
+	// legitimate dotfiles-managed credentials.json for no real gain.
+	b, err := os.ReadFile(p)
 	if os.IsNotExist(err) {
 		return map[string]string{}, nil
 	}
@@ -92,7 +118,7 @@ func loadStore() (map[string]string, error) {
 	}
 	m := map[string]string{}
 	if err := json.Unmarshal(b, &m); err != nil {
-		return nil, fmt.Errorf("corrupt credentials file %s: %w", credPath(), err)
+		return nil, fmt.Errorf("corrupt credentials file %s: %w", p, err)
 	}
 	return m, nil
 }
@@ -105,6 +131,8 @@ func saveStore(m map[string]string) error {
 	if err != nil {
 		return err
 	}
-	// 0600: readable only by the owner — this file holds secrets.
-	return os.WriteFile(credPath(), append(b, '\n'), 0o600)
+	// 0600 written atomically (temp + rename): readable only by the owner — this
+	// file holds secrets — and a pre-existing looser-mode file is replaced, not
+	// left with its old permissions.
+	return safepath.WriteFileAtomic(credPath(), append(b, '\n'), 0o600)
 }

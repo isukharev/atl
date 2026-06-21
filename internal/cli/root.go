@@ -53,10 +53,20 @@ func newRoot() *cobra.Command {
 		Version:       version.Version,
 	}
 	root.PersistentFlags().StringVarP(&outputFormat, "output", "o", "json", "output format: json|text")
+	// A flag-parse failure (unknown flag, bad value) is a usage error: map it to
+	// exit 2, not the generic 1. Inherited by every subcommand.
+	root.SetFlagErrorFunc(func(_ *cobra.Command, e error) error {
+		return usageErr("%v", e)
+	})
 	root.AddCommand(newConfCmd(), newJiraCmd(), newAuthCmd(), newConfigCmd(), newVersionCmd())
-	// Run a best-effort self-update check before commands (never blocks/fails).
-	root.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
+	// Validate the global output format, then run a best-effort self-update check
+	// (never blocks/fails the command).
+	root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+		if outputFormat != "json" && outputFormat != "text" {
+			return usageErr("invalid --output %q (want json|text)", outputFormat)
+		}
 		runSelfUpdate(cmd)
+		return nil
 	}
 	return root
 }

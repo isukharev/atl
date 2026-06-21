@@ -45,7 +45,7 @@ func Validate(raw []byte) []Problem {
 func wellFormed(raw []byte) (Problem, bool) {
 	d := decoder(raw)
 	for {
-		_, err := d.Token()
+		tok, err := d.Token()
 		if err == io.EOF {
 			return Problem{}, true
 		}
@@ -66,6 +66,26 @@ func wellFormed(raw []byte) (Problem, bool) {
 				Col:      col,
 				Rule:     "well-formedness",
 				Message:  cleanXMLErr(err.Error()),
+			}, false
+		}
+		// Wrapping the body in <root> moves any <?xml ...?>, processing
+		// instruction or <!DOCTYPE ...> out of prolog position, so the decoder
+		// accepts it as a ProcInst/Directive token instead of erroring. The server
+		// rejects these in storage-format body content (in any position), so flag
+		// them here regardless of where they appear.
+		switch tok.(type) {
+		case xml.ProcInst, xml.Directive:
+			line, col := 0, 0
+			off := int(d.InputOffset()) - len("<root>")
+			if off >= 0 && off <= len(raw) {
+				line, col = lineCol(raw, off)
+			}
+			return Problem{
+				Severity: "error",
+				Line:     line,
+				Col:      col,
+				Rule:     "well-formedness",
+				Message:  "xml declaration, processing instruction, or doctype not allowed in storage-format body",
 			}, false
 		}
 	}

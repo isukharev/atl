@@ -51,10 +51,12 @@ func (cf *Confluence) Search(ctx context.Context, query string, limit int, curso
 		out = append(out, pr)
 	}
 	next := ""
-	if resp.Links.Next != "" {
+	if resp.Links.Next != "" && len(resp.Results) > 0 {
 		// Advance by the number of results actually returned, not the requested
 		// limit, so a short page (server returns < limit but still signals more)
-		// can't skip or repeat the next offset.
+		// can't skip or repeat the next offset. An empty page is treated as
+		// exhausted even if the server still sets _links.next, so the cursor
+		// never stalls at the same offset.
 		next = strconv.Itoa(start + len(resp.Results))
 	}
 	return out, next, nil

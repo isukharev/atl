@@ -5,19 +5,22 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	neturl "net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/isukharev/atl/internal/domain"
 )
 
 func TestClassifyToSentinels(t *testing.T) {
 	cases := map[int]error{
+		400: domain.ErrUsage,
 		401: domain.ErrAuth,
 		403: domain.ErrForbidden,
 		404: domain.ErrNotFound,
 		409: domain.ErrVersionConflict,
-		400: nil,
 		500: nil,
 	}
 	for status, want := range cases {
@@ -58,8 +61,8 @@ func TestRetryOn5xxThenSuccess(t *testing.T) {
 	if string(data) != `{"ok":true}` {
 		t.Errorf("body = %s", data)
 	}
-	if hits < 3 {
-		t.Errorf("expected >=3 attempts, got %d", hits)
+	if atomic.LoadInt32(&hits) < 3 {
+		t.Errorf("expected >=3 attempts, got %d", atomic.LoadInt32(&hits))
 	}
 }
 
@@ -72,25 +75,28 @@ func TestNo4xxRetry(t *testing.T) {
 	defer srv.Close()
 	c := New(srv.URL, "tok", "test")
 	_, _ = c.Do(context.Background(), "GET", "/x", nil, nil)
-	if hits != 1 {
-		t.Errorf("4xx should not retry; attempts = %d", hits)
+	if atomic.LoadInt32(&hits) != 1 {
+		t.Errorf("4xx should not retry; attempts = %d", atomic.LoadInt32(&hits))
 	}
 }
 
 func TestNoTokenLeakToForeignHost(t *testing.T) {
 	// A second host (simulating a server-supplied absolute attachment URL) must
-	// NOT receive the Authorization header.
-	foreignAuth := make(chan string, 1)
-	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		foreignAuth <- r.Header.Get("Authorization")
+	// NOT be contacted at all: the SSRF guard refuses the request before it is
+	// issued, so the PAT can never reach it.
+	var contacted int32
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&contacted, 1)
 		w.Write([]byte("data"))
 	}))
 	defer foreign.Close()
 	// Base is a different host.
 	c := New("http://configured.invalid", "secret-pat", "test")
-	_, _ = c.Do(context.Background(), "GET", foreign.URL+"/dl", nil, nil)
-	if h := <-foreignAuth; h != "" {
-		t.Fatalf("PAT leaked to foreign host: %q", h)
+	if _, err := c.Do(context.Background(), "GET", foreign.URL+"/dl", nil, nil); err == nil {
+		t.Fatal("expected foreign-host request to be refused")
+	}
+	if atomic.LoadInt32(&contacted) != 0 {
+		t.Fatal("foreign host was contacted; PAT could leak")
 	}
 }
 
@@ -106,4 +112,244 @@ func TestBearerHeaderSent(t *testing.T) {
 	if h := <-got; h != "Bearer secret-pat" {
 		t.Errorf("auth header = %q", h)
 	}
+}
+
+func TestClassifyBadRequestUsage(t *testing.T) {
+	if got := classify(400); got != domain.ErrUsage {
+		t.Errorf("classify(400) = %v, want ErrUsage", got)
+	}
+}
+
+func TestPostNotRetriedOn5xx(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.WriteHeader(503)
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok", "test")
+	_, err := c.Do(context.Background(), http.MethodPost, "/x", []byte(`{}`), nil)
+	if err == nil {
+		t.Fatal("expected error on POST 5xx")
+	}
+	if atomic.LoadInt32(&hits) != 1 {
+		t.Errorf("POST must not retry on 5xx; attempts = %d", atomic.LoadInt32(&hits))
+	}
+}
+
+func TestPostNotRetriedOnTransportError(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		// Hijack and abruptly close the connection to force a transport error.
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Error("ResponseWriter is not a Hijacker")
+			return
+		}
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			t.Errorf("hijack: %v", err)
+			return
+		}
+		conn.Close()
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok", "test")
+	_, err := c.Do(context.Background(), http.MethodPost, "/x", []byte(`{}`), nil)
+	if err == nil {
+		t.Fatal("expected transport error on POST")
+	}
+	if atomic.LoadInt32(&hits) != 1 {
+		t.Errorf("POST must not retry on transport error; attempts = %d", atomic.LoadInt32(&hits))
+	}
+}
+
+func TestPostRetriedOn429(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&hits, 1) < 2 {
+			w.WriteHeader(429)
+			return
+		}
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok", "test")
+	data, err := c.Do(context.Background(), http.MethodPost, "/x", []byte(`{}`), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(data) != `{"ok":true}` {
+		t.Errorf("body = %s", data)
+	}
+	if atomic.LoadInt32(&hits) < 2 {
+		t.Errorf("POST should retry on 429; attempts = %d", atomic.LoadInt32(&hits))
+	}
+}
+
+func TestGetRetriedOn5xx(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&hits, 1) < 2 {
+			w.WriteHeader(500)
+			return
+		}
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok", "test")
+	if _, err := c.Do(context.Background(), http.MethodGet, "/x", nil, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if atomic.LoadInt32(&hits) < 2 {
+		t.Errorf("GET should retry on 5xx; attempts = %d", atomic.LoadInt32(&hits))
+	}
+}
+
+func TestTruncationReturnsError(t *testing.T) {
+	// readBody must error rather than silently truncate when the body exceeds
+	// the cap (cap+1 bytes available, cap bytes allowed).
+	r := strings.NewReader(strings.Repeat("a", 11))
+	if _, err := readBody(r, 10); err == nil {
+		t.Fatal("expected error when body exceeds cap")
+	}
+	// Exactly cap bytes must succeed.
+	r2 := strings.NewReader(strings.Repeat("a", 10))
+	if data, err := readBody(r2, 10); err != nil || len(data) != 10 {
+		t.Fatalf("expected 10 bytes ok, got len=%d err=%v", len(data), err)
+	}
+}
+
+func TestRetryAfterCappedNoDoubleSleep(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&hits, 1) < 2 {
+			// A hostile huge Retry-After must be clamped to maxRetryAfter.
+			w.Header().Set("Retry-After", "86400")
+			w.WriteHeader(429)
+			return
+		}
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok", "test")
+	// Bound the call: if Retry-After were honored uncapped (86400s), this would
+	// hang far past the deadline. With clamping to 30s it would still exceed a
+	// short test deadline, so we verify the parser clamps directly below and use
+	// a context here only to keep the retry loop honest about cancellation.
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	_, _ = c.Do(ctx, http.MethodGet, "/x", nil, nil)
+
+	// Direct unit checks of clamping/parsing (no real sleeping).
+	if got := clampRetryAfter(86400 * time.Second); got != maxRetryAfter {
+		t.Errorf("clampRetryAfter(86400s) = %v, want %v", got, maxRetryAfter)
+	}
+	if got := clampRetryAfter(-5 * time.Second); got != 0 {
+		t.Errorf("clampRetryAfter(negative) = %v, want 0", got)
+	}
+	resp := &http.Response{Header: http.Header{}}
+	resp.Header.Set("Retry-After", "5")
+	if got := retryAfter(resp); got != 5*time.Second {
+		t.Errorf("retryAfter(5) = %v, want 5s", got)
+	}
+	// HTTP-date in the future, clamped to cap.
+	resp.Header.Set("Retry-After", time.Now().Add(time.Hour).UTC().Format(http.TimeFormat))
+	if got := retryAfter(resp); got != maxRetryAfter {
+		t.Errorf("retryAfter(future date) = %v, want cap %v", got, maxRetryAfter)
+	}
+	// HTTP-date in the past, treated as 0.
+	resp.Header.Set("Retry-After", time.Now().Add(-time.Hour).UTC().Format(http.TimeFormat))
+	if got := retryAfter(resp); got != 0 {
+		t.Errorf("retryAfter(past date) = %v, want 0", got)
+	}
+}
+
+func TestForeignAbsoluteURLRefused(t *testing.T) {
+	// An absolute URL to a different host must be refused without issuing the
+	// request (blind SSRF guard).
+	var hit int32
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hit, 1)
+		w.Write([]byte("data"))
+	}))
+	defer foreign.Close()
+	c := New("http://configured.invalid", "secret-pat", "test")
+	_, err := c.Do(context.Background(), http.MethodGet, foreign.URL+"/dl", nil, nil)
+	if err == nil {
+		t.Fatal("expected refusal of foreign absolute URL")
+	}
+	if !strings.Contains(err.Error(), "foreign host") {
+		t.Errorf("error = %v, want foreign-host refusal", err)
+	}
+	if atomic.LoadInt32(&hit) != 0 {
+		t.Error("foreign host must not be contacted")
+	}
+}
+
+func TestMixedCaseAbsoluteURLRefused(t *testing.T) {
+	// Classification is by URL scheme, not a lowercase "http" prefix, so a
+	// mixed-case absolute URL to a foreign host is still recognized as absolute
+	// and refused (the old prefix check would have mis-joined it to the base).
+	c := New("https://configured.invalid", "secret-pat", "test")
+	_, err := c.Do(context.Background(), http.MethodGet, "HTTP://foreign.invalid/dl", nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "foreign host") {
+		t.Fatalf("err = %v, want foreign-host refusal", err)
+	}
+}
+
+func TestCrossHostRedirectRefused(t *testing.T) {
+	var foreignHit int32
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&foreignHit, 1)
+		// The PAT must never reach the redirect target.
+		if r.Header.Get("Authorization") != "" {
+			t.Error("PAT leaked across redirect")
+		}
+		w.Write([]byte("leaked"))
+	}))
+	defer foreign.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", foreign.URL+"/dl")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "secret-pat", "test")
+	_, err := c.Do(context.Background(), http.MethodGet, "/x", nil, nil)
+	if err == nil {
+		t.Fatal("expected cross-host redirect to be refused")
+	}
+	if atomic.LoadInt32(&foreignHit) != 0 {
+		t.Error("redirect target must not be followed")
+	}
+}
+
+func TestSchemeDowngradeRedirectRefused(t *testing.T) {
+	c := New("https://backend.invalid", "tok", "test")
+	cr := c.hc.CheckRedirect
+	if cr == nil {
+		t.Fatal("CheckRedirect not configured")
+	}
+	// Same host but https→http downgrade must be refused.
+	via := []*http.Request{{URL: mustParse(t, "https://backend.invalid/a")}}
+	req := &http.Request{URL: mustParse(t, "http://backend.invalid/b")}
+	if err := cr(req, via); err == nil {
+		t.Error("expected https→http downgrade redirect to be refused")
+	}
+	// Same host, same scheme is allowed.
+	via2 := []*http.Request{{URL: mustParse(t, "https://backend.invalid/a")}}
+	req2 := &http.Request{URL: mustParse(t, "https://backend.invalid/c")}
+	if err := cr(req2, via2); err != nil {
+		t.Errorf("same-host https redirect should be allowed, got %v", err)
+	}
+}
+
+func mustParse(t *testing.T, raw string) *neturl.URL {
+	t.Helper()
+	u, err := neturl.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse %q: %v", raw, err)
+	}
+	return u
 }
