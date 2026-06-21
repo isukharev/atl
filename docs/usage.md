@@ -43,11 +43,18 @@ echo '<p>Hello</p>' | atl conf page create --space DOCS --title "New page" \
 |---|---|
 | 0 | success |
 | 1 | generic error |
-| 2 | usage error (bad flags, missing required args) |
-| 3 | authentication failed (no PAT or PAT rejected) |
+| 2 | usage error (bad flags, missing required args, insecure backend URL) |
+| 3 | authentication failed (a PAT **was** supplied but the server rejected it) |
 | 4 | resource not found |
 | 5 | version conflict (remote moved since last pull; re-pull and retry) |
 | 6 | forbidden (per-space or per-issue permission) |
+| 7 | not configured (backend URL or PAT **not set** yet; run `atl config set` / `atl auth login`) |
+
+A script can therefore tell three distinct "auth-ish" states apart: `7` = you
+have not finished setup (no URL/token) → run setup; `3` = the token you supplied
+was refused → replace it; `6` = the token is valid but lacks permission. Note the
+split for a bad URL: a *missing* URL is `7`, but a *non-https* (insecure) URL is a
+usage error (`2`) — fix the input rather than re-running setup.
 
 ---
 
@@ -61,6 +68,13 @@ echo '<p>Hello</p>' | atl conf page create --space DOCS --title "New page" \
 | `CONFLUENCE_URL` | Confluence base URL (fallback) |
 | `ATL_JIRA_URL` | Jira base URL (takes priority over `JIRA_URL`) |
 | `JIRA_URL` | Jira base URL (fallback) |
+| `ATL_ALLOW_INSECURE` | set to any non-empty value to permit a non-https backend URL for a non-loopback host (an internal http-only instance you trust). Loopback hosts are always allowed; otherwise a non-https URL is refused so the PAT is never sent in cleartext |
+
+### Mirror location
+
+| variable | effect |
+|---|---|
+| `ATL_MIRROR_ROOT` | default mirror root for `conf pull`, `conf status`, and `jira pull` (so a workspace fixes one location without re-passing `--into`; an explicit `--into` still overrides it) |
 
 ### Authentication
 
@@ -86,6 +100,54 @@ for how to store PATs on disk.
 | `ATL_UPDATE_URL` | override the distribution server base URL |
 | `ATL_NO_UPDATE` | set to any non-empty value to disable auto-update |
 | `ATL_UPDATE_DEBUG` | set to any non-empty value to print self-update diagnostics to stderr |
+
+---
+
+## Scripting & CI
+
+`atl` is built for non-interactive use: JSON to stdout, diagnostics to stderr,
+stable exit codes, no prompts. A robust CI/script harness looks like this:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 1. Configure entirely from the environment (URLs + PATs); no on-disk config.
+export ATL_CONFLUENCE_URL="https://confluence.example.com"
+export ATL_CONFLUENCE_PAT="$CONFLUENCE_TOKEN"   # from your CI secret store
+
+# 2. Disable the best-effort self-update so a command never spends time probing
+#    the release server (it is throttled, but a fresh runner has no throttle file).
+export ATL_NO_UPDATE=1
+
+# 3. Isolate credentials: point at a throwaway config dir so a leftover
+#    ~/.config/atl/credentials.json from a previous job can't silently win.
+export ATL_CONFIG_DIR="$(mktemp -d)"
+
+# 4. Fail fast with a clear signal if setup/connectivity is wrong.
+if ! atl conf search --cql 'type = page' --limit 1 >/dev/null; then
+  code=$?
+  case $code in
+    7) echo "atl is not configured (URL/PAT missing)"   >&2 ;;
+    3) echo "atl PAT was rejected by the server"          >&2 ;;
+    *) echo "atl connectivity check failed (exit $code)"  >&2 ;;
+  esac
+  exit $code
+fi
+
+atl conf pull --cql 'label = runbook' --into "$PWD/mirror"
+```
+
+Notes for scripts:
+
+- **Errors are JSON too.** On success `atl` prints a JSON result to stdout; on
+  failure it prints `{"error": "...", "code": N}` to **stderr** (use `-o text`
+  for a plain `error: <msg>` line instead). Branch on the exit code; parse stdout
+  for results and, if you capture stderr, parse it the same way.
+- **`--cql` pull caps at 1000 pages.** The result carries `"truncated": true`
+  and `"truncated_at": 1000` and a `warning:` line is printed to stderr when the
+  cap is hit — the rest is not mirrored. Narrow the query or pull by `--space`.
+- **`--from-file -` (stdin) is bounded at 64 MiB**; larger input is truncated.
 
 ---
 

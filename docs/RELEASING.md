@@ -130,9 +130,20 @@ git push origin v0.1.0
 ```
 
 The `release` workflow cross-compiles the four targets, generates `manifest.json`,
-**signs it** with `ATL_RELEASE_PRIVATE_KEY`, attests SLSA build provenance, and
-publishes the GitHub Release with the binaries, `.sha256` files, `manifest.json`,
-`manifest.json.sig`, and `install.sh`.
+**signs it** with `ATL_RELEASE_PRIVATE_KEY`, generates the Homebrew formula
+(`atl.rb`), attests SLSA build provenance, and publishes the GitHub Release with
+the binaries, `.sha256` files, `manifest.json`, `manifest.json.sig`, `atl.rb`,
+and `install.sh`.
+
+### Homebrew tap (optional, owner-maintained)
+
+`atl.rb` is emitted by `make homebrew` (`scripts/gen-homebrew-formula`) with each
+platform's release-asset URL pinned to its SHA-256, and published as a release
+asset. To offer `brew install isukharev/tap/atl`, create a tap repository named
+`homebrew-tap` under the same owner and, on each release, copy the published
+`atl.rb` into its `Formula/` directory (manually, or via a small bump workflow you
+add to the tap repo with a token scoped to it). The release pipeline here does
+**not** write to the tap; it only produces the formula.
 
 Verify the published release:
 

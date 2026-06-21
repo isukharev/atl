@@ -64,6 +64,44 @@ go install github.com/isukharev/atl/cmd/atl@latest
 Download a pre-built binary from the [GitHub Releases](https://github.com/isukharev/atl/releases)
 page. Checksums and signatures are published alongside each release.
 
+### Homebrew
+
+```sh
+brew install isukharev/tap/atl
+```
+
+> The formula (`atl.rb`, pinned to each binary's SHA-256) is published with every release. If the
+> tap is not yet available, use the quick install or `go install` above.
+
+**Requirements:** Linux or macOS (amd64/arm64). Building from source needs Go 1.26+; the prebuilt
+binary has no runtime dependencies.
+
+---
+
+## Quick start
+
+From zero to your first result with the CLI directly (for Claude Code, see the next section):
+
+```sh
+# 1. Install (Linux/macOS) — then add ~/.local/bin to PATH if the installer asks
+curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh
+
+# 2. Point atl at your instance(s) — Server/Data Center, https required
+atl config set --confluence-url https://confluence.example.com \
+               --jira-url       https://jira.example.com
+
+# 3. Add a Personal Access Token (no-echo prompt; never on argv)
+atl auth login --service confluence
+
+# 4. Verify, then run a cheap read
+atl auth status
+atl conf search --cql 'type = page' --limit 1
+```
+
+A clean JSON result from step 4 means you're ready. If a command exits **7**, the URL or PAT is not
+configured yet (finish steps 2–3); **3** means a PAT was supplied but the server rejected it.
+Automating this in CI? See [docs/usage.md → Scripting & CI](docs/usage.md#scripting--ci).
+
 ---
 
 ## Use with Claude Code
@@ -117,6 +155,16 @@ atl config show
 
 Tokens are stored in a `0600` credentials file under `~/.config/atl` (or read from the
 env vars above). They are never written to the mirror or to any repo.
+
+> **Server / Data Center only.** `atl` authenticates with a **bearer Personal Access Token**, which
+> is the Confluence/Jira **Server & Data Center** token model. Atlassian **Cloud** (`*.atlassian.net`)
+> uses email + API-token Basic auth and is **not** supported.
+>
+> - **Base URL** — what you type in the browser to reach the instance, e.g.
+>   `https://confluence.example.com` (no `/wiki`, `/display/…`, or page path). Must be `https`
+>   (an internal http-only host needs `ATL_ALLOW_INSECURE=1`).
+> - **PAT** — create one in the web UI: your profile → **Personal Access Tokens** → *Create token*.
+>   Use a least-privilege, task-scoped token; Confluence and Jira each need their own.
 
 ---
 
@@ -232,19 +280,39 @@ atl jira field-options --project PROJ --field <field-id>
 ## Conventions & exit codes
 
 - JSON to **stdout** by default; `-o text` for human-readable output.
-- Logs and errors to **stderr**.
-- Request bodies via `--from-file <path>` or `--from-file -` (stdin).
+- Logs and errors to **stderr** — on failure, `{"error": "...", "code": N}` JSON by default
+  (or a plain `error: <msg>` line under `-o text`).
+- Request bodies via `--from-file <path>` or `--from-file -` (stdin, capped at 64 MiB).
 - Never interactive.
 
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
 | 1 | Generic error |
-| 2 | Usage / bad arguments |
-| 3 | Auth failure |
+| 2 | Usage / bad arguments (incl. an insecure non-https URL) |
+| 3 | Auth failure — a PAT **was** supplied but the server rejected it |
 | 4 | Not found |
 | 5 | Version conflict (optimistic lock) |
-| 6 | Forbidden |
+| 6 | Forbidden (token lacks permission) |
+| 7 | Not configured — backend URL or PAT **not set** yet |
+
+`7` vs `3`: `7` means "finish setup" (no URL/token); `3` means "replace the token" (it was refused).
+For scripting and CI patterns (env-only config, disabling self-update, isolating credentials,
+handling the `--cql` page cap), see [docs/usage.md → Scripting & CI](docs/usage.md#scripting--ci).
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause & fix |
+|---------|--------------------|
+| `command not found: atl` after install | `~/.local/bin` (or `$(go env GOBIN)`) is not on `PATH` — add it to your shell profile and reopen the shell. |
+| Exit **7** / "URL not set" / "no PAT found" | Setup is incomplete — run `atl config set --confluence-url …` and `atl auth login --service …` (or set `ATL_*_URL` / `ATL_*_PAT`). |
+| Exit **3** on every call | The PAT was refused (expired/revoked, or it belongs to a different instance) — create a fresh token and re-`auth login`. |
+| "refusing to send the PAT over http…" | The backend URL is non-https on a non-loopback host. Use `https`, or `export ATL_ALLOW_INSECURE=1` for an internal http instance you trust. |
+| Exit **5** on push | The remote page moved since your last pull (expected) — re-pull, reapply your edit, and push again; `--force` only after a human decides. |
+| A `--cql` pull seems to miss pages | It caps at 1000 (`"truncated": true` + a stderr `warning:`). Narrow the CQL or pull by `--space`. |
+| Cloud (`*.atlassian.net`) won't authenticate | Not supported — `atl` uses Server/Data Center bearer PATs, not Cloud API tokens. |
 
 ---
 
