@@ -14,11 +14,12 @@ import (
 // exit code.
 //
 // Note: the root runs with SilenceErrors/SilenceUsage, so the command writes
-// nothing to its Err writer — the human-facing "error: <…>" line is printed by
-// Execute() to os.Stderr, outside this harness (Execute also calls os.Exit, so
-// it can't be driven in-process). The testable error contract is therefore the
-// mapped exit code plus the absence of any error text on stdout, which is what
-// these tests assert.
+// nothing to its Err writer — the failure is rendered by Execute()/writeError to
+// os.Stderr, outside this harness (Execute also calls os.Exit, so it can't be
+// driven in-process; writeError's JSON/text formatting is covered directly by
+// TestWriteError). The testable error contract here is therefore the mapped exit
+// code plus the absence of any error text on stdout, which is what these tests
+// assert.
 func runCLI(t *testing.T, env map[string]string, args ...string) (stdout string, code int) {
 	t.Helper()
 	out, _, code := runCLIFull(t, env, args...)
@@ -241,14 +242,30 @@ func TestUsageErrorMissingFlagExit2(t *testing.T) {
 	}
 }
 
-// TestMissingBackendURLExit2 confirms an unconfigured backend URL is a usage
-// error (exit 2) from wire.NewConfluence, surfaced before any HTTP call.
-func TestMissingBackendURLExit2(t *testing.T) {
+// TestMissingBackendURLExitConfig confirms an unconfigured backend URL is a
+// config error (exit 7 — "not set up"), distinct from a usage error, surfaced by
+// wire.NewConfluence before any HTTP call.
+func TestMissingBackendURLExitConfig(t *testing.T) {
 	out, code := runCLI(t, nil, "conf", "page", "meta", "--id", "1")
-	if code != exitUsage {
-		t.Fatalf("no backend URL: exit %d, want %d", code, exitUsage)
+	if code != exitConfig {
+		t.Fatalf("no backend URL: exit %d, want %d", code, exitConfig)
 	}
 	if out != "" {
 		t.Errorf("no backend URL: stdout = %q, want empty", out)
+	}
+}
+
+// TestMissingPATExitConfig confirms that a configured URL but no PAT is also a
+// config error (exit 7), not a server-side auth rejection (exit 3): the token is
+// simply not set up yet. CheckSecureURL passes for the https URL, so the failure
+// comes from auth.Token before any request is made.
+func TestMissingPATExitConfig(t *testing.T) {
+	env := map[string]string{"ATL_CONFLUENCE_URL": "https://confluence.example.com"}
+	out, code := runCLI(t, env, "conf", "page", "meta", "--id", "1")
+	if code != exitConfig {
+		t.Fatalf("no PAT: exit %d, want %d", code, exitConfig)
+	}
+	if out != "" {
+		t.Errorf("no PAT: stdout = %q, want empty", out)
 	}
 }

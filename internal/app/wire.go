@@ -30,14 +30,17 @@ type JiraService struct {
 // NewConfluence wires the Confluence adapter from config + PAT.
 func NewConfluence(cfg *config.Config, version string) (*ConfluenceService, error) {
 	if cfg.ConfluenceURL == "" {
-		return nil, fmt.Errorf("%w: Confluence URL not set (ATL_CONFLUENCE_URL / CONFLUENCE_URL or `atl config`)", domain.ErrUsage)
+		return nil, fmt.Errorf("%w: Confluence URL not set — run `atl config set --confluence-url https://confluence.example.com` (or export ATL_CONFLUENCE_URL); see `atl auth status`", domain.ErrConfig)
 	}
 	if err := config.CheckSecureURL(cfg.ConfluenceURL); err != nil {
 		return nil, fmt.Errorf("%w: %v", domain.ErrUsage, err)
 	}
 	tok, err := auth.Token(auth.Confluence)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", domain.ErrAuth, err)
+		// A missing/unreadable token is a setup problem (ErrConfig → exit 7), not a
+		// server-side auth rejection (ErrAuth → exit 3); keep the two distinct so a
+		// script can tell "run `atl auth login`" from "the token was refused".
+		return nil, fmt.Errorf("%w: %v", domain.ErrConfig, err)
 	}
 	cf := confluence.New(cfg.ConfluenceURL, tok, version)
 	return &ConfluenceService{store: cf, users: cf.ResolveUser, assets: cf, baseURL: cfg.ConfluenceURL}, nil
@@ -46,14 +49,16 @@ func NewConfluence(cfg *config.Config, version string) (*ConfluenceService, erro
 // NewJira wires the Jira adapter from config + PAT.
 func NewJira(cfg *config.Config, version string) (*JiraService, error) {
 	if cfg.JiraURL == "" {
-		return nil, fmt.Errorf("%w: Jira URL not set (ATL_JIRA_URL / JIRA_URL or `atl config`)", domain.ErrUsage)
+		return nil, fmt.Errorf("%w: Jira URL not set — run `atl config set --jira-url https://jira.example.com` (or export ATL_JIRA_URL); see `atl auth status`", domain.ErrConfig)
 	}
 	if err := config.CheckSecureURL(cfg.JiraURL); err != nil {
 		return nil, fmt.Errorf("%w: %v", domain.ErrUsage, err)
 	}
 	tok, err := auth.Token(auth.Jira)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", domain.ErrAuth, err)
+		// Missing/unreadable token → setup problem (ErrConfig → exit 7), distinct
+		// from a server-side rejection (ErrAuth → exit 3).
+		return nil, fmt.Errorf("%w: %v", domain.ErrConfig, err)
 	}
 	return &JiraService{tr: jira.New(cfg.JiraURL, tok, version), baseURL: cfg.JiraURL}, nil
 }

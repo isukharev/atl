@@ -277,6 +277,13 @@ func confPullCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if res.Truncated {
+				// Warn on stderr (never stdout — that would corrupt the JSON result):
+				// a --cql pull that hit the cap mirrored only the first N matches.
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"warning: --cql selection truncated at %d pages (silent cap); narrow the query or pull by --space to get the rest\n",
+					res.TruncatedAt)
+			}
 			return emit(cmd, res, func() string {
 				var b strings.Builder
 				fmt.Fprintf(&b, "mirror: %s (%d pages)\n", res.Root, len(res.Pages))
@@ -292,7 +299,7 @@ func confPullCmd() *cobra.Command {
 	cmd.Flags().StringVar(&o.Space, "space", "", "space key (whole space)")
 	cmd.Flags().IntVar(&o.Depth, "depth", 0, "space depth limit")
 	cmd.Flags().BoolVar(&o.Assets, "assets", false, "download diagram/image renders")
-	cmd.Flags().StringVar(&o.Into, "into", "mirror", "mirror root dir")
+	cmd.Flags().StringVar(&o.Into, "into", mirrorRootDefault("mirror"), "mirror root dir (default: $ATL_MIRROR_ROOT or \"mirror\")")
 	return cmd
 }
 
@@ -303,7 +310,7 @@ func confStatusCmd() *cobra.Command {
 		Short: "Show locally-edited and remote-drifted pages",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := "mirror"
+			dir := mirrorRootDefault("mirror")
 			if len(args) == 1 {
 				dir = args[0]
 			}

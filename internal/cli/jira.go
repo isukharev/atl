@@ -306,7 +306,7 @@ func jiraPullCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&jql, "jql", "", "JQL selecting issues")
-	cmd.Flags().StringVar(&into, "into", "mirror-jira", "output root dir")
+	cmd.Flags().StringVar(&into, "into", mirrorRootDefault("mirror-jira"), "output root dir (default: $ATL_MIRROR_ROOT or \"mirror-jira\")")
 	cmd.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all)")
 	return cmd
 }

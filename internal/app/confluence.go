@@ -90,6 +90,12 @@ type PulledPage struct {
 type PullResult struct {
 	Root  string       `json:"root"`
 	Pages []PulledPage `json:"pages"`
+	// Truncated is true when a --cql selection hit the silent pagination cap, so
+	// some matching pages were NOT mirrored. TruncatedAt is the cap that was hit
+	// (the number of ids collected). Both are omitted from JSON in the common,
+	// non-truncated case so existing consumers see an unchanged shape.
+	Truncated   bool `json:"truncated,omitempty"`
+	TruncatedAt int  `json:"truncated_at,omitempty"`
 }
 
 // Pull mirrors pages selected by id/cql/space into Into.
@@ -102,11 +108,15 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 	if err := m.EnsureScaffold(); err != nil {
 		return nil, err
 	}
-	ids, err := s.resolveIDs(ctx, o)
+	ids, truncated, err := s.resolveIDs(ctx, o)
 	if err != nil {
 		return nil, err
 	}
 	res := &PullResult{Root: root}
+	if truncated {
+		res.Truncated = true
+		res.TruncatedAt = len(ids)
+	}
 	for _, id := range ids {
 		page, err := s.store.GetPage(ctx, id, domain.PullOpts{Format: "csf"})
 		if err != nil {
@@ -138,34 +148,45 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 	return res, nil
 }
 
-func (s *ConfluenceService) resolveIDs(ctx context.Context, o PullOpts) ([]string, error) {
+// cqlPullCap bounds how many ids a `--cql` pull collects. Confluence offers no
+// "unbounded" escape, so the loop stops here; the boolean returned alongside the
+// ids lets the caller surface that a cap was hit instead of silently dropping
+// the overflow.
+const cqlPullCap = 1000
+
+// resolveIDs returns the page ids a pull should mirror plus whether the
+// selection was truncated by a cap (only the --cql path can truncate today).
+func (s *ConfluenceService) resolveIDs(ctx context.Context, o PullOpts) (ids []string, truncated bool, err error) {
 	switch {
 	case o.ID != "":
-		return []string{o.ID}, nil
+		return []string{o.ID}, false, nil
 	case o.CQL != "":
 		return s.collectSearch(ctx, o.CQL)
 	case o.Space != "":
 		refs, err := s.store.Tree(ctx, o.Space, o.Depth)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		ids := make([]string, 0, len(refs))
 		for _, r := range refs {
 			ids = append(ids, r.ID)
 		}
-		return ids, nil
+		return ids, false, nil
 	default:
-		return nil, fmt.Errorf("%w: pull needs --id, --cql or --space", domain.ErrUsage)
+		return nil, false, fmt.Errorf("%w: pull needs --id, --cql or --space", domain.ErrUsage)
 	}
 }
 
-func (s *ConfluenceService) collectSearch(ctx context.Context, cql string) ([]string, error) {
-	var ids []string
+// collectSearch pages a CQL query into ids, stopping at cqlPullCap. truncated is
+// true when the cap was reached while the backend still advertised a next page
+// — i.e. matches were left behind — so the caller can warn rather than imply the
+// result is complete.
+func (s *ConfluenceService) collectSearch(ctx context.Context, cql string) (ids []string, truncated bool, err error) {
 	cursor := ""
-	for len(ids) < 1000 {
+	for len(ids) < cqlPullCap {
 		hits, next, err := s.store.Search(ctx, cql, 100, cursor)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		for _, h := range hits {
 			if h.ID != "" {
@@ -173,11 +194,13 @@ func (s *ConfluenceService) collectSearch(ctx context.Context, cql string) ([]st
 			}
 		}
 		if next == "" || len(hits) == 0 {
-			break
+			return ids, false, nil
 		}
 		cursor = next
 	}
-	return ids, nil
+	// Loop exited on the cap (not a natural end) and the last page carried a
+	// non-empty next cursor, so there are more matches we are not mirroring.
+	return ids, true, nil
 }
 
 // ---- status ----

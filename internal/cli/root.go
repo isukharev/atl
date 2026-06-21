@@ -28,6 +28,7 @@ const (
 	exitNotFound     = 4
 	exitVersionConfl = 5
 	exitForbidden    = 6
+	exitConfig       = 7
 )
 
 var outputFormat string
@@ -39,9 +40,26 @@ func Execute() {
 
 	root := newRoot()
 	if err := root.ExecuteContext(ctx); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(codeFor(err))
+		code := codeFor(err)
+		writeError(os.Stderr, outputFormat, err, code)
+		os.Exit(code)
 	}
+}
+
+// writeError renders a failed command's error to w. With JSON output (the
+// default) it emits a single machine-readable object {"error","code"} so a
+// script can parse stderr the same way it parses stdout; with `-o text` it
+// prints the familiar `error: <msg>` line. The exit code is echoed in the JSON
+// so a caller that only captured stderr still learns the classification.
+func writeError(w io.Writer, format string, err error, code int) {
+	if format == "text" {
+		fmt.Fprintln(w, "error:", err)
+		return
+	}
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	// Encode never fails for these plain types; ignore its error.
+	_ = enc.Encode(map[string]any{"error": err.Error(), "code": code})
 }
 
 func newRoot() *cobra.Command {
@@ -81,6 +99,8 @@ func codeFor(err error) int {
 		return exitVersionConfl
 	case errors.Is(err, domain.ErrForbidden):
 		return exitForbidden
+	case errors.Is(err, domain.ErrConfig):
+		return exitConfig
 	case errors.Is(err, domain.ErrUsage):
 		return exitUsage
 	default:
@@ -104,6 +124,20 @@ func emit(cmd *cobra.Command, v any, text func() string) error {
 // loadConfig loads non-secret config (URLs).
 func loadConfig() (*config.Config, error) {
 	return config.Load()
+}
+
+// mirrorRootDefault resolves the default mirror root for pull/status commands.
+// ATL_MIRROR_ROOT lets a workspace fix one mirror location (per the setup
+// skill's `~/.atl/<workspace>/` convention) so pull and a later push/status
+// agree without the caller re-passing --into every time; when it is unset the
+// command's own fallback ("mirror" / "mirror-jira") is used. An explicit --into
+// flag still wins, since cobra only applies this default when the flag is
+// absent.
+func mirrorRootDefault(fallback string) string {
+	if v := os.Getenv("ATL_MIRROR_ROOT"); v != "" {
+		return v
+	}
+	return fallback
 }
 
 // readBody reads a body from a file path, or stdin when path is "-". Empty path
