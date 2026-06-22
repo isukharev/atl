@@ -9,8 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.2.0] - 2026-06-22
+
 ### Added
 
+- **Interactive `atl auth login` setup wizard** (gh-style) — run without flags to
+  be prompted per service for the base URL and PAT, validate the token against the
+  backend, and store both; any service can be skipped.
 - **Exit code `7` ("not configured")** — a missing backend URL or a missing PAT
   now exits `7` with an actionable message (the exact `atl config set` /
   `atl auth login` command), distinct from `3` (a PAT was supplied but the server
@@ -69,5 +76,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- link references -->
 
-[Unreleased]: https://github.com/isukharev/atl/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/isukharev/atl/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/isukharev/atl/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/isukharev/atl/releases/tag/v0.1.0
