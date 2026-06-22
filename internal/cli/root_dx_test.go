@@ -64,6 +64,12 @@ func TestMirrorRootDefault(t *testing.T) {
 	if got := mirrorRootDefault("mirror-jira"); got != "/home/me/.atl/payments" {
 		t.Errorf("set jira: got %q, want the env value (one root for the workspace)", got)
 	}
+
+	// A whitespace-only value is treated as unset, not as a literal " " dir.
+	t.Setenv("ATL_MIRROR_ROOT", "   ")
+	if got := mirrorRootDefault("mirror"); got != "mirror" {
+		t.Errorf("whitespace-only: got %q, want fallback %q", got, "mirror")
+	}
 }
 
 // TestWarnIfTruncated is the CLI-layer guard for the headline CQL-cap behavior:
@@ -94,13 +100,11 @@ func TestCorruptCredentialsExitGeneric(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "credentials.json"), []byte("}{ not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// runCLIFull neutralizes ambient *_PAT, so resolution falls through to the
+	// (corrupt) credentials file in our temp config dir.
 	env := map[string]string{
 		"ATL_CONFIG_DIR":     dir,
 		"ATL_CONFLUENCE_URL": "https://confluence.example.com",
-		// Neutralize any ambient PAT so resolution must fall through to the
-		// (corrupt) credentials file rather than a stray env token in a dev shell.
-		"ATL_CONFLUENCE_PAT": "",
-		"CONFLUENCE_PAT":     "",
 	}
 	out, code := runCLI(t, env, "conf", "page", "meta", "--id", "1")
 	if code != exitGeneric {

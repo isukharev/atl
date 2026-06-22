@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -134,7 +135,7 @@ func loadConfig() (*config.Config, error) {
 // flag still wins, since cobra only applies this default when the flag is
 // absent.
 func mirrorRootDefault(fallback string) string {
-	if v := os.Getenv("ATL_MIRROR_ROOT"); v != "" {
+	if v := strings.TrimSpace(os.Getenv("ATL_MIRROR_ROOT")); v != "" {
 		return v
 	}
 	return fallback

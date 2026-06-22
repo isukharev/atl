@@ -18,7 +18,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+)
+
+// The formula is hand-rendered Ruby, so version and repo are validated to a
+// conservative charset before interpolation: this rejects quotes, `#`, spaces,
+// and `;(){}` that could break out of a string or inject `#{...}`/code into the
+// emitted .rb. (In the real pipeline both are trusted — repo is a Make constant,
+// version is the git tag — but a tag with metacharacters must fail loudly, not
+// emit a malformed or malicious formula.)
+var (
+	versionRe = regexp.MustCompile(`^[0-9][0-9A-Za-z.+\-]*$`)
+	repoRe    = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
 )
 
 type build struct {
@@ -78,6 +90,12 @@ func collectBuilds(dist string) ([]build, error) {
 func renderFormula(version, repo string, builds []build) (string, error) {
 	if len(builds) == 0 {
 		return "", fmt.Errorf("no atl-<os>-<arch> binaries found")
+	}
+	if !versionRe.MatchString(version) {
+		return "", fmt.Errorf("invalid version %q (want digits/letters/.+- only)", version)
+	}
+	if !repoRe.MatchString(repo) {
+		return "", fmt.Errorf("invalid repo %q (want owner/name)", repo)
 	}
 	byKey := map[string]build{}
 	for _, b := range builds {

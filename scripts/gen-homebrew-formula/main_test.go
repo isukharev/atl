@@ -72,3 +72,26 @@ func TestRenderFormulaEmpty(t *testing.T) {
 		t.Error("expected an error for an empty build set")
 	}
 }
+
+// A version or repo containing Ruby/shell metacharacters must be rejected, not
+// interpolated into the formula — otherwise a tag like `1.0"; system("id") #`
+// would break out of the url/string and inject code.
+func TestRenderFormulaRejectsInjection(t *testing.T) {
+	bad := []struct {
+		name, version, repo string
+	}{
+		{"quote+code in version", `1.0"; system("id") #`, "isukharev/atl"},
+		{"interp in version", `1.0#{system('id')}`, "isukharev/atl"},
+		{"space in version", "1.0 0", "isukharev/atl"},
+		{"quote in repo", "1.0.0", `evil"; system("id") #/atl`},
+		{"no slash in repo", "1.0.0", "isukharevatl"},
+		{"space in repo", "1.0.0", "isukharev /atl"},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := renderFormula(tc.version, tc.repo, allBuilds()); err == nil {
+				t.Errorf("renderFormula accepted hostile input version=%q repo=%q; want error", tc.version, tc.repo)
+			}
+		})
+	}
+}
