@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +17,7 @@ func TestVerifyConfluenceReturnsName(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	name, err := VerifyConfluence(srv.URL, "tok", "test")
+	name, err := VerifyConfluence(context.Background(), srv.URL, "tok", "test")
 	if err != nil {
 		t.Fatalf("VerifyConfluence: %v", err)
 	}
@@ -32,7 +33,7 @@ func TestVerifyJiraReturnsName(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	name, err := VerifyJira(srv.URL, "tok", "test")
+	name, err := VerifyJira(context.Background(), srv.URL, "tok", "test")
 	if err != nil {
 		t.Fatalf("VerifyJira: %v", err)
 	}
@@ -42,10 +43,10 @@ func TestVerifyJiraReturnsName(t *testing.T) {
 }
 
 func TestVerifyRejectsInsecureURL(t *testing.T) {
-	if _, err := VerifyConfluence("http://confluence.example.com", "tok", "test"); !errors.Is(err, domain.ErrUsage) {
+	if _, err := VerifyConfluence(context.Background(), "http://confluence.example.com", "tok", "test"); !errors.Is(err, domain.ErrUsage) {
 		t.Fatalf("got %v, want ErrUsage for non-https non-loopback URL", err)
 	}
-	if _, err := VerifyJira("http://jira.example.com", "tok", "test"); !errors.Is(err, domain.ErrUsage) {
+	if _, err := VerifyJira(context.Background(), "http://jira.example.com", "tok", "test"); !errors.Is(err, domain.ErrUsage) {
 		t.Fatalf("VerifyJira: got %v, want ErrUsage for non-https non-loopback URL", err)
 	}
 }

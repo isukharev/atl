@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -24,7 +25,7 @@ func whoamiServer(t *testing.T) *httptest.Server {
 	}))
 }
 
-// cleanAuthEnv neutralises ambient PAT env so resolveToken takes the
+// cleanAuthEnv neutralizes ambient PAT env so resolveToken takes the
 // "no stored token" path and the canned input lines stay aligned.
 func cleanAuthEnv(t *testing.T) {
 	t.Helper()
@@ -49,7 +50,7 @@ func TestWizardConfiguresConfluenceSkipsJira(t *testing.T) {
 	defer srv.Close()
 
 	// Configure Confluence? y / URL / (PAT canned) ; Configure Jira? n
-	sum, err := runLoginWizard(wizardFrom("y\n" + srv.URL + "\nn\n"))
+	sum, err := runLoginWizard(context.Background(), wizardFrom("y\n"+srv.URL+"\nn\n"))
 	if err != nil {
 		t.Fatalf("wizard: %v", err)
 	}
@@ -70,7 +71,7 @@ func TestWizardConfiguresConfluenceSkipsJira(t *testing.T) {
 
 func TestWizardSkipsBothLeavesNothing(t *testing.T) {
 	cleanAuthEnv(t)
-	sum, err := runLoginWizard(wizardFrom("n\nn\n"))
+	sum, err := runLoginWizard(context.Background(), wizardFrom("n\nn\n"))
 	if err != nil {
 		t.Fatalf("wizard: %v", err)
 	}
@@ -90,7 +91,7 @@ func TestWizardBadTokenRetryDecline(t *testing.T) {
 	defer srv.Close()
 
 	// Confluence: y / URL / (PAT) / validation 401 / Retry? n -> skipped ; Jira: n
-	sum, err := runLoginWizard(wizardFrom("y\n" + srv.URL + "\nn\nn\n"))
+	sum, err := runLoginWizard(context.Background(), wizardFrom("y\n"+srv.URL+"\nn\nn\n"))
 	if err != nil {
 		t.Fatalf("wizard: %v", err)
 	}
@@ -120,7 +121,7 @@ func TestWizardKeepExistingPAT(t *testing.T) {
 		out:        io.Discard,
 		readSecret: func() (string, error) { return "NEW-should-not-be-used", nil },
 	}
-	sum, err := runLoginWizard(wz)
+	sum, err := runLoginWizard(context.Background(), wz)
 	if err != nil {
 		t.Fatalf("wizard: %v", err)
 	}
@@ -135,9 +136,32 @@ func TestWizardKeepExistingPAT(t *testing.T) {
 func TestWizardURLPromptEOFDoesNotHang(t *testing.T) {
 	cleanAuthEnv(t)
 	// "y" configures Confluence, then input is exhausted at the URL prompt (EOF).
-	_, err := runLoginWizard(wizardFrom("y\n"))
+	_, err := runLoginWizard(context.Background(), wizardFrom("y\n"))
 	if err == nil {
 		t.Fatalf("expected an error when stdin is exhausted at the URL prompt, got nil")
+	}
+}
+
+func TestWizardURLPromptEOFInsecureDefaultDoesNotHang(t *testing.T) {
+	cleanAuthEnv(t)
+	// An ambient default URL that fails the https check (here via
+	// ATL_CONFLUENCE_URL), then EOF at the URL prompt. The wizard must abort
+	// rather than busy-loop re-prompting the unusable default: promptLine keeps
+	// returning the sticky-EOF default, and CheckSecureURL keeps rejecting it.
+	t.Setenv("ATL_CONFLUENCE_URL", "http://insecure.example.com")
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := runLoginWizard(context.Background(), wizardFrom("y\n"))
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatalf("expected an error when EOF hits an insecure default URL, got nil")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("wizard busy-looped on an insecure default URL at EOF instead of aborting")
 	}
 }
 
@@ -148,7 +172,7 @@ func TestWizardRetryEOFDoesNotHang(t *testing.T) {
 	}))
 	defer srv.Close()
 	// configure Confluence=y, URL, PAT canned, validation 401, then EOF at "Retry?"
-	sum, err := runLoginWizard(wizardFrom("y\n" + srv.URL + "\n"))
+	sum, err := runLoginWizard(context.Background(), wizardFrom("y\n"+srv.URL+"\n"))
 	if err != nil {
 		t.Fatalf("wizard: %v", err)
 	}
@@ -199,7 +223,7 @@ func TestAuthLoginWizardGolden(t *testing.T) {
 	srv := whoamiServer(t)
 	defer srv.Close()
 
-	sum, err := runLoginWizard(wizardFrom("y\n" + srv.URL + "\nn\n"))
+	sum, err := runLoginWizard(context.Background(), wizardFrom("y\n"+srv.URL+"\nn\n"))
 	if err != nil {
 		t.Fatalf("wizard: %v", err)
 	}

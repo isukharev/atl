@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -49,7 +50,7 @@ type svcSpec struct {
 	label  string
 	getURL func(*config.Config) string
 	setURL func(*config.Config, string)
-	verify func(url, token string) (string, error)
+	verify func(ctx context.Context, url, token string) (string, error)
 }
 
 func wizardSpecs() []svcSpec {
@@ -59,21 +60,25 @@ func wizardSpecs() []svcSpec {
 			label:  "Confluence",
 			getURL: func(c *config.Config) string { return c.ConfluenceURL },
 			setURL: func(c *config.Config, u string) { c.ConfluenceURL = u },
-			verify: func(u, t string) (string, error) { return app.VerifyConfluence(u, t, version.Version) },
+			verify: func(ctx context.Context, u, t string) (string, error) {
+				return app.VerifyConfluence(ctx, u, t, version.Version)
+			},
 		},
 		{
 			svc:    auth.Jira,
 			label:  "Jira",
 			getURL: func(c *config.Config) string { return c.JiraURL },
 			setURL: func(c *config.Config, u string) { c.JiraURL = u },
-			verify: func(u, t string) (string, error) { return app.VerifyJira(u, t, version.Version) },
+			verify: func(ctx context.Context, u, t string) (string, error) {
+				return app.VerifyJira(ctx, u, t, version.Version)
+			},
 		},
 	}
 }
 
 // runLoginWizard runs the interactive multi-service setup and returns a summary
 // for emit(). Prompts go to wz.out; the caller emits the summary.
-func runLoginWizard(wz wizardIO) (loginSummary, error) {
+func runLoginWizard(ctx context.Context, wz wizardIO) (loginSummary, error) {
 	var sum loginSummary
 	results := map[auth.Service]*svcResult{
 		auth.Confluence: &sum.Confluence,
@@ -90,7 +95,7 @@ func runLoginWizard(wz wizardIO) (loginSummary, error) {
 			fmt.Fprintf(wz.out, "  - %s: skipped\n", sp.label)
 			continue
 		}
-		if err := configureService(wz, sp, res); err != nil {
+		if err := configureService(ctx, wz, sp, res); err != nil {
 			return sum, err
 		}
 	}
@@ -98,9 +103,12 @@ func runLoginWizard(wz wizardIO) (loginSummary, error) {
 }
 
 // configureService walks one service: URL -> PAT -> validate -> persist.
-// Nothing is written until validation succeeds, so a bad token never overwrites
-// a working stored one.
-func configureService(wz wizardIO, sp svcSpec, res *svcResult) error {
+// Nothing is persisted until validation succeeds, so a bad token never
+// overwrites a working stored one. Persist is two atomic writes (credentials,
+// then config); the PAT is written first so a failure of the second leaves the
+// stored config URL unchanged rather than recording a new URL paired with a
+// stale/absent PAT.
+func configureService(ctx context.Context, wz wizardIO, sp svcSpec, res *svcResult) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -114,18 +122,18 @@ func configureService(wz wizardIO, sp svcSpec, res *svcResult) error {
 		return err
 	}
 	for {
-		name, verr := sp.verify(url, token)
+		name, verr := sp.verify(ctx, url, token)
 		if verr == nil {
+			if serr := auth.Login(sp.svc, token); serr != nil {
+				return serr
+			}
 			sp.setURL(cfg, url)
 			if serr := config.Save(cfg); serr != nil {
 				return serr
 			}
-			if serr := auth.Login(sp.svc, token); serr != nil {
-				return serr
-			}
 			res.Status = "configured"
 			res.User = name
-			fmt.Fprintf(wz.out, "  ✓ %s: authenticated as %s\n", sp.label, name)
+			fmt.Fprintf(wz.out, "  ✓ %s: %s\n", sp.label, authedAs(name))
 			return nil
 		}
 		fmt.Fprintf(wz.out, "  ! %s validation failed: %v\n", sp.label, verr)
@@ -145,22 +153,29 @@ func configureService(wz wizardIO, sp svcSpec, res *svcResult) error {
 }
 
 // promptURL asks for the base URL (defaulting to the stored one) and loops
-// until it passes the https check.
+// until it passes the https check. On EOF (Ctrl+D / exhausted stdin) it accepts
+// a stored default only when that default is itself secure; an empty or insecure
+// default aborts rather than re-prompting forever with an unusable value (a
+// non-TTY caller cannot supply more input, so re-prompting would busy-loop).
 func promptURL(wz wizardIO, sp svcSpec, cfg *config.Config) (string, error) {
 	cur := sp.getURL(cfg)
 	for {
 		u, err := promptLine(wz, fmt.Sprintf("    %s base URL", sp.label), cur)
-		if errors.Is(err, io.EOF) {
-			return "", usageErr("no URL provided")
-		}
-		if err != nil {
+		eof := errors.Is(err, io.EOF)
+		if err != nil && !eof {
 			return "", err
 		}
 		if u == "" {
+			if eof {
+				return "", usageErr("no URL provided")
+			}
 			fmt.Fprintln(wz.out, "  ! a URL is required")
 			continue
 		}
 		if verr := config.CheckSecureURL(u); verr != nil {
+			if eof {
+				return "", usageErr("%v", verr)
+			}
 			fmt.Fprintf(wz.out, "  ! %v\n", verr)
 			continue
 		}
@@ -228,10 +243,12 @@ func promptYesNo(wz wizardIO, q string, def bool) (bool, error) {
 // promptLine reads one line from wz.in.
 //
 // Behavior:
-//   - Non-empty trimmed input → return it.
-//   - Blank line (no error) → return "" so the caller can re-prompt.
-//   - EOF with a non-empty default → return the default (Ctrl+D keeps stored value).
-//   - EOF with no default and no input → return io.EOF so the caller can abort.
+//   - Non-empty trimmed input → return it (even when EOF arrives with the line).
+//   - Blank line (Enter, no error) → return the default (may be "").
+//   - EOF with no buffered input → return the default *and* io.EOF, so the
+//     caller can decide whether the default is usable or it must abort. Returning
+//     io.EOF even with a non-empty default is what lets promptURL break out
+//     instead of busy-looping on a default that fails a later check.
 //   - Any other read error → propagated unchanged.
 func promptLine(wz wizardIO, label, def string) (string, error) {
 	if def != "" {
@@ -247,11 +264,11 @@ func promptLine(wz wizardIO, label, def string) (string, error) {
 	if v := strings.TrimSpace(line); v != "" {
 		return v, nil
 	}
-	if def != "" {
-		return def, nil // Enter (or EOF) keeps the default
-	}
 	if eof {
-		return "", io.EOF // no default and stdin exhausted: cannot proceed
+		return def, io.EOF // stdin exhausted: surface EOF; caller decides on def
+	}
+	if def != "" {
+		return def, nil // blank line (Enter): keep the default
 	}
 	return "", nil // blank line, no default: caller re-prompts
 }
@@ -269,17 +286,29 @@ func runInteractiveLogin(cmd *cobra.Command) error {
 		out:        os.Stderr,
 		readSecret: func() (string, error) { return readSecretNoEcho(fd) },
 	}
-	sum, err := runLoginWizard(wz)
+	sum, err := runLoginWizard(cmd.Context(), wz)
 	if err != nil {
 		return err
 	}
 	return emit(cmd, sum, func() string { return wizardText(sum) })
 }
 
+// authedAs renders the success line, tolerating a backend whose whoami returns
+// an empty display name (a 200 with no name still means the PAT is valid).
+func authedAs(name string) string {
+	if name == "" {
+		return "authenticated"
+	}
+	return "authenticated as " + name
+}
+
 // wizardText renders the summary for `-o text`.
 func wizardText(s loginSummary) string {
 	render := func(label string, r svcResult) string {
 		if r.Status == "configured" {
+			if r.User == "" {
+				return label + ": configured"
+			}
 			return fmt.Sprintf("%s: configured (%s)", label, r.User)
 		}
 		return fmt.Sprintf("%s: %s", label, r.Status)
