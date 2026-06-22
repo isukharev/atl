@@ -49,6 +49,10 @@ jobs:
     env:
       # Empty when the signing secret is not configured; gates the signing step.
       HAS_SIGNING_KEY: ${{ secrets.ATL_RELEASE_PRIVATE_KEY != '' }}
+      # Empty when the cross-repo tap token is not configured; gates the optional
+      # Homebrew-tap auto-bump below. (secrets.* can't be used in a job-level `if`,
+      # so it is surfaced as an env var and checked at step level.)
+      HAS_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -114,3 +118,36 @@ jobs:
             --title "$GITHUB_REF_NAME" \
             --generate-notes \
             $assets
+
+      # Optional: push the freshly generated formula to the Homebrew tap so
+      # `brew upgrade atl` works without a manual step. Runs only when a
+      # cross-repo token is configured (the default GITHUB_TOKEN cannot write to
+      # another repo). Placed AFTER publish, so a tap hiccup never blocks the
+      # release itself — the formula is also a release asset and can be copied by
+      # hand (see docs/RELEASING.md).
+      - name: Bump Homebrew tap
+        if: env.HAS_TAP_TOKEN == 'true'
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -eu
+          ver="${GITHUB_REF_NAME#v}"
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/isukharev/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          cp dist/atl.rb tap/Formula/atl.rb
+          cd tap
+          git add Formula/atl.rb
+          # --cached handles both a modified and a brand-new formula file.
+          if git diff --cached --quiet; then
+            echo "::notice::Homebrew tap already up to date for ${ver}"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "atl ${ver}"
+          git push
+          echo "::notice::Homebrew tap bumped to atl ${ver}"
+
+      - name: Note tap not auto-bumped
+        if: env.HAS_TAP_TOKEN != 'true'
+        run: echo "::notice::HOMEBREW_TAP_TOKEN is not set — skipping tap auto-bump. Copy dist/atl.rb into isukharev/homebrew-tap manually (see docs/RELEASING.md)."

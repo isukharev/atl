@@ -22,8 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `"truncated": true` / `"truncated_at"` in the JSON result and prints a
   `warning:` line to stderr instead of implying the mirror is complete.
 - **Homebrew formula** published as a release asset (`atl.rb`, each platform's
-  URL pinned to its SHA-256) via `make homebrew`; `brew install isukharev/tap/atl`
-  once the owner-maintained tap is set up.
+  URL pinned to its SHA-256) via `make homebrew`; `brew install isukharev/tap/atl`.
+  The release workflow can auto-push the formula to the tap when a
+  `HOMEBREW_TAP_TOKEN` secret is configured (otherwise it is copied manually).
 - Documentation: a **Quick start**, a **Scripting & CI** guide, a Server/Data
   Center vs Cloud note, a Troubleshooting table (README EN + RU), and a
   `docs/` index.
