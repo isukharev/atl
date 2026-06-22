@@ -32,11 +32,18 @@ func newAuthCmd() *cobra.Command {
 	var service, fromFile string
 	login := &cobra.Command{
 		Use:   "login",
-		Short: "Store a PAT for a service (confluence|jira)",
-		Long: "Store a PAT for a service. The token is read from --from-file, from piped\n" +
-			"stdin, or prompted without echo — it is never accepted on the command line,\n" +
-			"which would leak it to the process list and shell history.",
+		Short: "Store PATs interactively, or for one service with --service",
+		Long: "Run without flags for an interactive wizard that configures each\n" +
+			"service's URL and PAT (any service can be skipped). With --service,\n" +
+			"store a single PAT read from --from-file, piped stdin, or a no-echo\n" +
+			"prompt — the token is never accepted on the command line.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if service == "" {
+				if fromFile != "" {
+					return usageErr("--from-file requires --service")
+				}
+				return runInteractiveLogin(cmd)
+			}
 			svc, err := svcOf(service)
 			if err != nil {
 				return err
@@ -161,29 +168,34 @@ func readPAT(fromFile string) (string, error) {
 		return string(b), err
 	}
 	if fd := int(os.Stdin.Fd()); term.IsTerminal(fd) {
-		// term.ReadPassword puts the TTY into no-echo and restores it on a normal
-		// return, but a signal delivered mid-read would otherwise leave the shell
-		// with input hidden. Restore the terminal and exit on interrupt/terminate.
-		if prev, err := term.GetState(fd); err == nil {
-			sig := make(chan os.Signal, 1)
-			signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-			done := make(chan struct{})
-			defer func() { signal.Stop(sig); close(done) }()
-			go func() {
-				select {
-				case <-sig:
-					_ = term.Restore(fd, prev)
-					os.Exit(130) // 128 + SIGINT, the conventional interrupted code
-				case <-done:
-				}
-			}()
-		}
 		fmt.Fprint(os.Stderr, "Enter PAT (input hidden): ")
-		b, err := term.ReadPassword(fd)
-		fmt.Fprintln(os.Stderr)
-		return string(b), err
+		return readSecretNoEcho(fd)
 	}
 	b, err := readBody("-")
+	return string(b), err
+}
+
+// readSecretNoEcho reads one line from the TTY fd without echo. term.ReadPassword
+// restores the terminal on a normal return, but a signal mid-read would leave the
+// shell with hidden input; restore and exit on interrupt/terminate. The caller
+// prints the prompt; this prints the trailing newline ReadPassword suppresses.
+func readSecretNoEcho(fd int) (string, error) {
+	if prev, err := term.GetState(fd); err == nil {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+		done := make(chan struct{})
+		defer func() { signal.Stop(sig); close(done) }()
+		go func() {
+			select {
+			case <-sig:
+				_ = term.Restore(fd, prev)
+				os.Exit(130) // 128 + SIGINT
+			case <-done:
+			}
+		}()
+	}
+	b, err := term.ReadPassword(fd)
+	fmt.Fprintln(os.Stderr)
 	return string(b), err
 }
 

@@ -28,6 +28,7 @@ func New(base, token, version string) *Jira {
 }
 
 var _ domain.Tracker = (*Jira)(nil)
+var _ domain.Verifier = (*Jira)(nil)
 
 const defaultFields = "summary,description,status,issuetype,project,assignee,reporter,labels,issuelinks,comment,attachment"
 
@@ -253,6 +254,19 @@ func (j *Jira) LinkEpic(ctx context.Context, issue, epic string) error {
 	}
 	return j.c.SendJSON(ctx, "PUT", "/rest/api/2/issue/"+url.PathEscape(issue),
 		map[string]any{"fields": map[string]any{epicField: epic}}, nil)
+}
+
+// Whoami confirms the PAT by fetching the current user and returns their
+// display name. Used by `atl auth login` to validate credentials before they
+// are persisted.
+func (j *Jira) Whoami(ctx context.Context) (string, error) {
+	var u struct {
+		DisplayName string `json:"displayName"`
+	}
+	if err := j.c.GetJSON(ctx, "/rest/api/2/myself", &u); err != nil {
+		return "", err
+	}
+	return u.DisplayName, nil
 }
 
 // --- small helpers for untyped field access ---

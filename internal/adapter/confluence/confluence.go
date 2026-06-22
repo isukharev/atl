@@ -27,6 +27,7 @@ func New(base, token, version string) *Confluence {
 
 var _ domain.DocStore = (*Confluence)(nil)
 var _ domain.AssetResolver = (*Confluence)(nil)
+var _ domain.Verifier = (*Confluence)(nil)
 
 // --- REST DTOs (only the fields we use) ---
 
@@ -139,6 +140,19 @@ func (cf *Confluence) GetMeta(ctx context.Context, id string) (*domain.PageMeta,
 		m.URL = cf.base + ct.Links.WebUI
 	}
 	return m, nil
+}
+
+// Whoami confirms the PAT by fetching the current user and returns their
+// display name. Used by `atl auth login` to validate credentials before they
+// are persisted.
+func (cf *Confluence) Whoami(ctx context.Context) (string, error) {
+	var u struct {
+		DisplayName string `json:"displayName"`
+	}
+	if err := cf.c.GetJSON(ctx, "/rest/api/user/current", &u); err != nil {
+		return "", err
+	}
+	return u.DisplayName, nil
 }
 
 // History returns version records, newest first.

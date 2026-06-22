@@ -142,6 +142,22 @@ never stored in the mirror or the repository.
 
 ### `atl auth login`
 
+Run without flags for an interactive setup wizard (like `gh auth login`). For each
+service it asks for the base URL and PAT, validates the PAT against the backend, and
+stores both. Any service can be skipped. Requires a terminal.
+
+```sh
+atl auth login
+# ? Configure Confluence? (Y/n) y
+# ?     Confluence base URL [https://wiki.example.com]:
+# ?     Enter PAT (input hidden): ****
+# ?   ✓ Confluence: authenticated as Jane Doe
+# ? Configure Jira? (Y/n) n
+```
+
+For non-interactive/scripted setup, configure one service at a time with `--service`
+(below) plus `atl config set` for the URLs.
+
 Store a PAT for a service.
 
 The token is never accepted on the command line (which would leak it to the

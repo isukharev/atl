@@ -106,3 +106,12 @@ type TransitionDef struct {
 	Name string `json:"name"`
 	To   string `json:"to"`
 }
+
+// Verifier confirms the configured credentials work against the backend and
+// returns the authenticated user's display name. It is an optional capability,
+// kept separate from DocStore/Tracker so existing port implementations and test
+// mocks are unaffected. Used by `atl auth login` to validate a PAT before it is
+// persisted.
+type Verifier interface {
+	Whoami(ctx context.Context) (string, error)
+}
