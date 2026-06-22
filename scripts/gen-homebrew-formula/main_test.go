@@ -1,6 +1,10 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -71,6 +75,61 @@ func TestRenderFormulaEmpty(t *testing.T) {
 	if _, err := renderFormula("1.0.0", "isukharev/atl", nil); err == nil {
 		t.Error("expected an error for an empty build set")
 	}
+}
+
+// collectBuilds must read only the atl-<os>-<arch> binaries, skip sidecars and
+// non-binaries, and compute each SHA-256 correctly.
+func TestCollectBuildsSkipsSidecarsAndHashes(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("atl-darwin-arm64", "DARWIN-ARM")
+	write("atl-darwin-arm64.sha256", "deadbeef  atl-darwin-arm64") // sidecar: skipped (has a dot)
+	write("atl-linux-amd64", "LINUX-AMD")
+	write("manifest.json", "{}") // not atl-: skipped
+	write("VERSION", "1.0.0")    // not atl-: skipped
+	write("atl.rb", "class Atl") // not atl-<...>: skipped
+
+	builds, err := collectBuilds(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(builds) != 2 {
+		t.Fatalf("got %d builds, want 2 (sidecars/non-binaries skipped): %+v", len(builds), builds)
+	}
+	want := map[string]string{
+		"darwin/arm64": sha256Hex("DARWIN-ARM"),
+		"linux/amd64":  sha256Hex("LINUX-AMD"),
+	}
+	for _, b := range builds {
+		key := b.os + "/" + b.arch
+		if want[key] == "" {
+			t.Errorf("unexpected build %s", key)
+		}
+		if b.sha256 != want[key] {
+			t.Errorf("%s sha256 = %s, want %s", key, b.sha256, want[key])
+		}
+	}
+}
+
+// A binary whose name does not resolve to a known os/arch must error, not be
+// silently dropped (which would emit a formula missing a platform).
+func TestCollectBuildsRejectsUnknownArch(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "atl-linux-arm64-static"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := collectBuilds(dir); err == nil {
+		t.Error("expected an error for an unrecognized os/arch in the binary name")
+	}
+}
+
+func sha256Hex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
 }
 
 // A version or repo containing Ruby/shell metacharacters must be rejected, not

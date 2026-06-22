@@ -127,6 +127,11 @@ jobs:
       # hand (see docs/RELEASING.md).
       - name: Bump Homebrew tap
         if: env.HAS_TAP_TOKEN == 'true'
+        # The release is already published by the step above; a tap push failure
+        # (e.g. an expired token) should surface as a warning, not fail an
+        # otherwise-successful release. The formula is also a release asset, so it
+        # can always be copied by hand (see docs/RELEASING.md).
+        continue-on-error: true
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |

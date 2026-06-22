@@ -31,6 +31,11 @@ import (
 var (
 	versionRe = regexp.MustCompile(`^[0-9][0-9A-Za-z.+\-]*$`)
 	repoRe    = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
+	// The os/arch a binary name must resolve to. Anything else (e.g. an
+	// `atl-linux-arm64-static` variant) is rejected rather than silently dropped,
+	// which would otherwise emit a formula missing a platform.
+	validOS   = map[string]bool{"darwin": true, "linux": true}
+	validArch = map[string]bool{"amd64": true, "arm64": true}
 )
 
 type build struct {
@@ -71,8 +76,8 @@ func collectBuilds(dist string) ([]build, error) {
 			continue // skip .sha256, manifest.json, VERSION, dirs
 		}
 		parts := strings.SplitN(strings.TrimPrefix(name, "atl-"), "-", 2)
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("unexpected binary name: %s", name)
+		if len(parts) != 2 || !validOS[parts[0]] || !validArch[parts[1]] {
+			return nil, fmt.Errorf("unexpected binary name %q (want atl-{darwin,linux}-{amd64,arm64})", name)
 		}
 		sum, err := sha256File(filepath.Join(dist, name))
 		if err != nil {
