@@ -6,8 +6,7 @@
     "ghcr.io/devcontainers/features/node:1": {
       "version": "lts"
     },
-    "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+    "ghcr.io/devcontainers/features/github-cli:1": {}
   },
 
   "mounts": [
@@ -19,7 +18,7 @@
     "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
   },
 
-  "postCreateCommand": "bash -c 'sudo chown -R vscode:vscode /home/vscode/.claude /home/vscode/.config/gh && sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ripgrep && curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.12.2'",
+  "postCreateCommand": "bash ${containerWorkspaceFolder}/.devcontainer/post-create.sh",
 
   "customizations": {
     "vscode": {
