@@ -130,9 +130,41 @@ git push origin v0.1.0
 ```
 
 The `release` workflow cross-compiles the four targets, generates `manifest.json`,
-**signs it** with `ATL_RELEASE_PRIVATE_KEY`, attests SLSA build provenance, and
-publishes the GitHub Release with the binaries, `.sha256` files, `manifest.json`,
-`manifest.json.sig`, and `install.sh`.
+**signs it** with `ATL_RELEASE_PRIVATE_KEY`, generates the Homebrew formula
+(`atl.rb`), attests SLSA build provenance, and publishes the GitHub Release with
+the binaries, `.sha256` files, `manifest.json`, `manifest.json.sig`, `atl.rb`,
+and `install.sh`.
+
+### Homebrew tap
+
+`atl.rb` is emitted by `make homebrew` (`scripts/gen-homebrew-formula`) with each
+platform's release-asset URL pinned to its SHA-256, published as a release asset,
+and consumed by the tap repository `isukharev/homebrew-tap` (`Formula/atl.rb`),
+which backs `brew install isukharev/tap/atl`.
+
+**Auto-bump (recommended).** When the `HOMEBREW_TAP_TOKEN` secret is set, the
+release workflow's *Bump Homebrew tap* step pushes the new `atl.rb` into the tap
+automatically, so `brew upgrade atl` works with no manual step. The step is gated
+on the secret and runs *after* publish, so a tap failure never blocks the
+release. To enable it once:
+
+1. Create a **fine-grained PAT** (GitHub → Settings → Developer settings →
+   Fine-grained tokens) limited to **only** the `isukharev/homebrew-tap`
+   repository, with **Repository permissions → Contents: Read and write** (the
+   default `GITHUB_TOKEN` can't write to another repo, hence a dedicated token).
+2. Add it as an Actions secret on **this** repo:
+   `gh secret set HOMEBREW_TAP_TOKEN -R isukharev/atl` (paste the token).
+
+Rotate/expire the PAT on your usual cadence; a deploy key scoped to the tap repo
+is an equivalent, more locked-down alternative.
+
+**Manual fallback.** If the secret is not set, the workflow logs a notice and
+skips the bump; copy the formula by hand:
+
+```bash
+gh release download "$TAG" -R isukharev/atl -p atl.rb -D Formula --clobber
+git -C <homebrew-tap> commit -am "atl ${TAG#v}" && git -C <homebrew-tap> push
+```
 
 Verify the published release:
 

@@ -293,7 +293,7 @@ func TestResolveIDsBranches(t *testing.T) {
 
 	t.Run("byID", func(t *testing.T) {
 		svc := &ConfluenceService{store: &recordingStore{}}
-		ids, err := svc.resolveIDs(ctx, PullOpts{ID: "555"})
+		ids, _, err := svc.resolveIDs(ctx, PullOpts{ID: "555"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -305,7 +305,7 @@ func TestResolveIDsBranches(t *testing.T) {
 	t.Run("bySpace", func(t *testing.T) {
 		st := &recordingStore{pageRefs: []domain.PageRef{{ID: "a"}, {ID: "b"}, {ID: "c"}}}
 		svc := &ConfluenceService{store: st}
-		ids, err := svc.resolveIDs(ctx, PullOpts{Space: "ENG", Depth: 2})
+		ids, _, err := svc.resolveIDs(ctx, PullOpts{Space: "ENG", Depth: 2})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -320,9 +320,12 @@ func TestResolveIDsBranches(t *testing.T) {
 	t.Run("byCQL", func(t *testing.T) {
 		st := &recordingStore{pageRefs: []domain.PageRef{{ID: "x"}, {ID: ""}, {ID: "y"}}}
 		svc := &ConfluenceService{store: st}
-		ids, err := svc.resolveIDs(ctx, PullOpts{CQL: "label = foo"})
+		ids, truncated, err := svc.resolveIDs(ctx, PullOpts{CQL: "label = foo"})
 		if err != nil {
 			t.Fatal(err)
+		}
+		if truncated {
+			t.Errorf("a single page below the cap must not be truncated")
 		}
 		// empty IDs are skipped; single page with no cursor terminates.
 		if strings.Join(ids, ",") != "x,y" {
@@ -335,7 +338,7 @@ func TestResolveIDsBranches(t *testing.T) {
 
 	t.Run("noSelector", func(t *testing.T) {
 		svc := &ConfluenceService{store: &recordingStore{}}
-		_, err := svc.resolveIDs(ctx, PullOpts{})
+		_, _, err := svc.resolveIDs(ctx, PullOpts{})
 		if !errors.Is(err, domain.ErrUsage) {
 			t.Errorf("missing selector should be ErrUsage, got %v", err)
 		}
@@ -343,7 +346,7 @@ func TestResolveIDsBranches(t *testing.T) {
 
 	t.Run("treeErrPropagates", func(t *testing.T) {
 		svc := &ConfluenceService{store: &recordingStore{err: domain.ErrForbidden}}
-		_, err := svc.resolveIDs(ctx, PullOpts{Space: "X"})
+		_, _, err := svc.resolveIDs(ctx, PullOpts{Space: "X"})
 		if !errors.Is(err, domain.ErrForbidden) {
 			t.Errorf("tree error should propagate, got %v", err)
 		}
@@ -351,7 +354,7 @@ func TestResolveIDsBranches(t *testing.T) {
 
 	t.Run("searchErrPropagates", func(t *testing.T) {
 		svc := &ConfluenceService{store: &recordingStore{err: domain.ErrAuth}}
-		_, err := svc.resolveIDs(ctx, PullOpts{CQL: "x"})
+		_, _, err := svc.resolveIDs(ctx, PullOpts{CQL: "x"})
 		if !errors.Is(err, domain.ErrAuth) {
 			t.Errorf("search error should propagate, got %v", err)
 		}
@@ -401,36 +404,120 @@ func writeInt(b *strings.Builder, n int) {
 	}
 }
 
-// collectSearch silently truncates at exactly 1000 ids: it returns no error even
-// though the backend signals more results. This is the documented CQL pull cap.
+// collectSearch caps at exactly 1000 ids without erroring, but now reports the
+// truncation via its boolean so the overflow is not silently dropped. This is
+// the documented CQL pull cap.
 func TestCollectSearchSilent1000Cap(t *testing.T) {
 	st := &infiniteSearchStore{}
 	svc := &ConfluenceService{store: st}
-	ids, err := svc.collectSearch(context.Background(), "type = page")
+	ids, truncated, err := svc.collectSearch(context.Background(), "type = page")
 	if err != nil {
-		t.Fatalf("collectSearch returned an error; the cap must be silent: %v", err)
+		t.Fatalf("collectSearch returned an error; the cap must not error: %v", err)
 	}
 	if len(ids) != 1000 {
-		t.Fatalf("CQL cap = %d ids, want exactly 1000 (silent truncation)", len(ids))
+		t.Fatalf("CQL cap = %d ids, want exactly 1000 (truncation)", len(ids))
 	}
-	// 100-per-page * 10 pages == 1000; the loop condition `len(ids) < 1000` admits
-	// one final page that overshoots to exactly 1000, then stops.
-	if st.calls != 10 {
-		t.Errorf("expected 10 search calls to reach 1000, got %d", st.calls)
+	if !truncated {
+		t.Errorf("collectSearch hit the cap with more results pending; truncated must be true")
+	}
+	// 100-per-page * 10 pages == 1000 to reach the cap, then one extra probe call
+	// confirms more results exist before flagging truncation.
+	if st.calls != 11 {
+		t.Errorf("expected 10 search calls to reach 1000 + 1 truncation probe, got %d", st.calls)
 	}
 }
 
-// Pull surfaces the same silent cap through the public entrypoint.
+// At exactly the cap with no further page, collectSearch must NOT flag
+// truncation: the one-row probe past the cap comes back empty.
+func TestCollectSearchExactCapNotTruncated(t *testing.T) {
+	st := &exactlyCapStore{}
+	svc := &ConfluenceService{store: st}
+	ids, truncated, err := svc.collectSearch(context.Background(), "type = page")
+	if err != nil {
+		t.Fatalf("collectSearch: %v", err)
+	}
+	if len(ids) != 1000 {
+		t.Fatalf("got %d ids, want exactly 1000", len(ids))
+	}
+	if truncated {
+		t.Errorf("results ended exactly at the cap; the probe is empty so truncated must be false")
+	}
+	if st.calls != 11 {
+		t.Errorf("expected 10 fill calls + 1 (empty) probe, got %d", st.calls)
+	}
+}
+
+// exactlyCapStore serves 10 full pages (1000 ids) each advertising a next
+// cursor, but the 11th call (the truncation probe) returns no results — modeling
+// a query whose matches end precisely at the cap.
+type exactlyCapStore struct {
+	domain.DocStore
+	calls int
+}
+
+func (s *exactlyCapStore) Search(_ context.Context, _ string, limit int, _ string) ([]domain.PageRef, string, error) {
+	s.calls++
+	if s.calls > 10 {
+		return nil, "", nil // probe past the cap: nothing more
+	}
+	refs := make([]domain.PageRef, 0, limit)
+	for i := 0; i < limit; i++ {
+		refs = append(refs, domain.PageRef{ID: idFor(s.calls, i)})
+	}
+	return refs, "more", nil
+}
+
+// collectSearch must NOT flag truncation when the backend runs out of results at
+// or before the cap — a natural end is not a truncation.
+func TestCollectSearchNotTruncatedWhenExhausted(t *testing.T) {
+	st := &finiteSearchStore{pages: 3} // 300 ids then an empty next cursor
+	svc := &ConfluenceService{store: st}
+	ids, truncated, err := svc.collectSearch(context.Background(), "type = page")
+	if err != nil {
+		t.Fatalf("collectSearch: %v", err)
+	}
+	if len(ids) != 300 {
+		t.Fatalf("got %d ids, want 300", len(ids))
+	}
+	if truncated {
+		t.Errorf("query was exhausted naturally; truncated must be false")
+	}
+}
+
+// Pull surfaces the cap and its truncation flag through the public entrypoint.
 func TestPullCQLSilent1000Cap(t *testing.T) {
 	st := &pullCapStore{}
 	svc := &ConfluenceService{store: st}
 	res, err := svc.Pull(context.Background(), PullOpts{CQL: "type = page", Into: t.TempDir()})
 	if err != nil {
-		t.Fatalf("Pull with capped CQL must not error (silent truncation): %v", err)
+		t.Fatalf("Pull with capped CQL must not error: %v", err)
 	}
 	if len(res.Pages) != 1000 {
-		t.Fatalf("Pull mirrored %d pages, want exactly 1000 (silent CQL cap)", len(res.Pages))
+		t.Fatalf("Pull mirrored %d pages, want exactly 1000 (CQL cap)", len(res.Pages))
 	}
+	if !res.Truncated || res.TruncatedAt != 1000 {
+		t.Errorf("Pull result truncated=%v at=%d, want true at 1000", res.Truncated, res.TruncatedAt)
+	}
+}
+
+// finiteSearchStore serves `pages` full pages of fresh ids, then signals the end
+// with an empty next cursor — exercising the natural-termination path.
+type finiteSearchStore struct {
+	domain.DocStore
+	pages int
+	calls int
+}
+
+func (s *finiteSearchStore) Search(_ context.Context, _ string, limit int, _ string) ([]domain.PageRef, string, error) {
+	s.calls++
+	refs := make([]domain.PageRef, 0, limit)
+	for i := 0; i < limit; i++ {
+		refs = append(refs, domain.PageRef{ID: idFor(s.calls, i)})
+	}
+	if s.calls >= s.pages {
+		return refs, "", nil // last page: no further cursor
+	}
+	return refs, "more", nil
 }
 
 // pullCapStore behaves like infiniteSearchStore for Search but also serves a

@@ -2,7 +2,7 @@
 name: setup
 description: Install the atl CLI and configure Confluence/Jira authentication, backend URLs, and the local mirror directory. Run this once (/atl:setup) before using atl.
 disable-model-invocation: true
-allowed-tools: Bash(command -v atl) Bash(atl version) Bash(atl config show) Bash(atl config set *) Bash(atl auth status) Bash(atl auth login *) Bash(atl conf search *) Bash(atl jira fields)
+allowed-tools: Bash(command -v atl) Bash(atl version) Bash(brew install *) Bash(atl config show) Bash(atl config set *) Bash(atl auth status) Bash(atl auth login *) Bash(atl conf search *) Bash(atl jira fields)
 ---
 
 # Set up the atl CLI
@@ -21,29 +21,41 @@ If `atl` is found, report the version and skip to step 3. Otherwise continue.
 
 ## 2. Install the binary
 
-Preferred (prebuilt, SHA-256 verified, installs to `~/.local/bin/atl`):
+Pick the method that fits the platform:
+
+**macOS (or Linuxbrew) with Homebrew — preferred there** (handles `PATH` for you):
+
+```bash
+brew install isukharev/tap/atl
+```
+
+**Linux, or macOS without Homebrew** — prebuilt, SHA-256 verified, installs to `~/.local/bin/atl`:
 
 ```bash
 curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh
 ```
 
-This is a network install that runs a shell script — Claude Code will ask the user to approve it.
-That prompt is expected; do not try to bypass it.
+Both the `brew` and `curl | sh` paths are network installs that Claude Code will ask the user to
+approve. That prompt is expected; do not try to bypass it.
 
-Fallback, if the curl path fails and Go is installed:
-
-```bash
-go install github.com/isukharev/atl@latest
-```
-
-After installing, confirm it is on `PATH`:
+**Fallback**, if the above fail and Go is installed (the `main` package lives in `cmd/atl`, so the
+module path must end in `/cmd/atl`):
 
 ```bash
-command -v atl || echo 'atl is not on PATH — add ~/.local/bin (or $(go env GOBIN)) to PATH'
+go install github.com/isukharev/atl/cmd/atl@latest
 ```
 
-If it is not on `PATH`, tell the user the exact line to add to their shell profile; do not edit
-their profile silently.
+After installing, confirm `atl` resolves **in this shell** (the `curl`/`go install` paths do not add
+it to `PATH` automatically — `brew` does):
+
+```bash
+command -v atl && atl version || echo 'atl is not on PATH — add ~/.local/bin (or $(go env GOBIN)) to PATH'
+```
+
+If it is not on `PATH`, give the user the exact line to add to their shell profile (e.g.
+`export PATH="$HOME/.local/bin:$PATH"`); do not edit their profile silently. **Do not continue to
+step 3 until `atl version` prints a version in the current session** — otherwise every later step
+fails with "command not found".
 
 ## 3. Configure backend URLs
 
@@ -87,9 +99,13 @@ fully greppable by the agent and never committed into their project's git histor
 
 - **Default:** `~/.atl/<workspace>/`, where `<workspace>` is a meaningful name (the code repo's
   basename or the Confluence space key). Example: `~/.atl/payments-service/`.
-- Every `atl conf pull` / `atl jira pull` in this project should pass `--into ~/.atl/<workspace>/`.
-- Record the chosen path so later sessions reuse it — e.g. add a line to the project's `CLAUDE.md`:
-  `atl mirror lives at ~/.atl/<workspace>/`.
+- **Fix it once with `ATL_MIRROR_ROOT`** so `conf pull` / `conf status` / `jira pull` default to the
+  same place without re-passing `--into` every time. Record it where later sessions will pick it up —
+  either export it in the shell profile, or add a line to the project's `CLAUDE.md`:
+  `atl mirror lives at ~/.atl/<workspace>/ (export ATL_MIRROR_ROOT=~/.atl/<workspace>/)`.
+- An explicit `--into <dir>` still overrides `ATL_MIRROR_ROOT`. `conf push` does not read the env
+  var — it finds the mirror root by walking up from the target file to the nearest `.atl`, so as long
+  as you push files from inside that same root it lines up automatically.
 
 (See the `atl` orientation skill's workflow reference for the full rationale and the in-repo /
 scratch alternatives.)
@@ -109,5 +125,6 @@ automatically).
 
 ## Exit codes (so you can react)
 
-`2` usage · `3` auth (token missing/invalid → re-run step 4) · `4` not-found · `5` version-conflict
-· `6` forbidden (token lacks permission). Anything else is `1`.
+`2` usage · `3` auth (the server **rejected** the token → re-run step 4 with a valid PAT) ·
+`4` not-found · `5` version-conflict · `6` forbidden (token lacks permission) ·
+`7` not configured (backend URL or PAT **not set** yet → finish step 3/4). Anything else is `1`.

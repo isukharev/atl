@@ -6,6 +6,7 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,12 @@ import (
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/safepath"
 )
+
+// ErrNoToken marks the specific "no PAT is configured" condition (nothing in the
+// env and nothing in the credentials file) — as opposed to an unreadable or
+// corrupt credentials file, which is a genuine error. Callers translate this to
+// the "not configured" exit code; a read/parse failure stays a generic error.
+var ErrNoToken = errors.New("no PAT configured")
 
 // Service identifies which backend a token is for.
 type Service string
@@ -63,8 +70,8 @@ func Token(s Service) (string, error) {
 	if t := store[string(s)]; t != "" {
 		return t, nil
 	}
-	return "", fmt.Errorf("no %s PAT configured: set %s or run `atl auth login --service %s`",
-		s, envKeys[s][0], s)
+	return "", fmt.Errorf("%w: no %s PAT found — set %s or run `atl auth login --service %s`",
+		ErrNoToken, s, envKeys[s][0], s)
 }
 
 // Source describes where a token (if any) was found, without revealing it.

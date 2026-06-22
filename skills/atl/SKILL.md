@@ -39,12 +39,15 @@ MCP, and for the spec-driven "living doc" workflow where `atl` fits best.
    re-pull or force — never auto-force.
 
 The mirror lives **outside the user's code repository** by default (`~/.atl/<workspace>/`) so it is
-fully greppable yet never committed into their project's git history. Full rules, the safe loop,
-and how to search a two-root layout are in [workflow.md](reference/workflow.md).
+fully greppable yet never committed into their project's git history. A workspace can fix one
+location by exporting `ATL_MIRROR_ROOT`, which becomes the default for `conf pull` / `conf status` /
+`jira pull` (an explicit `--into` still wins). Full rules, the safe loop, and how to search a
+two-root layout are in [workflow.md](reference/workflow.md).
 
 ## Reacting to results
 
 `atl` prints JSON to stdout by default (use `-o text` only for a human view) and signals outcomes
 through exit codes. Parse the JSON; map the exit code per [exit-codes.md](reference/exit-codes.md)
-(e.g. `5` = version conflict → re-pull and reconcile before considering `--force`; `3` = auth →
-`/atl:setup`).
+(e.g. `5` = version conflict → re-pull and reconcile before considering `--force`; `7` = not
+configured → run `/atl:setup`; `3` = the server rejected the token → re-`auth login` with a valid
+PAT).

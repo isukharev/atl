@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -10,6 +11,17 @@ import (
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/version"
 )
+
+// warnIfTruncated writes a one-line stderr warning when a --cql pull hit the
+// silent page cap, so the caller is told the mirror is incomplete. It writes to
+// w (the command's stderr) and never to stdout, keeping the JSON result clean.
+func warnIfTruncated(w io.Writer, res *app.PullResult) {
+	if res != nil && res.Truncated {
+		fmt.Fprintf(w,
+			"warning: --cql selection truncated at %d pages (silent cap); narrow the query or pull by --space to get the rest\n",
+			res.TruncatedAt)
+	}
+}
 
 func confService() (*app.ConfluenceService, error) {
 	cfg, err := loadConfig()
@@ -277,6 +289,8 @@ func confPullCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Warn on stderr (never stdout — that would corrupt the JSON result).
+			warnIfTruncated(cmd.ErrOrStderr(), res)
 			return emit(cmd, res, func() string {
 				var b strings.Builder
 				fmt.Fprintf(&b, "mirror: %s (%d pages)\n", res.Root, len(res.Pages))
@@ -292,7 +306,7 @@ func confPullCmd() *cobra.Command {
 	cmd.Flags().StringVar(&o.Space, "space", "", "space key (whole space)")
 	cmd.Flags().IntVar(&o.Depth, "depth", 0, "space depth limit")
 	cmd.Flags().BoolVar(&o.Assets, "assets", false, "download diagram/image renders")
-	cmd.Flags().StringVar(&o.Into, "into", "mirror", "mirror root dir")
+	cmd.Flags().StringVar(&o.Into, "into", mirrorRootDefault("mirror"), "mirror root dir (default: $ATL_MIRROR_ROOT or \"mirror\")")
 	return cmd
 }
 
@@ -303,7 +317,7 @@ func confStatusCmd() *cobra.Command {
 		Short: "Show locally-edited and remote-drifted pages",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := "mirror"
+			dir := mirrorRootDefault("mirror")
 			if len(args) == 1 {
 				dir = args[0]
 			}

@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Exit code `7` ("not configured")** — a missing backend URL or a missing PAT
+  now exits `7` with an actionable message (the exact `atl config set` /
+  `atl auth login` command), distinct from `3` (a PAT was supplied but the server
+  rejected it). A corrupt/unreadable credentials file stays a generic `1`.
+- **`ATL_MIRROR_ROOT`** — default mirror root for `conf pull`, `conf status`, and
+  `jira pull`, so a workspace fixes one location without re-passing `--into`
+  (an explicit `--into` still wins; `conf push` resolves the nearest `.atl`).
+- **`--cql` truncation is now visible** — a pull that hits the 1000-page cap sets
+  `"truncated": true` / `"truncated_at"` in the JSON result and prints a
+  `warning:` line to stderr instead of implying the mirror is complete.
+- **Homebrew formula** published as a release asset (`atl.rb`, each platform's
+  URL pinned to its SHA-256) via `make homebrew`; `brew install isukharev/tap/atl`.
+  The release workflow can auto-push the formula to the tap when a
+  `HOMEBREW_TAP_TOKEN` secret is configured (otherwise it is copied manually).
+- Documentation: a **Quick start**, a **Scripting & CI** guide, a Server/Data
+  Center vs Cloud note, a Troubleshooting table (README EN + RU), and a
+  `docs/` index.
+
+### Changed
+
+- **Breaking (scripts/CI):** a *missing* backend URL or PAT now exits `7` instead
+  of `2`/`3` respectively; branch on `7` for "not set up yet".
+- **Breaking (scripts/CI):** on failure the error is written to stderr as JSON
+  `{"error": "...", "code": N}` by default (use `-o text` for the previous
+  `error: <msg>` line).
+
+### Fixed
+
+- `setup` skill: corrected the Go fallback to
+  `go install github.com/isukharev/atl/cmd/atl@latest` (the module root has no
+  `main` package, so the old path failed).
+
 ---
 
 ## [0.1.0] - 2026-06-20
