@@ -101,3 +101,74 @@ func TestIntegrationConfluencePullValidateDryRun(t *testing.T) {
 		t.Errorf("dry-run should not push: %+v", pr.Items)
 	}
 }
+
+// TestIntegrationConfluenceHistory guards the DC version-list endpoint
+// (/rest/experimental/content/{id}/version): on Confluence Data Center the
+// Cloud-style /rest/api/content/{id}/version path 404s. Read-only.
+func TestIntegrationConfluenceHistory(t *testing.T) {
+	skipUnlessIntegration(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ConfluenceURL == "" {
+		t.Skip("CONFLUENCE_URL not set")
+	}
+	svc, err := NewConfluence(cfg, "integration-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vs, err := svc.History(context.Background(), testPageID(t))
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if len(vs) == 0 {
+		t.Fatal("expected at least one version record")
+	}
+	if vs[0].Number < 1 {
+		t.Errorf("unexpected newest version number %d", vs[0].Number)
+	}
+}
+
+// skipUnlessJiraIntegration is the Jira counterpart of skipUnlessIntegration.
+func skipUnlessJiraIntegration(t *testing.T) {
+	t.Helper()
+	if os.Getenv("ATL_INTEGRATION") == "" {
+		t.Skip("set ATL_INTEGRATION=1 to run live integration tests")
+	}
+	if os.Getenv("TEST_JIRA_PAT") == "" && os.Getenv("ATL_JIRA_PAT") == "" {
+		t.Skip("no Jira PAT in env")
+	}
+}
+
+// TestIntegrationJiraFieldOptions guards the two-step DC createmeta endpoints
+// (/createmeta/{projectKey}/issuetypes[/{id}]): Jira DC 9.x removed the older
+// expand-based /createmeta query. Point ATL_TEST_JIRA_FIELD at a field that has
+// allowed values (e.g. priority). Read-only.
+func TestIntegrationJiraFieldOptions(t *testing.T) {
+	skipUnlessJiraIntegration(t)
+	project := os.Getenv("ATL_TEST_JIRA_PROJECT")
+	field := os.Getenv("ATL_TEST_JIRA_FIELD")
+	if project == "" || field == "" {
+		t.Skip("set ATL_TEST_JIRA_PROJECT and ATL_TEST_JIRA_FIELD to run this test")
+	}
+	issueType := os.Getenv("ATL_TEST_JIRA_ISSUETYPE") // optional; empty scans all types
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.JiraURL == "" {
+		t.Skip("JIRA_URL not set")
+	}
+	svc, err := NewJira(cfg, "integration-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts, err := svc.FieldOptions(context.Background(), project, issueType, field)
+	if err != nil {
+		t.Fatalf("field-options: %v", err)
+	}
+	if len(opts) == 0 {
+		t.Errorf("no allowed values for field %q in %s/%s — point ATL_TEST_JIRA_FIELD at a field with options (e.g. priority)", field, project, issueType)
+	}
+}

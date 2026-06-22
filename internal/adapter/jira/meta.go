@@ -28,45 +28,65 @@ func (j *Jira) Fields(ctx context.Context) ([]domain.FieldDef, error) {
 	return out, nil
 }
 
-// FieldOptions returns the allowed values for a field on a project/issuetype,
-// via createmeta. field may be a field id or display name.
+// FieldOptions returns the allowed values for a field on a project/issuetype.
+// field may be a field id or display name. issueType may be empty to scan every
+// type in the project. It uses the two-step createmeta endpoints
+// (/createmeta/{projectKey}/issuetypes then /createmeta/{projectKey}/issuetypes/{id})
+// because Jira DC 9.x removed the older expand-based /createmeta query.
 func (j *Jira) FieldOptions(ctx context.Context, project, issueType, field string) ([]string, error) {
-	q := url.Values{}
-	q.Set("projectKeys", project)
-	if issueType != "" {
-		q.Set("issuetypeNames", issueType)
+	base := "/rest/api/2/issue/createmeta/" + url.PathEscape(project) + "/issuetypes"
+
+	var its struct {
+		Values []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"values"`
 	}
-	q.Set("expand", "projects.issuetypes.fields")
-	var resp struct {
-		Projects []struct {
-			IssueTypes []struct {
-				Fields map[string]struct {
-					Name          string `json:"name"`
-					AllowedValues []struct {
-						Name  string `json:"name"`
-						Value string `json:"value"`
-					} `json:"allowedValues"`
-				} `json:"fields"`
-			} `json:"issuetypes"`
-		} `json:"projects"`
-	}
-	if err := j.c.GetJSON(ctx, "/rest/api/2/issue/createmeta?"+q.Encode(), &resp); err != nil {
+	if err := j.c.GetJSON(ctx, base+"?maxResults=200", &its); err != nil {
 		return nil, err
 	}
+
+	// Pick the issue type(s) to inspect: the named one, or all when unspecified.
+	var typeIDs []string
+	for _, it := range its.Values {
+		if issueType == "" || it.Name == issueType {
+			typeIDs = append(typeIDs, it.ID)
+		}
+	}
+	if len(typeIDs) == 0 {
+		return nil, fmt.Errorf("%w: issue type %q not found in project %q", domain.ErrNotFound, issueType, project)
+	}
+
 	var out []string
+	seen := map[string]bool{}
 	matched := false
-	for _, p := range resp.Projects {
-		for _, it := range p.IssueTypes {
-			for id, fd := range it.Fields {
-				if id == field || fd.Name == field {
-					matched = true
-					for _, av := range fd.AllowedValues {
-						if av.Name != "" {
-							out = append(out, av.Name)
-						} else if av.Value != "" {
-							out = append(out, av.Value)
-						}
-					}
+	for _, tid := range typeIDs {
+		var fs struct {
+			Values []struct {
+				FieldID       string `json:"fieldId"`
+				Name          string `json:"name"`
+				AllowedValues []struct {
+					Name  string `json:"name"`
+					Value string `json:"value"`
+				} `json:"allowedValues"`
+			} `json:"values"`
+		}
+		if err := j.c.GetJSON(ctx, base+"/"+url.PathEscape(tid)+"?maxResults=200", &fs); err != nil {
+			return nil, err
+		}
+		for _, fd := range fs.Values {
+			if fd.FieldID != field && fd.Name != field {
+				continue
+			}
+			matched = true
+			for _, av := range fd.AllowedValues {
+				v := av.Name
+				if v == "" {
+					v = av.Value
+				}
+				if v != "" && !seen[v] {
+					seen[v] = true
+					out = append(out, v)
 				}
 			}
 		}

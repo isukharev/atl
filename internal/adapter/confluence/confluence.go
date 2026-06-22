@@ -167,7 +167,9 @@ func (cf *Confluence) History(ctx context.Context, id string) ([]domain.Version,
 			} `json:"by"`
 		} `json:"results"`
 	}
-	if err := cf.c.GetJSON(ctx, "/rest/api/content/"+url.PathEscape(id)+"/version?limit=50", &resp); err != nil {
+	// Confluence Data Center serves the full version list under /rest/experimental;
+	// the Cloud-style /rest/api/content/{id}/version path 404s on DC.
+	if err := cf.c.GetJSON(ctx, "/rest/experimental/content/"+url.PathEscape(id)+"/version?limit=50", &resp); err != nil {
 		return nil, err
 	}
 	out := make([]domain.Version, 0, len(resp.Results))
