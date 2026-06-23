@@ -209,17 +209,23 @@ func jiraIssueCmd() *cobra.Command {
 		Short: "Audit that required/important fields are populated (non-zero exit if a required field is empty)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService()
-			if err != nil {
-				return err
-			}
 			// An explicit --warn (even "") overrides the default set, so a caller
 			// can opt out of warnings entirely with --warn "".
 			warn := app.DefaultCheckFields
 			if cmd.Flags().Changed("warn") {
 				warn = splitFields(checkWarn)
 			}
-			r, err := svc.Check(cmd.Context(), args[0], splitFields(checkRequire), warn)
+			require := splitFields(checkRequire)
+			// A check that audits nothing (no --require and --warn emptied) is a
+			// silent no-op gate that always passes — reject it as a usage error.
+			if len(require) == 0 && len(warn) == 0 {
+				return usageErr("nothing to check: pass --require and/or --warn fields")
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			r, err := svc.Check(cmd.Context(), args[0], require, warn)
 			if err != nil {
 				return err
 			}

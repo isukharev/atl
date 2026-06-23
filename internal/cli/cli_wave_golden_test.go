@@ -38,6 +38,22 @@ func TestJiraIssueCheck_MissingRequiredExits8(t *testing.T) {
 	}
 }
 
+// A check that would audit zero fields (no --require and --warn explicitly
+// emptied) is a silent no-op gate — reject it as a usage error before any
+// request rather than always passing ok:true.
+func TestJiraIssueCheck_NoFieldsIsUsageError(t *testing.T) {
+	js := newJiraServer(t)
+
+	_, code := runCLI(t, jiraEnv(js.srv),
+		"jira", "issue", "check", "ENG-1", "--warn", "")
+	if code != exitUsage {
+		t.Fatalf("check with no fields to audit: exit %d, want %d", code, exitUsage)
+	}
+	if n := len(js.requests()); n != 0 {
+		t.Errorf("a no-field check must not contact the server, got %d requests", n)
+	}
+}
+
 // jira issue delete refuses without --force (exit 2, no request) and DELETEs the
 // right path with --force.
 func TestJiraIssueDelete_RequiresForceAndWiresDelete(t *testing.T) {

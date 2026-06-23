@@ -55,7 +55,7 @@ func jiraBoardCmd() *cobra.Command {
 		},
 	}
 	list.Flags().StringVar(&project, "project", "", "filter to a project (key or id)")
-	list.Flags().IntVar(&limit, "limit", 50, "max results")
+	list.Flags().IntVar(&limit, "limit", 50, "max results (capped at 50 by the Agile API)")
 	list.Flags().StringVar(&cursor, "cursor", "", "pagination cursor (startAt)")
 
 	get := &cobra.Command{
@@ -116,7 +116,7 @@ func jiraSprintCmd() *cobra.Command {
 	}
 	list.Flags().IntVar(&boardID, "board", 0, "board id (required)")
 	list.Flags().StringVar(&state, "state", "", "filter by state: active|closed|future")
-	list.Flags().IntVar(&limit, "limit", 50, "max results")
+	list.Flags().IntVar(&limit, "limit", 50, "max results (capped at 50 by the Agile API)")
 	list.Flags().StringVar(&cursor, "cursor", "", "pagination cursor (startAt)")
 	_ = list.RegisterFlagCompletionFunc("state", fixedComp("active", "closed", "future"))
 
@@ -182,19 +182,19 @@ func jiraSprintCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			list, next, err := svc.SprintIssues(cmd.Context(), id, splitFields(issuesFields), issuesLimit, issuesCursor)
+			issueList, next, err := svc.SprintIssues(cmd.Context(), id, splitFields(issuesFields), issuesLimit, issuesCursor)
 			if err != nil {
 				return err
 			}
-			return emitID(cmd, map[string]any{"sprint": id, "issues": list, "next_cursor": next}, func() string {
+			return emitID(cmd, map[string]any{"sprint": id, "issues": issueList, "next_cursor": next}, func() string {
 				var b strings.Builder
-				for _, is := range list {
+				for _, is := range issueList {
 					fmt.Fprintf(&b, "%s\t[%s]\t%s\n", is.Key, is.Status, is.Summary)
 				}
 				return strings.TrimRight(b.String(), "\n")
 			}, func() []string {
-				keys := make([]string, len(list))
-				for i, is := range list {
+				keys := make([]string, len(issueList))
+				for i, is := range issueList {
 					keys[i] = is.Key
 				}
 				return keys
@@ -202,7 +202,7 @@ func jiraSprintCmd() *cobra.Command {
 		},
 	}
 	issues.Flags().StringVar(&issuesFields, "fields", "", "comma-separated field list")
-	issues.Flags().IntVar(&issuesLimit, "limit", 50, "max results")
+	issues.Flags().IntVar(&issuesLimit, "limit", 50, "max results (capped at 50 by the Agile API)")
 	issues.Flags().StringVar(&issuesCursor, "cursor", "", "pagination cursor (startAt)")
 
 	add := &cobra.Command{

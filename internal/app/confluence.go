@@ -124,7 +124,7 @@ func (s *ConfluenceService) DeleteAttachment(ctx context.Context, attachmentID s
 // Whoami returns the display name of the authenticated Confluence user.
 func (s *ConfluenceService) Whoami(ctx context.Context) (string, error) {
 	if s.verifier == nil {
-		return "", fmt.Errorf("whoami not supported by this store")
+		return "", fmt.Errorf("%w: whoami not supported by this store", domain.ErrConfig)
 	}
 	return s.verifier.Whoami(ctx)
 }

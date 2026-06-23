@@ -37,15 +37,15 @@ func TestJiraBoardList_EmitsFiltersAndID(t *testing.T) {
 	if res.NextCursor != "" {
 		t.Errorf("next_cursor = %q, want \"\" (isLast)", res.NextCursor)
 	}
-	// The project filter goes out as projectKeyOrId.
+	// The project filter goes out as projectKeyOrId (the DC param name).
 	var saw bool
 	for _, r := range js.requests() {
-		if r.method == http.MethodGet && strings.HasPrefix(r.path, "/rest/agile/1.0/board") {
+		if r.method == http.MethodGet && strings.HasPrefix(r.path, "/rest/agile/1.0/board") && strings.Contains(r.query, "projectKeyOrId=ENG") {
 			saw = true
 		}
 	}
 	if !saw {
-		t.Errorf("expected a GET to /rest/agile/1.0/board, got %+v", js.requests())
+		t.Errorf("expected GET /rest/agile/1.0/board?...projectKeyOrId=ENG, got %+v", js.requests())
 	}
 
 	// -o id prints the board ids one per line.

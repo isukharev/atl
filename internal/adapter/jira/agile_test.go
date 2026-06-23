@@ -215,3 +215,14 @@ func TestMoveIssuesToSprintEmptyIsUsageError(t *testing.T) {
 		t.Errorf("sent %d requests, want 0 (validate before the wire)", len(*reqs))
 	}
 }
+
+// MoveIssuesToBacklog shares the same empty-keys guard.
+func TestMoveIssuesToBacklogEmptyIsUsageError(t *testing.T) {
+	j, reqs := agileServer(t, map[string]string{"POST /rest/agile/1.0/backlog/issue": ``})
+	if err := j.MoveIssuesToBacklog(context.Background(), nil); err == nil {
+		t.Fatal("MoveIssuesToBacklog(nil): want error, got nil")
+	}
+	if len(*reqs) != 0 {
+		t.Errorf("sent %d requests, want 0 (validate before the wire)", len(*reqs))
+	}
+}

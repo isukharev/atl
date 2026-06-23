@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -235,6 +236,22 @@ func TestJiraExitCodeMatrix(t *testing.T) {
 		if out != "" {
 			t.Errorf("jira status %d: stdout = %q, want empty", tc.status, out)
 		}
+	}
+}
+
+// TestCheckFailedExit8 locks the one sentinel that is not produced by an HTTP
+// status: ErrCheckFailed (exit 8). `jira issue check` succeeds at the transport
+// level but a missing --require field makes it a logical failure, so it belongs
+// in the sentinel→exit contract matrix alongside the HTTP-driven cases. The
+// report is still emitted on stdout before the non-zero exit.
+func TestCheckFailedExit8(t *testing.T) {
+	srv := jsonServer(t, http.StatusOK, `{"key":"ENG-1","fields":{}}`)
+	out, code := runCLI(t, jiraEnv(srv), "jira", "issue", "check", "ENG-1", "--require", "summary")
+	if code != exitCheckFailed {
+		t.Fatalf("check with a missing required field: exit %d, want %d (stdout=%q)", code, exitCheckFailed, out)
+	}
+	if !strings.Contains(out, `"ok": false`) {
+		t.Errorf("expected the report (ok:false) on stdout before exit 8, got %q", out)
 	}
 }
 
