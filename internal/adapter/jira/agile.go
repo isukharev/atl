@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/isukharev/atl/internal/domain"
 )
@@ -150,7 +151,7 @@ func (j *Jira) SprintIssues(ctx context.Context, sprintID int, fields []string, 
 	q.Set("startAt", strconv.Itoa(startAt))
 	q.Set("maxResults", strconv.Itoa(agileLimit(limit)))
 	if len(fields) > 0 {
-		q.Set("fields", joinFields(fields))
+		q.Set("fields", strings.Join(fields, ","))
 	}
 	var resp struct {
 		StartAt int        `json:"startAt"`
@@ -183,13 +184,4 @@ func (j *Jira) MoveIssuesToBacklog(ctx context.Context, keys []string) error {
 	}
 	return j.c.SendJSON(ctx, "POST", "/rest/agile/1.0/backlog/issue",
 		map[string]any{"issues": keys}, nil)
-}
-
-// joinFields comma-joins a field list for a query parameter.
-func joinFields(fields []string) string {
-	out := fields[0]
-	for _, f := range fields[1:] {
-		out += "," + f
-	}
-	return out
 }

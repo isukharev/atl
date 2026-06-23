@@ -96,8 +96,8 @@ func jiraSprintCmd() *cobra.Command {
 		Short: "List a board's sprints (--board ID, optional --state)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !cmd.Flags().Changed("board") {
-				return usageErr("--board is required")
+			if boardID <= 0 {
+				return usageErr("--board must be a positive board id")
 			}
 			svc, err := jiraService()
 			if err != nil {
@@ -149,8 +149,8 @@ func jiraSprintCmd() *cobra.Command {
 		Short: "Show the active sprint of a board (--board ID)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !cmd.Flags().Changed("board") {
-				return usageErr("--board is required")
+			if curBoard <= 0 {
+				return usageErr("--board must be a positive board id")
 			}
 			svc, err := jiraService()
 			if err != nil {

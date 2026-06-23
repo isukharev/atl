@@ -24,13 +24,18 @@ func TestJiraBoardList_EmitsFiltersAndID(t *testing.T) {
 		t.Fatalf("board list: exit %d, want 0 (stdout=%q)", code, out)
 	}
 	var res struct {
-		Boards []domain.Board `json:"boards"`
+		Boards     []domain.Board `json:"boards"`
+		NextCursor string         `json:"next_cursor"`
 	}
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("decode boards: %v\n%s", err, out)
 	}
 	if len(res.Boards) != 1 || res.Boards[0].ID != 5 || res.Boards[0].ProjectKey != "ENG" {
 		t.Fatalf("boards = %+v, want one id=5 project=ENG", res.Boards)
+	}
+	// List commands expose a pagination cursor (empty here: isLast=true).
+	if res.NextCursor != "" {
+		t.Errorf("next_cursor = %q, want \"\" (isLast)", res.NextCursor)
 	}
 	// The project filter goes out as projectKeyOrId.
 	var saw bool
@@ -78,9 +83,65 @@ func TestJiraSprintList_RequiresBoard(t *testing.T) {
 	}
 }
 
+// TestJiraBoardList_CoreInstance404Exit4 proves the feature's "optional
+// capability" premise: on a Jira Core / Service-Management-only instance the
+// Agile endpoints 404, which must surface as exit 4 (not a generic error).
+func TestJiraBoardList_CoreInstance404Exit4(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/agile/1.0/board", http.StatusNotFound,
+		`{"errorMessages":["No Agile API on this instance"]}`)
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "board", "list")
+	if code != exitNotFound {
+		t.Fatalf("Agile 404: exit %d, want %d (stdout=%q)", code, exitNotFound, out)
+	}
+	if out != "" {
+		t.Errorf("Agile 404: stdout = %q, want empty (errors go to stderr)", out)
+	}
+}
+
 const sprintsBody = `{"maxResults":50,"startAt":0,"total":1,"isLast":true,"values":[
 	{"id":7,"state":"active","name":"Sprint 3","goal":"ship","originBoardId":5}
 ]}`
+
+// A zero/garbage --board must be rejected before any request, consistent with
+// how positional ids are pre-validated by atoiArg.
+func TestJiraSprintList_RejectsZeroBoard(t *testing.T) {
+	js := newJiraServer(t)
+	_, code := runCLI(t, jiraEnv(js.srv), "jira", "sprint", "list", "--board", "0")
+	if code != exitUsage {
+		t.Fatalf("sprint list --board 0: exit %d, want %d", code, exitUsage)
+	}
+	if n := len(js.requests()); n != 0 {
+		t.Errorf("--board 0 must not contact the server, got %d requests", n)
+	}
+}
+
+func TestJiraSprintCurrent_RejectsZeroBoard(t *testing.T) {
+	js := newJiraServer(t)
+	_, code := runCLI(t, jiraEnv(js.srv), "jira", "sprint", "current", "--board", "0")
+	if code != exitUsage {
+		t.Fatalf("sprint current --board 0: exit %d, want %d", code, exitUsage)
+	}
+	if n := len(js.requests()); n != 0 {
+		t.Errorf("--board 0 must not contact the server, got %d requests", n)
+	}
+}
+
+// No active sprint on the board is a not-found condition (exit 4) at the CLI
+// boundary, not a silent empty result.
+func TestJiraSprintCurrent_NoneExit4(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/agile/1.0/board/5/sprint", http.StatusOK, `{"values":[]}`)
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "sprint", "current", "--board", "5")
+	if code != exitNotFound {
+		t.Fatalf("sprint current (none active): exit %d, want %d (stdout=%q)", code, exitNotFound, out)
+	}
+	if out != "" {
+		t.Errorf("sprint current (none active): stdout = %q, want empty", out)
+	}
+}
 
 func TestJiraSprintList_EmitsStateAndID(t *testing.T) {
 	js := newJiraServer(t)
@@ -91,13 +152,17 @@ func TestJiraSprintList_EmitsStateAndID(t *testing.T) {
 		t.Fatalf("sprint list: exit %d, want 0 (stdout=%q)", code, out)
 	}
 	var res struct {
-		Sprints []domain.Sprint `json:"sprints"`
+		Sprints    []domain.Sprint `json:"sprints"`
+		NextCursor string          `json:"next_cursor"`
 	}
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("decode sprints: %v\n%s", err, out)
 	}
 	if len(res.Sprints) != 1 || res.Sprints[0].ID != 7 || res.Sprints[0].State != "active" {
 		t.Fatalf("sprints = %+v, want one id=7 active", res.Sprints)
+	}
+	if res.NextCursor != "" {
+		t.Errorf("next_cursor = %q, want \"\" (isLast)", res.NextCursor)
 	}
 	// The state filter reaches the wire.
 	var saw bool
