@@ -657,3 +657,160 @@ func TestFailReason(t *testing.T) {
 func fmtErrorf(sentinel error) error {
 	return errors.Join(sentinel, errors.New("wrapped detail"))
 }
+
+// ---- Feature 5: CopyPage ----
+
+func TestCopyPagePassesBodyUnchanged(t *testing.T) {
+	ctx := context.Background()
+	const body = "<p>native CSF bytes</p>"
+	src := &domain.Resource{
+		ID: "100", SpaceKey: "SRC", Version: 3,
+		Body: []byte(body), Parent: "par0",
+	}
+	st := &recordingStore{page: src}
+	svc := &ConfluenceService{store: st}
+	_, err := svc.CopyPage(ctx, "100", "New Title", "SP2", "par1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.getID != "100" {
+		t.Errorf("GetPage not called with src id: %q", st.getID)
+	}
+	if string(st.createBody) != body {
+		t.Errorf("body not passed through: got %q want %q", st.createBody, body)
+	}
+	if st.createTitle != "New Title" {
+		t.Errorf("title not forwarded: %q", st.createTitle)
+	}
+	if st.createSpace != "SP2" {
+		t.Errorf("space not forwarded: %q", st.createSpace)
+	}
+	if st.createParent != "par1" {
+		t.Errorf("parent not forwarded: %q", st.createParent)
+	}
+}
+
+func TestCopyPageDefaultsSpaceAndParent(t *testing.T) {
+	ctx := context.Background()
+	src := &domain.Resource{
+		ID: "100", SpaceKey: "ORIG", Version: 1,
+		Body: []byte("<p/>"), Parent: "origpar",
+	}
+	st := &recordingStore{page: src}
+	svc := &ConfluenceService{store: st}
+	// Pass empty space and parent → should use source page's SpaceKey and Parent
+	_, err := svc.CopyPage(ctx, "100", "Copy", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.createSpace != "ORIG" {
+		t.Errorf("space should default to source space, got %q", st.createSpace)
+	}
+	if st.createParent != "origpar" {
+		t.Errorf("parent should default to source parent, got %q", st.createParent)
+	}
+}
+
+// ---- Feature 6: Attachment upload/delete at service layer ----
+
+type attachmentStore struct {
+	// recordingStore embeds domain.DocStore; attach upload/delete on top.
+	*recordingStore
+	uploadPageID  string
+	uploadName    string
+	uploadData    []byte
+	uploadComment string
+	uploadReturn  *domain.Attachment
+	uploadErr     error
+	deleteID      string
+	deleteErr     error
+}
+
+func (s *attachmentStore) UploadAttachment(_ context.Context, pageID, filename string, data []byte, comment string) (*domain.Attachment, error) {
+	s.uploadPageID, s.uploadName, s.uploadData, s.uploadComment = pageID, filename, data, comment
+	return s.uploadReturn, s.uploadErr
+}
+
+func (s *attachmentStore) DeleteAttachment(_ context.Context, attachmentID string) error {
+	s.deleteID = attachmentID
+	return s.deleteErr
+}
+
+func TestUploadAttachmentServiceReadFile(t *testing.T) {
+	// Write a temp file to upload.
+	dir := t.TempDir()
+	p := filepath.Join(dir, "test.txt")
+	if err := os.WriteFile(p, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	att := &domain.Attachment{ID: "a1", Title: "test.txt"}
+	st := &attachmentStore{recordingStore: &recordingStore{}, uploadReturn: att}
+	svc := &ConfluenceService{store: st}
+
+	got, err := svc.UploadAttachment(context.Background(), "pg1", p, "my comment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.uploadPageID != "pg1" {
+		t.Errorf("pageID = %q, want pg1", st.uploadPageID)
+	}
+	if st.uploadName != "test.txt" {
+		t.Errorf("filename = %q, want test.txt", st.uploadName)
+	}
+	if string(st.uploadData) != "hello" {
+		t.Errorf("data = %q, want hello", st.uploadData)
+	}
+	if st.uploadComment != "my comment" {
+		t.Errorf("comment = %q, want my comment", st.uploadComment)
+	}
+	if got.ID != "a1" {
+		t.Errorf("returned att.ID = %q, want a1", got.ID)
+	}
+}
+
+func TestDeleteAttachmentServicePassThrough(t *testing.T) {
+	st := &attachmentStore{recordingStore: &recordingStore{}}
+	svc := &ConfluenceService{store: st}
+	if err := svc.DeleteAttachment(context.Background(), "att99"); err != nil {
+		t.Fatal(err)
+	}
+	if st.deleteID != "att99" {
+		t.Errorf("deleteID = %q, want att99", st.deleteID)
+	}
+}
+
+// ---- Feature 7: Whoami ----
+
+type fakeVerifier struct {
+	name string
+	err  error
+}
+
+func (f *fakeVerifier) Whoami(_ context.Context) (string, error) { return f.name, f.err }
+
+func TestConfluenceWhoami(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns display name", func(t *testing.T) {
+		svc := &ConfluenceService{
+			store:    &recordingStore{},
+			verifier: &fakeVerifier{name: "Ada Lovelace"},
+		}
+		name, err := svc.Whoami(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name != "Ada Lovelace" {
+			t.Errorf("Whoami = %q, want Ada Lovelace", name)
+		}
+	})
+
+	t.Run("nil verifier returns error", func(t *testing.T) {
+		svc := &ConfluenceService{store: &recordingStore{}}
+		_, err := svc.Whoami(ctx)
+		if err == nil {
+			t.Error("nil verifier should return error")
+		}
+	})
+}

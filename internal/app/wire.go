@@ -16,10 +16,11 @@ import (
 
 // ConfluenceService bundles the Confluence use-cases over a DocStore + mirror.
 type ConfluenceService struct {
-	store   domain.DocStore
-	users   domain.UserResolver
-	assets  domain.AssetResolver
-	baseURL string
+	store    domain.DocStore
+	users    domain.UserResolver
+	assets   domain.AssetResolver
+	baseURL  string
+	verifier domain.Verifier
 }
 
 // JiraService bundles the Jira use-cases over a Tracker.
@@ -49,7 +50,7 @@ func NewConfluence(cfg *config.Config, version string) (*ConfluenceService, erro
 		return nil, err
 	}
 	cf := confluence.New(cfg.ConfluenceURL, tok, version)
-	return &ConfluenceService{store: cf, users: cf.ResolveUser, assets: cf, baseURL: cfg.ConfluenceURL}, nil
+	return &ConfluenceService{store: cf, users: cf.ResolveUser, assets: cf, baseURL: cfg.ConfluenceURL, verifier: cf}, nil
 }
 
 // NewJira wires the Jira adapter from config + PAT.

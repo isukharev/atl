@@ -12,6 +12,7 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/fragment"
 	"github.com/isukharev/atl/internal/mirror"
+	"github.com/isukharev/atl/internal/safepath"
 )
 
 // ---- search / get / meta / history / tree ----
@@ -58,6 +59,74 @@ func (s *ConfluenceService) Move(ctx context.Context, id, parent string) error {
 
 func (s *ConfluenceService) Delete(ctx context.Context, id string) error {
 	return s.store.DeletePage(ctx, id)
+}
+
+// CopyPage fetches the source page's native CSF body and creates a new page
+// with the same body bytes under the target space/parent with a new title.
+// If space or parent are empty, the source page's values are used as defaults.
+func (s *ConfluenceService) CopyPage(ctx context.Context, srcID, newTitle, space, parent string) (*domain.Resource, error) {
+	src, err := s.store.GetPage(ctx, srcID, domain.PullOpts{Format: "csf"})
+	if err != nil {
+		return nil, err
+	}
+	if space == "" {
+		space = src.SpaceKey
+	}
+	if parent == "" {
+		parent = src.Parent
+	}
+	return s.store.CreatePage(ctx, space, parent, newTitle, src.Body)
+}
+
+// DownloadAttachment fetches attachment bytes for a page attachment by filename
+// and writes them to outDir. Returns the written file path.
+func (s *ConfluenceService) DownloadAttachment(ctx context.Context, pageID, filename string, version int, outDir string) (string, error) {
+	data, err := s.store.DownloadAttachment(ctx, pageID, filename, version)
+	if err != nil {
+		return "", err
+	}
+	if outDir == "" {
+		outDir = "."
+	}
+	safeName, ok := safepath.Base(filename)
+	if !ok {
+		return "", fmt.Errorf("%w: unsafe attachment filename %q", domain.ErrUsage, filename)
+	}
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return "", err
+	}
+	p := filepath.Join(outDir, safeName)
+	if !safepath.Within(outDir, p) {
+		return "", fmt.Errorf("%w: attachment path would escape output directory", domain.ErrUsage)
+	}
+	if err := safepath.WriteFile(p, data, 0o644); err != nil {
+		return "", err
+	}
+	return p, nil
+}
+
+// UploadAttachment reads file bytes from filePath and uploads them as an
+// attachment to the given page.
+func (s *ConfluenceService) UploadAttachment(ctx context.Context, pageID, filePath, comment string) (*domain.Attachment, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+	filename := filepath.Base(filePath)
+	return s.store.UploadAttachment(ctx, pageID, filename, data, comment)
+}
+
+// DeleteAttachment removes an attachment by its content id.
+func (s *ConfluenceService) DeleteAttachment(ctx context.Context, attachmentID string) error {
+	return s.store.DeleteAttachment(ctx, attachmentID)
+}
+
+// Whoami returns the display name of the authenticated Confluence user.
+func (s *ConfluenceService) Whoami(ctx context.Context) (string, error) {
+	if s.verifier == nil {
+		return "", fmt.Errorf("whoami not supported by this store")
+	}
+	return s.verifier.Whoami(ctx)
 }
 
 // Validate parses CSF bytes and returns diagnostics.

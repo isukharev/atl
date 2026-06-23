@@ -1,7 +1,11 @@
 package confluence
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"mime/multipart"
 	"net/url"
 	"strconv"
 
@@ -146,6 +150,75 @@ func (cf *Confluence) DownloadAttachment(ctx context.Context, pageID, filename s
 		p += "?version=" + strconv.Itoa(version)
 	}
 	return cf.c.GetBytes(ctx, p)
+}
+
+// UploadAttachment uploads file bytes as an attachment to a page via
+// multipart/form-data. DC endpoint: POST /rest/api/content/{pageId}/child/attachment.
+// X-Atlassian-Token: nocheck is required to bypass XSRF protection.
+func (cf *Confluence) UploadAttachment(ctx context.Context, pageID, filename string, data []byte, comment string) (*domain.Attachment, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	if comment != "" {
+		if err := w.WriteField("comment", comment); err != nil {
+			return nil, err
+		}
+	}
+	if err := w.WriteField("minorEdit", "true"); err != nil {
+		return nil, err
+	}
+	fw, err := w.CreateFormFile("file", filename)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := fw.Write(data); err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	headers := map[string]string{
+		"Content-Type":      w.FormDataContentType(),
+		"X-Atlassian-Token": "nocheck",
+	}
+	var resp struct {
+		Results []struct {
+			ID       string `json:"id"`
+			Title    string `json:"title"`
+			Metadata struct {
+				MediaType string `json:"mediaType"`
+			} `json:"metadata"`
+			Extensions struct {
+				FileSize int64  `json:"fileSize"`
+				Comment  string `json:"comment"`
+			} `json:"extensions"`
+			Version struct {
+				Number int `json:"number"`
+			} `json:"version"`
+		} `json:"results"`
+	}
+	raw, err := cf.c.Do(ctx, "POST", "/rest/api/content/"+url.PathEscape(pageID)+"/child/attachment", buf.Bytes(), headers)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("upload attachment: decode response: %w", err)
+	}
+	if len(resp.Results) == 0 {
+		return nil, fmt.Errorf("upload attachment: empty response")
+	}
+	r := resp.Results[0]
+	return &domain.Attachment{
+		ID: r.ID, Title: r.Title, MediaType: r.Metadata.MediaType,
+		FileSize: r.Extensions.FileSize, Version: r.Version.Number,
+		Comment: r.Extensions.Comment,
+	}, nil
+}
+
+// DeleteAttachment deletes an attachment by its content id.
+// DC endpoint: DELETE /rest/api/content/{attachmentId}
+func (cf *Confluence) DeleteAttachment(ctx context.Context, attachmentID string) error {
+	_, err := cf.c.Do(ctx, "DELETE", "/rest/api/content/"+url.PathEscape(attachmentID), nil, nil)
+	return err
 }
 
 // Resolve implements domain.AssetResolver for draw.io diagrams and inline

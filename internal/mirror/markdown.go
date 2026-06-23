@@ -407,6 +407,10 @@ func (r *mdRenderer) acLink(b *strings.Builder, n *csf.Node) {
 		b.WriteString(label)
 		return
 	}
+	if strings.HasPrefix(target, "page:") {
+		b.WriteString("[[" + label + "]]")
+		return
+	}
 	b.WriteString("[" + label + "](" + target + ")")
 }
 

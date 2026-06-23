@@ -188,3 +188,14 @@ func TestRenderTaskListWithInlineBody(t *testing.T) {
 	md := render(t, `<ac:task-list><ac:task><ac:task-id>9</ac:task-id><ac:task-status>incomplete</ac:task-status><ac:task-body><ac:link><ri:user ri:userkey="u1"/></ac:link> ping on <time datetime="2021-07-15"/></ac:task-body></ac:task></ac:task-list>`, refs)
 	mustContain(t, md, "- [ ] Ada ping on 2021-07-15")
 }
+
+func TestRenderPageLinkWikiStyle(t *testing.T) {
+	// A plain page link with no explicit label → [[Page Title]]
+	md := render(t, `<p>See <ac:link><ri:page ri:content-title="My Page"/></ac:link> here</p>`, nil)
+	mustContain(t, md, "[[My Page]]")
+	mustNotContain(t, md, "(page:My Page)")
+
+	// A page link with an explicit label → [[Custom Label]]
+	md = render(t, `<p>See <ac:link><ri:page ri:content-title="My Page"/><ac:plain-text-link-body>Custom Label</ac:plain-text-link-body></ac:link> here</p>`, nil)
+	mustContain(t, md, "[[Custom Label]]")
+}

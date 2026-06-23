@@ -37,6 +37,10 @@ type DocStore interface {
 	ListAttachments(ctx context.Context, id string) ([]Attachment, error)
 	// DownloadAttachment streams an attachment's bytes. version<=0 means latest.
 	DownloadAttachment(ctx context.Context, pageID, filename string, version int) ([]byte, error)
+	// UploadAttachment uploads file bytes as an attachment to a page.
+	UploadAttachment(ctx context.Context, pageID, filename string, data []byte, comment string) (*Attachment, error)
+	// DeleteAttachment deletes an attachment by its content id.
+	DeleteAttachment(ctx context.Context, attachmentID string) error
 }
 
 // Version is a single revision record.
