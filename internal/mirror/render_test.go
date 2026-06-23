@@ -87,13 +87,13 @@ func TestRenderMacros(t *testing.T) {
 	mustContain(t, render(t, `<ac:structured-macro ac:name="status"><ac:parameter ac:name="title">DONE</ac:parameter></ac:structured-macro>`, nil), "`[DONE]`")
 
 	// Unknown macro degrades to a placeholder that keeps the rich body content;
-	// it must not crash or drop the body. (noformat is NOT special-cased: its
-	// plain-text body is not surfaced, only the placeholder — assert reality.)
+	// it must not crash or drop the body.
 	unknown := render(t, `<ac:structured-macro ac:name="totallyunknown"><ac:rich-text-body><p>kept content</p></ac:rich-text-body></ac:structured-macro>`, nil)
 	mustContain(t, unknown, "⟦macro totallyunknown⟧", "kept content")
 
+	// noformat is fenced as a code block; its plain-text body must survive.
 	noformat := render(t, `<ac:structured-macro ac:name="noformat"><ac:plain-text-body><![CDATA[raw]]></ac:plain-text-body></ac:structured-macro>`, nil)
-	mustContain(t, noformat, "⟦macro noformat⟧")
+	mustContain(t, noformat, "```", "raw")
 }
 
 // TestRenderResolvedRefs locks the resolved-ref paths: a user mention and an
