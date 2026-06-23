@@ -86,12 +86,18 @@ func jiraIssueCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return emit(cmd, map[string]any{"issues": issues, "next_cursor": next}, func() string {
+			return emitID(cmd, map[string]any{"issues": issues, "next_cursor": next}, func() string {
 				var b strings.Builder
 				for _, is := range issues {
 					fmt.Fprintf(&b, "%s\t[%s]\t%s\n", is.Key, is.Status, is.Summary)
 				}
 				return strings.TrimRight(b.String(), "\n")
+			}, func() []string {
+				keys := make([]string, len(issues))
+				for i, is := range issues {
+					keys[i] = is.Key
+				}
+				return keys
 			})
 		},
 	}
@@ -125,7 +131,8 @@ func jiraIssueCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return emit(cmd, is, func() string { return "created " + is.Key })
+			return emitID(cmd, is, func() string { return "created " + is.Key },
+				func() []string { return []string{is.Key} })
 		},
 	}
 	create.Flags().StringVar(&project, "project", "", "project key")

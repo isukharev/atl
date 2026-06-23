@@ -58,12 +58,18 @@ func confSearchCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return emit(cmd, map[string]any{"results": hits, "next_cursor": next}, func() string {
+			return emitID(cmd, map[string]any{"results": hits, "next_cursor": next}, func() string {
 				var b strings.Builder
 				for _, h := range hits {
 					fmt.Fprintf(&b, "%s\tv%d\t%s\t%s\n", h.ID, h.Version, h.Space, h.Title)
 				}
 				return strings.TrimRight(b.String(), "\n")
+			}, func() []string {
+				ids := make([]string, len(hits))
+				for i, h := range hits {
+					ids[i] = h.ID
+				}
+				return ids
 			})
 		},
 	}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/httpx"
 	"github.com/isukharev/atl/internal/version"
 )
 
@@ -32,7 +33,10 @@ const (
 	exitConfig       = 7
 )
 
-var outputFormat string
+var (
+	outputFormat string
+	verbose      bool
+)
 
 // Execute builds and runs the root command, mapping errors to exit codes.
 func Execute() {
@@ -71,7 +75,8 @@ func newRoot() *cobra.Command {
 		SilenceErrors: true,
 		Version:       version.Version,
 	}
-	root.PersistentFlags().StringVarP(&outputFormat, "output", "o", "json", "output format: json|text")
+	root.PersistentFlags().StringVarP(&outputFormat, "output", "o", "json", "output format: json|text|id")
+	root.PersistentFlags().BoolVar(&verbose, "verbose", false, "trace HTTP requests/responses to stderr (token never logged); also ATL_VERBOSE=1")
 	// A flag-parse failure (unknown flag, bad value) is a usage error: map it to
 	// exit 2, not the generic 1. Inherited by every subcommand.
 	root.SetFlagErrorFunc(func(_ *cobra.Command, e error) error {
@@ -81,8 +86,15 @@ func newRoot() *cobra.Command {
 	// Validate the global output format, then run a best-effort self-update check
 	// (never blocks/fails the command).
 	root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
-		if outputFormat != "json" && outputFormat != "text" {
-			return usageErr("invalid --output %q (want json|text)", outputFormat)
+		switch outputFormat {
+		case "json", "text", "id":
+		default:
+			return usageErr("invalid --output %q (want json|text|id)", outputFormat)
+		}
+		// --verbose (or ATL_VERBOSE) traces every HTTP request to stderr. The
+		// bearer token is never written. stdout stays reserved for the result.
+		if verbose || os.Getenv("ATL_VERBOSE") != "" {
+			httpx.SetTrace(cmd.ErrOrStderr())
 		}
 		runSelfUpdate(cmd)
 		return nil
@@ -110,16 +122,42 @@ func codeFor(err error) int {
 }
 
 // emit renders v as JSON (default) or, when -o text and a texter is given, text.
+// `-o id` is only meaningful for commands that emit identifiers; a command that
+// has no id projection routes through here and reports the unsupported format
+// rather than silently dumping JSON.
 func emit(cmd *cobra.Command, v any, text func() string) error {
 	w := cmd.OutOrStdout()
-	if outputFormat == "text" && text != nil {
-		fmt.Fprintln(w, text())
-		return nil
+	switch outputFormat {
+	case "text":
+		if text != nil {
+			fmt.Fprintln(w, text())
+			return nil
+		}
+	case "id":
+		return usageErr("-o id is not supported for this command")
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
 	return enc.Encode(v)
+}
+
+// emitID is emit plus an `-o id` projection: when the output format is `id` it
+// prints just the primary identifier(s), one per line, for safe piping
+// (`atl jira issue search --jql … -o id | xargs …`). For json/text it defers to
+// emit. ids must be non-nil for a command to advertise id support.
+func emitID(cmd *cobra.Command, v any, text func() string, ids func() []string) error {
+	if outputFormat == "id" {
+		if ids == nil {
+			return usageErr("-o id is not supported for this command")
+		}
+		w := cmd.OutOrStdout()
+		for _, id := range ids() {
+			fmt.Fprintln(w, id)
+		}
+		return nil
+	}
+	return emit(cmd, v, text)
 }
 
 // loadConfig loads non-secret config (URLs).
