@@ -44,6 +44,19 @@ location by exporting `ATL_MIRROR_ROOT`, which becomes the default for `conf pul
 `jira pull` (an explicit `--into` still wins). Full rules, the safe loop, and how to search a
 two-root layout are in [workflow.md](reference/workflow.md).
 
+## New capabilities (cloud-CLI parity)
+
+Recent additions expand both surfaces — check the focused skills for full flag details:
+
+**Global flags (all commands):**
+- `-o id` — print just the primary identifier(s) one per line (issue keys, page IDs) for safe piping into `xargs` or scripts. Not all commands support it; those that don't return an error.
+- `--verbose` / `ATL_VERBOSE=1` — trace every HTTP request/response to stderr (token never logged).
+- Shell completion for fixed-value flags (e.g. `--output`, `--format`, `--status`) is registered.
+
+**Confluence additions:** `conf page list --space [--status]`, `conf page open --id`, `conf page copy --id --title [--space] [--parent]`, `conf attachment {list,get,upload,delete}`, `conf me`, `conf search --space/--title/--label/--type` convenience filters (no `--cql` needed), `.md` view renders internal links as `[[Title]]`.
+
+**Jira additions:** `jira issue history <KEY>`, `jira issue check <KEY> [--require] [--warn]` (non-zero exit if a required field is empty — good as a CI gate), `jira issue delete <KEY> --force` (permanent on DC), `jira issue labels <KEY> --add/--remove`, `jira me`, `jira user search <q>` / `jira user get <username>`. **Breaking renames:** `comment add|list|delete` (was `comment <KEY>`), `link add|list|delete` (was `link <KEY>`). `jira issue transition` now accepts `--field k=v` to set fields on the transition.
+
 ## Reacting to results
 
 `atl` prints JSON to stdout by default (use `-o text` only for a human view) and signals outcomes

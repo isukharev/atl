@@ -1,6 +1,6 @@
 ---
 name: confluence
-description: Pull, read, edit, validate, and push Confluence pages with the atl CLI in their native storage format (CSF). Use when the user wants to read, search, summarize, edit, update, create, or publish a Confluence or wiki page, or work with .csf / storage-format content.
+description: Pull, read, edit, validate, and push Confluence pages with the atl CLI in their native storage format (CSF). USE WHEN the user wants to read, search, summarize, edit, update, create, publish, copy, open, or delete a Confluence or wiki page; list or upload page attachments; add or list page comments; browse a space tree or list pages in a space; work with .csf / storage-format content; check page history or metadata.
 ---
 
 # Confluence pages with `atl`
@@ -91,13 +91,60 @@ atl conf status ~/.atl/<workspace>/ --remote
 → `{ "entries": [ {path, id, title, locally_edited, synced_version, remote_version, remote_drifted, remote_error} ] }`
 (`--remote` does one request per page to detect drift; omit it for a fast local-only view.)
 
+## Quick Reference — all `conf` commands
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `conf search` | Search pages by CQL or convenience filters | `--cql`, `--space`, `--title`, `--label`, `--type`, `--limit`, `--cursor` |
+| `conf search -o id` | Print matching page IDs one per line (for piping) | `-o id` |
+| `conf space tree` | Page hierarchy of a space | `--space KEY`, `--depth N` |
+| `conf page list` | List pages in a space | `--space KEY`, `--status current\|archived\|trashed`, `--limit N` |
+| `conf page get` | Print a page body (CSF or rendered view) | `--id`, `--format csf\|view` |
+| `conf page meta` | Page metadata (version, ancestors, labels, restrictions) | `--id` |
+| `conf page history` | List page versions | `--id` |
+| `conf page open` | Open the page in the system browser | `--id` |
+| `conf page create` | Create a page (CSF body from `--from-file`) | `--space`, `--title`, `--parent`, `--from-file` |
+| `conf page copy` | Copy a page (same CSF body, new title/space/parent) | `--id`, `--title`, `--space`, `--parent` |
+| `conf page move` | Reparent a page | `--id`, `--parent` |
+| `conf page delete` | Trash a page | `--id` |
+| `conf pull` | Mirror pages to disk (.csf + .md + .meta.json + assets) | `--id`, `--cql`, `--space`, `--assets`, `--into`, `--depth` |
+| `conf status` | Show locally-edited and remote-drifted pages | `[DIR]`, `--remote` |
+| `conf validate` | Validate CSF well-formedness | `<file.csf>` |
+| `conf push` | Validate + push under the version gate | `<file.csf\|DIR>`, `--dry-run`, `--force`, `--into` |
+| `conf comment list` | List comments on a page | `--id` |
+| `conf comment add` | Add a comment (CSF body) | `--id`, `--from-file` |
+| `conf attachment list` | List attachments on a page | `--id` |
+| `conf attachment get` | Download an attachment | `--id`, `--name`, `--version`, `--into` |
+| `conf attachment upload` | Upload a file as a page attachment | `--id`, `--file`, `--comment` |
+| `conf attachment delete` | Delete an attachment by id | `--id` |
+| `conf me` | Print the authenticated Confluence user | — |
+
+**Note on `-o id` and `-o text`:** Any command that has an ID projection (search, page list, attachment list) supports `-o id` to print identifiers one per line for piping. All commands accept `-o text` for a human-readable view instead of JSON.
+
+### `.md` internal links
+The rendered `.md` view represents Confluence page links as `[[Title]]` — these are read-only markers; the underlying CSF has the proper `<ri:page>` element.
+
 ## Creating, moving, commenting
 - New page: `atl conf page create --space <KEY> --title '<T>' [--parent <id>] --from-file body.csf`
   (the body is validated; malformed CSF is rejected and the page is not created).
+- Copy a page: `atl conf page copy --id <id> --title 'New Title' [--space KEY] [--parent <id>]`.
 - `atl conf page get --id <id> --format csf|view`, `atl conf page meta --id <id>`,
   `atl conf page history --id <id>`, `atl conf page move --id <id> --parent <id>`,
-  `atl conf page delete --id <id>`.
+  `atl conf page delete --id <id>`, `atl conf page open --id <id>`.
 - Comments: `atl conf comment list --id <id>` / `atl conf comment add --id <id> --from-file c.csf`.
+- Attachments: `atl conf attachment list|get|upload|delete`.
+
+## Common Errors
+
+| Symptom / Exit | Likely cause | Remedy |
+|---|---|---|
+| Exit 7 from any command | Backend URL or PAT not configured | Run `/atl:setup` (or `atl config set` + `atl auth login`) |
+| Exit 5 on push | Remote version moved past your synced version | Re-pull and reconcile; use `--force` only after a human decides |
+| Exit 4 | Page ID doesn't exist or isn't visible | Verify the `--id`; the page may have been deleted or renamed |
+| Exit 6 | Token lacks permission for this page/space | Surface to the user; they may need a broader-scoped PAT or access |
+| Exit 3 | Token was rejected (expired/revoked/wrong instance) | Re-run `atl auth login --service confluence` with a valid PAT |
+| Exit 2 + "not well-formed" on `page create` | CSF body has structural errors | Fix the CSF (`conf validate body.csf`) before retrying |
+| `conf search` requires `--cql` or filter | No query provided | Pass `--cql '<CQL>'` or at least one of `--space/--title/--label/--type` |
 
 ## Hard rules
 - **Edit only `.csf`.** The `.md` and `.meta.json` are regenerated on every pull — edits to them are
