@@ -517,7 +517,7 @@ func isBlockMacroName(name string) bool {
 func (r *mdRenderer) taskList(b *strings.Builder, n *csf.Node, depth int) {
 	indent := strings.Repeat("  ", depth)
 	for _, c := range n.Children {
-		if c.Type != csf.Element || !(c.Name.Space == "ac" && c.Name.Local == "task") {
+		if c.Type != csf.Element || c.Name.Space != "ac" || c.Name.Local != "task" {
 			continue
 		}
 		mark := "[ ]"
