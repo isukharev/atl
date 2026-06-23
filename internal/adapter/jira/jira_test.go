@@ -138,31 +138,38 @@ func TestMapIssueVersionIsZero(t *testing.T) {
 
 // --- Finding 3: FieldOptions returns ErrNotFound when the field is absent ---
 
-const createmetaBody = `{
-  "projects": [
-    {
-      "issuetypes": [
-        {
-          "fields": {
-            "priority": {
-              "name": "Priority",
-              "allowedValues": [
-                {"name": "High"},
-                {"name": "Low"}
-              ]
-            }
-          }
-        }
-      ]
-    }
-  ]
-}`
+// Jira DC 9.x removed the expand-based createmeta; FieldOptions now walks the
+// two-step /createmeta/{projectKey}/issuetypes[/{id}] endpoints. createmetaMux
+// serves that shape and records which paths were hit.
+func createmetaMux(hit *[]string) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rest/api/2/issue/createmeta/ABC/issuetypes", func(w http.ResponseWriter, r *http.Request) {
+		*hit = append(*hit, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"values":[{"id":"3","name":"Task"},{"id":"5","name":"Bug"}]}`)
+	})
+	mux.HandleFunc("/rest/api/2/issue/createmeta/ABC/issuetypes/3", func(w http.ResponseWriter, r *http.Request) {
+		*hit = append(*hit, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"values":[
+			{"fieldId":"priority","name":"Priority","allowedValues":[{"name":"High"},{"name":"Low"}]}
+		]}`)
+	})
+	// Bug (id 5) overlaps Task on "High" and adds "Critical" — used to exercise
+	// the scan-all (empty --type) path and cross-type value de-duplication.
+	mux.HandleFunc("/rest/api/2/issue/createmeta/ABC/issuetypes/5", func(w http.ResponseWriter, r *http.Request) {
+		*hit = append(*hit, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"values":[
+			{"fieldId":"priority","name":"Priority","allowedValues":[{"name":"High"},{"name":"Critical"}]}
+		]}`)
+	})
+	return mux
+}
 
 func TestFieldOptionsReturnsValues(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, createmetaBody)
-	}))
+	var hit []string
+	srv := httptest.NewServer(createmetaMux(&hit))
 	defer srv.Close()
 
 	j := newTestJira(srv)
@@ -173,19 +180,119 @@ func TestFieldOptionsReturnsValues(t *testing.T) {
 	if len(opts) != 2 || opts[0] != "High" || opts[1] != "Low" {
 		t.Errorf("opts = %v, want [High Low]", opts)
 	}
+	// Both steps of the DC createmeta endpoint must have been used.
+	if len(hit) != 2 || hit[0] != "/rest/api/2/issue/createmeta/ABC/issuetypes" || hit[1] != "/rest/api/2/issue/createmeta/ABC/issuetypes/3" {
+		t.Errorf("unexpected createmeta paths: %v", hit)
+	}
 }
 
 func TestFieldOptionsUnknownFieldNotFound(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, createmetaBody)
-	}))
+	var hit []string
+	srv := httptest.NewServer(createmetaMux(&hit))
 	defer srv.Close()
 
 	j := newTestJira(srv)
 	_, err := j.FieldOptions(context.Background(), "ABC", "Task", "nosuchfield")
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("err = %v, want wrap of domain.ErrNotFound", err)
+	}
+}
+
+// TestFieldOptionsUnknownTypeNotFound verifies that naming an issue type the
+// project doesn't have is reported as ErrNotFound, not a silent empty result.
+func TestFieldOptionsUnknownTypeNotFound(t *testing.T) {
+	var hit []string
+	srv := httptest.NewServer(createmetaMux(&hit))
+	defer srv.Close()
+
+	j := newTestJira(srv)
+	_, err := j.FieldOptions(context.Background(), "ABC", "Nonexistent", "priority")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("err = %v, want wrap of domain.ErrNotFound", err)
+	}
+}
+
+// TestFieldOptionsScanAllDeduplicates verifies that an empty issue type scans
+// every type in the project and returns the de-duplicated union of allowed
+// values (Task: High, Low; Bug: High, Critical -> High, Low, Critical).
+func TestFieldOptionsScanAllDeduplicates(t *testing.T) {
+	var hit []string
+	srv := httptest.NewServer(createmetaMux(&hit))
+	defer srv.Close()
+
+	j := newTestJira(srv)
+	opts, err := j.FieldOptions(context.Background(), "ABC", "", "priority")
+	if err != nil {
+		t.Fatalf("FieldOptions: %v", err)
+	}
+	want := []string{"High", "Low", "Critical"}
+	if len(opts) != len(want) {
+		t.Fatalf("opts = %v, want %v", opts, want)
+	}
+	for i := range want {
+		if opts[i] != want[i] {
+			t.Fatalf("opts = %v, want %v", opts, want)
+		}
+	}
+	// Both per-type endpoints must have been walked.
+	if len(hit) != 3 || hit[1] != "/rest/api/2/issue/createmeta/ABC/issuetypes/3" || hit[2] != "/rest/api/2/issue/createmeta/ABC/issuetypes/5" {
+		t.Errorf("unexpected createmeta paths: %v", hit)
+	}
+}
+
+// TestFieldOptionsScanAllToleratesTypeError verifies that, when scanning every
+// type, a single per-type createmeta failure does not sink the whole scan: the
+// values already collected from healthy types are still returned.
+func TestFieldOptionsScanAllToleratesTypeError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rest/api/2/issue/createmeta/ABC/issuetypes", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"values":[{"id":"3","name":"Task"},{"id":"5","name":"Bug"}]}`)
+	})
+	mux.HandleFunc("/rest/api/2/issue/createmeta/ABC/issuetypes/3", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"values":[
+			{"fieldId":"priority","name":"Priority","allowedValues":[{"name":"High"},{"name":"Low"}]}
+		]}`)
+	})
+	// Bug (id 5) is restricted / odd and errors on the detail endpoint.
+	mux.HandleFunc("/rest/api/2/issue/createmeta/ABC/issuetypes/5", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	j := newTestJira(srv)
+	opts, err := j.FieldOptions(context.Background(), "ABC", "", "priority")
+	if err != nil {
+		t.Fatalf("FieldOptions: %v", err)
+	}
+	want := []string{"High", "Low"}
+	if len(opts) != len(want) || opts[0] != want[0] || opts[1] != want[1] {
+		t.Fatalf("opts = %v, want %v", opts, want)
+	}
+}
+
+// TestFieldOptionsScanAllAllTypesErrorSurfacesError verifies that when scanning
+// every type and *no* type can be read, the underlying error is surfaced rather
+// than a misleading "field not found".
+func TestFieldOptionsScanAllAllTypesErrorSurfacesError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rest/api/2/issue/createmeta/ABC/issuetypes", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"values":[{"id":"3","name":"Task"},{"id":"5","name":"Bug"}]}`)
+	})
+	// Every per-type request fails (e.g. expired PAT): 403 -> domain.ErrForbidden.
+	mux.HandleFunc("/rest/api/2/issue/createmeta/ABC/issuetypes/", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	j := newTestJira(srv)
+	_, err := j.FieldOptions(context.Background(), "ABC", "", "priority")
+	if !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("err = %v, want wrap of domain.ErrForbidden", err)
 	}
 }
 

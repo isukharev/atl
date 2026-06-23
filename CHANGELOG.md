@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`conf page history` on Confluence Data Center** — list page versions via
+  `/rest/experimental/content/{id}/version` instead of the Cloud-style
+  `/rest/api/content/{id}/version`, which returns 404 on DC.
+- **`jira field-options` on Jira Data Center 9.x** — resolve a field's allowed
+  values through the two-step `/issue/createmeta/{projectKey}/issuetypes[/{id}]`
+  endpoints; the older expand-based `/issue/createmeta?expand=…` query was removed
+  in newer Jira DC and returned 404.
+
+### Changed
+
+- Live integration tests now run via `make integration`, which sources a
+  gitignored `.env.integration` (template: `.env.integration.example`) so backend
+  URLs and PATs stay local. Adds read-only coverage for `conf page history` and
+  `jira field-options` against a real DC.
+
 ---
 
 ## [0.2.0] - 2026-06-22

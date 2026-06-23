@@ -35,6 +35,16 @@ test:
 race:
 	go test -race ./...
 
+# Live integration tests against a REAL Confluence/Jira Data Center. Opt-in only —
+# never part of `make test` and never run in CI. Reads local-only ./.env.integration
+# (copy .env.integration.example and fill in your DC URL, PATs, and throwaway test
+# objects); that file is gitignored so the real URL/tokens never reach the repo.
+.PHONY: integration
+integration:
+	@test -f .env.integration || { echo "missing .env.integration — run: cp .env.integration.example .env.integration && edit it"; exit 1; }
+	set -a; . ./.env.integration; set +a; \
+	ATL_INTEGRATION=1 go test ./... -run Integration -count=1 -v
+
 .PHONY: vet
 vet:
 	go vet ./...

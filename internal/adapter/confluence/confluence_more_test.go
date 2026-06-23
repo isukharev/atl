@@ -256,7 +256,9 @@ func TestHistory(t *testing.T) {
 	if vs[2].Number != 1 || vs[2].By != "Alice" {
 		t.Errorf("v2 = %+v", vs[2])
 	}
-	if !strings.Contains(gotPath, "/rest/api/content/70/version") || !strings.Contains(gotPath, "limit=50") {
+	// Confluence Data Center exposes the version list under /rest/experimental,
+	// not the Cloud-style /rest/api/content/{id}/version (which 404s on DC).
+	if !strings.Contains(gotPath, "/rest/experimental/content/70/version") || !strings.Contains(gotPath, "limit=50") {
 		t.Errorf("unexpected history path %q", gotPath)
 	}
 }

@@ -22,11 +22,18 @@ make vet      # go vet ./...
 go test ./internal/csf/ -run TestParse   # single package / single test
 ```
 
-Live integration tests hit a real backend and are gated by env so they never run in CI:
+Live integration tests hit a real backend and are gated by env so they never run in CI.
+Keep your DC URL/PATs out of the repo: copy the template to a gitignored `.env.integration`
+and run them through the Makefile, which sources it and sets `ATL_INTEGRATION=1`:
 
 ```sh
-ATL_INTEGRATION=1 ATL_TEST_PAGE_ID=<throwaway-page-id> go test ./... -run Integration
+cp .env.integration.example .env.integration   # fill in DC URL, PATs, throwaway test objects
+make integration                               # runs only -run Integration, never in CI
 ```
+
+Or pass the env inline for a one-off (no file): `ATL_INTEGRATION=1 CONFLUENCE_URL=… TEST_CONFLUENCE_PAT=…
+ATL_TEST_PAGE_ID=<throwaway-page-id> go test ./... -run Integration`. Jira `field-options` coverage
+also needs `ATL_TEST_JIRA_PROJECT` + `ATL_TEST_JIRA_FIELD` (e.g. `priority`).
 
 Requires Go 1.26+. CI enforces `gofmt` and `goimports` (`local-prefixes = github.com/isukharev/atl`)
 and pins `golangci-lint` (v2.12.2) and `govulncheck` (v1.4.0) — match these locally to avoid lint drift.
