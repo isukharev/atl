@@ -77,6 +77,7 @@ func newRoot() *cobra.Command {
 	}
 	root.PersistentFlags().StringVarP(&outputFormat, "output", "o", "json", "output format: json|text|id")
 	root.PersistentFlags().BoolVar(&verbose, "verbose", false, "trace HTTP requests/responses to stderr (token never logged); also ATL_VERBOSE=1")
+	_ = root.RegisterFlagCompletionFunc("output", fixedComp("json", "text", "id"))
 	// A flag-parse failure (unknown flag, bad value) is a usage error: map it to
 	// exit 2, not the generic 1. Inherited by every subcommand.
 	root.SetFlagErrorFunc(func(_ *cobra.Command, e error) error {

@@ -160,6 +160,7 @@ func confPageCmd() *cobra.Command {
 	}
 	get.Flags().StringVar(&id, "id", "", "page id")
 	get.Flags().StringVar(&format, "format", "csf", "csf|view")
+	_ = get.RegisterFlagCompletionFunc("format", fixedComp("csf", "view"))
 
 	var metaID string
 	meta := &cobra.Command{
@@ -316,6 +317,7 @@ func confPageCmd() *cobra.Command {
 	}
 	list.Flags().StringVar(&listSpace, "space", "", "space key")
 	list.Flags().StringVar(&listStatus, "status", "", "current|archived|trashed")
+	_ = list.RegisterFlagCompletionFunc("status", fixedComp("current", "archived", "trashed"))
 	list.Flags().IntVar(&listLimit, "limit", 25, "max results")
 
 	var openID string

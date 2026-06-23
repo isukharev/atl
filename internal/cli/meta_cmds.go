@@ -65,6 +65,7 @@ func newAuthCmd() *cobra.Command {
 	}
 	login.Flags().StringVar(&service, "service", "", "confluence|jira")
 	login.Flags().StringVar(&fromFile, "from-file", "", "read PAT from a file, or - for stdin")
+	_ = login.RegisterFlagCompletionFunc("service", fixedComp("confluence", "jira"))
 
 	status := &cobra.Command{
 		Use:   "status",
@@ -96,6 +97,7 @@ func newAuthCmd() *cobra.Command {
 		},
 	}
 	logout.Flags().StringVar(&logoutSvc, "service", "", "confluence|jira")
+	_ = logout.RegisterFlagCompletionFunc("service", fixedComp("confluence", "jira"))
 
 	c.AddCommand(login, status, logout)
 	return c
