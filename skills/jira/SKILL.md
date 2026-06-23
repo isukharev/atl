@@ -1,6 +1,6 @@
 ---
 name: jira
-description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, transition, comment on, link, delete, check fields of, or report on a Jira issue, ticket, bug, story, epic, or task; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; download images from an issue.
+description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, transition, comment on, link, delete, check fields of, or report on a Jira issue, ticket, bug, story, epic, or task; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; download images from an issue; or work with agile boards and sprints — list boards/sprints, see the current sprint, list a sprint's issues, or move issues into a sprint or back to the backlog.
 ---
 
 # Jira issues with `atl`
@@ -86,6 +86,21 @@ pattern** (edit a wiki body as a file, then `update --from-file`).
 atl jira issue images PROJ-1 --into /tmp/proj1-images   # {key, images:[paths]}
 ```
 Open the downloaded images when a screenshot/diagram matters.
+
+### 7. Boards & sprints (Jira Software only)
+Backed by the Data Center Agile API; boards/sprints are addressed by **numeric id**.
+Typical flow: find the board for a project, list its sprints, then read or move issues.
+```bash
+atl jira board list --project PROJ                 # {boards:[{id,name,type,project_key}]} — id feeds --board
+atl jira board get 5
+atl jira sprint list --board 5 [--state active]    # {sprints:[{id,name,state,...}]}; state: active|closed|future
+atl jira sprint current --board 5                  # the active sprint (exit 4 if none)
+atl jira sprint issues 7 [--fields summary,status] # issues in sprint 7; -o id → just the keys
+atl jira sprint add 7 PROJ-1 PROJ-2                # move issues into sprint 7
+atl jira sprint remove PROJ-1                       # move issue(s) back to the backlog
+```
+These need Jira **Software** (GreenHopper); on a Core/Service-Management-only instance the
+Agile endpoints 404 (exit 4). Use `board list --project` to discover the id `--board` wants.
 
 ## Quick Reference — all `jira` commands
 

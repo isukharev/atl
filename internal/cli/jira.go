@@ -21,7 +21,7 @@ func jiraService() (*app.JiraService, error) {
 
 func newJiraCmd() *cobra.Command {
 	c := &cobra.Command{Use: "jira", Short: "Jira: read/search/pull issues, edit via commands (native wiki)"}
-	cmds := []*cobra.Command{jiraIssueCmd(), jiraPullCmd(), jiraMeCmd(), jiraUserCmd()}
+	cmds := []*cobra.Command{jiraIssueCmd(), jiraPullCmd(), jiraMeCmd(), jiraUserCmd(), jiraBoardCmd(), jiraSprintCmd()}
 	cmds = append(cmds, jiraMetaCmds()...)
 	c.AddCommand(cmds...)
 	return c

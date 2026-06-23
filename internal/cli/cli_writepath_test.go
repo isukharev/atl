@@ -55,6 +55,7 @@ type cannedResp struct {
 type capturedReq struct {
 	method string
 	path   string
+	query  string
 	body   string
 }
 

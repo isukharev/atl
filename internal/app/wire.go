@@ -23,9 +23,13 @@ type ConfluenceService struct {
 	verifier domain.Verifier
 }
 
-// JiraService bundles the Jira use-cases over a Tracker.
+// JiraService bundles the Jira use-cases over a Tracker. agile is the optional
+// boards/sprints capability (Jira Software only); in production it is the same
+// adapter instance as tr, mirroring how ConfluenceService composes one adapter
+// across several capability fields.
 type JiraService struct {
 	tr      domain.Tracker
+	agile   domain.Agile
 	baseURL string
 }
 
@@ -70,5 +74,6 @@ func NewJira(cfg *config.Config, version string) (*JiraService, error) {
 		}
 		return nil, err
 	}
-	return &JiraService{tr: jira.New(cfg.JiraURL, tok, version), baseURL: cfg.JiraURL}, nil
+	j := jira.New(cfg.JiraURL, tok, version)
+	return &JiraService{tr: j, agile: j, baseURL: cfg.JiraURL}, nil
 }

@@ -135,6 +135,53 @@ type Tracker interface {
 	LinkTypes(ctx context.Context) ([]string, error)
 }
 
+// Board is an agile board (scrum/kanban) on Jira Software. ProjectKey is the
+// board's location project when the backend reports one (board listings do;
+// the single-board fetch may not).
+type Board struct {
+	ID         int    `json:"id"`
+	Name       string `json:"name"`
+	Type       string `json:"type"` // scrum | kanban
+	ProjectKey string `json:"project_key,omitempty"`
+}
+
+// Sprint is a sprint belonging to a scrum board. Dates are the backend's raw
+// ISO-8601 strings (kept verbatim; not all are set depending on state).
+type Sprint struct {
+	ID            int    `json:"id"`
+	Name          string `json:"name"`
+	State         string `json:"state"` // active | closed | future
+	StartDate     string `json:"start_date,omitempty"`
+	EndDate       string `json:"end_date,omitempty"`
+	CompleteDate  string `json:"complete_date,omitempty"`
+	Goal          string `json:"goal,omitempty"`
+	OriginBoardID int    `json:"origin_board_id,omitempty"`
+}
+
+// Agile is the optional capability for Jira Software boards & sprints, backed by
+// the Data Center Agile REST API (/rest/agile/1.0/). It is kept separate from
+// Tracker — like Verifier — because it requires Jira Software (GreenHopper) and
+// is not part of every issue tracker's surface, so a non-agile backend need not
+// implement it. cursor is the startAt offset; a method returns the next offset
+// or "" when the listing is exhausted.
+type Agile interface {
+	// Boards lists agile boards, optionally filtered to a project (key or id).
+	Boards(ctx context.Context, project string, limit int, cursor string) ([]Board, string, error)
+	// Board fetches one board by id.
+	Board(ctx context.Context, id int) (*Board, error)
+	// Sprints lists a board's sprints, optionally filtered by state
+	// (active|closed|future; "" for all).
+	Sprints(ctx context.Context, boardID int, state string, limit int, cursor string) ([]Sprint, string, error)
+	// Sprint fetches one sprint by id.
+	Sprint(ctx context.Context, id int) (*Sprint, error)
+	// SprintIssues lists the issues assigned to a sprint.
+	SprintIssues(ctx context.Context, sprintID int, fields []string, limit int, cursor string) ([]Issue, string, error)
+	// MoveIssuesToSprint moves issues (by key) into a sprint.
+	MoveIssuesToSprint(ctx context.Context, sprintID int, keys []string) error
+	// MoveIssuesToBacklog removes issues (by key) from any sprint (to backlog).
+	MoveIssuesToBacklog(ctx context.Context, keys []string) error
+}
+
 // User is an account on the tracker. On Jira Data Center the identity is the
 // username (Name) / user key (Key); AccountID is Cloud-only and kept for
 // forward compatibility.
