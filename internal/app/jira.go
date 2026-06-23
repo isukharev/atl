@@ -73,13 +73,19 @@ func (s *JiraService) Check(ctx context.Context, key string, require, warn []str
 		return nil, err
 	}
 	r := &CheckResult{Key: key, OK: true}
+	required := make(map[string]bool, len(require))
 	for _, f := range require {
+		required[f] = true
 		if fieldEmpty(is.Fields[f]) {
 			r.MissingRequired = append(r.MissingRequired, f)
 			r.OK = false
 		}
 	}
 	for _, f := range warn {
+		// A field that is already required is reported there, not duplicated here.
+		if required[f] {
+			continue
+		}
 		if fieldEmpty(is.Fields[f]) {
 			r.MissingWarn = append(r.MissingWarn, f)
 		}

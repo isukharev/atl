@@ -35,6 +35,34 @@ func TestCheckReportsMissingFields(t *testing.T) {
 	}
 }
 
+// A field named in both --require and (default) --warn must be reported only as
+// required, never duplicated into the warn list.
+func TestCheckExcludesRequiredFromWarn(t *testing.T) {
+	tr := &waveBTracker{issue: &domain.Issue{Key: "K-3", Fields: map[string]any{
+		"assignee": nil, // empty; listed in both require and warn below
+		"priority": nil, // empty; warn-only
+	}}}
+	svc := &JiraService{tr: tr}
+
+	r, err := svc.Check(context.Background(), "K-3",
+		[]string{"assignee"},
+		[]string{"assignee", "priority"})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	for _, w := range r.MissingWarn {
+		if w == "assignee" {
+			t.Fatalf("assignee reported in both required and warn: %+v", r)
+		}
+	}
+	if len(r.MissingRequired) != 1 || r.MissingRequired[0] != "assignee" {
+		t.Errorf("MissingRequired = %v, want [assignee]", r.MissingRequired)
+	}
+	if len(r.MissingWarn) != 1 || r.MissingWarn[0] != "priority" {
+		t.Errorf("MissingWarn = %v, want [priority]", r.MissingWarn)
+	}
+}
+
 func TestCheckOKWhenRequiredPresent(t *testing.T) {
 	tr := &waveBTracker{issue: &domain.Issue{Key: "K-2", Fields: map[string]any{
 		"assignee": map[string]any{"displayName": "Jane"},

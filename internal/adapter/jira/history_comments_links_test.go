@@ -11,9 +11,9 @@ import (
 // Changelog uses the DC-universal ?expand=changelog form (the paginated
 // /changelog sub-resource is Cloud/DC-9+ only) and maps histories to entries.
 func TestChangelogExpandsAndMaps(t *testing.T) {
-	var gotPath, gotQuery string
+	var gotPath, gotExpand, gotFields string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath, gotQuery = r.URL.Path, r.URL.Query().Get("expand")
+		gotPath, gotExpand, gotFields = r.URL.Path, r.URL.Query().Get("expand"), r.URL.Query().Get("fields")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
 			"key":"PROJ-1",
@@ -33,8 +33,11 @@ func TestChangelogExpandsAndMaps(t *testing.T) {
 	if gotPath != "/rest/api/2/issue/PROJ-1" {
 		t.Errorf("path = %q, want /rest/api/2/issue/PROJ-1", gotPath)
 	}
-	if gotQuery != "changelog" {
-		t.Errorf("expand = %q, want changelog", gotQuery)
+	if gotExpand != "changelog" {
+		t.Errorf("expand = %q, want changelog", gotExpand)
+	}
+	if gotFields != "summary" {
+		t.Errorf("fields = %q, want summary (payload-size optimization)", gotFields)
 	}
 	if len(entries) != 1 {
 		t.Fatalf("got %d entries, want 1", len(entries))
