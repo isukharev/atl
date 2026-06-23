@@ -66,11 +66,30 @@ type Issue struct {
 	FieldText map[string]string `json:"-"`
 }
 
-// IssueLink is a typed link between issues.
+// IssueLink is a typed link between issues. ID is the backend link id, needed
+// to delete a specific link (the same id appears on both the inward and outward
+// view of one link).
 type IssueLink struct {
+	ID        string `json:"id,omitempty"`
 	Type      string `json:"type"`
 	Direction string `json:"direction"` // inward|outward
 	Key       string `json:"key"`
+}
+
+// ChangelogEntry is one history record of an issue (who changed what, when).
+type ChangelogEntry struct {
+	ID      string          `json:"id"`
+	Author  string          `json:"author"`
+	Created string          `json:"created"`
+	Items   []ChangelogItem `json:"items"`
+}
+
+// ChangelogItem is a single field change inside a ChangelogEntry. From/To are
+// the human-readable values (Jira's fromString/toString).
+type ChangelogItem struct {
+	Field string `json:"field"`
+	From  string `json:"from,omitempty"`
+	To    string `json:"to,omitempty"`
 }
 
 // Tracker is the port for an issue tracker (Jira today; Linear/GitLab later).
@@ -81,8 +100,16 @@ type Tracker interface {
 	Update(ctx context.Context, key, summary string, body []byte, fields map[string]string) error
 	Transition(ctx context.Context, key, to, comment string) error
 	AddComment(ctx context.Context, key string, body []byte) (*Comment, error)
+	// ListComments returns an issue's comments (newest-last, as Jira returns them).
+	ListComments(ctx context.Context, key string) ([]Comment, error)
+	// DeleteComment removes a comment by id.
+	DeleteComment(ctx context.Context, key, commentID string) error
 	Link(ctx context.Context, from, to, linkType string) error
+	// DeleteLink removes an issue link by its backend id.
+	DeleteLink(ctx context.Context, linkID string) error
 	LinkEpic(ctx context.Context, issue, epic string) error
+	// Changelog returns an issue's history (newest-last).
+	Changelog(ctx context.Context, key string) ([]ChangelogEntry, error)
 	ListAttachments(ctx context.Context, key string) ([]Attachment, error)
 	DownloadAttachment(ctx context.Context, key, attachmentID string) ([]byte, string, error)
 	// Metadata helpers for valid edits.

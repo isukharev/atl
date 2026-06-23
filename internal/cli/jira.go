@@ -196,50 +196,34 @@ func jiraIssueCmd() *cobra.Command {
 	transition.Flags().StringVar(&to, "to", "", "target status/transition name")
 	transition.Flags().StringVar(&transComment, "comment", "", "optional comment")
 
-	var commentFile string
-	comment := &cobra.Command{
-		Use:   "comment <KEY>",
-		Short: "Add a comment (wiki via --from-file -)",
+	history := &cobra.Command{
+		Use:   "history <KEY>",
+		Short: "Show an issue's changelog (who changed what, when)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			body, err := readBody(orDash(commentFile))
-			if err != nil {
-				return err
-			}
 			svc, err := jiraService()
 			if err != nil {
 				return err
 			}
-			cm, err := svc.Comment(cmd.Context(), args[0], body)
+			entries, err := svc.History(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
-			return emit(cmd, cm, nil)
+			return emit(cmd, map[string]any{"key": args[0], "history": entries}, func() string {
+				var b strings.Builder
+				for _, e := range entries {
+					fmt.Fprintf(&b, "%s\t%s\n", e.Created, e.Author)
+					for _, it := range e.Items {
+						fmt.Fprintf(&b, "  %s: %s → %s\n", it.Field, it.From, it.To)
+					}
+				}
+				return strings.TrimRight(b.String(), "\n")
+			})
 		},
 	}
-	comment.Flags().StringVar(&commentFile, "from-file", "-", "comment body file or - for stdin")
 
-	var linkTo, linkType string
-	link := &cobra.Command{
-		Use:   "link <KEY>",
-		Short: "Link an issue to another (--to KEY2 --type blocks)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if linkTo == "" || linkType == "" {
-				return usageErr("--to and --type are required")
-			}
-			svc, err := jiraService()
-			if err != nil {
-				return err
-			}
-			if err := svc.Link(cmd.Context(), args[0], linkTo, linkType); err != nil {
-				return err
-			}
-			return emit(cmd, map[string]string{"from": args[0], "to": linkTo, "type": linkType, "status": "linked"}, nil)
-		},
-	}
-	link.Flags().StringVar(&linkTo, "to", "", "target issue key")
-	link.Flags().StringVar(&linkType, "type", "", "link type name (e.g. blocks)")
+	comment := jiraCommentCmd()
+	link := jiraLinkCmd()
 
 	var epic string
 	linkEpic := &cobra.Command{
@@ -281,7 +265,158 @@ func jiraIssueCmd() *cobra.Command {
 	}
 	images.Flags().StringVar(&imgInto, "into", "", "output dir")
 
-	c.AddCommand(get, search, create, update, transition, comment, link, linkEpic, images)
+	c.AddCommand(get, search, create, update, transition, history, comment, link, linkEpic, images)
+	return c
+}
+
+// jiraCommentCmd builds `jira issue comment {add,list,delete}`.
+func jiraCommentCmd() *cobra.Command {
+	c := &cobra.Command{Use: "comment", Short: "List/add/delete issue comments"}
+
+	var fromFile string
+	add := &cobra.Command{
+		Use:   "add <KEY>",
+		Short: "Add a comment (wiki via --from-file -)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			body, err := readBody(orDash(fromFile))
+			if err != nil {
+				return err
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			cm, err := svc.Comment(cmd.Context(), args[0], body)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, cm, nil)
+		},
+	}
+	add.Flags().StringVar(&fromFile, "from-file", "-", "comment body file or - for stdin")
+
+	list := &cobra.Command{
+		Use:   "list <KEY>",
+		Short: "List an issue's comments",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			cs, err := svc.Comments(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return emitID(cmd, map[string]any{"key": args[0], "comments": cs}, func() string {
+				var b strings.Builder
+				for _, cm := range cs {
+					fmt.Fprintf(&b, "%s\t%s (%s):\n%s\n\n", cm.ID, cm.Author, cm.Created, cm.Body)
+				}
+				return strings.TrimRight(b.String(), "\n")
+			}, func() []string {
+				ids := make([]string, len(cs))
+				for i, cm := range cs {
+					ids[i] = cm.ID
+				}
+				return ids
+			})
+		},
+	}
+
+	del := &cobra.Command{
+		Use:   "delete <KEY> <COMMENT-ID>",
+		Short: "Delete a comment by id",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			if err := svc.DeleteComment(cmd.Context(), args[0], args[1]); err != nil {
+				return err
+			}
+			return emit(cmd, map[string]string{"key": args[0], "comment": args[1], "status": "deleted"}, nil)
+		},
+	}
+
+	c.AddCommand(add, list, del)
+	return c
+}
+
+// jiraLinkCmd builds `jira issue link {add,list,delete}`.
+func jiraLinkCmd() *cobra.Command {
+	c := &cobra.Command{Use: "link", Short: "List/add/delete issue links"}
+
+	var linkTo, linkType string
+	add := &cobra.Command{
+		Use:   "add <KEY>",
+		Short: "Link an issue to another (--to KEY2 --type blocks)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if linkTo == "" || linkType == "" {
+				return usageErr("--to and --type are required")
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			if err := svc.Link(cmd.Context(), args[0], linkTo, linkType); err != nil {
+				return err
+			}
+			return emit(cmd, map[string]string{"from": args[0], "to": linkTo, "type": linkType, "status": "linked"}, nil)
+		},
+	}
+	add.Flags().StringVar(&linkTo, "to", "", "target issue key")
+	add.Flags().StringVar(&linkType, "type", "", "link type name (e.g. blocks)")
+
+	list := &cobra.Command{
+		Use:   "list <KEY>",
+		Short: "List an issue's links (with link ids for deletion)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			links, err := svc.Links(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return emitID(cmd, map[string]any{"key": args[0], "links": links}, func() string {
+				var b strings.Builder
+				for _, l := range links {
+					fmt.Fprintf(&b, "%s\t%s\t%s\t%s\n", l.ID, l.Direction, l.Type, l.Key)
+				}
+				return strings.TrimRight(b.String(), "\n")
+			}, func() []string {
+				ids := make([]string, len(links))
+				for i, l := range links {
+					ids[i] = l.ID
+				}
+				return ids
+			})
+		},
+	}
+
+	del := &cobra.Command{
+		Use:   "delete <LINK-ID>",
+		Short: "Delete an issue link by id (see `link list`)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			if err := svc.DeleteLink(cmd.Context(), args[0]); err != nil {
+				return err
+			}
+			return emit(cmd, map[string]string{"link": args[0], "status": "deleted"}, nil)
+		},
+	}
+
+	c.AddCommand(add, list, del)
 	return c
 }
 

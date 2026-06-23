@@ -36,6 +36,33 @@ func (s *JiraService) Comment(ctx context.Context, key string, body []byte) (*do
 	return s.tr.AddComment(ctx, key, body)
 }
 
+func (s *JiraService) Comments(ctx context.Context, key string) ([]domain.Comment, error) {
+	return s.tr.ListComments(ctx, key)
+}
+
+func (s *JiraService) DeleteComment(ctx context.Context, key, commentID string) error {
+	return s.tr.DeleteComment(ctx, key, commentID)
+}
+
+// History returns an issue's changelog (who changed what, when).
+func (s *JiraService) History(ctx context.Context, key string) ([]domain.ChangelogEntry, error) {
+	return s.tr.Changelog(ctx, key)
+}
+
+// Links returns an issue's links (each carrying the backend id needed to delete
+// it). It reuses GetIssue rather than adding a separate endpoint.
+func (s *JiraService) Links(ctx context.Context, key string) ([]domain.IssueLink, error) {
+	is, err := s.tr.GetIssue(ctx, key, []string{"issuelinks"})
+	if err != nil {
+		return nil, err
+	}
+	return is.Links, nil
+}
+
+func (s *JiraService) DeleteLink(ctx context.Context, linkID string) error {
+	return s.tr.DeleteLink(ctx, linkID)
+}
+
 func (s *JiraService) Link(ctx context.Context, from, to, linkType string) error {
 	return s.tr.Link(ctx, from, to, linkType)
 }

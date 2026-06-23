@@ -65,11 +65,12 @@ func (j *Jira) mapIssue(d issueDTO) *domain.Issue {
 	if links, ok := f["issuelinks"].([]any); ok {
 		for _, raw := range links {
 			lm, _ := raw.(map[string]any) // nil map on mismatch reads as zero — safe
+			lid := str(lm["id"])
 			if iw, ok := lm["inwardIssue"].(map[string]any); ok {
-				is.Links = append(is.Links, domain.IssueLink{Type: str(typeField(lm["type"], "inward")), Direction: "inward", Key: str(iw["key"])})
+				is.Links = append(is.Links, domain.IssueLink{ID: lid, Type: str(typeField(lm["type"], "inward")), Direction: "inward", Key: str(iw["key"])})
 			}
 			if ow, ok := lm["outwardIssue"].(map[string]any); ok {
-				is.Links = append(is.Links, domain.IssueLink{Type: str(typeField(lm["type"], "outward")), Direction: "outward", Key: str(ow["key"])})
+				is.Links = append(is.Links, domain.IssueLink{ID: lid, Type: str(typeField(lm["type"], "outward")), Direction: "outward", Key: str(ow["key"])})
 			}
 		}
 	}
@@ -226,6 +227,33 @@ func (j *Jira) AddComment(ctx context.Context, key string, body []byte) (*domain
 	return &domain.Comment{ID: out.ID, Author: out.Author.DisplayName, Created: out.Created, Body: string(body)}, nil
 }
 
+// ListComments returns an issue's comments via the dedicated comment endpoint so
+// the caller need not refetch the whole issue body.
+func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, error) {
+	var resp struct {
+		Comments []struct {
+			ID      string         `json:"id"`
+			Author  map[string]any `json:"author"`
+			Created string         `json:"created"`
+			Body    string         `json:"body"`
+		} `json:"comments"`
+	}
+	if err := j.c.GetJSON(ctx, "/rest/api/2/issue/"+url.PathEscape(key)+"/comment", &resp); err != nil {
+		return nil, err
+	}
+	out := make([]domain.Comment, 0, len(resp.Comments))
+	for _, c := range resp.Comments {
+		out = append(out, domain.Comment{ID: c.ID, Author: nestedDisplay(c.Author), Created: c.Created, Body: c.Body})
+	}
+	return out, nil
+}
+
+// DeleteComment removes a comment by id.
+func (j *Jira) DeleteComment(ctx context.Context, key, commentID string) error {
+	return j.c.SendJSON(ctx, "DELETE",
+		"/rest/api/2/issue/"+url.PathEscape(key)+"/comment/"+url.PathEscape(commentID), nil, nil)
+}
+
 // Link creates a typed link from→to.
 func (j *Jira) Link(ctx context.Context, from, to, linkType string) error {
 	payload := map[string]any{
@@ -234,6 +262,43 @@ func (j *Jira) Link(ctx context.Context, from, to, linkType string) error {
 		"outwardIssue": map[string]string{"key": from},
 	}
 	return j.c.SendJSON(ctx, "POST", "/rest/api/2/issueLink", payload, nil)
+}
+
+// DeleteLink removes an issue link by its backend id.
+func (j *Jira) DeleteLink(ctx context.Context, linkID string) error {
+	return j.c.SendJSON(ctx, "DELETE", "/rest/api/2/issueLink/"+url.PathEscape(linkID), nil, nil)
+}
+
+// Changelog returns an issue's history. It uses the DC-universal
+// `?expand=changelog` form (the paginated /changelog sub-resource is only
+// available on Cloud and Jira DC 9+), keeping older Data Center servers working.
+func (j *Jira) Changelog(ctx context.Context, key string) ([]domain.ChangelogEntry, error) {
+	var d struct {
+		Changelog struct {
+			Histories []struct {
+				ID      string         `json:"id"`
+				Author  map[string]any `json:"author"`
+				Created string         `json:"created"`
+				Items   []struct {
+					Field      string `json:"field"`
+					FromString string `json:"fromString"`
+					ToString   string `json:"toString"`
+				} `json:"items"`
+			} `json:"histories"`
+		} `json:"changelog"`
+	}
+	if err := j.c.GetJSON(ctx, "/rest/api/2/issue/"+url.PathEscape(key)+"?expand=changelog&fields=summary", &d); err != nil {
+		return nil, err
+	}
+	out := make([]domain.ChangelogEntry, 0, len(d.Changelog.Histories))
+	for _, h := range d.Changelog.Histories {
+		e := domain.ChangelogEntry{ID: h.ID, Author: nestedDisplay(h.Author), Created: h.Created}
+		for _, it := range h.Items {
+			e.Items = append(e.Items, domain.ChangelogItem{Field: it.Field, From: it.FromString, To: it.ToString})
+		}
+		out = append(out, e)
+	}
+	return out, nil
 }
 
 // LinkEpic sets the Epic Link field (DC classic) on an issue.
