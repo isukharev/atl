@@ -98,7 +98,13 @@ type Tracker interface {
 	Search(ctx context.Context, jql string, fields []string, limit int, cursor string) ([]Issue, string, error)
 	Create(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]string) (*Issue, error)
 	Update(ctx context.Context, key, summary string, body []byte, fields map[string]string) error
-	Transition(ctx context.Context, key, to, comment string) error
+	// Transition moves an issue to a status by name, optionally commenting and
+	// setting fields on the transition (e.g. resolution at Done).
+	Transition(ctx context.Context, key, to, comment string, fields map[string]string) error
+	// DeleteIssue permanently deletes an issue (Jira DC has no trash for issues).
+	DeleteIssue(ctx context.Context, key string, deleteSubtasks bool) error
+	// UpdateLabels adds and/or removes labels on an issue.
+	UpdateLabels(ctx context.Context, key string, add, remove []string) error
 	AddComment(ctx context.Context, key string, body []byte) (*Comment, error)
 	// ListComments returns an issue's comments (newest-last, as Jira returns them).
 	ListComments(ctx context.Context, key string) ([]Comment, error)
@@ -110,6 +116,12 @@ type Tracker interface {
 	LinkEpic(ctx context.Context, issue, epic string) error
 	// Changelog returns an issue's history (newest-last).
 	Changelog(ctx context.Context, key string) ([]ChangelogEntry, error)
+	// CurrentUser returns the authenticated user.
+	CurrentUser(ctx context.Context) (*User, error)
+	// SearchUsers finds users by a query (DC matches username/display name).
+	SearchUsers(ctx context.Context, query string, limit int) ([]User, error)
+	// GetUser fetches one user by DC username.
+	GetUser(ctx context.Context, username string) (*User, error)
 	ListAttachments(ctx context.Context, key string) ([]Attachment, error)
 	DownloadAttachment(ctx context.Context, key, attachmentID string) ([]byte, string, error)
 	// Metadata helpers for valid edits.
@@ -117,6 +129,18 @@ type Tracker interface {
 	FieldOptions(ctx context.Context, project, issueType, field string) ([]string, error)
 	Transitions(ctx context.Context, key string) ([]TransitionDef, error)
 	LinkTypes(ctx context.Context) ([]string, error)
+}
+
+// User is an account on the tracker. On Jira Data Center the identity is the
+// username (Name) / user key (Key); AccountID is Cloud-only and kept for
+// forward compatibility.
+type User struct {
+	Name        string `json:"name,omitempty"`
+	Key         string `json:"key,omitempty"`
+	AccountID   string `json:"accountId,omitempty"`
+	DisplayName string `json:"displayName"`
+	Email       string `json:"email,omitempty"`
+	Active      bool   `json:"active"`
 }
 
 // FieldDef describes a Jira field.
