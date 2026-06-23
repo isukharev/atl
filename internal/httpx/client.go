@@ -16,6 +16,7 @@ import (
 	neturl "net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -34,19 +35,29 @@ const (
 )
 
 // traceWriter, when non-nil, receives a one-line trace of every request and
-// response (method, URL, status). It is a package-level toggle set once by the
-// CLI's --verbose/ATL_VERBOSE wiring before any request runs; atl issues
-// requests serially within a single invocation, so no locking is needed. The
-// bearer token is never written here.
-var traceWriter io.Writer
+// response (method, URL, status). It is a package-level toggle set by the CLI's
+// --verbose/ATL_VERBOSE wiring before any request runs. The bearer token is
+// never written here. The RWMutex makes the toggle safe even if a future test
+// flips it while a request is in flight.
+var (
+	traceMu     sync.RWMutex
+	traceWriter io.Writer
+)
 
 // SetTrace enables (w != nil) or disables (w == nil) HTTP request tracing for
 // all clients. Pass a stderr-like writer to turn it on.
-func SetTrace(w io.Writer) { traceWriter = w }
+func SetTrace(w io.Writer) {
+	traceMu.Lock()
+	traceWriter = w
+	traceMu.Unlock()
+}
 
 func tracef(format string, a ...any) {
-	if traceWriter != nil {
-		fmt.Fprintf(traceWriter, format, a...)
+	traceMu.RLock()
+	w := traceWriter
+	traceMu.RUnlock()
+	if w != nil {
+		fmt.Fprintf(w, format, a...)
 	}
 }
 

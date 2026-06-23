@@ -9,6 +9,7 @@ import (
 
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/csf"
+	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/version"
 )
 
@@ -279,11 +280,12 @@ func confPageCmd() *cobra.Command {
 	}
 	del.Flags().StringVar(&delID, "id", "", "page id")
 
-	var listSpace, listStatus string
+	var listSpace, listStatus, listCursor string
 	var listLimit int
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List pages in a space",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if listSpace == "" {
 				return usageErr("--space is required")
@@ -296,11 +298,11 @@ func confPageCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			hits, _, err := svc.Search(cmd.Context(), q, listLimit, "")
+			hits, next, err := svc.Search(cmd.Context(), q, listLimit, listCursor)
 			if err != nil {
 				return err
 			}
-			return emitID(cmd, map[string]any{"results": hits}, func() string {
+			return emitID(cmd, map[string]any{"results": hits, "next_cursor": next}, func() string {
 				var b strings.Builder
 				for _, h := range hits {
 					fmt.Fprintf(&b, "%s\tv%d\t%s\t%s\n", h.ID, h.Version, h.Space, h.Title)
@@ -319,11 +321,13 @@ func confPageCmd() *cobra.Command {
 	list.Flags().StringVar(&listStatus, "status", "", "current|archived|trashed")
 	_ = list.RegisterFlagCompletionFunc("status", fixedComp("current", "archived", "trashed"))
 	list.Flags().IntVar(&listLimit, "limit", 25, "max results")
+	list.Flags().StringVar(&listCursor, "cursor", "", "pagination cursor (start offset)")
 
 	var openID string
 	open := &cobra.Command{
 		Use:   "open",
 		Short: "Open a page in the system browser",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if openID == "" {
 				return usageErr("--id is required")
@@ -337,7 +341,7 @@ func confPageCmd() *cobra.Command {
 				return err
 			}
 			if m.URL == "" {
-				return fmt.Errorf("page %s has no web URL", openID)
+				return fmt.Errorf("%w: page %s has no web URL", domain.ErrNotFound, openID)
 			}
 			if err := defaultBrowserOpener(cmd.Context(), m.URL); err != nil {
 				return fmt.Errorf("open browser: %w", err)
@@ -353,6 +357,7 @@ func confPageCmd() *cobra.Command {
 	cp := &cobra.Command{
 		Use:   "copy",
 		Short: "Copy a page (same CSF body, new title/space/parent)",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if copyID == "" || copyTitle == "" {
 				return usageErr("--id and --title are required")
@@ -365,7 +370,8 @@ func confPageCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return emit(cmd, map[string]any{"id": page.ID, "title": page.Title, "version": page.Version, "url": page.URL}, nil)
+			return emitID(cmd, map[string]any{"id": page.ID, "title": page.Title, "version": page.Version, "url": page.URL},
+				nil, func() []string { return []string{page.ID} })
 		},
 	}
 	cp.Flags().StringVar(&copyID, "id", "", "source page id")
@@ -614,6 +620,7 @@ func confAttachmentCmd() *cobra.Command {
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List attachments on a page",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if listID == "" {
 				return usageErr("--id is required")
@@ -648,6 +655,7 @@ func confAttachmentCmd() *cobra.Command {
 	get := &cobra.Command{
 		Use:   "get",
 		Short: "Download an attachment to a directory",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if getPageID == "" || getName == "" {
 				return usageErr("--id and --name are required")
@@ -674,6 +682,7 @@ func confAttachmentCmd() *cobra.Command {
 	upload := &cobra.Command{
 		Use:   "upload",
 		Short: "Upload a file as an attachment to a page",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if uploadPageID == "" || uploadFile == "" {
 				return usageErr("--id and --file are required")
@@ -694,12 +703,17 @@ func confAttachmentCmd() *cobra.Command {
 	upload.Flags().StringVar(&uploadComment, "comment", "", "optional attachment comment")
 
 	var delAttID string
+	var delAttForce bool
 	del := &cobra.Command{
 		Use:   "delete",
-		Short: "Delete an attachment by id",
+		Short: "Delete an attachment by id (requires --force; deletion is permanent)",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if delAttID == "" {
 				return usageErr("--id is required")
+			}
+			if !delAttForce {
+				return usageErr("refusing to delete attachment %s without --force (deletion is permanent)", delAttID)
 			}
 			svc, err := confService()
 			if err != nil {
@@ -712,6 +726,7 @@ func confAttachmentCmd() *cobra.Command {
 		},
 	}
 	del.Flags().StringVar(&delAttID, "id", "", "attachment id")
+	del.Flags().BoolVar(&delAttForce, "force", false, "confirm permanent deletion")
 
 	c.AddCommand(list, get, upload, del)
 	return c
@@ -721,6 +736,7 @@ func confMeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "me",
 		Short: "Print the authenticated Confluence user",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			svc, err := confService()
 			if err != nil {

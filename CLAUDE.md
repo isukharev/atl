@@ -76,7 +76,7 @@ documented there.
 - **Sentinel errors drive exit codes.** Adapters wrap every error as
   `fmt.Errorf("%w: ...", domain.ErrXxx)`; the CLI's `codeFor` uses `errors.Is` to map to an
   exit code: `ErrUsage`→2, `ErrAuth`→3, `ErrNotFound`→4, `ErrVersionConflict`→5,
-  `ErrForbidden`→6 (anything else→1). Do not return bare errors from layers below the CLI
+  `ErrForbidden`→6, `ErrConfig`→7, `ErrCheckFailed`→8 (anything else→1). Do not return bare errors from layers below the CLI
   for these conditions, or the exit code degrades to 1.
 - **Output is JSON by default.** `emit(cmd, v, textFn)` writes indented, HTML-unescaped JSON
   to stdout unless `-o text` AND a non-nil `textFn` are both present (pass `nil` for textFn

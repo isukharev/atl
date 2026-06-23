@@ -31,6 +31,7 @@ const (
 	exitVersionConfl = 5
 	exitForbidden    = 6
 	exitConfig       = 7
+	exitCheckFailed  = 8
 )
 
 var (
@@ -115,6 +116,8 @@ func codeFor(err error) int {
 		return exitForbidden
 	case errors.Is(err, domain.ErrConfig):
 		return exitConfig
+	case errors.Is(err, domain.ErrCheckFailed):
+		return exitCheckFailed
 	case errors.Is(err, domain.ErrUsage):
 		return exitUsage
 	default:

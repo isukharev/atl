@@ -213,8 +213,10 @@ func jiraIssueCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// An explicit --warn (even "") overrides the default set, so a caller
+			// can opt out of warnings entirely with --warn "".
 			warn := app.DefaultCheckFields
-			if checkWarn != "" {
+			if cmd.Flags().Changed("warn") {
 				warn = splitFields(checkWarn)
 			}
 			r, err := svc.Check(cmd.Context(), args[0], splitFields(checkRequire), warn)
@@ -234,10 +236,11 @@ func jiraIssueCmd() *cobra.Command {
 			}); err != nil {
 				return err
 			}
-			// Report on stdout, but signal failure via a non-zero exit so the
-			// command works as a CI / pre-transition gate.
+			// Report on stdout, but signal failure via a distinct exit code (8) so
+			// the command works as a CI / pre-transition gate that scripts can tell
+			// apart from a transport/auth error.
 			if !r.OK {
-				return fmt.Errorf("issue %s missing required fields: %s", r.Key, strings.Join(r.MissingRequired, ", "))
+				return fmt.Errorf("%w: issue %s missing required fields: %s", domain.ErrCheckFailed, r.Key, strings.Join(r.MissingRequired, ", "))
 			}
 			return nil
 		},
@@ -445,7 +448,9 @@ func jiraUserCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return emit(cmd, u, func() string { return fmt.Sprintf("%s\t%s\t%s", u.Name, u.DisplayName, u.Email) })
+			return emitID(cmd, u,
+				func() string { return fmt.Sprintf("%s\t%s\t%s", u.Name, u.DisplayName, u.Email) },
+				func() []string { return []string{userID(u)} })
 		},
 	}
 
