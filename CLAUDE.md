@@ -54,10 +54,14 @@ Hexagonal (ports & adapters). The dependency rule is strict — internalize it b
   from the `domain` port method it calls (e.g. `JiraService.Comment` → `Tracker.AddComment`),
   so grepping one name won't always reveal the full service→port→adapter chain.
 - **`internal/cli`** — thin cobra layer: parse flags → call one use-case → `emit()` → return
-  error. Command tree: `conf` (search, space tree, page {get,meta,history,create,move,delete},
-  pull, status, validate, push, comment {list,add}), `jira` (issue {get,search,create,update,
-  transition,comment,link,link-epic,images}, pull, fields, field-options, transitions,
-  link-types), `auth` (login,status,logout), `config` (show,set), `version`.
+  error. Command tree:
+  - `conf` — search, space tree, page {get,meta,history,create,move,delete,list,open,copy},
+    attachment {list,get,upload,delete}, pull, status, validate, push, comment {list,add}, me.
+  - `jira` — issue {get,search,create,update,transition,comment {add,list,delete},
+    link {add,list,delete},link-epic,images,check,delete,labels,history},
+    board {list,get}, sprint {list,get,current,issues,add,remove}, pull, fields,
+    field-options, transitions, link-types, me, user {search,get}.
+  - `auth` (login,status,logout), `config` (show,set), `version`.
 - **`internal/csf`** — read-only DOM parser + validator for Confluence Storage Format.
 - **`internal/fragment`** — extracts/resolves opaque fragments (drawio, image, user,
   page-link, attachment) from a CSF DOM.
@@ -76,7 +80,7 @@ documented there.
 - **Sentinel errors drive exit codes.** Adapters wrap every error as
   `fmt.Errorf("%w: ...", domain.ErrXxx)`; the CLI's `codeFor` uses `errors.Is` to map to an
   exit code: `ErrUsage`→2, `ErrAuth`→3, `ErrNotFound`→4, `ErrVersionConflict`→5,
-  `ErrForbidden`→6 (anything else→1). Do not return bare errors from layers below the CLI
+  `ErrForbidden`→6, `ErrConfig`→7, `ErrCheckFailed`→8 (anything else→1). Do not return bare errors from layers below the CLI
   for these conditions, or the exit code degrades to 1.
 - **Output is JSON by default.** `emit(cmd, v, textFn)` writes indented, HTML-unescaped JSON
   to stdout unless `-o text` AND a non-nil `textFn` are both present (pass `nil` for textFn

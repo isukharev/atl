@@ -45,3 +45,4 @@ vendor/
 
 # Local-only dev planning artifacts (specs, plans, scratch) — never published
 docs/superpowers/
+docs/proposals/

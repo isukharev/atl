@@ -9,6 +9,7 @@ import (
 
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/csf"
+	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/version"
 )
 
@@ -36,6 +37,7 @@ func newConfCmd() *cobra.Command {
 	c.AddCommand(
 		confSearchCmd(), confSpaceCmd(), confPageCmd(),
 		confPullCmd(), confStatusCmd(), confValidateCmd(), confPushCmd(), confCommentCmd(),
+		confAttachmentCmd(), confMeCmd(),
 	)
 	return c
 }
@@ -43,12 +45,20 @@ func newConfCmd() *cobra.Command {
 func confSearchCmd() *cobra.Command {
 	var cql, cursor string
 	var limit int
+	var srchSpace, srchTitle, srchLabel, srchType string
 	cmd := &cobra.Command{
 		Use:   "search",
 		Short: "Search pages by CQL → id/title/space/version/excerpt",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			hasConv := srchSpace != "" || srchTitle != "" || srchLabel != "" || srchType != ""
+			if cql != "" && hasConv {
+				return usageErr("--cql cannot be combined with --space/--title/--label/--type")
+			}
 			if cql == "" {
-				return usageErr("--cql is required")
+				cql = buildSearchCQL(srchSpace, srchTitle, srchLabel, srchType)
+			}
+			if cql == "" {
+				return usageErr("--cql or at least one of --space/--title/--label/--type is required")
 			}
 			svc, err := confService()
 			if err != nil {
@@ -58,18 +68,28 @@ func confSearchCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return emit(cmd, map[string]any{"results": hits, "next_cursor": next}, func() string {
+			return emitID(cmd, map[string]any{"results": hits, "next_cursor": next}, func() string {
 				var b strings.Builder
 				for _, h := range hits {
 					fmt.Fprintf(&b, "%s\tv%d\t%s\t%s\n", h.ID, h.Version, h.Space, h.Title)
 				}
 				return strings.TrimRight(b.String(), "\n")
+			}, func() []string {
+				ids := make([]string, len(hits))
+				for i, h := range hits {
+					ids[i] = h.ID
+				}
+				return ids
 			})
 		},
 	}
 	cmd.Flags().StringVar(&cql, "cql", "", "Confluence CQL query")
 	cmd.Flags().IntVar(&limit, "limit", 25, "max results")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "pagination cursor (start offset)")
+	cmd.Flags().StringVar(&srchSpace, "space", "", "filter by space key")
+	cmd.Flags().StringVar(&srchTitle, "title", "", "filter by title (substring match)")
+	cmd.Flags().StringVar(&srchLabel, "label", "", "filter by label")
+	cmd.Flags().StringVar(&srchType, "type", "", "filter by content type (e.g. page, blogpost)")
 	return cmd
 }
 
@@ -141,6 +161,7 @@ func confPageCmd() *cobra.Command {
 	}
 	get.Flags().StringVar(&id, "id", "", "page id")
 	get.Flags().StringVar(&format, "format", "csf", "csf|view")
+	_ = get.RegisterFlagCompletionFunc("format", fixedComp("csf", "view"))
 
 	var metaID string
 	meta := &cobra.Command{
@@ -259,7 +280,106 @@ func confPageCmd() *cobra.Command {
 	}
 	del.Flags().StringVar(&delID, "id", "", "page id")
 
-	c.AddCommand(get, meta, hist, create, move, del)
+	var listSpace, listStatus, listCursor string
+	var listLimit int
+	list := &cobra.Command{
+		Use:   "list",
+		Short: "List pages in a space",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if listSpace == "" {
+				return usageErr("--space is required")
+			}
+			q := buildSearchCQL(listSpace, "", "", "") + ` AND type = page`
+			if listStatus != "" {
+				q += ` AND status = ` + cqlEscape(listStatus)
+			}
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			hits, next, err := svc.Search(cmd.Context(), q, listLimit, listCursor)
+			if err != nil {
+				return err
+			}
+			return emitID(cmd, map[string]any{"results": hits, "next_cursor": next}, func() string {
+				var b strings.Builder
+				for _, h := range hits {
+					fmt.Fprintf(&b, "%s\tv%d\t%s\t%s\n", h.ID, h.Version, h.Space, h.Title)
+				}
+				return strings.TrimRight(b.String(), "\n")
+			}, func() []string {
+				ids := make([]string, len(hits))
+				for i, h := range hits {
+					ids[i] = h.ID
+				}
+				return ids
+			})
+		},
+	}
+	list.Flags().StringVar(&listSpace, "space", "", "space key")
+	list.Flags().StringVar(&listStatus, "status", "", "current|archived|trashed")
+	_ = list.RegisterFlagCompletionFunc("status", fixedComp("current", "archived", "trashed"))
+	list.Flags().IntVar(&listLimit, "limit", 25, "max results")
+	list.Flags().StringVar(&listCursor, "cursor", "", "pagination cursor (start offset)")
+
+	var openID string
+	open := &cobra.Command{
+		Use:   "open",
+		Short: "Open a page in the system browser",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if openID == "" {
+				return usageErr("--id is required")
+			}
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			m, err := svc.Meta(cmd.Context(), openID)
+			if err != nil {
+				return err
+			}
+			if m.URL == "" {
+				return fmt.Errorf("%w: page %s has no web URL", domain.ErrNotFound, openID)
+			}
+			if err := defaultBrowserOpener(cmd.Context(), m.URL); err != nil {
+				return fmt.Errorf("open browser: %w", err)
+			}
+			return emit(cmd, map[string]string{"id": openID, "url": m.URL}, func() string {
+				return m.URL
+			})
+		},
+	}
+	open.Flags().StringVar(&openID, "id", "", "page id")
+
+	var copyID, copyTitle, copySpace, copyParent string
+	cp := &cobra.Command{
+		Use:   "copy",
+		Short: "Copy a page (same CSF body, new title/space/parent)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if copyID == "" || copyTitle == "" {
+				return usageErr("--id and --title are required")
+			}
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			page, err := svc.CopyPage(cmd.Context(), copyID, copyTitle, copySpace, copyParent)
+			if err != nil {
+				return err
+			}
+			return emitID(cmd, map[string]any{"id": page.ID, "title": page.Title, "version": page.Version, "url": page.URL},
+				nil, func() []string { return []string{page.ID} })
+		},
+	}
+	cp.Flags().StringVar(&copyID, "id", "", "source page id")
+	cp.Flags().StringVar(&copyTitle, "title", "", "new page title")
+	cp.Flags().StringVar(&copySpace, "space", "", "target space key (default: same as source)")
+	cp.Flags().StringVar(&copyParent, "parent", "", "target parent page id (default: same as source)")
+
+	c.AddCommand(get, meta, hist, list, open, cp, create, move, del)
 	return c
 }
 
@@ -491,4 +611,144 @@ func confCommentCmd() *cobra.Command {
 
 	c.AddCommand(list, add)
 	return c
+}
+
+func confAttachmentCmd() *cobra.Command {
+	c := &cobra.Command{Use: "attachment", Short: "Attachment list/get/upload/delete"}
+
+	var listID string
+	list := &cobra.Command{
+		Use:   "list",
+		Short: "List attachments on a page",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if listID == "" {
+				return usageErr("--id is required")
+			}
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			atts, err := svc.Attachments(cmd.Context(), listID)
+			if err != nil {
+				return err
+			}
+			return emitID(cmd, map[string]any{"attachments": atts}, func() string {
+				var b strings.Builder
+				for _, a := range atts {
+					fmt.Fprintf(&b, "%s\t%s\t%d bytes\n", a.ID, a.Title, a.FileSize)
+				}
+				return strings.TrimRight(b.String(), "\n")
+			}, func() []string {
+				ids := make([]string, len(atts))
+				for i, a := range atts {
+					ids[i] = a.ID
+				}
+				return ids
+			})
+		},
+	}
+	list.Flags().StringVar(&listID, "id", "", "page id")
+
+	var getPageID, getName, getInto string
+	var getVersion int
+	get := &cobra.Command{
+		Use:   "get",
+		Short: "Download an attachment to a directory",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if getPageID == "" || getName == "" {
+				return usageErr("--id and --name are required")
+			}
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			path, err := svc.DownloadAttachment(cmd.Context(), getPageID, getName, getVersion, getInto)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, map[string]string{"path": path, "name": getName}, func() string {
+				return path
+			})
+		},
+	}
+	get.Flags().StringVar(&getPageID, "id", "", "page id")
+	get.Flags().StringVar(&getName, "name", "", "attachment filename")
+	get.Flags().IntVar(&getVersion, "version", 0, "attachment version (0 = latest)")
+	get.Flags().StringVar(&getInto, "into", ".", "output directory")
+
+	var uploadPageID, uploadFile, uploadComment string
+	upload := &cobra.Command{
+		Use:   "upload",
+		Short: "Upload a file as an attachment to a page",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if uploadPageID == "" || uploadFile == "" {
+				return usageErr("--id and --file are required")
+			}
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			att, err := svc.UploadAttachment(cmd.Context(), uploadPageID, uploadFile, uploadComment)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, att, nil)
+		},
+	}
+	upload.Flags().StringVar(&uploadPageID, "id", "", "page id")
+	upload.Flags().StringVar(&uploadFile, "file", "", "local file path to upload")
+	upload.Flags().StringVar(&uploadComment, "comment", "", "optional attachment comment")
+
+	var delAttID string
+	var delAttForce bool
+	del := &cobra.Command{
+		Use:   "delete",
+		Short: "Delete an attachment by id (requires --force; deletion is permanent)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if delAttID == "" {
+				return usageErr("--id is required")
+			}
+			if !delAttForce {
+				return usageErr("refusing to delete attachment %s without --force (deletion is permanent)", delAttID)
+			}
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			if err := svc.DeleteAttachment(cmd.Context(), delAttID); err != nil {
+				return err
+			}
+			return emit(cmd, map[string]string{"id": delAttID, "status": "deleted"}, nil)
+		},
+	}
+	del.Flags().StringVar(&delAttID, "id", "", "attachment id")
+	del.Flags().BoolVar(&delAttForce, "force", false, "confirm permanent deletion")
+
+	c.AddCommand(list, get, upload, del)
+	return c
+}
+
+func confMeCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "me",
+		Short: "Print the authenticated Confluence user",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			name, err := svc.Whoami(cmd.Context())
+			if err != nil {
+				return err
+			}
+			return emit(cmd, map[string]string{"displayName": name}, func() string {
+				return name
+			})
+		},
+	}
 }

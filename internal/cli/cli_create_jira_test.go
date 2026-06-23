@@ -68,7 +68,7 @@ func (js *jiraServer) route(method, prefix string, status int, body string) *jir
 func (js *jiraServer) handle(w http.ResponseWriter, r *http.Request) {
 	body, _ := readAll(r)
 	js.mu.Lock()
-	js.reqs = append(js.reqs, capturedReq{method: r.Method, path: r.URL.Path, body: string(body)})
+	js.reqs = append(js.reqs, capturedReq{method: r.Method, path: r.URL.Path, query: r.URL.RawQuery, body: string(body)})
 	resp := js.dflt
 	bestLen := -1
 	for key, cr := range js.routes {

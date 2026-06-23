@@ -77,7 +77,7 @@ func (t *recordingTracker) Update(_ context.Context, key, summary string, body [
 	return t.err
 }
 
-func (t *recordingTracker) Transition(_ context.Context, key, to, comment string) error {
+func (t *recordingTracker) Transition(_ context.Context, key, to, comment string, _ map[string]string) error {
 	t.transKey, t.transTo, t.transComment = key, to, comment
 	return t.err
 }
@@ -169,7 +169,7 @@ func TestJiraWrappersPassThrough(t *testing.T) {
 	t.Run("Transition", func(t *testing.T) {
 		tr := &recordingTracker{}
 		svc := &JiraService{tr: tr}
-		if err := svc.Transition(ctx, "K-2", "Done", "lgtm"); err != nil {
+		if err := svc.Transition(ctx, "K-2", "Done", "lgtm", nil); err != nil {
 			t.Fatal(err)
 		}
 		if tr.transKey != "K-2" || tr.transTo != "Done" || tr.transComment != "lgtm" {
@@ -278,7 +278,7 @@ func TestJiraWrappersPropagateSentinel(t *testing.T) {
 	if err := svc.Update(ctx, "x", "s", nil, nil); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("Update did not propagate sentinel: %v", err)
 	}
-	if err := svc.Transition(ctx, "x", "Done", ""); !errors.Is(err, domain.ErrNotFound) {
+	if err := svc.Transition(ctx, "x", "Done", "", nil); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("Transition did not propagate sentinel: %v", err)
 	}
 	if _, err := svc.Comment(ctx, "x", nil); !errors.Is(err, domain.ErrNotFound) {

@@ -16,6 +16,7 @@ import (
 	neturl "net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -32,6 +33,33 @@ const (
 	jsonBodyCap = 64 << 20 // 64 MiB
 	binBodyCap  = 1 << 30  // 1 GiB
 )
+
+// traceWriter, when non-nil, receives a one-line trace of every request and
+// response (method, URL, status). It is a package-level toggle set by the CLI's
+// --verbose/ATL_VERBOSE wiring before any request runs. The bearer token is
+// never written here. The RWMutex makes the toggle safe even if a future test
+// flips it while a request is in flight.
+var (
+	traceMu     sync.RWMutex
+	traceWriter io.Writer
+)
+
+// SetTrace enables (w != nil) or disables (w == nil) HTTP request tracing for
+// all clients. Pass a stderr-like writer to turn it on.
+func SetTrace(w io.Writer) {
+	traceMu.Lock()
+	traceWriter = w
+	traceMu.Unlock()
+}
+
+func tracef(format string, a ...any) {
+	traceMu.RLock()
+	w := traceWriter
+	traceMu.RUnlock()
+	if w != nil {
+		fmt.Fprintf(w, format, a...)
+	}
+}
 
 // Client is a per-backend HTTP client (one for Confluence, one for Jira).
 type Client struct {
@@ -190,8 +218,10 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 		for k, v := range headers {
 			req.Header.Set(k, v)
 		}
+		tracef("→ %s %s\n", method, req.URL.String())
 		resp, err := c.hc.Do(req)
 		if err != nil {
+			tracef("× %s %s (transport error: %v)\n", method, req.URL.String(), err)
 			// A committed-but-lost POST would double-execute if retried; only
 			// idempotent methods retry on transport errors.
 			if !idempotent(method) {
@@ -200,6 +230,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 			lastErr = err
 			continue // network error → retry
 		}
+		tracef("← %d %s\n", resp.StatusCode, req.URL.Path)
 		data, err := readBody(resp.Body, maxBytes)
 		resp.Body.Close()
 		if err != nil {

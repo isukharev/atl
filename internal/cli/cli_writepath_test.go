@@ -55,6 +55,7 @@ type cannedResp struct {
 type capturedReq struct {
 	method string
 	path   string
+	query  string
 	body   string
 }
 
@@ -69,7 +70,7 @@ func newConfServer(t *testing.T) *confServer {
 func (cs *confServer) handle(w http.ResponseWriter, r *http.Request) {
 	body, _ := readAll(r)
 	cs.mu.Lock()
-	cs.reqs = append(cs.reqs, capturedReq{method: r.Method, path: r.URL.Path, body: string(body)})
+	cs.reqs = append(cs.reqs, capturedReq{method: r.Method, path: r.URL.Path, query: r.URL.RawQuery, body: string(body)})
 	switch {
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/rest/api/content/"):
 		resp := cannedResp{status: http.StatusOK, body: cs.page}

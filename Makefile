@@ -58,6 +58,11 @@ lint:
 tidy:
 	go mod tidy
 
+.PHONY: install-hooks
+install-hooks:
+	cp hooks/pre-commit .git/hooks/pre-commit
+	chmod +x .git/hooks/pre-commit
+
 .PHONY: clean
 clean:
 	rm -rf atl dist

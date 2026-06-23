@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Agent-friendly output** — `-o id` prints just the primary identifier(s), one
+  per line, for safe piping (`atl jira issue search … -o id | xargs …`); wired
+  into `jira issue search`/`create` and `conf search`.
+- **`--verbose` / `ATL_VERBOSE=1`** — trace every HTTP request/response to stderr
+  (method, URL, status). The bearer token is never logged.
+- **Jira**: `issue history` (changelog via the DC-universal `?expand=changelog`,
+  not the Cloud `/changelog` sub-resource); `issue comment {list,delete}` and
+  `issue link {list,delete}`; `transition --field k=v` (set fields on a
+  transition); `issue check` (audit required/important fields — reports on stdout
+  and exits non-zero when a required field is empty, for CI/pre-transition gating);
+  `issue delete --force`; `issue labels --add/--remove`; `jira me` and
+  `jira user {search,get}` using the DC username/userkey identity model.
+- **Jira boards & sprints** (Jira Software / GreenHopper, via the Data Center
+  Agile API `/rest/agile/1.0/`): `jira board {list,get}` and `jira sprint
+  {list,get,current,issues,add,remove}`. `board list --project` and `sprint list
+  --board ID --state active|closed|future` drive discovery; `sprint current
+  --board ID` returns the active sprint (exit 4 when none); `sprint add <ID>
+  <KEY>…` / `sprint remove <KEY>…` move issues into a sprint / back to the
+  backlog. Boards and sprints are addressed by numeric id (name resolution is
+  deferred to a future metadata cache).
+- **Confluence**: `conf search` convenience flags (`--space/--title/--label/--type`
+  build escaped CQL); `conf page list` (flat listing in a space, `--status`);
+  `conf page open` (open in the system browser); `conf page copy` (client-side
+  copy that preserves native CSF bytes — no markdown round-trip); `conf attachment
+  {list,get,upload,delete}`; `conf me`; internal page links now render as
+  `[[Title]]` in the read-only `.md` view.
+- **Shell completion** for fixed-value flags (`-o`, `--format`, `--status`,
+  `--service`).
+- **Dev tooling** — `make install-hooks` installs a gofmt pre-commit hook; CI
+  gained a `go mod tidy` drift check and a `CGO_ENABLED=0` static-build assertion.
+
 ### Fixed
 
 - **`conf page history` on Confluence Data Center** — list page versions via
@@ -21,6 +54,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING** — `jira issue comment <KEY>` is now `jira issue comment add
+  <KEY>`, and `jira issue link <KEY> --to … --type …` is now `jira issue link
+  add <KEY> …`. The `comment` and `link` verbs became subcommand groups so they
+  can host the new `list`/`delete` subcommands (consistent with `conf comment`).
 - Live integration tests now run via `make integration`, which sources a
   gitignored `.env.integration` (template: `.env.integration.example`) so backend
   URLs and PATs stay local. Adds read-only coverage for `conf page history` and

@@ -88,6 +88,19 @@ type Tracker interface {
 Adding a new backend (Notion, Linear, GitLab Issues) means writing a struct
 that satisfies one of these interfaces; no other package changes.
 
+**Optional capability ports.** Some features are not part of every backend's
+surface, so they live in their own narrow interfaces rather than bloating the
+core port — a backend implements them only if it can, and the service composes
+the same adapter instance across several capability fields (as
+`ConfluenceService` does with `store`/`users`/`assets`/`verifier`):
+
+- `Verifier` (`Whoami`) — confirms a PAT before `auth login` persists it.
+- `Agile` (`Boards`/`Board`/`Sprints`/`Sprint`/`SprintIssues`/
+  `MoveIssuesToSprint`/`MoveIssuesToBacklog`) — Jira Software boards & sprints
+  over the Data Center Agile API `/rest/agile/1.0/`. Requires GreenHopper, so a
+  Jira Core/Service-Management-only instance (or a future non-agile tracker)
+  simply omits it.
+
 **Registry ports (in `registry.go`)**
 
 `AssetSink` — the mirror hands this to fragment handlers so they can write

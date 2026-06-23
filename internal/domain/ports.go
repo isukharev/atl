@@ -37,6 +37,10 @@ type DocStore interface {
 	ListAttachments(ctx context.Context, id string) ([]Attachment, error)
 	// DownloadAttachment streams an attachment's bytes. version<=0 means latest.
 	DownloadAttachment(ctx context.Context, pageID, filename string, version int) ([]byte, error)
+	// UploadAttachment uploads file bytes as an attachment to a page.
+	UploadAttachment(ctx context.Context, pageID, filename string, data []byte, comment string) (*Attachment, error)
+	// DeleteAttachment deletes an attachment by its content id.
+	DeleteAttachment(ctx context.Context, attachmentID string) error
 }
 
 // Version is a single revision record.
@@ -66,11 +70,30 @@ type Issue struct {
 	FieldText map[string]string `json:"-"`
 }
 
-// IssueLink is a typed link between issues.
+// IssueLink is a typed link between issues. ID is the backend link id, needed
+// to delete a specific link (the same id appears on both the inward and outward
+// view of one link).
 type IssueLink struct {
+	ID        string `json:"id,omitempty"`
 	Type      string `json:"type"`
 	Direction string `json:"direction"` // inward|outward
 	Key       string `json:"key"`
+}
+
+// ChangelogEntry is one history record of an issue (who changed what, when).
+type ChangelogEntry struct {
+	ID      string          `json:"id"`
+	Author  string          `json:"author"`
+	Created string          `json:"created"`
+	Items   []ChangelogItem `json:"items"`
+}
+
+// ChangelogItem is a single field change inside a ChangelogEntry. From/To are
+// the human-readable values (Jira's fromString/toString).
+type ChangelogItem struct {
+	Field string `json:"field"`
+	From  string `json:"from,omitempty"`
+	To    string `json:"to,omitempty"`
 }
 
 // Tracker is the port for an issue tracker (Jira today; Linear/GitLab later).
@@ -79,10 +102,30 @@ type Tracker interface {
 	Search(ctx context.Context, jql string, fields []string, limit int, cursor string) ([]Issue, string, error)
 	Create(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]string) (*Issue, error)
 	Update(ctx context.Context, key, summary string, body []byte, fields map[string]string) error
-	Transition(ctx context.Context, key, to, comment string) error
+	// Transition moves an issue to a status by name, optionally commenting and
+	// setting fields on the transition (e.g. resolution at Done).
+	Transition(ctx context.Context, key, to, comment string, fields map[string]string) error
+	// DeleteIssue permanently deletes an issue (Jira DC has no trash for issues).
+	DeleteIssue(ctx context.Context, key string, deleteSubtasks bool) error
+	// UpdateLabels adds and/or removes labels on an issue.
+	UpdateLabels(ctx context.Context, key string, add, remove []string) error
 	AddComment(ctx context.Context, key string, body []byte) (*Comment, error)
+	// ListComments returns an issue's comments (newest-last, as Jira returns them).
+	ListComments(ctx context.Context, key string) ([]Comment, error)
+	// DeleteComment removes a comment by id.
+	DeleteComment(ctx context.Context, key, commentID string) error
 	Link(ctx context.Context, from, to, linkType string) error
+	// DeleteLink removes an issue link by its backend id.
+	DeleteLink(ctx context.Context, linkID string) error
 	LinkEpic(ctx context.Context, issue, epic string) error
+	// Changelog returns an issue's history (newest-last).
+	Changelog(ctx context.Context, key string) ([]ChangelogEntry, error)
+	// CurrentUser returns the authenticated user.
+	CurrentUser(ctx context.Context) (*User, error)
+	// SearchUsers finds users by a query (DC matches username/display name).
+	SearchUsers(ctx context.Context, query string, limit int) ([]User, error)
+	// GetUser fetches one user by DC username.
+	GetUser(ctx context.Context, username string) (*User, error)
 	ListAttachments(ctx context.Context, key string) ([]Attachment, error)
 	DownloadAttachment(ctx context.Context, key, attachmentID string) ([]byte, string, error)
 	// Metadata helpers for valid edits.
@@ -90,6 +133,65 @@ type Tracker interface {
 	FieldOptions(ctx context.Context, project, issueType, field string) ([]string, error)
 	Transitions(ctx context.Context, key string) ([]TransitionDef, error)
 	LinkTypes(ctx context.Context) ([]string, error)
+}
+
+// Board is an agile board (scrum/kanban) on Jira Software. ProjectKey is the
+// board's location project when the backend reports one (board listings do;
+// the single-board fetch may not).
+type Board struct {
+	ID         int    `json:"id"`
+	Name       string `json:"name"`
+	Type       string `json:"type"` // scrum | kanban
+	ProjectKey string `json:"project_key,omitempty"`
+}
+
+// Sprint is a sprint belonging to a scrum board. Dates are the backend's raw
+// ISO-8601 strings (kept verbatim; not all are set depending on state).
+type Sprint struct {
+	ID            int    `json:"id"`
+	Name          string `json:"name"`
+	State         string `json:"state"` // active | closed | future
+	StartDate     string `json:"start_date,omitempty"`
+	EndDate       string `json:"end_date,omitempty"`
+	CompleteDate  string `json:"complete_date,omitempty"`
+	Goal          string `json:"goal,omitempty"`
+	OriginBoardID int    `json:"origin_board_id,omitempty"`
+}
+
+// Agile is the optional capability for Jira Software boards & sprints, backed by
+// the Data Center Agile REST API (/rest/agile/1.0/). It is kept separate from
+// Tracker — like Verifier — because it requires Jira Software (GreenHopper) and
+// is not part of every issue tracker's surface, so a non-agile backend need not
+// implement it. cursor is the startAt offset; a method returns the next offset
+// or "" when the listing is exhausted.
+type Agile interface {
+	// Boards lists agile boards, optionally filtered to a project (key or id).
+	Boards(ctx context.Context, project string, limit int, cursor string) ([]Board, string, error)
+	// Board fetches one board by id.
+	Board(ctx context.Context, id int) (*Board, error)
+	// Sprints lists a board's sprints, optionally filtered by state
+	// (active|closed|future; "" for all).
+	Sprints(ctx context.Context, boardID int, state string, limit int, cursor string) ([]Sprint, string, error)
+	// Sprint fetches one sprint by id.
+	Sprint(ctx context.Context, id int) (*Sprint, error)
+	// SprintIssues lists the issues assigned to a sprint.
+	SprintIssues(ctx context.Context, sprintID int, fields []string, limit int, cursor string) ([]Issue, string, error)
+	// MoveIssuesToSprint moves issues (by key) into a sprint.
+	MoveIssuesToSprint(ctx context.Context, sprintID int, keys []string) error
+	// MoveIssuesToBacklog removes issues (by key) from any sprint (to backlog).
+	MoveIssuesToBacklog(ctx context.Context, keys []string) error
+}
+
+// User is an account on the tracker. On Jira Data Center the identity is the
+// username (Name) / user key (Key); AccountID is Cloud-only and kept for
+// forward compatibility.
+type User struct {
+	Name        string `json:"name,omitempty"`
+	Key         string `json:"key,omitempty"`
+	AccountID   string `json:"accountId,omitempty"`
+	DisplayName string `json:"displayName"`
+	Email       string `json:"email,omitempty"`
+	Active      bool   `json:"active"`
 }
 
 // FieldDef describes a Jira field.

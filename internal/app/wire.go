@@ -16,15 +16,20 @@ import (
 
 // ConfluenceService bundles the Confluence use-cases over a DocStore + mirror.
 type ConfluenceService struct {
-	store   domain.DocStore
-	users   domain.UserResolver
-	assets  domain.AssetResolver
-	baseURL string
+	store    domain.DocStore
+	users    domain.UserResolver
+	assets   domain.AssetResolver
+	baseURL  string
+	verifier domain.Verifier
 }
 
-// JiraService bundles the Jira use-cases over a Tracker.
+// JiraService bundles the Jira use-cases over a Tracker. agile is the optional
+// boards/sprints capability (Jira Software only); in production it is the same
+// adapter instance as tr, mirroring how ConfluenceService composes one adapter
+// across several capability fields.
 type JiraService struct {
 	tr      domain.Tracker
+	agile   domain.Agile
 	baseURL string
 }
 
@@ -49,7 +54,7 @@ func NewConfluence(cfg *config.Config, version string) (*ConfluenceService, erro
 		return nil, err
 	}
 	cf := confluence.New(cfg.ConfluenceURL, tok, version)
-	return &ConfluenceService{store: cf, users: cf.ResolveUser, assets: cf, baseURL: cfg.ConfluenceURL}, nil
+	return &ConfluenceService{store: cf, users: cf.ResolveUser, assets: cf, baseURL: cfg.ConfluenceURL, verifier: cf}, nil
 }
 
 // NewJira wires the Jira adapter from config + PAT.
@@ -69,5 +74,6 @@ func NewJira(cfg *config.Config, version string) (*JiraService, error) {
 		}
 		return nil, err
 	}
-	return &JiraService{tr: jira.New(cfg.JiraURL, tok, version), baseURL: cfg.JiraURL}, nil
+	j := jira.New(cfg.JiraURL, tok, version)
+	return &JiraService{tr: j, agile: j, baseURL: cfg.JiraURL}, nil
 }

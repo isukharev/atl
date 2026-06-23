@@ -501,6 +501,53 @@ Trash a page. May return exit 6 if per-space permissions forbid deletion.
 atl conf page delete --id 12345678
 ```
 
+### `atl conf page list`
+
+Flat listing of pages in a space (no hierarchy), optionally by status.
+
+```
+atl conf page list --space ENG [--status current|archived|trashed] [--limit 100] [--cursor C]
+```
+
+`--space` is required. The output carries a `next_cursor` for pagination; `-o id`
+prints the page ids.
+
+### `atl conf page open`
+
+Open a page in the system browser (uses `xdg-open`/`open`/`rundll32`, no shell).
+
+```
+atl conf page open --id 12345678
+```
+
+### `atl conf page copy`
+
+Client-side copy that preserves the native CSF bytes verbatim (no Markdown
+round-trip). Reads the source page and creates a new one with the same body.
+
+```
+atl conf page copy --id 12345678 --title 'Copy of Design Doc' [--space ENG] [--parent 999]
+```
+
+### `atl conf attachment {list,get,upload,delete}`
+
+Manage page attachments. `delete` requires `--force`.
+
+```bash
+atl conf attachment list --id 12345678                       # {attachments:[...]}; -o id → ids
+atl conf attachment get --id 12345678 --name diagram.png --into ./assets
+atl conf attachment upload --id 12345678 --file ./diagram.png [--comment 'v2']
+atl conf attachment delete --id <ATTACHMENT-ID> --force
+```
+
+### `atl conf me`
+
+Show the authenticated Confluence user.
+
+```
+atl conf me
+```
+
 ### `atl conf comment list`
 
 List page comments. Bodies are returned as plain text (CSF stripped).
@@ -624,32 +671,36 @@ Flags:
 | `--to` | target status or transition name (required) |
 | `--comment` | optional comment to post with the transition |
 
-### `atl jira issue comment`
+### `atl jira issue comment {add,list,delete}`
 
-Add a Jira wiki comment.
+Manage Jira wiki comments. `comment` is a subcommand group.
 
 ```bash
 echo "Checked on staging — confirmed fixed." \
-  | atl jira issue comment PROJ-1 --from-file -
+  | atl jira issue comment add PROJ-1 --from-file -
+atl jira issue comment list PROJ-1                 # {key, comments:[{id,author,created,body}]}; -o id → ids
+atl jira issue comment delete PROJ-1 <COMMENT-ID>  # see the id from `comment list`
 ```
 
-Flags:
+Flags (`add`):
 
 | flag | description |
 |---|---|
 | `PROJ-1` | issue key (positional, required) |
 | `--from-file` | comment body file or `-` for stdin (default stdin) |
 
-### `atl jira issue link`
+### `atl jira issue link {add,list,delete}`
 
-Create a typed link between two issues.
+Manage typed links between issues. `link` is a subcommand group.
 
 ```bash
-atl jira issue link PROJ-1 --to PROJ-2 --type blocks
-atl jira issue link PROJ-3 --to PROJ-1 --type "is cloned by"
+atl jira issue link add PROJ-1 --to PROJ-2 --type blocks
+atl jira issue link add PROJ-3 --to PROJ-1 --type "is cloned by"
+atl jira issue link list PROJ-1                    # {key, links:[{id,direction,type,key}]}; -o id → link ids
+atl jira issue link delete <LINK-ID>               # see the id from `link list`
 ```
 
-Flags:
+Flags (`add`):
 
 | flag | description |
 |---|---|
@@ -687,6 +738,49 @@ Flags:
 |---|---|
 | `PROJ-1` | issue key (positional, required) |
 | `--into` | output directory (default `mirror-jira/<KEY>.assets/`) |
+
+### `atl jira issue history`
+
+Show an issue's changelog (who changed what, when), via the DC-universal
+`?expand=changelog` form.
+
+```bash
+atl jira issue history PROJ-1   # {key, history:[{id,author,created,items:[{field,from,to}]}]}
+```
+
+### `atl jira issue labels`
+
+Add and/or remove labels without clobbering labels set by others (uses the
+field-update verb).
+
+```bash
+atl jira issue labels PROJ-1 --add bug,backend [--remove wontfix]
+```
+
+Flags: `--add` / `--remove` (comma-separated; at least one required, else exit 2).
+
+### `atl jira issue check`
+
+Audit that required/important fields are populated — a CI / pre-transition gate.
+Exits **8** (`ErrCheckFailed`) when a `--require` field is empty (distinct from a
+transport/auth error), after emitting the report on stdout.
+
+```bash
+atl jira issue check PROJ-1 --require assignee,fixVersions [--warn priority]
+```
+
+`--warn` defaults to `assignee,priority,components,fixVersions,description`; pass
+`--warn ""` to opt out of warnings. A check that would audit nothing (no
+`--require` and `--warn ""`) is a usage error (exit 2).
+
+### `atl jira issue delete`
+
+Permanently delete an issue. Jira Data Center has **no trash** for issues, so this
+is irreversible and requires `--force`.
+
+```bash
+atl jira issue delete PROJ-1 --force [--delete-subtasks]
+```
 
 ### `atl jira pull`
 
@@ -759,6 +853,37 @@ List the configured issue link type names.
 ```
 atl jira link-types
 ```
+
+### `atl jira me` / `atl jira user {search,get}`
+
+Identity lookups using the Data Center username/userkey model (not Cloud
+accountId). `-o id` prints the username for piping.
+
+```
+atl jira me                      # the authenticated user
+atl jira user search 'alice'     # {users:[{name,key,displayName,email,active}]}
+atl jira user get alice          # one user by DC username
+```
+
+### `atl jira board {list,get}` and `atl jira sprint {list,get,current,issues,add,remove}`
+
+Agile boards & sprints, via the Data Center Agile API (`/rest/agile/1.0/`).
+**Requires Jira Software** (GreenHopper); on a Core/Service-Management-only
+instance the Agile endpoints 404 (exit 4). Boards and sprints are addressed by
+**numeric id** — use `board list --project` to discover the id `--board` wants.
+
+```bash
+atl jira board list --project PROJ          # {boards:[{id,name,type,project_key}]}; -o id → board ids
+atl jira board get 5
+atl jira sprint list --board 5 [--state active|closed|future]   # {sprints:[...]}; -o id → sprint ids
+atl jira sprint current --board 5           # the active sprint (exit 4 if none)
+atl jira sprint issues 7 [--fields summary,status]              # issues in sprint 7; -o id → keys
+atl jira sprint add 7 PROJ-1 PROJ-2         # move issues into sprint 7
+atl jira sprint remove PROJ-1               # move issue(s) back to the backlog
+```
+
+`--board` must be a positive id (else exit 2). List commands expose
+`next_cursor`; `--limit` is capped at 50 by the Agile API.
 
 ---
 

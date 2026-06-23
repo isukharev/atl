@@ -28,12 +28,116 @@ func (s *JiraService) Update(ctx context.Context, key, summary string, body []by
 	return s.tr.Update(ctx, key, summary, body, fields)
 }
 
-func (s *JiraService) Transition(ctx context.Context, key, to, comment string) error {
-	return s.tr.Transition(ctx, key, to, comment)
+func (s *JiraService) Transition(ctx context.Context, key, to, comment string, fields map[string]string) error {
+	return s.tr.Transition(ctx, key, to, comment, fields)
+}
+
+func (s *JiraService) DeleteIssue(ctx context.Context, key string, deleteSubtasks bool) error {
+	return s.tr.DeleteIssue(ctx, key, deleteSubtasks)
+}
+
+func (s *JiraService) UpdateLabels(ctx context.Context, key string, add, remove []string) error {
+	return s.tr.UpdateLabels(ctx, key, add, remove)
+}
+
+func (s *JiraService) Me(ctx context.Context) (*domain.User, error) {
+	return s.tr.CurrentUser(ctx)
+}
+
+func (s *JiraService) SearchUsers(ctx context.Context, query string, limit int) ([]domain.User, error) {
+	return s.tr.SearchUsers(ctx, query, limit)
+}
+
+func (s *JiraService) GetUser(ctx context.Context, username string) (*domain.User, error) {
+	return s.tr.GetUser(ctx, username)
+}
+
+// CheckResult reports which audited fields are unset on an issue.
+type CheckResult struct {
+	Key             string   `json:"key"`
+	MissingRequired []string `json:"missing_required,omitempty"`
+	MissingWarn     []string `json:"missing_warn,omitempty"`
+	OK              bool     `json:"ok"`
+}
+
+// DefaultCheckFields are commonly-important fields Jira does not itself enforce;
+// `issue check` warns when they are empty unless --warn overrides the set.
+var DefaultCheckFields = []string{"assignee", "priority", "components", "fixVersions", "description"}
+
+// Check audits that the given required/warn fields are populated on an issue.
+// OK is false when any required field is empty. No network writes occur.
+func (s *JiraService) Check(ctx context.Context, key string, require, warn []string) (*CheckResult, error) {
+	fields := append(append([]string{}, require...), warn...)
+	is, err := s.tr.GetIssue(ctx, key, fields)
+	if err != nil {
+		return nil, err
+	}
+	r := &CheckResult{Key: key, OK: true}
+	required := make(map[string]bool, len(require))
+	for _, f := range require {
+		required[f] = true
+		if fieldEmpty(is.Fields[f]) {
+			r.MissingRequired = append(r.MissingRequired, f)
+			r.OK = false
+		}
+	}
+	for _, f := range warn {
+		// A field that is already required is reported there, not duplicated here.
+		if required[f] {
+			continue
+		}
+		if fieldEmpty(is.Fields[f]) {
+			r.MissingWarn = append(r.MissingWarn, f)
+		}
+	}
+	return r, nil
+}
+
+// fieldEmpty reports whether a raw Jira field value is unset/blank.
+func fieldEmpty(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(t) == ""
+	case []any:
+		return len(t) == 0
+	case map[string]any:
+		return len(t) == 0
+	default:
+		return false
+	}
 }
 
 func (s *JiraService) Comment(ctx context.Context, key string, body []byte) (*domain.Comment, error) {
 	return s.tr.AddComment(ctx, key, body)
+}
+
+func (s *JiraService) Comments(ctx context.Context, key string) ([]domain.Comment, error) {
+	return s.tr.ListComments(ctx, key)
+}
+
+func (s *JiraService) DeleteComment(ctx context.Context, key, commentID string) error {
+	return s.tr.DeleteComment(ctx, key, commentID)
+}
+
+// History returns an issue's changelog (who changed what, when).
+func (s *JiraService) History(ctx context.Context, key string) ([]domain.ChangelogEntry, error) {
+	return s.tr.Changelog(ctx, key)
+}
+
+// Links returns an issue's links (each carrying the backend id needed to delete
+// it). It reuses GetIssue rather than adding a separate endpoint.
+func (s *JiraService) Links(ctx context.Context, key string) ([]domain.IssueLink, error) {
+	is, err := s.tr.GetIssue(ctx, key, []string{"issuelinks"})
+	if err != nil {
+		return nil, err
+	}
+	return is.Links, nil
+}
+
+func (s *JiraService) DeleteLink(ctx context.Context, linkID string) error {
+	return s.tr.DeleteLink(ctx, linkID)
 }
 
 func (s *JiraService) Link(ctx context.Context, from, to, linkType string) error {

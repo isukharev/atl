@@ -584,7 +584,7 @@ func TestTransitionPostsResolvedIDWithComment(t *testing.T) {
 
 	j := newTestJira(srv)
 	// Match by the target status name ("Closed" → transition id 21).
-	if err := j.Transition(context.Background(), "ABC-1", "Closed", "moving along"); err != nil {
+	if err := j.Transition(context.Background(), "ABC-1", "Closed", "moving along", nil); err != nil {
 		t.Fatalf("Transition: %v", err)
 	}
 	if transPath != "/rest/api/2/issue/ABC-1/transitions" {
@@ -624,7 +624,7 @@ func TestTransitionMatchesByTransitionName(t *testing.T) {
 
 	j := newTestJira(srv)
 	// "Start Progress" is a transition NAME (not a to-status); case-insensitive.
-	if err := j.Transition(context.Background(), "ABC-1", "start progress", ""); err != nil {
+	if err := j.Transition(context.Background(), "ABC-1", "start progress", "", nil); err != nil {
 		t.Fatalf("Transition: %v", err)
 	}
 	tr := body["transition"].(map[string]any)
@@ -647,7 +647,7 @@ func TestTransitionUnknownTargetIsUsageError(t *testing.T) {
 	defer srv.Close()
 
 	j := newTestJira(srv)
-	err := j.Transition(context.Background(), "ABC-1", "Nonexistent", "")
+	err := j.Transition(context.Background(), "ABC-1", "Nonexistent", "", nil)
 	if !errors.Is(err, domain.ErrUsage) {
 		t.Fatalf("err = %v, want ErrUsage", err)
 	}
@@ -664,7 +664,7 @@ func TestTransitionPropagatesListError(t *testing.T) {
 	defer srv.Close()
 
 	j := newTestJira(srv)
-	err := j.Transition(context.Background(), "ABC-1", "Done", "")
+	err := j.Transition(context.Background(), "ABC-1", "Done", "", nil)
 	if !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("err = %v, want ErrForbidden from the Transitions() lookup", err)
 	}

@@ -65,11 +65,12 @@ func (j *Jira) mapIssue(d issueDTO) *domain.Issue {
 	if links, ok := f["issuelinks"].([]any); ok {
 		for _, raw := range links {
 			lm, _ := raw.(map[string]any) // nil map on mismatch reads as zero — safe
+			lid := str(lm["id"])
 			if iw, ok := lm["inwardIssue"].(map[string]any); ok {
-				is.Links = append(is.Links, domain.IssueLink{Type: str(typeField(lm["type"], "inward")), Direction: "inward", Key: str(iw["key"])})
+				is.Links = append(is.Links, domain.IssueLink{ID: lid, Type: str(typeField(lm["type"], "inward")), Direction: "inward", Key: str(iw["key"])})
 			}
 			if ow, ok := lm["outwardIssue"].(map[string]any); ok {
-				is.Links = append(is.Links, domain.IssueLink{Type: str(typeField(lm["type"], "outward")), Direction: "outward", Key: str(ow["key"])})
+				is.Links = append(is.Links, domain.IssueLink{ID: lid, Type: str(typeField(lm["type"], "outward")), Direction: "outward", Key: str(ow["key"])})
 			}
 		}
 	}
@@ -183,8 +184,9 @@ func (j *Jira) Update(ctx context.Context, key, summary string, body []byte, fie
 	return j.c.SendJSON(ctx, "PUT", "/rest/api/2/issue/"+url.PathEscape(key), map[string]any{"fields": fl}, nil)
 }
 
-// Transition moves an issue to a target status by name, optionally commenting.
-func (j *Jira) Transition(ctx context.Context, key, to, comment string) error {
+// Transition moves an issue to a target status by name, optionally commenting
+// and setting fields on the transition (coerced like Create/Update fields).
+func (j *Jira) Transition(ctx context.Context, key, to, comment string, fields map[string]string) error {
 	trs, err := j.Transitions(ctx, key)
 	if err != nil {
 		return err
@@ -204,10 +206,100 @@ func (j *Jira) Transition(ctx context.Context, key, to, comment string) error {
 		return fmt.Errorf("%w: no transition to %q; available: %s", domain.ErrUsage, to, strings.Join(names, ", "))
 	}
 	payload := map[string]any{"transition": map[string]string{"id": id}}
+	if len(fields) > 0 {
+		fl := map[string]any{}
+		for k, v := range fields {
+			fl[k] = coerceField(v)
+		}
+		payload["fields"] = fl
+	}
 	if comment != "" {
 		payload["update"] = map[string]any{"comment": []any{map[string]any{"add": map[string]string{"body": comment}}}}
 	}
 	return j.c.SendJSON(ctx, "POST", "/rest/api/2/issue/"+url.PathEscape(key)+"/transitions", payload, nil)
+}
+
+// DeleteIssue permanently deletes an issue. deleteSubtasks must be true to
+// delete an issue that still has subtasks (else Jira returns 400).
+func (j *Jira) DeleteIssue(ctx context.Context, key string, deleteSubtasks bool) error {
+	q := url.Values{}
+	q.Set("deleteSubtasks", strconv.FormatBool(deleteSubtasks))
+	return j.c.SendJSON(ctx, "DELETE", "/rest/api/2/issue/"+url.PathEscape(key)+"?"+q.Encode(), nil, nil)
+}
+
+// UpdateLabels adds/removes labels via the field-update verb so it doesn't
+// clobber labels set by others (unlike a full PUT of the labels array).
+func (j *Jira) UpdateLabels(ctx context.Context, key string, add, remove []string) error {
+	var ops []any
+	for _, l := range add {
+		ops = append(ops, map[string]string{"add": l})
+	}
+	for _, l := range remove {
+		ops = append(ops, map[string]string{"remove": l})
+	}
+	if len(ops) == 0 {
+		return fmt.Errorf("%w: nothing to change (pass --add and/or --remove)", domain.ErrUsage)
+	}
+	payload := map[string]any{"update": map[string]any{"labels": ops}}
+	return j.c.SendJSON(ctx, "PUT", "/rest/api/2/issue/"+url.PathEscape(key), payload, nil)
+}
+
+type userDTO struct {
+	Name         string `json:"name"`
+	Key          string `json:"key"`
+	AccountID    string `json:"accountId"`
+	DisplayName  string `json:"displayName"`
+	EmailAddress string `json:"emailAddress"`
+	Active       bool   `json:"active"`
+}
+
+func mapUser(d userDTO) domain.User {
+	return domain.User{
+		Name: d.Name, Key: d.Key, AccountID: d.AccountID,
+		DisplayName: d.DisplayName, Email: d.EmailAddress, Active: d.Active,
+	}
+}
+
+// CurrentUser returns the authenticated user.
+func (j *Jira) CurrentUser(ctx context.Context) (*domain.User, error) {
+	var d userDTO
+	if err := j.c.GetJSON(ctx, "/rest/api/2/myself", &d); err != nil {
+		return nil, err
+	}
+	u := mapUser(d)
+	return &u, nil
+}
+
+// SearchUsers finds users. DC's endpoint matches on the `username` query
+// parameter (Cloud uses `query`); this targets Data Center.
+func (j *Jira) SearchUsers(ctx context.Context, query string, limit int) ([]domain.User, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 50
+	}
+	q := url.Values{}
+	q.Set("username", query)
+	q.Set("maxResults", strconv.Itoa(limit))
+	var arr []userDTO
+	if err := j.c.GetJSON(ctx, "/rest/api/2/user/search?"+q.Encode(), &arr); err != nil {
+		return nil, err
+	}
+	out := make([]domain.User, 0, len(arr))
+	for _, d := range arr {
+		out = append(out, mapUser(d))
+	}
+	return out, nil
+}
+
+// GetUser fetches one user by DC username.
+func (j *Jira) GetUser(ctx context.Context, username string) (*domain.User, error) {
+	q := url.Values{}
+	q.Set("username", username)
+	var d userDTO
+	if err := j.c.GetJSON(ctx, "/rest/api/2/user?"+q.Encode(), &d); err != nil {
+		return nil, err
+	}
+	u := mapUser(d)
+	return &u, nil
 }
 
 // AddComment posts a wiki-markup comment.
@@ -226,6 +318,33 @@ func (j *Jira) AddComment(ctx context.Context, key string, body []byte) (*domain
 	return &domain.Comment{ID: out.ID, Author: out.Author.DisplayName, Created: out.Created, Body: string(body)}, nil
 }
 
+// ListComments returns an issue's comments via the dedicated comment endpoint so
+// the caller need not refetch the whole issue body.
+func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, error) {
+	var resp struct {
+		Comments []struct {
+			ID      string         `json:"id"`
+			Author  map[string]any `json:"author"`
+			Created string         `json:"created"`
+			Body    string         `json:"body"`
+		} `json:"comments"`
+	}
+	if err := j.c.GetJSON(ctx, "/rest/api/2/issue/"+url.PathEscape(key)+"/comment", &resp); err != nil {
+		return nil, err
+	}
+	out := make([]domain.Comment, 0, len(resp.Comments))
+	for _, c := range resp.Comments {
+		out = append(out, domain.Comment{ID: c.ID, Author: nestedDisplay(c.Author), Created: c.Created, Body: c.Body})
+	}
+	return out, nil
+}
+
+// DeleteComment removes a comment by id.
+func (j *Jira) DeleteComment(ctx context.Context, key, commentID string) error {
+	return j.c.SendJSON(ctx, "DELETE",
+		"/rest/api/2/issue/"+url.PathEscape(key)+"/comment/"+url.PathEscape(commentID), nil, nil)
+}
+
 // Link creates a typed link from→to.
 func (j *Jira) Link(ctx context.Context, from, to, linkType string) error {
 	payload := map[string]any{
@@ -234,6 +353,43 @@ func (j *Jira) Link(ctx context.Context, from, to, linkType string) error {
 		"outwardIssue": map[string]string{"key": from},
 	}
 	return j.c.SendJSON(ctx, "POST", "/rest/api/2/issueLink", payload, nil)
+}
+
+// DeleteLink removes an issue link by its backend id.
+func (j *Jira) DeleteLink(ctx context.Context, linkID string) error {
+	return j.c.SendJSON(ctx, "DELETE", "/rest/api/2/issueLink/"+url.PathEscape(linkID), nil, nil)
+}
+
+// Changelog returns an issue's history. It uses the DC-universal
+// `?expand=changelog` form (the paginated /changelog sub-resource is only
+// available on Cloud and Jira DC 9+), keeping older Data Center servers working.
+func (j *Jira) Changelog(ctx context.Context, key string) ([]domain.ChangelogEntry, error) {
+	var d struct {
+		Changelog struct {
+			Histories []struct {
+				ID      string         `json:"id"`
+				Author  map[string]any `json:"author"`
+				Created string         `json:"created"`
+				Items   []struct {
+					Field      string `json:"field"`
+					FromString string `json:"fromString"`
+					ToString   string `json:"toString"`
+				} `json:"items"`
+			} `json:"histories"`
+		} `json:"changelog"`
+	}
+	if err := j.c.GetJSON(ctx, "/rest/api/2/issue/"+url.PathEscape(key)+"?expand=changelog&fields=summary", &d); err != nil {
+		return nil, err
+	}
+	out := make([]domain.ChangelogEntry, 0, len(d.Changelog.Histories))
+	for _, h := range d.Changelog.Histories {
+		e := domain.ChangelogEntry{ID: h.ID, Author: nestedDisplay(h.Author), Created: h.Created}
+		for _, it := range h.Items {
+			e.Items = append(e.Items, domain.ChangelogItem{Field: it.Field, From: it.FromString, To: it.ToString})
+		}
+		out = append(out, e)
+	}
+	return out, nil
 }
 
 // LinkEpic sets the Epic Link field (DC classic) on an issue.
