@@ -60,6 +60,8 @@ func (j *Jira) FieldOptions(ctx context.Context, project, issueType, field strin
 	var out []string
 	seen := map[string]bool{}
 	matched := false
+	var firstErr error
+	okTypes := 0
 	for _, tid := range typeIDs {
 		var fs struct {
 			Values []struct {
@@ -72,8 +74,19 @@ func (j *Jira) FieldOptions(ctx context.Context, project, issueType, field strin
 			} `json:"values"`
 		}
 		if err := j.c.GetJSON(ctx, base+"/"+url.PathEscape(tid)+"?maxResults=200", &fs); err != nil {
-			return nil, err
+			// A named single type was requested: the caller asked for exactly
+			// that type, so surface the error. When scanning all types, a
+			// restricted or odd type shouldn't sink the whole scan — skip it,
+			// remember the error, and keep collecting from healthy types.
+			if issueType != "" {
+				return nil, err
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
+		okTypes++
 		for _, fd := range fs.Values {
 			if fd.FieldID != field && fd.Name != field {
 				continue
@@ -92,6 +105,12 @@ func (j *Jira) FieldOptions(ctx context.Context, project, issueType, field strin
 		}
 	}
 	if !matched {
+		// Nothing matched. If we couldn't read a single type (e.g. an expired
+		// PAT 403s on every detail request), surface that error rather than a
+		// misleading "field not found".
+		if okTypes == 0 && firstErr != nil {
+			return nil, firstErr
+		}
 		return nil, fmt.Errorf("%w: field %q not found in createmeta for project %q", domain.ErrNotFound, field, project)
 	}
 	return out, nil
