@@ -36,6 +36,10 @@ Thumbs.db
 *.key
 atl-release-key*
 
+# Local CSF corpus for renderer testing — real storage-format pages pulled from a
+# live Confluence. Holds internal content; never publish. See docs/csf-markdown-testing.md.
+/.csf-corpus/
+
 # Go tool cache / workspace
 vendor/
 

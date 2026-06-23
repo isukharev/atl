@@ -270,7 +270,9 @@ mirror/
   at 80 runes.
 - `Write(dir, slug, page, refs)` — writes all four artefacts and updates the
   sidecar; the markdown render is best-effort (a parse error in `RenderMarkdown`
-  is silently skipped so a pull never fails because of the read-view).
+  is silently skipped so a pull never fails because of the read-view). How the
+  CSF→Markdown view is tested and how to extend its coverage:
+  [docs/csf-markdown-testing.md](csf-markdown-testing.md).
 - `LoadCSF(path)` — reads a `.csf` file, its `.meta.json`, and the sidecar
   entry; computes `Dirty = currentHash != syncedHash`.
 - `ListCSF()` — walks the tree (skipping `.atl/`), loads every `.csf`, sorts
