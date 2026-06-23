@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Collect staged .go files (added, copied, or modified).
+staged=$(git diff --cached --name-only --diff-filter=ACM -- '*.go')
+
+if [[ -z "$staged" ]]; then
+    exit 0
+fi
+
+unformatted=$(echo "$staged" | xargs gofmt -l)
+
+if [[ -n "$unformatted" ]]; then
+    echo "gofmt: the following staged files are not formatted:"
+    echo "$unformatted" | sed 's/^/  /'
+    echo "Run: gofmt -w \$(git diff --cached --name-only --diff-filter=ACM -- '*.go')"
+    exit 1
+fi

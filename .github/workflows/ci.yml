@@ -59,6 +59,12 @@ jobs:
             echo '```'
             echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: go.mod tidy check
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+      - name: Static CGO-free build
+        run: CGO_ENABLED=0 go build ./...
 
   lint:
     runs-on: ubuntu-latest
