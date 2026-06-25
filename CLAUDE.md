@@ -148,6 +148,12 @@ documented there.
   regenerate with `go test ./internal/cli/ -run … -update`) pin `emit()`'s JSON; keep canned
   responses free of volatile data (httptest ports, timestamps). The sentinel→exit-code matrix
   is locked in `cli_contract_test.go` — extend it when you add a sentinel.
+- **Keep the shipped plugin in sync with the CLI.** `skills/` is the Claude Code plugin clients
+  install to drive `atl`; it — and `docs/` — enumerate commands, flags, exit codes, and output.
+  When a change alters user-facing CLI behaviour, update the matching `skills/*/SKILL.md`
+  (Quick-Reference tables, examples, `USE WHEN` frontmatter, Common-Errors / exit-code blocks) plus
+  `docs/usage.md` / `docs/OUTPUT_CONTRACT.md` / `CHANGELOG.md` in the **same PR**, and confirm it
+  **before merging**.
 - **Security-boundary tests assert the guarantee fails when the control is removed** (O_NOFOLLOW,
   atomic symlink-replace, ed25519 verify-before-parse). Tamper *inside a valid payload* so the
   control under test — not an incidental parse failure — is what rejects it.
