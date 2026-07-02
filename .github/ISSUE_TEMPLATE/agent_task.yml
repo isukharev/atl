@@ -50,5 +50,5 @@ body:
   - type: input
     id: roadmap_id
     attributes:
-      label: Roadmap ID
-      placeholder: "B6"
+      label: Roadmap reference
+      placeholder: "optional — ROADMAP.md area"

@@ -133,6 +133,30 @@ documented there.
   `internal/selfupdate/pubkey.go`), enforces a persisted version high-water-mark (anti-rollback),
   and fails closed. It does NOT re-exec — the swapped binary takes effect on the next invocation.
 
+## GitHub issue workflow (agent tracking)
+
+Non-trivial work is **issue-first**: find or open a GitHub issue before changing code, so the
+chain `roadmap → issue/sub-issue → agent plan → branch → PR → verification → done` stays
+visible. Non-trivial = changes user-facing behaviour, public docs, CLI output, release process,
+architecture, or security posture; trivial typos/formatting/local experiments may skip it. The
+process is deliberately **issue-only** (labels + comments + sub-issues), not GitHub Projects.
+Canonical guides live outside this file: `AGENTS.md` (cross-agent handoff rules) and
+`docs/github-issue-workflow.md` (full process); issue forms are in `.github/ISSUE_TEMPLATE/`.
+
+- **Comment an `## Agent plan` before coding** (Problem / Approach / Files / Acceptance criteria /
+  Verification / Risks-non-goals); re-comment when scope changes instead of drifting silently.
+- **Labels carry state + routing:** `agent-ready` → `agent-working` → `needs-human`;
+  `area/{confluence,jira,sync,mcp,safety,packaging,cloud,docs}`;
+  `kind/{feature,bug,research,docs,infra}`; `roadmap/{now,next,later}`.
+- **Branch** with `gh issue develop <n> --checkout`; the **PR** references the issue
+  (`Refs #…` / `Fixes #…`), parent initiative, and roadmap ID/section, and lists verification
+  (`make test`, `make lint`). Close issues through a merged PR, not a local patch.
+- **Never** put PATs, private hostnames, private page IDs / issue keys, customer names, or
+  proprietary page/issue bodies in issues, PRs, comments, commits, or logs.
+- `ROADMAP.md` is the **public** roadmap. Internal product/brand strategy is kept in
+  local-only, gitignored files (declared "not part of public documentation") — never commit
+  them to this public repo, and never point public docs/issues at them.
+
 ## House rules
 
 - Tests live alongside code in the same package; new logic needs unit tests. Tests use

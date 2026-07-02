@@ -14,7 +14,6 @@ roadmap item it served, what decisions were made, and what remains blocked.
 
 ## Layers
 
-- `PRODUCT-ROADMAP.md`: internal strategy, tradeoffs, anti-patterns, research.
 - `ROADMAP.md`: public user-facing direction.
 - GitHub parent issues: quarterly roadmap initiatives.
 - GitHub sub-issues: concrete deliverables.

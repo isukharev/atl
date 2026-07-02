@@ -46,3 +46,7 @@ vendor/
 # Local-only dev planning artifacts (specs, plans, scratch) — never published
 docs/superpowers/
 docs/proposals/
+# Internal product & brand strategy — declared "not part of public documentation".
+# Kept local only; never commit to this public repo.
+/PRODUCT-ROADMAP.md
+/BRAND-GROWTH-PLAN.md

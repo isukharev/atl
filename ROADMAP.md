@@ -1,8 +1,7 @@
 # atl roadmap
 
-This is the public product roadmap for `atl`. It is intentionally shorter than
-the internal product plan in `PRODUCT-ROADMAP.md`: this file explains what users
-can expect, what is being explored, and what is explicitly out of scope.
+This is the public product roadmap for `atl`. It explains what users can expect,
+what is being explored, and what is explicitly out of scope.
 
 Roadmap items are not release commitments. Priorities can change based on
 feedback, Data Center migration pressure, and safety findings.

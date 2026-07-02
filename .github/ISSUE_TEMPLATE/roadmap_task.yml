@@ -1,5 +1,5 @@
 name: Roadmap task
-description: Track planned work that maps to ROADMAP.md or PRODUCT-ROADMAP.md.
+description: Track planned work that maps to ROADMAP.md.
 title: "roadmap: "
 labels:
   - roadmap
@@ -7,9 +7,9 @@ body:
   - type: input
     id: roadmap_id
     attributes:
-      label: Roadmap ID
-      description: Use the internal roadmap ID when known, such as B6, B4, F1, A6.
-      placeholder: "B6"
+      label: Roadmap reference
+      description: The ROADMAP.md area or item this maps to, if any.
+      placeholder: "e.g. Now / Sync at scale"
   - type: dropdown
     id: horizon
     attributes:
