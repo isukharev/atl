@@ -1,0 +1,66 @@
+name: Bug report
+description: Report a reproducible problem with atl.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not include PATs, internal hostnames, or private page content.
+  - type: input
+    id: version
+    attributes:
+      label: atl version
+      description: Output of `atl version`.
+      placeholder: "atl version ..."
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and architecture
+      placeholder: "macOS arm64, Linux amd64, ..."
+    validations:
+      required: true
+  - type: input
+    id: backend
+    attributes:
+      label: Backend version
+      description: Confluence/Jira Server or Data Center version, if relevant.
+      placeholder: "Confluence DC 8.x, Jira DC 9.x"
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the exact command and minimal sanitized input.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include error output verbatim when safe.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or JSON output
+      description: Redact secrets and private content. For updater issues, rerun with `ATL_UPDATE_DEBUG=1`.
+      render: shell
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Network setup, proxy, firewall, CI environment, mirror layout, or related issues.

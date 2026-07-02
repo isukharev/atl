@@ -6,6 +6,8 @@
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/isukharev/atl/ci.yml?branch=main&label=CI)](https://github.com/isukharev/atl/actions/workflows/ci.yml)
 
+[Roadmap](ROADMAP.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+
 **A Git-style CLI for Confluence & Jira — built for coding agents.**
 
 `atl` lets a coding agent (e.g. Claude Code) interact with Confluence and Jira the same way
