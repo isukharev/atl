@@ -14,18 +14,21 @@ detail.
 Trivial typo fixes, mechanical formatting, local experiments, and explicitly
 private/security-sensitive work may skip public issue creation.
 
+The workflow is intentionally issue-first and does not depend on GitHub Projects.
+Issues, parent/sub-issues, labels, comments, linked branches, and PR links provide
+enough traceability without heavy GraphQL usage.
+
 ### Standard flow
 
 1. Find or create a GitHub issue for the task.
-2. Add the issue to the `atl Roadmap` GitHub Project.
-3. Link it to a parent roadmap or quarterly initiative issue when one exists.
+2. Link it to a parent roadmap or quarterly initiative issue when one exists.
+3. Add labels for area/kind/roadmap horizon and agent state.
 4. Comment with the agent plan before editing code.
-5. Move Project status to `In progress`.
-6. Create or use a linked branch.
-7. Implement the change.
-8. Open a PR that references the issue and includes verification.
-9. Move Project status to `Review`.
-10. After merge, rely on PR automation or update the issue/Project to `Done`.
+5. Create or use a linked branch.
+6. Implement the change.
+7. Open a PR that references the issue and includes verification.
+8. Use PR review/CI and issue comments as the visible status trail.
+9. Close the issue through a PR (`Fixes #...`) or explicit maintainer decision.
 
 Recommended issue comment before implementation:
 
@@ -55,17 +58,28 @@ Roadmap: <ID or ROADMAP.md section>
 
 ### GitHub CLI commands
 
-Check authentication and Project scope:
+Check authentication:
 
 ```sh
 gh auth status
-gh auth refresh -s project
 ```
 
 Create an issue:
 
 ```sh
 gh issue create \
+  --title "agent: add global read-only policy" \
+  --label agent-ready \
+  --label area/safety \
+  --label kind/feature \
+  --body-file /tmp/issue.md
+```
+
+Create a sub-issue under a parent initiative:
+
+```sh
+gh issue create \
+  --parent <parent-issue-number> \
   --title "agent: add global read-only policy" \
   --label agent-ready \
   --body-file /tmp/issue.md
@@ -77,29 +91,18 @@ Create a linked branch for an issue:
 gh issue develop <issue-number> --checkout
 ```
 
-Add an item to the roadmap Project:
+Post or update the agent plan:
 
 ```sh
-gh project item-add <project-number> \
-  --owner <owner> \
-  --url https://github.com/isukharev/atl/issues/<issue-number>
+gh issue comment <issue-number> --body-file /tmp/agent-plan.md
 ```
 
-Inspect Project fields and items:
+Update issue state with labels instead of Project fields:
 
 ```sh
-gh project field-list <project-number> --owner <owner> --format json
-gh project item-list <project-number> --owner <owner> --format json
-```
-
-Update a Project field:
-
-```sh
-gh project item-edit \
-  --id <item-id> \
-  --project-id <project-id> \
-  --field-id <field-id> \
-  --single-select-option-id <option-id>
+gh issue edit <issue-number> --add-label agent-working
+gh issue edit <issue-number> --remove-label agent-ready
+gh issue edit <issue-number> --add-label needs-human
 ```
 
 Create a PR:
@@ -108,36 +111,12 @@ Create a PR:
 gh pr create \
   --draft \
   --title "feat: add global read-only policy" \
-  --body-file /tmp/pr.md \
-  --project "atl Roadmap"
+  --body-file /tmp/pr.md
 ```
-
-### Project fields
-
-Use these fields in the `atl Roadmap` Project:
-
-- `Status`: Inbox, Discovery, Ready, In progress, Review, Blocked, Done, Won't do
-- `Horizon`: Now, Next, Later, Exploring
-- `Quarter`: 2026-Q3, 2026-Q4, Unscheduled
-- `Area`: Confluence, Jira, Sync, MCP / agents, Safety, Packaging, Cloud / ADF, Docs
-- `Kind`: Feature, Bug, Research, Docs, Infra
-- `Confidence`: Committed, Likely, Exploring
-- `Impact`: High, Medium, Low
-- `Effort`: S, M, L, XL
-- `Roadmap ID`: text field, e.g. B6, B4, F1
-- `Agent state`: Needs human, Agent working, Human review, Agent blocked
-
-Suggested views:
-
-- `Quarter Plan`: current quarter, grouped by parent issue or Area.
-- `Agent Queue`: agent-ready or agent-working items.
-- `Public Roadmap`: Now / Next / Later items safe for users.
-- `Release`: grouped by milestone or target release.
-- `Blocked`: all blocked items.
 
 ### Labels
 
-Use labels for search and automation, not as a duplicate Project database.
+Use labels for search, queueing, and lightweight automation.
 
 - `area/confluence`, `area/jira`, `area/sync`, `area/mcp`, `area/safety`,
   `area/packaging`, `area/cloud`, `area/docs`
@@ -145,13 +124,21 @@ Use labels for search and automation, not as a duplicate Project database.
 - `agent-ready`, `agent-working`, `needs-human`
 - `roadmap/now`, `roadmap/next`, `roadmap/later`
 
+Suggested issue searches:
+
+```sh
+gh issue list --label agent-ready --state open
+gh issue list --label agent-working --state open
+gh issue list --label needs-human --state open
+gh issue list --label roadmap/now --state open
+```
+
 ## Agent handoff rules
 
 - Do not start broad implementation work from chat-only context when an issue is
   expected; create or update the issue first.
 - Keep the issue updated when scope changes.
-- If blocked, comment with the blocker, set Project status to `Blocked`, and
-  add `needs-human`.
+- If blocked, comment with the blocker and add `needs-human`.
 - Do not close an issue just because a local patch exists. Close it through a PR
   (`Fixes #...`) or explicit maintainer decision.
 - Never put secrets, PATs, private hostnames, private page IDs, or proprietary
