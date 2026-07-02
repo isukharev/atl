@@ -11,11 +11,14 @@
 
   "mounts": [
     "source=atl-claude-config,target=/home/vscode/.claude,type=volume",
+    "source=atl-codex-config,target=/home/vscode/.codex,type=volume",
+    "source=atl-agents-config,target=/home/vscode/.agents,type=volume",
     "source=atl-gh-config,target=/home/vscode/.config/gh,type=volume"
   ],
 
   "containerEnv": {
-    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
+    "CODEX_HOME": "/home/vscode/.codex"
   },
 
   "postCreateCommand": "bash ${containerWorkspaceFolder}/.devcontainer/post-create.sh",

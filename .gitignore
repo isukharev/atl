@@ -46,3 +46,5 @@ vendor/
 # Local-only dev planning artifacts (specs, plans, scratch) — never published
 docs/superpowers/
 docs/proposals/
+# Local-only working docs (internal planning, drafts, strategy) — never published.
+/local-docs/

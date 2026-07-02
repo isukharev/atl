@@ -9,7 +9,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Make the mounted config volumes writable by the non-root user.
-sudo chown -R vscode:vscode /home/vscode/.claude /home/vscode/.config/gh
+sudo chown -R vscode:vscode /home/vscode/.claude /home/vscode/.codex /home/vscode/.agents /home/vscode/.config/gh
 
 # System tools used by the dev workflow.
 sudo apt-get update -qq
@@ -21,3 +21,6 @@ curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install
 
 # Claude Code native build (Linux-only port of claude.ai/install.sh).
 bash "${here}/install-claude-code.sh"
+
+# OpenAI Codex CLI (installed via npm; see script header for rationale).
+bash "${here}/install-codex.sh"

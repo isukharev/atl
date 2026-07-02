@@ -1,0 +1,73 @@
+name: Roadmap task
+description: Track planned work that maps to ROADMAP.md.
+title: "roadmap: "
+labels:
+  - roadmap
+body:
+  - type: input
+    id: roadmap_id
+    attributes:
+      label: Roadmap reference
+      description: The ROADMAP.md area or item this maps to, if any.
+      placeholder: "e.g. Now / Sync at scale"
+  - type: dropdown
+    id: horizon
+    attributes:
+      label: Horizon
+      options:
+        - Now
+        - Next
+        - Later
+        - Exploring
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Confluence
+        - Jira
+        - Sync
+        - MCP / agents
+        - Safety
+        - Packaging
+        - Cloud / ADF
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / opportunity
+      description: Why should this work exist?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What user-visible behavior or product capability should exist when this is done?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Use checkboxes when possible.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals
+      description: Explicitly list tempting work that should not be part of this task.
+  - type: textarea
+    id: links
+    attributes:
+      label: Links
+      description: Related parent issue, PRD/roadmap section, discussion, docs, prior art, or research.
