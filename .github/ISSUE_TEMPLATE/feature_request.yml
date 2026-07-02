@@ -1,0 +1,46 @@
+name: Feature request
+description: Propose a user-facing feature or improvement.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and why is the current behavior insufficient?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Include command syntax, flags, output shape, or workflow details when relevant.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Confluence
+        - Jira
+        - Sync
+        - MCP / agents
+        - Safety
+        - Packaging
+        - Cloud / ADF
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What other approaches did you try or consider?
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples and context
+      description: Similar tools, upstream docs, sanitized page shapes, Jira workflow details, screenshots, etc.

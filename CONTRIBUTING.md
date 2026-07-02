@@ -61,6 +61,9 @@ choose **Reopen in Container** — Go, gopls, and golangci-lint are pre-installe
 ## Commits and pull requests
 
 - Keep PRs **small and focused** — one logical change per PR.
+- Non-trivial work should have a GitHub issue before implementation. Link the
+  issue from the PR and include the roadmap ID or parent initiative when the work
+  is roadmap-driven. See [`docs/github-issue-workflow.md`](docs/github-issue-workflow.md).
 - Commit subject line: `<type>: <short summary>` (conventional-ish, e.g.
   `fix: handle empty body in push`, `feat: add fragment resolution`). Keep it
   under 72 characters.
