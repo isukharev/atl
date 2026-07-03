@@ -424,19 +424,21 @@ func TestJiraPull_MirrorLayoutAndByteStable(t *testing.T) {
 		`{"issues":[{"key":"ENG-42","fields":{"summary":"Pulled issue","project":{"key":"ENG"}}}],"startAt":0,"maxResults":50,"total":1}`)
 	// Per-issue GET returns full fields including the native wiki description.
 	issueBody, _ := json.Marshal(map[string]any{
+		"id":  "1042",
 		"key": "ENG-42",
 		"fields": map[string]any{
-			"summary":     "Pulled issue",
-			"description": pullWikiBody,
-			"status":      map[string]any{"name": "Open"},
-			"issuetype":   map[string]any{"name": "Story"},
-			"project":     map[string]any{"key": "ENG"},
+			"summary":       "Pulled issue",
+			"description":   pullWikiBody,
+			"status":        map[string]any{"name": "Open"},
+			"issuetype":     map[string]any{"name": "Story"},
+			"project":       map[string]any{"key": "ENG"},
+			"customfield_1": "team-a",
 		},
 	})
 	js.route(http.MethodGet, "/rest/api/2/issue/", http.StatusOK, string(issueBody))
 
 	into := t.TempDir()
-	out, code := runCLI(t, jiraEnv(js.srv), "jira", "pull", "--jql", "project=ENG", "--into", into)
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "pull", "--jql", "project=ENG", "--into", into, "--fields", "customfield_1")
 	if code != exitOK {
 		t.Fatalf("jira pull: exit %d, want 0 (stdout=%q)", code, out)
 	}
@@ -468,8 +470,25 @@ func TestJiraPull_MirrorLayoutAndByteStable(t *testing.T) {
 	}
 
 	jsonPath := filepath.Join(into, "ENG", "ENG-42.json")
-	if _, err := os.Stat(jsonPath); err != nil {
-		t.Errorf("expected sidecar .json at %s: %v", jsonPath, err)
+	jb, err := os.ReadFile(jsonPath)
+	if err != nil {
+		t.Fatalf("expected sidecar .json at %s: %v", jsonPath, err)
+	}
+	var snap app.JiraIssueSnapshot
+	if err := json.Unmarshal(jb, &snap); err != nil {
+		t.Fatalf("decode sidecar .json: %v\n%s", err, jb)
+	}
+	if snap.Key != "ENG-42" || snap.ID != "1042" || snap.Fields["customfield_1"] != "team-a" {
+		t.Errorf("snapshot = %+v, want key/id/customfield_1", snap)
+	}
+	var sawCustomField bool
+	for _, r := range js.requests() {
+		if r.method == http.MethodGet && (r.path == "/rest/api/2/search" || r.path == "/rest/api/2/issue/ENG-42") && strings.Contains(r.query, "customfield_1") {
+			sawCustomField = true
+		}
+	}
+	if !sawCustomField {
+		t.Errorf("expected pull --fields customfield_1 on search/get requests, got %+v", js.requests())
 	}
 }
 
@@ -526,6 +545,40 @@ func TestJiraFields_Emit(t *testing.T) {
 	}
 	if len(res.Fields) != 2 || res.Fields[0].ID != "summary" || res.Fields[1].Name != "Epic Link" {
 		t.Errorf("fields = %+v, want summary + Epic Link", res.Fields)
+	}
+}
+
+func TestJiraFields_Filters(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/field", http.StatusOK,
+		`[{"id":"summary","name":"Summary","custom":false,"schema":{"type":"string"}},{"id":"customfield_1","name":"Epic Link","custom":true,"schema":{"type":"any"}},{"id":"customfield_2","name":"Team","custom":true,"schema":{"type":"string"}}]`)
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "fields", "--name-like", "epic")
+	if code != exitOK {
+		t.Fatalf("jira fields --name-like: exit %d, want 0 (stdout=%q)", code, out)
+	}
+	var byName struct {
+		Fields []domain.FieldDef `json:"fields"`
+	}
+	if err := json.Unmarshal([]byte(out), &byName); err != nil {
+		t.Fatalf("decode fields: %v\n%s", err, out)
+	}
+	if len(byName.Fields) != 1 || byName.Fields[0].ID != "customfield_1" {
+		t.Fatalf("name-like fields = %+v, want only customfield_1", byName.Fields)
+	}
+
+	out, code = runCLI(t, jiraEnv(js.srv), "jira", "fields", "--id", "customfield_2")
+	if code != exitOK {
+		t.Fatalf("jira fields --id: exit %d, want 0 (stdout=%q)", code, out)
+	}
+	var byID struct {
+		Fields []domain.FieldDef `json:"fields"`
+	}
+	if err := json.Unmarshal([]byte(out), &byID); err != nil {
+		t.Fatalf("decode fields by id: %v\n%s", err, out)
+	}
+	if len(byID.Fields) != 1 || byID.Fields[0].Name != "Team" {
+		t.Fatalf("id fields = %+v, want only Team", byID.Fields)
 	}
 }
 

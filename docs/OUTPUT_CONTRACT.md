@@ -88,3 +88,23 @@ maps them via `errors.Is`:
 When set, `httpx.SetTrace` attaches a request/response logger to stderr before any HTTP call.
 The bearer token is **never** written to the trace. stdout stays reserved for the result, so
 verbose output never corrupts the JSON stream.
+
+---
+
+## Stable Snapshot Notes
+
+`atl jira pull` writes one read-only markdown view and one JSON snapshot per issue. The JSON snapshot
+is an object with stable identity at the top level and raw Jira fields under `fields`:
+
+```json
+{
+  "key": "PROJ-1",
+  "id": "10001",
+  "fields": {
+    "summary": "Issue summary"
+  }
+}
+```
+
+`--fields` on `jira pull` adds requested fields to that `fields` map; the command still includes the
+core fields needed to render the markdown view and choose the project/key path.

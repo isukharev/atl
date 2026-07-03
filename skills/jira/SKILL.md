@@ -31,14 +31,14 @@ atl jira issue search --jql '<JQL>' --limit 50
 
 ### 2. Pull issues you'll work with
 ```bash
-atl jira pull --jql '<JQL>' --into ~/.atl/<workspace>/ --limit 0
+atl jira pull --jql '<JQL>' --into ~/.atl/<workspace>/ --limit 0 [--fields customfield_10001,customfield_10002]
 ```
 (`--limit 0` = all; default 100.) → `{ "into": "...", "issues": [ {key, path} ] }`
 
 On disk per issue (both are **read-only snapshots**, regenerated on pull):
 ```
 <root>/<PROJECT>/<KEY>.md     # YAML frontmatter + wiki body + links + comments
-<root>/<PROJECT>/<KEY>.json   # the raw Jira `fields` map (e.g. .description, .status, …)
+<root>/<PROJECT>/<KEY>.json   # {key,id,fields:{...}}; raw Jira fields live under .fields
 ```
 
 ### 3. Read for context
@@ -71,6 +71,8 @@ atl jira issue delete PROJ-1 --force                                            
 ### 5. Discover valid values before writing
 ```bash
 atl jira fields                                              # {fields:[{id,name,custom}]}
+atl jira fields --name-like Epic
+atl jira fields --id customfield_10001
 atl jira field-options --project PROJ --type Bug --field priority   # {options:[...]}
 atl jira transitions --key PROJ-1                            # {transitions:[{id,name,to}]}
 atl jira link-types                                          # {link_types:[...]}
@@ -124,8 +126,8 @@ Agile endpoints 404 (exit 4). Use `board list --project` to discover the id `--b
 | `jira issue link delete <LINK-ID>` | Delete a link by id | — |
 | `jira issue link-epic <KEY>` | Set the Epic Link | `--epic EPIC-KEY` |
 | `jira issue images <KEY>` | Download image attachments (agent vision) | `--into DIR` |
-| `jira pull` | Export issues to disk (.md + .json) | `--jql`, `--into`, `--limit` |
-| `jira fields` | List Jira fields | — |
+| `jira pull` | Export issues to disk (.md + .json) | `--jql`, `--into`, `--limit`, `--fields` |
+| `jira fields` | List Jira fields | `--name-like`, `--id` |
 | `jira field-options` | List allowed values for a field | `--project`, `--type`, `--field` |
 | `jira transitions` | List available transitions for an issue | `--key` |
 | `jira link-types` | List issue link types | — |

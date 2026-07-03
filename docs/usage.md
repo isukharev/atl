@@ -593,6 +593,7 @@ Search issues by JQL.
 ```bash
 atl jira issue search --jql "project=PROJ and status=Open" --limit 20
 atl jira issue search --jql "assignee=currentUser()" --cursor 50
+atl jira issue search --jql "project=PROJ" --fields summary,status,customfield_10001
 ```
 
 Flags:
@@ -786,11 +787,12 @@ atl jira issue delete PROJ-1 --force [--delete-subtasks]
 
 Export issues matching a JQL query to disk. Each issue becomes a pair of
 files: `<KEY>.md` (Markdown with YAML frontmatter + native wiki body) and
-`<KEY>.json` (raw fields).
+`<KEY>.json` (identity plus raw Jira fields).
 
 ```bash
 atl jira pull --jql "project=PROJ and sprint in openSprints()" \
   --into my-jira-mirror --limit 200
+atl jira pull --jql "project=PROJ" --fields customfield_10001,customfield_10002
 ```
 
 Flags:
@@ -800,6 +802,7 @@ Flags:
 | `--jql` | JQL query (required) |
 | `--into` | output root directory (default `mirror-jira`) |
 | `--limit` | max issues (0 = all; default 100) |
+| `--fields` | extra comma-separated fields to include in JSON snapshots; core fields needed for rendering are always included |
 
 Output layout:
 
@@ -812,13 +815,31 @@ mirror-jira/
     PROJ-2.json
 ```
 
+`<KEY>.json` shape:
+
+```json
+{
+  "key": "PROJ-1",
+  "id": "10001",
+  "fields": {
+    "summary": "Issue summary",
+    "customfield_10001": "custom value"
+  }
+}
+```
+
 ### `atl jira fields`
 
 List all Jira fields (system and custom) with their IDs and schema types.
 
 ```
 atl jira fields
+atl jira fields --name-like Epic
+atl jira fields --id customfield_10001
 ```
+
+Filters are applied client-side to Jira's field list. Use `field-options` when
+you need values allowed for a specific project and issue type.
 
 ### `atl jira field-options`
 

@@ -209,20 +209,27 @@ type JiraPulled struct {
 	Path string `json:"path"`
 }
 
+type JiraIssueSnapshot struct {
+	Key    string         `json:"key"`
+	ID     string         `json:"id,omitempty"`
+	Fields map[string]any `json:"fields"`
+}
+
 // Pull exports issues matching jql to one markdown + json file each.
-func (s *JiraService) Pull(ctx context.Context, jql, into string, limit int) ([]JiraPulled, error) {
+func (s *JiraService) Pull(ctx context.Context, jql, into string, limit int, fields []string) ([]JiraPulled, error) {
 	if into == "" {
 		into = "mirror-jira"
 	}
 	var out []JiraPulled
 	cursor := ""
+	pullFields := jiraPullFields(fields)
 	for len(out) < limit || limit == 0 {
-		issues, next, err := s.tr.Search(ctx, jql, nil, 100, cursor)
+		issues, next, err := s.tr.Search(ctx, jql, pullFields, 100, cursor)
 		if err != nil {
 			return out, err
 		}
 		for _, is := range issues {
-			full, err := s.tr.GetIssue(ctx, is.Key, nil)
+			full, err := s.tr.GetIssue(ctx, is.Key, pullFields)
 			if err != nil {
 				full = &is
 			}
@@ -240,7 +247,11 @@ func (s *JiraService) Pull(ctx context.Context, jql, into string, limit int) ([]
 			if err := safepath.WriteFile(mdPath, renderIssueMarkdown(full), 0o644); err != nil {
 				return out, err
 			}
-			if jb, err := json.MarshalIndent(full.Fields, "", "  "); err == nil {
+			snap := JiraIssueSnapshot{Key: full.Key, ID: full.ID, Fields: full.Fields}
+			if snap.Fields == nil {
+				snap.Fields = map[string]any{}
+			}
+			if jb, err := json.MarshalIndent(snap, "", "  "); err == nil {
 				_ = safepath.WriteFile(filepath.Join(dir, keySeg+".json"), append(jb, '\n'), 0o644)
 			}
 			rel, _ := filepath.Rel(into, mdPath)
@@ -255,6 +266,21 @@ func (s *JiraService) Pull(ctx context.Context, jql, into string, limit int) ([]
 		cursor = next
 	}
 	return out, nil
+}
+
+func jiraPullFields(extra []string) []string {
+	base := []string{"summary", "description", "status", "issuetype", "project", "assignee", "reporter", "labels", "issuelinks", "comment", "attachment"}
+	seen := make(map[string]bool, len(base)+len(extra))
+	out := make([]string, 0, len(base)+len(extra))
+	for _, f := range append(base, extra...) {
+		f = strings.TrimSpace(f)
+		if f == "" || seen[f] {
+			continue
+		}
+		seen[f] = true
+		out = append(out, f)
+	}
+	return out
 }
 
 // renderIssueMarkdown emits frontmatter + summary + native-wiki body. The body

@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   <KEY>…` / `sprint remove <KEY>…` move issues into a sprint / back to the
   backlog. Boards and sprints are addressed by numeric id (name resolution is
   deferred to a future metadata cache).
+- **Jira analytical snapshots** — `jira pull --fields` includes requested custom
+  fields in each issue's JSON snapshot, and `jira fields` can be narrowed with
+  `--name-like` or `--id`.
 - **Confluence**: `conf search` convenience flags (`--space/--title/--label/--type`
   build escaped CQL); `conf page list` (flat listing in a space, `--status`);
   `conf page open` (open in the system browser); `conf page copy` (client-side
@@ -62,6 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gitignored `.env.integration` (template: `.env.integration.example`) so backend
   URLs and PATs stay local. Adds read-only coverage for `conf page history` and
   `jira field-options` against a real DC.
+- `jira pull` sidecar JSON is now an identity snapshot (`{key,id,fields}`) instead
+  of a bare raw fields map, so scripts can reliably join snapshots back to Jira.
 
 ---
 

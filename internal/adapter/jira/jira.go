@@ -35,6 +35,7 @@ const defaultFields = "summary,description,status,issuetype,project,assignee,rep
 // --- DTOs ---
 
 type issueDTO struct {
+	ID     string         `json:"id"`
 	Key    string         `json:"key"`
 	Fields map[string]any `json:"fields"`
 }
@@ -44,7 +45,7 @@ func (j *Jira) mapIssue(d issueDTO) *domain.Issue {
 	// cannot affect the other (Fields is the exported on-disk view; Raw is for
 	// internal resolution). The clone is shallow: nested map/slice values are
 	// still shared, which is fine as neither map's nested values are mutated.
-	is := &domain.Issue{Key: d.Key, Fields: d.Fields, Raw: maps.Clone(d.Fields), FieldText: map[string]string{}}
+	is := &domain.Issue{ID: d.ID, Key: d.Key, Fields: d.Fields, Raw: maps.Clone(d.Fields), FieldText: map[string]string{}}
 	f := d.Fields
 	// Version is intentionally left at 0: Jira Server/DC exposes no per-issue
 	// integer version counter under fields (only a string "updated" timestamp),
