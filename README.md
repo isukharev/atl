@@ -231,6 +231,9 @@ atl conf page get     --id 123456
 atl conf page get     --id 123456 --format csf
 atl conf page meta    --id 123456
 atl conf page history --id 123456
+atl conf table extract --id 123456 --format json
+atl conf table extract --id 123456 --table 2 --format csv
+atl conf table extract --id 123456 --format xlsx --out tables.xlsx
 atl conf page create  --space DOCS --parent 123456 --title "My Page" --from-file body.csf
 atl conf page move    --id 123456 --parent 654321
 atl conf page delete  --id 123456

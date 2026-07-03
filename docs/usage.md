@@ -370,6 +370,37 @@ mirror/
       12345678.csf             ← pristine copy for diff
 ```
 
+### `atl conf table extract`
+
+Extract tables from a page's native CSF body into structured data. This is useful
+when the page has multiple tables or merged cells and a script needs something
+more explicit than the markdown read-view.
+
+```bash
+# all tables as JSON, preserving per-cell metadata
+atl conf table extract --id 12345678
+
+# one table as rectangular CSV
+atl conf table extract --id 12345678 --table 2 --format csv
+
+# all tables as an XLSX workbook, one sheet per table
+atl conf table extract --id 12345678 --format xlsx --out tables.xlsx
+```
+
+Flags:
+
+| flag | description |
+|---|---|
+| `--id` | page id |
+| `--table` | 1-based table index to extract (0 = all tables) |
+| `--format` | `json`, `csv`, or `xlsx` |
+| `--out` | optional output file; required for `xlsx` |
+
+JSON preserves the expanded cells, source coordinates for rowspan/colspan
+repeats, ordinary links, and visible inline color markers. CSV without
+`--table` emits a cell-level stream so pages with different table shapes can
+share one file; CSV with `--table` emits a rectangular table.
+
 ### `atl conf status`
 
 Show which mirrored pages have local edits and which have drifted on the

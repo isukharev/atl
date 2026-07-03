@@ -168,6 +168,15 @@ if re.search(r"<span\b[^>]*\bstyle=[\"'][^\"']*color\s*:", csf, re.I) and "\u27e
     raise SystemExit("color marker missing from markdown")
 PY
   ok "confluence table"
+
+  "$ATL_BIN" conf table extract --id "$conf_table_page_id" --format json > "$tmp/conf-tables.json"
+  min_tables="${ATL_TEST_CONFLUENCE_TABLE_MIN_COUNT:-1}"
+  jq -e --argjson min "$min_tables" '.table_count >= $min and (.tables | length) >= $min' "$tmp/conf-tables.json" >/dev/null
+  "$ATL_BIN" conf table extract --id "$conf_table_page_id" --table 1 --format csv > "$tmp/conf-table-1.csv"
+  test -s "$tmp/conf-table-1.csv"
+  "$ATL_BIN" conf table extract --id "$conf_table_page_id" --format xlsx --out "$tmp/conf-tables.xlsx" >/dev/null
+  test -s "$tmp/conf-tables.xlsx"
+  ok "confluence table extract"
 else
   skip "confluence table (ATL_TEST_CONFLUENCE_TABLE_PAGE_ID unset)"
 fi
