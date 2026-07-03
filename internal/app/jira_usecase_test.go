@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -401,15 +402,15 @@ func TestYamlEscape(t *testing.T) {
 	}
 }
 
-// Pull writes the rendered markdown verbatim to disk and a sibling .json of the
-// issue Fields.
+// Pull writes the rendered markdown verbatim to disk and a sibling identity
+// snapshot with Jira fields.
 func TestJiraPullWritesMarkdownAndJSON(t *testing.T) {
 	into := t.TempDir()
 	tr := partialTracker{issues: []domain.Issue{
-		{Key: "PROJ-1", Project: "PROJ", Summary: "S", Status: "Open", Type: "Task", Body: "wiki body here"},
+		{ID: "10001", Key: "PROJ-1", Project: "PROJ", Summary: "S", Status: "Open", Type: "Task", Body: "wiki body here", Fields: map[string]any{"customfield_1": "x"}},
 	}}
 	svc := &JiraService{tr: tr}
-	out, err := svc.Pull(context.Background(), "project = PROJ", into, 1)
+	out, err := svc.Pull(context.Background(), "project = PROJ", into, 1, []string{"customfield_1"})
 	if err != nil {
 		t.Fatalf("pull: %v", err)
 	}
@@ -421,10 +422,17 @@ func TestJiraPullWritesMarkdownAndJSON(t *testing.T) {
 		t.Fatalf("md not written: %v", err)
 	}
 	mustContain(t, string(md), "wiki body here")
-	// .json sibling exists next to the .md
 	jsonPath := strings.TrimSuffix(filepath.Join(into, out[0].Path), ".md") + ".json"
-	if _, err := os.Stat(jsonPath); err != nil {
-		t.Errorf("expected sibling json at %s: %v", jsonPath, err)
+	jb, err := os.ReadFile(jsonPath)
+	if err != nil {
+		t.Fatalf("expected sibling json at %s: %v", jsonPath, err)
+	}
+	var snap JiraIssueSnapshot
+	if err := json.Unmarshal(jb, &snap); err != nil {
+		t.Fatalf("decode snapshot: %v\n%s", err, jb)
+	}
+	if snap.Key != "PROJ-1" || snap.ID != "10001" || snap.Fields["customfield_1"] != "x" {
+		t.Errorf("snapshot = %+v, want key/id/custom field", snap)
 	}
 }
 

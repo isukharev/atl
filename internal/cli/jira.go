@@ -31,7 +31,14 @@ func splitFields(s string) []string {
 	if s == "" {
 		return nil
 	}
-	return strings.Split(s, ",")
+	var out []string
+	for _, f := range strings.Split(s, ",") {
+		f = strings.TrimSpace(f)
+		if f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 func parseKV(pairs []string) (map[string]string, error) {
@@ -617,6 +624,7 @@ func jiraLinkCmd() *cobra.Command {
 
 func jiraPullCmd() *cobra.Command {
 	var jql, into string
+	var fields string
 	var limit int
 	cmd := &cobra.Command{
 		Use:   "pull",
@@ -629,7 +637,7 @@ func jiraPullCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			pulled, err := svc.Pull(cmd.Context(), jql, into, limit)
+			pulled, err := svc.Pull(cmd.Context(), jql, into, limit, splitFields(fields))
 			if err != nil {
 				return err
 			}
@@ -645,10 +653,12 @@ func jiraPullCmd() *cobra.Command {
 	cmd.Flags().StringVar(&jql, "jql", "", "JQL selecting issues")
 	cmd.Flags().StringVar(&into, "into", mirrorRootDefault("mirror-jira"), "output root dir (default: $ATL_MIRROR_ROOT or \"mirror-jira\")")
 	cmd.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all)")
+	cmd.Flags().StringVar(&fields, "fields", "", "extra comma-separated field list to include in JSON snapshots")
 	return cmd
 }
 
 func jiraMetaCmds() []*cobra.Command {
+	var nameLike, fieldID string
 	fields := &cobra.Command{
 		Use:   "fields",
 		Short: "List Jira fields (id/name/custom)",
@@ -661,9 +671,12 @@ func jiraMetaCmds() []*cobra.Command {
 			if err != nil {
 				return err
 			}
+			fs = filterFieldDefs(fs, fieldID, nameLike)
 			return emit(cmd, map[string]any{"fields": fs}, nil)
 		},
 	}
+	fields.Flags().StringVar(&nameLike, "name-like", "", "case-insensitive substring filter for field name")
+	fields.Flags().StringVar(&fieldID, "id", "", "exact field id filter")
 
 	var project, issueType, field string
 	opts := &cobra.Command{
@@ -726,6 +739,25 @@ func jiraMetaCmds() []*cobra.Command {
 	}
 
 	return []*cobra.Command{fields, opts, transitions, linkTypes}
+}
+
+func filterFieldDefs(fs []domain.FieldDef, id, nameLike string) []domain.FieldDef {
+	id = strings.TrimSpace(id)
+	nameLike = strings.ToLower(strings.TrimSpace(nameLike))
+	if id == "" && nameLike == "" {
+		return fs
+	}
+	out := make([]domain.FieldDef, 0, len(fs))
+	for _, f := range fs {
+		if id != "" && f.ID != id {
+			continue
+		}
+		if nameLike != "" && !strings.Contains(strings.ToLower(f.Name), nameLike) {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 func orDash(s string) string {

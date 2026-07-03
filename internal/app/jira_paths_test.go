@@ -69,7 +69,7 @@ func TestJiraPullRejectsTraversalKey(t *testing.T) {
 	s := &JiraService{tr: partialTracker{
 		issues: []domain.Issue{{Key: "../../../../tmp/atl-evil", Project: "PROJ"}},
 	}}
-	out, err := s.Pull(context.Background(), "project = PROJ", into, 1)
+	out, err := s.Pull(context.Background(), "project = PROJ", into, 1, nil)
 	if err != nil {
 		t.Logf("Pull returned %v (acceptable: rejected)", err)
 	}

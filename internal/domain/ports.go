@@ -53,6 +53,7 @@ type Version struct {
 
 // Issue is a Jira issue (export-mostly: read locally, write via commands).
 type Issue struct {
+	ID        string            `json:"id,omitempty"`
 	Key       string            `json:"key"`
 	Summary   string            `json:"summary"`
 	Status    string            `json:"status"`
