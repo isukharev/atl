@@ -925,6 +925,46 @@ atl jira sprint remove PROJ-1               # move issue(s) back to the backlog
 `--board` must be a positive id (else exit 2). List commands expose
 `next_cursor`; `--limit` is capped at 50 by the Agile API.
 
+### `atl jira structure {get,forest,rows,values}`
+
+Read-only Tempo Structure access via the Structure REST API
+(`/rest/structure/2.0/`). Structures are addressed by numeric id. If the
+Structure plugin is not installed, the endpoint is disabled, or the object is not
+visible to the token, Jira returns an API error (commonly exit 4 or 6).
+
+```bash
+atl jira structure get 123
+atl jira structure forest 123
+atl jira structure rows 123                         # parsed forest rows; -o id -> row ids
+atl jira structure values 123 --rows 100,101 --fields key,summary,status
+```
+
+`rows` parses Structure's forest formula into a stable row list:
+
+```json
+{
+  "structure_id": 123,
+  "version": {
+    "signature": 55,
+    "version": 7
+  },
+  "rows": [
+    {
+      "row_id": 100,
+      "depth": 0,
+      "item_type": "issue",
+      "item_id": "10001",
+      "position": 0
+    }
+  ]
+}
+```
+
+`values` posts selected row ids and attribute ids to the Structure value
+resource. The output preserves the raw response under `raw`, exposes
+`responses`, and lifts any reported inaccessible row ids to
+`inaccessible_rows` so scripts can detect permission gaps.
+
 ---
 
 ## `atl version`

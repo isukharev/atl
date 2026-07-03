@@ -1,6 +1,6 @@
 ---
 name: jira
-description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, transition, comment on, link, delete, check fields of, or report on a Jira issue, ticket, bug, story, epic, or task; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; download images from an issue; or work with agile boards and sprints — list boards/sprints, see the current sprint, list a sprint's issues, or move issues into a sprint or back to the backlog.
+description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, transition, comment on, link, delete, check fields of, or report on a Jira issue, ticket, bug, story, epic, or task; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; download images from an issue; work with agile boards and sprints; or read Tempo Structure metadata, forest rows, and values.
 ---
 
 # Jira issues with `atl`
@@ -104,6 +104,19 @@ atl jira sprint remove PROJ-1                       # move issue(s) back to the 
 These need Jira **Software** (GreenHopper); on a Core/Service-Management-only instance the
 Agile endpoints 404 (exit 4). Use `board list --project` to discover the id `--board` wants.
 
+### 8. Tempo Structure (read-only)
+Backed by the Structure plugin API (`/rest/structure/2.0/`). Structures and rows are numeric ids.
+Use this to inspect a structure tree and fetch selected attributes; there are no writeback commands.
+```bash
+atl jira structure get 123
+atl jira structure forest 123
+atl jira structure rows 123                                      # parsed hierarchy; -o id → row ids
+atl jira structure values 123 --rows 100,101 --fields key,summary,status
+```
+`rows` reports `{structure_id,version,rows:[{row_id,depth,parent_row_id,item_type,item_id}]}`.
+`values` preserves the backend matrix in `responses`/`raw` and exposes `inaccessible_rows` when
+the server reports permission gaps. If the plugin or object is unavailable, expect exit 4/6.
+
 ## Quick Reference — all `jira` commands
 
 | Command | What it does | Key flags |
@@ -134,6 +147,10 @@ Agile endpoints 404 (exit 4). Use `board list --project` to discover the id `--b
 | `jira me` | Show the authenticated Jira user | — |
 | `jira user search <Q>` | Search users by name/username | `--limit` |
 | `jira user get <USERNAME>` | Get a user by DC username | — |
+| `jira structure get <ID>` | Get Structure metadata | `-o id` |
+| `jira structure forest <ID>` | Get raw latest Structure forest formula | — |
+| `jira structure rows <ID>` | Parse Structure forest rows | `-o id` |
+| `jira structure values <ID>` | Get row attribute values | `--rows`, `--fields` |
 
 ## Common Errors
 
@@ -148,10 +165,12 @@ Agile endpoints 404 (exit 4). Use `board list --project` to discover the id `--b
 | `link <KEY>` returns "unknown command" | Breaking change: subcommand restructured | Use `link add <KEY>` or `link list <KEY>` instead |
 | Transition rejected by Jira | Status name not available from current state | Run `jira transitions --key PROJ-1` first to see valid transitions |
 | Field value rejected | Field option doesn't exist for this project/type | Run `jira field-options --project PROJ --field <field>` to list valid values |
+| Structure command exits 4/6 | Structure plugin/object unavailable or token lacks permission | Verify the numeric id and permissions; commands are read-only |
 
 ## Hard rules
 - **Never edit `<KEY>.md` / `<KEY>.json` to change an issue** — they are read-only snapshots;
   changes go through the commands above.
+- Structure commands are read-only inspection tools; do not infer that `atl` can write Structure data.
 - No version gate → always `get` right before `update`.
 - Before setting a status, field value, or link type, confirm it exists (`transitions`,
   `field-options`, `link-types`) — Jira rejects unknown names.

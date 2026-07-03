@@ -1,6 +1,6 @@
 ---
 name: atl
-description: Work with Confluence pages and Jira issues as local files using the atl CLI — mirror them to disk in native format, use them as grounding context, edit, and push changes back under a version gate. Use when the user mentions Confluence, a wiki page, Jira, a ticket/issue/epic, an agile board or sprint, a spec or runbook that lives in Atlassian, JQL or CQL, or wants Atlassian content available locally to read or edit.
+description: Work with Confluence pages and Jira issues as local files using the atl CLI — mirror them to disk in native format, use them as grounding context, edit, and push changes back under a version gate. Use when the user mentions Confluence, a wiki page, Jira, a ticket/issue/epic, an agile board, sprint, Structure tree, a spec or runbook that lives in Atlassian, JQL or CQL, or wants Atlassian content available locally to read or edit.
 ---
 
 # Working with Confluence & Jira via `atl`
@@ -55,7 +55,7 @@ Recent additions expand both surfaces — check the focused skills for full flag
 
 **Confluence additions:** `conf page list --space [--status]`, `conf page open --id`, `conf page copy --id --title [--space] [--parent]`, `conf attachment {list,get,upload,delete}`, `conf me`, `conf search --space/--title/--label/--type` convenience filters (no `--cql` needed), `.md` view renders internal links as `[[Title]]`.
 
-**Jira additions:** `jira issue history <KEY>`, `jira issue check <KEY> [--require] [--warn]` (non-zero exit if a required field is empty — good as a CI gate), `jira issue delete <KEY> --force` (permanent on DC), `jira issue labels <KEY> --add/--remove`, `jira me`, `jira user search <q>` / `jira user get <username>`. **Boards & sprints** (Jira Software only, via the DC Agile API): `jira board {list,get}` and `jira sprint {list,get,current,issues,add,remove}` — addressed by numeric id; `board list --project` discovers board ids, `sprint current --board ID` gives the active sprint, `sprint add/remove` move issues into a sprint or back to the backlog. **Breaking renames:** `comment add|list|delete` (was `comment <KEY>`), `link add|list|delete` (was `link <KEY>`). `jira issue transition` now accepts `--field k=v` to set fields on the transition.
+**Jira additions:** `jira issue history <KEY>`, `jira issue check <KEY> [--require] [--warn]` (non-zero exit if a required field is empty — good as a CI gate), `jira issue delete <KEY> --force` (permanent on DC), `jira issue labels <KEY> --add/--remove`, `jira me`, `jira user search <q>` / `jira user get <username>`. **Boards & sprints** (Jira Software only, via the DC Agile API): `jira board {list,get}` and `jira sprint {list,get,current,issues,add,remove}` — addressed by numeric id; `board list --project` discovers board ids, `sprint current --board ID` gives the active sprint, `sprint add/remove` move issues into a sprint or back to the backlog. **Structure** (Tempo Structure plugin): `jira structure {get,forest,rows,values}` reads metadata, raw forests, parsed row hierarchies, and selected row values. **Breaking renames:** `comment add|list|delete` (was `comment <KEY>`), `link add|list|delete` (was `link <KEY>`). `jira issue transition` now accepts `--field k=v` to set fields on the transition.
 
 ## Reacting to results
 
