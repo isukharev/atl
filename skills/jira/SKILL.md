@@ -41,6 +41,17 @@ On disk per issue (both are **read-only snapshots**, regenerated on pull):
 <root>/<PROJECT>/<KEY>.json   # {key,id,fields:{...}}; raw Jira fields live under .fields
 ```
 
+For compact analysis artifacts instead of a directory mirror:
+```bash
+atl jira export --jql '<JQL>' --format jsonl --out issues.jsonl [--fields customfield_10001]
+atl jira export --jql '<JQL>' --format csv --out issues.csv
+atl jira export --keys PROJ-1,PROJ-2 --batch-size 100 --out selected.jsonl
+atl jira export diff old.jsonl new.jsonl
+```
+This writes the artifact plus `<out>.manifest.json`; the manifest includes query/fields/count and a
+backend URL hash, never the backend hostname or PAT. Use `--ids`/`--keys` when the CLI should build
+safe batched `id in (...)` / `key in (...)` JQL instead of hand-editing a long query.
+
 ### 3. Read for context
 Read `<KEY>.md` (human view) and `<KEY>.json` (raw fields) to ground your work.
 
@@ -140,6 +151,8 @@ the server reports permission gaps. If the plugin or object is unavailable, expe
 | `jira issue link-epic <KEY>` | Set the Epic Link | `--epic EPIC-KEY` |
 | `jira issue images <KEY>` | Download image attachments (agent vision) | `--into DIR` |
 | `jira pull` | Export issues to disk (.md + .json) | `--jql`, `--into`, `--limit`, `--fields` |
+| `jira export` | Write one compact JSONL/JSON/CSV artifact plus manifest | `--jql`/`--ids`/`--keys`, `--out`, `--format`, `--limit`, `--fields`, `--batch-size` |
+| `jira export diff <OLD> <NEW>` | Compare compact exports | — |
 | `jira fields` | List Jira fields | `--name-like`, `--id` |
 | `jira field-options` | List allowed values for a field | `--project`, `--type`, `--field` |
 | `jira transitions` | List available transitions for an issue | `--key` |

@@ -38,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Jira analytical snapshots** — `jira pull --fields` includes requested custom
   fields in each issue's JSON snapshot, and `jira fields` can be narrowed with
   `--name-like` or `--id`.
+- **Jira compact exports** — `jira export --jql ... --out FILE --format
+  jsonl|json|csv` writes one analysis artifact plus a sanitized manifest with
+  query, fields, count, CLI version, and a backend URL hash (no hostname or
+  PAT). `--ids` / `--keys` generate safely batched JQL, and `jira export diff`
+  compares compact snapshots for added/removed/changed issues.
 - **Confluence**: `conf search` convenience flags (`--space/--title/--label/--type`
   build escaped CQL); `conf page list` (flat listing in a space, `--status`);
   `conf page open` (open in the system browser); `conf page copy` (client-side

@@ -109,6 +109,52 @@ is an object with stable identity at the top level and raw Jira fields under `fi
 `--fields` on `jira pull` adds requested fields to that `fields` map; the command still includes the
 core fields needed to render the markdown view and choose the project/key path.
 
+`atl jira export --jql ... --out FILE --format jsonl|json|csv` writes one compact artifact and a
+sidecar manifest at `FILE.manifest.json`. `--ids` and `--keys` can be used instead of `--jql` to
+generate batched `id in (...)` / `key in (...)` queries. Stdout remains the normal `emit()` JSON
+summary:
+
+```json
+{
+  "path": "issues.jsonl",
+  "manifest_path": "issues.jsonl.manifest.json",
+  "format": "jsonl",
+  "count": 1
+}
+```
+
+JSONL emits one `JiraIssueSnapshot` object per line (`{key,id,fields}`); JSON emits
+`{manifest,issues}`; CSV emits `key,id` followed by the deterministic field list. The manifest
+stores query mode, generated queries when applicable, fields, format, count, CLI version, and a
+backend URL hash only:
+
+```json
+{
+  "command": "atl jira export",
+  "format": "jsonl",
+  "query_mode": "jql",
+  "jql": "project=PROJ",
+  "count": 1,
+  "backend": {
+    "service": "jira",
+    "url_hash": "sha256:..."
+  }
+}
+```
+
+The backend hostname and PAT are never written to the manifest.
+
+`atl jira export diff OLD NEW` reads JSONL/JSON/CSV compact exports and reports issue identifiers:
+
+```json
+{
+  "old_count": 1,
+  "new_count": 2,
+  "added": ["PROJ-2"],
+  "changed": ["PROJ-1"]
+}
+```
+
 `atl jira structure rows <ID>` returns a parsed read-only view of a Tempo Structure forest:
 
 ```json

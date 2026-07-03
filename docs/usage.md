@@ -847,6 +847,39 @@ mirror-jira/
 }
 ```
 
+### `atl jira export`
+
+Write one compact issue export artifact plus a sanitized provenance manifest.
+This is for scripts and analysis that need JSONL/JSON/CSV instead of a directory
+mirror. The manifest is written to `<out>.manifest.json` and stores query,
+fields, format, count, CLI version, and a backend URL hash; it does not store
+the backend hostname or token.
+
+```bash
+atl jira export --jql "project=PROJ" --format jsonl --out issues.jsonl
+atl jira export --jql "project=PROJ" --format csv --fields customfield_10001 --out issues.csv
+atl jira export --jql "project=PROJ" --format json --out issues.json --limit 0
+atl jira export --keys PROJ-1,PROJ-2 --batch-size 100 --out selected.jsonl
+atl jira export diff old.jsonl new.jsonl
+```
+
+Flags:
+
+| flag | description |
+|---|---|
+| `--jql` | JQL query; pass exactly one of `--jql`, `--ids`, or `--keys` |
+| `--ids` | comma-separated numeric issue ids; generates batched `id in (...)` JQL |
+| `--keys` | comma-separated issue keys; generates batched `key in (...)` JQL |
+| `--batch-size` | max ids/keys per generated JQL batch (default 100) |
+| `--out` | output artifact path (required; manifest path is `<out>.manifest.json`) |
+| `--format` | `jsonl`, `json`, or `csv` (default `jsonl`) |
+| `--limit` | max issues (0 = all; default 100) |
+| `--fields` | extra comma-separated fields to include |
+
+`jira export diff` compares compact JSONL/JSON/CSV exports by issue key (or id
+when key is absent) and reports deterministic `added`, `removed`, and `changed`
+identifier lists.
+
 ### `atl jira fields`
 
 List all Jira fields (system and custom) with their IDs and schema types.
