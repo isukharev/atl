@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -36,7 +38,7 @@ func newConfCmd() *cobra.Command {
 	c := &cobra.Command{Use: "conf", Short: "Confluence: mirror, read, validate, push (native storage format)"}
 	c.AddCommand(
 		confSearchCmd(), confSpaceCmd(), confPageCmd(),
-		confPullCmd(), confStatusCmd(), confValidateCmd(), confPushCmd(), confCommentCmd(),
+		confPullCmd(), confStatusCmd(), confValidateCmd(), confPushCmd(), confTableCmd(), confCommentCmd(),
 		confAttachmentCmd(), confMeCmd(),
 	)
 	return c
@@ -428,6 +430,85 @@ func confPullCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&o.Assets, "assets", false, "download diagram/image renders")
 	cmd.Flags().StringVar(&o.Into, "into", mirrorRootDefault("mirror"), "mirror root dir (default: $ATL_MIRROR_ROOT or \"mirror\")")
 	return cmd
+}
+
+func confTableCmd() *cobra.Command {
+	c := &cobra.Command{Use: "table", Short: "Extract Confluence tables from native storage"}
+	var id, format, out string
+	var table int
+	extract := &cobra.Command{
+		Use:   "extract",
+		Short: "Extract page tables as structured JSON, CSV, or XLSX",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if id == "" {
+				return usageErr("--id is required")
+			}
+			switch format {
+			case "json", "csv", "xlsx":
+			default:
+				return usageErr("--format must be json, csv, or xlsx")
+			}
+			if table < 0 {
+				return usageErr("--table must be >= 1")
+			}
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			res, err := svc.ExtractTables(cmd.Context(), id, table)
+			if err != nil {
+				return err
+			}
+			switch format {
+			case "json":
+				if out != "" {
+					data, err := json.MarshalIndent(res, "", "  ")
+					if err != nil {
+						return err
+					}
+					data = append(data, '\n')
+					if err := os.WriteFile(out, data, 0o644); err != nil {
+						return err
+					}
+					return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount}, nil)
+				}
+				return emit(cmd, res, func() string {
+					return fmt.Sprintf("%d table(s)", res.TableCount)
+				})
+			case "csv":
+				data, err := app.RenderConfluenceTableCSV(res)
+				if err != nil {
+					return err
+				}
+				if out != "" {
+					if err := os.WriteFile(out, data, 0o644); err != nil {
+						return err
+					}
+					return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount}, nil)
+				}
+				_, err = cmd.OutOrStdout().Write(data)
+				return err
+			case "xlsx":
+				if out == "" {
+					return usageErr("--out is required for --format xlsx")
+				}
+				if err := app.WriteConfluenceTableXLSX(out, res); err != nil {
+					return err
+				}
+				return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount}, nil)
+			default:
+				return nil
+			}
+		},
+	}
+	extract.Flags().StringVar(&id, "id", "", "page id")
+	extract.Flags().IntVar(&table, "table", 0, "1-based table index to extract (0 = all tables)")
+	extract.Flags().StringVar(&format, "format", "json", "json|csv|xlsx")
+	extract.Flags().StringVar(&out, "out", "", "optional output file (required for xlsx)")
+	_ = extract.RegisterFlagCompletionFunc("format", fixedComp("json", "csv", "xlsx"))
+	c.AddCommand(extract)
+	return c
 }
 
 func confStatusCmd() *cobra.Command {
