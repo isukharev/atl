@@ -21,7 +21,7 @@ func jiraService() (*app.JiraService, error) {
 
 func newJiraCmd() *cobra.Command {
 	c := &cobra.Command{Use: "jira", Short: "Jira: read/search/pull issues, edit via commands (native wiki)"}
-	cmds := []*cobra.Command{jiraIssueCmd(), jiraPullCmd(), jiraMeCmd(), jiraUserCmd(), jiraBoardCmd(), jiraSprintCmd(), jiraStructureCmd()}
+	cmds := []*cobra.Command{jiraIssueCmd(), jiraPullCmd(), jiraExportCmd(), jiraMeCmd(), jiraUserCmd(), jiraBoardCmd(), jiraSprintCmd(), jiraStructureCmd()}
 	cmds = append(cmds, jiraMetaCmds()...)
 	c.AddCommand(cmds...)
 	return c
@@ -655,6 +655,71 @@ func jiraPullCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all)")
 	cmd.Flags().StringVar(&fields, "fields", "", "extra comma-separated field list to include in JSON snapshots")
 	return cmd
+}
+
+func jiraExportCmd() *cobra.Command {
+	var jql, out, format, fields, ids, keys string
+	var limit int
+	var batchSize int
+	cmd := &cobra.Command{
+		Use:   "export",
+		Short: "Export issues matching --jql to one compact artifact plus a manifest",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if out == "" {
+				return usageErr("--out is required")
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			res, err := svc.Export(cmd.Context(), app.JiraExportOpts{
+				JQL:       jql,
+				IDs:       splitFields(ids),
+				Keys:      splitFields(keys),
+				BatchSize: batchSize,
+				Out:       out,
+				Format:    format,
+				Limit:     limit,
+				Fields:    splitFields(fields),
+				Version:   version.Version,
+			})
+			if err != nil {
+				return err
+			}
+			return emit(cmd, res, func() string {
+				return fmt.Sprintf("%s\t%s\t%d issues", res.Path, res.Format, res.Count)
+			})
+		},
+	}
+	cmd.Flags().StringVar(&jql, "jql", "", "JQL selecting issues")
+	cmd.Flags().StringVar(&ids, "ids", "", "comma-separated numeric issue ids; generates batched `id in (...)` JQL")
+	cmd.Flags().StringVar(&keys, "keys", "", "comma-separated issue keys; generates batched `key in (...)` JQL")
+	cmd.Flags().IntVar(&batchSize, "batch-size", 100, "max ids/keys per generated JQL batch")
+	cmd.Flags().StringVar(&out, "out", "", "output artifact path (manifest is written to <out>.manifest.json)")
+	cmd.Flags().StringVar(&format, "format", "jsonl", "export format: jsonl, json, or csv")
+	cmd.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all)")
+	cmd.Flags().StringVar(&fields, "fields", "", "extra comma-separated field list to include")
+	_ = cmd.RegisterFlagCompletionFunc("format", fixedComp("jsonl", "json", "csv"))
+	cmd.AddCommand(jiraExportDiffCmd())
+	return cmd
+}
+
+func jiraExportDiffCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "diff <OLD-EXPORT> <NEW-EXPORT>",
+		Short: "Compare two compact Jira export artifacts",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			diff, err := app.DiffJiraExports(args[0], args[1])
+			if err != nil {
+				return err
+			}
+			return emit(cmd, diff, func() string {
+				return fmt.Sprintf("old=%d new=%d added=%d removed=%d changed=%d",
+					diff.OldCount, diff.NewCount, len(diff.Added), len(diff.Removed), len(diff.Changed))
+			})
+		},
+	}
 }
 
 func jiraMetaCmds() []*cobra.Command {
