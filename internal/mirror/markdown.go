@@ -204,31 +204,64 @@ func (r *mdRenderer) list(b *strings.Builder, n *csf.Node, ordered bool, depth i
 func (r *mdRenderer) table(b *strings.Builder, n *csf.Node) {
 	var rows [][]string
 	header := -1
-	csf.Walk(n, func(x *csf.Node) bool {
-		if x.Name.Local == "tr" {
-			var cells []string
-			isHeader := false
-			for _, c := range x.Children {
-				if c.Type == csf.Element && (c.Name.Local == "td" || c.Name.Local == "th") {
-					if c.Name.Local == "th" {
-						isHeader = true
+
+	pending := map[int]pendingCell{}
+	for _, tr := range tableRows(n) {
+		var cells []string
+		isHeader := false
+		col := 0
+		for _, c := range rowCells(tr) {
+			for {
+				if p, ok := pending[col]; ok {
+					cells = append(cells, p.text)
+					p.rows--
+					if p.rows <= 0 {
+						delete(pending, col)
+					} else {
+						pending[col] = p
 					}
-					cells = append(cells, strings.ReplaceAll(strings.TrimSpace(r.inline(c)), "|", "\\|"))
-					// Expand a merged cell into blanks so columns stay aligned
-					// with the body rows (markdown has no native colspan).
-					for k := colspanOf(c); k > 1; k-- {
-						cells = append(cells, "")
-					}
+					col++
+					continue
 				}
+				break
 			}
-			if isHeader && header < 0 {
-				header = len(rows)
+			if c.Name.Local == "th" {
+				isHeader = true
 			}
-			rows = append(rows, cells)
-			return false
+			text := strings.ReplaceAll(strings.TrimSpace(r.inline(c)), "|", "\\|")
+			colspan := colspanOf(c)
+			rowspan := rowspanOf(c)
+			for spanCol := 0; spanCol < colspan; spanCol++ {
+				cellText := text
+				if spanCol > 0 {
+					cellText = ""
+				}
+				cells = append(cells, cellText)
+				if rowspan > 1 {
+					pending[col] = pendingCell{text: cellText, rows: rowspan - 1}
+				}
+				col++
+			}
 		}
-		return true
-	})
+		for col <= maxPendingCol(pending) {
+			if p, ok := pending[col]; ok {
+				cells = append(cells, p.text)
+				p.rows--
+				if p.rows <= 0 {
+					delete(pending, col)
+				} else {
+					pending[col] = p
+				}
+			} else {
+				cells = append(cells, "")
+			}
+			col++
+		}
+		if isHeader && header < 0 {
+			header = len(rows)
+		}
+		rows = append(rows, cells)
+	}
 	if len(rows) == 0 {
 		return
 	}
@@ -252,6 +285,46 @@ func (r *mdRenderer) table(b *strings.Builder, n *csf.Node) {
 		}
 	}
 	b.WriteString("\n")
+}
+
+type pendingCell struct {
+	text string
+	rows int
+}
+
+func tableRows(table *csf.Node) []*csf.Node {
+	var out []*csf.Node
+	csf.Walk(table, func(x *csf.Node) bool {
+		if x != table && x.Name.Local == "table" && x.Name.Space == "" {
+			return false
+		}
+		if x.Name.Local == "tr" && x.Name.Space == "" {
+			out = append(out, x)
+			return false
+		}
+		return true
+	})
+	return out
+}
+
+func rowCells(row *csf.Node) []*csf.Node {
+	var out []*csf.Node
+	for _, c := range row.Children {
+		if c.Type == csf.Element && c.Name.Space == "" && (c.Name.Local == "td" || c.Name.Local == "th") {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func maxPendingCol(pending map[int]pendingCell) int {
+	max := -1
+	for col := range pending {
+		if col > max {
+			max = col
+		}
+	}
+	return max
 }
 
 // inline renders inline content of a node to a single line.
@@ -307,6 +380,16 @@ func (r *mdRenderer) inlineNode(b *strings.Builder, n *csf.Node) {
 	case n.Name.Local == "a":
 		href := n.Attrv("", "href")
 		b.WriteString("[" + r.inline(n) + "](" + href + ")")
+	case n.Name.Local == "span" && n.Name.Space == "":
+		if color := styleColor(n); color != "" {
+			if inner := r.inline(n); inner != "" {
+				b.WriteString("⟦color:" + color + "⟧" + inner + "⟦/color⟧")
+			}
+			return
+		}
+		for _, c := range n.Children {
+			r.inlineNode(b, c)
+		}
 	case n.Name.Space == "ac" && n.Name.Local == "link":
 		r.acLink(b, n)
 	case n.Name.Space == "ac" && n.Name.Local == "image":
@@ -569,6 +652,30 @@ func colspanOf(cell *csf.Node) int {
 		return n
 	}
 	return 1
+}
+
+func rowspanOf(cell *csf.Node) int {
+	if n, err := strconv.Atoi(cell.Attrv("", "rowspan")); err == nil && n > 1 {
+		return n
+	}
+	return 1
+}
+
+func styleColor(n *csf.Node) string {
+	if color := strings.TrimSpace(n.Attrv("", "data-color")); color != "" {
+		return color
+	}
+	style := n.Attrv("", "style")
+	for _, decl := range strings.Split(style, ";") {
+		k, v, ok := strings.Cut(decl, ":")
+		if !ok || !strings.EqualFold(strings.TrimSpace(k), "color") {
+			continue
+		}
+		if color := strings.TrimSpace(v); color != "" {
+			return color
+		}
+	}
+	return ""
 }
 
 // attachmentNameUnder finds a ri:attachment filename nested anywhere in a macro

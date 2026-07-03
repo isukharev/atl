@@ -67,6 +67,11 @@ The sweep:
   through to a generic `⟦macro NAME⟧` placeholder — i.e. your prioritized TODO for
   new coverage.
 
+For table fidelity regressions, add synthetic unit tests first. Real corpus pages
+can guide the case, but committed tests should use small snippets that cover the
+CSF shape: `rowspan`, `colspan`, ordinary links inside cells, and semantic inline
+styles such as colored spans.
+
 ### Frequency analysis by hand
 
 To decide *what* to cover first, rank the constructs that actually occur:

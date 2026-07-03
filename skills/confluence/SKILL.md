@@ -123,6 +123,9 @@ atl conf status ~/.atl/<workspace>/ --remote
 
 ### `.md` internal links
 The rendered `.md` view represents Confluence page links as `[[Title]]` — these are read-only markers; the underlying CSF has the proper `<ri:page>` element.
+Tables in the `.md` view preserve ordinary links, pad `colspan`, repeat `rowspan`
+values across covered rows, and mark colored spans as `⟦color:...⟧text⟦/color⟧`.
+For exact edits or unresolved rendering questions, inspect the `.csf` source.
 
 ## Creating, moving, commenting
 - New page: `atl conf page create --space <KEY> --title '<T>' [--parent <id>] --from-file body.csf`

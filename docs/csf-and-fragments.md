@@ -202,7 +202,7 @@ human-readable and grep-friendly `.md` file. It is intentionally lossy: the
 | `<h1>`–`<h6>` | `#`–`######` heading |
 | `<p>` | paragraph with trailing blank line |
 | `<ul>` / `<ol>` | unordered / ordered list (nested) |
-| `<table>` | pipe-table (first `<th>` row becomes the header row) |
+| `<table>` | pipe-table (first `<th>` row becomes the header row; `colspan` pads columns, `rowspan` repeats covered values) |
 | `<hr>` | `---` |
 | `<ac:layout>`, `<ac:layout-section>`, `<ac:layout-cell>` | contents rendered recursively (layout structure discarded) |
 | `<ac:structured-macro ac:name="code">` | fenced code block with language hint |
@@ -221,7 +221,8 @@ human-readable and grep-friendly `.md` file. It is intentionally lossy: the
 | `<code>` | `` `…` `` |
 | `<br>` | space |
 | `<a href="…">` | `[label](href)` |
-| `<ac:link>` to a page | `[title](page:title)` |
+| `<span style="color: …">` | `⟦color:…⟧text⟦/color⟧` marker |
+| `<ac:link>` to a page | `[[title]]` |
 | `<ac:link>` to an attachment | `[filename](attachment:filename)` |
 | `<ri:user>` | resolved display name, or `@rawkey` |
 | `<ac:image>` | `![filename](slug.assets/filename)` if downloaded; otherwise `![filename](attachment:filename)` |

@@ -110,6 +110,34 @@ func TestRenderTableColspan(t *testing.T) {
 	mustContain(t, md, "| Span |", "| --- | --- |", "| a | b |")
 }
 
+// Gap: row-spanned cells carry meaning for every covered row. The markdown view
+// must repeat the value on covered rows rather than attributing it only to the
+// first row.
+func TestRenderTableRowspan(t *testing.T) {
+	md := render(t, `<table><tbody><tr><th>Note</th><th>Item</th></tr><tr><td rowspan="3">Shared note</td><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></tbody></table>`, nil)
+	mustContain(t, md,
+		"| Note | Item |",
+		"| Shared note | A |",
+		"| Shared note | B |",
+		"| Shared note | C |",
+	)
+}
+
+// Gap: links inside tables are often the payload, not decoration. They must
+// keep their href rather than flattening to plain text.
+func TestRenderTableCellLink(t *testing.T) {
+	md := render(t, `<table><tbody><tr><th>Link</th></tr><tr><td><a href="https://example.test/product">Product</a></td></tr></tbody></table>`, nil)
+	mustContain(t, md, "[Product](https://example.test/product)")
+}
+
+// Gap: colored spans can be semantic markers in Confluence tables. Preserve a
+// visible marker in the read-only markdown view instead of making them
+// indistinguishable from ordinary text.
+func TestRenderColoredSpanMarker(t *testing.T) {
+	md := render(t, `<p><span style="color: red;">Important</span> draft</p>`, nil)
+	mustContain(t, md, "⟦color:red⟧Important⟦/color⟧ draft")
+}
+
 // Gap: expand macro must keep its title (body was already kept).
 func TestRenderExpandTitle(t *testing.T) {
 	md := render(t, `<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">Show me</ac:parameter><ac:rich-text-body><p>hidden body</p></ac:rich-text-body></ac:structured-macro>`, nil)

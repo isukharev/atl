@@ -54,6 +54,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   values through the two-step `/issue/createmeta/{projectKey}/issuetypes[/{id}]`
   endpoints; the older expand-based `/issue/createmeta?expand=…` query was removed
   in newer Jira DC and returned 404.
+- **Confluence markdown table fidelity** — the read-only `.md` view now repeats
+  `rowspan` values across covered rows, preserves ordinary links in table cells,
+  and marks colored spans instead of making them indistinguishable from plain
+  text.
 
 ### Changed
 
