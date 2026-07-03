@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   <KEY>…` / `sprint remove <KEY>…` move issues into a sprint / back to the
   backlog. Boards and sprints are addressed by numeric id (name resolution is
   deferred to a future metadata cache).
+- **Jira Structure read-only exports** — `jira structure {get,forest,rows,values}`
+  reads Tempo Structure metadata, raw forests, parsed row hierarchies, and
+  selected row attribute values via `/rest/structure/2.0/`, exposing
+  `inaccessible_rows` when the backend reports permission gaps.
 - **Jira analytical snapshots** — `jira pull --fields` includes requested custom
   fields in each issue's JSON snapshot, and `jira fields` can be narrowed with
   `--name-like` or `--id`.

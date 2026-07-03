@@ -183,6 +183,62 @@ type Agile interface {
 	MoveIssuesToBacklog(ctx context.Context, keys []string) error
 }
 
+// StructureReader is the optional read-only capability for Tempo Structure for
+// Jira Server/Data Center. It is separate from Tracker because Structure is a
+// plugin API and may not exist on every Jira instance.
+type StructureReader interface {
+	GetStructure(ctx context.Context, id int64) (*Structure, error)
+	StructureForest(ctx context.Context, id int64) (*StructureForest, error)
+	StructureValues(ctx context.Context, id int64, rows []int64, fields []string) (*StructureValues, error)
+}
+
+// Structure is the metadata returned by the Structure REST resource.
+type Structure struct {
+	ID                                int64            `json:"id"`
+	Name                              string           `json:"name"`
+	Description                       string           `json:"description,omitempty"`
+	ReadOnly                          bool             `json:"read_only,omitempty"`
+	EditRequiresParentIssuePermission bool             `json:"edit_requires_parent_issue_permission,omitempty"`
+	Owner                             map[string]any   `json:"owner,omitempty"`
+	Permissions                       []map[string]any `json:"permissions,omitempty"`
+	Views                             []map[string]any `json:"views,omitempty"`
+}
+
+// StructureVersion identifies a Structure forest/value snapshot.
+type StructureVersion struct {
+	Signature int64 `json:"signature"`
+	Version   int64 `json:"version"`
+}
+
+// StructureForest is the raw forest payload returned by /forest/latest.
+type StructureForest struct {
+	Spec      map[string]any    `json:"spec,omitempty"`
+	Formula   string            `json:"formula"`
+	ItemTypes map[string]string `json:"item_types,omitempty"`
+	Version   StructureVersion  `json:"version"`
+}
+
+// StructureRow is one parsed formula component.
+type StructureRow struct {
+	RowID       int64  `json:"row_id"`
+	Depth       int    `json:"depth"`
+	ItemType    string `json:"item_type"`
+	ItemID      string `json:"item_id"`
+	Semantic    string `json:"semantic,omitempty"`
+	Position    int    `json:"position"`
+	ParentRowID int64  `json:"parent_row_id,omitempty"`
+}
+
+// StructureValues preserves Structure's value matrix and explicitly exposes
+// inaccessible rows when the backend reports them.
+type StructureValues struct {
+	Responses        []map[string]any  `json:"responses,omitempty"`
+	ItemTypes        map[string]string `json:"item_types,omitempty"`
+	ItemsVersion     StructureVersion  `json:"items_version,omitempty"`
+	InaccessibleRows []int64           `json:"inaccessible_rows,omitempty"`
+	Raw              map[string]any    `json:"raw,omitempty"`
+}
+
 // User is an account on the tracker. On Jira Data Center the identity is the
 // username (Name) / user key (Key); AccountID is Cloud-only and kept for
 // forward compatibility.

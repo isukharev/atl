@@ -108,3 +108,29 @@ is an object with stable identity at the top level and raw Jira fields under `fi
 
 `--fields` on `jira pull` adds requested fields to that `fields` map; the command still includes the
 core fields needed to render the markdown view and choose the project/key path.
+
+`atl jira structure rows <ID>` returns a parsed read-only view of a Tempo Structure forest:
+
+```json
+{
+  "structure_id": 123,
+  "version": {
+    "signature": 55,
+    "version": 7
+  },
+  "rows": [
+    {
+      "row_id": 100,
+      "depth": 0,
+      "item_type": "issue",
+      "item_id": "10001",
+      "position": 0
+    }
+  ]
+}
+```
+
+For non-root rows, `parent_row_id` is present. `-o id` prints Structure row ids
+one per line. `atl jira structure values <ID> --rows ... --fields ...` preserves
+the backend value matrix under `responses` and `raw`; if the backend reports
+permission gaps, normalized row ids are also exposed as `inaccessible_rows`.
