@@ -47,6 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deterministic per-issue planning quality gaps, extracted artifact references,
   optional estimate/required-field checks, epic child lists, and optional CSV
   output without any Jira writes.
+- **Jira guarded writeback design** — documented the approval-gated safety model
+  for future Jira link/label/field writeback commands; no writeback
+  implementation is included.
 - **Confluence**: `conf search` convenience flags (`--space/--title/--label/--type`
   build escaped CQL); `conf page list` (flat listing in a space, `--status`);
   `conf page open` (open in the system browser); `conf page copy` (client-side
