@@ -100,7 +100,18 @@ atl jira issue images PROJ-1 --into /tmp/proj1-images   # {key, images:[paths]}
 ```
 Open the downloaded images when a screenshot/diagram matters.
 
-### 7. Boards & sprints (Jira Software only)
+### 7. Planning quality reports
+```bash
+atl jira planning report --jql '<JQL>' \
+  --estimate-field customfield_10001 \
+  --epic-field customfield_10002 \
+  --require fixVersions,components \
+  --csv planning.csv
+```
+Reports deterministic `score`, `level`, `gaps`, extracted artifact `refs`, and epic `children`
+when `--epic-field` is set. The rubric is rules-based only; no LLM scoring and no Jira writes.
+
+### 8. Boards & sprints (Jira Software only)
 Backed by the Data Center Agile API; boards/sprints are addressed by **numeric id**.
 Typical flow: find the board for a project, list its sprints, then read or move issues.
 ```bash
@@ -115,7 +126,7 @@ atl jira sprint remove PROJ-1                       # move issue(s) back to the 
 These need Jira **Software** (GreenHopper); on a Core/Service-Management-only instance the
 Agile endpoints 404 (exit 4). Use `board list --project` to discover the id `--board` wants.
 
-### 8. Tempo Structure (read-only)
+### 9. Tempo Structure (read-only)
 Backed by the Structure plugin API (`/rest/structure/2.0/`). Structures and rows are numeric ids.
 Use this to inspect a structure tree and fetch selected attributes; there are no writeback commands.
 ```bash
@@ -153,6 +164,7 @@ the server reports permission gaps. If the plugin or object is unavailable, expe
 | `jira pull` | Export issues to disk (.md + .json) | `--jql`, `--into`, `--limit`, `--fields` |
 | `jira export` | Write one compact JSONL/JSON/CSV artifact plus manifest | `--jql`/`--ids`/`--keys`, `--out`, `--format`, `--limit`, `--fields`, `--batch-size` |
 | `jira export diff <OLD> <NEW>` | Compare compact exports | — |
+| `jira planning report` | Deterministic planning quality report | `--jql`, `--require`, `--estimate-field`, `--epic-field`, `--limit`, `--csv` |
 | `jira fields` | List Jira fields | `--name-like`, `--id` |
 | `jira field-options` | List allowed values for a field | `--project`, `--type`, `--field` |
 | `jira transitions` | List available transitions for an issue | `--key` |

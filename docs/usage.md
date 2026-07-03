@@ -880,6 +880,36 @@ Flags:
 when key is absent) and reports deterministic `added`, `removed`, and `changed`
 identifier lists.
 
+### `atl jira planning report`
+
+Build a deterministic read-only planning quality report over a JQL query. The
+rubric checks summary, description, assignee, optional estimate field, optional
+required fields, artifact references, and optional epic decomposition.
+
+```bash
+atl jira planning report --jql "project=PROJ" \
+  --estimate-field customfield_10001 \
+  --epic-field customfield_10002 \
+  --require fixVersions,components \
+  --csv planning.csv
+```
+
+Flags:
+
+| flag | description |
+|---|---|
+| `--jql` | JQL query (required) |
+| `--require` | comma-separated fields that must be populated |
+| `--estimate-field` | field id/name used as the estimate check |
+| `--epic-field` | field id/name containing parent epic key; enables child lists and missing-epic gaps |
+| `--limit` | max issues (0 = all; default 100) |
+| `--csv` | optional CSV report path |
+
+Output includes per-issue `score`, `max_score`, `level` (`good|warn|poor`),
+`gaps`, extracted `refs`, and `children` for epic rows when `--epic-field` is
+set. Reference kinds are deterministic categories such as `doc`, `design`,
+`jira`, `chat`, and `link`.
+
 ### `atl jira fields`
 
 List all Jira fields (system and custom) with their IDs and schema types.

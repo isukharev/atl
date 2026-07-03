@@ -43,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   query, fields, count, CLI version, and a backend URL hash (no hostname or
   PAT). `--ids` / `--keys` generate safely batched JQL, and `jira export diff`
   compares compact snapshots for added/removed/changed issues.
+- **Jira planning reports** — `jira planning report --jql ...` produces
+  deterministic per-issue planning quality gaps, extracted artifact references,
+  optional estimate/required-field checks, epic child lists, and optional CSV
+  output without any Jira writes.
 - **Confluence**: `conf search` convenience flags (`--space/--title/--label/--type`
   build escaped CQL); `conf page list` (flat listing in a space, `--status`);
   `conf page open` (open in the system browser); `conf page copy` (client-side
