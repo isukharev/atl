@@ -199,7 +199,7 @@ type Structure struct {
 	Description                       string           `json:"description,omitempty"`
 	ReadOnly                          bool             `json:"read_only,omitempty"`
 	EditRequiresParentIssuePermission bool             `json:"edit_requires_parent_issue_permission,omitempty"`
-	Owner                             map[string]any   `json:"owner,omitempty"`
+	Owner                             any              `json:"owner,omitempty"`
 	Permissions                       []map[string]any `json:"permissions,omitempty"`
 	Views                             []map[string]any `json:"views,omitempty"`
 }

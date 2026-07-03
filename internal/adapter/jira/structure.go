@@ -152,7 +152,7 @@ type structureDTO struct {
 	Description                       string           `json:"description"`
 	ReadOnly                          bool             `json:"readOnly"`
 	EditRequiresParentIssuePermission bool             `json:"editRequiresParentIssuePermission"`
-	Owner                             map[string]any   `json:"owner"`
+	Owner                             any              `json:"owner"`
 	Permissions                       []map[string]any `json:"permissions"`
 	Views                             []map[string]any `json:"views"`
 }

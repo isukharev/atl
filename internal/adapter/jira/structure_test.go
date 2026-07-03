@@ -42,6 +42,24 @@ func TestGetStructureWiresMetadataEndpoint(t *testing.T) {
 	}
 }
 
+func TestGetStructureAcceptsStringOwner(t *testing.T) {
+	const body = `{
+		"id":124,
+		"name":"Release plan",
+		"owner":"alice"
+	}`
+	j, _ := agileServer(t, map[string]string{"GET /rest/structure/2.0/structure/124": body})
+
+	st, err := j.GetStructure(context.Background(), 124)
+	if err != nil {
+		t.Fatalf("GetStructure: %v", err)
+	}
+	owner, ok := st.Owner.(string)
+	if !ok || owner != "alice" {
+		t.Fatalf("owner = %#v, want alice string", st.Owner)
+	}
+}
+
 func TestStructureForestWiresLatestForestSpec(t *testing.T) {
 	const body = `{
 		"spec":{"structureId":123},
