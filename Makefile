@@ -5,6 +5,7 @@
 #   make test             run unit tests
 #   make lint             run golangci-lint (if installed)
 #   make vet              go vet
+#   make live-smoke       run opt-in live CLI smoke checks
 #   make dist             cross-compile release binaries into ./dist
 #   make manifest         generate dist/manifest.json from ./dist binaries
 #   make homebrew         generate dist/atl.rb (Homebrew formula) from ./dist
@@ -44,6 +45,14 @@ integration:
 	@test -f .env.integration || { echo "missing .env.integration — run: cp .env.integration.example .env.integration && edit it"; exit 1; }
 	set -a; . ./.env.integration; set +a; \
 	ATL_INTEGRATION=1 go test ./... -run Integration -count=1 -v
+
+# CLI-level live smoke against locally configured fixtures. This complements
+# `make integration`: it exercises the built binary and optional fixture-specific
+# Jira Structure / Confluence table paths. Real fixture IDs stay in
+# .env.integration, which is gitignored.
+.PHONY: live-smoke
+live-smoke: build
+	./scripts/live-smoke.sh
 
 .PHONY: vet
 vet:
