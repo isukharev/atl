@@ -148,6 +148,17 @@ Notes for scripts:
   and `"truncated_at": 1000` and a `warning:` line is printed to stderr when the
   cap is hit — the rest is not mirrored. Narrow the query or pull by `--space`.
 - **`--from-file -` (stdin) is bounded at 64 MiB**; larger input is truncated.
+- **Direct REST fallback:** when you must call an uncovered Server/Data Center
+  endpoint yourself, keep PATs out of argv and shell history. Put the token in an
+  env var, disable shell tracing, and feed curl's header through stdin:
+
+  ```bash
+  set +x
+  {
+    printf 'url = "%s/rest/api/2/myself"\n' "$ATL_JIRA_URL"
+    printf 'header = "Authorization: Bearer %s"\n' "$ATL_JIRA_PAT"
+  } | curl --fail --silent --show-error --config -
+  ```
 
 ---
 
@@ -171,9 +182,17 @@ JSON output:
 {
   "confluence_url": "https://confluence.example.com",
   "jira_url": "https://jira.example.com",
-  "update_base_url": ""
+  "update_base_url": "",
+  "mirror": {
+    "recommended_root": "~/.atl/<workspace>/",
+    "active_root": "/home/user/.atl/work",
+    "active_source": "ATL_MIRROR_ROOT"
+  }
 }
 ```
+
+`mirror.active_root` is present only when `ATL_MIRROR_ROOT` is set. Explicit
+`--into` flags still override the default for each pull/status command.
 
 ### `atl config set`
 

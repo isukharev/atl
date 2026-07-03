@@ -114,9 +114,15 @@ func newConfigCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return emit(cmd, cfg, func() string {
-				return fmt.Sprintf("confluence_url: %s\njira_url: %s\nupdate_base_url: %s",
-					cfg.ConfluenceURL, cfg.JiraURL, cfg.UpdateBaseURL)
+			out := configShowResult{
+				ConfluenceURL: cfg.ConfluenceURL,
+				JiraURL:       cfg.JiraURL,
+				UpdateBaseURL: cfg.UpdateBaseURL,
+				Mirror:        mirrorHints(),
+			}
+			return emit(cmd, out, func() string {
+				return fmt.Sprintf("confluence_url: %s\njira_url: %s\nupdate_base_url: %s\nmirror_recommended_root: %s\nmirror_active_root: %s",
+					out.ConfluenceURL, out.JiraURL, out.UpdateBaseURL, out.Mirror.RecommendedRoot, orNone(out.Mirror.ActiveRoot))
 			})
 		},
 	}
@@ -159,6 +165,28 @@ func newConfigCmd() *cobra.Command {
 
 	c.AddCommand(show, set)
 	return c
+}
+
+type configShowResult struct {
+	ConfluenceURL string     `json:"confluence_url,omitempty"`
+	JiraURL       string     `json:"jira_url,omitempty"`
+	UpdateBaseURL string     `json:"update_base_url,omitempty"`
+	Mirror        mirrorHint `json:"mirror"`
+}
+
+type mirrorHint struct {
+	RecommendedRoot string `json:"recommended_root"`
+	ActiveRoot      string `json:"active_root,omitempty"`
+	ActiveSource    string `json:"active_source,omitempty"`
+}
+
+func mirrorHints() mirrorHint {
+	h := mirrorHint{RecommendedRoot: "~/.atl/<workspace>/"}
+	if v := strings.TrimSpace(os.Getenv("ATL_MIRROR_ROOT")); v != "" {
+		h.ActiveRoot = v
+		h.ActiveSource = "ATL_MIRROR_ROOT"
+	}
+	return h
 }
 
 // readPAT obtains a PAT without ever placing it on the command line. With

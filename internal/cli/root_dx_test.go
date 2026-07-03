@@ -72,6 +72,31 @@ func TestMirrorRootDefault(t *testing.T) {
 	}
 }
 
+func TestConfigShowIncludesMirrorHints(t *testing.T) {
+	out, code := runCLI(t, map[string]string{"ATL_MIRROR_ROOT": "/home/me/.atl/work"}, "config", "show")
+	if code != exitOK {
+		t.Fatalf("config show: exit %d, want 0 (stdout=%q)", code, out)
+	}
+	var got configShowResult
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("decode config show: %v\n%s", err, out)
+	}
+	if got.Mirror.RecommendedRoot != "~/.atl/<workspace>/" {
+		t.Errorf("recommended root = %q", got.Mirror.RecommendedRoot)
+	}
+	if got.Mirror.ActiveRoot != "/home/me/.atl/work" || got.Mirror.ActiveSource != "ATL_MIRROR_ROOT" {
+		t.Errorf("mirror hints = %+v, want active ATL_MIRROR_ROOT", got.Mirror)
+	}
+
+	text, code := runCLI(t, map[string]string{"ATL_MIRROR_ROOT": "/home/me/.atl/work"}, "config", "show", "-o", "text")
+	if code != exitOK {
+		t.Fatalf("config show text: exit %d, want 0 (stdout=%q)", code, text)
+	}
+	if !strings.Contains(text, "mirror_recommended_root: ~/.atl/<workspace>/") || !strings.Contains(text, "mirror_active_root: /home/me/.atl/work") {
+		t.Errorf("text output missing mirror hints:\n%s", text)
+	}
+}
+
 // TestWarnIfTruncated is the CLI-layer guard for the headline CQL-cap behavior:
 // a truncated pull writes exactly one `warning:` line to the given (stderr)
 // writer, and a complete pull writes nothing — so a regression that drops the

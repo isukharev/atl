@@ -67,8 +67,9 @@ atl config set --confluence-url https://confluence.example.com --jira-url https:
 atl config show
 ```
 
-`config show` prints `confluence_url`, `jira_url`, `update_base_url`. A non-https URL for a
-non-loopback host is rejected at set time.
+`config show` prints `confluence_url`, `jira_url`, `update_base_url`, and a `mirror` hint block
+with the recommended `~/.atl/<workspace>/` root plus active `ATL_MIRROR_ROOT` when set. A non-https
+URL for a non-loopback host is rejected at set time.
 
 ## 4. Authenticate
 
@@ -85,6 +86,10 @@ atl auth login --service jira
 
 Or from a file: `atl auth login --service jira --from-file ./token.txt` (then delete the file).
 Or via environment for CI/agent sessions: `ATL_CONFLUENCE_PAT` / `ATL_JIRA_PAT`.
+
+For rare direct REST fallback calls that `atl` does not cover yet, keep the PAT out of argv/logs:
+use env vars, turn off shell tracing, and feed curl config/headers through stdin instead of
+`curl -H "Authorization: Bearer $TOKEN"`.
 
 Verify (this never prints the token, only where it resolves from):
 
