@@ -155,6 +155,40 @@ The backend hostname and PAT are never written to the manifest.
 }
 ```
 
+`atl jira planning report --jql ...` returns deterministic per-issue quality rows:
+
+```json
+{
+  "jql": "project=PROJ",
+  "count": 1,
+  "issues": [
+    {
+      "key": "PROJ-1",
+      "summary": "Implement capability",
+      "type": "Story",
+      "score": 4,
+      "max_score": 5,
+      "level": "warn",
+      "gaps": ["missing_artifact_ref"],
+      "refs": [
+        {
+          "url": "https://docs.example.com/spec",
+          "kind": "doc"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "good": 0,
+    "warn": 1,
+    "poor": 0
+  }
+}
+```
+
+When `--csv FILE` is passed, the same command writes a deterministic CSV sidecar
+and includes `csv_path` in the JSON result.
+
 `atl jira structure rows <ID>` returns a parsed read-only view of a Tempo Structure forest:
 
 ```json

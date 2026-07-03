@@ -21,7 +21,7 @@ func jiraService() (*app.JiraService, error) {
 
 func newJiraCmd() *cobra.Command {
 	c := &cobra.Command{Use: "jira", Short: "Jira: read/search/pull issues, edit via commands (native wiki)"}
-	cmds := []*cobra.Command{jiraIssueCmd(), jiraPullCmd(), jiraExportCmd(), jiraMeCmd(), jiraUserCmd(), jiraBoardCmd(), jiraSprintCmd(), jiraStructureCmd()}
+	cmds := []*cobra.Command{jiraIssueCmd(), jiraPullCmd(), jiraExportCmd(), jiraPlanningCmd(), jiraMeCmd(), jiraUserCmd(), jiraBoardCmd(), jiraSprintCmd(), jiraStructureCmd()}
 	cmds = append(cmds, jiraMetaCmds()...)
 	c.AddCommand(cmds...)
 	return c
@@ -720,6 +720,50 @@ func jiraExportDiffCmd() *cobra.Command {
 			})
 		},
 	}
+}
+
+func jiraPlanningCmd() *cobra.Command {
+	c := &cobra.Command{Use: "planning", Short: "Read-only Jira planning quality reports"}
+
+	var jql, require, estimateField, epicField, csvPath string
+	var limit int
+	report := &cobra.Command{
+		Use:   "report",
+		Short: "Build a deterministic planning quality report over JQL",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if jql == "" {
+				return usageErr("--jql is required")
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			res, err := svc.PlanningReport(cmd.Context(), app.PlanningReportOpts{
+				JQL:           jql,
+				Required:      splitFields(require),
+				EstimateField: estimateField,
+				EpicField:     epicField,
+				Limit:         limit,
+				CSVPath:       csvPath,
+			})
+			if err != nil {
+				return err
+			}
+			return emit(cmd, res, func() string {
+				return fmt.Sprintf("issues=%d good=%d warn=%d poor=%d",
+					res.Count, res.Summary.Good, res.Summary.Warn, res.Summary.Poor)
+			})
+		},
+	}
+	report.Flags().StringVar(&jql, "jql", "", "JQL selecting issues")
+	report.Flags().StringVar(&require, "require", "", "comma-separated fields that must be populated")
+	report.Flags().StringVar(&estimateField, "estimate-field", "", "field id/name used as the estimate check")
+	report.Flags().StringVar(&epicField, "epic-field", "", "field id/name containing parent epic key")
+	report.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all)")
+	report.Flags().StringVar(&csvPath, "csv", "", "optional CSV report path")
+
+	c.AddCommand(report)
+	return c
 }
 
 func jiraMetaCmds() []*cobra.Command {
