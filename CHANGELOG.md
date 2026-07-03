@@ -58,6 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `rowspan` values across covered rows, preserves ordinary links in table cells,
   and marks colored spans instead of making them indistinguishable from plain
   text.
+- **Setup and REST guidance** — `config show` now includes mirror-root hints, and
+  the docs cover direct Server/Data Center REST fallback calls without placing
+  PATs in argv.
 
 ### Changed
 

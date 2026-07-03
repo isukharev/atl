@@ -316,6 +316,8 @@ atl jira field-options --project PROJ --field <field-id>
 | «refusing to send the PAT over http…» | Базовый URL non-https на non-loopback хосте. Используйте `https` или `export ATL_ALLOW_INSECURE=1` для доверенного внутреннего http-инстанса. |
 | Код **5** при push | Удалённая страница изменилась с момента последнего pull (ожидаемо) — сделайте re-pull, заново примените правку и снова push; `--force` — только после решения человека. |
 | Pull по `--cql` будто теряет страницы | Лимит 1000 (`"truncated": true` + `warning:` в stderr). Сузьте CQL или используйте `--space`. |
+| Для прямого REST-запроса нужен PAT | Не кладите токен в argv/логи; используйте env-переменные и передавайте curl header через stdin (см. `docs/usage.md`). |
+| Structure API сообщает, что forest spec/body отсутствует | Проверьте, что request body реально отправлен как файл или stdin payload; избегайте shell-расширений, которые дают пустой body. |
 | Cloud (`*.atlassian.net`) не аутентифицируется | Не поддерживается — `atl` использует bearer-PAT Server/Data Center, а не Cloud API-токены. |
 
 ---

@@ -314,6 +314,8 @@ handling the `--cql` page cap), see [docs/usage.md → Scripting & CI](docs/usag
 | "refusing to send the PAT over http…" | The backend URL is non-https on a non-loopback host. Use `https`, or `export ATL_ALLOW_INSECURE=1` for an internal http instance you trust. |
 | Exit **5** on push | The remote page moved since your last pull (expected) — re-pull, reapply your edit, and push again; `--force` only after a human decides. |
 | A `--cql` pull seems to miss pages | It caps at 1000 (`"truncated": true` + a stderr `warning:`). Narrow the CQL or pull by `--space`. |
+| Direct REST debugging needs a PAT | Keep the token out of argv/logs; use env vars and feed curl headers via stdin (see `docs/usage.md`). |
+| Structure API says the forest spec/body is missing | Check that the request body is sent exactly as a file or stdin payload; avoid shell expansions that turn it into an empty body. |
 | Cloud (`*.atlassian.net`) won't authenticate | Not supported — `atl` uses Server/Data Center bearer PATs, not Cloud API tokens. |
 
 ---
