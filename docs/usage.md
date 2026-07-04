@@ -740,7 +740,7 @@ Flags (`add`):
 | `PROJ-1` | issue key (positional, required) |
 | `--from-file` | comment body file or `-` for stdin (default stdin) |
 
-### `atl jira issue link {add,list,delete}`
+### `atl jira issue link {add,list,delete,suggest}`
 
 Manage typed links between issues. `link` is a subcommand group.
 
@@ -749,6 +749,7 @@ atl jira issue link add PROJ-1 --to PROJ-2 --type blocks
 atl jira issue link add PROJ-3 --to PROJ-1 --type "is cloned by"
 atl jira issue link list PROJ-1                    # {key, links:[{id,direction,type,key}]}; -o id → link ids
 atl jira issue link delete <LINK-ID>               # see the id from `link list`
+atl jira issue link suggest --csv links.csv         # dry-run missing-link candidates only
 ```
 
 Flags (`add`):
@@ -758,6 +759,16 @@ Flags (`add`):
 | `PROJ-1` | source issue key (positional, required) |
 | `--to` | target issue key (required) |
 | `--type` | link type name (required; see `atl jira link-types`) |
+
+`suggest` is read-only. It expects a reviewed CSV plan with `source`, `target`,
+`type`, and optional `rationale` columns. Common aliases such as `from`, `to`,
+`link_type`, and `reason` are accepted. For each source issue, it reads current
+outward Jira links and emits only plan rows that are still missing:
+
+```csv
+source,target,type,rationale
+PROJ-1,PROJ-2,Blocks,dependency found during review
+```
 
 ### `atl jira issue link-epic`
 

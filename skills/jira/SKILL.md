@@ -72,6 +72,7 @@ atl jira issue comment delete PROJ-1 <COMMENT-ID>
 atl jira issue link add PROJ-1 --to PROJ-2 --type blocks                                # BREAKING: was link PROJ-1
 atl jira issue link list PROJ-1
 atl jira issue link delete <LINK-ID>
+atl jira issue link suggest --csv links.csv                                             # dry-run missing links; no writes
 atl jira issue link-epic PROJ-1 --epic PROJ-100
 atl jira issue labels PROJ-1 --add bug,backend [--remove wontfix]
 atl jira issue history PROJ-1                                                           # changelog
@@ -173,6 +174,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue link add <KEY>` | Link an issue to another | `--to KEY2`, `--type blocks` |
 | `jira issue link list <KEY>` | List links with ids | — |
 | `jira issue link delete <LINK-ID>` | Delete a link by id | — |
+| `jira issue link suggest` | Read-only missing-link candidates from CSV | `--csv` |
 | `jira issue link-epic <KEY>` | Set the Epic Link | `--epic EPIC-KEY` |
 | `jira issue images <KEY>` | Download image attachments (agent vision) | `--into DIR` |
 | `jira pull` | Export issues to disk (.md + .json) | `--jql`, `--into`, `--limit`, `--fields` |
@@ -215,3 +217,5 @@ If the plugin or object is unavailable, expect exit 4/6.
 - No version gate → always `get` right before `update`.
 - Before setting a status, field value, or link type, confirm it exists (`transitions`,
   `field-options`, `link-types`) — Jira rejects unknown names.
+- Use `jira issue link suggest --csv ...` before bulk link work; it is read-only and emits
+  only missing candidates from `source,target,type[,rationale]` CSV rows.

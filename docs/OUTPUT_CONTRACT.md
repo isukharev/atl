@@ -242,6 +242,29 @@ epic-to-child tree:
 JQL result. `orphans` contains selected non-epic issues with no epic field. Both
 fields are omitted when empty.
 
+`atl jira issue link suggest --csv links.csv` is read-only and returns missing
+link candidates from a reviewed CSV plan:
+
+```json
+{
+  "path": "links.csv",
+  "planned_count": 2,
+  "count": 1,
+  "candidates": [
+    {
+      "source": "PROJ-1",
+      "target": "PROJ-2",
+      "type": "Blocks",
+      "rationale": "dependency found during review",
+      "row": 2
+    }
+  ]
+}
+```
+
+Rows whose outward link already exists on the source issue are omitted from
+`candidates`. The command performs no Jira writes.
+
 `atl jira structure rows <ID>` returns a parsed read-only view of a Tempo Structure forest:
 
 ```json
