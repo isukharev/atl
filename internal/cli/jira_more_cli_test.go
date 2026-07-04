@@ -230,7 +230,7 @@ func TestJiraIssuePlanApplyDryRunAndConfirmGuard(t *testing.T) {
 func TestJiraUserSearch_EmitsAndID(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/api/2/user/search", http.StatusOK,
-		`[{"name":"alice","key":"alice","displayName":"Alice A","emailAddress":"a@x.io","active":true}]`)
+		`[{"name":"alice","key":"alice","displayName":"Alice A","emailAddress":"redacted","active":true}]`)
 
 	out, code := runCLI(t, jiraEnv(js.srv), "jira", "user", "search", "alice")
 	if code != exitOK {
@@ -265,7 +265,7 @@ func TestJiraUserSearch_EmitsAndID(t *testing.T) {
 func TestJiraUserGet_Emits(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/api/2/user", http.StatusOK,
-		`{"name":"alice","key":"alice","displayName":"Alice A","emailAddress":"a@x.io","active":true}`)
+		`{"name":"alice","key":"alice","displayName":"Alice A","emailAddress":"redacted","active":true}`)
 
 	out, code := runCLI(t, jiraEnv(js.srv), "jira", "user", "get", "alice")
 	if code != exitOK {
