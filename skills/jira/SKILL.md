@@ -19,6 +19,10 @@ never written to the trace.
 `/atl:setup` and stop** instead of pushing on. The mirror root is `~/.atl/<workspace>/`; when the
 workspace exported `ATL_MIRROR_ROOT`, `jira pull --into` already defaults to it.
 
+Driving a ticket end-to-end while developing (assign → in progress → progress comments → check →
+done → update the linked Confluence page)? Follow the `atl` skill's dev-loop reference
+(`skills/atl/reference/dev-loop.md`).
+
 ## The canonical loop
 
 ### 1. Find issues
