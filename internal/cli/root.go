@@ -183,6 +183,11 @@ func mirrorRootDefault(fallback string) string {
 	return fallback
 }
 
+// stdinBodyCap bounds a stdin body so a stray binary/firehose can't exhaust
+// memory. Exceeding it is a loud usage error, never a silent truncation — a
+// truncated Jira body would be sent as-is (no validation gate catches it).
+const stdinBodyCap = 64 << 20 // 64 MiB
+
 // readBody reads a body from a file path, or stdin when path is "-". Empty path
 // yields nil (no body).
 func readBody(path string) ([]byte, error) {
@@ -190,11 +195,23 @@ func readBody(path string) ([]byte, error) {
 	case "":
 		return nil, nil
 	case "-":
-		// Bound stdin so a stray binary/firehose can't exhaust memory.
-		return io.ReadAll(io.LimitReader(os.Stdin, 64<<20))
+		return readBounded(os.Stdin, stdinBodyCap)
 	default:
 		return os.ReadFile(path)
 	}
+}
+
+// readBounded reads up to max bytes from r, returning a usage error when the
+// input is larger rather than silently truncating it.
+func readBounded(r io.Reader, max int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > max {
+		return nil, usageErr("stdin body exceeds the %d MiB limit; pass a file path instead", max>>20)
+	}
+	return data, nil
 }
 
 func usageErr(format string, a ...any) error {

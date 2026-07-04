@@ -63,6 +63,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Oversized stdin bodies are rejected, not truncated** — `--from-file -`
+  previously dropped everything past 64 MiB without a signal, so an oversized
+  Jira body could be published incomplete; it now fails with a usage error
+  (exit 2) naming the limit.
 - **`conf push` no longer panics on an unresolvable target path** — a target
   that cannot be stat'ed (typo'd file, missing directory) previously crashed
   with a nil-pointer dereference under `-o text` and printed a stray `null` in

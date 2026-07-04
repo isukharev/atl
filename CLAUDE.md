@@ -125,7 +125,8 @@ documented there.
   (Cyrillic preserved), hyphenate the rest, truncate at 80 runes, fall back to `"untitled"`.
   Space keys go through `safeSeg`, which neutralizes `.`/`..`/separators to block path
   traversal from hostile server input.
-- **stdin bodies are capped at 64 MiB** (`--from-file -`); larger input is silently truncated.
+- **stdin bodies are capped at 64 MiB** (`--from-file -`); larger input is rejected with a
+  usage error (exit 2), never silently truncated.
 - **PAT resolution order** (per service, first non-empty wins): `ATL_<SVC>_PAT` → `<SVC>_PAT`
   → `TEST_<SVC>_PAT` (only when `ATL_INTEGRATION` is set) → `~/.config/atl/credentials.json`
   (mode 0600, written atomically). Config dir:

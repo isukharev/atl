@@ -63,3 +63,19 @@ func TestEmit_RejectsIDFormatWhenUnsupported(t *testing.T) {
 		t.Fatalf("want ErrUsage for unsupported -o id, got %v", err)
 	}
 }
+
+// readBounded must reject an over-limit body loudly (exit 2), never truncate:
+// a truncated Jira wiki body would be pushed as-is with no validation gate.
+func TestReadBoundedRejectsOversizedInput(t *testing.T) {
+	small, err := readBounded(strings.NewReader("abc"), 8)
+	if err != nil || string(small) != "abc" {
+		t.Fatalf("under limit: got %q, %v", small, err)
+	}
+	exact, err := readBounded(strings.NewReader("12345678"), 8)
+	if err != nil || len(exact) != 8 {
+		t.Fatalf("at limit: got %d bytes, %v", len(exact), err)
+	}
+	if _, err := readBounded(strings.NewReader("123456789"), 8); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("over limit: want ErrUsage, got %v", err)
+	}
+}

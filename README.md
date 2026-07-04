@@ -287,7 +287,8 @@ atl jira field-options --project PROJ --field <field-id>
 - JSON to **stdout** by default; `-o text` for human-readable output.
 - Logs and errors to **stderr** — on failure, `{"error": "...", "code": N}` JSON by default
   (or a plain `error: <msg>` line under `-o text`).
-- Request bodies via `--from-file <path>` or `--from-file -` (stdin, capped at 64 MiB).
+- Request bodies via `--from-file <path>` or `--from-file -` (stdin, capped at 64 MiB;
+  larger input is rejected, not truncated).
 - Never interactive.
 
 | Code | Meaning |
