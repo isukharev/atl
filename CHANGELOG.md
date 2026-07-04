@@ -63,6 +63,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `[[Title]]` in the read-only `.md` view.
 - **Shell completion** for fixed-value flags (`-o`, `--format`, `--status`,
   `--service`).
+- **Skill authoring references** — the shipped plugin now teaches agents the
+  body syntax, not just the commands: a Jira wiki-markup cheat sheet
+  (`skills/jira/reference/wiki-markup.md`, "this is NOT Markdown"), a validated
+  CSF snippet library for new pages/sections/comments
+  (`skills/confluence/reference/csf-authoring.md`), and corrected `--field`
+  value-shape guidance (object-typed fields take JSON, e.g.
+  `priority={"name":"High"}`; the old `--field priority=High` example was
+  rejected by Jira DC).
 - **Dev tooling** — `make install-hooks` installs a gofmt pre-commit hook; CI
   gained a `go mod tidy` drift check and a `CGO_ENABLED=0` static-build assertion.
 

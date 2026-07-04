@@ -60,7 +60,9 @@ On disk per page:
 
 ### 3. Read to locate, open the substrate to edit
 Read the `.md` to understand and find the spot; **edit only the `.csf`**. Use the `.assets/` images
-for visual context. See [csf.md](reference/csf.md) for fragments and what the bytes contain.
+for visual context. See [csf.md](reference/csf.md) for fragments and what the bytes contain, and
+[csf-authoring.md](reference/csf-authoring.md) for validated snippets when you add new content
+(macros, tables, task lists, links) — CSF is XHTML-based, **not Markdown**.
 
 ### 4. Validate
 ```bash
@@ -131,6 +133,9 @@ For exact edits or unresolved rendering questions, inspect the `.csf` source.
 ## Creating, moving, commenting
 - New page: `atl conf page create --space <KEY> --title '<T>' [--parent <id>] --from-file body.csf`
   (the body is validated; malformed CSF is rejected and the page is not created).
+- **Authoring a body from scratch** (new page, comment, or a new section in an existing `.csf`):
+  start from the validated snippets in [csf-authoring.md](reference/csf-authoring.md) — page
+  skeleton, code/info/warning/expand/status/TOC macros, task lists, tables, page links, mentions.
 - Copy a page: `atl conf page copy --id <id> --title 'New Title' [--space KEY] [--parent <id>]`.
 - `atl conf page get --id <id> --format csf|view`, `atl conf page meta --id <id>`,
   `atl conf page history --id <id>`, `atl conf page move --id <id> --parent <id>`,

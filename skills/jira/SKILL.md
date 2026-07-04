@@ -99,8 +99,11 @@ atl jira me                                                  # authenticated use
 atl jira user search 'alice'                                 # find users by name/username
 atl jira user get alice                                      # get a user by DC username
 ```
-See [fields.md](reference/fields.md) for the discovery flow and the **large-description / epic edit
-pattern** (edit a wiki body as a file, then `update --from-file`).
+See [fields.md](reference/fields.md) for the discovery flow, the **field value shapes** `--field`
+needs (object-typed fields take JSON, e.g. `priority={"name":"High"}`), and the
+**large-description / epic edit pattern** (edit a wiki body as a file, then `update --from-file`).
+Bodies are **Jira wiki markup, not Markdown** — compose them per
+[wiki-markup.md](reference/wiki-markup.md).
 
 ### 6. Images for vision
 ```bash
@@ -221,6 +224,8 @@ If the plugin or object is unavailable, expect exit 4/6.
 ## Hard rules
 - **Never edit `<KEY>.md` / `<KEY>.json` to change an issue** — they are read-only snapshots;
   changes go through the commands above.
+- **Bodies are Jira wiki markup, not Markdown** (`*bold*`, `h2.`, `{code}` — see
+  [wiki-markup.md](reference/wiki-markup.md)); Markdown syntax publishes as literal characters.
 - Structure commands are read-only inspection tools; do not infer that `atl` can write Structure data.
 - No version gate → always `get` right before `update`.
 - Before setting a status, field value, or link type, confirm it exists (`transitions`,
