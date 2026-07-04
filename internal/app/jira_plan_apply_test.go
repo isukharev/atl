@@ -119,3 +119,37 @@ func TestApplyPlanRequiresConfirmAndAppliesAllowedOps(t *testing.T) {
 		t.Fatalf("writes not applied as expected: linked=%v labels=%s/%v fields=%v", tr.linked, tr.labelsKey, tr.labelsAdd, tr.updatedFields)
 	}
 }
+
+// Regression: the adapter reports an existing link's Type as the directional
+// phrase ("duplicates"), while plan rows carry the canonical type name
+// ("Duplicate"). The identity check must match on TypeName, or a re-apply of a
+// satisfied plan would POST a duplicate link.
+func TestApplyPlanLinkIdempotentWhenPhraseDiffersFromName(t *testing.T) {
+	csvPath := filepath.Join(t.TempDir(), "plan.csv")
+	data := strings.Join([]string{
+		"op,source,target,type",
+		"link,PROJ-1,PROJ-2,Duplicate",
+	}, "\n")
+	if err := os.WriteFile(csvPath, []byte(data), 0o644); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+	tr := &planTracker{issues: map[string]domain.Issue{
+		"PROJ-1": {Key: "PROJ-1", Links: []domain.IssueLink{
+			{Direction: "outward", Type: "duplicates", TypeName: "Duplicate", Key: "PROJ-2"},
+		}},
+	}}
+	svc := &JiraService{tr: tr}
+
+	res, err := svc.ApplyPlan(context.Background(), JiraPlanApplyOpts{
+		CSVPath: csvPath, Apply: true, Confirm: planApplyConfirm, AllowOps: []string{"link"},
+	})
+	if err != nil {
+		t.Fatalf("ApplyPlan: %v", err)
+	}
+	if res.Results[0].Status != "already_satisfied" {
+		t.Fatalf("status = %q, want already_satisfied", res.Results[0].Status)
+	}
+	if len(tr.linked) != 0 {
+		t.Fatalf("re-apply created a duplicate link: %v", tr.linked)
+	}
+}

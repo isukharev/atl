@@ -73,10 +73,14 @@ type Issue struct {
 
 // IssueLink is a typed link between issues. ID is the backend link id, needed
 // to delete a specific link (the same id appears on both the inward and outward
-// view of one link).
+// view of one link). Type carries the human-readable directional phrase
+// ("duplicates", "is blocked by"); TypeName carries the canonical link-type
+// name ("Duplicate", "Blocks") that the create API expects — identity checks
+// must use TypeName, since the phrase differs from the name for most types.
 type IssueLink struct {
 	ID        string `json:"id,omitempty"`
 	Type      string `json:"type"`
+	TypeName  string `json:"type_name,omitempty"`
 	Direction string `json:"direction"` // inward|outward
 	Key       string `json:"key"`
 }

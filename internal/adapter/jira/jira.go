@@ -67,11 +67,15 @@ func (j *Jira) mapIssue(d issueDTO) *domain.Issue {
 		for _, raw := range links {
 			lm, _ := raw.(map[string]any) // nil map on mismatch reads as zero — safe
 			lid := str(lm["id"])
+			tn := ""
+			if tm, ok := lm["type"].(map[string]any); ok {
+				tn = str(tm["name"])
+			}
 			if iw, ok := lm["inwardIssue"].(map[string]any); ok {
-				is.Links = append(is.Links, domain.IssueLink{ID: lid, Type: str(typeField(lm["type"], "inward")), Direction: "inward", Key: str(iw["key"])})
+				is.Links = append(is.Links, domain.IssueLink{ID: lid, Type: str(typeField(lm["type"], "inward")), TypeName: tn, Direction: "inward", Key: str(iw["key"])})
 			}
 			if ow, ok := lm["outwardIssue"].(map[string]any); ok {
-				is.Links = append(is.Links, domain.IssueLink{ID: lid, Type: str(typeField(lm["type"], "outward")), Direction: "outward", Key: str(ow["key"])})
+				is.Links = append(is.Links, domain.IssueLink{ID: lid, Type: str(typeField(lm["type"], "outward")), TypeName: tn, Direction: "outward", Key: str(ow["key"])})
 			}
 		}
 	}
