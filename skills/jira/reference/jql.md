@@ -6,7 +6,8 @@
   right issues without writing anything to disk. Default `--limit 50`.
 - `atl jira pull --jql '<JQL>' --into ~/.atl/<workspace>/` writes one `<KEY>.md` + `<KEY>.json` per
   issue — use it once you know which issues you'll work with. Default `--limit 100`; **`--limit 0`
-  means all** (unbounded — unlike Confluence's `conf pull --cql`, which silently caps at 1000).
+  means all** (unbounded — unlike Confluence's `conf pull --cql`, which caps at 1000 and reports
+  `"truncated": true` plus a stderr warning when the cap is hit).
 
 ## Common JQL patterns
 
