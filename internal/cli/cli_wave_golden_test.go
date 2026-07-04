@@ -110,7 +110,7 @@ func sawReq(reqs []capturedReq, method, path string) bool {
 func TestJiraMe_Golden(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/api/2/myself", http.StatusOK,
-		`{"name":"jdoe","key":"jdoe","displayName":"Jane Doe","emailAddress":"j@x.io","active":true}`)
+		`{"name":"jdoe","key":"jdoe","displayName":"Jane Doe","emailAddress":"redacted","active":true}`)
 
 	out, code := runCLI(t, jiraEnv(js.srv), "jira", "me")
 	if code != exitOK {

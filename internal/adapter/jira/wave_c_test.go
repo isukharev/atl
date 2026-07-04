@@ -120,7 +120,7 @@ func TestCurrentUserMapsDCFields(t *testing.T) {
 		if r.URL.Path != "/rest/api/2/myself" {
 			t.Errorf("path = %q", r.URL.Path)
 		}
-		_, _ = io.WriteString(w, `{"name":"jdoe","key":"jdoe","displayName":"Jane Doe","emailAddress":"j@x.io","active":true}`)
+		_, _ = io.WriteString(w, `{"name":"jdoe","key":"jdoe","displayName":"Jane Doe","emailAddress":"redacted","active":true}`)
 	}))
 	defer srv.Close()
 
@@ -129,7 +129,7 @@ func TestCurrentUserMapsDCFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CurrentUser: %v", err)
 	}
-	if u.Name != "jdoe" || u.Key != "jdoe" || u.DisplayName != "Jane Doe" || u.Email != "j@x.io" || !u.Active {
+	if u.Name != "jdoe" || u.Key != "jdoe" || u.DisplayName != "Jane Doe" || u.Email != "redacted" || !u.Active {
 		t.Errorf("user mismatch: %+v", u)
 	}
 }
