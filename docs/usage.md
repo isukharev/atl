@@ -49,6 +49,7 @@ echo '<p>Hello</p>' | atl conf page create --space DOCS --title "New page" \
 | 5 | version conflict (remote moved since last pull; re-pull and retry) |
 | 6 | forbidden (per-space or per-issue permission) |
 | 7 | not configured (backend URL or PAT **not set** yet; run `atl config set` / `atl auth login`) |
+| 8 | check failed (`jira issue check` found empty required fields) |
 
 A script can therefore tell three distinct "auth-ish" states apart: `7` = you
 have not finished setup (no URL/token) → run setup; `3` = the token you supplied
@@ -1261,7 +1262,7 @@ atl jira pull --jql "project=PROJ and status=Open" --into mirror-jira
 # make changes via commands:
 atl jira issue update PROJ-1 --summary "Revised title"
 atl jira issue transition PROJ-1 --to "In Review"
-atl jira issue comment PROJ-1 --from-file - <<'EOF'
+atl jira issue comment add PROJ-1 --from-file - <<'EOF'
 Updated as discussed in today's meeting.
 EOF
 ```
