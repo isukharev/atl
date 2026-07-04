@@ -17,7 +17,7 @@ func problemsByRule(ps []Problem, rule string) []Problem {
 
 func TestValidateWarnsOnInvisibleChars(t *testing.T) {
 	// Two NBSPs (first at line 1 col 8), one ZWSP; all inside valid XML.
-	raw := []byte("<p>slug one and​two</p>")
+	raw := []byte("<p>slug\u00a0one\u00a0and\u200btwo</p>")
 	ps := Validate(raw)
 	if HasErrors(ps) {
 		t.Fatalf("unexpected errors: %+v", ps)
