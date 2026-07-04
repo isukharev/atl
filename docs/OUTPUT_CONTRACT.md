@@ -211,6 +211,41 @@ and includes `csv_path` in the JSON result.
 ```
 
 For non-root rows, `parent_row_id` is present. `-o id` prints Structure row ids
-one per line. `atl jira structure values <ID> --rows ... --fields ...` preserves
-the backend value matrix under `responses` and `raw`; if the backend reports
-permission gaps, normalized row ids are also exposed as `inaccessible_rows`.
+one per line. `--root` emits the first matching row plus descendants; matching is
+by row metadata first and then by Structure values fetched through
+`--root-fields` (default `key,summary`).
+
+`atl jira structure values <ID> --rows ... --fields ...` preserves the backend
+value matrix under `responses` and `raw`; if the backend reports permission
+gaps, normalized row ids are also exposed as `inaccessible_rows`.
+
+`atl jira structure pull-issues <ID>` returns:
+
+```json
+{
+  "structure_id": 123,
+  "version": {"signature": 55, "version": 7},
+  "rows": [],
+  "issue_ids": ["10001"],
+  "issues": [{"key": "PROJ-1", "id": "10001", "fields": {}}],
+  "count": 1
+}
+```
+
+`atl jira structure export <ID> --out FILE --format json|csv|md` writes the
+artifact and returns a small result object:
+
+```json
+{
+  "path": "structure.json",
+  "format": "json",
+  "structure_id": 123,
+  "row_count": 1,
+  "issue_count": 1
+}
+```
+
+JSON export artifacts contain `{structure_id,version,rows,issue_ids,issues}`.
+CSV export artifacts contain row metadata (`row_id`, `depth`, `parent_row_id`,
+`item_type`, `item_id`, `issue_key`, `issue_id`) plus requested issue fields.
+Markdown export artifacts render an indented tree for review.

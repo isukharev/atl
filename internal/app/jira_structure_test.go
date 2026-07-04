@@ -39,3 +39,41 @@ func TestParseStructureRowsRejectsBadFormulaComponent(t *testing.T) {
 		t.Fatal("ParseStructureRows(bad): want error, got nil")
 	}
 }
+
+func TestFilterStructureRowsKeepsFirstMatchingSubtree(t *testing.T) {
+	rows := []domain.StructureRow{
+		{RowID: 100, Depth: 0, ItemType: "folder", ItemID: "root-a", Position: 0},
+		{RowID: 101, Depth: 1, ParentRowID: 100, ItemType: "issue", ItemID: "10001", Position: 1},
+		{RowID: 102, Depth: 2, ParentRowID: 101, ItemType: "issue", ItemID: "10002", Position: 2},
+		{RowID: 103, Depth: 1, ParentRowID: 100, ItemType: "issue", ItemID: "10003", Position: 3},
+		{RowID: 200, Depth: 0, ItemType: "folder", ItemID: "root-b", Position: 4},
+		{RowID: 201, Depth: 1, ParentRowID: 200, ItemType: "issue", ItemID: "20001", Position: 5},
+	}
+
+	filtered := FilterStructureRows(rows, "Release Root", map[int64]string{100: `{"summary":"Release root"}`})
+	if len(filtered) != 4 {
+		t.Fatalf("filtered len = %d, want first subtree of 4 rows: %+v", len(filtered), filtered)
+	}
+	if filtered[0].RowID != 100 || filtered[3].RowID != 103 {
+		t.Fatalf("filtered = %+v, want rows 100..103", filtered)
+	}
+}
+
+func TestStructureExportDocumentAttachesIssueFields(t *testing.T) {
+	rows := []domain.StructureRow{
+		{RowID: 100, Depth: 0, ItemType: "issue", ItemID: "10001"},
+		{RowID: 101, Depth: 1, ParentRowID: 100, ItemType: "folder", ItemID: "folder-a"},
+	}
+	doc := structureExportDocument(123, nil, rows, []string{"10001"}, []JiraIssueSnapshot{{
+		Key:    "PROJ-1",
+		ID:     "10001",
+		Fields: map[string]any{"summary": "First"},
+	}})
+
+	if len(doc.Rows) != 2 || doc.Rows[0].IssueKey != "PROJ-1" || doc.Rows[0].Fields["summary"] != "First" {
+		t.Fatalf("doc rows = %+v, want issue fields attached to row 100", doc.Rows)
+	}
+	if doc.Rows[1].IssueKey != "" || doc.Rows[1].Fields != nil {
+		t.Fatalf("folder row = %+v, want no issue attachment", doc.Rows[1])
+	}
+}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -43,7 +44,7 @@ func parseInt64List(name, s string) ([]int64, error) {
 
 // jiraStructureCmd builds read-only Tempo Structure commands.
 func jiraStructureCmd() *cobra.Command {
-	c := &cobra.Command{Use: "structure", Short: "Read Tempo Structure metadata, forests, rows, and values"}
+	c := &cobra.Command{Use: "structure", Short: "Read Tempo Structure metadata, forests, rows, values, and issue snapshots"}
 
 	get := &cobra.Command{
 		Use:   "get <STRUCTURE-ID>",
@@ -92,6 +93,7 @@ func jiraStructureCmd() *cobra.Command {
 		},
 	}
 
+	var rowsRoot, rowsRootFields string
 	rows := &cobra.Command{
 		Use:   "rows <STRUCTURE-ID>",
 		Short: "Parse the latest Structure forest into rows",
@@ -105,20 +107,24 @@ func jiraStructureCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rowList, version, err := svc.StructureRows(cmd.Context(), id)
+			res, err := svc.StructureRowsWithOptions(cmd.Context(), id, app.StructureRowsOpts{
+				Root:       rowsRoot,
+				RootFields: splitFields(rowsRootFields),
+			})
 			if err != nil {
 				return err
 			}
-			out := map[string]any{"structure_id": id, "version": version, "rows": rowList}
-			return emitID(cmd, out, func() string { return structureRowLines(rowList) }, func() []string {
-				ids := make([]string, len(rowList))
-				for i, r := range rowList {
+			return emitID(cmd, res, func() string { return structureRowLines(res.Rows) }, func() []string {
+				ids := make([]string, len(res.Rows))
+				for i, r := range res.Rows {
 					ids[i] = strconv.FormatInt(r.RowID, 10)
 				}
 				return ids
 			})
 		},
 	}
+	rows.Flags().StringVar(&rowsRoot, "root", "", "optional root row/id/text; emits the first matching row subtree")
+	rows.Flags().StringVar(&rowsRootFields, "root-fields", "key,summary", "comma-separated Structure attributes used when matching --root")
 
 	var valueRows, valueFields string
 	values := &cobra.Command{
@@ -152,7 +158,85 @@ func jiraStructureCmd() *cobra.Command {
 	values.Flags().StringVar(&valueRows, "rows", "", "comma-separated Structure row ids")
 	values.Flags().StringVar(&valueFields, "fields", "", "comma-separated Structure attribute ids (for example key,summary,status)")
 
-	c.AddCommand(get, forest, rows, values)
+	var pullRoot, pullRootFields, pullFields, pullOut string
+	var pullBatchSize, pullLimit int
+	pullIssues := &cobra.Command{
+		Use:   "pull-issues <STRUCTURE-ID>",
+		Short: "Fetch Jira issue snapshots referenced by Structure rows",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := atoi64Arg("structure id", args[0])
+			if err != nil {
+				return err
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			res, err := svc.StructurePullIssues(cmd.Context(), id, app.StructureIssuePullOpts{
+				Root:       pullRoot,
+				RootFields: splitFields(pullRootFields),
+				Fields:     splitFields(pullFields),
+				BatchSize:  pullBatchSize,
+				Limit:      pullLimit,
+				Out:        pullOut,
+			})
+			if err != nil {
+				return err
+			}
+			return emitID(cmd, res, func() string {
+				return fmt.Sprintf("rows=%d issue_ids=%d issues=%d", len(res.Rows), len(res.IssueIDs), len(res.Issues))
+			}, func() []string { return res.IssueIDs })
+		},
+	}
+	pullIssues.Flags().StringVar(&pullRoot, "root", "", "optional root row/id/text; fetches issues from the first matching subtree")
+	pullIssues.Flags().StringVar(&pullRootFields, "root-fields", "key,summary", "comma-separated Structure attributes used when matching --root")
+	pullIssues.Flags().StringVar(&pullFields, "fields", "", "comma-separated Jira fields to include")
+	pullIssues.Flags().IntVar(&pullBatchSize, "batch-size", 100, "issue id batch size for generated JQL")
+	pullIssues.Flags().IntVar(&pullLimit, "limit", 0, "maximum Jira issues to fetch (0 means no limit)")
+	pullIssues.Flags().StringVar(&pullOut, "out", "", "optional JSON file path for the pulled snapshot")
+
+	var exportRoot, exportRootFields, exportFields, exportFormat, exportOut string
+	var exportBatchSize, exportLimit int
+	exportCmd := &cobra.Command{
+		Use:   "export <STRUCTURE-ID>",
+		Short: "Write an offline Structure tree export with Jira issue fields",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := atoi64Arg("structure id", args[0])
+			if err != nil {
+				return err
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			res, err := svc.StructureExport(cmd.Context(), id, app.StructureExportOpts{
+				Root:       exportRoot,
+				RootFields: splitFields(exportRootFields),
+				Fields:     splitFields(exportFields),
+				BatchSize:  exportBatchSize,
+				Limit:      exportLimit,
+				Format:     exportFormat,
+				Out:        exportOut,
+			})
+			if err != nil {
+				return err
+			}
+			return emit(cmd, res, func() string {
+				return fmt.Sprintf("%s\tformat=%s\trows=%d\tissues=%d", res.Path, res.Format, res.RowCount, res.IssueCount)
+			})
+		},
+	}
+	exportCmd.Flags().StringVar(&exportRoot, "root", "", "optional root row/id/text; exports the first matching subtree")
+	exportCmd.Flags().StringVar(&exportRootFields, "root-fields", "key,summary", "comma-separated Structure attributes used when matching --root")
+	exportCmd.Flags().StringVar(&exportFields, "fields", "", "comma-separated Jira fields to include")
+	exportCmd.Flags().IntVar(&exportBatchSize, "batch-size", 100, "issue id batch size for generated JQL")
+	exportCmd.Flags().IntVar(&exportLimit, "limit", 0, "maximum Jira issues to fetch (0 means no limit)")
+	exportCmd.Flags().StringVar(&exportFormat, "format", "json", "export format: json, csv, or md")
+	exportCmd.Flags().StringVar(&exportOut, "out", "", "required output file path")
+
+	c.AddCommand(get, forest, rows, values, pullIssues, exportCmd)
 	return c
 }
 

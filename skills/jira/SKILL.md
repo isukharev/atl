@@ -1,6 +1,6 @@
 ---
 name: jira
-description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, transition, comment on, link, delete, check fields of, or report on a Jira issue, ticket, bug, story, epic, or task; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; download images from an issue; work with agile boards and sprints; or read Tempo Structure metadata, forest rows, and values.
+description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, transition, comment on, link, delete, check fields of, or report on a Jira issue, ticket, bug, story, epic, or task; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; download images from an issue; work with agile boards and sprints; or read Tempo Structure metadata, forest rows, values, and issue exports.
 ---
 
 # Jira issues with `atl`
@@ -128,16 +128,23 @@ Agile endpoints 404 (exit 4). Use `board list --project` to discover the id `--b
 
 ### 9. Tempo Structure (read-only)
 Backed by the Structure plugin API (`/rest/structure/2.0/`). Structures and rows are numeric ids.
-Use this to inspect a structure tree and fetch selected attributes; there are no writeback commands.
+Use this to inspect a structure tree, fetch selected attributes, pull referenced issue snapshots, or write offline tree exports; there are no writeback commands.
 ```bash
 atl jira structure get 123
 atl jira structure forest 123
 atl jira structure rows 123                                      # parsed hierarchy; -o id → row ids
+atl jira structure rows 123 --root "release train"               # first matching subtree
 atl jira structure values 123 --rows 100,101 --fields key,summary,status
+atl jira structure pull-issues 123 --fields summary,status        # issue snapshots by generated id in (...) JQL
+atl jira structure export 123 --format json --out structure.json  # json|csv|md offline artifact
 ```
 `rows` reports `{structure_id,version,rows:[{row_id,depth,parent_row_id,item_type,item_id}]}`.
+`--root` matches row metadata first, then selected Structure values (`--root-fields`, default
+`key,summary`), and returns the first matching row plus descendants.
 `values` preserves the backend matrix in `responses`/`raw` and exposes `inaccessible_rows` when
-the server reports permission gaps. If the plugin or object is unavailable, expect exit 4/6.
+the server reports permission gaps. `pull-issues` emits `{structure_id,rows,issue_ids,issues,count}`;
+`export` writes `json`, `csv`, or `md` and returns `{path,format,structure_id,row_count,issue_count}`.
+If the plugin or object is unavailable, expect exit 4/6.
 
 ## Quick Reference — all `jira` commands
 
@@ -174,8 +181,10 @@ the server reports permission gaps. If the plugin or object is unavailable, expe
 | `jira user get <USERNAME>` | Get a user by DC username | — |
 | `jira structure get <ID>` | Get Structure metadata | `-o id` |
 | `jira structure forest <ID>` | Get raw latest Structure forest formula | — |
-| `jira structure rows <ID>` | Parse Structure forest rows | `-o id` |
+| `jira structure rows <ID>` | Parse Structure forest rows | `--root`, `--root-fields`, `-o id` |
 | `jira structure values <ID>` | Get row attribute values | `--rows`, `--fields` |
+| `jira structure pull-issues <ID>` | Fetch issue snapshots from Structure issue rows | `--root`, `--fields`, `--batch-size`, `--limit`, `--out`, `-o id` |
+| `jira structure export <ID>` | Write an offline Structure tree artifact | `--root`, `--fields`, `--format json|csv|md`, `--out` |
 
 ## Common Errors
 
