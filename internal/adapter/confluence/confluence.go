@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -155,26 +156,41 @@ func (cf *Confluence) Whoami(ctx context.Context) (string, error) {
 	return u.DisplayName, nil
 }
 
-// History returns version records, newest first.
+// History returns version records, newest first. It pages until the listing is
+// exhausted (previously it returned only the first 50 versions).
 func (cf *Confluence) History(ctx context.Context, id string) ([]domain.Version, error) {
-	var resp struct {
-		Results []struct {
-			Number  int    `json:"number"`
-			When    string `json:"when"`
-			Message string `json:"message"`
-			By      struct {
-				DisplayName string `json:"displayName"`
-			} `json:"by"`
-		} `json:"results"`
-	}
-	// Confluence Data Center serves the full version list under /rest/experimental;
-	// the Cloud-style /rest/api/content/{id}/version path 404s on DC.
-	if err := cf.c.GetJSON(ctx, "/rest/experimental/content/"+url.PathEscape(id)+"/version?limit=50", &resp); err != nil {
-		return nil, err
-	}
-	out := make([]domain.Version, 0, len(resp.Results))
-	for _, v := range resp.Results {
-		out = append(out, domain.Version{Number: v.Number, When: v.When, By: v.By.DisplayName, Message: v.Message})
+	start := 0
+	out := []domain.Version{}
+	for page := 0; page < maxPages && len(out) < maxItems; page++ {
+		var resp struct {
+			Results []struct {
+				Number  int    `json:"number"`
+				When    string `json:"when"`
+				Message string `json:"message"`
+				By      struct {
+					DisplayName string `json:"displayName"`
+				} `json:"by"`
+			} `json:"results"`
+			Links struct {
+				Next string `json:"next"`
+			} `json:"_links"`
+		}
+		q := url.Values{}
+		q.Set("limit", "100")
+		q.Set("start", strconv.Itoa(start))
+		// Confluence Data Center serves the full version list under
+		// /rest/experimental; the Cloud-style /rest/api/content/{id}/version path
+		// 404s on DC.
+		if err := cf.c.GetJSON(ctx, "/rest/experimental/content/"+url.PathEscape(id)+"/version?"+q.Encode(), &resp); err != nil {
+			return nil, err
+		}
+		for _, v := range resp.Results {
+			out = append(out, domain.Version{Number: v.Number, When: v.When, By: v.By.DisplayName, Message: v.Message})
+		}
+		if resp.Links.Next == "" || len(resp.Results) == 0 {
+			break
+		}
+		start += len(resp.Results)
 	}
 	return out, nil
 }

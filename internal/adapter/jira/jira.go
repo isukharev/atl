@@ -107,9 +107,26 @@ func (j *Jira) GetIssue(ctx context.Context, key string, fields []string) (*doma
 	return j.mapIssue(d), nil
 }
 
+// parseCursor parses a pagination cursor (a startAt offset). Empty means the
+// first page; a non-numeric or negative value is a usage error rather than a
+// silent restart from offset 0.
+func parseCursor(cursor string) (int, error) {
+	if cursor == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(cursor)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("%w: invalid cursor %q (expected a non-negative offset)", domain.ErrUsage, cursor)
+	}
+	return n, nil
+}
+
 // Search runs JQL. cursor is the startAt offset; returns the next offset or "".
 func (j *Jira) Search(ctx context.Context, jql string, fields []string, limit int, cursor string) ([]domain.Issue, string, error) {
-	startAt, _ := strconv.Atoi(cursor)
+	startAt, err := parseCursor(cursor)
+	if err != nil {
+		return nil, "", err
+	}
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
@@ -323,23 +340,41 @@ func (j *Jira) AddComment(ctx context.Context, key string, body []byte) (*domain
 	return &domain.Comment{ID: out.ID, Author: out.Author.DisplayName, Created: out.Created, Body: string(body)}, nil
 }
 
+// commentPageGuard bounds the internal comment paging loop so a backend that
+// keeps signaling more pages cannot spin forever (mirrors the Confluence
+// adapter's maxPages guard).
+const commentPageGuard = 100
+
 // ListComments returns an issue's comments via the dedicated comment endpoint so
-// the caller need not refetch the whole issue body.
+// the caller need not refetch the whole issue body. The port has no cursor, so
+// the adapter pages internally until the listing is exhausted.
 func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, error) {
-	var resp struct {
-		Comments []struct {
-			ID      string         `json:"id"`
-			Author  map[string]any `json:"author"`
-			Created string         `json:"created"`
-			Body    string         `json:"body"`
-		} `json:"comments"`
-	}
-	if err := j.c.GetJSON(ctx, "/rest/api/2/issue/"+url.PathEscape(key)+"/comment", &resp); err != nil {
-		return nil, err
-	}
-	out := make([]domain.Comment, 0, len(resp.Comments))
-	for _, c := range resp.Comments {
-		out = append(out, domain.Comment{ID: c.ID, Author: nestedDisplay(c.Author), Created: c.Created, Body: c.Body})
+	startAt := 0
+	out := []domain.Comment{}
+	for page := 0; page < commentPageGuard; page++ {
+		var resp struct {
+			StartAt  int `json:"startAt"`
+			Total    int `json:"total"`
+			Comments []struct {
+				ID      string         `json:"id"`
+				Author  map[string]any `json:"author"`
+				Created string         `json:"created"`
+				Body    string         `json:"body"`
+			} `json:"comments"`
+		}
+		q := url.Values{}
+		q.Set("startAt", strconv.Itoa(startAt))
+		q.Set("maxResults", "100")
+		if err := j.c.GetJSON(ctx, "/rest/api/2/issue/"+url.PathEscape(key)+"/comment?"+q.Encode(), &resp); err != nil {
+			return nil, err
+		}
+		for _, c := range resp.Comments {
+			out = append(out, domain.Comment{ID: c.ID, Author: nestedDisplay(c.Author), Created: c.Created, Body: c.Body})
+		}
+		startAt += len(resp.Comments)
+		if len(resp.Comments) == 0 || startAt >= resp.Total {
+			break
+		}
 	}
 	return out, nil
 }

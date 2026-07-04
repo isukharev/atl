@@ -56,7 +56,10 @@ func (d boardDTO) toDomain() domain.Board {
 // Boards lists agile boards. project (a key or numeric id) narrows the result to
 // boards located in that project when non-empty.
 func (j *Jira) Boards(ctx context.Context, project string, limit int, cursor string) ([]domain.Board, string, error) {
-	startAt, _ := strconv.Atoi(cursor)
+	startAt, err := parseCursor(cursor)
+	if err != nil {
+		return nil, "", err
+	}
 	q := url.Values{}
 	q.Set("startAt", strconv.Itoa(startAt))
 	q.Set("maxResults", strconv.Itoa(agileLimit(limit)))
@@ -110,7 +113,10 @@ func (d sprintDTO) toDomain() domain.Sprint {
 
 // Sprints lists a board's sprints, optionally filtered by state.
 func (j *Jira) Sprints(ctx context.Context, boardID int, state string, limit int, cursor string) ([]domain.Sprint, string, error) {
-	startAt, _ := strconv.Atoi(cursor)
+	startAt, err := parseCursor(cursor)
+	if err != nil {
+		return nil, "", err
+	}
 	q := url.Values{}
 	q.Set("startAt", strconv.Itoa(startAt))
 	q.Set("maxResults", strconv.Itoa(agileLimit(limit)))
@@ -146,7 +152,10 @@ func (j *Jira) Sprint(ctx context.Context, id int) (*domain.Sprint, error) {
 // SprintIssues lists the issues assigned to a sprint. The response is the same
 // search shape as JQL search (an "issues" array), so it reuses mapIssue.
 func (j *Jira) SprintIssues(ctx context.Context, sprintID int, fields []string, limit int, cursor string) ([]domain.Issue, string, error) {
-	startAt, _ := strconv.Atoi(cursor)
+	startAt, err := parseCursor(cursor)
+	if err != nil {
+		return nil, "", err
+	}
 	q := url.Values{}
 	q.Set("startAt", strconv.Itoa(startAt))
 	q.Set("maxResults", strconv.Itoa(agileLimit(limit)))
