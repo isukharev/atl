@@ -93,6 +93,11 @@ PY
   jq -e '.count >= 0 and (.issues | type == "array")' "$tmp/issue-refs-jql.json" >/dev/null
   ok "jira issue refs"
 
+  printf 'source,target,type,rationale\n%s,%s,Relates,live smoke read-only candidate\n' "$first_key" "$first_key" > "$tmp/link-plan.csv"
+  "$ATL_BIN" jira issue link suggest --csv "$tmp/link-plan.csv" > "$tmp/link-suggest.json"
+  jq -e '.planned_count == 1 and (.candidates | type == "array") and (.count | type == "number")' "$tmp/link-suggest.json" >/dev/null
+  ok "jira link suggest"
+
   if [[ -n "${ATL_TEST_JIRA_EPIC_FIELD:-}" ]]; then
     "$ATL_BIN" jira issue tree --jql "$jira_jql" --epic-field "$ATL_TEST_JIRA_EPIC_FIELD" --limit "$limit" > "$tmp/issue-tree.json"
     jq -e '.count >= 0 and (.epics | type == "array") and ((.external_epics | type == "array") or .external_epics == null) and ((.orphans | type == "array") or .orphans == null)' "$tmp/issue-tree.json" >/dev/null

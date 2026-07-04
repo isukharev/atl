@@ -722,8 +722,34 @@ func jiraLinkCmd() *cobra.Command {
 		},
 	}
 
-	c.AddCommand(add, list, del)
+	var suggestCSV string
+	suggest := &cobra.Command{
+		Use:   "suggest",
+		Short: "Suggest missing links from a reviewed CSV plan without writing",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			res, err := svc.SuggestLinks(cmd.Context(), app.JiraLinkSuggestOpts{CSVPath: suggestCSV})
+			if err != nil {
+				return err
+			}
+			return emit(cmd, res, func() string { return linkSuggestText(res) })
+		},
+	}
+	suggest.Flags().StringVar(&suggestCSV, "csv", "", "CSV plan with source,target,type and optional rationale")
+
+	c.AddCommand(add, list, del, suggest)
 	return c
+}
+
+func linkSuggestText(res *app.JiraLinkSuggestResult) string {
+	var b strings.Builder
+	for _, candidate := range res.Candidates {
+		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\n", candidate.Source, candidate.Target, candidate.Type, candidate.Rationale)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func jiraPullCmd() *cobra.Command {

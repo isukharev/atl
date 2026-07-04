@@ -3,6 +3,8 @@ package cli
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -146,6 +148,41 @@ func TestJiraIssueLinkDelete_WiresDelete(t *testing.T) {
 	}
 	if !sawReq(js.requests(), http.MethodDelete, "/rest/api/2/issueLink/9") {
 		t.Errorf("expected DELETE /rest/api/2/issueLink/9, got %+v", js.requests())
+	}
+}
+
+func TestJiraIssueLinkSuggestCLIIsReadOnly(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/issue/", http.StatusOK,
+		`{"key":"ENG-1","fields":{"issuelinks":[{"id":"9","type":{"name":"Blocks","inward":"is blocked by","outward":"blocks"},"outwardIssue":{"key":"ENG-2"}}]}}`)
+	csvPath := filepath.Join(t.TempDir(), "links.csv")
+	if err := os.WriteFile(csvPath, []byte("source,target,type,rationale\nENG-1,ENG-2,Blocks,exists\nENG-1,ENG-3,Blocks,missing\n"), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "link", "suggest", "--csv", csvPath)
+	if code != exitOK {
+		t.Fatalf("link suggest: exit %d, want 0 (stdout=%q)", code, out)
+	}
+	var res struct {
+		PlannedCount int `json:"planned_count"`
+		Count        int `json:"count"`
+		Candidates   []struct {
+			Source string `json:"source"`
+			Target string `json:"target"`
+			Type   string `json:"type"`
+		} `json:"candidates"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("decode suggest: %v\n%s", err, out)
+	}
+	if res.PlannedCount != 2 || res.Count != 1 || res.Candidates[0].Target != "ENG-3" {
+		t.Fatalf("suggest result = %+v, want only missing ENG-3", res)
+	}
+	for _, req := range js.requests() {
+		if req.method != http.MethodGet {
+			t.Fatalf("link suggest sent write request: %+v", js.requests())
+		}
 	}
 }
 
