@@ -71,3 +71,65 @@ func TestPlanningReportScoresGapsRefsAndEpicChildren(t *testing.T) {
 		}
 	}
 }
+
+func TestIssueRefsSupportsKeyAndJQL(t *testing.T) {
+	svc := &JiraService{tr: partialTracker{issues: []domain.Issue{
+		{
+			Key:     "PROJ-2",
+			Summary: "Second",
+			Type:    "Story",
+			Body:    "Spec https://docs.example.com/spec",
+			Comments: []domain.Comment{{
+				Body: "Design https://figma.com/file/abc",
+			}},
+		},
+		{
+			Key:     "PROJ-1",
+			Summary: "First",
+			Type:    "Bug",
+			Body:    "No links",
+		},
+	}}}
+
+	one, err := svc.IssueRefs(context.Background(), JiraIssueRefsOpts{Key: "PROJ-2"})
+	if err != nil {
+		t.Fatalf("IssueRefs key: %v", err)
+	}
+	if one.Count != 1 || one.Issues[0].Key != "PROJ-2" || len(one.Issues[0].Refs) != 2 {
+		t.Fatalf("one refs = %+v, want two refs for PROJ-2", one)
+	}
+
+	all, err := svc.IssueRefs(context.Background(), JiraIssueRefsOpts{JQL: "project = PROJ", Limit: 10})
+	if err != nil {
+		t.Fatalf("IssueRefs jql: %v", err)
+	}
+	if all.Count != 2 || all.Issues[0].Key != "PROJ-1" || all.Issues[1].Key != "PROJ-2" {
+		t.Fatalf("all refs = %+v, want sorted issue rows", all.Issues)
+	}
+}
+
+func TestIssueTreeGroupsEpicsExternalEpicsAndOrphans(t *testing.T) {
+	svc := &JiraService{tr: partialTracker{issues: []domain.Issue{
+		{Key: "PROJ-2", Summary: "Child", Type: "Story", Fields: map[string]any{"epic": "PROJ-1"}},
+		{Key: "PROJ-1", Summary: "Parent", Type: "Epic", Fields: map[string]any{}},
+		{Key: "PROJ-3", Summary: "External child", Type: "Story", Fields: map[string]any{"epic": "PROJ-X"}},
+		{Key: "PROJ-4", Summary: "Orphan", Type: "Task", Fields: map[string]any{}},
+	}}}
+
+	tree, err := svc.IssueTree(context.Background(), JiraIssueTreeOpts{JQL: "project = PROJ", EpicField: "epic", Limit: 10})
+	if err != nil {
+		t.Fatalf("IssueTree: %v", err)
+	}
+	if tree.Count != 4 || tree.EpicField != "epic" {
+		t.Fatalf("tree header = %+v, want count/epic field", tree)
+	}
+	if len(tree.Epics) != 1 || tree.Epics[0].Key != "PROJ-1" || len(tree.Epics[0].Children) != 1 || tree.Epics[0].Children[0].Key != "PROJ-2" {
+		t.Fatalf("epics = %+v, want PROJ-1 -> PROJ-2", tree.Epics)
+	}
+	if len(tree.ExternalEpics) != 1 || tree.ExternalEpics[0].Key != "PROJ-X" || !tree.ExternalEpics[0].External || tree.ExternalEpics[0].Children[0].Key != "PROJ-3" {
+		t.Fatalf("external epics = %+v, want external PROJ-X -> PROJ-3", tree.ExternalEpics)
+	}
+	if len(tree.Orphans) != 1 || tree.Orphans[0].Key != "PROJ-4" {
+		t.Fatalf("orphans = %+v, want PROJ-4", tree.Orphans)
+	}
+}

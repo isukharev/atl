@@ -87,6 +87,20 @@ PY
   jq -e '.old_count >= .new_count and (.removed | type == "array" or .removed == null)' "$tmp/export-diff.json" >/dev/null
   ok "jira export"
 
+  "$ATL_BIN" jira issue refs "$first_key" > "$tmp/issue-refs-one.json"
+  jq -e '.count == 1 and (.issues | length) == 1 and .issues[0].key != null and (.issues[0].refs | type == "array")' "$tmp/issue-refs-one.json" >/dev/null
+  "$ATL_BIN" jira issue refs --jql "$jira_jql" --limit "$limit" > "$tmp/issue-refs-jql.json"
+  jq -e '.count >= 0 and (.issues | type == "array")' "$tmp/issue-refs-jql.json" >/dev/null
+  ok "jira issue refs"
+
+  if [[ -n "${ATL_TEST_JIRA_EPIC_FIELD:-}" ]]; then
+    "$ATL_BIN" jira issue tree --jql "$jira_jql" --epic-field "$ATL_TEST_JIRA_EPIC_FIELD" --limit "$limit" > "$tmp/issue-tree.json"
+    jq -e '.count >= 0 and (.epics | type == "array") and ((.external_epics | type == "array") or .external_epics == null) and ((.orphans | type == "array") or .orphans == null)' "$tmp/issue-tree.json" >/dev/null
+    ok "jira issue tree"
+  else
+    skip "jira issue tree (ATL_TEST_JIRA_EPIC_FIELD unset)"
+  fi
+
   planning_args=(jira planning report --jql "$jira_jql" --limit "$limit" --csv "$tmp/planning.csv")
   [[ -n "${ATL_TEST_JIRA_EPIC_FIELD:-}" ]] && planning_args+=(--epic-field "$ATL_TEST_JIRA_EPIC_FIELD")
   [[ -n "${ATL_TEST_JIRA_ESTIMATE_FIELD:-}" ]] && planning_args+=(--estimate-field "$ATL_TEST_JIRA_ESTIMATE_FIELD")

@@ -376,8 +376,112 @@ func jiraIssueCmd() *cobra.Command {
 	}
 	images.Flags().StringVar(&imgInto, "into", "", "output dir")
 
-	c.AddCommand(get, search, create, update, transition, check, del, labels, history, comment, link, linkEpic, images)
+	var refsJQL, refsFields string
+	var refsLimit int
+	refs := &cobra.Command{
+		Use:   "refs [KEY]",
+		Short: "Extract artifact references from one issue or a JQL selection",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			key := ""
+			if len(args) == 1 {
+				key = args[0]
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			res, err := svc.IssueRefs(cmd.Context(), app.JiraIssueRefsOpts{
+				Key:    key,
+				JQL:    refsJQL,
+				Fields: splitFields(refsFields),
+				Limit:  refsLimit,
+			})
+			if err != nil {
+				return err
+			}
+			return emit(cmd, res, func() string { return issueRefsText(res) })
+		},
+	}
+	refs.Flags().StringVar(&refsJQL, "jql", "", "JQL selecting issues (alternative to KEY)")
+	refs.Flags().StringVar(&refsFields, "fields", "", "extra comma-separated fields to fetch before extracting refs")
+	refs.Flags().IntVar(&refsLimit, "limit", 100, "max issues for --jql (0 = all)")
+
+	var treeJQL, treeEpicField, treeFields string
+	var treeLimit int
+	tree := &cobra.Command{
+		Use:   "tree",
+		Short: "Build a read-only epic-to-child tree from a JQL selection",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			res, err := svc.IssueTree(cmd.Context(), app.JiraIssueTreeOpts{
+				JQL:       treeJQL,
+				EpicField: treeEpicField,
+				Fields:    splitFields(treeFields),
+				Limit:     treeLimit,
+			})
+			if err != nil {
+				return err
+			}
+			return emit(cmd, res, func() string { return issueTreeText(res) })
+		},
+	}
+	tree.Flags().StringVar(&treeJQL, "jql", "", "JQL selecting issues")
+	tree.Flags().StringVar(&treeEpicField, "epic-field", "", "field id/name containing parent epic key")
+	tree.Flags().StringVar(&treeFields, "fields", "", "extra comma-separated fields to fetch")
+	tree.Flags().IntVar(&treeLimit, "limit", 100, "max issues (0 = all)")
+
+	c.AddCommand(get, search, create, update, transition, check, del, labels, history, refs, tree, comment, link, linkEpic, images)
 	return c
+}
+
+func issueRefsText(res *app.JiraIssueRefsResult) string {
+	var b strings.Builder
+	for _, issue := range res.Issues {
+		fmt.Fprintf(&b, "%s\t%s\n", issue.Key, issue.Summary)
+		for _, ref := range issue.Refs {
+			fmt.Fprintf(&b, "  - %s\t%s\n", ref.Kind, ref.URL)
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func issueTreeText(res *app.JiraIssueTreeResult) string {
+	var b strings.Builder
+	writeEpics := func(title string, epics []app.JiraIssueTreeEpic) {
+		if len(epics) == 0 {
+			return
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		fmt.Fprintf(&b, "%s\n", title)
+		for _, epic := range epics {
+			label := epic.Key
+			if epic.Summary != "" {
+				label += "\t" + epic.Summary
+			}
+			fmt.Fprintf(&b, "- %s\n", label)
+			for _, child := range epic.Children {
+				fmt.Fprintf(&b, "  - %s\t%s\n", child.Key, child.Summary)
+			}
+		}
+	}
+	writeEpics("epics", res.Epics)
+	writeEpics("external_epics", res.ExternalEpics)
+	if len(res.Orphans) > 0 {
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString("orphans\n")
+		for _, issue := range res.Orphans {
+			fmt.Fprintf(&b, "- %s\t%s\n", issue.Key, issue.Summary)
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // userID returns the most useful stable identifier for piping (-o id): the DC
