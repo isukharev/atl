@@ -1019,7 +1019,7 @@ atl jira sprint remove PROJ-1               # move issue(s) back to the backlog
 `--board` must be a positive id (else exit 2). List commands expose
 `next_cursor`; `--limit` is capped at 50 by the Agile API.
 
-### `atl jira structure {get,forest,rows,values}`
+### `atl jira structure {get,forest,rows,values,pull-issues,export}`
 
 Read-only Tempo Structure access via the Structure REST API
 (`/rest/structure/2.0/`). Structures are addressed by numeric id. If the
@@ -1030,10 +1030,16 @@ visible to the token, Jira returns an API error (commonly exit 4 or 6).
 atl jira structure get 123
 atl jira structure forest 123
 atl jira structure rows 123                         # parsed forest rows; -o id -> row ids
+atl jira structure rows 123 --root "release train"  # first matching subtree
 atl jira structure values 123 --rows 100,101 --fields key,summary,status
+atl jira structure pull-issues 123 --fields summary,status
+atl jira structure export 123 --root "release train" --fields summary,status --format json --out structure.json
 ```
 
-`rows` parses Structure's forest formula into a stable row list:
+`rows` parses Structure's forest formula into a stable row list. `--root`
+matches the first row by row id, item id/type/semantic, or by selected Structure
+attribute values (`--root-fields`, default `key,summary`) and emits only that
+row plus its descendants:
 
 ```json
 {
@@ -1058,6 +1064,33 @@ atl jira structure values 123 --rows 100,101 --fields key,summary,status
 resource. The output preserves the raw response under `raw`, exposes
 `responses`, and lifts any reported inaccessible row ids to
 `inaccessible_rows` so scripts can detect permission gaps.
+
+`pull-issues` collects numeric Jira issue ids from Structure issue rows and reads
+the matching Jira issues via generated `id in (...)` JQL batches. It emits:
+
+```json
+{
+  "structure_id": 123,
+  "issue_ids": ["10001"],
+  "issues": [
+    {
+      "key": "PROJ-1",
+      "id": "10001",
+      "fields": {
+        "summary": "Example"
+      }
+    }
+  ],
+  "count": 1
+}
+```
+
+`export` writes a single offline artifact that combines the Structure row tree
+with issue snapshots. Supported formats are `json`, `csv`, and `md`; `--out` is
+required. `json` contains `rows`, `issue_ids`, and `issues`; `csv` includes row
+metadata plus requested issue fields; `md` renders an indented tree for quick
+review. These commands are read-only and do not write Structure data back to
+Jira.
 
 ---
 

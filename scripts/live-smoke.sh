@@ -110,19 +110,35 @@ else
 fi
 
 if [[ -n "${ATL_TEST_JIRA_STRUCTURE_ID:-}" ]]; then
+  structure_fields="${ATL_TEST_JIRA_STRUCTURE_FIELDS:-key,summary,status}"
   "$ATL_BIN" jira structure get "$ATL_TEST_JIRA_STRUCTURE_ID" > "$tmp/structure.json"
   jq -e '.id != null and .name != null' "$tmp/structure.json" >/dev/null
   "$ATL_BIN" jira structure forest "$ATL_TEST_JIRA_STRUCTURE_ID" > "$tmp/structure-forest.json"
   jq -e '.formula != null and (.formula | length > 0)' "$tmp/structure-forest.json" >/dev/null
-  "$ATL_BIN" jira structure rows "$ATL_TEST_JIRA_STRUCTURE_ID" > "$tmp/structure-rows.json"
+  structure_rows_args=(jira structure rows "$ATL_TEST_JIRA_STRUCTURE_ID")
+  if [[ -n "${ATL_TEST_JIRA_STRUCTURE_ROOT:-}" ]]; then
+    structure_rows_args+=(--root "$ATL_TEST_JIRA_STRUCTURE_ROOT" --root-fields "$structure_fields")
+  fi
+  "$ATL_BIN" "${structure_rows_args[@]}" > "$tmp/structure-rows.json"
   jq -e '.rows | length > 0' "$tmp/structure-rows.json" >/dev/null
   row_ids="$(jq -r '[.rows[0:10][].row_id] | join(",")' "$tmp/structure-rows.json")"
   if [[ -z "$row_ids" ]]; then
     echo "Structure row ids missing" >&2
     exit 1
   fi
-  "$ATL_BIN" jira structure values "$ATL_TEST_JIRA_STRUCTURE_ID" --rows "$row_ids" --fields key,summary,status > "$tmp/structure-values.json"
+  "$ATL_BIN" jira structure values "$ATL_TEST_JIRA_STRUCTURE_ID" --rows "$row_ids" --fields "$structure_fields" > "$tmp/structure-values.json"
   jq -e '.responses != null or .raw != null' "$tmp/structure-values.json" >/dev/null
+  structure_pull_args=(jira structure pull-issues "$ATL_TEST_JIRA_STRUCTURE_ID" --fields "$structure_fields" --limit "${ATL_LIVE_SMOKE_LIMIT:-5}")
+  structure_export_args=(jira structure export "$ATL_TEST_JIRA_STRUCTURE_ID" --fields "$structure_fields" --limit "${ATL_LIVE_SMOKE_LIMIT:-5}" --format json --out "$tmp/structure-export.json")
+  if [[ -n "${ATL_TEST_JIRA_STRUCTURE_ROOT:-}" ]]; then
+    structure_pull_args+=(--root "$ATL_TEST_JIRA_STRUCTURE_ROOT" --root-fields "$structure_fields")
+    structure_export_args+=(--root "$ATL_TEST_JIRA_STRUCTURE_ROOT" --root-fields "$structure_fields")
+  fi
+  "$ATL_BIN" "${structure_pull_args[@]}" > "$tmp/structure-issues.json"
+  jq -e '(.issue_ids | type == "array") and (.issues | type == "array") and (.count | type == "number")' "$tmp/structure-issues.json" >/dev/null
+  "$ATL_BIN" "${structure_export_args[@]}" > "$tmp/structure-export-result.json"
+  jq -e '.path != null and .row_count > 0 and .issue_count >= 0' "$tmp/structure-export-result.json" >/dev/null
+  jq -e '.structure_id != null and (.rows | type == "array") and (.issues | type == "array")' "$tmp/structure-export.json" >/dev/null
   ok "jira structure"
 else
   skip "jira structure (ATL_TEST_JIRA_STRUCTURE_ID unset)"
