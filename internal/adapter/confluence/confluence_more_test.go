@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -325,7 +327,7 @@ func TestTreePaginates(t *testing.T) {
 	defer srv.Close()
 
 	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
-	got, err := cf.Tree(context.Background(), "DOC", 0)
+	got, _, err := cf.Tree(context.Background(), "DOC", 0)
 	if err != nil {
 		t.Fatalf("Tree: %v", err)
 	}
@@ -364,7 +366,7 @@ func TestTreeDepthFilter(t *testing.T) {
 	defer srv.Close()
 
 	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
-	got, err := cf.Tree(context.Background(), "DOC", 1)
+	got, _, err := cf.Tree(context.Background(), "DOC", 1)
 	if err != nil {
 		t.Fatalf("Tree: %v", err)
 	}
@@ -385,7 +387,7 @@ func TestTreeEmptyResultsStops(t *testing.T) {
 	defer srv.Close()
 
 	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
-	got, err := cf.Tree(context.Background(), "DOC", 0)
+	got, _, err := cf.Tree(context.Background(), "DOC", 0)
 	if err != nil {
 		t.Fatalf("Tree: %v", err)
 	}
@@ -405,7 +407,7 @@ func TestTreeError(t *testing.T) {
 	defer srv.Close()
 
 	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
-	_, err := cf.Tree(context.Background(), "DOC", 0)
+	_, _, err := cf.Tree(context.Background(), "DOC", 0)
 	if !errors.Is(err, domain.ErrAuth) {
 		t.Fatalf("expected ErrAuth, got %v", err)
 	}
@@ -1280,5 +1282,60 @@ func TestSearchError(t *testing.T) {
 	_, _, err := cf.Search(context.Background(), "bad cql", 25, "")
 	if !errors.Is(err, domain.ErrUsage) {
 		t.Fatalf("expected ErrUsage for 400, got %v", err)
+	}
+}
+
+// TestTreeReportsTruncationAtCap verifies the safety cap stops the listing AND
+// is reported: a space larger than treePageCap must yield truncated=true, and a
+// listing that ends exactly when the server is exhausted must not.
+func TestTreeReportsTruncationAtCap(t *testing.T) {
+	pageJSON := func(start, n int, next bool) string {
+		var b strings.Builder
+		b.WriteString(`{"results":[`)
+		for i := 0; i < n; i++ {
+			if i > 0 {
+				b.WriteString(",")
+			}
+			fmt.Fprintf(&b, `{"id":"%d","title":"P%d","space":{"key":"DOC"},"version":{"number":1}}`, start+i, start+i)
+		}
+		b.WriteString(`],"_links":{`)
+		if next {
+			b.WriteString(`"next":"/rest/api/content/search?start=x"`)
+		}
+		b.WriteString(`}}`)
+		return b.String()
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start, _ := strconv.Atoi(r.URL.Query().Get("start"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(pageJSON(start, 200, true))) // always claims more
+	}))
+	defer srv.Close()
+
+	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+	got, truncated, err := cf.Tree(context.Background(), "DOC", 0)
+	if err != nil {
+		t.Fatalf("Tree: %v", err)
+	}
+	if !truncated {
+		t.Fatal("cap hit with more pages remaining must report truncated=true")
+	}
+	if len(got) < 2000 {
+		t.Fatalf("expected >= cap pages, got %d", len(got))
+	}
+
+	// Exhausted exactly at the end: no next link → not truncated.
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(pageJSON(0, 3, false)))
+	}))
+	defer srv2.Close()
+	cf2 := &Confluence{c: newTestClient(srv2.URL), base: srv2.URL}
+	got2, truncated2, err := cf2.Tree(context.Background(), "DOC", 0)
+	if err != nil || truncated2 {
+		t.Fatalf("exhausted listing must not report truncation: %v %v", truncated2, err)
+	}
+	if len(got2) != 3 {
+		t.Fatalf("expected 3 pages, got %d", len(got2))
 	}
 }

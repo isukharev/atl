@@ -40,14 +40,15 @@ type recordingStore struct {
 	deleteID     string
 
 	// canned returns
-	pageRefs []domain.PageRef
-	cursor   string
-	page     *domain.Resource
-	meta     *domain.PageMeta
-	versions []domain.Version
-	comments []domain.Comment
-	comment  *domain.Comment
-	err      error
+	pageRefs      []domain.PageRef
+	treeTruncated bool
+	cursor        string
+	page          *domain.Resource
+	meta          *domain.PageMeta
+	versions      []domain.Version
+	comments      []domain.Comment
+	comment       *domain.Comment
+	err           error
 }
 
 func (s *recordingStore) Search(_ context.Context, q string, limit int, cursor string) ([]domain.PageRef, string, error) {
@@ -70,9 +71,9 @@ func (s *recordingStore) History(_ context.Context, id string) ([]domain.Version
 	return s.versions, s.err
 }
 
-func (s *recordingStore) Tree(_ context.Context, space string, depth int) ([]domain.PageRef, error) {
+func (s *recordingStore) Tree(_ context.Context, space string, depth int) ([]domain.PageRef, bool, error) {
 	s.treeSpace, s.treeDepth = space, depth
-	return s.pageRefs, s.err
+	return s.pageRefs, s.treeTruncated, s.err
 }
 
 func (s *recordingStore) ListComments(_ context.Context, id string) ([]domain.Comment, error) {
@@ -162,7 +163,7 @@ func TestConfluenceWrappersPassThrough(t *testing.T) {
 	t.Run("Tree", func(t *testing.T) {
 		st := &recordingStore{pageRefs: []domain.PageRef{{ID: "a"}, {ID: "b"}}}
 		svc := &ConfluenceService{store: st}
-		got, err := svc.Tree(ctx, "SPACE", 4)
+		got, _, err := svc.Tree(ctx, "SPACE", 4)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -249,7 +250,7 @@ func TestConfluenceWrappersPropagateSentinel(t *testing.T) {
 	if _, err := svc.History(ctx, "x"); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("History did not propagate sentinel: %v", err)
 	}
-	if _, err := svc.Tree(ctx, "x", 1); !errors.Is(err, domain.ErrNotFound) {
+	if _, _, err := svc.Tree(ctx, "x", 1); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("Tree did not propagate sentinel: %v", err)
 	}
 	if _, _, err := svc.Search(ctx, "x", 1, ""); !errors.Is(err, domain.ErrNotFound) {
@@ -813,4 +814,21 @@ func TestConfluenceWhoami(t *testing.T) {
 			t.Error("nil verifier should return error")
 		}
 	})
+}
+
+// A truncated space tree must propagate through resolveIDs so a --space pull
+// reports the cap instead of silently mirroring a partial space.
+func TestResolveIDsPropagatesSpaceTruncation(t *testing.T) {
+	st := &recordingStore{pageRefs: []domain.PageRef{{ID: "1"}, {ID: "2"}}, treeTruncated: true}
+	svc := &ConfluenceService{store: st}
+	ids, truncated, err := svc.resolveIDs(context.Background(), PullOpts{Space: "DOC"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !truncated {
+		t.Fatal("space truncation flag was dropped")
+	}
+	if len(ids) != 2 {
+		t.Fatalf("ids = %v", ids)
+	}
 }

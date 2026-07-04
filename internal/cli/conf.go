@@ -15,13 +15,14 @@ import (
 	"github.com/isukharev/atl/internal/version"
 )
 
-// warnIfTruncated writes a one-line stderr warning when a --cql pull hit the
-// silent page cap, so the caller is told the mirror is incomplete. It writes to
-// w (the command's stderr) and never to stdout, keeping the JSON result clean.
+// warnIfTruncated writes a one-line stderr warning when a pull hit a selection
+// cap (the --cql id cap or the --space tree cap), so the caller is told the
+// mirror is incomplete. It writes to w (the command's stderr) and never to
+// stdout, keeping the JSON result clean.
 func warnIfTruncated(w io.Writer, res *app.PullResult) {
 	if res != nil && res.Truncated {
 		fmt.Fprintf(w,
-			"warning: --cql selection truncated at %d pages (silent cap); narrow the query or pull by --space to get the rest\n",
+			"warning: selection truncated at %d pages (safety cap) — the rest was NOT mirrored; narrow the query or pull subsets\n",
 			res.TruncatedAt)
 	}
 }
@@ -110,11 +111,17 @@ func confSpaceCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			refs, err := svc.Tree(cmd.Context(), space, depth)
+			refs, truncated, err := svc.Tree(cmd.Context(), space, depth)
 			if err != nil {
 				return err
 			}
-			return emit(cmd, map[string]any{"pages": refs}, func() string {
+			out := map[string]any{"pages": refs}
+			if truncated {
+				out["truncated"] = true
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"warning: space listing truncated at %d pages (safety cap) — the rest is NOT shown\n", len(refs))
+			}
+			return emit(cmd, out, func() string {
 				var b strings.Builder
 				for _, r := range refs {
 					fmt.Fprintf(&b, "%s\t%s\t(parent %s)\n", r.ID, r.Title, r.Parent)

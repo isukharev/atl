@@ -33,7 +33,7 @@ func (s *ConfluenceService) History(ctx context.Context, id string) ([]domain.Ve
 	return s.store.History(ctx, id)
 }
 
-func (s *ConfluenceService) Tree(ctx context.Context, space string, depth int) ([]domain.PageRef, error) {
+func (s *ConfluenceService) Tree(ctx context.Context, space string, depth int) ([]domain.PageRef, bool, error) {
 	return s.store.Tree(ctx, space, depth)
 }
 
@@ -224,7 +224,7 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 const cqlPullCap = 1000
 
 // resolveIDs returns the page ids a pull should mirror plus whether the
-// selection was truncated by a cap (only the --cql path can truncate today).
+// selection was truncated by a cap (the --cql id cap or the space tree cap).
 func (s *ConfluenceService) resolveIDs(ctx context.Context, o PullOpts) (ids []string, truncated bool, err error) {
 	switch {
 	case o.ID != "":
@@ -232,7 +232,7 @@ func (s *ConfluenceService) resolveIDs(ctx context.Context, o PullOpts) (ids []s
 	case o.CQL != "":
 		return s.collectSearch(ctx, o.CQL)
 	case o.Space != "":
-		refs, err := s.store.Tree(ctx, o.Space, o.Depth)
+		refs, truncated, err := s.store.Tree(ctx, o.Space, o.Depth)
 		if err != nil {
 			return nil, false, err
 		}
@@ -240,7 +240,7 @@ func (s *ConfluenceService) resolveIDs(ctx context.Context, o PullOpts) (ids []s
 		for _, r := range refs {
 			ids = append(ids, r.ID)
 		}
-		return ids, false, nil
+		return ids, truncated, nil
 	default:
 		return nil, false, fmt.Errorf("%w: pull needs --id, --cql or --space", domain.ErrUsage)
 	}

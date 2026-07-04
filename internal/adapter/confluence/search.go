@@ -62,13 +62,18 @@ func (cf *Confluence) Search(ctx context.Context, query string, limit int, curso
 	return out, next, nil
 }
 
+// treePageCap bounds how many pages Tree collects in one call, so a huge space
+// cannot balloon memory/time. Hitting it is reported via the truncated return,
+// never hidden.
+const treePageCap = 2000
+
 // Tree returns the page hierarchy of a space (Parent set from ancestors). depth
-// <= 0 means unlimited. It pages internally up to a safety cap.
-func (cf *Confluence) Tree(ctx context.Context, space string, depth int) ([]domain.PageRef, error) {
-	const cap = 2000
+// <= 0 means unlimited. It pages internally up to treePageCap; truncated is
+// true when the cap stopped the listing while the server still had more pages.
+func (cf *Confluence) Tree(ctx context.Context, space string, depth int) ([]domain.PageRef, bool, error) {
 	start := 0
 	var out []domain.PageRef
-	for len(out) < cap {
+	for {
 		q := url.Values{}
 		q.Set("cql", "space="+cqlQuote(space)+" and type=page")
 		q.Set("expand", "ancestors,version,space")
@@ -82,7 +87,7 @@ func (cf *Confluence) Tree(ctx context.Context, space string, depth int) ([]doma
 			} `json:"_links"`
 		}
 		if err := cf.c.GetJSON(ctx, "/rest/api/content/search?"+q.Encode(), &resp); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		for _, ct := range resp.Results {
 			d := len(ct.Ancestors)
@@ -96,11 +101,13 @@ func (cf *Confluence) Tree(ctx context.Context, space string, depth int) ([]doma
 			out = append(out, pr)
 		}
 		if resp.Links.Next == "" || len(resp.Results) == 0 {
-			break
+			return out, false, nil
+		}
+		if len(out) >= treePageCap {
+			return out, true, nil // cap hit with more pages remaining
 		}
 		start += len(resp.Results)
 	}
-	return out, nil
 }
 
 func firstNonEmpty(a, b string) string {
