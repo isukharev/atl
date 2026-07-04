@@ -148,7 +148,8 @@ Notes for scripts:
 - **`--cql` pull caps at 1000 pages.** The result carries `"truncated": true`
   and `"truncated_at": 1000` and a `warning:` line is printed to stderr when the
   cap is hit — the rest is not mirrored. Narrow the query or pull by `--space`.
-- **`--from-file -` (stdin) is bounded at 64 MiB**; larger input is truncated.
+- **`--from-file -` (stdin) is bounded at 64 MiB**; larger input is rejected
+  with a usage error (exit 2) — pass a file path for bigger bodies.
 - **Direct REST fallback:** when you must call an uncovered Server/Data Center
   endpoint yourself, keep PATs out of argv and shell history. Put the token in an
   env var, disable shell tracing, and feed curl's header through stdin:
