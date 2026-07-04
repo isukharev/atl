@@ -55,6 +55,30 @@ func TestJiraPlanningReportCLI(t *testing.T) {
 	}
 }
 
+func TestJiraQualityReportAliasCLI(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/search", http.StatusOK, `{
+		"issues":[{"key":"PROJ-1","fields":{"summary":"Parent","description":"Context https://docs.example.com/spec","issuetype":{"name":"Story"},"assignee":{"displayName":"Alice"}}}],
+		"startAt":0,
+		"maxResults":50,
+		"total":1
+	}`)
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "quality-report", "--jql", "project=PROJ")
+	if code != exitOK {
+		t.Fatalf("quality-report alias: exit %d, want 0 (stdout=%q)", code, out)
+	}
+	var report struct {
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("decode alias report: %v\n%s", err, out)
+	}
+	if report.Count != 1 {
+		t.Fatalf("alias report = %+v, want count 1", report)
+	}
+}
+
 func TestJiraPlanningReportRequiresJQLBeforeNetwork(t *testing.T) {
 	js := newJiraServer(t)
 	_, code := runCLI(t, jiraEnv(js.srv), "jira", "planning", "report")

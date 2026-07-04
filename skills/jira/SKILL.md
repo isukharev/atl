@@ -90,6 +90,7 @@ atl jira issue delete PROJ-1 --force                                            
 atl jira fields                                              # {fields:[{id,name,custom}]}
 atl jira fields --name-like Epic
 atl jira fields --id customfield_10001
+atl jira fields --custom true --schema string --id-like customfield
 atl jira field-options --project PROJ --type Bug --field priority   # {options:[...]}
 atl jira transitions --key PROJ-1                            # {transitions:[{id,name,to}]}
 atl jira link-types                                          # {link_types:[...]}
@@ -113,6 +114,7 @@ atl jira planning report --jql '<JQL>' \
   --epic-field customfield_10002 \
   --require fixVersions,components \
   --csv planning.csv
+atl jira quality-report --jql '<JQL>'                       # compatibility alias
 ```
 Reports deterministic `score`, `level`, `gaps`, extracted artifact `refs`, and epic `children`
 when `--epic-field` is set. The rubric is rules-based only; no LLM scoring and no Jira writes.
@@ -184,7 +186,8 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira export` | Write one compact JSONL/JSON/CSV artifact plus manifest | `--jql`/`--ids`/`--keys`, `--out`, `--format`, `--limit`, `--fields`, `--batch-size` |
 | `jira export diff <OLD> <NEW>` | Compare compact exports | — |
 | `jira planning report` | Deterministic planning quality report | `--jql`, `--require`, `--estimate-field`, `--epic-field`, `--limit`, `--csv` |
-| `jira fields` | List Jira fields | `--name-like`, `--id` |
+| `jira quality-report` | Compatibility alias for planning report | same flags |
+| `jira fields` | List Jira fields | `--name-like`, `--id`, `--id-like`, `--schema`, `--custom true|false` |
 | `jira field-options` | List allowed values for a field | `--project`, `--type`, `--field` |
 | `jira transitions` | List available transitions for an issue | `--key` |
 | `jira link-types` | List issue link types | — |
