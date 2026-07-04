@@ -186,6 +186,47 @@ func TestJiraIssueLinkSuggestCLIIsReadOnly(t *testing.T) {
 	}
 }
 
+func TestJiraIssuePlanApplyDryRunAndConfirmGuard(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/issue/", http.StatusOK,
+		`{"key":"ENG-1","fields":{"issuelinks":[],"labels":["backend"],"priority":"Low"}}`)
+	csvPath := filepath.Join(t.TempDir(), "plan.csv")
+	if err := os.WriteFile(csvPath, []byte("op,source,target,type,field,value\nlink,ENG-1,ENG-2,Blocks,,\nfield,ENG-1,,,priority,High\n"), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "plan", "apply", "--csv", csvPath, "--allow-ops", "link,field", "--allow-fields", "priority")
+	if code != exitOK {
+		t.Fatalf("plan apply dry-run: exit %d, want 0 (stdout=%q)", code, out)
+	}
+	var res struct {
+		Mode    string `json:"mode"`
+		Results []struct {
+			Status string `json:"status"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("decode plan result: %v\n%s", err, out)
+	}
+	if res.Mode != "dry-run" || len(res.Results) != 2 || res.Results[0].Status != "would_apply" || res.Results[1].Status != "would_apply" {
+		t.Fatalf("plan result = %+v, want two would_apply dry-run rows", res)
+	}
+	for _, req := range js.requests() {
+		if req.method != http.MethodGet {
+			t.Fatalf("plan dry-run sent write request: %+v", js.requests())
+		}
+	}
+
+	js = newJiraServer(t)
+	_, code = runCLI(t, jiraEnv(js.srv), "jira", "issue", "plan", "apply", "--csv", csvPath, "--apply")
+	if code != exitUsage {
+		t.Fatalf("plan apply without confirm exit = %d, want %d", code, exitUsage)
+	}
+	if len(js.requests()) != 0 {
+		t.Fatalf("confirm guard should run before network, got %+v", js.requests())
+	}
+}
+
 func TestJiraUserSearch_EmitsAndID(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/api/2/user/search", http.StatusOK,

@@ -785,6 +785,40 @@ Flags:
 | `PROJ-42` | child issue key (positional, required) |
 | `--epic` | epic issue key (required) |
 
+### `atl jira issue plan apply`
+
+Preview or apply a guarded CSV operation plan. The default mode is **dry-run**:
+the command re-reads current Jira state, reports `would_apply`,
+`already_satisfied`, `blocked`, or `failed`, and performs no writes. Write mode
+requires both `--apply` and `--confirm APPLY`.
+
+```bash
+atl jira issue plan apply --csv plan.csv
+atl jira issue plan apply --csv plan.csv --allow-ops link,label_add --apply --confirm APPLY
+```
+
+CSV columns:
+
+| column | description |
+|---|---|
+| `op` | `link`, `label_add`, `label_remove`, `comment`, or `field` |
+| `source` | issue key to read/write |
+| `target` | target issue key for `link` |
+| `type` | Jira link type for `link` |
+| `field` | field id/name for `field` |
+| `value` | label(s), comment body, or field value |
+| `rationale` | optional audit note |
+
+Flags:
+
+| flag | description |
+|---|---|
+| `--csv` | operation plan CSV (required) |
+| `--allow-ops` | comma-separated allowed operations (default `link`) |
+| `--allow-fields` | comma-separated field ids/names allowed for `field` operations |
+| `--apply` | perform writes instead of dry-run |
+| `--confirm` | must be exactly `APPLY` when `--apply` is set |
+
 ### `atl jira issue images`
 
 Download image attachments of an issue to files (useful for agent vision).

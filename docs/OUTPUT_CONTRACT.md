@@ -265,6 +265,33 @@ link candidates from a reviewed CSV plan:
 Rows whose outward link already exists on the source issue are omitted from
 `candidates`. The command performs no Jira writes.
 
+`atl jira issue plan apply --csv plan.csv` returns a guarded dry-run/apply
+report:
+
+```json
+{
+  "path": "plan.csv",
+  "mode": "dry-run",
+  "count": 1,
+  "results": [
+    {
+      "row": 2,
+      "op": "link",
+      "source": "PROJ-1",
+      "target": "PROJ-2",
+      "type": "Blocks",
+      "rationale": "reviewed dependency",
+      "status": "would_apply"
+    }
+  ]
+}
+```
+
+Status values are `would_apply`, `already_satisfied`, `applied`, `blocked`, and
+`failed`. The command defaults to dry-run. Write mode requires `--apply
+--confirm APPLY`; `field` operations also require the field to be included in
+`--allow-fields`.
+
 `atl jira structure rows <ID>` returns a parsed read-only view of a Tempo Structure forest:
 
 ```json
