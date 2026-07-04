@@ -320,7 +320,8 @@ by row metadata first and then by Structure values fetched through
 
 `atl jira structure values <ID> --rows ... --fields ...` preserves the backend
 value matrix under `responses` and `raw`; if the backend reports permission
-gaps, normalized row ids are also exposed as `inaccessible_rows`.
+gaps, normalized row ids are also exposed as `inaccessible_rows`. The field is
+always present; when there are no reported gaps it is `[]`.
 
 `atl jira structure pull-issues <ID>` returns:
 
@@ -352,3 +353,38 @@ JSON export artifacts contain `{structure_id,version,rows,issue_ids,issues}`.
 CSV export artifacts contain row metadata (`row_id`, `depth`, `parent_row_id`,
 `item_type`, `item_id`, `issue_key`, `issue_id`) plus requested issue fields.
 Markdown export artifacts render an indented tree for review.
+
+`atl manifest create --root DIR` writes a sanitized local manifest and returns
+the written path plus the manifest body:
+
+```json
+{
+  "path": "mirror/manifest.json",
+  "manifest": {
+    "created_at": "2026-01-01T00:00:00Z",
+    "command": "atl manifest create",
+    "root": "mirror",
+    "service": "jira",
+    "selectors": ["jql=project=PROJ"],
+    "fields": ["summary", "status"],
+    "counts": {
+      "files": 2,
+      "bytes": 42,
+      "extensions": {
+        ".json": 1,
+        ".md": 1
+      }
+    },
+    "backend": [
+      {
+        "service": "jira",
+        "url_hash": "sha256:..."
+      }
+    ],
+    "atl_version": "0.2.0",
+    "elapsed_ms": 1
+  }
+}
+```
+
+Backend entries contain URL hashes only, never backend hostnames or tokens.

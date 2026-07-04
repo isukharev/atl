@@ -1178,6 +1178,30 @@ metadata plus requested issue fields; `md` renders an indented tree for quick
 review. These commands are read-only and do not write Structure data back to
 Jira.
 
+### `atl manifest create`
+
+Write a sanitized manifest for a local mirror or snapshot root. The manifest
+counts files/bytes/extensions and records reproducibility metadata such as the
+source command, selectors, fields, include flags, ATL version, and backend URL
+hashes. It never writes backend hostnames or tokens.
+
+```bash
+atl manifest create --root mirror-jira --service jira --selector 'jql=project=PROJ' --fields summary,status
+atl manifest create --root mirror-conf --service confluence --out mirror-conf/manifest.json
+```
+
+Flags:
+
+| flag | description |
+|---|---|
+| `--root` | local mirror/snapshot root directory (required) |
+| `--out` | manifest output path (default `<root>/manifest.json`) |
+| `--service` | optional `jira`, `confluence`, or `generic` |
+| `--selector` | comma-separated selectors to record |
+| `--fields` | comma-separated field names/ids to record |
+| `--include` | comma-separated include flags to record |
+| `--command` | command string to record (default `atl manifest create`) |
+
 ---
 
 ## `atl version`
