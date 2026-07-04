@@ -80,6 +80,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   closest region's hidden bytes when nothing matches (exit 4). `.csf` results
   are auto-validated (`csf_ok`); `--dry-run`, `--old-file`/`--new-file`
   supported.
+- **`conf validate` warns about invisible characters** — a new advisory
+  `invisible-chars` rule reports non-breaking spaces (`U+00A0`), zero-width
+  characters, and soft hyphens (count + first position, one warning per
+  class), so the trap is visible *before* an exact-string edit misses.
+  Warnings remain non-blocking.
 - **CSF editing tips in the skill** — measured on real pages, agents lose time
   not writing CSF but *matching* it (single-line bodies with invisible
   `U+00A0` bytes defeat exact-string edits). `skills/confluence/reference/csf.md`

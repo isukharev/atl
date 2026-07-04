@@ -38,7 +38,60 @@ func Validate(raw []byte) []Problem {
 		// Should not happen if wellFormed passed, but be safe.
 		return []Problem{{Severity: "error", Rule: "well-formedness", Message: err.Error()}}
 	}
-	return sanity(root)
+	return append(sanity(root), invisibles(raw)...)
+}
+
+// invisibles reports advisory warnings for character classes that render
+// invisibly but defeat exact-string editing (the dominant agent failure mode
+// on real pages): one warning per class present, with the occurrence count
+// and the first position. Warnings never block a push.
+func invisibles(raw []byte) []Problem {
+	type class struct {
+		name  string
+		match func(rune) bool
+	}
+	classes := [...]class{
+		{"non-breaking space (U+00A0)", func(r rune) bool { return r == '\u00a0' }},
+		{"zero-width character", func(r rune) bool {
+			switch r {
+			case '\u200b', '\u200c', '\u200d', '\ufeff', '\u2060':
+				return true
+			}
+			return false
+		}},
+		{"soft hyphen (U+00AD)", func(r rune) bool { return r == '\u00ad' }},
+	}
+	counts := [len(classes)]int{}
+	firstLine := [len(classes)]int{}
+	firstCol := [len(classes)]int{}
+	line, col := 1, 0
+	for _, r := range string(raw) {
+		if r == '\n' {
+			line, col = line+1, 0
+			continue
+		}
+		col++
+		for i, c := range classes {
+			if c.match(r) {
+				if counts[i] == 0 {
+					firstLine[i], firstCol[i] = line, col
+				}
+				counts[i]++
+			}
+		}
+	}
+	var ps []Problem
+	for i, c := range classes {
+		if counts[i] == 0 {
+			continue
+		}
+		ps = append(ps, Problem{
+			Severity: "warning", Line: firstLine[i], Col: firstCol[i], Rule: "invisible-chars",
+			Message: fmt.Sprintf("%d× %s — exact-string edits may miss; use `atl conf edit` (tolerant matching)",
+				counts[i], c.name),
+		})
+	}
+	return ps
 }
 
 // wellFormed streams tokens and, on failure, reports an accurate line/col.
