@@ -16,31 +16,39 @@ checks well-formedness and reports problems as `{severity, line, col, rule, mess
 Real CSF bodies are usually **one huge line** and contain **invisible bytes**: non-breaking
 spaces (`U+00A0` — pasted from the Confluence editor), entities, zero-width characters. An
 exact-string edit can miss even when the text *looks* identical on screen. Agents lose the most
-time here — not on writing CSF, but on retrying string matches that can never match. Work like
-this:
+time here — not on writing CSF, but on retrying string matches that can never match.
+
+**Use `atl conf edit` — it is built for exactly this:**
+
+```bash
+atl conf edit page.csf --old 'text as you see it' --new 'replacement'
+atl conf edit page.csf --old-file old.txt --new-file new.txt [--dry-run] [--all]
+atl conf edit page.csf --old ' obsolete sentence.' --new ''        # delete
+```
+
+- Matching is layered (exact → NBSP/zero-width/entity-tolerant → whitespace-run-tolerant), so
+  you can type plain spaces where the file has `U+00A0` or `&nbsp;` — it still matches, and the
+  splice preserves every surrounding byte verbatim.
+- It refuses to guess: **exit 4** = not found, and the error dumps the closest region with
+  hidden bytes made visible; **exit 2** = ambiguous — tighten `--old` or pass `--all`.
+- Inserting: `--old '<anchor>' --new '<anchor + new content>'` (anchor on the side you extend).
+- For `.csf` files the result is auto-validated (`csf_ok` in the JSON) — no separate
+  `conf validate` call needed after each edit.
+- `--old-file`/`--new-file` strip one trailing newline, so files written by your editor/tools
+  work as-is against single-line CSF.
+
+Rules that still apply:
 
 1. **Match the shortest unique anchor** around the change — a few words plus the nearest tag,
    never a whole sentence or a whole table row.
-2. **If an exact match fails once, stop retrying variants.** Dump the real bytes of the region
-   and look at them:
+2. **Never reformat or pretty-print the whole file** — the bytes are the substrate; touch only
+   the fragment you are changing.
+3. Fallback when `conf edit` is unavailable (old binary): dump the region bytes and splice with
+   a checked script —
    ```bash
    python3 -c "t=open('page.csf').read(); i=t.find('anchor text'); print(repr(t[max(0,i-40):i+120]))"
    ```
-   A `\xa0` in the output is the usual culprit — include it in your match string as-is.
-3. **For long single-line stretches** (table rows, macro bodies), a checked scripted replacement
-   is more reliable than editor matching:
-   ```bash
-   python3 - <<'EOF'
-   t = open('page.csf').read()
-   old, new = '<td>exact old cell</td>', '<td>new cell</td>'
-   assert t.count(old) == 1, f"matches: {t.count(old)}"
-   open('page.csf', 'w').write(t.replace(old, new))
-   EOF
-   ```
-   The `count == 1` assert is the safety: zero means your anchor has hidden bytes, two+ means it
-   is not unique.
-4. **Never reformat or pretty-print the whole file** — the bytes are the substrate; touch only
-   the fragment you are changing, and re-run `atl conf validate` after every edit.
+   then `str.replace` guarded by `assert t.count(old) == 1`.
 
 ## Fragments (`.meta.json`)
 

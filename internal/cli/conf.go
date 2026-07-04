@@ -39,7 +39,7 @@ func newConfCmd() *cobra.Command {
 	c := &cobra.Command{Use: "conf", Short: "Confluence: mirror, read, validate, push (native storage format)"}
 	c.AddCommand(
 		confSearchCmd(), confSpaceCmd(), confPageCmd(),
-		confPullCmd(), confStatusCmd(), confValidateCmd(), confPushCmd(), confTableCmd(), confCommentCmd(),
+		confPullCmd(), confStatusCmd(), confValidateCmd(), confEditCmd(), confPushCmd(), confTableCmd(), confCommentCmd(),
 		confAttachmentCmd(), confMeCmd(),
 	)
 	return c

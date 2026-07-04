@@ -71,6 +71,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value-shape guidance (object-typed fields take JSON, e.g.
   `priority={"name":"High"}`; the old `--field priority=High` example was
   rejected by Jira DC).
+- **`conf edit`** — precise in-place replacement for local CSF files that
+  tolerates the invisible bytes defeating exact-match editing (`U+00A0`,
+  zero-width characters, `&nbsp;`-family entities). Layered matching (exact →
+  invisible-tolerant → whitespace-run-tolerant) locates the target and splices
+  the replacement into exactly the matched byte range, preserving every
+  surrounding byte; refuses ambiguity (exit 2, unless `--all`) and dumps the
+  closest region's hidden bytes when nothing matches (exit 4). `.csf` results
+  are auto-validated (`csf_ok`); `--dry-run`, `--old-file`/`--new-file`
+  supported.
 - **CSF editing tips in the skill** — measured on real pages, agents lose time
   not writing CSF but *matching* it (single-line bodies with invisible
   `U+00A0` bytes defeat exact-string edits). `skills/confluence/reference/csf.md`
