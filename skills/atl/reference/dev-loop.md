@@ -44,7 +44,7 @@ atl jira issue comment add PROJ-123 --from-file /tmp/progress.wiki
 version gate**; last writer wins):
 
 ```bash
-atl jira issue get PROJ-123                    # confirm nobody edited it meanwhile
+atl jira issue get PROJ-123 --fields summary,description   # drift check only — skip the comment thread
 atl jira issue update PROJ-123 --from-file PROJ-123.description.wiki
 ```
 
@@ -79,7 +79,8 @@ atl jira issue transition PROJ-123 --to Blocked --comment "Waiting on PROJ-99"
 
 ## Rails (the short list)
 
-- Re-`get` immediately before every Jira `update` — no version gate, last-writer-wins.
+- Re-`get` immediately before every Jira `update` — no version gate, last-writer-wins. Use a
+  narrow `--fields` for these routine checks; a bare `get` re-reads the whole comment thread.
 - Discover before writing: `transitions` before `transition`, `field-options` before `--field`,
   `link-types` before `link add`.
 - Object-typed `--field` values are JSON: `resolution={"name":"Fixed"}` — a bare string fails.
