@@ -266,6 +266,18 @@ func (j *Jira) UpdateLabels(ctx context.Context, key string, add, remove []strin
 	return j.c.SendJSON(ctx, "PUT", "/rest/api/2/issue/"+url.PathEscape(key), payload, nil)
 }
 
+// Assign sets the issue assignee via the dedicated endpoint. Jira DC's field
+// update path expects an object for assignee, which makes it an easy trap;
+// this uses PUT /issue/{key}/assignee with {"name": <username>} instead. An
+// empty username sends {"name": null}, which unassigns the issue.
+func (j *Jira) Assign(ctx context.Context, key, username string) error {
+	payload := map[string]any{"name": nil}
+	if username != "" {
+		payload["name"] = username
+	}
+	return j.c.SendJSON(ctx, "PUT", "/rest/api/2/issue/"+url.PathEscape(key)+"/assignee", payload, nil)
+}
+
 type userDTO struct {
 	Name         string `json:"name"`
 	Key          string `json:"key"`

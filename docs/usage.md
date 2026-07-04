@@ -727,6 +727,35 @@ Flags:
 | `PROJ-1` | issue key (positional, required) |
 | `--to` | target status or transition name (required) |
 | `--comment` | optional comment to post with the transition |
+| `--field key=value` | field to set on the transition (repeatable), e.g. `resolution={"name":"Fixed"}` |
+
+### `atl jira issue assign`
+
+Set or clear the issue assignee via the dedicated assignee endpoint. Exactly one
+of `--to`, `--me`, `--none` is required (else exit 2). `--me` resolves the
+authenticated user's DC username first.
+
+```bash
+atl jira issue assign PROJ-1 --me            # take the ticket
+atl jira issue assign PROJ-1 --to jdoe       # hand it to a DC username
+atl jira issue assign PROJ-1 --none          # unassign
+```
+
+→ `{ "key": "PROJ-1", "status": "assigned", "assignee": "jdoe" }` (`"unassigned"`
+and an empty `assignee` with `--none`).
+
+Flags:
+
+| flag | description |
+|---|---|
+| `PROJ-1` | issue key (positional, required) |
+| `--to` | DC username to assign the issue to |
+| `--me` | assign to the authenticated user |
+| `--none` | remove the assignee |
+
+Find usernames with `atl jira user search '<name>'`; `--field assignee=<name>`
+on `update` does **not** work (Jira DC expects an object there — use `assign`,
+or `--field 'assignee={"name":"jdoe"}'`).
 
 ### `atl jira issue comment {add,list,delete}`
 

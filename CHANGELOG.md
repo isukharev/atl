@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into `jira issue search`/`create` and `conf search`.
 - **`--verbose` / `ATL_VERBOSE=1`** — trace every HTTP request/response to stderr
   (method, URL, status). The bearer token is never logged.
+- **`jira issue assign`** — first-class assignee changes via the dedicated DC
+  endpoint: `--to <username>`, `--me` (resolves the authenticated user), or
+  `--none` (unassign). Avoids the `--field 'assignee={"name":...}'` escape
+  hatch; the `--field` help on `create`/`update` now also documents that JSON
+  object/array values are sent as JSON.
 - **Jira**: `issue history` (changelog via the DC-universal `?expand=changelog`,
   not the Cloud `/changelog` sub-resource); `issue comment {list,delete}` and
   `issue link {list,delete}`; `transition --field k=v` (set fields on a

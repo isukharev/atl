@@ -40,6 +40,26 @@ func (s *JiraService) UpdateLabels(ctx context.Context, key string, add, remove 
 	return s.tr.UpdateLabels(ctx, key, add, remove)
 }
 
+// Assign sets or clears an issue's assignee. me resolves the authenticated
+// user's DC username first; otherwise username is used as-is, and an empty
+// username unassigns. It returns the username that was set ("" on unassign).
+func (s *JiraService) Assign(ctx context.Context, key, username string, me bool) (string, error) {
+	if me {
+		u, err := s.tr.CurrentUser(ctx)
+		if err != nil {
+			return "", err
+		}
+		if u.Name == "" {
+			return "", fmt.Errorf("%w: current user has no username to assign", domain.ErrUsage)
+		}
+		username = u.Name
+	}
+	if err := s.tr.Assign(ctx, key, username); err != nil {
+		return "", err
+	}
+	return username, nil
+}
+
 func (s *JiraService) Me(ctx context.Context) (*domain.User, error) {
 	return s.tr.CurrentUser(ctx)
 }

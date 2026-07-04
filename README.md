@@ -270,6 +270,7 @@ atl jira issue search --jql 'project = PROJ AND status = "In Progress"'
 atl jira pull --jql 'project = PROJ' --into mirror-jira
 
 # Write
+atl jira issue assign PROJ-1 --me
 atl jira issue comment add PROJ-1 --from-file note.txt
 atl jira issue transition PROJ-1 --to Done
 
