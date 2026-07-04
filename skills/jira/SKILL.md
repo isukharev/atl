@@ -73,6 +73,8 @@ atl jira issue link add PROJ-1 --to PROJ-2 --type blocks                        
 atl jira issue link list PROJ-1
 atl jira issue link delete <LINK-ID>
 atl jira issue link suggest --csv links.csv                                             # dry-run missing links; no writes
+atl jira issue plan apply --csv plan.csv                                                # dry-run guarded plan
+atl jira issue plan apply --csv plan.csv --apply --confirm APPLY --allow-ops link       # explicit write mode
 atl jira issue link-epic PROJ-1 --epic PROJ-100
 atl jira issue labels PROJ-1 --add bug,backend [--remove wontfix]
 atl jira issue history PROJ-1                                                           # changelog
@@ -175,6 +177,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue link list <KEY>` | List links with ids | — |
 | `jira issue link delete <LINK-ID>` | Delete a link by id | — |
 | `jira issue link suggest` | Read-only missing-link candidates from CSV | `--csv` |
+| `jira issue plan apply` | Dry-run/apply guarded CSV operation plan | `--csv`, `--allow-ops`, `--allow-fields`, `--apply`, `--confirm APPLY` |
 | `jira issue link-epic <KEY>` | Set the Epic Link | `--epic EPIC-KEY` |
 | `jira issue images <KEY>` | Download image attachments (agent vision) | `--into DIR` |
 | `jira pull` | Export issues to disk (.md + .json) | `--jql`, `--into`, `--limit`, `--fields` |
@@ -219,3 +222,5 @@ If the plugin or object is unavailable, expect exit 4/6.
   `field-options`, `link-types`) — Jira rejects unknown names.
 - Use `jira issue link suggest --csv ...` before bulk link work; it is read-only and emits
   only missing candidates from `source,target,type[,rationale]` CSV rows.
+- `jira issue plan apply` is dry-run unless both `--apply` and `--confirm APPLY` are passed.
+  Keep `--allow-ops` and `--allow-fields` narrow; prefer checking the JSON report before writing.

@@ -98,6 +98,11 @@ PY
   jq -e '.planned_count == 1 and (.candidates | type == "array") and (.count | type == "number")' "$tmp/link-suggest.json" >/dev/null
   ok "jira link suggest"
 
+  printf 'op,source,target,type,rationale\nlink,%s,%s,Relates,live smoke dry-run candidate\n' "$first_key" "$first_key" > "$tmp/apply-plan.csv"
+  "$ATL_BIN" jira issue plan apply --csv "$tmp/apply-plan.csv" > "$tmp/plan-apply.json"
+  jq -e '.mode == "dry-run" and .count == 1 and .results[0].status != "applied"' "$tmp/plan-apply.json" >/dev/null
+  ok "jira plan apply dry-run"
+
   if [[ -n "${ATL_TEST_JIRA_EPIC_FIELD:-}" ]]; then
     "$ATL_BIN" jira issue tree --jql "$jira_jql" --epic-field "$ATL_TEST_JIRA_EPIC_FIELD" --limit "$limit" > "$tmp/issue-tree.json"
     jq -e '.count >= 0 and (.epics | type == "array") and ((.external_epics | type == "array") or .external_epics == null) and ((.orphans | type == "array") or .orphans == null)' "$tmp/issue-tree.json" >/dev/null

@@ -335,6 +335,7 @@ func jiraIssueCmd() *cobra.Command {
 
 	comment := jiraCommentCmd()
 	link := jiraLinkCmd()
+	plan := jiraIssuePlanCmd()
 
 	var epic string
 	linkEpic := &cobra.Command{
@@ -434,7 +435,7 @@ func jiraIssueCmd() *cobra.Command {
 	tree.Flags().StringVar(&treeFields, "fields", "", "extra comma-separated fields to fetch")
 	tree.Flags().IntVar(&treeLimit, "limit", 100, "max issues (0 = all)")
 
-	c.AddCommand(get, search, create, update, transition, check, del, labels, history, refs, tree, comment, link, linkEpic, images)
+	c.AddCommand(get, search, create, update, transition, check, del, labels, history, refs, tree, comment, link, plan, linkEpic, images)
 	return c
 }
 
@@ -748,6 +749,60 @@ func linkSuggestText(res *app.JiraLinkSuggestResult) string {
 	var b strings.Builder
 	for _, candidate := range res.Candidates {
 		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\n", candidate.Source, candidate.Target, candidate.Type, candidate.Rationale)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func jiraIssuePlanCmd() *cobra.Command {
+	c := &cobra.Command{Use: "plan", Short: "Preview/apply guarded Jira operation plans"}
+
+	var csvPath, confirm, allowOps, allowFields string
+	var apply bool
+	applyCmd := &cobra.Command{
+		Use:   "apply",
+		Short: "Preview or apply a guarded CSV operation plan",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			res, err := svc.ApplyPlan(cmd.Context(), app.JiraPlanApplyOpts{
+				CSVPath:     csvPath,
+				Apply:       apply,
+				Confirm:     confirm,
+				AllowOps:    splitFields(allowOps),
+				AllowFields: splitFields(allowFields),
+			})
+			if err != nil {
+				return err
+			}
+			return emit(cmd, res, func() string { return issuePlanApplyText(res) })
+		},
+	}
+	applyCmd.Flags().StringVar(&csvPath, "csv", "", "CSV plan with op,source and operation-specific columns")
+	applyCmd.Flags().BoolVar(&apply, "apply", false, "perform writes; default is dry-run")
+	applyCmd.Flags().StringVar(&confirm, "confirm", "", "required value APPLY when --apply is set")
+	applyCmd.Flags().StringVar(&allowOps, "allow-ops", "link", "comma-separated allowed operations: link,label_add,label_remove,comment,field")
+	applyCmd.Flags().StringVar(&allowFields, "allow-fields", "", "comma-separated field ids/names allowed for field operations")
+
+	c.AddCommand(applyCmd)
+	return c
+}
+
+func issuePlanApplyText(res *app.JiraPlanApplyResult) string {
+	var b strings.Builder
+	for _, row := range res.Results {
+		fmt.Fprintf(&b, "%d\t%s\t%s\t%s", row.Row, row.Status, row.Op, row.Source)
+		if row.Target != "" {
+			fmt.Fprintf(&b, "\t%s", row.Target)
+		}
+		if row.Field != "" {
+			fmt.Fprintf(&b, "\t%s=%s", row.Field, row.Value)
+		}
+		if row.Message != "" {
+			fmt.Fprintf(&b, "\t%s", row.Message)
+		}
+		b.WriteByte('\n')
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
