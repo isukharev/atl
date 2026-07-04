@@ -457,6 +457,12 @@ Output (JSON):
 
 Exits 1 when any error-severity problem is found; 0 otherwise.
 
+Advisory `invisible-chars` warnings flag characters that render invisibly but
+defeat exact-string editing — non-breaking spaces (`U+00A0`), zero-width
+characters, soft hyphens — one warning per class with the occurrence count and
+first position. They never block a push; use `atl conf edit` (tolerant
+matching) when they are present.
+
 ### `atl conf edit`
 
 Replace text in a local file with tolerance for the invisible bytes that break
