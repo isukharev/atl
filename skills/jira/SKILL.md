@@ -1,6 +1,6 @@
 ---
 name: jira
-description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, transition, comment on, link, delete, check fields of, or report on a Jira issue, ticket, bug, story, epic, or task; extract artifact references; build an epic tree; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; download images from an issue; work with agile boards and sprints; or read Tempo Structure metadata, forest rows, values, and issue exports.
+description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, assign, transition, comment on, link, delete, check fields of, or report on a Jira issue, ticket, bug, story, epic, or task; extract artifact references; build an epic tree; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; download images from an issue; work with agile boards and sprints; or read Tempo Structure metadata, forest rows, values, and issue exports.
 ---
 
 # Jira issues with `atl`
@@ -65,6 +65,7 @@ atl jira issue get PROJ-1 [--fields summary,description,status]
 
 atl jira issue create --project PROJ --type Bug --summary 'Title' --from-file desc.wiki [--field k=v]
 atl jira issue update PROJ-1 [--summary 'New'] [--from-file desc.wiki] [--field k=v]   # see fields.md for big bodies
+atl jira issue assign PROJ-1 --me                                                       # or --to <username> / --none
 atl jira issue transition PROJ-1 --to 'In Progress' [--comment 'why'] [--field k=v]    # list first ↓
 atl jira issue comment add PROJ-1 --from-file comment.wiki                              # BREAKING: was comment PROJ-1
 atl jira issue comment list PROJ-1
@@ -165,6 +166,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue search -o id` | Print matching issue keys one per line | `-o id` |
 | `jira issue create` | Create an issue | `--project`, `--type`, `--summary`, `--from-file`, `--field k=v` |
 | `jira issue update <KEY>` | Update summary/description/fields | `--summary`, `--from-file`, `--field k=v` |
+| `jira issue assign <KEY>` | Set or clear the assignee | exactly one of `--to USER`, `--me`, `--none` |
 | `jira issue transition <KEY>` | Transition to a status | `--to`, `--comment`, `--field k=v` |
 | `jira issue check <KEY>` | Audit required/important fields; non-zero exit if required field empty | `--require fields`, `--warn fields` |
 | `jira issue delete <KEY>` | Permanently delete (DC has no trash) | `--force`, `--delete-subtasks` |

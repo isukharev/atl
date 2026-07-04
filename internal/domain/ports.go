@@ -116,6 +116,8 @@ type Tracker interface {
 	DeleteIssue(ctx context.Context, key string, deleteSubtasks bool) error
 	// UpdateLabels adds and/or removes labels on an issue.
 	UpdateLabels(ctx context.Context, key string, add, remove []string) error
+	// Assign sets the issue assignee by DC username; an empty username unassigns.
+	Assign(ctx context.Context, key, username string) error
 	AddComment(ctx context.Context, key string, body []byte) (*Comment, error)
 	// ListComments returns an issue's comments (newest-last, as Jira returns them).
 	ListComments(ctx context.Context, key string) ([]Comment, error)

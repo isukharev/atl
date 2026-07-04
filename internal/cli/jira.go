@@ -147,7 +147,7 @@ func jiraIssueCmd() *cobra.Command {
 	create.Flags().StringVar(&issueType, "type", "", "issue type name")
 	create.Flags().StringVar(&summary, "summary", "", "summary")
 	create.Flags().StringVar(&fromFile, "from-file", "", "description (wiki) file or - for stdin")
-	create.Flags().StringArrayVar(&fieldKV, "field", nil, "extra field key=value (repeatable)")
+	create.Flags().StringArrayVar(&fieldKV, "field", nil, "extra field key=value (repeatable); a JSON object/array value is sent as JSON, e.g. priority={\"name\":\"High\"}")
 
 	var upSummary, upFile string
 	var upFieldKV []string
@@ -180,7 +180,7 @@ func jiraIssueCmd() *cobra.Command {
 	}
 	update.Flags().StringVar(&upSummary, "summary", "", "new summary")
 	update.Flags().StringVar(&upFile, "from-file", "", "new description (wiki) file or - for stdin")
-	update.Flags().StringArrayVar(&upFieldKV, "field", nil, "field key=value (repeatable)")
+	update.Flags().StringArrayVar(&upFieldKV, "field", nil, "field key=value (repeatable); a JSON object/array value is sent as JSON, e.g. priority={\"name\":\"High\"}")
 
 	var to, transComment string
 	var transFieldKV []string
@@ -306,6 +306,46 @@ func jiraIssueCmd() *cobra.Command {
 	}
 	labels.Flags().StringVar(&labelsAdd, "add", "", "comma-separated labels to add")
 	labels.Flags().StringVar(&labelsRemove, "remove", "", "comma-separated labels to remove")
+
+	var assignTo string
+	var assignMe, assignNone bool
+	assign := &cobra.Command{
+		Use:   "assign <KEY>",
+		Short: "Set or clear the issue assignee",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			picked := 0
+			for _, on := range []bool{assignTo != "", assignMe, assignNone} {
+				if on {
+					picked++
+				}
+			}
+			if picked != 1 {
+				return usageErr("pass exactly one of --to <username>, --me, or --none")
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			assignee, err := svc.Assign(cmd.Context(), args[0], assignTo, assignMe)
+			if err != nil {
+				return err
+			}
+			out := map[string]string{"key": args[0], "status": "assigned", "assignee": assignee}
+			if assignee == "" {
+				out["status"] = "unassigned"
+			}
+			return emit(cmd, out, func() string {
+				if assignee == "" {
+					return args[0] + "\tunassigned"
+				}
+				return args[0] + "\tassigned to " + assignee
+			})
+		},
+	}
+	assign.Flags().StringVar(&assignTo, "to", "", "DC username to assign the issue to")
+	assign.Flags().BoolVar(&assignMe, "me", false, "assign the issue to the authenticated user")
+	assign.Flags().BoolVar(&assignNone, "none", false, "remove the assignee")
 
 	history := &cobra.Command{
 		Use:   "history <KEY>",
@@ -435,7 +475,7 @@ func jiraIssueCmd() *cobra.Command {
 	tree.Flags().StringVar(&treeFields, "fields", "", "extra comma-separated fields to fetch")
 	tree.Flags().IntVar(&treeLimit, "limit", 100, "max issues (0 = all)")
 
-	c.AddCommand(get, search, create, update, transition, check, del, labels, history, refs, tree, comment, link, plan, linkEpic, images)
+	c.AddCommand(get, search, create, update, transition, check, del, assign, labels, history, refs, tree, comment, link, plan, linkEpic, images)
 	return c
 }
 
