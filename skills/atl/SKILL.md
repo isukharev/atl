@@ -39,6 +39,9 @@ version gate.
 1. **Search first, read narrow, edit precise.** Don't bulk-dump everything and grep it. Use
    `conf search` / `jira issue search` (CQL/JQL) to find the few relevant items, `pull` only those,
    read the rendered `.md` to locate, and open the raw substrate only for the thing you will edit.
+   Keep live reads slim too: `--fields` on Jira gets/searches, `-o id` for piping, and a `| jq`
+   projection when only a few values are needed — a bare `issue get` drags the whole comment
+   thread into context.
 2. **`push` is the one deliberate checkpoint.** The safe loop is: pull fresh → edit → validate →
    review a dry-run diff → push under the version gate. On a conflict, a human decides whether to
    re-pull or force — never auto-force.
