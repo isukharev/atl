@@ -596,7 +596,11 @@ func confPushCmd() *cobra.Command {
 				return err
 			}
 			res, perr := svc.Push(cmd.Context(), args[0], o)
-			_ = emit(cmd, res, func() string { return pushText(res) })
+			// res is nil when target resolution failed before any push attempt;
+			// emitting it would print a stray "null" (json) or panic in pushText.
+			if res != nil {
+				_ = emit(cmd, res, func() string { return pushText(res) })
+			}
 			return perr
 		},
 	}

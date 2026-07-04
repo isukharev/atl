@@ -203,3 +203,14 @@ func TestPushBatchSurfacesVersionConflict(t *testing.T) {
 		t.Fatalf("batch push error = %v, want version-conflict to win", err)
 	}
 }
+
+func TestPushMissingTargetIsUsageError(t *testing.T) {
+	svc := &ConfluenceService{store: &stubStore{}}
+	res, err := svc.Push(context.Background(), filepath.Join(t.TempDir(), "nope.csf"), PushOpts{Into: t.TempDir()})
+	if res != nil {
+		t.Fatalf("expected nil result for unresolvable target, got %+v", res)
+	}
+	if !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("missing push target must map to ErrUsage (exit 2), got %v", err)
+	}
+}
