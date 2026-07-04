@@ -58,7 +58,7 @@ func (j *Jira) StructureValues(ctx context.Context, id int64, rows []int64, fiel
 }
 
 func mapStructureValues(raw map[string]any) *domain.StructureValues {
-	v := &domain.StructureValues{Raw: raw}
+	v := &domain.StructureValues{Raw: raw, InaccessibleRows: []int64{}}
 	if responses, ok := raw["responses"].([]any); ok {
 		v.Responses = make([]map[string]any, 0, len(responses))
 		for _, entry := range responses {

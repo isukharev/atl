@@ -151,8 +151,8 @@ atl jira structure export 123 --format json --out structure.json  # json|csv|md 
 `rows` reports `{structure_id,version,rows:[{row_id,depth,parent_row_id,item_type,item_id}]}`.
 `--root` matches row metadata first, then selected Structure values (`--root-fields`, default
 `key,summary`), and returns the first matching row plus descendants.
-`values` preserves the backend matrix in `responses`/`raw` and exposes `inaccessible_rows` when
-the server reports permission gaps. `pull-issues` emits `{structure_id,rows,issue_ids,issues,count}`;
+`values` preserves the backend matrix in `responses`/`raw` and always exposes `inaccessible_rows`
+(`[]` when the server reports no permission gaps). `pull-issues` emits `{structure_id,rows,issue_ids,issues,count}`;
 `export` writes `json`, `csv`, or `md` and returns `{path,format,structure_id,row_count,issue_count}`.
 If the plugin or object is unavailable, expect exit 4/6.
 

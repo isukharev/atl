@@ -129,6 +129,16 @@ PY
   "$ATL_BIN" "${pull_args[@]}" >/dev/null
   find "$tmp/jira-mirror" -name '*.json' -print -quit | grep -q .
   ok "jira pull"
+
+  "$ATL_BIN" manifest create --root "$tmp/jira-mirror" --service jira --selector "jql=$jira_jql" > "$tmp/jira-manifest-result.json"
+  manifest_path="$(jq -r '.path' "$tmp/jira-manifest-result.json")"
+  test -s "$manifest_path"
+  jq -e '.manifest.counts.files > 0 and (.manifest.backend[0].url_hash | startswith("sha256:"))' "$tmp/jira-manifest-result.json" >/dev/null
+  if grep -Eq 'https?://' "$manifest_path"; then
+    echo "manifest contains backend URL" >&2
+    exit 1
+  fi
+  ok "manifest"
 else
   skip "jira export/planning/pull (ATL_TEST_JIRA_JQL or ATL_TEST_JIRA_PROJECT unset)"
 fi

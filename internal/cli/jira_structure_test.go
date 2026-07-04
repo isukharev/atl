@@ -195,6 +195,9 @@ func TestJiraStructureValuesCLI(t *testing.T) {
 	if !strings.Contains(out, `"responses"`) {
 		t.Fatalf("values output = %q, want responses", out)
 	}
+	if !strings.Contains(out, `"inaccessible_rows": []`) {
+		t.Fatalf("values output = %q, want explicit empty inaccessible_rows", out)
+	}
 	reqs := js.writeReqsTo("/rest/structure/2.0/value")
 	if len(reqs) != 1 {
 		t.Fatalf("writes = %d, want one value POST", len(reqs))
