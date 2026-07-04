@@ -748,7 +748,7 @@ Manage typed links between issues. `link` is a subcommand group.
 ```bash
 atl jira issue link add PROJ-1 --to PROJ-2 --type blocks
 atl jira issue link add PROJ-3 --to PROJ-1 --type "is cloned by"
-atl jira issue link list PROJ-1                    # {key, links:[{id,direction,type,key}]}; -o id → link ids
+atl jira issue link list PROJ-1                    # {key, links:[{id,direction,type,type_name,key}]}; -o id → link ids
 atl jira issue link delete <LINK-ID>               # see the id from `link list`
 atl jira issue link suggest --csv links.csv         # dry-run missing-link candidates only
 ```

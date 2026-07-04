@@ -53,3 +53,30 @@ func TestSuggestLinksRejectsMissingRequiredColumns(t *testing.T) {
 		t.Fatal("SuggestLinks missing type column: want error, got nil")
 	}
 }
+
+// Regression: an existing outward link whose directional phrase ("duplicates")
+// differs from the canonical type name ("Duplicate") must still satisfy a
+// candidate row that uses the name — otherwise suggest keeps re-proposing it.
+func TestSuggestLinksMatchesExistingByTypeName(t *testing.T) {
+	csvPath := filepath.Join(t.TempDir(), "links.csv")
+	data := strings.Join([]string{
+		"from,to,link_type",
+		"PROJ-1,PROJ-2,Duplicate",
+	}, "\n")
+	if err := os.WriteFile(csvPath, []byte(data), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+	svc := &JiraService{tr: partialTracker{issues: []domain.Issue{
+		{Key: "PROJ-1", Links: []domain.IssueLink{
+			{Direction: "outward", Type: "duplicates", TypeName: "Duplicate", Key: "PROJ-2"},
+		}},
+	}}}
+
+	res, err := svc.SuggestLinks(context.Background(), JiraLinkSuggestOpts{CSVPath: csvPath})
+	if err != nil {
+		t.Fatalf("SuggestLinks: %v", err)
+	}
+	if res.Count != 0 {
+		t.Fatalf("candidates = %+v, want none (link already satisfied)", res.Candidates)
+	}
+}

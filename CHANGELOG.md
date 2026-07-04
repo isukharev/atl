@@ -67,6 +67,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that cannot be stat'ed (typo'd file, missing directory) previously crashed
   with a nil-pointer dereference under `-o text` and printed a stray `null` in
   JSON mode; it now reports a usage error and exits 2 instead of 1.
+- **`jira plan apply` / `jira link suggest` idempotency** — existing links are
+  now matched by the canonical link-type name as well as the directional
+  phrase, so re-applying a satisfied plan row (e.g. type `Duplicate`, phrase
+  "duplicates") reports `already_satisfied` instead of creating a duplicate
+  link. Issue links additionally expose `type_name` (canonical name) next to
+  the human-readable `type`.
 - **`conf page history` on Confluence Data Center** — list page versions via
   `/rest/experimental/content/{id}/version` instead of the Cloud-style
   `/rest/api/content/{id}/version`, which returns 404 on DC.

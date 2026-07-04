@@ -134,3 +134,35 @@ func TestGetIssueCapturesLinkIDs(t *testing.T) {
 		t.Errorf("link mismatch: %+v", is.Links[0])
 	}
 }
+
+// The canonical link-type name must survive mapping alongside the directional
+// phrase: identity checks (plan apply / link suggest) compare against the name,
+// and for most types ("Duplicate"/"duplicates") the two differ.
+func TestGetIssueCapturesLinkTypeName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"key":"PROJ-1","fields":{"issuelinks":[
+			{"id":"10006","type":{"name":"Duplicate","inward":"is duplicated by","outward":"duplicates"},
+			 "outwardIssue":{"key":"PROJ-2"}},
+			{"id":"10006","type":{"name":"Duplicate","inward":"is duplicated by","outward":"duplicates"},
+			 "inwardIssue":{"key":"PROJ-3"}}
+		]}}`))
+	}))
+	defer srv.Close()
+
+	j := newTestJira(srv)
+	is, err := j.GetIssue(context.Background(), "PROJ-1", nil)
+	if err != nil {
+		t.Fatalf("GetIssue: %v", err)
+	}
+	if len(is.Links) != 2 {
+		t.Fatalf("got %d links, want 2", len(is.Links))
+	}
+	out, in := is.Links[0], is.Links[1]
+	if out.Type != "duplicates" || out.TypeName != "Duplicate" {
+		t.Errorf("outward link: Type=%q TypeName=%q, want phrase+name", out.Type, out.TypeName)
+	}
+	if in.Type != "is duplicated by" || in.TypeName != "Duplicate" {
+		t.Errorf("inward link: Type=%q TypeName=%q, want phrase+name", in.Type, in.TypeName)
+	}
+}

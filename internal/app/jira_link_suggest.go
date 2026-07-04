@@ -172,6 +172,13 @@ func existingOutwardLinks(links []domain.IssueLink) map[string]bool {
 		if link.Direction != "outward" {
 			continue
 		}
+		// Index the canonical type name (what plan rows and Link() use) and the
+		// directional phrase (what Type carries for display), so a plan row like
+		// `type=Duplicate` matches an existing link whose phrase is "duplicates" —
+		// otherwise a re-apply would create a duplicate link.
+		if link.TypeName != "" {
+			out[linkIdentity(link.Key, link.TypeName)] = true
+		}
 		out[linkIdentity(link.Key, link.Type)] = true
 	}
 	return out
