@@ -13,7 +13,9 @@ type DocStore interface {
 	// Search runs a backend query (CQL) and returns hits plus a next cursor.
 	Search(ctx context.Context, query string, limit int, cursor string) ([]PageRef, string, error)
 	// Tree returns the page hierarchy rooted at a space (or page), to depth.
-	Tree(ctx context.Context, space string, depth int) ([]PageRef, error)
+	// truncated reports that an internal safety cap stopped the listing while
+	// the backend still had more pages — callers must surface it, never hide it.
+	Tree(ctx context.Context, space string, depth int) (refs []PageRef, truncated bool, err error)
 	// GetPage fetches a single page; Body holds native CSF unless Format=view.
 	GetPage(ctx context.Context, id string, opts PullOpts) (*Resource, error)
 	// GetMeta fetches non-body metadata.

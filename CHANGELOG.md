@@ -63,6 +63,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`--space` truncation is now visible** — a `conf pull --space` or
+  `conf space tree` that hits the 2000-page safety cap now reports
+  `"truncated": true` (pull also sets `"truncated_at"`) and prints a
+  `warning:` line to stderr; previously the listing stopped silently and the
+  mirror looked complete.
 - **Oversized stdin bodies are rejected, not truncated** — `--from-file -`
   previously dropped everything past 64 MiB without a signal, so an oversized
   Jira body could be published incomplete; it now fails with a usage error

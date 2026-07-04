@@ -42,10 +42,11 @@ atl conf pull --id <id> --assets --into ~/.atl/<workspace>/
 ```
 → `{ "root": "...", "pages": [ {id, title, path, version, assets} ] }`
 
-> ⚠️ **`--cql` stops at 1000 pages.** When the cap is hit, the result includes
-> `"truncated": true, "truncated_at": 1000` and `atl` prints a `warning:` line to stderr — the
-> remaining matches are **not** mirrored. If you see this, narrow the CQL or pull by `--space`
-> instead of assuming you got everything.
+> ⚠️ **`--cql` stops at 1000 pages, `--space` at 2000.** When either cap is hit, the result
+> includes `"truncated": true, "truncated_at": N` and `atl` prints a `warning:` line to
+> stderr — the remaining matches are **not** mirrored. If you see this, narrow the selection
+> instead of assuming you got everything. `conf space tree` reports the same cap via
+> `"truncated": true`.
 
 On disk per page:
 ```
