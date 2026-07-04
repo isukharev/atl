@@ -457,6 +457,45 @@ Output (JSON):
 
 Exits 1 when any error-severity problem is found; 0 otherwise.
 
+### `atl conf edit`
+
+Replace text in a local file with tolerance for the invisible bytes that break
+exact-match editing of real CSF (non-breaking spaces `U+00A0`, zero-width
+characters, `&nbsp;`/`&#160;`/`&#xa0;` entities). Matching runs in layered
+passes — exact bytes, then invisible-tolerant, then whitespace-run-tolerant —
+and the replacement is spliced into exactly the matched byte range; every
+surrounding byte is preserved verbatim. The replacement itself is inserted
+literally.
+
+```bash
+atl conf edit page.csf --old 'Запрос предназначен для получения' --new 'Запрос возвращает'
+atl conf edit page.csf --old-file old.txt --new-file new.txt --dry-run
+atl conf edit page.csf --old '<td>ok</td>' --new '<td>done</td>' --all
+atl conf edit page.csf --old ' obsolete sentence.' --new ''          # delete
+```
+
+Flags:
+
+| flag | description |
+|---|---|
+| `<file>` | local file to edit (positional, required) |
+| `--old` | text to find (tolerant matching) |
+| `--old-file` | read the text to find from a file (`-` for stdin; one trailing newline stripped) |
+| `--new` | replacement text, inserted verbatim (`--new ''` deletes) |
+| `--new-file` | read the replacement from a file (one trailing newline stripped) |
+| `--all` | replace every match instead of requiring a unique one |
+| `--dry-run` | report the match without writing |
+
+Output includes which pass matched (`"pass"`), match count and byte offsets,
+and quoted `region_before`/`region_after` context for review. For `.csf`
+files the result is validated automatically: `"csf_ok"` plus `"problems"`
+appear in the output, and a not-well-formed result prints a stderr warning
+(the file is still written; `conf push` remains the gate).
+
+Exit codes: `4` — the text was not found in any pass (the error carries a
+quoted dump of the closest region, exposing hidden bytes); `2` — the match is
+ambiguous (make `--old` more specific or pass `--all`).
+
 ### `atl conf push`
 
 Validate and push a `.csf` file (or all dirty files in a directory) back to

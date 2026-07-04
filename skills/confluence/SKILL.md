@@ -60,9 +60,10 @@ On disk per page:
 
 ### 3. Read to locate, open the substrate to edit
 Read the `.md` to understand and find the spot; **edit only the `.csf`**. Use the `.assets/` images
-for visual context. See [csf.md](reference/csf.md) for fragments, what the bytes contain, and the
-**editing tips** (CSF is one huge line with invisible `U+00A0` bytes — match short unique anchors,
-inspect the real bytes after one failed match, use a checked scripted replacement for table rows);
+for visual context. **Prefer `atl conf edit` for replacements** — real CSF is one huge line with
+invisible `U+00A0`/entity bytes that defeat exact-match editing; `conf edit` matches through them,
+requires a unique match, and auto-validates the result. See [csf.md](reference/csf.md) for the full
+technique (and fragments / what the bytes contain);
 [csf-authoring.md](reference/csf-authoring.md) has validated snippets for new content
 (macros, tables, task lists, links) — CSF is XHTML-based, **not Markdown**.
 
@@ -115,6 +116,7 @@ atl conf status ~/.atl/<workspace>/ --remote
 | `conf pull` | Mirror pages to disk (.csf + .md + .meta.json + assets) | `--id`, `--cql`, `--space`, `--assets`, `--into`, `--depth` |
 | `conf status` | Show locally-edited and remote-drifted pages | `[DIR]`, `--remote` |
 | `conf validate` | Validate CSF well-formedness | `<file.csf>` |
+| `conf edit` | Replace text in a local file, tolerant of NBSP/invisible bytes; auto-validates `.csf` | `<file>`, `--old`, `--new`, `--old-file`, `--new-file`, `--all`, `--dry-run` |
 | `conf push` | Validate + push under the version gate | `<file.csf\|DIR>`, `--dry-run`, `--force`, `--into` |
 | `conf comment list` | List comments on a page | `--id` |
 | `conf comment add` | Add a comment (CSF body) | `--id`, `--from-file` |
