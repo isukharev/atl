@@ -60,8 +60,10 @@ On disk per page:
 
 ### 3. Read to locate, open the substrate to edit
 Read the `.md` to understand and find the spot; **edit only the `.csf`**. Use the `.assets/` images
-for visual context. See [csf.md](reference/csf.md) for fragments and what the bytes contain, and
-[csf-authoring.md](reference/csf-authoring.md) for validated snippets when you add new content
+for visual context. See [csf.md](reference/csf.md) for fragments, what the bytes contain, and the
+**editing tips** (CSF is one huge line with invisible `U+00A0` bytes — match short unique anchors,
+inspect the real bytes after one failed match, use a checked scripted replacement for table rows);
+[csf-authoring.md](reference/csf-authoring.md) has validated snippets for new content
 (macros, tables, task lists, links) — CSF is XHTML-based, **not Markdown**.
 
 ### 4. Validate
