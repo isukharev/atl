@@ -71,6 +71,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value-shape guidance (object-typed fields take JSON, e.g.
   `priority={"name":"High"}`; the old `--field priority=High` example was
   rejected by Jira DC).
+- **Dev-loop recipe** — `skills/atl/reference/dev-loop.md`: the end-to-end
+  sequence for driving a ticket from a coding agent (take it, keep it truthful
+  while developing, close with evidence, update the linked Confluence page
+  under the version gate), with the safety rails restated inline.
 - **Dev tooling** — `make install-hooks` installs a gofmt pre-commit hook; CI
   gained a `go mod tidy` drift check and a `CGO_ENABLED=0` static-build assertion.
 

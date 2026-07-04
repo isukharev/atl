@@ -29,6 +29,11 @@ file tools instead of round-tripping every read/write through an API.
 See [mental-model.md](reference/mental-model.md) for when to reach for `atl` vs the live Atlassian
 MCP, and for the spec-driven "living doc" workflow where `atl` fits best.
 
+**Working a ticket while coding?** [dev-loop.md](reference/dev-loop.md) is the end-to-end recipe:
+take the ticket (`assign --me`, transition), keep it truthful while developing (progress comments,
+description updates, links), close with evidence, and update the linked Confluence page under the
+version gate.
+
 ## Two habits that matter most
 
 1. **Search first, read narrow, edit precise.** Don't bulk-dump everything and grep it. Use
