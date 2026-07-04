@@ -824,6 +824,43 @@ atl jira issue check PROJ-1 --require assignee,fixVersions [--warn priority]
 `--warn ""` to opt out of warnings. A check that would audit nothing (no
 `--require` and `--warn ""`) is a usage error (exit 2).
 
+### `atl jira issue refs`
+
+Extract artifact references from one issue or from a JQL selection. This reuses
+the same deterministic classifier as `jira planning report`: links are classified
+as `doc`, `design`, `jira`, `chat`, or generic `link`.
+
+```bash
+atl jira issue refs PROJ-1
+atl jira issue refs --jql "project=PROJ" --limit 100
+atl jira issue refs --jql "project=PROJ" -o text
+```
+
+Pass exactly one of positional `KEY` or `--jql` (else exit 2). `--fields` can add
+extra fields to fetch before extraction; description and comments are always
+included.
+
+### `atl jira issue tree`
+
+Build a read-only epic-to-child tree from a JQL selection using a configurable
+epic field. Children whose parent epic is not included in the JQL result are
+grouped under `external_epics`; selected non-epic issues without an epic are
+listed under `orphans`.
+
+```bash
+atl jira issue tree --jql "project=PROJ" --epic-field customfield_10001
+atl jira issue tree --jql "project=PROJ" --epic-field customfield_10001 -o text
+```
+
+Flags:
+
+| flag | description |
+|---|---|
+| `--jql` | JQL query selecting issues (required) |
+| `--epic-field` | field id/name containing parent epic key (required) |
+| `--limit` | max issues (0 = all; default 100) |
+| `--fields` | extra comma-separated fields to fetch |
+
 ### `atl jira issue delete`
 
 Permanently delete an issue. Jira Data Center has **no trash** for issues, so this

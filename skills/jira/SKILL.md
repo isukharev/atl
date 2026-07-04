@@ -1,6 +1,6 @@
 ---
 name: jira
-description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, transition, comment on, link, delete, check fields of, or report on a Jira issue, ticket, bug, story, epic, or task; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; download images from an issue; work with agile boards and sprints; or read Tempo Structure metadata, forest rows, values, and issue exports.
+description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, transition, comment on, link, delete, check fields of, or report on a Jira issue, ticket, bug, story, epic, or task; extract artifact references; build an epic tree; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; download images from an issue; work with agile boards and sprints; or read Tempo Structure metadata, forest rows, values, and issue exports.
 ---
 
 # Jira issues with `atl`
@@ -76,6 +76,9 @@ atl jira issue link-epic PROJ-1 --epic PROJ-100
 atl jira issue labels PROJ-1 --add bug,backend [--remove wontfix]
 atl jira issue history PROJ-1                                                           # changelog
 atl jira issue check PROJ-1 [--require assignee,fixVersions] [--warn priority]         # non-zero if required empty
+atl jira issue refs PROJ-1                                                             # artifact refs from one issue
+atl jira issue refs --jql 'project=PROJ' --limit 100                                   # artifact refs from a selection
+atl jira issue tree --jql 'project=PROJ' --epic-field customfield_10001                # epic-to-child grouping
 atl jira issue delete PROJ-1 --force                                                    # PERMANENT on DC; no trash
 ```
 
@@ -110,6 +113,8 @@ atl jira planning report --jql '<JQL>' \
 ```
 Reports deterministic `score`, `level`, `gaps`, extracted artifact `refs`, and epic `children`
 when `--epic-field` is set. The rubric is rules-based only; no LLM scoring and no Jira writes.
+Use `jira issue refs` when you only need extracted artifact links, and `jira issue tree` when
+you only need normalized epic/child structure without scoring.
 
 ### 8. Boards & sprints (Jira Software only)
 Backed by the Data Center Agile API; boards/sprints are addressed by **numeric id**.
@@ -160,6 +165,8 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue delete <KEY>` | Permanently delete (DC has no trash) | `--force`, `--delete-subtasks` |
 | `jira issue labels <KEY>` | Add/remove labels | `--add labels`, `--remove labels` |
 | `jira issue history <KEY>` | Show issue changelog (who changed what, when) | — |
+| `jira issue refs [KEY]` | Extract artifact references from one issue or JQL | `--jql`, `--fields`, `--limit` |
+| `jira issue tree` | Build read-only epic-to-child grouping | `--jql`, `--epic-field`, `--fields`, `--limit` |
 | `jira issue comment add <KEY>` | Add a comment | `--from-file` |
 | `jira issue comment list <KEY>` | List comments | — |
 | `jira issue comment delete <KEY> <ID>` | Delete a comment | — |

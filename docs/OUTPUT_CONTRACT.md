@@ -189,6 +189,59 @@ The backend hostname and PAT are never written to the manifest.
 When `--csv FILE` is passed, the same command writes a deterministic CSV sidecar
 and includes `csv_path` in the JSON result.
 
+`atl jira issue refs <KEY>` and `atl jira issue refs --jql ...` return
+deterministic artifact references per issue:
+
+```json
+{
+  "jql": "project=PROJ",
+  "count": 1,
+  "issues": [
+    {
+      "key": "PROJ-1",
+      "summary": "Implement capability",
+      "type": "Story",
+      "refs": [
+        {
+          "url": "https://docs.example.com/spec",
+          "kind": "doc"
+        }
+      ]
+    }
+  ]
+}
+```
+
+`atl jira issue tree --jql ... --epic-field ...` returns a normalized
+epic-to-child tree:
+
+```json
+{
+  "jql": "project=PROJ",
+  "epic_field": "customfield_10001",
+  "count": 3,
+  "epics": [
+    {
+      "key": "PROJ-1",
+      "summary": "Parent",
+      "type": "Epic",
+      "children": [
+        {
+          "key": "PROJ-2",
+          "summary": "Child",
+          "type": "Story",
+          "epic": "PROJ-1"
+        }
+      ]
+    }
+  ]
+}
+```
+
+`external_epics` contains children whose epic key is not part of the selected
+JQL result. `orphans` contains selected non-epic issues with no epic field. Both
+fields are omitted when empty.
+
 `atl jira structure rows <ID>` returns a parsed read-only view of a Tempo Structure forest:
 
 ```json

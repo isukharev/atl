@@ -59,6 +59,65 @@ type PlanningRef struct {
 	Kind string `json:"kind"`
 }
 
+// JiraIssueRefsOpts controls standalone artifact reference extraction.
+type JiraIssueRefsOpts struct {
+	Key    string
+	JQL    string
+	Fields []string
+	Limit  int
+}
+
+// JiraIssueRefsResult is a deterministic list of artifact refs per issue.
+type JiraIssueRefsResult struct {
+	Key    string          `json:"key,omitempty"`
+	JQL    string          `json:"jql,omitempty"`
+	Count  int             `json:"count"`
+	Issues []JiraIssueRefs `json:"issues"`
+}
+
+// JiraIssueRefs is the refs found in one issue.
+type JiraIssueRefs struct {
+	Key     string        `json:"key"`
+	Summary string        `json:"summary,omitempty"`
+	Type    string        `json:"type,omitempty"`
+	Refs    []PlanningRef `json:"refs"`
+}
+
+// JiraIssueTreeOpts controls normalized epic tree extraction.
+type JiraIssueTreeOpts struct {
+	JQL       string
+	EpicField string
+	Fields    []string
+	Limit     int
+}
+
+// JiraIssueTreeResult groups selected issues by epic field.
+type JiraIssueTreeResult struct {
+	JQL           string              `json:"jql"`
+	EpicField     string              `json:"epic_field"`
+	Count         int                 `json:"count"`
+	Epics         []JiraIssueTreeEpic `json:"epics"`
+	ExternalEpics []JiraIssueTreeEpic `json:"external_epics,omitempty"`
+	Orphans       []JiraIssueTreeItem `json:"orphans,omitempty"`
+}
+
+// JiraIssueTreeEpic is one epic and its selected child issues.
+type JiraIssueTreeEpic struct {
+	Key      string              `json:"key"`
+	Summary  string              `json:"summary,omitempty"`
+	Type     string              `json:"type,omitempty"`
+	External bool                `json:"external,omitempty"`
+	Children []JiraIssueTreeItem `json:"children"`
+}
+
+// JiraIssueTreeItem is a selected issue in the tree.
+type JiraIssueTreeItem struct {
+	Key     string `json:"key"`
+	Summary string `json:"summary,omitempty"`
+	Type    string `json:"type,omitempty"`
+	Epic    string `json:"epic,omitempty"`
+}
+
 // PlanningReport builds a deterministic planning quality report over a JQL query.
 func (s *JiraService) PlanningReport(ctx context.Context, opts PlanningReportOpts) (*PlanningReport, error) {
 	if strings.TrimSpace(opts.JQL) == "" {
@@ -91,6 +150,60 @@ func (s *JiraService) PlanningReport(ctx context.Context, opts PlanningReportOpt
 		}
 	}
 	return report, nil
+}
+
+// IssueRefs extracts artifact references from one issue or a JQL selection.
+func (s *JiraService) IssueRefs(ctx context.Context, opts JiraIssueRefsOpts) (*JiraIssueRefsResult, error) {
+	key := strings.TrimSpace(opts.Key)
+	jql := strings.TrimSpace(opts.JQL)
+	if (key == "") == (jql == "") {
+		return nil, fmt.Errorf("%w: pass exactly one of issue key or --jql", domain.ErrUsage)
+	}
+	fields := mergeFields([]string{"summary", "description", "issuetype", "comment"}, opts.Fields)
+	var issues []domain.Issue
+	if key != "" {
+		issue, err := s.tr.GetIssue(ctx, key, fields)
+		if err != nil {
+			return nil, err
+		}
+		issues = append(issues, *issue)
+	} else {
+		found, err := s.collectPlanningIssues(ctx, jql, fields, opts.Limit)
+		if err != nil {
+			return nil, err
+		}
+		issues = found
+	}
+	rows := make([]JiraIssueRefs, 0, len(issues))
+	for _, issue := range issues {
+		rows = append(rows, JiraIssueRefs{
+			Key:     issue.Key,
+			Summary: issue.Summary,
+			Type:    issue.Type,
+			Refs:    ExtractPlanningRefs(issueText(issue)),
+		})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Key < rows[j].Key })
+	return &JiraIssueRefsResult{Key: key, JQL: jql, Count: len(rows), Issues: rows}, nil
+}
+
+// IssueTree groups a JQL selection into epics, external epics, and orphans.
+func (s *JiraService) IssueTree(ctx context.Context, opts JiraIssueTreeOpts) (*JiraIssueTreeResult, error) {
+	jql := strings.TrimSpace(opts.JQL)
+	if jql == "" {
+		return nil, fmt.Errorf("%w: --jql is required", domain.ErrUsage)
+	}
+	epicField := strings.TrimSpace(opts.EpicField)
+	if epicField == "" {
+		return nil, fmt.Errorf("%w: --epic-field is required", domain.ErrUsage)
+	}
+	fields := mergeFields([]string{"summary", "issuetype", epicField}, opts.Fields)
+	issues, err := s.collectPlanningIssues(ctx, jql, fields, opts.Limit)
+	if err != nil {
+		return nil, err
+	}
+	result := buildJiraIssueTree(jql, epicField, issues)
+	return &result, nil
 }
 
 func planningFields(opts PlanningReportOpts) []string {
@@ -189,6 +302,54 @@ func scorePlanningIssues(issues []domain.Issue, opts PlanningReportOpts) []Plann
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Key < rows[j].Key })
 	return rows
+}
+
+func buildJiraIssueTree(jql, epicField string, issues []domain.Issue) JiraIssueTreeResult {
+	result := JiraIssueTreeResult{JQL: jql, EpicField: epicField, Count: len(issues)}
+	epics := map[string]*JiraIssueTreeEpic{}
+	external := map[string]*JiraIssueTreeEpic{}
+	for _, issue := range issues {
+		if strings.EqualFold(issue.Type, "epic") {
+			epics[issue.Key] = &JiraIssueTreeEpic{Key: issue.Key, Summary: issue.Summary, Type: issue.Type}
+		}
+	}
+	for _, issue := range issues {
+		if strings.EqualFold(issue.Type, "epic") {
+			continue
+		}
+		item := JiraIssueTreeItem{Key: issue.Key, Summary: issue.Summary, Type: issue.Type, Epic: fieldString(issue.Fields[epicField])}
+		if item.Epic == "" {
+			result.Orphans = append(result.Orphans, item)
+			continue
+		}
+		parent := epics[item.Epic]
+		if parent == nil {
+			parent = external[item.Epic]
+			if parent == nil {
+				parent = &JiraIssueTreeEpic{Key: item.Epic, External: true}
+				external[item.Epic] = parent
+			}
+		}
+		parent.Children = append(parent.Children, item)
+	}
+	result.Epics = sortedTreeEpics(epics)
+	result.ExternalEpics = sortedTreeEpics(external)
+	sortTreeItems(result.Orphans)
+	return result
+}
+
+func sortedTreeEpics(m map[string]*JiraIssueTreeEpic) []JiraIssueTreeEpic {
+	out := make([]JiraIssueTreeEpic, 0, len(m))
+	for _, epic := range m {
+		sortTreeItems(epic.Children)
+		out = append(out, *epic)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out
+}
+
+func sortTreeItems(items []JiraIssueTreeItem) {
+	sort.Slice(items, func(i, j int) bool { return items[i].Key < items[j].Key })
 }
 
 type planningCheck struct {
