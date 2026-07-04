@@ -580,6 +580,25 @@ func TestJiraFields_Filters(t *testing.T) {
 	if len(byID.Fields) != 1 || byID.Fields[0].Name != "Team" {
 		t.Fatalf("id fields = %+v, want only Team", byID.Fields)
 	}
+
+	out, code = runCLI(t, jiraEnv(js.srv), "jira", "fields", "--custom", "true", "--schema", "string", "--id-like", "customfield")
+	if code != exitOK {
+		t.Fatalf("jira fields custom/schema/id-like: exit %d, want 0 (stdout=%q)", code, out)
+	}
+	var composed struct {
+		Fields []domain.FieldDef `json:"fields"`
+	}
+	if err := json.Unmarshal([]byte(out), &composed); err != nil {
+		t.Fatalf("decode composed fields: %v\n%s", err, out)
+	}
+	if len(composed.Fields) != 1 || composed.Fields[0].ID != "customfield_2" {
+		t.Fatalf("composed fields = %+v, want only customfield_2", composed.Fields)
+	}
+
+	_, code = runCLI(t, jiraEnv(js.srv), "jira", "fields", "--custom", "maybe")
+	if code != exitUsage {
+		t.Fatalf("jira fields --custom maybe exit = %d, want %d", code, exitUsage)
+	}
 }
 
 // TestJiraLinkTypes_Emit asserts `jira link-types` emits the configured link

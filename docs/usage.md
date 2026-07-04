@@ -1005,6 +1005,7 @@ atl jira planning report --jql "project=PROJ" \
   --epic-field customfield_10002 \
   --require fixVersions,components \
   --csv planning.csv
+atl jira quality-report --jql "project=PROJ"     # compatibility alias
 ```
 
 Flags:
@@ -1031,10 +1032,13 @@ List all Jira fields (system and custom) with their IDs and schema types.
 atl jira fields
 atl jira fields --name-like Epic
 atl jira fields --id customfield_10001
+atl jira fields --custom true --schema string --id-like customfield
 ```
 
-Filters are applied client-side to Jira's field list. Use `field-options` when
-you need values allowed for a specific project and issue type.
+Filters are applied client-side to Jira's field list. Available filters are
+`--id`, `--id-like`, `--name-like`, `--schema`, and `--custom true|false`. Use
+`field-options` when you need values allowed for a specific project and issue
+type.
 
 ### `atl jira field-options`
 

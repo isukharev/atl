@@ -21,7 +21,7 @@ func jiraService() (*app.JiraService, error) {
 
 func newJiraCmd() *cobra.Command {
 	c := &cobra.Command{Use: "jira", Short: "Jira: read/search/pull issues, edit via commands (native wiki)"}
-	cmds := []*cobra.Command{jiraIssueCmd(), jiraPullCmd(), jiraExportCmd(), jiraPlanningCmd(), jiraMeCmd(), jiraUserCmd(), jiraBoardCmd(), jiraSprintCmd(), jiraStructureCmd()}
+	cmds := []*cobra.Command{jiraIssueCmd(), jiraPullCmd(), jiraExportCmd(), jiraPlanningCmd(), jiraQualityReportCmd(), jiraMeCmd(), jiraUserCmd(), jiraBoardCmd(), jiraSprintCmd(), jiraStructureCmd()}
 	cmds = append(cmds, jiraMetaCmds()...)
 	c.AddCommand(cmds...)
 	return c
@@ -909,11 +909,21 @@ func jiraExportDiffCmd() *cobra.Command {
 
 func jiraPlanningCmd() *cobra.Command {
 	c := &cobra.Command{Use: "planning", Short: "Read-only Jira planning quality reports"}
+	c.AddCommand(jiraPlanningReportCommand("report"))
+	return c
+}
 
+func jiraQualityReportCmd() *cobra.Command {
+	cmd := jiraPlanningReportCommand("quality-report")
+	cmd.Short = "Compatibility alias for `jira planning report`"
+	return cmd
+}
+
+func jiraPlanningReportCommand(use string) *cobra.Command {
 	var jql, require, estimateField, epicField, csvPath string
 	var limit int
-	report := &cobra.Command{
-		Use:   "report",
+	cmd := &cobra.Command{
+		Use:   use,
 		Short: "Build a deterministic planning quality report over JQL",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if jql == "" {
@@ -940,19 +950,17 @@ func jiraPlanningCmd() *cobra.Command {
 			})
 		},
 	}
-	report.Flags().StringVar(&jql, "jql", "", "JQL selecting issues")
-	report.Flags().StringVar(&require, "require", "", "comma-separated fields that must be populated")
-	report.Flags().StringVar(&estimateField, "estimate-field", "", "field id/name used as the estimate check")
-	report.Flags().StringVar(&epicField, "epic-field", "", "field id/name containing parent epic key")
-	report.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all)")
-	report.Flags().StringVar(&csvPath, "csv", "", "optional CSV report path")
-
-	c.AddCommand(report)
-	return c
+	cmd.Flags().StringVar(&jql, "jql", "", "JQL selecting issues")
+	cmd.Flags().StringVar(&require, "require", "", "comma-separated fields that must be populated")
+	cmd.Flags().StringVar(&estimateField, "estimate-field", "", "field id/name used as the estimate check")
+	cmd.Flags().StringVar(&epicField, "epic-field", "", "field id/name containing parent epic key")
+	cmd.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all)")
+	cmd.Flags().StringVar(&csvPath, "csv", "", "optional CSV report path")
+	return cmd
 }
 
 func jiraMetaCmds() []*cobra.Command {
-	var nameLike, fieldID string
+	var nameLike, fieldID, idLike, schema, custom string
 	fields := &cobra.Command{
 		Use:   "fields",
 		Short: "List Jira fields (id/name/custom)",
@@ -965,12 +973,18 @@ func jiraMetaCmds() []*cobra.Command {
 			if err != nil {
 				return err
 			}
-			fs = filterFieldDefs(fs, fieldID, nameLike)
+			fs, err = filterFieldDefs(fs, fieldID, nameLike, idLike, schema, custom)
+			if err != nil {
+				return err
+			}
 			return emit(cmd, map[string]any{"fields": fs}, nil)
 		},
 	}
 	fields.Flags().StringVar(&nameLike, "name-like", "", "case-insensitive substring filter for field name")
 	fields.Flags().StringVar(&fieldID, "id", "", "exact field id filter")
+	fields.Flags().StringVar(&idLike, "id-like", "", "case-insensitive substring filter for field id")
+	fields.Flags().StringVar(&schema, "schema", "", "exact schema type filter")
+	fields.Flags().StringVar(&custom, "custom", "", "filter custom fields: true or false")
 
 	var project, issueType, field string
 	opts := &cobra.Command{
@@ -1035,23 +1049,48 @@ func jiraMetaCmds() []*cobra.Command {
 	return []*cobra.Command{fields, opts, transitions, linkTypes}
 }
 
-func filterFieldDefs(fs []domain.FieldDef, id, nameLike string) []domain.FieldDef {
+func filterFieldDefs(fs []domain.FieldDef, id, nameLike, idLike, schema, custom string) ([]domain.FieldDef, error) {
 	id = strings.TrimSpace(id)
 	nameLike = strings.ToLower(strings.TrimSpace(nameLike))
-	if id == "" && nameLike == "" {
-		return fs
+	idLike = strings.ToLower(strings.TrimSpace(idLike))
+	schema = strings.TrimSpace(schema)
+	custom = strings.ToLower(strings.TrimSpace(custom))
+	var wantCustom *bool
+	if custom != "" {
+		switch custom {
+		case "true", "1", "yes":
+			v := true
+			wantCustom = &v
+		case "false", "0", "no":
+			v := false
+			wantCustom = &v
+		default:
+			return nil, usageErr("--custom must be true or false")
+		}
+	}
+	if id == "" && nameLike == "" && idLike == "" && schema == "" && wantCustom == nil {
+		return fs, nil
 	}
 	out := make([]domain.FieldDef, 0, len(fs))
 	for _, f := range fs {
 		if id != "" && f.ID != id {
 			continue
 		}
+		if idLike != "" && !strings.Contains(strings.ToLower(f.ID), idLike) {
+			continue
+		}
 		if nameLike != "" && !strings.Contains(strings.ToLower(f.Name), nameLike) {
+			continue
+		}
+		if schema != "" && f.Schema != schema {
+			continue
+		}
+		if wantCustom != nil && f.Custom != *wantCustom {
 			continue
 		}
 		out = append(out, f)
 	}
-	return out
+	return out, nil
 }
 
 func orDash(s string) string {
