@@ -268,7 +268,7 @@ atl jira issue search --jql 'project = PROJ AND status = "In Progress"'
 atl jira pull --jql 'project = PROJ' --into mirror-jira
 
 # Запись
-atl jira issue comment    PROJ-1 --from-file note.txt
+atl jira issue comment add PROJ-1 --from-file note.txt
 atl jira issue transition PROJ-1 --to Done
 
 # Метаданные
@@ -298,6 +298,7 @@ atl jira field-options --project PROJ --field <field-id>
 | 5 | Конфликт версий (оптимистичная блокировка) |
 | 6 | Доступ запрещён (у токена нет прав) |
 | 7 | Не настроено — базовый URL или PAT **ещё не заданы** |
+| 8 | Проверка не пройдена — `jira issue check` нашёл пустые обязательные поля |
 
 `7` против `3`: `7` означает «завершите настройку» (нет URL/токена); `3` — «замените токен» (он был
 отклонён). Паттерны для скриптов и CI (конфигурация только через env, отключение самообновления,

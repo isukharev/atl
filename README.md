@@ -270,7 +270,7 @@ atl jira issue search --jql 'project = PROJ AND status = "In Progress"'
 atl jira pull --jql 'project = PROJ' --into mirror-jira
 
 # Write
-atl jira issue comment    PROJ-1 --from-file note.txt
+atl jira issue comment add PROJ-1 --from-file note.txt
 atl jira issue transition PROJ-1 --to Done
 
 # Metadata
@@ -300,6 +300,7 @@ atl jira field-options --project PROJ --field <field-id>
 | 5 | Version conflict (optimistic lock) |
 | 6 | Forbidden (token lacks permission) |
 | 7 | Not configured — backend URL or PAT **not set** yet |
+| 8 | Check failed — `jira issue check` found empty required fields |
 
 `7` vs `3`: `7` means "finish setup" (no URL/token); `3` means "replace the token" (it was refused).
 For scripting and CI patterns (env-only config, disabling self-update, isolating credentials,

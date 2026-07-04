@@ -29,7 +29,11 @@ and run them through the Makefile, which sources it and sets `ATL_INTEGRATION=1`
 ```sh
 cp .env.integration.example .env.integration   # fill in DC URL, PATs, throwaway test objects
 make integration                               # runs only -run Integration, never in CI
+make live-smoke                                # opt-in live CLI smoke checks (built binary)
 ```
+
+For CLI changes, run focused tests first (`go test ./internal/app ./internal/cli` or the
+touched packages), then `make test`.
 
 Or pass the env inline for a one-off (no file): `ATL_INTEGRATION=1 CONFLUENCE_URL=… TEST_CONFLUENCE_PAT=…
 ATL_TEST_PAGE_ID=<throwaway-page-id> go test ./... -run Integration`. Jira `field-options` coverage
@@ -108,8 +112,9 @@ documented there.
 
 ## Mirror & config gotchas
 
-- **Silent CQL pull cap: 1000 pages.** `conf pull --cql` stops after 1000 IDs with no
-  warning. Confluence has no "unbounded" escape; Jira `pull --limit 0` *does* mean unbounded.
+- **CQL pull cap: 1000 pages.** `conf pull --cql` stops after 1000 IDs; the result carries
+  `truncated`/`truncated_at` and a stderr warning fires. Confluence has no "unbounded"
+  escape; Jira `pull --limit 0` *does* mean unbounded.
 - **Mirror root auto-detection.** Commands resolve the mirror root by walking up from the
   target ≤12 levels looking for an `.atl` marker dir; if none is found it defaults to
   `"mirror"`. Watch this in multi-workspace setups.
@@ -152,7 +157,11 @@ Canonical guides live outside this file: `AGENTS.md` (cross-agent handoff rules)
   (`Refs #…` / `Fixes #…`), parent initiative, and roadmap ID/section, and lists verification
   (`make test`, `make lint`). Close issues through a merged PR, not a local patch.
 - **Never** put PATs, private hostnames, private page IDs / issue keys, customer names, or
-  proprietary page/issue bodies in issues, PRs, comments, commits, or logs.
+  proprietary page/issue bodies in issues, PRs, comments, commits, or logs. Use generic
+  wording in public issues/PRs instead: "configured fixture", "multi-table page",
+  "Structure id", "custom field", "backend".
+- **PR flow:** open as draft, mark ready when green, wait for CI, merge, then remove
+  `agent-working` from the closed issue. PR bodies include verification.
 - `ROADMAP.md` is the **public** roadmap. Internal product/brand strategy lives in the
   gitignored `local-docs/` (kept out of this public repo) — never commit it, and never point
   public docs/issues at it.
@@ -176,8 +185,10 @@ Canonical guides live outside this file: `AGENTS.md` (cross-agent handoff rules)
   install to drive `atl`; it — and `docs/` — enumerate commands, flags, exit codes, and output.
   When a change alters user-facing CLI behaviour, update the matching `skills/*/SKILL.md`
   (Quick-Reference tables, examples, `USE WHEN` frontmatter, Common-Errors / exit-code blocks) plus
-  `docs/usage.md` / `docs/OUTPUT_CONTRACT.md` / `CHANGELOG.md` in the **same PR**, and confirm it
-  **before merging**.
+  `docs/usage.md` / `docs/OUTPUT_CONTRACT.md` / `CHANGELOG.md` — and `README.md` (and
+  `README.ru.md` when it mirrors the same section) — in the **same PR**, and confirm it
+  **before merging**. Setup/auth/mirror behaviour changes also update `skills/setup/SKILL.md`
+  and `skills/atl/reference/*`.
 - **Security-boundary tests assert the guarantee fails when the control is removed** (O_NOFOLLOW,
   atomic symlink-replace, ed25519 verify-before-parse). Tamper *inside a valid payload* so the
   control under test — not an incidental parse failure — is what rejects it.
