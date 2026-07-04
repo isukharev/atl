@@ -260,7 +260,7 @@ func TestHistory(t *testing.T) {
 	}
 	// Confluence Data Center exposes the version list under /rest/experimental,
 	// not the Cloud-style /rest/api/content/{id}/version (which 404s on DC).
-	if !strings.Contains(gotPath, "/rest/experimental/content/70/version") || !strings.Contains(gotPath, "limit=50") {
+	if !strings.Contains(gotPath, "/rest/experimental/content/70/version") || !strings.Contains(gotPath, "limit=100") {
 		t.Errorf("unexpected history path %q", gotPath)
 	}
 }
@@ -1337,5 +1337,52 @@ func TestTreeReportsTruncationAtCap(t *testing.T) {
 	}
 	if len(got2) != 3 {
 		t.Fatalf("expected 3 pages, got %d", len(got2))
+	}
+}
+
+// A version history longer than one server page must be fetched completely.
+func TestHistoryPaginatesAllPages(t *testing.T) {
+	var starts []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := r.URL.Query().Get("start")
+		starts = append(starts, start)
+		w.Header().Set("Content-Type", "application/json")
+		if start == "0" {
+			_, _ = w.Write([]byte(`{"results":[
+				{"number":3,"when":"2026-01-03","by":{"displayName":"Carol"}},
+				{"number":2,"when":"2026-01-02","by":{"displayName":"Bob"}}
+			],"_links":{"next":"/rest/experimental/content/70/version?start=2"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"results":[
+			{"number":1,"when":"2026-01-01","by":{"displayName":"Alice"}}
+		],"_links":{}}`))
+	}))
+	defer srv.Close()
+
+	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+	vs, err := cf.History(context.Background(), "70")
+	if err != nil {
+		t.Fatalf("History: %v", err)
+	}
+	if len(vs) != 3 || vs[2].Number != 1 {
+		t.Fatalf("expected all 3 versions across pages, got %+v", vs)
+	}
+	if len(starts) != 2 || starts[1] != "2" {
+		t.Fatalf("expected two paged requests, got %v", starts)
+	}
+}
+
+// A corrupt cursor must fail usage (exit 2), not silently restart from 0.
+func TestConfluenceSearchRejectsBadCursor(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("no request must be issued for a bad cursor")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+	if _, _, err := cf.Search(context.Background(), "type=page", 10, "junk"); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("bad cursor: want ErrUsage, got %v", err)
 	}
 }

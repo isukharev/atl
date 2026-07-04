@@ -2,10 +2,13 @@ package jira
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/domain"
 )
 
 // Changelog uses the DC-universal ?expand=changelog form (the paginated
@@ -164,5 +167,52 @@ func TestGetIssueCapturesLinkTypeName(t *testing.T) {
 	}
 	if in.Type != "is duplicated by" || in.TypeName != "Duplicate" {
 		t.Errorf("inward link: Type=%q TypeName=%q, want phrase+name", in.Type, in.TypeName)
+	}
+}
+
+// A comment listing larger than one server page must be fetched completely:
+// the port has no cursor, so the adapter pages internally until total.
+func TestListCommentsPaginatesAllPages(t *testing.T) {
+	var starts []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := r.URL.Query().Get("startAt")
+		starts = append(starts, start)
+		w.Header().Set("Content-Type", "application/json")
+		if start == "0" {
+			_, _ = w.Write([]byte(`{"startAt":0,"total":3,"comments":[
+				{"id":"1","body":"a"},{"id":"2","body":"b"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"startAt":2,"total":3,"comments":[{"id":"3","body":"c"}]}`))
+	}))
+	defer srv.Close()
+
+	j := newTestJira(srv)
+	cs, err := j.ListComments(context.Background(), "PROJ-1")
+	if err != nil {
+		t.Fatalf("ListComments: %v", err)
+	}
+	if len(cs) != 3 || cs[2].ID != "3" {
+		t.Fatalf("expected all 3 comments across pages, got %+v", cs)
+	}
+	if len(starts) != 2 || starts[0] != "0" || starts[1] != "2" {
+		t.Fatalf("expected two paged requests (startAt 0, 2), got %v", starts)
+	}
+}
+
+// A corrupt --cursor must fail usage (exit 2), not silently restart from 0.
+func TestSearchRejectsBadCursor(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("no request must be issued for a bad cursor")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	j := newTestJira(srv)
+	if _, _, err := j.Search(context.Background(), "project=P", nil, 10, "abc"); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("bad cursor: want ErrUsage, got %v", err)
+	}
+	if _, _, err := j.Boards(context.Background(), "", 10, "-5"); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("negative cursor: want ErrUsage, got %v", err)
 	}
 }

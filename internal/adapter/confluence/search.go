@@ -2,6 +2,7 @@ package confluence
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -9,11 +10,28 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 )
 
+// parseCursor parses a pagination cursor (a start offset). Empty means the
+// first page; a non-numeric or negative value is a usage error rather than a
+// silent restart from offset 0.
+func parseCursor(cursor string) (int, error) {
+	if cursor == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(cursor)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("%w: invalid cursor %q (expected a non-negative offset)", domain.ErrUsage, cursor)
+	}
+	return n, nil
+}
+
 // Search runs a CQL query via /rest/api/search (which carries excerpts). cursor
 // is the start offset; the returned cursor is the next start, or "" when
 // exhausted.
 func (cf *Confluence) Search(ctx context.Context, query string, limit int, cursor string) ([]domain.PageRef, string, error) {
-	start, _ := strconv.Atoi(cursor)
+	start, err := parseCursor(cursor)
+	if err != nil {
+		return nil, "", err
+	}
 	if limit <= 0 || limit > 100 {
 		limit = 25
 	}

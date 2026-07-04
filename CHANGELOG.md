@@ -68,6 +68,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `"truncated": true` (pull also sets `"truncated_at"`) and prints a
   `warning:` line to stderr; previously the listing stopped silently and the
   mirror looked complete.
+- **`jira issue comment list` and `conf page history` now return everything** —
+  both previously fetched a single server page (comments: first page only;
+  history: first 50 versions) and silently dropped the rest; they now page
+  internally until the listing is exhausted.
+- **Corrupt `--cursor` values are rejected** — a non-numeric or negative cursor
+  previously restarted silently from the first page; it is now a usage error
+  (exit 2) across Jira/Confluence search and board/sprint listings.
 - **Oversized stdin bodies are rejected, not truncated** — `--from-file -`
   previously dropped everything past 64 MiB without a signal, so an oversized
   Jira body could be published incomplete; it now fails with a usage error
