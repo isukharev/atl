@@ -63,6 +63,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`conf push` no longer panics on an unresolvable target path** — a target
+  that cannot be stat'ed (typo'd file, missing directory) previously crashed
+  with a nil-pointer dereference under `-o text` and printed a stray `null` in
+  JSON mode; it now reports a usage error and exits 2 instead of 1.
 - **`conf page history` on Confluence Data Center** — list page versions via
   `/rest/experimental/content/{id}/version` instead of the Cloud-style
   `/rest/api/content/{id}/version`, which returns 404 on DC.

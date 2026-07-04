@@ -504,7 +504,8 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 func (s *ConfluenceService) pushTargets(m *mirror.Mirror, target string) ([]string, error) {
 	info, err := os.Stat(target)
 	if err != nil {
-		return nil, err
+		// A bad push target is a usage error (exit 2), not a generic failure.
+		return nil, fmt.Errorf("%w: push target %q: %v", domain.ErrUsage, target, err)
 	}
 	if !info.IsDir() {
 		return []string{target}, nil
