@@ -71,6 +71,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value-shape guidance (object-typed fields take JSON, e.g.
   `priority={"name":"High"}`; the old `--field priority=High` example was
   rejected by Jira DC).
+- **CSF editing tips in the skill** — measured on real pages, agents lose time
+  not writing CSF but *matching* it (single-line bodies with invisible
+  `U+00A0` bytes defeat exact-string edits). `skills/confluence/reference/csf.md`
+  now prescribes short unique anchors, byte-level inspection after one failed
+  match, and checked scripted replacement for table rows.
 - **Dev-loop recipe** — `skills/atl/reference/dev-loop.md`: the end-to-end
   sequence for driving a ticket from a coding agent (take it, keep it truthful
   while developing, close with evidence, update the linked Confluence page
