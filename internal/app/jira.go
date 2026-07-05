@@ -298,11 +298,12 @@ func (s *JiraService) Pull(ctx context.Context, jql, into string, limit int, fie
 		if err != nil {
 			return out, err
 		}
-		for _, is := range issues {
-			full, err := s.tr.GetIssue(ctx, is.Key, pullFields)
-			if err != nil {
-				full = &is
-			}
+		for i := range issues {
+			// The search projection IS the issue data: the adapter forwards
+			// pullFields to the search verbatim and maps through the same DTO as
+			// GetIssue, so a per-issue re-fetch would double the HTTP round trips
+			// for zero data gain (#65).
+			full := &issues[i]
 			dir := filepath.Join(into, safepath.Segment(full.Project))
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return out, err
@@ -321,8 +322,14 @@ func (s *JiraService) Pull(ctx context.Context, jql, into string, limit int, fie
 			if snap.Fields == nil {
 				snap.Fields = map[string]any{}
 			}
-			if jb, err := json.MarshalIndent(snap, "", "  "); err == nil {
-				_ = safepath.WriteFile(filepath.Join(dir, keySeg+".json"), append(jb, '\n'), 0o644)
+			// The snapshot is part of the pull contract: a failed write must not
+			// report the issue as pulled with a missing/stale .json (#65).
+			jb, err := json.MarshalIndent(snap, "", "  ")
+			if err != nil {
+				return out, fmt.Errorf("snapshot %s: %w", full.Key, err)
+			}
+			if err := safepath.WriteFile(filepath.Join(dir, keySeg+".json"), append(jb, '\n'), 0o644); err != nil {
+				return out, fmt.Errorf("snapshot %s: %w", full.Key, err)
 			}
 			rel, _ := filepath.Rel(into, mdPath)
 			out = append(out, JiraPulled{Key: full.Key, Path: rel})

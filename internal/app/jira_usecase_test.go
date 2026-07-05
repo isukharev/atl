@@ -436,6 +436,75 @@ func TestJiraPullWritesMarkdownAndJSON(t *testing.T) {
 	}
 }
 
+// countingPullTracker serves a search projection and counts per-issue
+// re-fetches, which Pull must never make (#65: the projection already carries
+// the same fields through the same adapter mapping).
+type countingPullTracker struct {
+	domain.Tracker
+	issues   []domain.Issue
+	getCalls int
+}
+
+func (t *countingPullTracker) Search(context.Context, string, []string, int, string) ([]domain.Issue, string, error) {
+	return t.issues, "", nil
+}
+
+func (t *countingPullTracker) GetIssue(context.Context, string, []string) (*domain.Issue, error) {
+	t.getCalls++
+	return nil, errors.New("unexpected per-issue GetIssue during pull")
+}
+
+// Pull consumes the search projection directly — one HTTP request per search
+// page, zero per-issue re-fetches.
+func TestJiraPullDoesNotRefetchPerIssue(t *testing.T) {
+	into := t.TempDir()
+	tr := &countingPullTracker{issues: []domain.Issue{
+		{ID: "1", Key: "PROJ-1", Project: "PROJ", Summary: "a", Body: "body one"},
+		{ID: "2", Key: "PROJ-2", Project: "PROJ", Summary: "b", Body: "body two"},
+	}}
+	svc := &JiraService{tr: tr}
+	out, err := svc.Pull(context.Background(), "project = PROJ", into, 0, nil)
+	if err != nil {
+		t.Fatalf("pull: %v", err)
+	}
+	if tr.getCalls != 0 {
+		t.Fatalf("pull made %d per-issue GetIssue calls, want 0 (search projection suffices)", tr.getCalls)
+	}
+	if len(out) != 2 {
+		t.Fatalf("pulled %d issues, want 2: %+v", len(out), out)
+	}
+	for _, p := range out {
+		if _, err := os.Stat(filepath.Join(into, p.Path)); err != nil {
+			t.Errorf("missing %s: %v", p.Path, err)
+		}
+	}
+}
+
+// A snapshot (.json) write failure fails the pull loudly — a disk-full run
+// must not report issues as pulled with missing/stale snapshots.
+func TestJiraPullSnapshotWriteFailureAborts(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("permission-based failure injection is a no-op as root")
+	}
+	into := t.TempDir()
+	dir := filepath.Join(into, "PROJ")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-plant a read-only snapshot so the refresh write fails.
+	if err := os.WriteFile(filepath.Join(dir, "PROJ-1.json"), []byte("{}"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	tr := &countingPullTracker{issues: []domain.Issue{
+		{ID: "1", Key: "PROJ-1", Project: "PROJ", Summary: "a", Body: "b"},
+	}}
+	svc := &JiraService{tr: tr}
+	_, err := svc.Pull(context.Background(), "project = PROJ", into, 0, nil)
+	if err == nil || !strings.Contains(err.Error(), "snapshot PROJ-1") {
+		t.Fatalf("snapshot write failure must abort the pull, got err=%v", err)
+	}
+}
+
 func mustContain(t *testing.T, hay, needle string) {
 	t.Helper()
 	if !strings.Contains(hay, needle) {
