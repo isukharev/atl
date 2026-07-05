@@ -202,6 +202,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Stray positional arguments are now usage errors (exit 2).** Flag-only
+  commands (`conf search`, `jira issue search`, `jira fields`, `conf page
+  create`, …) previously accepted and silently dropped extra positional
+  arguments — `atl jira issue search --jql … PROJ-1` ran on the full JQL
+  result. Every flag-only command now rejects them, and any arity violation
+  on positional commands also exits 2 (previously the generic 1), matching
+  how flag-parse errors are already reported.
 - **BREAKING** — `jira issue comment <KEY>` is now `jira issue comment add
   <KEY>`, and `jira issue link <KEY> --to … --type …` is now `jira issue link
   add <KEY> …`. The `comment` and `link` verbs became subcommand groups so they

@@ -101,7 +101,39 @@ func newRoot() *cobra.Command {
 		runSelfUpdate(cmd)
 		return nil
 	}
+	normalizeArgs(root)
 	return root
+}
+
+// normalizeArgs walks the built tree and (1) gives every leaf command that
+// declares no Args policy and no positional placeholder in its Use line a
+// cobra.NoArgs policy, so a stray positional argument fails instead of being
+// silently dropped (`jira issue search --jql … PROJ-1` used to run on the
+// full JQL result); (2) wraps every leaf's Args validation so its failure is
+// a usage error (exit 2, matching SetFlagErrorFunc) rather than the generic
+// exit 1. Positional commands keep their declared arity; new flag-only
+// commands are covered by default.
+func normalizeArgs(c *cobra.Command) {
+	for _, sub := range c.Commands() {
+		if len(sub.Commands()) > 0 {
+			normalizeArgs(sub)
+			continue
+		}
+		policy := sub.Args
+		if policy == nil {
+			if strings.ContainsAny(sub.Use, "<[") {
+				continue // positional command missing arity: caught by tests
+			}
+			policy = cobra.NoArgs
+		}
+		inner := policy
+		sub.Args = func(cmd *cobra.Command, args []string) error {
+			if err := inner(cmd, args); err != nil {
+				return usageErr("%v", err)
+			}
+			return nil
+		}
+	}
 }
 
 func codeFor(err error) int {
