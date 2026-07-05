@@ -67,6 +67,14 @@ func TestEscaping(t *testing.T) {
 		{"2026-07-01 dates survive", "2026-07-01 dates survive"},
 		{"a -maybe strike- b", `a \-maybe strike- b`}, // opening '-' neutralized
 		{"plus +one+ two", `plus \+one+ two`},
+		// Review P1 regressions: {{…}} does not suppress inner wiki markup —
+		// code-span content must be escaped; leading '#' is a list marker.
+		{"`arr[0]` and `a|b`", `{{arr\[0\]}} and {{a\|b}}`},
+		{"`*ptr` deref", `{{\*ptr}} deref`},
+		{"#java is trending", `\#java is trending`},
+		{"issue #5 mid-text", "issue #5 mid-text"},
+		// Review P2 regression: bracketed non-username is not a mention.
+		{"see [~5] there", `see \[~5\] there`},
 	}
 	for _, c := range cases {
 		if got := convertOK(t, c.md); got != c.want {

@@ -133,6 +133,11 @@ func escapeChar(s string, i int) string {
 	if strings.IndexByte(alwaysEscape, c) >= 0 {
 		return `\` + s[i:i+1]
 	}
+	// '#' at line start is Jira's numbered-list marker ("#java is trending"
+	// would render as a list item) — same treatment as leading -/*/+.
+	if c == '#' && i == 0 {
+		return `\#`
+	}
 	if strings.IndexByte(toggles, c) >= 0 {
 		beforeOpen := i == 0 || s[i-1] == ' ' || s[i-1] == '\t' || s[i-1] == '(' || s[i-1] == '"'
 		afterOpen := i+1 < len(s) && s[i+1] != ' ' && s[i+1] != '\t'
@@ -152,8 +157,10 @@ func escapeRun(s string) string {
 	return b.String()
 }
 
-// codeSpan handles `code` → {{code}}. Content that would break out of the
-// monospace braces is refused.
+// codeSpan handles `code` → {{code}}. Jira's {{…}} only sets the font — it
+// does NOT suppress inner phrase markup — so wiki-active characters inside
+// are backslash-escaped ({}[]|!*_-+^~ stay literal, as a markdown code span
+// demands). Braces are refused: they break the {{…}} parsing itself.
 func codeSpan(b *strings.Builder, s string) (int, error) {
 	open := 1
 	if strings.HasPrefix(s, "``") {
@@ -168,7 +175,14 @@ func codeSpan(b *strings.Builder, s string) (int, error) {
 	if strings.ContainsAny(content, "{}") {
 		return 0, unsupported("code span containing braces", clip(content))
 	}
-	b.WriteString("{{" + content + "}}")
+	var esc strings.Builder
+	for j := 0; j < len(content); j++ {
+		if strings.IndexByte(alwaysEscape+toggles, content[j]) >= 0 {
+			esc.WriteByte('\\')
+		}
+		esc.WriteString(content[j : j+1])
+	}
+	b.WriteString("{{" + esc.String() + "}}")
 	return open + end + open, nil
 }
 
@@ -201,7 +215,9 @@ func isWordByte2(s string, i int) bool {
 	return i >= 0 && i < len(s) && isWordByte(s[i])
 }
 
-var mentionRe = regexp.MustCompile(`^\[~[A-Za-z0-9@._-]+\]`)
+// mentionRe requires at least one letter so bracketed prose like "[~5]" is
+// not misread as a (broken) user link.
+var mentionRe = regexp.MustCompile(`^\[~[A-Za-z0-9@._-]*[A-Za-z][A-Za-z0-9@._-]*\]`)
 
 // mention passes a [~username] through verbatim (DC mention syntax has no md
 // counterpart; agents write it directly). Returns bytes consumed, 0 if the
