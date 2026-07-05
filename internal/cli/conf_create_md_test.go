@@ -137,3 +137,35 @@ func TestConfPageCreate_FromMDEmptyDoc(t *testing.T) {
 		t.Fatalf("expected zero requests, got %d: %+v", len(reqs), reqs)
 	}
 }
+
+// TestConfPageCreate_FromMDEmptyValue: an explicitly empty --from-md (e.g. an
+// unset shell variable) is a usage error, NOT a silent fall-through to
+// CSF-from-stdin.
+func TestConfPageCreate_FromMDEmptyValue(t *testing.T) {
+	cs := newConfServer(t)
+
+	_, code := runCLI(t, confEnv(cs.srv),
+		"conf", "page", "create", "--space", "ENG", "--title", "T", "--from-md", "")
+	if code != exitUsage {
+		t.Fatalf("--from-md '': exit %d, want %d", code, exitUsage)
+	}
+	if reqs := cs.requests(); len(reqs) != 0 {
+		t.Fatalf("expected zero requests, got %d: %+v", len(reqs), reqs)
+	}
+}
+
+// TestConfPageCreate_FromMDMissingFile pins the exit for an unreadable path:
+// a bare read error, generic exit 1 (consistent with --from-file).
+func TestConfPageCreate_FromMDMissingFile(t *testing.T) {
+	cs := newConfServer(t)
+
+	_, code := runCLI(t, confEnv(cs.srv),
+		"conf", "page", "create", "--space", "ENG", "--title", "T",
+		"--from-md", filepath.Join(t.TempDir(), "nope.md"))
+	if code != exitGeneric {
+		t.Fatalf("missing --from-md file: exit %d, want %d", code, exitGeneric)
+	}
+	if reqs := cs.requests(); len(reqs) != 0 {
+		t.Fatalf("expected zero requests, got %d: %+v", len(reqs), reqs)
+	}
+}

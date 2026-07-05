@@ -154,7 +154,10 @@ func convertFence(lines []string) ([]byte, error) {
 	if last == 0 || strings.TrimSpace(lines[last]) != "```" {
 		return nil, unsupported("unterminated code fence", lines[0])
 	}
-	body := strings.Join(lines[1:last], "\n")
+	// CRLF input reaches here verbatim (every other block type sheds \r via
+	// TrimSpace); normalize so CDATA never carries stray carriage returns.
+	body := strings.ReplaceAll(strings.Join(lines[1:last], "\n"), "\r\n", "\n")
+	body = strings.TrimSuffix(body, "\r")
 	var b strings.Builder
 	b.WriteString(`<ac:structured-macro ac:name="code">`)
 	if lang != "" {
@@ -284,6 +287,10 @@ func convertTable(lines []string) ([]byte, error) {
 // first line), never partial output. An empty document is an error: page and
 // comment bodies must not be silently blank.
 func ConvertDocument(md string) ([]byte, error) {
+	// A file authored on Windows may open with a UTF-8 BOM; without this the
+	// first block starts with U+FEFF, misses every construct regex, and lands
+	// as a corrupted paragraph that still validates.
+	md = strings.TrimPrefix(md, "\ufeff")
 	blocks := SplitBlocks(md)
 	if len(blocks) == 0 {
 		return nil, unsupported("empty document", "")

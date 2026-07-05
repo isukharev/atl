@@ -248,3 +248,28 @@ func TestConvertDocumentFailsClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestConvertDocumentBOMAndCRLF(t *testing.T) {
+	// A leading UTF-8 BOM (Windows-authored file) must not demote the first
+	// heading to a corrupted paragraph.
+	out, err := ConvertDocument("\ufeff# Title\n\nHello\n")
+	if err != nil {
+		t.Fatalf("ConvertDocument(BOM): %v", err)
+	}
+	if want := "<h1>Title</h1>\n<p>Hello</p>"; string(out) != want {
+		t.Errorf("BOM doc = %q, want %q", out, want)
+	}
+
+	// CRLF input: fence bodies are the one block type that keeps lines
+	// verbatim — carriage returns must not leak into the CDATA.
+	out, err = ConvertDocument("# T\r\n\r\n```\r\nline1\r\nline2\r\n```\r\n")
+	if err != nil {
+		t.Fatalf("ConvertDocument(CRLF): %v", err)
+	}
+	if strings.Contains(string(out), "\r") {
+		t.Errorf("CRLF doc leaked carriage returns: %q", out)
+	}
+	if !strings.Contains(string(out), "<![CDATA[line1\nline2]]>") {
+		t.Errorf("CRLF fence body = %q, want LF-joined lines", out)
+	}
+}

@@ -33,8 +33,13 @@ func warnIfTruncated(w io.Writer, res *app.PullResult) {
 // mutually exclusive. A conversion failure maps to ErrCheckFailed (exit 8) —
 // fail-closed, nothing is sent to the backend.
 func createBody(cmd *cobra.Command, fromFile, fromMD string) ([]byte, error) {
-	if fromMD == "" {
+	// Dispatch on the flag being set, not its value: `--from-md ""` (e.g. an
+	// empty shell variable) must not silently fall back to CSF-from-stdin.
+	if !cmd.Flags().Changed("from-md") {
 		return readBody(fromFile)
+	}
+	if fromMD == "" {
+		return nil, usageErr("--from-md requires a file path or - for stdin")
 	}
 	if cmd.Flags().Changed("from-file") {
 		return nil, usageErr("--from-file and --from-md are mutually exclusive")
