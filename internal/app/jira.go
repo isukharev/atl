@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/safepath"
+	"github.com/isukharev/atl/internal/textedit"
 )
 
 func (s *JiraService) Issue(ctx context.Context, key string, fields []string) (*domain.Issue, error) {
@@ -26,6 +28,54 @@ func (s *JiraService) Create(ctx context.Context, project, issueType, summary st
 
 func (s *JiraService) Update(ctx context.Context, key, summary string, body []byte, fields map[string]string) error {
 	return s.tr.Update(ctx, key, summary, body, fields)
+}
+
+// EditDescription performs a targeted description edit in one command:
+// fetch the current description, replace old→repl via the layered textedit
+// matcher (exact → invisible-tolerant → whitespace-run, the same engine as
+// conf edit), and write the spliced text back. It returns the pre-edit
+// description alongside the replace result so the caller can render
+// before/after regions.
+//
+// Jira DC updates are last-writer-wins (no version gate), so the old-text
+// match is the drift guard: if the description changed underneath, the
+// needle misses and the edit is refused instead of overwriting.
+func (s *JiraService) EditDescription(ctx context.Context, key, old, repl string, all, dryRun bool) (string, *textedit.Result, error) {
+	is, err := s.tr.GetIssue(ctx, key, []string{"description"})
+	if err != nil {
+		return "", nil, err
+	}
+	if is.Body == "" {
+		return "", nil, fmt.Errorf("%w: issue %s has an empty description; set one with jira issue update --from-file/--from-md", domain.ErrNotFound, key)
+	}
+	res, err := textedit.Replace(is.Body, old, repl, all)
+	if err != nil {
+		var nom *textedit.NoMatchError
+		if errors.As(err, &nom) {
+			return "", nil, fmt.Errorf("%w: %v", domain.ErrNotFound, err)
+		}
+		return "", nil, fmt.Errorf("%w: %v", domain.ErrUsage, err)
+	}
+	// The whitespace-run pass collapses newlines, so a needle written with a
+	// space can match across a line break. That is benign in CSF (XML), but
+	// Jira wiki is line-sensitive (h2., *, {code} are line-start tokens) — a
+	// cross-line splice silently merges lines and changes structure. Refuse
+	// instead (exit 8): the caller should copy --old exactly, newlines
+	// included.
+	if res.Pass == textedit.PassWhitespace {
+		for _, m := range res.Matches {
+			if strings.Count(is.Body[m.Start:m.End], "\n") != strings.Count(old, "\n") {
+				return "", nil, fmt.Errorf("%w: the match spans a line boundary that --old does not (whitespace-tolerant pass); Jira wiki is line-sensitive, so copy --old exactly from the description, including newlines", domain.ErrCheckFailed)
+			}
+		}
+	}
+	if dryRun {
+		return is.Body, res, nil
+	}
+	if err := s.tr.Update(ctx, key, "", []byte(res.Text), nil); err != nil {
+		return "", nil, err
+	}
+	return is.Body, res, nil
 }
 
 func (s *JiraService) Transition(ctx context.Context, key, to, comment string, fields map[string]string) error {

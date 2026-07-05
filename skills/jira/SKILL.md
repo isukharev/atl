@@ -1,6 +1,6 @@
 ---
 name: jira
-description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, assign, transition, comment on, link, delete, check fields of, or report on a Jira issue, ticket, bug, story, epic, or task; extract artifact references; build an epic tree; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; download images from an issue; work with agile boards and sprints; or read Tempo Structure metadata, forest rows, values, and issue exports.
+description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/edit/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, assign, transition, comment on, link, delete, check fields of, or report on a Jira issue, ticket, bug, story, epic, or task; extract artifact references; build an epic tree; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; download images from an issue; work with agile boards and sprints; or read Tempo Structure metadata, forest rows, values, and issue exports.
 ---
 
 # Jira issues with `atl`
@@ -76,6 +76,7 @@ atl jira issue get PROJ-1 [--fields summary,description,status]
 
 atl jira issue create --project PROJ --type Bug --summary 'Title' --from-md desc.md [--field k=v]
 atl jira issue update PROJ-1 [--summary 'New'] [--from-md desc.md] [--field k=v]       # see fields.md for big bodies
+atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'                  # targeted description edit
 atl jira issue assign PROJ-1 --me                                                       # or --to <username> / --none
 atl jira issue transition PROJ-1 --to 'In Progress' [--comment 'why'] [--field k=v]    # list first ↓
 atl jira issue comment add PROJ-1 --from-md comment.md                                  # BREAKING: was comment PROJ-1
@@ -96,6 +97,18 @@ atl jira issue refs --jql 'project=PROJ' --limit 100                            
 atl jira issue tree --jql 'project=PROJ' --epic-field customfield_10001                # epic-to-child grouping
 atl jira issue delete PROJ-1 --force                                                    # PERMANENT on DC; no trash
 ```
+
+**Changing a description: prefer `issue edit` (one command).** It fetches, replaces
+`--old` → `--new`, and writes back — no `get` before (the `--old` match doubles as the
+drift check), no temp files (pass multiline `--new` directly with bash `$'...'`), and no
+verify `get` after (the output prints the before/after region). The match must be unique —
+ambiguous → exit 2 (add surrounding context or pass `--all`); no match → exit 4 with the
+closest region quoted. Insert a new section by anchoring on the heading that should follow
+it: `--old 'h2. Verify' --new $'h2. Rollback\n\nRestore the snapshot.\n\nh2. Verify'`.
+Several independent edits = several `edit` commands. Delete text with `--new ''`; preview
+with `--dry-run`. `--new` is **wiki markup**, spliced verbatim (matching tolerates
+NBSP/invisible bytes). Reach for `update --from-md` only when most of the description
+changes.
 
 ### 5. Discover valid values before writing
 ```bash
@@ -190,7 +203,8 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue search` | Search issues by JQL | `--jql`, `--fields`, `--limit`, `--cursor` |
 | `jira issue search -o id` | Print matching issue keys one per line | `-o id` |
 | `jira issue create` | Create an issue | `--project`, `--type`, `--summary`, `--from-md`, `--from-file`, `--field k=v` |
-| `jira issue update <KEY>` | Update summary/description/fields | `--summary`, `--from-md`, `--from-file`, `--field k=v` |
+| `jira issue update <KEY>` | Update summary/description/fields (whole body) | `--summary`, `--from-md`, `--from-file`, `--field k=v` |
+| `jira issue edit <KEY>` | Targeted description replace in one command | `--old`, `--new`, `--old-file`, `--new-file`, `--all`, `--dry-run` |
 | `jira issue assign <KEY>` | Set or clear the assignee | exactly one of `--to USER`, `--me`, `--none` |
 | `jira issue transition <KEY>` | Transition to a status | `--to`, `--comment`, `--field k=v` |
 | `jira issue check <KEY>` | Audit required/important fields; non-zero exit if required field empty | `--require fields`, `--warn fields` |
@@ -242,6 +256,9 @@ If the plugin or object is unavailable, expect exit 4/6.
 | Transition rejected by Jira | Status name not available from current state | Run `jira transitions --key PROJ-1` first to see valid transitions |
 | Field value rejected | Field option doesn't exist for this project/type | Run `jira field-options --project PROJ --field <field>` to list valid values |
 | Structure command exits 4/6 | Structure plugin/object unavailable or token lacks permission | Verify the numeric id and permissions; commands are read-only |
+| Exit 4 from `issue edit` | `--old` not found (text changed or hidden bytes) | Read the quoted closest-region in the error; re-check with `issue get --fields description` |
+| Exit 2 from `issue edit` | `--old` matches more than once | Add surrounding context to make it unique, or pass `--all` |
+| Exit 8 from `issue edit` | Match would cross a line break `--old` doesn't have | Copy `--old` exactly from the description, newlines included |
 
 Tool friction that cost you real turns (repeated failures, misleading errors, unexpected
 refusals)? Offer the user a report — see the `atl` skill's feedback flow (consent-gated
@@ -255,7 +272,8 @@ sanitized issue + private case file).
   (`*bold*`, `h2.`, `{code}` — see [wiki-markup.md](reference/wiki-markup.md)); Markdown
   syntax pasted there publishes as literal characters.
 - Structure commands are read-only inspection tools; do not infer that `atl` can write Structure data.
-- No version gate → always `get` right before `update`.
+- No version gate → always `get` right before `update`. (`issue edit` checks implicitly:
+  the `--old` match fails closed if the text moved.)
 - Before setting a status, field value, or link type, confirm it exists (`transitions`,
   `field-options`, `link-types`) — Jira rejects unknown names.
 - Use `jira issue link suggest --csv ...` before bulk link work; it is read-only and emits

@@ -48,6 +48,11 @@ confirm allowed values with `field-options` rather than guessing.
 
 ## Editing a large description / epic body as a file
 
+**Check first:** for a bounded change (fix a value, add/remove a section, reword a
+paragraph) skip the file round-trip entirely — one `atl jira issue edit <KEY> --old … --new …`
+does fetch→splice→write with the `--old` match as the drift guard. The file pattern below is
+for wholesale rewrites.
+
 Inline flags are awful for long bodies. Edit the wiki body as a file instead — Jira's `--from-file`
 accepts a body file (up to 64 MiB). Compose it in Jira wiki markup, **not Markdown** — see
 [wiki-markup.md](wiki-markup.md):

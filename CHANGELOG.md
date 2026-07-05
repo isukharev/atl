@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`jira issue edit` — one-command targeted description edit.** Fetches the
+  description, replaces `--old` with `--new` via the same
+  whitespace/invisible-tolerant matcher as `conf edit`, and writes it back —
+  no more get → compose → update ceremony for small changes. Unique match
+  required unless `--all` (ambiguous → exit 2); a missed needle refuses with
+  exit 4 and a quoted closest-region dump instead of overwriting, which also
+  doubles as the drift guard on a backend with no version gate. Supports
+  `--old-file`/`--new-file` (`-` for stdin), `--new ''` to delete the match,
+  and `--dry-run`. A whitespace-tolerant match that would cross a line break
+  is refused (exit 8) — Jira wiki is line-sensitive, and a cross-line splice
+  could silently merge lines.
 - **`conf apply` — the markdown view becomes an editable surface.** Edit
   `page.md`, run `atl conf apply page.md`, and the edits merge into the
   `.csf` block by block: untouched blocks keep their **exact** base bytes,

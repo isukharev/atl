@@ -278,6 +278,7 @@ atl jira pull --jql 'project = PROJ' --into mirror-jira
 # Write
 atl jira issue assign PROJ-1 --me
 atl jira issue comment add PROJ-1 --from-md note.md
+atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
 atl jira issue transition PROJ-1 --to Done
 
 # Metadata
