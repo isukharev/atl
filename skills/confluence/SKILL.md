@@ -67,14 +67,19 @@ markdown — no invisible-byte traps), then merge them into the `.csf` block by 
 atl conf apply <…>/<page-slug>.md
 ```
 
-→ `{ "report": {unchanged, converted, moved, removed, removed_fragments?}, "csf_ok", "wrote" }`
-Untouched blocks keep their **exact** CSF bytes; opaque markers (⟦…⟧, `[KEY](jira:KEY)`,
-`[[Page]]`, mentions) keep their identity — don't edit marker text, but whole marker lines may
-move. **Exit 8** means apply refused, nothing was written:
+→ `{ "report": {unchanged, converted, moved, removed, merged_tables?, removed_fragments?}, "csf_ok", "wrote" }`
+`"wrote": true` + `"csf_ok": true` **is** the success signal — no need to re-check exit codes
+or grep the `.csf` afterwards. Untouched blocks keep their **exact** CSF bytes; opaque markers
+(⟦…⟧, `[KEY](jira:KEY)`, `[[Page]]`, mentions) keep their identity — don't edit marker text,
+but marker text may move between lines/cells. Tables — styled ones included — merge
+**row/cell-wise**: edit cell text, add or delete whole rows in the md table and apply splices
+them in place (untouched rows and cell styling keep their bytes; new rows clone a neighbor's
+structure). **Exit 8** means apply refused, nothing was written:
 - *"removes N opaque fragment(s)"* — you dropped a macro/mention/link; restore the marker, or
   re-run with `--allow-fragment-loss` if intentional.
-- *"cannot convert edited block"* — that fragment (complex table, unrecognized wrapper,
-  ambiguous mention) can't be edited via md: make that one edit on the `.csf` directly using
+- *"cannot convert edited block"* — that fragment (unrecognized wrapper, ambiguous mention,
+  a table edit crossing a rowspan/colspan, column add/remove, nested table, copied macro
+  cell) can't be edited via md: make that one edit on the `.csf` directly using
   the decision table in [csf.md](reference/csf.md) (`conf edit` / boundary-anchor splice).
 
 Direct-`.csf` edits and the md surface don't mix in one cycle: once you edit the `.csf`

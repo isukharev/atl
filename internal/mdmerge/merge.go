@@ -32,6 +32,9 @@ type Report struct {
 	Moved     int `json:"moved"`     // base blocks reused verbatim at a new position
 	Converted int `json:"converted"` // edited/new markdown blocks converted to CSF
 	Removed   int `json:"removed"`   // base blocks with no counterpart in the edited md
+	// MergedTables counts complex tables merged row/cell-wise: untouched rows
+	// kept their bytes, only edited cells were converted.
+	MergedTables int `json:"merged_tables,omitempty"`
 
 	// RemovedFragments lists opaque fragments present in the base but absent
 	// from the result (macros, mentions, links, images the edit dropped).
@@ -163,19 +166,20 @@ func Merge(base []byte, refs []domain.Ref, editedMD string, opts Options) ([]byt
 	}
 	reused := make(map[int]bool)
 
-	markers := collectMarkers(nodes, kept, base, refs)
-
-	// The md table syntax cannot express spans, cell styling, or wrapper
-	// structure. If the edit drops a complex table (i.e. the agent edited
-	// one), converting its replacement as a plain GFM table would silently
-	// strip that structure — refuse table conversions in that merge.
-	complexTableDropped := false
+	// A dropped complex table is not converted from md like other blocks — it
+	// is merged row/cell-wise against its base bytes (tablemerge.go). Its
+	// opaque fragments therefore stay out of the global marker pool: most of
+	// the table's bytes survive in place, so treating its macros/mentions as
+	// relocatable would duplicate them elsewhere on the page.
+	var droppedComplexTables []int
+	markerKept := append([]bool(nil), kept...)
 	for i, n := range nodes {
 		if !kept[i] && blocks[i].Kind == "table" && hasComplexTable(n) {
-			complexTableDropped = true
-			break
+			droppedComplexTables = append(droppedComplexTables, i)
+			markerKept[i] = true
 		}
 	}
+	markers := collectMarkers(nodes, markerKept, base, refs)
 
 	// Assemble the output: walk edited pieces in order, splicing base bytes
 	// for kept blocks and buffering generated/reused bytes so insertions land
@@ -231,7 +235,18 @@ func Merge(base []byte, refs []domain.Ref, editedMD string, opts Options) ([]byt
 			rep.Moved++
 			continue
 		}
-		if complexTableDropped && strings.HasPrefix(txt, "|") {
+		if strings.HasPrefix(txt, "|") && len(droppedComplexTables) > 0 {
+			if bi, ok := pickTableCandidate(droppedComplexTables, reused, blocks, txt); ok {
+				merged, err := mergeTable(base, nodes[bi], refs, txt)
+				if err != nil {
+					return nil, nil, &BlockError{Block: txt, Err: err}
+				}
+				reused[bi] = true
+				removeFromPool(pool, units[firstUnit[bi]].text, bi)
+				pending = append(pending, merged...)
+				rep.MergedTables++
+				continue
+			}
 			return nil, nil, &BlockError{Block: txt, Err: fmt.Errorf(
 				"the edited table uses spans/styling/nested structure the md surface cannot express")}
 		}
@@ -336,6 +351,18 @@ func hasComplexTable(n *csf.Node) bool {
 		return true
 	})
 	return complexTable
+}
+
+// removeFromPool drops one specific block from a byte-reuse queue (it was
+// consumed by a table merge and must not be emitted a second time as a move).
+func removeFromPool(pool map[string][]int, key string, bi int) {
+	q := pool[key]
+	for i, v := range q {
+		if v == bi {
+			pool[key] = append(q[:i:i], q[i+1:]...)
+			return
+		}
+	}
 }
 
 func macroCounts(root *csf.Node) map[string]int {

@@ -19,14 +19,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   blockquotes/admonitions, links, `[[page links]]`, `[KEY](jira:KEY)`), and
   opaque elements in edited blocks (macros, mentions, links, images, colored
   spans) are substituted back from their original bytes so identity survives.
-  Fail-closed with nothing written (exit 8) on unconvertible blocks, complex
-  tables (spans/styling), ambiguous mentions, dropped fragments (macros
-  counted by name; override with `--allow-fragment-loss`), or a `.csf` that
-  diverged from the last-synced base; the merged body is always validated and
-  `conf push` remains the only write path to the server. Underpinned by new
-  element byte offsets in the CSF parser, a block-segmented renderer, and a
-  fuzzed md→CSF converter; a no-edit apply reproduces every page in a
-  78-page real-content corpus byte-identically.
+  Fail-closed with nothing written (exit 8) on unconvertible blocks,
+  ambiguous mentions, dropped fragments (macros counted by name; override
+  with `--allow-fragment-loss`), or a `.csf` that diverged from the
+  last-synced base; the merged body is always validated and `conf push`
+  remains the only write path to the server. Underpinned by new element byte
+  offsets in the CSF parser, a block-segmented renderer, and a fuzzed md→CSF
+  converter; a no-edit apply reproduces every page in a 78-page real-content
+  corpus byte-identically.
+- **`conf apply` merges styled tables row/cell-wise.** Tables carrying editor
+  boilerplate (cell `style`/`class` attributes, wrapper divs, spans) — i.e.
+  nearly every table saved from the Confluence UI — are no longer refused
+  wholesale: untouched rows keep their exact bytes, an edited cell splices
+  its converted content into the existing cell wrapper (styling survives), a
+  deleted row drops its byte range under the fragment-loss gate, and an
+  inserted row clones a neighboring row's byte structure. Mentions/links
+  copied from untouched rows are cloned byte-exactly; macros are never cloned
+  (identity). Still fail-closed: edits through rowspan/colspan continuations,
+  row deletion across a rowspan, column add/remove, nested tables, header
+  relocation. The apply report gains `merged_tables`.
 - **Agent-friendly output** — `-o id` prints just the primary identifier(s), one
   per line, for safe piping (`atl jira issue search … -o id | xargs …`); wired
   into `jira issue search`/`create` and `conf search`.

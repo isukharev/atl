@@ -17,9 +17,18 @@ func FuzzMerge(f *testing.F) {
 		"| K | V |\n| --- | --- |\n| a | 1 |\n",
 		"- [ ] task\n\n> INFO\n> \n> body\n",
 		"```go\ncode\n```\n\ntail **bold**\n",
+		// Table-merge shapes: styled-cell edit, row insert, row delete,
+		// span-continuation edit, width change.
+		"# Registry\n\n| Nr | Name | Kept? |\n| --- | --- | --- |\n| 1 | alpha | yes |\n| 2 | beta | yes |\n",
+		"| Nr | Name | Kept? |\n| --- | --- | --- |\n| 1 | alpha | ? |\n| 2 | beta | yes |\n| 3 | delta | no |\n",
+		"| Nr | Name | Kept? |\n| --- | --- | --- |\n| 2 | beta | yes |\n",
+		"| A | B |\n| --- | --- |\n| wide |  |\n| x | z |\n",
+		"| Nr | Name | Kept? | Extra |\n| --- | --- | --- | --- |\n| 1 | alpha | ? | e |\n",
 	}
 	bases := []string{
 		samplePage,
+		stylePage,
+		`<table><tbody><tr><th>A</th><th>B</th></tr><tr><td colspan="2">wide</td></tr><tr><td rowspan="2">x</td><td>y</td></tr><tr><td>z</td></tr></tbody></table>`,
 		`<p>one</p>`,
 		`<ac:layout><ac:layout-section><ac:layout-cell><p>x</p></ac:layout-cell></ac:layout-section></ac:layout>`,
 		`<p>a<ri:user ri:userkey="k"/>b</p><hr/>`,

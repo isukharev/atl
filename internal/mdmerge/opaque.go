@@ -23,6 +23,11 @@ type marker struct {
 	md    string
 	bytes []byte
 	used  bool
+	// copyable markers come from base content that keeps its bytes (unchanged
+	// table rows/cells): substitution splices a clone and does not consume
+	// them, so the same mention or link may be copied into several places.
+	// Macros are never copyable — cloning would duplicate their macro-id.
+	copyable bool
 }
 
 // collectMarkers gathers opaque inline elements from every base block that is
@@ -93,14 +98,10 @@ func spanHasColor(n *csf.Node) bool {
 	return false
 }
 
-// convertBlock converts one edited markdown block, substituting marker texts
-// with their original base bytes via sentinels that survive conversion as
-// plain alphanumeric text.
-func convertBlock(txt string, markers []*marker) ([]byte, error) {
-	// Fenced code is converted verbatim; markers inside it are just text.
-	if strings.HasPrefix(strings.TrimSpace(txt), "```") {
-		return mdcsf.Convert(txt)
-	}
+// substituteMarkers replaces marker texts found in txt with sentinel tokens
+// that survive conversion as plain alphanumeric text, returning the rewritten
+// text and the token→bytes map to splice back after conversion.
+func substituteMarkers(txt string, markers []*marker) (string, map[string][]byte, error) {
 	subst := map[string][]byte{}
 	for idx, m := range markers {
 		if m.used || m.md == "" {
@@ -115,10 +116,10 @@ func convertBlock(txt string, markers []*marker) ([]byte, error) {
 		// fragment — refuse instead.
 		if isPlainMarker(m.md) {
 			if boundaryIndex(txt[pos+len(m.md):], m.md) >= 0 {
-				return nil, fmt.Errorf("marker text %q appears more than once in the edited block — position is ambiguous", m.md)
+				return "", nil, fmt.Errorf("marker text %q appears more than once in the edited block — position is ambiguous", m.md)
 			}
 			if distinctBytesFor(markers, m.md) > 1 {
-				return nil, fmt.Errorf("several different fragments render to the same text %q — mapping is ambiguous", m.md)
+				return "", nil, fmt.Errorf("several different fragments render to the same text %q — mapping is ambiguous", m.md)
 			}
 		}
 		token := fmt.Sprintf("atlopaque%dz", idx)
@@ -127,7 +128,44 @@ func convertBlock(txt string, markers []*marker) ([]byte, error) {
 		}
 		txt = txt[:pos] + token + txt[pos+len(m.md):]
 		subst[token] = m.bytes
-		m.used = true
+		if !m.copyable {
+			m.used = true
+		}
+	}
+	return txt, subst, nil
+}
+
+// collectCopyable gathers clone-safe opaque inline elements (mentions, links,
+// images, colored spans — everything but identity-carrying macros) from base
+// content that keeps its bytes, so their text can be copied elsewhere.
+func collectCopyable(n *csf.Node, base []byte, refs []domain.Ref, out *[]*marker) {
+	for _, c := range n.Children {
+		if c.Type != csf.Element {
+			continue
+		}
+		if isOpaqueInline(c) {
+			if c.MacroName() == "" {
+				md := mirror.RenderInline(c, refs)
+				if md != "" && c.End > c.Start {
+					*out = append(*out, &marker{md: md, bytes: base[c.Start:c.End], copyable: true})
+				}
+			}
+			continue // never descend into a collected element
+		}
+		collectCopyable(c, base, refs, out)
+	}
+}
+
+// convertBlock converts one edited markdown block, substituting marker texts
+// with their original base bytes.
+func convertBlock(txt string, markers []*marker) ([]byte, error) {
+	// Fenced code is converted verbatim; markers inside it are just text.
+	if strings.HasPrefix(strings.TrimSpace(txt), "```") {
+		return mdcsf.Convert(txt)
+	}
+	txt, subst, err := substituteMarkers(txt, markers)
+	if err != nil {
+		return nil, err
 	}
 	out, err := mdcsf.Convert(txt)
 	if err != nil {
