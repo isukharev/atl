@@ -84,8 +84,9 @@ structure). **Exit 8** means apply refused, nothing was written:
 
 Direct-`.csf` edits and the md surface don't mix in one cycle: once you edit the `.csf`
 directly, apply refuses until the page is pushed or re-pulled. Use the `.assets/` images for
-visual context. For **new content** (new page bodies, comments) write markdown blocks and let
-apply convert them, or start from validated CSF snippets in
+visual context. For **new content**: a whole new page takes a markdown body directly
+(`conf page create --from-md body.md`); new sections in an existing page are markdown blocks
+that apply converts; comments still need CSF — start from validated snippets in
 [csf-authoring.md](reference/csf-authoring.md) — CSF is XHTML-based, **not Markdown**.
 
 ### 4. Validate
@@ -130,7 +131,7 @@ atl conf status ~/.atl/<workspace>/ --remote
 | `conf page meta` | Page metadata (version, ancestors, labels, restrictions) | `--id` |
 | `conf page history` | List page versions | `--id` |
 | `conf page open` | Open the page in the system browser | `--id` |
-| `conf page create` | Create a page (CSF body from `--from-file`) | `--space`, `--title`, `--parent`, `--from-file` |
+| `conf page create` | Create a page (markdown body via `--from-md`, or CSF via `--from-file`) | `--space`, `--title`, `--parent`, `--from-md`, `--from-file` |
 | `conf page copy` | Copy a page (same CSF body, new title/space/parent) | `--id`, `--title`, `--space`, `--parent` |
 | `conf page move` | Reparent a page | `--id`, `--parent` |
 | `conf page delete` | Trash a page | `--id` |
@@ -157,11 +158,18 @@ values across covered rows, and mark colored spans as `⟦color:...⟧text⟦/co
 For exact edits or unresolved rendering questions, inspect the `.csf` source.
 
 ## Creating, moving, commenting
-- New page: `atl conf page create --space <KEY> --title '<T>' [--parent <id>] --from-file body.csf`
-  (the body is validated; malformed CSF is rejected and the page is not created).
-- **Authoring a body from scratch** (new page, comment, or a new section in an existing `.csf`):
-  start from the validated snippets in [csf-authoring.md](reference/csf-authoring.md) — page
-  skeleton, code/info/warning/expand/status/TOC macros, task lists, tables, page links, mentions.
+- **New page from markdown (preferred):**
+  `atl conf page create --space <KEY> --title '<T>' [--parent <id>] --from-md body.md` —
+  write the body in the same markdown subset the `.md` view uses (headings, lists, task
+  lists, tables, fenced code, `> INFO:`/`> WARNING:` admonitions, `[[Page Title]]` links,
+  `[KEY](jira:KEY)` issue links). Fail-closed: **exit 8** names the first unconvertible
+  block and the page is NOT created — author that body as CSF instead.
+- New page from CSF: `... --from-file body.csf` (mutually exclusive with `--from-md`;
+  the body is validated; malformed CSF is rejected and the page is not created).
+- **Authoring a CSF body from scratch** (constructs outside the md subset, comments, or a
+  new section in an existing `.csf`): start from the validated snippets in
+  [csf-authoring.md](reference/csf-authoring.md) — page skeleton,
+  code/info/warning/expand/status/TOC macros, task lists, tables, page links, mentions.
 - Copy a page: `atl conf page copy --id <id> --title 'New Title' [--space KEY] [--parent <id>]`.
 - `atl conf page get --id <id> --format csf|view`, `atl conf page meta --id <id>`,
   `atl conf page history --id <id>`, `atl conf page move --id <id> --parent <id>`,
@@ -180,6 +188,7 @@ For exact edits or unresolved rendering questions, inspect the `.csf` source.
 | Exit 3 | Token was rejected (expired/revoked/wrong instance) | Re-run `atl auth login --service confluence` with a valid PAT |
 | Exit 2 + "not well-formed" on `page create` | CSF body has structural errors | Fix the CSF (`conf validate body.csf`) before retrying |
 | Exit 8 on `conf apply` | Unconvertible block, dropped fragments, or `.csf` diverged from base | See step 3: fix the marker / edit the `.csf` directly / push or re-pull first |
+| Exit 8 on `page create --from-md` | A markdown block is outside the convertible subset (or the doc is empty) | The error names the block; author that body as CSF via `--from-file` ([csf-authoring.md](reference/csf-authoring.md)) |
 | `conf search` requires `--cql` or filter | No query provided | Pass `--cql '<CQL>'` or at least one of `--space/--title/--label/--type` |
 
 Tool friction that cost you real turns (repeated failures, misleading errors, unexpected

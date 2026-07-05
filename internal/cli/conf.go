@@ -12,6 +12,7 @@ import (
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/mdcsf"
 	"github.com/isukharev/atl/internal/version"
 )
 
@@ -25,6 +26,33 @@ func warnIfTruncated(w io.Writer, res *app.PullResult) {
 			"warning: selection truncated at %d pages (safety cap) — the rest was NOT mirrored; narrow the query or pull subsets\n",
 			res.TruncatedAt)
 	}
+}
+
+// createBody resolves a body flag pair: raw CSF from --from-file, or markdown
+// converted whole-document via mdcsf when --from-md is set. The two are
+// mutually exclusive. A conversion failure maps to ErrCheckFailed (exit 8) —
+// fail-closed, nothing is sent to the backend.
+func createBody(cmd *cobra.Command, fromFile, fromMD string) ([]byte, error) {
+	// Dispatch on the flag being set, not its value: `--from-md ""` (e.g. an
+	// empty shell variable) must not silently fall back to CSF-from-stdin.
+	if !cmd.Flags().Changed("from-md") {
+		return readBody(fromFile)
+	}
+	if fromMD == "" {
+		return nil, usageErr("--from-md requires a file path or - for stdin")
+	}
+	if cmd.Flags().Changed("from-file") {
+		return nil, usageErr("--from-file and --from-md are mutually exclusive")
+	}
+	md, err := readBody(fromMD)
+	if err != nil {
+		return nil, err
+	}
+	body, err := mdcsf.ConvertDocument(string(md))
+	if err != nil {
+		return nil, fmt.Errorf("%w: cannot convert markdown body: %v (constructs outside the md subset need a CSF body via --from-file)", domain.ErrCheckFailed, err)
+	}
+	return body, nil
 }
 
 func confService() (*app.ConfluenceService, error) {
@@ -214,15 +242,15 @@ func confPageCmd() *cobra.Command {
 	}
 	hist.Flags().StringVar(&histID, "id", "", "page id")
 
-	var space, parent, title, fromFile string
+	var space, parent, title, fromFile, fromMD string
 	create := &cobra.Command{
 		Use:   "create",
-		Short: "Create a page (body = CSF via --from-file -)",
+		Short: "Create a page (body = CSF via --from-file -, or markdown via --from-md)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if space == "" || title == "" {
 				return usageErr("--space and --title are required")
 			}
-			body, err := readBody(fromFile)
+			body, err := createBody(cmd, fromFile, fromMD)
 			if err != nil {
 				return err
 			}
@@ -247,6 +275,7 @@ func confPageCmd() *cobra.Command {
 	create.Flags().StringVar(&parent, "parent", "", "parent page id")
 	create.Flags().StringVar(&title, "title", "", "page title")
 	create.Flags().StringVar(&fromFile, "from-file", "-", "CSF body file or - for stdin")
+	create.Flags().StringVar(&fromMD, "from-md", "", "markdown body file or - for stdin (converted to CSF; unsupported constructs are refused)")
 
 	var moveID, moveParent string
 	move := &cobra.Command{

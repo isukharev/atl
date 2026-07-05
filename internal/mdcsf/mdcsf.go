@@ -9,6 +9,7 @@
 package mdcsf
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"strings"
@@ -153,7 +154,10 @@ func convertFence(lines []string) ([]byte, error) {
 	if last == 0 || strings.TrimSpace(lines[last]) != "```" {
 		return nil, unsupported("unterminated code fence", lines[0])
 	}
-	body := strings.Join(lines[1:last], "\n")
+	// CRLF input reaches here verbatim (every other block type sheds \r via
+	// TrimSpace); normalize so CDATA never carries stray carriage returns.
+	body := strings.ReplaceAll(strings.Join(lines[1:last], "\n"), "\r\n", "\n")
+	body = strings.TrimSuffix(body, "\r")
 	var b strings.Builder
 	b.WriteString(`<ac:structured-macro ac:name="code">`)
 	if lang != "" {
@@ -275,6 +279,32 @@ func convertTable(lines []string) ([]byte, error) {
 	}
 	b.WriteString("</tbody></table>")
 	return []byte(b.String()), nil
+}
+
+// ConvertDocument turns a whole markdown document into a CSF body: SplitBlocks
+// plus Convert per block, joined with newlines. Fail-closed like Convert — the
+// first unconvertible block aborts with an error naming it (1-based index and
+// first line), never partial output. An empty document is an error: page and
+// comment bodies must not be silently blank.
+func ConvertDocument(md string) ([]byte, error) {
+	// A file authored on Windows may open with a UTF-8 BOM; without this the
+	// first block starts with U+FEFF, misses every construct regex, and lands
+	// as a corrupted paragraph that still validates.
+	md = strings.TrimPrefix(md, "\ufeff")
+	blocks := SplitBlocks(md)
+	if len(blocks) == 0 {
+		return nil, unsupported("empty document", "")
+	}
+	parts := make([][]byte, 0, len(blocks))
+	for i, block := range blocks {
+		out, err := Convert(block)
+		if err != nil {
+			first, _, _ := strings.Cut(strings.TrimSpace(block), "\n")
+			return nil, fmt.Errorf("block %d (%q): %w", i+1, clip(first), err)
+		}
+		parts = append(parts, out)
+	}
+	return bytes.Join(parts, []byte("\n")), nil
 }
 
 var tableSepRe = regexp.MustCompile(`^\|(\s*:?-+:?\s*\|)+$`)

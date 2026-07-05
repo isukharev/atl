@@ -628,7 +628,8 @@ atl conf page history --id 12345678
 
 ### `atl conf page create`
 
-Create a new page. Body must be valid CSF.
+Create a new page. The body is either valid CSF (`--from-file`) or markdown
+converted to CSF (`--from-md`) — the two flags are mutually exclusive.
 
 ```bash
 echo '<p>Hello, <strong>world</strong>.</p>' \
@@ -636,7 +637,19 @@ echo '<p>Hello, <strong>world</strong>.</p>' \
 
 atl conf page create --space DOCS --parent 12345678 \
   --title "Child page" --from-file body.csf
+
+# Author the body in markdown; atl converts it block-by-block:
+atl conf page create --space DOCS --title "From markdown" --from-md body.md
 ```
+
+`--from-md` accepts the same markdown subset as `conf apply` (headings,
+paragraphs, emphasis/links, lists and task lists, GFM tables, fenced code,
+blockquotes/admonitions, `---`, `[[Page Title]]` page links, `[KEY](jira:KEY)`
+issue links). Conversion is fail-closed: the first construct outside the
+subset aborts with exit 8 naming the offending block, and the page is **not**
+created — write those bodies as CSF via `--from-file` instead. An empty
+markdown document is refused the same way. The converted body still passes
+the CSF validation gate before the API call.
 
 Flags:
 
@@ -646,6 +659,7 @@ Flags:
 | `--title` | page title (required) |
 | `--parent` | parent page id |
 | `--from-file` | CSF body file or `-` for stdin (default stdin) |
+| `--from-md` | markdown body file or `-` for stdin; converted to CSF, fail-closed (exit 8) |
 
 ### `atl conf page move`
 

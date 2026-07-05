@@ -1,5 +1,10 @@
 # Authoring new CSF content (pages, sections, comments)
 
+> **Check first:** a whole new page usually doesn't need hand-written CSF — `conf page create
+> --from-md body.md` converts a markdown body directly (fail-closed, exit 8 names any block
+> outside the subset). Reach for these snippets when that refuses, or for comments and
+> sections spliced into an existing `.csf`.
+
 Use these snippets when you **write CSF from scratch** — a new page body for `conf page create
 --from-file`, a comment for `conf comment add --from-file`, or a new section spliced into an
 existing `.csf`. CSF is XHTML plus `<ac:*>`/`<ri:*>` elements; it is **not Markdown and not
