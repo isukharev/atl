@@ -839,7 +839,8 @@ Flags:
 
 ### `atl jira issue update`
 
-Update summary, description, or arbitrary fields.
+Update summary, description, or arbitrary fields. This replaces the whole
+description; for a small targeted change prefer `jira issue edit` below.
 
 ```bash
 atl jira issue update PROJ-1 --summary "Crash on empty input (critical)"
@@ -857,6 +858,43 @@ Flags:
 | `--from-file` | new description file (wiki markup) or `-` for stdin |
 | `--from-md` | new markdown description file or `-` for stdin; converted to wiki, fail-closed (exit 8) |
 | `--field key=value` | extra field (repeatable) |
+
+### `atl jira issue edit`
+
+Targeted description edit in one command: fetch the current description,
+replace `--old` with `--new` (the same whitespace/invisible-tolerant matcher
+as `conf edit`), and write the result back. Small fixes and
+insert-after-anchor edits skip the get → compose → update ceremony.
+
+```bash
+atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
+# insert a section by replacing an anchor heading with new text + the anchor
+atl jira issue edit PROJ-1 --old 'h2. Verify' \
+  --new $'h2. Rollback\n\nRestore the previous snapshot.\n\nh2. Verify'
+atl jira issue edit PROJ-1 --old 'obsolete paragraph' --new ''   # delete
+atl jira issue edit PROJ-1 --old 'foo' --new 'bar' --dry-run     # preview only
+```
+
+The match must be unique unless `--all` is passed: ambiguous → exit 2, no
+match → exit 4 with a quoted region dump showing the closest candidate (and
+any hidden bytes that broke exact matching). An empty description is exit 4 —
+set one with `issue update`. Replacement text is native wiki markup, spliced
+verbatim; for a full markdown rewrite use `issue update --from-md` instead.
+
+Jira DC updates are last-writer-wins (no version gate), so the `--old` match
+doubles as the drift guard: if the description changed underneath, the needle
+misses and the command refuses instead of overwriting.
+
+Flags:
+
+| flag | description |
+|---|---|
+| `PROJ-1` | issue key (positional, required) |
+| `--old` | text to find in the description (required; must be non-empty) |
+| `--new` | replacement wiki text (required; pass `--new ''` to delete the match) |
+| `--old-file` / `--new-file` | read either side from a file (`-` for stdin); one trailing newline is stripped |
+| `--all` | replace every match instead of requiring a unique one |
+| `--dry-run` | report the match and regions without updating the issue |
 
 ### `atl jira issue transition`
 

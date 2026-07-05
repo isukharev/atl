@@ -208,6 +208,61 @@ func jiraIssueCmd() *cobra.Command {
 	update.Flags().StringVar(&upMD, "from-md", "", "new markdown description file or - for stdin (converted to wiki; unsupported constructs are refused)")
 	update.Flags().StringArrayVar(&upFieldKV, "field", nil, "field key=value (repeatable); a JSON object/array value is sent as JSON, e.g. priority={\"name\":\"High\"}")
 
+	var edOld, edNew, edOldFile, edNewFile string
+	var edAll, edDryRun bool
+	edit := &cobra.Command{
+		Use:   "edit <KEY>",
+		Short: "Replace text in the description in one command (fetch, splice, write back)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			old, err := textFromFlagPair(edOld, edOldFile, "--old")
+			if err != nil {
+				return err
+			}
+			repl, err := textFromFlagPair(edNew, edNewFile, "--new")
+			if err != nil {
+				return err
+			}
+			if old == "" {
+				return usageErr("--old (or --old-file) is required and must be non-empty")
+			}
+			if !cmd.Flags().Changed("new") && edNewFile == "" {
+				return usageErr("--new (or --new-file) is required (pass --new '' to delete the matched text)")
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			before, res, err := svc.EditDescription(cmd.Context(), args[0], old, repl, edAll, edDryRun)
+			if err != nil {
+				return err
+			}
+			m := res.Matches[0]
+			out := map[string]any{
+				"key":           args[0],
+				"pass":          string(res.Pass),
+				"count":         len(res.Matches),
+				"offsets":       res.Matches,
+				"dry_run":       edDryRun,
+				"region_before": quoteRegion(before, m.Start, m.End),
+				"region_after":  quoteRegion(res.Text, m.Start, m.Start+len(repl)),
+			}
+			return emit(cmd, out, func() string {
+				verb := "replaced"
+				if edDryRun {
+					verb = "would replace"
+				}
+				return fmt.Sprintf("%s\t%s %d occurrence(s) via %s pass", args[0], verb, len(res.Matches), res.Pass)
+			})
+		},
+	}
+	edit.Flags().StringVar(&edOld, "old", "", "text to find in the description (tolerant of NBSP/zero-width/entity differences)")
+	edit.Flags().StringVar(&edNew, "new", "", "replacement text (native wiki, inserted verbatim)")
+	edit.Flags().StringVar(&edOldFile, "old-file", "", "read the text to find from a file (- for stdin; one trailing newline is stripped)")
+	edit.Flags().StringVar(&edNewFile, "new-file", "", "read the replacement from a file (one trailing newline is stripped)")
+	edit.Flags().BoolVar(&edAll, "all", false, "replace every match instead of requiring a unique one")
+	edit.Flags().BoolVar(&edDryRun, "dry-run", false, "report the match without updating the issue")
+
 	var to, transComment string
 	var transFieldKV []string
 	transition := &cobra.Command{
@@ -501,7 +556,7 @@ func jiraIssueCmd() *cobra.Command {
 	tree.Flags().StringVar(&treeFields, "fields", "", "extra comma-separated fields to fetch")
 	tree.Flags().IntVar(&treeLimit, "limit", 100, "max issues (0 = all)")
 
-	c.AddCommand(get, search, create, update, transition, check, del, assign, labels, history, refs, tree, comment, link, plan, linkEpic, images)
+	c.AddCommand(get, search, create, update, edit, transition, check, del, assign, labels, history, refs, tree, comment, link, plan, linkEpic, images)
 	return c
 }
 
