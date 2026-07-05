@@ -58,6 +58,8 @@ On disk per page:
     <page-slug>.assets/    # only with --assets: diagram/image renders (for vision)
 <root>/.atl/               # sync baseline — do not edit, do not commit
 ```
+If two sibling titles slugify to the same name, the later-pulled page lands in an
+id-suffixed dir (`<page-slug>-<id>/`) — same files inside, nothing overwritten.
 
 ### 3. Edit the `.md` view, merge with `conf apply`
 The `.md` is an **editable surface**: make your edits there with normal text editing (it's

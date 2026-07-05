@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`conf pull` can no longer silently overwrite a different page whose title
+  slugifies to the same directory.** Page-dir slugs are lossy (`Foo Bar` and
+  `Foo-Bar?` both become `foo-bar`); the mirror now checks the existing
+  `.meta.json` before writing and diverts the newcomer to an id-suffixed dir
+  (`foo-bar-<id>`, stable across re-pulls). A dir holding page files whose id
+  cannot be read is treated as foreign, and an unresolvable collision refuses
+  loudly (exit 8) instead of overwriting.
+
 ### Added
 
 - **`jira issue edit` — one-command targeted description edit.** Fetches the

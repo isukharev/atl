@@ -618,6 +618,46 @@ func TestPullSwallowsParseFailure(t *testing.T) {
 	}
 }
 
+// Two pages whose titles slugify identically must never overwrite each other:
+// the second pull is diverted to an id-suffixed dir and both bodies survive.
+func TestPullCollidingTitlesDoNotOverwrite(t *testing.T) {
+	into := t.TempDir()
+	st := &pullStore{pages: map[string]*domain.Resource{
+		"100": {ID: "100", Title: "Foo Bar", SpaceKey: "SP", Version: 1, Body: []byte("<p>A</p>")},
+		"200": {ID: "200", Title: "Foo-Bar?", SpaceKey: "SP", Version: 1, Body: []byte("<p>B</p>")},
+	}}
+	svc := &ConfluenceService{store: st}
+	res1, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
+	if err != nil {
+		t.Fatalf("pull 100: %v", err)
+	}
+	res2, err := svc.Pull(context.Background(), PullOpts{ID: "200", Into: into})
+	if err != nil {
+		t.Fatalf("pull 200: %v", err)
+	}
+	pathA, pathB := res1.Pages[0].Path, res2.Pages[0].Path
+	if pathA == pathB {
+		t.Fatalf("colliding titles mirrored to the same path %q", pathA)
+	}
+	for path, want := range map[string]string{pathA: "<p>A</p>", pathB: "<p>B</p>"} {
+		got, rerr := os.ReadFile(filepath.Join(into, path))
+		if rerr != nil {
+			t.Fatalf("read %s: %v", path, rerr)
+		}
+		if string(got) != want {
+			t.Errorf("%s = %q, want %q", path, got, want)
+		}
+	}
+	// Re-pulling the diverted page stays in its dir (no path churn).
+	res3, err := svc.Pull(context.Background(), PullOpts{ID: "200", Into: into})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res3.Pages[0].Path != pathB {
+		t.Errorf("re-pull moved page 200: %q -> %q", pathB, res3.Pages[0].Path)
+	}
+}
+
 // A GetPage failure mid-pull aborts and returns the wrapped error (so the CLI can
 // map the sentinel to an exit code); pages mirrored so far are still reported.
 func TestPullGetPageErrorAborts(t *testing.T) {

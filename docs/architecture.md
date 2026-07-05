@@ -281,6 +281,18 @@ mirror/
   `slugify` function that preserves unicode letters and digits (Cyrillic
   included), lowercases, and collapses everything else to hyphens, truncated
   at 80 runes.
+- `ClaimPageDir(space, ancestors, title, id)` — the collision-aware wrapper
+  writers go through. Slugification is lossy (`Foo Bar` and `Foo-Bar?` both
+  slugify to `foo-bar`), so before handing out a dir it checks the existing
+  `<slug>.meta.json`: a dir owned by a different page id (or holding page
+  files with unreadable meta) diverts the newcomer to an id-suffixed slug
+  (`foo-bar-200`), sticky across re-pulls even if the plain dir later frees
+  up; if even that dir belongs to someone else the claim refuses
+  (`ErrCheckFailed`) rather than overwrite. Known limitation: ancestor path
+  segments are still title-derived and collision-blind (ancestor ids are not
+  available), so descendants of a diverted page nest under the plain-slug
+  ancestor dir — structurally off, but no file is ever overwritten because
+  every leaf claim disambiguates.
 - `Write(dir, slug, page, refs)` — writes all four artefacts and updates the
   sidecar; the markdown render is best-effort (a parse error in `RenderMarkdown`
   is silently skipped so a pull never fails because of the read-view). How the

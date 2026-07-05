@@ -47,15 +47,79 @@ func Hash(body []byte) string {
 }
 
 // PageDir computes the directory for a page: root/SPACE/<anc…>/<ownSlug>.
-// ancestors are ancestor titles top→down (may be empty).
+// ancestors are ancestor titles top→down (may be empty). It is pure layout
+// computation and collision-blind — writers must resolve the directory through
+// ClaimPageDir so a lossy slug can never overwrite a different page's files.
 func (m *Mirror) PageDir(space string, ancestors []string, title string) (dir, slug string) {
+	slug = slugify(title)
+	return filepath.Join(m.pageParent(space, ancestors), slug), slug
+}
+
+// pageParent joins the sanitized space key and slugified ancestor titles into
+// the directory that holds a page's own slug dir.
+func (m *Mirror) pageParent(space string, ancestors []string) string {
 	parts := []string{m.Root, safeSeg(space)}
 	for _, a := range ancestors {
 		parts = append(parts, slugify(a))
 	}
+	return filepath.Join(parts...)
+}
+
+// ClaimPageDir resolves the directory a page's files may be written to.
+// Slugification is lossy — distinct sibling titles can collide ("Foo Bar" vs
+// "Foo-Bar?") — so before handing out the computed dir it checks who already
+// owns it via the existing <slug>.meta.json. A free dir or one owned by the
+// same id is claimed as-is; one owned by a different page (or holding page
+// files whose id cannot be read) makes the newcomer fall back to an id-suffixed
+// slug, stable across re-pulls. If even that dir belongs to someone else, the
+// claim fails loudly (ErrCheckFailed) rather than overwrite files.
+func (m *Mirror) ClaimPageDir(space string, ancestors []string, title, id string) (dir, slug string, err error) {
+	parent := m.pageParent(space, ancestors)
 	slug = slugify(title)
-	parts = append(parts, slug)
-	return filepath.Join(parts...), slug
+	dir = filepath.Join(parent, slug)
+	// A previously diverted page keeps its id-suffixed dir even after the plain
+	// dir frees up — otherwise a re-pull would migrate it back and orphan the
+	// suffixed copy, forking one page into two on-disk dirs.
+	if id != "" {
+		sslug := slug + "-" + slugify(id)
+		sdir := filepath.Join(parent, sslug)
+		if owner, occupied := pageOwner(sdir, sslug); occupied && owner == id {
+			return sdir, sslug, nil
+		}
+	}
+	owner, occupied := pageOwner(dir, slug)
+	if !occupied || (id != "" && owner == id) {
+		return dir, slug, nil
+	}
+	if id == "" {
+		return "", "", fmt.Errorf("%w: mirror dir %s already holds another page and this page has no id to disambiguate with", domain.ErrCheckFailed, dir)
+	}
+	// id is server-controlled: slugify reduces it to a separator-free token so
+	// the suffixed slug stays a single path component.
+	slug = slug + "-" + slugify(id)
+	dir = filepath.Join(parent, slug)
+	if owner, occupied := pageOwner(dir, slug); occupied && owner != id {
+		return "", "", fmt.Errorf("%w: mirror slug collision: refusing to overwrite %s, which belongs to a different page (title %q, id %s)", domain.ErrCheckFailed, dir, title, id)
+	}
+	return dir, slug, nil
+}
+
+// pageOwner reports whether dir already holds a page's files and, when
+// readable, the owning page id. occupied is true when a <slug>.meta.json or
+// <slug>.csf exists; owner is "" when the id could not be read (absent or
+// corrupt meta) — callers must then treat the dir as foreign, never as free.
+func pageOwner(dir, slug string) (owner string, occupied bool) {
+	if mb, err := os.ReadFile(filepath.Join(dir, slug+".meta.json")); err == nil {
+		var meta Meta
+		if json.Unmarshal(mb, &meta) == nil && meta.ID != "" {
+			return meta.ID, true
+		}
+		return "", true
+	}
+	if _, err := os.Stat(filepath.Join(dir, slug+".csf")); err == nil {
+		return "", true
+	}
+	return "", false
 }
 
 // pageSink writes assets under <dir>/<slug>.assets/ and returns paths relative
