@@ -6,9 +6,9 @@ description: Convert a Confluence specification page into a structured Jira back
 # Spec → backlog with `atl`
 
 Read the spec → propose a breakdown → **get approval** → create the Epic
-**first**, then children linked to it. Children need the Epic key at link time;
-creating them first leaves orphans. Never create anything before the user
-approves the breakdown. Command details live in the `jira` and `confluence`
+**first**, then children linked to it. `link-epic` needs the Epic to already
+exist, so create it first and capture its key. Never create anything before
+the user approves the breakdown. Command details live in the `jira` and `confluence`
 skills.
 
 **Preflight:** `atl` must be installed and configured. If `command -v atl` fails

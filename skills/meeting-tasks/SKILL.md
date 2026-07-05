@@ -35,7 +35,7 @@ back.
 ### 3. Resolve assignees (Server/DC uses usernames)
 
 ```sh
-atl jira user search 'Ivan'
+atl jira user search 'Alex Doe'
 ```
 
 Ambiguous or missing match → leave the task unassigned and flag it. Never

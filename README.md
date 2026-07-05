@@ -133,7 +133,7 @@ built-in approval gates before anything is created:
 - **`search-knowledge`** — answer questions from Confluence + Jira with cited sources.
 - **`triage-issue`** — duplicate/regression search before filing a structured bug.
 - **`status-report`** — Jira-derived status report, optionally published to Confluence.
-- **`spec-to-backlog`** — a Confluence spec into an Epic plus linked tickets.
+- **`spec-to-backlog`** — turn a Confluence spec into an Epic plus linked tickets.
 - **`sprint-dashboard`** — a read-only visual snapshot of the current sprint.
 - **`meeting-tasks`** — action items from meeting notes into assigned Jira tasks.
 
