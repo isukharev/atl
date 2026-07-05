@@ -296,3 +296,39 @@ func TestMissingPATExitConfig(t *testing.T) {
 		t.Errorf("no PAT: stdout = %q, want empty", out)
 	}
 }
+
+// TestInsecureBackendURLExitUsage pins the wire-level ErrUsage wrap for a
+// non-https backend URL on a non-loopback host (exit 2, ATL_ALLOW_INSECURE is
+// the documented override — neutralized by the harness). The PAT is present so
+// the failure can only come from CheckSecureURL inside NewConfluence/NewJira,
+// before any HTTP call; a regression to a bare error would degrade to exit 1.
+func TestInsecureBackendURLExitUsage(t *testing.T) {
+	cases := []struct {
+		name string
+		env  map[string]string
+		args []string
+	}{
+		{"confluence", map[string]string{
+			"ATL_CONFLUENCE_URL": "http://confluence.example.com",
+			"ATL_CONFLUENCE_PAT": "test-pat",
+		}, []string{"conf", "page", "meta", "--id", "1"}},
+		{"jira", map[string]string{
+			"ATL_JIRA_URL": "http://jira.example.com",
+			"ATL_JIRA_PAT": "test-pat",
+		}, []string{"jira", "issue", "get", "X-1"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Error text rendering happens in production Execute() (see the
+			// harness comment) — the in-process contract is the exit code and a
+			// clean stdout.
+			out, code := runCLI(t, tc.env, tc.args...)
+			if code != exitUsage {
+				t.Fatalf("insecure URL: exit %d, want %d", code, exitUsage)
+			}
+			if out != "" {
+				t.Errorf("insecure URL: stdout = %q, want empty", out)
+			}
+		})
+	}
+}
