@@ -60,10 +60,13 @@ On disk per page:
 
 ### 3. Read to locate, open the substrate to edit
 Read the `.md` to understand and find the spot; **edit only the `.csf`**. Use the `.assets/` images
-for visual context. **Prefer `atl conf edit` for replacements** — real CSF is one huge line with
-invisible `U+00A0`/entity bytes that defeat exact-match editing; `conf edit` matches through them,
-requires a unique match, and auto-validates the result. See [csf.md](reference/csf.md) for the full
-technique (and fragments / what the bytes contain);
+for visual context. Real CSF is one huge line with invisible `U+00A0`/entity bytes that defeat
+exact-match editing — **pick the technique by situation**: shortest-unique-anchor exact edit first
+(one attempt); on a miss or an `invisible-chars` validate warning switch to `atl conf edit`
+(tolerant matching, auto-validates); insert via a short anchor (`--old '<anchor>' --new
+'<anchor + new>'`); for whole sections/table rows splice between two short boundary anchors
+instead of matching the full span. See [csf.md](reference/csf.md) for the decision table
+(and fragments / what the bytes contain);
 [csf-authoring.md](reference/csf-authoring.md) has validated snippets for new content
 (macros, tables, task lists, links) — CSF is XHTML-based, **not Markdown**.
 

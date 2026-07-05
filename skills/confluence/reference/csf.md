@@ -11,18 +11,25 @@ Edit the XML/macro bytes directly. Keep tags balanced and entities well-formed; 
 checks well-formedness and reports problems as `{severity, line, col, rule, message}` (treat any
 `severity: "error"` as a hard block).
 
-## Editing existing CSF — avoid the exact-match trap
+## Editing existing CSF — pick the technique by situation
 
 Real CSF bodies are usually **one huge line** and contain **invisible bytes**: non-breaking
 spaces (`U+00A0` — pasted from the Confluence editor), entities, zero-width characters. An
 exact-string edit can miss even when the text *looks* identical on screen. Agents lose the most
-time here — not on writing CSF, but on retrying string matches that can never match.
+time here — not on writing CSF, but on retrying string matches that can never match. No single
+technique is cheapest everywhere; pick by situation:
 
-**Use `atl conf edit` — it is built for exactly this:**
+| Situation | Technique |
+|---|---|
+| Short, targeted replacement | Your editor's exact-match edit with the **shortest unique anchor** — one attempt only |
+| Exact match missed once, or `conf validate` warned `invisible-chars` | `atl conf edit --old … --new …` (tolerant matching) — don't retry exact variants blindly |
+| Inserting new content at a spot | `atl conf edit --old '<anchor>' --new '<anchor + new content>'` |
+| Long span: delete/rewrite a whole section or table row | Scripted splice between two **short** boundary anchors (below) — don't pass the whole span as `--old` |
+
+**`atl conf edit`** is the tolerant matcher:
 
 ```bash
 atl conf edit page.csf --old 'text as you see it' --new 'replacement'
-atl conf edit page.csf --old-file old.txt --new-file new.txt [--dry-run] [--all]
 atl conf edit page.csf --old ' obsolete sentence.' --new ''        # delete
 ```
 
@@ -31,24 +38,41 @@ atl conf edit page.csf --old ' obsolete sentence.' --new ''        # delete
   splice preserves every surrounding byte verbatim.
 - It refuses to guess: **exit 4** = not found, and the error dumps the closest region with
   hidden bytes made visible; **exit 2** = ambiguous — tighten `--old` or pass `--all`.
-- Inserting: `--old '<anchor>' --new '<anchor + new content>'` (anchor on the side you extend).
 - For `.csf` files the result is auto-validated (`csf_ok` in the JSON) — no separate
-  `conf validate` call needed after each edit.
-- `--old-file`/`--new-file` strip one trailing newline, so files written by your editor/tools
-  work as-is against single-line CSF.
+  `conf validate` call needed after a `conf edit`.
+- Skip `--dry-run` for routine replacements: the command is atomic — on a miss (exit 4) the
+  file is untouched. Reserve `--dry-run` for genuinely risky substitutions (e.g. `--all`).
+- Keep `--old`/`--new` **inline and short**. Don't write helper files just to feed
+  `--old-file`/`--new-file` — the file ceremony (create, feed, clean up) costs more than the
+  edit; the flags exist for content that already lives in a file (they strip one trailing
+  newline, so editor-written files work as-is against single-line CSF).
 
-Rules that still apply:
+**Long spans** (dropping a section, replacing a table row): don't hunt for the exact bytes of
+the whole span — splice between two short boundary anchors and validate:
+
+```bash
+python3 - <<'EOF'
+t = open('page.csf').read()
+a, b = '<h1>Section to drop</h1>', '<h1>Next section'
+assert t.count(a) == 1 and t.count(b) == 1
+i, j = t.index(a), t.index(b)          # keeps the end boundary
+open('page.csf', 'w').write(t[:i] + t[j:])
+EOF
+atl conf validate page.csf
+```
+
+Rules that always apply:
 
 1. **Match the shortest unique anchor** around the change — a few words plus the nearest tag,
    never a whole sentence or a whole table row.
 2. **Never reformat or pretty-print the whole file** — the bytes are the substrate; touch only
    the fragment you are changing.
-3. Fallback when `conf edit` is unavailable (old binary): dump the region bytes and splice with
-   a checked script —
+3. To see what's really in a region (before composing an anchor), dump the raw bytes:
    ```bash
    python3 -c "t=open('page.csf').read(); i=t.find('anchor text'); print(repr(t[max(0,i-40):i+120]))"
    ```
-   then `str.replace` guarded by `assert t.count(old) == 1`.
+   The same `str.replace` guarded by `assert t.count(old) == 1` is the fallback when
+   `conf edit` is unavailable (old binary).
 
 ## Fragments (`.meta.json`)
 

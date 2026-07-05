@@ -502,6 +502,15 @@ Exit codes: `4` — the text was not found in any pass (the error carries a
 quoted dump of the closest region, exposing hidden bytes); `2` — the match is
 ambiguous (make `--old` more specific or pass `--all`).
 
+Usage notes: keep `--old`/`--new` short and inline — match an anchor around
+the change, not a whole sentence or table row; `--old-file`/`--new-file` are
+for content that already lives in a file, not worth a write-then-clean-up
+ceremony. The command is atomic (a miss leaves the file untouched), so
+`--dry-run` is only needed for risky substitutions such as `--all`. For long
+spans (deleting a section, replacing a table row) splice between two short
+boundary anchors with a checked script instead of matching the full span —
+see the confluence skill's CSF reference for the decision table.
+
 ### `atl conf push`
 
 Validate and push a `.csf` file (or all dirty files in a directory) back to

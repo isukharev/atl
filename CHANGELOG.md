@@ -90,6 +90,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `U+00A0` bytes defeat exact-string edits). `skills/confluence/reference/csf.md`
   now prescribes short unique anchors, byte-level inspection after one failed
   match, and checked scripted replacement for table rows.
+- **Situational CSF-editing guidance in the skill** — measured across editing
+  techniques, no single one is cheapest everywhere: `conf edit` wins insertions
+  and macro-dense regions but over-costs long spans when fed whole sections via
+  helper files; scripted replacement wins long spans but flails on invisible
+  bytes. `skills/confluence/reference/csf.md` now opens with a decision table
+  (exact-match edit with a short unique anchor, one attempt → `conf edit` on a
+  miss / for insertions / on an `invisible-chars` warning → boundary-anchor
+  scripted splice for whole sections and table rows) plus anti-ceremony rules
+  (inline `--old`/`--new`, no helper files, no routine `--dry-run`, no separate
+  validate after `conf edit`).
 - **Dev-loop recipe** — `skills/atl/reference/dev-loop.md`: the end-to-end
   sequence for driving a ticket from a coding agent (take it, keep it truthful
   while developing, close with evidence, update the linked Confluence page
