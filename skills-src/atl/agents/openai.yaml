@@ -1,0 +1,6 @@
+interface:
+  display_name: "atl"
+  short_description: "Confluence and Jira via local files"
+  default_prompt: "Use $atl to work with Confluence or Jira through local atl mirrors."
+policy:
+  allow_implicit_invocation: true

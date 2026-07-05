@@ -2,6 +2,7 @@
 name: status-report
 description: Generate a project status report from Jira with the atl CLI and optionally publish it to Confluence. USE WHEN the user asks for a status report, weekly or daily update, sprint summary, progress overview, blocker list, or wants a Jira-derived summary posted to a Confluence page.
 ---
+<!-- Generated from skills-src/status-report/SKILL.md — edit the source and run 'make gen-plugins'. -->
 
 # Status report with `atl`
 

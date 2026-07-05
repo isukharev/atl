@@ -2,6 +2,7 @@
 name: meeting-tasks
 description: Extract action items from meeting notes — pasted text or a Confluence page — and create Jira tasks with assignees using the atl CLI. USE WHEN the user asks to turn meeting notes into tasks or tickets, capture action items, or create follow-up Jira issues from notes or a retro page.
 ---
+<!-- Generated from skills-src/meeting-tasks/SKILL.md — edit the source and run 'make gen-plugins'. -->
 
 # Meeting notes → Jira tasks with `atl`
 

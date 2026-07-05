@@ -1,0 +1,40 @@
+{
+  "name": "atl",
+  "version": "0.1.0",
+  "description": "Mirror, edit, validate, and push Confluence pages and Jira issues with the atl CLI",
+  "author": {
+    "name": "Ivan Sukharev",
+    "url": "https://github.com/isukharev"
+  },
+  "homepage": "https://github.com/isukharev/atl",
+  "repository": "https://github.com/isukharev/atl",
+  "license": "Apache-2.0",
+  "keywords": [
+    "confluence",
+    "jira",
+    "atlassian",
+    "cli",
+    "mirror",
+    "docs-as-code",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "atl",
+    "shortDescription": "Confluence and Jira workflows for coding agents",
+    "longDescription": "Use the atl CLI from Codex to mirror Confluence pages and Jira issues to local files, search them, edit native formats where supported, and push deliberate changes under version and safety checks.",
+    "developerName": "Ivan Sukharev",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/isukharev/atl",
+    "defaultPrompt": [
+      "Use atl to search Confluence and Jira for context.",
+      "Set up atl for Confluence and Jira access.",
+      "Use atl to update a Confluence page safely."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

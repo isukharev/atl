@@ -1,0 +1,20 @@
+{
+  "name": "atl",
+  "interface": {
+    "displayName": "atl"
+  },
+  "plugins": [
+    {
+      "name": "atl",
+      "source": {
+        "source": "local",
+        "path": "./plugins/atl"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

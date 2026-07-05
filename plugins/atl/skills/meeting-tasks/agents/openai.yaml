@@ -1,0 +1,6 @@
+interface:
+  display_name: "Meeting tasks"
+  short_description: "Turn meeting notes into Jira tasks"
+  default_prompt: "Use $meeting-tasks to extract action items and draft Jira tasks."
+policy:
+  allow_implicit_invocation: true

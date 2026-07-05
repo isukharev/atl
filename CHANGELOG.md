@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Codex plugin packaging.** The repo now also ships the atl skills as a
+  Codex plugin (`plugins/atl` + a repo-local marketplace at
+  `.agents/plugins/marketplace.json`): `codex plugin marketplace add
+  isukharev/atl`, then `codex plugin add atl@atl`. Both plugins are generated
+  from a single source of truth in `skills-src/` by `make gen-plugins`
+  (per-platform strings via `{{atl.var}}` placeholders), so the Claude Code
+  skills keep their native `/atl:setup` wording while Codex gets `$setup` —
+  CI rejects stale or hand-edited generated trees. Pipeline guide:
+  `docs/plugins.md`.
 - **Six workflow recipe skills in the shipped Claude Code plugin**:
   `search-knowledge` (cited answers from Confluence + Jira), `triage-issue`
   (duplicate/regression search before filing), `status-report` (Jira-derived

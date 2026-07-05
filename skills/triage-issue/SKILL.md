@@ -2,6 +2,7 @@
 name: triage-issue
 description: Triage a bug report or error message against Jira with the atl CLI — search for duplicates and prior fixes first, then create a well-structured ticket or comment on an existing one. USE WHEN the user pastes an error, stack trace, or bug description and asks "is this known", "is this a duplicate", "has this been reported/fixed before", or "file a bug for this".
 ---
+<!-- Generated from skills-src/triage-issue/SKILL.md — edit the source and run 'make gen-plugins'. -->
 
 # Triage an issue with `atl`
 

@@ -1,3 +1,4 @@
+<!-- Generated from skills-src/atl/reference/exit-codes.md — edit the source and run 'make gen-plugins'. -->
 # `atl` exit codes and how to react
 
 `atl` maps failure conditions to stable exit codes (driven by sentinel errors). Parse the JSON on

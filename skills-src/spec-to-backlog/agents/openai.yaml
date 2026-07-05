@@ -1,0 +1,6 @@
+interface:
+  display_name: "Spec to backlog"
+  short_description: "Convert specs into Jira backlog"
+  default_prompt: "Use $spec-to-backlog to turn a Confluence spec into a Jira backlog proposal."
+policy:
+  allow_implicit_invocation: true

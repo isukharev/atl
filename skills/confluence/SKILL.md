@@ -2,6 +2,7 @@
 name: confluence
 description: Pull, read, edit, validate, and push Confluence pages with the atl CLI in their native storage format (CSF). USE WHEN the user wants to read, search, summarize, edit, update, create, publish, copy, open, or delete a Confluence or wiki page; list or upload page attachments; add or list page comments; browse a space tree or list pages in a space; work with .csf / storage-format content; check page history or metadata.
 ---
+<!-- Generated from skills-src/confluence/SKILL.md — edit the source and run 'make gen-plugins'. -->
 
 # Confluence pages with `atl`
 

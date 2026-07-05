@@ -1,6 +1,7 @@
 # `atl` documentation
 
-Start with the project [README](../README.md) for install, quick start, and the Claude Code plugin.
+Start with the project [README](../README.md) for install, quick start, and the Claude Code/Codex
+agent plugins.
 This directory holds the deeper references:
 
 | Doc | Audience | What's in it |
@@ -11,6 +12,7 @@ This directory holds the deeper references:
 | [architecture.md](architecture.md) | Contributors | Hexagonal (ports & adapters) layout, the dependency rule, and extension points (new backend, new fragment type). |
 | [github-issue-workflow.md](github-issue-workflow.md) | Maintainers / agents | GitHub Issues, parent/sub-issues, labels, and PR process for roadmap-driven AI-agent work. |
 | [agent-benchmarking.md](agent-benchmarking.md) | Maintainers | How agent ergonomics are measured (headless runs, deterministic oracles, medians) and when a change warrants a re-measure. |
+| [plugins.md](plugins.md) | Contributors | Agent-plugin pipeline: `skills-src/` source of truth, the generator, placeholders, and how to add a skill or platform. |
 | [RELEASING.md](RELEASING.md) | Maintainers | Signing key, release workflow, the Homebrew formula, and verification. |
 
 New here? The [Quick start](../README.md#quick-start) gets you from install to a first result in four

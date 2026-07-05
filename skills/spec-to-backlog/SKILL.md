@@ -2,6 +2,7 @@
 name: spec-to-backlog
 description: Convert a Confluence specification page into a structured Jira backlog — an Epic plus linked implementation tickets — with the atl CLI. USE WHEN the user asks to break a spec, requirements page, RFC, or design doc into tickets, generate a backlog from a Confluence page, or create an epic with child tasks.
 ---
+<!-- Generated from skills-src/spec-to-backlog/SKILL.md — edit the source and run 'make gen-plugins'. -->
 
 # Spec → backlog with `atl`
 

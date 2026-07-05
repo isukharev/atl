@@ -10,7 +10,7 @@
 
 **A Git-style CLI for Confluence & Jira — built for coding agents.**
 
-`atl` lets a coding agent (e.g. Claude Code) interact with Confluence and Jira the same way
+`atl` lets a coding agent (e.g. Claude Code or Codex) interact with Confluence and Jira the same way
 it interacts with code: mirror documents to disk, search with `ripgrep`, edit the
 **native storage format** (Confluence Storage Format, `.csf`), reason in diffs, and push
 under an **optimistic version gate** that refuses to silently overwrite concurrent edits.
@@ -82,7 +82,7 @@ binary has no runtime dependencies.
 
 ## Quick start
 
-From zero to your first result with the CLI directly (for Claude Code, see the next section):
+From zero to your first result with the CLI directly (for agent plugins, see the next section):
 
 ```sh
 # 1. Install (Linux/macOS) — then add ~/.local/bin to PATH if the installer asks
@@ -106,11 +106,15 @@ Automating this in CI? See [docs/usage.md → Scripting & CI](docs/usage.md#scri
 
 ---
 
-## Use with Claude Code
+## Use with coding agents
 
-`atl` ships a [Claude Code](https://claude.com/claude-code) plugin (this repo is also a plugin
-marketplace), so an agent can install the CLI and drive it for you. Add the marketplace and install
-the plugin:
+`atl` ships installable agent workflows for Claude Code and Codex, so an agent can install the CLI
+and drive it for you.
+
+### Claude Code
+
+This repository is also a [Claude Code](https://claude.com/claude-code) plugin marketplace. Add the
+marketplace and install the plugin:
 
 ```
 /plugin marketplace add isukharev/atl
@@ -120,7 +124,22 @@ the plugin:
 
 `/atl:setup` installs the `atl` binary if it is missing, configures your Confluence/Jira auth and
 backend URLs, and agrees on a local mirror directory. After that, Claude Code automatically uses the
-bundled skills when relevant:
+shared skills listed below when relevant.
+
+### Codex
+
+This repository also includes Codex plugin metadata and a repo-local marketplace. Add the marketplace
+and install the same workflow bundle:
+
+```sh
+codex plugin marketplace add isukharev/atl
+codex plugin add atl@atl
+```
+
+Then start a new Codex session, invoke the `setup` skill from `/skills` or with `$setup`, and let it
+install/configure the `atl` CLI. After setup, Codex can invoke the same shared skills when relevant.
+
+Core skills:
 
 - **`atl`** — orientation: when to use `atl` (vs a live Atlassian MCP), the search-first workflow,
   and where the mirror lives.
@@ -137,9 +156,11 @@ built-in approval gates before anything is created:
 - **`sprint-dashboard`** — a read-only visual snapshot of the current sprint.
 - **`meeting-tasks`** — action items from meeting notes into assigned Jira tasks.
 
-The skills are bundled under [`skills/`](skills/) and defined by
-[`.claude-plugin/`](.claude-plugin/); you can also try them locally with
-`claude plugin validate .`.
+Both platforms ship the same skills, generated from the single source in
+[`skills-src/`](skills-src/) (platform pipeline: [docs/plugins.md](docs/plugins.md)). Claude Code
+packaging lives in [`.claude-plugin/`](.claude-plugin/); Codex packaging lives in
+[`plugins/atl`](plugins/atl) with the repo marketplace at
+[`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json).
 
 ---
 

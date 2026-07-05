@@ -5,6 +5,8 @@
 #   make test             run unit tests
 #   make lint             run golangci-lint (if installed)
 #   make vet              go vet
+#   make gen-plugins      regenerate skills/ and plugins/atl/skills/ from skills-src/
+#   make check-plugins    verify the generated plugin trees are current
 #   make live-smoke       run opt-in live CLI smoke checks
 #   make dist             cross-compile release binaries into ./dist
 #   make manifest         generate dist/manifest.json from ./dist binaries
@@ -62,6 +64,16 @@ vet:
 lint:
 	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not installed: https://golangci-lint.run/usage/install/"; exit 1; }
 	golangci-lint run
+
+.PHONY: gen-plugins
+gen-plugins:
+	go run ./scripts/gen-plugins
+
+.PHONY: check-plugins
+check-plugins: gen-plugins
+	@test -z "$$(git status --porcelain -- skills plugins/atl/skills)" || { \
+		git status --porcelain -- skills plugins/atl/skills; \
+		echo "generated plugin trees are stale or hand-edited: edit skills-src/, run 'make gen-plugins', commit all three trees"; exit 1; }
 
 .PHONY: tidy
 tidy:

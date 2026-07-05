@@ -1,3 +1,4 @@
+<!-- Generated from skills-src/atl/reference/dev-loop.md — edit the source and run 'make gen-plugins'. -->
 # The dev loop: driving a ticket from a coding agent
 
 The recipe for the core `atl` scenario — you are implementing a change in a code repo and keep

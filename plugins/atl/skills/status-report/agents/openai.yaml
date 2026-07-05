@@ -1,0 +1,6 @@
+interface:
+  display_name: "Status report"
+  short_description: "Draft Jira-based status reports"
+  default_prompt: "Use $status-report to create a Jira-derived project status report."
+policy:
+  allow_implicit_invocation: true

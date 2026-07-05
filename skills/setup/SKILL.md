@@ -4,6 +4,7 @@ description: Install the atl CLI and configure Confluence/Jira authentication, b
 disable-model-invocation: true
 allowed-tools: Bash(command -v atl) Bash(atl version) Bash(brew install *) Bash(atl config show) Bash(atl config set *) Bash(atl auth status) Bash(atl auth login *) Bash(atl conf search *) Bash(atl jira fields)
 ---
+<!-- Generated from skills-src/setup/SKILL.md — edit the source and run 'make gen-plugins'. -->
 
 # Set up the atl CLI
 

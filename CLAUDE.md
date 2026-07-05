@@ -182,14 +182,19 @@ Canonical guides live outside this file: `AGENTS.md` (cross-agent handoff rules)
   regenerate with `go test ./internal/cli/ -run … -update`) pin `emit()`'s JSON; keep canned
   responses free of volatile data (httptest ports, timestamps). The sentinel→exit-code matrix
   is locked in `cli_contract_test.go` — extend it when you add a sentinel.
-- **Keep the shipped plugin in sync with the CLI.** `skills/` is the Claude Code plugin clients
-  install to drive `atl`; it — and `docs/` — enumerate commands, flags, exit codes, and output.
-  When a change alters user-facing CLI behaviour, update the matching `skills/*/SKILL.md`
-  (Quick-Reference tables, examples, `USE WHEN` frontmatter, Common-Errors / exit-code blocks) plus
+- **Keep the shipped agent plugins in sync with the CLI.** `skills-src/` is the **single source
+  of truth** for the skills; `skills/` (Claude Code plugin) and `plugins/atl/skills/` (Codex
+  plugin) are **generated** from it by `make gen-plugins` — never edit them by hand (every
+  generated file says so in a header comment; CI's `make check-plugins` rejects stale or
+  hand-edited outputs). The skills — and `docs/` — enumerate commands, flags, exit codes, and
+  output. When a change alters user-facing CLI behaviour, update the matching
+  `skills-src/*/SKILL.md` (Quick-Reference tables, examples, `USE WHEN` frontmatter,
+  Common-Errors / exit-code blocks), run `make gen-plugins`, and commit all three trees plus
   `docs/usage.md` / `docs/OUTPUT_CONTRACT.md` / `CHANGELOG.md` — and `README.md` (and
   `README.ru.md` when it mirrors the same section) — in the **same PR**, and confirm it
-  **before merging**. Setup/auth/mirror behaviour changes also update `skills/setup/SKILL.md`
-  and `skills/atl/reference/*`.
+  **before merging**. Setup/auth/mirror behaviour changes also update
+  `skills-src/setup/SKILL.md` and `skills-src/atl/reference/*`. Platform-specific strings use
+  `{{atl.var}}` placeholders; the pipeline guide is `docs/plugins.md`.
 - **Security-boundary tests assert the guarantee fails when the control is removed** (O_NOFOLLOW,
   atomic symlink-replace, ed25519 verify-before-parse). Tamper *inside a valid payload* so the
   control under test — not an incidental parse failure — is what rejects it.
