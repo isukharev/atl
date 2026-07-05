@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/isukharev/atl/internal/csf"
@@ -38,6 +39,12 @@ type ApplyResult struct {
 func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 	if !strings.HasSuffix(mdPath, ".md") {
 		return nil, fmt.Errorf("%w: conf apply takes the page's .md view (got %q)", domain.ErrUsage, mdPath)
+	}
+	// Root discovery walks parent directories; a relative path (the common
+	// case when running from inside the mirror) must be absolutized first or
+	// the walk terminates immediately at ".".
+	if abs, err := filepath.Abs(mdPath); err == nil {
+		mdPath = abs
 	}
 	csfPath := strings.TrimSuffix(mdPath, ".md") + ".csf"
 	root := o.Into

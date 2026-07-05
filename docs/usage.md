@@ -511,6 +511,44 @@ spans (deleting a section, replacing a table row) splice between two short
 boundary anchors with a checked script instead of matching the full span —
 see the confluence skill's CSF reference for the decision table.
 
+### `atl conf apply`
+
+Merge edits from a page's markdown view (`page.md`) into its `.csf`, block by
+block. The markdown file becomes an editable surface: blocks you did not touch
+keep their **exact base bytes**; changed or new blocks are converted from a
+strict markdown subset (headings, paragraphs, lists, task lists, simple
+tables, fenced code, blockquotes/admonitions, links, `[[Page Links]]`,
+`[KEY](jira:KEY)`); opaque elements in edited blocks (macros, mentions,
+links, images) keep their original bytes. Local only — `conf push` remains
+the write path to the server.
+
+```bash
+atl conf apply mirror/DOCS/guide/guide.md
+atl conf apply guide.md --dry-run              # report without writing
+atl conf apply guide.md --allow-fragment-loss  # intentional macro/mention removal
+```
+
+| flag | description |
+|---|---|
+| `<page.md>` | the page's markdown view (positional, required) |
+| `--dry-run` | report the merge without writing files |
+| `--allow-fragment-loss` | proceed when the edit drops opaque fragments |
+| `--into` | mirror root (defaults to nearest `.atl`) |
+
+Output: `{path, csf_path, dry_run, report: {unchanged, moved, converted,
+removed, removed_fragments?, problems?}, csf_ok, wrote}`. After a successful
+apply the `.md` is regenerated from the merged body so both surfaces agree.
+
+The merge is **fail-closed** (exit `8`, nothing written) when: an edited block
+cannot be converted faithfully (unsupported markdown, edits inside an
+unrecognized wrapper element, a complex table with spans/styling, an ambiguous
+mention whose display name collides with prose) — make that edit in the
+`.csf` directly (`conf edit`); the edit drops opaque fragments and
+`--allow-fragment-loss` was not given; or the local `.csf` has diverged from
+the last-synced base (direct `.csf` edits win — push or re-pull first).
+Exit `4`: the page was never pulled (no meta/base). The merged body is always
+validated; `conf push --dry-run` remains the final gate before the server.
+
 ### `atl conf push`
 
 Validate and push a `.csf` file (or all dirty files in a directory) back to

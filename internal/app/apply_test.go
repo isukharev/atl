@@ -129,6 +129,24 @@ func TestApplyRefusesFragmentLossWithoutFlag(t *testing.T) {
 	}
 }
 
+// Regression: a relative .md path from inside the mirror must still find the
+// mirror root (the walk-up loop terminates immediately on ".").
+func TestApplyRelativePathFromMirrorCwd(t *testing.T) {
+	_, mdPath := scaffoldPage(t, applyPage)
+	md, _ := os.ReadFile(mdPath)
+	edited := strings.Replace(string(md), "Hello world.", "Hello relative.", 1)
+	os.WriteFile(mdPath, []byte(edited), 0o644)
+
+	t.Chdir(filepath.Dir(mdPath))
+	res, err := Apply("page.md", ApplyOpts{})
+	if err != nil {
+		t.Fatalf("Apply with relative path: %v", err)
+	}
+	if !res.Wrote {
+		t.Fatalf("result = %+v", res)
+	}
+}
+
 func TestApplyRequiresPulledPage(t *testing.T) {
 	dir := t.TempDir()
 	mdPath := filepath.Join(dir, "stray.md")

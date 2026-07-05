@@ -165,6 +165,18 @@ func Merge(base []byte, refs []domain.Ref, editedMD string, opts Options) ([]byt
 
 	markers := collectMarkers(nodes, kept, base, refs)
 
+	// The md table syntax cannot express spans, cell styling, or wrapper
+	// structure. If the edit drops a complex table (i.e. the agent edited
+	// one), converting its replacement as a plain GFM table would silently
+	// strip that structure — refuse table conversions in that merge.
+	complexTableDropped := false
+	for i, n := range nodes {
+		if !kept[i] && blocks[i].Kind == "table" && hasComplexTable(n) {
+			complexTableDropped = true
+			break
+		}
+	}
+
 	// Assemble the output: walk edited pieces in order, splicing base bytes
 	// for kept blocks and buffering generated/reused bytes so insertions land
 	// directly before the next kept block (inside the same container).
@@ -218,6 +230,10 @@ func Merge(base []byte, refs []domain.Ref, editedMD string, opts Options) ([]byt
 			pending = append(pending, base[blocks[bi].CSFStart:blocks[bi].CSFEnd]...)
 			rep.Moved++
 			continue
+		}
+		if complexTableDropped && strings.HasPrefix(txt, "|") {
+			return nil, nil, &BlockError{Block: txt, Err: fmt.Errorf(
+				"the edited table uses spans/styling/nested structure the md surface cannot express")}
 		}
 		conv, err := convertBlock(txt, markers)
 		if err != nil {
@@ -288,6 +304,38 @@ func removedFragments(baseRoot *csf.Node, result []byte) []domain.Ref {
 		return removed[i].Key < removed[j].Key
 	})
 	return removed
+}
+
+// hasComplexTable reports a table whose structure the md surface cannot
+// carry: row/col spans, styled or classed cells, or nested tables.
+func hasComplexTable(n *csf.Node) bool {
+	complexTable := false
+	tables := 0
+	csf.Walk(n, func(x *csf.Node) bool {
+		if complexTable {
+			return false
+		}
+		if x.Name.Space != "" {
+			return true
+		}
+		switch x.Name.Local {
+		case "table":
+			tables++
+			if tables > 1 {
+				complexTable = true
+				return false
+			}
+		case "td", "th":
+			for _, a := range []string{"rowspan", "colspan", "class", "style"} {
+				if v := x.Attrv("", a); v != "" && v != "1" {
+					complexTable = true
+					return false
+				}
+			}
+		}
+		return true
+	})
+	return complexTable
 }
 
 func macroCounts(root *csf.Node) map[string]int {

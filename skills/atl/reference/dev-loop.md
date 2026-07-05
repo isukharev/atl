@@ -6,7 +6,8 @@ batch-updating them afterwards. Command details live in the `jira` and `confluen
 is the sequence and the safety rails.
 
 Throughout: Jira bodies are **wiki markup** (`jira` skill → wiki-markup reference), Confluence
-bodies are **CSF** (`confluence` skill → csf-authoring reference). Never Markdown.
+bodies are **CSF** (`confluence` skill → csf-authoring reference), or markdown merged
+through `conf apply`. Never push raw Markdown as a body.
 
 ## Phase 1 — start the ticket
 
@@ -69,8 +70,8 @@ atl jira issue transition PROJ-123 --to Blocked --comment "Waiting on PROJ-99"
 3. **Update the living doc** — the Confluence page that described the design/runbook:
    ```bash
    atl conf pull --id <page-id> --into ~/.atl/<workspace>/   # fresh base right before editing
-   # edit the .csf (only the .csf) — update the section that the change affects
-   atl conf validate <…>/<page-slug>.csf
+   # edit the .md view, then merge block-by-block (fallback: edit the .csf directly)
+   atl conf apply <…>/<page-slug>.md                         # exit 8 = refused; see confluence skill
    atl conf push --dry-run <…>/<page-slug>.csf               # review diff + removed_fragments
    atl conf push <…>/<page-slug>.csf                         # version gate protects you
    ```

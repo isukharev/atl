@@ -5,8 +5,9 @@ description: Pull, read, edit, validate, and push Confluence pages with the atl 
 
 # Confluence pages with `atl`
 
-Edit Confluence by editing the page's **`.csf`** bytes on disk and pushing under a version gate.
-`atl` prints JSON by default.
+Edit Confluence pages on disk and push under a version gate: edit the **`.md`** view and merge
+with `conf apply` (preferred), or edit the native **`.csf`** bytes directly for what md can't
+express. `atl` prints JSON by default.
 
 ## Before the first command (preflight)
 
@@ -51,24 +52,36 @@ atl conf pull --id <id> --assets --into ~/.atl/<workspace>/
 On disk per page:
 ```
 <root>/<SPACE>/<ancestors…>/<page-slug>/
-    <page-slug>.csf        # native CSF — the ONLY editable file
-    <page-slug>.md         # rendered view — READ-ONLY (regenerated every pull)
+    <page-slug>.csf        # native CSF — source of truth; edit directly only as fallback
+    <page-slug>.md         # markdown view — edit it, then `conf apply` (regenerated on pull/apply)
     <page-slug>.meta.json  # metadata + fragments — auto-managed
     <page-slug>.assets/    # only with --assets: diagram/image renders (for vision)
 <root>/.atl/               # sync baseline — do not edit, do not commit
 ```
 
-### 3. Read to locate, open the substrate to edit
-Read the `.md` to understand and find the spot; **edit only the `.csf`**. Use the `.assets/` images
-for visual context. Real CSF is one huge line with invisible `U+00A0`/entity bytes that defeat
-exact-match editing — **pick the technique by situation**: shortest-unique-anchor exact edit first
-(one attempt); on a miss or an `invisible-chars` validate warning switch to `atl conf edit`
-(tolerant matching, auto-validates); insert via a short anchor (`--old '<anchor>' --new
-'<anchor + new>'`); for whole sections/table rows splice between two short boundary anchors
-instead of matching the full span. See [csf.md](reference/csf.md) for the decision table
-(and fragments / what the bytes contain);
-[csf-authoring.md](reference/csf-authoring.md) has validated snippets for new content
-(macros, tables, task lists, links) — CSF is XHTML-based, **not Markdown**.
+### 3. Edit the `.md` view, merge with `conf apply`
+The `.md` is an **editable surface**: make your edits there with normal text editing (it's
+markdown — no invisible-byte traps), then merge them into the `.csf` block by block:
+
+```bash
+atl conf apply <…>/<page-slug>.md
+```
+
+→ `{ "report": {unchanged, converted, moved, removed, removed_fragments?}, "csf_ok", "wrote" }`
+Untouched blocks keep their **exact** CSF bytes; opaque markers (⟦…⟧, `[KEY](jira:KEY)`,
+`[[Page]]`, mentions) keep their identity — don't edit marker text, but whole marker lines may
+move. **Exit 8** means apply refused, nothing was written:
+- *"removes N opaque fragment(s)"* — you dropped a macro/mention/link; restore the marker, or
+  re-run with `--allow-fragment-loss` if intentional.
+- *"cannot convert edited block"* — that fragment (complex table, unrecognized wrapper,
+  ambiguous mention) can't be edited via md: make that one edit on the `.csf` directly using
+  the decision table in [csf.md](reference/csf.md) (`conf edit` / boundary-anchor splice).
+
+Direct-`.csf` edits and the md surface don't mix in one cycle: once you edit the `.csf`
+directly, apply refuses until the page is pushed or re-pulled. Use the `.assets/` images for
+visual context. For **new content** (new page bodies, comments) write markdown blocks and let
+apply convert them, or start from validated CSF snippets in
+[csf-authoring.md](reference/csf-authoring.md) — CSF is XHTML-based, **not Markdown**.
 
 ### 4. Validate
 ```bash
@@ -119,6 +132,7 @@ atl conf status ~/.atl/<workspace>/ --remote
 | `conf pull` | Mirror pages to disk (.csf + .md + .meta.json + assets) | `--id`, `--cql`, `--space`, `--assets`, `--into`, `--depth` |
 | `conf status` | Show locally-edited and remote-drifted pages | `[DIR]`, `--remote` |
 | `conf validate` | Validate CSF well-formedness | `<file.csf>` |
+| `conf apply` | Merge `.md` edits into the `.csf` block-by-block (untouched blocks keep exact bytes) | `<page.md>`, `--dry-run`, `--allow-fragment-loss`, `--into` |
 | `conf edit` | Replace text in a local file, tolerant of NBSP/invisible bytes; auto-validates `.csf` | `<file>`, `--old`, `--new`, `--old-file`, `--new-file`, `--all`, `--dry-run` |
 | `conf push` | Validate + push under the version gate | `<file.csf\|DIR>`, `--dry-run`, `--force`, `--into` |
 | `conf comment list` | List comments on a page | `--id` |
@@ -160,9 +174,12 @@ For exact edits or unresolved rendering questions, inspect the `.csf` source.
 | Exit 6 | Token lacks permission for this page/space | Surface to the user; they may need a broader-scoped PAT or access |
 | Exit 3 | Token was rejected (expired/revoked/wrong instance) | Re-run `atl auth login --service confluence` with a valid PAT |
 | Exit 2 + "not well-formed" on `page create` | CSF body has structural errors | Fix the CSF (`conf validate body.csf`) before retrying |
+| Exit 8 on `conf apply` | Unconvertible block, dropped fragments, or `.csf` diverged from base | See step 3: fix the marker / edit the `.csf` directly / push or re-pull first |
 | `conf search` requires `--cql` or filter | No query provided | Pass `--cql '<CQL>'` or at least one of `--space/--title/--label/--type` |
 
 ## Hard rules
-- **Edit only `.csf`.** The `.md` and `.meta.json` are regenerated on every pull — edits to them are
-  lost. There is no Markdown round-trip; CSF is the byte-stable substrate.
+- **Two edit paths, one at a time.** Either edit the `.md` and run `conf apply` (preferred), or
+  edit the `.csf` directly — never both before a push. `.md` edits without an apply are lost on
+  the next pull; `.meta.json` is always auto-managed. CSF stays the byte-stable substrate:
+  apply never converts blocks you didn't change.
 - Validate before pushing; review the dry-run; push the exact bytes you reviewed.
