@@ -159,6 +159,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Body-from-stdin no longer hangs on an interactive terminal.** Commands
+  whose `--from-file` defaults to stdin (`conf page create`, `conf comment
+  add`, `jira issue comment add`) used to block forever when nothing was
+  piped; they now exit 2 immediately with a message naming the remedy. The
+  default convention is now documented: body-required commands read stdin by
+  default, body-optional ones (`jira issue create/update`) default to no body.
 - **Jira HTTP 409 no longer masquerades as a version conflict.** Jira DC has
   no optimistic version gate, so a 409 on a Jira write (locked issue, closed
   sprint, workflow veto) now surfaces as a generic error (exit 1) carrying the

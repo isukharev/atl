@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
@@ -220,13 +221,22 @@ func mirrorRootDefault(fallback string) string {
 // truncated Jira body would be sent as-is (no validation gate catches it).
 const stdinBodyCap = 64 << 20 // 64 MiB
 
+// stdinIsTerminal reports whether stdin is an interactive terminal. A var so
+// tests can simulate a TTY without one.
+var stdinIsTerminal = func() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
+
 // readBody reads a body from a file path, or stdin when path is "-". Empty path
-// yields nil (no body).
+// yields nil (no body). Reading stdin on an interactive terminal is refused:
+// body-required commands default `--from-file` to "-", so a user who forgot
+// the flag would otherwise hang forever waiting on the terminal.
 func readBody(path string) ([]byte, error) {
 	switch path {
 	case "":
 		return nil, nil
 	case "-":
+		if stdinIsTerminal() {
+			return nil, usageErr("stdin is a terminal and no body was piped; pass --from-file FILE (or --from-md FILE where supported), or pipe the body")
+		}
 		return readBounded(os.Stdin, stdinBodyCap)
 	default:
 		return os.ReadFile(path)
