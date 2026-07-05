@@ -211,6 +211,51 @@ func TestTableMergeInsertRefusesCopiedMacroCell(t *testing.T) {
 	}
 }
 
+// Review finding (P0): a colored span wrapping a macro must never enter the
+// copyable pool — cloning its bytes would duplicate the macro-id. Copying its
+// marker text fails closed instead.
+func TestTableMergeSpanWrappedMacroNotCloneable(t *testing.T) {
+	page := strings.Replace(stylePage, "<p>alpha</p>",
+		`<p><span style="color: rgb(255,0,0);"><ac:structured-macro ac:name="status" ac:macro-id="dup"><ac:parameter ac:name="title">OK</ac:parameter></ac:structured-macro></span></p>`, 1)
+	md := renderOf(t, page, nil)
+	// Row 1 (the span row) stays untouched; row 2's Name cell tries to copy
+	// the span's marker text.
+	start := strings.Index(md, "⟦color")
+	end := strings.Index(md, "⟦/color⟧")
+	if start < 0 || end < 0 {
+		t.Fatalf("fixture md misses the color marker: %s", md)
+	}
+	markerTxt := md[start : end+len("⟦/color⟧")]
+	edited := strings.Replace(md, "| 2 | beta | yes |", "| 2 | "+markerTxt+" | yes |", 1)
+	out, _, err := Merge([]byte(page), nil, edited, Options{})
+	var be *BlockError
+	if !errors.As(err, &be) {
+		c := strings.Count(string(out), `ac:macro-id="dup"`)
+		t.Fatalf("want BlockError (macro-id would duplicate), got err=%v, %d macro copies", err, c)
+	}
+}
+
+// Review finding (P2): editing a plain table must not be refused just because
+// a complex table elsewhere on the page was edited too.
+func TestTableMergeSimpleTableEditBesideComplexEdit(t *testing.T) {
+	simple := `<table><tbody><tr><th>X</th><th>Y</th></tr><tr><td>p</td><td>q</td></tr></tbody></table>`
+	page := stylePage + simple
+	md := renderOf(t, page, nil)
+	edited := strings.Replace(md, "| ? |", "| yes |", 1)            // complex table edit
+	edited = strings.Replace(edited, "| p | q |", "| p2 | q2 |", 1) // plain table edit
+	out, rep := mustMerge(t, page, edited, nil, Options{})
+	s := string(out)
+	if !strings.Contains(s, `style="text-align: center;">yes</td>`) {
+		t.Fatalf("complex table edit missing: %s", s)
+	}
+	if !strings.Contains(s, "<td>p2</td><td>q2</td>") {
+		t.Fatalf("plain table edit refused or lost: %s", s)
+	}
+	if rep.MergedTables != 1 || rep.Converted == 0 {
+		t.Errorf("report = %+v", rep)
+	}
+}
+
 func TestTableMergeTwoTablesPairCorrectly(t *testing.T) {
 	second := strings.NewReplacer("alpha", "one", "beta", "two", "Registry", "Other").Replace(stylePage)
 	page := stylePage + second

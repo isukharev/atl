@@ -241,17 +241,6 @@ func mergeTable(base []byte, tableNode *csf.Node, refs []domain.Ref, editedTxt s
 	}
 	sort.SliceStable(pool, func(a, b int) bool { return len(pool[a].md) > len(pool[b].md) })
 
-	hasMacro := func(n *csf.Node) bool {
-		found := false
-		csf.Walk(n, func(x *csf.Node) bool {
-			if x.MacroName() != "" {
-				found = true
-			}
-			return !found
-		})
-		return found
-	}
-
 	// template picks the row whose byte structure an insertion clones: the
 	// nearest data row (preferring upwards) made of plain 1×1 cells.
 	template := func(at int) int {
@@ -294,7 +283,7 @@ func mergeTable(base []byte, tableNode *csf.Node, refs []domain.Ref, editedTxt s
 			if texts[col] == c.Text {
 				// Identical text keeps the template cell's bytes — unless it
 				// holds a macro, whose clone would duplicate its macro-id.
-				if hasMacro(c.Node) {
+				if nodeHasMacro(c.Node) {
 					return nil, fmt.Errorf("an inserted row copies a cell holding a macro — build that row in the .csf directly")
 				}
 				out = append(out, base[s:e]...)
@@ -472,6 +461,19 @@ func openTagEnd(seg []byte) int {
 		}
 	}
 	return -1
+}
+
+// nodeHasMacro reports a macro anywhere in n's subtree (including n itself) —
+// bytes containing one must never be cloned, or its macro-id is duplicated.
+func nodeHasMacro(n *csf.Node) bool {
+	found := false
+	csf.Walk(n, func(x *csf.Node) bool {
+		if x.MacroName() != "" {
+			found = true
+		}
+		return !found
+	})
+	return found
 }
 
 // nodeHasTable reports a nested <table> anywhere under n.

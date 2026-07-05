@@ -171,12 +171,17 @@ func Merge(base []byte, refs []domain.Ref, editedMD string, opts Options) ([]byt
 	// opaque fragments therefore stay out of the global marker pool: most of
 	// the table's bytes survive in place, so treating its macros/mentions as
 	// relocatable would duplicate them elsewhere on the page.
-	var droppedComplexTables []int
+	var droppedComplexTables, droppedSimpleTables []int
 	markerKept := append([]bool(nil), kept...)
 	for i, n := range nodes {
-		if !kept[i] && blocks[i].Kind == "table" && hasComplexTable(n) {
+		if kept[i] || blocks[i].Kind != "table" {
+			continue
+		}
+		if hasComplexTable(n) {
 			droppedComplexTables = append(droppedComplexTables, i)
 			markerKept[i] = true
+		} else {
+			droppedSimpleTables = append(droppedSimpleTables, i)
 		}
 	}
 	markers := collectMarkers(nodes, markerKept, base, refs)
@@ -247,8 +252,14 @@ func Merge(base []byte, refs []domain.Ref, editedMD string, opts Options) ([]byt
 				rep.MergedTables++
 				continue
 			}
-			return nil, nil, &BlockError{Block: txt, Err: fmt.Errorf(
-				"the edited table uses spans/styling/nested structure the md surface cannot express")}
+			// An edit of a dropped *simple* table converts wholesale below; a
+			// table sharing rows with nothing while a complex table was
+			// dropped is that table rewritten beyond recognition — converting
+			// it would silently strip the structure.
+			if _, ok := pickTableCandidate(droppedSimpleTables, reused, blocks, txt); !ok {
+				return nil, nil, &BlockError{Block: txt, Err: fmt.Errorf(
+					"the edited table uses spans/styling/nested structure the md surface cannot express")}
+			}
 		}
 		conv, err := convertBlock(txt, markers)
 		if err != nil {

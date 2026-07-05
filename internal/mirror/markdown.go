@@ -691,16 +691,21 @@ func (r *mdRenderer) inlineTaskBody(body *csf.Node) string {
 	return strings.TrimSpace(squeezeSpaces(b.String()))
 }
 
+// maxSpan caps col/rowspan expansion: server bytes are untrusted, and a
+// hostile `colspan="24444444"` would otherwise balloon the md grid into
+// millions of phantom cells.
+const maxSpan = 100
+
 func colspanOf(cell *csf.Node) int {
 	if n, err := strconv.Atoi(cell.Attrv("", "colspan")); err == nil && n > 1 {
-		return n
+		return min(n, maxSpan)
 	}
 	return 1
 }
 
 func rowspanOf(cell *csf.Node) int {
 	if n, err := strconv.Atoi(cell.Attrv("", "rowspan")); err == nil && n > 1 {
-		return n
+		return min(n, maxSpan)
 	}
 	return 1
 }

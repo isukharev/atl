@@ -144,7 +144,10 @@ func collectCopyable(n *csf.Node, base []byte, refs []domain.Ref, out *[]*marker
 			continue
 		}
 		if isOpaqueInline(c) {
-			if c.MacroName() == "" {
+			// The macro check must cover the whole subtree: a colored span or
+			// link can wrap a macro, and cloning those bytes would duplicate
+			// its macro-id just the same.
+			if !nodeHasMacro(c) {
 				md := mirror.RenderInline(c, refs)
 				if md != "" && c.End > c.Start {
 					*out = append(*out, &marker{md: md, bytes: base[c.Start:c.End], copyable: true})
