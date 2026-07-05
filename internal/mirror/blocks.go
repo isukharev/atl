@@ -27,8 +27,17 @@ type Block struct {
 // "other" block (unknown wrapper element) may span several logical paragraphs;
 // a merge must treat it as one opaque unit, never split it.
 func RenderBlocks(root *csf.Node, refs []domain.Ref) []Block {
+	blocks, _ := RenderBlockNodes(root, refs)
+	return blocks
+}
+
+// RenderBlockNodes is RenderBlocks plus the source DOM node of each block, for
+// callers (the md→CSF merge) that need to inspect a block's elements — e.g. to
+// collect opaque inline fragments. The slices are parallel.
+func RenderBlockNodes(root *csf.Node, refs []domain.Ref) ([]Block, []*csf.Node) {
 	r := newMDRenderer(refs)
 	var out []Block
+	var nodes []*csf.Node
 	forEachBlockNode(root, func(n *csf.Node) {
 		var b strings.Builder
 		r.block(&b, n)
@@ -37,8 +46,19 @@ func RenderBlocks(root *csf.Node, refs []domain.Ref) []Block {
 			return
 		}
 		out = append(out, Block{CSFStart: n.Start, CSFEnd: n.End, MD: md, Kind: blockKind(n)})
+		nodes = append(nodes, n)
 	})
-	return out
+	return out, nodes
+}
+
+// RenderInline renders a single node the way it appears inside a block's
+// markdown (resolved refs, markers for opaque elements), for marker matching
+// in the md→CSF merge.
+func RenderInline(n *csf.Node, refs []domain.Ref) string {
+	r := newMDRenderer(refs)
+	var b strings.Builder
+	r.inlineNode(&b, n)
+	return strings.TrimSpace(squeezeSpaces(b.String()))
 }
 
 // forEachBlockNode visits the body's block-level nodes in document order,

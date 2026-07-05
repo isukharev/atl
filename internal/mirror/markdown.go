@@ -588,6 +588,10 @@ func soleBlockMacro(p *csf.Node) *csf.Node {
 	return macro
 }
 
+// IsBlockMacro reports whether a macro renders block content — used by the
+// md→CSF merge to refuse splicing such a macro into an inline context.
+func IsBlockMacro(name string) bool { return isBlockMacroName(name) }
+
 // isBlockMacroName reports whether a macro carries block content (a body or a
 // full-width rendering) and so should never be downgraded to an inline ⟦name⟧.
 func isBlockMacroName(name string) bool {

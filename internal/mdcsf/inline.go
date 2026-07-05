@@ -207,6 +207,16 @@ func link(b *strings.Builder, s string) (int, error) {
 		}
 		b.WriteString(`<a href="` + escapeAttr(url) + `">` + inner + `</a>`)
 		return end + 1, nil
+	case strings.HasPrefix(url, "jira:"):
+		// The renderer emits jira issue links as [KEY](jira:KEY). Converting is
+		// only safe when text and key agree — anything else is ambiguous.
+		key := strings.TrimPrefix(url, "jira:")
+		if key == "" || text != key {
+			return 0, unsupported("jira link with text differing from key", clip(url))
+		}
+		b.WriteString(`<ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">` +
+			escapeText(key) + `</ac:parameter></ac:structured-macro>`)
+		return end + 1, nil
 	default:
 		return 0, unsupported("link scheme", clip(url))
 	}

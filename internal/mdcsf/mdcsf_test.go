@@ -36,6 +36,7 @@ func TestConvertBasics(t *testing.T) {
 		{"[Foo](https://en.wikipedia.org/wiki/Foo_(bar)) tail",
 			`<p><a href="https://en.wikipedia.org/wiki/Foo_(bar)">Foo</a> tail</p>`},
 		{"[[Page Title]]", `<p><ac:link><ri:page ri:content-title="Page Title"/></ac:link></p>`},
+		{"[DS-1](jira:DS-1)", `<p><ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">DS-1</ac:parameter></ac:structured-macro></p>`},
 		{"snake_case stays_literal", "<p>snake_case stays_literal</p>"},
 		{"unmatched **bold", "<p>unmatched **bold</p>"},
 		{"escaped \\*star\\*", "<p>escaped *star*</p>"},
@@ -125,7 +126,7 @@ func TestConvertFailsClosed(t *testing.T) {
 		"⟦macro jira⟧",
 		"see ⟦table of contents⟧",
 		"![img](attachment:x.png)",
-		"[DS-1](jira:DS-1)",
+		"[fixed bug](jira:DS-1)", // jira link text must equal the key
 		"[file](attachment:report.pdf)",
 		"```\nunterminated",
 		"# h1\ncontinuation",
