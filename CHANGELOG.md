@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The mirror sidecar (`.atl/state.json`) is now crash-safe and honest about
+  corruption.** Saves are atomic (temp + fsync + rename), so an interrupted
+  write can never leave a half-written file; a corrupt sidecar now fails
+  `status`/`push`/`pull`/`apply` with an actionable error (exit 8) instead of
+  silently resetting every page to "never synced" (which quietly disabled
+  drift detection). A pull also now loads and saves the sidecar once per run
+  instead of once per page — on an aborted pull, pages already mirrored keep
+  their sync state.
 - **`conf pull` can no longer silently overwrite a different page whose title
   slugifies to the same directory.** Page-dir slugs are lossy (`Foo Bar` and
   `Foo-Bar?` both become `foo-bar`); the mirror now checks the existing

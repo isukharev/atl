@@ -72,8 +72,8 @@ func TestWriteVerbatimAndState(t *testing.T) {
 	}
 
 	// Sidecar state reflects this push.
-	if v := m.SyncedVersion("100"); v != 4 {
-		t.Errorf("SyncedVersion = %d, want 4", v)
+	if v, err := m.SyncedVersion("100"); err != nil || v != 4 {
+		t.Errorf("SyncedVersion = %d (err %v), want 4", v, err)
 	}
 	sc, _ := m.loadSidecar()
 	st := sc.Pages["100"]

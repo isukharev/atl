@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -55,6 +56,11 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 
 	lc, cur, err := m.LoadCSF(csfPath)
 	if err != nil {
+		// A corrupt sidecar is its own actionable failure (exit 8) — wrapping it
+		// as "not a mirrored page" would misdirect toward a pointless re-pull.
+		if errors.Is(err, domain.ErrCheckFailed) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("%w: no .csf next to %s — is this a mirrored page? (%v)", domain.ErrNotFound, mdPath, err)
 	}
 	if lc.Meta.ID == "" {

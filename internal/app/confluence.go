@@ -186,6 +186,15 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 		res.Truncated = true
 		res.TruncatedAt = len(ids)
 	}
+	// One sidecar load for the whole pull; one save at the end. The deferred
+	// flush persists the pages already written when an error aborts the loop,
+	// so a partial pull is not reported as never-synced (Flush is a no-op after
+	// the explicit success-path call below).
+	batch, err := m.BeginSync()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = batch.Flush() }()
 	for _, id := range ids {
 		page, err := s.store.GetPage(ctx, id, domain.PullOpts{Format: "csf"})
 		if err != nil {
@@ -205,7 +214,7 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 			refs = fragment.Resolve(ctx, page, refs, deps)
 		}
 		page.Refs = refs
-		if err := m.Write(dir, slug, page, refs); err != nil {
+		if err := batch.Write(dir, slug, page, refs); err != nil {
 			return res, fmt.Errorf("write %s: %w", id, err)
 		}
 		rel, _ := filepath.Rel(root, filepath.Join(dir, slug+".csf"))
@@ -216,6 +225,9 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 			}
 		}
 		res.Pages = append(res.Pages, PulledPage{ID: id, Title: page.Title, Path: rel, Version: page.Version, Assets: assetCount})
+	}
+	if err := batch.Flush(); err != nil {
+		return res, err
 	}
 	return res, nil
 }

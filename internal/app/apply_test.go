@@ -51,6 +51,26 @@ func scaffoldPage(t *testing.T, body string) (rootDir, mdPath string) {
 	return rootDir, filepath.Join(dir, "page.md")
 }
 
+// A corrupt sidecar surfaces as its own actionable ErrCheckFailed (exit 8),
+// not as "not a mirrored page" (exit 4) — the page IS mirrored, and a re-pull
+// hint would misdirect.
+func TestApplyCorruptSidecarNotMislabeled(t *testing.T) {
+	rootDir, mdPath := scaffoldPage(t, applyPage)
+	if err := os.WriteFile(filepath.Join(rootDir, ".atl", "state.json"), []byte("{corrupt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Apply(mdPath, ApplyOpts{Into: rootDir})
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("corrupt sidecar error = %v, want ErrCheckFailed", err)
+	}
+	if errors.Is(err, domain.ErrNotFound) || strings.Contains(err.Error(), "is this a mirrored page") {
+		t.Errorf("corruption mislabeled as not-mirrored: %v", err)
+	}
+	if !strings.Contains(err.Error(), "corrupt mirror sidecar") {
+		t.Errorf("error lost the actionable corruption text: %v", err)
+	}
+}
+
 func TestApplyEndToEnd(t *testing.T) {
 	_, mdPath := scaffoldPage(t, applyPage)
 	md, _ := os.ReadFile(mdPath)
