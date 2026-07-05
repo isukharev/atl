@@ -15,21 +15,25 @@ import (
 // (⟦…⟧) and images/diagrams as ![](assets/…) links. It is intentionally lossy —
 // the .csf file remains the editable source of truth.
 func RenderMarkdown(root *csf.Node, refs []domain.Ref) []byte {
-	byKey := map[string]domain.Ref{}
-	for _, r := range refs {
-		byKey[string(r.Kind)+"\x00"+r.Key] = r
-	}
-	r := &mdRenderer{refs: byKey}
+	r := newMDRenderer(refs)
 	var b strings.Builder
-	for _, c := range root.Children {
-		r.block(&b, c)
-	}
+	forEachBlockNode(root, func(n *csf.Node) {
+		r.block(&b, n)
+	})
 	out := normalizeBlankLines(b.String())
 	return []byte(out)
 }
 
 type mdRenderer struct {
 	refs map[string]domain.Ref
+}
+
+func newMDRenderer(refs []domain.Ref) *mdRenderer {
+	byKey := map[string]domain.Ref{}
+	for _, r := range refs {
+		byKey[string(r.Kind)+"\x00"+r.Key] = r
+	}
+	return &mdRenderer{refs: byKey}
 }
 
 func (r *mdRenderer) ref(kind domain.RefKind, key string) (domain.Ref, bool) {

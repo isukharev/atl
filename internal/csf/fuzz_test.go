@@ -62,7 +62,34 @@ func FuzzParse(f *testing.F) {
 		if err == nil && node == nil {
 			t.Fatal("Parse returned nil node with nil error")
 		}
+		if err == nil {
+			checkOffsets(t, node, raw, 0, len(raw))
+		}
 	})
+}
+
+// checkOffsets asserts the offset invariants the md→CSF block merge relies on:
+// every element's range is in-bounds, starts at '<', ends at '>', nests inside
+// its parent, and siblings appear in document order without overlapping.
+func checkOffsets(t *testing.T, n *Node, raw []byte, lo, hi int) {
+	t.Helper()
+	prevEnd := lo
+	for _, c := range n.Children {
+		if c.Start < prevEnd || c.End < c.Start || c.End > hi {
+			t.Fatalf("offset violation: %s [%d,%d) outside [%d,%d) of parent %s in %q",
+				c.Name, c.Start, c.End, prevEnd, hi, n.Name, raw)
+		}
+		if c.Type == Element {
+			if c.Start >= len(raw) || raw[c.Start] != '<' {
+				t.Fatalf("element %s Start=%d does not point at '<' in %q", c.Name, c.Start, raw)
+			}
+			if c.End < 1 || raw[c.End-1] != '>' {
+				t.Fatalf("element %s End=%d does not follow '>' in %q", c.Name, c.End, raw)
+			}
+			checkOffsets(t, c, raw, c.Start, c.End)
+		}
+		prevEnd = c.End
+	}
 }
 
 // FuzzValidate asserts Validate never panics, the returned diagnostics are
