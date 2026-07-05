@@ -9,6 +9,7 @@
 package mdcsf
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"strings"
@@ -275,6 +276,28 @@ func convertTable(lines []string) ([]byte, error) {
 	}
 	b.WriteString("</tbody></table>")
 	return []byte(b.String()), nil
+}
+
+// ConvertDocument turns a whole markdown document into a CSF body: SplitBlocks
+// plus Convert per block, joined with newlines. Fail-closed like Convert — the
+// first unconvertible block aborts with an error naming it (1-based index and
+// first line), never partial output. An empty document is an error: page and
+// comment bodies must not be silently blank.
+func ConvertDocument(md string) ([]byte, error) {
+	blocks := SplitBlocks(md)
+	if len(blocks) == 0 {
+		return nil, unsupported("empty document", "")
+	}
+	parts := make([][]byte, 0, len(blocks))
+	for i, block := range blocks {
+		out, err := Convert(block)
+		if err != nil {
+			first, _, _ := strings.Cut(strings.TrimSpace(block), "\n")
+			return nil, fmt.Errorf("block %d (%q): %w", i+1, clip(first), err)
+		}
+		parts = append(parts, out)
+	}
+	return bytes.Join(parts, []byte("\n")), nil
 }
 
 var tableSepRe = regexp.MustCompile(`^\|(\s*:?-+:?\s*\|)+$`)

@@ -201,3 +201,50 @@ func TestRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestConvertDocument(t *testing.T) {
+	md := "# Title\n\nIntro paragraph with **bold**.\n\n- one\n- two\n\n| K | V |\n| --- | --- |\n| a | 1 |\n\n```go\nfmt.Println(\"hi\")\n```\n"
+	out, err := ConvertDocument(md)
+	if err != nil {
+		t.Fatalf("ConvertDocument: %v", err)
+	}
+	if ps := csf.Validate(out); csf.HasErrors(ps) {
+		t.Fatalf("ConvertDocument produced invalid CSF %q: %+v", out, ps)
+	}
+	// Each block converts exactly as Convert would; blocks joined by "\n".
+	want := "<h1>Title</h1>\n" +
+		"<p>Intro paragraph with <strong>bold</strong>.</p>\n" +
+		"<ul><li>one</li><li>two</li></ul>\n" +
+		"<table><tbody><tr><th>K</th><th>V</th></tr><tr><td>a</td><td>1</td></tr></tbody></table>\n" +
+		`<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">go</ac:parameter>` +
+		"<ac:plain-text-body><![CDATA[fmt.Println(\"hi\")]]></ac:plain-text-body></ac:structured-macro>"
+	if string(out) != want {
+		t.Errorf("ConvertDocument:\n got %q\nwant %q", out, want)
+	}
+}
+
+func TestConvertDocumentFailsClosed(t *testing.T) {
+	// The unsupported construct is in the SECOND block; the error must name it
+	// (1-based index + first line) and no partial output may escape.
+	out, err := ConvertDocument("# Fine\n\n![img](attachment:x.png)\n")
+	if err == nil {
+		t.Fatalf("ConvertDocument = %q, want error", out)
+	}
+	if out != nil {
+		t.Errorf("partial output %q escaped with error", out)
+	}
+	var ue *UnsupportedError
+	if !errors.As(err, &ue) {
+		t.Errorf("want wrapped *UnsupportedError, got %T %v", err, err)
+	}
+	if !strings.Contains(err.Error(), "block 2") || !strings.Contains(err.Error(), "![img]") {
+		t.Errorf("error must name the block and its first line, got %q", err)
+	}
+
+	// Empty / whitespace-only documents are refused, not silently blank pages.
+	for _, empty := range []string{"", "\n\n", "   \n\t\n"} {
+		if out, err := ConvertDocument(empty); err == nil {
+			t.Errorf("ConvertDocument(%q) = %q, want error", empty, out)
+		}
+	}
+}

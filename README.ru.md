@@ -238,6 +238,7 @@ atl conf page get     --id 123456 --format csf
 atl conf page meta    --id 123456
 atl conf page history --id 123456
 atl conf page create  --space DOCS --parent 123456 --title "My Page" --from-file body.csf
+atl conf page create  --space DOCS --title "From markdown" --from-md body.md
 atl conf page move    --id 123456 --parent 654321
 atl conf page delete  --id 123456
 atl conf comment list --id 123456

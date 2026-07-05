@@ -38,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (identity). Still fail-closed: edits through rowspan/colspan continuations,
   row deletion across a rowspan, column add/remove, nested tables, header
   relocation. The apply report gains `merged_tables`.
+- **`conf page create --from-md` — author new pages in markdown.** The body
+  converts whole-document through the same fail-closed md→CSF converter that
+  powers `conf apply`: every block must be inside the supported subset, the
+  first unconvertible block aborts with exit 8 naming it (nothing is created),
+  and an empty document is refused. Mutually exclusive with `--from-file`;
+  the converted body still passes the CSF validation gate before the API call.
 - **Skill: consent-based friction reports.** When `atl` itself causes real
   friction for an agent (repeated failures, forced fallbacks, misleading
   errors), the shipped skill now offers the user — behind two separate,
