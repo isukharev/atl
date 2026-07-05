@@ -878,7 +878,10 @@ atl jira issue edit PROJ-1 --old 'foo' --new 'bar' --dry-run     # preview only
 The match must be unique unless `--all` is passed: ambiguous → exit 2, no
 match → exit 4 with a quoted region dump showing the closest candidate (and
 any hidden bytes that broke exact matching). An empty description is exit 4 —
-set one with `issue update`. Replacement text is native wiki markup, spliced
+set one with `issue update`. A whitespace-tolerant match that would cross a
+line break is refused with exit 8: Jira wiki is line-sensitive (`h2.`, `*`,
+`{code}` are line-start tokens), so a cross-line splice could silently merge
+lines — copy `--old` exactly, newlines included. Replacement text is native wiki markup, spliced
 verbatim; for a full markdown rewrite use `issue update --from-md` instead.
 
 Jira DC updates are last-writer-wins (no version gate), so the `--old` match

@@ -256,6 +256,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | Structure command exits 4/6 | Structure plugin/object unavailable or token lacks permission | Verify the numeric id and permissions; commands are read-only |
 | Exit 4 from `issue edit` | `--old` not found (text changed or hidden bytes) | Read the quoted closest-region in the error; re-check with `issue get --fields description` |
 | Exit 2 from `issue edit` | `--old` matches more than once | Add surrounding context to make it unique, or pass `--all` |
+| Exit 8 from `issue edit` | Match would cross a line break `--old` doesn't have | Copy `--old` exactly from the description, newlines included |
 
 Tool friction that cost you real turns (repeated failures, misleading errors, unexpected
 refusals)? Offer the user a report — see the `atl` skill's feedback flow (consent-gated

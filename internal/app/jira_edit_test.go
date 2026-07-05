@@ -115,6 +115,54 @@ func TestEditDescriptionFetchErrorPassesThrough(t *testing.T) {
 	}
 }
 
+// A whitespace-pass match that crosses a line break would merge wiki lines
+// (h2./*/{code} are line-start tokens) — that is a refusal, not a splice.
+func TestEditDescriptionWhitespaceCrossLineRefused(t *testing.T) {
+	tr := &recordingTracker{issue: &domain.Issue{Key: "PROJ-1", Body: "h2. Verify\nsteps here"}}
+	svc := &JiraService{tr: tr}
+
+	_, _, err := svc.EditDescription(context.Background(), "PROJ-1", "Verify steps", "Checked", false, false)
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("cross-line whitespace match: want ErrCheckFailed, got %v", err)
+	}
+	if tr.updateKey != "" {
+		t.Error("cross-line refusal must not call Update")
+	}
+}
+
+// Same-line whitespace tolerance (run collapsing) stays allowed — only
+// line-boundary crossings are refused.
+func TestEditDescriptionWhitespaceSameLineAllowed(t *testing.T) {
+	tr := &recordingTracker{issue: &domain.Issue{Key: "PROJ-1", Body: "a  b\nc"}}
+	svc := &JiraService{tr: tr}
+
+	_, res, err := svc.EditDescription(context.Background(), "PROJ-1", "a b", "x", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Text != "x\nc" {
+		t.Errorf("text = %q", res.Text)
+	}
+}
+
+// A needle that spans the whole description with --new ” clears it: the PUT
+// must still carry description:"" (a nil body would mean "no change").
+func TestEditDescriptionClearWholeBody(t *testing.T) {
+	tr := &recordingTracker{issue: &domain.Issue{Key: "PROJ-1", Body: "obsolete text"}}
+	svc := &JiraService{tr: tr}
+
+	_, res, err := svc.EditDescription(context.Background(), "PROJ-1", "obsolete text", "", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Text != "" {
+		t.Errorf("text = %q", res.Text)
+	}
+	if tr.updateBody == nil || len(tr.updateBody) != 0 {
+		t.Errorf("clear must send a non-nil empty body, got %#v", tr.updateBody)
+	}
+}
+
 // The matcher's invisible-tolerant pass must reach the remote description too
 // (NBSP in the stored wiki text, plain space in the needle).
 func TestEditDescriptionInvisibleTolerant(t *testing.T) {

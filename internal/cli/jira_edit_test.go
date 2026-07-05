@@ -130,6 +130,45 @@ func TestJiraEdit_DeleteWithEmptyNew(t *testing.T) {
 	}
 }
 
+// TestJiraEdit_ClearWholeDescription: matching the entire body with --new ”
+// sends description:"" on the wire (clears it), not a no-op PUT.
+func TestJiraEdit_ClearWholeDescription(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/issue/ENG-9", http.StatusOK, `{"key":"ENG-9","fields":{"description":"obsolete text"}}`)
+	js.route(http.MethodPut, "/rest/api/2/issue/ENG-9", http.StatusNoContent, ``)
+
+	_, code := runCLI(t, jiraEnv(js.srv),
+		"jira", "issue", "edit", "ENG-9", "--old", "obsolete text", "--new", "")
+	if code != exitOK {
+		t.Fatalf("clear: exit %d", code)
+	}
+	writes := js.writeReqsTo("/rest/api/2/issue/ENG-9")
+	if len(writes) != 1 {
+		t.Fatalf("expected 1 PUT, got %d", len(writes))
+	}
+	fl := jiraFields(t, writes[0].body)
+	got, ok := fl["description"]
+	if !ok || got != "" {
+		t.Fatalf("description = %v (present=%v), want empty string", got, ok)
+	}
+}
+
+// TestJiraEdit_CrossLineWhitespaceExit8: a whitespace-pass match crossing a
+// line break refuses with exit 8 and writes nothing.
+func TestJiraEdit_CrossLineWhitespaceExit8(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/issue/ENG-9", http.StatusOK, `{"key":"ENG-9","fields":{"description":"h2. Verify\nsteps here"}}`)
+
+	_, code := runCLI(t, jiraEnv(js.srv),
+		"jira", "issue", "edit", "ENG-9", "--old", "Verify steps", "--new", "Checked")
+	if code != exitCheckFailed {
+		t.Fatalf("cross-line: exit %d, want %d", code, exitCheckFailed)
+	}
+	if writes := js.writeReqsTo("/rest/api/2/issue"); len(writes) != 0 {
+		t.Fatalf("cross-line refusal must not PUT, got %d writes", len(writes))
+	}
+}
+
 // TestJiraEdit_EmptyDescriptionExit4: nothing to edit is a not-found refusal
 // with a pointer to issue update.
 func TestJiraEdit_EmptyDescriptionExit4(t *testing.T) {

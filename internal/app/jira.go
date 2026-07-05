@@ -56,6 +56,19 @@ func (s *JiraService) EditDescription(ctx context.Context, key, old, repl string
 		}
 		return "", nil, fmt.Errorf("%w: %v", domain.ErrUsage, err)
 	}
+	// The whitespace-run pass collapses newlines, so a needle written with a
+	// space can match across a line break. That is benign in CSF (XML), but
+	// Jira wiki is line-sensitive (h2., *, {code} are line-start tokens) — a
+	// cross-line splice silently merges lines and changes structure. Refuse
+	// instead (exit 8): the caller should copy --old exactly, newlines
+	// included.
+	if res.Pass == textedit.PassWhitespace {
+		for _, m := range res.Matches {
+			if strings.Count(is.Body[m.Start:m.End], "\n") != strings.Count(old, "\n") {
+				return "", nil, fmt.Errorf("%w: the match spans a line boundary that --old does not (whitespace-tolerant pass); Jira wiki is line-sensitive, so copy --old exactly from the description, including newlines", domain.ErrCheckFailed)
+			}
+		}
+	}
 	if dryRun {
 		return is.Body, res, nil
 	}
