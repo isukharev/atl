@@ -37,6 +37,13 @@ echo '<p>Hello</p>' | atl conf page create --space DOCS --title "New page" \
     --from-file -
 ```
 
+The defaults follow one rule: commands whose body is **required** default
+`--from-file` to `-` (stdin) — `conf page create`, `conf comment add`,
+`jira issue comment add`; commands whose body is **optional** default to no
+body — `jira issue create`, `jira issue update`. When stdin is an
+interactive terminal (nothing piped), reading a body from it is refused with
+a usage error (exit 2) instead of hanging forever waiting for input.
+
 ### Exit codes
 
 | code | meaning |
