@@ -147,6 +147,32 @@ func TestApplyRelativePathFromMirrorCwd(t *testing.T) {
 	}
 }
 
+// A styled table (the shape the Confluence editor saves) is merged cell-wise
+// through apply: the edited cell changes, every other table byte survives.
+func TestApplyStyledTableCellEdit(t *testing.T) {
+	table := `<table><tbody><tr><th>Name</th><th>State</th></tr>` +
+		`<tr><td><div class="content-wrapper"><p>alpha</p></div></td><td style="text-align: center;">?</td></tr>` +
+		`</tbody></table>`
+	_, mdPath := scaffoldPage(t, applyPage+table)
+	md, _ := os.ReadFile(mdPath)
+	edited := strings.Replace(string(md), "| alpha | ? |", "| alpha | yes |", 1)
+	if err := os.WriteFile(mdPath, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Apply(mdPath, ApplyOpts{})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if res.Report.MergedTables != 1 {
+		t.Fatalf("report = %+v", res.Report)
+	}
+	csfNow, _ := os.ReadFile(res.CSFPath)
+	want := applyPage + strings.Replace(table, `>?<`, `>yes<`, 1)
+	if string(csfNow) != want {
+		t.Fatalf("csf diverges:\n got %s\nwant %s", csfNow, want)
+	}
+}
+
 func TestApplyRequiresPulledPage(t *testing.T) {
 	dir := t.TempDir()
 	mdPath := filepath.Join(dir, "stray.md")

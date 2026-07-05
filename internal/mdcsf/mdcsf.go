@@ -279,6 +279,18 @@ func convertTable(lines []string) ([]byte, error) {
 
 var tableSepRe = regexp.MustCompile(`^\|(\s*:?-+:?\s*\|)+$`)
 
+// ConvertInline converts one line of inline markdown to CSF inline XHTML —
+// the cell-content entry point for the table merge in internal/mdmerge. Same
+// subset and fail-closed rules as cells in Convert'ed tables.
+func ConvertInline(s string) (string, error) { return inline(s) }
+
+// SplitTableRow splits a GFM table row into unescaped cell texts, honoring
+// \| escapes — the row parser behind Convert, exported for the table merge.
+func SplitTableRow(line string) []string { return splitRow(line) }
+
+// IsTableSeparator reports a GFM table separator row (`| --- | :-: |`…).
+func IsTableSeparator(line string) bool { return tableSepRe.MatchString(strings.TrimSpace(line)) }
+
 // splitRow splits a GFM table row into cells, honoring \| escapes.
 func splitRow(line string) []string {
 	line = strings.TrimSpace(line)

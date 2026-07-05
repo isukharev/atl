@@ -206,18 +206,62 @@ func (r *mdRenderer) list(b *strings.Builder, n *csf.Node, ordered bool, depth i
 }
 
 func (r *mdRenderer) table(b *strings.Builder, n *csf.Node) {
-	var rows [][]string
+	grid, _, header := r.tableGrid(n)
+	if len(grid) == 0 {
+		return
+	}
+	width := len(grid[0])
+	for ri, row := range grid {
+		cells := make([]string, len(row))
+		for i, c := range row {
+			cells[i] = strings.ReplaceAll(c.Text, "|", "\\|")
+		}
+		b.WriteString("| " + strings.Join(cells, " | ") + " |\n")
+		if ri == header || (header < 0 && ri == 0) {
+			seps := make([]string, width)
+			for i := range seps {
+				seps[i] = "---"
+			}
+			b.WriteString("| " + strings.Join(seps, " | ") + " |\n")
+		}
+	}
+	b.WriteString("\n")
+}
+
+// TableCell is one slot of a table's md view: the owning td/th node (nil for
+// width padding), whether the slot is the cell's top-left origin (span
+// continuations and padding are not), and the exact text the .md table view
+// renders there (before pipe escaping).
+type TableCell struct {
+	Node   *csf.Node
+	Origin bool
+	Text   string
+}
+
+// TableGrid exposes the md-view grid of a <table> node — one slice per md
+// table row (all padded to uniform width), the parallel <tr> source nodes,
+// and the header row index (-1 when no row holds a <th>). The md→CSF table
+// merge aligns against this grid, so it must stay the single source of what
+// the .md view shows (the renderer itself draws from it).
+func TableGrid(table *csf.Node, refs []domain.Ref) ([][]TableCell, []*csf.Node, int) {
+	r := newMDRenderer(refs)
+	return r.tableGrid(table)
+}
+
+func (r *mdRenderer) tableGrid(n *csf.Node) ([][]TableCell, []*csf.Node, int) {
+	var grid [][]TableCell
+	var trs []*csf.Node
 	header := -1
 
 	pending := map[int]pendingCell{}
 	for _, tr := range tableRows(n) {
-		var cells []string
+		var cells []TableCell
 		isHeader := false
 		col := 0
 		for _, c := range rowCells(tr) {
 			for {
 				if p, ok := pending[col]; ok {
-					cells = append(cells, p.text)
+					cells = append(cells, TableCell{Node: p.node, Text: p.text})
 					p.rows--
 					if p.rows <= 0 {
 						delete(pending, col)
@@ -232,7 +276,7 @@ func (r *mdRenderer) table(b *strings.Builder, n *csf.Node) {
 			if c.Name.Local == "th" {
 				isHeader = true
 			}
-			text := strings.ReplaceAll(strings.TrimSpace(r.inline(c)), "|", "\\|")
+			text := strings.TrimSpace(r.inline(c))
 			colspan := colspanOf(c)
 			rowspan := rowspanOf(c)
 			for spanCol := 0; spanCol < colspan; spanCol++ {
@@ -240,16 +284,16 @@ func (r *mdRenderer) table(b *strings.Builder, n *csf.Node) {
 				if spanCol > 0 {
 					cellText = ""
 				}
-				cells = append(cells, cellText)
+				cells = append(cells, TableCell{Node: c, Origin: spanCol == 0, Text: cellText})
 				if rowspan > 1 {
-					pending[col] = pendingCell{text: cellText, rows: rowspan - 1}
+					pending[col] = pendingCell{node: c, text: cellText, rows: rowspan - 1}
 				}
 				col++
 			}
 		}
 		for col <= maxPendingCol(pending) {
 			if p, ok := pending[col]; ok {
-				cells = append(cells, p.text)
+				cells = append(cells, TableCell{Node: p.node, Text: p.text})
 				p.rows--
 				if p.rows <= 0 {
 					delete(pending, col)
@@ -257,41 +301,33 @@ func (r *mdRenderer) table(b *strings.Builder, n *csf.Node) {
 					pending[col] = p
 				}
 			} else {
-				cells = append(cells, "")
+				cells = append(cells, TableCell{})
 			}
 			col++
 		}
 		if isHeader && header < 0 {
-			header = len(rows)
+			header = len(grid)
 		}
-		rows = append(rows, cells)
-	}
-	if len(rows) == 0 {
-		return
+		grid = append(grid, cells)
+		trs = append(trs, tr)
 	}
 	width := 0
-	for _, row := range rows {
+	for _, row := range grid {
 		if len(row) > width {
 			width = len(row)
 		}
 	}
-	for ri, row := range rows {
+	for i, row := range grid {
 		for len(row) < width {
-			row = append(row, "")
+			row = append(row, TableCell{})
 		}
-		b.WriteString("| " + strings.Join(row, " | ") + " |\n")
-		if ri == header || (header < 0 && ri == 0) {
-			seps := make([]string, width)
-			for i := range seps {
-				seps[i] = "---"
-			}
-			b.WriteString("| " + strings.Join(seps, " | ") + " |\n")
-		}
+		grid[i] = row
 	}
-	b.WriteString("\n")
+	return grid, trs, header
 }
 
 type pendingCell struct {
+	node *csf.Node
 	text string
 	rows int
 }
@@ -655,16 +691,21 @@ func (r *mdRenderer) inlineTaskBody(body *csf.Node) string {
 	return strings.TrimSpace(squeezeSpaces(b.String()))
 }
 
+// maxSpan caps col/rowspan expansion: server bytes are untrusted, and a
+// hostile `colspan="24444444"` would otherwise balloon the md grid into
+// millions of phantom cells.
+const maxSpan = 100
+
 func colspanOf(cell *csf.Node) int {
 	if n, err := strconv.Atoi(cell.Attrv("", "colspan")); err == nil && n > 1 {
-		return n
+		return min(n, maxSpan)
 	}
 	return 1
 }
 
 func rowspanOf(cell *csf.Node) int {
 	if n, err := strconv.Atoi(cell.Attrv("", "rowspan")); err == nil && n > 1 {
-		return n
+		return min(n, maxSpan)
 	}
 	return 1
 }

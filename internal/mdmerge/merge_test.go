@@ -266,26 +266,51 @@ func TestMergeBlockMacroIntoHeadingFailsClosed(t *testing.T) {
 	}
 }
 
-// Regression: editing a complex table (spans/classed cells) through the md
-// surface must fail closed, not silently strip the structure.
-func TestMergeComplexTableFailsClosed(t *testing.T) {
+// A complex table (spans/classed cells) is merged cell-wise: the edited cell
+// is spliced in place, every untouched byte — the rowspan cell, classes —
+// survives exactly.
+func TestMergeComplexTableCellEdit(t *testing.T) {
 	page := `<h1>T</h1><table><tbody><tr><th>K</th><th>V</th></tr>` +
 		`<tr><td class="numberingColumn">1</td><td rowspan="2">x</td></tr>` +
 		`<tr><td class="numberingColumn">2</td></tr></tbody></table>`
 	md := renderOf(t, page, nil)
 	edited := strings.Replace(md, "| K | V |", "| K | NEW |", 1)
-	_, _, err := Merge([]byte(page), nil, edited, Options{})
-	var be *BlockError
-	if !errors.As(err, &be) {
-		t.Fatalf("want BlockError for complex table, got %v", err)
+	out, rep := mustMerge(t, page, edited, nil, Options{})
+	if rep.MergedTables != 1 {
+		t.Fatalf("MergedTables = %d, report %+v", rep.MergedTables, rep)
 	}
-	// A simple table on the same page still converts.
+	want := strings.Replace(page, "<th>V</th>", "<th>NEW</th>", 1)
+	if string(out) != want {
+		t.Fatalf("merged table diverges:\n got %s\nwant %s", out, want)
+	}
+	// A simple table on the same page still converts wholesale.
 	simple := `<h1>T</h1><table><tbody><tr><th>K</th></tr><tr><td>v</td></tr></tbody></table>`
 	md = renderOf(t, simple, nil)
 	edited = strings.Replace(md, "| v |", "| v2 |", 1)
-	out, _ := mustMerge(t, simple, edited, nil, Options{})
+	out, _ = mustMerge(t, simple, edited, nil, Options{})
 	if !strings.Contains(string(out), "<td>v2</td>") {
 		t.Fatalf("simple table edit refused: %s", out)
+	}
+}
+
+// Edits the row/cell mapping cannot carry faithfully still fail closed.
+func TestMergeComplexTableFailsClosedOnSpans(t *testing.T) {
+	page := `<h1>T</h1><table><tbody><tr><th>K</th><th>V</th></tr>` +
+		`<tr><td class="numberingColumn">1</td><td rowspan="2">x</td></tr>` +
+		`<tr><td class="numberingColumn">2</td></tr></tbody></table>`
+	md := renderOf(t, page, nil)
+	for name, edited := range map[string]string{
+		"rowspan row deleted":      strings.Replace(md, "| 1 | x |\n", "", 1),
+		"span continuation edited": strings.Replace(md, "| 2 | x |", "| 2 | y |", 1),
+		"column added": strings.NewReplacer(
+			"| K | V |", "| K | V | W |",
+			"| --- | --- |", "| --- | --- | --- |").Replace(md),
+	} {
+		_, _, err := Merge([]byte(page), nil, edited, Options{})
+		var be *BlockError
+		if !errors.As(err, &be) {
+			t.Errorf("%s: want BlockError, got %v", name, err)
+		}
 	}
 }
 

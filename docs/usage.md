@@ -522,6 +522,16 @@ tables, fenced code, blockquotes/admonitions, links, `[[Page Links]]`,
 links, images) keep their original bytes. Local only — `conf push` remains
 the write path to the server.
 
+Tables with editor styling (cell `style`/`class` attributes, wrapper divs,
+spans) are merged **row/cell-wise** rather than converted: untouched rows keep
+their exact bytes; an edited cell has its converted content spliced into the
+existing cell wrapper (styles and classes survive); a deleted row drops its
+byte range (the fragment-loss gate still applies to macros/mentions it held);
+an inserted row clones the byte structure of a neighboring row, so numbering
+columns and per-cell styling carry over. Mentions and links copied from an
+untouched row into an edited cell are cloned byte-exactly; macros are never
+cloned (a copy would duplicate the macro identity).
+
 ```bash
 atl conf apply mirror/DOCS/guide/guide.md
 atl conf apply guide.md --dry-run              # report without writing
@@ -536,16 +546,20 @@ atl conf apply guide.md --allow-fragment-loss  # intentional macro/mention remov
 | `--into` | mirror root (defaults to nearest `.atl`) |
 
 Output: `{path, csf_path, dry_run, report: {unchanged, moved, converted,
-removed, removed_fragments?, problems?}, csf_ok, wrote}`. After a successful
-apply the `.md` is regenerated from the merged body so both surfaces agree.
+removed, merged_tables?, removed_fragments?, problems?}, csf_ok, wrote}`.
+After a successful apply the `.md` is regenerated from the merged body so
+both surfaces agree.
 
 The merge is **fail-closed** (exit `8`, nothing written) when: an edited block
 cannot be converted faithfully (unsupported markdown, edits inside an
-unrecognized wrapper element, a complex table with spans/styling, an ambiguous
-mention whose display name collides with prose) — make that edit in the
-`.csf` directly (`conf edit`); the edit drops opaque fragments and
-`--allow-fragment-loss` was not given; or the local `.csf` has diverged from
-the last-synced base (direct `.csf` edits win — push or re-pull first).
+unrecognized wrapper element, an ambiguous mention whose display name collides
+with prose); a table edit crosses what the row/cell mapping can carry
+(changing a cell that spans rows/columns from a continuation slot, deleting a
+row a rowspan passes through, adding/removing columns, editing inside a nested
+table, copying a macro-bearing cell) — make that edit in the `.csf` directly
+(`conf edit`); the edit drops opaque fragments and `--allow-fragment-loss`
+was not given; or the local `.csf` has diverged from the last-synced base
+(direct `.csf` edits win — push or re-pull first).
 Exit `4`: the page was never pulled (no meta/base). The merged body is always
 validated; `conf push --dry-run` remains the final gate before the server.
 
