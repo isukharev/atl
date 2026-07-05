@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Six workflow recipe skills in the shipped Claude Code plugin**:
+  `search-knowledge` (cited answers from Confluence + Jira), `triage-issue`
+  (duplicate/regression search before filing), `status-report` (Jira-derived
+  report, optional Confluence publish), `spec-to-backlog` (spec page → Epic +
+  linked tickets), `sprint-dashboard` (read-only visual sprint snapshot), and
+  `meeting-tasks` (action items from notes → assigned tasks). Recipes
+  orchestrate end-to-end processes on top of the existing `atl`/`confluence`/
+  `jira` reference skills, and every write path requires explicit user
+  approval before anything is created.
+
 ### Fixed
 
 - **Attachment downloads stream to disk instead of buffering up to 1 GiB in
