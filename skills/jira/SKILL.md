@@ -119,6 +119,9 @@ needs (object-typed fields take JSON, e.g. `priority={"name":"High"}`), and the
 `comment add` all take `--from-md <file|->`: compose the body in ordinary markdown (headings,
 lists, GFM tables, fenced code, `[KEY](jira:KEY)` issue links, `[~username]` mentions) and atl
 converts it to wiki markup, escaping wiki-active characters in your prose automatically.
+Short bodies (a comment, a couple of paragraphs) go through stdin in **one command** —
+`printf '…' | atl jira issue comment add PROJ-1 --from-md -` — don't create a file for them;
+use a `body.md` file only for long or multiline-heavy descriptions.
 **Exit 8** means a block can't be converted (task lists, images, mid-word emphasis, pipes in
 table cells) — the error names it; simplify that block, or write the body as raw wiki markup
 via `--from-file` per [wiki-markup.md](reference/wiki-markup.md). Raw bodies are **Jira wiki
