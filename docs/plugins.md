@@ -42,6 +42,7 @@ values live in the `platforms` table in `scripts/gen-plugins/main.go`:
 | `{{atl.agent_name}}` | Claude Code | Codex |
 | `{{atl.agent_short}}` | Claude | Codex |
 | `{{atl.guidance_file}}` | CLAUDE.md | AGENTS.md |
+| `{{atl.plugin_update_cmd}}` | `/plugin update atl` | `codex plugin update atl` |
 | `{{atl.setup_invocation_note}}` | *(empty — line dropped)* | how to invoke the setup skill |
 
 Rules the generator enforces:

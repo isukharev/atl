@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Plugin versions are now locked to CLI releases.** The release workflow
+  refuses to build unless both plugin manifests (`.claude-plugin/plugin.json`
+  and `plugins/atl/.codex-plugin/plugin.json`) carry the tag's version, so
+  installed plugins update in lockstep with the self-updating binary instead
+  of silently freezing at their install-time skills. The `atl` and `setup`
+  skills gained a "version skew" note teaching agents to diagnose an
+  unknown-command error (exit 2) by comparing `atl version` with the plugin
+  version and updating the lagging side.
 - **Codex plugin packaging.** The repo now also ships the atl skills as a
   Codex plugin (`plugins/atl` + a repo-local marketplace at
   `.agents/plugins/marketplace.json`): `codex plugin marketplace add

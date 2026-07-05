@@ -131,6 +131,12 @@ atl jira fields                                   # if they use Jira
 ask Codex to work with Confluence pages or Jira issues (the `confluence` and `jira` skills engage
 automatically).
 
+## Version skew
+
+Plugin and binary release under one version number. If a command documented by the skills is
+rejected as unknown (exit 2), compare `atl version` with the plugin version and update the lagging
+side: the binary self-updates on its next run; the plugin via `codex plugin update atl`.
+
 ## Exit codes (so you can react)
 
 `2` usage · `3` auth (the server **rejected** the token → re-run step 4 with a valid PAT) ·

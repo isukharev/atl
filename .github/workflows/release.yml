@@ -61,6 +61,19 @@ jobs:
           go-version-file: go.mod
           check-latest: true
 
+      - name: Assert plugin manifests are in lockstep with the tag
+        # The manifest version is the update trigger for installed plugins
+        # (unchanged version = clients never refresh their skills), so a
+        # release without the bump would silently strand every install.
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          for m in .claude-plugin/plugin.json plugins/atl/.codex-plugin/plugin.json; do
+            v="$(jq -r .version "$m")"
+            if [ "$v" != "$tag" ]; then
+              echo "::error::$m version is $v but the tag is $tag — bump it in the release prep commit (docs/RELEASING.md)"; exit 1
+            fi
+          done
+
       - name: Pin VERSION to the tag
         run: echo "${GITHUB_REF_NAME#v}" > VERSION
 

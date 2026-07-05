@@ -76,6 +76,16 @@ through exit codes. Parse the JSON; map the exit code per [exit-codes.md](refere
 configured → run `/atl:setup`; `3` = the server rejected the token → re-`auth login` with a valid
 PAT).
 
+## Version skew (plugin vs binary)
+
+The plugin and the `atl` binary version together: each release ships both under one number, the
+binary self-updates within ~6h of a release, and the plugin updates when its version changes. If a
+command **documented by these skills** fails as `unknown command`/`unknown flag` (exit 2), don't
+improvise a workaround — suspect skew: run `atl version` and compare with the installed plugin's
+version. An older binary catches up on its next run (self-update applies on the following
+invocation); an older plugin updates with `/plugin update atl`. Re-check the exact syntax
+with `--help` before retrying.
+
 ## When something went wrong
 
 If `atl` itself caused real friction — repeated failures on one operation, a forced fallback, a
