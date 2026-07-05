@@ -49,6 +49,14 @@ type Node struct {
 	Attr     []Attr  // Element only
 	Children []*Node // Element only
 	Data     string  // Text/CData payload
+
+	// Start/End delimit the node's source bytes in the original raw input:
+	// for an element, from the leading '<' of its start tag through the '>'
+	// of its end tag (or "/>"); for text, the raw character-data span (which,
+	// unlike Data, still contains unresolved entities). The synthetic root
+	// spans the whole input. The DOM remains read-only — offsets exist so
+	// callers can address raw bytes, never to mutate through the tree.
+	Start, End int
 }
 
 // Attrv returns the value of an attribute by (space, local), or "".
@@ -94,10 +102,26 @@ func Parse(raw []byte) (*Node, error) {
 	// top-level CSF nodes. The decoder emits the textual <root> wrapper as the
 	// first StartElement, which we recognize and fold into this node instead of
 	// nesting an extra layer.
-	root := &Node{Type: Element, Name: Name{Local: "root"}}
+	root := &Node{Type: Element, Name: Name{Local: "root"}, Start: 0, End: len(raw)}
 	stack := []*Node{root}
 	wrapperSeen := false
+	// The decoder consumes input token-contiguously, so its offset before
+	// reading a token is that token's first byte. Offsets are in the wrapped
+	// stream; subtract the synthetic "<root>" prefix (clamped to the raw
+	// bounds so wrapper tokens themselves stay in range).
+	const prefix = len("<root>")
+	rebase := func(off int64) int {
+		v := int(off) - prefix
+		if v < 0 {
+			v = 0
+		}
+		if v > len(raw) {
+			v = len(raw)
+		}
+		return v
+	}
 	for {
+		start := rebase(d.InputOffset())
 		tok, err := d.Token()
 		if err == io.EOF {
 			break
@@ -113,7 +137,7 @@ func Parse(raw []byte) (*Node, error) {
 				wrapperSeen = true
 				continue
 			}
-			el := &Node{Type: Element, Name: Name{Space: t.Name.Space, Local: t.Name.Local}}
+			el := &Node{Type: Element, Name: Name{Space: t.Name.Space, Local: t.Name.Local}, Start: start}
 			for _, a := range t.Attr {
 				if a.Name.Local == "xmlns" || a.Name.Space == "xmlns" {
 					continue
@@ -125,6 +149,7 @@ func Parse(raw []byte) (*Node, error) {
 			stack = append(stack, el)
 		case xml.EndElement:
 			if len(stack) > 1 {
+				stack[len(stack)-1].End = rebase(d.InputOffset())
 				stack = stack[:len(stack)-1]
 			}
 		case xml.CharData:
@@ -132,7 +157,9 @@ func Parse(raw []byte) (*Node, error) {
 			// The decoder reports CDATA as CharData; we cannot distinguish it
 			// from ordinary text at the token layer, so classify by content
 			// only where it matters (handled in Validate via raw scan).
-			parent.Children = append(parent.Children, &Node{Type: Text, Data: string(t)})
+			parent.Children = append(parent.Children, &Node{
+				Type: Text, Data: string(t), Start: start, End: rebase(d.InputOffset()),
+			})
 		}
 	}
 	return root, nil
