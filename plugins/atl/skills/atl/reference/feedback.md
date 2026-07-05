@@ -1,3 +1,4 @@
+<!-- Generated from skills-src/atl/reference/feedback.md — edit the source and run 'make gen-plugins'. -->
 # Reporting `atl` friction — sanitized issue + private case file
 
 When working with `atl` went wrong in a way the tool or its docs should have

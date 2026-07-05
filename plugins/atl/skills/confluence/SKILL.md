@@ -2,6 +2,7 @@
 name: confluence
 description: Pull, read, edit, validate, and push Confluence pages with the atl CLI in their native storage format (CSF). USE WHEN the user wants to read, search, summarize, edit, update, create, publish, copy, open, or delete a Confluence or wiki page; list or upload page attachments; add or list page comments; browse a space tree or list pages in a space; work with .csf / storage-format content; check page history or metadata.
 ---
+<!-- Generated from skills-src/confluence/SKILL.md — edit the source and run 'make gen-plugins'. -->
 
 # Confluence pages with `atl`
 
@@ -12,12 +13,11 @@ express. `atl` prints JSON by default.
 ## Before the first command (preflight)
 
 `atl` must be installed **and** configured (Confluence URL + PAT). Check once at the start of a
-session; if either is missing, **run the setup skill and stop** rather than letting a command fail
-with an obscure error. In Claude Code this is `/atl:setup`; in Codex invoke `setup` from `/skills`
-or `$setup`.
+session; if either is missing, **run `$setup` and stop** rather than letting a command fail with
+an obscure error:
 
 ```bash
-command -v atl >/dev/null || echo 'NOT INSTALLED -> run the setup skill'
+command -v atl >/dev/null || echo 'NOT INSTALLED → run $setup'
 atl config show   # confluence_url must be non-empty; exit 7 from any command also means "not set up"
 ```
 
@@ -184,7 +184,7 @@ For exact edits or unresolved rendering questions, inspect the `.csf` source.
 
 | Symptom / Exit | Likely cause | Remedy |
 |---|---|---|
-| Exit 7 from any command | Backend URL or PAT not configured | Run the setup skill (or `atl config set` + `atl auth login`) |
+| Exit 7 from any command | Backend URL or PAT not configured | Run `$setup` (or `atl config set` + `atl auth login`) |
 | Exit 5 on push | Remote version moved past your synced version | Re-pull and reconcile; use `--force` only after a human decides |
 | Exit 4 | Page ID doesn't exist or isn't visible | Verify the `--id`; the page may have been deleted or renamed |
 | Exit 6 | Token lacks permission for this page/space | Surface to the user; they may need a broader-scoped PAT or access |

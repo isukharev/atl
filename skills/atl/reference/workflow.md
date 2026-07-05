@@ -1,3 +1,4 @@
+<!-- Generated from skills-src/atl/reference/workflow.md — edit the source and run 'make gen-plugins'. -->
 # `atl` workflow: mirror location and the safe edit loop
 
 ## Where the mirror lives

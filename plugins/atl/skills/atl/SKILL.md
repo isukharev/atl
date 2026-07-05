@@ -2,6 +2,7 @@
 name: atl
 description: Work with Confluence pages and Jira issues as local files using the atl CLI — mirror them to disk in native format, use them as grounding context, edit, and push changes back under a version gate. Use when the user mentions Confluence, a wiki page, Jira, a ticket/issue/epic, an agile board, sprint, Structure tree, a spec or runbook that lives in Atlassian, JQL or CQL, or wants Atlassian content available locally to read or edit.
 ---
+<!-- Generated from skills-src/atl/SKILL.md — edit the source and run 'make gen-plugins'. -->
 
 # Working with Confluence & Jira via `atl`
 
@@ -15,9 +16,9 @@ This skill orients you. For the actual command flows, use the focused skills:
 - **Jira issues** (search / pull / create / update / transition / comment / link) → the `jira`
   skill.
 - **First-time install & config** (`atl` binary, auth, backend URLs, mirror dir) →
-  run the setup skill (Claude Code: `/atl:setup`; Codex: invoke `setup` from `/skills` or `$setup`).
+  run `$setup`.
 
-If `atl` is not installed (`command -v atl` fails), tell the user to run the setup skill first.
+If `atl` is not installed (`command -v atl` fails), tell the user to run `$setup` first.
 
 ## Mental model
 
@@ -72,7 +73,8 @@ Recent additions expand both surfaces — check the focused skills for full flag
 `atl` prints JSON to stdout by default (use `-o text` only for a human view) and signals outcomes
 through exit codes. Parse the JSON; map the exit code per [exit-codes.md](reference/exit-codes.md)
 (e.g. `5` = version conflict → re-pull and reconcile before considering `--force`; `7` = not
-configured → run setup; `3` = the server rejected the token → re-`auth login` with a valid PAT).
+configured → run `$setup`; `3` = the server rejected the token → re-`auth login` with a valid
+PAT).
 
 ## When something went wrong
 

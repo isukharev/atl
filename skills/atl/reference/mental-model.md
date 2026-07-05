@@ -1,3 +1,4 @@
+<!-- Generated from skills-src/atl/reference/mental-model.md — edit the source and run 'make gen-plugins'. -->
 # `atl` mental model: when and where it fits
 
 ## What `atl` is for

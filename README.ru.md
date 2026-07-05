@@ -159,9 +159,11 @@ codex plugin add atl@atl
 - **`sprint-dashboard`** — read-only визуальный срез текущего спринта.
 - **`meeting-tasks`** — action items из заметок встречи в задачи Jira с исполнителями.
 
-Скиллы общие и лежат в [`skills/`](skills/). Упаковка Claude Code находится в
-[`.claude-plugin/`](.claude-plugin/); упаковка Codex — в [`plugins/atl`](plugins/atl), а repo
-marketplace — в [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json).
+Обе платформы получают одни и те же скиллы, генерируемые из единого источника
+[`skills-src/`](skills-src/) (устройство пайплайна: [docs/plugins.md](docs/plugins.md)). Упаковка
+Claude Code находится в [`.claude-plugin/`](.claude-plugin/); упаковка Codex — в
+[`plugins/atl`](plugins/atl), а repo marketplace — в
+[`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json).
 
 ---
 

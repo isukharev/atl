@@ -1,3 +1,4 @@
+<!-- Generated from skills-src/confluence/reference/push.md — edit the source and run 'make gen-plugins'. -->
 # Pushing Confluence pages: the version gate
 
 ## Optimistic version gate

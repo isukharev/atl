@@ -2,6 +2,7 @@
 name: sprint-dashboard
 description: Build a visual sprint or board dashboard from Jira data with the atl CLI — status columns, attention signals, per-assignee load — rendered in the richest format the client supports. USE WHEN the user asks for a sprint dashboard, standup view, sprint review or closeout snapshot, WIP overview, or a visual picture of current Jira work instead of a flat report. Read-only.
 ---
+<!-- Generated from skills-src/sprint-dashboard/SKILL.md — edit the source and run 'make gen-plugins'. -->
 
 # Sprint dashboard with `atl`
 
@@ -11,7 +12,7 @@ never create, update, transition, assign, or comment from this recipe; offer
 writes as follow-ups only. Command details live in the `jira` skill.
 
 **Preflight:** `atl` must be installed and configured. If `command -v atl` fails
-or a command exits `7` ("not configured"), run the setup skill and stop.
+or a command exits `7` ("not configured"), run `/atl:setup` and stop.
 
 ## Workflow
 

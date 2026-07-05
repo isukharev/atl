@@ -1,3 +1,4 @@
+<!-- Generated from skills-src/confluence/reference/csf.md — edit the source and run 'make gen-plugins'. -->
 # Confluence Storage Format (CSF) and fragments
 
 ## What the `.csf` is

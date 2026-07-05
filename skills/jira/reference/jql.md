@@ -1,3 +1,4 @@
+<!-- Generated from skills-src/jira/reference/jql.md — edit the source and run 'make gen-plugins'. -->
 # Searching and pulling Jira issues (JQL)
 
 ## Search vs pull

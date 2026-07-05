@@ -1,9 +1,10 @@
 ---
 name: setup
-description: Install the atl CLI and configure Confluence/Jira authentication, backend URLs, and the local mirror directory. Run this once before using atl.
+description: Install the atl CLI and configure Confluence/Jira authentication, backend URLs, and the local mirror directory. Run this once ($setup) before using atl.
 disable-model-invocation: true
 allowed-tools: Bash(command -v atl) Bash(atl version) Bash(brew install *) Bash(atl config show) Bash(atl config set *) Bash(atl auth status) Bash(atl auth login *) Bash(atl conf search *) Bash(atl jira fields)
 ---
+<!-- Generated from skills-src/setup/SKILL.md — edit the source and run 'make gen-plugins'. -->
 
 # Set up the atl CLI
 
@@ -11,8 +12,7 @@ Get the user from zero to ready: install the `atl` binary, point it at their Con
 authenticate, and agree on where the local mirror lives. Work through the steps in order; skip a
 step only if its check shows it is already done.
 
-Invocation: Claude Code exposes this as `/atl:setup`. Codex users should install/enable the atl
-plugin and invoke the `setup` skill explicitly from `/skills` or with `$setup`.
+Invocation: install/enable the atl plugin in Codex, then run this skill from `/skills` or with `$setup`.
 
 ## 1. Detect an existing install
 
@@ -38,7 +38,7 @@ brew install isukharev/tap/atl
 curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh
 ```
 
-Both the `brew` and `curl | sh` paths are network installs that the agent may need the user to
+Both the `brew` and `curl | sh` paths are network installs that Codex will ask the user to
 approve. That prompt is expected; do not try to bypass it.
 
 **Fallback**, if the above fail and Go is installed (the `main` package lives in `cmd/atl`, so the
@@ -109,8 +109,7 @@ fully greppable by the agent and never committed into their project's git histor
   basename or the Confluence space key). Example: `~/.atl/payments-service/`.
 - **Fix it once with `ATL_MIRROR_ROOT`** so `conf pull` / `conf status` / `jira pull` default to the
   same place without re-passing `--into` every time. Record it where later sessions will pick it up —
-  either export it in the shell profile, or add a line to the project's persistent agent guidance
-  (`CLAUDE.md`, `AGENTS.md`, or equivalent):
+  either export it in the shell profile, or add a line to the project's `AGENTS.md`:
   `atl mirror lives at ~/.atl/<workspace>/ (export ATL_MIRROR_ROOT=~/.atl/<workspace>/)`.
 - An explicit `--into <dir>` still overrides `ATL_MIRROR_ROOT`. `conf push` does not read the env
   var — it finds the mirror root by walking up from the target file to the nearest `.atl`, so as long
@@ -129,8 +128,8 @@ atl jira fields                                   # if they use Jira
 ```
 
 `atl` prints JSON by default. A clean result means setup is complete — tell the user they can now
-ask the agent to work with Confluence pages or Jira issues (the `confluence` and `jira` skills
-engage automatically).
+ask Codex to work with Confluence pages or Jira issues (the `confluence` and `jira` skills engage
+automatically).
 
 ## Exit codes (so you can react)
 

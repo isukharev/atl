@@ -1,3 +1,4 @@
+<!-- Generated from skills-src/atl/reference/dev-loop.md — edit the source and run 'make gen-plugins'. -->
 # The dev loop: driving a ticket from a coding agent
 
 The recipe for the core `atl` scenario — you are implementing a change in a code repo and keep
@@ -88,4 +89,4 @@ atl jira issue transition PROJ-123 --to Blocked --comment "Waiting on PROJ-99"
 - Pull fresh right before editing a Confluence page; push the exact bytes you dry-ran.
 - Comment when there is signal (decision, blocker, done), not noise (every commit).
 - Exit codes are the protocol: `5` re-pull & reconcile, `8` fill required fields, `7` run
-  setup, `3` re-auth. Full table: [exit-codes.md](exit-codes.md).
+  `$setup`, `3` re-auth. Full table: [exit-codes.md](exit-codes.md).

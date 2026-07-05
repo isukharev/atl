@@ -2,6 +2,7 @@
 name: jira
 description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/edit/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, assign, transition, comment on, link, delete, check fields of, or report on a Jira issue, ticket, bug, story, epic, or task; extract artifact references; build an epic tree; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; download images from an issue; work with agile boards and sprints; or read Tempo Structure metadata, forest rows, values, and issue exports.
 ---
+<!-- Generated from skills-src/jira/SKILL.md — edit the source and run 'make gen-plugins'. -->
 
 # Jira issues with `atl`
 
@@ -15,10 +16,9 @@ per line, suitable for piping into `xargs` or scripts. `-o text` gives a human-r
 never written to the trace.
 
 **Preflight:** `atl` must be installed and configured (Jira URL + PAT). If `command -v atl` fails or
-`atl config show` has an empty `jira_url` (or any command exits `7` = "not configured"), **run the
-setup skill and stop** instead of pushing on. In Claude Code this is `/atl:setup`; in Codex invoke
-`setup` from `/skills` or `$setup`. The mirror root is `~/.atl/<workspace>/`; when the workspace
-exported `ATL_MIRROR_ROOT`, `jira pull --into` already defaults to it.
+`atl config show` has an empty `jira_url` (or any command exits `7` = "not configured"), **run
+`$setup` and stop** instead of pushing on. The mirror root is `~/.atl/<workspace>/`; when the
+workspace exported `ATL_MIRROR_ROOT`, `jira pull --into` already defaults to it.
 
 Driving a ticket end-to-end while developing (assign → in progress → progress comments → check →
 done → update the linked Confluence page)? Follow the `atl` skill's dev-loop reference
@@ -247,7 +247,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 
 | Symptom / Exit | Likely cause | Remedy |
 |---|---|---|
-| Exit 7 from any command | Backend URL or PAT not configured | Run the setup skill (or `atl config set` + `atl auth login`) |
+| Exit 7 from any command | Backend URL or PAT not configured | Run `$setup` (or `atl config set` + `atl auth login`) |
 | Exit 3 | Token rejected (expired/revoked/wrong instance) | Re-run `atl auth login --service jira` with a valid PAT |
 | Exit 4 | Issue key doesn't exist or isn't visible | Verify the key; the issue may have been deleted |
 | Exit 6 | Token lacks permission | Surface to the user; they may need a broader-scoped PAT |

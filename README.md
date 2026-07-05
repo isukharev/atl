@@ -156,9 +156,11 @@ built-in approval gates before anything is created:
 - **`sprint-dashboard`** — a read-only visual snapshot of the current sprint.
 - **`meeting-tasks`** — action items from meeting notes into assigned Jira tasks.
 
-The skills are shared under [`skills/`](skills/). Claude Code packaging lives in
-[`.claude-plugin/`](.claude-plugin/); Codex packaging lives in [`plugins/atl`](plugins/atl) with the
-repo marketplace at [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json).
+Both platforms ship the same skills, generated from the single source in
+[`skills-src/`](skills-src/) (platform pipeline: [docs/plugins.md](docs/plugins.md)). Claude Code
+packaging lives in [`.claude-plugin/`](.claude-plugin/); Codex packaging lives in
+[`plugins/atl`](plugins/atl) with the repo marketplace at
+[`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json).
 
 ---
 

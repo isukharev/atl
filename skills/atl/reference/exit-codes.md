@@ -1,3 +1,4 @@
+<!-- Generated from skills-src/atl/reference/exit-codes.md — edit the source and run 'make gen-plugins'. -->
 # `atl` exit codes and how to react
 
 `atl` maps failure conditions to stable exit codes (driven by sentinel errors). Parse the JSON on
@@ -12,7 +13,7 @@ stdout for detail, and branch on the exit code:
 | `4` | Not found | The id/key/page/issue doesn't exist or isn't visible — verify the identifier. |
 | `5` | Version conflict (Confluence push) | The remote moved past your synced version. Re-pull and reconcile; only `--force` (clobber) after a human decides. |
 | `6` | Forbidden | The token authenticated but lacks permission for this object/space. Don't retry blindly — surface it; the user may need a broader-scoped token or access. |
-| `7` | Not configured — backend URL or PAT **not set** yet | Setup is incomplete (no URL, or no token stored/in env) → run the setup skill (or `atl config set` + `atl auth login`). |
+| `7` | Not configured — backend URL or PAT **not set** yet | Setup is incomplete (no URL, or no token stored/in env) → run `/atl:setup` (or `atl config set` + `atl auth login`). |
 | `8` | Check failed (`jira issue check`) | A field listed in `--require` is empty. Populate the missing fields (the JSON report names them), then re-run `check` before transitioning. |
 
 Notes:

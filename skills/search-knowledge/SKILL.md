@@ -2,6 +2,7 @@
 name: search-knowledge
 description: Answer questions from company knowledge by searching Confluence and Jira together with the atl CLI and synthesizing a cited answer. USE WHEN the user asks "what do we know about X", "find docs/tickets about X", "explain our <process/system/term>", "has this been discussed", or any question whose answer may live in Confluence pages or Jira issues rather than in the codebase.
 ---
+<!-- Generated from skills-src/search-knowledge/SKILL.md — edit the source and run 'make gen-plugins'. -->
 
 # Search company knowledge with `atl`
 
@@ -10,7 +11,7 @@ citations. This recipe is read-only: never create, update, or comment on
 anything from it. Command details live in the `confluence` and `jira` skills.
 
 **Preflight:** `atl` must be installed and configured. If `command -v atl` fails
-or a command exits `7` ("not configured"), run the setup skill and stop.
+or a command exits `7` ("not configured"), run `/atl:setup` and stop.
 
 ## Workflow
 
@@ -70,6 +71,6 @@ the whole result set offline, with no rate limits and no per-request truncation.
 | Symptom | Cause / fix |
 |---|---|
 | exit 4 on `page get` | stale id from the search index — cite the search hit only |
-| exit 3 | PAT missing/expired — `atl auth status`, then setup |
+| exit 3 | PAT missing/expired — `atl auth status`, then `/atl:setup` |
 | exit 2 with a CQL/JQL parse error | wrap the whole query in single quotes, values in double quotes |
 | page body too large to quote | use `--format view` excerpts or the mirror's `.md`; never dump raw `.csf` at the user |

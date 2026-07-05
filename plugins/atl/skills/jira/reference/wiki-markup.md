@@ -1,3 +1,4 @@
+<!-- Generated from skills-src/jira/reference/wiki-markup.md — edit the source and run 'make gen-plugins'. -->
 # Jira wiki markup — the body syntax (this is NOT Markdown)
 
 > **Check first:** you usually don't need to write wiki markup by hand — `create`, `update`,

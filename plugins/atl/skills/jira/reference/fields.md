@@ -1,3 +1,4 @@
+<!-- Generated from skills-src/jira/reference/fields.md — edit the source and run 'make gen-plugins'. -->
 # Jira fields, transitions, and editing large bodies
 
 ## Discover before you write

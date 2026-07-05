@@ -1,3 +1,4 @@
+<!-- Generated from skills-src/confluence/reference/csf-authoring.md — edit the source and run 'make gen-plugins'. -->
 # Authoring new CSF content (pages, sections, comments)
 
 > **Check first:** a whole new page usually doesn't need hand-written CSF — `conf page create
