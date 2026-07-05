@@ -191,7 +191,10 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 		if err != nil {
 			return res, fmt.Errorf("pull %s: %w", id, err)
 		}
-		dir, slug := m.PageDir(page.SpaceKey, page.Ancestors, page.Title)
+		dir, slug, derr := m.ClaimPageDir(page.SpaceKey, page.Ancestors, page.Title, page.ID)
+		if derr != nil {
+			return res, fmt.Errorf("pull %s: %w", id, derr)
+		}
 		refs := []domain.Ref{}
 		if root, perr := csf.Parse(page.Body); perr == nil {
 			refs = fragment.Extract(root)
