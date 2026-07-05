@@ -413,29 +413,31 @@ func TestJiraIssueUpdate_NotFoundExit4(t *testing.T) {
 
 const pullWikiBody = "h1. Heading\n\nNative *wiki* body — unconverted."
 
-// TestJiraPull_MirrorLayoutAndByteStable drives `jira pull`: the search returns
-// one issue, the per-issue GET returns its full fields, and the mirror is laid
-// out as <project>/<KEY>.md + <KEY>.json. The wiki body in the .md must be
-// stored verbatim (no Markdown round-trip).
+// TestJiraPull_MirrorLayoutAndByteStable drives `jira pull`: the search
+// projection carries the full requested fields (as a real backend does), no
+// per-issue re-fetch happens (#65), and the mirror is laid out as
+// <project>/<KEY>.md + <KEY>.json. The wiki body in the .md must be stored
+// verbatim (no Markdown round-trip).
 func TestJiraPull_MirrorLayoutAndByteStable(t *testing.T) {
 	js := newJiraServer(t)
-	// Search returns one hit; total=1 so there is no next cursor.
-	js.route(http.MethodGet, "/rest/api/2/search", http.StatusOK,
-		`{"issues":[{"key":"ENG-42","fields":{"summary":"Pulled issue","project":{"key":"ENG"}}}],"startAt":0,"maxResults":50,"total":1}`)
-	// Per-issue GET returns full fields including the native wiki description.
-	issueBody, _ := json.Marshal(map[string]any{
-		"id":  "1042",
-		"key": "ENG-42",
-		"fields": map[string]any{
-			"summary":       "Pulled issue",
-			"description":   pullWikiBody,
-			"status":        map[string]any{"name": "Open"},
-			"issuetype":     map[string]any{"name": "Story"},
-			"project":       map[string]any{"key": "ENG"},
-			"customfield_1": "team-a",
-		},
+	// Search returns one hit with the full field projection; total=1 so there
+	// is no next cursor. No per-issue route exists — a re-fetch would 404.
+	searchBody, _ := json.Marshal(map[string]any{
+		"issues": []map[string]any{{
+			"id":  "1042",
+			"key": "ENG-42",
+			"fields": map[string]any{
+				"summary":       "Pulled issue",
+				"description":   pullWikiBody,
+				"status":        map[string]any{"name": "Open"},
+				"issuetype":     map[string]any{"name": "Story"},
+				"project":       map[string]any{"key": "ENG"},
+				"customfield_1": "team-a",
+			},
+		}},
+		"startAt": 0, "maxResults": 50, "total": 1,
 	})
-	js.route(http.MethodGet, "/rest/api/2/issue/", http.StatusOK, string(issueBody))
+	js.route(http.MethodGet, "/rest/api/2/search", http.StatusOK, string(searchBody))
 
 	into := t.TempDir()
 	out, code := runCLI(t, jiraEnv(js.srv), "jira", "pull", "--jql", "project=ENG", "--into", into, "--fields", "customfield_1")
@@ -483,12 +485,17 @@ func TestJiraPull_MirrorLayoutAndByteStable(t *testing.T) {
 	}
 	var sawCustomField bool
 	for _, r := range js.requests() {
-		if r.method == http.MethodGet && (r.path == "/rest/api/2/search" || r.path == "/rest/api/2/issue/ENG-42") && strings.Contains(r.query, "customfield_1") {
+		if r.method == http.MethodGet && r.path == "/rest/api/2/search" && strings.Contains(r.query, "customfield_1") {
 			sawCustomField = true
+		}
+		// The search projection suffices; a per-issue re-fetch would double the
+		// HTTP round trips (#65).
+		if strings.HasPrefix(r.path, "/rest/api/2/issue/") {
+			t.Errorf("pull made a per-issue request %s %s, want none", r.method, r.path)
 		}
 	}
 	if !sawCustomField {
-		t.Errorf("expected pull --fields customfield_1 on search/get requests, got %+v", js.requests())
+		t.Errorf("expected pull --fields customfield_1 on the search request, got %+v", js.requests())
 	}
 }
 

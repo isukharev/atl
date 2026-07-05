@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`jira pull` no longer re-fetches every issue after the search.** The
+  search projection already carries the requested fields through the same
+  adapter mapping, so the per-issue `GET` doubled HTTP round trips (and 429
+  exposure) on large pulls for zero data gain. A failed `.json` snapshot
+  write now also aborts the pull loudly instead of being silently discarded —
+  a disk-full run can no longer report issues as pulled with missing or stale
+  snapshots.
 - **A stale `.md` read-view can no longer survive a pull whose body fails to
   parse.** Previously the old revision's `.md` stayed on disk next to the new
   `.csf` with no signal; now it is overwritten with an explicit
