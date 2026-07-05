@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/safepath"
 )
 
@@ -23,6 +24,9 @@ type sidecarFile struct {
 
 func (m *Mirror) sidecarPath() string { return filepath.Join(m.Root, ".atl", "state.json") }
 
+// loadSidecar reads .atl/state.json. A missing file is an empty state (fresh
+// mirror); an unparseable one is a loud error — silently treating it as empty
+// would reset every page to never-synced and quietly disable drift detection.
 func (m *Mirror) loadSidecar() (sidecarFile, error) {
 	sc := sidecarFile{Pages: map[string]SyncState{}}
 	b, err := os.ReadFile(m.sidecarPath())
@@ -32,35 +36,39 @@ func (m *Mirror) loadSidecar() (sidecarFile, error) {
 	if err != nil {
 		return sc, err
 	}
-	_ = json.Unmarshal(b, &sc)
+	if err := json.Unmarshal(b, &sc); err != nil {
+		// ErrCheckFailed (exit 8) gives agents a branchable signal, consistent
+		// with the other local pre-write integrity refusals.
+		return sc, fmt.Errorf("%w: corrupt mirror sidecar %s: %v — fix the JSON or delete the file to reset sync state (pages will read as never-synced until re-pulled)", domain.ErrCheckFailed, m.sidecarPath(), err)
+	}
 	if sc.Pages == nil {
 		sc.Pages = map[string]SyncState{}
 	}
 	return sc, nil
 }
 
+// saveSidecar replaces state.json atomically (temp + fsync + rename), so a
+// crash mid-save can never leave a half-written file. Concurrency discipline:
+// the sidecar is a whole-file, last-writer-wins artifact — run one atl process
+// against a mirror at a time; concurrent writers may lose each other's entries
+// but the file itself stays valid.
 func (m *Mirror) saveSidecar(sc sidecarFile) error {
 	if err := os.MkdirAll(filepath.Dir(m.sidecarPath()), 0o755); err != nil {
 		return err
 	}
 	b, _ := json.MarshalIndent(sc, "", "  ")
-	return safepath.WriteFile(m.sidecarPath(), append(b, '\n'), 0o600)
-}
-
-// recordSync updates the last-synced state for one resource.
-func (m *Mirror) recordSync(id string, version int, hash, relPath string) error {
-	sc, err := m.loadSidecar()
-	if err != nil {
-		return err
-	}
-	sc.Pages[id] = SyncState{ID: id, Version: version, Hash: hash, Path: relPath}
-	return m.saveSidecar(sc)
+	return safepath.WriteFileAtomic(m.sidecarPath(), append(b, '\n'), 0o600)
 }
 
 // SyncedVersion returns the last-synced version for an id (0 if untracked).
-func (m *Mirror) SyncedVersion(id string) int {
-	sc, _ := m.loadSidecar()
-	return sc.Pages[id].Version
+// The error is the loud corrupt-sidecar signal — swallowing it here would
+// reintroduce the silent state reset this API exists to prevent.
+func (m *Mirror) SyncedVersion(id string) (int, error) {
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return 0, err
+	}
+	return sc.Pages[id].Version, nil
 }
 
 // saveBase stores a pristine copy of the last-synced body so push can diff the

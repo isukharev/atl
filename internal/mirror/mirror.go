@@ -155,19 +155,36 @@ func (m *Mirror) AssetSink(dir, slug string) domain.AssetSink { return pageSink{
 
 // Write persists a page: .csf (source of truth), .md (read view), .meta.json,
 // and updates the sidecar. refs must already be resolved (display/asset filled).
+// It is the single-page convenience over SyncBatch — a multi-page pull must go
+// through BeginSync/Flush so the sidecar is loaded and saved once, not once
+// per page.
 func (m *Mirror) Write(dir, slug string, page *domain.Resource, refs []domain.Ref) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	b, err := m.BeginSync()
+	if err != nil {
 		return err
+	}
+	if err := b.Write(dir, slug, page, refs); err != nil {
+		return err
+	}
+	return b.Flush()
+}
+
+// writePageFiles writes the page artifacts (.csf, .md view, .meta.json, base
+// copy) and returns the .csf path relative to the mirror root; sidecar state
+// is recorded by the caller.
+func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []domain.Ref) (rel string, err error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
 	}
 	csfPath := filepath.Join(dir, slug+".csf")
 	if err := safepath.WriteFile(csfPath, page.Body, 0o644); err != nil {
-		return err
+		return "", err
 	}
 	// Markdown view (best-effort: never fail a pull because rendering choked).
 	if root, err := csf.Parse(page.Body); err == nil {
 		md := RenderMarkdown(root, refs)
 		if err := safepath.WriteFile(filepath.Join(dir, slug+".md"), md, 0o644); err != nil {
-			return err
+			return "", err
 		}
 	}
 	meta := Meta{
@@ -176,13 +193,57 @@ func (m *Mirror) Write(dir, slug string, page *domain.Resource, refs []domain.Re
 	}
 	mb, _ := json.MarshalIndent(meta, "", "  ")
 	if err := safepath.WriteFile(filepath.Join(dir, slug+".meta.json"), append(mb, '\n'), 0o644); err != nil {
-		return err
+		return "", err
 	}
-	rel, _ := filepath.Rel(m.Root, csfPath)
 	if err := m.saveBase(page.ID, page.Body); err != nil {
+		return "", err
+	}
+	rel, _ = filepath.Rel(m.Root, csfPath)
+	return rel, nil
+}
+
+// SyncBatch accumulates sidecar updates across a multi-page write so a pull
+// performs one sidecar load (BeginSync) and one save (Flush) instead of a
+// full load+rewrite per page.
+type SyncBatch struct {
+	m     *Mirror
+	sc    sidecarFile
+	dirty bool
+}
+
+// BeginSync loads the sidecar once for a batch of page writes. See saveSidecar
+// for the concurrency discipline (single writer per mirror).
+func (m *Mirror) BeginSync() (*SyncBatch, error) {
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return nil, err
+	}
+	return &SyncBatch{m: m, sc: sc}, nil
+}
+
+// Write persists a page like Mirror.Write but records the sync state in
+// memory; the caller must Flush once at the end of the batch.
+func (b *SyncBatch) Write(dir, slug string, page *domain.Resource, refs []domain.Ref) error {
+	rel, err := b.m.writePageFiles(dir, slug, page, refs)
+	if err != nil {
 		return err
 	}
-	return m.recordSync(page.ID, page.Version, meta.Hash, rel)
+	b.sc.Pages[page.ID] = SyncState{ID: page.ID, Version: page.Version, Hash: Hash(page.Body), Path: rel}
+	b.dirty = true
+	return nil
+}
+
+// Flush saves the accumulated sidecar state; a no-op when nothing was written,
+// so it is safe to call again on error paths after a successful flush.
+func (b *SyncBatch) Flush() error {
+	if !b.dirty {
+		return nil
+	}
+	if err := b.m.saveSidecar(b.sc); err != nil {
+		return err
+	}
+	b.dirty = false
+	return nil
 }
 
 // EnsureScaffold writes a .gitignore guarding secrets in the mirror root.
@@ -206,8 +267,20 @@ type LocalCSF struct {
 	Dirty   bool       // current != synced
 }
 
-// LoadCSF reads a .csf path and its neighboring meta + sidecar state.
+// LoadCSF reads a .csf path and its neighboring meta + sidecar state. A
+// corrupt sidecar is an error — reporting the page as never-synced instead
+// would silently disable the version gate and drift detection.
 func (m *Mirror) LoadCSF(csfPath string) (*LocalCSF, []byte, error) {
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return nil, nil, err
+	}
+	return loadCSFWith(sc, csfPath)
+}
+
+// loadCSFWith is LoadCSF against an already-loaded sidecar, so ListCSF can
+// load the sidecar once instead of once per file.
+func loadCSFWith(sc sidecarFile, csfPath string) (*LocalCSF, []byte, error) {
 	body, err := os.ReadFile(csfPath)
 	if err != nil {
 		return nil, nil, err
@@ -217,7 +290,6 @@ func (m *Mirror) LoadCSF(csfPath string) (*LocalCSF, []byte, error) {
 	if mb, err := os.ReadFile(metaPath); err == nil {
 		_ = json.Unmarshal(mb, &lc.Meta)
 	}
-	sc, _ := m.loadSidecar()
 	if st, ok := sc.Pages[lc.Meta.ID]; ok {
 		s := st
 		lc.Synced = &s
@@ -230,8 +302,12 @@ func (m *Mirror) LoadCSF(csfPath string) (*LocalCSF, []byte, error) {
 
 // ListCSF walks the mirror returning every tracked .csf with dirty status.
 func (m *Mirror) ListCSF() ([]*LocalCSF, error) {
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return nil, err
+	}
 	var out []*LocalCSF
-	err := filepath.Walk(m.Root, func(p string, info os.FileInfo, err error) error {
+	err = filepath.Walk(m.Root, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -242,7 +318,7 @@ func (m *Mirror) ListCSF() ([]*LocalCSF, error) {
 			return nil
 		}
 		if strings.HasSuffix(p, ".csf") {
-			lc, _, err := m.LoadCSF(p)
+			lc, _, err := loadCSFWith(sc, p)
 			if err == nil {
 				out = append(out, lc)
 			}

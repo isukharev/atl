@@ -302,10 +302,18 @@ mirror/
   entry; computes `Dirty = currentHash != syncedHash`.
 - `ListCSF()` — walks the tree (skipping `.atl/`), loads every `.csf`, sorts
   by path.
-- Sidecar (`state.json`) tracks `{id, version, hash, path}` per page and is
-  read/updated atomically on every write. The `base/` directory stores
-  pristine body copies so `push` can diff fragments without a network round-
-  trip.
+- Sidecar (`state.json`) tracks `{id, version, hash, path}` per page. Saves
+  are atomic (temp + fsync + rename via `safepath.WriteFileAtomic`), so a
+  crash can never leave a half-written file. A corrupt sidecar is a loud
+  error on every path that consults it (`status`, `push`, `pull`) — never a
+  silent reset to "never synced", which would quietly disable drift
+  detection. Multi-page writes go through `BeginSync`/`SyncBatch.Write`/
+  `Flush` so a pull loads and saves the file once (not once per page), and
+  `ListCSF` loads it once for the whole walk. Concurrency discipline: the
+  sidecar is whole-file last-writer-wins — run one `atl` process per mirror;
+  concurrent writers may lose each other's entries but the file always stays
+  valid. The `base/` directory stores pristine body copies so `push` can diff
+  fragments without a network round-trip.
 
 ---
 

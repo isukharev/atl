@@ -10,6 +10,7 @@ import (
 
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/mirror"
 )
 
 // recordingStore embeds DocStore so only the methods a test needs are
@@ -547,8 +548,13 @@ func (s *pullCapStore) GetPage(_ context.Context, id string, _ domain.PullOpts) 
 type pullStore struct {
 	domain.DocStore
 	pages   map[string]*domain.Resource
+	refs    []domain.PageRef // served by Tree for --space pulls
 	getErr  error
 	getErrs map[string]error
+}
+
+func (s *pullStore) Tree(_ context.Context, _ string, _ int) ([]domain.PageRef, bool, error) {
+	return s.refs, false, nil
 }
 
 func (s *pullStore) GetPage(_ context.Context, id string, _ domain.PullOpts) (*domain.Resource, error) {
@@ -615,6 +621,58 @@ func TestPullSwallowsParseFailure(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(into, res.Pages[0].Path)); err != nil {
 		t.Errorf("page with unparseable body was not mirrored: %v", err)
+	}
+}
+
+// A failure mid-pull still persists sidecar entries for the pages already
+// written (deferred batch flush), so a partial pull is not reported as
+// never-synced — and the error still propagates for the exit code.
+func TestPullMidFailureFlushesSidecar(t *testing.T) {
+	into := t.TempDir()
+	st := &pullStore{
+		refs: []domain.PageRef{{ID: "1"}, {ID: "2"}},
+		pages: map[string]*domain.Resource{
+			"1": {ID: "1", Title: "One", SpaceKey: "SP", Version: 3, Body: []byte("<p>1</p>")},
+		},
+		getErrs: map[string]error{"2": domain.ErrForbidden},
+	}
+	svc := &ConfluenceService{store: st}
+	res, err := svc.Pull(context.Background(), PullOpts{Space: "SP", Into: into})
+	if !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected the page-2 failure to propagate, got %v", err)
+	}
+	if len(res.Pages) != 1 {
+		t.Fatalf("expected page 1 mirrored before the failure, got %+v", res.Pages)
+	}
+	lc, _, err := mirror.New(into).LoadCSF(filepath.Join(into, res.Pages[0].Path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lc.Synced == nil || lc.Synced.Version != 3 {
+		t.Errorf("page 1 sidecar entry not flushed on mid-pull failure: %+v", lc.Synced)
+	}
+	if lc.Dirty {
+		t.Error("page 1 should read clean after the partial pull")
+	}
+}
+
+// A corrupt sidecar aborts a pull loudly before any network write — never a
+// silent state reset.
+func TestPullCorruptSidecarFailsLoudly(t *testing.T) {
+	into := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(into, ".atl"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(into, ".atl", "state.json"), []byte("{corrupt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st := &pullStore{pages: map[string]*domain.Resource{
+		"1": {ID: "1", Title: "One", SpaceKey: "SP", Version: 1, Body: []byte("<p>1</p>")},
+	}}
+	svc := &ConfluenceService{store: st}
+	_, err := svc.Pull(context.Background(), PullOpts{ID: "1", Into: into})
+	if err == nil || !strings.Contains(err.Error(), "corrupt mirror sidecar") {
+		t.Fatalf("corrupt sidecar must fail the pull loudly, got %v", err)
 	}
 }
 

@@ -61,11 +61,17 @@ func TestPageDirHierarchy(t *testing.T) {
 
 func TestSidecarRoundTrip(t *testing.T) {
 	m := New(t.TempDir())
-	if err := m.recordSync("123", 7, "deadbeef", "ARCH/x/x.csf"); err != nil {
+	b, err := m.BeginSync()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if v := m.SyncedVersion("123"); v != 7 {
-		t.Errorf("synced version = %d, want 7", v)
+	b.sc.Pages["123"] = SyncState{ID: "123", Version: 7, Hash: "deadbeef", Path: "ARCH/x/x.csf"}
+	b.dirty = true
+	if err := b.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := m.SyncedVersion("123"); err != nil || v != 7 {
+		t.Errorf("synced version = %d (err %v), want 7", v, err)
 	}
 	sc, _ := m.loadSidecar()
 	if sc.Pages["123"].Hash != "deadbeef" {
