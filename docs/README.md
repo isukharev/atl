@@ -1,6 +1,7 @@
 # `atl` documentation
 
-Start with the project [README](../README.md) for install, quick start, and the Claude Code plugin.
+Start with the project [README](../README.md) for install, quick start, and the Claude Code/Codex
+agent plugins.
 This directory holds the deeper references:
 
 | Doc | Audience | What's in it |

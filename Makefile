@@ -5,6 +5,8 @@
 #   make test             run unit tests
 #   make lint             run golangci-lint (if installed)
 #   make vet              go vet
+#   make check-codex-plugin-skills
+#                         verify Codex plugin skill copy matches root skills/
 #   make live-smoke       run opt-in live CLI smoke checks
 #   make dist             cross-compile release binaries into ./dist
 #   make manifest         generate dist/manifest.json from ./dist binaries
@@ -62,6 +64,10 @@ vet:
 lint:
 	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not installed: https://golangci-lint.run/usage/install/"; exit 1; }
 	golangci-lint run
+
+.PHONY: check-codex-plugin-skills
+check-codex-plugin-skills:
+	./scripts/check-codex-plugin-skills.sh
 
 .PHONY: tidy
 tidy:

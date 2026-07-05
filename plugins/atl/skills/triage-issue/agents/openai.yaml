@@ -1,0 +1,6 @@
+interface:
+  display_name: "Triage issue"
+  short_description: "Search duplicates before filing bugs"
+  default_prompt: "Use $triage-issue to check Jira for duplicates before creating a bug."
+policy:
+  allow_implicit_invocation: true

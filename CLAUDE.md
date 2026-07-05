@@ -182,14 +182,16 @@ Canonical guides live outside this file: `AGENTS.md` (cross-agent handoff rules)
   regenerate with `go test ./internal/cli/ -run … -update`) pin `emit()`'s JSON; keep canned
   responses free of volatile data (httptest ports, timestamps). The sentinel→exit-code matrix
   is locked in `cli_contract_test.go` — extend it when you add a sentinel.
-- **Keep the shipped plugin in sync with the CLI.** `skills/` is the Claude Code plugin clients
-  install to drive `atl`; it — and `docs/` — enumerate commands, flags, exit codes, and output.
+- **Keep the shipped agent plugins in sync with the CLI.** `skills/` is the shared source for
+  Claude Code, and `plugins/atl/skills/` is the Codex plugin copy clients install to drive `atl`;
+  they — and `docs/` — enumerate commands, flags, exit codes, and output.
   When a change alters user-facing CLI behaviour, update the matching `skills/*/SKILL.md`
   (Quick-Reference tables, examples, `USE WHEN` frontmatter, Common-Errors / exit-code blocks) plus
   `docs/usage.md` / `docs/OUTPUT_CONTRACT.md` / `CHANGELOG.md` — and `README.md` (and
-  `README.ru.md` when it mirrors the same section) — in the **same PR**, and confirm it
+  `README.ru.md` when it mirrors the same section) — in the **same PR**, sync
+  `plugins/atl/skills/`, run `make check-codex-plugin-skills`, and confirm compatibility
   **before merging**. Setup/auth/mirror behaviour changes also update `skills/setup/SKILL.md`
-  and `skills/atl/reference/*`.
+  and `skills/atl/reference/*`, then refresh the Codex copy.
 - **Security-boundary tests assert the guarantee fails when the control is removed** (O_NOFOLLOW,
   atomic symlink-replace, ed25519 verify-before-parse). Tamper *inside a valid payload* so the
   control under test — not an incidental parse failure — is what rejects it.
