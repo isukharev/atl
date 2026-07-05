@@ -46,7 +46,9 @@ values live in the `platforms` table in `scripts/gen-plugins/main.go`:
 
 Rules the generator enforces:
 
-- An unresolved `{{atl.*}}` placeholder is a **hard error** (typo guard). Plain
+- An unresolved `{{atl.*}}` placeholder is a **hard error** (typo guard), and
+  near-miss typos (`{{atl.Setup_cmd}}`, `{{ atl.setup_cmd }}`) are caught by a
+  looser stray-remnant check. Plain
   `{{...}}` without the `atl.` prefix passes through untouched — Jira wiki
   markup uses `{{text}}` for monospace, and the jira skill documents it.
 - A line consisting solely of a placeholder whose value is empty is dropped,

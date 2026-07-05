@@ -135,7 +135,11 @@ func renderFile(src, rel string, pl platform) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		return []byte(withHeader(rendered, rel)), nil
+		withHdr, err := withHeader(rendered, rel)
+		if err != nil {
+			return nil, err
+		}
+		return []byte(withHdr), nil
 	case strings.HasSuffix(filepath.ToSlash(rel), "agents/openai.yaml"):
 		if !pl.copyOpenAI {
 			return nil, nil
@@ -146,61 +150,70 @@ func renderFile(src, rel string, pl platform) ([]byte, error) {
 	}
 }
 
-// render substitutes {{var}} placeholders. A line that consists solely of a
-// placeholder whose value is empty is dropped (and a resulting run of blank
-// lines is collapsed), so optional per-platform notes leave no gap behind.
-// Any placeholder left unresolved is an error.
+// strayRe catches placeholder remnants that varRe's strict form would let
+// through — casing or spacing typos like {{atl.Setup_cmd}} or {{ atl.x }} —
+// so a typo cannot silently ship half-rendered text.
+var strayRe = regexp.MustCompile(`(?i)\{\{\s*atl`)
+
+// render substitutes {{atl.var}} placeholders. A line that consists solely of
+// a placeholder whose value is empty is dropped — together with the blank
+// line that followed it when it sat between two blanks — so optional
+// per-platform notes leave no gap behind. Blank lines elsewhere (including
+// inside code fences) are never touched. Any placeholder left unresolved,
+// including near-miss typos, is an error.
 func render(s string, vars map[string]string) (string, error) {
 	lines := strings.Split(s, "\n")
 	out := make([]string, 0, len(lines))
-	for _, line := range lines {
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
 		trimmed := strings.TrimSpace(line)
 		if m := varRe.FindStringSubmatch(trimmed); m != nil && m[0] == trimmed {
 			if v, ok := vars[m[1]]; ok && v == "" {
-				// Drop the placeholder-only line; avoid double blanks.
-				if len(out) > 0 && out[len(out)-1] == "" {
-					continue
+				// Drop the placeholder-only line; when it was framed by blank
+				// lines, consume the following blank too so no gap is left.
+				if len(out) > 0 && out[len(out)-1] == "" && i+1 < len(lines) && lines[i+1] == "" {
+					i++
 				}
 				continue
 			}
 		}
-		replaced := varRe.ReplaceAllStringFunc(line, func(match string) string {
+		out = append(out, varRe.ReplaceAllStringFunc(line, func(match string) string {
 			name := varRe.FindStringSubmatch(match)[1]
 			if v, ok := vars[name]; ok {
 				return v
 			}
 			return match // left as-is; caught below
-		})
-		out = append(out, replaced)
+		}))
 	}
 	res := strings.Join(out, "\n")
-	res = collapseBlankRuns(res)
 	if m := varRe.FindString(res); m != "" {
 		return "", fmt.Errorf("unknown placeholder %s", m)
+	}
+	if loc := strayRe.FindStringIndex(res); loc != nil {
+		end := loc[0] + 24
+		if end > len(res) {
+			end = len(res)
+		}
+		return "", fmt.Errorf("stray unresolved placeholder near %q", res[loc[0]:end])
 	}
 	return res, nil
 }
 
-// collapseBlankRuns reduces runs of 3+ newlines (left by dropped
-// placeholder-only lines) back to a single blank line.
-func collapseBlankRuns(s string) string {
-	for strings.Contains(s, "\n\n\n") {
-		s = strings.ReplaceAll(s, "\n\n\n", "\n\n")
-	}
-	return s
-}
-
 // withHeader inserts the generated-file marker. YAML frontmatter must stay at
 // byte 0 for skill loaders, so when the file starts with a frontmatter block
-// the marker goes right after its closing delimiter; otherwise it goes on top.
-func withHeader(s, rel string) string {
+// the marker goes right after its closing delimiter; otherwise it goes on
+// top. A frontmatter opener with no closing delimiter is a hard error —
+// placing the header above it would silently break the skill.
+func withHeader(s, rel string) (string, error) {
 	header := fmt.Sprintf("<!-- Generated from %s/%s — edit the source and run 'make gen-plugins'. -->",
 		srcRoot, filepath.ToSlash(rel))
 	if strings.HasPrefix(s, "---\n") {
-		if end := strings.Index(s[4:], "\n---\n"); end >= 0 {
-			cut := 4 + end + len("\n---\n")
-			return s[:cut] + header + "\n" + s[cut:]
+		end := strings.Index(s[4:], "\n---\n")
+		if end < 0 {
+			return "", fmt.Errorf("frontmatter opened but never closed")
 		}
+		cut := 4 + end + len("\n---\n")
+		return s[:cut] + header + "\n" + s[cut:], nil
 	}
-	return header + "\n" + s
+	return header + "\n" + s, nil
 }
