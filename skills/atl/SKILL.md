@@ -74,3 +74,12 @@ through exit codes. Parse the JSON; map the exit code per [exit-codes.md](refere
 (e.g. `5` = version conflict → re-pull and reconcile before considering `--force`; `7` = not
 configured → run `/atl:setup`; `3` = the server rejected the token → re-`auth login` with a valid
 PAT).
+
+## When something went wrong
+
+If `atl` itself caused real friction — repeated failures on one operation, a forced fallback, a
+misleading error, an unexpected refusal — offer the user to report it (never report on your own):
+with consent, a **sanitized public issue** in `isukharev/atl`, and/or with separate consent a
+**detailed private case file** (`atl-feedback/<date>-<slug>.md`, kept out of VCS) that the user
+can hand to their internal development team for reproduction and a fix. Triggers, both consent
+gates, the redaction checklist, and both templates: [feedback.md](reference/feedback.md).

@@ -38,6 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (identity). Still fail-closed: edits through rowspan/colspan continuations,
   row deletion across a rowspan, column add/remove, nested tables, header
   relocation. The apply report gains `merged_tables`.
+- **Skill: consent-based friction reports.** When `atl` itself causes real
+  friction for an agent (repeated failures, forced fallbacks, misleading
+  errors), the shipped skill now offers the user — behind two separate,
+  explicit consent gates — a sanitized public issue (with a strict redaction
+  checklist) and/or a detailed private local case file
+  (`atl-feedback/<date>-<slug>.md`) the user can hand to their internal
+  development team for reproduction and a fix. Nothing is ever reported
+  automatically.
 - **Agent-friendly output** — `-o id` prints just the primary identifier(s), one
   per line, for safe piping (`atl jira issue search … -o id | xargs …`); wired
   into `jira issue search`/`create` and `conf search`.
