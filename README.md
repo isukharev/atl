@@ -127,6 +127,16 @@ bundled skills when relevant:
 - **`confluence`** — pull, edit `.csf`, validate, and push pages under the version gate.
 - **`jira`** — search/pull issues and create/update/transition/comment/link via commands.
 
+On top of those references, the plugin ships workflow recipes — end-to-end processes with
+built-in approval gates before anything is created:
+
+- **`search-knowledge`** — answer questions from Confluence + Jira with cited sources.
+- **`triage-issue`** — duplicate/regression search before filing a structured bug.
+- **`status-report`** — Jira-derived status report, optionally published to Confluence.
+- **`spec-to-backlog`** — a Confluence spec into an Epic plus linked tickets.
+- **`sprint-dashboard`** — a read-only visual snapshot of the current sprint.
+- **`meeting-tasks`** — action items from meeting notes into assigned Jira tasks.
+
 The skills are bundled under [`skills/`](skills/) and defined by
 [`.claude-plugin/`](.claude-plugin/); you can also try them locally with
 `claude plugin validate .`.
