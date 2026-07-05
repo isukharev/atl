@@ -87,7 +87,7 @@ jobs:
         run: echo "::warning::ATL_RELEASE_PRIVATE_KEY is not set — publishing an UNSIGNED manifest. Client auto-update will stay disabled until a signed release is published."
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           # Attest install.sh too so a security-conscious user can verify the
           # script out-of-band (gh attestation verify install.sh --signer-workflow
