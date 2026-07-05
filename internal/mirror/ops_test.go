@@ -149,6 +149,76 @@ func TestWriteDirtyContract(t *testing.T) {
 	}
 }
 
+// TestWriteStaleMdNeverSurvivesParseFailure: when a newly pulled body fails to
+// parse, the previous revision's .md must not stay on disk pretending to be
+// the current view — it is overwritten with an explicit stub.
+func TestWriteStaleMdNeverSurvivesParseFailure(t *testing.T) {
+	m := New(t.TempDir())
+	page := &domain.Resource{ID: "1", Title: "Doc", SpaceKey: "S", Version: 1, Body: []byte("<p>version one</p>")}
+	dir, slug := m.PageDir(page.SpaceKey, nil, page.Title)
+	if err := m.Write(dir, slug, page, nil); err != nil {
+		t.Fatal(err)
+	}
+	mdPath := filepath.Join(dir, slug+".md")
+	v1, err := os.ReadFile(mdPath)
+	if err != nil {
+		t.Fatalf("v1 .md not rendered: %v", err)
+	}
+	if !strings.Contains(string(v1), "version one") {
+		t.Fatalf("v1 render = %q", v1)
+	}
+
+	page.Version = 2
+	page.Body = []byte("<p>unterminated v2")
+	if err := m.Write(dir, slug, page, nil); err != nil {
+		t.Fatalf("unparseable body must not fail the write: %v", err)
+	}
+	got, err := os.ReadFile(mdPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != MDUnavailableStub {
+		t.Errorf(".md after parse failure = %q, want the stub", got)
+	}
+	if strings.Contains(string(got), "version one") {
+		t.Error("stale v1 view survived the v2 parse failure")
+	}
+}
+
+// TestWriteMdWriteFailureIsBestEffort: a failed .md write degrades — the pull
+// succeeds and the stale view is removed rather than left contradicting the
+// new .csf.
+func TestWriteMdWriteFailureIsBestEffort(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("permission-based failure injection is a no-op as root")
+	}
+	m := New(t.TempDir())
+	page := &domain.Resource{ID: "1", Title: "Doc", SpaceKey: "S", Version: 1, Body: []byte("<p>v1</p>")}
+	dir, slug := m.PageDir(page.SpaceKey, nil, page.Title)
+	if err := m.Write(dir, slug, page, nil); err != nil {
+		t.Fatal(err)
+	}
+	mdPath := filepath.Join(dir, slug+".md")
+	// Make the existing .md unwritable so the refresh write fails.
+	if err := os.Chmod(mdPath, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	page.Version = 2
+	page.Body = []byte("<p>v2</p>")
+	if err := m.Write(dir, slug, page, nil); err != nil {
+		t.Fatalf(".md write failure must not fail the pull: %v", err)
+	}
+	// The .csf moved on; the unwritable stale .md must be gone, not left stale.
+	if _, err := os.Stat(mdPath); !os.IsNotExist(err) {
+		b, _ := os.ReadFile(mdPath)
+		t.Errorf("stale .md survived a failed refresh write: %q (stat err %v)", b, err)
+	}
+	gotCSF, _ := os.ReadFile(filepath.Join(dir, slug+".csf"))
+	if string(gotCSF) != "<p>v2</p>" {
+		t.Errorf(".csf = %q, want v2", gotCSF)
+	}
+}
+
 // TestAssetSinkWritesAndContains verifies AssetSink writes the asset bytes under
 // <dir>/<slug>.assets/, returns a page-relative path, and never lets a hostile
 // backend filename escape the assets directory.

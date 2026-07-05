@@ -29,6 +29,7 @@ type ApplyResult struct {
 	Report  *mdmerge.Report `json:"report"`
 	CSFOK   bool            `json:"csf_ok"`
 	Wrote   bool            `json:"wrote"`
+	Warning string          `json:"warning,omitempty"` // post-write degradation (e.g. .md view not refreshed)
 }
 
 // Apply merges edits from a page's .md view into its .csf (block-level,
@@ -97,13 +98,18 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 		return res, err
 	}
 	res.Wrote = true
-	// Renormalize the md view from the merged body so the two surfaces agree
-	// (best-effort, same as pull).
+	// Renormalize the md view from the merged body so the two surfaces agree —
+	// best-effort, same contract as pull: the read-view must never silently
+	// contradict the .csf, so an unparseable merge result gets the explicit
+	// stub, and a failed write is a warning, not an error (the .csf write
+	// already succeeded; erroring here would tell the user the apply failed
+	// when it did not, and a retry would refuse on base divergence).
+	md := []byte(mirror.MDUnavailableStub)
 	if root2, perr := csf.Parse(out); perr == nil {
-		md := mirror.RenderMarkdown(root2, lc.Meta.Refs)
-		if werr := safepath.WriteFile(mdPath, md, 0o644); werr != nil {
-			return res, werr
-		}
+		md = mirror.RenderMarkdown(root2, lc.Meta.Refs)
+	}
+	if werr := safepath.WriteFile(mdPath, md, 0o644); werr != nil {
+		res.Warning = "applied, but the .md view could not be refreshed and may be stale: " + werr.Error()
 	}
 	return res, nil
 }

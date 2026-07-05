@@ -20,6 +20,12 @@ import (
 	"github.com/isukharev/atl/internal/safepath"
 )
 
+// MDUnavailableStub replaces the .md read-view when a body fails to parse: a
+// stale render from a previous revision must never sit next to a newer .csf,
+// silently contradicting the source of truth. Exported so apply can uphold
+// the same invariant after a merge.
+const MDUnavailableStub = "<!-- atl: markdown view unavailable for this revision (the .csf did not parse); the .csf file is the source of truth -->\n"
+
 // Mirror is rooted at a directory holding one or more spaces.
 type Mirror struct {
 	Root string
@@ -180,12 +186,17 @@ func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []
 	if err := safepath.WriteFile(csfPath, page.Body, 0o644); err != nil {
 		return "", err
 	}
-	// Markdown view (best-effort: never fail a pull because rendering choked).
+	// Markdown view — best-effort by contract: a render or write failure never
+	// fails a pull. The view must also never contradict the source of truth, so
+	// an unparseable body overwrites any previous revision's .md with a stub,
+	// and a failed write falls back to removing the stale file.
+	mdPath := filepath.Join(dir, slug+".md")
+	md := []byte(MDUnavailableStub)
 	if root, err := csf.Parse(page.Body); err == nil {
-		md := RenderMarkdown(root, refs)
-		if err := safepath.WriteFile(filepath.Join(dir, slug+".md"), md, 0o644); err != nil {
-			return "", err
-		}
+		md = RenderMarkdown(root, refs)
+	}
+	if err := safepath.WriteFile(mdPath, md, 0o644); err != nil {
+		_ = os.Remove(mdPath)
 	}
 	meta := Meta{
 		ID: page.ID, Title: page.Title, Space: page.SpaceKey, Version: page.Version,

@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A stale `.md` read-view can no longer survive a pull whose body fails to
+  parse.** Previously the old revision's `.md` stayed on disk next to the new
+  `.csf` with no signal; now it is overwritten with an explicit
+  "markdown view unavailable for this revision" stub, so the read-view never
+  contradicts the source of truth. An `.md` write failure now degrades
+  (removing the stale view) instead of failing the pull — matching the
+  documented best-effort contract. `conf apply` upholds the same invariant
+  after a merge: an unparseable merge result stubs the `.md`, and a failed
+  refresh write is reported in a new `warning` field instead of failing an
+  apply whose `.csf` write already succeeded.
 - **The mirror sidecar (`.atl/state.json`) is now crash-safe and honest about
   corruption.** Saves are atomic (temp + fsync + rename), so an interrupted
   write can never leave a half-written file; a corrupt sidecar now fails
