@@ -99,14 +99,16 @@ atl jira issue delete PROJ-1 --force                                            
 ```
 
 **Changing a description: prefer `issue edit` (one command).** It fetches, replaces
-`--old` → `--new`, and writes back; the `--old` match doubles as the drift check, so no
-separate `get` is needed. The match must be unique — ambiguous → exit 2 (add surrounding
-context or pass `--all`); no match → exit 4 with the closest region quoted. Insert a new
-section by anchoring on the heading that should follow it:
-`--old 'h2. Verify' --new $'h2. Rollback\n\nRestore the snapshot.\n\nh2. Verify'`.
-Delete text with `--new ''`; preview with `--dry-run`. `--new` is **wiki markup**, spliced
-verbatim (matching tolerates NBSP/invisible bytes). Reach for `update --from-md` only when
-most of the description changes.
+`--old` → `--new`, and writes back — no `get` before (the `--old` match doubles as the
+drift check), no temp files (pass multiline `--new` directly with bash `$'...'`), and no
+verify `get` after (the output prints the before/after region). The match must be unique —
+ambiguous → exit 2 (add surrounding context or pass `--all`); no match → exit 4 with the
+closest region quoted. Insert a new section by anchoring on the heading that should follow
+it: `--old 'h2. Verify' --new $'h2. Rollback\n\nRestore the snapshot.\n\nh2. Verify'`.
+Several independent edits = several `edit` commands. Delete text with `--new ''`; preview
+with `--dry-run`. `--new` is **wiki markup**, spliced verbatim (matching tolerates
+NBSP/invisible bytes). Reach for `update --from-md` only when most of the description
+changes.
 
 ### 5. Discover valid values before writing
 ```bash
