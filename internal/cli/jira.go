@@ -8,6 +8,7 @@ import (
 
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/mdwiki"
 	"github.com/isukharev/atl/internal/version"
 )
 
@@ -17,6 +18,33 @@ func jiraService() (*app.JiraService, error) {
 		return nil, err
 	}
 	return app.NewJira(cfg, version.Version)
+}
+
+// wikiBody resolves a Jira body flag pair: raw wiki markup from --from-file,
+// or markdown converted whole-document via mdwiki when --from-md is set. The
+// two are mutually exclusive; dispatch is on the flag being set, not its
+// value, so `--from-md ""` cannot silently fall back to the wiki path. A
+// conversion failure maps to ErrCheckFailed (exit 8) — fail-closed, nothing
+// is sent to the backend.
+func wikiBody(cmd *cobra.Command, fromFile, fromMD string) ([]byte, error) {
+	if !cmd.Flags().Changed("from-md") {
+		return readBody(fromFile)
+	}
+	if fromMD == "" {
+		return nil, usageErr("--from-md requires a file path or - for stdin")
+	}
+	if cmd.Flags().Changed("from-file") {
+		return nil, usageErr("--from-file and --from-md are mutually exclusive")
+	}
+	md, err := readBody(fromMD)
+	if err != nil {
+		return nil, err
+	}
+	wiki, err := mdwiki.ConvertDocument(string(md))
+	if err != nil {
+		return nil, fmt.Errorf("%w: cannot convert markdown body: %v (constructs outside the md subset need a wiki body via --from-file)", domain.ErrCheckFailed, err)
+	}
+	return []byte(wiki), nil
 }
 
 func newJiraCmd() *cobra.Command {
@@ -114,16 +142,16 @@ func jiraIssueCmd() *cobra.Command {
 	search.Flags().IntVar(&limit, "limit", 50, "max results")
 	search.Flags().StringVar(&cursor, "cursor", "", "pagination cursor (startAt)")
 
-	var project, issueType, summary, fromFile string
+	var project, issueType, summary, fromFile, fromMD string
 	var fieldKV []string
 	create := &cobra.Command{
 		Use:   "create",
-		Short: "Create an issue (description = wiki via --from-file -)",
+		Short: "Create an issue (description = wiki via --from-file, or markdown via --from-md)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if project == "" || issueType == "" || summary == "" {
 				return usageErr("--project, --type and --summary are required")
 			}
-			body, err := readBody(fromFile)
+			body, err := wikiBody(cmd, fromFile, fromMD)
 			if err != nil {
 				return err
 			}
@@ -147,22 +175,19 @@ func jiraIssueCmd() *cobra.Command {
 	create.Flags().StringVar(&issueType, "type", "", "issue type name")
 	create.Flags().StringVar(&summary, "summary", "", "summary")
 	create.Flags().StringVar(&fromFile, "from-file", "", "description (wiki) file or - for stdin")
+	create.Flags().StringVar(&fromMD, "from-md", "", "markdown description file or - for stdin (converted to wiki; unsupported constructs are refused)")
 	create.Flags().StringArrayVar(&fieldKV, "field", nil, "extra field key=value (repeatable); a JSON object/array value is sent as JSON, e.g. priority={\"name\":\"High\"}")
 
-	var upSummary, upFile string
+	var upSummary, upFile, upMD string
 	var upFieldKV []string
 	update := &cobra.Command{
 		Use:   "update <KEY>",
 		Short: "Update an issue (summary/description/fields)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var body []byte
-			var err error
-			if upFile != "" {
-				body, err = readBody(upFile)
-				if err != nil {
-					return err
-				}
+			body, err := wikiBody(cmd, upFile, upMD)
+			if err != nil {
+				return err
 			}
 			kv, err := parseKV(upFieldKV)
 			if err != nil {
@@ -180,6 +205,7 @@ func jiraIssueCmd() *cobra.Command {
 	}
 	update.Flags().StringVar(&upSummary, "summary", "", "new summary")
 	update.Flags().StringVar(&upFile, "from-file", "", "new description (wiki) file or - for stdin")
+	update.Flags().StringVar(&upMD, "from-md", "", "new markdown description file or - for stdin (converted to wiki; unsupported constructs are refused)")
 	update.Flags().StringArrayVar(&upFieldKV, "field", nil, "field key=value (repeatable); a JSON object/array value is sent as JSON, e.g. priority={\"name\":\"High\"}")
 
 	var to, transComment string
@@ -620,13 +646,13 @@ func jiraUserCmd() *cobra.Command {
 func jiraCommentCmd() *cobra.Command {
 	c := &cobra.Command{Use: "comment", Short: "List/add/delete issue comments"}
 
-	var fromFile string
+	var fromFile, fromMD string
 	add := &cobra.Command{
 		Use:   "add <KEY>",
-		Short: "Add a comment (wiki via --from-file -)",
+		Short: "Add a comment (wiki via --from-file -, or markdown via --from-md)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			body, err := readBody(orDash(fromFile))
+			body, err := wikiBody(cmd, orDash(fromFile), fromMD)
 			if err != nil {
 				return err
 			}
@@ -642,6 +668,7 @@ func jiraCommentCmd() *cobra.Command {
 		},
 	}
 	add.Flags().StringVar(&fromFile, "from-file", "-", "comment body file or - for stdin")
+	add.Flags().StringVar(&fromMD, "from-md", "", "markdown comment file or - for stdin (converted to wiki; unsupported constructs are refused)")
 
 	list := &cobra.Command{
 		Use:   "list <KEY>",

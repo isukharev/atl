@@ -44,6 +44,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   first unconvertible block aborts with exit 8 naming it (nothing is created),
   and an empty document is refused. Mutually exclusive with `--from-file`;
   the converted body still passes the CSF validation gate before the API call.
+- **`jira --from-md` — author issue bodies in markdown.** `jira issue create`,
+  `issue update`, and `issue comment add` accept `--from-md <file|->`: the body
+  converts through a new fail-closed md→wiki converter (`internal/mdwiki`,
+  fuzzed) — headings, emphasis, lists, GFM tables, fenced code, blockquotes,
+  links, `[KEY](jira:KEY)` issue links, `[~username]` mention passthrough;
+  wiki-active characters in prose are escaped automatically. The first
+  unconvertible block (task lists, images, mid-word emphasis, pipes in table
+  cells) aborts with exit 8 naming it, and nothing is sent. Mutually exclusive
+  with `--from-file`, which stays the raw wiki path.
 - **Skill: consent-based friction reports.** When `atl` itself causes real
   friction for an agent (repeated failures, forced fallbacks, misleading
   errors), the shipped skill now offers the user — behind two separate,
