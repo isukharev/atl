@@ -71,6 +71,41 @@ func TestApplyCorruptSidecarNotMislabeled(t *testing.T) {
 	}
 }
 
+// A failed .md renormalization after a successful merge degrades to a warning
+// (wrote=true, no error): the .csf write already succeeded, and erroring would
+// claim the apply failed while a retry would refuse on base divergence.
+func TestApplyMdRefreshFailureIsWarning(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("permission-based failure injection is a no-op as root")
+	}
+	_, mdPath := scaffoldPage(t, applyPage)
+	md, _ := os.ReadFile(mdPath)
+	edited := strings.Replace(string(md), "Hello world.", "Hello edited world.", 1)
+	if err := os.WriteFile(mdPath, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// os.WriteFile does not chmod an existing file — set the mode explicitly so
+	// the post-merge refresh write fails.
+	if err := os.Chmod(mdPath, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Apply(mdPath, ApplyOpts{})
+	if err != nil {
+		t.Fatalf("apply must succeed when only the .md refresh fails: %v", err)
+	}
+	if !res.Wrote {
+		t.Error("wrote=false despite a successful merge")
+	}
+	if !strings.Contains(res.Warning, ".md view could not be refreshed") {
+		t.Errorf("warning = %q, want the stale-view warning", res.Warning)
+	}
+	// The merged edit reached the .csf even though the .md refresh failed.
+	csfBytes, _ := os.ReadFile(strings.TrimSuffix(mdPath, ".md") + ".csf")
+	if !strings.Contains(string(csfBytes), "Hello edited world.") {
+		t.Errorf("merged edit missing from .csf: %q", csfBytes)
+	}
+}
+
 func TestApplyEndToEnd(t *testing.T) {
 	_, mdPath := scaffoldPage(t, applyPage)
 	md, _ := os.ReadFile(mdPath)

@@ -294,8 +294,10 @@ mirror/
   ancestor dir — structurally off, but no file is ever overwritten because
   every leaf claim disambiguates.
 - `Write(dir, slug, page, refs)` — writes all four artefacts and updates the
-  sidecar; the markdown render is best-effort (a parse error in `RenderMarkdown`
-  is silently skipped so a pull never fails because of the read-view). How the
+  sidecar; the markdown view is best-effort (it never fails a pull) but may
+  never contradict the source of truth: an unparseable body overwrites the
+  previous revision's `.md` with an explicit "view unavailable" stub, and a
+  failed `.md` write falls back to removing the stale file. How the
   CSF→Markdown view is tested and how to extend its coverage:
   [docs/csf-markdown-testing.md](csf-markdown-testing.md).
 - `LoadCSF(path)` — reads a `.csf` file, its `.meta.json`, and the sidecar

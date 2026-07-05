@@ -553,9 +553,10 @@ atl conf apply guide.md --allow-fragment-loss  # intentional macro/mention remov
 | `--into` | mirror root (defaults to nearest `.atl`) |
 
 Output: `{path, csf_path, dry_run, report: {unchanged, moved, converted,
-removed, merged_tables?, removed_fragments?, problems?}, csf_ok, wrote}`.
-After a successful apply the `.md` is regenerated from the merged body so
-both surfaces agree.
+removed, merged_tables?, removed_fragments?, problems?}, csf_ok, wrote,
+warning?}`. After a successful apply the `.md` is regenerated from the merged
+body so both surfaces agree; if that refresh cannot be written the apply
+still succeeds and `warning` reports that the `.md` may be stale.
 
 The merge is **fail-closed** (exit `8`, nothing written) when: an edited block
 cannot be converted faithfully (unsupported markdown, edits inside an

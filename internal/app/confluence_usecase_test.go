@@ -622,6 +622,37 @@ func TestPullSwallowsParseFailure(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(into, res.Pages[0].Path)); err != nil {
 		t.Errorf("page with unparseable body was not mirrored: %v", err)
 	}
+	// The .md view of the unparseable revision is an explicit stub, and a
+	// stale render from an earlier good revision never survives (issue #76).
+	mdPath := strings.TrimSuffix(filepath.Join(into, res.Pages[0].Path), ".csf") + ".md"
+	md, err := os.ReadFile(mdPath)
+	if err != nil {
+		t.Fatalf("no .md next to the unparseable revision: %v", err)
+	}
+	if !strings.Contains(string(md), "markdown view unavailable") {
+		t.Errorf(".md = %q, want the render-unavailable stub", md)
+	}
+
+	// Now the reverse order: good revision first, broken one after — the v1
+	// render must be replaced by the stub, not left stale.
+	st.pages["200"].Body = []byte("<p>good v1</p>")
+	if _, err := svc.Pull(context.Background(), PullOpts{ID: "200", Into: into}); err != nil {
+		t.Fatal(err)
+	}
+	if md, _ := os.ReadFile(mdPath); !strings.Contains(string(md), "good v1") {
+		t.Fatalf("v1 render missing: %q", md)
+	}
+	st.pages["200"].Body = []byte("<p>broken v2")
+	if _, err := svc.Pull(context.Background(), PullOpts{ID: "200", Into: into}); err != nil {
+		t.Fatal(err)
+	}
+	md, _ = os.ReadFile(mdPath)
+	if strings.Contains(string(md), "good v1") {
+		t.Errorf("stale v1 .md survived the broken v2 pull: %q", md)
+	}
+	if !strings.Contains(string(md), "markdown view unavailable") {
+		t.Errorf(".md after broken v2 = %q, want the stub", md)
+	}
 }
 
 // A failure mid-pull still persists sidecar entries for the pages already
