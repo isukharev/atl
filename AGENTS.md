@@ -1,8 +1,115 @@
 # Agent workflow for atl
 
-This file is the cross-agent operating guide for work in this repository. Use
-`CLAUDE.md` for detailed codebase architecture, commands, invariants, and test
-rules. This file focuses on task tracking and handoff.
+This file is the cross-agent operating guide for work in this repository. It
+mirrors the high-signal architecture, correctness, testing, and handoff rules
+from `CLAUDE.md` so agents that only read `AGENTS.md` still preserve the project
+invariants.
+
+## Project shape
+
+`atl` is a single static Go binary: a Git-style CLI that mirrors Confluence
+pages and Jira issues to disk in their native storage formats (Confluence
+Storage Format `.csf`; Jira wiki). The `.csf` bytes are the write substrate:
+never convert bodies through Markdown on the write path. Mirror `.md` files are
+read-only views regenerated best-effort; render failures must not fail a pull.
+
+Core commands:
+
+```sh
+make build
+make test
+make race
+make lint
+make vet
+go test ./internal/csf/ -run TestParse
+```
+
+For CLI changes, run focused tests first (`go test ./internal/app
+./internal/cli` or touched packages), then `make test`. Live integration tests
+are opt-in through `.env.integration` and `ATL_INTEGRATION=1`; keep backend URLs,
+PATs, and live fixture values out of the repo. Use `make integration` for
+app-level live checks and `make live-smoke` for CLI-level fixture checks when
+relevant. Requires Go 1.26+.
+
+## Architecture invariants
+
+The codebase follows hexagonal architecture. Preserve the dependency rule:
+
+- `internal/domain` is the hub. It defines ports, `Resource`/`Ref`, registry
+  ports, and sentinel errors. It imports nothing from the rest of the tree.
+- `internal/adapter/{confluence,jira}` implement REST adapters. HTTP goes
+  through `internal/httpx`; bodies are passed verbatim.
+- `internal/app` contains transport-agnostic use cases and assembly in
+  `wire.go`. No cobra, stdin, or filesystem beyond mirror operations.
+- `internal/cli` is a thin cobra layer: parse flags, call one use case, emit,
+  return error.
+- `internal/csf` is read-only parsing and validation for Confluence Storage
+  Format.
+- `internal/fragment` extracts and resolves opaque CSF fragments.
+- `internal/mirror` owns on-disk layout, sidecars, baselines, and dirty/drift
+  detection. It is backend-agnostic.
+
+Adapters and CLI never import each other. Prefer existing ports and service
+patterns over introducing cross-layer shortcuts.
+
+## Correctness rules
+
+- Sentinel errors drive exit codes. Lower layers wrap with `fmt.Errorf("%w:
+  ...", domain.ErrXxx)` so `errors.Is` maps usage/auth/not found/version
+  conflict/forbidden/config/check failure correctly.
+- Output is JSON by default. `emit(cmd, v, textFn)` writes indented,
+  HTML-unescaped JSON unless `-o text` and a non-nil text renderer are both
+  present. Logs and errors go to stderr; commands are non-interactive.
+- Confluence updates use an optimistic version gate. `--force` re-reads current
+  state and targets `current+1`; post-push mirror refresh failures are warnings,
+  not hard failures.
+- PATs are host-scoped. `httpx` only sends bearer tokens to the configured host
+  and refuses cross-host or scheme-downgrade redirects.
+- Backend URLs must be https except loopback or trusted internal runs with
+  `ATL_ALLOW_INSECURE=1`.
+- CSF parsing must be byte-stable and read-only. Validation errors gate pushes;
+  warnings are advisory.
+- Fragment resolution never fails a pull. Unresolved refs keep raw display or
+  empty assets.
+- Stdin bodies are capped at 64 MiB and rejected with usage errors when larger.
+
+## Mirror and config rules
+
+- `conf pull --cql` caps at 1000 pages and reports truncation; Jira `pull
+  --limit 0` means unbounded.
+- Mirror roots are auto-detected by walking up to 12 levels for `.atl`; if none
+  is found, commands default to `mirror`.
+- Drift requires a synced baseline. Dirty detection is content-hash based, not
+  timestamp based.
+- Slugs must remain unicode-safe and path-safe. Server-controlled path
+  components go through the existing safe path helpers.
+- PAT resolution is environment first, then host-scoped credentials under the
+  ATL config dir. Env URLs overlay config-file URLs.
+- Self-update is best-effort before subcommands, skipped for dev/empty versions
+  or `ATL_NO_UPDATE`, and must verify signatures and hashes before trusting
+  downloaded content.
+
+## Testing and docs
+
+- Tests live alongside code in the same package. Use `httptest`, `t.Setenv`,
+  `t.TempDir`, and stable fixtures. Do not combine `t.Parallel` with
+  `t.Setenv`.
+- Fuzz code that ingests server-controlled bytes, especially `internal/csf`,
+  `internal/safepath`, and `internal/mirror`. Add seeds for regressions.
+- CLI output is a contract. Golden tests in `internal/cli/testdata/golden/` and
+  the sentinel exit-code matrix must be updated when output or sentinels change.
+- User-facing CLI changes must update public docs and shipped client skills in
+  the same PR: `README.md`, `README.ru.md` when applicable, `docs/usage.md`,
+  `docs/OUTPUT_CONTRACT.md` for output shape changes, and the relevant
+  `skills-src/*/SKILL.md`. `skills/` and `plugins/atl/skills/` are **generated**
+  from `skills-src/` by `make gen-plugins` — never edit them by hand; regenerate
+  and commit all three trees together (see `docs/plugins.md`).
+- Plugin manifest versions (`.claude-plugin/plugin.json`,
+  `plugins/atl/.codex-plugin/plugin.json`) are bumped only in the release prep
+  commit, in lockstep with the CLI version — never in a feature PR.
+- Security-boundary tests should prove the guarantee fails when the control is
+  removed, not because of incidental parse or fixture failures.
+- Keep PRs small; commit subjects use `<type>: <summary>`.
 
 ## GitHub tracking
 
