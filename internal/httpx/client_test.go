@@ -353,3 +353,39 @@ func mustParse(t *testing.T, raw string) *neturl.URL {
 	}
 	return u
 }
+
+// TestNoVersionGate409 locks the backend-aware 409 semantics: by default a
+// 409 unwraps to ErrVersionConflict (the Confluence version gate), but a
+// client marked SetNoVersionGate (Jira — no version gate exists) keeps the
+// full APIError with NO version-conflict sentinel, so the CLI maps it to the
+// generic exit instead of suggesting a re-pull/--force recovery.
+func TestNoVersionGate409(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(409)
+		w.Write([]byte(`{"errorMessages":["issue is locked"]}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "tok", "test")
+	_, err := c.Do(context.Background(), "GET", "/x", nil, nil)
+	if !errors.Is(err, domain.ErrVersionConflict) {
+		t.Fatalf("default client: expected ErrVersionConflict, got %v", err)
+	}
+
+	ng := New(srv.URL, "tok", "test")
+	ng.SetNoVersionGate()
+	_, err = ng.Do(context.Background(), "GET", "/x", nil, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if errors.Is(err, domain.ErrVersionConflict) {
+		t.Fatalf("no-gate client: 409 must not be a version conflict, got %v", err)
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != 409 {
+		t.Fatalf("no-gate client: want APIError with status 409, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "issue is locked") {
+		t.Fatalf("the backend's own 409 body must survive, got %q", err)
+	}
+}

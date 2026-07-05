@@ -68,7 +68,18 @@ type Client struct {
 	token    string
 	hc       *http.Client
 	ver      string // CLI version, for User-Agent
+	// noVersionGate: this backend has no optimistic version gate, so an HTTP
+	// 409 is a generic conflict (locked issue, workflow veto), NOT
+	// ErrVersionConflict — exit 5 would point the caller at a re-pull/--force
+	// recovery that does not exist there. Set by the Jira adapter.
+	noVersionGate bool
 }
+
+// SetNoVersionGate marks the backend as having no optimistic version gate:
+// an HTTP 409 keeps its full APIError (status and body) but carries no
+// ErrVersionConflict sentinel, so it maps to the generic exit code instead
+// of masquerading as a version conflict.
+func (c *Client) SetNoVersionGate() { c.noVersionGate = true }
 
 // New builds a client for a backend base URL with a bearer PAT.
 func New(base, token, version string) *Client {
@@ -239,7 +250,11 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return data, nil
 		}
-		apiErr := &APIError{Status: resp.StatusCode, Method: method, Path: path, Body: string(data), kind: classify(resp.StatusCode)}
+		kind := classify(resp.StatusCode)
+		if c.noVersionGate && kind == domain.ErrVersionConflict {
+			kind = nil // generic conflict on a backend without a version gate
+		}
+		apiErr := &APIError{Status: resp.StatusCode, Method: method, Path: path, Body: string(data), kind: kind}
 		// 429 is returned before the request is processed, so it is safe to retry
 		// for any method. Other transient failures (transport, 5xx) only retry
 		// for idempotent methods.

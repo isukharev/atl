@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -308,5 +309,29 @@ func TestMapIssueRawIsIndependentCopy(t *testing.T) {
 	is.Raw["injected"] = "x"
 	if _, present := is.Fields["injected"]; present {
 		t.Errorf("Fields was mutated through Raw alias; want independent copies")
+	}
+}
+
+// TestUpdate409IsNotVersionConflict pins issue #66: Jira DC has no version
+// gate, so an HTTP 409 on a write (locked issue, workflow veto) must NOT
+// surface as ErrVersionConflict/exit 5 — the constructor marks the client
+// no-version-gate. Uses New() (not the test helper) to exercise that wiring.
+func TestUpdate409IsNotVersionConflict(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		w.Write([]byte(`{"errorMessages":["Issue is locked for editing"]}`))
+	}))
+	defer srv.Close()
+
+	j := New(srv.URL, "tok", "test")
+	err := j.Update(context.Background(), "PROJ-1", "", []byte("body"), nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if errors.Is(err, domain.ErrVersionConflict) {
+		t.Fatalf("jira 409 must not map to ErrVersionConflict, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "409") || !strings.Contains(err.Error(), "locked") {
+		t.Fatalf("error must carry the HTTP 409 body, got %q", err)
 	}
 }

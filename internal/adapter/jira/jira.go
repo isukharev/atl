@@ -24,7 +24,12 @@ type Jira struct {
 
 // New builds a Jira adapter for base URL with a PAT.
 func New(base, token, version string) *Jira {
-	return &Jira{c: httpx.New(base, token, version), base: strings.TrimRight(base, "/")}
+	c := httpx.New(base, token, version)
+	// Jira DC has no optimistic version gate: a 409 is a generic conflict
+	// (locked issue, closed sprint, workflow veto), never a version conflict —
+	// exit 5's re-pull/--force remediation does not apply here.
+	c.SetNoVersionGate()
+	return &Jira{c: c, base: strings.TrimRight(base, "/")}
 }
 
 var _ domain.Tracker = (*Jira)(nil)

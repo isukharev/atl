@@ -159,6 +159,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Jira HTTP 409 no longer masquerades as a version conflict.** Jira DC has
+  no optimistic version gate, so a 409 on a Jira write (locked issue, closed
+  sprint, workflow veto) now surfaces as a generic error (exit 1) carrying the
+  backend's own 409 body, instead of exit 5 — whose re-pull/`--force`
+  remediation only exists for Confluence. Confluence 409 handling is
+  unchanged.
 - **`--space` truncation is now visible** — a `conf pull --space` or
   `conf space tree` that hits the 2000-page safety cap now reports
   `"truncated": true` (pull also sets `"truncated_at"`) and prints a
