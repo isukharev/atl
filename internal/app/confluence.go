@@ -78,13 +78,10 @@ func (s *ConfluenceService) CopyPage(ctx context.Context, srcID, newTitle, space
 	return s.store.CreatePage(ctx, space, parent, newTitle, src.Body)
 }
 
-// DownloadAttachment fetches attachment bytes for a page attachment by filename
-// and writes them to outDir. Returns the written file path.
+// DownloadAttachment streams a page attachment by filename into outDir (an
+// atomic write: an interrupted transfer never leaves a truncated file).
+// Returns the written file path.
 func (s *ConfluenceService) DownloadAttachment(ctx context.Context, pageID, filename string, version int, outDir string) (string, error) {
-	data, err := s.store.DownloadAttachment(ctx, pageID, filename, version)
-	if err != nil {
-		return "", err
-	}
 	if outDir == "" {
 		outDir = "."
 	}
@@ -92,14 +89,19 @@ func (s *ConfluenceService) DownloadAttachment(ctx context.Context, pageID, file
 	if !ok {
 		return "", fmt.Errorf("%w: unsafe attachment filename %q", domain.ErrUsage, filename)
 	}
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		return "", err
-	}
 	p := filepath.Join(outDir, safeName)
 	if !safepath.Within(outDir, p) {
 		return "", fmt.Errorf("%w: attachment path would escape output directory", domain.ErrUsage)
 	}
-	if err := safepath.WriteFile(p, data, 0o644); err != nil {
+	rc, err := s.store.DownloadAttachment(ctx, pageID, filename, version)
+	if err != nil {
+		return "", err // fail before MkdirAll: a 404 must not leave an empty outDir
+	}
+	defer rc.Close()
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return "", err
+	}
+	if _, err := safepath.WriteReaderAtomic(p, rc, 0o644); err != nil {
 		return "", err
 	}
 	return p, nil

@@ -1,7 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,8 +26,8 @@ func (t partialTracker) ListAttachments(context.Context, string) ([]domain.Attac
 	return t.atts, nil
 }
 
-func (t partialTracker) DownloadAttachment(context.Context, string, string) ([]byte, string, error) {
-	return t.data, t.name, nil
+func (t partialTracker) DownloadAttachment(context.Context, string, string) (io.ReadCloser, string, error) {
+	return io.NopCloser(bytes.NewReader(t.data)), t.name, nil
 }
 
 func (t partialTracker) Search(context.Context, string, []string, int, string) ([]domain.Issue, string, error) {

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -285,6 +286,45 @@ func TestConfluenceValidate(t *testing.T) {
 	bad := svc.Validate([]byte("<p>unterminated"))
 	if !csf.HasErrors(bad) {
 		t.Errorf("malformed body should report an error-severity problem, got %+v", bad)
+	}
+}
+
+// ---- attachment download ----
+
+// brokenStream yields a prefix then fails — a mid-download transport error.
+type brokenStream struct{ n int }
+
+func (r *brokenStream) Read(p []byte) (int, error) {
+	if r.n == 0 {
+		r.n++
+		copy(p, "part")
+		return 4, nil
+	}
+	return 0, errors.New("connection reset mid-body")
+}
+func (r *brokenStream) Close() error { return nil }
+
+type downloadStore struct {
+	domain.DocStore
+	rc io.ReadCloser
+}
+
+func (s *downloadStore) DownloadAttachment(context.Context, string, string, int) (io.ReadCloser, error) {
+	return s.rc, nil
+}
+
+// TestDownloadAttachmentPartialFailureLeavesNoFile: an interrupted stream must
+// not plant a truncated file at the destination (atomic write path).
+func TestDownloadAttachmentPartialFailureLeavesNoFile(t *testing.T) {
+	outDir := t.TempDir()
+	svc := &ConfluenceService{store: &downloadStore{rc: &brokenStream{}}}
+	_, err := svc.DownloadAttachment(context.Background(), "55", "big.bin", 0, outDir)
+	if err == nil {
+		t.Fatal("mid-stream failure must propagate")
+	}
+	ents, _ := os.ReadDir(outDir)
+	for _, e := range ents {
+		t.Errorf("unexpected file after failed download: %s", e.Name())
 	}
 }
 

@@ -1048,9 +1048,14 @@ func TestDownloadAttachmentByID(t *testing.T) {
 	defer srv.Close()
 
 	j := newTestJira(srv)
-	data, name, err := j.DownloadAttachment(context.Background(), "ABC-1", "42")
+	rc, name, err := j.DownloadAttachment(context.Background(), "ABC-1", "42")
 	if err != nil {
 		t.Fatalf("DownloadAttachment: %v", err)
+	}
+	data, rerr := io.ReadAll(rc)
+	rc.Close()
+	if rerr != nil {
+		t.Fatalf("read stream: %v", rerr)
 	}
 	if string(data) != payload {
 		t.Errorf("data = %q, want %q", data, payload)
@@ -1078,9 +1083,14 @@ func TestDownloadAttachmentByFilename(t *testing.T) {
 
 	j := newTestJira(srv)
 	// Match by Title (filename) rather than ID.
-	data, name, err := j.DownloadAttachment(context.Background(), "ABC-1", "notes.txt")
+	rc, name, err := j.DownloadAttachment(context.Background(), "ABC-1", "notes.txt")
 	if err != nil {
 		t.Fatalf("DownloadAttachment: %v", err)
+	}
+	data, rerr := io.ReadAll(rc)
+	rc.Close()
+	if rerr != nil {
+		t.Fatalf("read stream: %v", rerr)
 	}
 	if string(data) != "abc" || name != "notes.txt" {
 		t.Errorf("data=%q name=%q", data, name)
@@ -1146,9 +1156,14 @@ func TestDownloadAttachmentReturnsRawServerFilename(t *testing.T) {
 	defer srv.Close()
 
 	j := newTestJira(srv)
-	data, name, err := j.DownloadAttachment(context.Background(), "ABC-1", "42")
+	rc, name, err := j.DownloadAttachment(context.Background(), "ABC-1", "42")
 	if err != nil {
 		t.Fatalf("DownloadAttachment: %v", err)
+	}
+	data, rerr := io.ReadAll(rc)
+	rc.Close()
+	if rerr != nil {
+		t.Fatalf("read stream: %v", rerr)
 	}
 	if string(data) != "evil-bytes" {
 		t.Errorf("data = %q", data)

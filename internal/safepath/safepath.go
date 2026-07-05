@@ -7,6 +7,8 @@
 package safepath
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,29 +78,40 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 // path is replaced rather than followed, and a pre-existing file with looser
 // permissions is superseded by one created at perm.
 func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
+	_, err := WriteReaderAtomic(path, bytes.NewReader(data), perm)
+	return err
+}
+
+// WriteReaderAtomic streams r into a fresh temp file in the same directory,
+// then commits it exactly like WriteFileAtomic (chmod, fsync, atomic rename).
+// On any failure — including a read error from r mid-stream — the temp file is
+// removed and path is left untouched, so an interrupted download can never
+// leave a truncated file at the destination. Returns the bytes written.
+func WriteReaderAtomic(path string, r io.Reader, perm os.FileMode) (int64, error) {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {
-		return err
+		return 0, err
 	}
 	tmpName := tmp.Name()
 	defer func() { _ = os.Remove(tmpName) }() // no-op once renamed
-	if _, err := tmp.Write(data); err != nil {
+	n, err := io.Copy(tmp, r)
+	if err != nil {
 		_ = tmp.Close()
-		return err
+		return n, err
 	}
 	if err := tmp.Chmod(perm); err != nil {
 		_ = tmp.Close()
-		return err
+		return n, err
 	}
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
-		return err
+		return n, err
 	}
 	if err := tmp.Close(); err != nil {
-		return err
+		return n, err
 	}
-	return os.Rename(tmpName, path)
+	return n, os.Rename(tmpName, path)
 }
 
 // Within reports whether target (after cleaning) is root itself or lies inside

@@ -1,6 +1,7 @@
 package safepath
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,6 +96,75 @@ func TestWriteFileMissingDir(t *testing.T) {
 	path := filepath.Join(dir, "nope", "f.txt") // parent "nope" does not exist
 	if err := WriteFile(path, []byte("x"), 0o600); err == nil {
 		t.Error("WriteFile into a non-existent directory should fail")
+	}
+}
+
+// failingReader errors after yielding a prefix — a mid-download transport
+// failure.
+type failingReader struct{ n int }
+
+func (r *failingReader) Read(p []byte) (int, error) {
+	if r.n == 0 {
+		r.n++
+		copy(p, "partial-")
+		return 8, nil
+	}
+	return 0, errors.New("connection reset mid-body")
+}
+
+// TestWriteReaderAtomicPartialFailureLeavesNothing: a reader failing mid-copy
+// must leave neither the destination file nor a temp leak — an interrupted
+// download can never plant a truncated file.
+func TestWriteReaderAtomicPartialFailureLeavesNothing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "download.bin")
+	if _, err := WriteReaderAtomic(path, &failingReader{}, 0o644); err == nil {
+		t.Fatal("mid-copy failure must propagate")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("truncated destination exists after failed copy (stat err %v)", err)
+	}
+	if dirHasTempLeak(t, dir) {
+		t.Error("temp file leaked after failed copy")
+	}
+}
+
+// TestWriteReaderAtomicDoesNotClobberOnFailure: an existing good file at path
+// survives a failed re-download byte-for-byte.
+func TestWriteReaderAtomicDoesNotClobberOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "download.bin")
+	if err := os.WriteFile(path, []byte("good old bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteReaderAtomic(path, &failingReader{}, 0o644); err == nil {
+		t.Fatal("mid-copy failure must propagate")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "good old bytes" {
+		t.Errorf("existing file clobbered by failed download: %q (err %v)", got, err)
+	}
+}
+
+// TestWriteReaderAtomicStreamsAndReportsSize pins the happy path: bytes,
+// count, and mode.
+func TestWriteReaderAtomicStreamsAndReportsSize(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.bin")
+	n, err := WriteReaderAtomic(path, strings.NewReader("stream me"), 0o600)
+	if err != nil {
+		t.Fatalf("WriteReaderAtomic: %v", err)
+	}
+	if n != int64(len("stream me")) {
+		t.Errorf("n = %d", n)
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != "stream me" {
+		t.Errorf("content = %q", got)
+	}
+	fi, _ := os.Stat(path)
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("mode = %v, want 0600", fi.Mode().Perm())
 	}
 }
 

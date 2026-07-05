@@ -372,7 +372,11 @@ Shared HTTP infrastructure used by both adapters. Features:
   5 s) for 429 and 5xx responses; honours `Retry-After`.
 - Status → sentinel: 401 → `ErrAuth`, 403 → `ErrForbidden`, 404 →
   `ErrNotFound`, 409 → `ErrVersionConflict`.
-- `GetJSON`, `SendJSON`, `GetBytes` convenience wrappers.
+- `GetJSON`, `SendJSON` convenience wrappers; `GetStream` for binary
+  downloads — retries apply until the 2xx headers arrive, then the body
+  streams (never buffered in httpx) bounded by an inactivity deadline instead
+  of the JSON client's whole-request timeout, so large transfers on slow
+  links are limited by stalls, not total wall-clock.
 
 ---
 

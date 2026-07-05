@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Attachment downloads stream to disk instead of buffering up to 1 GiB in
+  RAM, and are no longer killed by the 60-second whole-request timeout.**
+  `conf attachment get` and `jira issue images` now write through an atomic
+  temp-file copy (bounded memory; an interrupted transfer never leaves a
+  truncated file) and the transfer is limited by inactivity — a stall of 60s
+  fails with a clear "download stalled" error, but a slow live transfer of any
+  size completes. Host-scoped auth, redirect refusal, and retry-until-headers
+  semantics are unchanged.
 - **`jira pull` no longer re-fetches every issue after the search.** The
   search projection already carries the requested fields through the same
   adapter mapping, so the per-issue `GET` doubled HTTP round trips (and 429
