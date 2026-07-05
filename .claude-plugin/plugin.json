@@ -1,7 +1,7 @@
 {
   "name": "atl",
   "displayName": "atl — Confluence & Jira for agents",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Mirror, edit, validate, and push Confluence pages and Jira issues with the atl CLI",
   "author": {
     "name": "Ivan Sukharev",
