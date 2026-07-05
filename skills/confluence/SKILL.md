@@ -182,6 +182,10 @@ For exact edits or unresolved rendering questions, inspect the `.csf` source.
 | Exit 8 on `conf apply` | Unconvertible block, dropped fragments, or `.csf` diverged from base | See step 3: fix the marker / edit the `.csf` directly / push or re-pull first |
 | `conf search` requires `--cql` or filter | No query provided | Pass `--cql '<CQL>'` or at least one of `--space/--title/--label/--type` |
 
+Tool friction that cost you real turns (repeated failures, misleading errors, unexpected
+refusals)? Offer the user a report — see the `atl` skill's feedback flow (consent-gated
+sanitized issue + private case file).
+
 ## Hard rules
 - **Two edit paths, one at a time.** Either edit the `.md` and run `conf apply` (preferred), or
   edit the `.csf` directly — never both before a push. `.md` edits without an apply are lost on

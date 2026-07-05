@@ -232,6 +232,10 @@ If the plugin or object is unavailable, expect exit 4/6.
 | Field value rejected | Field option doesn't exist for this project/type | Run `jira field-options --project PROJ --field <field>` to list valid values |
 | Structure command exits 4/6 | Structure plugin/object unavailable or token lacks permission | Verify the numeric id and permissions; commands are read-only |
 
+Tool friction that cost you real turns (repeated failures, misleading errors, unexpected
+refusals)? Offer the user a report — see the `atl` skill's feedback flow (consent-gated
+sanitized issue + private case file).
+
 ## Hard rules
 - **Never edit `<KEY>.md` / `<KEY>.json` to change an issue** — they are read-only snapshots;
   changes go through the commands above.
