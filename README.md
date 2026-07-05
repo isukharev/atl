@@ -124,7 +124,10 @@ marketplace and install the plugin:
 
 `/atl:setup` installs the `atl` binary if it is missing, configures your Confluence/Jira auth and
 backend URLs, and agrees on a local mirror directory. After that, Claude Code automatically uses the
-shared skills listed below when relevant.
+shared skills listed below when relevant. Plugin versions track CLI releases — enable
+auto-update for the atl marketplace (`/plugin` → Marketplaces → Enable auto-update; off by default
+for third-party marketplaces) so each release updates the skills together with the self-updating
+binary.
 
 ### Codex
 

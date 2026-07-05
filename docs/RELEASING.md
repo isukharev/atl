@@ -124,10 +124,20 @@ Then in the GitHub UI, double-check:
 ## 4. Cut a release
 
 ```bash
-# bump VERSION + CHANGELOG in a normal reviewed PR first, then from main:
-git tag v0.1.0
-git push origin v0.1.0
+# In a normal reviewed PR first: bump VERSION + CHANGELOG, and set the SAME
+# version in BOTH plugin manifests:
+#   .claude-plugin/plugin.json          ("version": "X.Y.Z")
+#   plugins/atl/.codex-plugin/plugin.json
+# Then, from main:
+git tag v0.3.0
+git push origin v0.3.0
 ```
+
+The plugin-manifest bump is not cosmetic: the manifest `version` is the update
+trigger for installed plugins — while it is unchanged, `/plugin update` reports
+"already at the latest version" and clients keep their install-time skills
+forever, even as the binary self-updates. The release workflow fail-fast
+asserts both manifests equal the tag, so a forgotten bump cannot ship.
 
 The `release` workflow cross-compiles the four targets, generates `manifest.json`,
 **signs it** with `ATL_RELEASE_PRIVATE_KEY`, generates the Homebrew formula

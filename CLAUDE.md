@@ -194,7 +194,10 @@ Canonical guides live outside this file: `AGENTS.md` (cross-agent handoff rules)
   `README.ru.md` when it mirrors the same section) — in the **same PR**, and confirm it
   **before merging**. Setup/auth/mirror behaviour changes also update
   `skills-src/setup/SKILL.md` and `skills-src/atl/reference/*`. Platform-specific strings use
-  `{{atl.var}}` placeholders; the pipeline guide is `docs/plugins.md`.
+  `{{atl.var}}` placeholders; the pipeline guide is `docs/plugins.md`. Plugin manifest
+  `version`s (`.claude-plugin/plugin.json`, `plugins/atl/.codex-plugin/plugin.json`) are bumped
+  **only** in the release prep commit, in lockstep with the CLI version — the release workflow
+  asserts both against the tag; never bump them in a feature PR.
 - **Security-boundary tests assert the guarantee fails when the control is removed** (O_NOFOLLOW,
   atomic symlink-replace, ed25519 verify-before-parse). Tamper *inside a valid payload* so the
   control under test — not an incidental parse failure — is what rejects it.
