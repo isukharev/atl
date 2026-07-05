@@ -783,7 +783,19 @@ Flags:
 
 ### `atl jira issue create`
 
-Create an issue. Description body is Jira wiki markup.
+Create an issue. The description is either Jira wiki markup (`--from-file`) or
+markdown converted to wiki (`--from-md`) — the two flags are mutually exclusive.
+
+`--from-md` accepts the same markdown subset as the Confluence md surface
+(headings, emphasis/links, bullet/numbered lists, GFM tables, fenced code,
+blockquotes, `---`, `[KEY](jira:KEY)` issue links, `[~username]` mention
+passthrough). Conversion is fail-closed: the first construct outside the
+subset (task lists, images, emphasis without word boundaries, pipes inside
+table cells, …) aborts with exit 8 naming the offending block, and nothing is
+sent — write those bodies as wiki markup via `--from-file` instead.
+Wiki-active characters in plain text (`{`, `[`, `!`, toggle chars in opening
+position) are backslash-escaped automatically, so ordinary prose survives
+verbatim. The same flag exists on `update` and `comment add`.
 
 ```bash
 atl jira issue create \
@@ -791,6 +803,12 @@ atl jira issue create \
   --type Bug \
   --summary "Crash on empty input" \
   --from-file description.wiki
+
+# or author the description in markdown:
+atl jira issue create \
+  --project PROJ --type Bug \
+  --summary "Crash on empty input" \
+  --from-md description.md
 
 # with extra fields. A --field value that parses as JSON is sent as that JSON
 # type, so structured fields work; a plain string is sent as a string.
@@ -808,7 +826,8 @@ Flags:
 | `--project` | project key (required) |
 | `--type` | issue type name (required) |
 | `--summary` | issue summary (required) |
-| `--from-file` | description body file or `-` for stdin |
+| `--from-file` | description body file (wiki markup) or `-` for stdin |
+| `--from-md` | markdown description file or `-` for stdin; converted to wiki, fail-closed (exit 8) |
 | `--field key=value` | extra field (repeatable) |
 
 ### `atl jira issue update`
@@ -818,6 +837,7 @@ Update summary, description, or arbitrary fields.
 ```bash
 atl jira issue update PROJ-1 --summary "Crash on empty input (critical)"
 atl jira issue update PROJ-1 --from-file updated-desc.wiki
+atl jira issue update PROJ-1 --from-md updated-desc.md
 atl jira issue update PROJ-1 --field 'priority={"name":"Highest"}'
 ```
 
@@ -827,7 +847,8 @@ Flags:
 |---|---|
 | `PROJ-1` | issue key (positional, required) |
 | `--summary` | new summary |
-| `--from-file` | new description file or `-` for stdin |
+| `--from-file` | new description file (wiki markup) or `-` for stdin |
+| `--from-md` | new markdown description file or `-` for stdin; converted to wiki, fail-closed (exit 8) |
 | `--field key=value` | extra field (repeatable) |
 
 ### `atl jira issue transition`
@@ -884,6 +905,7 @@ Manage Jira wiki comments. `comment` is a subcommand group.
 ```bash
 echo "Checked on staging — confirmed fixed." \
   | atl jira issue comment add PROJ-1 --from-file -
+atl jira issue comment add PROJ-1 --from-md note.md  # markdown, converted to wiki
 atl jira issue comment list PROJ-1                 # {key, comments:[{id,author,created,body}]}; -o id → ids
 atl jira issue comment delete PROJ-1 <COMMENT-ID>  # see the id from `comment list`
 ```
@@ -893,7 +915,8 @@ Flags (`add`):
 | flag | description |
 |---|---|
 | `PROJ-1` | issue key (positional, required) |
-| `--from-file` | comment body file or `-` for stdin (default stdin) |
+| `--from-file` | comment body file (wiki markup) or `-` for stdin (default stdin) |
+| `--from-md` | markdown comment file or `-` for stdin; converted to wiki, fail-closed (exit 8) |
 
 ### `atl jira issue link {add,list,delete,suggest}`
 

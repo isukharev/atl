@@ -1,5 +1,10 @@
 # Jira wiki markup — the body syntax (this is NOT Markdown)
 
+> **Check first:** you usually don't need to write wiki markup by hand — `create`, `update`,
+> and `comment add` accept `--from-md body.md` and convert ordinary markdown (fail-closed,
+> exit 8 names any block outside the subset). Reach for the raw syntax below when that
+> refuses, or for constructs md can't express ({panel}, {color}, {noformat}, image embeds).
+
 Jira Data Center renders descriptions and comments as **Jira wiki markup**. Markdown is not
 interpreted: `**bold**`, `## heading`, and triple-backtick fences all publish as literal
 characters. Before writing any body (`--from-file`, `comment add`, `create`, `update`), compose it

@@ -74,11 +74,11 @@ update** to avoid overwriting someone else's change — a narrow
 atl jira issue get PROJ-1 [--fields summary,description,status]
 # → {key, summary, status, type, project, assignee, reporter, description, labels, links, comments}
 
-atl jira issue create --project PROJ --type Bug --summary 'Title' --from-file desc.wiki [--field k=v]
-atl jira issue update PROJ-1 [--summary 'New'] [--from-file desc.wiki] [--field k=v]   # see fields.md for big bodies
+atl jira issue create --project PROJ --type Bug --summary 'Title' --from-md desc.md [--field k=v]
+atl jira issue update PROJ-1 [--summary 'New'] [--from-md desc.md] [--field k=v]       # see fields.md for big bodies
 atl jira issue assign PROJ-1 --me                                                       # or --to <username> / --none
 atl jira issue transition PROJ-1 --to 'In Progress' [--comment 'why'] [--field k=v]    # list first ↓
-atl jira issue comment add PROJ-1 --from-file comment.wiki                              # BREAKING: was comment PROJ-1
+atl jira issue comment add PROJ-1 --from-md comment.md                                  # BREAKING: was comment PROJ-1
 atl jira issue comment list PROJ-1
 atl jira issue comment delete PROJ-1 <COMMENT-ID>
 atl jira issue link add PROJ-1 --to PROJ-2 --type blocks                                # BREAKING: was link PROJ-1
@@ -112,9 +112,17 @@ atl jira user get alice                                      # get a user by DC 
 ```
 See [fields.md](reference/fields.md) for the discovery flow, the **field value shapes** `--field`
 needs (object-typed fields take JSON, e.g. `priority={"name":"High"}`), and the
-**large-description / epic edit pattern** (edit a wiki body as a file, then `update --from-file`).
-Bodies are **Jira wiki markup, not Markdown** — compose them per
-[wiki-markup.md](reference/wiki-markup.md).
+**large-description / epic edit pattern** (edit a body as a file, then `update --from-md` /
+`--from-file`).
+
+**Authoring bodies: write markdown, pass `--from-md` (preferred).** `create`, `update`, and
+`comment add` all take `--from-md <file|->`: compose the body in ordinary markdown (headings,
+lists, GFM tables, fenced code, `[KEY](jira:KEY)` issue links, `[~username]` mentions) and atl
+converts it to wiki markup, escaping wiki-active characters in your prose automatically.
+**Exit 8** means a block can't be converted (task lists, images, mid-word emphasis, pipes in
+table cells) — the error names it; simplify that block, or write the body as raw wiki markup
+via `--from-file` per [wiki-markup.md](reference/wiki-markup.md). Raw bodies are **Jira wiki
+markup, not Markdown** — `**bold**` and ``` fences publish as literal characters there.
 
 ### 6. Images for vision
 ```bash
@@ -178,8 +186,8 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue get <KEY>` | Get an issue | `--fields` |
 | `jira issue search` | Search issues by JQL | `--jql`, `--fields`, `--limit`, `--cursor` |
 | `jira issue search -o id` | Print matching issue keys one per line | `-o id` |
-| `jira issue create` | Create an issue | `--project`, `--type`, `--summary`, `--from-file`, `--field k=v` |
-| `jira issue update <KEY>` | Update summary/description/fields | `--summary`, `--from-file`, `--field k=v` |
+| `jira issue create` | Create an issue | `--project`, `--type`, `--summary`, `--from-md`, `--from-file`, `--field k=v` |
+| `jira issue update <KEY>` | Update summary/description/fields | `--summary`, `--from-md`, `--from-file`, `--field k=v` |
 | `jira issue assign <KEY>` | Set or clear the assignee | exactly one of `--to USER`, `--me`, `--none` |
 | `jira issue transition <KEY>` | Transition to a status | `--to`, `--comment`, `--field k=v` |
 | `jira issue check <KEY>` | Audit required/important fields; non-zero exit if required field empty | `--require fields`, `--warn fields` |
@@ -188,7 +196,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue history <KEY>` | Show issue changelog (who changed what, when) | — |
 | `jira issue refs [KEY]` | Extract artifact references from one issue or JQL | `--jql`, `--fields`, `--limit` |
 | `jira issue tree` | Build read-only epic-to-child grouping | `--jql`, `--epic-field`, `--fields`, `--limit` |
-| `jira issue comment add <KEY>` | Add a comment | `--from-file` |
+| `jira issue comment add <KEY>` | Add a comment | `--from-md`, `--from-file` |
 | `jira issue comment list <KEY>` | List comments | — |
 | `jira issue comment delete <KEY> <ID>` | Delete a comment | — |
 | `jira issue link add <KEY>` | Link an issue to another | `--to KEY2`, `--type blocks` |
@@ -239,8 +247,10 @@ sanitized issue + private case file).
 ## Hard rules
 - **Never edit `<KEY>.md` / `<KEY>.json` to change an issue** — they are read-only snapshots;
   changes go through the commands above.
-- **Bodies are Jira wiki markup, not Markdown** (`*bold*`, `h2.`, `{code}` — see
-  [wiki-markup.md](reference/wiki-markup.md)); Markdown syntax publishes as literal characters.
+- **Author bodies in markdown via `--from-md`** (fail-closed conversion, exit 8 names any
+  unconvertible block). Raw `--from-file` bodies are **Jira wiki markup, not Markdown**
+  (`*bold*`, `h2.`, `{code}` — see [wiki-markup.md](reference/wiki-markup.md)); Markdown
+  syntax pasted there publishes as literal characters.
 - Structure commands are read-only inspection tools; do not infer that `atl` can write Structure data.
 - No version gate → always `get` right before `update`.
 - Before setting a status, field value, or link type, confirm it exists (`transitions`,
