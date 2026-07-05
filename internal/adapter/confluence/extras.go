@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/url"
 	"strconv"
 
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/httpx"
 )
 
 // pagination safety caps shared by the paged list endpoints below: stop after
@@ -141,15 +143,15 @@ func (cf *Confluence) ListAttachments(ctx context.Context, id string) ([]domain.
 	return out, nil
 }
 
-// DownloadAttachment fetches attachment bytes. version<=0 means latest. The
+// DownloadAttachment streams attachment bytes. version<=0 means latest. The
 // download path /download/attachments/<pageID>/<filename>?version=<v> is what
 // the draw.io PNG preview uses for an exact revision (verified).
-func (cf *Confluence) DownloadAttachment(ctx context.Context, pageID, filename string, version int) ([]byte, error) {
+func (cf *Confluence) DownloadAttachment(ctx context.Context, pageID, filename string, version int) (io.ReadCloser, error) {
 	p := "/download/attachments/" + url.PathEscape(pageID) + "/" + url.PathEscape(filename)
 	if version > 0 {
 		p += "?version=" + strconv.Itoa(version)
 	}
-	return cf.c.GetBytes(ctx, p)
+	return cf.c.GetStream(ctx, p)
 }
 
 // UploadAttachment uploads file bytes as an attachment to a page via
@@ -223,6 +225,9 @@ func (cf *Confluence) DeleteAttachment(ctx context.Context, attachmentID string)
 
 // Resolve implements domain.AssetResolver for draw.io diagrams and inline
 // images: it returns the rendered PNG bytes + the on-disk filename to use.
+// The AssetSink API is byte-based, so the stream is buffered here under the
+// binary cap (renders are small; huge user attachments go through the
+// streaming download path instead).
 func (cf *Confluence) Resolve(ctx context.Context, page *domain.Resource, ref domain.Ref) ([]byte, string, error) {
 	switch ref.Kind {
 	case domain.RefDrawio:
@@ -231,13 +236,13 @@ func (cf *Confluence) Resolve(ctx context.Context, page *domain.Resource, ref do
 		if v := ref.Params["revision"]; v != "" {
 			rev, _ = strconv.Atoi(v)
 		}
-		data, err := cf.DownloadAttachment(ctx, page.ID, name, rev)
+		data, err := cf.downloadAll(ctx, page.ID, name, rev)
 		if err != nil {
 			return nil, "", err
 		}
 		return data, name, nil
 	case domain.RefImage:
-		data, err := cf.DownloadAttachment(ctx, page.ID, ref.Key, 0)
+		data, err := cf.downloadAll(ctx, page.ID, ref.Key, 0)
 		if err != nil {
 			return nil, "", err
 		}
@@ -245,6 +250,16 @@ func (cf *Confluence) Resolve(ctx context.Context, page *domain.Resource, ref do
 	default:
 		return nil, "", domain.ErrNotFound
 	}
+}
+
+// downloadAll buffers a full attachment stream under the binary cap.
+func (cf *Confluence) downloadAll(ctx context.Context, pageID, filename string, version int) ([]byte, error) {
+	rc, err := cf.DownloadAttachment(ctx, pageID, filename, version)
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	return httpx.ReadCapped(rc, httpx.BinBodyCap)
 }
 
 // ResolveUser maps a Confluence userkey (or account-id) to a display name.

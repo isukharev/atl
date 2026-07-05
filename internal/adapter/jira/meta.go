@@ -3,6 +3,7 @@ package jira
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -179,17 +180,18 @@ func (j *Jira) ListAttachments(ctx context.Context, key string) ([]domain.Attach
 	return out, nil
 }
 
-// DownloadAttachment fetches attachment bytes by attachment id, returning the
-// content type's filename.
-func (j *Jira) DownloadAttachment(ctx context.Context, key, attachmentID string) ([]byte, string, error) {
+// DownloadAttachment streams attachment bytes by attachment id (or filename),
+// returning the attachment's filename alongside; the caller must Close the
+// stream.
+func (j *Jira) DownloadAttachment(ctx context.Context, key, attachmentID string) (io.ReadCloser, string, error) {
 	atts, err := j.ListAttachments(ctx, key)
 	if err != nil {
 		return nil, "", err
 	}
 	for _, a := range atts {
 		if a.ID == attachmentID || a.Title == attachmentID {
-			data, derr := j.c.GetBytes(ctx, a.DownPath)
-			return data, a.Title, derr
+			rc, derr := j.c.GetStream(ctx, a.DownPath)
+			return rc, a.Title, derr
 		}
 	}
 	return nil, "", domain.ErrNotFound

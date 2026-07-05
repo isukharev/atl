@@ -889,9 +889,14 @@ func TestDownloadAttachment(t *testing.T) {
 	defer srv.Close()
 
 	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
-	data, err := cf.DownloadAttachment(context.Background(), "55", "diagram.png", 0)
+	rc, err := cf.DownloadAttachment(context.Background(), "55", "diagram.png", 0)
 	if err != nil {
 		t.Fatalf("DownloadAttachment: %v", err)
+	}
+	data, err := io.ReadAll(rc)
+	rc.Close()
+	if err != nil {
+		t.Fatalf("read stream: %v", err)
 	}
 	if string(data) != "\x89PNGbytes" {
 		t.Errorf("data = %q", data)

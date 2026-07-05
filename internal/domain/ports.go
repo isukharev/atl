@@ -1,6 +1,9 @@
 package domain
 
-import "context"
+import (
+	"context"
+	"io"
+)
 
 // PullOpts narrows what a DocStore.Pull returns.
 type PullOpts struct {
@@ -37,8 +40,9 @@ type DocStore interface {
 	AddComment(ctx context.Context, id string, body []byte) (*Comment, error)
 	// Attachments.
 	ListAttachments(ctx context.Context, id string) ([]Attachment, error)
-	// DownloadAttachment streams an attachment's bytes. version<=0 means latest.
-	DownloadAttachment(ctx context.Context, pageID, filename string, version int) ([]byte, error)
+	// DownloadAttachment streams an attachment's bytes; the caller must Close
+	// the reader. version<=0 means latest.
+	DownloadAttachment(ctx context.Context, pageID, filename string, version int) (io.ReadCloser, error)
 	// UploadAttachment uploads file bytes as an attachment to a page.
 	UploadAttachment(ctx context.Context, pageID, filename string, data []byte, comment string) (*Attachment, error)
 	// DeleteAttachment deletes an attachment by its content id.
@@ -136,7 +140,9 @@ type Tracker interface {
 	// GetUser fetches one user by DC username.
 	GetUser(ctx context.Context, username string) (*User, error)
 	ListAttachments(ctx context.Context, key string) ([]Attachment, error)
-	DownloadAttachment(ctx context.Context, key, attachmentID string) ([]byte, string, error)
+	// DownloadAttachment streams an attachment's bytes plus its filename; the
+	// caller must Close the reader.
+	DownloadAttachment(ctx context.Context, key, attachmentID string) (io.ReadCloser, string, error)
 	// Metadata helpers for valid edits.
 	Fields(ctx context.Context) ([]FieldDef, error)
 	FieldOptions(ctx context.Context, project, issueType, field string) ([]string, error)

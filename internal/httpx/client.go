@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -17,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -29,10 +31,20 @@ const (
 	// maxRetryAfter caps an honored Retry-After so a hostile or misconfigured
 	// backend cannot pin the CLI for an arbitrary duration.
 	maxRetryAfter = 30 * time.Second
-	// jsonBodyCap bounds JSON responses; binary downloads use a larger cap.
+	// jsonBodyCap bounds JSON responses (and error bodies on download paths).
 	jsonBodyCap = 64 << 20 // 64 MiB
-	binBodyCap  = 1 << 30  // 1 GiB
+	// BinBodyCap bounds a binary body that a caller chooses to buffer in RAM
+	// (e.g. an asset render); streamed downloads are not size-capped.
+	BinBodyCap = 1 << 30 // 1 GiB
+	// dlHeaderTimeout bounds the wait for response headers on the streaming
+	// download client, whose transfers are otherwise limited by inactivity
+	// (downloadIdleTimeout), not total wall-clock.
+	dlHeaderTimeout = 30 * time.Second
 )
+
+// downloadIdleTimeout is the stall bound for streamed bodies: each successful
+// read resets it. A variable so tests can shrink it.
+var downloadIdleTimeout = 60 * time.Second
 
 // traceWriter, when non-nil, receives a one-line trace of every request and
 // response (method, URL, status). It is a package-level toggle set by the CLI's
@@ -67,7 +79,8 @@ type Client struct {
 	baseHost string
 	token    string
 	hc       *http.Client
-	ver      string // CLI version, for User-Agent
+	dl       *http.Client // streaming downloads: no whole-request timeout
+	ver      string       // CLI version, for User-Agent
 	// noVersionGate: this backend has no optimistic version gate, so an HTTP
 	// 409 is a generic conflict (locked issue, workflow veto), NOT
 	// ErrVersionConflict — exit 5 would point the caller at a re-pull/--force
@@ -88,26 +101,37 @@ func New(base, token, version string) *Client {
 	if u, err := neturl.Parse(base); err == nil {
 		host = u.Host
 	}
+	// Refuse any redirect that leaves the configured backend host or
+	// downgrades https→http. Confluence/Jira Data Center serve downloads
+	// from the same host, so same-host redirects suffice; this closes the
+	// same-host scheme-downgrade PAT leak and redirect-based SSRF.
+	checkRedirect := func(req *http.Request, via []*http.Request) error {
+		if !sameHost(host, req.URL.Host) {
+			return fmt.Errorf("refusing cross-host redirect to %q", req.URL.Host)
+		}
+		if len(via) > 0 && via[0].URL.Scheme == "https" && req.URL.Scheme == "http" {
+			return fmt.Errorf("refusing https→http redirect to %q", req.URL.Host)
+		}
+		return nil
+	}
+	// The download transport keeps the default dial/TLS bounds and adds a
+	// response-header deadline; the body itself is bounded by inactivity in
+	// GetStream, so a large transfer on a slow link is not killed by the
+	// whole-request timeout the JSON client uses.
+	dlTransport := http.DefaultTransport.(*http.Transport).Clone()
+	dlTransport.ResponseHeaderTimeout = dlHeaderTimeout
 	return &Client{
 		base:     base,
 		baseHost: host,
 		token:    token,
 		ver:      version,
 		hc: &http.Client{
-			Timeout: defaultTimeout,
-			// Refuse any redirect that leaves the configured backend host or
-			// downgrades https→http. Confluence/Jira Data Center serve downloads
-			// from the same host, so same-host redirects suffice; this closes the
-			// same-host scheme-downgrade PAT leak and redirect-based SSRF.
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				if !sameHost(host, req.URL.Host) {
-					return fmt.Errorf("refusing cross-host redirect to %q", req.URL.Host)
-				}
-				if len(via) > 0 && via[0].URL.Scheme == "https" && req.URL.Scheme == "http" {
-					return fmt.Errorf("refusing https→http redirect to %q", req.URL.Host)
-				}
-				return nil
-			},
+			Timeout:       defaultTimeout,
+			CheckRedirect: checkRedirect,
+		},
+		dl: &http.Client{
+			Transport:     dlTransport,
+			CheckRedirect: checkRedirect,
 		},
 	}
 }
@@ -176,27 +200,13 @@ func (c *Client) Do(ctx context.Context, method, path string, body []byte, heade
 	return c.do(ctx, method, path, body, headers, jsonBodyCap)
 }
 
-// do is the retry/transport core shared by Do (JSON cap) and GetBytes (binary
-// cap). maxBytes bounds the response body; exceeding it is an error, not a
-// silent truncation.
+// do is the buffered retry/transport core behind Do. maxBytes bounds the
+// response body; exceeding it is an error, not a silent truncation. Binary
+// downloads use GetStream instead.
 func (c *Client) do(ctx context.Context, method, path string, body []byte, headers map[string]string, maxBytes int64) ([]byte, error) {
-	// path may be a relative path (joined to base) or an absolute URL drawn from a
-	// server response (e.g. an attachment "content" link). Classify by scheme via
-	// url.IsAbs, not a "http" prefix: the prefix mis-reads a relative path like
-	// "httpcache/..." as absolute and a mixed-case "HTTPS://..." as relative.
-	url := path
-	u, err := neturl.Parse(path)
+	url, err := c.resolveURL(path)
 	if err != nil {
-		return nil, fmt.Errorf("parse url: %w", err)
-	}
-	if u.IsAbs() {
-		// Refuse any absolute URL that points off the configured backend host to
-		// avoid blind SSRF; never issue the request.
-		if !sameHost(c.baseHost, u.Host) {
-			return nil, fmt.Errorf("refusing request to foreign host %q", u.Host)
-		}
-	} else {
-		url = c.base + path
+		return nil, err
 	}
 	var lastErr error
 	skipBackoff := false
@@ -207,27 +217,9 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 			}
 		}
 		skipBackoff = false
-		var rdr io.Reader
-		if body != nil {
-			rdr = bytes.NewReader(body)
-		}
-		req, err := http.NewRequestWithContext(ctx, method, url, rdr)
+		req, err := c.newRequest(ctx, method, url, body, headers)
 		if err != nil {
 			return nil, err
-		}
-		// Only ever send the PAT to the configured backend host. A path may be
-		// an absolute URL drawn from a server response (e.g. a Jira attachment
-		// "content" link); if it points elsewhere we must NOT leak the token.
-		if sameHost(c.baseHost, req.URL.Host) {
-			req.Header.Set("Authorization", "Bearer "+c.token)
-		}
-		req.Header.Set("Accept", "application/json")
-		req.Header.Set("User-Agent", userAgent+"/"+c.ver)
-		if body != nil {
-			req.Header.Set("Content-Type", "application/json")
-		}
-		for k, v := range headers {
-			req.Header.Set(k, v)
 		}
 		tracef("→ %s %s\n", method, req.URL.String())
 		resp, err := c.hc.Do(req)
@@ -275,6 +267,53 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 	return nil, lastErr
 }
 
+// resolveURL joins a relative path to base, or validates an absolute URL drawn
+// from a server response (e.g. an attachment "content" link). Classify by
+// scheme via url.IsAbs, not a "http" prefix: the prefix mis-reads a relative
+// path like "httpcache/..." as absolute and a mixed-case "HTTPS://..." as
+// relative. An absolute URL pointing off the configured backend host is
+// refused outright (blind SSRF) — the request is never issued.
+func (c *Client) resolveURL(path string) (string, error) {
+	u, err := neturl.Parse(path)
+	if err != nil {
+		return "", fmt.Errorf("parse url: %w", err)
+	}
+	if u.IsAbs() {
+		if !sameHost(c.baseHost, u.Host) {
+			return "", fmt.Errorf("refusing request to foreign host %q", u.Host)
+		}
+		return path, nil
+	}
+	return c.base + path, nil
+}
+
+// newRequest builds one attempt's request with auth/UA headers. The PAT is
+// only ever sent to the configured backend host: a path may be an absolute URL
+// drawn from a server response; if it points elsewhere we must NOT leak the
+// token.
+func (c *Client) newRequest(ctx context.Context, method, url string, body []byte, headers map[string]string) (*http.Request, error) {
+	var rdr io.Reader
+	if body != nil {
+		rdr = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, rdr)
+	if err != nil {
+		return nil, err
+	}
+	if sameHost(c.baseHost, req.URL.Host) {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", userAgent+"/"+c.ver)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	return req, nil
+}
+
 // readBody reads up to max bytes, returning an error if the body is larger
 // (rather than silently truncating) or if the read itself fails.
 func readBody(r io.Reader, max int64) ([]byte, error) {
@@ -318,11 +357,130 @@ func (c *Client) SendJSON(ctx context.Context, method, path string, in, out any)
 	return unmarshal(data, out)
 }
 
-// GetBytes returns the raw bytes of a GET (binary downloads), with the
-// content-type. Used for attachment/asset downloads, so it allows a larger
-// response body than the JSON cap.
-func (c *Client) GetBytes(ctx context.Context, path string) ([]byte, error) {
-	return c.do(ctx, http.MethodGet, path, nil, map[string]string{"Accept": "*/*"}, binBodyCap)
+// GetStream GETs path and returns the response body as a stream (binary
+// downloads). Retries/backoff apply only until the 2xx headers arrive; the
+// body is then consumed by the caller, bounded by an inactivity deadline
+// (each read resets it) instead of the JSON client's whole-request timeout —
+// a large transfer on a slow link is limited by stalls, not total wall-clock,
+// and is never buffered in RAM here. The caller must Close the stream. A
+// transport error mid-body is not retried (the partial read cannot be
+// transparently resumed).
+func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, error) {
+	url, err := c.resolveURL(path)
+	if err != nil {
+		return nil, err
+	}
+	var lastErr error
+	skipBackoff := false
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 && !skipBackoff {
+			if !sleep(ctx, backoff(attempt)) {
+				return nil, ctx.Err()
+			}
+		}
+		skipBackoff = false
+		// A per-attempt cancel lets the idle watchdog abort a stalled body
+		// without touching the caller's context.
+		rctx, cancel := context.WithCancel(ctx)
+		req, err := c.newRequest(rctx, http.MethodGet, url, nil, map[string]string{"Accept": "*/*"})
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+		tracef("→ GET %s\n", req.URL.String())
+		resp, err := c.dl.Do(req)
+		if err != nil {
+			cancel()
+			tracef("× GET %s (transport error: %v)\n", url, err)
+			lastErr = err
+			continue // GET is idempotent → retry
+		}
+		tracef("← %d %s\n", resp.StatusCode, req.URL.Path)
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return newIdleReader(resp.Body, downloadIdleTimeout, cancel), nil
+		}
+		data, rerr := readBody(resp.Body, jsonBodyCap)
+		resp.Body.Close()
+		cancel()
+		if rerr != nil {
+			return nil, rerr
+		}
+		kind := classify(resp.StatusCode)
+		if c.noVersionGate && kind == domain.ErrVersionConflict {
+			kind = nil
+		}
+		apiErr := &APIError{Status: resp.StatusCode, Method: http.MethodGet, Path: path, Body: string(data), kind: kind}
+		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
+		if retryable {
+			lastErr = apiErr
+			if ra := retryAfter(resp); ra > 0 {
+				if !sleep(ctx, ra) {
+					return nil, ctx.Err()
+				}
+				skipBackoff = true
+			}
+			continue
+		}
+		return nil, apiErr
+	}
+	return nil, lastErr
+}
+
+// ReadCapped fully reads a stream a caller has chosen to buffer in RAM (e.g.
+// an asset render), erroring beyond max rather than silently truncating.
+func ReadCapped(r io.Reader, max int64) ([]byte, error) {
+	return readBody(r, max)
+}
+
+// idleReader bounds a streamed body by inactivity: a watchdog cancels the
+// underlying request when no read has made progress within idle, so a stalled
+// transfer fails with a clear error instead of hanging forever. Progress is a
+// timestamp the watchdog consults, NOT a timer the reads reset: a read racing
+// the watchdog fire therefore wins (the watchdog sees fresh progress and just
+// reschedules), so a fire can never irrecoverably poison a live stream.
+type idleReader struct {
+	rc       io.ReadCloser
+	timer    *time.Timer
+	idle     time.Duration
+	cancel   context.CancelFunc
+	stalled  atomic.Bool
+	progress atomic.Int64 // unix nanos of the last read progress
+}
+
+func newIdleReader(rc io.ReadCloser, idle time.Duration, cancel context.CancelFunc) *idleReader {
+	r := &idleReader{rc: rc, idle: idle, cancel: cancel}
+	r.progress.Store(time.Now().UnixNano())
+	r.timer = time.AfterFunc(idle, r.watchdog)
+	return r
+}
+
+// watchdog cancels the request only when no read progressed within idle;
+// otherwise it reschedules itself for the remainder of the window.
+func (r *idleReader) watchdog() {
+	elapsed := time.Duration(time.Now().UnixNano() - r.progress.Load())
+	if elapsed < r.idle {
+		r.timer.Reset(r.idle - elapsed)
+		return
+	}
+	r.stalled.Store(true)
+	r.cancel()
+}
+
+func (r *idleReader) Read(p []byte) (int, error) {
+	n, err := r.rc.Read(p)
+	if n > 0 || err == nil {
+		r.progress.Store(time.Now().UnixNano())
+	}
+	if err != nil && !errors.Is(err, io.EOF) && r.stalled.Load() {
+		return n, fmt.Errorf("download stalled: no data received for %s: %w", r.idle, err)
+	}
+	return n, err
+}
+
+func (r *idleReader) Close() error {
+	r.timer.Stop()
+	r.cancel()
+	return r.rc.Close()
 }
 
 func unmarshal(data []byte, out any) error {

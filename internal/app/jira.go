@@ -248,7 +248,7 @@ func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, er
 		if !strings.HasPrefix(a.MediaType, "image/") {
 			continue
 		}
-		data, name, err := s.tr.DownloadAttachment(ctx, key, a.ID)
+		rc, name, err := s.tr.DownloadAttachment(ctx, key, a.ID)
 		if err != nil {
 			continue
 		}
@@ -256,17 +256,24 @@ func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, er
 		// name and confine the write to dir so it cannot escape via "../".
 		safeName, ok := safepath.Base(name)
 		if !ok {
+			rc.Close()
 			continue
 		}
 		if err := os.MkdirAll(dir, 0o755); err != nil {
+			rc.Close()
 			return paths, err
 		}
 		p := filepath.Join(dir, safeName)
 		if !safepath.Within(dir, p) {
+			rc.Close()
 			continue
 		}
-		if err := safepath.WriteFile(p, data, 0o644); err != nil {
-			return paths, err
+		// Stream to disk atomically: bounded memory, and an interrupted
+		// transfer never leaves a truncated image.
+		_, werr := safepath.WriteReaderAtomic(p, rc, 0o644)
+		rc.Close()
+		if werr != nil {
+			return paths, werr
 		}
 		paths = append(paths, p)
 	}
