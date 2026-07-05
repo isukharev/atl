@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`conf apply` — the markdown view becomes an editable surface.** Edit
+  `page.md`, run `atl conf apply page.md`, and the edits merge into the
+  `.csf` block by block: untouched blocks keep their **exact** base bytes,
+  changed/new blocks convert from a strict markdown subset (headings,
+  paragraphs, lists, task lists, simple tables, fenced code,
+  blockquotes/admonitions, links, `[[page links]]`, `[KEY](jira:KEY)`), and
+  opaque elements in edited blocks (macros, mentions, links, images, colored
+  spans) are substituted back from their original bytes so identity survives.
+  Fail-closed with nothing written (exit 8) on unconvertible blocks, complex
+  tables (spans/styling), ambiguous mentions, dropped fragments (macros
+  counted by name; override with `--allow-fragment-loss`), or a `.csf` that
+  diverged from the last-synced base; the merged body is always validated and
+  `conf push` remains the only write path to the server. Underpinned by new
+  element byte offsets in the CSF parser, a block-segmented renderer, and a
+  fuzzed md→CSF converter; a no-edit apply reproduces every page in a
+  78-page real-content corpus byte-identically.
 - **Agent-friendly output** — `-o id` prints just the primary identifier(s), one
   per line, for safe piping (`atl jira issue search … -o id | xargs …`); wired
   into `jira issue search`/`create` and `conf search`.

@@ -266,6 +266,29 @@ func TestMergeBlockMacroIntoHeadingFailsClosed(t *testing.T) {
 	}
 }
 
+// Regression: editing a complex table (spans/classed cells) through the md
+// surface must fail closed, not silently strip the structure.
+func TestMergeComplexTableFailsClosed(t *testing.T) {
+	page := `<h1>T</h1><table><tbody><tr><th>K</th><th>V</th></tr>` +
+		`<tr><td class="numberingColumn">1</td><td rowspan="2">x</td></tr>` +
+		`<tr><td class="numberingColumn">2</td></tr></tbody></table>`
+	md := renderOf(t, page, nil)
+	edited := strings.Replace(md, "| K | V |", "| K | NEW |", 1)
+	_, _, err := Merge([]byte(page), nil, edited, Options{})
+	var be *BlockError
+	if !errors.As(err, &be) {
+		t.Fatalf("want BlockError for complex table, got %v", err)
+	}
+	// A simple table on the same page still converts.
+	simple := `<h1>T</h1><table><tbody><tr><th>K</th></tr><tr><td>v</td></tr></tbody></table>`
+	md = renderOf(t, simple, nil)
+	edited = strings.Replace(md, "| v |", "| v2 |", 1)
+	out, _ := mustMerge(t, simple, edited, nil, Options{})
+	if !strings.Contains(string(out), "<td>v2</td>") {
+		t.Fatalf("simple table edit refused: %s", out)
+	}
+}
+
 // TestMergeIdentityOverRealChunks replays identity merges over every render
 // shape in the package corpus used by the renderer tests.
 func TestMergeIdentityFragmentDiffEmpty(t *testing.T) {

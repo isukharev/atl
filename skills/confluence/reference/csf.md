@@ -13,6 +13,10 @@ checks well-formedness and reports problems as `{severity, line, col, rule, mess
 
 ## Editing existing CSF — pick the technique by situation
 
+**Prefer the md surface**: edit the page's `.md` and run `atl conf apply` (see the skill's
+canonical loop). The techniques below are for what apply refuses or md cannot express —
+complex tables, unrecognized wrappers, ambiguous mentions, surgical byte-level fixes.
+
 Real CSF bodies are usually **one huge line** and contain **invisible bytes**: non-breaking
 spaces (`U+00A0` — pasted from the Confluence editor), entities, zero-width characters. An
 exact-string edit can miss even when the text *looks* identical on screen. Agents lose the most

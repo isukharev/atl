@@ -202,10 +202,15 @@ Use any text tool to search across the mirror:
 rg "decision" mirror/
 ```
 
-### 3. Validate & push
+### 3. Edit, validate & push
 
 ```sh
-# Edit the native storage format directly
+# Easiest: edit the markdown view, then merge it into the .csf block-by-block.
+# Untouched blocks keep their exact bytes; unconvertible edits fail closed.
+$EDITOR mirror/DOCS/acme-adr/acme-adr.md
+atl conf apply mirror/DOCS/acme-adr/acme-adr.md
+
+# Or edit the native storage format directly
 $EDITOR mirror/DOCS/acme-adr/acme-adr.csf
 
 # Validate before pushing (blocks on malformed XML, warns on sanity issues)

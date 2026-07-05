@@ -53,8 +53,6 @@ Important directions that need more validation or depend on earlier safety work.
 
 - Write-capable MCP tools that respect the global read-only policy and version
   gate.
-- Markdown input only for creating new pages, never for updating existing page
-  bodies.
 - Draw.io source workflows and macro insertion helpers.
 - Public CSF parser/validator library.
 - Archive/export workflows for full-fidelity Data Center backups and migration
@@ -72,7 +70,10 @@ round-trip ADF tests, JSON hashing/canonicalization, and endpoint format checks.
 
 ## Not planned
 
-- Lossy Markdown-to-CSF updates for existing pages.
+- Lossy Markdown-to-CSF updates for existing pages. (The shipped `conf apply`
+  path is non-lossy by construction: it merges block-by-block, keeps untouched
+  blocks byte-identical, preserves opaque fragment bytes, and fails closed on
+  anything it cannot convert faithfully.)
 - Hosted RAG/vector indexing, cloud brokers, or background services that move
   your content out of your environment.
 - WYSIWYG/rich text editor.
