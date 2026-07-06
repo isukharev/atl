@@ -51,6 +51,7 @@ func TestRenderExact(t *testing.T) {
 		{"image unresolved", "!missing.png!", Options{}, "`!missing.png!`"},
 		{"image external", "!https://h/a.png!", Options{}, "![](https://h/a.png)"},
 		{"exclamations kept", "Wow! Great! Yes!", Options{}, "Wow! Great! Yes!"},
+		{"padded bang span stays literal", "Done! v1.2! yes", Options{}, "Done! v1.2! yes"},
 
 		// code / noformat (verbatim, no inner parsing)
 		{"code lang", "{code:go}\nfmt.Println(x)\n{code}", Options{}, "```go\nfmt.Println(x)\n```"},

@@ -181,6 +181,11 @@ func image(b *strings.Builder, s string, opts Options) int {
 		return 0
 	}
 	inner := s[1 : 1+end]
+	// Jira image syntax is tight: no whitespace directly inside the bangs.
+	// Rejecting a padded span keeps prose like "Done! v1.2! yes" literal.
+	if inner != strings.TrimSpace(inner) {
+		return 0
+	}
 	name := inner
 	if bar := strings.Index(inner, "|"); bar >= 0 {
 		name = inner[:bar]

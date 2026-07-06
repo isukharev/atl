@@ -36,6 +36,7 @@ func FuzzRender(f *testing.F) {
 		"\x00\x01\x02 control bytes with *bold*",
 		"![[weird]] !! {{}} [] || {} ~~ __",
 		"{{mono with ` backtick}}",
+		"Done! v1.2! yes",
 	}
 	for _, s := range seeds {
 		f.Add(s)
