@@ -457,6 +457,7 @@ func jiraIssueCmd() *cobra.Command {
 	comment := jiraCommentCmd()
 	link := jiraLinkCmd()
 	plan := jiraIssuePlanCmd()
+	attachment := jiraIssueAttachmentCmd()
 
 	var epic string
 	linkEpic := &cobra.Command{
@@ -556,7 +557,68 @@ func jiraIssueCmd() *cobra.Command {
 	tree.Flags().StringVar(&treeFields, "fields", "", "extra comma-separated fields to fetch")
 	tree.Flags().IntVar(&treeLimit, "limit", 100, "max issues (0 = all)")
 
-	c.AddCommand(get, search, create, update, edit, transition, check, del, assign, labels, history, refs, tree, comment, link, plan, linkEpic, images)
+	c.AddCommand(get, search, create, update, edit, transition, check, del, assign, labels, history, refs, tree, comment, link, plan, linkEpic, attachment, images)
+	return c
+}
+
+func jiraIssueAttachmentCmd() *cobra.Command {
+	c := &cobra.Command{Use: "attachment", Short: "Attachment list/get"}
+
+	list := &cobra.Command{
+		Use:   "list <KEY>",
+		Short: "List issue attachments",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			atts, err := svc.Attachments(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return emitID(cmd, map[string]any{"key": args[0], "attachments": atts}, func() string {
+				var b strings.Builder
+				for _, a := range atts {
+					fmt.Fprintf(&b, "%s\t%s\t%s\t%d bytes\n", a.ID, a.Title, a.MediaType, a.FileSize)
+				}
+				return strings.TrimRight(b.String(), "\n")
+			}, func() []string {
+				ids := make([]string, len(atts))
+				for i, a := range atts {
+					ids[i] = a.ID
+				}
+				return ids
+			})
+		},
+	}
+
+	var getID, getInto string
+	get := &cobra.Command{
+		Use:   "get <KEY>",
+		Short: "Download an issue attachment to a directory",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if getID == "" {
+				return usageErr("--id is required")
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			path, name, err := svc.DownloadAttachment(cmd.Context(), args[0], getID, getInto)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, map[string]string{"key": args[0], "id": getID, "name": name, "path": path}, func() string {
+				return path
+			})
+		},
+	}
+	get.Flags().StringVar(&getID, "id", "", "attachment id or filename")
+	get.Flags().StringVar(&getInto, "into", ".", "output directory")
+
+	c.AddCommand(list, get)
 	return c
 }
 

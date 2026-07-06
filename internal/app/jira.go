@@ -234,6 +234,37 @@ func (s *JiraService) Attachments(ctx context.Context, key string) ([]domain.Att
 	return s.tr.ListAttachments(ctx, key)
 }
 
+// DownloadAttachment streams one Jira issue attachment into outDir and returns
+// the written path plus the server-reported filename.
+func (s *JiraService) DownloadAttachment(ctx context.Context, key, attachmentID, outDir string) (string, string, error) {
+	if outDir == "" {
+		outDir = "."
+	}
+	rc, name, err := s.tr.DownloadAttachment(ctx, key, attachmentID)
+	if err != nil {
+		return "", "", err
+	}
+	defer rc.Close()
+
+	// name is server-supplied; reduce it to a safe base and confine the write
+	// to the requested directory.
+	safeName, ok := safepath.Base(name)
+	if !ok {
+		return "", "", fmt.Errorf("%w: unsafe attachment filename %q", domain.ErrUsage, name)
+	}
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return "", "", err
+	}
+	p := filepath.Join(outDir, safeName)
+	if !safepath.Within(outDir, p) {
+		return "", "", fmt.Errorf("%w: attachment path would escape output directory", domain.ErrUsage)
+	}
+	if _, err := safepath.WriteReaderAtomic(p, rc, 0o644); err != nil {
+		return "", "", err
+	}
+	return p, name, nil
+}
+
 // Images downloads image attachments of an issue into dir, returning paths.
 func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, error) {
 	atts, err := s.tr.ListAttachments(ctx, key)

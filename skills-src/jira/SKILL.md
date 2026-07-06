@@ -1,6 +1,6 @@
 ---
 name: jira
-description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/edit/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, assign, transition, comment on, link, delete, check fields of, or report on a Jira issue, ticket, bug, story, epic, or task; extract artifact references; build an epic tree; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; download images from an issue; work with agile boards and sprints; or read Tempo Structure metadata, forest rows, values, and issue exports.
+description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/edit/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, assign, transition, comment on, link, delete, check fields of, or report on a Jira issue, ticket, bug, story, epic, or task; extract artifact references; build an epic tree; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; list or download issue attachments/images; work with agile boards and sprints; or read Tempo Structure metadata, forest rows, values, and issue exports.
 ---
 
 # Jira issues with `atl`
@@ -91,6 +91,8 @@ atl jira issue plan apply --csv plan.csv --apply --confirm APPLY --allow-ops lin
 atl jira issue link-epic PROJ-1 --epic PROJ-100
 atl jira issue labels PROJ-1 --add bug,backend [--remove wontfix]
 atl jira issue history PROJ-1                                                           # changelog
+atl jira issue attachment list PROJ-1                                                   # all attachments; -o id → ids
+atl jira issue attachment get PROJ-1 --id 42 --into ./attachments                       # any file type
 atl jira issue check PROJ-1 [--require assignee,fixVersions] [--warn priority]         # non-zero if required empty
 atl jira issue refs PROJ-1                                                             # artifact refs from one issue
 atl jira issue refs --jql 'project=PROJ' --limit 100                                   # artifact refs from a selection
@@ -140,11 +142,14 @@ table cells) — the error names it; simplify that block, or write the body as r
 via `--from-file` per [wiki-markup.md](reference/wiki-markup.md). Raw bodies are **Jira wiki
 markup, not Markdown** — `**bold**` and ``` fences publish as literal characters there.
 
-### 6. Images for vision
+### 6. Attachments and images
 ```bash
+atl jira issue attachment list PROJ-1                    # {key, attachments:[...]}; -o id → ids
+atl jira issue attachment get PROJ-1 --id spec.xlsx --into ./attachments
 atl jira issue images PROJ-1 --into /tmp/proj1-images   # {key, images:[paths]}
 ```
-Open the downloaded images when a screenshot/diagram matters.
+Use `attachment get` for any file type. Use `images` when you specifically want only image
+attachments for visual inspection; open the downloaded images when a screenshot/diagram matters.
 
 ### 7. Planning quality reports
 ```bash
@@ -222,6 +227,8 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue link suggest` | Read-only missing-link candidates from CSV | `--csv` |
 | `jira issue plan apply` | Dry-run/apply guarded CSV operation plan | `--csv`, `--allow-ops`, `--allow-fields`, `--apply`, `--confirm APPLY` |
 | `jira issue link-epic <KEY>` | Set the Epic Link | `--epic EPIC-KEY` |
+| `jira issue attachment list <KEY>` | List issue attachments | `-o id` |
+| `jira issue attachment get <KEY>` | Download an issue attachment | `--id ID-or-filename`, `--into DIR` |
 | `jira issue images <KEY>` | Download image attachments (agent vision) | `--into DIR` |
 | `jira pull` | Export issues to disk (.md + .json) | `--jql`, `--into`, `--limit`, `--fields` |
 | `jira export` | Write one compact JSONL/JSON/CSV artifact plus manifest | `--jql`/`--ids`/`--keys`, `--out`, `--format`, `--limit`, `--fields`, `--batch-size` |
