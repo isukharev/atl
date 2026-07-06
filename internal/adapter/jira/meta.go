@@ -1,7 +1,6 @@
 package jira
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -202,19 +201,25 @@ func (j *Jira) DownloadAttachment(ctx context.Context, key, attachmentID string)
 
 // UploadAttachment uploads file bytes as an issue attachment via multipart/form-data.
 // Jira DC requires X-Atlassian-Token: no-check and a form field named "file".
-func (j *Jira) UploadAttachment(ctx context.Context, key, filename string, data []byte) (*domain.Attachment, error) {
-	var buf bytes.Buffer
-	w := multipart.NewWriter(&buf)
-	fw, err := w.CreateFormFile("file", filename)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := fw.Write(data); err != nil {
-		return nil, err
-	}
-	if err := w.Close(); err != nil {
-		return nil, err
-	}
+func (j *Jira) UploadAttachment(ctx context.Context, key, filename string, data io.Reader) (*domain.Attachment, error) {
+	pr, pw := io.Pipe()
+	w := multipart.NewWriter(pw)
+	errc := make(chan error, 1)
+	go func() {
+		fw, err := w.CreateFormFile("file", filename)
+		if err == nil {
+			_, err = io.Copy(fw, data)
+		}
+		if cerr := w.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			_ = pw.CloseWithError(err)
+		} else {
+			err = pw.Close()
+		}
+		errc <- err
+	}()
 	headers := map[string]string{
 		"Content-Type":      w.FormDataContentType(),
 		"X-Atlassian-Token": "no-check",
@@ -226,7 +231,10 @@ func (j *Jira) UploadAttachment(ctx context.Context, key, filename string, data 
 		Size     int64  `json:"size"`
 		Content  string `json:"content"`
 	}
-	raw, err := j.c.Do(ctx, "POST", "/rest/api/2/issue/"+url.PathEscape(key)+"/attachments", buf.Bytes(), headers)
+	raw, err := j.c.DoStream(ctx, "POST", "/rest/api/2/issue/"+url.PathEscape(key)+"/attachments", pr, headers)
+	if werr := <-errc; err == nil && werr != nil {
+		err = werr
+	}
 	if err != nil {
 		return nil, err
 	}

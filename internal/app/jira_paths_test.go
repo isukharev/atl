@@ -30,8 +30,12 @@ func (t partialTracker) DownloadAttachment(context.Context, string, string) (io.
 	return io.NopCloser(bytes.NewReader(t.data)), t.name, nil
 }
 
-func (t partialTracker) UploadAttachment(_ context.Context, _ string, filename string, data []byte) (*domain.Attachment, error) {
-	return &domain.Attachment{ID: "42", Title: filename, FileSize: int64(len(data))}, nil
+func (t partialTracker) UploadAttachment(_ context.Context, _ string, filename string, data io.Reader) (*domain.Attachment, error) {
+	b, err := io.ReadAll(data)
+	if err != nil {
+		return nil, err
+	}
+	return &domain.Attachment{ID: "42", Title: filename, FileSize: int64(len(b))}, nil
 }
 
 func (t partialTracker) Search(context.Context, string, []string, int, string) ([]domain.Issue, string, error) {
@@ -141,11 +145,15 @@ type recordingUploadTracker struct {
 	uploadedData []byte
 }
 
-func (t *recordingUploadTracker) UploadAttachment(_ context.Context, key, filename string, data []byte) (*domain.Attachment, error) {
+func (t *recordingUploadTracker) UploadAttachment(_ context.Context, key, filename string, data io.Reader) (*domain.Attachment, error) {
+	b, err := io.ReadAll(data)
+	if err != nil {
+		return nil, err
+	}
 	t.uploadedKey = key
 	t.uploadedName = filename
-	t.uploadedData = append([]byte(nil), data...)
-	return &domain.Attachment{ID: "42", Title: filename, FileSize: int64(len(data))}, nil
+	t.uploadedData = append([]byte(nil), b...)
+	return &domain.Attachment{ID: "42", Title: filename, FileSize: int64(len(b))}, nil
 }
 
 // A hostile Jira issue key must not let `jira pull` escape the --into directory.

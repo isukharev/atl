@@ -1216,7 +1216,7 @@ func TestUploadAttachmentMultipart(t *testing.T) {
 	defer srv.Close()
 
 	j := newTestJira(srv)
-	att, err := j.UploadAttachment(context.Background(), "ABC-1", "report.xlsx", []byte("xlsx bytes"))
+	att, err := j.UploadAttachment(context.Background(), "ABC-1", "report.xlsx", strings.NewReader("xlsx bytes"))
 	if err != nil {
 		t.Fatalf("UploadAttachment: %v", err)
 	}

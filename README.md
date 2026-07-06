@@ -307,12 +307,12 @@ atl jira issue get  PROJ-1
 atl jira issue search --jql 'project = PROJ AND status = "In Progress"'
 atl jira issue attachment list PROJ-1
 atl jira issue attachment get PROJ-1 --id spec.xlsx --into ./attachments
-atl jira issue attachment upload PROJ-1 --file ./spec.xlsx
 
 # Mirror an issue set to disk
 atl jira pull --jql 'project = PROJ' --into mirror-jira
 
 # Write
+atl jira issue attachment upload PROJ-1 --file ./spec.xlsx
 atl jira issue assign PROJ-1 --me
 atl jira issue comment add PROJ-1 --from-md note.md
 atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
