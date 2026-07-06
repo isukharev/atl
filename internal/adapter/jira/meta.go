@@ -201,9 +201,10 @@ func (j *Jira) DownloadAttachment(ctx context.Context, key, attachmentID string)
 
 // UploadAttachment uploads file bytes as an issue attachment via multipart/form-data.
 // Jira DC requires X-Atlassian-Token: no-check and a form field named "file".
-func (j *Jira) UploadAttachment(ctx context.Context, key, filename string, data io.Reader) (*domain.Attachment, error) {
+func (j *Jira) UploadAttachment(ctx context.Context, key, filename string, data io.Reader, size int64) (*domain.Attachment, error) {
 	pr, pw := io.Pipe()
 	w := multipart.NewWriter(pw)
+	contentLength, lengthErr := multipartFileContentLength(w.Boundary(), filename, size)
 	errc := make(chan error, 1)
 	go func() {
 		fw, err := w.CreateFormFile("file", filename)
@@ -231,7 +232,14 @@ func (j *Jira) UploadAttachment(ctx context.Context, key, filename string, data 
 		Size     int64  `json:"size"`
 		Content  string `json:"content"`
 	}
-	raw, err := j.c.DoStream(ctx, "POST", "/rest/api/2/issue/"+url.PathEscape(key)+"/attachments", pr, headers)
+	var raw []byte
+	var err error
+	if lengthErr != nil {
+		err = lengthErr
+	} else {
+		raw, err = j.c.DoStreamSized(ctx, "POST", "/rest/api/2/issue/"+url.PathEscape(key)+"/attachments", pr, contentLength, headers)
+	}
+	_ = pr.Close()
 	if werr := <-errc; err == nil && werr != nil {
 		err = werr
 	}
@@ -248,4 +256,32 @@ func (j *Jira) UploadAttachment(ctx context.Context, key, filename string, data 
 	return &domain.Attachment{
 		ID: a.ID, Title: a.Filename, MediaType: a.MimeType, FileSize: a.Size, DownPath: a.Content,
 	}, nil
+}
+
+func multipartFileContentLength(boundary, filename string, size int64) (int64, error) {
+	if size < 0 {
+		return -1, nil
+	}
+	cw := &countingWriter{}
+	w := multipart.NewWriter(cw)
+	if err := w.SetBoundary(boundary); err != nil {
+		return -1, err
+	}
+	if _, err := w.CreateFormFile("file", filename); err != nil {
+		return -1, err
+	}
+	cw.n += size
+	if err := w.Close(); err != nil {
+		return -1, err
+	}
+	return cw.n, nil
+}
+
+type countingWriter struct {
+	n int64
+}
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	w.n += int64(len(p))
+	return len(p), nil
 }

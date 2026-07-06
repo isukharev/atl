@@ -10,6 +10,7 @@ import (
 	neturl "net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/safepath"
@@ -1189,9 +1190,13 @@ func TestDownloadAttachmentReturnsRawServerFilename(t *testing.T) {
 
 func TestUploadAttachmentMultipart(t *testing.T) {
 	var gotPath, gotToken, gotFilename, gotData string
+	var gotContentLength int64
+	var gotTransferEncoding []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotToken = r.Header.Get("X-Atlassian-Token")
+		gotContentLength = r.ContentLength
+		gotTransferEncoding = append([]string(nil), r.TransferEncoding...)
 		if err := r.ParseMultipartForm(1 << 20); err != nil {
 			t.Fatalf("ParseMultipartForm: %v", err)
 		}
@@ -1216,7 +1221,7 @@ func TestUploadAttachmentMultipart(t *testing.T) {
 	defer srv.Close()
 
 	j := newTestJira(srv)
-	att, err := j.UploadAttachment(context.Background(), "ABC-1", "report.xlsx", strings.NewReader("xlsx bytes"))
+	att, err := j.UploadAttachment(context.Background(), "ABC-1", "report.xlsx", strings.NewReader("xlsx bytes"), int64(len("xlsx bytes")))
 	if err != nil {
 		t.Fatalf("UploadAttachment: %v", err)
 	}
@@ -1229,8 +1234,31 @@ func TestUploadAttachmentMultipart(t *testing.T) {
 	if gotFilename != "report.xlsx" || gotData != "xlsx bytes" {
 		t.Fatalf("multipart filename=%q data=%q", gotFilename, gotData)
 	}
+	if gotContentLength <= int64(len("xlsx bytes")) {
+		t.Fatalf("ContentLength = %d, want multipart length greater than file bytes", gotContentLength)
+	}
+	if len(gotTransferEncoding) != 0 {
+		t.Fatalf("TransferEncoding = %v, want no chunked encoding", gotTransferEncoding)
+	}
 	if att.ID != "44" || att.Title != "report.xlsx" || att.MediaType == "" || att.FileSize != 10 {
 		t.Fatalf("attachment = %+v, want uploaded metadata", att)
+	}
+}
+
+func TestUploadAttachmentRequestBuildErrorDoesNotDeadlock(t *testing.T) {
+	j := New("http://[::1", "tok", "test")
+	done := make(chan error, 1)
+	go func() {
+		_, err := j.UploadAttachment(context.Background(), "ABC-1", "report.xlsx", strings.NewReader(strings.Repeat("x", 1<<20)), 1<<20)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("UploadAttachment returned nil error for invalid base URL")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("UploadAttachment hung after request build failed before consuming the pipe")
 	}
 }
 

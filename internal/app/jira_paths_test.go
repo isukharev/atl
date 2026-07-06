@@ -30,7 +30,7 @@ func (t partialTracker) DownloadAttachment(context.Context, string, string) (io.
 	return io.NopCloser(bytes.NewReader(t.data)), t.name, nil
 }
 
-func (t partialTracker) UploadAttachment(_ context.Context, _ string, filename string, data io.Reader) (*domain.Attachment, error) {
+func (t partialTracker) UploadAttachment(_ context.Context, _ string, filename string, data io.Reader, _ int64) (*domain.Attachment, error) {
 	b, err := io.ReadAll(data)
 	if err != nil {
 		return nil, err
@@ -130,8 +130,8 @@ func TestJiraUploadAttachmentReadsFileAndUsesBaseName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UploadAttachment: %v", err)
 	}
-	if tr.uploadedKey != "PROJ-1" || tr.uploadedName != "report.xlsx" || string(tr.uploadedData) != "xlsx bytes" {
-		t.Fatalf("uploaded key=%q name=%q data=%q", tr.uploadedKey, tr.uploadedName, tr.uploadedData)
+	if tr.uploadedKey != "PROJ-1" || tr.uploadedName != "report.xlsx" || string(tr.uploadedData) != "xlsx bytes" || tr.uploadedSize != int64(len("xlsx bytes")) {
+		t.Fatalf("uploaded key=%q name=%q size=%d data=%q", tr.uploadedKey, tr.uploadedName, tr.uploadedSize, tr.uploadedData)
 	}
 	if att.ID != "42" || att.Title != "report.xlsx" {
 		t.Fatalf("attachment = %+v, want id/title", att)
@@ -142,16 +142,18 @@ type recordingUploadTracker struct {
 	domain.Tracker
 	uploadedKey  string
 	uploadedName string
+	uploadedSize int64
 	uploadedData []byte
 }
 
-func (t *recordingUploadTracker) UploadAttachment(_ context.Context, key, filename string, data io.Reader) (*domain.Attachment, error) {
+func (t *recordingUploadTracker) UploadAttachment(_ context.Context, key, filename string, data io.Reader, size int64) (*domain.Attachment, error) {
 	b, err := io.ReadAll(data)
 	if err != nil {
 		return nil, err
 	}
 	t.uploadedKey = key
 	t.uploadedName = filename
+	t.uploadedSize = size
 	t.uploadedData = append([]byte(nil), b...)
 	return &domain.Attachment{ID: "42", Title: filename, FileSize: int64(len(b))}, nil
 }
