@@ -1,0 +1,256 @@
+package wikimd
+
+import (
+	"regexp"
+	"strings"
+)
+
+// inline converts Jira wiki inline markup on a single logical line to markdown.
+// It is total: a delimiter that does not form a clear, boundary-delimited span
+// is emitted as literal text (never guessed), so prose peppered with `*`, `_`,
+// `-`, `!` or `[` is preserved rather than mangled.
+func inline(s string, opts Options) string {
+	var b strings.Builder
+	i := 0
+	for i < len(s) {
+		c := s[i]
+		switch {
+		case c == '{':
+			if n := monospan(&b, s[i:]); n > 0 {
+				i += n
+				continue
+			}
+			if n := colorTag(&b, s[i:]); n > 0 {
+				i += n
+				continue
+			}
+			b.WriteByte(c)
+			i++
+		case c == '[':
+			if n := mention(&b, s[i:]); n > 0 {
+				i += n
+				continue
+			}
+			if n := link(&b, s[i:], opts); n > 0 {
+				i += n
+				continue
+			}
+			b.WriteByte(c)
+			i++
+		case c == '!':
+			if n := image(&b, s[i:], opts); n > 0 {
+				i += n
+				continue
+			}
+			b.WriteByte(c)
+			i++
+		case c == '\\' && i+1 < len(s) && s[i+1] == '\\':
+			// Jira forced line break → markdown hard break.
+			b.WriteString("  \n")
+			i += 2
+		case c == '*':
+			if n := toggle(&b, s, i, '*', "**", opts); n > 0 {
+				i += n
+				continue
+			}
+			b.WriteByte(c)
+			i++
+		case c == '_':
+			if n := toggle(&b, s, i, '_', "*", opts); n > 0 {
+				i += n
+				continue
+			}
+			b.WriteByte(c)
+			i++
+		case c == '-':
+			if n := toggle(&b, s, i, '-', "~~", opts); n > 0 {
+				i += n
+				continue
+			}
+			b.WriteByte(c)
+			i++
+		default:
+			b.WriteByte(c)
+			i++
+		}
+	}
+	return b.String()
+}
+
+// monospan converts {{mono}} to an inline `code` span. Content is verbatim (no
+// inner wiki parsing); an embedded newline is collapsed to keep the span on one
+// line and a backtick in the content widens the fence so the span still closes.
+func monospan(b *strings.Builder, s string) int {
+	if !strings.HasPrefix(s, "{{") {
+		return 0
+	}
+	end := strings.Index(s[2:], "}}")
+	if end < 0 {
+		return 0
+	}
+	content := strings.ReplaceAll(s[2:2+end], "\n", " ")
+	fence := "`"
+	if strings.Contains(content, "`") {
+		fence = "``"
+	}
+	b.WriteString(fence + content + fence)
+	return 2 + end + 2
+}
+
+// colorTag drops a {color:...} opening tag or a {color} closing tag, keeping the
+// text between them in the normal flow ({color:red}text{color} → text). It emits
+// nothing (the tag is dropped) and only reports how many bytes to consume.
+func colorTag(_ *strings.Builder, s string) int {
+	if !strings.HasPrefix(s, "{color") {
+		return 0
+	}
+	end := strings.Index(s, "}")
+	if end < 0 {
+		return 0
+	}
+	tag := s[:end+1]
+	if tag == "{color}" || strings.HasPrefix(tag, "{color:") {
+		return end + 1 // consume, emit nothing
+	}
+	return 0
+}
+
+var mentionRe = regexp.MustCompile(`^\[~([^\]]+)\]`)
+
+// mention converts a [~username] mention to bold @username.
+func mention(b *strings.Builder, s string) int {
+	m := mentionRe.FindStringSubmatch(s)
+	if m == nil {
+		return 0
+	}
+	user := strings.TrimSpace(m[1])
+	if user == "" {
+		return 0
+	}
+	b.WriteString("**@" + user + "**")
+	return len(m[0])
+}
+
+// link converts [text|url] to [text](url) and a bare [url] to <url>. A bracket
+// span that is not clearly a link (no `|`, and content that does not look like a
+// URL) is left literal so ordinary bracketed prose survives.
+func link(b *strings.Builder, s string, opts Options) int {
+	end := strings.Index(s, "]")
+	if end < 0 {
+		return 0
+	}
+	inner := s[1:end]
+	if inner == "" || strings.Contains(inner, "\n") {
+		return 0
+	}
+	if bar := strings.Index(inner, "|"); bar >= 0 {
+		text := strings.TrimSpace(inner[:bar])
+		url := strings.TrimSpace(inner[bar+1:])
+		// A [alias|url|tip] third field is dropped.
+		if extra := strings.Index(url, "|"); extra >= 0 {
+			url = strings.TrimSpace(url[:extra])
+		}
+		if url == "" {
+			return 0
+		}
+		if text == "" {
+			text = url
+		}
+		b.WriteString("[" + inline(text, opts) + "](" + url + ")")
+		return end + 1
+	}
+	url := strings.TrimSpace(inner)
+	if !looksLikeURL(url) {
+		return 0
+	}
+	b.WriteString("<" + url + ">")
+	return end + 1
+}
+
+func looksLikeURL(s string) bool {
+	return strings.Contains(s, "://") || strings.HasPrefix(s, "mailto:") || strings.HasPrefix(s, "#")
+}
+
+// image converts a wiki image embed. External `!http://...!` → ![](url); an
+// attachment `!name.png!` resolves against opts.Images to a local link when
+// downloaded, else renders as inline code signaling an unresolved image. `!` in
+// ordinary prose (no filename-shaped content) is left literal.
+func image(b *strings.Builder, s string, opts Options) int {
+	end := strings.Index(s[1:], "!")
+	if end < 0 {
+		return 0
+	}
+	inner := s[1 : 1+end]
+	name := inner
+	if bar := strings.Index(inner, "|"); bar >= 0 {
+		name = inner[:bar]
+	}
+	name = strings.TrimSpace(name)
+	if !looksLikeImageRef(name) {
+		return 0
+	}
+	consumed := 1 + end + 1
+	switch {
+	case strings.Contains(name, "://"):
+		b.WriteString("![](" + name + ")")
+	default:
+		if path, ok := opts.Images[name]; ok && path != "" {
+			b.WriteString("![" + name + "](" + path + ")")
+		} else {
+			b.WriteString("`!" + name + "!`")
+		}
+	}
+	return consumed
+}
+
+func looksLikeImageRef(name string) bool {
+	if name == "" || strings.ContainsAny(name, " \t") {
+		return false
+	}
+	if strings.Contains(name, "://") {
+		return true
+	}
+	return strings.Contains(name, ".")
+}
+
+// toggle converts a boundary-delimited wiki phrase modifier (*bold*, _italic_,
+// -strike-) to its markdown wrapper. The opening delimiter must sit on a word
+// boundary and be followed by non-space; the closing delimiter must be preceded
+// by non-space and sit on a word boundary. If no such pair exists the run is not
+// a modifier and the caller emits it literally.
+func toggle(b *strings.Builder, s string, i int, delim byte, wrap string, opts Options) int {
+	if i > 0 && isWordByte(s[i-1]) {
+		return 0
+	}
+	if i+1 >= len(s) || s[i+1] == delim || isSpaceByte(s[i+1]) {
+		return 0
+	}
+	for j := i + 1; j < len(s); j++ {
+		if s[j] != delim {
+			continue
+		}
+		if isSpaceByte(s[j-1]) {
+			continue // content ends with a space: not a closer
+		}
+		if j+1 < len(s) && isWordByte(s[j+1]) {
+			continue // closer not on a word boundary
+		}
+		content := s[i+1 : j]
+		if content == "" {
+			return 0
+		}
+		b.WriteString(wrap + inline(content, opts) + wrap)
+		return j - i + 1
+	}
+	return 0
+}
+
+func isWordByte(c byte) bool {
+	return c == '_' ||
+		c >= '0' && c <= '9' ||
+		c >= 'a' && c <= 'z' ||
+		c >= 'A' && c <= 'Z' ||
+		c >= 0x80
+}
+
+func isSpaceByte(c byte) bool { return c == ' ' || c == '\t' }
