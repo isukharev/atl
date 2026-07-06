@@ -759,7 +759,7 @@ project, assignee, reporter, labels, links, comments, attachments.
 
 ```bash
 atl jira issue get PROJ-1
-atl jira issue get PROJ-1 --fields summary,status,assignee
+atl jira issue get PROJ-1 --fields summary,status,issuetype,project,labels,description,attachment
 atl jira issue get PROJ-1 -o text
 ```
 

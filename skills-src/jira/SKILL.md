@@ -61,9 +61,11 @@ Read `<KEY>.md` (human view) and `<KEY>.json` (raw fields) to ground your work.
 
 **Keep live reads slim.** A bare `issue get` returns the full comment thread, attachments, and
 links — expensive in context. For a first look use
-`atl jira issue get <KEY> --fields summary,status,description`; fetch the discussion deliberately
-with `comment list <KEY>` only when it matters; and when you need just a few values, project them
-in the pipe (`… | jq -r '.status'`) instead of reading the whole payload.
+`atl jira issue get <KEY> --fields summary,status,issuetype,project,labels,description,attachment`;
+this keeps type/project/labels and attachment metadata visible without downloading attachment bytes
+or pulling comments/links. Fetch the discussion deliberately with `comment list <KEY>` only when it
+matters; and when you need just a few values, project them in the pipe (`… | jq -r '.status'`)
+instead of reading the whole payload.
 
 ### 4. Edit — via commands only
 **There is no version gate (last-writer-wins). Run `atl jira issue get <KEY>` immediately before an
@@ -71,8 +73,8 @@ update** to avoid overwriting someone else's change — a narrow
 `--fields summary,description` is enough for that drift check; don't re-pull the comment thread.
 
 ```bash
-atl jira issue get PROJ-1 [--fields summary,description,status]
-# → {key, summary, status, type, project, assignee, reporter, description, labels, links, comments}
+atl jira issue get PROJ-1 [--fields summary,status,issuetype,project,labels,description,attachment]
+# → {key, summary, status, type, project, description, labels, fields.attachment}
 
 atl jira issue create --project PROJ --type Bug --summary 'Title' --from-md desc.md [--field k=v]
 atl jira issue update PROJ-1 [--summary 'New'] [--from-md desc.md] [--field k=v]       # see fields.md for big bodies
