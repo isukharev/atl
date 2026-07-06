@@ -230,6 +230,29 @@ func TestDoStreamSendsReaderHeadersAndAuth(t *testing.T) {
 	}
 }
 
+func TestDoStreamSizedSetsContentLength(t *testing.T) {
+	gotContentLength := make(chan int64, 1)
+	gotTransferEncoding := make(chan []string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotContentLength <- r.ContentLength
+		gotTransferEncoding <- append([]string(nil), r.TransferEncoding...)
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "secret-pat", "test")
+	if _, err := c.DoStreamSized(context.Background(), http.MethodPost, "/upload", strings.NewReader("streamed"), int64(len("streamed")), nil); err != nil {
+		t.Fatalf("DoStreamSized: %v", err)
+	}
+	if got := <-gotContentLength; got != int64(len("streamed")) {
+		t.Fatalf("ContentLength = %d, want %d", got, len("streamed"))
+	}
+	if got := <-gotTransferEncoding; len(got) != 0 {
+		t.Fatalf("TransferEncoding = %v, want none", got)
+	}
+}
+
 func TestDoStreamMapsStatusToSentinel(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "gone", http.StatusNotFound)

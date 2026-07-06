@@ -273,8 +273,12 @@ func (s *JiraService) UploadAttachment(ctx context.Context, key, filePath string
 		return nil, err
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
 	filename := filepath.Base(filePath)
-	return s.tr.UploadAttachment(ctx, key, filename, f)
+	return s.tr.UploadAttachment(ctx, key, filename, f, info.Size())
 }
 
 // Images downloads image attachments of an issue into dir, returning paths.

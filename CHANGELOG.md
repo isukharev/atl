@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   upload` no longer buffers both the local file and multipart request body in
   memory, and it avoids the normal JSON client's whole-request timeout for
   long-running uploads.
+- **Jira attachment uploads now send a multipart `Content-Length` for files.**
+  Streaming uploads no longer rely on chunked multipart encoding for local
+  files, and early request-building failures unblock the multipart producer
+  instead of hanging the command.
 
 ## [0.3.0] - 2026-07-05
 

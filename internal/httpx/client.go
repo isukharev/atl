@@ -205,6 +205,12 @@ func (c *Client) Do(ctx context.Context, method, path string, body []byte, heade
 // the normal JSON client's whole-request timeout. The caller must provide
 // replayable retry behavior if it needs retries; this helper sends one request.
 func (c *Client) DoStream(ctx context.Context, method, path string, r io.Reader, headers map[string]string) ([]byte, error) {
+	return c.DoStreamSized(ctx, method, path, r, -1, headers)
+}
+
+// DoStreamSized is DoStream with an explicit request Content-Length when
+// contentLength is non-negative.
+func (c *Client) DoStreamSized(ctx context.Context, method, path string, r io.Reader, contentLength int64, headers map[string]string) ([]byte, error) {
 	url, err := c.resolveURL(path)
 	if err != nil {
 		return nil, err
@@ -212,6 +218,9 @@ func (c *Client) DoStream(ctx context.Context, method, path string, r io.Reader,
 	req, err := c.newRequestReader(ctx, method, url, r, headers)
 	if err != nil {
 		return nil, err
+	}
+	if contentLength >= 0 {
+		req.ContentLength = contentLength
 	}
 	tracef("→ %s %s\n", method, req.URL.String())
 	resp, err := c.dl.Do(req)
