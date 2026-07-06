@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`jira pull --assets` mirrors image attachments into per-issue asset dirs.**
+  The opt-in `--assets` flag streams each pulled issue's image attachments
+  (media type `image/*`) into `<KEY>.assets/<attachment-id>-<filename>` and links
+  them from a generated `## Image Attachments` section in the read-only `.md`
+  (placed between the description and links). Bytes stream directly by each
+  attachment's content URL, adding no extra per-issue network call. Download is
+  best-effort: a failed image is skipped, counted in `assets_skipped`, and
+  reported via a single stderr warning; the issue is still written and only
+  images on disk are linked. Duplicate filenames stay distinct via the id
+  prefix, and hostile filenames/ids cannot escape the assets directory.
+  Attachments with an empty or `application/octet-stream` media type are skipped
+  (same as `jira issue images`). Default `jira pull` output is unchanged (the new
+  `assets` / `assets_skipped` JSON fields are omitted at zero), and the raw
+  `<KEY>.json` snapshot never carries local paths.
 - **Jira issue attachments can now be listed, downloaded, and uploaded directly.**
   `jira issue attachment list <KEY>` exposes attachment ids for piping
   (`-o id`), and `jira issue attachment get <KEY> --id <ID-or-filename>`

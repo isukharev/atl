@@ -1174,6 +1174,8 @@ files: `<KEY>.md` (Markdown with YAML frontmatter + native wiki body) and
 atl jira pull --jql "project=PROJ and sprint in openSprints()" \
   --into my-jira-mirror --limit 200
 atl jira pull --jql "project=PROJ" --fields customfield_10001,customfield_10002
+# also mirror each issue's image attachments and link them from the .md
+atl jira pull --jql "project=PROJ and status=Open" --assets
 ```
 
 Flags:
@@ -1184,6 +1186,17 @@ Flags:
 | `--into` | output root directory (default `mirror-jira`) |
 | `--limit` | max issues (0 = all; default 100) |
 | `--fields` | extra comma-separated fields to include in JSON snapshots; core fields needed for rendering are always included |
+| `--assets` | also download each issue's image attachments into a per-issue `<KEY>.assets/` directory and link them from the `.md` (opt-in; off by default) |
+
+With `--assets`, image attachments (media type `image/*`) are streamed into
+`<KEY>.assets/<attachment-id>-<filename>` and referenced from a generated
+`## Image Attachments` section in the `.md`, placed between the description and
+the links. The attachment id prefix keeps duplicate filenames distinct.
+Download is best-effort: a failed image is skipped (counted in `assets_skipped`
+and reported via a single stderr warning), the issue is still written, and only
+images that landed on disk are linked. Attachments with an empty or
+`application/octet-stream` media type are skipped (same as `jira issue images`).
+The raw `<KEY>.json` snapshot is unchanged — it never carries local paths.
 
 Output layout:
 
@@ -1192,6 +1205,8 @@ mirror-jira/
   PROJ/
     PROJ-1.md
     PROJ-1.json
+    PROJ-1.assets/          # only with --assets, when the issue has images
+      10001-screenshot.png
     PROJ-2.md
     PROJ-2.json
 ```

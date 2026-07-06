@@ -327,10 +327,13 @@ func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, er
 	return paths, nil
 }
 
-// JiraPulled is one exported issue.
+// JiraPulled is one exported issue. Assets counts image attachments mirrored
+// into the issue's <KEY>.assets/ directory; it is omitted at zero so the JSON
+// shape is unchanged for a default (no --assets) pull.
 type JiraPulled struct {
-	Key  string `json:"key"`
-	Path string `json:"path"`
+	Key    string `json:"key"`
+	Path   string `json:"path"`
+	Assets int    `json:"assets,omitempty"`
 }
 
 type JiraIssueSnapshot struct {
@@ -339,18 +342,54 @@ type JiraIssueSnapshot struct {
 	Fields map[string]any `json:"fields"`
 }
 
-// Pull exports issues matching jql to one markdown + json file each.
-func (s *JiraService) Pull(ctx context.Context, jql, into string, limit int, fields []string) ([]JiraPulled, error) {
+// JiraPullOpts narrows what Pull selects and whether it also mirrors image
+// attachments. A zero-value Assets keeps the default metadata/text-only pull.
+type JiraPullOpts struct {
+	JQL    string
+	Into   string
+	Limit  int
+	Fields []string
+	Assets bool
+}
+
+// JiraPullResult is the pull summary. AssetsSkipped counts image attachments
+// that were selected but could not be written (download/stream error, unsafe
+// name); it is omitted at zero so the default JSON shape is unchanged.
+type JiraPullResult struct {
+	Into          string       `json:"into"`
+	Issues        []JiraPulled `json:"issues"`
+	AssetsSkipped int          `json:"assets_skipped,omitempty"`
+}
+
+// JiraIssueAsset is one image attachment selected for mirroring. Path is the
+// path of the written file relative to the issue directory (empty until the
+// bytes land on disk).
+type JiraIssueAsset struct {
+	ID         string
+	Title      string
+	MediaType  string
+	FileSize   int64
+	ContentURL string
+	Path       string
+}
+
+// Pull exports issues matching the JQL to one markdown + json file each. When
+// opts.Assets is set it also streams each issue's image attachments into a
+// per-issue <KEY>.assets/ directory (best-effort: a failed image is skipped and
+// counted, never aborting the pull).
+func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullResult, error) {
+	into := opts.Into
 	if into == "" {
 		into = "mirror-jira"
 	}
-	var out []JiraPulled
+	limit := opts.Limit
+	res := &JiraPullResult{Into: into, Issues: []JiraPulled{}}
 	cursor := ""
-	pullFields := jiraPullFields(fields)
-	for len(out) < limit || limit == 0 {
-		issues, next, err := s.tr.Search(ctx, jql, pullFields, 100, cursor)
+	pullFields := jiraPullFields(opts.Fields)
+	for len(res.Issues) < limit || limit == 0 {
+		issues, next, err := s.tr.Search(ctx, opts.JQL, pullFields, 100, cursor)
 		if err != nil {
-			return out, err
+			return res, err
 		}
 		for i := range issues {
 			// The search projection IS the issue data: the adapter forwards
@@ -360,17 +399,25 @@ func (s *JiraService) Pull(ctx context.Context, jql, into string, limit int, fie
 			full := &issues[i]
 			dir := filepath.Join(into, safepath.Segment(full.Project))
 			if err := os.MkdirAll(dir, 0o755); err != nil {
-				return out, err
+				return res, err
 			}
 			// full.Key is server-supplied; sanitize it before using it as a
 			// filename and assert the result stays inside dir.
 			keySeg := safepath.Segment(full.Key)
 			mdPath := filepath.Join(dir, keySeg+".md")
 			if !safepath.Within(dir, mdPath) {
-				return out, fmt.Errorf("refusing unsafe issue key %q", full.Key)
+				return res, fmt.Errorf("refusing unsafe issue key %q", full.Key)
 			}
-			if err := safepath.WriteFile(mdPath, renderIssueMarkdown(full), 0o644); err != nil {
-				return out, err
+			// Mirror image attachments (best-effort) before rendering so the .md
+			// links only the images that actually landed on disk.
+			var assets []JiraIssueAsset
+			if opts.Assets {
+				var skipped int
+				assets, skipped = s.mirrorIssueImages(ctx, dir, keySeg, full.Fields["attachment"])
+				res.AssetsSkipped += skipped
+			}
+			if err := safepath.WriteFile(mdPath, renderIssueMarkdown(full, assets), 0o644); err != nil {
+				return res, err
 			}
 			snap := JiraIssueSnapshot{Key: full.Key, ID: full.ID, Fields: full.Fields}
 			if snap.Fields == nil {
@@ -380,15 +427,15 @@ func (s *JiraService) Pull(ctx context.Context, jql, into string, limit int, fie
 			// report the issue as pulled with a missing/stale .json (#65).
 			jb, err := json.MarshalIndent(snap, "", "  ")
 			if err != nil {
-				return out, fmt.Errorf("snapshot %s: %w", full.Key, err)
+				return res, fmt.Errorf("snapshot %s: %w", full.Key, err)
 			}
 			if err := safepath.WriteFile(filepath.Join(dir, keySeg+".json"), append(jb, '\n'), 0o644); err != nil {
-				return out, fmt.Errorf("snapshot %s: %w", full.Key, err)
+				return res, fmt.Errorf("snapshot %s: %w", full.Key, err)
 			}
 			rel, _ := filepath.Rel(into, mdPath)
-			out = append(out, JiraPulled{Key: full.Key, Path: rel})
-			if limit > 0 && len(out) >= limit {
-				return out, nil
+			res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, Assets: len(assets)})
+			if limit > 0 && len(res.Issues) >= limit {
+				return res, nil
 			}
 		}
 		if next == "" || len(issues) == 0 {
@@ -396,7 +443,112 @@ func (s *JiraService) Pull(ctx context.Context, jql, into string, limit int, fie
 		}
 		cursor = next
 	}
-	return out, nil
+	return res, nil
+}
+
+// mirrorIssueImages streams an issue's image attachments (identified from the
+// raw `attachment` field value) into <dir>/<keySeg>.assets/ and returns the
+// ones that landed on disk plus a count of those skipped. It is best-effort:
+// any per-image failure (stream error, unsafe name, write error) is skipped and
+// counted, never returned as an error — matching the conf pull --assets and
+// `jira issue images` ethos. Non-image attachments are ignored entirely (not
+// counted as skips). Bytes stream by the attachment's own content URL via
+// StreamAttachment, so no extra ListAttachments round-trip is made per issue.
+func (s *JiraService) mirrorIssueImages(ctx context.Context, dir, keySeg string, raw any) (downloaded []JiraIssueAsset, skipped int) {
+	assetsSeg := keySeg + ".assets"
+	assetsDir := filepath.Join(dir, assetsSeg)
+	for _, a := range decodeIssueAssets(raw) {
+		// Only image/* is mirrored. An empty or application/octet-stream mime
+		// type is not an image here and is silently ignored (known limitation,
+		// same as `jira issue images`).
+		if !strings.HasPrefix(a.MediaType, "image/") {
+			continue
+		}
+		// From here on this is an image we intended to mirror; any failure is a
+		// counted skip.
+		idSeg := safepath.Segment(a.ID)
+		safeName, ok := safepath.Base(a.Title)
+		if !ok || a.ContentURL == "" {
+			skipped++
+			continue
+		}
+		fname := idSeg + "-" + safeName
+		p := filepath.Join(assetsDir, fname)
+		if !safepath.Within(assetsDir, p) {
+			skipped++
+			continue
+		}
+		rc, err := s.tr.StreamAttachment(ctx, a.ContentURL)
+		if err != nil {
+			skipped++
+			continue
+		}
+		if mkErr := os.MkdirAll(assetsDir, 0o755); mkErr != nil {
+			rc.Close()
+			skipped++
+			continue
+		}
+		_, werr := safepath.WriteReaderAtomic(p, rc, 0o644)
+		rc.Close()
+		if werr != nil {
+			skipped++
+			continue
+		}
+		a.Path = assetsSeg + "/" + fname // markdown link, relative to the issue dir
+		downloaded = append(downloaded, a)
+	}
+	return downloaded, skipped
+}
+
+// decodeIssueAssets extracts attachment metadata from a raw Jira `attachment`
+// field value (a []any of maps carrying id/filename/mimeType/size/content).
+// Missing, non-array, or oddly-typed entries are tolerated and skipped rather
+// than erroring — the field mirrors Jira's response and may be absent or sparse.
+func decodeIssueAssets(raw any) []JiraIssueAsset {
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]JiraIssueAsset, 0, len(arr))
+	for _, item := range arr {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		out = append(out, JiraIssueAsset{
+			ID:         asString(m["id"]),
+			Title:      asString(m["filename"]),
+			MediaType:  asString(m["mimeType"]),
+			ContentURL: asString(m["content"]),
+			FileSize:   asInt64(m["size"]),
+		})
+	}
+	return out
+}
+
+// asString returns v as a string when it is one, else "".
+func asString(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+// asInt64 coerces a JSON-decoded numeric value to int64, tolerating the
+// float64 that encoding/json produces (and json.Number). Non-numeric values
+// yield 0.
+func asInt64(v any) int64 {
+	switch n := v.(type) {
+	case float64:
+		return int64(n)
+	case int:
+		return int64(n)
+	case int64:
+		return n
+	case json.Number:
+		i, _ := n.Int64()
+		return i
+	default:
+		return 0
+	}
 }
 
 func jiraPullFields(extra []string) []string {
@@ -415,8 +567,12 @@ func jiraPullFields(extra []string) []string {
 }
 
 // renderIssueMarkdown emits frontmatter + summary + native-wiki body. The body
-// is kept verbatim (Jira wiki) so it remains a faithful, editable source.
-func renderIssueMarkdown(is *domain.Issue) []byte {
+// is kept verbatim (Jira wiki) so it remains a faithful, editable source. When
+// assets is non-empty (a --assets pull downloaded image attachments) a generated
+// "## Image Attachments" section with local relative image links is inserted
+// between the description and the links section; passing nil/empty leaves the
+// default rendering byte-identical.
+func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset) []byte {
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\nkey: %s\nsummary: %s\nstatus: %s\ntype: %s\nproject: %s\n",
 		is.Key, yamlEscape(is.Summary), is.Status, is.Type, is.Project)
@@ -432,6 +588,13 @@ func renderIssueMarkdown(is *domain.Issue) []byte {
 		b.WriteString("## Description (Jira wiki)\n\n")
 		b.WriteString(is.Body)
 		b.WriteString("\n\n")
+	}
+	if len(assets) > 0 {
+		b.WriteString("## Image Attachments\n\n")
+		for _, a := range assets {
+			fmt.Fprintf(&b, "![%s](%s)\n", a.Title, a.Path)
+		}
+		b.WriteString("\n")
 	}
 	if len(is.Links) > 0 {
 		b.WriteString("## Links\n\n")

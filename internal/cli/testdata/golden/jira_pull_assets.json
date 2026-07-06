@@ -1,0 +1,10 @@
+{
+  "into": "<INTO>",
+  "issues": [
+    {
+      "key": "ENG-42",
+      "path": "ENG/ENG-42.md",
+      "assets": 1
+    }
+  ]
+}

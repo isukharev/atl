@@ -199,6 +199,15 @@ func (j *Jira) DownloadAttachment(ctx context.Context, key, attachmentID string)
 	return nil, "", domain.ErrNotFound
 }
 
+// StreamAttachment streams an attachment's bytes directly from its server
+// content URL (the `content` value carried in issue attachment metadata),
+// avoiding the extra ListAttachments round-trip DownloadAttachment makes. The
+// bearer PAT is injected only when the URL host matches the backend (httpx's
+// host-scoping); the caller must Close the reader.
+func (j *Jira) StreamAttachment(ctx context.Context, contentURL string) (io.ReadCloser, error) {
+	return j.c.GetStream(ctx, contentURL)
+}
+
 // UploadAttachment uploads file bytes as an issue attachment via multipart/form-data.
 // Jira DC requires X-Atlassian-Token: no-check and a form field named "file".
 func (j *Jira) UploadAttachment(ctx context.Context, key, filename string, data io.Reader, size int64) (*domain.Attachment, error) {

@@ -326,7 +326,7 @@ func TestRenderIssueMarkdownFull(t *testing.T) {
 			{Author: "carol", Created: "2026-01-02", Body: "second comment"},
 		},
 	}
-	got := string(renderIssueMarkdown(is))
+	got := string(renderIssueMarkdown(is, nil))
 
 	mustContain(t, got, "key: PROJ-42")
 	mustContain(t, got, "status: In Progress")
@@ -357,7 +357,7 @@ func TestRenderIssueMarkdownMinimal(t *testing.T) {
 		Type:    "Task",
 		Project: "MIN",
 	}
-	got := string(renderIssueMarkdown(is))
+	got := string(renderIssueMarkdown(is, nil))
 
 	mustContain(t, got, "key: MIN-1")
 	mustContain(t, got, "# MIN-1 — Bare issue")
@@ -379,7 +379,7 @@ func TestRenderIssueMarkdownYAMLEscape(t *testing.T) {
 		Project:  "Q",
 		Assignee: "name: with colon",
 	}
-	got := string(renderIssueMarkdown(is))
+	got := string(renderIssueMarkdown(is, nil))
 	mustContain(t, got, `summary: "Title: with \"quotes\" and # hash"`)
 	mustContain(t, got, `assignee: "name: with colon"`)
 	// but the H1 heading uses the raw summary (not the escaped form)
@@ -410,10 +410,11 @@ func TestJiraPullWritesMarkdownAndJSON(t *testing.T) {
 		{ID: "10001", Key: "PROJ-1", Project: "PROJ", Summary: "S", Status: "Open", Type: "Task", Body: "wiki body here", Fields: map[string]any{"customfield_1": "x"}},
 	}}
 	svc := &JiraService{tr: tr}
-	out, err := svc.Pull(context.Background(), "project = PROJ", into, 1, []string{"customfield_1"})
+	res, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project = PROJ", Into: into, Limit: 1, Fields: []string{"customfield_1"}})
 	if err != nil {
 		t.Fatalf("pull: %v", err)
 	}
+	out := res.Issues
 	if len(out) != 1 || out[0].Key != "PROJ-1" {
 		t.Fatalf("unexpected pull result: %+v", out)
 	}
@@ -463,10 +464,11 @@ func TestJiraPullDoesNotRefetchPerIssue(t *testing.T) {
 		{ID: "2", Key: "PROJ-2", Project: "PROJ", Summary: "b", Body: "body two"},
 	}}
 	svc := &JiraService{tr: tr}
-	out, err := svc.Pull(context.Background(), "project = PROJ", into, 0, nil)
+	res, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project = PROJ", Into: into, Limit: 0})
 	if err != nil {
 		t.Fatalf("pull: %v", err)
 	}
+	out := res.Issues
 	if tr.getCalls != 0 {
 		t.Fatalf("pull made %d per-issue GetIssue calls, want 0 (search projection suffices)", tr.getCalls)
 	}
@@ -499,7 +501,7 @@ func TestJiraPullSnapshotWriteFailureAborts(t *testing.T) {
 		{ID: "1", Key: "PROJ-1", Project: "PROJ", Summary: "a", Body: "b"},
 	}}
 	svc := &JiraService{tr: tr}
-	_, err := svc.Pull(context.Background(), "project = PROJ", into, 0, nil)
+	_, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project = PROJ", Into: into, Limit: 0})
 	if err == nil || !strings.Contains(err.Error(), "snapshot PROJ-1") {
 		t.Fatalf("snapshot write failure must abort the pull, got err=%v", err)
 	}
