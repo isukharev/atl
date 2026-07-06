@@ -1046,6 +1046,26 @@ Flags:
 | `--apply` | perform writes instead of dry-run |
 | `--confirm` | must be exactly `APPLY` when `--apply` is set |
 
+### `atl jira issue attachment {list,get}`
+
+List or download issue attachments. `get` accepts either the attachment id or
+the filename in `--id`; server-provided filenames are reduced to a safe basename
+before writing to the target directory.
+
+```bash
+atl jira issue attachment list PROJ-1                    # {key, attachments:[...]}; -o id → ids
+atl jira issue attachment get PROJ-1 --id 42 --into ./attachments
+atl jira issue attachment get PROJ-1 --id spec.xlsx
+```
+
+Flags:
+
+| flag | description |
+|---|---|
+| `PROJ-1` | issue key (positional, required) |
+| `--id` | attachment id or filename (`get`, required) |
+| `--into` | output directory (`get`, default `.`) |
+
 ### `atl jira issue images`
 
 Download image attachments of an issue to files (useful for agent vision).

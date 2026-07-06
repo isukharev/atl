@@ -64,6 +64,52 @@ func TestJiraImagesRejectsTraversalFilename(t *testing.T) {
 	}
 }
 
+func TestJiraDownloadAttachmentWritesAnyAttachment(t *testing.T) {
+	dir := t.TempDir()
+	s := &JiraService{tr: partialTracker{
+		data: []byte("xlsx bytes"),
+		name: "report.xlsx",
+	}}
+	path, name, err := s.DownloadAttachment(context.Background(), "PROJ-1", "42", dir)
+	if err != nil {
+		t.Fatalf("DownloadAttachment: %v", err)
+	}
+	if name != "report.xlsx" {
+		t.Fatalf("name = %q, want report.xlsx", name)
+	}
+	if filepath.Dir(path) != filepath.Clean(dir) {
+		t.Fatalf("path = %q, want inside %q", path, dir)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read downloaded file: %v", err)
+	}
+	if string(data) != "xlsx bytes" {
+		t.Fatalf("downloaded data = %q, want xlsx bytes", data)
+	}
+}
+
+func TestJiraDownloadAttachmentConfinesTraversalFilename(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "mirror")
+	s := &JiraService{tr: partialTracker{
+		data: []byte("evil"),
+		name: "../../../../tmp/atl-evil.xlsx",
+	}}
+	path, _, err := s.DownloadAttachment(context.Background(), "PROJ-1", "42", dir)
+	if err != nil {
+		t.Fatalf("DownloadAttachment: %v", err)
+	}
+	if filepath.Base(path) != "atl-evil.xlsx" || filepath.Dir(path) != filepath.Clean(dir) {
+		t.Fatalf("path = %q, want confined basename under %q", path, dir)
+	}
+	assertNothingOutside(t, root, dir)
+	escaped := filepath.Clean(filepath.Join(root, "..", "..", "..", "..", "tmp", "atl-evil.xlsx"))
+	if _, err := os.Stat(escaped); err == nil {
+		t.Fatalf("attachment escaped to %s", escaped)
+	}
+}
+
 // A hostile Jira issue key must not let `jira pull` escape the --into directory.
 func TestJiraPullRejectsTraversalKey(t *testing.T) {
 	root := t.TempDir()

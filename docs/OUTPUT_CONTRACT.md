@@ -212,6 +212,37 @@ deterministic artifact references per issue:
 }
 ```
 
+`atl jira issue attachment list <KEY>` returns the issue key plus the attachment
+metadata Jira exposes. `-o id` prints attachment ids one per line:
+
+```json
+{
+  "attachments": [
+    {
+      "id": "42",
+      "title": "spec.xlsx",
+      "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "fileSize": 12345,
+      "version": 0
+    }
+  ],
+  "key": "PROJ-1"
+}
+```
+
+`atl jira issue attachment get <KEY> --id <ID-or-filename>` downloads one
+attachment and returns the written local path. `id` echoes the selector the
+caller passed; `name` is the filename Jira reported for the matched attachment:
+
+```json
+{
+  "id": "42",
+  "key": "PROJ-1",
+  "name": "spec.xlsx",
+  "path": "attachments/spec.xlsx"
+}
+```
+
 `atl jira issue tree --jql ... --epic-field ...` returns a normalized
 epic-to-child tree:
 

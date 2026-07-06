@@ -186,6 +186,81 @@ func TestJiraIssueLinkSuggestCLIIsReadOnly(t *testing.T) {
 	}
 }
 
+func TestJiraIssueAttachmentList_EmitsAndID(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/issue/", http.StatusOK,
+		`{"key":"ENG-1","fields":{"attachment":[
+			{"id":"42","filename":"spec.xlsx","mimeType":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","size":12,"content":"/secure/attachment/42/spec.xlsx"},
+			{"id":"43","filename":"diagram.png","mimeType":"image/png","size":99,"content":"/secure/attachment/43/diagram.png"}
+		]}}`)
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "attachment", "list", "ENG-1")
+	if code != exitOK {
+		t.Fatalf("attachment list: exit %d, want 0 (stdout=%q)", code, out)
+	}
+	var res struct {
+		Key         string              `json:"key"`
+		Attachments []domain.Attachment `json:"attachments"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("decode attachment list: %v\n%s", err, out)
+	}
+	if res.Key != "ENG-1" || len(res.Attachments) != 2 || res.Attachments[0].ID != "42" || res.Attachments[0].Title != "spec.xlsx" {
+		t.Fatalf("attachments = %+v, want spec.xlsx and diagram.png", res)
+	}
+
+	idOut, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "attachment", "list", "ENG-1", "-o", "id")
+	if code != exitOK {
+		t.Fatalf("attachment list -o id: exit %d, want 0", code)
+	}
+	if strings.TrimSpace(idOut) != "42\n43" {
+		t.Errorf("attachment list -o id = %q, want ids 42 and 43", idOut)
+	}
+}
+
+func TestJiraIssueAttachmentGet_DownloadsNonImage(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/issue/", http.StatusOK,
+		`{"key":"ENG-1","fields":{"attachment":[
+			{"id":"42","filename":"spec.xlsx","mimeType":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","size":9,"content":"/secure/attachment/42/spec.xlsx"}
+		]}}`)
+	js.route(http.MethodGet, "/secure/attachment/42/spec.xlsx", http.StatusOK, "xlsx-data")
+
+	dir := t.TempDir()
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "attachment", "get", "ENG-1", "--id", "42", "--into", dir)
+	if code != exitOK {
+		t.Fatalf("attachment get: exit %d, want 0 (stdout=%q)", code, out)
+	}
+	var res map[string]string
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("decode attachment get: %v\n%s", err, out)
+	}
+	if res["name"] != "spec.xlsx" || res["id"] != "42" || res["key"] != "ENG-1" {
+		t.Fatalf("result = %v, want key/id/name", res)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "spec.xlsx"))
+	if err != nil {
+		t.Fatalf("read downloaded attachment: %v", err)
+	}
+	if string(data) != "xlsx-data" {
+		t.Fatalf("downloaded data = %q, want xlsx-data", data)
+	}
+	if !sawReq(js.requests(), http.MethodGet, "/secure/attachment/42/spec.xlsx") {
+		t.Fatalf("expected attachment download request, got %+v", js.requests())
+	}
+}
+
+func TestJiraIssueAttachmentGet_RequiresIDBeforeNetwork(t *testing.T) {
+	js := newJiraServer(t)
+	_, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "attachment", "get", "ENG-1")
+	if code != exitUsage {
+		t.Fatalf("attachment get without --id: exit %d, want %d", code, exitUsage)
+	}
+	if len(js.requests()) != 0 {
+		t.Fatalf("attachment get guard must not contact the server, got %+v", js.requests())
+	}
+}
+
 func TestJiraIssuePlanApplyDryRunAndConfirmGuard(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/api/2/issue/", http.StatusOK,

@@ -305,6 +305,8 @@ atl conf comment add  --id 123456 --from-file comment.csf
 # Чтение
 atl jira issue get  PROJ-1
 atl jira issue search --jql 'project = PROJ AND status = "In Progress"'
+atl jira issue attachment list PROJ-1
+atl jira issue attachment get PROJ-1 --id spec.xlsx --into ./attachments
 
 # Зеркалировать набор задач на диск
 atl jira pull --jql 'project = PROJ' --into mirror-jira
