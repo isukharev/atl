@@ -1187,6 +1187,53 @@ func TestDownloadAttachmentReturnsRawServerFilename(t *testing.T) {
 	}
 }
 
+func TestUploadAttachmentMultipart(t *testing.T) {
+	var gotPath, gotToken, gotFilename, gotData string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotToken = r.Header.Get("X-Atlassian-Token")
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatalf("ParseMultipartForm: %v", err)
+		}
+		files := r.MultipartForm.File["file"]
+		if len(files) != 1 {
+			t.Fatalf("multipart file field count = %d, want 1", len(files))
+		}
+		gotFilename = files[0].Filename
+		f, err := files[0].Open()
+		if err != nil {
+			t.Fatalf("open multipart file: %v", err)
+		}
+		data, err := io.ReadAll(f)
+		f.Close()
+		if err != nil {
+			t.Fatalf("read multipart file: %v", err)
+		}
+		gotData = string(data)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `[{"id":"44","filename":"report.xlsx","mimeType":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","size":10,"content":"/secure/attachment/44/report.xlsx"}]`)
+	}))
+	defer srv.Close()
+
+	j := newTestJira(srv)
+	att, err := j.UploadAttachment(context.Background(), "ABC-1", "report.xlsx", []byte("xlsx bytes"))
+	if err != nil {
+		t.Fatalf("UploadAttachment: %v", err)
+	}
+	if gotPath != "/rest/api/2/issue/ABC-1/attachments" {
+		t.Fatalf("path = %q, want attachments endpoint", gotPath)
+	}
+	if gotToken != "no-check" {
+		t.Fatalf("X-Atlassian-Token = %q, want no-check", gotToken)
+	}
+	if gotFilename != "report.xlsx" || gotData != "xlsx bytes" {
+		t.Fatalf("multipart filename=%q data=%q", gotFilename, gotData)
+	}
+	if att.ID != "44" || att.Title != "report.xlsx" || att.MediaType == "" || att.FileSize != 10 {
+		t.Fatalf("attachment = %+v, want uploaded metadata", att)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------

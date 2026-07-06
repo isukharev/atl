@@ -261,6 +261,50 @@ func TestJiraIssueAttachmentGet_RequiresIDBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestJiraIssueAttachmentUpload_WiresMultipart(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodPost, "/rest/api/2/issue/ENG-1/attachments", http.StatusOK,
+		`[{"id":"44","filename":"report.xlsx","mimeType":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","size":10,"content":"/secure/attachment/44/report.xlsx"}]`)
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "report.xlsx")
+	if err := os.WriteFile(filePath, []byte("xlsx bytes"), 0o644); err != nil {
+		t.Fatalf("write upload file: %v", err)
+	}
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "attachment", "upload", "ENG-1", "--file", filePath)
+	if code != exitOK {
+		t.Fatalf("attachment upload: exit %d, want 0 (stdout=%q)", code, out)
+	}
+	var res struct {
+		Key        string             `json:"key"`
+		Attachment *domain.Attachment `json:"attachment"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("decode attachment upload: %v\n%s", err, out)
+	}
+	if res.Key != "ENG-1" || res.Attachment == nil || res.Attachment.ID != "44" || res.Attachment.Title != "report.xlsx" {
+		t.Fatalf("result = %+v, want uploaded attachment", res)
+	}
+	writes := js.writeReqsTo("/rest/api/2/issue/ENG-1/attachments")
+	if len(writes) != 1 || writes[0].method != http.MethodPost {
+		t.Fatalf("expected one POST attachment upload, got %+v", writes)
+	}
+	if !strings.Contains(writes[0].body, `name="file"; filename="report.xlsx"`) || !strings.Contains(writes[0].body, "xlsx bytes") {
+		t.Fatalf("upload body does not contain multipart file field and data: %q", writes[0].body)
+	}
+}
+
+func TestJiraIssueAttachmentUpload_RequiresFileBeforeNetwork(t *testing.T) {
+	js := newJiraServer(t)
+	_, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "attachment", "upload", "ENG-1")
+	if code != exitUsage {
+		t.Fatalf("attachment upload without --file: exit %d, want %d", code, exitUsage)
+	}
+	if len(js.requests()) != 0 {
+		t.Fatalf("attachment upload guard must not contact the server, got %+v", js.requests())
+	}
+}
+
 func TestJiraIssuePlanApplyDryRunAndConfirmGuard(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/api/2/issue/", http.StatusOK,
