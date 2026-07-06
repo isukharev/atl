@@ -49,7 +49,7 @@ func wikiBody(cmd *cobra.Command, fromFile, fromMD string) ([]byte, error) {
 
 func newJiraCmd() *cobra.Command {
 	c := &cobra.Command{Use: "jira", Short: "Jira: read/search/pull issues, edit via commands (native wiki)"}
-	cmds := []*cobra.Command{jiraIssueCmd(), jiraPullCmd(), jiraExportCmd(), jiraPlanningCmd(), jiraQualityReportCmd(), jiraMeCmd(), jiraUserCmd(), jiraBoardCmd(), jiraSprintCmd(), jiraStructureCmd()}
+	cmds := []*cobra.Command{jiraIssueCmd(), jiraPullCmd(), jiraStatusCmd(), jiraPushCmd(), jiraExportCmd(), jiraPlanningCmd(), jiraQualityReportCmd(), jiraMeCmd(), jiraUserCmd(), jiraBoardCmd(), jiraSprintCmd(), jiraStructureCmd()}
 	cmds = append(cmds, jiraMetaCmds()...)
 	c.AddCommand(cmds...)
 	return c
@@ -1062,6 +1062,122 @@ func jiraPullCmd() *cobra.Command {
 	cmd.Flags().StringVar(&fields, "fields", "", "extra comma-separated field list to include in JSON snapshots")
 	cmd.Flags().BoolVar(&assets, "assets", false, "also mirror each issue's image attachments into a per-issue <KEY>.assets/ dir and link them from the .md")
 	return cmd
+}
+
+func jiraStatusCmd() *cobra.Command {
+	var remote bool
+	cmd := &cobra.Command{
+		Use:   "status [DIR]",
+		Short: "Show locally-edited (and optionally remote-drifted) mirrored issues",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := mirrorRootDefault("mirror-jira")
+			if len(args) == 1 {
+				dir = args[0]
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			entries, err := svc.Status(cmd.Context(), dir, remote)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, map[string]any{"entries": entries}, func() string {
+				var b strings.Builder
+				for _, e := range entries {
+					flag := "   "
+					if e.LocallyEdited {
+						flag = "M  "
+					}
+					if e.RemoteDrifted {
+						flag = "M↯ "
+					}
+					// A file whose remote check failed must not read as clean/in-sync;
+					// mark the uncertainty so a "safe to push?" glance sees it.
+					if e.RemoteError != "" {
+						if e.LocallyEdited {
+							flag = "M? "
+						} else {
+							flag = " ? "
+						}
+					}
+					fmt.Fprintf(&b, "%s%s\t%s", flag, e.Key, e.Path)
+					if e.RemoteError != "" {
+						fmt.Fprintf(&b, "\t(remote: %s)", e.RemoteError)
+					}
+					b.WriteByte('\n')
+				}
+				return strings.TrimRight(b.String(), "\n")
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&remote, "remote", false, "also check remote drift (one request per issue)")
+	return cmd
+}
+
+func jiraPushCmd() *cobra.Command {
+	var o app.JiraPushOpts
+	cmd := &cobra.Command{
+		Use:   "push <file.wiki|DIR>",
+		Short: "Preview (default) or --apply a local .wiki description edit back to the issue",
+		Long: "Push an edited <KEY>.wiki description back to its Jira issue.\n\n" +
+			"Dry-run by default: without --apply it only previews the unified diff and drift, " +
+			"writing nothing. Only the description body is written (no other field). Jira has no " +
+			"server-side version gate, so staleness is caught by an app-layer compare against the " +
+			"pulled base (an inherent TOCTOU window); on drift the push is refused (exit 8) unless " +
+			"--force re-bases on the current remote and writes.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			res, perr := svc.Push(cmd.Context(), args[0], o)
+			// res is nil when target resolution failed before any push attempt.
+			if res != nil {
+				_ = emit(cmd, res, func() string { return jiraPushText(res) })
+			}
+			return perr
+		},
+	}
+	cmd.Flags().BoolVar(&o.Apply, "apply", false, "actually write the change (default: dry-run preview only)")
+	cmd.Flags().BoolVar(&o.Force, "force", false, "override the drift refusal (re-base on current remote and write)")
+	cmd.Flags().StringVar(&o.Into, "into", "", "mirror root (defaults to nearest .atl)")
+	return cmd
+}
+
+func jiraPushText(res *app.JiraPushResult) string {
+	var b strings.Builder
+	for _, it := range res.Items {
+		state := "ok"
+		switch {
+		case it.Failed != "":
+			state = "FAILED(" + it.Failed + ")"
+		case it.Skipped != "":
+			state = it.Skipped
+		case it.Pushed:
+			state = "pushed"
+		case it.DryRun:
+			state = "dry-run"
+			if it.Drifted {
+				state = "dry-run/DRIFTED"
+			}
+		}
+		fmt.Fprintf(&b, "%s\t%s\t%s\n", state, it.Key, it.Path)
+		if it.DriftOverridden {
+			b.WriteString("   ⚠ remote drift overridden by --force\n")
+		}
+		if it.Warning != "" {
+			fmt.Fprintf(&b, "   ⚠ %s\n", it.Warning)
+		}
+		if it.Diff != "" {
+			for _, line := range strings.Split(strings.TrimRight(it.Diff, "\n"), "\n") {
+				fmt.Fprintf(&b, "   %s\n", line)
+			}
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func jiraExportCmd() *cobra.Command {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -252,6 +253,28 @@ func TestCheckFailedExit8(t *testing.T) {
 	}
 	if !strings.Contains(out, `"ok": false`) {
 		t.Errorf("expected the report (ok:false) on stdout before exit 8, got %q", out)
+	}
+}
+
+// TestJiraPushDriftExit8 locks the Jira write-back drift refusal: when the
+// remote description has moved past the pulled base, `jira push --apply` (no
+// --force) must refuse with ErrCheckFailed (exit 8) — NOT ErrVersionConflict
+// (exit 5), since Jira has no server-side version gate (#66) — and issue no
+// write. The per-item preview is still emitted on stdout before the exit.
+func TestJiraPushDriftExit8(t *testing.T) {
+	t.Chdir(t.TempDir())
+	wiki := scaffoldJiraMirror(t, "mirror-jira", "PROJ-1", "pulled base")
+	if err := os.WriteFile(wiki, []byte("local edit"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Remote reports a different description than the base → drift.
+	srv := jsonServer(t, http.StatusOK, issueJSON("PROJ-1", "remote moved on"))
+	out, code := runCLI(t, jiraEnv(srv), "jira", "push", "--apply", "mirror-jira/PROJ/PROJ-1.wiki")
+	if code != exitCheckFailed {
+		t.Fatalf("drift push: exit %d, want %d (stdout=%q)", code, exitCheckFailed, out)
+	}
+	if !strings.Contains(out, `"remote_drifted": true`) {
+		t.Errorf("expected the drifted item on stdout before exit 8, got %q", out)
 	}
 }
 
