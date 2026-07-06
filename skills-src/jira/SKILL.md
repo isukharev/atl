@@ -41,12 +41,16 @@ atl jira pull --jql '<JQL>' --assets   # also mirror image attachments (opt-in)
 (`--limit 0` = all; default 100.) → `{ "into": "...", "issues": [ {key, path, assets} ] }`
 (`assets` and a top-level `assets_skipped` appear only with `--assets` and are omitted at zero.)
 
-On disk per issue (both are **read-only snapshots**, regenerated on pull):
+On disk per issue:
 ```
-<root>/<PROJECT>/<KEY>.md      # YAML frontmatter + wiki body + links + comments
+<root>/<PROJECT>/<KEY>.wiki    # native Jira wiki body, VERBATIM — the editable source of truth
+<root>/<PROJECT>/<KEY>.md      # read-only rendered Markdown view (regenerated on pull; may be stale)
 <root>/<PROJECT>/<KEY>.json    # {key,id,fields:{...}}; raw Jira fields live under .fields
 <root>/<PROJECT>/<KEY>.assets/ # only with --assets: image attachments, linked from the .md
 ```
+The `.wiki` holds the byte-for-byte native body (like a Confluence `.csf`); the `.md` is a
+best-effort, lossy read view rendered from it and is regenerated on every pull. To change a body,
+edit `<KEY>.wiki` (or a copy) and apply it with `jira issue update --from-file` — never the `.md`.
 
 `--assets` streams each issue's `image/*` attachments into
 `<KEY>.assets/<attachment-id>-<filename>` and adds a `## Image Attachments`
@@ -289,8 +293,9 @@ refusals)? Offer the user a report — see the `atl` skill's feedback flow (cons
 sanitized issue + private case file).
 
 ## Hard rules
-- **Never edit `<KEY>.md` / `<KEY>.json` to change an issue** — they are read-only snapshots;
-  changes go through the commands above.
+- **Never edit `<KEY>.md` / `<KEY>.json` to change an issue** — the `.md` is a regenerated read
+  view and `.json` is a raw snapshot. The native wiki body lives in `<KEY>.wiki` (the editable
+  substrate); to change a body, edit `<KEY>.wiki` and apply it via `jira issue update --from-file`.
 - **Author bodies in markdown via `--from-md`** (fail-closed conversion, exit 8 names any
   unconvertible block). Raw `--from-file` bodies are **Jira wiki markup, not Markdown**
   (`*bold*`, `h2.`, `{code}` — see [wiki-markup.md](reference/wiki-markup.md)); Markdown

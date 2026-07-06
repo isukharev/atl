@@ -93,8 +93,11 @@ verbose output never corrupts the JSON stream.
 
 ## Stable Snapshot Notes
 
-`atl jira pull` writes one read-only markdown view and one JSON snapshot per issue. The JSON snapshot
-is an object with stable identity at the top level and raw Jira fields under `fields`:
+`atl jira pull` writes three files per issue: `<KEY>.wiki` (the native Jira wiki body, byte-for-byte —
+the editable substrate), `<KEY>.md` (a read-only Markdown view rendered from the wiki, regenerated
+best-effort on every pull), and `<KEY>.json` (the raw-fields snapshot). The pull result's `path`
+points at the `.md`; the `.wiki` path is not carried in the JSON. The JSON snapshot is an object with
+stable identity at the top level and raw Jira fields under `fields`:
 
 ```json
 {

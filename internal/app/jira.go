@@ -12,6 +12,7 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/safepath"
 	"github.com/isukharev/atl/internal/textedit"
+	"github.com/isukharev/atl/internal/wikimd"
 )
 
 func (s *JiraService) Issue(ctx context.Context, key string, fields []string) (*domain.Issue, error) {
@@ -408,6 +409,17 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 			if !safepath.Within(dir, mdPath) {
 				return res, fmt.Errorf("refusing unsafe issue key %q", full.Key)
 			}
+			// Write the native Jira wiki body verbatim as the editable substrate
+			// (the .md beside it is a regenerated read-only view; the .wiki mirrors
+			// the role .csf plays for Confluence). Written even when the body is
+			// empty so the substrate file always exists for a later edit/push.
+			wikiPath := filepath.Join(dir, keySeg+".wiki")
+			if !safepath.Within(dir, wikiPath) {
+				return res, fmt.Errorf("refusing unsafe issue key %q", full.Key)
+			}
+			if err := safepath.WriteFile(wikiPath, []byte(full.Body), 0o644); err != nil {
+				return res, err
+			}
 			// Mirror image attachments (best-effort) before rendering so the .md
 			// links only the images that actually landed on disk.
 			var assets []JiraIssueAsset
@@ -566,13 +578,24 @@ func jiraPullFields(extra []string) []string {
 	return out
 }
 
-// renderIssueMarkdown emits frontmatter + summary + native-wiki body. The body
-// is kept verbatim (Jira wiki) so it remains a faithful, editable source. When
-// assets is non-empty (a --assets pull downloaded image attachments) a generated
-// "## Image Attachments" section with local relative image links is inserted
-// between the description and the links section; passing nil/empty leaves the
-// default rendering byte-identical.
+// jiraDescStub replaces the rendered "## Description" section when the wiki→md
+// renderer panics: the read view must never fail a pull, and a stale/partial
+// render must never masquerade as the body. It points the reader at the .wiki
+// substrate (the source of truth) and, per its contract, never embeds the wiki
+// body itself. Mirrors mirror.MDUnavailableStub.
+const jiraDescStub = "<!-- atl: markdown view unavailable for this revision (the wiki body did not render); the <KEY>.wiki file is the source of truth -->"
+
+// jiraCommentStub is the same guard for a comment body that fails to render.
+const jiraCommentStub = "<!-- atl: comment could not be rendered -->"
+
+// renderIssueMarkdown emits the read-only markdown view: frontmatter + summary +
+// a rendered "## Description" (the native wiki body run through wikimd — the
+// verbatim body lives in the sibling <KEY>.wiki), the generated "## Image
+// Attachments" section (present only when a --assets pull downloaded images),
+// links, and rendered comments. It never returns an error; a renderer panic
+// degrades one section to a stub (see guardRender) rather than failing the pull.
 func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset) []byte {
+	images := assetImageMap(assets)
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\nkey: %s\nsummary: %s\nstatus: %s\ntype: %s\nproject: %s\n",
 		is.Key, yamlEscape(is.Summary), is.Status, is.Type, is.Project)
@@ -585,8 +608,10 @@ func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset) []byte {
 	b.WriteString("---\n\n")
 	fmt.Fprintf(&b, "# %s — %s\n\n", is.Key, is.Summary)
 	if is.Body != "" {
-		b.WriteString("## Description (Jira wiki)\n\n")
-		b.WriteString(is.Body)
+		b.WriteString("## Description\n\n")
+		b.WriteString(guardRender(jiraDescStub, func() string {
+			return wikimd.Render(is.Body, wikimd.Options{Images: images})
+		}))
 		b.WriteString("\n\n")
 	}
 	if len(assets) > 0 {
@@ -606,10 +631,43 @@ func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset) []byte {
 	if len(is.Comments) > 0 {
 		b.WriteString("## Comments\n\n")
 		for _, c := range is.Comments {
-			fmt.Fprintf(&b, "**%s** (%s):\n\n%s\n\n", c.Author, c.Created, c.Body)
+			body := guardRender(jiraCommentStub, func() string {
+				return wikimd.Render(c.Body, wikimd.Options{Images: images})
+			})
+			fmt.Fprintf(&b, "**%s** (%s):\n\n%s\n\n", c.Author, c.Created, body)
 		}
 	}
 	return []byte(b.String())
+}
+
+// assetImageMap indexes downloaded image attachments by filename so the wiki
+// renderer can resolve `!name.png!` embeds to their local relative path. Returns
+// nil when no assets were downloaded (the renderer then leaves embeds as
+// unresolved-image inline code).
+func assetImageMap(assets []JiraIssueAsset) map[string]string {
+	if len(assets) == 0 {
+		return nil
+	}
+	m := make(map[string]string, len(assets))
+	for _, a := range assets {
+		if a.Title != "" && a.Path != "" {
+			m[a.Title] = a.Path
+		}
+	}
+	return m
+}
+
+// guardRender runs the wiki→markdown render behind a recover so a renderer bug
+// can never fail a pull: on panic it returns fallback (a stub comment) instead.
+// wikimd.Render is a total function, so this is defense in depth, and the seam
+// keeps the fallback path unit-testable.
+func guardRender(fallback string, render func() string) (out string) {
+	defer func() {
+		if recover() != nil {
+			out = fallback
+		}
+	}()
+	return render()
 }
 
 func yamlEscape(s string) string {
