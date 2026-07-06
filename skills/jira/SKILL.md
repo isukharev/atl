@@ -6,8 +6,10 @@ description: Search, pull, read, and edit Jira issues with the atl CLI — searc
 
 # Jira issues with `atl`
 
-Read Jira issues as local files; **change them only through commands** (there is no file→push path
-for Jira). `atl` prints JSON by default. Issue keys are **positional** arguments
+Read Jira issues as local files. Two write paths exist: **one-shot field edits go through commands**
+(`jira issue update`/`edit`/`transition`/…), and an edited `<KEY>.wiki` **description** can be pushed
+back through the mirror with **`jira push`** (dry-run by default; see the write-back loop below).
+`atl` prints JSON by default. Issue keys are **positional** arguments
 (`atl jira issue get PROJ-1`), except the meta command `atl jira transitions --key PROJ-1`.
 
 **Output modes:** `-o id` prints just the primary identifiers (issue keys or comment/link IDs) one
@@ -51,7 +53,10 @@ On disk per issue:
 ```
 The `.wiki` holds the byte-for-byte native body (like a Confluence `.csf`); the `.md` is a
 best-effort, lossy read view rendered from it and is regenerated on every pull. To change a body,
-edit `<KEY>.wiki` (or a copy) and apply it with `jira issue update --from-file` — never the `.md`.
+edit `<KEY>.wiki` (never the `.md`) and either push it back with `jira push` (the write-back loop
+below) or apply it one-shot with `jira issue update --from-file <KEY>.wiki`. The pull also records a
+sidecar + base copy so `jira status`/`jira push` can detect edits and drift; mirrors pulled by an
+older `atl` have no sidecar and read as never-synced until re-pulled.
 
 `--assets` streams each issue's `image/*` attachments into
 `<KEY>.assets/<attachment-id>-<filename>` and adds a `## Image Attachments`
@@ -130,6 +135,23 @@ Several independent edits = several `edit` commands. Delete text with `--new ''`
 with `--dry-run`. `--new` is **wiki markup**, spliced verbatim (matching tolerates
 NBSP/invisible bytes). Reach for `update --from-md` only when most of the description
 changes.
+
+### 4b. Mirror write-back — edit `<KEY>.wiki`, then `jira status` / `jira push`
+For a bigger description rewrite you can edit the pulled `<KEY>.wiki` in place and push the whole
+file back (only the **description** is written — no other field):
+```bash
+atl jira status [<root>] [--remote]         # what's locally edited / drifted; --remote = 1 GET/issue
+atl jira push <root>/PROJECT/PROJ-1.wiki    # DRY-RUN by default: prints the diff, writes nothing
+atl jira push --apply <root>/PROJECT/PROJ-1.wiki   # actually write it back
+atl jira push --apply --force <file.wiki>   # write over a drifted remote (re-base + write)
+atl jira push <root>/                        # a dir pushes only locally-edited files
+```
+Jira has **no server-side version gate**, so `jira push` guards staleness with an app-layer
+compare against the base recorded at pull: if the remote description changed since the pull, the push
+is **refused with exit 8** ("re-pull or `--force`") and nothing is written — an inherent TOCTOU
+window that `--force` opts out of, never exit 5. Always run the dry-run first and read the diff;
+`--apply` is required to write. Prefer `issue edit` for a small, surgical change; use `jira push` when
+you have edited most of the `.wiki` locally.
 
 ### 5. Discover valid values before writing
 ```bash
@@ -252,7 +274,9 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue attachment get <KEY>` | Download an issue attachment | `--id ID-or-filename`, `--into DIR` |
 | `jira issue attachment upload <KEY>` | Upload a local file as an issue attachment | `--file PATH` |
 | `jira issue images <KEY>` | Download image attachments (agent vision) | `--into DIR` |
-| `jira pull` | Export issues to disk (.md + .json) | `--jql`, `--into`, `--limit`, `--fields`, `--assets` |
+| `jira pull` | Export issues to disk (.wiki + .md + .json) | `--jql`, `--into`, `--limit`, `--fields`, `--assets` |
+| `jira status [DIR]` | Show locally-edited (and `--remote` drifted) mirrored issues | `--remote` |
+| `jira push <file.wiki\|DIR>` | Preview (default) or `--apply` a `.wiki` description write-back | `--apply`, `--force`, `--into` |
 | `jira export` | Write one compact JSONL/JSON/CSV artifact plus manifest | `--jql`/`--ids`/`--keys`, `--out`, `--format`, `--limit`, `--fields`, `--batch-size` |
 | `jira export diff <OLD> <NEW>` | Compare compact exports | — |
 | `jira planning report` | Deterministic planning quality report | `--jql`, `--require`, `--estimate-field`, `--epic-field`, `--limit`, `--csv` |
@@ -288,6 +312,8 @@ If the plugin or object is unavailable, expect exit 4/6.
 | Exit 4 from `issue edit` | `--old` not found (text changed or hidden bytes) | Read the quoted closest-region in the error; re-check with `issue get --fields description` |
 | Exit 2 from `issue edit` | `--old` matches more than once | Add surrounding context to make it unique, or pass `--all` |
 | Exit 8 from `issue edit` | Match would cross a line break `--old` doesn't have | Copy `--old` exactly from the description, newlines included |
+| Exit 8 from `jira push` | Remote description drifted since pull (no Jira version gate) | Re-pull and re-apply your edit, or `jira push --apply --force` to overwrite the remote |
+| Exit 2 from `jira push` | The `.wiki` was never pulled through the mirror (no sidecar/base) | Run `jira pull` first, then edit `<KEY>.wiki` and push |
 
 Tool friction that cost you real turns (repeated failures, misleading errors, unexpected
 refusals)? Offer the user a report — see the `atl` skill's feedback flow (consent-gated
