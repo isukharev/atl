@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   --file <PATH>` uploads a local file through the Jira multipart attachment API.
   The image-only `jira issue images` helper remains unchanged.
 
+### Fixed
+
+- **Jira attachment uploads now stream from disk.** `jira issue attachment
+  upload` no longer buffers both the local file and multipart request body in
+  memory, and it avoids the normal JSON client's whole-request timeout for
+  long-running uploads.
+
 ## [0.3.0] - 2026-07-05
 
 ### Added

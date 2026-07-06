@@ -3,6 +3,7 @@ package httpx
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	neturl "net/url"
@@ -185,6 +186,59 @@ func TestPostRetriedOn429(t *testing.T) {
 	}
 	if atomic.LoadInt32(&hits) < 2 {
 		t.Errorf("POST should retry on 429; attempts = %d", atomic.LoadInt32(&hits))
+	}
+}
+
+func TestDoStreamSendsReaderHeadersAndAuth(t *testing.T) {
+	gotBody := make(chan string, 1)
+	gotHeader := make(chan string, 1)
+	gotAuth := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b := make([]byte, r.ContentLength)
+		if r.ContentLength < 0 {
+			var err error
+			b, err = io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("read body: %v", err)
+			}
+		} else if _, err := io.ReadFull(r.Body, b); err != nil {
+			t.Errorf("read body: %v", err)
+		}
+		gotBody <- string(b)
+		gotHeader <- r.Header.Get("X-Test")
+		gotAuth <- r.Header.Get("Authorization")
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "secret-pat", "test")
+	data, err := c.DoStream(context.Background(), http.MethodPost, "/upload", strings.NewReader("streamed"), map[string]string{"X-Test": "yes"})
+	if err != nil {
+		t.Fatalf("DoStream: %v", err)
+	}
+	if string(data) != `{"ok":true}` {
+		t.Fatalf("response = %q", data)
+	}
+	if body := <-gotBody; body != "streamed" {
+		t.Fatalf("body = %q, want streamed", body)
+	}
+	if h := <-gotHeader; h != "yes" {
+		t.Fatalf("X-Test = %q, want yes", h)
+	}
+	if auth := <-gotAuth; auth != "Bearer secret-pat" {
+		t.Fatalf("Authorization = %q, want bearer token", auth)
+	}
+}
+
+func TestDoStreamMapsStatusToSentinel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "gone", http.StatusNotFound)
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok", "test")
+	_, err := c.DoStream(context.Background(), http.MethodPost, "/upload", strings.NewReader("body"), nil)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
 

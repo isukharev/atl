@@ -144,7 +144,7 @@ type Tracker interface {
 	// caller must Close the reader.
 	DownloadAttachment(ctx context.Context, key, attachmentID string) (io.ReadCloser, string, error)
 	// UploadAttachment uploads file bytes as an attachment to an issue.
-	UploadAttachment(ctx context.Context, key, filename string, data []byte) (*Attachment, error)
+	UploadAttachment(ctx context.Context, key, filename string, data io.Reader) (*Attachment, error)
 	// Metadata helpers for valid edits.
 	Fields(ctx context.Context) ([]FieldDef, error)
 	FieldOptions(ctx context.Context, project, issueType, field string) ([]string, error)

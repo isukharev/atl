@@ -200,6 +200,41 @@ func (c *Client) Do(ctx context.Context, method, path string, body []byte, heade
 	return c.do(ctx, method, path, body, headers, jsonBodyCap)
 }
 
+// DoStream issues a request whose body is streamed from r and returns a bounded
+// response body. It uses the streaming client, so long uploads are not killed by
+// the normal JSON client's whole-request timeout. The caller must provide
+// replayable retry behavior if it needs retries; this helper sends one request.
+func (c *Client) DoStream(ctx context.Context, method, path string, r io.Reader, headers map[string]string) ([]byte, error) {
+	url, err := c.resolveURL(path)
+	if err != nil {
+		return nil, err
+	}
+	req, err := c.newRequestReader(ctx, method, url, r, headers)
+	if err != nil {
+		return nil, err
+	}
+	tracef("→ %s %s\n", method, req.URL.String())
+	resp, err := c.dl.Do(req)
+	if err != nil {
+		tracef("× %s %s (transport error: %v)\n", method, req.URL.String(), err)
+		return nil, err
+	}
+	tracef("← %d %s\n", resp.StatusCode, req.URL.Path)
+	data, err := readBody(resp.Body, jsonBodyCap)
+	resp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return data, nil
+	}
+	kind := classify(resp.StatusCode)
+	if c.noVersionGate && kind == domain.ErrVersionConflict {
+		kind = nil
+	}
+	return nil, &APIError{Status: resp.StatusCode, Method: method, Path: path, Body: string(data), kind: kind}
+}
+
 // do is the buffered retry/transport core behind Do. maxBytes bounds the
 // response body; exceeding it is an error, not a silent truncation. Binary
 // downloads use GetStream instead.
@@ -296,7 +331,18 @@ func (c *Client) newRequest(ctx context.Context, method, url string, body []byte
 	if body != nil {
 		rdr = bytes.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, url, rdr)
+	req, err := c.newRequestReader(ctx, method, url, rdr, headers)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil && req.Header.Get("Content-Type") == "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return req, nil
+}
+
+func (c *Client) newRequestReader(ctx context.Context, method, url string, body io.Reader, headers map[string]string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return nil, err
 	}
@@ -305,9 +351,6 @@ func (c *Client) newRequest(ctx context.Context, method, url string, body []byte
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", userAgent+"/"+c.ver)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
