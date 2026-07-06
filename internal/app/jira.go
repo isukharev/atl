@@ -265,6 +265,17 @@ func (s *JiraService) DownloadAttachment(ctx context.Context, key, attachmentID,
 	return p, name, nil
 }
 
+// UploadAttachment reads file bytes from filePath and uploads them as a Jira
+// issue attachment.
+func (s *JiraService) UploadAttachment(ctx context.Context, key, filePath string) (*domain.Attachment, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+	filename := filepath.Base(filePath)
+	return s.tr.UploadAttachment(ctx, key, filename, data)
+}
+
 // Images downloads image attachments of an issue into dir, returning paths.
 func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, error) {
 	atts, err := s.tr.ListAttachments(ctx, key)

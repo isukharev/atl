@@ -30,6 +30,10 @@ func (t partialTracker) DownloadAttachment(context.Context, string, string) (io.
 	return io.NopCloser(bytes.NewReader(t.data)), t.name, nil
 }
 
+func (t partialTracker) UploadAttachment(_ context.Context, _ string, filename string, data []byte) (*domain.Attachment, error) {
+	return &domain.Attachment{ID: "42", Title: filename, FileSize: int64(len(data))}, nil
+}
+
 func (t partialTracker) Search(context.Context, string, []string, int, string) ([]domain.Issue, string, error) {
 	return t.issues, "", nil
 }
@@ -108,6 +112,40 @@ func TestJiraDownloadAttachmentConfinesTraversalFilename(t *testing.T) {
 	if _, err := os.Stat(escaped); err == nil {
 		t.Fatalf("attachment escaped to %s", escaped)
 	}
+}
+
+func TestJiraUploadAttachmentReadsFileAndUsesBaseName(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "report.xlsx")
+	if err := os.WriteFile(path, []byte("xlsx bytes"), 0o644); err != nil {
+		t.Fatalf("write upload file: %v", err)
+	}
+	tr := &recordingUploadTracker{}
+	s := &JiraService{tr: tr}
+	att, err := s.UploadAttachment(context.Background(), "PROJ-1", path)
+	if err != nil {
+		t.Fatalf("UploadAttachment: %v", err)
+	}
+	if tr.uploadedKey != "PROJ-1" || tr.uploadedName != "report.xlsx" || string(tr.uploadedData) != "xlsx bytes" {
+		t.Fatalf("uploaded key=%q name=%q data=%q", tr.uploadedKey, tr.uploadedName, tr.uploadedData)
+	}
+	if att.ID != "42" || att.Title != "report.xlsx" {
+		t.Fatalf("attachment = %+v, want id/title", att)
+	}
+}
+
+type recordingUploadTracker struct {
+	domain.Tracker
+	uploadedKey  string
+	uploadedName string
+	uploadedData []byte
+}
+
+func (t *recordingUploadTracker) UploadAttachment(_ context.Context, key, filename string, data []byte) (*domain.Attachment, error) {
+	t.uploadedKey = key
+	t.uploadedName = filename
+	t.uploadedData = append([]byte(nil), data...)
+	return &domain.Attachment{ID: "42", Title: filename, FileSize: int64(len(data))}, nil
 }
 
 // A hostile Jira issue key must not let `jira pull` escape the --into directory.

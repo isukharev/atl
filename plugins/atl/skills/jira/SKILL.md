@@ -94,6 +94,7 @@ atl jira issue labels PROJ-1 --add bug,backend [--remove wontfix]
 atl jira issue history PROJ-1                                                           # changelog
 atl jira issue attachment list PROJ-1                                                   # all attachments; -o id → ids
 atl jira issue attachment get PROJ-1 --id 42 --into ./attachments                       # any file type
+atl jira issue attachment upload PROJ-1 --file ./spec.xlsx                              # upload a local file
 atl jira issue check PROJ-1 [--require assignee,fixVersions] [--warn priority]         # non-zero if required empty
 atl jira issue refs PROJ-1                                                             # artifact refs from one issue
 atl jira issue refs --jql 'project=PROJ' --limit 100                                   # artifact refs from a selection
@@ -147,10 +148,12 @@ markup, not Markdown** — `**bold**` and ``` fences publish as literal characte
 ```bash
 atl jira issue attachment list PROJ-1                    # {key, attachments:[...]}; -o id → ids
 atl jira issue attachment get PROJ-1 --id spec.xlsx --into ./attachments
+atl jira issue attachment upload PROJ-1 --file ./spec.xlsx
 atl jira issue images PROJ-1 --into /tmp/proj1-images   # {key, images:[paths]}
 ```
-Use `attachment get` for any file type. Use `images` when you specifically want only image
-attachments for visual inspection; open the downloaded images when a screenshot/diagram matters.
+Use `attachment get` for any file type and `attachment upload` to add a local file to an issue.
+Use `images` when you specifically want only image attachments for visual inspection; open the
+downloaded images when a screenshot/diagram matters.
 
 ### 7. Planning quality reports
 ```bash
@@ -230,6 +233,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue link-epic <KEY>` | Set the Epic Link | `--epic EPIC-KEY` |
 | `jira issue attachment list <KEY>` | List issue attachments | `-o id` |
 | `jira issue attachment get <KEY>` | Download an issue attachment | `--id ID-or-filename`, `--into DIR` |
+| `jira issue attachment upload <KEY>` | Upload a local file as an issue attachment | `--file PATH` |
 | `jira issue images <KEY>` | Download image attachments (agent vision) | `--into DIR` |
 | `jira pull` | Export issues to disk (.md + .json) | `--jql`, `--into`, `--limit`, `--fields` |
 | `jira export` | Write one compact JSONL/JSON/CSV artifact plus manifest | `--jql`/`--ids`/`--keys`, `--out`, `--format`, `--limit`, `--fields`, `--batch-size` |

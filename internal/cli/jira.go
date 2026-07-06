@@ -562,7 +562,7 @@ func jiraIssueCmd() *cobra.Command {
 }
 
 func jiraIssueAttachmentCmd() *cobra.Command {
-	c := &cobra.Command{Use: "attachment", Short: "Attachment list/get"}
+	c := &cobra.Command{Use: "attachment", Short: "Attachment list/get/upload"}
 
 	list := &cobra.Command{
 		Use:   "list <KEY>",
@@ -618,7 +618,29 @@ func jiraIssueAttachmentCmd() *cobra.Command {
 	get.Flags().StringVar(&getID, "id", "", "attachment id or filename")
 	get.Flags().StringVar(&getInto, "into", ".", "output directory")
 
-	c.AddCommand(list, get)
+	var uploadFile string
+	upload := &cobra.Command{
+		Use:   "upload <KEY>",
+		Short: "Upload a file as an issue attachment",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if uploadFile == "" {
+				return usageErr("--file is required")
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			att, err := svc.UploadAttachment(cmd.Context(), args[0], uploadFile)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, map[string]any{"key": args[0], "attachment": att}, nil)
+		},
+	}
+	upload.Flags().StringVar(&uploadFile, "file", "", "local file path to upload")
+
+	c.AddCommand(list, get, upload)
 	return c
 }
 

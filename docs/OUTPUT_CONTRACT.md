@@ -243,6 +243,22 @@ caller passed; `name` is the filename Jira reported for the matched attachment:
 }
 ```
 
+`atl jira issue attachment upload <KEY> --file <PATH>` uploads one local file
+and returns the uploaded attachment metadata:
+
+```json
+{
+  "attachment": {
+    "id": "44",
+    "title": "spec.xlsx",
+    "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "fileSize": 12345,
+    "version": 0
+  },
+  "key": "PROJ-1"
+}
+```
+
 `atl jira issue tree --jql ... --epic-field ...` returns a normalized
 epic-to-child tree:
 

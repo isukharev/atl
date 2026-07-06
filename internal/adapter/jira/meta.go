@@ -1,9 +1,12 @@
 package jira
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/url"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -195,4 +198,46 @@ func (j *Jira) DownloadAttachment(ctx context.Context, key, attachmentID string)
 		}
 	}
 	return nil, "", domain.ErrNotFound
+}
+
+// UploadAttachment uploads file bytes as an issue attachment via multipart/form-data.
+// Jira DC requires X-Atlassian-Token: no-check and a form field named "file".
+func (j *Jira) UploadAttachment(ctx context.Context, key, filename string, data []byte) (*domain.Attachment, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	fw, err := w.CreateFormFile("file", filename)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := fw.Write(data); err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	headers := map[string]string{
+		"Content-Type":      w.FormDataContentType(),
+		"X-Atlassian-Token": "no-check",
+	}
+	var resp []struct {
+		ID       string `json:"id"`
+		Filename string `json:"filename"`
+		MimeType string `json:"mimeType"`
+		Size     int64  `json:"size"`
+		Content  string `json:"content"`
+	}
+	raw, err := j.c.Do(ctx, "POST", "/rest/api/2/issue/"+url.PathEscape(key)+"/attachments", buf.Bytes(), headers)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("upload attachment: decode response: %w", err)
+	}
+	if len(resp) == 0 {
+		return nil, fmt.Errorf("upload attachment: empty response")
+	}
+	a := resp[0]
+	return &domain.Attachment{
+		ID: a.ID, Title: a.Filename, MediaType: a.MimeType, FileSize: a.Size, DownPath: a.Content,
+	}, nil
 }

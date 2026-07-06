@@ -11,12 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Jira issue attachments can now be listed and downloaded directly.**
+- **Jira issue attachments can now be listed, downloaded, and uploaded directly.**
   `jira issue attachment list <KEY>` exposes attachment ids for piping
   (`-o id`), and `jira issue attachment get <KEY> --id <ID-or-filename>`
   downloads any attachment type through atl's existing Jira auth, host-scoped
-  HTTP client, and safe path handling. The image-only `jira issue images`
-  helper remains unchanged.
+  HTTP client, and safe path handling. `jira issue attachment upload <KEY>
+  --file <PATH>` uploads a local file through the Jira multipart attachment API.
+  The image-only `jira issue images` helper remains unchanged.
 
 ## [0.3.0] - 2026-07-05
 
