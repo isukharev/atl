@@ -41,6 +41,9 @@ type confServer struct {
 	// consumed in order; when nil or exhausted, `page` with 200 is served. Used to
 	// make the post-push refresh GET fail while an earlier GET succeeds.
 	gets []cannedResp
+	// comments is the JSON served on GET /rest/api/content/<id>/child/comment (the
+	// `pull --comments` / `comment list` path). Empty means an empty listing.
+	comments string
 
 	// captured requests, in arrival order.
 	reqs []capturedReq
@@ -72,6 +75,16 @@ func (cs *confServer) handle(w http.ResponseWriter, r *http.Request) {
 	cs.mu.Lock()
 	cs.reqs = append(cs.reqs, capturedReq{method: r.Method, path: r.URL.Path, query: r.URL.RawQuery, body: string(body)})
 	switch {
+	case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/child/comment"):
+		// Comment listing (pull --comments / comment list). Checked before the
+		// generic content GET below, which would otherwise serve the page body.
+		body := cs.comments
+		cs.mu.Unlock()
+		if body == "" {
+			body = `{"results":[],"_links":{}}`
+		}
+		writeJSON(w, http.StatusOK, body)
+		return
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/rest/api/content/"):
 		resp := cannedResp{status: http.StatusOK, body: cs.page}
 		// gets overrides per call; the final queued entry sticks (so a GET that

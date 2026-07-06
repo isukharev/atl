@@ -44,6 +44,12 @@ type Meta struct {
 	Labels  []string     `json:"labels,omitempty"`
 	URL     string       `json:"url,omitempty"`
 	Refs    []domain.Ref `json:"fragments,omitempty"`
+	// CommentCount / CommentsTruncated are populated only by a `pull --comments`
+	// (they surface comment presence to a slim .meta.json read). They are
+	// auxiliary read-only data and never enter the content hash or the version
+	// gate. Both omitempty so a pull without --comments leaves the shape unchanged.
+	CommentCount      int  `json:"comment_count,omitempty"`
+	CommentsTruncated bool `json:"comments_truncated,omitempty"`
 }
 
 // Hash returns the canonical content hash of a body (sha256 hex of raw bytes).
@@ -175,10 +181,20 @@ func (m *Mirror) Write(dir, slug string, page *domain.Resource, refs []domain.Re
 	return b.Flush()
 }
 
+// commentSidecar carries a page's comments for a pull that requested them (nil
+// when --comments was off). It is auxiliary read-only data: the comment bytes
+// never enter the content hash, are never copied to .atl/base/, and never affect
+// dirty/drift/push gating — only the two sidecar files and the two Meta counters.
+type commentSidecar struct {
+	comments  []domain.Comment
+	truncated bool
+}
+
 // writePageFiles writes the page artifacts (.csf, .md view, .meta.json, base
 // copy) and returns the .csf path relative to the mirror root; sidecar state
-// is recorded by the caller.
-func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []domain.Ref) (rel string, err error) {
+// is recorded by the caller. When cs is non-nil it also writes the comment
+// sidecar files and stamps the comment counters into .meta.json.
+func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []domain.Ref, cs *commentSidecar) (rel string, err error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -202,6 +218,17 @@ func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []
 		ID: page.ID, Title: page.Title, Space: page.SpaceKey, Version: page.Version,
 		Hash: Hash(page.Body), Parent: page.Parent, Labels: page.Labels, Refs: refs,
 	}
+	// Comment sidecars are written before the meta so a mid-write failure never
+	// leaves a meta claiming a comment count with no files behind it. The bytes
+	// are pure read-view data: Hash above is over page.Body alone, so drift/push
+	// gating is unaffected.
+	if cs != nil {
+		if err := m.writeCommentSidecar(dir, slug, cs.comments); err != nil {
+			return "", err
+		}
+		meta.CommentCount = len(cs.comments)
+		meta.CommentsTruncated = cs.truncated
+	}
 	mb, _ := json.MarshalIndent(meta, "", "  ")
 	if err := safepath.WriteFile(filepath.Join(dir, slug+".meta.json"), append(mb, '\n'), 0o644); err != nil {
 		return "", err
@@ -211,6 +238,41 @@ func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []
 	}
 	rel, _ = filepath.Rel(m.Root, csfPath)
 	return rel, nil
+}
+
+// writeCommentSidecar writes the two per-page comment artifacts next to the page
+// files: <slug>.comments.json (primary, the domain.Comment array, pretty-printed
+// with a trailing newline like .meta.json) and <slug>.comments.md (a derived
+// human read view). The .md is purely derived from the JSON and is not part of
+// any parity contract. Neither file feeds the content hash or .atl/base/.
+func (m *Mirror) writeCommentSidecar(dir, slug string, comments []domain.Comment) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	list := comments
+	if list == nil {
+		list = []domain.Comment{} // marshal an empty array, never JSON null
+	}
+	jb, err := json.MarshalIndent(list, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := safepath.WriteFile(filepath.Join(dir, slug+".comments.json"), append(jb, '\n'), 0o644); err != nil {
+		return err
+	}
+	return safepath.WriteFile(filepath.Join(dir, slug+".comments.md"), RenderCommentsMarkdown(comments), 0o644)
+}
+
+// RenderCommentsMarkdown renders a page's comments as a derived human read view,
+// mirroring the Jira issue `## Comments` style: for each comment
+// `**<author>** (<created>):\n\n<body>\n\n`. Bodies are the plain-text read view
+// the adapter already flattens (csf.TextContent) — not a lossless substrate.
+func RenderCommentsMarkdown(comments []domain.Comment) []byte {
+	var b strings.Builder
+	for _, c := range comments {
+		fmt.Fprintf(&b, "**%s** (%s):\n\n%s\n\n", c.Author, c.Created, c.Body)
+	}
+	return []byte(b.String())
 }
 
 // SyncBatch accumulates sidecar updates across a multi-page write so a pull
@@ -235,7 +297,18 @@ func (m *Mirror) BeginSync() (*SyncBatch, error) {
 // Write persists a page like Mirror.Write but records the sync state in
 // memory; the caller must Flush once at the end of the batch.
 func (b *SyncBatch) Write(dir, slug string, page *domain.Resource, refs []domain.Ref) error {
-	rel, err := b.m.writePageFiles(dir, slug, page, refs)
+	return b.write(dir, slug, page, refs, nil)
+}
+
+// WriteComments persists a page plus its comment sidecars (`pull --comments`).
+// The comment bytes are auxiliary: the recorded sync state below hashes
+// page.Body alone, so a page carrying comments sidecars still reads as Clean.
+func (b *SyncBatch) WriteComments(dir, slug string, page *domain.Resource, refs []domain.Ref, comments []domain.Comment, truncated bool) error {
+	return b.write(dir, slug, page, refs, &commentSidecar{comments: comments, truncated: truncated})
+}
+
+func (b *SyncBatch) write(dir, slug string, page *domain.Resource, refs []domain.Ref, cs *commentSidecar) error {
+	rel, err := b.m.writePageFiles(dir, slug, page, refs, cs)
 	if err != nil {
 		return err
 	}

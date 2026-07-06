@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`conf pull --comments` brings page comments into the mirror.** Opt-in and off
+  by default (without it, no comment endpoint is contacted and no files are
+  written). When set, each mirrored page gains `<slug>.comments.json` (a
+  `[{id, author, created, body}]` array) and a derived `<slug>.comments.md` read
+  view, and its `.meta.json` reports `comment_count` (plus `comments_truncated`
+  when the fetch cap is hit). Comments are auxiliary read-only data — they never
+  enter the page content hash or the version gate, so a page with comment
+  sidecars still reports Clean in `conf status`. Comment bodies are a plain-text
+  read view (CSF stripped). A re-pull with `--comments` refreshes the sidecars; a
+  re-pull without it leaves existing comment files untouched.
+
+### Changed
+
+- **`conf comment list` no longer truncates silently.** When a page's comment
+  listing hits the pagination safety cap, the command now writes a `warning:`
+  line to stderr (the returned set is incomplete); the JSON result on stdout is
+  unchanged.
+
 - **Jira issue attachments can now be listed, downloaded, and uploaded directly.**
   `jira issue attachment list <KEY>` exposes attachment ids for piping
   (`-o id`), and `jira issue attachment get <KEY> --id <ID-or-filename>`

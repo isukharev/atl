@@ -109,6 +109,30 @@ is an object with stable identity at the top level and raw Jira fields under `fi
 `--fields` on `jira pull` adds requested fields to that `fields` map; the command still includes the
 core fields needed to render the markdown view and choose the project/key path.
 
+`atl conf pull` returns a `PullResult` whose `pages[]` entries are `PulledPage`
+objects. Each carries `id`, `title`, `path`, `version`, `assets`, and — only when
+`--comments` was passed — a `comments` count (omitted otherwise, so the shape is
+unchanged without the flag):
+
+```json
+{
+  "root": "mirror",
+  "pages": [
+    { "id": "100", "title": "Alpha", "path": "DOCS/alpha/alpha.csf", "version": 3, "assets": 0, "comments": 2 }
+  ]
+}
+```
+
+With `--comments`, two sidecar files are written next to the page:
+`<slug>.comments.json` (a `[{id, author, created, body}]` array, pretty-printed
+with a trailing newline) and `<slug>.comments.md` (a derived read view). The
+page's `.meta.json` gains `comment_count` (and `comments_truncated: true` when
+the listing hit the fetch cap) — both omitted without the flag. Comment bytes
+never enter `content_hash` or `.atl/base/`, so they never affect dirty/drift/push
+gating. When any page's comment listing is truncated, the result carries
+`comments_truncated: true` and the CLI writes a stderr warning; the JSON on
+stdout stays clean.
+
 `atl jira export --jql ... --out FILE --format jsonl|json|csv` writes one compact artifact and a
 sidecar manifest at `FILE.manifest.json`. `--ids` and `--keys` can be used instead of `--jql` to
 generate batched `id in (...)` / `key in (...)` queries. Stdout remains the normal `emit()` JSON

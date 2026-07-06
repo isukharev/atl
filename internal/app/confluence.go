@@ -37,7 +37,9 @@ func (s *ConfluenceService) Tree(ctx context.Context, space string, depth int) (
 	return s.store.Tree(ctx, space, depth)
 }
 
-func (s *ConfluenceService) Comments(ctx context.Context, id string) ([]domain.Comment, error) {
+// Comments returns a page's comments and whether the listing was truncated by a
+// safety cap (so the CLI can warn instead of presenting a silently-clipped set).
+func (s *ConfluenceService) Comments(ctx context.Context, id string) ([]domain.Comment, bool, error) {
 	return s.store.ListComments(ctx, id)
 }
 
@@ -140,12 +142,13 @@ func (s *ConfluenceService) Validate(body []byte) []csf.Problem {
 
 // PullOpts selects what to mirror and where.
 type PullOpts struct {
-	ID     string
-	CQL    string
-	Space  string
-	Depth  int
-	Assets bool
-	Into   string
+	ID       string
+	CQL      string
+	Space    string
+	Depth    int
+	Assets   bool
+	Comments bool
+	Into     string
 }
 
 // PulledPage is one mirrored page.
@@ -155,6 +158,9 @@ type PulledPage struct {
 	Path    string `json:"path"`
 	Version int    `json:"version"`
 	Assets  int    `json:"assets"`
+	// Comments is the number of comments mirrored for this page; only set (and
+	// only non-zero-omittable) when the pull ran with --comments.
+	Comments int `json:"comments,omitempty"`
 }
 
 // PullResult is the pull summary.
@@ -167,6 +173,10 @@ type PullResult struct {
 	// non-truncated case so existing consumers see an unchanged shape.
 	Truncated   bool `json:"truncated,omitempty"`
 	TruncatedAt int  `json:"truncated_at,omitempty"`
+	// CommentsTruncated is true when at least one page's comment listing hit the
+	// adapter's fetch cap, so its mirrored comments sidecar is incomplete. The CLI
+	// surfaces it as a stderr warning; omitted otherwise so the shape is unchanged.
+	CommentsTruncated bool `json:"comments_truncated,omitempty"`
 }
 
 // Pull mirrors pages selected by id/cql/space into Into.
@@ -216,7 +226,26 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 			refs = fragment.Resolve(ctx, page, refs, deps)
 		}
 		page.Refs = refs
-		if err := batch.Write(dir, slug, page, refs); err != nil {
+		// Comments are an opt-in include. Fetch before the write so their count and
+		// truncation flag can be stamped into .meta.json in one pass. A fetch error
+		// aborts the pull (the user explicitly asked for comments); a truncated
+		// listing is surfaced, never silently clipped.
+		var comments []domain.Comment
+		var commentsTruncated bool
+		if o.Comments {
+			comments, commentsTruncated, err = s.store.ListComments(ctx, id)
+			if err != nil {
+				return res, fmt.Errorf("pull comments %s: %w", id, err)
+			}
+			if commentsTruncated {
+				res.CommentsTruncated = true
+			}
+		}
+		if o.Comments {
+			if err := batch.WriteComments(dir, slug, page, refs, comments, commentsTruncated); err != nil {
+				return res, fmt.Errorf("write %s: %w", id, err)
+			}
+		} else if err := batch.Write(dir, slug, page, refs); err != nil {
 			return res, fmt.Errorf("write %s: %w", id, err)
 		}
 		rel, _ := filepath.Rel(root, filepath.Join(dir, slug+".csf"))
@@ -226,7 +255,11 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 				assetCount++
 			}
 		}
-		res.Pages = append(res.Pages, PulledPage{ID: id, Title: page.Title, Path: rel, Version: page.Version, Assets: assetCount})
+		pp := PulledPage{ID: id, Title: page.Title, Path: rel, Version: page.Version, Assets: assetCount}
+		if o.Comments {
+			pp.Comments = len(comments)
+		}
+		res.Pages = append(res.Pages, pp)
 	}
 	if err := batch.Flush(); err != nil {
 		return res, err

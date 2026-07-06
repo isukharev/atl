@@ -21,10 +21,17 @@ import (
 // mirror is incomplete. It writes to w (the command's stderr) and never to
 // stdout, keeping the JSON result clean.
 func warnIfTruncated(w io.Writer, res *app.PullResult) {
-	if res != nil && res.Truncated {
+	if res == nil {
+		return
+	}
+	if res.Truncated {
 		fmt.Fprintf(w,
 			"warning: selection truncated at %d pages (safety cap) — the rest was NOT mirrored; narrow the query or pull subsets\n",
 			res.TruncatedAt)
+	}
+	if res.CommentsTruncated {
+		fmt.Fprint(w,
+			"warning: some pages' comments hit the fetch cap — the mirrored comments sidecars are incomplete\n")
 	}
 }
 
@@ -453,7 +460,11 @@ func confPullCmd() *cobra.Command {
 				var b strings.Builder
 				fmt.Fprintf(&b, "mirror: %s (%d pages)\n", res.Root, len(res.Pages))
 				for _, p := range res.Pages {
-					fmt.Fprintf(&b, "  %s  v%d  %s  [assets:%d]\n", p.ID, p.Version, p.Path, p.Assets)
+					if o.Comments {
+						fmt.Fprintf(&b, "  %s  v%d  %s  [assets:%d comments:%d]\n", p.ID, p.Version, p.Path, p.Assets, p.Comments)
+					} else {
+						fmt.Fprintf(&b, "  %s  v%d  %s  [assets:%d]\n", p.ID, p.Version, p.Path, p.Assets)
+					}
 				}
 				return strings.TrimRight(b.String(), "\n")
 			})
@@ -464,6 +475,7 @@ func confPullCmd() *cobra.Command {
 	cmd.Flags().StringVar(&o.Space, "space", "", "space key (whole space)")
 	cmd.Flags().IntVar(&o.Depth, "depth", 0, "space depth limit")
 	cmd.Flags().BoolVar(&o.Assets, "assets", false, "download diagram/image renders")
+	cmd.Flags().BoolVar(&o.Comments, "comments", false, "mirror page comments into <slug>.comments.json/.md sidecars")
 	cmd.Flags().StringVar(&o.Into, "into", mirrorRootDefault("mirror"), "mirror root dir (default: $ATL_MIRROR_ROOT or \"mirror\")")
 	return cmd
 }
@@ -695,9 +707,13 @@ func confCommentCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cs, err := svc.Comments(cmd.Context(), id)
+			cs, truncated, err := svc.Comments(cmd.Context(), id)
 			if err != nil {
 				return err
+			}
+			if truncated {
+				fmt.Fprint(cmd.ErrOrStderr(),
+					"warning: comment listing hit the fetch cap — some comments were not returned\n")
 			}
 			return emit(cmd, map[string]any{"comments": cs}, nil)
 		},
