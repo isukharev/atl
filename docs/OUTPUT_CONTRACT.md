@@ -133,8 +133,9 @@ base) and `remote_error` (the remote could not be checked) appear only with `--r
 `atl jira push <file.wiki|DIR> [--apply] [--force] [--into ROOT]` emits `{ "items": [ ... ] }`, one
 item per file: `{ "path", "key", "pushed", "dry_run"?, "skipped"?, "remote_drifted"?,
 "drift_overridden"?, "diff"?, "failed"?, "warning"? }`. It is **dry-run by default**: without
-`--apply`, `dry_run` is `true`, `pushed` is `false`, `diff` carries the unified diff (base → local
-body), and no write occurs. On drift without `--force` the item has `remote_drifted:true` and the
+`--apply`, `dry_run` is `true`, `pushed` is `false`, `diff` carries the unified diff of what the
+write changes on the server (current remote → local body; equal to base → local when there is no
+drift), and no write occurs. On drift without `--force` the item has `remote_drifted:true` and the
 command exits `8` (`ErrCheckFailed`) — never `5`. `--force` sets `drift_overridden` and writes.
 `--apply` sets `pushed:true`; a post-push mirror-refresh failure surfaces as `warning` on the item,
 not an error. `skipped:"unchanged"` marks a clean file.

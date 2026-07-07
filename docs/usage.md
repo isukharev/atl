@@ -1267,7 +1267,9 @@ never reported drifted.
 
 Push an edited `<KEY>.wiki` description back to its issue. **Dry-run by
 default** — without `--apply` it only previews the unified diff and any drift,
-writing nothing. Only the description body is written (no summary or other
+writing nothing. The diff shows what the write changes **on the server**
+(current remote → local body), so under `--force` the remote-only changes about
+to be overwritten are visible in the preview. Only the description body is written (no summary or other
 field). This is the Jira analog of `conf push`, but deliberately stricter:
 
 ```bash

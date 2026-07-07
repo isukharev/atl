@@ -1135,8 +1135,13 @@ func jiraPushCmd() *cobra.Command {
 			}
 			res, perr := svc.Push(cmd.Context(), args[0], o)
 			// res is nil when target resolution failed before any push attempt.
+			// The push error wins over an output error (it is the actionable one),
+			// but a failed emit must not read as success when the push itself was
+			// fine — a broken stdout would silently hide the result.
 			if res != nil {
-				_ = emit(cmd, res, func() string { return jiraPushText(res) })
+				if emitErr := emit(cmd, res, func() string { return jiraPushText(res) }); perr == nil {
+					perr = emitErr
+				}
 			}
 			return perr
 		},

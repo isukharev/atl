@@ -189,8 +189,12 @@ func (s *JiraService) jiraPushOne(ctx context.Context, m *mirror.Mirror, path st
 		}
 		item.DriftOverridden = true
 	}
-	// Consequence preview: a compact unified diff from the base to the local body.
-	item.Diff = unifiedDiff(string(base), string(body), 3)
+	// Consequence preview: a compact unified diff of what the write changes ON THE
+	// SERVER — current remote → local body. When there is no drift the remote
+	// equals the base, so this is the base→local diff too; when drift is being
+	// overridden by --force, diffing against the base would hide the remote-only
+	// changes the write is about to destroy.
+	item.Diff = unifiedDiff(is.Body, string(body), 3)
 	if !o.Apply {
 		// Dry-run (the default): stop before any write. No Update is issued.
 		return item, nil
@@ -215,10 +219,10 @@ func (s *JiraService) jiraPushOne(ctx context.Context, m *mirror.Mirror, path st
 
 // refreshAfterPush re-fetches the issue and rewrites its `.wiki` substrate,
 // rendered `.md` view, pristine base copy, and sidecar entry so the mirror
-// tracks the post-push remote state. The rendered view is regenerated without
-// re-downloading image assets (any existing <KEY>.assets/ dir is left as-is;
-// unresolved embeds fall back to inline code), matching the plan's "render
-// without images" fallback.
+// tracks the post-push remote state. The rendered view does not re-download
+// image assets; instead the already-downloaded <KEY>.assets/ files (if any) are
+// re-indexed from disk so a previously `--assets`-pulled issue keeps its image
+// section and inline embeds after a push.
 func (s *JiraService) refreshAfterPush(ctx context.Context, m *mirror.Mirror, wikiPath, key string) error {
 	is, err := s.tr.GetIssue(ctx, key, jiraPullFields(nil))
 	if err != nil {
@@ -230,7 +234,7 @@ func (s *JiraService) refreshAfterPush(ctx context.Context, m *mirror.Mirror, wi
 		return err
 	}
 	mdPath := filepath.Join(dir, keySeg+".md")
-	if err := safepath.WriteFile(mdPath, renderIssueMarkdown(is, nil), 0o644); err != nil {
+	if err := safepath.WriteFile(mdPath, renderIssueMarkdown(is, assetsOnDisk(dir, keySeg)), 0o644); err != nil {
 		_ = os.Remove(mdPath) // best-effort view: never let it contradict the substrate
 	}
 	if err := m.SaveBaseExt(key, []byte(is.Body), wikiExt); err != nil {
@@ -243,6 +247,30 @@ func (s *JiraService) refreshAfterPush(ctx context.Context, m *mirror.Mirror, wi
 	}
 	batch.Record(mirror.SyncState{ID: key, Version: 0, Hash: mirror.Hash([]byte(is.Body)), Path: relWiki})
 	return batch.Flush()
+}
+
+// assetsOnDisk re-indexes the images already mirrored under <dir>/<keySeg>.assets/
+// (written by a `pull --assets` as `<attachment-id>-<filename>`) so a refreshed
+// render keeps linking them without re-downloading. A missing dir or an entry
+// that does not match the id-prefix layout is simply skipped.
+func assetsOnDisk(dir, keySeg string) []JiraIssueAsset {
+	assetsSeg := keySeg + ".assets"
+	entries, err := os.ReadDir(filepath.Join(dir, assetsSeg))
+	if err != nil {
+		return nil
+	}
+	var out []JiraIssueAsset
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		id, name, ok := strings.Cut(e.Name(), "-")
+		if !ok || id == "" || name == "" {
+			continue
+		}
+		out = append(out, JiraIssueAsset{ID: id, Title: name, Path: assetsSeg + "/" + e.Name()})
+	}
+	return out
 }
 
 // ---- unified diff (self-contained, no external dependency) ----

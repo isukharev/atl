@@ -439,16 +439,6 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 			if err := safepath.WriteFile(wikiPath, []byte(full.Body), 0o644); err != nil {
 				return res, err
 			}
-			// Record the .wiki substrate in the sidecar + a pristine base copy so
-			// `jira status`/`jira push` can detect local edits and remote drift.
-			// Keyed by the sanitized issue key (the .wiki basename); Version stays 0
-			// — Jira has no server-side version gate. Only the .wiki body is tracked;
-			// the .md/.json/assets are read-only views, outside the sync state.
-			if err := m.SaveBaseExt(keySeg, []byte(full.Body), ".wiki"); err != nil {
-				return res, err
-			}
-			relWiki, _ := filepath.Rel(into, wikiPath)
-			batch.Record(mirror.SyncState{ID: keySeg, Version: 0, Hash: mirror.Hash([]byte(full.Body)), Path: relWiki})
 			// Mirror image attachments (best-effort) before rendering so the .md
 			// links only the images that actually landed on disk.
 			var assets []JiraIssueAsset
@@ -473,8 +463,20 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 			if err := safepath.WriteFile(filepath.Join(dir, keySeg+".json"), append(jb, '\n'), 0o644); err != nil {
 				return res, fmt.Errorf("snapshot %s: %w", full.Key, err)
 			}
-			rel, _ := filepath.Rel(into, mdPath)
+			// Record the .wiki substrate in the sidecar + a pristine base copy so
+			// `jira status`/`jira push` can detect local edits and remote drift.
+			// Recorded only AFTER every issue artifact (.wiki/.md/.json) is on disk
+			// — a failed write above must not leave the issue marked synced by the
+			// deferred flush (conf parity: sidecar state follows the page files).
+			// Keyed by the sanitized issue key (the .wiki basename); Version stays 0
+			// — Jira has no server-side version gate. Only the .wiki body is tracked;
+			// the .md/.json/assets are read-only views, outside the sync state.
+			if err := m.SaveBaseExt(keySeg, []byte(full.Body), ".wiki"); err != nil {
+				return res, err
+			}
 			relWiki, _ := filepath.Rel(into, wikiPath)
+			batch.Record(mirror.SyncState{ID: keySeg, Version: 0, Hash: mirror.Hash([]byte(full.Body)), Path: relWiki})
+			rel, _ := filepath.Rel(into, mdPath)
 			res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, WikiPath: relWiki, Assets: len(assets)})
 			if limit > 0 && len(res.Issues) >= limit {
 				return res, nil

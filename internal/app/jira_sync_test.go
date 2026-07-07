@@ -400,3 +400,78 @@ func TestJiraPushDirOnlyDirty(t *testing.T) {
 		t.Fatalf("a dir push must touch only the dirty file, got %+v", res.Items)
 	}
 }
+
+// ---- review fixes ----
+
+// A failed issue artifact write (.json here) must not leave the issue recorded
+// as synced by the deferred sidecar flush: base/sidecar are written only after
+// every artifact is on disk (conf parity).
+func TestJiraPullFailedArtifactWriteNotRecordedSynced(t *testing.T) {
+	into := t.TempDir()
+	// Pre-plant a DIRECTORY where the .json must be written so the snapshot
+	// write fails after the .wiki was already written.
+	if err := os.MkdirAll(filepath.Join(into, "PROJ", "PROJ-1.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	iss := domain.Issue{Key: "PROJ-1", Project: "PROJ", Summary: "S", Status: "Open", Type: "Task", Body: "body"}
+	tr := &syncTracker{searchIssues: []domain.Issue{iss}, serverBody: "body"}
+	svc := &JiraService{tr: tr}
+	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1}); err == nil {
+		t.Fatal("pull must fail when the snapshot cannot be written")
+	}
+	m := mirror.New(into)
+	if lw, _, err := m.LoadWiki(filepath.Join(into, "PROJ", "PROJ-1.wiki")); err == nil && lw.Synced != nil {
+		t.Fatalf("half-written issue must not be recorded synced: %+v", lw.Synced)
+	}
+	if _, ok := m.BaseBodyExt("PROJ-1", ".wiki"); ok {
+		t.Fatal("half-written issue must not have a base copy")
+	}
+}
+
+// The push preview diffs what the write changes ON THE SERVER: under --force
+// over drift the diff runs current-remote → local, so remote-only changes the
+// write is about to destroy are visible, not hidden behind a base→local diff.
+func TestJiraPushForceDiffShowsRemoteChanges(t *testing.T) {
+	svc, tr, _, wikiPath := setupPulled(t, "base line")
+	editWiki(t, wikiPath, "local line")
+	tr.serverBody = "remote line"
+
+	res, err := svc.Push(context.Background(), wikiPath, JiraPushOpts{Force: true}) // dry-run + force
+	if err != nil {
+		t.Fatalf("dry-run force: %v", err)
+	}
+	it := res.Items[0]
+	if tr.updateCalls != 0 {
+		t.Fatalf("dry-run must not write, got %d Update calls", tr.updateCalls)
+	}
+	if !strings.Contains(it.Diff, "-remote line") || !strings.Contains(it.Diff, "+local line") {
+		t.Fatalf("diff must be remote→local, got %q", it.Diff)
+	}
+	if strings.Contains(it.Diff, "base line") {
+		t.Fatalf("diff must not be computed against the stale base, got %q", it.Diff)
+	}
+}
+
+// A successful push refresh re-indexes the already-downloaded <KEY>.assets/
+// files so the regenerated .md keeps its image links without re-downloading.
+func TestJiraPushRefreshKeepsAssetLinks(t *testing.T) {
+	svc, _, into, wikiPath := setupPulled(t, "base")
+	assetsDir := filepath.Join(into, "PROJ", "PROJ-1.assets")
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(assetsDir, "7-shot.png"), []byte("img"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	editWiki(t, wikiPath, "new body")
+	if _, err := svc.Push(context.Background(), wikiPath, JiraPushOpts{Apply: true}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	md, err := os.ReadFile(filepath.Join(into, "PROJ", "PROJ-1.md"))
+	if err != nil {
+		t.Fatalf("read refreshed md: %v", err)
+	}
+	if !strings.Contains(string(md), "![shot.png](PROJ-1.assets/7-shot.png)") {
+		t.Fatalf("refreshed .md must keep the asset link, got:\n%s", md)
+	}
+}
