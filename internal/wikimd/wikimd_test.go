@@ -52,6 +52,16 @@ func TestRenderExact(t *testing.T) {
 		{"image external", "!https://h/a.png!", Options{}, "![](https://h/a.png)"},
 		{"exclamations kept", "Wow! Great! Yes!", Options{}, "Wow! Great! Yes!"},
 		{"padded bang span stays literal", "Done! v1.2! yes", Options{}, "Done! v1.2! yes"},
+		{"image path with md-significant chars",
+			"!shot (v1).png!",
+			Options{Images: map[string]string{"shot (v1).png": "PROJ-1.assets/7-shot (v1).png"}},
+			"![shot (v1).png](PROJ-1.assets/7-shot%20%28v1%29.png)"},
+		{"image alt with brackets",
+			"!a[1].png!",
+			Options{Images: map[string]string{"a[1].png": "PROJ-1.assets/8-a[1].png"}},
+			`![a\[1\].png](PROJ-1.assets/8-a[1].png)`},
+		{"link url with parens", "[go|https://x/wiki/Go_(lang)]", Options{}, "[go](https://x/wiki/Go_%28lang%29)"},
+		{"link url keeps existing percent-encoding", "[y|https://x/a%20b]", Options{}, "[y](https://x/a%20b)"},
 
 		// code / noformat (verbatim, no inner parsing)
 		{"code lang", "{code:go}\nfmt.Println(x)\n{code}", Options{}, "```go\nfmt.Println(x)\n```"},
@@ -59,6 +69,7 @@ func TestRenderExact(t *testing.T) {
 		{"code param language", "{code:title=x|language=java}\nSystem.out;\n{code}", Options{}, "```java\nSystem.out;\n```"},
 		{"noformat", "{noformat}\nraw _text_\n{noformat}", Options{}, "```\nraw _text_\n```"},
 		{"code oneliner", "{code:sh}echo hi{code}", Options{}, "```sh\necho hi\n```"},
+		{"code body with triple backticks", "{code}\na\n```\nb\n{code}", Options{}, "````\na\n```\nb\n````"},
 
 		// quote / panel
 		{"quote", "{quote}\nhello there\n{quote}", Options{}, "> hello there"},

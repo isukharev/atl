@@ -96,7 +96,8 @@ verbose output never corrupts the JSON stream.
 `atl jira pull` writes three files per issue: `<KEY>.wiki` (the native Jira wiki body, byte-for-byte —
 the editable substrate), `<KEY>.md` (a read-only Markdown view rendered from the wiki, regenerated
 best-effort on every pull), and `<KEY>.json` (the raw-fields snapshot). The pull result's `path`
-points at the `.md`; the `.wiki` path is not carried in the JSON. The JSON snapshot is an object with
+points at the `.md`; `wiki_path` points at the sibling `.wiki` substrate (edit that file, not the
+`.md`). The JSON snapshot is an object with
 stable identity at the top level and raw Jira fields under `fields`:
 
 ```json
@@ -112,7 +113,7 @@ stable identity at the top level and raw Jira fields under `fields`:
 `--fields` on `jira pull` adds requested fields to that `fields` map; the command still includes the
 core fields needed to render the markdown view and choose the project/key path.
 
-The `jira pull` stdout summary is `{ "into": <root>, "issues": [ { "key", "path", "assets" }, ... ] }`.
+The `jira pull` stdout summary is `{ "into": <root>, "issues": [ { "key", "path", "wiki_path", "assets" }, ... ] }`.
 With `--assets`, each issue object gains an `assets` count of image attachments mirrored into
 `<KEY>.assets/`, and the top-level result gains `assets_skipped` when some images could not be
 downloaded. Both `assets` and `assets_skipped` are `omitempty`: a default (no `--assets`) pull, and a

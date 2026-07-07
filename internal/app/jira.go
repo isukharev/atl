@@ -328,13 +328,17 @@ func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, er
 	return paths, nil
 }
 
-// JiraPulled is one exported issue. Assets counts image attachments mirrored
-// into the issue's <KEY>.assets/ directory; it is omitted at zero so the JSON
-// shape is unchanged for a default (no --assets) pull.
+// JiraPulled is one exported issue. Path points at the rendered read-only .md
+// view; WikiPath points at the sibling <KEY>.wiki substrate — the editable
+// native-wiki source of truth — so agents don't have to derive it by swapping
+// extensions. Assets counts image attachments mirrored into the issue's
+// <KEY>.assets/ directory; it is omitted at zero so the JSON shape is unchanged
+// for a default (no --assets) pull.
 type JiraPulled struct {
-	Key    string `json:"key"`
-	Path   string `json:"path"`
-	Assets int    `json:"assets,omitempty"`
+	Key      string `json:"key"`
+	Path     string `json:"path"`
+	WikiPath string `json:"wiki_path,omitempty"`
+	Assets   int    `json:"assets,omitempty"`
 }
 
 type JiraIssueSnapshot struct {
@@ -445,7 +449,8 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 				return res, fmt.Errorf("snapshot %s: %w", full.Key, err)
 			}
 			rel, _ := filepath.Rel(into, mdPath)
-			res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, Assets: len(assets)})
+			relWiki, _ := filepath.Rel(into, wikiPath)
+			res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, WikiPath: relWiki, Assets: len(assets)})
 			if limit > 0 && len(res.Issues) >= limit {
 				return res, nil
 			}
