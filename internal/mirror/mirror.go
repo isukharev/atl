@@ -44,10 +44,15 @@ type Meta struct {
 	Labels  []string     `json:"labels,omitempty"`
 	URL     string       `json:"url,omitempty"`
 	Refs    []domain.Ref `json:"fragments,omitempty"`
-	// CommentCount / CommentsTruncated are populated only by a `pull --comments`
-	// (they surface comment presence to a slim .meta.json read). They are
-	// auxiliary read-only data and never enter the content hash or the version
-	// gate. Both omitempty so a pull without --comments leaves the shape unchanged.
+	// CommentsPulled / CommentCount / CommentsTruncated are populated only by a
+	// `pull --comments` (they surface comment presence to a slim .meta.json
+	// read). CommentsPulled is the explicit "comments were fetched" marker, so a
+	// page whose fetch returned zero comments (comment_count omitted at 0) is
+	// still distinguishable from a page whose comments were never pulled. They
+	// are auxiliary read-only data and never enter the content hash or the
+	// version gate. All omitempty so a pull without --comments leaves the shape
+	// unchanged.
+	CommentsPulled    bool `json:"comments_pulled,omitempty"`
 	CommentCount      int  `json:"comment_count,omitempty"`
 	CommentsTruncated bool `json:"comments_truncated,omitempty"`
 }
@@ -226,6 +231,7 @@ func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []
 		if err := m.writeCommentSidecar(dir, slug, cs.comments); err != nil {
 			return "", err
 		}
+		meta.CommentsPulled = true
 		meta.CommentCount = len(cs.comments)
 		meta.CommentsTruncated = cs.truncated
 	}

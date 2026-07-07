@@ -112,7 +112,8 @@ core fields needed to render the markdown view and choose the project/key path.
 `atl conf pull` returns a `PullResult` whose `pages[]` entries are `PulledPage`
 objects. Each carries `id`, `title`, `path`, `version`, `assets`, and — only when
 `--comments` was passed — a `comments` count (omitted otherwise, so the shape is
-unchanged without the flag):
+unchanged without the flag; an explicit `"comments": 0` means the fetch ran and
+found none, distinguishable from "not fetched"):
 
 ```json
 {
@@ -126,8 +127,10 @@ unchanged without the flag):
 With `--comments`, two sidecar files are written next to the page:
 `<slug>.comments.json` (a `[{id, author, created, body}]` array, pretty-printed
 with a trailing newline) and `<slug>.comments.md` (a derived read view). The
-page's `.meta.json` gains `comment_count` (and `comments_truncated: true` when
-the listing hit the fetch cap) — both omitted without the flag. Comment bytes
+page's `.meta.json` gains `comments_pulled: true` (the explicit "comments were
+fetched" marker — present even when the count is zero) plus `comment_count` (and
+`comments_truncated: true` when the listing hit the fetch cap) — all omitted
+without the flag. Comment bytes
 never enter `content_hash` or `.atl/base/`, so they never affect dirty/drift/push
 gating. When any page's comment listing is truncated, the result carries
 `comments_truncated: true` and the CLI writes a stderr warning; the JSON on

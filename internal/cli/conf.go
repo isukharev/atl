@@ -460,8 +460,8 @@ func confPullCmd() *cobra.Command {
 				var b strings.Builder
 				fmt.Fprintf(&b, "mirror: %s (%d pages)\n", res.Root, len(res.Pages))
 				for _, p := range res.Pages {
-					if o.Comments {
-						fmt.Fprintf(&b, "  %s  v%d  %s  [assets:%d comments:%d]\n", p.ID, p.Version, p.Path, p.Assets, p.Comments)
+					if o.Comments && p.Comments != nil {
+						fmt.Fprintf(&b, "  %s  v%d  %s  [assets:%d comments:%d]\n", p.ID, p.Version, p.Path, p.Assets, *p.Comments)
 					} else {
 						fmt.Fprintf(&b, "  %s  v%d  %s  [assets:%d]\n", p.ID, p.Version, p.Path, p.Assets)
 					}

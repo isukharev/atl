@@ -389,7 +389,7 @@ mirror/
       child-page/
         child-page.csf           ← edit this
         child-page.md            ← read-only view
-        child-page.meta.json     ← id, version, content_hash, fragments, comment_count
+        child-page.meta.json     ← id, version, content_hash, fragments, comments_pulled, comment_count
         child-page.comments.json ← only with --comments: [{id, author, created, body}]
         child-page.comments.md   ← only with --comments: derived human read view
         child-page.assets/

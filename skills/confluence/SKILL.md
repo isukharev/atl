@@ -57,7 +57,7 @@ On disk per page:
 <root>/<SPACE>/<ancestors…>/<page-slug>/
     <page-slug>.csf        # native CSF — source of truth; edit directly only as fallback
     <page-slug>.md         # markdown view — edit it, then `conf apply` (regenerated on pull/apply)
-    <page-slug>.meta.json  # metadata + fragments (+ comment_count) — auto-managed
+    <page-slug>.meta.json  # metadata + fragments (+ comments_pulled, comment_count) — auto-managed
     <page-slug>.comments.json  # only with --comments: [{id,author,created,body}]
     <page-slug>.comments.md    # only with --comments: derived human read view
     <page-slug>.assets/    # only with --assets: diagram/image renders (for vision)

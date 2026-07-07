@@ -69,8 +69,8 @@ func TestPullCommentsMirrorsSidecars(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pull --comments: %v", err)
 	}
-	if res.Pages[0].Comments != 2 {
-		t.Errorf("PulledPage.Comments = %d, want 2", res.Pages[0].Comments)
+	if res.Pages[0].Comments == nil || *res.Pages[0].Comments != 2 {
+		t.Errorf("PulledPage.Comments = %v, want 2", res.Pages[0].Comments)
 	}
 	if res.CommentsTruncated {
 		t.Errorf("a complete listing must not report CommentsTruncated")
@@ -175,5 +175,39 @@ func TestPullCommentsFetchErrorAborts(t *testing.T) {
 	svc := &ConfluenceService{store: st}
 	if _, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into, Comments: true}); err == nil {
 		t.Fatalf("expected the pull to fail when comment fetch fails")
+	}
+}
+
+// A --comments pull that finds ZERO comments must still be distinguishable from
+// a pull that never fetched them: meta carries comments_pulled=true (count
+// omitted at 0), the result carries an explicit "comments": 0, and the empty
+// sidecar files exist.
+func TestPullCommentsZeroCommentsStillMarked(t *testing.T) {
+	into := t.TempDir()
+	st := &pullStore{pages: map[string]*domain.Resource{
+		"100": {ID: "100", Title: "Alpha", SpaceKey: "SP", Version: 2, Body: []byte("<p>alpha</p>")},
+	}}
+	svc := &ConfluenceService{store: st}
+	res, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into, Comments: true})
+	if err != nil {
+		t.Fatalf("pull: %v", err)
+	}
+	if res.Pages[0].Comments == nil || *res.Pages[0].Comments != 0 {
+		t.Fatalf("PulledPage.Comments = %v, want explicit 0", res.Pages[0].Comments)
+	}
+	if b, _ := json.Marshal(res.Pages[0]); !strings.Contains(string(b), `"comments": 0`) && !strings.Contains(string(b), `"comments":0`) {
+		t.Errorf("result JSON must carry an explicit comments:0, got %s", b)
+	}
+	dir, slug := pageDirFrom(into, res.Pages[0].Path)
+	mb, _ := os.ReadFile(filepath.Join(dir, slug+".meta.json"))
+	var meta mirror.Meta
+	if err := json.Unmarshal(mb, &meta); err != nil {
+		t.Fatalf("meta: %v", err)
+	}
+	if !meta.CommentsPulled || meta.CommentCount != 0 {
+		t.Errorf("meta = pulled:%v count:%d, want pulled:true count:0", meta.CommentsPulled, meta.CommentCount)
+	}
+	if _, err := os.Stat(filepath.Join(dir, slug+".comments.json")); err != nil {
+		t.Errorf("empty comments sidecar must still exist: %v", err)
 	}
 }

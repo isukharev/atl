@@ -158,9 +158,10 @@ type PulledPage struct {
 	Path    string `json:"path"`
 	Version int    `json:"version"`
 	Assets  int    `json:"assets"`
-	// Comments is the number of comments mirrored for this page; only set (and
-	// only non-zero-omittable) when the pull ran with --comments.
-	Comments int `json:"comments,omitempty"`
+	// Comments is the number of comments mirrored for this page. It is a pointer
+	// so a --comments pull that found zero comments still emits `"comments": 0`,
+	// distinguishable from a pull that never fetched them (field omitted).
+	Comments *int `json:"comments,omitempty"`
 }
 
 // PullResult is the pull summary.
@@ -257,7 +258,8 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 		}
 		pp := PulledPage{ID: id, Title: page.Title, Path: rel, Version: page.Version, Assets: assetCount}
 		if o.Comments {
-			pp.Comments = len(comments)
+			n := len(comments)
+			pp.Comments = &n
 		}
 		res.Pages = append(res.Pages, pp)
 	}
