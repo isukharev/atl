@@ -592,7 +592,7 @@ func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset) []byte {
 	if len(assets) > 0 {
 		b.WriteString("## Image Attachments\n\n")
 		for _, a := range assets {
-			fmt.Fprintf(&b, "![%s](%s)\n", a.Title, a.Path)
+			fmt.Fprintf(&b, "![%s](%s)\n", mdEscapeAlt(a.Title), mdEscapeDest(a.Path))
 		}
 		b.WriteString("\n")
 	}
@@ -610,6 +610,27 @@ func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset) []byte {
 		}
 	}
 	return []byte(b.String())
+}
+
+// mdEscapeAlt escapes a server-supplied string for use as markdown image alt
+// text / link text: backslashes and square brackets would otherwise close the
+// bracket span early and corrupt the read view.
+func mdEscapeAlt(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `[`, `\[`, `]`, `\]`)
+	return r.Replace(s)
+}
+
+// mdEscapeDest percent-encodes the characters that break a markdown link
+// destination (spaces, parentheses, angle brackets, quotes). Filenames pass
+// safepath sanitizing before landing on disk, but that deliberately keeps
+// spaces/parens — legal in filenames, unsafe in a bare (dest). `%` is encoded
+// first so existing percent signs survive round-trip.
+func mdEscapeDest(s string) string {
+	r := strings.NewReplacer(
+		"%", "%25", " ", "%20", "(", "%28", ")", "%29",
+		"<", "%3C", ">", "%3E", `"`, "%22",
+	)
+	return r.Replace(s)
 }
 
 func yamlEscape(s string) string {
