@@ -156,15 +156,45 @@ func link(b *strings.Builder, s string, opts Options) int {
 		if text == "" {
 			text = url
 		}
-		b.WriteString("[" + inline(text, opts) + "](" + url + ")")
+		b.WriteString("[" + inline(text, opts) + "](" + escapeURLDest(url) + ")")
 		return end + 1
 	}
 	url := strings.TrimSpace(inner)
 	if !looksLikeURL(url) {
 		return 0
 	}
-	b.WriteString("<" + url + ">")
+	b.WriteString("<" + escapeURLDest(url) + ">")
 	return end + 1
+}
+
+// escapeAlt escapes text for a markdown bracket span (image alt / link text):
+// backslashes and square brackets would close the span early and corrupt the
+// read view around server-supplied names.
+func escapeAlt(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `[`, `\[`, `]`, `\]`)
+	return r.Replace(s)
+}
+
+// escapeDest percent-encodes a LOCAL path for a markdown link destination:
+// spaces, parentheses, angle brackets and quotes break a bare (dest), and `%`
+// is encoded first so a literal percent in a filename survives decoding.
+func escapeDest(s string) string {
+	r := strings.NewReplacer(
+		"%", "%25", " ", "%20", "(", "%28", ")", "%29",
+		"<", "%3C", ">", "%3E", `"`, "%22",
+	)
+	return r.Replace(s)
+}
+
+// escapeURLDest encodes a URL for a markdown link destination. Unlike
+// escapeDest it leaves `%` alone — wiki URLs are typically already
+// percent-encoded, and re-encoding would double-escape them.
+func escapeURLDest(s string) string {
+	r := strings.NewReplacer(
+		" ", "%20", "(", "%28", ")", "%29",
+		"<", "%3C", ">", "%3E", `"`, "%22",
+	)
+	return r.Replace(s)
 }
 
 func looksLikeURL(s string) bool {
@@ -197,10 +227,10 @@ func image(b *strings.Builder, s string, opts Options) int {
 	consumed := 1 + end + 1
 	switch {
 	case strings.Contains(name, "://"):
-		b.WriteString("![](" + name + ")")
+		b.WriteString("![](" + escapeURLDest(name) + ")")
 	default:
 		if path, ok := opts.Images[name]; ok && path != "" {
-			b.WriteString("![" + name + "](" + path + ")")
+			b.WriteString("![" + escapeAlt(name) + "](" + escapeDest(path) + ")")
 		} else {
 			b.WriteString("`!" + name + "!`")
 		}
@@ -208,14 +238,27 @@ func image(b *strings.Builder, s string, opts Options) int {
 	return consumed
 }
 
+// imageExtRe matches a filename-style extension tail (".png", ".jpeg", …).
+var imageExtRe = regexp.MustCompile(`\.[A-Za-z0-9]{1,5}$`)
+
 func looksLikeImageRef(name string) bool {
-	if name == "" || strings.ContainsAny(name, " \t") {
+	if name == "" || strings.Contains(name, "\t") {
 		return false
 	}
 	if strings.Contains(name, "://") {
 		return true
 	}
-	return strings.Contains(name, ".")
+	if !strings.Contains(name, ".") {
+		return false
+	}
+	// Spaces are legal in Jira attachment filenames ("Screenshot 2026….png"),
+	// but a space-bearing span is only treated as an image when it ends in a
+	// clear filename extension — otherwise exclamation-marked prose that happens
+	// to contain a dot would render as a bogus image ref.
+	if strings.Contains(name, " ") {
+		return imageExtRe.MatchString(name)
+	}
+	return true
 }
 
 // toggle converts a boundary-delimited wiki phrase modifier (*bold*, _italic_,

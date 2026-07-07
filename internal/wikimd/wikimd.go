@@ -141,9 +141,34 @@ func codeBlock(lines []string, i int) (string, int) {
 	return fence(lang, strings.Join(body, "\n")), len(lines)
 }
 
+// fence wraps body in a markdown code fence at least one backtick longer than
+// the longest backtick run inside the body, so content containing ``` (or
+// longer runs) cannot close the fence early.
 func fence(lang, body string) string {
 	body = strings.Trim(body, "\n")
-	return "```" + lang + "\n" + body + "\n```\n"
+	n := 3
+	if run := longestBacktickRun(body); run >= n {
+		n = run + 1
+	}
+	marker := strings.Repeat("`", n)
+	return marker + lang + "\n" + body + "\n" + marker + "\n"
+}
+
+// longestBacktickRun returns the length of the longest run of consecutive
+// backticks in s.
+func longestBacktickRun(s string) (longest int) {
+	run := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '`' {
+			run++
+			if run > longest {
+				longest = run
+			}
+		} else {
+			run = 0
+		}
+	}
+	return longest
 }
 
 // codeLang extracts a fenced-block language from {code} parameters. It accepts

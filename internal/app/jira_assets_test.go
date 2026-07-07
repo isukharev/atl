@@ -374,6 +374,32 @@ func TestJiraPullWithoutAssetsSkipsImages(t *testing.T) {
 	mustNotContain(t, readMD(t, into, "PROJ", "PROJ-8"), "## Image Attachments")
 }
 
+// A filename with markdown-significant characters (spaces, parens, brackets)
+// must not corrupt the generated image link: alt text is escaped and the
+// destination is percent-encoded, while the on-disk name keeps the safe base.
+func TestJiraPullAssetsMarkdownSignificantFilename(t *testing.T) {
+	into := t.TempDir()
+	iss := issueWithAttachments("PROJ-9", "PROJ",
+		att("42", "shot (v1) [final].png", "image/png", "/c/42"),
+	)
+	tr := &assetPullTracker{t: t, issues: []domain.Issue{iss}, blobs: map[string][]byte{"/c/42": []byte("img")}}
+	svc := &JiraService{tr: tr}
+	res, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1, Assets: true})
+	if err != nil {
+		t.Fatalf("pull: %v", err)
+	}
+	if res.Issues[0].Assets != 1 {
+		t.Fatalf("assets = %d, want 1", res.Issues[0].Assets)
+	}
+	if _, err := os.Stat(filepath.Join(into, "PROJ", "PROJ-9.assets", "42-shot (v1) [final].png")); err != nil {
+		t.Fatalf("asset file missing: %v", err)
+	}
+	md := readMD(t, into, "PROJ", "PROJ-9")
+	mustContain(t, md, `![shot (v1) \[final\].png](PROJ-9.assets/42-shot%20%28v1%29%20[final].png)`)
+	// The raw unescaped link must not appear.
+	mustNotContain(t, md, "](PROJ-9.assets/42-shot (v1)")
+}
+
 func readMD(t *testing.T, into, project, key string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(into, project, key+".md"))

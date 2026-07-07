@@ -40,7 +40,7 @@ atl jira issue search --jql '<JQL>' --limit 50
 atl jira pull --jql '<JQL>' --into ~/.atl/<workspace>/ --limit 0 [--fields customfield_10001,customfield_10002]
 atl jira pull --jql '<JQL>' --assets   # also mirror image attachments (opt-in)
 ```
-(`--limit 0` = all; default 100.) → `{ "into": "...", "issues": [ {key, path, assets} ] }`
+(`--limit 0` = all; default 100.) → `{ "into": "...", "issues": [ {key, path, wiki_path, assets} ] }`
 (`assets` and a top-level `assets_skipped` appear only with `--assets` and are omitted at zero.)
 
 On disk per issue:

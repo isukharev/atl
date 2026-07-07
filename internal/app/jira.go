@@ -329,13 +329,17 @@ func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, er
 	return paths, nil
 }
 
-// JiraPulled is one exported issue. Assets counts image attachments mirrored
-// into the issue's <KEY>.assets/ directory; it is omitted at zero so the JSON
-// shape is unchanged for a default (no --assets) pull.
+// JiraPulled is one exported issue. Path points at the rendered read-only .md
+// view; WikiPath points at the sibling <KEY>.wiki substrate — the editable
+// native-wiki source of truth — so agents don't have to derive it by swapping
+// extensions. Assets counts image attachments mirrored into the issue's
+// <KEY>.assets/ directory; it is omitted at zero so the JSON shape is unchanged
+// for a default (no --assets) pull.
 type JiraPulled struct {
-	Key    string `json:"key"`
-	Path   string `json:"path"`
-	Assets int    `json:"assets,omitempty"`
+	Key      string `json:"key"`
+	Path     string `json:"path"`
+	WikiPath string `json:"wiki_path,omitempty"`
+	Assets   int    `json:"assets,omitempty"`
 }
 
 type JiraIssueSnapshot struct {
@@ -470,7 +474,8 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 				return res, fmt.Errorf("snapshot %s: %w", full.Key, err)
 			}
 			rel, _ := filepath.Rel(into, mdPath)
-			res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, Assets: len(assets)})
+			relWiki, _ := filepath.Rel(into, wikiPath)
+			res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, WikiPath: relWiki, Assets: len(assets)})
 			if limit > 0 && len(res.Issues) >= limit {
 				return res, nil
 			}
@@ -645,7 +650,7 @@ func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset) []byte {
 	if len(assets) > 0 {
 		b.WriteString("## Image Attachments\n\n")
 		for _, a := range assets {
-			fmt.Fprintf(&b, "![%s](%s)\n", a.Title, a.Path)
+			fmt.Fprintf(&b, "![%s](%s)\n", mdEscapeAlt(a.Title), mdEscapeDest(a.Path))
 		}
 		b.WriteString("\n")
 	}
@@ -696,6 +701,27 @@ func guardRender(fallback string, render func() string) (out string) {
 		}
 	}()
 	return render()
+}
+
+// mdEscapeAlt escapes a server-supplied string for use as markdown image alt
+// text / link text: backslashes and square brackets would otherwise close the
+// bracket span early and corrupt the read view.
+func mdEscapeAlt(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `[`, `\[`, `]`, `\]`)
+	return r.Replace(s)
+}
+
+// mdEscapeDest percent-encodes the characters that break a markdown link
+// destination (spaces, parentheses, angle brackets, quotes). Filenames pass
+// safepath sanitizing before landing on disk, but that deliberately keeps
+// spaces/parens — legal in filenames, unsafe in a bare (dest). `%` is encoded
+// first so existing percent signs survive round-trip.
+func mdEscapeDest(s string) string {
+	r := strings.NewReplacer(
+		"%", "%25", " ", "%20", "(", "%28", ")", "%29",
+		"<", "%3C", ">", "%3E", `"`, "%22",
+	)
+	return r.Replace(s)
 }
 
 func yamlEscape(s string) string {

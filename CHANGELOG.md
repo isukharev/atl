@@ -39,8 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path when a `--assets` pull ran, else shown as unresolved-image inline code),
   `{color}`, and `[~mentions]`. The renderer never fails a pull — a panic
   degrades one section to a stub that points at `<KEY>.wiki`. The `<KEY>.json`
-  snapshot and the pull result JSON (`path` still points at the `.md`) are
-  unchanged.
+  snapshot is unchanged; the pull result JSON keeps `path` pointing at the `.md`
+  and gains `wiki_path` pointing at the editable substrate. Generated markdown
+  image links escape markdown-significant filename characters, and code fences
+  widen past any backtick runs in `{code}`/`{noformat}` bodies.
 - **`jira pull --assets` mirrors image attachments into per-issue asset dirs.**
   The opt-in `--assets` flag streams each pulled issue's image attachments
   (media type `image/*`) into `<KEY>.assets/<attachment-id>-<filename>` and links

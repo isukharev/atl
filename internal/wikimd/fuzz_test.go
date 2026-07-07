@@ -37,6 +37,8 @@ func FuzzRender(f *testing.F) {
 		"![[weird]] !! {{}} [] || {} ~~ __",
 		"{{mono with ` backtick}}",
 		"Done! v1.2! yes",
+		"{code}\na\n```\nb\n{code}",
+		"[go|https://x/wiki/Go_(lang)] !shot (v1).png!",
 	}
 	for _, s := range seeds {
 		f.Add(s)
