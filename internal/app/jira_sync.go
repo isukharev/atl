@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/mirror"
 	"github.com/isukharev/atl/internal/safepath"
@@ -112,10 +113,14 @@ func (s *JiraService) Push(ctx context.Context, target string, o JiraPushOpts) (
 	if err != nil {
 		return nil, err
 	}
+	// Refresh-after-push rewrites the .md view; resolve the mirror's effective
+	// render settings (no per-run override on push) so a `full`-profile mirror
+	// keeps its rich view after a push instead of silently reverting to default.
+	rs, _ := ResolveRender(s.cfg, root, config.RenderService{}, "jira")
 	res := &JiraPushResult{}
 	var worst error
 	for _, f := range files {
-		item, ferr := s.jiraPushOne(ctx, m, f, o)
+		item, ferr := s.jiraPushOne(ctx, m, f, o, rs)
 		res.Items = append(res.Items, item)
 		// Surface the most actionable failure across a batch (drift/exit-8 wins;
 		// see errRank).
@@ -152,7 +157,7 @@ func (s *JiraService) jiraPushTargets(m *mirror.Mirror, target string) ([]string
 	return files, nil
 }
 
-func (s *JiraService) jiraPushOne(ctx context.Context, m *mirror.Mirror, path string, o JiraPushOpts) (JiraPushItem, error) {
+func (s *JiraService) jiraPushOne(ctx context.Context, m *mirror.Mirror, path string, o JiraPushOpts, rs RenderSettings) (JiraPushItem, error) {
 	item := JiraPushItem{Path: path, DryRun: !o.Apply}
 	lw, body, err := m.LoadWiki(path)
 	if err != nil {
@@ -211,7 +216,7 @@ func (s *JiraService) jiraPushOne(ctx context.Context, m *mirror.Mirror, path st
 	// Refresh the mirror so base/hash/sidecar track the new remote state; a stale
 	// sidecar would make the NEXT push spuriously report drift. A failure here is
 	// a warning, not an error (conf parity).
-	if werr := s.refreshAfterPush(ctx, m, path, lw.Key); werr != nil {
+	if werr := s.refreshAfterPush(ctx, m, path, lw.Key, rs); werr != nil {
 		item.Warning = "pushed but local refresh failed (re-pull recommended): " + werr.Error()
 	}
 	return item, nil
@@ -223,8 +228,8 @@ func (s *JiraService) jiraPushOne(ctx context.Context, m *mirror.Mirror, path st
 // image assets; instead the already-downloaded <KEY>.assets/ files (if any) are
 // re-indexed from disk so a previously `--assets`-pulled issue keeps its image
 // section and inline embeds after a push.
-func (s *JiraService) refreshAfterPush(ctx context.Context, m *mirror.Mirror, wikiPath, key string) error {
-	is, err := s.tr.GetIssue(ctx, key, jiraPullFields(nil))
+func (s *JiraService) refreshAfterPush(ctx context.Context, m *mirror.Mirror, wikiPath, key string, rs RenderSettings) error {
+	is, err := s.tr.GetIssue(ctx, key, jiraPullFields(nil, rs))
 	if err != nil {
 		return err
 	}
@@ -234,7 +239,7 @@ func (s *JiraService) refreshAfterPush(ctx context.Context, m *mirror.Mirror, wi
 		return err
 	}
 	mdPath := filepath.Join(dir, keySeg+".md")
-	if err := safepath.WriteFile(mdPath, renderIssueMarkdown(is, assetsOnDisk(dir, keySeg)), 0o644); err != nil {
+	if err := safepath.WriteFile(mdPath, renderIssueMarkdown(is, assetsOnDisk(dir, keySeg), rs), 0o644); err != nil {
 		_ = os.Remove(mdPath) // best-effort view: never let it contradict the substrate
 	}
 	if err := m.SaveBaseExt(key, []byte(is.Body), wikiExt); err != nil {

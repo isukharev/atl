@@ -315,6 +315,9 @@ atl jira issue attachment get PROJ-1 --id spec.xlsx --into ./attachments
 # Mirror an issue set to disk (add --assets to also mirror image attachments)
 atl jira pull --jql 'project = PROJ' --into mirror-jira
 atl jira pull --jql 'project = PROJ AND status = Open' --assets
+# Choose how much the .md view shows: minimal | default | full (see docs/usage.md)
+atl jira pull --jql 'project = PROJ' --render-profile full
+atl jira render mirror-jira --render-profile default   # re-render offline, no re-pull
 
 # Write
 atl jira issue attachment upload PROJ-1 --file ./spec.xlsx

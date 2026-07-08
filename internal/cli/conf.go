@@ -74,7 +74,7 @@ func newConfCmd() *cobra.Command {
 	c := &cobra.Command{Use: "conf", Short: "Confluence: mirror, read, validate, push (native storage format)"}
 	c.AddCommand(
 		confSearchCmd(), confSpaceCmd(), confPageCmd(),
-		confPullCmd(), confStatusCmd(), confValidateCmd(), confEditCmd(), confApplyCmd(), confPushCmd(), confTableCmd(), confCommentCmd(),
+		confPullCmd(), confRenderCmd(), confStatusCmd(), confValidateCmd(), confEditCmd(), confApplyCmd(), confPushCmd(), confTableCmd(), confCommentCmd(),
 		confAttachmentCmd(), confMeCmd(),
 	)
 	return c
@@ -430,6 +430,7 @@ func confPageCmd() *cobra.Command {
 
 func confPullCmd() *cobra.Command {
 	var o app.PullOpts
+	var rf renderFlags
 	cmd := &cobra.Command{
 		Use:   "pull",
 		Short: "Mirror pages (.csf + .md + .meta.json + assets) by --id/--cql/--space",
@@ -446,6 +447,11 @@ func confPullCmd() *cobra.Command {
 			if set > 1 {
 				return usageErr("--id, --cql and --space are mutually exclusive")
 			}
+			override, err := rf.override()
+			if err != nil {
+				return err
+			}
+			o.Render = override
 			svc, err := confService()
 			if err != nil {
 				return err
@@ -456,6 +462,7 @@ func confPullCmd() *cobra.Command {
 			}
 			// Warn on stderr (never stdout — that would corrupt the JSON result).
 			warnIfTruncated(cmd.ErrOrStderr(), res)
+			warnRender(cmd.ErrOrStderr(), res.Warnings)
 			return emit(cmd, res, func() string {
 				var b strings.Builder
 				fmt.Fprintf(&b, "mirror: %s (%d pages)\n", res.Root, len(res.Pages))
@@ -477,6 +484,48 @@ func confPullCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&o.Assets, "assets", false, "download diagram/image renders")
 	cmd.Flags().BoolVar(&o.Comments, "comments", false, "mirror page comments into <slug>.comments.json/.md sidecars")
 	cmd.Flags().StringVar(&o.Into, "into", mirrorRootDefault("mirror"), "mirror root dir (default: $ATL_MIRROR_ROOT or \"mirror\")")
+	rf.register(cmd)
+	return cmd
+}
+
+func confRenderCmd() *cobra.Command {
+	var into string
+	var rf renderFlags
+	cmd := &cobra.Command{
+		Use:   "render [DIR|FILE.md|FILE.csf]",
+		Short: "Regenerate .md views from local .csf + meta + sidecars (offline; no network/PAT)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target := into
+			if len(args) == 1 {
+				target = args[0]
+			}
+			override, err := rf.override()
+			if err != nil {
+				return err
+			}
+			cfg, err := loadConfig()
+			if err != nil {
+				return err
+			}
+			svc := app.NewConfluenceRenderer(cfg)
+			res, err := svc.Render(target, override)
+			if err != nil {
+				return err
+			}
+			warnRender(cmd.ErrOrStderr(), res.Warnings)
+			return emit(cmd, res, func() string {
+				var b strings.Builder
+				fmt.Fprintf(&b, "mirror: %s (%d pages)\n", res.Root, len(res.Rendered))
+				for _, r := range res.Rendered {
+					fmt.Fprintf(&b, "  %s  %s\n", r.ID, r.Path)
+				}
+				return strings.TrimRight(b.String(), "\n")
+			})
+		},
+	}
+	cmd.Flags().StringVar(&into, "into", mirrorRootDefault("mirror"), "mirror root dir when no target is given")
+	rf.register(cmd)
 	return cmd
 }
 

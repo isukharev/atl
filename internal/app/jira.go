@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/mirror"
 	"github.com/isukharev/atl/internal/safepath"
@@ -350,12 +353,15 @@ type JiraIssueSnapshot struct {
 
 // JiraPullOpts narrows what Pull selects and whether it also mirrors image
 // attachments. A zero-value Assets keeps the default metadata/text-only pull.
+// Render is the per-run flag override for the markdown view profile; a zero value
+// leaves the effective settings (local + global config) untouched.
 type JiraPullOpts struct {
 	JQL    string
 	Into   string
 	Limit  int
 	Fields []string
 	Assets bool
+	Render config.RenderService
 }
 
 // JiraPullResult is the pull summary. AssetsSkipped counts image attachments
@@ -365,6 +371,11 @@ type JiraPullResult struct {
 	Into          string       `json:"into"`
 	Issues        []JiraPulled `json:"issues"`
 	AssetsSkipped int          `json:"assets_skipped,omitempty"`
+	// Warnings carries advisory render-resolution messages (unknown section names
+	// in a profile include/exclude, malformed local config). It is omitted when
+	// empty so the default pull JSON shape is unchanged; the CLI prints it on
+	// stderr, never stdout.
+	Warnings []string `json:"-"`
 }
 
 // JiraIssueAsset is one image attachment selected for mirroring. Path is the
@@ -391,7 +402,14 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 	limit := opts.Limit
 	res := &JiraPullResult{Into: into, Issues: []JiraPulled{}}
 	cursor := ""
-	pullFields := jiraPullFields(opts.Fields)
+	// Resolve the effective render settings for THIS mirror (local config lives
+	// under the pull root) so the API field projection covers every enabled
+	// section — `full` never needs a second fetch per issue. The projection only
+	// ever widens from the compat base set (the `.json` snapshot keeps its
+	// standard shape under smaller profiles; profiles shape the .md view only).
+	rs, warns := ResolveRender(s.cfg, into, opts.Render, "jira")
+	res.Warnings = warns
+	pullFields := jiraPullFields(opts.Fields, rs)
 	// Wire the pull through the mirror sidecar so an edited <KEY>.wiki can later be
 	// pushed back under the drift guard. One sidecar load (BeginSync) and one save
 	// (Flush) for the whole pull; the deferred flush persists the issues already
@@ -447,7 +465,7 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 				assets, skipped = s.mirrorIssueImages(ctx, dir, keySeg, full.Fields["attachment"])
 				res.AssetsSkipped += skipped
 			}
-			if err := safepath.WriteFile(mdPath, renderIssueMarkdown(full, assets), 0o644); err != nil {
+			if err := safepath.WriteFile(mdPath, renderIssueMarkdown(full, assets, rs), 0o644); err != nil {
 				return res, err
 			}
 			snap := JiraIssueSnapshot{Key: full.Key, ID: full.ID, Fields: full.Fields}
@@ -598,17 +616,47 @@ func asInt64(v any) int64 {
 	}
 }
 
-func jiraPullFields(extra []string) []string {
+// jiraPullFields builds the API `fields=` projection for a pull. The base set
+// covers the default profile; rs widens it so an enabled section's data is
+// fetched in the SAME search projection — `full` therefore needs no per-issue
+// re-fetch. extra is the caller's explicit --fields (always included). The sprint
+// section is intentionally NOT widened here: its custom field id is
+// backend-specific, so it renders only when the field is already present (pulled
+// via --fields or a configured custom_field), matching its best-effort contract.
+func jiraPullFields(extra []string, rs RenderSettings) []string {
 	base := []string{"summary", "description", "status", "issuetype", "project", "assignee", "reporter", "labels", "issuelinks", "comment", "attachment"}
-	seen := make(map[string]bool, len(base)+len(extra))
-	out := make([]string, 0, len(base)+len(extra))
-	for _, f := range append(base, extra...) {
-		f = strings.TrimSpace(f)
-		if f == "" || seen[f] {
-			continue
+	// API field name per enabled section (only those not already in base).
+	sectionField := map[string]string{
+		SecPriority:    "priority",
+		SecParent:      "parent",
+		SecCreated:     "created",
+		SecUpdated:     "updated",
+		SecResolution:  "resolution",
+		SecDuedate:     "duedate",
+		SecComponents:  "components",
+		SecFixVersions: "fixVersions",
+		SecSubtasks:    "subtasks",
+	}
+	var widen []string
+	for sec, field := range sectionField {
+		if rs.On(sec) {
+			widen = append(widen, field)
 		}
-		seen[f] = true
-		out = append(out, f)
+	}
+	sort.Strings(widen) // deterministic projection order
+	widen = append(widen, rs.CustomFields...)
+
+	seen := make(map[string]bool, len(base)+len(widen)+len(extra))
+	out := make([]string, 0, len(base)+len(widen)+len(extra))
+	for _, group := range [][]string{base, widen, extra} {
+		for _, f := range group {
+			f = strings.TrimSpace(f)
+			if f == "" || seen[f] {
+				continue
+			}
+			seen[f] = true
+			out = append(out, f)
+		}
 	}
 	return out
 }
@@ -623,22 +671,50 @@ const jiraDescStub = "<!-- atl: markdown view unavailable for this revision (the
 // jiraCommentStub is the same guard for a comment body that fails to render.
 const jiraCommentStub = "<!-- atl: comment could not be rendered -->"
 
-// renderIssueMarkdown emits the read-only markdown view: frontmatter + summary +
-// a rendered "## Description" (the native wiki body run through wikimd — the
-// verbatim body lives in the sibling <KEY>.wiki), the generated "## Image
-// Attachments" section (present only when a --assets pull downloaded images),
-// links, and rendered comments. It never returns an error; a renderer panic
-// degrades one section to a stub (see guardRender) rather than failing the pull.
-func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset) []byte {
+// renderIssueMarkdown emits the read-only markdown view under the resolved render
+// settings: a YAML frontmatter (key + summary always; every other field only when
+// its section is enabled AND present), a rendered "## Description" (the native
+// wiki body run through wikimd — the verbatim body lives in the sibling
+// <KEY>.wiki), and the enabled body sections. It never returns an error; a
+// renderer panic degrades one section to a stub (see guardRender) rather than
+// failing the pull. Every field accessor is defensive (values come from a
+// server), so a hostile field shape can never panic.
+func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset, rs RenderSettings) []byte {
 	images := assetImageMap(assets)
 	var b strings.Builder
-	fmt.Fprintf(&b, "---\nkey: %s\nsummary: %s\nstatus: %s\ntype: %s\nproject: %s\n",
-		is.Key, yamlEscape(is.Summary), is.Status, is.Type, is.Project)
-	if is.Assignee != "" {
-		fmt.Fprintf(&b, "assignee: %s\n", yamlEscape(is.Assignee))
-	}
-	if len(is.Labels) > 0 {
+	b.WriteString("---\n")
+	fmt.Fprintf(&b, "key: %s\n", is.Key)
+	fmt.Fprintf(&b, "summary: %s\n", yamlEscape(is.Summary))
+	emitFrontmatterField(&b, rs, SecStatus, is.Status)
+	emitFrontmatterField(&b, rs, SecType, is.Type)
+	emitFrontmatterField(&b, rs, SecProject, is.Project)
+	emitFrontmatterField(&b, rs, SecPriority, nestedNameField(is.Fields, "priority"))
+	emitFrontmatterField(&b, rs, SecParent, parentKey(is.Fields))
+	emitFrontmatterField(&b, rs, SecAssignee, is.Assignee)
+	emitFrontmatterField(&b, rs, SecReporter, is.Reporter)
+	emitFrontmatterField(&b, rs, SecResolution, nestedNameField(is.Fields, "resolution"))
+	emitFrontmatterField(&b, rs, SecDuedate, strField(is.Fields, "duedate"))
+	emitFrontmatterField(&b, rs, SecCreated, strField(is.Fields, "created"))
+	emitFrontmatterField(&b, rs, SecUpdated, strField(is.Fields, "updated"))
+	if rs.On(SecLabels) && len(is.Labels) > 0 {
 		fmt.Fprintf(&b, "labels: [%s]\n", strings.Join(is.Labels, ", "))
+	}
+	if rs.On(SecComponents) {
+		if names := namedListField(is.Fields, "components"); len(names) > 0 {
+			fmt.Fprintf(&b, "components: [%s]\n", strings.Join(names, ", "))
+		}
+	}
+	if rs.On(SecFixVersions) {
+		if names := namedListField(is.Fields, "fixVersions"); len(names) > 0 {
+			fmt.Fprintf(&b, "fix_versions: [%s]\n", strings.Join(names, ", "))
+		}
+	}
+	if rs.On(SecCustomFields) {
+		for _, id := range rs.CustomFields {
+			if v, ok := customFieldValue(is.Fields, id); ok {
+				fmt.Fprintf(&b, "%s: %s\n", id, yamlEscape(v))
+			}
+		}
 	}
 	b.WriteString("---\n\n")
 	fmt.Fprintf(&b, "# %s — %s\n\n", is.Key, is.Summary)
@@ -649,21 +725,52 @@ func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset) []byte {
 		}))
 		b.WriteString("\n\n")
 	}
-	if len(assets) > 0 {
+	if rs.On(SecAttachments) && len(assets) > 0 {
 		b.WriteString("## Image Attachments\n\n")
 		for _, a := range assets {
 			fmt.Fprintf(&b, "![%s](%s)\n", mdEscapeAlt(a.Title), mdEscapeDest(a.Path))
 		}
 		b.WriteString("\n")
 	}
-	if len(is.Links) > 0 {
+	if rs.On(SecAttachmentsAll) {
+		if list := decodeIssueAssets(is.Fields["attachment"]); len(list) > 0 {
+			b.WriteString("## Attachments\n\n")
+			for _, a := range list {
+				fmt.Fprintf(&b, "- %s (%s, %s)\n", a.Title, humanSize(a.FileSize), mediaTypeOr(a.MediaType))
+			}
+			b.WriteString("\n")
+		}
+	}
+	if rs.On(SecLinks) && len(is.Links) > 0 {
 		b.WriteString("## Links\n\n")
 		for _, l := range is.Links {
 			fmt.Fprintf(&b, "- %s %s\n", l.Type, l.Key)
 		}
 		b.WriteString("\n")
 	}
-	if len(is.Comments) > 0 {
+	if rs.On(SecSubtasks) {
+		if subs := subtasks(is.Fields); len(subs) > 0 {
+			b.WriteString("## Subtasks\n\n")
+			for _, st := range subs {
+				if st.summary != "" {
+					fmt.Fprintf(&b, "- %s — %s\n", st.key, st.summary)
+				} else {
+					fmt.Fprintf(&b, "- %s\n", st.key)
+				}
+			}
+			b.WriteString("\n")
+		}
+	}
+	if rs.On(SecSprint) {
+		if names := sprintNames(is.Fields); len(names) > 0 {
+			b.WriteString("## Sprint\n\n")
+			for _, n := range names {
+				fmt.Fprintf(&b, "- %s\n", n)
+			}
+			b.WriteString("\n")
+		}
+	}
+	if rs.On(SecComments) && len(is.Comments) > 0 {
 		b.WriteString("## Comments\n\n")
 		for _, c := range is.Comments {
 			body := guardRender(jiraCommentStub, func() string {
@@ -673,6 +780,217 @@ func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset) []byte {
 		}
 	}
 	return []byte(b.String())
+}
+
+// emitFrontmatterField writes `name: value` when the section is enabled and the
+// value is non-empty. String values are YAML-escaped.
+func emitFrontmatterField(b *strings.Builder, rs RenderSettings, name, value string) {
+	if !rs.On(name) || value == "" {
+		return
+	}
+	fmt.Fprintf(b, "%s: %s\n", name, yamlEscape(value))
+}
+
+// nestedNameField reads fields[key].name defensively (Jira wraps priority /
+// resolution / status as {name: ...} objects).
+func nestedNameField(fields map[string]any, key string) string {
+	if m, ok := fields[key].(map[string]any); ok {
+		return asString(m["name"])
+	}
+	return ""
+}
+
+// parentKey reads fields["parent"].key (the epic/parent link).
+func parentKey(fields map[string]any) string {
+	if m, ok := fields["parent"].(map[string]any); ok {
+		return asString(m["key"])
+	}
+	return ""
+}
+
+// strField reads a plain string field (e.g. created/updated/duedate).
+func strField(fields map[string]any, key string) string {
+	return asString(fields[key])
+}
+
+// namedListField extracts the `name` of each element of an array-of-objects field
+// (components, fixVersions), skipping malformed entries.
+func namedListField(fields map[string]any, key string) []string {
+	arr, ok := fields[key].([]any)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, item := range arr {
+		if m, ok := item.(map[string]any); ok {
+			if n := asString(m["name"]); n != "" {
+				out = append(out, n)
+			}
+		}
+	}
+	return out
+}
+
+// customFieldValue renders one configured custom field's value from the raw
+// fields map: a scalar verbatim, an object via name/value/displayName, an array
+// comma-joined. Returns ok=false when the field is missing or empty so a caller
+// omits the line rather than emitting a blank.
+func customFieldValue(fields map[string]any, id string) (string, bool) {
+	v, present := fields[id]
+	if !present || v == nil {
+		return "", false
+	}
+	s := renderFieldValue(v)
+	if s == "" {
+		return "", false
+	}
+	return s, true
+}
+
+// renderFieldValue flattens an arbitrary decoded-JSON field value to a compact
+// string. It is total: any shape maps to some string.
+func renderFieldValue(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case bool:
+		if t {
+			return "true"
+		}
+		return "false"
+	case float64:
+		// encoding/json decodes every JSON number as float64; -1 precision keeps
+		// integers integral (13, not 13.00) and floats exact (0.5).
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	case json.Number:
+		return t.String()
+	case map[string]any:
+		for _, k := range []string{"name", "value", "displayName"} {
+			if s := asString(t[k]); s != "" {
+				return s
+			}
+		}
+		return ""
+	case []any:
+		var parts []string
+		for _, item := range t {
+			if s := renderFieldValue(item); s != "" {
+				parts = append(parts, s)
+			}
+		}
+		return strings.Join(parts, ", ")
+	default:
+		return asString(v)
+	}
+}
+
+// subtask is one child issue for the "## Subtasks" section.
+type subtask struct {
+	key     string
+	summary string
+}
+
+// subtasks extracts child issues from fields["subtasks"] (an array of {key,
+// fields:{summary}}), tolerating missing/odd entries.
+func subtasks(fields map[string]any) []subtask {
+	arr, ok := fields["subtasks"].([]any)
+	if !ok {
+		return nil
+	}
+	var out []subtask
+	for _, item := range arr {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		st := subtask{key: asString(m["key"])}
+		if sf, ok := m["fields"].(map[string]any); ok {
+			st.summary = asString(sf["summary"])
+		}
+		if st.key != "" {
+			out = append(out, st)
+		}
+	}
+	return out
+}
+
+// sprintNames best-effort extracts sprint names from whichever custom field
+// carries them. Jira Agile stores the sprint field either as an array of objects
+// ({name, state, ...}) or, on older DC, as an array of GreenHopper-serialized
+// strings ("...[...,state=ACTIVE,name=Sprint 1,...]"). Fields are scanned in
+// sorted key order for determinism; a field that does not look like a sprint is
+// skipped. Returns nil when nothing extractable is present.
+func sprintNames(fields map[string]any) []string {
+	var out []string
+	for _, k := range sortedFieldKeys(fields) {
+		arr, ok := fields[k].([]any)
+		if !ok || len(arr) == 0 {
+			continue
+		}
+		for _, item := range arr {
+			switch v := item.(type) {
+			case map[string]any:
+				// An object sprint carries a name plus a sprint-ish marker.
+				if _, hasState := v["state"]; hasState {
+					if n := asString(v["name"]); n != "" {
+						out = append(out, n)
+					}
+				} else if _, hasBoard := v["boardId"]; hasBoard {
+					if n := asString(v["name"]); n != "" {
+						out = append(out, n)
+					}
+				}
+			case string:
+				if n := greenhopperSprintName(v); n != "" {
+					out = append(out, n)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// greenhopperSprintName parses the `name=` value out of a GreenHopper-serialized
+// sprint string, but only when it also carries a `state=` marker so a random
+// "name=" string is not mistaken for a sprint.
+func greenhopperSprintName(s string) string {
+	if !strings.Contains(s, "state=") || !strings.Contains(s, "name=") {
+		return ""
+	}
+	i := strings.Index(s, "name=")
+	rest := s[i+len("name="):]
+	// The value ends at the next comma or the closing bracket.
+	end := len(rest)
+	for j, r := range rest {
+		if r == ',' || r == ']' {
+			end = j
+			break
+		}
+	}
+	return strings.TrimSpace(rest[:end])
+}
+
+// humanSize renders a byte count compactly for the attachment list.
+func humanSize(n int64) string {
+	switch {
+	case n <= 0:
+		return "0 B"
+	case n < 1024:
+		return fmt.Sprintf("%d B", n)
+	case n < 1024*1024:
+		return fmt.Sprintf("%.1f KB", float64(n)/1024)
+	default:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1024*1024))
+	}
+}
+
+func mediaTypeOr(mt string) string {
+	if mt == "" {
+		return "unknown"
+	}
+	return mt
 }
 
 // assetImageMap indexes downloaded image attachments by filename so the wiki

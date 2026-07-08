@@ -260,6 +260,88 @@ and ignored. Precedence is **local > global > default**, merged per key.
 
 ---
 
+## Render profiles
+
+The `.md` files in a mirror are read-only views regenerated from the native
+substrate (`.csf` / `.wiki`). A **profile** chooses what those views contain. The
+substrate is never affected — profiles only change the derived `.md`, so dirty/
+drift detection (which hashes the substrate) is unchanged.
+
+| profile | Jira `.md` | Confluence `.md` |
+|---|---|---|
+| `minimal` | `key` + `summary` frontmatter, `## Description` only | body only (byte-identical to `default`) |
+| `default` | minimal **plus** `status`, `type`, `project`, `assignee`, `labels`, `priority`, `parent`, `## Image Attachments`, `## Links`, `## Comments` | body only (byte-identical to the pre-profile view) |
+| `full` | everything visible: default **plus** `reporter`, `created`/`updated`, `resolution`, `duedate`, `components`, `fix_versions`, configured `custom_fields`, `## Attachments` (non-image list), `## Subtasks`, `## Sprint` | YAML frontmatter (`title`, `space`, `version`, `labels`) **plus** a `## Comments` section (from the `--comments` sidecar when present) |
+
+**Section names** (for `include`/`exclude`). Jira: `status`, `type`, `project`,
+`assignee`, `labels`, `priority`, `parent`, `reporter`, `created`, `updated`,
+`resolution`, `duedate`, `components`, `fix_versions`, `custom_fields`,
+`attachments`, `attachments_all`, `links`, `comments`, `sprint`, `subtasks`.
+Confluence: `frontmatter`, `comments`. An unknown name is warned about on stderr
+and ignored, never an error.
+
+**Resolution order** (highest wins, merged per key): `--render-profile` /
+`--render-include` / `--render-exclude` flags **>** local `.atl/config.json`
+**>** global config **>** built-in `default`. `include` adds sections to the
+profile base; `exclude` removes them.
+
+Two deliberate consequences of per-key merging:
+
+- **List keys can be replaced, not emptied, by a higher layer.** An empty
+  `include`/`exclude`/`custom_fields` value means "not set here" and falls
+  through to the lower layer — a local config or flag cannot clear a list the
+  global config sets. To stop rendering a globally-configured custom field in
+  one mirror, override the list with a different value, or counter it (e.g.
+  `--render-exclude custom_fields`), or remove the key from the global config.
+- **Profiles shape only the `.md` view.** The `<KEY>.json` snapshot keeps its
+  standard field projection regardless of profile (`minimal` does not shrink
+  it); `full` *widens* the pull's API request so every enabled section has its
+  data, but nothing is removed for smaller profiles.
+
+```sh
+# per run
+atl jira pull --jql "project=PROJ" --render-profile full
+atl conf pull --id 123 --comments --render-profile full
+atl jira pull --jql "project=PROJ" --render-include sprint --render-exclude comments
+
+# persisted (see atl config set)
+atl config set render.jira.profile full
+atl config set --local render.jira.custom_fields customfield_10001,customfield_10002
+```
+
+`custom_fields` (Jira only) lists custom field ids to surface in the frontmatter
+under `full` (or when `custom_fields` is included); each renders as
+`<id>: <value>` from the raw field (scalar verbatim; object via
+`name`/`value`/`displayName`; array comma-joined; missing → omitted).
+
+### `atl jira render` / `atl conf render`
+
+Regenerate the `.md` views of an existing mirror **offline** — no network, no
+PAT — so changing a profile does not force a re-pull.
+
+```sh
+atl jira render                       # re-render the whole mirror (default root)
+atl jira render mirror-jira/PROJ/PROJ-1.md --render-profile full
+atl conf render mirror --render-profile full
+atl conf render mirror/DOCS/page/page.csf --render-exclude comments
+```
+
+The target is a mirror directory, a `.md`, or the substrate file (`.wiki` for
+Jira, `.csf` for Confluence); the mirror root is found by walking up to the
+`.atl` marker. Only `.md` files are rewritten — the `.csf`/`.wiki`/`.json` and
+sidecars are never touched, so `jira status` / `conf status` stay clean across a
+re-render. A Confluence `.csf` that fails to parse yields the same
+markdown-unavailable stub as `pull`.
+
+| flag | description |
+|---|---|
+| `--render-profile` | `minimal` \| `default` \| `full` (overrides config) |
+| `--render-include` | comma-separated sections to add to the profile |
+| `--render-exclude` | comma-separated sections to remove from the profile |
+| `--into ROOT` | mirror root when no target argument is given |
+
+---
+
 ## `atl auth`
 
 Manage Personal Access Tokens. PATs are written to a mode-0600 credentials
@@ -402,8 +484,14 @@ Flags:
 | `--assets` | download draw.io PNG renders and inline images |
 | `--comments` | mirror page comments to `<slug>.comments.json` (+ `.comments.md`) sidecars |
 | `--into` | mirror root directory (default `mirror`) |
+| `--render-profile` | `.md` view profile: `minimal` \| `default` \| `full` (see [Render profiles](#render-profiles)) |
+| `--render-include` | comma-separated sections to add to the profile |
+| `--render-exclude` | comma-separated sections to remove from the profile |
 
 At most one of `--id`, `--cql`, `--space` may be given.
+
+The `--render-*` flags override the configured profile for this run; the pull
+result JSON is unchanged by the profile (they affect only the `.md` view).
 
 `--comments` is opt-in: without it, no comment endpoint is contacted and no
 comment files are written. Comments are auxiliary read-only data — they never
@@ -1247,6 +1335,13 @@ Flags:
 | `--limit` | max issues (0 = all; default 100) |
 | `--fields` | extra comma-separated fields to include in JSON snapshots; core fields needed for rendering are always included |
 | `--assets` | also download each issue's image attachments into a per-issue `<KEY>.assets/` directory and link them from the `.md` (opt-in; off by default) |
+| `--render-profile` | `.md` view profile: `minimal` \| `default` \| `full` (see [Render profiles](#render-profiles)) |
+| `--render-include` | comma-separated sections to add to the profile |
+| `--render-exclude` | comma-separated sections to remove from the profile |
+
+Under `full`, `pull` widens its API `fields=` projection to cover the active
+profile's sections, so no extra per-issue fetch is needed. The pull result JSON is
+unchanged by the profile.
 
 With `--assets`, image attachments (media type `image/*`) are streamed into
 `<KEY>.assets/<attachment-id>-<filename>` and referenced from a generated

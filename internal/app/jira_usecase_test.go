@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -307,6 +308,13 @@ func TestJiraWrappersPropagateSentinel(t *testing.T) {
 
 // ---- renderIssueMarkdown branches ----
 
+// jiraRS builds the resolved render settings for a profile (no include/exclude),
+// the way the pull/render paths do, for renderIssueMarkdown unit tests.
+func jiraRS(profile string) RenderSettings {
+	rs, _ := computeSettings("jira", config.RenderService{Profile: profile})
+	return rs
+}
+
 func TestRenderIssueMarkdownFull(t *testing.T) {
 	is := &domain.Issue{
 		Key:      "PROJ-42",
@@ -326,7 +334,7 @@ func TestRenderIssueMarkdownFull(t *testing.T) {
 			{Author: "carol", Created: "2026-01-02", Body: "second comment"},
 		},
 	}
-	got := string(renderIssueMarkdown(is, nil))
+	got := string(renderIssueMarkdown(is, nil, jiraRS("default")))
 
 	mustContain(t, got, "key: PROJ-42")
 	mustContain(t, got, "status: In Progress")
@@ -363,7 +371,7 @@ func TestRenderIssueMarkdownMinimal(t *testing.T) {
 		Type:    "Task",
 		Project: "MIN",
 	}
-	got := string(renderIssueMarkdown(is, nil))
+	got := string(renderIssueMarkdown(is, nil, jiraRS("default")))
 
 	mustContain(t, got, "key: MIN-1")
 	mustContain(t, got, "# MIN-1 — Bare issue")
@@ -385,7 +393,7 @@ func TestRenderIssueMarkdownYAMLEscape(t *testing.T) {
 		Project:  "Q",
 		Assignee: "name: with colon",
 	}
-	got := string(renderIssueMarkdown(is, nil))
+	got := string(renderIssueMarkdown(is, nil, jiraRS("default")))
 	mustContain(t, got, `summary: "Title: with \"quotes\" and # hash"`)
 	mustContain(t, got, `assignee: "name: with colon"`)
 	// but the H1 heading uses the raw summary (not the escaped form)

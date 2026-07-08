@@ -176,11 +176,16 @@ func (m *Mirror) AssetSink(dir, slug string) domain.AssetSink { return pageSink{
 // through BeginSync/Flush so the sidecar is loaded and saved once, not once
 // per page.
 func (m *Mirror) Write(dir, slug string, page *domain.Resource, refs []domain.Ref) error {
+	return m.WriteView(dir, slug, page, refs, MDViewOpts{})
+}
+
+// WriteView is Write with an explicit markdown-view profile.
+func (m *Mirror) WriteView(dir, slug string, page *domain.Resource, refs []domain.Ref, mdOpts MDViewOpts) error {
 	b, err := m.BeginSync()
 	if err != nil {
 		return err
 	}
-	if err := b.Write(dir, slug, page, refs); err != nil {
+	if err := b.WriteView(dir, slug, page, refs, mdOpts); err != nil {
 		return err
 	}
 	return b.Flush()
@@ -199,7 +204,7 @@ type commentSidecar struct {
 // copy) and returns the .csf path relative to the mirror root; sidecar state
 // is recorded by the caller. When cs is non-nil it also writes the comment
 // sidecar files and stamps the comment counters into .meta.json.
-func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []domain.Ref, cs *commentSidecar) (rel string, err error) {
+func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []domain.Ref, cs *commentSidecar, mdOpts MDViewOpts) (rel string, err error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -210,11 +215,13 @@ func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []
 	// Markdown view — best-effort by contract: a render or write failure never
 	// fails a pull. The view must also never contradict the source of truth, so
 	// an unparseable body overwrites any previous revision's .md with a stub,
-	// and a failed write falls back to removing the stale file.
+	// and a failed write falls back to removing the stale file. mdOpts carries the
+	// profile-driven frontmatter/comments additions; a zero value renders exactly
+	// the pre-profile body-only view.
 	mdPath := filepath.Join(dir, slug+".md")
 	md := []byte(MDUnavailableStub)
 	if root, err := csf.Parse(page.Body); err == nil {
-		md = RenderMarkdown(root, refs)
+		md = RenderMarkdownOpts(root, refs, mdOpts)
 	}
 	if err := safepath.WriteFile(mdPath, md, 0o644); err != nil {
 		_ = os.Remove(mdPath)
@@ -301,20 +308,28 @@ func (m *Mirror) BeginSync() (*SyncBatch, error) {
 }
 
 // Write persists a page like Mirror.Write but records the sync state in
-// memory; the caller must Flush once at the end of the batch.
+// memory; the caller must Flush once at the end of the batch. The .md view is the
+// default body-only render.
 func (b *SyncBatch) Write(dir, slug string, page *domain.Resource, refs []domain.Ref) error {
-	return b.write(dir, slug, page, refs, nil)
+	return b.write(dir, slug, page, refs, nil, MDViewOpts{})
+}
+
+// WriteView is Write with an explicit markdown-view profile (frontmatter, etc.).
+func (b *SyncBatch) WriteView(dir, slug string, page *domain.Resource, refs []domain.Ref, mdOpts MDViewOpts) error {
+	return b.write(dir, slug, page, refs, nil, mdOpts)
 }
 
 // WriteComments persists a page plus its comment sidecars (`pull --comments`).
 // The comment bytes are auxiliary: the recorded sync state below hashes
 // page.Body alone, so a page carrying comments sidecars still reads as Clean.
-func (b *SyncBatch) WriteComments(dir, slug string, page *domain.Resource, refs []domain.Ref, comments []domain.Comment, truncated bool) error {
-	return b.write(dir, slug, page, refs, &commentSidecar{comments: comments, truncated: truncated})
+// mdOpts drives whether the .md view embeds a "## Comments" section (full
+// profile) or leaves comments in the sidecar only (default profile).
+func (b *SyncBatch) WriteComments(dir, slug string, page *domain.Resource, refs []domain.Ref, comments []domain.Comment, truncated bool, mdOpts MDViewOpts) error {
+	return b.write(dir, slug, page, refs, &commentSidecar{comments: comments, truncated: truncated}, mdOpts)
 }
 
-func (b *SyncBatch) write(dir, slug string, page *domain.Resource, refs []domain.Ref, cs *commentSidecar) error {
-	rel, err := b.m.writePageFiles(dir, slug, page, refs, cs)
+func (b *SyncBatch) write(dir, slug string, page *domain.Resource, refs []domain.Ref, cs *commentSidecar, mdOpts MDViewOpts) error {
+	rel, err := b.m.writePageFiles(dir, slug, page, refs, cs, mdOpts)
 	if err != nil {
 		return err
 	}

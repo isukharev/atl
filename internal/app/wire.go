@@ -15,12 +15,16 @@ import (
 )
 
 // ConfluenceService bundles the Confluence use-cases over a DocStore + mirror.
+// cfg holds the non-secret global config so render resolution (profiles) can
+// merge global + per-mirror local settings; it is never used to reach the
+// backend (that goes through store).
 type ConfluenceService struct {
 	store    domain.DocStore
 	users    domain.UserResolver
 	assets   domain.AssetResolver
 	baseURL  string
 	verifier domain.Verifier
+	cfg      *config.Config
 }
 
 // JiraService bundles the Jira use-cases over a Tracker. agile and structure are
@@ -32,6 +36,7 @@ type JiraService struct {
 	agile     domain.Agile
 	structure domain.StructureReader
 	baseURL   string
+	cfg       *config.Config
 }
 
 // NewConfluence wires the Confluence adapter from config + PAT.
@@ -55,7 +60,15 @@ func NewConfluence(cfg *config.Config, version string) (*ConfluenceService, erro
 		return nil, err
 	}
 	cf := confluence.New(cfg.ConfluenceURL, tok, version)
-	return &ConfluenceService{store: cf, users: cf.ResolveUser, assets: cf, baseURL: cfg.ConfluenceURL, verifier: cf}, nil
+	return &ConfluenceService{store: cf, users: cf.ResolveUser, assets: cf, baseURL: cfg.ConfluenceURL, verifier: cf, cfg: cfg}, nil
+}
+
+// NewConfluenceRenderer builds a ConfluenceService for the offline `conf render`
+// use-case. It carries only the global config (for profile resolution) and never
+// constructs a DocStore, so it needs no backend URL or PAT — Render walks the
+// local mirror and rewrites `.md` views without any network access.
+func NewConfluenceRenderer(cfg *config.Config) *ConfluenceService {
+	return &ConfluenceService{cfg: cfg}
 }
 
 // NewJira wires the Jira adapter from config + PAT.
@@ -76,5 +89,13 @@ func NewJira(cfg *config.Config, version string) (*JiraService, error) {
 		return nil, err
 	}
 	j := jira.New(cfg.JiraURL, tok, version)
-	return &JiraService{tr: j, agile: j, structure: j, baseURL: cfg.JiraURL}, nil
+	return &JiraService{tr: j, agile: j, structure: j, baseURL: cfg.JiraURL, cfg: cfg}, nil
+}
+
+// NewJiraRenderer builds a JiraService for the offline `jira render` use-case. It
+// carries only the global config (for profile resolution) and never constructs a
+// Tracker, so it needs no backend URL or PAT — Render decodes local `<KEY>.json`
+// snapshots and rewrites `.md` views without any network access.
+func NewJiraRenderer(cfg *config.Config) *JiraService {
+	return &JiraService{cfg: cfg}
 }

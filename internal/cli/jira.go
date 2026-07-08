@@ -49,7 +49,7 @@ func wikiBody(cmd *cobra.Command, fromFile, fromMD string) ([]byte, error) {
 
 func newJiraCmd() *cobra.Command {
 	c := &cobra.Command{Use: "jira", Short: "Jira: read/search/pull issues, edit via commands (native wiki)"}
-	cmds := []*cobra.Command{jiraIssueCmd(), jiraPullCmd(), jiraStatusCmd(), jiraPushCmd(), jiraExportCmd(), jiraPlanningCmd(), jiraQualityReportCmd(), jiraMeCmd(), jiraUserCmd(), jiraBoardCmd(), jiraSprintCmd(), jiraStructureCmd()}
+	cmds := []*cobra.Command{jiraIssueCmd(), jiraPullCmd(), jiraRenderCmd(), jiraStatusCmd(), jiraPushCmd(), jiraExportCmd(), jiraPlanningCmd(), jiraQualityReportCmd(), jiraMeCmd(), jiraUserCmd(), jiraBoardCmd(), jiraSprintCmd(), jiraStructureCmd()}
 	cmds = append(cmds, jiraMetaCmds()...)
 	c.AddCommand(cmds...)
 	return c
@@ -1018,12 +1018,17 @@ func jiraPullCmd() *cobra.Command {
 	var fields string
 	var limit int
 	var assets bool
+	var rf renderFlags
 	cmd := &cobra.Command{
 		Use:   "pull",
 		Short: "Export issues matching --jql to one md+json per issue",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if jql == "" {
 				return usageErr("--jql is required")
+			}
+			override, err := rf.override()
+			if err != nil {
+				return err
 			}
 			svc, err := jiraService()
 			if err != nil {
@@ -1035,6 +1040,7 @@ func jiraPullCmd() *cobra.Command {
 				Limit:  limit,
 				Fields: splitFields(fields),
 				Assets: assets,
+				Render: override,
 			})
 			if err != nil {
 				return err
@@ -1047,6 +1053,7 @@ func jiraPullCmd() *cobra.Command {
 					"warning: %d image asset(s) skipped (download or write failed) — the affected issues were still pulled without those images\n",
 					res.AssetsSkipped)
 			}
+			warnRender(cmd.ErrOrStderr(), res.Warnings)
 			return emit(cmd, res, func() string {
 				var b strings.Builder
 				for _, p := range res.Issues {
@@ -1061,6 +1068,47 @@ func jiraPullCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all)")
 	cmd.Flags().StringVar(&fields, "fields", "", "extra comma-separated field list to include in JSON snapshots")
 	cmd.Flags().BoolVar(&assets, "assets", false, "also mirror each issue's image attachments into a per-issue <KEY>.assets/ dir and link them from the .md")
+	rf.register(cmd)
+	return cmd
+}
+
+func jiraRenderCmd() *cobra.Command {
+	var into string
+	var rf renderFlags
+	cmd := &cobra.Command{
+		Use:   "render [DIR|FILE.md|FILE.wiki]",
+		Short: "Regenerate .md views from local snapshots (offline; no network/PAT)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target := into
+			if len(args) == 1 {
+				target = args[0]
+			}
+			override, err := rf.override()
+			if err != nil {
+				return err
+			}
+			cfg, err := loadConfig()
+			if err != nil {
+				return err
+			}
+			svc := app.NewJiraRenderer(cfg)
+			res, err := svc.Render(target, override)
+			if err != nil {
+				return err
+			}
+			warnRender(cmd.ErrOrStderr(), res.Warnings)
+			return emit(cmd, res, func() string {
+				var b strings.Builder
+				for _, r := range res.Rendered {
+					fmt.Fprintf(&b, "%s\t%s\n", r.Key, r.Path)
+				}
+				return strings.TrimRight(b.String(), "\n")
+			})
+		},
+	}
+	cmd.Flags().StringVar(&into, "into", mirrorRootDefault("mirror-jira"), "mirror root dir when no target is given")
+	rf.register(cmd)
 	return cmd
 }
 

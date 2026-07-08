@@ -316,6 +316,9 @@ atl jira issue attachment get PROJ-1 --id spec.xlsx --into ./attachments
 # Зеркалировать набор задач на диск (добавьте --assets, чтобы также зеркалировать вложения-изображения)
 atl jira pull --jql 'project = PROJ' --into mirror-jira
 atl jira pull --jql 'project = PROJ AND status = Open' --assets
+# Выберите объём .md-представления: minimal | default | full (см. docs/usage.md)
+atl jira pull --jql 'project = PROJ' --render-profile full
+atl jira render mirror-jira --render-profile default   # перерендер офлайн, без повторного pull
 
 # Запись
 atl jira issue attachment upload PROJ-1 --file ./spec.xlsx

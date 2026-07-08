@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/fragment"
@@ -140,7 +141,9 @@ func (s *ConfluenceService) Validate(body []byte) []csf.Problem {
 
 // ---- pull ----
 
-// PullOpts selects what to mirror and where.
+// PullOpts selects what to mirror and where. Render is the per-run flag override
+// for the markdown view profile; a zero value leaves the effective settings
+// (local + global config) untouched.
 type PullOpts struct {
 	ID       string
 	CQL      string
@@ -149,6 +152,7 @@ type PullOpts struct {
 	Assets   bool
 	Comments bool
 	Into     string
+	Render   config.RenderService
 }
 
 // PulledPage is one mirrored page.
@@ -178,6 +182,10 @@ type PullResult struct {
 	// adapter's fetch cap, so its mirrored comments sidecar is incomplete. The CLI
 	// surfaces it as a stderr warning; omitted otherwise so the shape is unchanged.
 	CommentsTruncated bool `json:"comments_truncated,omitempty"`
+	// Warnings carries advisory render-resolution messages (unknown section names,
+	// malformed local config). Not serialized (the pull JSON shape is unchanged by
+	// profiles); the CLI prints it on stderr.
+	Warnings []string `json:"-"`
 }
 
 // Pull mirrors pages selected by id/cql/space into Into.
@@ -194,7 +202,11 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 	if err != nil {
 		return nil, err
 	}
-	res := &PullResult{Root: root}
+	// Resolve the effective render settings for THIS mirror root (local config
+	// lives under it). Default/minimal keep the body-only view byte-identical to
+	// today; only `full` (or an explicit include) adds frontmatter/comments.
+	rs, warns := ResolveRender(s.cfg, root, o.Render, "confluence")
+	res := &PullResult{Root: root, Warnings: warns}
 	if truncated {
 		res.Truncated = true
 		res.TruncatedAt = len(ids)
@@ -242,11 +254,12 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 				res.CommentsTruncated = true
 			}
 		}
+		mdOpts := confMDViewOpts(rs, page, comments)
 		if o.Comments {
-			if err := batch.WriteComments(dir, slug, page, refs, comments, commentsTruncated); err != nil {
+			if err := batch.WriteComments(dir, slug, page, refs, comments, commentsTruncated, mdOpts); err != nil {
 				return res, fmt.Errorf("write %s: %w", id, err)
 			}
-		} else if err := batch.Write(dir, slug, page, refs); err != nil {
+		} else if err := batch.WriteView(dir, slug, page, refs, mdOpts); err != nil {
 			return res, fmt.Errorf("write %s: %w", id, err)
 		}
 		rel, _ := filepath.Rel(root, filepath.Join(dir, slug+".csf"))
@@ -552,7 +565,13 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 	if r, perr := csf.Parse(page.Body); perr == nil {
 		refs = fragment.Resolve(ctx, page, fragment.Extract(r), fragment.Deps{Users: s.users})
 	}
-	if werr := m.Write(dir, slug, page, refs); werr != nil {
+	// Keep the refreshed .md view consistent with the mirror's configured profile
+	// (no per-run override on push): a full-profile mirror keeps its frontmatter/
+	// comments after a push instead of reverting to the body-only default. Comments
+	// are read from the existing sidecar (push does not fetch them).
+	rs, _ := ResolveRender(s.cfg, m.Root, config.RenderService{}, "confluence")
+	mdOpts := confMDViewOpts(rs, page, readCommentsSidecar(dir, slug))
+	if werr := m.WriteView(dir, slug, page, refs, mdOpts); werr != nil {
 		item.Warning = "pushed but local refresh failed (re-pull recommended): " + werr.Error()
 	}
 	return item, nil
