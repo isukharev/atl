@@ -42,15 +42,16 @@ type recordingStore struct {
 	deleteID     string
 
 	// canned returns
-	pageRefs      []domain.PageRef
-	treeTruncated bool
-	cursor        string
-	page          *domain.Resource
-	meta          *domain.PageMeta
-	versions      []domain.Version
-	comments      []domain.Comment
-	comment       *domain.Comment
-	err           error
+	pageRefs          []domain.PageRef
+	treeTruncated     bool
+	cursor            string
+	page              *domain.Resource
+	meta              *domain.PageMeta
+	versions          []domain.Version
+	comments          []domain.Comment
+	commentsTruncated bool
+	comment           *domain.Comment
+	err               error
 }
 
 func (s *recordingStore) Search(_ context.Context, q string, limit int, cursor string) ([]domain.PageRef, string, error) {
@@ -78,9 +79,9 @@ func (s *recordingStore) Tree(_ context.Context, space string, depth int) ([]dom
 	return s.pageRefs, s.treeTruncated, s.err
 }
 
-func (s *recordingStore) ListComments(_ context.Context, id string) ([]domain.Comment, error) {
+func (s *recordingStore) ListComments(_ context.Context, id string) ([]domain.Comment, bool, error) {
 	s.commentsID = id
-	return s.comments, s.err
+	return s.comments, s.commentsTruncated, s.err
 }
 
 func (s *recordingStore) AddComment(_ context.Context, id string, body []byte) (*domain.Comment, error) {
@@ -177,7 +178,7 @@ func TestConfluenceWrappersPassThrough(t *testing.T) {
 	t.Run("Comments", func(t *testing.T) {
 		st := &recordingStore{comments: []domain.Comment{{ID: "c1"}}}
 		svc := &ConfluenceService{store: st}
-		got, err := svc.Comments(ctx, "p1")
+		got, _, err := svc.Comments(ctx, "p1")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -258,7 +259,7 @@ func TestConfluenceWrappersPropagateSentinel(t *testing.T) {
 	if _, _, err := svc.Search(ctx, "x", 1, ""); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("Search did not propagate sentinel: %v", err)
 	}
-	if _, err := svc.Comments(ctx, "x"); !errors.Is(err, domain.ErrNotFound) {
+	if _, _, err := svc.Comments(ctx, "x"); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("Comments did not propagate sentinel: %v", err)
 	}
 	if _, err := svc.AddComment(ctx, "x", nil); !errors.Is(err, domain.ErrNotFound) {
@@ -591,10 +592,24 @@ type pullStore struct {
 	refs    []domain.PageRef // served by Tree for --space pulls
 	getErr  error
 	getErrs map[string]error
+
+	// comment plumbing for `pull --comments` tests.
+	comments          map[string][]domain.Comment // per-id comments to serve
+	commentsTruncated map[string]bool             // per-id truncation flag
+	commentsErr       error                       // forces a ListComments failure
+	listCommentsCalls int                         // how many times ListComments ran
 }
 
 func (s *pullStore) Tree(_ context.Context, _ string, _ int) ([]domain.PageRef, bool, error) {
 	return s.refs, false, nil
+}
+
+func (s *pullStore) ListComments(_ context.Context, id string) ([]domain.Comment, bool, error) {
+	s.listCommentsCalls++
+	if s.commentsErr != nil {
+		return nil, false, s.commentsErr
+	}
+	return s.comments[id], s.commentsTruncated[id], nil
 }
 
 func (s *pullStore) GetPage(_ context.Context, id string, _ domain.PullOpts) (*domain.Resource, error) {

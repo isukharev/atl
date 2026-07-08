@@ -107,9 +107,12 @@ func TestListCommentsPaginates(t *testing.T) {
 	defer srv.Close()
 
 	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
-	got, err := cf.ListComments(context.Background(), "200")
+	got, truncated, err := cf.ListComments(context.Background(), "200")
 	if err != nil {
 		t.Fatalf("ListComments: %v", err)
+	}
+	if truncated {
+		t.Errorf("a naturally-exhausted listing must not report truncated")
 	}
 	if len(got) != 3 {
 		t.Fatalf("expected 3 comments across two pages, got %d: %+v", len(got), got)
@@ -119,6 +122,35 @@ func TestListCommentsPaginates(t *testing.T) {
 		if got[i].ID != w {
 			t.Errorf("comment[%d].ID = %q, want %q", i, got[i].ID, w)
 		}
+	}
+}
+
+// TestListCommentsTruncates verifies that a server that never stops signaling
+// _links.next drives the pagination safety cap and reports truncated=true, so a
+// silently-clipped set can never be baked into the mirror.
+func TestListCommentsTruncates(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.Header().Set("Content-Type", "application/json")
+		// Always return one result and always dangle a next link.
+		_, _ = w.Write([]byte(`{"results":[{"id":"c","history":{"createdBy":{"displayName":"A"}},"body":{"storage":{"value":"<p>x</p>"}}}],"_links":{"next":"/next"}}`))
+	}))
+	defer srv.Close()
+
+	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+	got, truncated, err := cf.ListComments(context.Background(), "200")
+	if err != nil {
+		t.Fatalf("ListComments: %v", err)
+	}
+	if !truncated {
+		t.Errorf("a server that never stops paging must report truncated=true")
+	}
+	if hits != maxPages {
+		t.Errorf("expected the cap to stop after %d requests, got %d", maxPages, hits)
+	}
+	if len(got) != maxPages {
+		t.Errorf("expected %d comments collected before the cap, got %d", maxPages, len(got))
 	}
 }
 

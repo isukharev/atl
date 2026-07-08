@@ -24,8 +24,11 @@ const (
 )
 
 // ListComments returns a page's comments (storage bodies, rendered to text). It
-// follows _links.next, paging until the server stops signaling more.
-func (cf *Confluence) ListComments(ctx context.Context, id string) ([]domain.Comment, error) {
+// follows _links.next, paging until the server stops signaling more. truncated
+// is true when a safety cap (maxPages/maxItems) stopped the listing while the
+// server still signaled _links.next — the mirror must surface that, never bake
+// in a silently-truncated set.
+func (cf *Confluence) ListComments(ctx context.Context, id string) ([]domain.Comment, bool, error) {
 	start := 0
 	var out []domain.Comment
 	for page := 0; page < maxPages && len(out) < maxItems; page++ {
@@ -54,7 +57,7 @@ func (cf *Confluence) ListComments(ctx context.Context, id string) ([]domain.Com
 		q.Set("start", strconv.Itoa(start))
 		path := "/rest/api/content/" + url.PathEscape(id) + "/child/comment?" + q.Encode()
 		if err := cf.c.GetJSON(ctx, path, &resp); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		for _, r := range resp.Results {
 			body := r.Body.Storage.Value
@@ -67,11 +70,13 @@ func (cf *Confluence) ListComments(ctx context.Context, id string) ([]domain.Com
 			})
 		}
 		if resp.Links.Next == "" || len(resp.Results) == 0 {
-			break
+			return out, false, nil // server exhausted at or under the cap
 		}
 		start += len(resp.Results)
 	}
-	return out, nil
+	// The loop only reaches here by hitting a safety cap; the sole natural exit
+	// returns above, so the last page still signaled _links.next — truncated.
+	return out, true, nil
 }
 
 // AddComment posts a storage-format comment on a page.

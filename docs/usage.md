@@ -339,7 +339,8 @@ The listing stops at a 2000-page safety cap; when hit, the JSON result carries
 ### `atl conf pull`
 
 Mirror pages to disk. Downloads `.csf` (native storage format), `.md`
-(read-view), `.meta.json`, and optionally renders draw.io / image assets.
+(read-view), `.meta.json`, and optionally renders draw.io / image assets and
+mirrors page comments.
 
 ```bash
 # single page
@@ -350,6 +351,9 @@ atl conf pull --space DOCS --into my-mirror
 
 # pages matching a CQL query
 atl conf pull --cql "label=public and space=DOCS" --assets
+
+# also bring page comments into the mirror
+atl conf pull --id 12345678 --comments
 ```
 
 Flags:
@@ -361,9 +365,20 @@ Flags:
 | `--space` | space key (mirrors the whole space) |
 | `--depth` | depth limit when using `--space` (0 = unlimited) |
 | `--assets` | download draw.io PNG renders and inline images |
+| `--comments` | mirror page comments to `<slug>.comments.json` (+ `.comments.md`) sidecars |
 | `--into` | mirror root directory (default `mirror`) |
 
 At most one of `--id`, `--cql`, `--space` may be given.
+
+`--comments` is opt-in: without it, no comment endpoint is contacted and no
+comment files are written. Comments are auxiliary read-only data — they never
+enter the page content hash or the version gate, so a page carrying comment
+sidecars still reports Clean in `conf status`. Comment bodies are a plain-text
+read view (CSF stripped), not a lossless substrate. A re-pull **with**
+`--comments` rewrites the sidecars; a re-pull **without** `--comments` leaves any
+existing comment files untouched (they are never auto-deleted). If a page's
+comment listing hits the fetch safety cap, the sidecar is incomplete, the meta
+carries `comments_truncated: true`, and a stderr warning fires.
 
 **Mirror layout after pull**
 
@@ -372,9 +387,11 @@ mirror/
   DOCS/
     parent-page/
       child-page/
-        child-page.csf         ← edit this
-        child-page.md          ← read-only view
-        child-page.meta.json   ← id, version, content_hash, fragments
+        child-page.csf           ← edit this
+        child-page.md            ← read-only view
+        child-page.meta.json     ← id, version, content_hash, fragments, comments_pulled, comment_count
+        child-page.comments.json ← only with --comments: [{id, author, created, body}]
+        child-page.comments.md   ← only with --comments: derived human read view
         child-page.assets/
           diagram.png
   .atl/
@@ -734,11 +751,16 @@ atl conf me
 
 ### `atl conf comment list`
 
-List page comments. Bodies are returned as plain text (CSF stripped).
+List page comments. Bodies are returned as plain text (CSF stripped). If the
+listing hits the fetch safety cap, a warning is written to stderr (the returned
+set is incomplete) — the JSON result on stdout stays clean.
 
 ```
 atl conf comment list --id 12345678
 ```
+
+To persist comments alongside the mirrored page instead of printing them, use
+`conf pull --comments`.
 
 ### `atl conf comment add`
 

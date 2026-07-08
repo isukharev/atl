@@ -35,8 +35,10 @@ type DocStore interface {
 	MovePage(ctx context.Context, id, newParent string) error
 	// DeletePage trashes a page. May return ErrForbidden on per-space perms.
 	DeletePage(ctx context.Context, id string) error
-	// Comments.
-	ListComments(ctx context.Context, id string) ([]Comment, error)
+	// Comments. ListComments returns a page's comments; truncated reports that an
+	// internal safety cap stopped the listing while the backend still signaled
+	// more — callers must surface it, never hide it.
+	ListComments(ctx context.Context, id string) (comments []Comment, truncated bool, err error)
 	AddComment(ctx context.Context, id string, body []byte) (*Comment, error)
 	// Attachments.
 	ListAttachments(ctx context.Context, id string) ([]Attachment, error)

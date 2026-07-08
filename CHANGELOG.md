@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`conf pull --comments` brings page comments into the mirror.** Opt-in and off
+  by default (without it, no comment endpoint is contacted and no files are
+  written). When set, each mirrored page gains `<slug>.comments.json` (a
+  `[{id, author, created, body}]` array) and a derived `<slug>.comments.md` read
+  view, and its `.meta.json` reports `comment_count` (plus `comments_truncated`
+  when the fetch cap is hit). Comments are auxiliary read-only data — they never
+  enter the page content hash or the version gate, so a page with comment
+  sidecars still reports Clean in `conf status`. Comment bodies are a plain-text
+  read view (CSF stripped). A re-pull with `--comments` refreshes the sidecars; a
+  re-pull without it leaves existing comment files untouched.
 - **Guarded Jira write-back: `jira status` and `jira push`.** `jira pull` now
   wires each issue through the mirror sidecar — recording the `.wiki` body's
   hash in `.atl/state.json` and a pristine `.atl/base/<KEY>.wiki` base copy — so
@@ -67,6 +77,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`conf comment list` no longer truncates silently.** When a page's comment
+  listing hits the pagination safety cap, the command now writes a `warning:`
+  line to stderr (the returned set is incomplete); the JSON result on stdout is
+  unchanged.
 - **The Jira mirror `<KEY>.md` is now a pure rendered read view.** It previously
   embedded the raw wiki body verbatim under a `## Description (Jira wiki)`
   section; it now shows a rendered `## Description` (and rendered comment bodies)

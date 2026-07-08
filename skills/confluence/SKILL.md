@@ -41,8 +41,10 @@ For a whole space's hierarchy: `atl conf space tree --space <KEY> [--depth N]`.
 atl conf pull --id <id> --assets --into ~/.atl/<workspace>/
 # or:  --cql '<CQL>'   (caps at 1000 pages — see warning below)
 # or:  --space <KEY>   (caps at 2000 pages; --depth N to limit)
+# add: --comments       to mirror page comments as sidecar files
 ```
 → `{ "root": "...", "pages": [ {id, title, path, version, assets} ] }`
+(`comments` count added per page when `--comments` is used)
 
 > ⚠️ **`--cql` stops at 1000 pages, `--space` at 2000.** When either cap is hit, the result
 > includes `"truncated": true, "truncated_at": N` and `atl` prints a `warning:` line to
@@ -55,10 +57,16 @@ On disk per page:
 <root>/<SPACE>/<ancestors…>/<page-slug>/
     <page-slug>.csf        # native CSF — source of truth; edit directly only as fallback
     <page-slug>.md         # markdown view — edit it, then `conf apply` (regenerated on pull/apply)
-    <page-slug>.meta.json  # metadata + fragments — auto-managed
+    <page-slug>.meta.json  # metadata + fragments (+ comments_pulled, comment_count) — auto-managed
+    <page-slug>.comments.json  # only with --comments: [{id,author,created,body}]
+    <page-slug>.comments.md    # only with --comments: derived human read view
     <page-slug>.assets/    # only with --assets: diagram/image renders (for vision)
 <root>/.atl/               # sync baseline — do not edit, do not commit
 ```
+Comments are auxiliary read-only data: they never affect dirty/drift/push, so a
+page with comment sidecars still reads Clean in `conf status`. Bodies are
+plain-text (CSF stripped). A re-pull with `--comments` refreshes the sidecars; a
+re-pull without it leaves them untouched (never auto-deleted).
 If two sibling titles slugify to the same name, the later-pulled page lands in an
 id-suffixed dir (`<page-slug>-<id>/`) — same files inside, nothing overwritten.
 
@@ -138,7 +146,7 @@ atl conf status ~/.atl/<workspace>/ --remote
 | `conf page copy` | Copy a page (same CSF body, new title/space/parent) | `--id`, `--title`, `--space`, `--parent` |
 | `conf page move` | Reparent a page | `--id`, `--parent` |
 | `conf page delete` | Trash a page | `--id` |
-| `conf pull` | Mirror pages to disk (.csf + .md + .meta.json + assets) | `--id`, `--cql`, `--space`, `--assets`, `--into`, `--depth` |
+| `conf pull` | Mirror pages to disk (.csf + .md + .meta.json + assets + comments) | `--id`, `--cql`, `--space`, `--assets`, `--comments`, `--into`, `--depth` |
 | `conf status` | Show locally-edited and remote-drifted pages | `[DIR]`, `--remote` |
 | `conf validate` | Validate CSF well-formedness | `<file.csf>` |
 | `conf apply` | Merge `.md` edits into the `.csf` block-by-block (untouched blocks keep exact bytes) | `<page.md>`, `--dry-run`, `--allow-fragment-loss`, `--into` |

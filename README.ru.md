@@ -229,7 +229,9 @@ mirror/
     acme-adr/
       acme-adr.csf              # источник правды (нативный формат хранения)
       acme-adr.md               # read-only представление: текст + ⟦фрагменты⟧ + ![](assets/…)
-      acme-adr.meta.json        # id, версия, хэш содержимого, разрешённые фрагменты
+      acme-adr.meta.json        # id, версия, хэш содержимого, разрешённые фрагменты, comment_count
+      acme-adr.comments.json    # [{id,author,created,body}] (при --comments)
+      acme-adr.comments.md      # производное представление для чтения (при --comments)
       acme-adr.assets/*.png     # рендеры draw.io + изображения страницы (при --assets)
       child-page/…              # дерево папок воспроизводит иерархию страниц
   .atl/                         # sidecar: последние синхронизированные версии/хэши + база
