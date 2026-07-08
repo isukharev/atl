@@ -92,6 +92,27 @@ func TestSingleParagraphEdit(t *testing.T) {
 	}
 }
 
+// TestMultilineParagraphEditKeepsLineBreaks pins issue #164: a base paragraph
+// with an intra-paragraph line break renders to adjacent md lines; editing one
+// word on one of those lines and merging must convert the block back with the
+// `\n` line structure intact (not collapsed to a space-joined single line).
+func TestMultilineParagraphEditKeepsLineBreaks(t *testing.T) {
+	base := "line one here\nline two here"
+	md := wikimd.Render(base, wikimd.Options{})
+	if md != "line one here\nline two here" {
+		t.Fatalf("render = %q, want the two lines adjacent", md)
+	}
+	edited := strings.Replace(md, "line two here", "line two edited", 1)
+	out, rep := mergeOK(t, base, edited, Options{})
+	want := "line one here\nline two edited"
+	if string(out) != want {
+		t.Errorf("merged body = %q, want %q (line break must survive)", out, want)
+	}
+	if rep.Converted != 1 {
+		t.Errorf("report = %+v, want 1 converted", rep)
+	}
+}
+
 // TestMoveReusesBaseBytes: swapping two paragraphs reports a move and reuses the
 // base bytes rather than re-converting them.
 func TestMoveReusesBaseBytes(t *testing.T) {

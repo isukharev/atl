@@ -71,8 +71,17 @@ var listItemRe = regexp.MustCompile(`^(\s*)(?:([-*+])|(\d+)[.)])\s+(.*)$`)
 
 // blockish matches a paragraph line that Jira would parse as block markup of
 // its own (heading, blockquote line, horizontal rule) — emitting it verbatim
-// would silently change structure, so such text is refused instead.
+// would silently change structure, so such text is refused instead. It is
+// deliberately un-multiline: convertParagraph tests it per converted line.
 var blockish = regexp.MustCompile(`^(?:h[1-6]\.\s|bq\.\s|-{4,}\s*$)`)
+
+// wikiListLine matches a converted paragraph line whose leading marker Jira
+// would parse as a list item — a silent structure change now that intra-
+// paragraph lines join with a real newline. inline() already backslash-escapes
+// a leading `*`/`#` (Jira's bullet/numbered markers), so in practice this only
+// fires for a leading `- ` (a dash bullet), which inline() leaves literal; the
+// escape prepended in convertParagraph renders it as the author's literal text.
+var wikiListLine = regexp.MustCompile(`^[*#-]+[ \t]`)
 
 func convertBlock(block string) (string, error) {
 	block = strings.TrimRight(block, "\n")
@@ -123,16 +132,31 @@ func convertHeading(lines []string) (string, error) {
 	return fmt.Sprintf("h%d. %s", len(m[1]), body), nil
 }
 
+// convertParagraph converts a soft-wrapped markdown paragraph to wiki, joining
+// its lines with a real newline (not a space): Jira renders an intra-paragraph
+// `\n` as a visual line break, and the `.md` read view shows those breaks as
+// adjacent lines, so preserving them keeps the line structure the author sees.
+// Inline markup is converted per line — running inline() over a `\n`-joined
+// string would let an emphasis pair span the break and emit markup Jira will
+// not render — and the fail-closed guards run per line: any inner line Jira
+// would parse as its own block (heading/bq/hr) or as a list item is refused or
+// escaped so the newline never silently changes structure.
 func convertParagraph(lines []string) (string, error) {
-	joined := strings.Join(trimAll(lines), " ")
-	body, err := inline(joined)
-	if err != nil {
-		return "", err
+	out := make([]string, len(lines))
+	for i, ln := range trimAll(lines) {
+		body, err := inline(ln)
+		if err != nil {
+			return "", err
+		}
+		if blockish.MatchString(body) {
+			return "", unsupported("paragraph that Jira would parse as block markup", clip(body))
+		}
+		if wikiListLine.MatchString(body) {
+			body = `\` + body // neutralize a leading list marker; renders literal
+		}
+		out[i] = body
 	}
-	if blockish.MatchString(body) {
-		return "", unsupported("paragraph that Jira would parse as block markup", clip(body))
-	}
-	return body, nil
+	return strings.Join(out, "\n"), nil
 }
 
 // codeLangRe: languages Jira accepts in {code:lang}; anything else would leak
