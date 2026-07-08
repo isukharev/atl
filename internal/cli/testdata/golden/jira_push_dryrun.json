@@ -1,0 +1,11 @@
+{
+  "items": [
+    {
+      "path": "MIRROR/PROJ/PROJ-1.wiki",
+      "key": "PROJ-1",
+      "pushed": false,
+      "dry_run": true,
+      "diff": "@@ -1,2 +1,2 @@\n line one\n-line two\n+line two changed\n"
+    }
+  ]
+}

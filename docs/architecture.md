@@ -304,6 +304,14 @@ mirror/
   entry; computes `Dirty = currentHash != syncedHash`.
 - `ListCSF()` — walks the tree (skipping `.atl/`), loads every `.csf`, sorts
   by path.
+- `LoadWiki(path)` / `ListWiki()` — the Jira analogs over `.wiki` substrate
+  files. There is no neighboring `.meta.json`, so the sidecar key is the issue
+  key (the file's basename); dirty detection is otherwise identical.
+- `SaveBaseExt(id, body, ext)` / `BaseBodyExt(id, ext)` — the ext-aware base
+  store; the plain `saveBase`/`BaseBody` are the `.csf` specialization. Jira
+  records its pristine base under `.atl/base/<KEY>.wiki`. `SyncBatch.Record`
+  lets a backend that writes its own substrate files (Jira's `.wiki`) share the
+  batch's single sidecar load/save without going through `writePageFiles`.
 - Sidecar (`state.json`) tracks `{id, version, hash, path}` per page. Saves
   are atomic (temp + fsync + rename via `safepath.WriteFileAtomic`), so a
   crash can never leave a half-written file. A corrupt sidecar is a loud
@@ -345,7 +353,25 @@ Notable behaviors:
   (a best-effort read-only Markdown view rendered from the wiki by
   `internal/wikimd`, regenerated on every pull — a render failure degrades one
   section to a stub, never failing the pull), and `<KEY>.json` (raw fields
-  snapshot). The `.md` `path` is what the pull result reports.
+  snapshot). The `.md` `path` is what the pull result reports. The pull also
+  records the `.wiki` body in the sidecar plus a `.atl/base/<KEY>.wiki` base
+  copy so the write-back cycle can detect edits and drift; only the `.wiki` body
+  is tracked (the `.md`/`.json`/assets are read-only views).
+- `JiraService.Status` walks the mirror's `.wiki` files, compares hashes
+  (`locally_edited`), and with `--remote` fires one `GetIssue` per issue,
+  comparing the remote description to the stored base (`remote_drifted`); a file
+  with no sidecar entry reads never-synced (`synced:false`).
+- `JiraService.Push` is the guarded write-back. It is **dry-run by default**
+  (`--apply` to write) because Jira has **no server-side version gate**: the
+  staleness guard is an app-layer compare-and-swap — a fresh remote read is
+  compared to the pristine base, and a mismatch is refused as `ErrCheckFailed`
+  (exit 8, "re-pull or `--force`"), **never** `ErrVersionConflict` (#66). This
+  CAS has an inherent TOCTOU window (documented, not hidden); `--force` opts out
+  of the refusal rather than closing it. Only the description body is written
+  (empty summary, nil fields — the #29 allowlist). A server-side HTTP 409 stays
+  a generic conflict, untouched. On `--apply` success it re-fetches and
+  refreshes the `.wiki`/`.md`/base/sidecar; a refresh failure is a warning, not
+  an error.
 
 ---
 

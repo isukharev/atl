@@ -71,27 +71,41 @@ func (m *Mirror) SyncedVersion(id string) (int, error) {
 	return sc.Pages[id].Version, nil
 }
 
-// saveBase stores a pristine copy of the last-synced body so push can diff the
-// agent's edits against it (consequence report) without a network round-trip.
-func (m *Mirror) saveBase(id string, body []byte) error {
+// saveBaseExt stores a pristine copy of the last-synced body under a
+// caller-chosen extension (".csf" for Confluence, ".wiki" for the Jira
+// substrate) so push can diff the agent's edits against it (consequence report)
+// without a network round-trip. ext must include the leading dot.
+func (m *Mirror) saveBaseExt(id string, body []byte, ext string) error {
 	dir := filepath.Join(m.Root, ".atl", "base")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	// id is a backend-supplied content id: sanitize it to a single safe segment
-	// so a hostile server cannot use it to traverse out of the base store, and
-	// assert containment as defense in depth.
-	target := filepath.Join(dir, safepath.Segment(id)+".csf")
+	// id is a backend-supplied content id / issue key: sanitize it to a single
+	// safe segment so a hostile server cannot use it to traverse out of the base
+	// store, and assert containment as defense in depth.
+	target := filepath.Join(dir, safepath.Segment(id)+ext)
 	if !safepath.Within(dir, target) {
 		return fmt.Errorf("refusing unsafe base path for id %q", id)
 	}
 	return safepath.WriteFile(target, body, 0o600)
 }
 
-// BaseBody returns the pristine last-synced body for an id, if present.
-func (m *Mirror) BaseBody(id string) ([]byte, bool) {
+// saveBase stores the pristine Confluence `.csf` base copy. See saveBaseExt.
+func (m *Mirror) saveBase(id string, body []byte) error {
+	return m.saveBaseExt(id, body, ".csf")
+}
+
+// SaveBaseExt is the exported ext-aware base writer for a backend (e.g. Jira)
+// that writes its own substrate files outside writePageFiles but still needs a
+// pristine base recorded for drift detection. ext must include the leading dot.
+func (m *Mirror) SaveBaseExt(id string, body []byte, ext string) error {
+	return m.saveBaseExt(id, body, ext)
+}
+
+// baseBodyExt returns the pristine last-synced body for an id under ext.
+func (m *Mirror) baseBodyExt(id, ext string) ([]byte, bool) {
 	dir := filepath.Join(m.Root, ".atl", "base")
-	target := filepath.Join(dir, safepath.Segment(id)+".csf")
+	target := filepath.Join(dir, safepath.Segment(id)+ext)
 	if !safepath.Within(dir, target) {
 		return nil, false
 	}
@@ -100,4 +114,15 @@ func (m *Mirror) BaseBody(id string) ([]byte, bool) {
 		return nil, false
 	}
 	return b, true
+}
+
+// BaseBody returns the pristine last-synced Confluence `.csf` body for an id.
+func (m *Mirror) BaseBody(id string) ([]byte, bool) {
+	return m.baseBodyExt(id, ".csf")
+}
+
+// BaseBodyExt returns the pristine last-synced body for an id under a
+// caller-chosen extension (e.g. ".wiki" for the Jira substrate). See SaveBaseExt.
+func (m *Mirror) BaseBodyExt(id, ext string) ([]byte, bool) {
+	return m.baseBodyExt(id, ext)
 }

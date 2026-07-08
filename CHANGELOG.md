@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Guarded Jira write-back: `jira status` and `jira push`.** `jira pull` now
+  wires each issue through the mirror sidecar — recording the `.wiki` body's
+  hash in `.atl/state.json` and a pristine `.atl/base/<KEY>.wiki` base copy — so
+  an edited `.wiki` can be pushed back. `jira status [DIR] [--remote]` reports
+  which issues are locally edited (and, with `--remote`, drifted on the server),
+  content-hash based, the Jira analog of `conf status`; a `.wiki` with no
+  sidecar entry reads never-synced (`synced:false`). `jira push
+  <file.wiki|DIR>` writes an edited description back — **dry-run by default**
+  (`--apply` to write), previewing a unified diff. Jira has no server-side
+  version gate, so staleness is an app-layer compare-and-swap against the pulled
+  base: a drift is refused with **exit 8** (`ErrCheckFailed`, "re-pull or
+  `--force`"), **never** exit 5, and this CAS's inherent TOCTOU window is
+  documented rather than hidden. Only the description body is written (no other
+  field); a server-side HTTP 409 stays a generic conflict (#66). `--force`
+  overrides the drift refusal; a directory push touches only locally-edited
+  files. On `--apply` success the mirror is refreshed; a refresh failure is a
+  warning, not an error.
 - **`jira pull` now writes a native `<KEY>.wiki` substrate beside a rendered
   `<KEY>.md` view.** The issue's Jira wiki body is stored byte-for-byte in
   `<KEY>.wiki` — the editable source of truth, mirroring the role `.csf` plays

@@ -48,4 +48,7 @@ Make `push` the single deliberate, human-reviewed checkpoint:
 Push the bytes you reviewed — don't regenerate the body between the dry-run and the push.
 
 Jira note: Jira issue updates have **no version gate** (last-writer-wins). Run `jira issue get`
-immediately before an `update` to avoid blindly overwriting someone else's change.
+immediately before an `update` to avoid blindly overwriting someone else's change. The mirror
+write-back path — edit `<KEY>.wiki`, then `jira status` / `jira push` — adds the equivalent guard in
+software: `jira push` is dry-run by default and refuses on drift with exit `8` (re-pull or `--force`),
+never exit `5`, and writes only the description body.

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/mirror"
 	"github.com/isukharev/atl/internal/safepath"
 	"github.com/isukharev/atl/internal/textedit"
 	"github.com/isukharev/atl/internal/wikimd"
@@ -391,6 +392,20 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 	res := &JiraPullResult{Into: into, Issues: []JiraPulled{}}
 	cursor := ""
 	pullFields := jiraPullFields(opts.Fields)
+	// Wire the pull through the mirror sidecar so an edited <KEY>.wiki can later be
+	// pushed back under the drift guard. One sidecar load (BeginSync) and one save
+	// (Flush) for the whole pull; the deferred flush persists the issues already
+	// recorded when an error aborts the loop (Flush is a no-op after the explicit
+	// success-path call below), matching conf Pull.
+	m := mirror.New(into)
+	if err := m.EnsureScaffold(); err != nil {
+		return res, err
+	}
+	batch, err := m.BeginSync()
+	if err != nil {
+		return res, err
+	}
+	defer func() { _ = batch.Flush() }()
 	for len(res.Issues) < limit || limit == 0 {
 		issues, next, err := s.tr.Search(ctx, opts.JQL, pullFields, 100, cursor)
 		if err != nil {
@@ -448,8 +463,20 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 			if err := safepath.WriteFile(filepath.Join(dir, keySeg+".json"), append(jb, '\n'), 0o644); err != nil {
 				return res, fmt.Errorf("snapshot %s: %w", full.Key, err)
 			}
-			rel, _ := filepath.Rel(into, mdPath)
+			// Record the .wiki substrate in the sidecar + a pristine base copy so
+			// `jira status`/`jira push` can detect local edits and remote drift.
+			// Recorded only AFTER every issue artifact (.wiki/.md/.json) is on disk
+			// — a failed write above must not leave the issue marked synced by the
+			// deferred flush (conf parity: sidecar state follows the page files).
+			// Keyed by the sanitized issue key (the .wiki basename); Version stays 0
+			// — Jira has no server-side version gate. Only the .wiki body is tracked;
+			// the .md/.json/assets are read-only views, outside the sync state.
+			if err := m.SaveBaseExt(keySeg, []byte(full.Body), ".wiki"); err != nil {
+				return res, err
+			}
 			relWiki, _ := filepath.Rel(into, wikiPath)
+			batch.Record(mirror.SyncState{ID: keySeg, Version: 0, Hash: mirror.Hash([]byte(full.Body)), Path: relWiki})
+			rel, _ := filepath.Rel(into, mdPath)
 			res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, WikiPath: relWiki, Assets: len(assets)})
 			if limit > 0 && len(res.Issues) >= limit {
 				return res, nil
@@ -459,6 +486,9 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 			break
 		}
 		cursor = next
+	}
+	if err := batch.Flush(); err != nil {
+		return res, err
 	}
 	return res, nil
 }
