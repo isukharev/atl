@@ -46,8 +46,9 @@ type JiraApplyResult struct {
 //
 // CRLF: the base `.wiki` holds the server's bytes verbatim (Jira DC descriptions
 // are typically CRLF). wikimerge preserves those bytes byte-for-byte — its block
-// scanner splits on `\n` and a `\r` stays as line content, so an untouched view
-// round-trips a CRLF base unchanged. The *edited* `.md` is normalized CRLF→LF
+// scanner treats `\n`, `\r\n`, and lone `\r` as one line break whose bytes live
+// in the inter-block gaps, so an untouched view round-trips a CRLF base
+// unchanged. The *edited* `.md` is normalized CRLF→LF
 // (matching wikimd's own line handling) before section-splitting, comparison, and
 // merge, since the pristine view it is diffed against is always LF.
 func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, error) {
