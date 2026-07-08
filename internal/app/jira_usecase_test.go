@@ -335,9 +335,15 @@ func TestRenderIssueMarkdownFull(t *testing.T) {
 	mustContain(t, got, "assignee: alice")
 	mustContain(t, got, "labels: [backend, urgent]")
 	mustContain(t, got, "# PROJ-42 — Fix the thing")
-	mustContain(t, got, "## Description (Jira wiki)")
-	// the native wiki body must appear verbatim, not converted
-	mustContain(t, got, "h1. Heading\n\nNative *wiki* body with [a link|http://x].")
+	// The .md is now a rendered read view: the section header is a plain
+	// "## Description" and the wiki body is converted to markdown (the verbatim
+	// wiki lives in the sibling <KEY>.wiki file, not here).
+	mustContain(t, got, "## Description\n")
+	mustNotContain(t, got, "## Description (Jira wiki)")
+	mustContain(t, got, "# Heading")                                     // h1. → #
+	mustContain(t, got, "Native **wiki** body with [a link](http://x).") // *wiki*/[a|b] converted
+	mustNotContain(t, got, "h1. Heading")                                // raw wiki heading gone
+	mustNotContain(t, got, "[a link|http://x]")                          // raw wiki link gone
 	mustContain(t, got, "## Links")
 	mustContain(t, got, "- blocks PROJ-7")
 	mustContain(t, got, "- relates to PROJ-8")
