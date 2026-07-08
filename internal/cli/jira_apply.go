@@ -1,6 +1,10 @@
 package cli
 
 import (
+	"fmt"
+	"path/filepath"
+	"strings"
+
 	"github.com/spf13/cobra"
 
 	"github.com/isukharev/atl/internal/app"
@@ -47,7 +51,7 @@ func jiraApplyCmd() *cobra.Command {
 			// exit-8 still shows what would change; the apply error is the actionable
 			// one and wins over any emit error.
 			if res != nil && res.Report != nil {
-				_ = emit(cmd, res, nil)
+				_ = emit(cmd, res, func() string { return jiraApplyText(res) })
 			}
 			return aerr
 		},
@@ -58,4 +62,52 @@ func jiraApplyCmd() *cobra.Command {
 	cmd.Flags().StringVar(&o.Into, "into", "", "mirror root (defaults to nearest .atl)")
 	rf.register(cmd)
 	return cmd
+}
+
+// jiraApplyText renders `jira apply`'s result as a compact human loss-review,
+// the Jira analog of applyText: one fact per line, `key: value`, indented `- `
+// lists, zero-count and empty sections omitted. Stable contract
+// (see docs/OUTPUT_CONTRACT.md).
+func jiraApplyText(res *app.JiraApplyResult) string {
+	var b strings.Builder
+	switch {
+	case res.DryRun:
+		fmt.Fprintln(&b, "dry-run: no files written")
+	case res.Wrote:
+		fmt.Fprintf(&b, "applied: %s\n", res.WikiPath)
+	default:
+		fmt.Fprintf(&b, "not applied: %s\n", res.WikiPath)
+	}
+
+	r := res.Report
+	if r == nil {
+		fmt.Fprintln(&b, "blocks: none")
+	} else {
+		fmt.Fprintln(&b, blockCountsLine(r.Unchanged, r.Moved, r.Converted, r.Removed, 0))
+		if len(r.RemovedConstructs) > 0 {
+			fmt.Fprintln(&b, "removed constructs:")
+			for _, c := range r.RemovedConstructs {
+				fmt.Fprintf(&b, "  - %s %q\n", c.Kind, c.Text)
+			}
+		}
+	}
+
+	if res.Warning != "" {
+		fmt.Fprintf(&b, "warning: %s\n", res.Warning)
+	}
+
+	hasLoss := r != nil && len(r.RemovedConstructs) > 0
+	var next string
+	switch {
+	case res.Wrote:
+		next = fmt.Sprintf("run `jira push %s` to publish", filepath.Base(res.WikiPath))
+	case hasLoss:
+		next = "restore the construct(s) in the .md, or re-run with --allow-loss to accept the loss"
+	case res.DryRun:
+		next = "apply without --dry-run to write"
+	default:
+		next = "resolve the errors above and re-run"
+	}
+	fmt.Fprintf(&b, "next: %s", next)
+	return b.String()
 }

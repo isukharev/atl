@@ -7,8 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/csf"
+	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/fragment"
+	"github.com/isukharev/atl/internal/mdmerge"
 	"github.com/isukharev/atl/internal/mirror"
 )
 
@@ -106,6 +109,63 @@ func TestConfApply_DivergedCSFIsExit8(t *testing.T) {
 	_, code := runCLI(t, nil, "conf", "apply", mdPath)
 	if code != 8 {
 		t.Fatalf("exit = %d, want 8", code)
+	}
+}
+
+// TestApplyText locks the `-o text` loss-review contract of `conf apply` on a
+// dry-run with a dropped fragment, a validation problem, and a merged table:
+// every section is exercised with a relative (non-volatile) path.
+func TestApplyText(t *testing.T) {
+	res := &app.ApplyResult{
+		Path:    "SP/page/page.md",
+		CSFPath: "SP/page/page.csf",
+		DryRun:  true,
+		CSFOK:   true,
+		Report: &mdmerge.Report{
+			Unchanged:        3,
+			Moved:            1,
+			Converted:        2,
+			Removed:          1,
+			MergedTables:     1,
+			RemovedFragments: []domain.Ref{{Kind: domain.RefDrawio, Display: "diagram-1"}},
+			Problems:         []csf.Problem{{Severity: "error", Line: 123, Message: "malformed element"}},
+		},
+	}
+	want := strings.Join([]string{
+		"dry-run: no files written",
+		"blocks: 3 unchanged, 1 moved, 2 converted, 1 removed, 1 table merged",
+		"removed fragments:",
+		`  - drawio "diagram-1"`,
+		"problems:",
+		"  - error at 123: malformed element",
+		"validation: ok",
+		"next: restore the marker(s) in the .md, or re-run with --allow-fragment-loss to accept the loss",
+	}, "\n")
+	if got := applyText(res); got != want {
+		t.Errorf("applyText:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+// TestConfApply_TextDryRunLoss drives the CLI end-to-end: `-o text` on a dry-run
+// that drops the toc fragment prints a readable review listing it.
+func TestConfApply_TextDryRunLoss(t *testing.T) {
+	mdPath := scaffoldApplyPage(t)
+	md, _ := os.ReadFile(mdPath)
+	os.WriteFile(mdPath, []byte(strings.Replace(string(md), "⟦table of contents⟧\n", "", 1)), 0o644)
+
+	out, code := runCLI(t, nil, "conf", "apply", mdPath, "--allow-fragment-loss", "--dry-run", "-o", "text")
+	if code != exitOK {
+		t.Fatalf("exit %d (stdout=%q)", code, out)
+	}
+	for _, want := range []string{
+		"dry-run: no files written",
+		"removed fragments:",
+		"validation: ok",
+		"next: restore the marker(s) in the .md",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("text output missing %q:\n%s", want, out)
+		}
 	}
 }
 

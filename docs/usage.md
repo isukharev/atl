@@ -685,6 +685,18 @@ warning?}`. After a successful apply the `.md` is regenerated from the merged
 body so both surfaces agree; if that refresh cannot be written the apply
 still succeeds and `warning` reports that the `.md` may be stale.
 
+Pass `-o text` for a compact human loss-review — block counts, each removed
+fragment, validation problems, and a contextual next-step hint:
+
+```text
+dry-run: no files written
+blocks: 3 unchanged, 1 moved, 2 converted, 1 removed, 1 table merged
+removed fragments:
+  - drawio "diagram-1"
+validation: ok
+next: restore the marker(s) in the .md, or re-run with --allow-fragment-loss to accept the loss
+```
+
 The merge is **fail-closed** (exit `8`, nothing written) when: an edited block
 cannot be converted faithfully (unsupported markdown, edits inside an
 unrecognized wrapper element, an ambiguous mention whose display name collides
@@ -1441,6 +1453,17 @@ removed_constructs?}, wrote, warning?}` — the same shape as `conf apply` (swap
 `csf_path` for `wiki_path`). After a successful apply the `.md` is regenerated from
 the merged body so both surfaces agree; a failed refresh sets `warning` and the
 apply still succeeds.
+
+Pass `-o text` for a compact human loss-review — block counts, each removed
+construct, and a contextual next-step hint (the Jira analog of `conf apply`'s):
+
+```text
+applied: PROJ/PROJ-1.wiki
+blocks: 2 unchanged, 1 converted
+removed constructs:
+  - panel "{panel:title=Note}…"
+next: run `jira push PROJ-1.wiki` to publish
+```
 
 The merge is **fail-closed** (exit `8`, nothing written) when: an edited block
 cannot be converted to wiki (a construct outside the subset) — make that edit in

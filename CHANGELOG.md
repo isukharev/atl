@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`-o text` loss-review for `conf apply` and `jira apply`.** Both apply commands
+  now render a compact, greppable human review under `-o text` (they were JSON-only):
+  a dry-run/applied first line, `blocks:` counts (unchanged/moved/converted/removed,
+  plus `table merged` for conf), a `removed fragments:`/`removed constructs:` list of
+  each dropped fragment or wiki construct, `problems:` and `validation:` for conf, an
+  optional `warning:`, and a contextual `next:` hint (write it, accept the loss with
+  `--allow-fragment-loss`/`--allow-loss`, or push). Zero counts and empty sections are
+  omitted. The JSON contract is unchanged — the text view is a read-only reprojection.
+
 - **`jira apply` — merge markdown-view edits back into the `.wiki` substrate.**
   The Jira analog of `conf apply` closes the loop **pull → edit the `.md` → apply
   → push**: edits to the `## Description` section of a `<KEY>.md` view are folded
