@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/mirror"
+	"github.com/isukharev/atl/internal/wikimerge"
 )
 
 // applyBody is a Description with a plain paragraph, a {panel} (a wiki-only
@@ -113,6 +115,85 @@ func TestJiraApplyLossGolden(t *testing.T) {
 	assertGolden(t, "jira_apply_loss.json", []byte(normalizeRoot(out, root)))
 	if wiki, _ := os.ReadFile(filepath.Join(root, "PROJ", "PROJ-1.wiki")); string(wiki) != applyBody {
 		t.Error(".wiki modified on a loss refusal")
+	}
+}
+
+// TestJiraApplyText locks the `-o text` loss-review contract of `jira apply` on
+// an applied result that dropped a wiki construct under --allow-loss, with a
+// relative (non-volatile) path.
+func TestJiraApplyText(t *testing.T) {
+	res := &app.JiraApplyResult{
+		Path:     "PROJ/PROJ-1.md",
+		WikiPath: "PROJ/PROJ-1.wiki",
+		Wrote:    true,
+		Report: &wikimerge.Report{
+			Unchanged:         2,
+			Converted:         1,
+			RemovedConstructs: []wikimerge.Construct{{Kind: "panel", Text: "{panel:title=Note}…"}},
+		},
+	}
+	want := strings.Join([]string{
+		"applied: PROJ/PROJ-1.wiki",
+		"blocks: 2 unchanged, 1 converted",
+		"removed constructs:",
+		`  - panel "{panel:title=Note}…"`,
+		"next: run `jira push PROJ-1.wiki` to publish",
+	}, "\n")
+	if got := jiraApplyText(res); got != want {
+		t.Errorf("jiraApplyText:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+// TestJiraApply_TextUnchangedDryRun drives the CLI: `-o text` on an unedited
+// dry-run reports the all-unchanged merge and the "write it" hint.
+func TestJiraApply_TextUnchangedDryRun(t *testing.T) {
+	root, mdPath := seedApplyMirror(t)
+	out, code := runCLI(t, nil, "jira", "apply", mdPath, "--into", root, "--dry-run", "-o", "text")
+	if code != exitOK {
+		t.Fatalf("exit %d (stdout=%q)", code, out)
+	}
+	for _, want := range []string{
+		"dry-run: no files written",
+		"blocks: ",
+		"unchanged",
+		"next: apply without --dry-run to write",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("text output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "removed constructs:") {
+		t.Errorf("unedited apply should report no removed constructs:\n%s", out)
+	}
+}
+
+// TestJiraApply_TextLoss drives the CLI: `-o text` with --allow-loss on a
+// dropped {panel} prints a readable review listing the removed construct.
+func TestJiraApply_TextLoss(t *testing.T) {
+	root, mdPath := seedApplyMirror(t)
+	md, err := os.ReadFile(mdPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := strings.Replace(string(md), "> **Note**\n>\n> heads up\n\n", "", 1)
+	if edited == string(md) {
+		t.Fatalf("panel block not found to remove in view:\n%s", md)
+	}
+	if err := os.WriteFile(mdPath, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, code := runCLI(t, nil, "jira", "apply", mdPath, "--into", root, "--allow-loss", "--dry-run", "-o", "text")
+	if code != exitOK {
+		t.Fatalf("exit %d (stdout=%q)", code, out)
+	}
+	for _, want := range []string{
+		"dry-run: no files written",
+		"removed constructs:",
+		"next: restore the construct(s) in the .md",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("text output missing %q:\n%s", want, out)
+		}
 	}
 }
 

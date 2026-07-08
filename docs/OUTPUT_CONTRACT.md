@@ -167,6 +167,11 @@ local `.wiki` diverged from the last-synced base. Exit `4` (`ErrNotFound`) when 
 pulled (no base/snapshot). On a successful write `wrote:true`; a failed `.md`-view refresh sets
 `warning` and is not an error.
 
+Both `conf apply` and `jira apply` also carry a `-o text` projection — a compact loss-review
+(first line dry-run/applied, `blocks:` counts, `removed fragments:`/`removed constructs:` and
+`problems:` sections, `validation:` for conf, an optional `warning:`, and a contextual `next:`
+hint). The JSON above is unchanged; the text view is a read-only reprojection of the same result.
+
 `atl conf pull` returns a `PullResult` whose `pages[]` entries are `PulledPage`
 objects. Each carries `id`, `title`, `path`, `version`, `assets`, and — only when
 `--comments` was passed — a `comments` count (omitted otherwise, so the shape is
