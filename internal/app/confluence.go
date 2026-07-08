@@ -625,17 +625,28 @@ func extractSafe(body []byte) []domain.Ref {
 
 func mirrorRootOf(target string) string {
 	// Walk up to a directory containing .atl; fall back to "mirror".
+	if root, ok := MirrorRootOf(target); ok {
+		return root
+	}
+	return "mirror"
+}
+
+// MirrorRootOf walks up from target (a file or directory) up to 12 levels
+// looking for an .atl marker dir, returning the mirror root and whether one was
+// found. Callers that need to distinguish "no mirror here" from the "mirror"
+// fallback (e.g. `config set --local`) use this directly.
+func MirrorRootOf(target string) (string, bool) {
 	dir := target
 	if info, err := os.Stat(target); err == nil && !info.IsDir() {
 		dir = filepath.Dir(target)
 	}
 	for i := 0; i < 12 && dir != "." && dir != "/" && dir != ""; i++ {
 		if _, err := os.Stat(filepath.Join(dir, ".atl")); err == nil {
-			return dir
+			return dir, true
 		}
 		dir = filepath.Dir(dir)
 	}
-	return "mirror"
+	return "", false
 }
 
 func within(dir, path string) bool {

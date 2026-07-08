@@ -22,6 +22,10 @@ type Config struct {
 	// UpdateBaseURL is the distribution server used for self-update; empty
 	// disables auto-update.
 	UpdateBaseURL string `json:"update_base_url,omitempty"`
+	// Render holds presentation-only markdown-view settings. Pointer so a
+	// config without render keys stays byte-stable (no empty "render":{}) when
+	// re-saved. This is the only section a per-mirror local file may set.
+	Render *RenderConfig `json:"render,omitempty"`
 }
 
 // Dir returns the per-user config directory (~/.config/atl), honoring

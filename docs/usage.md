@@ -193,6 +193,14 @@ JSON output:
   "confluence_url": "https://confluence.example.com",
   "jira_url": "https://jira.example.com",
   "update_base_url": "",
+  "render": {
+    "jira": { "profile": "default" },
+    "confluence": { "profile": "minimal" }
+  },
+  "render_provenance": {
+    "render.confluence.profile": "local"
+  },
+  "local_config_path": "/home/user/.atl/work/mirror/.atl/config.json",
   "mirror": {
     "recommended_root": "~/.atl/<workspace>/",
     "active_root": "/home/user/.atl/work",
@@ -204,15 +212,27 @@ JSON output:
 `mirror.active_root` is present only when `ATL_MIRROR_ROOT` is set. Explicit
 `--into` flags still override the default for each pull/status command.
 
+`render` is the **effective** (merged) render configuration; `render_provenance`
+maps each dotted render key that is *not* a built-in default to its source
+(`global` or `local`), so an all-default mirror emits no provenance at all.
+`local_config_path` appears only when a per-mirror `.atl/config.json` is in scope
+from the current directory. Any forbidden/unknown key in a local file is reported
+to **stderr** as a `warning:` line and ignored — never applied.
+
 ### `atl config set`
 
-Persist one or more URLs to the config file
+Persist backend URLs, or a dotted `render.*` key, to the config file
 (`~/.config/atl/config.json`).
 
 ```
 atl config set --confluence-url https://confluence.example.com
 atl config set --jira-url https://jira.example.com
 atl config set --update-url https://releases.example.com/atl
+
+# Render (presentation-only) keys — global or per-mirror (--local):
+atl config set render.jira.profile full
+atl config set --local render.confluence.profile minimal
+atl config set --local render.jira.include sprint,epic
 ```
 
 Flags:
@@ -222,6 +242,21 @@ Flags:
 | `--confluence-url` | Confluence base URL |
 | `--jira-url` | Jira base URL |
 | `--update-url` | self-update distribution server base URL |
+| `--local` | write the per-mirror `<root>/.atl/config.json` (render keys only) |
+| `--into ROOT` | mirror root for `--local` (defaults to the nearest `.atl` walking up from cwd) |
+
+**Render keys** (`render.{jira,confluence}.{profile,include,exclude}`, plus
+`render.jira.custom_fields`) tune the derived `.md` view. `profile` is one of
+`minimal`, `default`, `full`; `include`/`exclude`/`custom_fields` take a
+comma-separated list.
+
+**Local config layer (security boundary).** `--local` writes a per-mirror
+`.atl/config.json` that may carry **render keys only** — it is presentation-only.
+A mirror directory can be shared or checked out, so a repo-local file must never
+be able to redirect where a PAT is sent: backend/update URLs are global/env-only,
+and `config set --local` refuses any URL flag (exit 2). At read time, any
+credential-adjacent or unknown key found in a local file is warned about on stderr
+and ignored. Precedence is **local > global > default**, merged per key.
 
 ---
 
