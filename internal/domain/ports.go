@@ -143,6 +143,10 @@ type Tracker interface {
 	// DownloadAttachment streams an attachment's bytes plus its filename; the
 	// caller must Close the reader.
 	DownloadAttachment(ctx context.Context, key, attachmentID string) (io.ReadCloser, string, error)
+	// StreamAttachment streams an attachment's bytes directly from its server
+	// content URL (as carried in an issue's attachment metadata), with no extra
+	// listing round-trip. The caller must Close the reader.
+	StreamAttachment(ctx context.Context, contentURL string) (io.ReadCloser, error)
 	// UploadAttachment uploads file bytes as an attachment to an issue. size is
 	// the byte length of data when known; pass a negative value when unknown.
 	UploadAttachment(ctx context.Context, key, filename string, data io.Reader, size int64) (*Attachment, error)

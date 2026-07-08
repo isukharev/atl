@@ -1017,6 +1017,7 @@ func jiraPullCmd() *cobra.Command {
 	var jql, into string
 	var fields string
 	var limit int
+	var assets bool
 	cmd := &cobra.Command{
 		Use:   "pull",
 		Short: "Export issues matching --jql to one md+json per issue",
@@ -1028,13 +1029,27 @@ func jiraPullCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			pulled, err := svc.Pull(cmd.Context(), jql, into, limit, splitFields(fields))
+			res, err := svc.Pull(cmd.Context(), app.JiraPullOpts{
+				JQL:    jql,
+				Into:   into,
+				Limit:  limit,
+				Fields: splitFields(fields),
+				Assets: assets,
+			})
 			if err != nil {
 				return err
 			}
-			return emit(cmd, map[string]any{"into": into, "issues": pulled}, func() string {
+			// Warn on stderr (never stdout — that would corrupt the JSON result)
+			// when image assets were selected but could not be mirrored, mirroring
+			// the conf pull truncation warning: skipped assets are never silent.
+			if res.AssetsSkipped > 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"warning: %d image asset(s) skipped (download or write failed) — the affected issues were still pulled without those images\n",
+					res.AssetsSkipped)
+			}
+			return emit(cmd, res, func() string {
 				var b strings.Builder
-				for _, p := range pulled {
+				for _, p := range res.Issues {
 					fmt.Fprintf(&b, "%s\t%s\n", p.Key, p.Path)
 				}
 				return strings.TrimRight(b.String(), "\n")
@@ -1045,6 +1060,7 @@ func jiraPullCmd() *cobra.Command {
 	cmd.Flags().StringVar(&into, "into", mirrorRootDefault("mirror-jira"), "output root dir (default: $ATL_MIRROR_ROOT or \"mirror-jira\")")
 	cmd.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all)")
 	cmd.Flags().StringVar(&fields, "fields", "", "extra comma-separated field list to include in JSON snapshots")
+	cmd.Flags().BoolVar(&assets, "assets", false, "also mirror each issue's image attachments into a per-issue <KEY>.assets/ dir and link them from the .md")
 	return cmd
 }
 
