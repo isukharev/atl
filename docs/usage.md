@@ -285,6 +285,19 @@ and ignored, never an error.
 **>** global config **>** built-in `default`. `include` adds sections to the
 profile base; `exclude` removes them.
 
+Two deliberate consequences of per-key merging:
+
+- **List keys can be replaced, not emptied, by a higher layer.** An empty
+  `include`/`exclude`/`custom_fields` value means "not set here" and falls
+  through to the lower layer — a local config or flag cannot clear a list the
+  global config sets. To stop rendering a globally-configured custom field in
+  one mirror, override the list with a different value, or counter it (e.g.
+  `--render-exclude custom_fields`), or remove the key from the global config.
+- **Profiles shape only the `.md` view.** The `<KEY>.json` snapshot keeps its
+  standard field projection regardless of profile (`minimal` does not shrink
+  it); `full` *widens* the pull's API request so every enabled section has its
+  data, but nothing is removed for smaller profiles.
+
 ```sh
 # per run
 atl jira pull --jql "project=PROJ" --render-profile full
