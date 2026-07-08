@@ -44,6 +44,14 @@ type JiraApplyResult struct {
 // the sidecar (base + snapshot exist) and the local `.wiki` still matches the
 // base (direct wiki edits win over the md surface; push or re-pull first).
 //
+// The pristine view the edit is diffed against is reproduced from the render
+// settings recorded when the .md was last written (pull/render/apply), not the
+// ambient config — so a profile change between render and apply never causes a
+// spurious refusal. Explicit --render-* flags (o.Render) override the recorded
+// settings; a pre-upgrade mirror with no recorded view falls back to the ambient
+// config (today's behavior). The chosen settings are recorded again after the
+// post-write refresh.
+//
 // CRLF: the base `.wiki` holds the server's bytes verbatim (Jira DC descriptions
 // are typically CRLF). wikimerge preserves those bytes byte-for-byte — its block
 // scanner treats `\n`, `\r\n`, and lone `\r` as one line break whose bytes live
@@ -101,10 +109,32 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	edited := normalizeMD(string(rawEdited))
 
 	// Reproduce the pristine view from the base body + snapshot fields under the
-	// effective render settings, so an untouched .md compares byte-identical and
-	// unchanged-block detection (image embeds included) matches what the reader saw.
+	// render settings the .md was actually written with, so an untouched .md
+	// compares byte-identical and unchanged-block detection (image embeds
+	// included) matches what the reader saw. Resolution order:
+	//   1. explicit --render-* flags win (the escape hatch);
+	//   2. else the settings recorded when this view was last rendered/pulled,
+	//      ignoring the ambient config so a profile change between render and
+	//      apply cannot cause a spurious refusal;
+	//   3. else (pre-upgrade mirror with no recorded view) the ambient config,
+	//      exactly today's behavior.
 	is.Body = string(baseWiki)
-	rs, _ := ResolveRender(s.cfg, root, o.Render, "jira")
+	var rs RenderSettings
+	switch {
+	case renderOverrideSet(o.Render):
+		rs, _ = ResolveRender(s.cfg, root, o.Render, "jira")
+	default:
+		vs, ok, verr := m.ViewStateOf(keySeg)
+		if verr != nil {
+			// Corrupt sidecar is already ErrCheckFailed — propagate it.
+			return nil, verr
+		}
+		if ok {
+			rs = settingsFromViewState(vs)
+		} else {
+			rs, _ = ResolveRender(s.cfg, root, config.RenderService{}, "jira")
+		}
+	}
 	assets := assetsOnDisk(dir, keySeg)
 	prefix, _, suffix := renderIssueMarkdownParts(is, assets, rs)
 
@@ -149,6 +179,10 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	is.Body = string(merged)
 	if werr := safepath.WriteFile(mdPath, renderIssueMarkdown(is, assets, rs), 0o644); werr != nil {
 		res.Warning = "applied, but the .md view could not be refreshed and may be stale: " + werr.Error()
+	} else if verr := m.SaveViewStates(map[string]mirror.ViewState{keySeg: viewStateOf(rs)}); verr != nil {
+		// Record the settings the refreshed view was written with (best-effort,
+		// same contract as the refresh itself: the .wiki write already succeeded).
+		res.Warning = "applied, but the view state could not be recorded: " + verr.Error()
 	}
 	return res, nil
 }

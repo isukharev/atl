@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/isukharev/atl/internal/config"
+	"github.com/isukharev/atl/internal/mirror"
 )
 
 // Canonical Jira render section/field names. The flat set is what include/exclude
@@ -218,6 +219,52 @@ func applyRenderOverride(svc, o config.RenderService) config.RenderService {
 		out.CustomFields = append([]string(nil), o.CustomFields...)
 	}
 	return out
+}
+
+// viewStateOf captures the render settings a .md view was written with as a
+// mirror.ViewState: the sorted list of enabled sections plus a copy of the
+// configured custom field ids. Storing the computed section list (not the
+// profile name) keeps a recorded view valid even if a profile's definition
+// later changes.
+func viewStateOf(rs RenderSettings) mirror.ViewState {
+	sections := make([]string, 0, len(rs.Sections))
+	for name, on := range rs.Sections {
+		if on {
+			sections = append(sections, name)
+		}
+	}
+	sort.Strings(sections)
+	var cf []string
+	if len(rs.CustomFields) > 0 {
+		cf = append([]string(nil), rs.CustomFields...)
+	}
+	return mirror.ViewState{Sections: sections, CustomFields: cf}
+}
+
+// settingsFromViewState is the inverse of viewStateOf: it rebuilds RenderSettings
+// from a recorded mirror.ViewState so apply can reproduce the exact pristine view
+// regardless of the ambient config. Section names are not validated against the
+// closed set — an unknown name (a section added in a newer atl that wrote this
+// mirror) is simply carried and ignored by renderers, keeping the mirror
+// forward-compatible.
+func settingsFromViewState(vs mirror.ViewState) RenderSettings {
+	sections := make(map[string]bool, len(vs.Sections))
+	for _, name := range vs.Sections {
+		sections[name] = true
+	}
+	var cf []string
+	if len(vs.CustomFields) > 0 {
+		cf = append([]string(nil), vs.CustomFields...)
+	}
+	return RenderSettings{Sections: sections, CustomFields: cf}
+}
+
+// renderOverrideSet reports whether a per-run render override carries any
+// explicit flag (profile, include, exclude, or custom fields). apply uses it to
+// decide whether the user asked for a specific view (honor the flags) or wants
+// the recorded pristine view reproduced.
+func renderOverrideSet(o config.RenderService) bool {
+	return o.Profile != "" || len(o.Include) > 0 || len(o.Exclude) > 0 || len(o.CustomFields) > 0
 }
 
 // sortedFieldKeys returns a raw fields map's keys in deterministic order so a

@@ -10,6 +10,7 @@ import (
 	jiraadapter "github.com/isukharev/atl/internal/adapter/jira"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/mirror"
 	"github.com/isukharev/atl/internal/safepath"
 )
 
@@ -32,7 +33,9 @@ type JiraRenderResult struct {
 // decodes the `<KEY>.json` snapshot into a domain.Issue via the pure adapter
 // mapper, re-indexes any already-downloaded `<KEY>.assets/` images from disk, and
 // rewrites `<KEY>.md` under the effective render settings (config + override).
-// It never touches the `.wiki`/`.json`/sidecar substrate, so `jira status` stays
+// It records each issue's view state in `.atl/state.json` (so a later `jira
+// apply` reproduces the exact pristine view) but never touches the
+// `.wiki`/`.json` substrate or the `pages` sync entries, so `jira status` stays
 // clean across a re-render.
 func (s *JiraService) Render(target string, override config.RenderService) (*JiraRenderResult, error) {
 	if target == "" {
@@ -49,6 +52,8 @@ func (s *JiraService) Render(target string, override config.RenderService) (*Jir
 	if err != nil {
 		return nil, err
 	}
+	vs := viewStateOf(rs)
+	views := map[string]mirror.ViewState{}
 	for _, jsonPath := range snaps {
 		is, ok := loadIssueSnapshot(jsonPath)
 		if !ok {
@@ -61,8 +66,15 @@ func (s *JiraService) Render(target string, override config.RenderService) (*Jir
 		if err := safepath.WriteFile(mdPath, md, 0o644); err != nil {
 			return res, err
 		}
+		// Keyed by the .wiki basename, same key as the pull/apply paths.
+		views[keySeg] = vs
 		rel, _ := filepath.Rel(root, mdPath)
 		res.Rendered = append(res.Rendered, JiraRendered{Key: is.Key, Path: rel})
+	}
+	// Persist the recorded views in one load-modify-save. This writes only the
+	// `views` map, never a `pages` sync entry, so `jira status` stays clean.
+	if err := mirror.New(root).SaveViewStates(views); err != nil {
+		return res, err
 	}
 	return res, nil
 }

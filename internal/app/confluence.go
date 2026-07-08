@@ -262,6 +262,10 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 		} else if err := batch.WriteView(dir, slug, page, refs, mdOpts); err != nil {
 			return res, fmt.Errorf("write %s: %w", id, err)
 		}
+		// Record the render settings this .md view was written with so `conf
+		// apply` can reproduce the exact pristine view (frontmatter + comments
+		// stay read-only) instead of guessing from the ambient config.
+		batch.RecordView(page.ID, viewStateOf(rs))
 		rel, _ := filepath.Rel(root, filepath.Join(dir, slug+".csf"))
 		assetCount := 0
 		for _, r := range refs {
@@ -573,6 +577,11 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 	mdOpts := confMDViewOpts(rs, page, readCommentsSidecar(dir, slug))
 	if werr := m.WriteView(dir, slug, page, refs, mdOpts); werr != nil {
 		item.Warning = "pushed but local refresh failed (re-pull recommended): " + werr.Error()
+	} else if verr := m.SaveViewStates(map[string]mirror.ViewState{lc.Meta.ID: viewStateOf(rs)}); verr != nil {
+		// Recording the view state is best-effort, like the refresh itself: the
+		// push already succeeded, so a sidecar-record failure is a warning, not a
+		// failed push.
+		item.Warning = "pushed but view state could not be recorded (re-pull recommended): " + verr.Error()
 	}
 	return item, nil
 }

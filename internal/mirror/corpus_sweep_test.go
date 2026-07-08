@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/isukharev/atl/internal/csf"
+	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/fragment"
 )
 
@@ -63,6 +64,19 @@ func TestCorpusSweep(t *testing.T) {
 		rendered++
 		for _, m := range genericMacro.FindAllStringSubmatch(md, -1) {
 			unhandled[m[1]]++
+		}
+		// The conf-apply anchored path depends on prefix+body+suffix being
+		// byte-identical to the decorated full view; assert it across every real
+		// page so no body shape breaks the identity.
+		refs := fragment.Extract(root)
+		opts := MDViewOpts{
+			Frontmatter: &PageFrontmatter{Title: "T", Space: "S", Version: 1},
+			Comments:    []domain.Comment{{Author: "a", Created: "d", Body: "c"}},
+		}
+		want := string(RenderMarkdownOpts(root, refs, opts))
+		p, bmid, sfx := RenderMarkdownViewParts(root, refs, opts)
+		if p+bmid+sfx != want {
+			t.Errorf("%s: RenderMarkdownViewParts concat != RenderMarkdownOpts", f)
 		}
 	}
 

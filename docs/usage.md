@@ -314,6 +314,17 @@ under `full` (or when `custom_fields` is included); each renders as
 `<id>: <value>` from the raw field (scalar verbatim; object via
 `name`/`value`/`displayName`; array comma-joined; missing → omitted).
 
+**`apply` reproduces the view it was rendered with.** Every `pull`/`render`
+records the resolved render settings in `.atl/state.json` (a `views` map).
+`conf apply` / `jira apply` rebuild the pristine view from those recorded
+settings — so an untouched `full`-profile `.md` applies cleanly and its YAML
+frontmatter and `## Comments` section stay **read-only** (they are never merged
+into the page/description body; editing them is refused with a pointer to the
+metadata / comment commands). You no longer pass `--render-*` flags to `apply`;
+pass them only to override the recorded view. A pre-upgrade mirror that has no
+recorded view falls back to the ambient config (today's behavior) — re-run
+`render` once to record it.
+
 ### `atl jira render` / `atl conf render`
 
 Regenerate the `.md` views of an existing mirror **offline** — no network, no
@@ -328,10 +339,12 @@ atl conf render mirror/DOCS/page/page.csf --render-exclude comments
 
 The target is a mirror directory, a `.md`, or the substrate file (`.wiki` for
 Jira, `.csf` for Confluence); the mirror root is found by walking up to the
-`.atl` marker. Only `.md` files are rewritten — the `.csf`/`.wiki`/`.json` and
-sidecars are never touched, so `jira status` / `conf status` stay clean across a
-re-render. A Confluence `.csf` that fails to parse yields the same
-markdown-unavailable stub as `pull`.
+`.atl` marker. Only `.md` files are rewritten — the `.csf`/`.wiki`/`.json`
+substrate and the `pages` sync entries are never touched, so `jira status` /
+`conf status` stay clean across a re-render. Each rendered view's settings are
+recorded in `.atl/state.json` (the `views` map) so a later `apply` can reproduce
+it. A Confluence `.csf` that fails to parse yields the same markdown-unavailable
+stub as `pull`.
 
 | flag | description |
 |---|---|
@@ -692,11 +705,21 @@ atl conf apply guide.md --allow-fragment-loss  # intentional macro/mention remov
 | `--allow-fragment-loss` | proceed when the edit drops opaque fragments |
 | `--into` | mirror root (defaults to nearest `.atl`) |
 
+When the page was pulled under the `full` profile, the `.md` carries YAML
+frontmatter and a `## Comments` section. Both are **read-only** in the view:
+`apply` reproduces them from the recorded render settings (`.atl/state.json`) and
+merges only the editable body between them, so an untouched `full`-profile page
+applies to a byte-identical `.csf` — the decorations are never converted into
+page content. Editing the frontmatter or the `## Comments` section is refused
+(exit `8`) with a pointer to `conf page update` / `conf page move` or
+`conf comment add`.
+
 Output: `{path, csf_path, dry_run, report: {unchanged, moved, converted,
 removed, merged_tables?, removed_fragments?, problems?}, csf_ok, wrote,
 warning?}`. After a successful apply the `.md` is regenerated from the merged
-body so both surfaces agree; if that refresh cannot be written the apply
-still succeeds and `warning` reports that the `.md` may be stale.
+body so both surfaces agree (keeping the `full` decorations when they were
+present); if that refresh cannot be written the apply still succeeds and
+`warning` reports that the `.md` may be stale.
 
 Pass `-o text` for a compact human loss-review — block counts, each removed
 fragment, validation problems, and a contextual next-step hint:
@@ -1455,11 +1478,14 @@ atl jira apply PROJ-1.md --allow-loss  # intentional {panel}/{color}/mention/emb
 | `--dry-run` | report the merge without writing files |
 | `--allow-loss` | proceed when the edit drops wiki-only constructs |
 | `--into` | mirror root (defaults to nearest `.atl`) |
-| `--render-profile` / `--render-include` / `--render-exclude` | resolve the pristine view the same way you pulled it |
+| `--render-profile` / `--render-include` / `--render-exclude` | override the recorded view (normally unnecessary) |
 
-Pass the same `--render-*` flags you pulled with: `apply` reproduces the pristine
-view from the `<KEY>.json` snapshot to diff your edit against it, so a mismatched
-profile can spuriously flag an untouched section.
+`apply` reproduces the pristine view from the render settings the `.md` was last
+written with (recorded on `pull`/`render` in `.atl/state.json`), diffed against
+your edit — so no `--render-*` flags are needed. Pass them only to override that
+recorded view; a mismatched profile will then flag the (unchanged) decorations as
+edited. A pre-upgrade mirror with no recorded view falls back to the ambient
+config — re-run `jira render` once to record it.
 
 Output: `{path, wiki_path, dry_run, report: {unchanged, moved, converted, removed,
 removed_constructs?}, wrote, warning?}` — the same shape as `conf apply` (swapping

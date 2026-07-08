@@ -32,8 +32,9 @@ func jiraApplyCmd() *cobra.Command {
 			"bytes; a wiki-only construct ({panel}, {color}, mentions, !embeds!, macros) dropped by " +
 			"the edit is refused (exit 8) unless --allow-loss. Local only — run `jira push` to send " +
 			"the merged .wiki to the server under its drift gate.\n\n" +
-			"Pass the same --render-* flags you pulled with, so the pristine view compared against " +
-			"the edit matches.",
+			"The pristine view compared against the edit is reproduced from the render settings the " +
+			".md was last written with (recorded on pull/render), so no flags are needed; pass " +
+			"--render-* only to override that recorded view.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			override, err := rf.override()

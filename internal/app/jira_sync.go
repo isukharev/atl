@@ -251,6 +251,9 @@ func (s *JiraService) refreshAfterPush(ctx context.Context, m *mirror.Mirror, wi
 		return err
 	}
 	batch.Record(mirror.SyncState{ID: key, Version: 0, Hash: mirror.Hash([]byte(is.Body)), Path: relWiki})
+	// Record the render settings the refreshed .md view was written with so a
+	// later `jira apply` reproduces the exact pristine view.
+	batch.RecordView(key, viewStateOf(rs))
 	return batch.Flush()
 }
 

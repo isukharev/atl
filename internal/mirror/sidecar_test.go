@@ -174,3 +174,86 @@ func TestSyncBatchFlushOnce(t *testing.T) {
 		t.Error("no-op Flush rewrote the sidecar")
 	}
 }
+
+// TestViewStateRoundTrip: RecordView through a batch persists, ViewStateOf reads
+// it back, and unrecorded ids report ok=false.
+func TestViewStateRoundTrip(t *testing.T) {
+	m := New(t.TempDir())
+	b, err := m.BeginSync()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.RecordView("P1", ViewState{Sections: []string{"comments", "frontmatter"}, CustomFields: []string{"customfield_1"}})
+	// Nothing hits the sidecar until Flush.
+	if _, ok, err := m.ViewStateOf("P1"); err != nil || ok {
+		t.Fatalf("view visible before Flush (ok=%v err=%v)", ok, err)
+	}
+	if err := b.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	vs, ok, err := m.ViewStateOf("P1")
+	if err != nil || !ok {
+		t.Fatalf("ViewStateOf after flush: ok=%v err=%v", ok, err)
+	}
+	if len(vs.Sections) != 2 || vs.Sections[0] != "comments" || len(vs.CustomFields) != 1 {
+		t.Errorf("round-tripped view state wrong: %+v", vs)
+	}
+	if _, ok, err := m.ViewStateOf("missing"); err != nil || ok {
+		t.Errorf("unrecorded id should report ok=false (ok=%v err=%v)", ok, err)
+	}
+}
+
+// TestSaveViewStatesMerge: SaveViewStates merges into existing views without
+// disturbing the pages map or other view entries.
+func TestSaveViewStatesMerge(t *testing.T) {
+	m := New(t.TempDir())
+	// Seed a page sync entry so we can prove SaveViewStates leaves it intact.
+	p := &domain.Resource{ID: "1", Title: "One", SpaceKey: "S", Version: 1, Body: []byte("<p>1</p>")}
+	dir, slug := m.PageDir(p.SpaceKey, nil, p.Title)
+	if err := m.Write(dir, slug, p, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SaveViewStates(map[string]ViewState{"1": {Sections: []string{"frontmatter"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SaveViewStates(map[string]ViewState{"2": {Sections: []string{"comments"}}}); err != nil {
+		t.Fatal(err)
+	}
+	sc, err := m.loadSidecar()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sc.Pages) != 1 || sc.Pages["1"].Version != 1 {
+		t.Errorf("pages map disturbed by SaveViewStates: %+v", sc.Pages)
+	}
+	if len(sc.Views) != 2 || sc.Views["1"].Sections[0] != "frontmatter" || sc.Views["2"].Sections[0] != "comments" {
+		t.Errorf("views not merged: %+v", sc.Views)
+	}
+	// Empty map is a no-op.
+	if err := m.SaveViewStates(nil); err != nil {
+		t.Errorf("nil SaveViewStates: %v", err)
+	}
+}
+
+// TestViewStateNilMapOnOldSidecar: a state.json written before the views map
+// existed loads without panicking and reports no recorded views.
+func TestViewStateNilMapOnOldSidecar(t *testing.T) {
+	m := New(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(m.sidecarPath()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A pre-upgrade sidecar: pages only, no "views" key.
+	if err := os.WriteFile(m.sidecarPath(), []byte(`{"pages":{"P1":{"id":"P1","version":2,"hash":"h","path":"p.csf"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := m.ViewStateOf("P1"); err != nil || ok {
+		t.Fatalf("old sidecar: ok=%v err=%v", ok, err)
+	}
+	// Recording into it must succeed (the nil map is initialized on load).
+	if err := m.SaveViewStates(map[string]ViewState{"P1": {Sections: []string{"comments"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if vs, ok, _ := m.ViewStateOf("P1"); !ok || len(vs.Sections) != 1 {
+		t.Errorf("view not recorded onto old sidecar: %+v ok=%v", vs, ok)
+	}
+}
