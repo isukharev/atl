@@ -213,3 +213,27 @@ func mustWriteSnapshot(t *testing.T, path string, is *domain.Issue) {
 	}
 	mustWriteFile(t, path, string(b)+"\n")
 }
+
+// A numeric custom field (story points, scores — encoding/json gives float64)
+// must render verbatim, integers without a fractional tail.
+func TestRenderFieldValueNumeric(t *testing.T) {
+	cases := []struct {
+		in   any
+		want string
+	}{
+		{float64(13), "13"},
+		{float64(0.5), "0.5"},
+		{json.Number("42"), "42"},
+		{[]any{float64(1), float64(2)}, "1, 2"},
+	}
+	for _, c := range cases {
+		if got := renderFieldValue(c.in); got != c.want {
+			t.Errorf("renderFieldValue(%v) = %q, want %q", c.in, got, c.want)
+		}
+	}
+	fields := map[string]any{"customfield_10001": float64(13)}
+	v, ok := customFieldValue(fields, "customfield_10001")
+	if !ok || v != "13" {
+		t.Errorf("customFieldValue numeric = (%q, %v), want (\"13\", true)", v, ok)
+	}
+}

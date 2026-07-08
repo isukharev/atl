@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/isukharev/atl/internal/config"
@@ -402,8 +403,10 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 	res := &JiraPullResult{Into: into, Issues: []JiraPulled{}}
 	cursor := ""
 	// Resolve the effective render settings for THIS mirror (local config lives
-	// under the pull root) so the .md view and the API field projection both cover
-	// exactly the enabled sections — `full` never needs a second fetch per issue.
+	// under the pull root) so the API field projection covers every enabled
+	// section — `full` never needs a second fetch per issue. The projection only
+	// ever widens from the compat base set (the `.json` snapshot keeps its
+	// standard shape under smaller profiles; profiles shape the .md view only).
 	rs, warns := ResolveRender(s.cfg, into, opts.Render, "jira")
 	res.Warnings = warns
 	pullFields := jiraPullFields(opts.Fields, rs)
@@ -858,7 +861,11 @@ func renderFieldValue(v any) string {
 		}
 		return "false"
 	case float64:
-		return asString(t)
+		// encoding/json decodes every JSON number as float64; -1 precision keeps
+		// integers integral (13, not 13.00) and floats exact (0.5).
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	case json.Number:
+		return t.String()
 	case map[string]any:
 		for _, k := range []string{"name", "value", "displayName"} {
 			if s := asString(t[k]); s != "" {
