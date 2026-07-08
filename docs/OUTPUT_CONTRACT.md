@@ -109,6 +109,13 @@ is an object with stable identity at the top level and raw Jira fields under `fi
 `--fields` on `jira pull` adds requested fields to that `fields` map; the command still includes the
 core fields needed to render the markdown view and choose the project/key path.
 
+The `jira pull` stdout summary is `{ "into": <root>, "issues": [ { "key", "path", "assets" }, ... ] }`.
+With `--assets`, each issue object gains an `assets` count of image attachments mirrored into
+`<KEY>.assets/`, and the top-level result gains `assets_skipped` when some images could not be
+downloaded. Both `assets` and `assets_skipped` are `omitempty`: a default (no `--assets`) pull, and a
+`--assets` pull where nothing was skipped, produce the same shapes as before. The raw `<KEY>.json`
+snapshot is never modified by `--assets` — it mirrors Jira's response and carries no local file paths.
+
 `atl conf pull` returns a `PullResult` whose `pages[]` entries are `PulledPage`
 objects. Each carries `id`, `title`, `path`, `version`, `assets`, and — only when
 `--comments` was passed — a `comments` count (omitted otherwise, so the shape is

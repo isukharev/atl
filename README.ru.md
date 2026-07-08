@@ -310,8 +310,9 @@ atl jira issue search --jql 'project = PROJ AND status = "In Progress"'
 atl jira issue attachment list PROJ-1
 atl jira issue attachment get PROJ-1 --id spec.xlsx --into ./attachments
 
-# Зеркалировать набор задач на диск
+# Зеркалировать набор задач на диск (добавьте --assets, чтобы также зеркалировать вложения-изображения)
 atl jira pull --jql 'project = PROJ' --into mirror-jira
+atl jira pull --jql 'project = PROJ AND status = Open' --assets
 
 # Запись
 atl jira issue attachment upload PROJ-1 --file ./spec.xlsx

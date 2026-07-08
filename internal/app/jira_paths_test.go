@@ -165,9 +165,13 @@ func TestJiraPullRejectsTraversalKey(t *testing.T) {
 	s := &JiraService{tr: partialTracker{
 		issues: []domain.Issue{{Key: "../../../../tmp/atl-evil", Project: "PROJ"}},
 	}}
-	out, err := s.Pull(context.Background(), "project = PROJ", into, 1, nil)
+	res, err := s.Pull(context.Background(), JiraPullOpts{JQL: "project = PROJ", Into: into, Limit: 1})
 	if err != nil {
 		t.Logf("Pull returned %v (acceptable: rejected)", err)
+	}
+	var out []JiraPulled
+	if res != nil {
+		out = res.Issues
 	}
 	for _, p := range out {
 		// p.Path is relative to --into; it must not climb out of it. (A single

@@ -310,8 +310,9 @@ atl jira issue search --jql 'project = PROJ AND status = "In Progress"'
 atl jira issue attachment list PROJ-1
 atl jira issue attachment get PROJ-1 --id spec.xlsx --into ./attachments
 
-# Mirror an issue set to disk
+# Mirror an issue set to disk (add --assets to also mirror image attachments)
 atl jira pull --jql 'project = PROJ' --into mirror-jira
+atl jira pull --jql 'project = PROJ AND status = Open' --assets
 
 # Write
 atl jira issue attachment upload PROJ-1 --file ./spec.xlsx

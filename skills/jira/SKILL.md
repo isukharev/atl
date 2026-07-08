@@ -37,14 +37,25 @@ atl jira issue search --jql '<JQL>' --limit 50
 ### 2. Pull issues you'll work with
 ```bash
 atl jira pull --jql '<JQL>' --into ~/.atl/<workspace>/ --limit 0 [--fields customfield_10001,customfield_10002]
+atl jira pull --jql '<JQL>' --assets   # also mirror image attachments (opt-in)
 ```
-(`--limit 0` = all; default 100.) → `{ "into": "...", "issues": [ {key, path} ] }`
+(`--limit 0` = all; default 100.) → `{ "into": "...", "issues": [ {key, path, assets} ] }`
+(`assets` and a top-level `assets_skipped` appear only with `--assets` and are omitted at zero.)
 
 On disk per issue (both are **read-only snapshots**, regenerated on pull):
 ```
-<root>/<PROJECT>/<KEY>.md     # YAML frontmatter + wiki body + links + comments
-<root>/<PROJECT>/<KEY>.json   # {key,id,fields:{...}}; raw Jira fields live under .fields
+<root>/<PROJECT>/<KEY>.md      # YAML frontmatter + wiki body + links + comments
+<root>/<PROJECT>/<KEY>.json    # {key,id,fields:{...}}; raw Jira fields live under .fields
+<root>/<PROJECT>/<KEY>.assets/ # only with --assets: image attachments, linked from the .md
 ```
+
+`--assets` streams each issue's `image/*` attachments into
+`<KEY>.assets/<attachment-id>-<filename>` and adds a `## Image Attachments`
+section to the `.md` (between description and links). It is best-effort: a failed
+image is skipped, counted in `assets_skipped`, and warned about on stderr; the
+issue is still written. Attachments with an empty or `application/octet-stream`
+media type are skipped (same as `jira issue images`). The `.json` snapshot is
+unchanged. For a single issue's images use `jira issue images <KEY>` instead.
 
 For compact analysis artifacts instead of a directory mirror:
 ```bash
@@ -237,7 +248,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue attachment get <KEY>` | Download an issue attachment | `--id ID-or-filename`, `--into DIR` |
 | `jira issue attachment upload <KEY>` | Upload a local file as an issue attachment | `--file PATH` |
 | `jira issue images <KEY>` | Download image attachments (agent vision) | `--into DIR` |
-| `jira pull` | Export issues to disk (.md + .json) | `--jql`, `--into`, `--limit`, `--fields` |
+| `jira pull` | Export issues to disk (.md + .json) | `--jql`, `--into`, `--limit`, `--fields`, `--assets` |
 | `jira export` | Write one compact JSONL/JSON/CSV artifact plus manifest | `--jql`/`--ids`/`--keys`, `--out`, `--format`, `--limit`, `--fields`, `--batch-size` |
 | `jira export diff <OLD> <NEW>` | Compare compact exports | — |
 | `jira planning report` | Deterministic planning quality report | `--jql`, `--require`, `--estimate-field`, `--epic-field`, `--limit`, `--csv` |
