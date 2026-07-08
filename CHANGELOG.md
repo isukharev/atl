@@ -21,6 +21,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sidecars still reports Clean in `conf status`. Comment bodies are a plain-text
   read view (CSF stripped). A re-pull with `--comments` refreshes the sidecars; a
   re-pull without it leaves existing comment files untouched.
+- **`jira pull` now writes a native `<KEY>.wiki` substrate beside a rendered
+  `<KEY>.md` view.** The issue's Jira wiki body is stored byte-for-byte in
+  `<KEY>.wiki` — the editable source of truth, mirroring the role `.csf` plays
+  for Confluence (written even when empty so the substrate always exists). A new
+  best-effort, lossy wiki→Markdown renderer (`internal/wikimd`) produces the
+  `.md` read view: headings, `*bold*`/`_italic_`/`{{mono}}`/`-strike-`,
+  `{code}`/`{noformat}`/`{quote}`/`{panel}`, `*`/`#` lists, `||`/`|` tables,
+  `[text|url]` links, `!image!` embeds (resolved to the downloaded `.assets/`
+  path when a `--assets` pull ran, else shown as unresolved-image inline code),
+  `{color}`, and `[~mentions]`. The renderer never fails a pull — a panic
+  degrades one section to a stub that points at `<KEY>.wiki`. The `<KEY>.json`
+  snapshot is unchanged; the pull result JSON keeps `path` pointing at the `.md`
+  and gains `wiki_path` pointing at the editable substrate. Generated markdown
+  image links escape markdown-significant filename characters, and code fences
+  widen past any backtick runs in `{code}`/`{noformat}` bodies.
 - **`jira pull --assets` mirrors image attachments into per-issue asset dirs.**
   The opt-in `--assets` flag streams each pulled issue's image attachments
   (media type `image/*`) into `<KEY>.assets/<attachment-id>-<filename>` and links
@@ -49,6 +64,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listing hits the pagination safety cap, the command now writes a `warning:`
   line to stderr (the returned set is incomplete); the JSON result on stdout is
   unchanged.
+- **The Jira mirror `<KEY>.md` is now a pure rendered read view.** It previously
+  embedded the raw wiki body verbatim under a `## Description (Jira wiki)`
+  section; it now shows a rendered `## Description` (and rendered comment bodies)
+  produced by `internal/wikimd`, with the verbatim body moved to the new
+  `<KEY>.wiki` file. Existing mirrors regenerate to the new layout on the next
+  `jira pull` (the old single-`.md` envelope is replaced and `.wiki` appears
+  alongside); edit `<KEY>.wiki`, not the `.md`, to change a body.
 
 ### Fixed
 

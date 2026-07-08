@@ -1188,9 +1188,12 @@ atl jira issue delete PROJ-1 --force [--delete-subtasks]
 
 ### `atl jira pull`
 
-Export issues matching a JQL query to disk. Each issue becomes a pair of
-files: `<KEY>.md` (Markdown with YAML frontmatter + native wiki body) and
-`<KEY>.json` (identity plus raw Jira fields).
+Export issues matching a JQL query to disk. Each issue becomes three files:
+`<KEY>.wiki` (the native Jira wiki body, stored byte-for-byte — the editable
+source of truth, the Jira analog of a Confluence `.csf`), `<KEY>.md` (a
+read-only Markdown view rendered from the wiki, regenerated best-effort on every
+pull), and `<KEY>.json` (identity plus raw Jira fields). Edit the `.wiki` file,
+not the `.md` view.
 
 ```bash
 atl jira pull --jql "project=PROJ and sprint in openSprints()" \
@@ -1225,13 +1228,22 @@ Output layout:
 ```
 mirror-jira/
   PROJ/
-    PROJ-1.md
+    PROJ-1.wiki             # native Jira wiki body, verbatim — the editable source
+    PROJ-1.md               # read-only rendered Markdown view (regenerated on pull)
     PROJ-1.json
     PROJ-1.assets/          # only with --assets, when the issue has images
       10001-screenshot.png
+    PROJ-2.wiki
     PROJ-2.md
     PROJ-2.json
 ```
+
+The `.md` is a lossy, best-effort read view (headings, emphasis, `{code}`/
+`{quote}`/`{panel}`, lists, tables, links, `!image!` embeds, `{color}`,
+`[~mentions]`); a render failure degrades that one section to a stub comment and
+never fails the pull. To change an issue body, edit `<KEY>.wiki` (or a copy of
+it) and apply it with `jira issue update --from-file <KEY>.wiki` — never hand-edit
+the `.md` view.
 
 `<KEY>.json` shape:
 

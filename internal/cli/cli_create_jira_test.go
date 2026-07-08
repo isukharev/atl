@@ -455,16 +455,27 @@ func TestJiraPull_MirrorLayoutAndByteStable(t *testing.T) {
 		t.Fatalf("pull result = %+v, want one issue ENG-42", res.Issues)
 	}
 
-	// Mirror layout: <into>/ENG/ENG-42.md and ENG-42.json.
+	// Mirror layout: <into>/ENG/ENG-42.wiki (verbatim substrate), ENG-42.md
+	// (rendered view), and ENG-42.json.
+	// The native wiki body is stored verbatim in the .wiki substrate — byte-for
+	// -byte, no conversion (the editable source of truth, like .csf).
+	wikiPath := filepath.Join(into, "ENG", "ENG-42.wiki")
+	wb, err := os.ReadFile(wikiPath)
+	if err != nil {
+		t.Fatalf("read pulled .wiki: %v", err)
+	}
+	if string(wb) != pullWikiBody {
+		t.Errorf("pulled .wiki not byte-identical to the body\n got: %q\nwant: %q", wb, pullWikiBody)
+	}
+	// The .md is a rendered read view: the raw wiki markup is converted and the
+	// verbatim wiki no longer appears there.
 	mdPath := filepath.Join(into, "ENG", "ENG-42.md")
 	mdb, err := os.ReadFile(mdPath)
 	if err != nil {
 		t.Fatalf("read pulled .md: %v", err)
 	}
-	// The native wiki body is stored verbatim inside the .md (under the
-	// "Description (Jira wiki)" section) — byte-stable, no conversion.
-	if !strings.Contains(string(mdb), pullWikiBody) {
-		t.Errorf("pulled .md does not contain verbatim wiki body\n--- md ---\n%s\n--- want substring ---\n%s", mdb, pullWikiBody)
+	if !strings.Contains(string(mdb), "# Heading") || strings.Contains(string(mdb), "h1. Heading") {
+		t.Errorf("pulled .md is not a rendered view\n--- md ---\n%s", mdb)
 	}
 	// The reported path is relative to `into`.
 	if res.Issues[0].Path != filepath.Join("ENG", "ENG-42.md") {

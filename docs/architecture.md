@@ -339,8 +339,13 @@ Notable behaviors:
   fires one `GetMeta` per page to detect remote drift.
 - `JiraService.Images` downloads only `image/*`-typed attachments; the others
   are skipped.
-- `JiraService.Pull` exports issues as frontmatter-Markdown + raw-fields JSON
-  (one pair per issue key, under `mirror-jira/<PROJECT>/`).
+- `JiraService.Pull` exports each issue as three files under
+  `mirror-jira/<PROJECT>/`: `<KEY>.wiki` (the native Jira wiki body, byte-for-byte
+  — the editable substrate, mirroring `.csf`'s role for Confluence), `<KEY>.md`
+  (a best-effort read-only Markdown view rendered from the wiki by
+  `internal/wikimd`, regenerated on every pull — a render failure degrades one
+  section to a stub, never failing the pull), and `<KEY>.json` (raw fields
+  snapshot). The `.md` `path` is what the pull result reports.
 
 ---
 
