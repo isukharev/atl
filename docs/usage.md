@@ -1359,9 +1359,10 @@ The `.md` is a lossy, best-effort read view (headings, emphasis, `{code}`/
 `{quote}`/`{panel}`, lists, tables, links, `!image!` embeds, `{color}`,
 `[~mentions]`); a render failure degrades that one section to a stub comment and
 never fails the pull. To change an issue body, edit `<KEY>.wiki` (never the `.md`
-view) and either push it back through the mirror with `jira push` (the guarded
-write-back cycle below) or apply it one-shot with
-`jira issue update --from-file <KEY>.wiki`.
+view), or edit the `## Description` section of the `<KEY>.md` view and fold it
+back into the `.wiki` with `jira apply` (block-level, non-lossy — the loop just
+below). Either way, `jira push` is the only path to the server, and
+`jira issue update --from-file <KEY>.wiki` remains the one-shot alternative.
 
 The pull also records the `.wiki` body in the mirror sidecar (`.atl/state.json`)
 plus a pristine base copy (`.atl/base/<KEY>.wiki`), which `jira status` and
@@ -1401,6 +1402,57 @@ sidecar, so `locally_edited` + `synced:false` means "never-synced"), and, with
 base) or `remote_error` (the remote could not be checked — an uncheckable issue
 is never reported in-sync). Drift needs a baseline: an issue with no base copy is
 never reported drifted.
+
+### `atl jira apply`
+
+Merge edits made in an issue's markdown view (`<KEY>.md`) back into its `<KEY>.wiki`
+substrate, block by block — the Jira analog of `conf apply`. This closes the
+authoring loop **pull → edit the `.md` → apply → push**: you edit a familiar
+markdown view instead of hand-writing Jira wiki markup, and `apply` folds the
+change into the native substrate that `jira push` sends to the server.
+
+Only the `## Description` section is writable through the view. Blocks you did not
+touch keep their **exact base bytes** (an untouched view applies to a
+byte-identical `.wiki`); changed or new blocks convert from the same strict
+markdown subset as `jira issue create --from-md` (headings, paragraphs, lists,
+simple tables, fenced code, blockquotes, links). Local only — `jira push` remains
+the write path to the server.
+
+```bash
+atl jira apply my-jira-mirror/PROJ/PROJ-1.md
+atl jira apply PROJ-1.md --dry-run     # report the merge without writing
+atl jira apply PROJ-1.md --allow-loss  # intentional {panel}/{color}/mention/embed removal
+```
+
+| flag | description |
+|---|---|
+| `<FILE.md>` | the issue's markdown view (positional, required) |
+| `--dry-run` | report the merge without writing files |
+| `--allow-loss` | proceed when the edit drops wiki-only constructs |
+| `--into` | mirror root (defaults to nearest `.atl`) |
+| `--render-profile` / `--render-include` / `--render-exclude` | resolve the pristine view the same way you pulled it |
+
+Pass the same `--render-*` flags you pulled with: `apply` reproduces the pristine
+view from the `<KEY>.json` snapshot to diff your edit against it, so a mismatched
+profile can spuriously flag an untouched section.
+
+Output: `{path, wiki_path, dry_run, report: {unchanged, moved, converted, removed,
+removed_constructs?}, wrote, warning?}` — the same shape as `conf apply` (swapping
+`csf_path` for `wiki_path`). After a successful apply the `.md` is regenerated from
+the merged body so both surfaces agree; a failed refresh sets `warning` and the
+apply still succeeds.
+
+The merge is **fail-closed** (exit `8`, nothing written) when: an edited block
+cannot be converted to wiki (a construct outside the subset) — make that edit in
+the `.wiki` directly; a wiki-only construct present in the base is dropped by the
+edit (`{panel}`, `{color}`, `[~mention]`, `!embed!`, a macro) and `--allow-loss`
+was not given (the dropped constructs are listed in `removed_constructs`); an edit
+touches any section other than `## Description` (frontmatter/title, Comments,
+Links, Image Attachments) — the refusal names the section and the dedicated
+command (`jira issue update`, `jira issue comment add`, `jira issue link add`,
+`jira issue attachment upload`); or the local `.wiki` has diverged from the
+last-synced base (a direct `.wiki` edit wins — push or re-pull first). Exit `4`:
+the issue was never pulled (no base or snapshot).
 
 ### `atl jira push`
 

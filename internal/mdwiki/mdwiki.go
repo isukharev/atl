@@ -57,6 +57,15 @@ func ConvertDocument(md string) (string, error) {
 	return strings.Join(parts, "\n\n"), nil
 }
 
+// ConvertBlock converts a single, already-split markdown block (one
+// mdcsf.SplitBlocks unit) into Jira wiki markup. It is the block-level entry
+// point used by internal/wikimerge, which does its own block splitting/
+// alignment and needs to convert one changed block at a time. Fail-closed like
+// ConvertDocument: an unconvertible block returns an *UnsupportedError.
+func ConvertBlock(block string) (string, error) {
+	return convertBlock(block)
+}
+
 var headingRe = regexp.MustCompile(`^(#{1,6})\s+(.*?)\s*$`)
 var listItemRe = regexp.MustCompile(`^(\s*)(?:([-*+])|(\d+)[.)])\s+(.*)$`)
 

@@ -63,7 +63,7 @@ Hexagonal (ports & adapters). The dependency rule is strict — internalize it b
     attachment {list,get,upload,delete}, pull, render, status, validate, push, comment {list,add}, me.
   - `jira` — issue {get,search,create,update,transition,comment {add,list,delete},
     link {add,list,delete},link-epic,images,check,delete,labels,history},
-    board {list,get}, sprint {list,get,current,issues,add,remove}, pull, render, status, push,
+    board {list,get}, sprint {list,get,current,issues,add,remove}, pull, render, apply, status, push,
     fields, field-options, transitions, link-types, me, user {search,get}.
   - `auth` (login,status,logout), `config` (show,set), `version`.
 - **`internal/csf`** — read-only DOM parser + validator for Confluence Storage Format.

@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`jira apply` — merge markdown-view edits back into the `.wiki` substrate.**
+  The Jira analog of `conf apply` closes the loop **pull → edit the `.md` → apply
+  → push**: edits to the `## Description` section of a `<KEY>.md` view are folded
+  block-by-block into the native `<KEY>.wiki`, so agents author in markdown instead
+  of hand-writing wiki markup. Untouched blocks keep their exact base bytes (an
+  untouched view applies to a byte-identical `.wiki`); changed/new blocks convert
+  through the fail-closed `mdwiki` subset. Only `## Description` is writable — an
+  edit to the frontmatter/title or to the Comments/Links/Image Attachments sections
+  is detected and refused (exit 8) with a pointer to the dedicated command, so a
+  stray edit never silently vanishes. A wiki-only construct present in the base but
+  dropped by the edit (`{panel}`, `{color}`, `[~mention]`, `!embed!`, a macro) is
+  reported under `removed_constructs` and refused (exit 8) unless `--allow-loss`.
+  Local only — `jira push` remains the guarded write path to the server; the
+  precondition mirrors `conf apply` (the local `.wiki` must still match the pulled
+  base — a direct `.wiki` edit wins). Flags: `--dry-run`, `--allow-loss`, `--into`,
+  and the shared `--render-*` view flags (pass the profile you pulled with). Result
+  JSON mirrors `conf apply` (`{path, wiki_path, dry_run, report, wrote, warning?}`).
+
 - **Local per-mirror config layer with `render.*` keys and provenance.** A new
   `<mirror-root>/.atl/config.json` carries presentation-only render settings
   (`render.{jira,confluence}.{profile,include,exclude}`, plus

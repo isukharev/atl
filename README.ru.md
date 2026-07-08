@@ -326,6 +326,8 @@ atl jira issue assign PROJ-1 --me
 atl jira issue comment add PROJ-1 --from-md note.md
 atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
 atl jira issue transition PROJ-1 --to Done
+# Правка раздела ## Description в .md-виде, слияние в .wiki, затем push (поблочно, без потерь)
+atl jira apply mirror-jira/PROJ/PROJ-1.md --dry-run
 
 # Метаданные
 atl jira fields

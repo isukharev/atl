@@ -53,8 +53,8 @@ On disk per issue:
 ```
 The `.wiki` holds the byte-for-byte native body (like a Confluence `.csf`); the `.md` is a
 best-effort, lossy read view rendered from it and is regenerated on every pull. To change a body,
-edit `<KEY>.wiki` (never the `.md`) and either push it back with `jira push` (the write-back loop
-below) or apply it one-shot with `jira issue update --from-file <KEY>.wiki`. The pull also records a
+edit `<KEY>.wiki` directly, or edit the `## Description` section of the `<KEY>.md` view and fold it
+back with `jira apply` (see 4c); then push with `jira push` (the write-back loop below). The pull also records a
 sidecar + base copy so `jira status`/`jira push` can detect edits and drift; mirrors pulled by an
 older `atl` have no sidecar and read as never-synced until re-pulled.
 
@@ -169,6 +169,25 @@ is **refused with exit 8** ("re-pull or `--force`") and nothing is written — a
 window that `--force` opts out of, never exit 5. Always run the dry-run first and read the diff;
 `--apply` is required to write. Prefer `issue edit` for a small, surgical change; use `jira push` when
 you have edited most of the `.wiki` locally.
+
+### 4c. Edit the markdown view, then `jira apply`
+Instead of hand-writing wiki markup, edit the `## Description` section of the `<KEY>.md` view and
+fold it back into the `.wiki` block-by-block — the Jira analog of `conf apply`:
+```bash
+atl jira apply <root>/PROJECT/PROJ-1.md              # merge the .md Description into the .wiki
+atl jira apply PROJ-1.md --dry-run                   # report the merge, write nothing
+atl jira apply PROJ-1.md --allow-loss                # intentional {panel}/{color}/mention/embed removal
+```
+Untouched blocks keep their **exact base bytes**; changed/new blocks convert through the same
+markdown subset as `--from-md`. **Only `## Description` is editable** — an edit to the frontmatter,
+title, or the Comments/Links/Image Attachments sections is refused (exit 8) with a pointer to the
+dedicated command (`issue update` / `comment add` / `link add` / `attachment upload`). A wiki-only
+construct in the base (`{panel}`, `{color}`, `[~mention]`, `!embed!`, a macro) dropped by the edit is
+listed in `removed_constructs` and refused (exit 8) unless `--allow-loss`. A block it cannot convert,
+or a `.wiki` that diverged from the pulled base, also refuses (exit 8) — edit the `.wiki` directly, or
+push/re-pull first. Local only: `jira apply` writes the `.wiki` (and refreshes the `.md`); `jira push`
+still sends it to the server. Pass the same `--render-*` flags you pulled with so the pristine view
+matches. → `{ path, wiki_path, dry_run, report:{unchanged,moved,converted,removed,removed_constructs?}, wrote, warning? }`.
 
 ### 5. Discover valid values before writing
 ```bash
@@ -293,6 +312,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue images <KEY>` | Download image attachments (agent vision) | `--into DIR` |
 | `jira pull` | Export issues to disk (.wiki + .md + .json) | `--jql`, `--into`, `--limit`, `--fields`, `--assets`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `jira render [DIR\|FILE]` | Regenerate `.md` views offline (no network/PAT) | `--render-profile`, `--render-include`, `--render-exclude`, `--into` |
+| `jira apply <FILE.md>` | Merge `## Description` edits from the `.md` view into the `.wiki` (Description only; block-level) | `--dry-run`, `--allow-loss`, `--into`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `jira status [DIR]` | Show locally-edited (and `--remote` drifted) mirrored issues | `--remote` |
 | `jira push <file.wiki\|DIR>` | Preview (default) or `--apply` a `.wiki` description write-back | `--apply`, `--force`, `--into` |
 | `jira export` | Write one compact JSONL/JSON/CSV artifact plus manifest | `--jql`/`--ids`/`--keys`, `--out`, `--format`, `--limit`, `--fields`, `--batch-size` |
@@ -332,6 +352,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | Exit 8 from `issue edit` | Match would cross a line break `--old` doesn't have | Copy `--old` exactly from the description, newlines included |
 | Exit 8 from `jira push` | Remote description drifted since pull (no Jira version gate) | Re-pull and re-apply your edit, or `jira push --apply --force` to overwrite the remote |
 | Exit 2 from `jira push` | The `.wiki` was never pulled through the mirror (no sidecar/base) | Run `jira pull` first, then edit `<KEY>.wiki` and push |
+| Exit 8 from `jira apply` | Edit dropped a wiki construct, hit an unconvertible block, touched a non-Description section, or the `.wiki` diverged | Read the message: restore the construct / edit the `.wiki` directly / use the named dedicated command / push or re-pull; `--allow-loss` for an intentional construct removal |
 
 Tool friction that cost you real turns (repeated failures, misleading errors, unexpected
 refusals)? Offer the user a report — see the `atl` skill's feedback flow (consent-gated

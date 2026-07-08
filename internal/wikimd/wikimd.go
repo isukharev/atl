@@ -68,6 +68,18 @@ var (
 // stay together as markdown soft breaks. Order matters: a heading/macro/table/
 // list marker must be tried before the paragraph fallthrough.
 func renderBlocks(b *strings.Builder, lines []string, opts Options) {
+	// writeBlock emits a block-level construct framed by blank lines: a leading
+	// blank separates it from a preceding paragraph or block (so a list/table/quote
+	// that directly follows a paragraph line in the source is not glued to it), and
+	// a trailing blank separates it from what follows. tidy later collapses the
+	// redundant runs. This keeps the read view's block boundaries in lockstep with
+	// the wiki block scanner, which is what makes the markdown view re-split into
+	// the same blocks — the round-trip invariant behind `jira apply`.
+	writeBlock := func(out string) {
+		ensureBlankLine(b)
+		b.WriteString(strings.TrimRight(out, "\n"))
+		b.WriteString("\n\n")
+	}
 	i := 0
 	for i < len(lines) {
 		line := lines[i]
@@ -78,35 +90,52 @@ func renderBlocks(b *strings.Builder, lines []string, opts Options) {
 		case headingRe.MatchString(line):
 			m := headingRe.FindStringSubmatch(line)
 			n := int(m[1][0] - '0') // m[1] is a single digit 1..6
-			b.WriteString(strings.Repeat("#", n) + " " + inline(strings.TrimSpace(m[2]), opts) + "\n\n")
+			writeBlock(strings.Repeat("#", n) + " " + inline(strings.TrimSpace(m[2]), opts))
 			i++
 		case codeOpenRe.MatchString(line):
 			out, next := codeBlock(lines, i)
-			b.WriteString(out + "\n")
+			writeBlock(out)
 			i = next
 		case quoteOpenRe.MatchString(line):
 			out, next := quoteBlock(lines, i, opts)
-			b.WriteString(out + "\n")
+			writeBlock(out)
 			i = next
 		case panelOpenRe.MatchString(line):
 			out, next := panelBlock(lines, i, opts)
-			b.WriteString(out + "\n")
+			writeBlock(out)
 			i = next
 		case hrRe.MatchString(line):
-			b.WriteString("---\n\n")
+			writeBlock("---")
 			i++
 		case strings.HasPrefix(line, "|"):
 			out, next := tableBlock(lines, i, opts)
-			b.WriteString(out + "\n")
+			writeBlock(out)
 			i = next
 		case listRe.MatchString(line):
 			out, next := listBlock(lines, i, opts)
-			b.WriteString(out + "\n")
+			writeBlock(out)
 			i = next
 		default:
 			b.WriteString(inline(line, opts) + "\n")
 			i++
 		}
+	}
+}
+
+// ensureBlankLine appends newlines so the builder ends with a blank line (an empty
+// builder is left untouched, and a trailing blank line is not doubled). It is how
+// a block-level construct guarantees a blank separator from whatever preceded it.
+func ensureBlankLine(b *strings.Builder) {
+	s := b.String()
+	switch {
+	case s == "":
+		return
+	case strings.HasSuffix(s, "\n\n"):
+		return
+	case strings.HasSuffix(s, "\n"):
+		b.WriteString("\n")
+	default:
+		b.WriteString("\n\n")
 	}
 }
 
@@ -290,17 +319,17 @@ func renderTable(rows []string, opts Options) string {
 		}
 		parsed = append(parsed, cells)
 	}
-	if len(parsed) == 0 {
-		return ""
-	}
 	width := 0
 	for _, r := range parsed {
 		if len(r) > width {
 			width = len(r)
 		}
 	}
-	if width == 0 {
-		return ""
+	if len(parsed) == 0 || width == 0 {
+		// A degenerate `|`-run with no real cells (e.g. a lone "|") is not a table.
+		// Passing the raw lines through as plain text keeps wikimd total ("text
+		// content is never lost") and lets the view round-trip back to the source.
+		return strings.Join(rows, "\n")
 	}
 	hdr := headerIdx
 	if hdr < 0 {
