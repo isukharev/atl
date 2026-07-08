@@ -323,6 +323,15 @@ func (b *SyncBatch) write(dir, slug string, page *domain.Resource, refs []domain
 	return nil
 }
 
+// Record adds a sidecar sync-state entry for a resource whose substrate files
+// the caller wrote itself (e.g. Jira's <KEY>.wiki), so a backend that does not
+// go through writePageFiles can still share the batch's single sidecar
+// load/save. The pristine base copy is the caller's responsibility (SaveBaseExt).
+func (b *SyncBatch) Record(st SyncState) {
+	b.sc.Pages[st.ID] = st
+	b.dirty = true
+}
+
 // Flush saves the accumulated sidecar state; a no-op when nothing was written,
 // so it is safe to call again on error paths after a successful flush.
 func (b *SyncBatch) Flush() error {
@@ -411,6 +420,77 @@ func (m *Mirror) ListCSF() ([]*LocalCSF, error) {
 			lc, _, err := loadCSFWith(sc, p)
 			if err == nil {
 				out = append(out, lc)
+			}
+		}
+		return nil
+	})
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out, err
+}
+
+// LocalWiki describes a tracked `.wiki` substrate file (the Jira analog of
+// LocalCSF) and its expected (last-synced) sidecar state. The sidecar is keyed
+// by the issue key, which is the file's basename — there is no neighboring
+// meta.json, so Key is derived from the path rather than read from disk.
+type LocalWiki struct {
+	Path    string     // absolute path to the .wiki
+	Key     string     // issue key (basename minus ".wiki") = sidecar key
+	Synced  *SyncState // last-synced state from the sidecar (nil if untracked)
+	Current string     // current on-disk content hash
+	Dirty   bool       // current != synced (untracked reads as dirty)
+}
+
+// LoadWiki reads a `.wiki` path and its sidecar sync state. A corrupt sidecar is
+// an error — reporting the issue as never-synced would silently disable drift
+// detection, exactly as for LoadCSF.
+func (m *Mirror) LoadWiki(wikiPath string) (*LocalWiki, []byte, error) {
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return nil, nil, err
+	}
+	return loadWikiWith(sc, wikiPath)
+}
+
+// loadWikiWith is LoadWiki against an already-loaded sidecar, so ListWiki can
+// load the sidecar once instead of once per file.
+func loadWikiWith(sc sidecarFile, wikiPath string) (*LocalWiki, []byte, error) {
+	body, err := os.ReadFile(wikiPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	key := strings.TrimSuffix(filepath.Base(wikiPath), ".wiki")
+	lw := &LocalWiki{Path: wikiPath, Key: key, Current: Hash(body)}
+	if st, ok := sc.Pages[key]; ok {
+		s := st
+		lw.Synced = &s
+		lw.Dirty = s.Hash != lw.Current
+	} else {
+		lw.Dirty = true // untracked / never synced
+	}
+	return lw, body, nil
+}
+
+// ListWiki walks the mirror returning every tracked `.wiki` with dirty status.
+func (m *Mirror) ListWiki() ([]*LocalWiki, error) {
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return nil, err
+	}
+	var out []*LocalWiki
+	err = filepath.Walk(m.Root, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			if info.Name() == ".atl" {
+				return filepath.SkipDir // sidecar (pristine base copies) is not user content
+			}
+			return nil
+		}
+		if strings.HasSuffix(p, ".wiki") {
+			lw, _, err := loadWikiWith(sc, p)
+			if err == nil {
+				out = append(out, lw)
 			}
 		}
 		return nil

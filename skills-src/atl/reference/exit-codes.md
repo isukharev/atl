@@ -19,8 +19,10 @@ Notes:
 - Codes `3` vs `7` are distinct: `7` = "you haven't set me up" (no URL/token), `3` = "the token you
   gave me was refused". `7` → finish setup; `3` → replace the token.
 - Codes `3` vs `6` are distinct: `3` = "who are you?" (re-auth), `6` = "you may not" (permissions).
-- Only Confluence `push` uses the version gate (`5`). Jira updates are last-writer-wins (no `5`).
-- `8` is a *gate* signal, not a command failure — `jira issue check` ran fine and is telling you
-  the issue is not ready (e.g. for a transition). Fix the fields; don't retry blindly.
+- Only Confluence `push` uses the version gate (`5`). Jira updates are last-writer-wins (no `5`);
+  `jira push` guards drift with an app-layer compare instead and refuses on drift with `8`, not `5`.
+- `8` is a *gate* signal, not a command failure — either `jira issue check` ran fine and is telling
+  you the issue is not ready (fix the fields), or `jira push` refused a write because the remote
+  description drifted since pull (re-pull and re-apply, or `push --apply --force`). Don't retry blindly.
 - `conf validate` exits non-zero when the CSF is not well-formed; treat `error`-severity problems
   in its JSON `problems[]` as a hard block before pushing.

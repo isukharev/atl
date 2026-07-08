@@ -72,7 +72,10 @@ maps them via `errors.Is`:
 - Codes `3` vs `6` are distinct: `3` = authentication failure (re-auth); `6` = authorization
   failure (the identity is known but lacks permission — surface to the user).
 - **Only Confluence `push` uses the version gate** (`5`). Jira writes are last-writer-wins; `5` is
-  never returned from Jira commands.
+  never returned from Jira commands. `jira push` guards staleness with an app-layer
+  compare-and-swap instead: a drift refusal is exit `8` (`ErrCheckFailed`), not `5`. A server-side
+  HTTP 409 on a Jira write (locked issue, workflow veto) stays a generic conflict (exit `1`), also
+  distinct from `5` (#66).
 - `conf validate` exits non-zero (exit 1) when the CSF is not well-formed. Treat any `"error"`-
   severity problem in its `problems[]` array as a hard blocker before pushing.
 - `jira issue check` exits `8` (`ErrCheckFailed`) when a field listed in `--require` is empty — a
@@ -119,6 +122,23 @@ With `--assets`, each issue object gains an `assets` count of image attachments 
 downloaded. Both `assets` and `assets_skipped` are `omitempty`: a default (no `--assets`) pull, and a
 `--assets` pull where nothing was skipped, produce the same shapes as before. The raw `<KEY>.json`
 snapshot is never modified by `--assets` — it mirrors Jira's response and carries no local file paths.
+
+`atl jira status [DIR] [--remote]` emits `{ "entries": [ { "path", "key", "locally_edited",
+"synced", "remote_drifted"?, "remote_error"? }, ... ] }`. `locally_edited` is true when the `.wiki`
+differs from the pulled base; `synced` is false for a `.wiki` with no sidecar entry (never-synced —
+it also reads `locally_edited`). `remote_drifted` (the remote description differs from the stored
+base) and `remote_error` (the remote could not be checked) appear only with `--remote` and are
+`omitempty`.
+
+`atl jira push <file.wiki|DIR> [--apply] [--force] [--into ROOT]` emits `{ "items": [ ... ] }`, one
+item per file: `{ "path", "key", "pushed", "dry_run"?, "skipped"?, "remote_drifted"?,
+"drift_overridden"?, "diff"?, "failed"?, "warning"? }`. It is **dry-run by default**: without
+`--apply`, `dry_run` is `true`, `pushed` is `false`, `diff` carries the unified diff of what the
+write changes on the server (current remote → local body; equal to base → local when there is no
+drift), and no write occurs. On drift without `--force` the item has `remote_drifted:true` and the
+command exits `8` (`ErrCheckFailed`) — never `5`. `--force` sets `drift_overridden` and writes.
+`--apply` sets `pushed:true`; a post-push mirror-refresh failure surfaces as `warning` on the item,
+not an error. `skipped:"unchanged"` marks a clean file.
 
 `atl conf pull` returns a `PullResult` whose `pages[]` entries are `PulledPage`
 objects. Each carries `id`, `title`, `path`, `version`, `assets`, and — only when

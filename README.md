@@ -31,7 +31,9 @@ under an **optimistic version gate** that refuses to silently overwrite concurre
   in `--dry-run`; `--force` overrides when you know what you are doing.
 - **Diagram awareness** — draw.io macros are resolved to PNGs of the exact revision so a
   vision-capable agent can inspect them.
-- **Jira integration** — query, comment, transition issues; mirror an issue set to disk.
+- **Jira integration** — query, comment, transition issues; mirror an issue set to disk as native
+  `.wiki` + rendered `.md`, then edit the `.wiki` and push it back with `jira status` / `jira push`
+  (dry-run by default; a drift guard refuses stale writes since Jira has no server-side version gate).
 - **Bearer PAT auth, per-request** — tokens are sent only to the configured host and never
   stored in the repo or mirror.
 - **Signed self-update** — the binary updates itself from GitHub Releases, throttled to every

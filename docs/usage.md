@@ -1241,9 +1241,16 @@ mirror-jira/
 The `.md` is a lossy, best-effort read view (headings, emphasis, `{code}`/
 `{quote}`/`{panel}`, lists, tables, links, `!image!` embeds, `{color}`,
 `[~mentions]`); a render failure degrades that one section to a stub comment and
-never fails the pull. To change an issue body, edit `<KEY>.wiki` (or a copy of
-it) and apply it with `jira issue update --from-file <KEY>.wiki` — never hand-edit
-the `.md` view.
+never fails the pull. To change an issue body, edit `<KEY>.wiki` (never the `.md`
+view) and either push it back through the mirror with `jira push` (the guarded
+write-back cycle below) or apply it one-shot with
+`jira issue update --from-file <KEY>.wiki`.
+
+The pull also records the `.wiki` body in the mirror sidecar (`.atl/state.json`)
+plus a pristine base copy (`.atl/base/<KEY>.wiki`), which `jira status` and
+`jira push` use to detect local edits and remote drift. Mirrors pulled by an
+older `atl` have no sidecar entry: those issues read as never-synced (and are
+not pushable) until re-pulled.
 
 `<KEY>.json` shape:
 
@@ -1257,6 +1264,78 @@ the `.md` view.
   }
 }
 ```
+
+### `atl jira status`
+
+Report which mirrored issues have local `.wiki` edits and, with `--remote`,
+which have drifted on the server since they were pulled. Content-hash based, the
+Jira analog of `conf status`.
+
+```bash
+atl jira status                     # default root: mirror-jira (or $ATL_MIRROR_ROOT)
+atl jira status my-jira-mirror
+atl jira status --remote            # also check remote drift (one request per issue)
+```
+
+Each entry carries `locally_edited` (the `.wiki` differs from the pulled base),
+`synced` (`false` for a `.wiki` with no sidecar entry — never pulled through the
+sidecar, so `locally_edited` + `synced:false` means "never-synced"), and, with
+`--remote`, `remote_drifted` (the remote description differs from the stored
+base) or `remote_error` (the remote could not be checked — an uncheckable issue
+is never reported in-sync). Drift needs a baseline: an issue with no base copy is
+never reported drifted.
+
+### `atl jira push`
+
+Push an edited `<KEY>.wiki` description back to its issue. **Dry-run by
+default** — without `--apply` it only previews the unified diff and any drift,
+writing nothing. The diff shows what the write changes **on the server**
+(current remote → local body), so under `--force` the remote-only changes about
+to be overwritten are visible in the preview. Only the description body is written (no summary or other
+field). This is the Jira analog of `conf push`, but deliberately stricter:
+
+```bash
+# preview one file (dry-run: shows the diff, writes nothing)
+atl jira push my-jira-mirror/PROJ/PROJ-1.wiki
+
+# preview every locally-edited issue under a directory
+atl jira push my-jira-mirror/
+
+# actually write the change back
+atl jira push --apply my-jira-mirror/PROJ/PROJ-1.wiki
+
+# write over a drifted remote (re-base on current remote, then write)
+atl jira push --apply --force my-jira-mirror/PROJ/PROJ-1.wiki
+```
+
+Flags:
+
+| flag | description |
+|---|---|
+| `--apply` | actually write the change (default is a dry-run preview only) |
+| `--force` | override the drift refusal (re-base on the current remote and write) |
+| `--into` | mirror root (defaults to the nearest `.atl`) |
+
+A single-file target is pushed if changed (or with `--force` when clean); a
+directory target pushes only the locally-edited files under it (`--force` does
+not resurrect clean files). A file that was never pulled through the sidecar is
+refused (exit 2 — pull it first).
+
+**No server-side version gate.** Jira Data Center has no optimistic version gate,
+so the staleness guard is an app-layer compare-and-swap: `jira push` re-reads the
+remote description and compares it to the pristine base recorded at pull. If the
+remote changed since the pull, the push is **refused** with exit 8 ("remote
+description changed since pull … re-pull or push `--force`") and nothing is
+written. This CAS has an inherent time-of-check-to-time-of-use (TOCTOU) window —
+the remote can still change between the check and the write — which `--force`
+opts out of the refusal for rather than closing. A drift refusal is exit 8
+(`ErrCheckFailed`), **never** exit 5 (`ErrVersionConflict`): exit 5 is reserved
+for Confluence's real version gate. A server-side HTTP 409 (a locked issue, a
+workflow veto) stays a generic conflict, distinct from local drift.
+
+On `--apply` success the mirror is refreshed (the `.wiki`, `.md`, base copy, and
+sidecar are rewritten from the pushed state); a refresh failure is a warning on
+that item, not an error — re-pull if you see one.
 
 ### `atl jira export`
 

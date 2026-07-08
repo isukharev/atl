@@ -438,6 +438,11 @@ func errRank(err error) int {
 	switch {
 	case err == nil:
 		return -1
+	case errors.Is(err, domain.ErrCheckFailed):
+		// Jira push's drift refusal (exit 8): "re-pull or --force" is the most
+		// actionable outcome, so it wins a batch aggregate. Confluence push never
+		// produces this per-file (a corrupt sidecar aborts before the loop).
+		return 6
 	case errors.Is(err, domain.ErrVersionConflict):
 		return 5
 	case errors.Is(err, domain.ErrForbidden):
