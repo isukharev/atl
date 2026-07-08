@@ -39,6 +39,7 @@ atl jira issue search --jql '<JQL>' --limit 50
 ```bash
 atl jira pull --jql '<JQL>' --into ~/.atl/<workspace>/ --limit 0 [--fields customfield_10001,customfield_10002]
 atl jira pull --jql '<JQL>' --assets   # also mirror image attachments (opt-in)
+atl jira pull --jql '<JQL>' --render-profile full   # richer .md view (see Render profiles)
 ```
 (`--limit 0` = all; default 100.) → `{ "into": "...", "issues": [ {key, path, wiki_path, assets} ] }`
 (`assets` and a top-level `assets_skipped` appear only with `--assets` and are omitted at zero.)
@@ -64,6 +65,23 @@ image is skipped, counted in `assets_skipped`, and warned about on stderr; the
 issue is still written. Attachments with an empty or `application/octet-stream`
 media type are skipped (same as `jira issue images`). The `.json` snapshot is
 unchanged. For a single issue's images use `jira issue images <KEY>` instead.
+
+**Render profiles** control what the `.md` view contains (the `.wiki`/`.json`
+substrate is never affected): `minimal` (key/summary + description), `default`
+(adds status/type/project/assignee/labels/priority/parent + attachments/links/
+comments), `full` (everything: reporter, dates, resolution, due date, components,
+fix versions, subtasks, non-image attachments, sprint, configured custom fields).
+Set per run with `--render-profile` / `--render-include <sections>` /
+`--render-exclude <sections>`, or persist with `atl config set render.jira.profile
+full` (see the setup skill). `full` widens the pull's `fields=` so no extra fetch
+is needed; the pull result JSON is unchanged by the profile. Re-render an existing
+mirror offline (no network) after a profile change:
+```bash
+atl jira render                                  # whole mirror (default root)
+atl jira render <root>/PROJECT/KEY.md --render-profile full
+```
+→ `{ "root": "...", "rendered": [ {key, path} ] }`. Only `.md` files are rewritten,
+so `jira status` stays clean.
 
 For compact analysis artifacts instead of a directory mirror:
 ```bash
@@ -273,7 +291,8 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue attachment get <KEY>` | Download an issue attachment | `--id ID-or-filename`, `--into DIR` |
 | `jira issue attachment upload <KEY>` | Upload a local file as an issue attachment | `--file PATH` |
 | `jira issue images <KEY>` | Download image attachments (agent vision) | `--into DIR` |
-| `jira pull` | Export issues to disk (.wiki + .md + .json) | `--jql`, `--into`, `--limit`, `--fields`, `--assets` |
+| `jira pull` | Export issues to disk (.wiki + .md + .json) | `--jql`, `--into`, `--limit`, `--fields`, `--assets`, `--render-profile`, `--render-include`, `--render-exclude` |
+| `jira render [DIR\|FILE]` | Regenerate `.md` views offline (no network/PAT) | `--render-profile`, `--render-include`, `--render-exclude`, `--into` |
 | `jira status [DIR]` | Show locally-edited (and `--remote` drifted) mirrored issues | `--remote` |
 | `jira push <file.wiki\|DIR>` | Preview (default) or `--apply` a `.wiki` description write-back | `--apply`, `--force`, `--into` |
 | `jira export` | Write one compact JSONL/JSON/CSV artifact plus manifest | `--jql`/`--ids`/`--keys`, `--out`, `--format`, `--limit`, `--fields`, `--batch-size` |

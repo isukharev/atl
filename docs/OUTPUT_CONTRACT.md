@@ -123,6 +123,20 @@ downloaded. Both `assets` and `assets_skipped` are `omitempty`: a default (no `-
 `--assets` pull where nothing was skipped, produce the same shapes as before. The raw `<KEY>.json`
 snapshot is never modified by `--assets` — it mirrors Jira's response and carries no local file paths.
 
+**Render profiles do not change the `pull` JSON.** The `--render-profile` /
+`--render-include` / `--render-exclude` flags (on both `jira pull` and `conf pull`)
+only affect the derived `.md` view; the pull result shape above is identical
+regardless of profile. Unknown section names in an include/exclude list produce a
+`warning:` line on **stderr** and are ignored — never an error, never on stdout.
+
+`atl jira render [DIR|FILE] [--render-*]` and `atl conf render [DIR|FILE]
+[--render-*]` regenerate `.md` views offline (no network/PAT). `jira render` emits
+`{ "root": <mirror-root>, "rendered": [ { "key", "path" }, ... ] }`; `conf render`
+emits `{ "root", "rendered": [ { "id", "title", "path" }, ... ] }`, one entry per
+rewritten `.md`. Both leave the `.csf`/`.wiki`/`.json`/sidecar substrate untouched,
+so `status` is unchanged before and after. Render-resolution warnings go to
+**stderr**, never stdout.
+
 `atl jira status [DIR] [--remote]` emits `{ "entries": [ { "path", "key", "locally_edited",
 "synced", "remote_drifted"?, "remote_error"? }, ... ] }`. `locally_edited` is true when the `.wiki`
 differs from the pulled base; `synced` is false for a `.wiki` with no sidecar entry (never-synced —

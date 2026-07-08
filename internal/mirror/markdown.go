@@ -15,13 +15,82 @@ import (
 // (⟦…⟧) and images/diagrams as ![](assets/…) links. It is intentionally lossy —
 // the .csf file remains the editable source of truth.
 func RenderMarkdown(root *csf.Node, refs []domain.Ref) []byte {
+	return RenderMarkdownOpts(root, refs, MDViewOpts{})
+}
+
+// PageFrontmatter is the metadata a `full`-profile Confluence view emits as YAML
+// frontmatter above the body. Fields render only when non-empty (Updated is
+// omitted when the mirror has no timestamp for it).
+type PageFrontmatter struct {
+	Title   string
+	Space   string
+	Version int
+	Labels  []string
+	Updated string
+}
+
+// MDViewOpts carries the profile-driven additions to a Confluence markdown view.
+// Both fields are optional: a zero value renders exactly RenderMarkdown's output
+// (the default/minimal profile — byte-identical to the pre-profile view). The app
+// layer assembles these from the page metadata and, for Comments, the
+// `<slug>.comments.json` sidecar (absent → nil → the section is skipped).
+type MDViewOpts struct {
+	Frontmatter *PageFrontmatter
+	Comments    []domain.Comment
+}
+
+// RenderMarkdownOpts renders the markdown view with optional YAML frontmatter and
+// a trailing "## Comments" section. With a zero MDViewOpts it is byte-identical to
+// RenderMarkdown so existing default-profile mirrors are unaffected.
+func RenderMarkdownOpts(root *csf.Node, refs []domain.Ref, opts MDViewOpts) []byte {
 	r := newMDRenderer(refs)
 	var b strings.Builder
 	forEachBlockNode(root, func(n *csf.Node) {
 		r.block(&b, n)
 	})
-	out := normalizeBlankLines(b.String())
-	return []byte(out)
+	body := normalizeBlankLines(b.String())
+	if opts.Frontmatter == nil && len(opts.Comments) == 0 {
+		return []byte(body)
+	}
+	var out strings.Builder
+	if opts.Frontmatter != nil {
+		out.WriteString(renderPageFrontmatter(opts.Frontmatter))
+		out.WriteString("\n")
+	}
+	out.WriteString(body)
+	if len(opts.Comments) > 0 {
+		out.WriteString("\n## Comments\n\n")
+		out.Write(RenderCommentsMarkdown(opts.Comments))
+	}
+	return []byte(strings.TrimRight(out.String(), "\n") + "\n")
+}
+
+// renderPageFrontmatter emits the YAML frontmatter block (including the fencing
+// `---` lines and a trailing newline). Title/space/version always render; labels
+// and updated render only when present.
+func renderPageFrontmatter(fm *PageFrontmatter) string {
+	var b strings.Builder
+	b.WriteString("---\n")
+	fmt.Fprintf(&b, "title: %s\n", mdYAMLEscape(fm.Title))
+	fmt.Fprintf(&b, "space: %s\n", mdYAMLEscape(fm.Space))
+	fmt.Fprintf(&b, "version: %d\n", fm.Version)
+	if len(fm.Labels) > 0 {
+		fmt.Fprintf(&b, "labels: [%s]\n", strings.Join(fm.Labels, ", "))
+	}
+	if fm.Updated != "" {
+		fmt.Fprintf(&b, "updated: %s\n", mdYAMLEscape(fm.Updated))
+	}
+	b.WriteString("---\n")
+	return b.String()
+}
+
+// mdYAMLEscape quotes a frontmatter scalar when it contains YAML-significant
+// characters, matching the Jira view's yamlEscape.
+func mdYAMLEscape(s string) string {
+	if strings.ContainsAny(s, ":#\n\"'") {
+		return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
+	}
+	return s
 }
 
 type mdRenderer struct {

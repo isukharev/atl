@@ -46,12 +46,25 @@ type issueDTO struct {
 }
 
 func (j *Jira) mapIssue(d issueDTO) *domain.Issue {
+	return MapIssueFields(d.ID, d.Key, d.Fields)
+}
+
+// MapIssueFields builds a domain.Issue from a raw Jira fields map. It is a pure
+// function — it touches no HTTP client and never errors — so the offline render
+// path (internal/app) can reuse it to decode a mirrored <KEY>.json snapshot into
+// the same shape a live GetIssue returns. All field access is defensive: a
+// missing or oddly-typed value degrades to a zero value rather than panicking,
+// since the bytes are server-controlled.
+func MapIssueFields(id, key string, fields map[string]any) *domain.Issue {
 	// Raw gets its own clone so that adding/removing a top-level key on one map
 	// cannot affect the other (Fields is the exported on-disk view; Raw is for
 	// internal resolution). The clone is shallow: nested map/slice values are
 	// still shared, which is fine as neither map's nested values are mutated.
-	is := &domain.Issue{ID: d.ID, Key: d.Key, Fields: d.Fields, Raw: maps.Clone(d.Fields), FieldText: map[string]string{}}
-	f := d.Fields
+	is := &domain.Issue{ID: id, Key: key, Fields: fields, Raw: maps.Clone(fields), FieldText: map[string]string{}}
+	f := fields
+	if f == nil {
+		return is
+	}
 	// Version is intentionally left at 0: Jira Server/DC exposes no per-issue
 	// integer version counter under fields (only a string "updated" timestamp),
 	// so there is no reliable optimistic-gate value to populate here.

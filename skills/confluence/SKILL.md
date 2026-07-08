@@ -42,6 +42,7 @@ atl conf pull --id <id> --assets --into ~/.atl/<workspace>/
 # or:  --cql '<CQL>'   (caps at 1000 pages — see warning below)
 # or:  --space <KEY>   (caps at 2000 pages; --depth N to limit)
 # add: --comments       to mirror page comments as sidecar files
+# add: --render-profile full   for a richer .md view (frontmatter + comments)
 ```
 → `{ "root": "...", "pages": [ {id, title, path, version, assets} ] }`
 (`comments` count added per page when `--comments` is used)
@@ -69,6 +70,20 @@ plain-text (CSF stripped). A re-pull with `--comments` refreshes the sidecars; a
 re-pull without it leaves them untouched (never auto-deleted).
 If two sibling titles slugify to the same name, the later-pulled page lands in an
 id-suffixed dir (`<page-slug>-<id>/`) — same files inside, nothing overwritten.
+
+**Render profiles** control the `.md` view (the `.csf` substrate is never
+affected). `default`/`minimal` are **body only** — the standard, cheapest read
+view. `full` prepends a YAML frontmatter (title, space, version, labels) and, when
+a `--comments` sidecar is present, appends a `## Comments` section. Set per run
+with `--render-profile full` / `--render-include frontmatter,comments` /
+`--render-exclude ...`, or persist with `atl config set render.confluence.profile
+full`. Re-render an existing mirror offline (no network) after a profile change:
+```bash
+atl conf render mirror --render-profile full     # whole mirror
+atl conf render mirror/DOCS/page/page.csf        # one page
+```
+→ `{ "root": "...", "rendered": [ {id, title, path} ] }`. Only `.md` files are
+rewritten, so `conf status` stays clean.
 
 ### 3. Edit the `.md` view, merge with `conf apply`
 The `.md` is an **editable surface**: make your edits there with normal text editing (it's
@@ -146,7 +161,8 @@ atl conf status ~/.atl/<workspace>/ --remote
 | `conf page copy` | Copy a page (same CSF body, new title/space/parent) | `--id`, `--title`, `--space`, `--parent` |
 | `conf page move` | Reparent a page | `--id`, `--parent` |
 | `conf page delete` | Trash a page | `--id` |
-| `conf pull` | Mirror pages to disk (.csf + .md + .meta.json + assets + comments) | `--id`, `--cql`, `--space`, `--assets`, `--comments`, `--into`, `--depth` |
+| `conf pull` | Mirror pages to disk (.csf + .md + .meta.json + assets + comments) | `--id`, `--cql`, `--space`, `--assets`, `--comments`, `--into`, `--depth`, `--render-profile`, `--render-include`, `--render-exclude` |
+| `conf render [DIR\|FILE]` | Regenerate `.md` views offline (no network/PAT) | `--render-profile`, `--render-include`, `--render-exclude`, `--into` |
 | `conf status` | Show locally-edited and remote-drifted pages | `[DIR]`, `--remote` |
 | `conf validate` | Validate CSF well-formedness | `<file.csf>` |
 | `conf apply` | Merge `.md` edits into the `.csf` block-by-block (untouched blocks keep exact bytes) | `<page.md>`, `--dry-run`, `--allow-fragment-loss`, `--into` |

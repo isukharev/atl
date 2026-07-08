@@ -28,6 +28,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is local > global > default, merged per key. Render settings are stored and
   shown but not yet consumed by the renderers (a later phase threads them through
   `pull`/`render`).
+- **Profile-driven markdown views + offline `render` command.** The `.md` read
+  view is now configurable per backend by a `minimal` / `default` / `full`
+  profile, fine-tuned with `include`/`exclude` section lists. Resolution is
+  `--render-profile` / `--render-include` / `--render-exclude` flags **>** local
+  config **>** global config **>** built-in `default`, resolved against the
+  operation's mirror root. **Jira:** `default` adds `priority` and `parent` to the
+  prior view; `full` also renders reporter, created/updated, resolution, due date,
+  components, fix versions, sprint, subtasks, a non-image `## Attachments` list,
+  and any configured `custom_fields` (by id). `jira pull` widens its API `fields=`
+  projection to the active profile, so `full` needs no extra per-issue fetch.
+  **Confluence:** `default`/`minimal` stay **byte-identical** to today (body
+  only); `full` adds a YAML frontmatter (title, space, version, labels) and a
+  `## Comments` section fed from the `--comments` sidecar when present (absent
+  sidecar → section skipped, never an error). New `jira render [DIR|FILE]` /
+  `conf render [DIR|FILE]` regenerate `.md` views from the local
+  substrate/meta/sidecars **offline** (no network or PAT) so switching profiles
+  never forces a re-pull; they rewrite only `.md` and leave the
+  `.csf`/`.wiki`/`.json`/sidecar substrate untouched, so `status` stays clean.
+  `pull` gains the same three `--render-*` flags; the `pull` result JSON is
+  unchanged by profiles (unknown section names surface as a stderr warning).
 - **`conf pull --comments` brings page comments into the mirror.** Opt-in and off
   by default (without it, no comment endpoint is contacted and no files are
   written). When set, each mirrored page gains `<slug>.comments.json` (a
