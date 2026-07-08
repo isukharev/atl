@@ -250,3 +250,52 @@ func TestJiraApply_NotMdIsUsage(t *testing.T) {
 		t.Fatalf("err = %v, want ErrUsage", err)
 	}
 }
+
+// A wiki h2. heading inside the Description renders as a top-level "## " line in
+// the md view. It is BODY content, not a generated section — an untouched apply
+// must round-trip the whole body, not truncate at the heading (regression:
+// review finding on #159).
+func TestJiraApply_BodyH2HeadingRoundTrips(t *testing.T) {
+	base := "Intro\n\nh2. Sub\n\nTail paragraph."
+	svc, root, mdPath, wikiPath := scaffoldApplyIssue(t, base)
+	res, err := svc.Apply(mdPath, JiraApplyOpts{Into: root})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if got := mustReadFile(t, wikiPath); got != base {
+		t.Fatalf(".wiki truncated/altered after untouched apply:\n got=%q\nwant=%q", got, base)
+	}
+	if res.Report.Removed != 0 {
+		t.Errorf("untouched apply reported removed blocks: %+v", res.Report)
+	}
+}
+
+// A body heading whose text collides with a generated section name must still be
+// treated as body content.
+func TestJiraApply_BodyHeadingNamedCommentsRoundTrips(t *testing.T) {
+	base := "Intro\n\nh2. Comments\n\nnot the comments section"
+	svc, root, mdPath, wikiPath := scaffoldApplyIssue(t, base)
+	if _, err := svc.Apply(mdPath, JiraApplyOpts{Into: root}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if got := mustReadFile(t, wikiPath); got != base {
+		t.Fatalf(".wiki altered:\n got=%q\nwant=%q", got, base)
+	}
+}
+
+// Editing a paragraph AFTER a body h2. heading merges normally: the heading and
+// everything else keep their exact base bytes.
+func TestJiraApply_EditAfterBodyH2Merges(t *testing.T) {
+	base := "Intro\n\nh2. Sub\n\nTail paragraph."
+	svc, root, mdPath, wikiPath := scaffoldApplyIssue(t, base)
+	md := mustReadFile(t, mdPath)
+	edited := strings.Replace(md, "Tail paragraph.", "Tail paragraph, edited.", 1)
+	mustWriteFile(t, mdPath, edited)
+	if _, err := svc.Apply(mdPath, JiraApplyOpts{Into: root}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	want := "Intro\n\nh2. Sub\n\nTail paragraph, edited."
+	if got := mustReadFile(t, wikiPath); got != want {
+		t.Fatalf("merged wiki:\n got=%q\nwant=%q", got, want)
+	}
+}

@@ -106,11 +106,13 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	is.Body = string(baseWiki)
 	rs, _ := ResolveRender(s.cfg, root, o.Render, "jira")
 	assets := assetsOnDisk(dir, keySeg)
-	pristine := string(renderIssueMarkdown(is, assets, rs))
+	prefix, _, suffix := renderIssueMarkdownParts(is, assets, rs)
 
-	// Split both views into a preamble + `## `-delimited sections and refuse any
-	// edit outside `## Description` with a pointer to the dedicated command.
-	editedDesc, err := reconcileSections(pristine, edited)
+	// Locate the edited description by the pristine view's structural anchors
+	// (everything before/after it must be byte-identical) and refuse any edit
+	// outside it. Heading-based splitting would be wrong here: a wiki `h2.` inside
+	// the body renders as a top-level `## ` line in the view.
+	editedDesc, err := extractEditedDescription(edited, prefix, suffix, is.Body != "")
 	if err != nil {
 		return nil, err
 	}
@@ -161,136 +163,48 @@ func normalizeMD(s string) string {
 	return s
 }
 
-// mdSection is one `## `-delimited section of a rendered issue view: its heading
-// name and its raw lines (the `## name` line first, then the body lines).
-type mdSection struct {
-	name  string
-	lines []string
-}
-
-// full is the section's exact bytes (heading line + body), as they appear in the
-// document.
-func (sec mdSection) full() string { return strings.Join(sec.lines, "\n") }
-
-// body is the section content below the heading, trimmed of the blank lines that
-// frame it — for `## Description` this is exactly wikimd's render of the body.
-func (sec mdSection) body() string {
-	if len(sec.lines) <= 1 {
-		return ""
+// extractEditedDescription locates the edited description between the pristine
+// view's structural anchors and enforces the "only ## Description is editable"
+// contract: the edited document must start with the exact pristine prefix
+// (frontmatter + title + the `## Description` heading when a body exists) and
+// end with the exact pristine suffix (every generated section after the
+// description). Whatever sits between the anchors is the edited description
+// body. Anchoring — rather than re-parsing `## ` headings — is what keeps a
+// body-internal heading (wiki `h2.` renders as a top-level `## ` line, possibly
+// even named like a generated section) as body content instead of a phantom
+// read-only section.
+//
+// Trailing newlines are compared loosely (an editor may add or strip a final
+// newline); everything else is byte-exact. baseHasDesc says whether the pristine
+// view carries a `## Description` heading (empty base bodies do not) — when it
+// does not, an added description arrives as a `## Description` heading inside
+// the middle and is unwrapped here.
+func extractEditedDescription(edited, prefix, suffix string, baseHasDesc bool) (string, error) {
+	if !strings.HasPrefix(edited, prefix) {
+		return "", fmt.Errorf("%w: the content above the description (frontmatter, title%s) changed, but it is read-only in the md view — edit the summary and fields with `jira issue update`%s",
+			domain.ErrCheckFailed,
+			map[bool]string{true: ", or the `## Description` heading", false: ""}[baseHasDesc],
+			map[bool]string{true: " and keep the heading (to clear the body, delete only the text under it)", false: ""}[baseHasDesc])
 	}
-	return strings.Trim(strings.Join(sec.lines[1:], "\n"), "\n")
-}
-
-// splitMDSections splits a rendered issue markdown view into the preamble (bytes
-// before the first top-level `## ` heading — the frontmatter and title) and the
-// ordered list of sections. A `## ` line inside a fenced code block does NOT
-// start a section: the Description body can contain ``` fences (from a rendered
-// `{code}`/`{noformat}` macro), and splitting inside one would corrupt the merge.
-func splitMDSections(md string) (preamble string, sections []mdSection) {
-	lines := strings.Split(md, "\n")
-	inFence := false
-	var pre []string
-	inPreamble := true
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "```") {
-			inFence = !inFence
+	rest := strings.TrimRight(edited[len(prefix):], "\n")
+	tail := strings.TrimRight(suffix, "\n")
+	if tail != "" {
+		if !strings.HasSuffix(rest, tail) {
+			return "", fmt.Errorf("%w: the sections after the description (Image Attachments, Attachments, Links, Subtasks, Sprint, Comments) are read-only in the md view — use `jira issue comment add`, `jira issue link add`, or `jira issue attachment upload` instead",
+				domain.ErrCheckFailed)
 		}
-		if !inFence && strings.HasPrefix(line, "## ") {
-			inPreamble = false
-			sections = append(sections, mdSection{name: strings.TrimSpace(line[len("## "):]), lines: []string{line}})
-			continue
-		}
-		if inPreamble {
-			pre = append(pre, line)
-			continue
-		}
-		last := &sections[len(sections)-1]
-		last.lines = append(last.lines, line)
+		rest = rest[:len(rest)-len(tail)]
 	}
-	return strings.Join(pre, "\n"), sections
-}
-
-// reconcileSections enforces the "only ## Description is editable" contract: it
-// refuses (ErrCheckFailed) any change to the preamble (frontmatter/title) or to a
-// non-Description section — added, removed, or altered — and returns the edited
-// Description body to merge ("" when the edit empties or omits it). Description
-// may legitimately appear on one side only (an empty base body has no Description
-// section in the pristine view; emptying it removes it from the edit).
-func reconcileSections(pristine, edited string) (editedDesc string, err error) {
-	preP, secsP := splitMDSections(pristine)
-	preE, secsE := splitMDSections(edited)
-	if preE != preP {
-		return "", fmt.Errorf("%w: the frontmatter/title changed, but they are read-only in the md view — edit the summary and fields with `jira issue update`",
-			domain.ErrCheckFailed)
-	}
-	byName := func(secs []mdSection) (map[string]mdSection, error) {
-		out := make(map[string]mdSection, len(secs))
-		for _, sec := range secs {
-			if _, dup := out[sec.name]; dup {
-				return nil, fmt.Errorf("%w: the md view has a duplicate '## %s' section — only ## Description is editable through the view",
-					domain.ErrCheckFailed, sec.name)
-			}
-			out[sec.name] = sec
-		}
-		return out, nil
-	}
-	mapP, err := byName(secsP)
-	if err != nil {
-		return "", err
-	}
-	mapE, err := byName(secsE)
-	if err != nil {
-		return "", err
-	}
-	// Every non-Description section must be byte-identical and present on both
-	// sides. Scanning both maps covers alterations, additions, and removals.
-	seen := map[string]bool{}
-	for _, name := range append(sectionNames(secsP), sectionNames(secsE)...) {
-		if name == "Description" || seen[name] {
-			continue
-		}
-		seen[name] = true
-		p, okP := mapP[name]
-		e, okE := mapE[name]
-		switch {
-		case okP && !okE:
-			return "", fmt.Errorf("%w: the '## %s' section was removed, but it is read-only in the md view — %s",
-				domain.ErrCheckFailed, name, sectionHint(name))
-		case okE && !okP:
-			return "", fmt.Errorf("%w: a new '## %s' section was added, but it is read-only in the md view — %s",
-				domain.ErrCheckFailed, name, sectionHint(name))
-		case p.full() != e.full():
-			return "", fmt.Errorf("%w: the '## %s' section was edited, but it is read-only in the md view — %s",
-				domain.ErrCheckFailed, name, sectionHint(name))
+	desc := strings.Trim(rest, "\n")
+	if !baseHasDesc && desc != "" {
+		// An added description on an empty base arrives with its own heading;
+		// unwrap it so the merge input is the body alone.
+		if after, ok := strings.CutPrefix(desc, "## Description"); ok {
+			desc = strings.Trim(after, "\n")
+		} else {
+			return "", fmt.Errorf("%w: to add a description to an issue without one, start it with a `## Description` heading",
+				domain.ErrCheckFailed)
 		}
 	}
-	if e, ok := mapE["Description"]; ok {
-		return e.body(), nil
-	}
-	return "", nil
-}
-
-// sectionNames lists the section names in document order.
-func sectionNames(secs []mdSection) []string {
-	out := make([]string, len(secs))
-	for i, sec := range secs {
-		out[i] = sec.name
-	}
-	return out
-}
-
-// sectionHint points at the dedicated command that owns a read-only section, so a
-// refusal tells the user where the edit belongs instead of silently dropping it.
-func sectionHint(name string) string {
-	switch name {
-	case "Comments":
-		return "add comments with `jira issue comment add`"
-	case "Links":
-		return "manage links with `jira issue link add`"
-	case "Image Attachments", "Attachments":
-		return "upload attachments with `jira issue attachment upload`"
-	default:
-		return "only ## Description is editable through the view"
-	}
+	return desc, nil
 }

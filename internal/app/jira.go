@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/isukharev/atl/internal/config"
@@ -402,8 +403,10 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 	res := &JiraPullResult{Into: into, Issues: []JiraPulled{}}
 	cursor := ""
 	// Resolve the effective render settings for THIS mirror (local config lives
-	// under the pull root) so the .md view and the API field projection both cover
-	// exactly the enabled sections — `full` never needs a second fetch per issue.
+	// under the pull root) so the API field projection covers every enabled
+	// section — `full` never needs a second fetch per issue. The projection only
+	// ever widens from the compat base set (the `.json` snapshot keeps its
+	// standard shape under smaller profiles; profiles shape the .md view only).
 	rs, warns := ResolveRender(s.cfg, into, opts.Render, "jira")
 	res.Warnings = warns
 	pullFields := jiraPullFields(opts.Fields, rs)
@@ -677,6 +680,19 @@ const jiraCommentStub = "<!-- atl: comment could not be rendered -->"
 // failing the pull. Every field accessor is defensive (values come from a
 // server), so a hostile field shape can never panic.
 func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset, rs RenderSettings) []byte {
+	prefix, desc, suffix := renderIssueMarkdownParts(is, assets, rs)
+	return []byte(prefix + desc + suffix)
+}
+
+// renderIssueMarkdownParts renders the view as three concatenable parts:
+// prefix (frontmatter + title + the `## Description` heading when a body
+// exists), desc (the rendered description body, no framing), and suffix
+// (everything after the description). renderIssueMarkdown is exactly
+// prefix+desc+suffix. The split exists for `jira apply`: the description must be
+// located by these structural anchors, NOT by re-parsing `## ` headings — a
+// wiki `h2.` inside the body renders as a top-level `## ` line, so heading-based
+// splitting would misread body content as generated sections.
+func renderIssueMarkdownParts(is *domain.Issue, assets []JiraIssueAsset, rs RenderSettings) (prefix, desc, suffix string) {
 	images := assetImageMap(assets)
 	var b strings.Builder
 	b.WriteString("---\n")
@@ -717,9 +733,15 @@ func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset, rs RenderSet
 	fmt.Fprintf(&b, "# %s — %s\n\n", is.Key, is.Summary)
 	if is.Body != "" {
 		b.WriteString("## Description\n\n")
-		b.WriteString(guardRender(jiraDescStub, func() string {
+	}
+	prefix = b.String()
+	if is.Body != "" {
+		desc = guardRender(jiraDescStub, func() string {
 			return wikimd.Render(is.Body, wikimd.Options{Images: images})
-		}))
+		})
+	}
+	b.Reset()
+	if is.Body != "" {
 		b.WriteString("\n\n")
 	}
 	if rs.On(SecAttachments) && len(assets) > 0 {
@@ -776,7 +798,8 @@ func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset, rs RenderSet
 			fmt.Fprintf(&b, "**%s** (%s):\n\n%s\n\n", c.Author, c.Created, body)
 		}
 	}
-	return []byte(b.String())
+	suffix = b.String()
+	return prefix, desc, suffix
 }
 
 // emitFrontmatterField writes `name: value` when the section is enabled and the
@@ -858,7 +881,11 @@ func renderFieldValue(v any) string {
 		}
 		return "false"
 	case float64:
-		return asString(t)
+		// encoding/json decodes every JSON number as float64; -1 precision keeps
+		// integers integral (13, not 13.00) and floats exact (0.5).
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	case json.Number:
+		return t.String()
 	case map[string]any:
 		for _, k := range []string{"name", "value", "displayName"} {
 			if s := asString(t[k]); s != "" {
