@@ -35,6 +35,12 @@ func FuzzConvertDocument(f *testing.F) {
 		"intro text\n- dash bullet\n* star bullet",
 		"intro text\n----",
 		"**bold\nwrapped across lines**",
+		// Issue #167: the paragraph-line escapes wikimd emits for fence/thematic
+		// collisions must un-escape to the bare, wiki-inert run (and their remainder
+		// still convert) without tripping the block splitter or the fail-closed
+		// guards; a real fence / break (no backslash) must stay a fence / hr.
+		"intro\n\\```json\n\\---\n\\***\n\\___\ntail",
+		"\\```lang **bold** rest\n\\*****",
 	}
 	for _, s := range seeds {
 		f.Add(s)

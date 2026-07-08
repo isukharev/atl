@@ -273,3 +273,43 @@ func TestEveryBaseBlockRendersToOnePiece(t *testing.T) {
 		}
 	}
 }
+
+// TestFenceDashParagraphRoundTrip pins issue #167 through the merge: a base
+// paragraph carrying literal lines that collide with markdown block markup (a
+// ```-prefixed fence line and `---`/`***` thematic-break lines) renders to an
+// escaped view, an untouched apply reproduces the base byte-for-byte, and editing
+// one word ELSEWHERE in the paragraph applies cleanly while every collision line
+// survives byte-identically — with no silent `----` horizontal rule introduced.
+func TestFenceDashParagraphRoundTrip(t *testing.T) {
+	base := "Intro word here.\n```json\nplain body text\n---\n***\ntrailer *bold* line."
+	md := wikimd.Render(base, wikimd.Options{})
+	// The view escapes each collision line so it stays inside the paragraph.
+	for _, want := range []string{"\\```json", "\\---", "\\***"} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("view missing escaped line %q:\n%s", want, md)
+		}
+	}
+
+	// Untouched apply: byte-identical.
+	out, rep := mergeOK(t, base, md, Options{})
+	if string(out) != base {
+		t.Fatalf("untouched round-trip mismatch\nbase=%q\nout=%q", base, out)
+	}
+	if rep.Converted != 0 || rep.Removed != 0 {
+		t.Errorf("untouched apply not all-unchanged: %+v", rep)
+	}
+
+	// Edit one word elsewhere: applies, collision lines survive byte-identically.
+	edited := strings.Replace(md, "Intro word here.", "Intro word HERE.", 1)
+	out2, rep2 := mergeOK(t, base, edited, Options{})
+	want := strings.Replace(base, "Intro word here.", "Intro word HERE.", 1)
+	if string(out2) != want {
+		t.Fatalf("edited round-trip mismatch\ngot=%q\nwant=%q", out2, want)
+	}
+	if strings.Contains(string(out2), "----") {
+		t.Fatalf("silent horizontal rule introduced: %q", out2)
+	}
+	if rep2.Converted != 1 {
+		t.Errorf("report = %+v, want 1 converted", rep2)
+	}
+}

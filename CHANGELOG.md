@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failure summaries redact network locations; and renderer/merge wiki scanners
   share list and multiline-table boundary rules.
 
+- **Jira paragraph block-markup collisions.** Literal wiki paragraph lines
+  that resemble Markdown fences or thematic breaks are escaped in the derived
+  view and reversed on apply, preserving untouched and edited round trips.
+
 - **`apply` no longer injects a `full`-profile view's decorations into the body.**
   `conf apply` now reproduces the recorded pristine view and merges only the
   editable body, so an untouched full view applies to a byte-identical `.csf`;

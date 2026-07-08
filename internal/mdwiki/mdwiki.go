@@ -198,6 +198,13 @@ func convertMarkedHeading(lines []string, opts Options) (string, error) {
 func convertParagraph(lines []string) (string, error) {
 	out := make([]string, len(lines))
 	for i, ln := range trimAll(lines) {
+		if u, ok, err := unescapeBlockLine(ln); ok {
+			if err != nil {
+				return "", err
+			}
+			out[i] = u
+			continue
+		}
 		body, err := inline(ln)
 		if err != nil {
 			return "", err
@@ -211,6 +218,68 @@ func convertParagraph(lines []string) (string, error) {
 		out[i] = body
 	}
 	return strings.Join(out, "\n"), nil
+}
+
+// unescapeBlockLine reverses the paragraph-line escape wikimd adds (issue #167):
+// a view line "\"+X whose X would otherwise re-parse in markdown as a code fence
+// (a leading 3+ backtick run) or a thematic break (a 3+ run of `-`/`*`/`_`). The
+// marker run is wiki-inert, so it is emitted verbatim — reproducing the base wiki
+// bytes so an edited paragraph round-trips byte-identically. For a fence the
+// remainder after the run must STILL go through inline() (it may carry
+// emphasis/links that wikimd converted from wiki); the run itself must not be fed
+// to inline(), which would pair the backticks into code spans. Returns ok=false
+// for any other line so the caller falls through to normal conversion — including
+// the generic `\`+escapable handling, which is left intact.
+func unescapeBlockLine(ln string) (out string, ok bool, err error) {
+	if !strings.HasPrefix(ln, `\`) {
+		return "", false, nil
+	}
+	rest := ln[1:]
+	body := rest[leadingIndent(rest):]
+	switch {
+	case strings.HasPrefix(body, "```"):
+		n := 0
+		for n < len(body) && body[n] == '`' {
+			n++
+		}
+		conv, e := inline(body[n:])
+		if e != nil {
+			return "", true, e
+		}
+		return rest[:len(rest)-len(body)+n] + conv, true, nil
+	case isThematicRun(body):
+		return rest, true, nil
+	default:
+		return "", false, nil
+	}
+}
+
+// leadingIndent returns the count of up to 3 leading spaces — markdown's fence /
+// thematic-break indent tolerance — mirroring wikimd's escape detection.
+func leadingIndent(s string) int {
+	n := 0
+	for n < 3 && n < len(s) && s[n] == ' ' {
+		n++
+	}
+	return n
+}
+
+// isThematicRun reports whether body is exactly a run of 3+ of a single `-`, `*`,
+// or `_` — a markdown thematic break. Mirrors wikimd's escape detection.
+func isThematicRun(body string) bool {
+	if len(body) < 3 {
+		return false
+	}
+	c := body[0]
+	if c != '-' && c != '*' && c != '_' {
+		return false
+	}
+	for i := 0; i < len(body); i++ {
+		if body[i] != c {
+			return false
+		}
+	}
+	return true
 }
 
 // codeLangRe: languages Jira accepts in {code:lang}; anything else would leak

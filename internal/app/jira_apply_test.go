@@ -377,3 +377,44 @@ func TestJiraApply_EditAfterBodyH2Merges(t *testing.T) {
 		t.Fatalf("merged wiki:\n got=%q\nwant=%q", got, want)
 	}
 }
+
+// TestJiraApply_FenceDashLinesRoundTrip pins issue #167 end-to-end: a Description
+// whose paragraph carries a literal "```json" line and a "---" line renders to an
+// escaped `.md` view; an untouched apply reproduces the `.wiki` byte-identically,
+// and editing one word elsewhere in that paragraph applies cleanly with the fence
+// and dash lines surviving byte-identically and no silent `----` hr appearing.
+func TestJiraApply_FenceDashLinesRoundTrip(t *testing.T) {
+	body := "Intro word here.\n```json\nplain body text\n---\ntrailer line.\n\nOutro paragraph."
+	svc, root, mdPath, wikiPath := scaffoldApplyIssue(t, body)
+
+	md := mustReadFile(t, mdPath)
+	if !strings.Contains(md, "\\```json") || !strings.Contains(md, "\\---") {
+		t.Fatalf("view did not escape the collision lines:\n%s", md)
+	}
+
+	// Untouched apply → byte-identical .wiki.
+	if _, err := svc.Apply(mdPath, JiraApplyOpts{Into: root}); err != nil {
+		t.Fatalf("untouched apply: %v", err)
+	}
+	if got := mustReadFile(t, wikiPath); got != body {
+		t.Fatalf(".wiki not byte-identical after untouched apply:\n got=%q\nwant=%q", got, body)
+	}
+
+	// Edit one word elsewhere in the paragraph → applies, collision lines survive.
+	mustWriteFile(t, mdPath, strings.Replace(md, "Intro word here.", "Intro word HERE.", 1))
+	res, err := svc.Apply(mdPath, JiraApplyOpts{Into: root})
+	if err != nil {
+		t.Fatalf("apply after edit: %v", err)
+	}
+	want := strings.Replace(body, "Intro word here.", "Intro word HERE.", 1)
+	got := mustReadFile(t, wikiPath)
+	if got != want {
+		t.Fatalf("merged .wiki mismatch:\n got=%q\nwant=%q", got, want)
+	}
+	if strings.Contains(got, "----") {
+		t.Fatalf("silent horizontal rule introduced in .wiki: %q", got)
+	}
+	if res.Report.Converted != 1 {
+		t.Errorf("report = %+v, want 1 converted", res.Report)
+	}
+}

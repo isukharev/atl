@@ -119,7 +119,17 @@ func renderBlocks(b *strings.Builder, lines []string, opts Options) {
 			writeBlock(out)
 			i = next
 		default:
-			b.WriteString(inline(line, opts) + "\n")
+			rendered := inline(line, opts)
+			if reparsesAsBlockMarkup(rendered) {
+				// A paragraph line whose RENDERED bytes would re-parse in markdown
+				// as a code fence or thematic break corrupts the md-view round trip
+				// (an edited paragraph fails `jira apply`, or a dash line silently
+				// upgrades to a wiki `----` hr). A single backslash keeps the block
+				// splitter (mdcsf.SplitBlocks) from opening a fence/hr block, so the
+				// line stays inside its paragraph and mdwiki reverses the escape.
+				rendered = `\` + rendered
+			}
+			b.WriteString(rendered + "\n")
 			i++
 		}
 	}
@@ -144,6 +154,51 @@ func renderHeading(level int, text string, opts Options) string {
 		return fmt.Sprintf("###### %s <!-- atl:jira-heading level=%d -->", inline(text, opts), level)
 	}
 	return "###### " + inline(text, opts)
+}
+
+// reparsesAsBlockMarkup reports whether a rendered paragraph line would re-parse
+// in markdown as block markup of the collision classes escaped for the md-view
+// round trip (issue #167): a leading 3+ backtick run (a code fence) or a line
+// that is, after markdown's ≤3-space indent tolerance, exactly a run of 3+ `-`,
+// `*`, or `_` (a thematic break). The decision is made on the FINAL rendered
+// bytes because inline() can itself emit a leading backtick run (a `{{mono}}`
+// span whose content starts with a backtick). Wiki `----` (4+ dashes) is caught
+// earlier by hrRe and never reaches the paragraph branch, so the dash case here
+// is only `---`; `***`/`___` runs of any length ≥3 can reach it.
+func reparsesAsBlockMarkup(s string) bool {
+	body := s[leadingIndent(s):]
+	if strings.HasPrefix(body, "```") {
+		return true
+	}
+	return isThematicRun(body)
+}
+
+// leadingIndent returns the count of up to 3 leading spaces — markdown's fence /
+// thematic-break indent tolerance (a 4th space starts indented code instead).
+func leadingIndent(s string) int {
+	n := 0
+	for n < 3 && n < len(s) && s[n] == ' ' {
+		n++
+	}
+	return n
+}
+
+// isThematicRun reports whether body is exactly a run of 3+ of a single `-`, `*`,
+// or `_` — a markdown thematic break.
+func isThematicRun(body string) bool {
+	if len(body) < 3 {
+		return false
+	}
+	c := body[0]
+	if c != '-' && c != '*' && c != '_' {
+		return false
+	}
+	for i := 0; i < len(body); i++ {
+		if body[i] != c {
+			return false
+		}
+	}
+	return true
 }
 
 // ensureBlankLine appends newlines so the builder ends with a blank line (an empty

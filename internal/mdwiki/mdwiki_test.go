@@ -286,3 +286,44 @@ func TestBOMStripped(t *testing.T) {
 		t.Errorf("BOM doc = %q", out)
 	}
 }
+
+// TestConvertUnescapesBlockCollisions pins the mdwiki half of issue #167: the
+// paragraph-line escapes wikimd adds (a `\`+backtick-run fence line, a
+// `\`+thematic-run break line) convert back to the BARE original bytes so an
+// edited paragraph round-trips byte-identically. The backtick run is emitted bare
+// while its remainder still flows through inline() (emphasis/links survive).
+func TestConvertUnescapesBlockCollisions(t *testing.T) {
+	cases := []struct{ md, want string }{
+		// A fence-collision line: backticks are wiki-inert, emitted bare.
+		{"intro\n\\```json\ntail", "intro\n```json\ntail"},
+		{"intro\n\\```\ntail", "intro\n```\ntail"},
+		{"intro\n\\````\ntail", "intro\n````\ntail"},
+		// The remainder after the run still converts: md **bold** → wiki *bold*.
+		{"intro\n\\```lang **bold**\ntail", "intro\n```lang *bold*\ntail"},
+		// Thematic-break-collision lines: emitted as the bare run.
+		{"intro\n\\---\ntail", "intro\n---\ntail"},
+		{"intro\n\\***\ntail", "intro\n***\ntail"},
+		{"intro\n\\___\ntail", "intro\n___\ntail"},
+		{"intro\n\\*****\ntail", "intro\n*****\ntail"},
+		// A whole-paragraph escaped line round-trips too (single-line block).
+		{"\\```yaml", "```yaml"},
+		{"\\---", "---"},
+	}
+	for _, c := range cases {
+		if got := convertOK(t, c.md); got != c.want {
+			t.Errorf("ConvertDocument(%q) = %q, want %q", c.md, got, c.want)
+		}
+	}
+}
+
+// TestConvertRealFenceAndBreakUnchanged guards the negative for issue #167: an
+// unescaped, real markdown fence and a real thematic break still convert to
+// {code}/`----` — only the backslash-escaped forms are the new inert paths.
+func TestConvertRealFenceAndBreakUnchanged(t *testing.T) {
+	if got := convertOK(t, "```go\nx := 1\n```"); got != "{code:go}\nx := 1\n{code}" {
+		t.Errorf("real fence changed: %q", got)
+	}
+	if got := convertOK(t, "---"); got != "----" {
+		t.Errorf("real thematic break should be a wiki hr, got %q", got)
+	}
+}

@@ -200,3 +200,57 @@ func TestRenderTotalSpotChecks(t *testing.T) {
 		}
 	}
 }
+
+// TestRenderEscapesBlockCollisions pins issue #167: a paragraph line whose
+// RENDERED bytes would re-parse in markdown as a code fence or thematic break is
+// prefixed with a single backslash so the md view round-trips (mdwiki reverses
+// it). The escape must fire on the final bytes — including backticks inline()
+// itself emits — and must NOT touch a real block-level construct.
+func TestRenderEscapesBlockCollisions(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		// A paragraph line that is a literal 3+ backtick run → code fence.
+		{"fence line in paragraph", "intro\n```json\nbody", "intro\n\\```json\nbody"},
+		{"bare triple backtick", "intro\n```\ntail", "intro\n\\```\ntail"},
+		{"longer backtick run", "intro\n````\ntail", "intro\n\\````\ntail"},
+		{"leading spaces still a fence", "intro\n   ```go\ntail", "intro\n\\   ```go\ntail"},
+		// A paragraph line that is exactly a 3+ run of -, *, or _ → thematic break.
+		{"triple dash", "intro\n---\ntail", "intro\n\\---\ntail"},
+		{"triple star", "intro\n***\ntail", "intro\n\\***\ntail"},
+		{"triple underscore", "intro\n___\ntail", "intro\n\\___\ntail"},
+		{"longer star run", "intro\n*****\ntail", "intro\n\\*****\ntail"},
+		// inline() can itself land 3+ backticks at line start via a {{mono}} span
+		// whose content opens with a backtick — the escape fires on the result.
+		{"mono renders leading backticks", "{{`x}}", "\\```x``"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := Render(c.in, Options{}); got != c.want {
+				t.Errorf("Render(%q):\n got: %q\nwant: %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+// TestRenderDoesNotEscapeRealBlocks guards the negative: a genuine wiki `----`
+// horizontal rule (4+ dashes) is an hr, not paragraph text, and renders as an
+// unescaped `---` block; a {code} macro renders as a real fence unescaped.
+func TestRenderDoesNotEscapeRealBlocks(t *testing.T) {
+	if got := Render("above\n\n----\n\nbelow", Options{}); got != "above\n\n---\n\nbelow" {
+		t.Errorf("wiki hr should render as an unescaped --- block, got %q", got)
+	}
+	if got := Render("{code:go}\nfmt.Println()\n{code}", Options{}); got != "```go\nfmt.Println()\n```" {
+		t.Errorf("{code} should render as a real fence unescaped, got %q", got)
+	}
+	// Backticks that are not at line start are ordinary text, never escaped.
+	if got := Render("see ```code``` inline", Options{}); got != "see ```code``` inline" {
+		t.Errorf("mid-line backticks must not be escaped, got %q", got)
+	}
+	// A dash run shorter than 3, or a dash line that is not a pure run, is left alone.
+	if got := Render("intro\n--\ntail", Options{}); got != "intro\n--\ntail" {
+		t.Errorf("two dashes are not a thematic break, got %q", got)
+	}
+}
