@@ -247,7 +247,11 @@ func unescapeBlockLine(ln string) (out string, ok bool, err error) {
 			return "", true, e
 		}
 		return rest[:len(rest)-len(body)+n] + conv, true, nil
-	case isThematicRun(body):
+	case isThematicRun(body) && !(body[0] == '-' && len(body) > 3):
+		// wikimd never escapes a 4+-dash line (that IS a wiki hr, caught by its
+		// hrRe before the paragraph branch), so `\----` is not our escape:
+		// unescaping it to a bare `----` would silently create an hr. It falls
+		// through to the generic path and stays literal.
 		return rest, true, nil
 	default:
 		return "", false, nil

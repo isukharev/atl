@@ -308,6 +308,10 @@ func TestConvertUnescapesBlockCollisions(t *testing.T) {
 		// A whole-paragraph escaped line round-trips too (single-line block).
 		{"\\```yaml", "```yaml"},
 		{"\\---", "---"},
+		// NOT our escape: wikimd never escapes a 4+-dash line (that IS a wiki hr,
+		// caught before the paragraph branch), so `\----` must stay literal — a
+		// bare `----` here would silently create an hr.
+		{"intro\n\\----\ntail", "intro\n\\----\ntail"},
 	}
 	for _, c := range cases {
 		if got := convertOK(t, c.md); got != c.want {
