@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Local per-mirror config layer with `render.*` keys and provenance.** A new
+  `<mirror-root>/.atl/config.json` carries presentation-only render settings
+  (`render.{jira,confluence}.{profile,include,exclude}`, plus
+  `render.jira.custom_fields`). `atl config set` gains a positional dotted-key
+  form (`config set render.jira.profile full`) alongside the existing URL flags;
+  `--local` (resolving the nearest `.atl` from cwd, or `--into ROOT`) writes the
+  per-mirror file. `atl config show` now reports the **effective** merged `render`
+  block, a `render_provenance` map (only non-default keys → `global`/`local`), and
+  `local_config_path` when a local file is in scope. **Security boundary:** a
+  local file may set render keys only — backend/update URLs stay global/env-only
+  so a shared or checked-out mirror can never redirect where a PAT is sent.
+  `config set --local` refuses any URL flag (exit 2), and at read time any
+  credential-adjacent, unknown, or malformed content in a local file is reported
+  to stderr and ignored (fail open to global/defaults), never applied. Precedence
+  is local > global > default, merged per key. Render settings are stored and
+  shown but not yet consumed by the renderers (a later phase threads them through
+  `pull`/`render`).
 - **`conf pull --comments` brings page comments into the mirror.** Opt-in and off
   by default (without it, no comment endpoint is contacted and no files are
   written). When set, each mirrored page gains `<slug>.comments.json` (a

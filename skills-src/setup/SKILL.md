@@ -69,9 +69,26 @@ atl config set --confluence-url https://confluence.example.com --jira-url https:
 atl config show
 ```
 
-`config show` prints `confluence_url`, `jira_url`, `update_base_url`, and a `mirror` hint block
-with the recommended `~/.atl/<workspace>/` root plus active `ATL_MIRROR_ROOT` when set. A non-https
-URL for a non-loopback host is rejected at set time.
+`config show` prints `confluence_url`, `jira_url`, `update_base_url`, a `mirror` hint block
+with the recommended `~/.atl/<workspace>/` root plus active `ATL_MIRROR_ROOT` when set, and the
+effective `render` block with `render_provenance` (see below). A non-https URL for a non-loopback
+host is rejected at set time.
+
+**Render config layer (presentation-only).** `config set` also takes a positional dotted render key
+that tunes the derived `.md` view — `render.{jira,confluence}.{profile,include,exclude}` (profile is
+`minimal`|`default`|`full`) plus `render.jira.custom_fields` (comma-separated):
+
+```bash
+atl config set render.jira.profile full            # global (~/.config/atl/config.json)
+atl config set --local render.confluence.profile minimal   # per-mirror <root>/.atl/config.json
+```
+
+`--local` writes a per-mirror `.atl/config.json` (nearest `.atl` walking up from cwd, or `--into ROOT`).
+It is a **security boundary**: a local file may carry render keys only — backend/update URLs are
+global/env-only so a shared or checked-out mirror can never redirect where the PAT is sent. `config
+set --local` refuses a URL flag (exit 2); at read time any forbidden/unknown key in a local file is
+warned about on stderr and ignored. Precedence is local > global > default. Note: render settings are
+stored and shown now but not yet consumed by the renderers (that lands in a later phase).
 
 ## 4. Authenticate
 

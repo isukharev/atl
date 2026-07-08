@@ -167,6 +167,8 @@ gating. When any page's comment listing is truncated, the result carries
 `comments_truncated: true` and the CLI writes a stderr warning; the JSON on
 stdout stays clean.
 
+`atl config show` emits `{ "confluence_url"?, "jira_url"?, "update_base_url"?, "render", "render_provenance"?, "local_config_path"?, "mirror" }`. `render` is the **effective** merged render configuration (always present; both `jira` and `confluence` sections carry at least `profile`, defaulting to `default`). `render_provenance` maps each dotted render key whose value is *not* the built-in default to its source (`global` or `local`) and is `omitempty` — an all-default mirror emits none, keeping the shape backward-compatible. `local_config_path` appears only when a per-mirror `.atl/config.json` is in scope from the current directory. Warnings about forbidden/unknown keys in a local file go to **stderr** as `warning:` lines; stdout stays clean. `config set` accepts a positional dotted render key (`render.{jira,confluence}.{profile,include,exclude}`, plus `render.jira.custom_fields`) alongside the existing URL flags; `--local` writes the per-mirror file (render keys only — a URL flag with `--local` is a usage error, exit 2).
+
 `atl jira export --jql ... --out FILE --format jsonl|json|csv` writes one compact artifact and a
 sidecar manifest at `FILE.manifest.json`. `--ids` and `--keys` can be used instead of `--jql` to
 generate batched `id in (...)` / `key in (...)` queries. Stdout remains the normal `emit()` JSON
