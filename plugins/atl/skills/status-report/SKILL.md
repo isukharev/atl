@@ -63,8 +63,8 @@ atl conf page create --space KEY --title 'Project X status — <date>' --parent 
 ```
 
 To refresh an existing report page, edit it through the mirror instead of
-recreating: `atl conf pull --id <id> --into <dir>`, edit the `.csf`,
-`atl conf push`. Exit 8 from `--from-md` names the unconvertible markdown
+recreating: `atl conf pull --id <id> --into <dir>`, edit the `.md` view and
+`atl conf apply` (or the `.csf` directly), `atl conf push`. Exit 8 from `--from-md` names the unconvertible markdown
 block — simplify it (plain headings, lists, tables, fences convert cleanly).
 
 ### 6. Close the loop

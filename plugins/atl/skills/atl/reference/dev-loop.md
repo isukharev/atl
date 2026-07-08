@@ -6,9 +6,9 @@ Jira (the ticket) and Confluence (the design/runbook page) current **as you work
 batch-updating them afterwards. Command details live in the `jira` and `confluence` skills; this
 is the sequence and the safety rails.
 
-Throughout: Jira bodies are **wiki markup** (`jira` skill → wiki-markup reference), Confluence
-bodies are **CSF** (`confluence` skill → csf-authoring reference), or markdown merged
-through `conf apply`. Never push raw Markdown as a body.
+Throughout: Jira bodies are **wiki markup** (`jira` skill → wiki-markup reference) — or markdown
+merged into the `.wiki` through `jira apply`; Confluence bodies are **CSF** (`confluence` skill →
+csf-authoring reference), or markdown merged through `conf apply`. Never push raw Markdown as a body.
 
 ## Phase 1 — start the ticket
 

@@ -230,8 +230,11 @@ refusals)? Offer the user a report — see the `atl` skill's feedback flow (cons
 sanitized issue + private case file).
 
 ## Hard rules
-- **Two edit paths, one at a time.** Either edit the `.md` and run `conf apply` (preferred), or
-  edit the `.csf` directly — never both before a push. `.md` edits without an apply are lost on
-  the next pull; `.meta.json` is always auto-managed. CSF stays the byte-stable substrate:
-  apply never converts blocks you didn't change.
+- **Prefer the `.md` + `conf apply` path; drop to a direct `.csf` edit only as the fallback** — for
+  what apply refuses or md can't express: an unconvertible block (exit 8 names it), a construct you
+  must author outside the md subset, an intentional `--allow-fragment-loss`, or rowspan/colspan/
+  nested-table restructuring. Never do both before a push — `.md` edits without an apply are lost on
+  the next pull, and a direct `.csf` edit makes apply refuse until you push or re-pull; `.meta.json`
+  is always auto-managed. CSF stays the byte-stable substrate: apply never converts blocks you
+  didn't change.
 - Validate before pushing; review the dry-run; push the exact bytes you reviewed.

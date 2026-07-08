@@ -1351,8 +1351,10 @@ Export issues matching a JQL query to disk. Each issue becomes three files:
 `<KEY>.wiki` (the native Jira wiki body, stored byte-for-byte — the editable
 source of truth, the Jira analog of a Confluence `.csf`), `<KEY>.md` (a
 read-only Markdown view rendered from the wiki, regenerated best-effort on every
-pull), and `<KEY>.json` (identity plus raw Jira fields). Edit the `.wiki` file,
-not the `.md` view.
+pull), and `<KEY>.json` (identity plus raw Jira fields). Edit the `## Description`
+of the `.md` view and merge it with `jira apply` (the recommended cycle, below), or
+edit the `.wiki` directly for what the md view can't express — a bare `.md` edit
+never reaches the server on its own.
 
 ```bash
 atl jira pull --jql "project=PROJ and sprint in openSprints()" \
@@ -1407,10 +1409,11 @@ mirror-jira/
 The `.md` is a lossy, best-effort read view (headings, emphasis, `{code}`/
 `{quote}`/`{panel}`, lists, tables, links, `!image!` embeds, `{color}`,
 `[~mentions]`); a render failure degrades that one section to a stub comment and
-never fails the pull. To change an issue body, edit `<KEY>.wiki` (never the `.md`
-view), or edit the `## Description` section of the `<KEY>.md` view and fold it
-back into the `.wiki` with `jira apply` (block-level, non-lossy — the loop just
-below). Either way, `jira push` is the only path to the server, and
+never fails the pull. To change an issue body, edit the `## Description` section of
+the `<KEY>.md` view and fold it back into the `.wiki` with `jira apply` (block-level,
+non-lossy — the recommended loop just below), or edit `<KEY>.wiki` directly for what
+the md view can't express (a bare `.md` edit never pushes on its own). Either way,
+`jira push` is the only path to the server, and
 `jira issue update --from-file <KEY>.wiki` remains the one-shot alternative.
 
 The pull also records the `.wiki` body in the mirror sidecar (`.atl/state.json`)
