@@ -154,6 +154,19 @@ command exits `8` (`ErrCheckFailed`) — never `5`. `--force` sets `drift_overri
 `--apply` sets `pushed:true`; a post-push mirror-refresh failure surfaces as `warning` on the item,
 not an error. `skipped:"unchanged"` marks a clean file.
 
+`atl jira apply <FILE.md> [--dry-run] [--allow-loss] [--into ROOT] [--render-*]` emits the same
+shape as `conf apply` with `csf_path` replaced by `wiki_path`:
+`{ "path", "wiki_path", "dry_run", "report": { "unchanged", "moved", "converted", "removed",
+"removed_constructs"? }, "wrote", "warning"? }`. It is **local only** (no network). Each
+`removed_constructs` entry is `{ "kind", "text" }` (`kind` ∈ `panel`, `color`, `mention`, `image`,
+`monospace`, `link`, `macro`, …). The merge is fail-closed and exits `8` (`ErrCheckFailed`, nothing
+written) on: an unconvertible edited block; a wiki-only construct dropped without `--allow-loss`
+(the report still carries `removed_constructs` so the caller can see what would go); an edit to any
+section other than `## Description` (the error names the section and its dedicated command); or a
+local `.wiki` diverged from the last-synced base. Exit `4` (`ErrNotFound`) when the issue was never
+pulled (no base/snapshot). On a successful write `wrote:true`; a failed `.md`-view refresh sets
+`warning` and is not an error.
+
 `atl conf pull` returns a `PullResult` whose `pages[]` entries are `PulledPage`
 objects. Each carries `id`, `title`, `path`, `version`, `assets`, and — only when
 `--comments` was passed — a `comments` count (omitted otherwise, so the shape is

@@ -1,0 +1,12 @@
+{
+  "path": "MIRROR/PROJ/PROJ-1.md",
+  "wiki_path": "MIRROR/PROJ/PROJ-1.wiki",
+  "dry_run": true,
+  "report": {
+    "unchanged": 2,
+    "moved": 0,
+    "converted": 1,
+    "removed": 1
+  },
+  "wrote": false
+}

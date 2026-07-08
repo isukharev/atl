@@ -325,6 +325,8 @@ atl jira issue assign PROJ-1 --me
 atl jira issue comment add PROJ-1 --from-md note.md
 atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
 atl jira issue transition PROJ-1 --to Done
+# Edit the .md view's ## Description, fold it into the .wiki, then push (block-level, non-lossy)
+atl jira apply mirror-jira/PROJ/PROJ-1.md --dry-run
 
 # Metadata
 atl jira fields
