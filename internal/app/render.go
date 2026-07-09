@@ -166,6 +166,12 @@ func computeSettings(backend string, svc config.RenderService) (RenderSettings, 
 		}
 		delete(sections, name)
 	}
+	if backend != "jira" {
+		if len(svc.CustomFields) > 0 || len(svc.FieldViews) > 0 || svc.EpicField != "" {
+			warns = append(warns, "render: ignoring Jira-only custom_fields/field_views/epic_field for confluence")
+		}
+		return RenderSettings{Sections: sections}, warns
+	}
 	cf := append([]string(nil), svc.CustomFields...)
 	views := make([]config.JiraFieldView, 0, len(svc.FieldViews))
 	seenKeys := map[string]bool{}

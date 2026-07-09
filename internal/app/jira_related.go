@@ -71,6 +71,9 @@ func loadEpicChildrenSidecar(path string) *JiraEpicChildrenSidecar {
 // resolve the conventional Jira Software "Epic Link" field once per pull.
 func (s *JiraService) resolveEpicField(ctx context.Context, configured string) (string, error) {
 	configured = strings.TrimSpace(configured)
+	if isDirectEpicFieldID(configured) {
+		return configured, nil
+	}
 	defs, err := s.tr.Fields(ctx)
 	if err != nil {
 		return "", err
@@ -87,6 +90,18 @@ func (s *JiraService) resolveEpicField(ctx context.Context, configured string) (
 		return "", fmt.Errorf("%w: configured Jira epic field %q was not found", domain.ErrUsage, configured)
 	}
 	return "", fmt.Errorf("%w: no Jira 'Epic Link' field was found; set render.jira.epic_field explicitly", domain.ErrUsage)
+}
+
+func isDirectEpicFieldID(field string) bool {
+	if strings.EqualFold(field, "parent") {
+		return true
+	}
+	const prefix = "customfield_"
+	if !strings.HasPrefix(field, prefix) {
+		return false
+	}
+	n, err := strconv.Atoi(strings.TrimPrefix(field, prefix))
+	return err == nil && n > 0
 }
 
 // fetchEpicChildrenPage performs at most one logical paginated query for all

@@ -18,6 +18,7 @@ type epicPullTracker struct {
 	domain.Tracker
 	mainQueries    int
 	relatedQueries int
+	fieldQueries   int
 }
 
 type pagedEpicTracker struct {
@@ -44,6 +45,7 @@ func (t *pagedEpicTracker) Search(_ context.Context, _ string, _ []string, limit
 }
 
 func (t *epicPullTracker) Fields(context.Context) ([]domain.FieldDef, error) {
+	t.fieldQueries++
 	return []domain.FieldDef{{ID: "customfield_10010", Name: "Epic Link", Custom: true}}, nil
 }
 
@@ -73,8 +75,8 @@ func TestPullEpicChildrenSidecarAndOfflineRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tr.mainQueries != 1 || tr.relatedQueries != 1 {
-		t.Fatalf("queries main=%d related=%d, want one each", tr.mainQueries, tr.relatedQueries)
+	if tr.mainQueries != 1 || tr.relatedQueries != 1 || tr.fieldQueries != 1 {
+		t.Fatalf("queries main=%d related=%d fields=%d, want one each", tr.mainQueries, tr.relatedQueries, tr.fieldQueries)
 	}
 	if len(res.Issues) != 1 || res.Issues[0].EpicChildren != 2 || res.EpicChildrenTruncated {
 		t.Fatalf("pull result = %+v", res)
@@ -108,6 +110,22 @@ func TestPullEpicChildrenSidecarAndOfflineRender(t *testing.T) {
 	vs, ok, err = mirror.New(root).ViewStateOf("PROJ-1")
 	if err != nil || !ok || vs.EpicField != "customfield_10010" {
 		t.Fatalf("offline render lost resolved epic field: ok=%v err=%v state=%+v", ok, err, vs)
+	}
+}
+
+func TestResolveEpicFieldConfiguredIDSkipsCatalog(t *testing.T) {
+	tr := &epicPullTracker{}
+	svc := &JiraService{tr: tr}
+
+	got, err := svc.resolveEpicField(context.Background(), "customfield_10010")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "customfield_10010" {
+		t.Fatalf("resolved field = %q, want customfield_10010", got)
+	}
+	if tr.fieldQueries != 0 {
+		t.Fatalf("field catalog queries = %d, want 0 for an explicit field ID", tr.fieldQueries)
 	}
 }
 

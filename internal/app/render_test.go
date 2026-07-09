@@ -132,6 +132,26 @@ func TestComputeSettingsRejectsDuplicateFieldViewKey(t *testing.T) {
 	}
 }
 
+func TestComputeSettingsConfluenceIgnoresJiraOnlyOptions(t *testing.T) {
+	rs, warns := computeSettings("confluence", config.RenderService{
+		Profile:      "full",
+		CustomFields: []string{"customfield_10001"},
+		FieldViews: []config.JiraFieldView{
+			{ID: "customfield_10001", Key: "score"},
+		},
+		EpicField: "customfield_10010",
+	})
+	if len(warns) != 1 || !strings.Contains(warns[0], "Jira-only") {
+		t.Fatalf("warnings = %v, want one Jira-only warning", warns)
+	}
+	if len(rs.FieldViews) != 0 || len(rs.CustomFields) != 0 || rs.EpicField != "" {
+		t.Fatalf("Jira-only settings leaked into Confluence: %+v", rs)
+	}
+	if !rs.On("frontmatter") || !rs.On("comments") {
+		t.Fatalf("Confluence profile was not preserved: %+v", rs.Sections)
+	}
+}
+
 func TestResolveRenderOverride(t *testing.T) {
 	root := t.TempDir()
 	// Write a local config selecting the full profile for jira.

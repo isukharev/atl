@@ -731,7 +731,6 @@ const jiraCommentStub = "<!-- atl: comment could not be rendered -->"
 // server), so a hostile field shape can never panic.
 func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset, rs RenderSettings) []byte {
 	return renderIssueMarkdownWithRelated(is, assets, nil, rs)
-
 }
 
 func renderIssueMarkdownWithRelated(is *domain.Issue, assets []JiraIssueAsset, related *JiraEpicChildrenSidecar, rs RenderSettings) []byte {
