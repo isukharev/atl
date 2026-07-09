@@ -76,19 +76,21 @@ host is rejected at set time.
 
 **Render config layer (presentation-only).** `config set` also takes a positional dotted render key
 that tunes the derived `.md` view — `render.{jira,confluence}.{profile,include,exclude}` (profile is
-`minimal`|`default`|`full`) plus `render.jira.custom_fields` (comma-separated):
+`minimal`|`default`|`full`) plus Jira-only `custom_fields` (comma-separated), typed
+`field_views` (JSON descriptor array), and `epic_field`:
 
 ```bash
 atl config set render.jira.profile full            # global (~/.config/atl/config.json)
 atl config set --local render.confluence.profile minimal   # per-mirror <root>/.atl/config.json
+atl config set --local render.jira.field_views '[{"id":"customfield_10003","key":"risk_notes","label":"Risk Notes","placement":"section","format":"jira_wiki"}]'
 ```
 
 `--local` writes a per-mirror `.atl/config.json` (nearest `.atl` walking up from cwd, or `--into ROOT`).
 It is a **security boundary**: a local file may carry render keys only — backend/update URLs are
 global/env-only so a shared or checked-out mirror can never redirect where the PAT is sent. `config
 set --local` refuses a URL flag (exit 2); at read time any forbidden/unknown key in a local file is
-warned about on stderr and ignored. Precedence is local > global > default. Note: render settings are
-stored and shown now but not yet consumed by the renderers (that lands in a later phase).
+warned about on stderr and ignored. Precedence is local > global > default. Pull/render consume the
+effective settings and record the resolved view in `.atl/state.json` for apply affinity.
 
 ## 4. Authenticate
 

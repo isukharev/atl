@@ -38,6 +38,7 @@ const (
 	SecComments       = "comments"
 	SecSprint         = "sprint"
 	SecSubtasks       = "subtasks"
+	SecEpicChildren   = "epic_children" // opt-in: requires an additional bounded Jira query
 
 	// Confluence sections.
 	SecFrontmatter = "frontmatter" // YAML frontmatter (title/space/version/labels/updated)
@@ -46,6 +47,17 @@ const (
 
 // jiraSections is the closed, ordered set of valid Jira section names.
 var jiraSections = []string{
+	SecStatus, SecType, SecProject, SecAssignee, SecLabels, SecPriority, SecParent,
+	SecReporter, SecCreated, SecUpdated, SecResolution, SecDuedate, SecComponents,
+	SecFixVersions, SecCustomFields, SecAttachments, SecAttachmentsAll, SecLinks,
+	SecComments, SecSprint, SecSubtasks,
+	SecEpicChildren,
+}
+
+// jiraFullSections deliberately excludes epic_children: every other full
+// section is satisfied by widening the one issue search projection, while epic
+// children require an additional related-issue query and must stay opt-in.
+var jiraFullSections = []string{
 	SecStatus, SecType, SecProject, SecAssignee, SecLabels, SecPriority, SecParent,
 	SecReporter, SecCreated, SecUpdated, SecResolution, SecDuedate, SecComponents,
 	SecFixVersions, SecCustomFields, SecAttachments, SecAttachmentsAll, SecLinks,
@@ -70,6 +82,8 @@ var jiraDefaultSections = []string{
 type RenderSettings struct {
 	Sections     map[string]bool
 	CustomFields []string
+	FieldViews   []config.JiraFieldView
+	EpicField    string
 }
 
 // On reports whether a section is enabled.
@@ -100,7 +114,7 @@ func profileBase(backend, profile string) map[string]bool {
 		case "minimal":
 			// {} — only key + summary frontmatter and the description body.
 		case "full":
-			for _, s := range jiraSections {
+			for _, s := range jiraFullSections {
 				out[s] = true
 			}
 		default: // "default"
@@ -152,8 +166,29 @@ func computeSettings(backend string, svc config.RenderService) (RenderSettings, 
 		}
 		delete(sections, name)
 	}
+	if backend != "jira" {
+		if len(svc.CustomFields) > 0 || len(svc.FieldViews) > 0 || svc.EpicField != "" {
+			warns = append(warns, "render: ignoring Jira-only custom_fields/field_views/epic_field for confluence")
+		}
+		return RenderSettings{Sections: sections}, warns
+	}
 	cf := append([]string(nil), svc.CustomFields...)
-	return RenderSettings{Sections: sections, CustomFields: cf}, warns
+	views := make([]config.JiraFieldView, 0, len(svc.FieldViews))
+	seenKeys := map[string]bool{}
+	for i, fv := range svc.FieldViews {
+		norm, err := config.NormalizeJiraFieldView(fv)
+		if err != nil {
+			warns = append(warns, fmt.Sprintf("render: ignoring jira field_views[%d]: %v", i, err))
+			continue
+		}
+		if seenKeys[norm.Key] {
+			warns = append(warns, fmt.Sprintf("render: ignoring jira field_views[%d]: duplicate output key %q", i, norm.Key))
+			continue
+		}
+		seenKeys[norm.Key] = true
+		views = append(views, norm)
+	}
+	return RenderSettings{Sections: sections, CustomFields: cf, FieldViews: views, EpicField: strings.TrimSpace(svc.EpicField)}, warns
 }
 
 func unknownSectionWarn(backend, verb, name string) string {
@@ -218,6 +253,12 @@ func applyRenderOverride(svc, o config.RenderService) config.RenderService {
 	if len(o.CustomFields) > 0 {
 		out.CustomFields = append([]string(nil), o.CustomFields...)
 	}
+	if len(o.FieldViews) > 0 {
+		out.FieldViews = append([]config.JiraFieldView(nil), o.FieldViews...)
+	}
+	if o.EpicField != "" {
+		out.EpicField = o.EpicField
+	}
 	return out
 }
 
@@ -238,7 +279,14 @@ func viewStateOf(rs RenderSettings) mirror.ViewState {
 	if len(rs.CustomFields) > 0 {
 		cf = append([]string(nil), rs.CustomFields...)
 	}
-	return mirror.ViewState{Sections: sections, CustomFields: cf}
+	fields := make([]mirror.FieldViewState, 0, len(rs.FieldViews))
+	for _, fv := range rs.FieldViews {
+		fields = append(fields, mirror.FieldViewState{
+			ID: fv.ID, Key: fv.Key, Label: fv.Label, Placement: fv.Placement,
+			Format: fv.Format, ShowEmpty: fv.ShowEmpty,
+		})
+	}
+	return mirror.ViewState{Sections: sections, CustomFields: cf, FieldViews: fields, EpicField: rs.EpicField}
 }
 
 // settingsFromViewState is the inverse of viewStateOf: it rebuilds RenderSettings
@@ -256,7 +304,14 @@ func settingsFromViewState(vs mirror.ViewState) RenderSettings {
 	if len(vs.CustomFields) > 0 {
 		cf = append([]string(nil), vs.CustomFields...)
 	}
-	return RenderSettings{Sections: sections, CustomFields: cf}
+	fields := make([]config.JiraFieldView, 0, len(vs.FieldViews))
+	for _, fv := range vs.FieldViews {
+		fields = append(fields, config.JiraFieldView{
+			ID: fv.ID, Key: fv.Key, Label: fv.Label, Placement: fv.Placement,
+			Format: fv.Format, ShowEmpty: fv.ShowEmpty,
+		})
+	}
+	return RenderSettings{Sections: sections, CustomFields: cf, FieldViews: fields, EpicField: vs.EpicField}
 }
 
 // renderOverrideSet reports whether a per-run render override carries any
@@ -264,7 +319,7 @@ func settingsFromViewState(vs mirror.ViewState) RenderSettings {
 // decide whether the user asked for a specific view (honor the flags) or wants
 // the recorded pristine view reproduced.
 func renderOverrideSet(o config.RenderService) bool {
-	return o.Profile != "" || len(o.Include) > 0 || len(o.Exclude) > 0 || len(o.CustomFields) > 0
+	return o.Profile != "" || len(o.Include) > 0 || len(o.Exclude) > 0 || len(o.CustomFields) > 0 || len(o.FieldViews) > 0 || o.EpicField != ""
 }
 
 // sortedFieldKeys returns a raw fields map's keys in deterministic order so a

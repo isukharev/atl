@@ -16,10 +16,29 @@ import (
 // presentation-only: none of these keys can influence where a PAT is sent, so
 // they are the sole content a per-mirror local config may carry.
 type RenderService struct {
-	Profile      string   `json:"profile,omitempty"` // minimal|default|full ("" = default)
-	Include      []string `json:"include,omitempty"`
-	Exclude      []string `json:"exclude,omitempty"`
-	CustomFields []string `json:"custom_fields,omitempty"` // jira only
+	Profile      string          `json:"profile,omitempty"` // minimal|default|full ("" = default)
+	Include      []string        `json:"include,omitempty"`
+	Exclude      []string        `json:"exclude,omitempty"`
+	CustomFields []string        `json:"custom_fields,omitempty"` // jira only
+	FieldViews   []JiraFieldView `json:"field_views,omitempty"`   // jira only; typed presentation
+	EpicField    string          `json:"epic_field,omitempty"`    // jira only; empty = auto-detect Epic Link
+}
+
+// JiraFieldView describes how one raw Jira field is presented in the derived
+// Markdown view. ID is the API field id/key. Key is the stable YAML key for a
+// frontmatter placement (defaults to ID); Label is the Markdown heading for a
+// section placement (defaults to Key/ID). Format is auto|scalar|list|jira_wiki|
+// date|datetime. Missing values are omitted unless ShowEmpty is true.
+//
+// These descriptors are presentation-only. They may live in a mirror-local
+// config without changing the backend host or credential scope.
+type JiraFieldView struct {
+	ID        string `json:"id"`
+	Key       string `json:"key,omitempty"`
+	Label     string `json:"label,omitempty"`
+	Placement string `json:"placement,omitempty"` // frontmatter (default) | section
+	Format    string `json:"format,omitempty"`    // auto (default) | scalar | list | jira_wiki | date | datetime
+	ShowEmpty bool   `json:"show_empty,omitempty"`
 }
 
 // RenderConfig groups the per-backend render sections. The pointer fields keep
@@ -137,11 +156,32 @@ func sanitizeService(s *RenderService, keyPrefix, path string, warnings []string
 		warnings = append(warnings, fmt.Sprintf("ignoring %s.profile=%q in local config %s: expected minimal|default|full", keyPrefix, s.Profile, path))
 		s.Profile = ""
 	}
+	if keyPrefix == "render.jira" {
+		var kept []JiraFieldView
+		for i, fv := range s.FieldViews {
+			norm, err := NormalizeJiraFieldView(fv)
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf("ignoring %s.field_views[%d] in local config %s: %v", keyPrefix, i, path, err))
+				continue
+			}
+			kept = append(kept, norm)
+		}
+		s.FieldViews = kept
+		if strings.ContainsAny(s.EpicField, "\r\n") {
+			warnings = append(warnings, fmt.Sprintf("ignoring %s.epic_field in local config %s: line breaks are not allowed", keyPrefix, path))
+			s.EpicField = ""
+		}
+	} else if len(s.FieldViews) > 0 || s.EpicField != "" {
+		warnings = append(warnings, fmt.Sprintf("ignoring Jira-only field_views/epic_field under %s in local config %s", keyPrefix, path))
+		s.FieldViews = nil
+		s.EpicField = ""
+	}
 	return s, warnings
 }
 
 // EffectiveRender merges the built-in defaults, the global config, and the
-// sanitized local config per key (profile, include, exclude, custom_fields are
+// sanitized local config per key (profile, include, exclude, custom_fields,
+// field_views, and epic_field are
 // each independently overridden by the highest-precedence source that sets
 // them: local > global > default). It returns the fully-populated effective
 // RenderConfig and a Provenance for every tracked key.
@@ -179,6 +219,8 @@ func mergeService(keyPrefix string, global, local *RenderService, prov Provenanc
 	prov[keyPrefix+".exclude"] = "default"
 	if jira {
 		prov[keyPrefix+".custom_fields"] = "default"
+		prov[keyPrefix+".field_views"] = "default"
+		prov[keyPrefix+".epic_field"] = "default"
 	}
 
 	apply := func(s *RenderService, source string) {
@@ -201,6 +243,14 @@ func mergeService(keyPrefix string, global, local *RenderService, prov Provenanc
 			out.CustomFields = append([]string(nil), s.CustomFields...)
 			prov[keyPrefix+".custom_fields"] = source
 		}
+		if jira && len(s.FieldViews) > 0 {
+			out.FieldViews = append([]JiraFieldView(nil), s.FieldViews...)
+			prov[keyPrefix+".field_views"] = source
+		}
+		if jira && s.EpicField != "" {
+			out.EpicField = strings.TrimSpace(s.EpicField)
+			prov[keyPrefix+".epic_field"] = source
+		}
 	}
 	apply(global, "global")
 	apply(local, "local")
@@ -214,13 +264,15 @@ var renderFields = map[string]bool{
 	"include":       true,
 	"exclude":       true,
 	"custom_fields": true,
+	"field_views":   true,
+	"epic_field":    true,
 }
 
 // ValidRenderKeys lists the accepted dotted keys for `config set`, for error
 // messages.
 func ValidRenderKeys() []string {
 	return []string{
-		"render.jira.profile", "render.jira.include", "render.jira.exclude", "render.jira.custom_fields",
+		"render.jira.profile", "render.jira.include", "render.jira.exclude", "render.jira.custom_fields", "render.jira.field_views", "render.jira.epic_field",
 		"render.confluence.profile", "render.confluence.include", "render.confluence.exclude",
 	}
 }
@@ -247,8 +299,8 @@ func SetRenderKey(rc *RenderConfig, key, value string) error {
 	if !renderFields[field] {
 		return fmt.Errorf("unknown render field %q in %q", field, key)
 	}
-	if field == "custom_fields" && svc != "jira" {
-		return fmt.Errorf("custom_fields is jira-only; %q is not valid", key)
+	if (field == "custom_fields" || field == "field_views" || field == "epic_field") && svc != "jira" {
+		return fmt.Errorf("%s is jira-only; %q is not valid", field, key)
 	}
 
 	target := &rc.Jira
@@ -272,8 +324,82 @@ func SetRenderKey(rc *RenderConfig, key, value string) error {
 		s.Exclude = splitList(value)
 	case "custom_fields":
 		s.CustomFields = splitList(value)
+	case "field_views":
+		var views []JiraFieldView
+		if err := json.Unmarshal([]byte(value), &views); err != nil {
+			return fmt.Errorf("field_views must be a JSON array: %v", err)
+		}
+		for i, fv := range views {
+			norm, err := NormalizeJiraFieldView(fv)
+			if err != nil {
+				return fmt.Errorf("field_views[%d]: %v", i, err)
+			}
+			views[i] = norm
+		}
+		s.FieldViews = views
+	case "epic_field":
+		value = strings.TrimSpace(value)
+		if strings.ContainsAny(value, "\r\n") {
+			return fmt.Errorf("epic_field must not contain line breaks")
+		}
+		s.EpicField = value
 	}
 	return nil
+}
+
+// NormalizeJiraFieldView validates a descriptor and fills its stable defaults.
+// It is used at config-write, local-config load, and render resolution so a
+// hand-edited global config degrades to warnings rather than reaching the
+// renderer with an unsafe/ambiguous shape.
+func NormalizeJiraFieldView(fv JiraFieldView) (JiraFieldView, error) {
+	fv.ID = strings.TrimSpace(fv.ID)
+	fv.Key = strings.TrimSpace(fv.Key)
+	fv.Label = strings.TrimSpace(fv.Label)
+	fv.Placement = strings.TrimSpace(fv.Placement)
+	fv.Format = strings.TrimSpace(fv.Format)
+	if fv.ID == "" {
+		return JiraFieldView{}, fmt.Errorf("id is required")
+	}
+	if strings.ContainsAny(fv.ID+fv.Key+fv.Label, "\r\n") {
+		return JiraFieldView{}, fmt.Errorf("id, key, and label must not contain line breaks")
+	}
+	if fv.Key == "" {
+		fv.Key = fv.ID
+	}
+	if !validYAMLKey(fv.Key) {
+		return JiraFieldView{}, fmt.Errorf("key %q must start with a letter or underscore and contain only letters, digits, underscore, dot, or dash", fv.Key)
+	}
+	if fv.Label == "" {
+		fv.Label = fv.Key
+	}
+	if fv.Placement == "" {
+		fv.Placement = "frontmatter"
+	}
+	if fv.Placement != "frontmatter" && fv.Placement != "section" {
+		return JiraFieldView{}, fmt.Errorf("placement %q is invalid (want frontmatter|section)", fv.Placement)
+	}
+	if fv.Format == "" {
+		fv.Format = "auto"
+	}
+	switch fv.Format {
+	case "auto", "scalar", "list", "jira_wiki", "date", "datetime":
+	default:
+		return JiraFieldView{}, fmt.Errorf("format %q is invalid (want auto|scalar|list|jira_wiki|date|datetime)", fv.Format)
+	}
+	if fv.Format == "jira_wiki" && fv.Placement != "section" {
+		return JiraFieldView{}, fmt.Errorf("jira_wiki format requires section placement")
+	}
+	return fv, nil
+}
+
+func validYAMLKey(s string) bool {
+	for i, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' || (i > 0 && r >= '0' && r <= '9') || (i > 0 && (r == '.' || r == '-')) {
+			continue
+		}
+		return false
+	}
+	return s != ""
 }
 
 // SaveLocal writes a render-only local config to <root>/.atl/config.json

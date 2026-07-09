@@ -339,10 +339,11 @@ func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, er
 // <KEY>.assets/ directory; it is omitted at zero so the JSON shape is unchanged
 // for a default (no --assets) pull.
 type JiraPulled struct {
-	Key      string `json:"key"`
-	Path     string `json:"path"`
-	WikiPath string `json:"wiki_path,omitempty"`
-	Assets   int    `json:"assets,omitempty"`
+	Key          string `json:"key"`
+	Path         string `json:"path"`
+	WikiPath     string `json:"wiki_path,omitempty"`
+	Assets       int    `json:"assets,omitempty"`
+	EpicChildren int    `json:"epic_children,omitempty"`
 }
 
 type JiraIssueSnapshot struct {
@@ -368,9 +369,11 @@ type JiraPullOpts struct {
 // that were selected but could not be written (download/stream error, unsafe
 // name); it is omitted at zero so the default JSON shape is unchanged.
 type JiraPullResult struct {
-	Into          string       `json:"into"`
-	Issues        []JiraPulled `json:"issues"`
-	AssetsSkipped int          `json:"assets_skipped,omitempty"`
+	Into                    string       `json:"into"`
+	Issues                  []JiraPulled `json:"issues"`
+	AssetsSkipped           int          `json:"assets_skipped,omitempty"`
+	EpicChildrenTruncated   bool         `json:"epic_children_truncated,omitempty"`
+	EpicChildrenTruncatedAt int          `json:"epic_children_truncated_at,omitempty"`
 	// Warnings carries advisory render-resolution messages (unknown section names
 	// in a profile include/exclude, malformed local config). It is omitted when
 	// empty so the default pull JSON shape is unchanged; the CLI prints it on
@@ -409,6 +412,13 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 	// standard shape under smaller profiles; profiles shape the .md view only).
 	rs, warns := ResolveRender(s.cfg, into, opts.Render, "jira")
 	res.Warnings = warns
+	if rs.On(SecEpicChildren) {
+		epicField, err := s.resolveEpicField(ctx, rs.EpicField)
+		if err != nil {
+			return res, err
+		}
+		rs.EpicField = epicField
+	}
 	pullFields := jiraPullFields(opts.Fields, rs)
 	// Wire the pull through the mirror sidecar so an edited <KEY>.wiki can later be
 	// pushed back under the drift guard. One sidecar load (BeginSync) and one save
@@ -429,12 +439,28 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 		if err != nil {
 			return res, err
 		}
-		for i := range issues {
+		selected := issues
+		if limit > 0 && len(selected) > limit-len(res.Issues) {
+			selected = selected[:limit-len(res.Issues)]
+		}
+		relatedByEpic := map[string]JiraEpicChildrenSidecar{}
+		if rs.On(SecEpicChildren) {
+			var truncated bool
+			relatedByEpic, truncated, err = s.fetchEpicChildrenPage(ctx, selected, rs.EpicField)
+			if err != nil {
+				return res, err
+			}
+			if truncated {
+				res.EpicChildrenTruncated = true
+				res.EpicChildrenTruncatedAt = jiraEpicChildrenCap
+			}
+		}
+		for i := range selected {
 			// The search projection IS the issue data: the adapter forwards
 			// pullFields to the search verbatim and maps through the same DTO as
 			// GetIssue, so a per-issue re-fetch would double the HTTP round trips
 			// for zero data gain (#65).
-			full := &issues[i]
+			full := &selected[i]
 			dir := filepath.Join(into, safepath.Segment(full.Project))
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return res, err
@@ -465,7 +491,21 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 				assets, skipped = s.mirrorIssueImages(ctx, dir, keySeg, full.Fields["attachment"])
 				res.AssetsSkipped += skipped
 			}
-			if err := safepath.WriteFile(mdPath, renderIssueMarkdown(full, assets, rs), 0o644); err != nil {
+			var related *JiraEpicChildrenSidecar
+			relatedPath := epicChildrenPath(dir, keySeg)
+			if sidecar, ok := relatedByEpic[full.Key]; ok {
+				related = &sidecar
+				if err := writeEpicChildrenSidecar(relatedPath, sidecar); err != nil {
+					return res, fmt.Errorf("epic children %s: %w", full.Key, err)
+				}
+			} else if rs.On(SecEpicChildren) {
+				// The issue is no longer an epic (or never was). Do not let a stale
+				// sidecar from an earlier pull resurrect an obsolete child list.
+				if err := os.Remove(relatedPath); err != nil && !os.IsNotExist(err) {
+					return res, fmt.Errorf("remove stale epic children %s: %w", full.Key, err)
+				}
+			}
+			if err := safepath.WriteFile(mdPath, renderIssueMarkdownWithRelated(full, assets, related, rs), 0o644); err != nil {
 				return res, err
 			}
 			snap := JiraIssueSnapshot{Key: full.Key, ID: full.ID, Fields: full.Fields}
@@ -498,7 +538,11 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 			// `jira apply` can reproduce the exact pristine view later.
 			batch.RecordView(keySeg, viewStateOf(rs))
 			rel, _ := filepath.Rel(into, mdPath)
-			res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, WikiPath: relWiki, Assets: len(assets)})
+			epicChildren := 0
+			if related != nil {
+				epicChildren = len(related.Children)
+			}
+			res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, WikiPath: relWiki, Assets: len(assets), EpicChildren: epicChildren})
 			if limit > 0 && len(res.Issues) >= limit {
 				return res, nil
 			}
@@ -648,6 +692,9 @@ func jiraPullFields(extra []string, rs RenderSettings) []string {
 	}
 	sort.Strings(widen) // deterministic projection order
 	widen = append(widen, rs.CustomFields...)
+	for _, fv := range rs.FieldViews {
+		widen = append(widen, fv.ID)
+	}
 
 	seen := make(map[string]bool, len(base)+len(widen)+len(extra))
 	out := make([]string, 0, len(base)+len(widen)+len(extra))
@@ -683,11 +730,15 @@ const jiraCommentStub = "<!-- atl: comment could not be rendered -->"
 // failing the pull. Every field accessor is defensive (values come from a
 // server), so a hostile field shape can never panic.
 func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset, rs RenderSettings) []byte {
-	prefix, desc, suffix := renderIssueMarkdownParts(is, assets, rs)
+	return renderIssueMarkdownWithRelated(is, assets, nil, rs)
+}
+
+func renderIssueMarkdownWithRelated(is *domain.Issue, assets []JiraIssueAsset, related *JiraEpicChildrenSidecar, rs RenderSettings) []byte {
+	prefix, desc, suffix := renderIssueMarkdownPartsWithRelated(is, assets, related, rs)
 	return []byte(prefix + desc + suffix)
 }
 
-// renderIssueMarkdownParts renders the view as three concatenable parts:
+// renderIssueMarkdownPartsWithRelated renders the view as three concatenable parts:
 // prefix (frontmatter + title + the `## Description` heading when a body
 // exists), desc (the rendered description body, no framing), and suffix
 // (everything after the description). renderIssueMarkdown is exactly
@@ -695,7 +746,7 @@ func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset, rs RenderSet
 // located by these structural anchors, NOT by re-parsing `## ` headings — a
 // wiki `h2.` inside the body renders as a top-level `## ` line, so heading-based
 // splitting would misread body content as generated sections.
-func renderIssueMarkdownParts(is *domain.Issue, assets []JiraIssueAsset, rs RenderSettings) (prefix, desc, suffix string) {
+func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAsset, related *JiraEpicChildrenSidecar, rs RenderSettings) (prefix, desc, suffix string) {
 	images := assetImageMap(assets)
 	var b strings.Builder
 	b.WriteString("---\n")
@@ -726,7 +777,25 @@ func renderIssueMarkdownParts(is *domain.Issue, assets []JiraIssueAsset, rs Rend
 		}
 	}
 	if rs.On(SecCustomFields) {
+		viewIDs := make(map[string]bool, len(rs.FieldViews))
+		for _, fv := range rs.FieldViews {
+			viewIDs[fv.ID] = true
+			if fv.Placement != "frontmatter" {
+				continue
+			}
+			v, present := is.Fields[fv.ID]
+			if !present || fieldEmpty(v) {
+				if fv.ShowEmpty {
+					fmt.Fprintf(&b, "%s: null\n", fv.Key)
+				}
+				continue
+			}
+			fmt.Fprintf(&b, "%s: %s\n", fv.Key, yamlEscape(renderFieldValueForFormat(v, fv.Format)))
+		}
 		for _, id := range rs.CustomFields {
+			if viewIDs[id] {
+				continue // the typed descriptor owns this field's presentation
+			}
 			if v, ok := customFieldValue(is.Fields, id); ok {
 				fmt.Fprintf(&b, "%s: %s\n", id, yamlEscape(v))
 			}
@@ -746,6 +815,23 @@ func renderIssueMarkdownParts(is *domain.Issue, assets []JiraIssueAsset, rs Rend
 	b.Reset()
 	if is.Body != "" {
 		b.WriteString("\n\n")
+	}
+	if rs.On(SecCustomFields) {
+		for _, fv := range rs.FieldViews {
+			if fv.Placement != "section" {
+				continue
+			}
+			v, present := is.Fields[fv.ID]
+			if !present || fieldEmpty(v) {
+				if fv.ShowEmpty {
+					fmt.Fprintf(&b, "## %s\n\n_Not set._\n\n", fv.Label)
+				}
+				continue
+			}
+			fmt.Fprintf(&b, "## %s\n\n", fv.Label)
+			b.WriteString(renderFieldSection(v, fv.Format))
+			b.WriteString("\n\n")
+		}
 	}
 	if rs.On(SecAttachments) && len(assets) > 0 {
 		b.WriteString("## Image Attachments\n\n")
@@ -781,6 +867,34 @@ func renderIssueMarkdownParts(is *domain.Issue, assets []JiraIssueAsset, rs Rend
 				}
 			}
 			b.WriteString("\n")
+		}
+	}
+	if rs.On(SecEpicChildren) && related != nil {
+		b.WriteString("## Epic Children\n\n")
+		if len(related.Children) == 0 {
+			b.WriteString("_None._\n\n")
+		} else {
+			for _, child := range related.Children {
+				fmt.Fprintf(&b, "- %s", child.Key)
+				if child.Summary != "" {
+					fmt.Fprintf(&b, " — %s", child.Summary)
+				}
+				var meta []string
+				if child.Status != "" {
+					meta = append(meta, child.Status)
+				}
+				if child.Assignee != "" {
+					meta = append(meta, child.Assignee)
+				}
+				if len(meta) > 0 {
+					fmt.Fprintf(&b, " (%s)", strings.Join(meta, "; "))
+				}
+				b.WriteByte('\n')
+			}
+			b.WriteByte('\n')
+		}
+		if related.Truncated {
+			fmt.Fprintf(&b, "> Warning: epic children truncated at %d issues; this list is incomplete.\n\n", related.TruncatedAt)
 		}
 	}
 	if rs.On(SecSprint) {
@@ -907,6 +1021,48 @@ func renderFieldValue(v any) string {
 	default:
 		return asString(v)
 	}
+}
+
+func renderFieldValueForFormat(v any, format string) string {
+	if format == "list" {
+		if arr, ok := v.([]any); ok {
+			parts := make([]string, 0, len(arr))
+			for _, item := range arr {
+				if s := renderFieldValue(item); s != "" {
+					parts = append(parts, s)
+				}
+			}
+			return strings.Join(parts, ", ")
+		}
+	}
+	return renderFieldValue(v)
+}
+
+// renderFieldSection renders one configured read-only Markdown section. Jira
+// wiki is explicitly opt-in; every other format is a compact scalar/list view
+// and never mutates the raw snapshot value.
+func renderFieldSection(v any, format string) string {
+	if format == "jira_wiki" {
+		return guardRender("<!-- atl: configured Jira field could not be rendered -->", func() string {
+			return wikimd.Render(renderFieldValue(v), wikimd.Options{})
+		})
+	}
+	if format == "list" || (format == "auto" && isFieldList(v)) {
+		arr, _ := v.([]any)
+		var b strings.Builder
+		for _, item := range arr {
+			if s := renderFieldValue(item); s != "" {
+				fmt.Fprintf(&b, "- %s\n", s)
+			}
+		}
+		return strings.TrimRight(b.String(), "\n")
+	}
+	return renderFieldValueForFormat(v, format)
+}
+
+func isFieldList(v any) bool {
+	_, ok := v.([]any)
+	return ok
 }
 
 // subtask is one child issue for the "## Subtasks" section.

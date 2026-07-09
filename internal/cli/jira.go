@@ -1053,6 +1053,11 @@ func jiraPullCmd() *cobra.Command {
 					"warning: %d image asset(s) skipped (download or write failed) — the affected issues were still pulled without those images\n",
 					res.AssetsSkipped)
 			}
+			if res.EpicChildrenTruncated {
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"warning: epic children truncated at %d issues — one or more mirrored epic-child sidecars are incomplete; narrow the pull selection\n",
+					res.EpicChildrenTruncatedAt)
+			}
 			warnRender(cmd.ErrOrStderr(), res.Warnings)
 			return emit(cmd, res, func() string {
 				var b strings.Builder

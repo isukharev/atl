@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Typed Jira field views and opt-in epic-child sidecars.** Jira render config
+  now accepts `render.jira.field_views`: validated descriptors with a raw field
+  id, stable output key, display label, frontmatter/section placement,
+  `auto|scalar|list|jira_wiki|date|datetime` format, and optional empty-value
+  output. Configured fields widen the existing pull search projection, remain
+  raw in `<KEY>.json`, render deterministically (long Jira-wiki values can be
+  real Markdown sections), and are recorded in `.atl/state.json.views` so
+  offline render/apply affinity survives config changes. The existing
+  `custom_fields` list remains compatible. A new opt-in `epic_children` render
+  section resolves the configured/auto-detected Epic Link field, performs one
+  bounded paginated child query per main-search page (never per child), writes
+  `<KEY>.epic-children.json`, and renders `## Epic Children` offline. It caps at
+  1000 related issues with explicit sidecar/result truncation and a stderr
+  warning. Provider-specific browser-only panels remain out of scope.
+
 - **`-o text` loss-review for `conf apply` and `jira apply`.** Both apply commands
   now render a compact, greppable human review under `-o text` (they were JSON-only):
   a dry-run/applied first line, `blocks:` counts (unchanged/moved/converted/removed,

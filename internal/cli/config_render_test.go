@@ -62,6 +62,26 @@ func TestConfigSetLocalIntoRoot(t *testing.T) {
 	}
 }
 
+func TestConfigSetLocalJiraFieldViews(t *testing.T) {
+	root := t.TempDir()
+	value := `[{"id":"customfield_1","key":"risk","label":"Risk","placement":"section","format":"jira_wiki"}]`
+	out, code := runCLI(t, nil, "config", "set", "--local", "--into", root, "render.jira.field_views", value)
+	if code != exitOK {
+		t.Fatalf("config set field_views: exit %d (out=%q)", code, out)
+	}
+	b, err := os.ReadFile(filepath.Join(root, ".atl", "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"placement": "section"`) || !strings.Contains(string(b), `"format": "jira_wiki"`) {
+		t.Errorf("local config missing typed field view:\n%s", b)
+	}
+	_, code = runCLI(t, nil, "config", "set", "--local", "--into", root, "render.jira.field_views", `[{"id":"customfield_1","key":"bad key"}]`)
+	if code != exitUsage {
+		t.Errorf("invalid field view: exit %d, want %d", code, exitUsage)
+	}
+}
+
 // TestConfigSetLocalOutsideMirrorExits2 fails clearly when no mirror is found.
 func TestConfigSetLocalOutsideMirrorExits2(t *testing.T) {
 	dir := t.TempDir() // no .atl anywhere up

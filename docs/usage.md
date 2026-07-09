@@ -246,9 +246,10 @@ Flags:
 | `--into ROOT` | mirror root for `--local` (defaults to the nearest `.atl` walking up from cwd) |
 
 **Render keys** (`render.{jira,confluence}.{profile,include,exclude}`, plus
-`render.jira.custom_fields`) tune the derived `.md` view. `profile` is one of
+`render.jira.custom_fields`, `render.jira.field_views`, and
+`render.jira.epic_field`) tune the derived `.md` view. `profile` is one of
 `minimal`, `default`, `full`; `include`/`exclude`/`custom_fields` take a
-comma-separated list.
+comma-separated list, while `field_views` takes a JSON descriptor array.
 
 **Local config layer (security boundary).** `--local` writes a per-mirror
 `.atl/config.json` that may carry **render keys only** — it is presentation-only.
@@ -276,7 +277,9 @@ drift detection (which hashes the substrate) is unchanged.
 **Section names** (for `include`/`exclude`). Jira: `status`, `type`, `project`,
 `assignee`, `labels`, `priority`, `parent`, `reporter`, `created`, `updated`,
 `resolution`, `duedate`, `components`, `fix_versions`, `custom_fields`,
-`attachments`, `attachments_all`, `links`, `comments`, `sprint`, `subtasks`.
+`attachments`, `attachments_all`, `links`, `comments`, `sprint`, `subtasks`,
+`epic_children`. `epic_children` is intentionally in no profile base — including
+it performs an additional bounded Jira query, so it must be enabled explicitly.
 Confluence: `frontmatter`, `comments`. An unknown name is warned about on stderr
 and ignored, never an error.
 
@@ -288,7 +291,7 @@ profile base; `exclude` removes them.
 Two deliberate consequences of per-key merging:
 
 - **List keys can be replaced, not emptied, by a higher layer.** An empty
-  `include`/`exclude`/`custom_fields` value means "not set here" and falls
+  `include`/`exclude`/`custom_fields`/`field_views` value means "not set here" and falls
   through to the lower layer — a local config or flag cannot clear a list the
   global config sets. To stop rendering a globally-configured custom field in
   one mirror, override the list with a different value, or counter it (e.g.
@@ -307,12 +310,57 @@ atl jira pull --jql "project=PROJ" --render-include sprint --render-exclude comm
 # persisted (see atl config set)
 atl config set render.jira.profile full
 atl config set --local render.jira.custom_fields customfield_10001,customfield_10002
+atl config set --local render.jira.field_views '[{"id":"customfield_10003","key":"risk_notes","label":"Risk Notes","placement":"section","format":"jira_wiki"}]'
+atl config set --local render.jira.epic_field customfield_10004
+atl config set --local render.jira.include custom_fields,epic_children
 ```
 
 `custom_fields` (Jira only) lists custom field ids to surface in the frontmatter
 under `full` (or when `custom_fields` is included); each renders as
 `<id>: <value>` from the raw field (scalar verbatim; object via
 `name`/`value`/`displayName`; array comma-joined; missing → omitted).
+
+`field_views` is the typed, backward-compatible alternative. Each descriptor is:
+
+```json
+{
+  "id": "customfield_10003",
+  "key": "risk_notes",
+  "label": "Risk Notes",
+  "placement": "section",
+  "format": "jira_wiki",
+  "show_empty": false
+}
+```
+
+- `id` is the Jira API field id/key and is automatically added to pull's
+  `fields=` projection.
+- `key` is the stable frontmatter key (defaults to `id`); `label` is the section
+  heading (defaults to `key`).
+- `placement` is `frontmatter` (default) or `section`.
+- `format` is `auto` (default), `scalar`, `list`, `jira_wiki`, `date`, or
+  `datetime`; `jira_wiki` requires section placement and uses the same guarded
+  wiki→Markdown renderer as Description.
+- missing/empty values are omitted unless `show_empty` is true (`null` in
+  frontmatter, `_Not set._` in a section).
+
+Typed descriptors and legacy `custom_fields` render only while the
+`custom_fields` section is enabled (`full` enables it; other profiles can
+`include` it). A typed descriptor owns its id when both forms mention the same
+field, preventing duplicate output. The raw value always remains unchanged in
+`<KEY>.json`.
+
+`epic_children` is an opt-in related-data section, not the built-in `subtasks`
+field. On pull, atl resolves `render.jira.epic_field` (or auto-detects the field
+named `Epic Link`), groups epics from each main search page into one paginated
+JQL query, and writes `<KEY>.epic-children.json`. The sidecar stores compact
+key/summary/status/type/assignee rows and drives offline `jira render`. The
+related query is capped at 1000 issues; a cap hit sets `truncated` /
+`truncated_at` in sidecars, adds truncation fields to the pull result, and warns
+on stderr. Re-pulling a non-epic with the section enabled removes a stale
+sidecar. Browser-session-only provider panels are not queried.
+Offline `jira render` warns when this section is enabled for an epic snapshot
+that has no sidecar yet; re-run `jira pull` to populate it.
 
 **`apply` reproduces the view it was rendered with.** Every `pull`/`render`
 records the resolved render settings in `.atl/state.json` (a `views` map).
