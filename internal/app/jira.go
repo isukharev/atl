@@ -739,7 +739,7 @@ func renderIssueMarkdownWithRelated(is *domain.Issue, assets []JiraIssueAsset, r
 	return []byte(prefix + desc + suffix)
 }
 
-// renderIssueMarkdownParts renders the view as three concatenable parts:
+// renderIssueMarkdownPartsWithRelated renders the view as three concatenable parts:
 // prefix (frontmatter + title + the `## Description` heading when a body
 // exists), desc (the rendered description body, no framing), and suffix
 // (everything after the description). renderIssueMarkdown is exactly
@@ -747,10 +747,6 @@ func renderIssueMarkdownWithRelated(is *domain.Issue, assets []JiraIssueAsset, r
 // located by these structural anchors, NOT by re-parsing `## ` headings — a
 // wiki `h2.` inside the body renders as a top-level `## ` line, so heading-based
 // splitting would misread body content as generated sections.
-func renderIssueMarkdownParts(is *domain.Issue, assets []JiraIssueAsset, rs RenderSettings) (prefix, desc, suffix string) {
-	return renderIssueMarkdownPartsWithRelated(is, assets, nil, rs)
-}
-
 func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAsset, related *JiraEpicChildrenSidecar, rs RenderSettings) (prefix, desc, suffix string) {
 	images := assetImageMap(assets)
 	var b strings.Builder

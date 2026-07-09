@@ -47,7 +47,7 @@ func (t *epicPullTracker) Fields(context.Context) ([]domain.FieldDef, error) {
 	return []domain.FieldDef{{ID: "customfield_10010", Name: "Epic Link", Custom: true}}, nil
 }
 
-func (t *epicPullTracker) Search(_ context.Context, jql string, fields []string, _ int, _ string) ([]domain.Issue, string, error) {
+func (t *epicPullTracker) Search(_ context.Context, jql string, _ []string, _ int, _ string) ([]domain.Issue, string, error) {
 	if strings.Contains(jql, "cf[10010]") {
 		t.relatedQueries++
 		return []domain.Issue{
