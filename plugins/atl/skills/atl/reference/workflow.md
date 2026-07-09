@@ -36,8 +36,9 @@ the mirror.
 Make `push` the single deliberate, human-reviewed checkpoint:
 
 1. **Pull fresh** right before editing — bounds staleness.
-2. **Edit** the native substrate (Confluence: the `.csf` file; Jira: via commands — see those
-   skills).
+2. **Edit** — prefer the `.md` view and merge it back (Confluence `conf apply` / Jira `jira apply`);
+   drop to the native substrate (`.csf` / `.wiki`) only for what the md view can't express. One-shot
+   Jira field edits still go through commands — see those skills.
 3. **Validate** (Confluence `conf validate`) — block on any `error`-severity problem.
 4. **Review a dry-run diff** (`conf push --dry-run`) — confirm the changes and any
    added/removed fragments and drift before writing.
@@ -49,6 +50,7 @@ Push the bytes you reviewed — don't regenerate the body between the dry-run an
 
 Jira note: Jira issue updates have **no version gate** (last-writer-wins). Run `jira issue get`
 immediately before an `update` to avoid blindly overwriting someone else's change. The mirror
-write-back path — edit `<KEY>.wiki`, then `jira status` / `jira push` — adds the equivalent guard in
+write-back path — edit the `.md` view, `jira apply`, then `jira status` / `jira push` (or edit
+`<KEY>.wiki` directly as a fallback) — adds the equivalent guard in
 software: `jira push` is dry-run by default and refuses on drift with exit `8` (re-pull or `--force`),
 never exit `5`, and writes only the description body.

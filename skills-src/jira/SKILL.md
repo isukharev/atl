@@ -6,8 +6,9 @@ description: Search, pull, read, and edit Jira issues with the atl CLI — searc
 # Jira issues with `atl`
 
 Read Jira issues as local files. Two write paths exist: **one-shot field edits go through commands**
-(`jira issue update`/`edit`/`transition`/…), and an edited `<KEY>.wiki` **description** can be pushed
-back through the mirror with **`jira push`** (dry-run by default; see the write-back loop below).
+(`jira issue update`/`edit`/`transition`/…), and a description edited through the mirror pushes back
+with **`jira push`** — edit the **`.md`** view and merge it with **`jira apply`** (recommended), or
+edit the native **`.wiki`** for what md can't express (dry-run by default; see the write-back loop below).
 `atl` prints JSON by default. Issue keys are **positional** arguments
 (`atl jira issue get PROJ-1`), except the meta command `atl jira transitions --key PROJ-1`.
 
@@ -46,15 +47,16 @@ atl jira pull --jql '<JQL>' --render-profile full   # richer .md view (see Rende
 
 On disk per issue:
 ```
-<root>/<PROJECT>/<KEY>.wiki    # native Jira wiki body, VERBATIM — the editable source of truth
-<root>/<PROJECT>/<KEY>.md      # read-only rendered Markdown view (regenerated on pull; may be stale)
+<root>/<PROJECT>/<KEY>.wiki    # native Jira wiki body, VERBATIM — the substrate; edit directly only as fallback
+<root>/<PROJECT>/<KEY>.md      # rendered Markdown view — edit its ## Description, then `jira apply` (regenerated on pull)
 <root>/<PROJECT>/<KEY>.json    # {key,id,fields:{...}}; raw Jira fields live under .fields
 <root>/<PROJECT>/<KEY>.assets/ # only with --assets: image attachments, linked from the .md
 ```
 The `.wiki` holds the byte-for-byte native body (like a Confluence `.csf`); the `.md` is a
 best-effort, lossy read view rendered from it and is regenerated on every pull. To change a body,
-edit `<KEY>.wiki` directly, or edit the `## Description` section of the `<KEY>.md` view and fold it
-back with `jira apply` (see 4c); then push with `jira push` (the write-back loop below). The pull also records a
+edit the `## Description` section of the `<KEY>.md` view and fold it back with `jira apply` (the
+recommended loop, see 4b), or edit `<KEY>.wiki` directly for what the md view can't express (see 4c);
+then push with `jira push` (the write-back loop below). The pull also records a
 sidecar + base copy so `jira status`/`jira push` can detect edits and drift; mirrors pulled by an
 older `atl` have no sidecar and read as never-synced until re-pulled.
 
@@ -153,42 +155,57 @@ with `--dry-run`. `--new` is **wiki markup**, spliced verbatim (matching tolerat
 NBSP/invisible bytes). Reach for `update --from-md` only when most of the description
 changes.
 
-### 4b. Mirror write-back — edit `<KEY>.wiki`, then `jira status` / `jira push`
-For a bigger description rewrite you can edit the pulled `<KEY>.wiki` in place and push the whole
-file back (only the **description** is written — no other field):
-```bash
-atl jira status [<root>] [--remote]         # what's locally edited / drifted; --remote = 1 GET/issue
-atl jira push <root>/PROJECT/PROJ-1.wiki    # DRY-RUN by default: prints the diff, writes nothing
-atl jira push --apply <root>/PROJECT/PROJ-1.wiki   # actually write it back
-atl jira push --apply --force <file.wiki>   # write over a drifted remote (re-base + write)
-atl jira push <root>/                        # a dir pushes only locally-edited files
-```
-Jira has **no server-side version gate**, so `jira push` guards staleness with an app-layer
-compare against the base recorded at pull: if the remote description changed since the pull, the push
-is **refused with exit 8** ("re-pull or `--force`") and nothing is written — an inherent TOCTOU
-window that `--force` opts out of, never exit 5. Always run the dry-run first and read the diff;
-`--apply` is required to write. Prefer `issue edit` for a small, surgical change; use `jira push` when
-you have edited most of the `.wiki` locally.
-
-### 4c. Edit the markdown view, then `jira apply`
-Instead of hand-writing wiki markup, edit the `## Description` section of the `<KEY>.md` view and
-fold it back into the `.wiki` block-by-block — the Jira analog of `conf apply`:
+### 4b. Mirror write-back — edit the `.md` view, `jira apply`, then `jira push` (recommended)
+For a structural description rewrite, edit the `## Description` section of the pulled `<KEY>.md` view
+with normal text editing (it's markdown — no wiki-markup or invisible-byte traps), fold it back into
+the `.wiki` block-by-block with `jira apply` (the Jira analog of `conf apply`), then push:
 ```bash
 atl jira apply <root>/PROJECT/PROJ-1.md              # merge the .md Description into the .wiki
 atl jira apply PROJ-1.md --dry-run                   # report the merge, write nothing
 atl jira apply PROJ-1.md --allow-loss                # intentional {panel}/{color}/mention/embed removal
+atl jira status [<root>] [--remote]                  # what's locally edited / drifted; --remote = 1 GET/issue
+atl jira push <root>/PROJECT/PROJ-1.wiki             # DRY-RUN by default: prints the diff, writes nothing
+atl jira push --apply <root>/PROJECT/PROJ-1.wiki     # actually write it back
+atl jira push --apply --force <file.wiki>            # write over a drifted remote (re-base + write)
+atl jira push <root>/                                # a dir pushes only locally-edited files
 ```
-Untouched blocks keep their **exact base bytes**; changed/new blocks convert through the same
-markdown subset as `--from-md`. **Only `## Description` is editable** — an edit to the frontmatter,
-title, or the Comments/Links/Image Attachments sections is refused (exit 8) with a pointer to the
-dedicated command (`issue update` / `comment add` / `link add` / `attachment upload`). A wiki-only
-construct in the base (`{panel}`, `{color}`, `[~mention]`, `!embed!`, a macro) dropped by the edit is
-listed in `removed_constructs` and refused (exit 8) unless `--allow-loss`. A block it cannot convert,
-or a `.wiki` that diverged from the pulled base, also refuses (exit 8) — edit the `.wiki` directly, or
-push/re-pull first. Local only: `jira apply` writes the `.wiki` (and refreshes the `.md`); `jira push`
-still sends it to the server. `apply` reproduces the pristine view from the render settings the `.md`
-was written with (recorded on pull/render), so no `--render-*` flags are needed — pass them only to
-override that recorded view. → `{ path, wiki_path, dry_run, report:{unchanged,moved,converted,removed,removed_constructs?}, wrote, warning? }`.
+This is the measured-cheaper edit surface (issue #88: fewer turns and a higher success rate than
+hand-writing wiki markup). Untouched blocks keep their **exact base bytes**; changed/new blocks
+convert through the same markdown subset as `--from-md`. **Only `## Description` is editable** — an
+edit to the frontmatter, title, or the Comments/Links/Image Attachments sections is refused (exit 8)
+with a pointer to the dedicated command (`issue update` / `comment add` / `link add` /
+`attachment upload`). A wiki-only construct in the base (`{panel}`, `{color}`, `[~mention]`, `!embed!`,
+a macro) dropped by the edit is listed in `removed_constructs` and refused (exit 8) unless
+`--allow-loss`. A block it cannot convert, or a `.wiki` that diverged from the pulled base, also
+refuses (exit 8) — edit the `.wiki` directly (4c), or push/re-pull first. Local only: `jira apply`
+writes the `.wiki` (and refreshes the `.md`); `jira push` still sends it to the server. `apply`
+reproduces the pristine view from the render settings the `.md` was written with (recorded on
+pull/render), so no `--render-*` flags are needed — pass them only to override that recorded view.
+→ `{ path, wiki_path, dry_run, report:{unchanged,moved,converted,removed,removed_constructs?}, wrote, warning? }`.
+
+Jira has **no server-side version gate**, so `jira push` guards staleness with an app-layer
+compare against the base recorded at pull: if the remote description changed since the pull, the push
+is **refused with exit 8** ("re-pull or `--force`") and nothing is written — an inherent TOCTOU
+window that `--force` opts out of, never exit 5. Always run the dry-run first and read the diff;
+`--apply` is required to write. Prefer `issue edit` for a small, surgical text change (§4).
+
+### 4c. Fallback — edit `<KEY>.wiki` directly
+Reach for the substrate when the md view can't carry the change: an **unconvertible block** (apply
+exits 8 naming it), a **wiki-only construct you must author** (`{panel}`, `{color}`, a complex macro —
+outside the md subset), an **intentional `--allow-loss`** removal, or **bulk restructuring** where
+you'd rather work the raw bytes. Edit the pulled `<KEY>.wiki` in place and push the whole file back
+with the same `jira status` / `jira push` commands as 4b (only the **description** is written — no
+other field):
+```bash
+atl jira status [<root>] [--remote]                 # what's locally edited / drifted
+atl jira push <root>/PROJECT/PROJ-1.wiki            # DRY-RUN by default: prints the diff, writes nothing
+atl jira push --apply <root>/PROJECT/PROJ-1.wiki    # actually write it back
+atl jira push --apply --force <file.wiki>           # write over a drifted remote (re-base + write)
+```
+Once you edit the `.wiki` directly, `jira apply` refuses (exit 8 — the `.wiki` diverged from the
+pulled base) until you push or re-pull: the substrate and the md surface don't mix in one cycle. The
+same drift guard, dry-run default, and `--force` semantics from 4b apply. Prefer `issue edit` for a
+small, surgical change; use this path when you've hand-authored most of the `.wiki`.
 
 ### 5. Discover valid values before writing
 ```bash
@@ -352,7 +369,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | Exit 2 from `issue edit` | `--old` matches more than once | Add surrounding context to make it unique, or pass `--all` |
 | Exit 8 from `issue edit` | Match would cross a line break `--old` doesn't have | Copy `--old` exactly from the description, newlines included |
 | Exit 8 from `jira push` | Remote description drifted since pull (no Jira version gate) | Re-pull and re-apply your edit, or `jira push --apply --force` to overwrite the remote |
-| Exit 2 from `jira push` | The `.wiki` was never pulled through the mirror (no sidecar/base) | Run `jira pull` first, then edit `<KEY>.wiki` and push |
+| Exit 2 from `jira push` | The `.wiki` was never pulled through the mirror (no sidecar/base) | Run `jira pull` first, then edit the `.md` view + `jira apply` (or `<KEY>.wiki` directly) and push |
 | Exit 8 from `jira apply` | Edit dropped a wiki construct, hit an unconvertible block, touched a non-Description section, or the `.wiki` diverged | Read the message: restore the construct / edit the `.wiki` directly / use the named dedicated command / push or re-pull; `--allow-loss` for an intentional construct removal |
 
 Tool friction that cost you real turns (repeated failures, misleading errors, unexpected
@@ -360,9 +377,11 @@ refusals)? Offer the user a report — see the `atl` skill's feedback flow (cons
 sanitized issue + private case file).
 
 ## Hard rules
-- **Never edit `<KEY>.md` / `<KEY>.json` to change an issue** — the `.md` is a regenerated read
-  view and `.json` is a raw snapshot. The native wiki body lives in `<KEY>.wiki` (the editable
-  substrate); to change a body, edit `<KEY>.wiki` and apply it via `jira issue update --from-file`.
+- **Change a body through `jira apply`, not by hand-editing `<KEY>.md` / `<KEY>.json`.** The
+  `## Description` of the `.md` is an editable surface *only* through `jira apply` (which folds it
+  into the `.wiki`) — a bare `.md` edit is lost on the next pull, and `.json` is a raw snapshot that
+  changes nothing. The native wiki body lives in `<KEY>.wiki` (the substrate); edit it directly for
+  what the md view can't express, then `jira push` (or `jira issue update --from-file`).
 - **Author bodies in markdown via `--from-md`** (fail-closed conversion, exit 8 names any
   unconvertible block). Raw `--from-file` bodies are **Jira wiki markup, not Markdown**
   (`*bold*`, `h2.`, `{code}` — see [wiki-markup.md](reference/wiki-markup.md)); Markdown

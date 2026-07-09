@@ -11,8 +11,8 @@ description: Work with Confluence pages and Jira issues as local files using the
 content as part of your file working set — read it with Read/Grep/Glob, edit it, and push it back.
 
 This skill orients you. For the actual command flows, use the focused skills:
-- **Confluence pages** (pull / edit `.csf` / validate / push under the version gate) → the
-  `confluence` skill.
+- **Confluence pages** (pull / edit the `.md` view → `conf apply`, or the `.csf` directly / validate /
+  push under the version gate) → the `confluence` skill.
 - **Jira issues** (search / pull / create / update / transition / comment / link) → the `jira`
   skill.
 - **First-time install & config** (`atl` binary, auth, backend URLs, mirror dir) →
@@ -39,7 +39,8 @@ version gate.
 
 1. **Search first, read narrow, edit precise.** Don't bulk-dump everything and grep it. Use
    `conf search` / `jira issue search` (CQL/JQL) to find the few relevant items, `pull` only those,
-   read the rendered `.md` to locate, and open the raw substrate only for the thing you will edit.
+   read the rendered `.md` to locate, and edit there (merge back with `conf apply` / `jira apply`),
+   opening the raw substrate only for what the md surface can't express.
    Keep live reads slim too: `--fields` on Jira gets/searches, `-o id` for piping, and a `| jq`
    projection when only a few values are needed — include Jira `attachment` when you need the
    presence/names of files, but avoid a bare `issue get` because it drags the whole comment thread

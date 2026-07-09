@@ -50,8 +50,10 @@ confirm allowed values with `field-options` rather than guessing.
 
 **Check first:** for a bounded change (fix a value, add/remove a section, reword a
 paragraph) skip the file round-trip entirely — one `atl jira issue edit <KEY> --old … --new …`
-does fetch→splice→write with the `--old` match as the drift guard. The file pattern below is
-for wholesale rewrites.
+does fetch→splice→write with the `--old` match as the drift guard. For a structural rewrite of a
+**pulled** issue, prefer the mirror md cycle — edit the `## Description` of the `<KEY>.md` view,
+`jira apply`, then `jira push` (jira skill §4b). The file pattern below is for composing a body in
+wiki markup from scratch or a wholesale rewrite outside that cycle.
 
 Inline flags are awful for long bodies. Edit the wiki body as a file instead — Jira's `--from-file`
 accepts a body file (up to 64 MiB). Compose it in Jira wiki markup, **not Markdown** — see
