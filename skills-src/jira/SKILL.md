@@ -44,6 +44,9 @@ atl jira pull --jql '<JQL>' --render-profile full   # richer .md view (see Rende
 ```
 (`--limit 0` = all; default 100.) → `{ "into": "...", "issues": [ {key, path, wiki_path, assets} ] }`
 (`assets` and a top-level `assets_skipped` appear only with `--assets` and are omitted at zero.)
+With the opt-in `epic_children` render section, epic rows also report a child
+count and get a `<KEY>.epic-children.json` offline sidecar; capped results warn
+and carry explicit truncation fields.
 
 On disk per issue:
 ```
@@ -51,6 +54,7 @@ On disk per issue:
 <root>/<PROJECT>/<KEY>.md      # rendered Markdown view — edit its ## Description, then `jira apply` (regenerated on pull)
 <root>/<PROJECT>/<KEY>.json    # {key,id,fields:{...}}; raw Jira fields live under .fields
 <root>/<PROJECT>/<KEY>.assets/ # only with --assets: image attachments, linked from the .md
+<root>/<PROJECT>/<KEY>.epic-children.json # only when epic_children is enabled for an epic
 ```
 The `.wiki` holds the byte-for-byte native body (like a Confluence `.csf`); the `.md` is a
 best-effort, lossy read view rendered from it and is regenerated on every pull. To change a body,
@@ -84,6 +88,25 @@ atl jira render <root>/PROJECT/KEY.md --render-profile full
 ```
 → `{ "root": "...", "rendered": [ {key, path} ] }`. Only `.md` files are rewritten,
 so `jira status` stays clean.
+
+For readable non-core fields, prefer typed `render.jira.field_views` over the
+legacy id-only `custom_fields` list. A descriptor selects the Jira field `id`, a
+stable YAML `key`, a section `label`, `frontmatter|section` placement,
+`auto|scalar|list|jira_wiki|date|datetime` format, and optional `show_empty`.
+Enable the `custom_fields` section (`full` already does). Example:
+
+```bash
+atl config set --local --into <root> render.jira.field_views '[{"id":"customfield_10003","key":"risk_notes","label":"Risk Notes","placement":"section","format":"jira_wiki"}]'
+atl config set --local --into <root> render.jira.include custom_fields,epic_children
+atl config set --local --into <root> render.jira.epic_field customfield_10004
+atl jira pull --jql '<JQL>' --into <root> --render-profile full
+```
+
+`epic_children` is not in any profile by default because it performs one extra
+bounded related query per main-search page. It auto-detects `Epic Link` unless
+`epic_field` is configured. Typed fields and epic children are recorded with the
+view and remain read-only during `jira apply`; offline `jira render` uses the raw
+snapshot plus sidecar.
 
 For compact analysis artifacts instead of a directory mirror:
 ```bash

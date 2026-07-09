@@ -116,14 +116,37 @@ stable identity at the top level and raw Jira fields under `fields`:
 `--fields` on `jira pull` adds requested fields to that `fields` map; the command still includes the
 core fields needed to render the markdown view and choose the project/key path.
 
-The `jira pull` stdout summary is `{ "into": <root>, "issues": [ { "key", "path", "wiki_path", "assets" }, ... ] }`.
+The `jira pull` stdout summary is `{ "into": <root>, "issues": [ { "key", "path", "wiki_path", "assets", "epic_children" }, ... ] }`.
 With `--assets`, each issue object gains an `assets` count of image attachments mirrored into
 `<KEY>.assets/`, and the top-level result gains `assets_skipped` when some images could not be
 downloaded. Both `assets` and `assets_skipped` are `omitempty`: a default (no `--assets`) pull, and a
 `--assets` pull where nothing was skipped, produce the same shapes as before. The raw `<KEY>.json`
 snapshot is never modified by `--assets` — it mirrors Jira's response and carries no local file paths.
 
-**Render profiles do not change the `pull` JSON.** The `--render-profile` /
+When the opt-in `epic_children` render section is enabled, epic issue objects
+gain an `epic_children` count (omitted at zero) and the mirror gains
+`<KEY>.epic-children.json`:
+
+```json
+{
+  "epic": "PROJ-1",
+  "epic_field": "customfield_10001",
+  "children": [
+    {"key": "PROJ-2", "summary": "Implement capability", "status": "Open", "type": "Story"}
+  ],
+  "truncated": true,
+  "truncated_at": 1000
+}
+```
+
+`children` is always an array. The truncation fields are `omitempty`; when any
+related query hits the cap, the top-level pull result also carries
+`epic_children_truncated: true` and `epic_children_truncated_at: 1000`, and the
+CLI warns on stderr. The sidecar is derived/offline-render data and never enters
+the `.wiki` content hash or remote drift gate.
+
+**Render profiles and typed field views do not otherwise change the `pull`
+JSON.** The `--render-profile` /
 `--render-include` / `--render-exclude` flags (on both `jira pull` and `conf pull`)
 only affect the derived `.md` view; the pull result shape above is identical
 regardless of profile. Unknown section names in an include/exclude list produce a
@@ -134,7 +157,8 @@ regardless of profile. Unknown section names in an include/exclude list produce 
 `{ "root": <mirror-root>, "rendered": [ { "key", "path" }, ... ] }`; `conf render`
 emits `{ "root", "rendered": [ { "id", "title", "path" }, ... ] }`, one entry per
 rewritten `.md`. Both leave the `.csf`/`.wiki`/`.json` substrate and the sidecar
-`pages` sync entries untouched (they record each view's render settings in the
+`pages` sync entries untouched (they record each view's render settings,
+including typed field descriptors and the resolved epic field, in the
 sidecar `views` map only, so a later `apply` can reproduce it), so `status` is
 unchanged before and after. Render-resolution warnings go to **stderr**, never
 stdout.
@@ -201,7 +225,7 @@ gating. When any page's comment listing is truncated, the result carries
 `comments_truncated: true` and the CLI writes a stderr warning; the JSON on
 stdout stays clean.
 
-`atl config show` emits `{ "confluence_url"?, "jira_url"?, "update_base_url"?, "render", "render_provenance"?, "local_config_path"?, "mirror" }`. `render` is the **effective** merged render configuration (always present; both `jira` and `confluence` sections carry at least `profile`, defaulting to `default`). `render_provenance` maps each dotted render key whose value is *not* the built-in default to its source (`global` or `local`) and is `omitempty` — an all-default mirror emits none, keeping the shape backward-compatible. `local_config_path` appears only when a per-mirror `.atl/config.json` is in scope from the current directory. Warnings about forbidden/unknown keys in a local file go to **stderr** as `warning:` lines; stdout stays clean. `config set` accepts a positional dotted render key (`render.{jira,confluence}.{profile,include,exclude}`, plus `render.jira.custom_fields`) alongside the existing URL flags; `--local` writes the per-mirror file (render keys only — a URL flag with `--local` is a usage error, exit 2).
+`atl config show` emits `{ "confluence_url"?, "jira_url"?, "update_base_url"?, "render", "render_provenance"?, "local_config_path"?, "mirror" }`. `render` is the **effective** merged render configuration (always present; both `jira` and `confluence` sections carry at least `profile`, defaulting to `default`). `render_provenance` maps each dotted render key whose value is *not* the built-in default to its source (`global` or `local`) and is `omitempty` — an all-default mirror emits none, keeping the shape backward-compatible. `local_config_path` appears only when a per-mirror `.atl/config.json` is in scope from the current directory. Warnings about forbidden/unknown keys in a local file go to **stderr** as `warning:` lines; stdout stays clean. `config set` accepts a positional dotted render key (`render.{jira,confluence}.{profile,include,exclude}`, plus `render.jira.custom_fields`, `render.jira.field_views`, and `render.jira.epic_field`) alongside the existing URL flags; `field_views` is a JSON descriptor array. `--local` writes the per-mirror file (render keys only — a URL flag with `--local` is a usage error, exit 2).
 
 `atl jira export --jql ... --out FILE --format jsonl|json|csv` writes one compact artifact and a
 sidecar manifest at `FILE.manifest.json`. `--ids` and `--keys` can be used instead of `--jql` to
