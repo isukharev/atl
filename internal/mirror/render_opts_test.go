@@ -46,6 +46,36 @@ func TestRenderMarkdownOptsFrontmatterAndComments(t *testing.T) {
 	}
 }
 
+// RenderMarkdownViewParts must satisfy the concatenation identity
+// prefix+body+suffix == RenderMarkdownOpts across every opts shape, so conf
+// apply can anchor-extract the editable body byte-for-byte.
+func TestRenderMarkdownViewPartsConcatIdentity(t *testing.T) {
+	fm := &PageFrontmatter{Title: "My Page", Space: "DOCS", Version: 3, Labels: []string{"a", "b"}}
+	cs := []domain.Comment{{Author: "alice", Created: "2026-01-01", Body: "nice"}}
+	cases := []struct {
+		name string
+		body string
+		opts MDViewOpts
+	}{
+		{"zero", "<h1>Title</h1><p>Body text.</p>", MDViewOpts{}},
+		{"frontmatter-only", "<p>Body text.</p>", MDViewOpts{Frontmatter: fm}},
+		{"comments-only", "<p>Body text.</p>", MDViewOpts{Comments: cs}},
+		{"both", "<h1>T</h1><p>Body text.</p>", MDViewOpts{Frontmatter: fm, Comments: cs}},
+		{"empty-body-frontmatter", "", MDViewOpts{Frontmatter: fm}},
+		{"empty-body-both", "", MDViewOpts{Frontmatter: fm, Comments: cs}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := parseNode(t, tc.body)
+			want := string(RenderMarkdownOpts(root, nil, tc.opts))
+			prefix, body, suffix := RenderMarkdownViewParts(root, nil, tc.opts)
+			if got := prefix + body + suffix; got != want {
+				t.Errorf("concat identity broken:\n got=%q\nwant=%q", got, want)
+			}
+		})
+	}
+}
+
 // A title with YAML-significant characters is quoted.
 func TestRenderMarkdownOptsFrontmatterYAMLEscape(t *testing.T) {
 	root := parseNode(t, "<p>x</p>")

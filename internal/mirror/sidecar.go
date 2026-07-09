@@ -18,8 +18,21 @@ type SyncState struct {
 	Path    string `json:"path"` // rel to mirror root
 }
 
+// ViewState records the render settings a resource's .md view was last written
+// with, so apply can reproduce the exact pristine view regardless of the
+// ambient config. Sections is the computed enabled-section list (sorted), not
+// the profile name, so it stays valid if profile definitions evolve.
+type ViewState struct {
+	Sections     []string `json:"sections"`
+	CustomFields []string `json:"custom_fields,omitempty"`
+}
+
 type sidecarFile struct {
 	Pages map[string]SyncState `json:"pages"`
+	// Views records the render settings each resource's .md view was last
+	// written with (keyed by the same page id / issue key as Pages). It lets
+	// apply reproduce the exact pristine view regardless of the ambient config.
+	Views map[string]ViewState `json:"views,omitempty"`
 }
 
 func (m *Mirror) sidecarPath() string { return filepath.Join(m.Root, ".atl", "state.json") }
@@ -28,7 +41,7 @@ func (m *Mirror) sidecarPath() string { return filepath.Join(m.Root, ".atl", "st
 // mirror); an unparseable one is a loud error — silently treating it as empty
 // would reset every page to never-synced and quietly disable drift detection.
 func (m *Mirror) loadSidecar() (sidecarFile, error) {
-	sc := sidecarFile{Pages: map[string]SyncState{}}
+	sc := sidecarFile{Pages: map[string]SyncState{}, Views: map[string]ViewState{}}
 	b, err := os.ReadFile(m.sidecarPath())
 	if os.IsNotExist(err) {
 		return sc, nil
@@ -43,6 +56,9 @@ func (m *Mirror) loadSidecar() (sidecarFile, error) {
 	}
 	if sc.Pages == nil {
 		sc.Pages = map[string]SyncState{}
+	}
+	if sc.Views == nil {
+		sc.Views = map[string]ViewState{}
 	}
 	return sc, nil
 }
@@ -69,6 +85,37 @@ func (m *Mirror) SyncedVersion(id string) (int, error) {
 		return 0, err
 	}
 	return sc.Pages[id].Version, nil
+}
+
+// ViewStateOf returns the render settings a resource's .md view was last written
+// with. ok is false when no view state was ever recorded (a pre-upgrade mirror
+// or a never-rendered resource). The error is the loud corrupt-sidecar signal,
+// same as SyncedVersion — swallowing it would let apply silently fall back to
+// ambient settings against a broken sidecar.
+func (m *Mirror) ViewStateOf(id string) (ViewState, bool, error) {
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return ViewState{}, false, err
+	}
+	vs, ok := sc.Views[id]
+	return vs, ok, nil
+}
+
+// SaveViewStates merges a batch of view states into the sidecar in one
+// load-modify-save (for the render commands, which rewrite many .md views but
+// touch no sync state). Existing entries for other ids are preserved.
+func (m *Mirror) SaveViewStates(views map[string]ViewState) error {
+	if len(views) == 0 {
+		return nil
+	}
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return err
+	}
+	for id, vs := range views {
+		sc.Views[id] = vs
+	}
+	return m.saveSidecar(sc)
 }
 
 // saveBaseExt stores a pristine copy of the last-synced body under a

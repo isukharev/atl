@@ -141,6 +141,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`.atl/state.json` gains a `views` map, and `apply` reproduces the recorded
+  view.** Every `pull`/`render`/`apply` now records the resolved render settings
+  (the enabled section list, not the profile name) per resource, keyed the same
+  as the `pages` sync entries. `conf apply` / `jira apply` rebuild the pristine
+  view from that record instead of the ambient config, so `--render-*` flags are
+  no longer needed on `apply` (they still override the recorded view). `render`
+  writes only the `views` map — never a `pages` entry — so `status` stays clean.
+  Pre-upgrade mirrors with no recorded view fall back to the ambient config
+  (re-run `render` once to record it).
 - **`conf comment list` no longer truncates silently.** When a page's comment
   listing hits the pagination safety cap, the command now writes a `warning:`
   line to stderr (the returned set is incomplete); the JSON result on stdout is
@@ -155,6 +164,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`apply` no longer injects a `full`-profile view's decorations into the body.**
+  `conf apply` predated render profiles and assumed a body-only `.md`; on a
+  `full`-profile page (YAML frontmatter + a `## Comments` section) it fed those
+  decorations into the block merge, converting them into new page content (an
+  untouched full view "applied" with real blocks added). It now reproduces the
+  recorded pristine view and merges only the editable body between the
+  frontmatter and the Comments section, so an untouched full view applies to a
+  byte-identical `.csf`; editing either decoration is refused (exit `8`) with a
+  pointer to `conf page update`/`conf page move` or `conf comment add`.
+- **`jira apply` no longer refuses after a flag-overridden render.** Rendering
+  with `--render-profile full` and then running plain `jira apply` reconstructed
+  the pristine view under the *ambient* config, so the prefixes mismatched and an
+  untouched view was refused (exit `8`). `apply` now reproduces the view from the
+  render settings the `.md` was actually written with.
 - **Jira attachment uploads now stream from disk.** `jira issue attachment
   upload` no longer buffers both the local file and multipart request body in
   memory, and it avoids the normal JSON client's whole-request timeout for

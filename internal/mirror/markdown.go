@@ -65,6 +65,49 @@ func RenderMarkdownOpts(root *csf.Node, refs []domain.Ref, opts MDViewOpts) []by
 	return []byte(strings.TrimRight(out.String(), "\n") + "\n")
 }
 
+// RenderMarkdownViewParts renders the view as three concatenable parts —
+// prefix (frontmatter), body, suffix (the "## Comments" section) — such that
+// prefix+body+suffix is byte-identical to RenderMarkdownOpts(root, refs, opts).
+// The split exists for `conf apply`: the editable body must be located by these
+// structural anchors (the frontmatter above and the Comments section below are
+// read-only in the view), NOT by re-parsing headings — a body heading renders
+// as a top-level `## ` line and would be misread as a generated section.
+func RenderMarkdownViewParts(root *csf.Node, refs []domain.Ref, opts MDViewOpts) (prefix, body, suffix string) {
+	r := newMDRenderer(refs)
+	var b strings.Builder
+	forEachBlockNode(root, func(n *csf.Node) {
+		r.block(&b, n)
+	})
+	body = normalizeBlankLines(b.String())
+	// Zero opts: RenderMarkdownOpts returns the body verbatim (no tail trim), so
+	// the identity is body alone.
+	if opts.Frontmatter == nil && len(opts.Comments) == 0 {
+		return "", body, ""
+	}
+	if opts.Frontmatter != nil {
+		prefix = renderPageFrontmatter(opts.Frontmatter) + "\n"
+	}
+	if len(opts.Comments) > 0 {
+		suffix = "\n## Comments\n\n" + string(RenderCommentsMarkdown(opts.Comments))
+	}
+	// RenderMarkdownOpts applies TrimRight(whole, "\n")+"\n" to the concatenation.
+	// Reproduce it by trimming the assembled whole, then re-slicing at the raw
+	// part boundaries (clamped): slicing one string at increasing offsets keeps
+	// prefix+body+suffix == whole byte-for-byte in every case, including a body
+	// that is entirely trailing newlines.
+	full := prefix + body + suffix
+	full = strings.TrimRight(full, "\n") + "\n"
+	pEnd := len(prefix)
+	if pEnd > len(full) {
+		pEnd = len(full)
+	}
+	bEnd := len(prefix) + len(body)
+	if bEnd > len(full) {
+		bEnd = len(full)
+	}
+	return full[:pEnd], full[pEnd:bEnd], full[bEnd:]
+}
+
 // renderPageFrontmatter emits the YAML frontmatter block (including the fencing
 // `---` lines and a trailing newline). Title/space/version always render; labels
 // and updated render only when present.

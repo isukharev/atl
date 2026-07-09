@@ -494,6 +494,9 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 			}
 			relWiki, _ := filepath.Rel(into, wikiPath)
 			batch.Record(mirror.SyncState{ID: keySeg, Version: 0, Hash: mirror.Hash([]byte(full.Body)), Path: relWiki})
+			// Record the render settings this .md view was written with so
+			// `jira apply` can reproduce the exact pristine view later.
+			batch.RecordView(keySeg, viewStateOf(rs))
 			rel, _ := filepath.Rel(into, mdPath)
 			res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, WikiPath: relWiki, Assets: len(assets)})
 			if limit > 0 && len(res.Issues) >= limit {

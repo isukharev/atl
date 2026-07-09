@@ -187,8 +187,9 @@ construct in the base (`{panel}`, `{color}`, `[~mention]`, `!embed!`, a macro) d
 listed in `removed_constructs` and refused (exit 8) unless `--allow-loss`. A block it cannot convert,
 or a `.wiki` that diverged from the pulled base, also refuses (exit 8) — edit the `.wiki` directly, or
 push/re-pull first. Local only: `jira apply` writes the `.wiki` (and refreshes the `.md`); `jira push`
-still sends it to the server. Pass the same `--render-*` flags you pulled with so the pristine view
-matches. → `{ path, wiki_path, dry_run, report:{unchanged,moved,converted,removed,removed_constructs?}, wrote, warning? }`.
+still sends it to the server. `apply` reproduces the pristine view from the render settings the `.md`
+was written with (recorded on pull/render), so no `--render-*` flags are needed — pass them only to
+override that recorded view. → `{ path, wiki_path, dry_run, report:{unchanged,moved,converted,removed,removed_constructs?}, wrote, warning? }`.
 
 ### 5. Discover valid values before writing
 ```bash

@@ -70,8 +70,11 @@ type ConfRenderResult struct {
 // For each page it parses the `.csf` substrate, reads the meta (refs, title,
 // space, version, labels) and the `<slug>.comments.json` sidecar (when present),
 // and rewrites `<slug>.md` under the effective render settings. A `.csf` that
-// fails to parse gets the MDUnavailableStub (the same contract as pull). It never
-// touches the `.csf`/`.meta.json`/sidecar substrate, so `conf status` stays clean.
+// fails to parse gets the MDUnavailableStub (the same contract as pull). It
+// records each page's view state in `.atl/state.json` (so a later `conf apply`
+// reproduces the exact pristine view) but never touches the
+// `.csf`/`.meta.json` substrate or the `pages` sync entries, so `conf status`
+// stays clean.
 func (s *ConfluenceService) Render(target string, override config.RenderService) (*ConfRenderResult, error) {
 	if target == "" {
 		target = "mirror"
@@ -87,6 +90,8 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 	if err != nil {
 		return nil, err
 	}
+	vs := viewStateOf(rs)
+	views := map[string]mirror.ViewState{}
 	for _, csfPath := range paths {
 		lc, body, err := m.LoadCSF(csfPath)
 		if err != nil {
@@ -109,8 +114,16 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 		if err := safepath.WriteFile(mdPath, md, 0o644); err != nil {
 			return res, err
 		}
+		if lc.Meta.ID != "" {
+			views[lc.Meta.ID] = vs
+		}
 		rel, _ := filepath.Rel(root, mdPath)
 		res.Rendered = append(res.Rendered, ConfRendered{ID: lc.Meta.ID, Title: lc.Meta.Title, Path: rel})
+	}
+	// Persist the recorded views in one load-modify-save. This writes only the
+	// `views` map, never a `pages` sync entry, so `conf status` stays clean.
+	if err := m.SaveViewStates(views); err != nil {
+		return res, err
 	}
 	return res, nil
 }

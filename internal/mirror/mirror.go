@@ -347,6 +347,17 @@ func (b *SyncBatch) Record(st SyncState) {
 	b.dirty = true
 }
 
+// RecordView records the render settings a resource's .md view was written with,
+// keyed by the same id as Record (page id / issue key), so apply can later
+// reproduce the exact pristine view. Flushed with the rest of the batch.
+func (b *SyncBatch) RecordView(id string, vs ViewState) {
+	if b.sc.Views == nil {
+		b.sc.Views = map[string]ViewState{}
+	}
+	b.sc.Views[id] = vs
+	b.dirty = true
+}
+
 // Flush saves the accumulated sidecar state; a no-op when nothing was written,
 // so it is safe to call again on error paths after a successful flush.
 func (b *SyncBatch) Flush() error {

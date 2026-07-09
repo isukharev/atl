@@ -75,12 +75,49 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 		return nil, fmt.Errorf("%w: %s has diverged from the last-synced base (the .csf was edited directly) — push or re-pull before applying .md edits",
 			domain.ErrCheckFailed, csfPath)
 	}
-	edited, err := os.ReadFile(mdPath)
+	rawEdited, err := os.ReadFile(mdPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", domain.ErrNotFound, err)
 	}
 
-	out, rep, err := mdmerge.Merge(base, lc.Meta.Refs, string(edited), mdmerge.Options{
+	dir := filepath.Dir(csfPath)
+	slug := strings.TrimSuffix(filepath.Base(csfPath), ".csf")
+
+	// Resolve the recorded view state: it says whether the .md carries read-only
+	// decorations (a full-profile YAML frontmatter and/or a "## Comments" section)
+	// that must be anchored out before the merge. A corrupt sidecar is already
+	// ErrCheckFailed — propagate it. No recorded view (a pre-upgrade mirror or a
+	// body-only render) keeps today's byte path: the raw edited bytes go straight
+	// to mdmerge, so an existing mirror is unaffected.
+	vs, hasView, verr := m.ViewStateOf(lc.Meta.ID)
+	if verr != nil {
+		return nil, verr
+	}
+	rsView := settingsFromViewState(vs)
+	decorated := hasView && (rsView.On(SecFrontmatter) || rsView.On(SecComments))
+
+	mergeInput := string(rawEdited)
+	if decorated {
+		// The view was written with frontmatter/comments. Feeding those raw into
+		// mdmerge would convert them into new CSF blocks (the injection bug), so
+		// reproduce the pristine prefix/suffix from the BASE csf and anchor-extract
+		// only the editable body. If the base cannot be parsed (it always should —
+		// it was pulled), fall back to the raw path rather than fail the apply.
+		if node, perr := csf.Parse(base); perr == nil {
+			page := confPageFromMeta(lc.Meta)
+			mdOpts := confMDViewOpts(rsView, page, readCommentsSidecar(dir, slug))
+			prefix, _, suffix := mirror.RenderMarkdownViewParts(node, lc.Meta.Refs, mdOpts)
+			body, aerr := extractConfBody(normalizeMD(string(rawEdited)), prefix, suffix)
+			if aerr != nil {
+				return nil, aerr
+			}
+			mergeInput = body
+		} else {
+			decorated = false
+		}
+	}
+
+	out, rep, err := mdmerge.Merge(base, lc.Meta.Refs, mergeInput, mdmerge.Options{
 		AllowFragmentLoss: o.AllowFragmentLoss,
 	})
 	res := &ApplyResult{Path: mdPath, CSFPath: csfPath, DryRun: o.DryRun, Report: rep}
@@ -103,13 +140,68 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 	// contradict the .csf, so an unparseable merge result gets the explicit
 	// stub, and a failed write is a warning, not an error (the .csf write
 	// already succeeded; erroring here would tell the user the apply failed
-	// when it did not, and a retry would refuse on base divergence).
+	// when it did not, and a retry would refuse on base divergence). On the
+	// decorated path the refresh re-emits the same frontmatter/comments so the
+	// view stays full; otherwise it is the body-only render.
 	md := []byte(mirror.MDUnavailableStub)
+	stub := true
 	if root2, perr := csf.Parse(out); perr == nil {
-		md = mirror.RenderMarkdown(root2, lc.Meta.Refs)
+		stub = false
+		if decorated {
+			md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, confMDViewOpts(rsView, confPageFromMeta(lc.Meta), readCommentsSidecar(dir, slug)))
+		} else {
+			md = mirror.RenderMarkdown(root2, lc.Meta.Refs)
+		}
 	}
 	if werr := safepath.WriteFile(mdPath, md, 0o644); werr != nil {
 		res.Warning = "applied, but the .md view could not be refreshed and may be stale: " + werr.Error()
+	} else if !stub {
+		// Record the settings the refreshed view was written with: the recorded
+		// (decorated) settings, or body-only when no decorations applied. Skipped
+		// when the stub was written (there is no faithful view to reproduce).
+		used := RenderSettings{Sections: map[string]bool{}}
+		if decorated {
+			used = rsView
+		}
+		if rerr := m.SaveViewStates(map[string]mirror.ViewState{lc.Meta.ID: viewStateOf(used)}); rerr != nil {
+			res.Warning = "applied, but the view state could not be recorded: " + rerr.Error()
+		}
 	}
 	return res, nil
+}
+
+// confPageFromMeta builds the minimal domain.Resource the markdown-view helpers
+// need (frontmatter fields) from a page's mirror meta.
+func confPageFromMeta(meta mirror.Meta) *domain.Resource {
+	return &domain.Resource{
+		Title:    meta.Title,
+		SpaceKey: meta.Space,
+		Version:  meta.Version,
+		Labels:   meta.Labels,
+	}
+}
+
+// extractConfBody isolates the editable page body from a decorated `.md` view
+// (a YAML frontmatter above, a "## Comments" section below) and enforces that
+// both decorations are read-only. The edited document must start with the
+// byte-exact pristine prefix (frontmatter) and end with the pristine suffix (the
+// Comments section) — trailing newlines compared loosely, everything else
+// byte-exact. Whatever sits between the anchors is the edited body, returned with
+// a single trailing newline so it feeds mdmerge exactly like a body-only view
+// would (an untouched full view then yields zero converted blocks and a
+// byte-identical .csf). Anchoring — not re-parsing `## ` headings — is what keeps
+// a body heading (which also renders as a top-level `## ` line) as body content.
+func extractConfBody(edited, prefix, suffix string) (string, error) {
+	if !strings.HasPrefix(edited, prefix) {
+		return "", fmt.Errorf("%w: the frontmatter above the body is read-only in the md view — edit page metadata with `conf page update` / `conf page move`", domain.ErrCheckFailed)
+	}
+	rest := strings.TrimRight(edited[len(prefix):], "\n")
+	tail := strings.TrimRight(suffix, "\n")
+	if tail != "" {
+		if !strings.HasSuffix(rest, tail) {
+			return "", fmt.Errorf("%w: the \"## Comments\" section is read-only in the md view — use `conf comment add`", domain.ErrCheckFailed)
+		}
+		rest = rest[:len(rest)-len(tail)]
+	}
+	return strings.Trim(rest, "\n") + "\n", nil
 }

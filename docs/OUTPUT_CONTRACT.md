@@ -133,9 +133,11 @@ regardless of profile. Unknown section names in an include/exclude list produce 
 [--render-*]` regenerate `.md` views offline (no network/PAT). `jira render` emits
 `{ "root": <mirror-root>, "rendered": [ { "key", "path" }, ... ] }`; `conf render`
 emits `{ "root", "rendered": [ { "id", "title", "path" }, ... ] }`, one entry per
-rewritten `.md`. Both leave the `.csf`/`.wiki`/`.json`/sidecar substrate untouched,
-so `status` is unchanged before and after. Render-resolution warnings go to
-**stderr**, never stdout.
+rewritten `.md`. Both leave the `.csf`/`.wiki`/`.json` substrate and the sidecar
+`pages` sync entries untouched (they record each view's render settings in the
+sidecar `views` map only, so a later `apply` can reproduce it), so `status` is
+unchanged before and after. Render-resolution warnings go to **stderr**, never
+stdout.
 
 `atl jira status [DIR] [--remote]` emits `{ "entries": [ { "path", "key", "locally_edited",
 "synced", "remote_drifted"?, "remote_error"? }, ... ] }`. `locally_edited` is true when the `.wiki`
