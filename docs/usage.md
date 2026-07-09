@@ -341,11 +341,16 @@ under `full` (or when `custom_fields` is included); each renders as
 - `id` is the Jira API field id/key and is automatically added to pull's
   `fields=` projection.
 - `key` is the stable frontmatter key (defaults to `id`); `label` is the section
-  heading (defaults to `key`).
+  heading (defaults to `key`). Built-in keys such as `key`, `summary`, `status`,
+  and `updated` are reserved, so a descriptor can never create duplicate YAML.
 - `placement` is `frontmatter` (default) or `section`.
 - `format` is `auto` (default), `scalar`, `list`, `jira_wiki`, `date`, or
   `datetime`; `jira_wiki` requires section placement and uses the same guarded
-  wiki→Markdown renderer as Description.
+  wiki→Markdown renderer as Description. Valid `date` values normalize to
+  `YYYY-MM-DD`; valid `datetime` values normalize to RFC 3339 (including the
+  source offset/fraction). Unexpected server values remain visible verbatim.
+  A scalar with section `list` format becomes one bullet rather than an empty
+  section.
 - missing/empty values are omitted unless `show_empty` is true (`null` in
   frontmatter, `_Not set._` in a section).
 
@@ -356,16 +361,20 @@ field, preventing duplicate output. The raw value always remains unchanged in
 `<KEY>.json`.
 
 `epic_children` is an opt-in related-data section, not the built-in `subtasks`
-field. On pull, atl resolves `render.jira.epic_field` (or auto-detects the field
-named `Epic Link`), groups epics from each main search page into one paginated
-JQL query, and writes `<KEY>.epic-children.json`. The sidecar stores compact
+field. On pull, atl resolves `render.jira.epic_field` lazily (or auto-detects the
+field named `Epic Link` only after a page contains an epic candidate), groups
+candidate keys from that main search page into one paginated JQL query, and
+writes `<KEY>.epic-children.json` for known/inferred epics. With an explicitly
+configured field, returned child rows identify localized/renamed epic types
+without relying solely on the display name. The sidecar stores compact
 key/summary/status/type/assignee rows and drives offline `jira render`. The
 related query is capped at 1000 issues; a cap hit sets `truncated` /
 `truncated_at` in sidecars, adds truncation fields to the pull result, and warns
 on stderr. Re-pulling a non-epic with the section enabled removes a stale
 sidecar. Browser-session-only provider panels are not queried.
 Offline `jira render` warns when this section is enabled for an epic snapshot
-that has no sidecar yet; re-run `jira pull` to populate it.
+that has no sidecar yet, or when sidecar issue/field identity no longer matches;
+re-run `jira pull` to populate it.
 
 **`apply` reproduces the view it was rendered with.** Every `pull`/`render`
 records the resolved render settings in `.atl/state.json` (a `views` map).

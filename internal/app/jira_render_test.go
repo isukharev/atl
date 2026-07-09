@@ -47,7 +47,7 @@ func richFields() map[string]any {
 			map[string]any{"id": "c1", "author": map[string]any{"displayName": "carol"}, "created": "2026-01-02", "body": "a comment"},
 		}},
 		"customfield_10001": "custom scalar",
-		"customfield_10002": map[string]any{"value": "7"},
+		"customfield_10002": float64(7),
 		"customfield_10003": "*Risk*\n * first\n * second",
 		"customfield_10004": []any{"A", "B"},
 		// A GreenHopper-serialized sprint value in an arbitrary custom field.
@@ -89,7 +89,7 @@ func TestRenderIssueProfileFull(t *testing.T) {
 	got := string(renderIssueMarkdown(richIssue(), nil, jiraRSFull(t)))
 	mustContain(t, got, "reporter: bob")
 	mustContain(t, got, "resolution: Fixed")
-	mustContain(t, got, "duedate: 2026-02-01")
+	mustContain(t, got, `duedate: "2026-02-01"`)
 	mustContain(t, got, "components: [backend, api]")
 	mustContain(t, got, "fix_versions: [v2.0]")
 	mustContain(t, got, "customfield_10001: custom scalar")
@@ -163,6 +163,48 @@ func TestRenderConfiguredFieldViews(t *testing.T) {
 			t.Errorf("projection missing %s: %s", id, projection)
 		}
 	}
+}
+
+func TestConfiguredTemporalAndScalarListFormats(t *testing.T) {
+	fields := richFields()
+	fields["customfield_date"] = "2026-01-02T23:30:00.000+0300"
+	fields["customfield_datetime"] = "2026-01-02T23:30:00.125+0300"
+	fields["customfield_bad_date"] = "not-a-date"
+	fields["customfield_scalar_list"] = "single"
+	is := jiraadapter.MapIssueFields("1001", "PROJ-42", fields)
+	rs, warns := computeSettings("jira", config.RenderService{
+		Profile: "full",
+		FieldViews: []config.JiraFieldView{
+			{ID: "customfield_date", Key: "release_date", Format: "date"},
+			{ID: "customfield_datetime", Key: "release_at", Format: "datetime"},
+			{ID: "customfield_bad_date", Key: "raw_bad_date", Format: "date"},
+			{ID: "customfield_scalar_list", Key: "owners", Label: "Owners", Placement: "section", Format: "list"},
+		},
+	})
+	if len(warns) != 0 {
+		t.Fatal(warns)
+	}
+	got := string(renderIssueMarkdown(is, nil, rs))
+	for _, want := range []string{
+		`release_date: "2026-01-02"`,
+		`release_at: "2026-01-02T23:30:00.125+03:00"`,
+		"raw_bad_date: not-a-date",
+		"## Owners\n\n- single",
+	} {
+		mustContain(t, got, want)
+	}
+}
+
+func TestJiraFrontmatterQuotesStringListsSafely(t *testing.T) {
+	is := richIssue()
+	is.Labels = []string{"true", "a,b", `C:\temp`}
+	is.Fields["components"] = []any{
+		map[string]any{"name": "null"},
+		map[string]any{"name": "line\nbreak"},
+	}
+	got := string(renderIssueMarkdown(is, nil, jiraRSFull(t)))
+	mustContain(t, got, `labels: ["true", "a,b", "C:\\temp"]`)
+	mustContain(t, got, `components: ["null", "line\nbreak"]`)
 }
 
 // TestJiraRenderOfflineStable pulls a fake mirror, flips the profile via a local
@@ -321,6 +363,90 @@ func TestJiraRenderWarnsWhenEpicSidecarMissing(t *testing.T) {
 	}
 	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "no sidecar") {
 		t.Fatalf("warnings = %v, want missing-sidecar warning", res.Warnings)
+	}
+}
+
+func TestJiraRenderIgnoresMismatchedEpicSidecar(t *testing.T) {
+	root := t.TempDir()
+	m := mirror.New(root)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "PROJ")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fields := richFields()
+	fields["issuetype"] = map[string]any{"name": "Epic", "hierarchyLevel": float64(1)}
+	mustWriteSnapshot(t, filepath.Join(dir, "PROJ-42.json"), jiraadapter.MapIssueFields("1001", "PROJ-42", fields))
+	if err := writeEpicChildrenSidecar(root, filepath.Join(dir, "PROJ-42.epic-children.json"), JiraEpicChildrenSidecar{
+		Epic: "OTHER-1", EpicField: "customfield_10010", Children: []JiraEpicChild{{Key: "OTHER-2"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := NewJiraRenderer(&config.Config{}).Render(root, config.RenderService{
+		Profile: "full", Include: []string{SecEpicChildren}, EpicField: "customfield_10010",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Warnings) == 0 || !strings.Contains(strings.Join(res.Warnings, " "), "mismatched") {
+		t.Fatalf("warnings = %v, want mismatched sidecar warning", res.Warnings)
+	}
+	md := mustReadFile(t, filepath.Join(dir, "PROJ-42.md"))
+	if strings.Contains(md, "OTHER-2") || strings.Contains(md, "## Epic Children") {
+		t.Fatalf("mismatched sidecar leaked into view:\n%s", md)
+	}
+}
+
+func TestJiraRenderIgnoresSidecarFromDifferentEpicField(t *testing.T) {
+	root := t.TempDir()
+	m := mirror.New(root)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "PROJ")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fields := richFields()
+	fields["issuetype"] = map[string]any{"name": "Epic", "hierarchyLevel": float64(1)}
+	mustWriteSnapshot(t, filepath.Join(dir, "PROJ-42.json"), jiraadapter.MapIssueFields("1001", "PROJ-42", fields))
+	if err := writeEpicChildrenSidecar(root, filepath.Join(dir, "PROJ-42.epic-children.json"), JiraEpicChildrenSidecar{
+		Epic: "PROJ-42", EpicField: "customfield_10010", Children: []JiraEpicChild{{Key: "RELATED-99"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := NewJiraRenderer(&config.Config{}).Render(root, config.RenderService{
+		Profile: "full", Include: []string{SecEpicChildren}, EpicField: "customfield_10011",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Warnings) == 0 || !strings.Contains(strings.Join(res.Warnings, " "), "mismatched") {
+		t.Fatalf("warnings = %v, want mismatched-field warning", res.Warnings)
+	}
+	if md := mustReadFile(t, filepath.Join(dir, "PROJ-42.md")); strings.Contains(md, "RELATED-99") {
+		t.Fatalf("old-field child leaked into view:\n%s", md)
+	}
+	vs, ok, err := m.ViewStateOf("PROJ-42")
+	if err != nil || !ok || vs.EpicField != "customfield_10011" {
+		t.Fatalf("view state = %+v ok=%v err=%v", vs, ok, err)
+	}
+}
+
+func TestJiraRenderRejectsExplicitSidecarTarget(t *testing.T) {
+	root := t.TempDir()
+	m := mirror.New(root)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "PROJ-1.epic-children.json")
+	if err := os.WriteFile(path, []byte(`{"epic":"PROJ-1","epic_field":"customfield_1","children":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewJiraRenderer(&config.Config{}).Render(path, config.RenderService{}); err == nil {
+		t.Fatal("explicit epic sidecar target was accepted as an issue snapshot")
 	}
 }
 

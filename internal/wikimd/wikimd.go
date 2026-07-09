@@ -58,7 +58,7 @@ var (
 	quoteOpenRe = regexp.MustCompile(`^\{quote\}(.*)$`)
 	panelOpenRe = regexp.MustCompile(`^\{panel(?::([^}]*))?\}(.*)$`)
 	hrRe        = regexp.MustCompile(`^-{4,}[ \t]*$`)
-	listRe      = regexp.MustCompile(`^([*#]+)[ \t]+(.*)$`)
+	listRe      = regexp.MustCompile(`^[ \t]*([*#]+)[ \t]+(.*)$`)
 	langRe      = regexp.MustCompile(`[^A-Za-z0-9#+.\-]`)
 )
 

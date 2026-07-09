@@ -103,10 +103,13 @@ atl jira pull --jql '<JQL>' --into <root> --render-profile full
 ```
 
 `epic_children` is not in any profile by default because it performs one extra
-bounded related query per main-search page. It auto-detects `Epic Link` unless
-`epic_field` is configured. Typed fields and epic children are recorded with the
+bounded related query per main-search page that actually needs it. It lazily
+auto-detects `Epic Link` unless `epic_field` is configured; explicit field ids
+also let returned children identify localized epic types. Built-in frontmatter
+keys are reserved, date/datetime formats normalize valid values, and YAML string
+values are quoted safely. Typed fields and epic children are recorded with the
 view and remain read-only during `jira apply`; offline `jira render` uses the raw
-snapshot plus sidecar.
+snapshot plus an identity-checked sidecar.
 
 For compact analysis artifacts instead of a directory mirror:
 ```bash

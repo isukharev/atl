@@ -31,6 +31,7 @@ func TestRoundTrip(t *testing.T) {
 		"{panel:title=Note}\npanel body\n{panel}",
 		"|| H1 || H2 ||\n| a | b |\n| c | d |",
 		"* one\n* two\n** nested\n# ordered",
+		"User:\n # first\n # second",
 		"h2. Heading\n\ntext with trailing newline\n",
 		"\n\nLeading blank lines.\n\nSecond para.",
 		"one\ntwo\nthree",
@@ -47,6 +48,19 @@ func TestRoundTrip(t *testing.T) {
 		if rep.Unchanged == 0 && strings.TrimSpace(base) != "" {
 			t.Errorf("round-trip reported 0 unchanged for base=%q: %+v", base, rep)
 		}
+	}
+}
+
+func TestEditLeadingSpaceOrderedList(t *testing.T) {
+	base := "User:\n # first\n # second"
+	md := wikimd.Render(base, wikimd.Options{})
+	edited := strings.Replace(md, "1. second", "1. changed", 1)
+	out, rep := mergeOK(t, base, edited, Options{})
+	if !strings.Contains(string(out), "# changed") {
+		t.Fatalf("ordered-list edit was not applied: %q", out)
+	}
+	if rep.Converted != 1 {
+		t.Fatalf("report = %+v, want one converted list block", rep)
 	}
 }
 

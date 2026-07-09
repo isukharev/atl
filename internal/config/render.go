@@ -369,6 +369,9 @@ func NormalizeJiraFieldView(fv JiraFieldView) (JiraFieldView, error) {
 	if !validYAMLKey(fv.Key) {
 		return JiraFieldView{}, fmt.Errorf("key %q must start with a letter or underscore and contain only letters, digits, underscore, dot, or dash", fv.Key)
 	}
+	if IsReservedJiraFrontmatterKey(fv.Key) {
+		return JiraFieldView{}, fmt.Errorf("key %q is reserved by Jira frontmatter", fv.Key)
+	}
 	if fv.Label == "" {
 		fv.Label = fv.Key
 	}
@@ -401,6 +404,16 @@ func validYAMLKey(s string) bool {
 	}
 	return s != ""
 }
+
+var reservedJiraFrontmatterKeys = map[string]bool{
+	"key": true, "summary": true, "status": true, "type": true,
+	"project": true, "priority": true, "parent": true, "assignee": true,
+	"reporter": true, "resolution": true, "duedate": true, "created": true,
+	"updated": true, "labels": true, "components": true, "fix_versions": true,
+}
+
+// IsReservedJiraFrontmatterKey reports keys owned by the built-in Jira view.
+func IsReservedJiraFrontmatterKey(key string) bool { return reservedJiraFrontmatterKeys[key] }
 
 // SaveLocal writes a render-only local config to <root>/.atl/config.json
 // atomically (0600), creating the .atl dir if needed. The file never contains

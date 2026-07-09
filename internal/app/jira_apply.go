@@ -136,6 +136,12 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	}
 	assets := assetsOnDisk(root, dir, keySeg)
 	related := loadEpicChildrenSidecar(root, epicChildrenPath(dir, keySeg))
+	if related != nil && !compatibleEpicSidecar(related, is.Key, rs.EpicField) {
+		related = nil
+	}
+	if related != nil && (rs.EpicField == "" || !isDirectEpicFieldID(rs.EpicField)) {
+		rs.EpicField = related.EpicField
+	}
 	prefix, _, suffix := renderIssueMarkdownPartsWithRelated(is, assets, related, rs)
 
 	// Locate the edited description by the pristine view's structural anchors

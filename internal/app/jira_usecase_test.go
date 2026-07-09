@@ -403,11 +403,15 @@ func TestRenderIssueMarkdownYAMLEscape(t *testing.T) {
 func TestYamlEscape(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"plain", "plain"},
+		{"control\x01", `"control\u0001"`},
 		{"has: colon", `"has: colon"`},
 		{"has # hash", `"has # hash"`},
 		{"has \"quote\"", `"has \"quote\""`},
 		{"has 'apostrophe'", `"has 'apostrophe'"`},
-		{"line\nbreak", "\"line\nbreak\""},
+		{"line\nbreak", `"line\nbreak"`},
+		{`C:\temp:dir`, `"C:\\temp:dir"`},
+		{"true", `"true"`},
+		{"42", `"42"`},
 	}
 	for _, c := range cases {
 		if got := yamlEscape(c.in); got != c.want {
