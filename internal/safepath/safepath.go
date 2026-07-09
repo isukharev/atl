@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 )
@@ -136,6 +137,40 @@ func ReadFileWithin(root, target string) ([]byte, error) {
 		return nil, err
 	}
 	return r.ReadFile(rel)
+}
+
+// ReadDirWithin lists a mirror-owned directory without following a descendant
+// symlink at any component.
+func ReadDirWithin(root, target string) ([]os.DirEntry, error) {
+	rootAbs, rootErr := filepath.Abs(root)
+	targetAbs, targetErr := filepath.Abs(target)
+	rel := "."
+	var err error
+	if rootErr != nil || targetErr != nil || rootAbs != targetAbs {
+		rel, err = relativeToRoot(root, target)
+		if err != nil {
+			return nil, err
+		}
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = r.Close() }()
+	if err := rejectSymlinkComponents(r, rel); err != nil {
+		return nil, err
+	}
+	f, err := r.Open(rel)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	entries, err := f.ReadDir(-1)
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	return entries, nil
 }
 
 // RemoveWithin removes target through the same root-contained resolver used by

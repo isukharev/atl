@@ -315,9 +315,10 @@ mirror/
   lets a backend that writes its own substrate files (Jira's `.wiki`) share the
   batch's single sidecar load/save without going through `writePageFiles`.
 - Sidecar (`state.json`) tracks `{id, version, hash, path}` per page. Mirror
-  directories and files are accessed through Go's root-scoped filesystem API;
-  descendant symlinks are rejected, while the selected root itself remains the
-  caller's trust anchor. Saves are atomic (temp + fsync + root-scoped rename), so a
+  directories and files are accessed through Go's root-scoped filesystem API.
+  Intermediate descendant symlinks are rejected; reads reject a final symlink,
+  while atomic writes replace it without following it. The selected root itself
+  remains the caller's trust anchor. Saves use temp + fsync + root-scoped rename, so a
   crash can never leave a half-written file. A corrupt sidecar is a loud
   error on every path that consults it (`status`, `push`, `pull`) — never a
   silent reset to "never synced", which would quietly disable drift

@@ -221,6 +221,87 @@ func TestJiraRenderOfflineStable(t *testing.T) {
 	}
 }
 
+func TestJiraRenderSupportsSymlinkedTrustRoot(t *testing.T) {
+	physical := t.TempDir()
+	m := mirror.New(physical)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(physical, "PROJ")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteSnapshot(t, filepath.Join(dir, "PROJ-42.json"), richIssue())
+	logical := filepath.Join(t.TempDir(), "mirror-link")
+	if err := os.Symlink(physical, logical); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	res, err := NewJiraRenderer(&config.Config{}).Render(logical, config.RenderService{Profile: "minimal"})
+	if err != nil || len(res.Rendered) != 1 {
+		t.Fatalf("render through trust-root symlink = %+v, err=%v", res, err)
+	}
+	if _, err := os.Stat(filepath.Join(physical, "PROJ", "PROJ-42.md")); err != nil {
+		t.Fatalf("rendered view missing: %v", err)
+	}
+}
+
+func TestJiraRenderRefusesDescendantSnapshotSymlink(t *testing.T) {
+	root := t.TempDir()
+	m := mirror.New(root)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "PROJ")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.json")
+	mustWriteSnapshot(t, outside, richIssue())
+	if err := os.Symlink(outside, filepath.Join(dir, "PROJ-42.json")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := NewJiraRenderer(&config.Config{}).Render(root, config.RenderService{}); err == nil {
+		t.Fatal("render silently accepted a descendant snapshot symlink")
+	}
+}
+
+func TestAssetsOnDiskRefusesDescendantDirectorySymlink(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "PROJ")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "1-outside.png"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "PROJ-42.assets")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if got := assetsOnDisk(root, dir, "PROJ-42"); len(got) != 0 {
+		t.Fatalf("assets imported through descendant symlink: %+v", got)
+	}
+}
+
+func TestAssetsOnDiskIgnoresFinalAssetSymlink(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "PROJ")
+	assetsDir := filepath.Join(dir, "PROJ-42.assets")
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "private.png")
+	if err := os.WriteFile(outside, []byte("private"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(assetsDir, "1-private.png")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if got := assetsOnDisk(root, dir, "PROJ-42"); len(got) != 0 {
+		t.Fatalf("final asset symlink was indexed: %+v", got)
+	}
+}
+
 func TestJiraRenderWarnsWhenEpicSidecarMissing(t *testing.T) {
 	root := t.TempDir()
 	m := mirror.New(root)

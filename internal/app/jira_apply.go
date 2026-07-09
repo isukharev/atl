@@ -134,7 +134,7 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 			rs, _ = ResolveRender(s.cfg, root, config.RenderService{}, "jira")
 		}
 	}
-	assets := assetsOnDisk(dir, keySeg)
+	assets := assetsOnDisk(root, dir, keySeg)
 	related := loadEpicChildrenSidecar(root, epicChildrenPath(dir, keySeg))
 	prefix, _, suffix := renderIssueMarkdownPartsWithRelated(is, assets, related, rs)
 
