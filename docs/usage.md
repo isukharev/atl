@@ -359,6 +359,8 @@ related query is capped at 1000 issues; a cap hit sets `truncated` /
 `truncated_at` in sidecars, adds truncation fields to the pull result, and warns
 on stderr. Re-pulling a non-epic with the section enabled removes a stale
 sidecar. Browser-session-only provider panels are not queried.
+Offline `jira render` warns when this section is enabled for an epic snapshot
+that has no sidecar yet; re-run `jira pull` to populate it.
 
 **`apply` reproduces the view it was rendered with.** Every `pull`/`render`
 records the resolved render settings in `.atl/state.json` (a `views` map).

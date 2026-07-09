@@ -1,0 +1,11 @@
+{
+  "into": "<INTO>",
+  "issues": [
+    {
+      "key": "PROJ-1",
+      "path": "PROJ/PROJ-1.md",
+      "wiki_path": "PROJ/PROJ-1.wiki",
+      "epic_children": 2
+    }
+  ]
+}

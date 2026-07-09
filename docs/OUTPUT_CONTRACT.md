@@ -146,11 +146,11 @@ CLI warns on stderr. The sidecar is derived/offline-render data and never enters
 the `.wiki` content hash or remote drift gate.
 
 **Render profiles and typed field views do not otherwise change the `pull`
-JSON.** The `--render-profile` /
-`--render-include` / `--render-exclude` flags (on both `jira pull` and `conf pull`)
-only affect the derived `.md` view; the pull result shape above is identical
-regardless of profile. Unknown section names in an include/exclude list produce a
-`warning:` line on **stderr** and are ignored — never an error, never on stdout.
+JSON.** Profiles and ordinary include/exclude sections only affect the derived
+`.md`; `epic_children` is the explicit exception because it reports related-data
+counts/truncation as described above. Unknown section names in an
+include/exclude list produce a `warning:` line on **stderr** and are ignored —
+never an error, never on stdout.
 
 `atl jira render [DIR|FILE] [--render-*]` and `atl conf render [DIR|FILE]
 [--render-*]` regenerate `.md` views offline (no network/PAT). `jira render` emits

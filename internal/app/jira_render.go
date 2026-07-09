@@ -53,6 +53,7 @@ func (s *JiraService) Render(target string, override config.RenderService) (*Jir
 		return nil, err
 	}
 	views := map[string]mirror.ViewState{}
+	missingEpicSidecars := 0
 	for _, jsonPath := range snaps {
 		is, ok := loadIssueSnapshot(jsonPath)
 		if !ok {
@@ -62,6 +63,9 @@ func (s *JiraService) Render(target string, override config.RenderService) (*Jir
 		keySeg := strings.TrimSuffix(filepath.Base(jsonPath), ".json")
 		mdPath := filepath.Join(dir, keySeg+".md")
 		related := loadEpicChildrenSidecar(epicChildrenPath(dir, keySeg))
+		if rs.On(SecEpicChildren) && strings.EqualFold(is.Type, "epic") && related == nil {
+			missingEpicSidecars++
+		}
 		used := rs
 		if related != nil && used.EpicField == "" {
 			used.EpicField = related.EpicField
@@ -74,6 +78,9 @@ func (s *JiraService) Render(target string, override config.RenderService) (*Jir
 		views[keySeg] = viewStateOf(used)
 		rel, _ := filepath.Rel(root, mdPath)
 		res.Rendered = append(res.Rendered, JiraRendered{Key: is.Key, Path: rel})
+	}
+	if missingEpicSidecars > 0 {
+		res.Warnings = append(res.Warnings, fmt.Sprintf("render: epic_children is enabled but %d epic snapshot(s) have no sidecar; re-run jira pull with the section enabled", missingEpicSidecars))
 	}
 	// Persist the recorded views in one load-modify-save. This writes only the
 	// `views` map, never a `pages` sync entry, so `jira status` stays clean.

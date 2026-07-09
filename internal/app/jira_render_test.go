@@ -221,6 +221,28 @@ func TestJiraRenderOfflineStable(t *testing.T) {
 	}
 }
 
+func TestJiraRenderWarnsWhenEpicSidecarMissing(t *testing.T) {
+	root := t.TempDir()
+	m := mirror.New(root)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "PROJ")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fields := richFields()
+	fields["issuetype"] = map[string]any{"name": "Epic"}
+	mustWriteSnapshot(t, filepath.Join(dir, "PROJ-42.json"), jiraadapter.MapIssueFields("1001", "PROJ-42", fields))
+	res, err := NewJiraRenderer(&config.Config{}).Render(root, config.RenderService{Profile: "full", Include: []string{SecEpicChildren}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "no sidecar") {
+		t.Fatalf("warnings = %v, want missing-sidecar warning", res.Warnings)
+	}
+}
+
 func mustWriteFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
