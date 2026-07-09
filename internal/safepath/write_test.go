@@ -306,6 +306,9 @@ func TestRootContainedWritersRefuseEscapingParentSymlink(t *testing.T) {
 	if err := RemoveWithin(root, target); err == nil {
 		t.Fatal("RemoveWithin followed an escaping parent symlink")
 	}
+	if _, err := ReadFileWithin(root, target); err == nil {
+		t.Fatal("ReadFileWithin followed an escaping parent symlink")
+	}
 	if _, err := os.Stat(filepath.Join(outside, "issue.wiki")); !os.IsNotExist(err) {
 		t.Fatalf("outside target was created: %v", err)
 	}
@@ -333,6 +336,24 @@ func TestWriteFileWithinReplacesFinalSymlink(t *testing.T) {
 	info, err := os.Lstat(target)
 	if err != nil || info.Mode()&os.ModeSymlink != 0 {
 		t.Fatalf("target was not replaced with a regular file: info=%v err=%v", info, err)
+	}
+}
+
+func TestRootContainedWritersRejectInRootDirectorySymlink(t *testing.T) {
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	if err := os.Mkdir(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "alias")
+	if err := os.Symlink(realDir, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if err := WriteFileWithin(root, filepath.Join(link, "view.md"), []byte("x"), 0o644); err == nil {
+		t.Fatal("WriteFileWithin accepted an in-root directory symlink")
+	}
+	if _, err := os.Stat(filepath.Join(realDir, "view.md")); !os.IsNotExist(err) {
+		t.Fatalf("aliased target was written: %v", err)
 	}
 }
 

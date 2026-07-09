@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -51,8 +50,8 @@ func writeEpicChildrenSidecar(root, path string, sidecar JiraEpicChildrenSidecar
 	return safepath.WriteFileWithin(root, path, append(b, '\n'), 0o644)
 }
 
-func loadEpicChildrenSidecar(path string) *JiraEpicChildrenSidecar {
-	b, err := os.ReadFile(path)
+func loadEpicChildrenSidecar(root, path string) *JiraEpicChildrenSidecar {
+	b, err := safepath.ReadFileWithin(root, path)
 	if err != nil {
 		return nil
 	}

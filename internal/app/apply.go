@@ -3,7 +3,6 @@ package app
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -75,7 +74,7 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 		return nil, fmt.Errorf("%w: %s has diverged from the last-synced base (the .csf was edited directly) — push or re-pull before applying .md edits",
 			domain.ErrCheckFailed, csfPath)
 	}
-	rawEdited, err := os.ReadFile(mdPath)
+	rawEdited, err := safepath.ReadFileWithin(m.Root, mdPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", domain.ErrNotFound, err)
 	}
@@ -105,7 +104,7 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 		// it was pulled), fall back to the raw path rather than fail the apply.
 		if node, perr := csf.Parse(base); perr == nil {
 			page := confPageFromMeta(lc.Meta)
-			mdOpts := confMDViewOpts(rsView, page, readCommentsSidecar(dir, slug))
+			mdOpts := confMDViewOpts(rsView, page, readCommentsSidecar(m.Root, dir, slug))
 			prefix, _, suffix := mirror.RenderMarkdownViewParts(node, lc.Meta.Refs, mdOpts)
 			body, aerr := extractConfBody(normalizeMD(string(rawEdited)), prefix, suffix)
 			if aerr != nil {
@@ -148,7 +147,7 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 	if root2, perr := csf.Parse(out); perr == nil {
 		stub = false
 		if decorated {
-			md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, confMDViewOpts(rsView, confPageFromMeta(lc.Meta), readCommentsSidecar(dir, slug)))
+			md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, confMDViewOpts(rsView, confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug)))
 		} else {
 			md = mirror.RenderMarkdown(root2, lc.Meta.Refs)
 		}

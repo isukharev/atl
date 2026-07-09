@@ -38,8 +38,8 @@ func confMDViewOpts(rs RenderSettings, page *domain.Resource, comments []domain.
 // readCommentsSidecar loads a page's `<slug>.comments.json` sidecar into a comment
 // slice. A missing or unreadable sidecar yields nil so the "## Comments" section
 // is silently skipped rather than failing the render (its contract).
-func readCommentsSidecar(dir, slug string) []domain.Comment {
-	b, err := os.ReadFile(filepath.Join(dir, slug+".comments.json"))
+func readCommentsSidecar(root, dir, slug string) []domain.Comment {
+	b, err := safepath.ReadFileWithin(root, filepath.Join(dir, slug+".comments.json"))
 	if err != nil {
 		return nil
 	}
@@ -108,7 +108,7 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 				Version:  lc.Meta.Version,
 				Labels:   lc.Meta.Labels,
 			}
-			mdOpts := confMDViewOpts(rs, page, readCommentsSidecar(dir, slug))
+			mdOpts := confMDViewOpts(rs, page, readCommentsSidecar(root, dir, slug))
 			md = mirror.RenderMarkdownOpts(node, lc.Meta.Refs, mdOpts)
 		}
 		if err := safepath.WriteFileWithin(root, mdPath, md, 0o644); err != nil {

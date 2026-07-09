@@ -106,6 +106,9 @@ func MkdirAllWithin(root, target string, perm os.FileMode) error {
 		return err
 	}
 	defer func() { _ = r.Close() }()
+	if err := rejectSymlinkComponents(r, rel); err != nil {
+		return err
+	}
 	return r.MkdirAll(rel, perm)
 }
 
@@ -115,6 +118,24 @@ func MkdirAllWithin(root, target string, perm os.FileMode) error {
 func WriteFileWithin(root, target string, data []byte, perm os.FileMode) error {
 	_, err := WriteReaderAtomicWithin(root, target, bytes.NewReader(data), perm)
 	return err
+}
+
+// ReadFileWithin reads a regular mirror-owned file without following any
+// descendant symlink, including at the final component.
+func ReadFileWithin(root, target string) ([]byte, error) {
+	rel, err := relativeToRoot(root, target)
+	if err != nil {
+		return nil, err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = r.Close() }()
+	if err := rejectSymlinkComponents(r, rel); err != nil {
+		return nil, err
+	}
+	return r.ReadFile(rel)
 }
 
 // RemoveWithin removes target through the same root-contained resolver used by
@@ -129,6 +150,9 @@ func RemoveWithin(root, target string) error {
 		return err
 	}
 	defer func() { _ = r.Close() }()
+	if err := rejectSymlinkComponents(r, filepath.Dir(rel)); err != nil {
+		return err
+	}
 	return r.Remove(rel)
 }
 
@@ -144,6 +168,9 @@ func WriteReaderAtomicWithin(root, target string, reader io.Reader, perm os.File
 		return 0, err
 	}
 	defer func() { _ = r.Close() }()
+	if err := rejectSymlinkComponents(r, filepath.Dir(rel)); err != nil {
+		return 0, err
+	}
 	parent := r
 	closeParent := false
 	dir, base := filepath.Dir(rel), filepath.Base(rel)
@@ -213,6 +240,33 @@ func createRootTemp(root *os.Root, perm os.FileMode) (*os.File, string, error) {
 		}
 	}
 	return nil, "", fmt.Errorf("could not allocate temporary file")
+}
+
+// rejectSymlinkComponents rejects every existing component in rel. os.Root is
+// still the race-safe containment boundary; this stricter check keeps mirror
+// scans and writes consistent by forbidding even in-root descendant aliases.
+func rejectSymlinkComponents(root *os.Root, rel string) error {
+	if rel == "." || rel == "" {
+		return nil
+	}
+	current := ""
+	for _, component := range strings.Split(filepath.Clean(rel), string(filepath.Separator)) {
+		if component == "" || component == "." {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, err := root.Lstat(current)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing descendant symlink %q", current)
+		}
+	}
+	return nil
 }
 
 // WriteReaderAtomic streams r into a fresh temp file in the same directory,

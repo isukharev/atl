@@ -56,7 +56,7 @@ func (m *Mirror) sidecarPath() string { return filepath.Join(m.Root, ".atl", "st
 // would reset every page to never-synced and quietly disable drift detection.
 func (m *Mirror) loadSidecar() (sidecarFile, error) {
 	sc := sidecarFile{Pages: map[string]SyncState{}, Views: map[string]ViewState{}}
-	b, err := os.ReadFile(m.sidecarPath())
+	b, err := safepath.ReadFileWithin(m.Root, m.sidecarPath())
 	if os.IsNotExist(err) {
 		return sc, nil
 	}
@@ -170,7 +170,7 @@ func (m *Mirror) baseBodyExt(id, ext string) ([]byte, bool) {
 	if !safepath.Within(dir, target) {
 		return nil, false
 	}
-	b, err := os.ReadFile(target)
+	b, err := safepath.ReadFileWithin(m.Root, target)
 	if err != nil {
 		return nil, false
 	}

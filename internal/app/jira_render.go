@@ -55,14 +55,14 @@ func (s *JiraService) Render(target string, override config.RenderService) (*Jir
 	views := map[string]mirror.ViewState{}
 	missingEpicSidecars := 0
 	for _, jsonPath := range snaps {
-		is, ok := loadIssueSnapshot(jsonPath)
+		is, ok := loadIssueSnapshot(root, jsonPath)
 		if !ok {
 			continue // unreadable/oddly-shaped snapshot: skip, never fail the batch
 		}
 		dir := filepath.Dir(jsonPath)
 		keySeg := strings.TrimSuffix(filepath.Base(jsonPath), ".json")
 		mdPath := filepath.Join(dir, keySeg+".md")
-		related := loadEpicChildrenSidecar(epicChildrenPath(dir, keySeg))
+		related := loadEpicChildrenSidecar(root, epicChildrenPath(dir, keySeg))
 		if rs.On(SecEpicChildren) && strings.EqualFold(is.Type, "epic") && related == nil {
 			missingEpicSidecars++
 		}
@@ -138,8 +138,8 @@ func jiraSnapshotFiles(target string) ([]string, error) {
 // loadIssueSnapshot decodes a `<KEY>.json` mirror snapshot into a domain.Issue
 // via the pure adapter mapper. Returns ok=false on any read/parse failure so the
 // caller skips the file rather than aborting the whole render.
-func loadIssueSnapshot(path string) (*domain.Issue, bool) {
-	b, err := os.ReadFile(path)
+func loadIssueSnapshot(root, path string) (*domain.Issue, bool) {
+	b, err := safepath.ReadFileWithin(root, path)
 	if err != nil {
 		return nil, false
 	}

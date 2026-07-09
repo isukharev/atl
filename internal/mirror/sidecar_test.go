@@ -2,7 +2,6 @@ package mirror
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -61,18 +60,49 @@ func TestCorruptSidecarFailsLoudly(t *testing.T) {
 	assertLoud("SyncedVersion", err)
 }
 
-// TestSidecarSaveIsAtomicReplace pins the control that makes the sidecar
-// crash-consistent: the save must replace the file's inode (temp + rename),
-// not truncate-and-write in place — a symlink planted at state.json is
-// replaced by a regular file and its target is never written through.
-func TestSidecarSaveIsAtomicReplace(t *testing.T) {
+func TestSidecarAndBaseReadsRefuseDescendantSymlinks(t *testing.T) {
+	t.Run("sidecar directory", func(t *testing.T) {
+		root := t.TempDir()
+		outside := t.TempDir()
+		if err := os.WriteFile(filepath.Join(outside, "state.json"), []byte(`{"pages":{}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(root, ".atl")); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		if _, err := New(root).SyncedVersion("1"); err == nil {
+			t.Fatal("sidecar read followed a descendant symlink")
+		}
+	})
+
+	t.Run("base file", func(t *testing.T) {
+		root := t.TempDir()
+		baseDir := filepath.Join(root, ".atl", "base")
+		if err := os.MkdirAll(baseDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		outside := filepath.Join(t.TempDir(), "outside.csf")
+		if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(baseDir, "1.csf")); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		if _, ok := New(root).BaseBody("1"); ok {
+			t.Fatal("base read followed a final-component symlink")
+		}
+	})
+}
+
+// A symlink planted at state.json is rejected during the mandatory pre-write
+// state read, so outside state can neither be imported nor overwritten.
+func TestSidecarSaveRejectsSymlink(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink semantics differ on windows")
 	}
 	m := New(t.TempDir())
 	victim := filepath.Join(t.TempDir(), "victim")
-	// Valid (empty) sidecar JSON: the pre-save load reads through the symlink,
-	// and the point under test is the WRITE path, not load-time corruption.
+	// Valid JSON ensures the refusal is specifically the path boundary.
 	original := []byte("{\n  \"pages\": {}\n}\n")
 	if err := os.WriteFile(victim, original, 0o600); err != nil {
 		t.Fatal(err)
@@ -85,8 +115,8 @@ func TestSidecarSaveIsAtomicReplace(t *testing.T) {
 	}
 	page := &domain.Resource{ID: "1", Title: "Doc", SpaceKey: "S", Version: 1, Body: []byte("<p>x</p>")}
 	dir, slug := m.PageDir(page.SpaceKey, nil, page.Title)
-	if err := m.Write(dir, slug, page, nil); err != nil {
-		t.Fatalf("Write through planted symlink should succeed by replacing it: %v", err)
+	if err := m.Write(dir, slug, page, nil); err == nil {
+		t.Fatal("Write accepted a symlinked sidecar")
 	}
 	if got, _ := os.ReadFile(victim); !bytes.Equal(got, original) {
 		t.Fatalf("save wrote through the symlink into its target: %q", got)
@@ -95,19 +125,8 @@ func TestSidecarSaveIsAtomicReplace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		t.Fatal("state.json is still a symlink after save")
-	}
-	if fi.Mode().Perm() != 0o600 {
-		t.Errorf("state.json mode = %v, want 0600", fi.Mode().Perm())
-	}
-	var sc sidecarFile
-	b, _ := os.ReadFile(m.sidecarPath())
-	if err := json.Unmarshal(b, &sc); err != nil {
-		t.Fatalf("saved sidecar unparseable: %v", err)
-	}
-	if sc.Pages["1"].Version != 1 {
-		t.Errorf("saved state = %+v", sc.Pages)
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("refused operation unexpectedly replaced the sidecar symlink")
 	}
 }
 

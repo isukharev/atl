@@ -100,11 +100,11 @@ func (m *Mirror) ClaimPageDir(space string, ancestors []string, title, id string
 	if id != "" {
 		sslug := slug + "-" + slugify(id)
 		sdir := filepath.Join(parent, sslug)
-		if owner, occupied := pageOwner(sdir, sslug); occupied && owner == id {
+		if owner, occupied := m.pageOwner(sdir, sslug); occupied && owner == id {
 			return sdir, sslug, nil
 		}
 	}
-	owner, occupied := pageOwner(dir, slug)
+	owner, occupied := m.pageOwner(dir, slug)
 	if !occupied || (id != "" && owner == id) {
 		return dir, slug, nil
 	}
@@ -115,7 +115,7 @@ func (m *Mirror) ClaimPageDir(space string, ancestors []string, title, id string
 	// the suffixed slug stays a single path component.
 	slug = slug + "-" + slugify(id)
 	dir = filepath.Join(parent, slug)
-	if owner, occupied := pageOwner(dir, slug); occupied && owner != id {
+	if owner, occupied := m.pageOwner(dir, slug); occupied && owner != id {
 		return "", "", fmt.Errorf("%w: mirror slug collision: refusing to overwrite %s, which belongs to a different page (title %q, id %s)", domain.ErrCheckFailed, dir, title, id)
 	}
 	return dir, slug, nil
@@ -125,15 +125,19 @@ func (m *Mirror) ClaimPageDir(space string, ancestors []string, title, id string
 // readable, the owning page id. occupied is true when a <slug>.meta.json or
 // <slug>.csf exists; owner is "" when the id could not be read (absent or
 // corrupt meta) — callers must then treat the dir as foreign, never as free.
-func pageOwner(dir, slug string) (owner string, occupied bool) {
-	if mb, err := os.ReadFile(filepath.Join(dir, slug+".meta.json")); err == nil {
+func (m *Mirror) pageOwner(dir, slug string) (owner string, occupied bool) {
+	if mb, err := safepath.ReadFileWithin(m.Root, filepath.Join(dir, slug+".meta.json")); err == nil {
 		var meta Meta
 		if json.Unmarshal(mb, &meta) == nil && meta.ID != "" {
 			return meta.ID, true
 		}
 		return "", true
+	} else if !os.IsNotExist(err) {
+		return "", true
 	}
-	if _, err := os.Stat(filepath.Join(dir, slug+".csf")); err == nil {
+	if _, err := safepath.ReadFileWithin(m.Root, filepath.Join(dir, slug+".csf")); err == nil {
+		return "", true
+	} else if !os.IsNotExist(err) {
 		return "", true
 	}
 	return "", false
@@ -403,19 +407,19 @@ func (m *Mirror) LoadCSF(csfPath string) (*LocalCSF, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return loadCSFWith(sc, csfPath)
+	return loadCSFWith(m.Root, sc, csfPath)
 }
 
 // loadCSFWith is LoadCSF against an already-loaded sidecar, so ListCSF can
 // load the sidecar once instead of once per file.
-func loadCSFWith(sc sidecarFile, csfPath string) (*LocalCSF, []byte, error) {
-	body, err := os.ReadFile(csfPath)
+func loadCSFWith(root string, sc sidecarFile, csfPath string) (*LocalCSF, []byte, error) {
+	body, err := safepath.ReadFileWithin(root, csfPath)
 	if err != nil {
 		return nil, nil, err
 	}
 	lc := &LocalCSF{Path: csfPath, Current: Hash(body)}
 	metaPath := strings.TrimSuffix(csfPath, ".csf") + ".meta.json"
-	mb, err := os.ReadFile(metaPath)
+	mb, err := safepath.ReadFileWithin(root, metaPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read metadata %s: %w", metaPath, err)
 	}
@@ -441,10 +445,17 @@ func (m *Mirror) ListCSF() ([]*LocalCSF, error) {
 	if err != nil {
 		return nil, err
 	}
+	walkRoot, err := filepath.EvalSymlinks(m.Root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve mirror root %s: %w", m.Root, err)
+	}
 	var out []*LocalCSF
-	err = filepath.Walk(m.Root, func(p string, info os.FileInfo, err error) error {
+	err = filepath.Walk(walkRoot, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return fmt.Errorf("walk mirror at %s: %w", p, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing descendant symlink in mirror: %s", p)
 		}
 		if info.IsDir() {
 			if info.Name() == ".atl" {
@@ -453,9 +464,13 @@ func (m *Mirror) ListCSF() ([]*LocalCSF, error) {
 			return nil
 		}
 		if strings.HasSuffix(p, ".csf") {
-			lc, _, loadErr := loadCSFWith(sc, p)
+			logicalPath, mapErr := logicalWalkPath(m.Root, walkRoot, p)
+			if mapErr != nil {
+				return mapErr
+			}
+			lc, _, loadErr := loadCSFWith(m.Root, sc, logicalPath)
 			if loadErr != nil {
-				return fmt.Errorf("load mirror page %s: %w", p, loadErr)
+				return fmt.Errorf("load mirror page %s: %w", logicalPath, loadErr)
 			}
 			out = append(out, lc)
 		}
@@ -485,13 +500,13 @@ func (m *Mirror) LoadWiki(wikiPath string) (*LocalWiki, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return loadWikiWith(sc, wikiPath)
+	return loadWikiWith(m.Root, sc, wikiPath)
 }
 
 // loadWikiWith is LoadWiki against an already-loaded sidecar, so ListWiki can
 // load the sidecar once instead of once per file.
-func loadWikiWith(sc sidecarFile, wikiPath string) (*LocalWiki, []byte, error) {
-	body, err := os.ReadFile(wikiPath)
+func loadWikiWith(root string, sc sidecarFile, wikiPath string) (*LocalWiki, []byte, error) {
+	body, err := safepath.ReadFileWithin(root, wikiPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -513,10 +528,17 @@ func (m *Mirror) ListWiki() ([]*LocalWiki, error) {
 	if err != nil {
 		return nil, err
 	}
+	walkRoot, err := filepath.EvalSymlinks(m.Root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve mirror root %s: %w", m.Root, err)
+	}
 	var out []*LocalWiki
-	err = filepath.Walk(m.Root, func(p string, info os.FileInfo, err error) error {
+	err = filepath.Walk(walkRoot, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return fmt.Errorf("walk mirror at %s: %w", p, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing descendant symlink in mirror: %s", p)
 		}
 		if info.IsDir() {
 			if info.Name() == ".atl" {
@@ -525,9 +547,13 @@ func (m *Mirror) ListWiki() ([]*LocalWiki, error) {
 			return nil
 		}
 		if strings.HasSuffix(p, ".wiki") {
-			lw, _, loadErr := loadWikiWith(sc, p)
+			logicalPath, mapErr := logicalWalkPath(m.Root, walkRoot, p)
+			if mapErr != nil {
+				return mapErr
+			}
+			lw, _, loadErr := loadWikiWith(m.Root, sc, logicalPath)
 			if loadErr != nil {
-				return fmt.Errorf("load mirror issue %s: %w", p, loadErr)
+				return fmt.Errorf("load mirror issue %s: %w", logicalPath, loadErr)
 			}
 			out = append(out, lw)
 		}
@@ -535,6 +561,14 @@ func (m *Mirror) ListWiki() ([]*LocalWiki, error) {
 	})
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out, err
+}
+
+func logicalWalkPath(logicalRoot, walkRoot, path string) (string, error) {
+	rel, err := filepath.Rel(walkRoot, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("map mirror path %s to root %s", path, logicalRoot)
+	}
+	return filepath.Join(logicalRoot, rel), nil
 }
 
 // slugify keeps unicode letters/digits (Cyrillic included), lowercases, and

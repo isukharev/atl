@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -79,7 +78,7 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	m := mirror.New(root)
 
 	// The `.wiki` substrate must exist next to the .md.
-	curWiki, err := os.ReadFile(wikiPath)
+	curWiki, err := safepath.ReadFileWithin(root, wikiPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: no %s next to %s — is this a mirrored issue? (jira mirror)", domain.ErrNotFound, keySeg+wikiExt, mdPath)
 	}
@@ -97,12 +96,12 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	}
 	// The `<KEY>.json` snapshot supplies the frontmatter/section fields needed to
 	// reproduce the pristine view.
-	is, snapOK := loadIssueSnapshot(filepath.Join(dir, keySeg+".json"))
+	is, snapOK := loadIssueSnapshot(root, filepath.Join(dir, keySeg+".json"))
 	if !snapOK {
 		return nil, fmt.Errorf("%w: no %s.json snapshot for %s — re-pull it", domain.ErrNotFound, keySeg, keySeg)
 	}
 
-	rawEdited, err := os.ReadFile(mdPath)
+	rawEdited, err := safepath.ReadFileWithin(root, mdPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", domain.ErrNotFound, err)
 	}
@@ -136,7 +135,7 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 		}
 	}
 	assets := assetsOnDisk(dir, keySeg)
-	related := loadEpicChildrenSidecar(epicChildrenPath(dir, keySeg))
+	related := loadEpicChildrenSidecar(root, epicChildrenPath(dir, keySeg))
 	prefix, _, suffix := renderIssueMarkdownPartsWithRelated(is, assets, related, rs)
 
 	// Locate the edited description by the pristine view's structural anchors

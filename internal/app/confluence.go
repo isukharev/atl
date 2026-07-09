@@ -574,7 +574,7 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 	// comments after a push instead of reverting to the body-only default. Comments
 	// are read from the existing sidecar (push does not fetch them).
 	rs, _ := ResolveRender(s.cfg, m.Root, config.RenderService{}, "confluence")
-	mdOpts := confMDViewOpts(rs, page, readCommentsSidecar(dir, slug))
+	mdOpts := confMDViewOpts(rs, page, readCommentsSidecar(m.Root, dir, slug))
 	if werr := m.WriteView(dir, slug, page, refs, mdOpts); werr != nil {
 		item.Warning = "pushed but local refresh failed (re-pull recommended): " + werr.Error()
 	} else if verr := m.SaveViewStates(map[string]mirror.ViewState{lc.Meta.ID: viewStateOf(rs)}); verr != nil {

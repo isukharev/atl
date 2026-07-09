@@ -96,7 +96,7 @@ var knownGlobalKeys = map[string]bool{
 // degrade to a warning and are dropped, so the effective config falls open to
 // global/defaults rather than trusting untrusted local bytes.
 func LoadLocal(root string) (*LocalConfig, []string, error) {
-	b, err := os.ReadFile(localConfigPath(root))
+	b, err := safepath.ReadFileWithin(root, localConfigPath(root))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil, nil
@@ -407,7 +407,7 @@ func validYAMLKey(s string) bool {
 // any credential-adjacent key.
 func SaveLocal(root string, lc *LocalConfig) error {
 	dir := filepath.Join(root, ".atl")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := safepath.MkdirAllWithin(root, dir, 0o700); err != nil {
 		return err
 	}
 	out := &LocalConfig{Render: nil}
@@ -418,7 +418,7 @@ func SaveLocal(root string, lc *LocalConfig) error {
 	if err != nil {
 		return err
 	}
-	return safepath.WriteFileAtomic(localConfigPath(root), append(b, '\n'), 0o600)
+	return safepath.WriteFileWithin(root, localConfigPath(root), append(b, '\n'), 0o600)
 }
 
 func splitList(value string) []string {

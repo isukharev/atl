@@ -379,8 +379,53 @@ func TestListMirrorFilesPropagatesEntryAndWalkErrors(t *testing.T) {
 
 	t.Run("missing root", func(t *testing.T) {
 		root := filepath.Join(t.TempDir(), "missing")
-		if _, err := New(root).ListWiki(); err == nil || !strings.Contains(err.Error(), "walk mirror") {
-			t.Fatalf("ListWiki error = %v, want walk failure", err)
+		if _, err := New(root).ListWiki(); err == nil || !strings.Contains(err.Error(), "resolve mirror root") {
+			t.Fatalf("ListWiki error = %v, want root-resolution failure", err)
 		}
 	})
+}
+
+func TestMirrorReadsRefuseEscapingSubstrateSymlinks(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.wiki")
+	if err := os.WriteFile(outside, []byte("outside body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "PROJ-1.wiki")
+	if err := os.Symlink(outside, path); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	m := New(root)
+	if _, _, err := m.LoadWiki(path); err == nil {
+		t.Fatal("LoadWiki followed an escaping substrate symlink")
+	}
+	if _, err := m.ListWiki(); err == nil {
+		t.Fatal("ListWiki silently accepted an escaping substrate symlink")
+	}
+}
+
+func TestListMirrorFilesSupportsSymlinkedTrustRoot(t *testing.T) {
+	physical := t.TempDir()
+	page := &domain.Resource{ID: "1", Title: "Page", SpaceKey: "S", Version: 1, Body: []byte("<p>x</p>")}
+	pm := New(physical)
+	dir, slug := pm.PageDir(page.SpaceKey, nil, page.Title)
+	if err := pm.Write(dir, slug, page, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(physical, "PROJ-1.wiki"), []byte("wiki"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	logical := filepath.Join(t.TempDir(), "mirror-link")
+	if err := os.Symlink(physical, logical); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	m := New(logical)
+	csf, err := m.ListCSF()
+	if err != nil || len(csf) != 1 || !strings.HasPrefix(csf[0].Path, logical+string(filepath.Separator)) {
+		t.Fatalf("ListCSF through trust-root symlink = %+v, err=%v", csf, err)
+	}
+	wiki, err := m.ListWiki()
+	if err != nil || len(wiki) != 1 || !strings.HasPrefix(wiki[0].Path, logical+string(filepath.Separator)) {
+		t.Fatalf("ListWiki through trust-root symlink = %+v, err=%v", wiki, err)
+	}
 }
