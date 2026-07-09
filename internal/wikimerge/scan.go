@@ -23,7 +23,7 @@ var (
 	quoteOpenRe = regexp.MustCompile(`^\{quote\}(.*)$`)
 	panelOpenRe = regexp.MustCompile(`^\{panel(?::([^}]*))?\}(.*)$`)
 	hrRe        = regexp.MustCompile(`^-{4,}[ \t]*$`)
-	listRe      = regexp.MustCompile(`^([*#]+)[ \t]+(.*)$`)
+	listRe      = regexp.MustCompile(`^[ \t]*([*#]+)[ \t]+(.*)$`)
 )
 
 // wline is one physical line and its byte offsets in the source. end is the

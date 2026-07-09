@@ -255,6 +255,7 @@ func TestSetRenderKeyErrors(t *testing.T) {
 		{"render.confluence.custom_fields", "x", false}, // jira-only field
 		{"render.confluence.field_views", "[]", false},  // jira-only field
 		{"render.jira.field_views", `[{"id":"x","key":"bad key"}]`, false},
+		{"render.jira.field_views", `[{"id":"x","key":"summary"}]`, false},
 		{"render.jira.field_views", `[{"id":"x","format":"jira_wiki"}]`, false},
 		{"render.jira.profile", "gigantic", false}, // bad profile value
 	}

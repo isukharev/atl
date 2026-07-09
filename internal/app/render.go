@@ -172,9 +172,9 @@ func computeSettings(backend string, svc config.RenderService) (RenderSettings, 
 		}
 		return RenderSettings{Sections: sections}, warns
 	}
-	cf := append([]string(nil), svc.CustomFields...)
 	views := make([]config.JiraFieldView, 0, len(svc.FieldViews))
 	seenKeys := map[string]bool{}
+	viewIDs := map[string]bool{}
 	for i, fv := range svc.FieldViews {
 		norm, err := config.NormalizeJiraFieldView(fv)
 		if err != nil {
@@ -186,7 +186,33 @@ func computeSettings(backend string, svc config.RenderService) (RenderSettings, 
 			continue
 		}
 		seenKeys[norm.Key] = true
+		viewIDs[norm.ID] = true
 		views = append(views, norm)
+	}
+	cf := make([]string, 0, len(svc.CustomFields))
+	seenFields := map[string]bool{}
+	for _, field := range svc.CustomFields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		if config.IsReservedJiraFrontmatterKey(field) {
+			warns = append(warns, fmt.Sprintf("render: ignoring custom_fields entry %q because the key is reserved", field))
+			continue
+		}
+		if seenFields[field] {
+			warns = append(warns, fmt.Sprintf("render: ignoring duplicate custom_fields entry %q", field))
+			continue
+		}
+		seenFields[field] = true
+		if viewIDs[field] {
+			continue // the typed descriptor owns this field and output key
+		}
+		if seenKeys[field] {
+			warns = append(warns, fmt.Sprintf("render: ignoring custom_fields entry %q because a typed field view uses the same output key", field))
+			continue
+		}
+		cf = append(cf, field)
 	}
 	return RenderSettings{Sections: sections, CustomFields: cf, FieldViews: views, EpicField: strings.TrimSpace(svc.EpicField)}, warns
 }

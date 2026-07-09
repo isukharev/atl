@@ -132,6 +132,7 @@ gain an `epic_children` count (omitted at zero) and the mirror gains
 {
   "epic": "PROJ-1",
   "epic_field": "customfield_10001",
+  "epic_selector": "Epic Link",
   "children": [
     {"key": "PROJ-2", "summary": "Implement capability", "status": "Open", "type": "Story"}
   ],
@@ -144,7 +145,12 @@ gain an `epic_children` count (omitted at zero) and the mirror gains
 related query hits the cap, the top-level pull result also carries
 `epic_children_truncated: true` and `epic_children_truncated_at: 1000`, and the
 CLI warns on stderr. The sidecar is derived/offline-render data and never enters
-the `.wiki` content hash or remote drift gate.
+the `.wiki` content hash or remote drift gate. Offline render/apply accept it
+only when its epic key, configured selector (when present), and resolved epic
+field match the issue/view affinity; otherwise it is ignored and render warns
+to re-pull. `epic_selector` is omitted for auto-detection and retained for any
+explicit configured selector (display name or field id), so changing that
+selector cannot reuse a stale sidecar resolved from a different field.
 
 **Render profiles and typed field views do not otherwise change the `pull`
 JSON.** Profiles and ordinary include/exclude sections only affect the derived

@@ -84,6 +84,7 @@ func TestRenderExact(t *testing.T) {
 		// lists
 		{"list nested", "* one\n* two\n** deep\n# num", Options{}, "- one\n- two\n  - deep\n1. num"},
 		{"list ordered nested", "# a\n## b\n#* c", Options{}, "1. a\n  1. b\n  - c"},
+		{"list markers after Jira whitespace", "User:\n # first\n # second", Options{}, "User:\n\n1. first\n1. second"},
 
 		// empty
 		{"empty", "", Options{}, ""},

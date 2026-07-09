@@ -63,12 +63,17 @@ func (s *JiraService) Render(target string, override config.RenderService) (*Jir
 		keySeg := strings.TrimSuffix(filepath.Base(jsonPath), ".json")
 		mdPath := filepath.Join(dir, keySeg+".md")
 		related := loadEpicChildrenSidecar(root, epicChildrenPath(dir, keySeg))
-		if rs.On(SecEpicChildren) && strings.EqualFold(is.Type, "epic") && related == nil {
-			missingEpicSidecars++
-		}
 		used := rs
-		if related != nil && used.EpicField == "" {
-			used.EpicField = related.EpicField
+		if related != nil && !compatibleEpicSidecar(related, is.Key, used.EpicField) {
+			res.Warnings = append(res.Warnings, fmt.Sprintf("render: ignoring stale or mismatched epic sidecar for %s; re-run jira pull", is.Key))
+			related = nil
+		}
+		if related != nil {
+			if used.EpicField == "" || !isDirectEpicFieldID(used.EpicField) {
+				used.EpicField = related.EpicField
+			}
+		} else if rs.On(SecEpicChildren) && isEpicIssue(*is) {
+			missingEpicSidecars++
 		}
 		md := renderIssueMarkdownWithRelated(is, assetsOnDisk(root, dir, keySeg), related, used)
 		if err := safepath.WriteFileWithin(root, mdPath, md, 0o644); err != nil {
@@ -102,7 +107,9 @@ func jiraSnapshotFiles(root, target string) ([]string, error) {
 		base := target
 		switch {
 		case strings.HasSuffix(target, ".json"):
-			// already a snapshot
+			if strings.HasSuffix(target, ".comments.json") || strings.HasSuffix(target, ".epic-children.json") {
+				return nil, fmt.Errorf("%w: render target %q is a sidecar, not an issue snapshot", domain.ErrUsage, target)
+			}
 		case strings.HasSuffix(target, ".md"):
 			base = strings.TrimSuffix(target, ".md") + ".json"
 		case strings.HasSuffix(target, wikiExt):

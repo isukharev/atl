@@ -31,11 +31,12 @@ type JiraEpicChild struct {
 // conservative: when the shared query hits its cap, every epic in that query is
 // marked incomplete because omitted children cannot be attributed safely.
 type JiraEpicChildrenSidecar struct {
-	Epic        string          `json:"epic"`
-	EpicField   string          `json:"epic_field"`
-	Children    []JiraEpicChild `json:"children"`
-	Truncated   bool            `json:"truncated,omitempty"`
-	TruncatedAt int             `json:"truncated_at,omitempty"`
+	Epic         string          `json:"epic"`
+	EpicField    string          `json:"epic_field"`
+	EpicSelector string          `json:"epic_selector,omitempty"`
+	Children     []JiraEpicChild `json:"children"`
+	Truncated    bool            `json:"truncated,omitempty"`
+	TruncatedAt  int             `json:"truncated_at,omitempty"`
 }
 
 func epicChildrenPath(dir, keySeg string) string {
@@ -56,7 +57,7 @@ func loadEpicChildrenSidecar(root, path string) *JiraEpicChildrenSidecar {
 		return nil
 	}
 	var sidecar JiraEpicChildrenSidecar
-	if json.Unmarshal(b, &sidecar) != nil || sidecar.Epic == "" {
+	if json.Unmarshal(b, &sidecar) != nil || sidecar.Epic == "" || !isDirectEpicFieldID(sidecar.EpicField) {
 		return nil
 	}
 	if sidecar.Children == nil {
@@ -71,7 +72,7 @@ func loadEpicChildrenSidecar(root, path string) *JiraEpicChildrenSidecar {
 func (s *JiraService) resolveEpicField(ctx context.Context, configured string) (string, error) {
 	configured = strings.TrimSpace(configured)
 	if isDirectEpicFieldID(configured) {
-		return configured, nil
+		return canonicalEpicFieldID(configured), nil
 	}
 	defs, err := s.tr.Fields(ctx)
 	if err != nil {
@@ -96,6 +97,7 @@ func isDirectEpicFieldID(field string) bool {
 		return true
 	}
 	const prefix = "customfield_"
+	field = strings.ToLower(strings.TrimSpace(field))
 	if !strings.HasPrefix(field, prefix) {
 		return false
 	}
@@ -103,24 +105,35 @@ func isDirectEpicFieldID(field string) bool {
 	return err == nil && n > 0
 }
 
+func canonicalEpicFieldID(field string) string {
+	if strings.EqualFold(strings.TrimSpace(field), "parent") {
+		return "parent"
+	}
+	return strings.ToLower(strings.TrimSpace(field))
+}
+
 // fetchEpicChildrenPage performs at most one logical paginated query for all
 // epics in a main-search page (up to 100). There is no per-child or per-epic
 // refetch. Non-epic issues simply have no entry in the result map.
 func (s *JiraService) fetchEpicChildrenPage(ctx context.Context, issues []domain.Issue, epicField string) (map[string]JiraEpicChildrenSidecar, bool, error) {
 	byEpic := map[string]JiraEpicChildrenSidecar{}
-	var epicKeys []string
+	var candidateKeys []string
+	candidates := map[string]bool{}
 	for _, issue := range issues {
-		if !strings.EqualFold(issue.Type, "epic") {
+		if issue.Key == "" {
 			continue
 		}
-		epicKeys = append(epicKeys, issue.Key)
-		byEpic[issue.Key] = JiraEpicChildrenSidecar{Epic: issue.Key, EpicField: epicField, Children: []JiraEpicChild{}}
+		candidateKeys = append(candidateKeys, issue.Key)
+		candidates[issue.Key] = true
+		if isEpicIssue(issue) {
+			byEpic[issue.Key] = JiraEpicChildrenSidecar{Epic: issue.Key, EpicField: epicField, Children: []JiraEpicChild{}}
+		}
 	}
-	if len(epicKeys) == 0 {
+	if len(candidateKeys) == 0 {
 		return byEpic, false, nil
 	}
-	sort.Strings(epicKeys)
-	jql := fmt.Sprintf("%s in (%s) ORDER BY key", epicJQLField(epicField), quoteJQLValues(epicKeys))
+	sort.Strings(candidateKeys)
+	jql := fmt.Sprintf("%s in (%s) ORDER BY key", epicJQLField(epicField), quoteJQLValues(candidateKeys))
 	fields := []string{"summary", "status", "issuetype", "assignee", epicField}
 	cursor := ""
 	total := 0
@@ -136,9 +149,12 @@ func (s *JiraService) fetchEpicChildrenPage(ctx context.Context, issues []domain
 		}
 		for _, child := range children {
 			parent := fieldString(child.Fields[epicField])
+			if !candidates[parent] {
+				continue
+			}
 			sidecar, ok := byEpic[parent]
 			if !ok {
-				continue
+				sidecar = JiraEpicChildrenSidecar{Epic: parent, EpicField: epicField, Children: []JiraEpicChild{}}
 			}
 			sidecar.Children = append(sidecar.Children, JiraEpicChild{
 				Key: child.Key, Summary: child.Summary, Status: child.Status,
@@ -165,6 +181,48 @@ func (s *JiraService) fetchEpicChildrenPage(ctx context.Context, issues []domain
 		byEpic[key] = sidecar
 	}
 	return byEpic, truncated, nil
+}
+
+func hasEpicCandidate(issues []domain.Issue) bool {
+	for _, issue := range issues {
+		if isEpicIssue(issue) {
+			return true
+		}
+	}
+	return false
+}
+
+func isEpicIssue(issue domain.Issue) bool {
+	if issueType, ok := issue.Fields["issuetype"].(map[string]any); ok {
+		switch level := issueType["hierarchyLevel"].(type) {
+		case float64:
+			if level == 1 {
+				return true
+			}
+		case json.Number:
+			if n, err := strconv.Atoi(level.String()); err == nil && n == 1 {
+				return true
+			}
+		}
+		if strings.EqualFold(asString(issueType["name"]), "epic") {
+			return true
+		}
+	}
+	return strings.EqualFold(issue.Type, "epic")
+}
+
+func compatibleEpicSidecar(sidecar *JiraEpicChildrenSidecar, issueKey, epicField string) bool {
+	if sidecar == nil || sidecar.Epic != issueKey {
+		return false
+	}
+	epicField = strings.TrimSpace(epicField)
+	if isDirectEpicFieldID(epicField) {
+		return canonicalEpicFieldID(sidecar.EpicField) == canonicalEpicFieldID(epicField)
+	}
+	if epicField == "" {
+		return sidecar.EpicSelector == ""
+	}
+	return sidecar.EpicSelector != "" && strings.EqualFold(strings.TrimSpace(sidecar.EpicSelector), epicField)
 }
 
 func epicJQLField(field string) string {

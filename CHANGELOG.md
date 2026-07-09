@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Jira derived-view correctness.** Jira wiki list markers remain lists when
+  the server stores leading whitespace, preventing ordered items from becoming
+  Markdown headings. Typed field views reject built-in frontmatter-key
+  collisions, quote YAML strings/lists safely, normalize valid date/datetime
+  values, and render a scalar `list` as one item. Epic-child discovery resolves
+  lazily, can infer localized epics from returned children when the field is
+  configured, and refuses stale/mismatched sidecars during offline render/apply.
+
 - **Mirror filesystem containment and scan failures.** Mirror writes now use
   root-scoped filesystem operations, so a pre-existing symlink in any
   descendant directory cannot redirect page, issue, asset, base, or state

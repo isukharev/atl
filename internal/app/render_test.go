@@ -93,6 +93,16 @@ func TestComputeSettingsCustomFields(t *testing.T) {
 	}
 }
 
+func TestComputeSettingsRejectsReservedLegacyCustomField(t *testing.T) {
+	rs, warns := computeSettings("jira", config.RenderService{CustomFields: []string{"summary", "customfield_1"}})
+	if len(warns) != 1 || !strings.Contains(warns[0], "reserved") {
+		t.Fatalf("warnings = %v", warns)
+	}
+	if !reflect.DeepEqual(rs.CustomFields, []string{"customfield_1"}) {
+		t.Fatalf("custom fields = %v", rs.CustomFields)
+	}
+}
+
 func TestComputeSettingsFieldViewsAndEpicChildren(t *testing.T) {
 	rs, warns := computeSettings("jira", config.RenderService{
 		Profile:   "full",
@@ -129,6 +139,19 @@ func TestComputeSettingsRejectsDuplicateFieldViewKey(t *testing.T) {
 	}
 	if len(rs.FieldViews) != 1 || rs.FieldViews[0].ID != "customfield_1" {
 		t.Fatalf("kept views = %+v", rs.FieldViews)
+	}
+}
+
+func TestComputeSettingsDeduplicatesLegacyAndTypedOutputKeys(t *testing.T) {
+	rs, warns := computeSettings("jira", config.RenderService{
+		CustomFields: []string{"customfield_1", "customfield_1", "risk"},
+		FieldViews:   []config.JiraFieldView{{ID: "customfield_1", Key: "score"}, {ID: "customfield_2", Key: "risk"}},
+	})
+	if len(rs.CustomFields) != 0 {
+		t.Fatalf("legacy custom fields = %v, want none", rs.CustomFields)
+	}
+	if len(warns) != 2 {
+		t.Fatalf("warnings = %v, want duplicate and typed-key collision warnings", warns)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
@@ -412,13 +413,8 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 	// standard shape under smaller profiles; profiles shape the .md view only).
 	rs, warns := ResolveRender(s.cfg, into, opts.Render, "jira")
 	res.Warnings = warns
-	if rs.On(SecEpicChildren) {
-		epicField, err := s.resolveEpicField(ctx, rs.EpicField)
-		if err != nil {
-			return res, err
-		}
-		rs.EpicField = epicField
-	}
+	epicSelector := strings.TrimSpace(rs.EpicField)
+	explicitEpicField := strings.TrimSpace(rs.EpicField) != ""
 	pullFields := jiraPullFields(opts.Fields, rs)
 	// Wire the pull through the mirror sidecar so an edited <KEY>.wiki can later be
 	// pushed back under the drift guard. One sidecar load (BeginSync) and one save
@@ -444,7 +440,12 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 			selected = selected[:limit-len(res.Issues)]
 		}
 		relatedByEpic := map[string]JiraEpicChildrenSidecar{}
-		if rs.On(SecEpicChildren) {
+		if rs.On(SecEpicChildren) && len(selected) > 0 && (explicitEpicField || rs.EpicField != "" || hasEpicCandidate(selected)) {
+			epicField, resolveErr := s.resolveEpicField(ctx, rs.EpicField)
+			if resolveErr != nil {
+				return res, resolveErr
+			}
+			rs.EpicField = epicField
 			var truncated bool
 			relatedByEpic, truncated, err = s.fetchEpicChildrenPage(ctx, selected, rs.EpicField)
 			if err != nil {
@@ -453,6 +454,10 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 			if truncated {
 				res.EpicChildrenTruncated = true
 				res.EpicChildrenTruncatedAt = jiraEpicChildrenCap
+			}
+			for key, sidecar := range relatedByEpic {
+				sidecar.EpicSelector = epicSelector
+				relatedByEpic[key] = sidecar
 			}
 		}
 		for i := range selected {
@@ -750,7 +755,7 @@ func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAss
 	images := assetImageMap(assets)
 	var b strings.Builder
 	b.WriteString("---\n")
-	fmt.Fprintf(&b, "key: %s\n", is.Key)
+	fmt.Fprintf(&b, "key: %s\n", yamlEscape(is.Key))
 	fmt.Fprintf(&b, "summary: %s\n", yamlEscape(is.Summary))
 	emitFrontmatterField(&b, rs, SecStatus, is.Status)
 	emitFrontmatterField(&b, rs, SecType, is.Type)
@@ -764,16 +769,16 @@ func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAss
 	emitFrontmatterField(&b, rs, SecCreated, strField(is.Fields, "created"))
 	emitFrontmatterField(&b, rs, SecUpdated, strField(is.Fields, "updated"))
 	if rs.On(SecLabels) && len(is.Labels) > 0 {
-		fmt.Fprintf(&b, "labels: [%s]\n", strings.Join(is.Labels, ", "))
+		fmt.Fprintf(&b, "labels: %s\n", yamlStringList(is.Labels))
 	}
 	if rs.On(SecComponents) {
 		if names := namedListField(is.Fields, "components"); len(names) > 0 {
-			fmt.Fprintf(&b, "components: [%s]\n", strings.Join(names, ", "))
+			fmt.Fprintf(&b, "components: %s\n", yamlStringList(names))
 		}
 	}
 	if rs.On(SecFixVersions) {
 		if names := namedListField(is.Fields, "fixVersions"); len(names) > 0 {
-			fmt.Fprintf(&b, "fix_versions: [%s]\n", strings.Join(names, ", "))
+			fmt.Fprintf(&b, "fix_versions: %s\n", yamlStringList(names))
 		}
 	}
 	if rs.On(SecCustomFields) {
@@ -790,7 +795,7 @@ func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAss
 				}
 				continue
 			}
-			fmt.Fprintf(&b, "%s: %s\n", fv.Key, yamlEscape(renderFieldValueForFormat(v, fv.Format)))
+			fmt.Fprintf(&b, "%s: %s\n", fv.Key, yamlFieldValue(v, fv.Format))
 		}
 		for _, id := range rs.CustomFields {
 			if viewIDs[id] {
@@ -802,7 +807,7 @@ func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAss
 		}
 	}
 	b.WriteString("---\n\n")
-	fmt.Fprintf(&b, "# %s — %s\n\n", is.Key, is.Summary)
+	fmt.Fprintf(&b, "# %s — %s\n\n", markdownSingleLine(is.Key), markdownSingleLine(is.Summary))
 	if is.Body != "" {
 		b.WriteString("## Description\n\n")
 	}
@@ -875,16 +880,16 @@ func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAss
 			b.WriteString("_None._\n\n")
 		} else {
 			for _, child := range related.Children {
-				fmt.Fprintf(&b, "- %s", child.Key)
+				fmt.Fprintf(&b, "- %s", markdownSingleLine(child.Key))
 				if child.Summary != "" {
-					fmt.Fprintf(&b, " — %s", child.Summary)
+					fmt.Fprintf(&b, " — %s", markdownSingleLine(child.Summary))
 				}
 				var meta []string
 				if child.Status != "" {
-					meta = append(meta, child.Status)
+					meta = append(meta, markdownSingleLine(child.Status))
 				}
 				if child.Assignee != "" {
-					meta = append(meta, child.Assignee)
+					meta = append(meta, markdownSingleLine(child.Assignee))
 				}
 				if len(meta) > 0 {
 					fmt.Fprintf(&b, " (%s)", strings.Join(meta, "; "))
@@ -1024,7 +1029,10 @@ func renderFieldValue(v any) string {
 }
 
 func renderFieldValueForFormat(v any, format string) string {
-	if format == "list" {
+	switch format {
+	case "date", "datetime":
+		return renderTemporalField(v, format)
+	case "list":
 		if arr, ok := v.([]any); ok {
 			parts := make([]string, 0, len(arr))
 			for _, item := range arr {
@@ -1038,6 +1046,30 @@ func renderFieldValueForFormat(v any, format string) string {
 	return renderFieldValue(v)
 }
 
+func renderTemporalField(v any, format string) string {
+	raw := renderFieldValue(v)
+	if raw == "" {
+		return ""
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05.999999999-0700",
+		"2006-01-02T15:04:05-0700",
+		"2006-01-02",
+	}
+	for _, layout := range layouts {
+		parsed, err := time.Parse(layout, raw)
+		if err != nil {
+			continue
+		}
+		if format == "date" {
+			return parsed.Format("2006-01-02")
+		}
+		return parsed.Format(time.RFC3339Nano)
+	}
+	return raw // total read view: preserve malformed/unexpected server values
+}
+
 // renderFieldSection renders one configured read-only Markdown section. Jira
 // wiki is explicitly opt-in; every other format is a compact scalar/list view
 // and never mutates the raw snapshot value.
@@ -1048,11 +1080,14 @@ func renderFieldSection(v any, format string) string {
 		})
 	}
 	if format == "list" || (format == "auto" && isFieldList(v)) {
-		arr, _ := v.([]any)
+		arr, ok := v.([]any)
+		if !ok {
+			arr = []any{v}
+		}
 		var b strings.Builder
 		for _, item := range arr {
 			if s := renderFieldValue(item); s != "" {
-				fmt.Fprintf(&b, "- %s\n", s)
+				fmt.Fprintf(&b, "- %s\n", markdownSingleLine(s))
 			}
 		}
 		return strings.TrimRight(b.String(), "\n")
@@ -1224,8 +1259,73 @@ func mdEscapeDest(s string) string {
 }
 
 func yamlEscape(s string) string {
-	if strings.ContainsAny(s, ":#\n\"'") {
-		return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
+	if !yamlPlainString(s) {
+		b, _ := json.Marshal(s)
+		return string(b)
 	}
 	return s
+}
+
+func yamlStringList(values []string) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		parts = append(parts, yamlEscape(value))
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+func yamlFieldValue(v any, format string) string {
+	if format == "date" || format == "datetime" {
+		return yamlEscape(renderTemporalField(v, format))
+	}
+	if arr, ok := v.([]any); ok && (format == "auto" || format == "list") {
+		values := make([]string, 0, len(arr))
+		for _, item := range arr {
+			if value := renderFieldValue(item); value != "" {
+				values = append(values, value)
+			}
+		}
+		return yamlStringList(values)
+	}
+	switch value := v.(type) {
+	case bool:
+		return strconv.FormatBool(value)
+	case float64:
+		return strconv.FormatFloat(value, 'f', -1, 64)
+	case json.Number:
+		return value.String()
+	case map[string]any:
+		for _, key := range []string{"name", "value", "displayName"} {
+			if nested, ok := value[key]; ok && !fieldEmpty(nested) {
+				return yamlFieldValue(nested, format)
+			}
+		}
+	}
+	return yamlEscape(renderFieldValueForFormat(v, format))
+}
+
+func yamlPlainString(s string) bool {
+	if s == "" || strings.TrimSpace(s) != s || strings.IndexFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 || strings.ContainsAny(s, "\\:#,[]{}&*!|>'\"%@`") {
+		return false
+	}
+	if strings.ContainsAny(s[:1], "-?") {
+		return false
+	}
+	switch strings.ToLower(s) {
+	case "null", "~", "true", "false", "yes", "no", "on", "off", ".nan", ".inf", "-.inf", "+.inf":
+		return false
+	}
+	if _, err := strconv.ParseFloat(s, 64); err == nil {
+		return false
+	}
+	if _, err := time.Parse("2006-01-02", s); err == nil {
+		return false
+	}
+	return true
+}
+
+func markdownSingleLine(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	return strings.ReplaceAll(s, "\n", " ")
 }
