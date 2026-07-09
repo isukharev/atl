@@ -380,6 +380,7 @@ const commentPageGuard = 100
 // the adapter pages internally until the listing is exhausted.
 func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, error) {
 	startAt := 0
+	expectedTotal := -1
 	out := []domain.Comment{}
 	for page := 0; page < commentPageGuard; page++ {
 		var resp struct {
@@ -398,15 +399,38 @@ func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, 
 		if err := j.c.GetJSON(ctx, "/rest/api/2/issue/"+url.PathEscape(key)+"/comment?"+q.Encode(), &resp); err != nil {
 			return nil, err
 		}
+		if resp.StartAt != startAt {
+			return nil, fmt.Errorf("%w: Jira comment listing for %s returned offset %d while %d was requested",
+				domain.ErrCheckFailed, key, resp.StartAt, startAt)
+		}
+		if expectedTotal < 0 {
+			expectedTotal = resp.Total
+		} else if resp.Total != expectedTotal {
+			return nil, fmt.Errorf("%w: Jira comment listing for %s changed total from %d to %d while paging",
+				domain.ErrCheckFailed, key, expectedTotal, resp.Total)
+		}
 		for _, c := range resp.Comments {
 			out = append(out, domain.Comment{ID: c.ID, Author: nestedDisplay(c.Author), Created: c.Created, Body: c.Body})
 		}
-		startAt += len(resp.Comments)
-		if len(resp.Comments) == 0 || startAt >= resp.Total {
-			break
+		next := resp.StartAt + len(resp.Comments)
+		if next > resp.Total {
+			return nil, fmt.Errorf("%w: Jira comment listing for %s returned inconsistent pagination (%d comments through offset %d, total %d)",
+				domain.ErrCheckFailed, key, len(resp.Comments), next, resp.Total)
+		}
+		if len(resp.Comments) == 0 && next < resp.Total {
+			return nil, fmt.Errorf("%w: Jira comment listing for %s made no progress at offset %d with %d comments remaining",
+				domain.ErrCheckFailed, key, next, resp.Total-next)
+		}
+		startAt = next
+		if startAt >= resp.Total {
+			return out, nil
+		}
+		if page == commentPageGuard-1 {
+			return nil, fmt.Errorf("%w: Jira comment listing for %s remains incomplete after %d pages (%d of %d comments fetched)",
+				domain.ErrCheckFailed, key, commentPageGuard, startAt, resp.Total)
 		}
 	}
-	return out, nil
+	panic("unreachable")
 }
 
 // DeleteComment removes a comment by id.

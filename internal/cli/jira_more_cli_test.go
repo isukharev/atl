@@ -82,7 +82,7 @@ func TestJiraIssueHistory_EmitsChangelog(t *testing.T) {
 func TestJiraIssueCommentList_EmitsAndID(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/api/2/issue/ENG-1/comment", http.StatusOK,
-		`{"comments":[{"id":"42","author":{"displayName":"Jane"},"created":"2026-06-01","body":"hi"}]}`)
+		`{"startAt":0,"total":1,"comments":[{"id":"42","author":{"displayName":"Jane"},"created":"2026-06-01","body":"hi"}]}`)
 
 	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "comment", "list", "ENG-1")
 	if code != exitOK {
