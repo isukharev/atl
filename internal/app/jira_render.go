@@ -71,7 +71,7 @@ func (s *JiraService) Render(target string, override config.RenderService) (*Jir
 			used.EpicField = related.EpicField
 		}
 		md := renderIssueMarkdownWithRelated(is, assetsOnDisk(dir, keySeg), related, used)
-		if err := safepath.WriteFile(mdPath, md, 0o644); err != nil {
+		if err := safepath.WriteFileWithin(root, mdPath, md, 0o644); err != nil {
 			return res, err
 		}
 		// Keyed by the .wiki basename, same key as the pull/apply paths.

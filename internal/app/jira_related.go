@@ -43,12 +43,12 @@ func epicChildrenPath(dir, keySeg string) string {
 	return filepath.Join(dir, keySeg+".epic-children.json")
 }
 
-func writeEpicChildrenSidecar(path string, sidecar JiraEpicChildrenSidecar) error {
+func writeEpicChildrenSidecar(root, path string, sidecar JiraEpicChildrenSidecar) error {
 	b, err := json.MarshalIndent(sidecar, "", "  ")
 	if err != nil {
 		return err
 	}
-	return safepath.WriteFile(path, append(b, '\n'), 0o644)
+	return safepath.WriteFileWithin(root, path, append(b, '\n'), 0o644)
 }
 
 func loadEpicChildrenSidecar(path string) *JiraEpicChildrenSidecar {

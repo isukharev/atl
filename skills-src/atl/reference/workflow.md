@@ -5,6 +5,11 @@
 **Default: `~/.atl/<workspace>/`** — outside the user's code repository, where `<workspace>` is a
 meaningful name (the code repo's basename or the Confluence space key, e.g. `~/.atl/payments/`).
 
+Mirror I/O is rooted at the selected directory: descendant symlinks cannot
+redirect writes outside it. `status` and directory `push` fail if a substrate
+or metadata entry cannot be read, so never treat a scan error as a clean or
+complete mirror; repair the local entry or re-pull it first.
+
 Why outside the repo:
 - A coding agent's `Grep` (ripgrep) **skips git-ignored files by default**, so an in-repo *ignored*
   mirror would be invisible to search. A separate tree is fully greppable.

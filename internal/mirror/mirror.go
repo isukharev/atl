@@ -142,6 +142,7 @@ func pageOwner(dir, slug string) (owner string, occupied bool) {
 // pageSink writes assets under <dir>/<slug>.assets/ and returns paths relative
 // to the page dir (so .md links resolve).
 type pageSink struct {
+	root string
 	dir  string
 	slug string
 }
@@ -154,21 +155,23 @@ func (s pageSink) Put(name string, data []byte) (string, error) {
 		return "", fmt.Errorf("refusing unsafe asset name %q", name)
 	}
 	adir := filepath.Join(s.dir, s.slug+".assets")
-	if err := os.MkdirAll(adir, 0o755); err != nil {
+	if err := safepath.MkdirAllWithin(s.root, adir, 0o755); err != nil {
 		return "", err
 	}
 	target := filepath.Join(adir, safe)
 	if !safepath.Within(adir, target) {
 		return "", fmt.Errorf("refusing unsafe asset path %q", name)
 	}
-	if err := safepath.WriteFile(target, data, 0o644); err != nil {
+	if err := safepath.WriteFileWithin(s.root, target, data, 0o644); err != nil {
 		return "", err
 	}
 	return s.slug + ".assets/" + safe, nil
 }
 
 // AssetSink returns the asset sink for a page directory.
-func (m *Mirror) AssetSink(dir, slug string) domain.AssetSink { return pageSink{dir: dir, slug: slug} }
+func (m *Mirror) AssetSink(dir, slug string) domain.AssetSink {
+	return pageSink{root: m.Root, dir: dir, slug: slug}
+}
 
 // Write persists a page: .csf (source of truth), .md (read view), .meta.json,
 // and updates the sidecar. refs must already be resolved (display/asset filled).
@@ -205,11 +208,11 @@ type commentSidecar struct {
 // is recorded by the caller. When cs is non-nil it also writes the comment
 // sidecar files and stamps the comment counters into .meta.json.
 func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []domain.Ref, cs *commentSidecar, mdOpts MDViewOpts) (rel string, err error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := safepath.MkdirAllWithin(m.Root, dir, 0o755); err != nil {
 		return "", err
 	}
 	csfPath := filepath.Join(dir, slug+".csf")
-	if err := safepath.WriteFile(csfPath, page.Body, 0o644); err != nil {
+	if err := safepath.WriteFileWithin(m.Root, csfPath, page.Body, 0o644); err != nil {
 		return "", err
 	}
 	// Markdown view — best-effort by contract: a render or write failure never
@@ -223,8 +226,8 @@ func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []
 	if root, err := csf.Parse(page.Body); err == nil {
 		md = RenderMarkdownOpts(root, refs, mdOpts)
 	}
-	if err := safepath.WriteFile(mdPath, md, 0o644); err != nil {
-		_ = os.Remove(mdPath)
+	if err := safepath.WriteFileWithin(m.Root, mdPath, md, 0o644); err != nil {
+		_ = safepath.RemoveWithin(m.Root, mdPath)
 	}
 	meta := Meta{
 		ID: page.ID, Title: page.Title, Space: page.SpaceKey, Version: page.Version,
@@ -243,7 +246,7 @@ func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []
 		meta.CommentsTruncated = cs.truncated
 	}
 	mb, _ := json.MarshalIndent(meta, "", "  ")
-	if err := safepath.WriteFile(filepath.Join(dir, slug+".meta.json"), append(mb, '\n'), 0o644); err != nil {
+	if err := safepath.WriteFileWithin(m.Root, filepath.Join(dir, slug+".meta.json"), append(mb, '\n'), 0o644); err != nil {
 		return "", err
 	}
 	if err := m.saveBase(page.ID, page.Body); err != nil {
@@ -259,7 +262,7 @@ func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []
 // human read view). The .md is purely derived from the JSON and is not part of
 // any parity contract. Neither file feeds the content hash or .atl/base/.
 func (m *Mirror) writeCommentSidecar(dir, slug string, comments []domain.Comment) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := safepath.MkdirAllWithin(m.Root, dir, 0o755); err != nil {
 		return err
 	}
 	list := comments
@@ -270,10 +273,10 @@ func (m *Mirror) writeCommentSidecar(dir, slug string, comments []domain.Comment
 	if err != nil {
 		return err
 	}
-	if err := safepath.WriteFile(filepath.Join(dir, slug+".comments.json"), append(jb, '\n'), 0o644); err != nil {
+	if err := safepath.WriteFileWithin(m.Root, filepath.Join(dir, slug+".comments.json"), append(jb, '\n'), 0o644); err != nil {
 		return err
 	}
-	return safepath.WriteFile(filepath.Join(dir, slug+".comments.md"), RenderCommentsMarkdown(comments), 0o644)
+	return safepath.WriteFileWithin(m.Root, filepath.Join(dir, slug+".comments.md"), RenderCommentsMarkdown(comments), 0o644)
 }
 
 // RenderCommentsMarkdown renders a page's comments as a derived human read view,
@@ -378,7 +381,7 @@ func (m *Mirror) EnsureScaffold() error {
 	}
 	gi := filepath.Join(m.Root, ".gitignore")
 	if _, err := os.Stat(gi); os.IsNotExist(err) {
-		_ = safepath.WriteFile(gi, []byte("# atl mirror — never commit secrets\n.atl/\ncredentials.json\n*.pat\n"), 0o644)
+		_ = safepath.WriteFileWithin(m.Root, gi, []byte("# atl mirror — never commit secrets\n.atl/\ncredentials.json\n*.pat\n"), 0o644)
 	}
 	return nil
 }
@@ -412,8 +415,15 @@ func loadCSFWith(sc sidecarFile, csfPath string) (*LocalCSF, []byte, error) {
 	}
 	lc := &LocalCSF{Path: csfPath, Current: Hash(body)}
 	metaPath := strings.TrimSuffix(csfPath, ".csf") + ".meta.json"
-	if mb, err := os.ReadFile(metaPath); err == nil {
-		_ = json.Unmarshal(mb, &lc.Meta)
+	mb, err := os.ReadFile(metaPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read metadata %s: %w", metaPath, err)
+	}
+	if err := json.Unmarshal(mb, &lc.Meta); err != nil {
+		return nil, nil, fmt.Errorf("parse metadata %s: %w", metaPath, err)
+	}
+	if lc.Meta.ID == "" {
+		return nil, nil, fmt.Errorf("metadata %s has no page id", metaPath)
 	}
 	if st, ok := sc.Pages[lc.Meta.ID]; ok {
 		s := st
@@ -434,7 +444,7 @@ func (m *Mirror) ListCSF() ([]*LocalCSF, error) {
 	var out []*LocalCSF
 	err = filepath.Walk(m.Root, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil
+			return fmt.Errorf("walk mirror at %s: %w", p, err)
 		}
 		if info.IsDir() {
 			if info.Name() == ".atl" {
@@ -443,10 +453,11 @@ func (m *Mirror) ListCSF() ([]*LocalCSF, error) {
 			return nil
 		}
 		if strings.HasSuffix(p, ".csf") {
-			lc, _, err := loadCSFWith(sc, p)
-			if err == nil {
-				out = append(out, lc)
+			lc, _, loadErr := loadCSFWith(sc, p)
+			if loadErr != nil {
+				return fmt.Errorf("load mirror page %s: %w", p, loadErr)
 			}
+			out = append(out, lc)
 		}
 		return nil
 	})
@@ -505,7 +516,7 @@ func (m *Mirror) ListWiki() ([]*LocalWiki, error) {
 	var out []*LocalWiki
 	err = filepath.Walk(m.Root, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil
+			return fmt.Errorf("walk mirror at %s: %w", p, err)
 		}
 		if info.IsDir() {
 			if info.Name() == ".atl" {
@@ -514,10 +525,11 @@ func (m *Mirror) ListWiki() ([]*LocalWiki, error) {
 			return nil
 		}
 		if strings.HasSuffix(p, ".wiki") {
-			lw, _, err := loadWikiWith(sc, p)
-			if err == nil {
-				out = append(out, lw)
+			lw, _, loadErr := loadWikiWith(sc, p)
+			if loadErr != nil {
+				return fmt.Errorf("load mirror issue %s: %w", p, loadErr)
 			}
+			out = append(out, lw)
 		}
 		return nil
 	})

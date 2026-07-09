@@ -499,16 +499,18 @@ func TestJiraPullDoesNotRefetchPerIssue(t *testing.T) {
 // A snapshot (.json) write failure fails the pull loudly — a disk-full run
 // must not report issues as pulled with missing/stale snapshots.
 func TestJiraPullSnapshotWriteFailureAborts(t *testing.T) {
-	if os.Getuid() == 0 {
-		t.Skip("permission-based failure injection is a no-op as root")
-	}
 	into := t.TempDir()
 	dir := filepath.Join(into, "PROJ")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Pre-plant a read-only snapshot so the refresh write fails.
-	if err := os.WriteFile(filepath.Join(dir, "PROJ-1.json"), []byte("{}"), 0o444); err != nil {
+	// Pre-plant a non-empty directory at the snapshot path so atomic replacement
+	// fails deterministically without relying on user/umask permissions.
+	snapshotPath := filepath.Join(dir, "PROJ-1.json")
+	if err := os.Mkdir(snapshotPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(snapshotPath, "blocker"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	tr := &countingPullTracker{issues: []domain.Issue{

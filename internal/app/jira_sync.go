@@ -235,13 +235,13 @@ func (s *JiraService) refreshAfterPush(ctx context.Context, m *mirror.Mirror, wi
 	}
 	dir := filepath.Dir(wikiPath)
 	keySeg := strings.TrimSuffix(filepath.Base(wikiPath), wikiExt)
-	if err := safepath.WriteFile(wikiPath, []byte(is.Body), 0o644); err != nil {
+	if err := safepath.WriteFileWithin(m.Root, wikiPath, []byte(is.Body), 0o644); err != nil {
 		return err
 	}
 	mdPath := filepath.Join(dir, keySeg+".md")
 	related := loadEpicChildrenSidecar(epicChildrenPath(dir, keySeg))
-	if err := safepath.WriteFile(mdPath, renderIssueMarkdownWithRelated(is, assetsOnDisk(dir, keySeg), related, rs), 0o644); err != nil {
-		_ = os.Remove(mdPath) // best-effort view: never let it contradict the substrate
+	if err := safepath.WriteFileWithin(m.Root, mdPath, renderIssueMarkdownWithRelated(is, assetsOnDisk(dir, keySeg), related, rs), 0o644); err != nil {
+		_ = safepath.RemoveWithin(m.Root, mdPath) // best-effort view: never let it contradict the substrate
 	}
 	if err := m.SaveBaseExt(key, []byte(is.Body), wikiExt); err != nil {
 		return err

@@ -131,7 +131,7 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 	if o.DryRun {
 		return res, nil
 	}
-	if err := safepath.WriteFile(csfPath, out, 0o644); err != nil {
+	if err := safepath.WriteFileWithin(m.Root, csfPath, out, 0o644); err != nil {
 		return res, err
 	}
 	res.Wrote = true
@@ -153,7 +153,7 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 			md = mirror.RenderMarkdown(root2, lc.Meta.Refs)
 		}
 	}
-	if werr := safepath.WriteFile(mdPath, md, 0o644); werr != nil {
+	if werr := safepath.WriteFileWithin(m.Root, mdPath, md, 0o644); werr != nil {
 		res.Warning = "applied, but the .md view could not be refreshed and may be stale: " + werr.Error()
 	} else if !stub {
 		// Record the settings the refreshed view was written with: the recorded

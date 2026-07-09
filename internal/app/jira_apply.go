@@ -168,7 +168,7 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	// Write only the `.wiki`; do NOT touch the sidecar or pristine base, so the
 	// issue reads locally_edited (and still synced) afterwards and `jira push`
 	// remains the transport under its own drift gate.
-	if err := safepath.WriteFile(wikiPath, merged, 0o644); err != nil {
+	if err := safepath.WriteFileWithin(root, wikiPath, merged, 0o644); err != nil {
 		return res, err
 	}
 	res.Wrote = true
@@ -178,7 +178,7 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	// succeeded; erroring here would misreport the apply as failed and a retry
 	// would refuse on base divergence).
 	is.Body = string(merged)
-	if werr := safepath.WriteFile(mdPath, renderIssueMarkdownWithRelated(is, assets, related, rs), 0o644); werr != nil {
+	if werr := safepath.WriteFileWithin(root, mdPath, renderIssueMarkdownWithRelated(is, assets, related, rs), 0o644); werr != nil {
 		res.Warning = "applied, but the .md view could not be refreshed and may be stale: " + werr.Error()
 	} else if verr := m.SaveViewStates(map[string]mirror.ViewState{keySeg: viewStateOf(rs)}); verr != nil {
 		// Record the settings the refreshed view was written with (best-effort,

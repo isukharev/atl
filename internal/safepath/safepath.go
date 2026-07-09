@@ -8,6 +8,9 @@ package safepath
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -80,6 +83,136 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	_, err := WriteReaderAtomic(path, bytes.NewReader(data), perm)
 	return err
+}
+
+// MkdirAllWithin creates target beneath root using os.Root containment. The
+// selected root itself may be a symlink (it is the caller's trust anchor), but
+// a symlink in any descendant component cannot escape that root.
+func MkdirAllWithin(root, target string, perm os.FileMode) error {
+	if err := os.MkdirAll(root, perm); err != nil {
+		return err
+	}
+	rootAbs, rootErr := filepath.Abs(root)
+	targetAbs, targetErr := filepath.Abs(target)
+	if rootErr == nil && targetErr == nil && rootAbs == targetAbs {
+		return nil
+	}
+	rel, err := relativeToRoot(root, target)
+	if err != nil {
+		return err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = r.Close() }()
+	return r.MkdirAll(rel, perm)
+}
+
+// WriteFileWithin atomically replaces target beneath root. Root-scoped path
+// resolution prevents descendant symlinks from escaping the trust anchor;
+// atomic rename also replaces rather than follows a final-component symlink.
+func WriteFileWithin(root, target string, data []byte, perm os.FileMode) error {
+	_, err := WriteReaderAtomicWithin(root, target, bytes.NewReader(data), perm)
+	return err
+}
+
+// RemoveWithin removes target through the same root-contained resolver used by
+// writes. It never follows an escaping descendant symlink.
+func RemoveWithin(root, target string) error {
+	rel, err := relativeToRoot(root, target)
+	if err != nil {
+		return err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = r.Close() }()
+	return r.Remove(rel)
+}
+
+// WriteReaderAtomicWithin is the root-contained counterpart of
+// WriteReaderAtomic. The destination parent must already exist beneath root.
+func WriteReaderAtomicWithin(root, target string, reader io.Reader, perm os.FileMode) (int64, error) {
+	rel, err := relativeToRoot(root, target)
+	if err != nil {
+		return 0, err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = r.Close() }()
+	parent := r
+	closeParent := false
+	dir, base := filepath.Dir(rel), filepath.Base(rel)
+	if dir != "." {
+		parent, err = r.OpenRoot(dir)
+		if err != nil {
+			return 0, err
+		}
+		closeParent = true
+	}
+	if closeParent {
+		defer func() { _ = parent.Close() }()
+	}
+	tmp, tmpName, err := createRootTemp(parent, perm)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = parent.Remove(tmpName) }()
+	n, err := io.Copy(tmp, reader)
+	if err != nil {
+		_ = tmp.Close()
+		return n, err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return n, err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return n, err
+	}
+	if err := tmp.Close(); err != nil {
+		return n, err
+	}
+	return n, parent.Rename(tmpName, base)
+}
+
+func relativeToRoot(root, target string) (string, error) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(rootAbs, targetAbs)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("refusing path %q outside root %q", target, root)
+	}
+	return rel, nil
+}
+
+func createRootTemp(root *os.Root, perm os.FileMode) (*os.File, string, error) {
+	for range 100 {
+		var suffix [8]byte
+		if _, err := rand.Read(suffix[:]); err != nil {
+			return nil, "", err
+		}
+		name := ".tmp-" + hex.EncodeToString(suffix[:])
+		f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+		if err == nil {
+			return f, name, nil
+		}
+		if !os.IsExist(err) {
+			return nil, "", err
+		}
+	}
+	return nil, "", fmt.Errorf("could not allocate temporary file")
 }
 
 // WriteReaderAtomic streams r into a fresh temp file in the same directory,

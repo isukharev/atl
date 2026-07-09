@@ -111,7 +111,7 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 			mdOpts := confMDViewOpts(rs, page, readCommentsSidecar(dir, slug))
 			md = mirror.RenderMarkdownOpts(node, lc.Meta.Refs, mdOpts)
 		}
-		if err := safepath.WriteFile(mdPath, md, 0o644); err != nil {
+		if err := safepath.WriteFileWithin(root, mdPath, md, 0o644); err != nil {
 			return res, err
 		}
 		if lc.Meta.ID != "" {

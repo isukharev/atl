@@ -189,9 +189,6 @@ func TestWriteStaleMdNeverSurvivesParseFailure(t *testing.T) {
 // succeeds and the stale view is removed rather than left contradicting the
 // new .csf.
 func TestWriteMdWriteFailureIsBestEffort(t *testing.T) {
-	if os.Getuid() == 0 {
-		t.Skip("permission-based failure injection is a no-op as root")
-	}
 	m := New(t.TempDir())
 	page := &domain.Resource{ID: "1", Title: "Doc", SpaceKey: "S", Version: 1, Body: []byte("<p>v1</p>")}
 	dir, slug := m.PageDir(page.SpaceKey, nil, page.Title)
@@ -199,8 +196,15 @@ func TestWriteMdWriteFailureIsBestEffort(t *testing.T) {
 		t.Fatal(err)
 	}
 	mdPath := filepath.Join(dir, slug+".md")
-	// Make the existing .md unwritable so the refresh write fails.
-	if err := os.Chmod(mdPath, 0o444); err != nil {
+	// Replace the existing .md with a non-empty directory so the atomic rename
+	// and best-effort cleanup both fail deterministically on every platform.
+	if err := os.Remove(mdPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(mdPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mdPath, "blocker"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	page.Version = 2
@@ -208,10 +212,9 @@ func TestWriteMdWriteFailureIsBestEffort(t *testing.T) {
 	if err := m.Write(dir, slug, page, nil); err != nil {
 		t.Fatalf(".md write failure must not fail the pull: %v", err)
 	}
-	// The .csf moved on; the unwritable stale .md must be gone, not left stale.
-	if _, err := os.Stat(mdPath); !os.IsNotExist(err) {
-		b, _ := os.ReadFile(mdPath)
-		t.Errorf("stale .md survived a failed refresh write: %q (stat err %v)", b, err)
+	// The .csf moved on; no stale readable Markdown file may survive.
+	if b, err := os.ReadFile(mdPath); err == nil {
+		t.Errorf("stale .md survived a failed refresh write: %q", b)
 	}
 	gotCSF, _ := os.ReadFile(filepath.Join(dir, slug+".csf"))
 	if string(gotCSF) != "<p>v2</p>" {
@@ -317,4 +320,67 @@ func TestListCSF(t *testing.T) {
 			t.Errorf("ListCSF not sorted: %q > %q", out[i-1].Path, out[i].Path)
 		}
 	}
+}
+
+func TestMirrorWriteRefusesEscapingIntermediateSymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "S")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	m := New(root)
+	page := &domain.Resource{ID: "1", Title: "Page", SpaceKey: "S", Version: 1, Body: []byte("<p>x</p>")}
+	dir, slug := m.PageDir(page.SpaceKey, nil, page.Title)
+	if err := m.Write(dir, slug, page, nil); err == nil {
+		t.Fatal("mirror write followed an escaping space-directory symlink")
+	}
+	entries, err := os.ReadDir(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("outside directory was modified: %v", entries)
+	}
+}
+
+func TestListMirrorFilesPropagatesEntryAndWalkErrors(t *testing.T) {
+	t.Run("csf body read", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.Symlink(filepath.Join(root, "missing"), filepath.Join(root, "broken.csf")); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		if _, err := New(root).ListCSF(); err == nil || !strings.Contains(err.Error(), "broken.csf") {
+			t.Fatalf("ListCSF error = %v, want broken entry path", err)
+		}
+	})
+
+	t.Run("wiki body read", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.Symlink(filepath.Join(root, "missing"), filepath.Join(root, "broken.wiki")); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		if _, err := New(root).ListWiki(); err == nil || !strings.Contains(err.Error(), "broken.wiki") {
+			t.Fatalf("ListWiki error = %v, want broken entry path", err)
+		}
+	})
+
+	t.Run("corrupt metadata", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.WriteFile(filepath.Join(root, "page.csf"), []byte("<p>x</p>"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "page.meta.json"), []byte("{"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := New(root).ListCSF(); err == nil || !strings.Contains(err.Error(), "page.meta.json") {
+			t.Fatalf("ListCSF error = %v, want metadata path", err)
+		}
+	})
+
+	t.Run("missing root", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "missing")
+		if _, err := New(root).ListWiki(); err == nil || !strings.Contains(err.Error(), "walk mirror") {
+			t.Fatalf("ListWiki error = %v, want walk failure", err)
+		}
+	})
 }

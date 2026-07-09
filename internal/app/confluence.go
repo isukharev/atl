@@ -101,10 +101,10 @@ func (s *ConfluenceService) DownloadAttachment(ctx context.Context, pageID, file
 		return "", err // fail before MkdirAll: a 404 must not leave an empty outDir
 	}
 	defer rc.Close()
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := safepath.MkdirAllWithin(outDir, outDir, 0o755); err != nil {
 		return "", err
 	}
-	if _, err := safepath.WriteReaderAtomic(p, rc, 0o644); err != nil {
+	if _, err := safepath.WriteReaderAtomicWithin(outDir, p, rc, 0o644); err != nil {
 		return "", err
 	}
 	return p, nil

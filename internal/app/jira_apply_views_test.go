@@ -119,7 +119,7 @@ func TestJiraApply_RecordedConfiguredAndEpicSectionsAreReadOnly(t *testing.T) {
 			t.Fatalf("warnings: %v", warns)
 		}
 		related := JiraEpicChildrenSidecar{Epic: "PROJ-42", EpicField: rs.EpicField, Children: []JiraEpicChild{{Key: "PROJ-43", Summary: "child"}}}
-		if err := writeEpicChildrenSidecar(epicChildrenPath(dir, "PROJ-42"), related); err != nil {
+		if err := writeEpicChildrenSidecar(root, epicChildrenPath(dir, "PROJ-42"), related); err != nil {
 			t.Fatal(err)
 		}
 		mustWriteFile(t, mdPath, string(renderIssueMarkdownWithRelated(is, nil, &related, rs)))

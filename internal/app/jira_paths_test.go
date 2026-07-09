@@ -184,6 +184,27 @@ func TestJiraPullRejectsTraversalKey(t *testing.T) {
 	assertNothingOutside(t, root, into)
 }
 
+func TestJiraPullRefusesEscapingProjectSymlink(t *testing.T) {
+	into := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(into, "PROJ")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	s := &JiraService{tr: partialTracker{issues: []domain.Issue{{
+		ID: "1", Key: "PROJ-1", Project: "PROJ", Summary: "issue", Body: "body",
+	}}}}
+	if _, err := s.Pull(context.Background(), JiraPullOpts{JQL: "project = PROJ", Into: into, Limit: 1}); err == nil {
+		t.Fatal("pull followed an escaping project-directory symlink")
+	}
+	entries, err := os.ReadDir(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("outside directory was modified: %v", entries)
+	}
+}
+
 // assertNothingOutside fails if any regular file under root lies outside allowed.
 func assertNothingOutside(t *testing.T, root, allowed string) {
 	t.Helper()
