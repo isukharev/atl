@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/isukharev/atl/internal/config"
@@ -27,7 +28,7 @@ func TestProfileBases(t *testing.T) {
 	}{
 		{"jira", "minimal", nil},
 		{"jira", "default", []string{"assignee", "attachments", "comments", "labels", "links", "parent", "priority", "project", "status", "type"}},
-		{"jira", "full", append([]string(nil), jiraSections...)},
+		{"jira", "full", append([]string(nil), jiraFullSections...)},
 		{"confluence", "minimal", nil},
 		{"confluence", "default", nil},
 		{"confluence", "full", []string{"comments", "frontmatter"}},
@@ -89,6 +90,45 @@ func TestComputeSettingsCustomFields(t *testing.T) {
 	})
 	if !reflect.DeepEqual(rs.CustomFields, []string{"customfield_10001", "customfield_10002"}) {
 		t.Errorf("custom fields not carried: %v", rs.CustomFields)
+	}
+}
+
+func TestComputeSettingsFieldViewsAndEpicChildren(t *testing.T) {
+	rs, warns := computeSettings("jira", config.RenderService{
+		Profile:   "full",
+		Include:   []string{SecEpicChildren},
+		EpicField: "customfield_10010",
+		FieldViews: []config.JiraFieldView{
+			{ID: "customfield_1", Key: "risk", Label: "Risk", Placement: "section", Format: "jira_wiki"},
+			{ID: "customfield_2", Key: "score"},
+		},
+	})
+	if len(warns) != 0 {
+		t.Fatalf("unexpected warnings: %v", warns)
+	}
+	if !rs.On(SecEpicChildren) || rs.EpicField != "customfield_10010" {
+		t.Fatalf("epic settings not carried: %+v", rs)
+	}
+	if len(rs.FieldViews) != 2 || rs.FieldViews[1].Placement != "frontmatter" || rs.FieldViews[1].Format != "auto" {
+		t.Fatalf("field views not normalized: %+v", rs.FieldViews)
+	}
+	vs := viewStateOf(rs)
+	restored := settingsFromViewState(vs)
+	if !reflect.DeepEqual(restored.FieldViews, rs.FieldViews) || restored.EpicField != rs.EpicField || !restored.On(SecEpicChildren) {
+		t.Fatalf("view state lost settings: restored=%+v original=%+v", restored, rs)
+	}
+}
+
+func TestComputeSettingsRejectsDuplicateFieldViewKey(t *testing.T) {
+	rs, warns := computeSettings("jira", config.RenderService{FieldViews: []config.JiraFieldView{
+		{ID: "customfield_1", Key: "same"},
+		{ID: "customfield_2", Key: "same"},
+	}})
+	if len(warns) != 1 || !strings.Contains(warns[0], "duplicate") {
+		t.Fatalf("warnings = %v, want duplicate warning", warns)
+	}
+	if len(rs.FieldViews) != 1 || rs.FieldViews[0].ID != "customfield_1" {
+		t.Fatalf("kept views = %+v", rs.FieldViews)
 	}
 }
 

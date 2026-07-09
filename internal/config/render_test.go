@@ -151,7 +151,10 @@ func TestLoadLocalInvalidProfileDropped(t *testing.T) {
 // the keys it sets, global supplies the rest, defaults fill the remainder.
 func TestEffectiveRenderPrecedence(t *testing.T) {
 	global := &Config{Render: &RenderConfig{
-		Jira: &RenderService{Profile: "full", Include: []string{"sprint"}, CustomFields: []string{"customfield_1"}},
+		Jira: &RenderService{
+			Profile: "full", Include: []string{"sprint"}, CustomFields: []string{"customfield_1"},
+			FieldViews: []JiraFieldView{{ID: "customfield_2", Key: "score"}}, EpicField: "customfield_3",
+		},
 	}}
 	local := &LocalConfig{Render: &RenderConfig{
 		Jira: &RenderService{Profile: "minimal"}, // overrides profile only
@@ -176,6 +179,12 @@ func TestEffectiveRenderPrecedence(t *testing.T) {
 	}
 	if prov["render.jira.custom_fields"] != "global" {
 		t.Errorf("custom_fields provenance = %q, want global", prov["render.jira.custom_fields"])
+	}
+	if got := render.Jira.FieldViews; len(got) != 1 || got[0].Key != "score" {
+		t.Errorf("field_views = %+v, want global value", got)
+	}
+	if prov["render.jira.field_views"] != "global" || render.Jira.EpicField != "customfield_3" || prov["render.jira.epic_field"] != "global" {
+		t.Errorf("new Jira render keys/provenance wrong: render=%+v prov=%v", render.Jira, prov)
 	}
 	// Confluence untouched -> defaults.
 	if render.Confluence.Profile != DefaultProfile {
@@ -219,6 +228,18 @@ func TestSetRenderKey(t *testing.T) {
 	if rc.Confluence == nil || len(rc.Confluence.Exclude) != 1 {
 		t.Errorf("confluence exclude not set: %+v", rc.Confluence)
 	}
+	if err := SetRenderKey(rc, "render.jira.field_views", `[{"id":"customfield_1","key":"risk","label":"Risk","placement":"section","format":"jira_wiki"}]`); err != nil {
+		t.Fatal(err)
+	}
+	if len(rc.Jira.FieldViews) != 1 || rc.Jira.FieldViews[0].Label != "Risk" {
+		t.Errorf("field_views not set: %+v", rc.Jira.FieldViews)
+	}
+	if err := SetRenderKey(rc, "render.jira.epic_field", "customfield_10010"); err != nil {
+		t.Fatal(err)
+	}
+	if rc.Jira.EpicField != "customfield_10010" {
+		t.Errorf("epic_field = %q", rc.Jira.EpicField)
+	}
 }
 
 func TestSetRenderKeyErrors(t *testing.T) {
@@ -232,7 +253,10 @@ func TestSetRenderKeyErrors(t *testing.T) {
 		{"render.bogus.profile", "x", false},            // bad service
 		{"render.jira.bogus", "x", false},               // bad field
 		{"render.confluence.custom_fields", "x", false}, // jira-only field
-		{"render.jira.profile", "gigantic", false},      // bad profile value
+		{"render.confluence.field_views", "[]", false},  // jira-only field
+		{"render.jira.field_views", `[{"id":"x","key":"bad key"}]`, false},
+		{"render.jira.field_views", `[{"id":"x","format":"jira_wiki"}]`, false},
+		{"render.jira.profile", "gigantic", false}, // bad profile value
 	}
 	for _, c := range cases {
 		err := SetRenderKey(rc, c.key, c.val)

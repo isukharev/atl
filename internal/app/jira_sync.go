@@ -239,7 +239,8 @@ func (s *JiraService) refreshAfterPush(ctx context.Context, m *mirror.Mirror, wi
 		return err
 	}
 	mdPath := filepath.Join(dir, keySeg+".md")
-	if err := safepath.WriteFile(mdPath, renderIssueMarkdown(is, assetsOnDisk(dir, keySeg), rs), 0o644); err != nil {
+	related := loadEpicChildrenSidecar(epicChildrenPath(dir, keySeg))
+	if err := safepath.WriteFile(mdPath, renderIssueMarkdownWithRelated(is, assetsOnDisk(dir, keySeg), related, rs), 0o644); err != nil {
 		_ = os.Remove(mdPath) // best-effort view: never let it contradict the substrate
 	}
 	if err := m.SaveBaseExt(key, []byte(is.Body), wikiExt); err != nil {

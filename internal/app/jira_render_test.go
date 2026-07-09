@@ -47,6 +47,9 @@ func richFields() map[string]any {
 			map[string]any{"id": "c1", "author": map[string]any{"displayName": "carol"}, "created": "2026-01-02", "body": "a comment"},
 		}},
 		"customfield_10001": "custom scalar",
+		"customfield_10002": map[string]any{"value": "7"},
+		"customfield_10003": "*Risk*\n * first\n * second",
+		"customfield_10004": []any{"A", "B"},
 		// A GreenHopper-serialized sprint value in an arbitrary custom field.
 		"customfield_10020": []any{"com.atlassian.greenhopper.service.sprint.Sprint@1[id=5,state=ACTIVE,name=Sprint 7,startDate=2026-01-01]"},
 	}
@@ -127,6 +130,37 @@ func TestPullFieldsWidenForFull(t *testing.T) {
 	for _, absent := range []string{"resolution", "duedate", "fixVersions", "subtasks"} {
 		if strings.Contains(def, absent) {
 			t.Errorf("default pull fields should not include %q: %s", absent, def)
+		}
+	}
+}
+
+func TestRenderConfiguredFieldViews(t *testing.T) {
+	rs, warns := computeSettings("jira", config.RenderService{
+		Profile:      "full",
+		CustomFields: []string{"customfield_10002"}, // typed view below must own it once
+		FieldViews: []config.JiraFieldView{
+			{ID: "customfield_10002", Key: "impact", Label: "Impact"},
+			{ID: "customfield_10003", Key: "risk_notes", Label: "Risk Notes", Placement: "section", Format: "jira_wiki"},
+			{ID: "customfield_10004", Key: "objectives", Label: "Objectives", Placement: "section", Format: "list"},
+			{ID: "customfield_missing", Key: "empty_field", Label: "Empty Field", Placement: "section", ShowEmpty: true},
+		},
+	})
+	if len(warns) != 0 {
+		t.Fatalf("warnings: %v", warns)
+	}
+	got := string(renderIssueMarkdown(richIssue(), nil, rs))
+	for _, want := range []string{
+		"impact: 7", "## Risk Notes", "**Risk**", "## Objectives", "- A", "- B", "## Empty Field", "_Not set._",
+	} {
+		mustContain(t, got, want)
+	}
+	if strings.Count(got, "impact: 7") != 1 || strings.Contains(got, "customfield_10002:") {
+		t.Errorf("typed view should own duplicate legacy field once:\n%s", got)
+	}
+	projection := strings.Join(jiraPullFields(nil, rs), ",")
+	for _, id := range []string{"customfield_10002", "customfield_10003", "customfield_10004", "customfield_missing"} {
+		if !strings.Contains(projection, id) {
+			t.Errorf("projection missing %s: %s", id, projection)
 		}
 	}
 }

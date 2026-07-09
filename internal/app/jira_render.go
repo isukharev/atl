@@ -52,7 +52,6 @@ func (s *JiraService) Render(target string, override config.RenderService) (*Jir
 	if err != nil {
 		return nil, err
 	}
-	vs := viewStateOf(rs)
 	views := map[string]mirror.ViewState{}
 	for _, jsonPath := range snaps {
 		is, ok := loadIssueSnapshot(jsonPath)
@@ -62,12 +61,17 @@ func (s *JiraService) Render(target string, override config.RenderService) (*Jir
 		dir := filepath.Dir(jsonPath)
 		keySeg := strings.TrimSuffix(filepath.Base(jsonPath), ".json")
 		mdPath := filepath.Join(dir, keySeg+".md")
-		md := renderIssueMarkdown(is, assetsOnDisk(dir, keySeg), rs)
+		related := loadEpicChildrenSidecar(epicChildrenPath(dir, keySeg))
+		used := rs
+		if related != nil && used.EpicField == "" {
+			used.EpicField = related.EpicField
+		}
+		md := renderIssueMarkdownWithRelated(is, assetsOnDisk(dir, keySeg), related, used)
 		if err := safepath.WriteFile(mdPath, md, 0o644); err != nil {
 			return res, err
 		}
 		// Keyed by the .wiki basename, same key as the pull/apply paths.
-		views[keySeg] = vs
+		views[keySeg] = viewStateOf(used)
 		rel, _ := filepath.Rel(root, mdPath)
 		res.Rendered = append(res.Rendered, JiraRendered{Key: is.Key, Path: rel})
 	}
@@ -113,7 +117,7 @@ func jiraSnapshotFiles(target string) ([]string, error) {
 			return nil
 		}
 		name := d.Name()
-		if strings.HasSuffix(name, ".json") && !strings.HasSuffix(name, ".comments.json") {
+		if strings.HasSuffix(name, ".json") && !strings.HasSuffix(name, ".comments.json") && !strings.HasSuffix(name, ".epic-children.json") {
 			out = append(out, path)
 		}
 		return nil

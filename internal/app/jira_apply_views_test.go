@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	jiraadapter "github.com/isukharev/atl/internal/adapter/jira"
@@ -98,4 +99,54 @@ func TestJiraApply_NoRecordedViewFallsBackToAmbient(t *testing.T) {
 	if got := mustReadFile(t, wikiPath); got != applyBody {
 		t.Errorf(".wiki not byte-identical: got=%q want=%q", got, applyBody)
 	}
+}
+
+func TestJiraApply_RecordedConfiguredAndEpicSectionsAreReadOnly(t *testing.T) {
+	setup := func(t *testing.T) (*JiraService, string, string, string) {
+		t.Helper()
+		svc, root, mdPath, wikiPath := scaffoldApplyIssueFull(t, applyBody)
+		dir := filepath.Dir(mdPath)
+		is, ok := loadIssueSnapshot(filepath.Join(dir, "PROJ-42.json"))
+		if !ok {
+			t.Fatal("snapshot did not load")
+		}
+		is.Body = applyBody
+		rs, warns := computeSettings("jira", config.RenderService{
+			Profile: "full", Include: []string{SecEpicChildren}, EpicField: "customfield_10010",
+			FieldViews: []config.JiraFieldView{{ID: "customfield_10003", Key: "risk", Label: "Risk", Placement: "section", Format: "jira_wiki"}},
+		})
+		if len(warns) != 0 {
+			t.Fatalf("warnings: %v", warns)
+		}
+		related := JiraEpicChildrenSidecar{Epic: "PROJ-42", EpicField: rs.EpicField, Children: []JiraEpicChild{{Key: "PROJ-43", Summary: "child"}}}
+		if err := writeEpicChildrenSidecar(epicChildrenPath(dir, "PROJ-42"), related); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, mdPath, string(renderIssueMarkdownWithRelated(is, nil, &related, rs)))
+		if err := mirror.New(root).SaveViewStates(map[string]mirror.ViewState{"PROJ-42": viewStateOf(rs)}); err != nil {
+			t.Fatal(err)
+		}
+		return svc, root, mdPath, wikiPath
+	}
+
+	t.Run("untouched", func(t *testing.T) {
+		svc, root, mdPath, wikiPath := setup(t)
+		if _, err := svc.Apply(mdPath, JiraApplyOpts{Into: root}); err != nil {
+			t.Fatalf("untouched apply: %v", err)
+		}
+		if got := mustReadFile(t, wikiPath); got != applyBody {
+			t.Errorf("wiki changed: %q", got)
+		}
+	})
+
+	t.Run("generated section edit refused", func(t *testing.T) {
+		svc, root, mdPath, _ := setup(t)
+		md := mustReadFile(t, mdPath)
+		md = strings.Replace(md, "PROJ-43 — child", "PROJ-43 — changed", 1)
+		mustWriteFile(t, mdPath, md)
+		_, err := svc.Apply(mdPath, JiraApplyOpts{Into: root})
+		if !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("generated section edit should refuse: %v", err)
+		}
+	})
 }

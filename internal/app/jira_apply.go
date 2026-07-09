@@ -136,7 +136,8 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 		}
 	}
 	assets := assetsOnDisk(dir, keySeg)
-	prefix, _, suffix := renderIssueMarkdownParts(is, assets, rs)
+	related := loadEpicChildrenSidecar(epicChildrenPath(dir, keySeg))
+	prefix, _, suffix := renderIssueMarkdownPartsWithRelated(is, assets, related, rs)
 
 	// Locate the edited description by the pristine view's structural anchors
 	// (everything before/after it must be byte-identical) and refuse any edit
@@ -177,7 +178,7 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	// succeeded; erroring here would misreport the apply as failed and a retry
 	// would refuse on base divergence).
 	is.Body = string(merged)
-	if werr := safepath.WriteFile(mdPath, renderIssueMarkdown(is, assets, rs), 0o644); werr != nil {
+	if werr := safepath.WriteFile(mdPath, renderIssueMarkdownWithRelated(is, assets, related, rs), 0o644); werr != nil {
 		res.Warning = "applied, but the .md view could not be refreshed and may be stale: " + werr.Error()
 	} else if verr := m.SaveViewStates(map[string]mirror.ViewState{keySeg: viewStateOf(rs)}); verr != nil {
 		// Record the settings the refreshed view was written with (best-effort,
@@ -224,7 +225,7 @@ func extractEditedDescription(edited, prefix, suffix string, baseHasDesc bool) (
 	tail := strings.TrimRight(suffix, "\n")
 	if tail != "" {
 		if !strings.HasSuffix(rest, tail) {
-			return "", fmt.Errorf("%w: the sections after the description (Image Attachments, Attachments, Links, Subtasks, Sprint, Comments) are read-only in the md view — use `jira issue comment add`, `jira issue link add`, or `jira issue attachment upload` instead",
+			return "", fmt.Errorf("%w: the sections after the description (configured fields, Image Attachments, Attachments, Links, Subtasks, Epic Children, Sprint, Comments) are read-only in the md view — use the matching Jira field/comment/link/attachment command instead",
 				domain.ErrCheckFailed)
 		}
 		rest = rest[:len(rest)-len(tail)]

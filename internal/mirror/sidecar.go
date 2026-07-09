@@ -23,8 +23,22 @@ type SyncState struct {
 // ambient config. Sections is the computed enabled-section list (sorted), not
 // the profile name, so it stays valid if profile definitions evolve.
 type ViewState struct {
-	Sections     []string `json:"sections"`
-	CustomFields []string `json:"custom_fields,omitempty"`
+	Sections     []string         `json:"sections"`
+	CustomFields []string         `json:"custom_fields,omitempty"`
+	FieldViews   []FieldViewState `json:"field_views,omitempty"`
+	EpicField    string           `json:"epic_field,omitempty"`
+}
+
+// FieldViewState is the serialized, backend-neutral shape of a configured Jira
+// field view. Mirror deliberately does not import config/app; the app layer
+// converts between this state and its resolved render settings.
+type FieldViewState struct {
+	ID        string `json:"id"`
+	Key       string `json:"key,omitempty"`
+	Label     string `json:"label,omitempty"`
+	Placement string `json:"placement,omitempty"`
+	Format    string `json:"format,omitempty"`
+	ShowEmpty bool   `json:"show_empty,omitempty"`
 }
 
 type sidecarFile struct {

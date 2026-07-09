@@ -183,7 +183,11 @@ func TestViewStateRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.RecordView("P1", ViewState{Sections: []string{"comments", "frontmatter"}, CustomFields: []string{"customfield_1"}})
+	b.RecordView("P1", ViewState{
+		Sections: []string{"comments", "frontmatter"}, CustomFields: []string{"customfield_1"},
+		FieldViews: []FieldViewState{{ID: "customfield_2", Key: "score", Placement: "frontmatter", Format: "auto"}},
+		EpicField:  "customfield_3",
+	})
 	// Nothing hits the sidecar until Flush.
 	if _, ok, err := m.ViewStateOf("P1"); err != nil || ok {
 		t.Fatalf("view visible before Flush (ok=%v err=%v)", ok, err)
@@ -197,6 +201,9 @@ func TestViewStateRoundTrip(t *testing.T) {
 	}
 	if len(vs.Sections) != 2 || vs.Sections[0] != "comments" || len(vs.CustomFields) != 1 {
 		t.Errorf("round-tripped view state wrong: %+v", vs)
+	}
+	if len(vs.FieldViews) != 1 || vs.FieldViews[0].Key != "score" || vs.EpicField != "customfield_3" {
+		t.Errorf("round-tripped extended view state wrong: %+v", vs)
 	}
 	if _, ok, err := m.ViewStateOf("missing"); err != nil || ok {
 		t.Errorf("unrecorded id should report ok=false (ok=%v err=%v)", ok, err)
