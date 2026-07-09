@@ -112,7 +112,8 @@ On a `full`-profile page the `.md` has YAML frontmatter and a `## Comments` sect
 **read-only** — apply reproduces them from the recorded view (`.atl/state.json`) and merges only
 the body between them (an untouched full page applies to a byte-identical `.csf`). Editing the
 frontmatter or Comments is refused (exit 8) — use `conf page update`/`conf page move` or
-`conf comment add`. No `--render-*` flags are needed on apply; they only override the recorded view.
+`conf comment add`. `conf apply` takes no `--render-*` flags — it always uses the recorded view;
+to change the view, re-run `conf render` with the desired settings (which re-records it).
 
 Direct-`.csf` edits and the md surface don't mix in one cycle: once you edit the `.csf`
 directly, apply refuses until the page is pushed or re-pulled. Use the `.assets/` images for

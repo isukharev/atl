@@ -320,10 +320,11 @@ records the resolved render settings in `.atl/state.json` (a `views` map).
 settings — so an untouched `full`-profile `.md` applies cleanly and its YAML
 frontmatter and `## Comments` section stay **read-only** (they are never merged
 into the page/description body; editing them is refused with a pointer to the
-metadata / comment commands). You no longer pass `--render-*` flags to `apply`;
-pass them only to override the recorded view. A pre-upgrade mirror that has no
-recorded view falls back to the ambient config (today's behavior) — re-run
-`render` once to record it.
+metadata / comment commands). No `--render-*` flags are needed on apply. To
+override the recorded view: `jira apply` accepts `--render-*` flags; `conf apply`
+has no render flags — re-run `conf render` with the desired settings instead
+(it re-records the view). A pre-upgrade mirror that has no recorded view falls
+back to the ambient config (today's behavior) — re-run `render` once to record it.
 
 ### `atl jira render` / `atl conf render`
 
