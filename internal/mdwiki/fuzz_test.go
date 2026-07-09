@@ -26,6 +26,15 @@ func FuzzConvertDocument(f *testing.F) {
 		"## Контекст\n\nкириллица с *акцентом* и {скобками}",
 		strings.Repeat("* very long line ", 500),
 		"\x00control",
+		// Multi-line paragraphs (issue #164): lines join with a real newline, so
+		// each inner line must be guarded on its own — a blockish line, a list-
+		// marker line, and cross-line emphasis that no longer pairs.
+		"line one\nline two\nline three",
+		"intro text\nh2. sneaky heading",
+		"intro text\nbq. sneaky quote",
+		"intro text\n- dash bullet\n* star bullet",
+		"intro text\n----",
+		"**bold\nwrapped across lines**",
 	}
 	for _, s := range seeds {
 		f.Add(s)

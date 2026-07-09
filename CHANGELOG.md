@@ -161,6 +161,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `<KEY>.wiki` file. Existing mirrors regenerate to the new layout on the next
   `jira pull` (the old single-`.md` envelope is replaced and `.wiki` appears
   alongside); edit `<KEY>.wiki`, not the `.md`, to change a body.
+- **`mdwiki` preserves intra-paragraph line breaks.** A soft-wrapped markdown
+  paragraph now converts to wiki with a real newline between lines instead of a
+  single space, so the line structure visible in a Jira `.md` view is the line
+  structure Jira renders. This fixes `jira apply`: editing one word of a
+  multi-line paragraph through the markdown view no longer collapses the
+  paragraph's visual line breaks. It also changes `jira issue create/update/
+  comment --from-md` — multi-line paragraphs now publish with line breaks.
+  Inline markup is converted per line, so an emphasis span that wraps across a
+  line break (`**bold\nwrapped**`) no longer pairs and falls back to its escaped
+  literal; each inner line is guarded so one Jira would parse as its own block
+  (a heading/blockquote line) is refused and a leading list marker is escaped to
+  render literally.
 
 ### Fixed
 

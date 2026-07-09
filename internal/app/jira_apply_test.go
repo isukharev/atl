@@ -111,6 +111,32 @@ func TestJiraApply_ParagraphEditMerges(t *testing.T) {
 	}
 }
 
+// TestJiraApply_MultilineParagraphKeepsLineBreaks pins issue #164 end-to-end:
+// a description with an intra-paragraph line break, edited one word on one line
+// through the .md view, merges back with the `\n` line structure preserved
+// rather than collapsed to a space-joined line.
+func TestJiraApply_MultilineParagraphKeepsLineBreaks(t *testing.T) {
+	body := "line one here\nline two here\n\nOutro paragraph."
+	svc, root, mdPath, wikiPath := scaffoldApplyIssue(t, body)
+	md := mustReadFile(t, mdPath)
+	if !strings.Contains(md, "line one here\nline two here") {
+		t.Fatalf("rendered md lost the line break: %q", md)
+	}
+	mustWriteFile(t, mdPath, strings.Replace(md, "line two here", "line two edited", 1))
+
+	res, err := svc.Apply(mdPath, JiraApplyOpts{Into: root})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	want := strings.Replace(body, "line two here", "line two edited", 1)
+	if got := mustReadFile(t, wikiPath); got != want {
+		t.Errorf("merged .wiki mismatch:\n got=%q\nwant=%q", got, want)
+	}
+	if res.Report.Converted != 1 {
+		t.Errorf("report = %+v, want 1 converted", res.Report)
+	}
+}
+
 func TestJiraApply_LossRefusedThenAllowed(t *testing.T) {
 	svc, root, mdPath, wikiPath := scaffoldApplyIssue(t, applyBody)
 	md := mustReadFile(t, mdPath)

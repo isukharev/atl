@@ -33,7 +33,7 @@ func TestConvertBasics(t *testing.T) {
 		{"# Title", "h1. Title"},
 		{"### Deep **bold**", "h3. Deep *bold*"},
 		{"Plain paragraph.", "Plain paragraph."},
-		{"line one\nline two", "line one line two"},
+		{"line one\nline two", "line one\nline two"},
 		{"---", "----"},
 		{"a **b** _c_ ~~d~~ `e`", "a *b* _c_ -d- {{e}}"},
 		{"*em* alone", "_em_ alone"},
@@ -54,6 +54,44 @@ func TestConvertBasics(t *testing.T) {
 			t.Errorf("ConvertDocument(%q) = %q, want %q", c.md, got, c.want)
 		}
 		noMDisms(t, convertOK(t, c.md))
+	}
+}
+
+// TestConvertMultilineParagraph pins the intra-paragraph line-break behavior
+// (issue #164): soft-wrapped paragraph lines join with a real newline so the
+// line structure visible in the .md view is the structure Jira renders, and
+// inline markup is converted per line.
+func TestConvertMultilineParagraph(t *testing.T) {
+	cases := []struct{ md, want string }{
+		{"line one\nline two", "line one\nline two"},
+		{"a **bold** word\nand _em_ next", "a *bold* word\nand _em_ next"},
+		// Cross-line emphasis stops pairing under per-line conversion: each `**`
+		// is unmatched on its own line and falls back to the escaped literal.
+		{"**bold\nwrapped**", "\\*\\*bold\nwrapped\\*\\*"},
+		// A leading dash bullet on an inner line would become a Jira list item —
+		// escaped so it renders as the literal text the author wrote.
+		{"intro text\n- not a list item", "intro text\n\\- not a list item"},
+		// A leading `*` on an inner line is neutralized by inline() (unpaired
+		// toggle → escaped), so it never becomes a wiki bullet.
+		{"intro\n* starred bullet", "intro\n\\* starred bullet"},
+		// A `----` inner line is neutralized by escaping so Jira does not read it
+		// as a horizontal rule mid-paragraph.
+		{"intro text\n----", "intro text\n\\----"},
+	}
+	for _, c := range cases {
+		if got := convertOK(t, c.md); got != c.want {
+			t.Errorf("ConvertDocument(%q) = %q, want %q", c.md, got, c.want)
+		}
+	}
+	// An inner line Jira would parse as its own block markup (heading/blockquote)
+	// is refused, not silently emitted mid-paragraph.
+	for _, bad := range []string{
+		"intro text\nh2. sneaky heading",
+		"intro text\nbq. sneaky quote",
+	} {
+		if out, err := ConvertDocument(bad); err == nil {
+			t.Errorf("ConvertDocument(%q) = %q, want error", bad, out)
+		}
 	}
 }
 
