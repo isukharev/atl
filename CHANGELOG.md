@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **HTTP origin and replay safety.** Server-provided absolute URLs can no
+  longer downgrade an HTTPS backend request to plaintext on the same host;
+  only HTTP(S) schemes inside the configured origin policy are accepted.
+  Generic retries now apply only to replay-safe reads (`GET`/`HEAD`), so a 429
+  or ambiguous 5xx cannot duplicate POST/PUT/PATCH/DELETE writes. Verbose traces
+  keep query parameter names but redact their values.
+
 ### Added
 
 - **Typed Jira field views and opt-in epic-child sidecars.** Jira render config

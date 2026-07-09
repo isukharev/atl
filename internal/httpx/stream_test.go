@@ -92,6 +92,14 @@ func TestGetStreamRefusesForeignHost(t *testing.T) {
 	}
 }
 
+func TestGetStreamRefusesDirectSchemeDowngrade(t *testing.T) {
+	c := New("https://backend.example", "tok", "test")
+	_, err := c.GetStream(context.Background(), "http://backend.example/attachment")
+	if err == nil || !strings.Contains(err.Error(), "https→http") {
+		t.Fatalf("err = %v, want direct downgrade refusal", err)
+	}
+}
+
 // TestGetStreamMapsStatusToSentinel: a 404 surfaces as ErrNotFound so exit
 // codes keep working on the streaming path.
 func TestGetStreamMapsStatusToSentinel(t *testing.T) {
