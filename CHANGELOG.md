@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Jira comment pagination.** Comment listing now fails closed at its safety
+  guard instead of returning a partial list that could authorize a duplicate
+  write.
+
 - **Jira derived-view correctness.** Jira wiki list markers remain lists when
   the server stores leading whitespace, preventing ordered items from becoming
   Markdown headings. Typed field views reject built-in frontmatter-key

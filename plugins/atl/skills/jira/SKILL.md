@@ -170,6 +170,11 @@ atl jira issue tree --jql 'project=PROJ' --epic-field customfield_10001         
 atl jira issue delete PROJ-1 --force                                                    # PERMANENT on DC; no trash
 ```
 
+Comment listing fails closed whenever a complete, stable listing cannot be
+proven (including a page-guard hit or inconsistent pagination metadata). Treat
+that error as an incomplete preflight; do not assume a matching comment is
+absent or retry a write from a partial listing.
+
 **Changing a description: prefer `issue edit` (one command).** It fetches, replaces
 `--old` → `--new`, and writes back — no `get` before (the `--old` match doubles as the
 drift check), no temp files (pass multiline `--new` directly with bash `$'...'`), and no

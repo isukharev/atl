@@ -1202,6 +1202,12 @@ atl jira issue comment list PROJ-1                 # {key, comments:[{id,author,
 atl jira issue comment delete PROJ-1 <COMMENT-ID>  # see the id from `comment list`
 ```
 
+Comment listing fails closed (exit 8) whenever a complete, stable listing
+cannot be proven: for example, after the defensive page guard, a changed total,
+an unexpected offset, inconsistent metadata, or a no-progress page. No partial
+list is emitted or used for an idempotency preflight, so an incomplete read
+cannot authorize a duplicate comment write.
+
 Flags (`add`):
 
 | flag | description |

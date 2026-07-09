@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,8 @@ type planTracker struct {
 	updatedFields map[string]string
 	commentKey    string
 	commentBody   string
+	commentsErr   error
+	commentCalls  int
 }
 
 func (t *planTracker) GetIssue(_ context.Context, key string, _ []string) (*domain.Issue, error) {
@@ -47,8 +50,13 @@ func (t *planTracker) Update(_ context.Context, key, _ string, _ []byte, fields 
 }
 
 func (t *planTracker) AddComment(_ context.Context, key string, body []byte) (*domain.Comment, error) {
+	t.commentCalls++
 	t.commentKey, t.commentBody = key, string(body)
 	return &domain.Comment{ID: "1", Body: string(body)}, nil
+}
+
+func (t *planTracker) ListComments(context.Context, string) ([]domain.Comment, error) {
+	return nil, t.commentsErr
 }
 
 func TestApplyPlanDryRunIsIdempotentAndBlockedByAllowlists(t *testing.T) {
@@ -151,5 +159,25 @@ func TestApplyPlanLinkIdempotentWhenPhraseDiffersFromName(t *testing.T) {
 	}
 	if len(tr.linked) != 0 {
 		t.Fatalf("re-apply created a duplicate link: %v", tr.linked)
+	}
+}
+
+func TestApplyPlanCommentNeverWritesAfterTruncatedPreflight(t *testing.T) {
+	csvPath := filepath.Join(t.TempDir(), "plan.csv")
+	if err := os.WriteFile(csvPath, []byte("op,source,value\ncomment,PROJ-1,hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tr := &planTracker{commentsErr: fmt.Errorf("%w: incomplete comments", domain.ErrCheckFailed)}
+	res, err := (&JiraService{tr: tr}).ApplyPlan(context.Background(), JiraPlanApplyOpts{
+		CSVPath: csvPath, Apply: true, Confirm: planApplyConfirm, AllowOps: []string{"comment"},
+	})
+	if err != nil {
+		t.Fatalf("current plan result should carry the row failure: %v", err)
+	}
+	if len(res.Results) != 1 || res.Results[0].Status != "failed" {
+		t.Fatalf("result = %+v, want failed row", res)
+	}
+	if tr.commentCalls != 0 {
+		t.Fatalf("AddComment called %d times after incomplete preflight", tr.commentCalls)
 	}
 }

@@ -200,6 +200,89 @@ func TestListCommentsPaginatesAllPages(t *testing.T) {
 	}
 }
 
+func TestListCommentsFailsClosedAtPageGuard(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"startAt":` + r.URL.Query().Get("startAt") + `,"total":101,"comments":[{"id":"one","body":"still paging"}]}`))
+	}))
+	defer srv.Close()
+
+	comments, err := newTestJira(srv).ListComments(context.Background(), "PROJ-1")
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("ListComments error = %v, want ErrCheckFailed", err)
+	}
+	if comments != nil {
+		t.Fatalf("partial comments escaped with truncation: %+v", comments)
+	}
+	if requests != commentPageGuard {
+		t.Fatalf("requests = %d, want guard %d", requests, commentPageGuard)
+	}
+}
+
+func TestListCommentsFailsClosedOnEmptyIncompletePage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"startAt":0,"total":1,"comments":[]}`))
+	}))
+	defer srv.Close()
+
+	comments, err := newTestJira(srv).ListComments(context.Background(), "PROJ-1")
+	if !errors.Is(err, domain.ErrCheckFailed) || comments != nil {
+		t.Fatalf("comments=%+v error=%v, want nil and ErrCheckFailed", comments, err)
+	}
+}
+
+func TestListCommentsFailsClosedOnUnexpectedOffset(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"startAt":1,"total":2,"comments":[{"id":"one"}]}`))
+	}))
+	defer srv.Close()
+
+	comments, err := newTestJira(srv).ListComments(context.Background(), "PROJ-1")
+	if !errors.Is(err, domain.ErrCheckFailed) || comments != nil {
+		t.Fatalf("comments=%+v error=%v, want nil and ErrCheckFailed", comments, err)
+	}
+}
+
+func TestListCommentsFailsClosedWhenTotalChanges(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("startAt") == "0" {
+			_, _ = w.Write([]byte(`{"startAt":0,"total":2,"comments":[{"id":"one"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"startAt":1,"total":1,"comments":[]}`))
+	}))
+	defer srv.Close()
+
+	comments, err := newTestJira(srv).ListComments(context.Background(), "PROJ-1")
+	if !errors.Is(err, domain.ErrCheckFailed) || comments != nil {
+		t.Fatalf("comments=%+v error=%v, want nil and ErrCheckFailed", comments, err)
+	}
+}
+
+func TestListCommentsAllowsCompletionAtExactPageGuard(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		start := r.URL.Query().Get("startAt")
+		_, _ = w.Write([]byte(`{"startAt":` + start + `,"total":100,"comments":[{"id":"` + start + `"}]}`))
+	}))
+	defer srv.Close()
+
+	comments, err := newTestJira(srv).ListComments(context.Background(), "PROJ-1")
+	if err != nil || len(comments) != commentPageGuard {
+		t.Fatalf("comments=%d error=%v, want %d and nil", len(comments), err, commentPageGuard)
+	}
+	if requests != commentPageGuard {
+		t.Fatalf("requests=%d, want %d", requests, commentPageGuard)
+	}
+}
+
 // A corrupt --cursor must fail usage (exit 2), not silently restart from 0.
 func TestSearchRejectsBadCursor(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
