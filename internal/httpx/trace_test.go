@@ -21,7 +21,7 @@ func TestVerboseTrace_LogsRequestAndStatus(t *testing.T) {
 	defer SetTrace(nil)
 
 	c := New(srv.URL, "secret-token", "test")
-	if _, err := c.Do(context.Background(), http.MethodGet, "/x", nil, nil); err != nil {
+	if _, err := c.Do(context.Background(), http.MethodGet, "/x?jql=project%3DSECRET&fields=summary&fields=status", nil, nil); err != nil {
 		t.Fatalf("Do: %v", err)
 	}
 	out := buf.String()
@@ -34,6 +34,12 @@ func TestVerboseTrace_LogsRequestAndStatus(t *testing.T) {
 	// The PAT must never appear in a trace.
 	if strings.Contains(out, "secret-token") {
 		t.Errorf("trace leaked the bearer token: %q", out)
+	}
+	if strings.Contains(out, "SECRET") || strings.Contains(out, "summary") || strings.Contains(out, "status") {
+		t.Errorf("trace leaked query values: %q", out)
+	}
+	if !strings.Contains(out, "jql=%3Credacted%3E") || !strings.Contains(out, "fields=%3Credacted%3E") {
+		t.Errorf("trace should retain redacted query keys: %q", out)
 	}
 }
 

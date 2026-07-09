@@ -1,8 +1,8 @@
 // Package httpx is the shared HTTP infrastructure: a thin client with bearer
-// auth, bounded idempotency-aware retries (429 for any method; transport/5xx
-// only for idempotent methods, with jittered backoff + capped Retry-After),
-// JSON helpers, and status→domain-error mapping. Redirects are confined to the
-// configured backend host. Adapters use it so they hold no transport policy.
+// auth, bounded replay-safe retries for reads (with jittered backoff + capped
+// Retry-After), JSON helpers, and status→domain-error mapping. Direct URLs and
+// redirects are confined to the configured backend origin policy. Adapters use
+// it so they hold no transport policy.
 package httpx
 
 import (
@@ -75,12 +75,13 @@ func tracef(format string, a ...any) {
 
 // Client is a per-backend HTTP client (one for Confluence, one for Jira).
 type Client struct {
-	base     string
-	baseHost string
-	token    string
-	hc       *http.Client
-	dl       *http.Client // streaming downloads: no whole-request timeout
-	ver      string       // CLI version, for User-Agent
+	base       string
+	baseHost   string
+	baseScheme string
+	token      string
+	hc         *http.Client
+	dl         *http.Client // streaming downloads: no whole-request timeout
+	ver        string       // CLI version, for User-Agent
 	// noVersionGate: this backend has no optimistic version gate, so an HTTP
 	// 409 is a generic conflict (locked issue, workflow veto), NOT
 	// ErrVersionConflict — exit 5 would point the caller at a re-pull/--force
@@ -98,8 +99,10 @@ func (c *Client) SetNoVersionGate() { c.noVersionGate = true }
 func New(base, token, version string) *Client {
 	base = strings.TrimRight(base, "/")
 	host := ""
+	scheme := ""
 	if u, err := neturl.Parse(base); err == nil {
 		host = u.Host
+		scheme = strings.ToLower(u.Scheme)
 	}
 	// Refuse any redirect that leaves the configured backend host or
 	// downgrades https→http. Confluence/Jira Data Center serve downloads
@@ -108,6 +111,10 @@ func New(base, token, version string) *Client {
 	checkRedirect := func(req *http.Request, via []*http.Request) error {
 		if !sameHost(host, req.URL.Host) {
 			return fmt.Errorf("refusing cross-host redirect to %q", req.URL.Host)
+		}
+		redirectScheme := strings.ToLower(req.URL.Scheme)
+		if redirectScheme != "http" && redirectScheme != "https" {
+			return fmt.Errorf("refusing redirect with unsupported scheme %q", req.URL.Scheme)
 		}
 		if len(via) > 0 && via[0].URL.Scheme == "https" && req.URL.Scheme == "http" {
 			return fmt.Errorf("refusing https→http redirect to %q", req.URL.Host)
@@ -121,10 +128,11 @@ func New(base, token, version string) *Client {
 	dlTransport := http.DefaultTransport.(*http.Transport).Clone()
 	dlTransport.ResponseHeaderTimeout = dlHeaderTimeout
 	return &Client{
-		base:     base,
-		baseHost: host,
-		token:    token,
-		ver:      version,
+		base:       base,
+		baseHost:   host,
+		baseScheme: scheme,
+		token:      token,
+		ver:        version,
 		hc: &http.Client{
 			Timeout:       defaultTimeout,
 			CheckRedirect: checkRedirect,
@@ -182,11 +190,12 @@ func classify(status int) error {
 	}
 }
 
-// idempotent reports whether a method is safe to retry on transport error or
-// 5xx. POST is excluded: a committed-but-lost POST would double-execute.
-func idempotent(method string) bool {
+// replaySafe reports whether the generic transport may repeat a request after
+// an ambiguous response. Writes deliberately require endpoint-aware
+// reconciliation rather than relying on HTTP's broad idempotency definition.
+func replaySafe(method string) bool {
 	switch method {
-	case http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete:
+	case http.MethodGet, http.MethodHead:
 		return true
 	default:
 		return false
@@ -222,10 +231,10 @@ func (c *Client) DoStreamSized(ctx context.Context, method, path string, r io.Re
 	if contentLength >= 0 {
 		req.ContentLength = contentLength
 	}
-	tracef("→ %s %s\n", method, req.URL.String())
+	tracef("→ %s %s\n", method, traceURL(req.URL))
 	resp, err := c.dl.Do(req)
 	if err != nil {
-		tracef("× %s %s (transport error: %v)\n", method, req.URL.String(), err)
+		tracef("× %s %s (transport error)\n", method, traceURL(req.URL))
 		return nil, err
 	}
 	tracef("← %d %s\n", resp.StatusCode, req.URL.Path)
@@ -265,13 +274,13 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 		if err != nil {
 			return nil, err
 		}
-		tracef("→ %s %s\n", method, req.URL.String())
+		tracef("→ %s %s\n", method, traceURL(req.URL))
 		resp, err := c.hc.Do(req)
 		if err != nil {
-			tracef("× %s %s (transport error: %v)\n", method, req.URL.String(), err)
-			// A committed-but-lost POST would double-execute if retried; only
-			// idempotent methods retry on transport errors.
-			if !idempotent(method) {
+			tracef("× %s %s (transport error)\n", method, traceURL(req.URL))
+			// A committed-but-lost write can double-execute or turn success into a
+			// misleading conflict/not-found; only replay-safe reads retry here.
+			if !replaySafe(method) {
 				return nil, err
 			}
 			lastErr = err
@@ -291,11 +300,10 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 			kind = nil // generic conflict on a backend without a version gate
 		}
 		apiErr := &APIError{Status: resp.StatusCode, Method: method, Path: path, Body: string(data), kind: kind}
-		// 429 is returned before the request is processed, so it is safe to retry
-		// for any method. Other transient failures (transport, 5xx) only retry
-		// for idempotent methods.
-		retryable := resp.StatusCode == http.StatusTooManyRequests ||
-			(resp.StatusCode >= 500 && idempotent(method))
+		// A response does not prove that a write was uncommitted. Only replay-safe
+		// reads retry generically; write endpoints must reconcile explicitly.
+		retryable := replaySafe(method) &&
+			(resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500)
 		if retryable {
 			lastErr = apiErr
 			if ra := retryAfter(resp); ra > 0 {
@@ -326,6 +334,16 @@ func (c *Client) resolveURL(path string) (string, error) {
 		if !sameHost(c.baseHost, u.Host) {
 			return "", fmt.Errorf("refusing request to foreign host %q", u.Host)
 		}
+		if u.User != nil {
+			return "", fmt.Errorf("refusing request URL with user information")
+		}
+		scheme := strings.ToLower(u.Scheme)
+		if scheme != "http" && scheme != "https" {
+			return "", fmt.Errorf("refusing request with unsupported scheme %q", u.Scheme)
+		}
+		if c.baseScheme == "https" && scheme != "https" {
+			return "", fmt.Errorf("refusing https→http request to %q", u.Host)
+		}
 		return path, nil
 	}
 	return c.base + path, nil
@@ -355,7 +373,7 @@ func (c *Client) newRequestReader(ctx context.Context, method, url string, body 
 	if err != nil {
 		return nil, err
 	}
-	if sameHost(c.baseHost, req.URL.Host) {
+	if sameHost(c.baseHost, req.URL.Host) && (c.baseScheme != "https" || req.URL.Scheme == "https") {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	req.Header.Set("Accept", "application/json")
@@ -364,6 +382,27 @@ func (c *Client) newRequestReader(ctx context.Context, method, url string, body 
 		req.Header.Set(k, v)
 	}
 	return req, nil
+}
+
+// traceURL preserves routing information while replacing every query value.
+// Selectors often contain issue keys, page titles, JQL, or CQL and therefore
+// do not belong in CI/debug logs by default.
+func traceURL(u *neturl.URL) string {
+	if u == nil {
+		return ""
+	}
+	redacted := *u
+	redacted.User = nil
+	q := redacted.Query()
+	for key, values := range q {
+		for i := range values {
+			values[i] = "<redacted>"
+		}
+		q[key] = values
+	}
+	redacted.RawQuery = q.Encode()
+	redacted.Fragment = ""
+	return redacted.String()
 }
 
 // readBody reads up to max bytes, returning an error if the body is larger
@@ -439,11 +478,11 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 			cancel()
 			return nil, err
 		}
-		tracef("→ GET %s\n", req.URL.String())
+		tracef("→ GET %s\n", traceURL(req.URL))
 		resp, err := c.dl.Do(req)
 		if err != nil {
 			cancel()
-			tracef("× GET %s (transport error: %v)\n", url, err)
+			tracef("× GET %s (transport error)\n", traceURL(req.URL))
 			lastErr = err
 			continue // GET is idempotent → retry
 		}

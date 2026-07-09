@@ -166,26 +166,60 @@ func TestPostNotRetriedOnTransportError(t *testing.T) {
 	}
 }
 
-func TestPostRetriedOn429(t *testing.T) {
+func TestPostNotRetriedOn429(t *testing.T) {
 	var hits int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if atomic.AddInt32(&hits, 1) < 2 {
-			w.WriteHeader(429)
-			return
-		}
-		w.Write([]byte(`{"ok":true}`))
+		atomic.AddInt32(&hits, 1)
+		w.WriteHeader(429)
 	}))
 	defer srv.Close()
 	c := New(srv.URL, "tok", "test")
-	data, err := c.Do(context.Background(), http.MethodPost, "/x", []byte(`{}`), nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := c.Do(context.Background(), http.MethodPost, "/x", []byte(`{}`), nil)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusTooManyRequests {
+		t.Fatalf("error = %v, want HTTP 429 APIError", err)
 	}
-	if string(data) != `{"ok":true}` {
-		t.Errorf("body = %s", data)
+	if atomic.LoadInt32(&hits) != 1 {
+		t.Errorf("POST must not retry on 429; attempts = %d", atomic.LoadInt32(&hits))
 	}
-	if atomic.LoadInt32(&hits) < 2 {
-		t.Errorf("POST should retry on 429; attempts = %d", atomic.LoadInt32(&hits))
+}
+
+func TestGetRetriedOn429(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&hits, 1) == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok", "test")
+	if _, err := c.Do(context.Background(), http.MethodGet, "/x", nil, nil); err != nil {
+		t.Fatalf("GET after 429: %v", err)
+	}
+	if hits != 2 {
+		t.Fatalf("attempts = %d, want 2", hits)
+	}
+}
+
+func TestWriteMethodsAreNeverRetriedAfterAmbiguousResponses(t *testing.T) {
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		t.Run(method, func(t *testing.T) {
+			var hits int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				atomic.AddInt32(&hits, 1)
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}))
+			defer srv.Close()
+			c := New(srv.URL, "tok", "test")
+			if _, err := c.Do(context.Background(), method, "/write", []byte(`{}`), nil); err == nil {
+				t.Fatal("expected error")
+			}
+			if hits != 1 {
+				t.Fatalf("attempts = %d, want 1", hits)
+			}
+		})
 	}
 }
 
@@ -362,6 +396,43 @@ func TestForeignAbsoluteURLRefused(t *testing.T) {
 	}
 	if atomic.LoadInt32(&hit) != 0 {
 		t.Error("foreign host must not be contacted")
+	}
+}
+
+func TestDirectSameHostSchemeDowngradeRefused(t *testing.T) {
+	c := New("https://backend.invalid", "secret-pat", "test")
+	_, err := c.Do(context.Background(), http.MethodGet, "http://backend.invalid/attachment", nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "https→http") {
+		t.Fatalf("err = %v, want direct downgrade refusal", err)
+	}
+}
+
+func TestDirectSameHostHTTPSKeepsBearer(t *testing.T) {
+	c := New("https://backend.invalid", "secret-pat", "test")
+	resolved, err := c.resolveURL("https://backend.invalid/attachment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := c.newRequest(context.Background(), http.MethodGet, resolved, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer secret-pat" {
+		t.Fatalf("Authorization = %q", got)
+	}
+}
+
+func TestAbsoluteNonHTTPSchemeRefused(t *testing.T) {
+	c := New("https://backend.invalid", "secret-pat", "test")
+	if _, err := c.Do(context.Background(), http.MethodGet, "file://backend.invalid/attachment", nil, nil); err == nil {
+		t.Fatal("expected non-HTTP absolute URL to be refused")
+	}
+}
+
+func TestAbsoluteURLWithUserInfoRefused(t *testing.T) {
+	c := New("https://backend.invalid", "secret-pat", "test")
+	if _, err := c.Do(context.Background(), http.MethodGet, "https://user:pass@backend.invalid/attachment", nil, nil); err == nil {
+		t.Fatal("expected URL user information to be refused")
 	}
 }
 

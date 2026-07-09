@@ -400,7 +400,9 @@ Shared HTTP infrastructure used by both adapters. Features:
   only when the request host matches the configured backend host — server-
   supplied attachment URLs pointing elsewhere do not receive the PAT.
 - Three retries with exponential backoff (200 ms → 400 ms → 800 ms, capped at
-  5 s) for 429 and 5xx responses; honours `Retry-After`.
+  5 s) for replay-safe reads (`GET`/`HEAD`) on 429 and 5xx responses; honours
+  `Retry-After`. Writes are never retried generically after an ambiguous
+  response and must reconcile at the endpoint/use-case layer.
 - Status → sentinel: 401 → `ErrAuth`, 403 → `ErrForbidden`, 404 →
   `ErrNotFound`, 409 → `ErrVersionConflict`.
 - `GetJSON`, `SendJSON` convenience wrappers; `GetStream` for binary

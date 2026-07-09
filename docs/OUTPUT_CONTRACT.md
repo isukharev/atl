@@ -89,8 +89,9 @@ maps them via `errors.Is`:
 ## `--verbose` / `ATL_VERBOSE=1`
 
 When set, `httpx.SetTrace` attaches a request/response logger to stderr before any HTTP call.
-The bearer token is **never** written to the trace. stdout stays reserved for the result, so
-verbose output never corrupts the JSON stream.
+The bearer token and query values are **never** written to the trace (query parameter names remain
+visible with redacted values). stdout stays reserved for the result, so verbose output never
+corrupts the JSON stream.
 
 ---
 
