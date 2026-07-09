@@ -82,7 +82,7 @@ func TestPullEpicChildrenSidecarAndOfflineRender(t *testing.T) {
 		t.Fatalf("pull result = %+v", res)
 	}
 	dir := filepath.Join(root, "PROJ")
-	sidecar := loadEpicChildrenSidecar(filepath.Join(dir, "PROJ-1.epic-children.json"))
+	sidecar := loadEpicChildrenSidecar(root, filepath.Join(dir, "PROJ-1.epic-children.json"))
 	if sidecar == nil || sidecar.EpicField != "customfield_10010" || len(sidecar.Children) != 2 || sidecar.Children[0].Key != "PROJ-2" {
 		t.Fatalf("sidecar = %+v", sidecar)
 	}
@@ -134,7 +134,7 @@ func TestEpicChildrenSidecarMalformedIsIgnored(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"epic":`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := loadEpicChildrenSidecar(path); got != nil {
+	if got := loadEpicChildrenSidecar(filepath.Dir(path), path); got != nil {
 		t.Fatalf("malformed sidecar loaded: %+v", got)
 	}
 }

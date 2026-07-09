@@ -3,7 +3,6 @@ package app
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -75,7 +74,7 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 		return nil, fmt.Errorf("%w: %s has diverged from the last-synced base (the .csf was edited directly) — push or re-pull before applying .md edits",
 			domain.ErrCheckFailed, csfPath)
 	}
-	rawEdited, err := os.ReadFile(mdPath)
+	rawEdited, err := safepath.ReadFileWithin(m.Root, mdPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", domain.ErrNotFound, err)
 	}
@@ -105,7 +104,7 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 		// it was pulled), fall back to the raw path rather than fail the apply.
 		if node, perr := csf.Parse(base); perr == nil {
 			page := confPageFromMeta(lc.Meta)
-			mdOpts := confMDViewOpts(rsView, page, readCommentsSidecar(dir, slug))
+			mdOpts := confMDViewOpts(rsView, page, readCommentsSidecar(m.Root, dir, slug))
 			prefix, _, suffix := mirror.RenderMarkdownViewParts(node, lc.Meta.Refs, mdOpts)
 			body, aerr := extractConfBody(normalizeMD(string(rawEdited)), prefix, suffix)
 			if aerr != nil {
@@ -131,7 +130,7 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 	if o.DryRun {
 		return res, nil
 	}
-	if err := safepath.WriteFile(csfPath, out, 0o644); err != nil {
+	if err := safepath.WriteFileWithin(m.Root, csfPath, out, 0o644); err != nil {
 		return res, err
 	}
 	res.Wrote = true
@@ -148,12 +147,12 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 	if root2, perr := csf.Parse(out); perr == nil {
 		stub = false
 		if decorated {
-			md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, confMDViewOpts(rsView, confPageFromMeta(lc.Meta), readCommentsSidecar(dir, slug)))
+			md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, confMDViewOpts(rsView, confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug)))
 		} else {
 			md = mirror.RenderMarkdown(root2, lc.Meta.Refs)
 		}
 	}
-	if werr := safepath.WriteFile(mdPath, md, 0o644); werr != nil {
+	if werr := safepath.WriteFileWithin(m.Root, mdPath, md, 0o644); werr != nil {
 		res.Warning = "applied, but the .md view could not be refreshed and may be stale: " + werr.Error()
 	} else if !stub {
 		// Record the settings the refreshed view was written with: the recorded

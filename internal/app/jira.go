@@ -257,14 +257,14 @@ func (s *JiraService) DownloadAttachment(ctx context.Context, key, attachmentID,
 	if !ok {
 		return "", "", fmt.Errorf("%w: unsafe attachment filename %q", domain.ErrUsage, name)
 	}
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := safepath.MkdirAllWithin(outDir, outDir, 0o755); err != nil {
 		return "", "", err
 	}
 	p := filepath.Join(outDir, safeName)
 	if !safepath.Within(outDir, p) {
 		return "", "", fmt.Errorf("%w: attachment path would escape output directory", domain.ErrUsage)
 	}
-	if _, err := safepath.WriteReaderAtomic(p, rc, 0o644); err != nil {
+	if _, err := safepath.WriteReaderAtomicWithin(outDir, p, rc, 0o644); err != nil {
 		return "", "", err
 	}
 	return p, name, nil
@@ -311,7 +311,7 @@ func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, er
 			rc.Close()
 			continue
 		}
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := safepath.MkdirAllWithin(dir, dir, 0o755); err != nil {
 			rc.Close()
 			return paths, err
 		}
@@ -322,7 +322,7 @@ func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, er
 		}
 		// Stream to disk atomically: bounded memory, and an interrupted
 		// transfer never leaves a truncated image.
-		_, werr := safepath.WriteReaderAtomic(p, rc, 0o644)
+		_, werr := safepath.WriteReaderAtomicWithin(dir, p, rc, 0o644)
 		rc.Close()
 		if werr != nil {
 			return paths, werr
@@ -462,7 +462,7 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 			// for zero data gain (#65).
 			full := &selected[i]
 			dir := filepath.Join(into, safepath.Segment(full.Project))
-			if err := os.MkdirAll(dir, 0o755); err != nil {
+			if err := safepath.MkdirAllWithin(into, dir, 0o755); err != nil {
 				return res, err
 			}
 			// full.Key is server-supplied; sanitize it before using it as a
@@ -480,7 +480,7 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 			if !safepath.Within(dir, wikiPath) {
 				return res, fmt.Errorf("refusing unsafe issue key %q", full.Key)
 			}
-			if err := safepath.WriteFile(wikiPath, []byte(full.Body), 0o644); err != nil {
+			if err := safepath.WriteFileWithin(into, wikiPath, []byte(full.Body), 0o644); err != nil {
 				return res, err
 			}
 			// Mirror image attachments (best-effort) before rendering so the .md
@@ -488,24 +488,24 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 			var assets []JiraIssueAsset
 			if opts.Assets {
 				var skipped int
-				assets, skipped = s.mirrorIssueImages(ctx, dir, keySeg, full.Fields["attachment"])
+				assets, skipped = s.mirrorIssueImages(ctx, into, dir, keySeg, full.Fields["attachment"])
 				res.AssetsSkipped += skipped
 			}
 			var related *JiraEpicChildrenSidecar
 			relatedPath := epicChildrenPath(dir, keySeg)
 			if sidecar, ok := relatedByEpic[full.Key]; ok {
 				related = &sidecar
-				if err := writeEpicChildrenSidecar(relatedPath, sidecar); err != nil {
+				if err := writeEpicChildrenSidecar(into, relatedPath, sidecar); err != nil {
 					return res, fmt.Errorf("epic children %s: %w", full.Key, err)
 				}
 			} else if rs.On(SecEpicChildren) {
 				// The issue is no longer an epic (or never was). Do not let a stale
 				// sidecar from an earlier pull resurrect an obsolete child list.
-				if err := os.Remove(relatedPath); err != nil && !os.IsNotExist(err) {
+				if err := safepath.RemoveWithin(into, relatedPath); err != nil && !os.IsNotExist(err) {
 					return res, fmt.Errorf("remove stale epic children %s: %w", full.Key, err)
 				}
 			}
-			if err := safepath.WriteFile(mdPath, renderIssueMarkdownWithRelated(full, assets, related, rs), 0o644); err != nil {
+			if err := safepath.WriteFileWithin(into, mdPath, renderIssueMarkdownWithRelated(full, assets, related, rs), 0o644); err != nil {
 				return res, err
 			}
 			snap := JiraIssueSnapshot{Key: full.Key, ID: full.ID, Fields: full.Fields}
@@ -518,7 +518,7 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 			if err != nil {
 				return res, fmt.Errorf("snapshot %s: %w", full.Key, err)
 			}
-			if err := safepath.WriteFile(filepath.Join(dir, keySeg+".json"), append(jb, '\n'), 0o644); err != nil {
+			if err := safepath.WriteFileWithin(into, filepath.Join(dir, keySeg+".json"), append(jb, '\n'), 0o644); err != nil {
 				return res, fmt.Errorf("snapshot %s: %w", full.Key, err)
 			}
 			// Record the .wiki substrate in the sidecar + a pristine base copy so
@@ -566,7 +566,7 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 // `jira issue images` ethos. Non-image attachments are ignored entirely (not
 // counted as skips). Bytes stream by the attachment's own content URL via
 // StreamAttachment, so no extra ListAttachments round-trip is made per issue.
-func (s *JiraService) mirrorIssueImages(ctx context.Context, dir, keySeg string, raw any) (downloaded []JiraIssueAsset, skipped int) {
+func (s *JiraService) mirrorIssueImages(ctx context.Context, root, dir, keySeg string, raw any) (downloaded []JiraIssueAsset, skipped int) {
 	assetsSeg := keySeg + ".assets"
 	assetsDir := filepath.Join(dir, assetsSeg)
 	for _, a := range decodeIssueAssets(raw) {
@@ -595,12 +595,12 @@ func (s *JiraService) mirrorIssueImages(ctx context.Context, dir, keySeg string,
 			skipped++
 			continue
 		}
-		if mkErr := os.MkdirAll(assetsDir, 0o755); mkErr != nil {
+		if mkErr := safepath.MkdirAllWithin(root, assetsDir, 0o755); mkErr != nil {
 			rc.Close()
 			skipped++
 			continue
 		}
-		_, werr := safepath.WriteReaderAtomic(p, rc, 0o644)
+		_, werr := safepath.WriteReaderAtomicWithin(root, p, rc, 0o644)
 		rc.Close()
 		if werr != nil {
 			skipped++

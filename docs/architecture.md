@@ -303,17 +303,22 @@ mirror/
 - `LoadCSF(path)` — reads a `.csf` file, its `.meta.json`, and the sidecar
   entry; computes `Dirty = currentHash != syncedHash`.
 - `ListCSF()` — walks the tree (skipping `.atl/`), loads every `.csf`, sorts
-  by path.
+  by path. Walk, body, and metadata errors fail the scan; no entry is silently
+  omitted from status or a directory push.
 - `LoadWiki(path)` / `ListWiki()` — the Jira analogs over `.wiki` substrate
   files. There is no neighboring `.meta.json`, so the sidecar key is the issue
-  key (the file's basename); dirty detection is otherwise identical.
+  key (the file's basename); dirty detection is otherwise identical. Walk and
+  body errors likewise fail the scan.
 - `SaveBaseExt(id, body, ext)` / `BaseBodyExt(id, ext)` — the ext-aware base
   store; the plain `saveBase`/`BaseBody` are the `.csf` specialization. Jira
   records its pristine base under `.atl/base/<KEY>.wiki`. `SyncBatch.Record`
   lets a backend that writes its own substrate files (Jira's `.wiki`) share the
   batch's single sidecar load/save without going through `writePageFiles`.
-- Sidecar (`state.json`) tracks `{id, version, hash, path}` per page. Saves
-  are atomic (temp + fsync + rename via `safepath.WriteFileAtomic`), so a
+- Sidecar (`state.json`) tracks `{id, version, hash, path}` per page. Mirror
+  directories and files are accessed through Go's root-scoped filesystem API.
+  Intermediate descendant symlinks are rejected; reads reject a final symlink,
+  while atomic writes replace it without following it. The selected root itself
+  remains the caller's trust anchor. Saves use temp + fsync + root-scoped rename, so a
   crash can never leave a half-written file. A corrupt sidecar is a loud
   error on every path that consults it (`status`, `push`, `pull`) — never a
   silent reset to "never synced", which would quietly disable drift

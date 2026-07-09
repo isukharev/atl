@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Mirror filesystem containment and scan failures.** Mirror writes now use
+  root-scoped filesystem operations, so a pre-existing symlink in any
+  descendant directory cannot redirect page, issue, asset, base, or state
+  writes outside the selected mirror root. Directory scans now fail loudly on
+  walk, substrate, or Confluence metadata read/parse errors instead of silently
+  omitting entries from status or directory push.
+
 - **HTTP origin and replay safety.** Server-provided absolute URLs can no
   longer downgrade an HTTPS backend request to plaintext on the same host;
   only HTTP(S) schemes inside the configured origin policy are accepted.

@@ -56,7 +56,7 @@ func (m *Mirror) sidecarPath() string { return filepath.Join(m.Root, ".atl", "st
 // would reset every page to never-synced and quietly disable drift detection.
 func (m *Mirror) loadSidecar() (sidecarFile, error) {
 	sc := sidecarFile{Pages: map[string]SyncState{}, Views: map[string]ViewState{}}
-	b, err := os.ReadFile(m.sidecarPath())
+	b, err := safepath.ReadFileWithin(m.Root, m.sidecarPath())
 	if os.IsNotExist(err) {
 		return sc, nil
 	}
@@ -83,11 +83,11 @@ func (m *Mirror) loadSidecar() (sidecarFile, error) {
 // against a mirror at a time; concurrent writers may lose each other's entries
 // but the file itself stays valid.
 func (m *Mirror) saveSidecar(sc sidecarFile) error {
-	if err := os.MkdirAll(filepath.Dir(m.sidecarPath()), 0o755); err != nil {
+	if err := safepath.MkdirAllWithin(m.Root, filepath.Dir(m.sidecarPath()), 0o755); err != nil {
 		return err
 	}
 	b, _ := json.MarshalIndent(sc, "", "  ")
-	return safepath.WriteFileAtomic(m.sidecarPath(), append(b, '\n'), 0o600)
+	return safepath.WriteFileWithin(m.Root, m.sidecarPath(), append(b, '\n'), 0o600)
 }
 
 // SyncedVersion returns the last-synced version for an id (0 if untracked).
@@ -138,7 +138,7 @@ func (m *Mirror) SaveViewStates(views map[string]ViewState) error {
 // without a network round-trip. ext must include the leading dot.
 func (m *Mirror) saveBaseExt(id string, body []byte, ext string) error {
 	dir := filepath.Join(m.Root, ".atl", "base")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := safepath.MkdirAllWithin(m.Root, dir, 0o755); err != nil {
 		return err
 	}
 	// id is a backend-supplied content id / issue key: sanitize it to a single
@@ -148,7 +148,7 @@ func (m *Mirror) saveBaseExt(id string, body []byte, ext string) error {
 	if !safepath.Within(dir, target) {
 		return fmt.Errorf("refusing unsafe base path for id %q", id)
 	}
-	return safepath.WriteFile(target, body, 0o600)
+	return safepath.WriteFileWithin(m.Root, target, body, 0o600)
 }
 
 // saveBase stores the pristine Confluence `.csf` base copy. See saveBaseExt.
@@ -170,7 +170,7 @@ func (m *Mirror) baseBodyExt(id, ext string) ([]byte, bool) {
 	if !safepath.Within(dir, target) {
 		return nil, false
 	}
-	b, err := os.ReadFile(target)
+	b, err := safepath.ReadFileWithin(m.Root, target)
 	if err != nil {
 		return nil, false
 	}

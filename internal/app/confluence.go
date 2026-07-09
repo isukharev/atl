@@ -101,10 +101,10 @@ func (s *ConfluenceService) DownloadAttachment(ctx context.Context, pageID, file
 		return "", err // fail before MkdirAll: a 404 must not leave an empty outDir
 	}
 	defer rc.Close()
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := safepath.MkdirAllWithin(outDir, outDir, 0o755); err != nil {
 		return "", err
 	}
-	if _, err := safepath.WriteReaderAtomic(p, rc, 0o644); err != nil {
+	if _, err := safepath.WriteReaderAtomicWithin(outDir, p, rc, 0o644); err != nil {
 		return "", err
 	}
 	return p, nil
@@ -574,7 +574,7 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 	// comments after a push instead of reverting to the body-only default. Comments
 	// are read from the existing sidecar (push does not fetch them).
 	rs, _ := ResolveRender(s.cfg, m.Root, config.RenderService{}, "confluence")
-	mdOpts := confMDViewOpts(rs, page, readCommentsSidecar(dir, slug))
+	mdOpts := confMDViewOpts(rs, page, readCommentsSidecar(m.Root, dir, slug))
 	if werr := m.WriteView(dir, slug, page, refs, mdOpts); werr != nil {
 		item.Warning = "pushed but local refresh failed (re-pull recommended): " + werr.Error()
 	} else if verr := m.SaveViewStates(map[string]mirror.ViewState{lc.Meta.ID: viewStateOf(rs)}); verr != nil {

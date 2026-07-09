@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -79,7 +78,7 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	m := mirror.New(root)
 
 	// The `.wiki` substrate must exist next to the .md.
-	curWiki, err := os.ReadFile(wikiPath)
+	curWiki, err := safepath.ReadFileWithin(root, wikiPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: no %s next to %s — is this a mirrored issue? (jira mirror)", domain.ErrNotFound, keySeg+wikiExt, mdPath)
 	}
@@ -97,12 +96,12 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	}
 	// The `<KEY>.json` snapshot supplies the frontmatter/section fields needed to
 	// reproduce the pristine view.
-	is, snapOK := loadIssueSnapshot(filepath.Join(dir, keySeg+".json"))
+	is, snapOK := loadIssueSnapshot(root, filepath.Join(dir, keySeg+".json"))
 	if !snapOK {
 		return nil, fmt.Errorf("%w: no %s.json snapshot for %s — re-pull it", domain.ErrNotFound, keySeg, keySeg)
 	}
 
-	rawEdited, err := os.ReadFile(mdPath)
+	rawEdited, err := safepath.ReadFileWithin(root, mdPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", domain.ErrNotFound, err)
 	}
@@ -135,8 +134,8 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 			rs, _ = ResolveRender(s.cfg, root, config.RenderService{}, "jira")
 		}
 	}
-	assets := assetsOnDisk(dir, keySeg)
-	related := loadEpicChildrenSidecar(epicChildrenPath(dir, keySeg))
+	assets := assetsOnDisk(root, dir, keySeg)
+	related := loadEpicChildrenSidecar(root, epicChildrenPath(dir, keySeg))
 	prefix, _, suffix := renderIssueMarkdownPartsWithRelated(is, assets, related, rs)
 
 	// Locate the edited description by the pristine view's structural anchors
@@ -168,7 +167,7 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	// Write only the `.wiki`; do NOT touch the sidecar or pristine base, so the
 	// issue reads locally_edited (and still synced) afterwards and `jira push`
 	// remains the transport under its own drift gate.
-	if err := safepath.WriteFile(wikiPath, merged, 0o644); err != nil {
+	if err := safepath.WriteFileWithin(root, wikiPath, merged, 0o644); err != nil {
 		return res, err
 	}
 	res.Wrote = true
@@ -178,7 +177,7 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	// succeeded; erroring here would misreport the apply as failed and a retry
 	// would refuse on base divergence).
 	is.Body = string(merged)
-	if werr := safepath.WriteFile(mdPath, renderIssueMarkdownWithRelated(is, assets, related, rs), 0o644); werr != nil {
+	if werr := safepath.WriteFileWithin(root, mdPath, renderIssueMarkdownWithRelated(is, assets, related, rs), 0o644); werr != nil {
 		res.Warning = "applied, but the .md view could not be refreshed and may be stale: " + werr.Error()
 	} else if verr := m.SaveViewStates(map[string]mirror.ViewState{keySeg: viewStateOf(rs)}); verr != nil {
 		// Record the settings the refreshed view was written with (best-effort,

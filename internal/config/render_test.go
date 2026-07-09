@@ -295,6 +295,24 @@ func TestSaveLocalRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSaveLocalRefusesEscapingATLDirectorySymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, ".atl")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	err := SaveLocal(root, &LocalConfig{Render: &RenderConfig{Jira: &RenderService{Profile: "full"}}})
+	if err == nil {
+		t.Fatal("SaveLocal followed an escaping .atl symlink")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "config.json")); !os.IsNotExist(err) {
+		t.Fatalf("outside config was created: %v", err)
+	}
+	if _, _, err := LoadLocal(root); err == nil {
+		t.Fatal("LoadLocal followed an escaping .atl symlink")
+	}
+}
+
 // TestSaveConfigByteStableWithoutRender pins that adding the render field does
 // not add an empty "render":{} to a config that has none.
 func TestSaveConfigByteStableWithoutRender(t *testing.T) {

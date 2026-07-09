@@ -84,6 +84,11 @@ usage error (`2`) — fix the input rather than re-running setup.
 |---|---|
 | `ATL_MIRROR_ROOT` | default mirror root for `conf pull`, `conf status`, and `jira pull` (so a workspace fixes one location without re-passing `--into`; an explicit `--into` still overrides it) |
 
+Mirror writes are contained beneath the selected root even when a checkout
+contains descendant symlinks. Mirror listings used by `status` and directory
+`push` fail on unreadable/corrupt entries rather than reporting an incomplete
+tree as success.
+
 ### Authentication
 
 | variable | effect |
