@@ -184,6 +184,48 @@ func TestPostNotRetriedOn429(t *testing.T) {
 	}
 }
 
+func TestAPIErrorRedactsQueryValues(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`bad query`))
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok", "test")
+	_, err := c.Do(context.Background(), http.MethodGet, "/search?jql=project%3DSECRET&fields=summary#private-fragment", nil, nil)
+	if err == nil {
+		t.Fatal("expected API error")
+	}
+	text := err.Error()
+	for _, secret := range []string{"SECRET", "project%3D", "private-fragment"} {
+		if strings.Contains(text, secret) {
+			t.Fatalf("API error leaked %q: %s", secret, text)
+		}
+	}
+	if !strings.Contains(text, "jql=") || !strings.Contains(text, "fields=") {
+		t.Fatalf("API error lost query parameter names: %s", text)
+	}
+}
+
+func TestAPIErrorRedactionFailsClosedForMalformedAndAbsoluteURLs(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{name: "malformed relative", path: "/search%zz#PRIVATE"},
+		{name: "malformed absolute userinfo", path: "https://user:password@example.invalid/%zz"},
+		{name: "absolute", path: "https://user:password@example.invalid/search?jql=SECRET#PRIVATE"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text := (&APIError{Status: 400, Method: http.MethodGet, Path: tc.path, Body: "bad"}).Error()
+			for _, secret := range []string{"SECRET", "PRIVATE", "user", "password"} {
+				if strings.Contains(text, secret) {
+					t.Fatalf("error leaked %q: %s", secret, text)
+				}
+			}
+		})
+	}
+}
+
 func TestGetRetriedOn429(t *testing.T) {
 	var hits int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

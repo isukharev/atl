@@ -1,6 +1,7 @@
 package confluence
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -17,6 +18,11 @@ import (
 type failingAttachmentReader struct{}
 
 func (failingAttachmentReader) Read([]byte) (int, error) { return 0, errors.New("read failed") }
+
+type trackedAttachmentReader struct{ closed bool }
+
+func (*trackedAttachmentReader) Read([]byte) (int, error) { return 0, io.EOF }
+func (r *trackedAttachmentReader) Close() error           { r.closed = true; return nil }
 
 type blockingAttachmentReader struct{ release <-chan struct{} }
 
@@ -46,6 +52,7 @@ func TestUploadAttachmentMultipart(t *testing.T) {
 	var gotFile []byte
 	var gotComment string
 	var gotContentLength int64
+	var gotBodyLength int
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
@@ -53,11 +60,13 @@ func TestUploadAttachmentMultipart(t *testing.T) {
 		gotToken = r.Header.Get("X-Atlassian-Token")
 		gotContentType = r.Header.Get("Content-Type")
 		gotContentLength = r.ContentLength
+		rawBody, _ := io.ReadAll(r.Body)
+		gotBodyLength = len(rawBody)
 
 		// Parse multipart body
 		mediaType, params, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if strings.HasPrefix(mediaType, "multipart/") {
-			mr := multipart.NewReader(r.Body, params["boundary"])
+			mr := multipart.NewReader(bytes.NewReader(rawBody), params["boundary"])
 			for {
 				p, err := mr.NextPart()
 				if err == io.EOF {
@@ -83,7 +92,7 @@ func TestUploadAttachmentMultipart(t *testing.T) {
 	defer srv.Close()
 
 	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
-	att, err := cf.UploadAttachment(context.Background(), pageID, "test.txt", io.NopCloser(strings.NewReader("hello")), "my comment")
+	att, err := cf.UploadAttachment(context.Background(), pageID, "test.txt", io.NopCloser(strings.NewReader("hello")), int64(len("hello")), "my comment")
 	if err != nil {
 		t.Fatalf("UploadAttachment: %v", err)
 	}
@@ -100,8 +109,8 @@ func TestUploadAttachmentMultipart(t *testing.T) {
 	if !strings.HasPrefix(gotContentType, "multipart/form-data") {
 		t.Errorf("Content-Type = %q, want multipart/form-data prefix", gotContentType)
 	}
-	if gotContentLength != -1 {
-		t.Errorf("Content-Length = %d, want streaming/chunked request", gotContentLength)
+	if gotContentLength != int64(gotBodyLength) || gotContentLength <= int64(len("hello")) {
+		t.Errorf("Content-Length = %d, body bytes = %d", gotContentLength, gotBodyLength)
 	}
 	if string(gotFile) != "hello" {
 		t.Errorf("file bytes = %q, want hello", gotFile)
@@ -122,9 +131,20 @@ func TestUploadAttachmentEmptyResponseError(t *testing.T) {
 	defer srv.Close()
 
 	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
-	_, err := cf.UploadAttachment(context.Background(), "pg1", "f.txt", io.NopCloser(strings.NewReader("x")), "")
+	_, err := cf.UploadAttachment(context.Background(), "pg1", "f.txt", io.NopCloser(strings.NewReader("x")), 1, "")
 	if err == nil {
 		t.Fatal("expected error for empty results, got nil")
+	}
+}
+
+func TestUploadAttachmentRejectsNegativeSizeAndClosesSource(t *testing.T) {
+	reader := &trackedAttachmentReader{}
+	cf := &Confluence{c: newTestClient("http://127.0.0.1"), base: "http://127.0.0.1"}
+	if _, err := cf.UploadAttachment(context.Background(), "pg1", "f.txt", reader, -1, ""); err == nil {
+		t.Fatal("negative size was accepted")
+	}
+	if !reader.closed {
+		t.Fatal("negative-size refusal did not close source")
 	}
 }
 
@@ -137,7 +157,7 @@ func TestUploadAttachmentPropagatesStreamingReaderError(t *testing.T) {
 	defer srv.Close()
 
 	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
-	if _, err := cf.UploadAttachment(context.Background(), "pg1", "f.txt", io.NopCloser(failingAttachmentReader{}), ""); err == nil {
+	if _, err := cf.UploadAttachment(context.Background(), "pg1", "f.txt", io.NopCloser(failingAttachmentReader{}), 1, ""); err == nil {
 		t.Fatal("streaming reader error was ignored")
 	}
 }
@@ -153,7 +173,7 @@ func TestUploadAttachmentCancellationDoesNotWaitForBlockedReader(t *testing.T) {
 	done := make(chan error, 1)
 	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
 	go func() {
-		_, err := cf.UploadAttachment(ctx, "pg1", "f.txt", io.NopCloser(blockingAttachmentReader{release: release}), "")
+		_, err := cf.UploadAttachment(ctx, "pg1", "f.txt", io.NopCloser(blockingAttachmentReader{release: release}), 1, "")
 		done <- err
 	}()
 	select {
@@ -179,7 +199,7 @@ func TestUploadAttachmentEarlySuccessClosesBlockedSource(t *testing.T) {
 	done := make(chan error, 1)
 	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
 	go func() {
-		_, err := cf.UploadAttachment(context.Background(), "pg1", "f.txt", reader, "")
+		_, err := cf.UploadAttachment(context.Background(), "pg1", "f.txt", reader, 1, "")
 		done <- err
 	}()
 	select {

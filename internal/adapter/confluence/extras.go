@@ -175,7 +175,11 @@ func (cf *Confluence) DownloadAttachment(ctx context.Context, pageID, filename s
 // UploadAttachment uploads file bytes as an attachment to a page via
 // multipart/form-data. DC endpoint: POST /rest/api/content/{pageId}/child/attachment.
 // X-Atlassian-Token: nocheck is required to bypass XSRF protection.
-func (cf *Confluence) UploadAttachment(ctx context.Context, pageID, filename string, data io.ReadCloser, comment string) (*domain.Attachment, error) {
+func (cf *Confluence) UploadAttachment(ctx context.Context, pageID, filename string, data io.ReadCloser, size int64, comment string) (*domain.Attachment, error) {
+	if size < 0 {
+		_ = data.Close()
+		return nil, fmt.Errorf("upload attachment: size must be non-negative")
+	}
 	var framing bytes.Buffer
 	w := multipart.NewWriter(&framing)
 	if comment != "" {
@@ -200,6 +204,12 @@ func (cf *Confluence) UploadAttachment(ctx context.Context, pageID, filename str
 	framingBytes := framing.Bytes()
 	prefix := append([]byte(nil), framingBytes[:prefixLen]...)
 	suffix := append([]byte(nil), framingBytes[prefixLen:]...)
+	framingSize := int64(len(prefix)) + int64(len(suffix))
+	const maxInt64 = int64(1<<63 - 1)
+	if size > maxInt64-framingSize {
+		_ = data.Close()
+		return nil, fmt.Errorf("upload attachment: multipart body is too large")
+	}
 	body := &multipartReadCloser{
 		Reader: io.MultiReader(bytes.NewReader(prefix), data, bytes.NewReader(suffix)),
 		source: data,
@@ -226,7 +236,8 @@ func (cf *Confluence) UploadAttachment(ctx context.Context, pageID, filename str
 			} `json:"version"`
 		} `json:"results"`
 	}
-	raw, err := cf.c.DoStream(ctx, "POST", "/rest/api/content/"+url.PathEscape(pageID)+"/child/attachment", body, headers)
+	contentLength := framingSize + size
+	raw, err := cf.c.DoStreamSized(ctx, "POST", "/rest/api/content/"+url.PathEscape(pageID)+"/child/attachment", body, contentLength, headers)
 	if err != nil {
 		return nil, err
 	}

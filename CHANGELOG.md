@@ -40,6 +40,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Private HTTP errors and durable streamed I/O.** API errors now redact query values just like
+  verbose traces; Confluence attachment uploads stream with an exact Content-Length; streamed Jira
+  exports fsync before atomic rename; and missing/corrupt Confluence mirror metadata maps to the
+  actionable check-failure exit instead of a generic error. Maintainer retry guidance now matches
+  the read-only generic retry policy.
+
 - **Hash-bound Jira field review and reserved view markers.** File-backed custom-field apply now
   requires the aggregate normalized proposal hash returned by dry-run in addition to Jira
   `updated`, so a changed file cannot bypass review. Jira apply also rejects reserved document or

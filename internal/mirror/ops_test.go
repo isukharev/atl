@@ -2,6 +2,7 @@ package mirror
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -372,8 +373,18 @@ func TestListMirrorFilesPropagatesEntryAndWalkErrors(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, "page.meta.json"), []byte("{"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := New(root).ListCSF(); err == nil || !strings.Contains(err.Error(), "page.meta.json") {
+		if _, err := New(root).ListCSF(); !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "page.meta.json") {
 			t.Fatalf("ListCSF error = %v, want metadata path", err)
+		}
+	})
+
+	t.Run("missing metadata", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.WriteFile(filepath.Join(root, "page.csf"), []byte("<p>x</p>"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := New(root).ListCSF(); !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "page.meta.json") {
+			t.Fatalf("ListCSF error = %v, want check failure with metadata path", err)
 		}
 	})
 

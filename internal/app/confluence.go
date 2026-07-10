@@ -116,8 +116,13 @@ func (s *ConfluenceService) UploadAttachment(ctx context.Context, pageID, filePa
 	if err != nil {
 		return nil, err
 	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
 	filename := filepath.Base(filePath)
-	return s.store.UploadAttachment(ctx, pageID, filename, f, comment)
+	return s.store.UploadAttachment(ctx, pageID, filename, f, info.Size(), comment)
 }
 
 // DeleteAttachment removes an attachment by its content id.

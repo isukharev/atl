@@ -593,6 +593,10 @@ func writeUserFile(path string, data []byte) error {
 }
 
 func writeUserFileStream(path string, write func(io.Writer) error) (retErr error) {
+	return writeUserFileStreamWithSync(path, write, func(f *os.File) error { return f.Sync() })
+}
+
+func writeUserFileStreamWithSync(path string, write func(io.Writer) error, syncFile func(*os.File) error) (retErr error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -616,6 +620,9 @@ func writeUserFileStream(path string, write func(io.Writer) error) (retErr error
 		return err
 	}
 	if err := write(tmp); err != nil {
+		return err
+	}
+	if err := syncFile(tmp); err != nil {
 		return err
 	}
 	if err := tmp.Close(); err != nil {

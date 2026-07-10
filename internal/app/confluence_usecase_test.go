@@ -905,19 +905,20 @@ type attachmentStore struct {
 	uploadName    string
 	uploadData    []byte
 	uploadComment string
+	uploadSize    int64
 	uploadReturn  *domain.Attachment
 	uploadErr     error
 	deleteID      string
 	deleteErr     error
 }
 
-func (s *attachmentStore) UploadAttachment(_ context.Context, pageID, filename string, data io.ReadCloser, comment string) (*domain.Attachment, error) {
+func (s *attachmentStore) UploadAttachment(_ context.Context, pageID, filename string, data io.ReadCloser, size int64, comment string) (*domain.Attachment, error) {
 	defer data.Close()
 	payload, err := io.ReadAll(data)
 	if err != nil {
 		return nil, err
 	}
-	s.uploadPageID, s.uploadName, s.uploadData, s.uploadComment = pageID, filename, payload, comment
+	s.uploadPageID, s.uploadName, s.uploadData, s.uploadSize, s.uploadComment = pageID, filename, payload, size, comment
 	return s.uploadReturn, s.uploadErr
 }
 
@@ -950,6 +951,9 @@ func TestUploadAttachmentServiceReadFile(t *testing.T) {
 	}
 	if string(st.uploadData) != "hello" {
 		t.Errorf("data = %q, want hello", st.uploadData)
+	}
+	if st.uploadSize != int64(len("hello")) {
+		t.Errorf("size = %d, want %d", st.uploadSize, len("hello"))
 	}
 	if st.uploadComment != "my comment" {
 		t.Errorf("comment = %q, want my comment", st.uploadComment)

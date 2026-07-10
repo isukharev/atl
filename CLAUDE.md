@@ -96,9 +96,9 @@ documented there.
 - **PAT is host-scoped.** `httpx` injects the bearer token only when the request host is empty
   or matches the configured backend host (case-insensitive) — server-supplied attachment URLs
   on other hosts get no token, and cross-host / scheme-downgrade redirects are refused. Retries:
-  3 (4 attempts total); 429 for any method, but transport/5xx only for idempotent methods (POST
-  is never retried, to avoid a double write); exp backoff 200ms→×2 capped at 5s with jitter,
-  honoring `Retry-After` (itself capped at 30s).
+  3 (4 attempts total) for replay-safe reads (`GET`/`HEAD`) on transport errors, 429, or 5xx;
+  writes are never retried generically, including on 429, to avoid duplicate or ambiguous writes.
+  Backoff is 200ms→×2 capped at 5s with jitter, honoring `Retry-After` (capped at 30s).
 - **Backend URLs must be https.** `config.CheckSecureURL` rejects a non-https backend URL for a
   non-loopback host (enforced at `config set` time and in `wire.go`); `ATL_ALLOW_INSECURE=1`
   overrides for a trusted internal http instance. `auth login` never accepts the PAT on argv —

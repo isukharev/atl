@@ -253,6 +253,28 @@ func TestWriteUserFileStreamIsAtomicOnWriterError(t *testing.T) {
 	}
 }
 
+func TestWriteUserFileStreamSyncsBeforeRename(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "out.csv")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New("sync failed")
+	syncCalls := 0
+	err := writeUserFileStreamWithSync(path, func(w io.Writer) error {
+		_, err := io.WriteString(w, "complete")
+		return err
+	}, func(*os.File) error {
+		syncCalls++
+		return wantErr
+	})
+	if !errors.Is(err, wantErr) || syncCalls != 1 {
+		t.Fatalf("error=%v syncCalls=%d", err, syncCalls)
+	}
+	if got, _ := os.ReadFile(path); string(got) != "old" {
+		t.Fatalf("sync failure replaced target with %q", got)
+	}
+}
+
 func TestExportQueriesBatchesIDsAndKeys(t *testing.T) {
 	queries, mode, err := exportQueries(JiraExportOpts{IDs: []string{"10001,10002", "10003"}, BatchSize: 2})
 	if err != nil {

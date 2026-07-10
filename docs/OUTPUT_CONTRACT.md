@@ -91,7 +91,8 @@ maps them via `errors.Is`:
 When set, `httpx.SetTrace` attaches a request/response logger to stderr before any HTTP call.
 The bearer token and query values are **never** written to the trace (query parameter names remain
 visible with redacted values). stdout stays reserved for the result, so verbose output never
-corrupts the JSON stream.
+corrupts the JSON stream. HTTP API error strings use the same query-value redaction and omit URL
+fragments, so a failed request does not reintroduce JQL/CQL/selectors through stderr.
 
 ---
 
