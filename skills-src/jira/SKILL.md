@@ -103,6 +103,13 @@ mirror offline (no network) after a profile change:
 atl jira render                                  # whole mirror (default root)
 atl jira render <root>/PROJECT/KEY.md --render-profile full
 ```
+
+If repeated work reveals a useful Jira field id, selector, or render preference, do not edit agent
+memory silently. Offer the `onboarding` skill's consent-gated learning flow. Load only
+`atl profile show --section schema --service jira` or the corresponding `selectors` slice;
+verified field metadata and proposed preferences go through
+`profile suggest → suggestion review → apply|reject`. Use explicit
+`profile revalidation status` before relying on stale or previously failed field knowledge.
 → `{ "root": "...", "rendered": [ {key, path} ] }`. Only `.md` files are rewritten,
 so `jira status` stays clean.
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -217,6 +218,31 @@ func TestCanonicalNormalizesUnorderedLists(t *testing.T) {
 	}
 	if ha != hb {
 		t.Fatalf("normalized hashes differ: %s != %s", ha, hb)
+	}
+}
+
+func TestCanonicalDoesNotMutateCallerSlices(t *testing.T) {
+	p := validProfile()
+	p.Preferences.Services = []string{"jira", "confluence"}
+	p.Selectors.Jira[0].Fields = []string{"summary", "status"}
+	if _, _, err := Canonical(p); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Preferences.Services; got[0] != "jira" || got[1] != "confluence" {
+		t.Fatalf("services mutated: %v", got)
+	}
+	if got := p.Selectors.Jira[0].Fields; got[0] != "summary" || got[1] != "status" {
+		t.Fatalf("fields mutated: %v", got)
+	}
+}
+
+func TestCanonicalProfileEnforcesStoredReadLimit(t *testing.T) {
+	p := Profile{
+		SchemaVersion: 1,
+		TeamPolicy:    &TeamPolicy{Source: "declared policy", Rules: []string{strings.Repeat("x", MaxBytes)}},
+	}
+	if _, _, err := Canonical(p); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("error = %v, want check failed", err)
 	}
 }
 

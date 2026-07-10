@@ -1,0 +1,9 @@
+{
+  "suggestion_hash": "<sha256>",
+  "profile": {
+    "path": "<config-dir>/profile.json",
+    "previous_hash": "<sha256>",
+    "profile_hash": "<sha256>",
+    "changed": true
+  }
+}

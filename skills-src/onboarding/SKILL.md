@@ -17,6 +17,8 @@ user-declared source.
 
 Read [stages.md](reference/stages.md) before starting. Read
 [profile-schema.md](reference/profile-schema.md) when assembling the candidate.
+Read [learning.md](reference/learning.md) only when updating an existing profile
+from later observations or revalidating schema facts.
 
 ## Core workflow
 
@@ -61,3 +63,8 @@ Read [stages.md](reference/stages.md) before starting. Read
 Summarize what was saved, which resources were read, which render config writes were approved, and
 what was intentionally left unknown. Remind the user that the profile is private local memory and
 that later observations must become reviewable suggestions, never silent mutations.
+
+For later learning, do not rerun full onboarding by default. Load only relevant profile slices,
+offer the user a bounded observation or revalidation plan, and follow the explicit lifecycle in
+[learning.md](reference/learning.md). Never watch activity in the background or edit the profile,
+render config, team policy, or workspace guidance directly from an observation.

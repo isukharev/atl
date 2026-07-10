@@ -155,7 +155,8 @@ Core skills:
 - **`confluence`** — pull, edit `.csf`, validate, and push pages under the version gate.
 - **`jira`** — search/pull issues and create/update/transition/comment/link via commands.
 - **`onboarding`** — optional consent-gated workflow discovery, declared team defaults, and a
-  reviewed private profile; it never reads sample content or writes config without approval.
+  reviewed private profile; later observations become deterministic review/apply/reject
+  suggestions, never silent mutations, and stale schema facts are revalidated explicitly.
 
 On top of those references, the plugin ships workflow recipes — end-to-end processes with
 built-in approval gates before anything is created:

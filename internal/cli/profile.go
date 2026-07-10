@@ -115,7 +115,8 @@ func newProfileCmd() *cobra.Command {
 		},
 	}
 
-	c.AddCommand(show, preview, apply, guidance)
+	c.AddCommand(show, preview, apply, guidance,
+		newProfileSuggestCmd(), newProfileSuggestionCmd(), newProfileRevalidateCmd(), newProfileRevalidationCmd())
 	return c
 }
 
@@ -234,6 +235,7 @@ func profileGuidance(p profilepkg.Profile, exists bool) profileGuidanceResult {
 			"Use the private atl profile for Atlassian work; never copy it into the repository.",
 			"Load only the needed slice with `atl profile show --section <section> [--service jira|confluence]`.",
 			"Treat team_policy as authoritative, preferences as confirmed defaults, and schema facts as time-bounded evidence.",
+			"Route proposed memory changes through `atl profile suggest` and exact review/apply/reject; never mutate memory silently.",
 		},
 	}
 }

@@ -86,6 +86,13 @@ full`. Re-render an existing mirror offline (no network) after a profile change:
 atl conf render mirror --render-profile full     # whole mirror
 atl conf render mirror/DOCS/page/page.csf        # one page
 ```
+
+If repeated work reveals a useful space, selector, or render preference, do not edit agent memory
+silently. Offer the `onboarding` skill's consent-gated learning flow. Load only
+`atl profile show --section schema --service confluence` or the corresponding `selectors` slice;
+verified space metadata and proposed preferences go through
+`profile suggest → suggestion review → apply|reject`. Use explicit
+`profile revalidation status` before relying on stale or previously failed space knowledge.
 → `{ "root": "...", "rendered": [ {id, title, path} ] }`. Only `.md` files are
 rewritten, so `conf status` stays clean.
 

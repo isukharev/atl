@@ -337,6 +337,126 @@ it never embeds fields, selectors, policy rules, or sampled content. The optiona
 flow. Applying `render_defaults` to runtime config remains a separate explicit
 `atl config set render.* ...` review/write.
 
+### Consent-gated suggestions
+
+Later sessions can propose memory changes without silently mutating the profile.
+The caller creates a version-1 observations file in a private directory. It must
+name the exact current `base_profile_hash`; schema facts carry their own source
+and verification time, while preference/render/selector proposals require an
+`evidence` item. There is deliberately no `team_policy` key—strict decoding
+rejects attempts to infer policy.
+
+```json
+{
+  "schema_version": 1,
+  "base_profile_hash": "<current-profile-hash>",
+  "schema": {
+    "jira_fields": [{
+      "id": "customfield_10001",
+      "name": "Risk Notes",
+      "type": "string",
+      "source": "approved field metadata read",
+      "verified_at": "2026-07-10T12:00:00Z"
+    }]
+  },
+  "preferences": {"services": ["jira"]},
+  "evidence": [{
+    "source": "approved workflow review",
+    "observed_at": "2026-07-10T12:05:00Z",
+    "reason": "user confirmed this recurring workflow"
+  }]
+}
+```
+
+```sh
+atl profile suggest --from-file "$PRIVATE_TMP/observations.json" \
+  --out "$PRIVATE_TMP/learning.atl-suggestion.json"
+
+atl profile suggestion review --from-file "$PRIVATE_TMP/learning.atl-suggestion.json"
+
+# approve the exact three hashes returned by review
+atl profile suggestion apply --from-file "$PRIVATE_TMP/learning.atl-suggestion.json" \
+  --suggestion-hash <suggestion_hash> \
+  --candidate-hash <preview.candidate_hash> \
+  --expected-current-hash <preview.current_hash>
+
+# or reject that exact artifact
+atl profile suggestion reject --from-file "$PRIVATE_TMP/learning.atl-suggestion.json" \
+  --suggestion-hash <suggestion_hash>
+```
+
+`suggest` is deterministic for the same normalized observations + base profile.
+It writes only the explicitly selected mode-0600 suggestion under a mode-0700
+parent; the required `.atl-suggestion.json` suffix cannot collide with profile,
+credential, or state filenames even if that private parent is the ATL config
+directory. Parent mode validation and atomic rename use one held directory
+handle. `profile.json` is untouched. `review` is read-only and returns evidence
+plus the ordinary complete profile preview. `apply` is the confirmation that
+turns proposed preferences into `confirmed:true`. `reject` stores only the
+suggestion hash in owner-only decision state—never evidence, selectors, or
+sampled content—so an identical future proposal reports
+`previously_rejected:true`. Delete the temporary observation/suggestion files
+after either decision.
+
+Observation objects are partial: omitted preference fields preserve their
+current values, and a Jira-only/Confluence-only `render_defaults` proposal
+preserves the other service. An explicit empty value clears only that named
+preference/service value. Schema facts and selectors are upsert-only; removals
+require the ordinary full profile preview flow.
+
+### Explicit schema revalidation
+
+Staleness uses a caller-selected absolute cutoff, never the wall clock hidden
+inside the CLI:
+
+```sh
+atl profile revalidation status \
+  --stale-before 2026-04-01T00:00:00Z \
+  --service jira
+```
+
+The result classifies relevant facts as `fresh`, `stale`, `verified_pending`,
+`missing`, or `failed`. After the user approves exact metadata reads, encode the
+results (`verified|missing|failed`) in a version-1 revalidation batch carrying
+the current profile hash and one explicit `checked_at`, then run:
+
+```json
+{
+  "schema_version": 1,
+  "base_profile_hash": "<current-profile-hash>",
+  "checked_at": "2026-07-10T12:00:00Z",
+  "jira_fields": [
+    {
+      "id": "customfield_10001",
+      "status": "verified",
+      "name": "Risk Notes",
+      "type": "string",
+      "source": "approved field metadata read"
+    },
+    {
+      "id": "customfield_10002",
+      "status": "failed",
+      "source": "approved field metadata read",
+      "error": "sanitized failure summary"
+    }
+  ]
+}
+```
+
+```sh
+atl profile revalidate --from-file "$PRIVATE_TMP/checks.json" \
+  --out "$PRIVATE_TMP/verified.atl-observations.json"
+```
+
+Revalidation stores the latest check outcome in private owner-only state and
+emits only successfully verified facts as a normal observations artifact.
+The output name must end in `.atl-observations.json`, the corresponding reserved
+non-state suffix.
+Missing/failed checks never delete or overwrite the last verified profile fact.
+Feed the observations through `suggest → review → apply|reject`; until apply,
+new facts appear as `verified_pending`. Backend reads are performed by the
+calling agent only after consent—these profile commands are local/offline.
+
 ---
 
 ## Render profiles

@@ -1,0 +1,62 @@
+{
+  "suggestion_hash": "<sha256>",
+  "previously_rejected": false,
+  "evidence": [
+    {
+      "source": "approved session",
+      "observed_at": "2026-07-10T12:05:00Z",
+      "reason": "user confirmed Jira workflow"
+    }
+  ],
+  "preview": {
+    "path": "<config-dir>/profile.json",
+    "current_exists": false,
+    "current_hash": "<sha256>",
+    "candidate_hash": "<sha256>",
+    "changed": true,
+    "sections": [
+      {
+        "section": "schema",
+        "status": "added"
+      },
+      {
+        "section": "preferences",
+        "status": "added"
+      },
+      {
+        "section": "team_policy",
+        "status": "unchanged"
+      },
+      {
+        "section": "render_defaults",
+        "status": "unchanged"
+      },
+      {
+        "section": "selectors",
+        "status": "unchanged"
+      }
+    ],
+    "normalized_candidate": {
+      "schema_version": 1,
+      "schema": {
+        "jira_fields": [
+          {
+            "id": "customfield_10001",
+            "name": "Risk",
+            "type": "string",
+            "source": "approved field lookup",
+            "verified_at": "2026-07-10T12:00:00Z"
+          }
+        ]
+      },
+      "preferences": {
+        "confirmed": true,
+        "services": [
+          "jira"
+        ],
+        "mirror_root": "~/.atl/work"
+      },
+      "selectors": {}
+    }
+  }
+}

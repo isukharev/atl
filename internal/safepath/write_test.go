@@ -406,6 +406,48 @@ func TestRootContainedWritersRejectInRootDirectorySymlink(t *testing.T) {
 	}
 }
 
+func TestWriteFileAtomicPrivateValidatesHeldParent(t *testing.T) {
+	privateDir := t.TempDir()
+	if err := os.Chmod(privateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(privateDir, "artifact.json")
+	if err := WriteFileAtomicPrivate(target, []byte("private\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "private\n" {
+		t.Fatalf("data=%q err=%v", data, err)
+	}
+	info, err := os.Stat(target)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode=%v err=%v", info, err)
+	}
+
+	publicDir := t.TempDir()
+	if err := os.Chmod(publicDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileAtomicPrivate(filepath.Join(publicDir, "artifact.json"), []byte("x"), 0o600); err == nil {
+		t.Fatal("public parent unexpectedly accepted")
+	}
+}
+
+func TestWriteFileAtomicPrivateChecksOpenedSymlinkTargetMode(t *testing.T) {
+	publicTarget := t.TempDir()
+	if err := os.Chmod(publicTarget, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	linkParent := t.TempDir()
+	link := filepath.Join(linkParent, "private-link")
+	if err := os.Symlink(publicTarget, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if err := WriteFileAtomicPrivate(filepath.Join(link, "artifact.json"), []byte("x"), 0o600); err == nil {
+		t.Fatal("symlink into public directory unexpectedly accepted")
+	}
+}
+
 // TestWithinRelError targets the filepath.Rel error branch (Within line ~114):
 // Rel returns an error when one path is absolute and the other is relative, so
 // the two cannot be made relative to each other.

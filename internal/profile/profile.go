@@ -207,6 +207,9 @@ func validateJiraFacts(facts []JiraFieldFact) error {
 		if fact.ID == "" || fact.Name == "" || fact.Source == "" || fact.VerifiedAt.IsZero() {
 			return fmt.Errorf("%w: every jira field fact requires id, name, source, and verified_at", domain.ErrUsage)
 		}
+		if strings.ContainsAny(fact.ID, "\r\n") {
+			return fmt.Errorf("%w: jira field ids must be single-line", domain.ErrUsage)
+		}
 		if seen[fact.ID] {
 			return fmt.Errorf("%w: duplicate jira field id %q", domain.ErrUsage, fact.ID)
 		}
@@ -220,6 +223,9 @@ func validateSpaceFacts(facts []ConfluenceSpaceFact) error {
 	for _, fact := range facts {
 		if fact.Key == "" || fact.Source == "" || fact.VerifiedAt.IsZero() {
 			return fmt.Errorf("%w: every confluence space fact requires key, source, and verified_at", domain.ErrUsage)
+		}
+		if strings.ContainsAny(fact.Key, "\r\n") {
+			return fmt.Errorf("%w: confluence space keys must be single-line", domain.ErrUsage)
 		}
 		if seen[fact.Key] {
 			return fmt.Errorf("%w: duplicate confluence space key %q", domain.ErrUsage, fact.Key)
@@ -235,6 +241,9 @@ func validateSelectors(selectors Selectors) error {
 		if selector.Name == "" || selector.JQL == "" {
 			return fmt.Errorf("%w: every Jira selector requires name and jql", domain.ErrUsage)
 		}
+		if strings.ContainsAny(selector.Name, "\r\n") {
+			return fmt.Errorf("%w: Jira selector names must be single-line", domain.ErrUsage)
+		}
 		name := "jira:" + selector.Name
 		if seen[name] {
 			return fmt.Errorf("%w: duplicate Jira selector name %q", domain.ErrUsage, selector.Name)
@@ -244,6 +253,9 @@ func validateSelectors(selectors Selectors) error {
 	for _, selector := range selectors.Confluence {
 		if selector.Name == "" || selector.CQL == "" {
 			return fmt.Errorf("%w: every Confluence selector requires name and cql", domain.ErrUsage)
+		}
+		if strings.ContainsAny(selector.Name, "\r\n") {
+			return fmt.Errorf("%w: Confluence selector names must be single-line", domain.ErrUsage)
 		}
 		name := "confluence:" + selector.Name
 		if seen[name] {
@@ -295,15 +307,29 @@ func readRaw(configDir string) ([]byte, bool, error) {
 
 // Canonical returns the stable hash and pretty JSON for a normalized profile.
 func Canonical(p Profile) (string, []byte, error) {
-	normalize(&p)
-	if err := Validate(p); err != nil {
+	// Clone through JSON before sorting/defaulting slices: callers pass Profile
+	// by value, but its nested slices/pointers would otherwise share backing
+	// storage and a read-only preview/hash operation could reorder their input.
+	raw, err := json.Marshal(p)
+	if err != nil {
 		return "", nil, err
 	}
-	data, err := json.MarshalIndent(p, "", "  ")
+	var normalized Profile
+	if err := json.Unmarshal(raw, &normalized); err != nil {
+		return "", nil, err
+	}
+	normalize(&normalized)
+	if err := Validate(normalized); err != nil {
+		return "", nil, err
+	}
+	data, err := json.MarshalIndent(normalized, "", "  ")
 	if err != nil {
 		return "", nil, err
 	}
 	data = append(data, '\n')
+	if len(data) > MaxBytes {
+		return "", nil, fmt.Errorf("%w: canonical profile exceeds the %d MiB limit", domain.ErrCheckFailed, MaxBytes>>20)
+	}
 	return hashBytes(data), data, nil
 }
 
@@ -313,11 +339,14 @@ func BuildPreview(configDir string, candidate Profile) (Preview, error) {
 	if err != nil {
 		return Preview{}, err
 	}
-	candidateHash, _, err := Canonical(candidate)
+	candidateHash, candidateData, err := Canonical(candidate)
 	if err != nil {
 		return Preview{}, err
 	}
-	normalize(&candidate)
+	candidate, err = DecodeStrict(candidateData)
+	if err != nil {
+		return Preview{}, err
+	}
 	sections := sectionChanges(current, exists, candidate)
 	if migrationVersion != nil {
 		sections = migrationSectionChanges()
