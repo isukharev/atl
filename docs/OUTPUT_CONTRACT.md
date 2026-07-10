@@ -218,6 +218,11 @@ marks a clean file.
 shape as `conf apply` for Description, plus pending-field details:
 `{ "path", "wiki_path", "pending_path"?, "dry_run", "rebased"?, "report": {...},
 "fields"?: [{"id","pending","report"}], "wrote", "warning"? }`. It is **local only** (no network). Each
+accepted view begins with `<!-- atl:document jira-issue v1 -->`; a missing,
+unversioned, or unknown document marker exits `8` before any write and requires
+an offline `jira render` or fresh pull before editing. Since render rewrites the
+derived `.md`, callers preserve any existing edits externally and reapply them
+after migration.
 `removed_constructs` entry is `{ "kind", "text" }` (`kind` ∈ `panel`, `color`, `mention`, `image`,
 `monospace`, `link`, `macro`, …). The merge is fail-closed and exits `8` (`ErrCheckFailed`, nothing
 written) on: an unconvertible edited block; a wiki-only construct dropped without `--allow-loss`
@@ -305,7 +310,8 @@ never writes `profile.json`. Observations are strict and versioned; non-schema
 proposals require `{source,observed_at,reason}` evidence and cannot contain team
 policy. Preference fields and Jira/Confluence render services merge
 independently, so omitted siblings are preserved. Generated artifacts and
-private state are bounded to the same 4 MiB read limit before write.
+private state are bounded to the same 4 MiB read limit before write. Rejection
+memory retains the most recent 4096 distinct hashes.
 Suggestion output names require `.atl-suggestion.json`; revalidation observation
 outputs require `.atl-observations.json`. These reserved non-state suffixes plus
 one held parent-directory handle prevent collisions and check/write redirection;
@@ -326,9 +332,10 @@ its owner-only decision file retains hashes only. Content/hash mismatch is exit
 is `fresh|stale|verified_pending|missing|failed`. `atl profile revalidate
 --from-file CHECKS --out OBSERVATIONS` emits
 `{path,observations_hash,base_profile_hash,entries}`; immediate check-result
-entries use `verified|missing|failed`. It records the latest explicit check in
-private state, writes verified facts to a version-1 observations artifact, and
-never changes or deletes a profile fact.
+entries use `verified|missing|failed`. It records at most the 1000 newest checks
+per service in private state, writes verified facts to a version-1 observations
+artifact, and never changes or deletes a profile fact. Persisted failure
+summaries reject controls, redact network locations, and are length-capped.
 
 `atl jira export --jql ... --out FILE --format jsonl|json|csv` writes one compact artifact and a
 sidecar manifest at `FILE.manifest.json`. `--ids` and `--keys` can be used instead of `--jql` to

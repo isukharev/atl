@@ -82,6 +82,16 @@ func TestApplyRejectsConcurrentProfileChange(t *testing.T) {
 	}
 }
 
+func TestProfileRejectsControlCharactersInMirrorRoot(t *testing.T) {
+	for _, root := range []string{"safe\nother", "safe\tother", "safe\x00other"} {
+		p := validProfile()
+		p.Preferences.MirrorRoot = root
+		if _, _, err := Canonical(p); !errors.Is(err, domain.ErrUsage) {
+			t.Fatalf("Canonical mirror_root %q error = %v", root, err)
+		}
+	}
+}
+
 func TestDecodeStrictAndBoundaries(t *testing.T) {
 	tests := []struct {
 		name string

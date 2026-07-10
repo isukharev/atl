@@ -21,6 +21,8 @@ import (
 	"github.com/isukharev/atl/internal/wikimd"
 )
 
+const jiraIssueDocumentMarker = "<!-- atl:document jira-issue v1 -->"
+
 func (s *JiraService) Issue(ctx context.Context, key string, fields []string) (*domain.Issue, error) {
 	return s.tr.GetIssue(ctx, key, fields)
 }
@@ -872,7 +874,7 @@ func renderIssueMarkdownLayout(is *domain.Issue, assets []JiraIssueAsset, relate
 			}
 		}
 	}
-	b.WriteString("<!-- atl:document jira-issue -->\n")
+	b.WriteString(jiraIssueDocumentMarker + "\n")
 	fmt.Fprintf(&b, "# %s — %s\n\n", markdownSingleLine(is.Key), markdownSingleLine(is.Summary))
 	b.WriteString(renderJiraMetadata(metadata))
 	b.WriteString("\n\n")

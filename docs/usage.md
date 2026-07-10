@@ -403,9 +403,9 @@ credential, or state filenames even if that private parent is the ATL config
 directory. Parent mode validation and atomic rename use one held directory
 handle. `profile.json` is untouched. `review` is read-only and returns evidence
 plus the ordinary complete profile preview. `apply` is the confirmation that
-turns proposed preferences into `confirmed:true`. `reject` stores only the
-suggestion hash in owner-only decision state—never evidence, selectors, or
-sampled content—so an identical future proposal reports
+turns proposed preferences into `confirmed:true`. `reject` stores only a bounded
+recent window of suggestion hashes in owner-only decision state—never evidence,
+selectors, or sampled content—so an identical proposal still in that window reports
 `previously_rejected:true`. Delete the temporary observation/suggestion files
 after either decision.
 
@@ -461,11 +461,14 @@ atl profile revalidate --from-file "$PRIVATE_TMP/checks.json" \
   --out "$PRIVATE_TMP/verified.atl-observations.json"
 ```
 
-Revalidation stores the latest check outcome in private owner-only state and
+Revalidation stores a bounded, newest-first-per-service set of check outcomes
+in private owner-only state and
 emits only successfully verified facts as a normal observations artifact.
 The output name must end in `.atl-observations.json`, the corresponding reserved
 non-state suffix.
-Missing/failed checks never delete or overwrite the last verified profile fact.
+Failure summaries reject control characters, redact URLs, hostnames, and IP
+addresses, and are length-capped before persistence. Missing/failed checks never
+delete or overwrite the last verified profile fact.
 Feed the observations through `suggest → review → apply|reject`; until apply,
 new facts appear as `verified_pending`. Backend reads are performed by the
 calling agent only after consent—these profile commands are local/offline.
@@ -1008,7 +1011,7 @@ atl conf apply guide.md --allow-fragment-loss  # intentional macro/mention remov
 | flag | description |
 |---|---|
 | `<page.md>` | the page's markdown view (positional, required) |
-| `--dry-run` | report without committing `.wiki`, pending, or `.md` view changes |
+| `--dry-run` | report without committing `.csf` or regenerated `.md` view changes |
 | `--allow-fragment-loss` | proceed when the edit drops opaque fragments |
 | `--into` | mirror root (defaults to nearest `.atl`) |
 
@@ -1942,10 +1945,15 @@ removed constructs:
 next: run `jira push PROJ-1.wiki` to publish
 ```
 
-The `<!-- atl:document ... -->` and `<!-- atl:section ... -->` prefixes are
-reserved view boundaries. If either appears inside an editable Description or
-field value, apply fails closed before changing `.wiki`, snapshot, or pending
-state; remove it or edit the native `.wiki` substrate deliberately.
+The first line is the versioned format marker
+`<!-- atl:document jira-issue v1 -->`; missing, unversioned, or unknown markers
+fail closed and require `jira render` (or a fresh pull) before editing. Because
+render rewrites `.md`, save any existing edits as a reviewed external patch,
+render the exact file/root, then reapply them. The
+`<!-- atl:document ... -->` and `<!-- atl:section ... -->` prefixes are reserved
+view boundaries. If either appears inside an editable Description or field
+value, apply fails closed before changing `.wiki`, snapshot, or pending state;
+remove it or edit the native `.wiki` substrate deliberately.
 
 The merge is **fail-closed** (exit `8`, nothing written) when: an edited block
 cannot be converted to wiki (a construct outside the subset) — make that edit in

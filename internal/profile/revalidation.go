@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -17,6 +18,18 @@ import (
 const revalidationFileName = "profile-revalidation.json"
 
 const ObservationsFileSuffix = ".atl-observations.json"
+
+const maxRevalidationErrorRunes = 500
+
+var (
+	urlSummaryRe              = regexp.MustCompile(`(?i)\b(?:https?|ftp)://[^\s]+`)
+	netPathSummaryRe          = regexp.MustCompile(`//[^\s/]+(?:/[^\s]*)?`)
+	bracketIPv6SummaryRe      = regexp.MustCompile(`(?i)\[[0-9a-f:]+\](?::[0-9]{1,5})?`)
+	ipv6SummaryRe             = regexp.MustCompile(`(?i)\b(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}\b`)
+	hostSummaryRe             = regexp.MustCompile(`(?i)\b(?:[a-z0-9-]+\.)+[a-z]{2,63}(?::[0-9]{1,5})?\b`)
+	internalHostPortSummaryRe = regexp.MustCompile(`(?i)\b[a-z][a-z0-9-]*:[0-9]{1,5}\b`)
+	ipv4SummaryRe             = regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::[0-9]{1,5})?\b`)
+)
 
 type RevalidationBatch struct {
 	SchemaVersion    int                    `json:"schema_version"`
@@ -102,11 +115,15 @@ func DecodeRevalidationBatchStrict(data []byte) (RevalidationBatch, error) {
 	seen := map[string]bool{}
 	for i := range batch.JiraFields {
 		check := &batch.JiraFields[i]
+		if hasControl(check.ID + check.Name + check.Type + check.Source + check.Error) {
+			return RevalidationBatch{}, fmt.Errorf("%w: Jira field check values must not contain control characters", domain.ErrUsage)
+		}
 		check.ID = strings.TrimSpace(check.ID)
 		check.Name = strings.TrimSpace(check.Name)
 		check.Type = strings.TrimSpace(check.Type)
 		check.Source = strings.TrimSpace(check.Source)
 		check.Error = strings.TrimSpace(check.Error)
+		check.Error = sanitizeFailureSummary(check.Error)
 		if err := validateRevalidationCheck("Jira field", check.ID, check.Status, check.Name, check.Source, check.Error); err != nil {
 			return RevalidationBatch{}, err
 		}
@@ -118,10 +135,14 @@ func DecodeRevalidationBatchStrict(data []byte) (RevalidationBatch, error) {
 	}
 	for i := range batch.ConfluenceSpaces {
 		check := &batch.ConfluenceSpaces[i]
+		if hasControl(check.Key + check.Name + check.Source + check.Error) {
+			return RevalidationBatch{}, fmt.Errorf("%w: Confluence space check values must not contain control characters", domain.ErrUsage)
+		}
 		check.Key = strings.TrimSpace(check.Key)
 		check.Name = strings.TrimSpace(check.Name)
 		check.Source = strings.TrimSpace(check.Source)
 		check.Error = strings.TrimSpace(check.Error)
+		check.Error = sanitizeFailureSummary(check.Error)
 		if err := validateRevalidationCheck("Confluence space", check.Key, check.Status, check.Name, check.Source, check.Error); err != nil {
 			return RevalidationBatch{}, err
 		}
@@ -140,8 +161,8 @@ func validateRevalidationCheck(kind, id, status, name, source, checkError string
 	if id == "" || source == "" {
 		return fmt.Errorf("%w: %s check requires id/key and source", domain.ErrUsage, kind)
 	}
-	if strings.ContainsAny(id+name+source+checkError, "\r\n") {
-		return fmt.Errorf("%w: %s check values must be single-line", domain.ErrUsage, kind)
+	if hasControl(id + name + source + checkError) {
+		return fmt.Errorf("%w: %s check values must not contain control characters", domain.ErrUsage, kind)
 	}
 	switch status {
 	case "verified":
@@ -160,6 +181,21 @@ func validateRevalidationCheck(kind, id, status, name, source, checkError string
 		return fmt.Errorf("%w: invalid %s check status %q (want verified|missing|failed)", domain.ErrUsage, kind, status)
 	}
 	return nil
+}
+
+func sanitizeFailureSummary(summary string) string {
+	summary = urlSummaryRe.ReplaceAllString(summary, "<redacted-url>")
+	summary = netPathSummaryRe.ReplaceAllString(summary, "<redacted-url>")
+	summary = bracketIPv6SummaryRe.ReplaceAllString(summary, "<redacted-host>")
+	summary = ipv6SummaryRe.ReplaceAllString(summary, "<redacted-host>")
+	summary = ipv4SummaryRe.ReplaceAllString(summary, "<redacted-host>")
+	summary = hostSummaryRe.ReplaceAllString(summary, "<redacted-host>")
+	summary = internalHostPortSummaryRe.ReplaceAllString(summary, "<redacted-host>")
+	runes := []rune(summary)
+	if len(runes) > maxRevalidationErrorRunes {
+		summary = string(runes[:maxRevalidationErrorRunes]) + "…"
+	}
+	return summary
 }
 
 // ApplyRevalidation records explicit check outcomes outside profile.json and
@@ -354,6 +390,28 @@ func mergeRevalidationState(state revalidationState, batch RevalidationBatch) re
 	for _, check := range spaces {
 		state.ConfluenceSpaces = append(state.ConfluenceSpaces, check)
 	}
+	return pruneRevalidationState(state)
+}
+
+func pruneRevalidationState(state revalidationState) revalidationState {
+	if len(state.JiraFields) > maxItems {
+		sort.Slice(state.JiraFields, func(i, j int) bool {
+			if state.JiraFields[i].CheckedAt.Equal(state.JiraFields[j].CheckedAt) {
+				return state.JiraFields[i].ID < state.JiraFields[j].ID
+			}
+			return state.JiraFields[i].CheckedAt.After(state.JiraFields[j].CheckedAt)
+		})
+		state.JiraFields = state.JiraFields[:maxItems]
+	}
+	if len(state.ConfluenceSpaces) > maxItems {
+		sort.Slice(state.ConfluenceSpaces, func(i, j int) bool {
+			if state.ConfluenceSpaces[i].CheckedAt.Equal(state.ConfluenceSpaces[j].CheckedAt) {
+				return state.ConfluenceSpaces[i].Key < state.ConfluenceSpaces[j].Key
+			}
+			return state.ConfluenceSpaces[i].CheckedAt.After(state.ConfluenceSpaces[j].CheckedAt)
+		})
+		state.ConfluenceSpaces = state.ConfluenceSpaces[:maxItems]
+	}
 	sort.Slice(state.JiraFields, func(i, j int) bool { return state.JiraFields[i].ID < state.JiraFields[j].ID })
 	sort.Slice(state.ConfluenceSpaces, func(i, j int) bool { return state.ConfluenceSpaces[i].Key < state.ConfluenceSpaces[j].Key })
 	return state
@@ -407,27 +465,44 @@ func readRevalidationState(configDir string) (revalidationState, error) {
 	if state.SchemaVersion != SuggestionSchemaVersion {
 		return revalidationState{}, fmt.Errorf("%w: unsupported revalidation state schema_version %d", domain.ErrConfig, state.SchemaVersion)
 	}
-	for _, check := range state.JiraFields {
+	for i := range state.JiraFields {
+		check := &state.JiraFields[i]
 		if check.CheckedAt.IsZero() {
 			return revalidationState{}, fmt.Errorf("%w: Jira revalidation state has zero checked_at", domain.ErrConfig)
 		}
 		if err := validateRevalidationCheck("Jira field", check.ID, check.Status, check.Name, check.Source, check.Error); err != nil {
 			return revalidationState{}, fmt.Errorf("%w: invalid Jira revalidation state: %v", domain.ErrConfig, err)
 		}
+		check.Error = sanitizeFailureSummary(check.Error)
 	}
-	for _, check := range state.ConfluenceSpaces {
+	for i := range state.ConfluenceSpaces {
+		check := &state.ConfluenceSpaces[i]
 		if check.CheckedAt.IsZero() {
 			return revalidationState{}, fmt.Errorf("%w: Confluence revalidation state has zero checked_at", domain.ErrConfig)
 		}
 		if err := validateRevalidationCheck("Confluence space", check.Key, check.Status, check.Name, check.Source, check.Error); err != nil {
 			return revalidationState{}, fmt.Errorf("%w: invalid Confluence revalidation state: %v", domain.ErrConfig, err)
 		}
+		check.Error = sanitizeFailureSummary(check.Error)
 	}
-	return state, nil
+	return pruneRevalidationState(state), nil
 }
 
 func writeRevalidationState(configDir string, state revalidationState) error {
 	state.SchemaVersion = SuggestionSchemaVersion
+	for i := range state.JiraFields {
+		if hasControl(state.JiraFields[i].Error) {
+			return fmt.Errorf("%w: Jira revalidation error must not contain control characters", domain.ErrCheckFailed)
+		}
+		state.JiraFields[i].Error = sanitizeFailureSummary(state.JiraFields[i].Error)
+	}
+	for i := range state.ConfluenceSpaces {
+		if hasControl(state.ConfluenceSpaces[i].Error) {
+			return fmt.Errorf("%w: Confluence revalidation error must not contain control characters", domain.ErrCheckFailed)
+		}
+		state.ConfluenceSpaces[i].Error = sanitizeFailureSummary(state.ConfluenceSpaces[i].Error)
+	}
+	state = pruneRevalidationState(state)
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err

@@ -9,36 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- **Consent-gated profile learning and revalidation.** Explicit observations
-  deterministically produce private hash-bound suggestions without changing the
-  active profile; users review and exactly apply or reject them, with rejection
-  memory retaining hashes only. Schema revalidation uses explicit cutoffs and
-  approved check results, remembers fresh/stale/pending/missing/failed state,
-  and routes verified facts back through the same suggestion gate while
-  preserving the last verified fact on failures.
-
-- **Composable onboarding and private workflow profiles.** The explicit
-  onboarding skill interviews the user, reads only approved sample resources,
-  composes declared team defaults, and previews a versioned profile before any
-  write. `atl profile show|preview|apply|guidance` separates verified schema
-  facts, confirmed preferences, team policy, render defaults, and selectors;
-  canonical hashes, optimistic concurrency, an advisory lock, atomic 0600
-  storage, and context-efficient section reads keep changes reviewable and
-  private.
-
-- **Opt-in editable Jira rich-text sections.** A typed Jira field view can set
-  `editable:true` when it uses `section` + `jira_wiki`. `jira apply` stages those
-  fields in explicit mirror-private pending state without changing the raw
-  snapshot; status and directory push include field-only edits. Push fresh-reads
-  every baseline, refuses field drift even with `--force`, sends Description and
-  fields in one typed update, reconciles ambiguous responses without replaying,
-  and refreshes/clears local state on success. Pending commits are path/hash
-  bound and crash-recoverable; `--rebase-pending` provides an explicit reviewed
-  conflict workflow. Transient views remain read-only.
-
 ### Fixed
+
+- **Versioned Jira views and bounded private workflow state.** Jira derived
+  views now carry an explicit format version and apply refuses stale, missing,
+  or unknown markers before writes. Profile paths reject control characters;
+  rejection/revalidation state keeps deterministic bounded windows; persisted
+  failure summaries redact network locations; and renderer/merge wiki scanners
+  share list and multiline-table boundary rules.
+
+- **`apply` no longer injects a `full`-profile view's decorations into the body.**
+  `conf apply` now reproduces the recorded pristine view and merges only the
+  editable body, so an untouched full view applies to a byte-identical `.csf`;
+  editing frontmatter or Comments is refused with the dedicated command.
+
+- **`jira apply` no longer refuses after a flag-overridden render.** It now
+  reproduces the view from the render settings the `.md` was actually written
+  with instead of the ambient config.
+
+- **Jira attachment upload streaming.** Uploads stream from disk, send an exact
+  multipart `Content-Length`, avoid the JSON client's whole-request timeout,
+  and unblock the producer on early request-building failures.
 
 - **Private HTTP errors and durable streamed I/O.** API errors now redact query values just like
   verbose traces; Confluence attachment uploads stream with an exact Content-Length; streamed Jira
@@ -120,6 +111,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keep query parameter names but redact their values.
 
 ### Added
+
+- **Consent-gated profile learning and revalidation.** Explicit observations
+  deterministically produce private hash-bound suggestions without changing the
+  active profile; users review and exactly apply or reject them, with rejection
+  memory retaining hashes only. Schema revalidation uses explicit cutoffs and
+  approved check results, remembers fresh/stale/pending/missing/failed state,
+  and routes verified facts back through the same suggestion gate while
+  preserving the last verified fact on failures.
+
+- **Composable onboarding and private workflow profiles.** The explicit
+  onboarding skill interviews the user, reads only approved sample resources,
+  composes declared team defaults, and previews a versioned profile before any
+  write. `atl profile show|preview|apply|guidance` separates verified schema
+  facts, confirmed preferences, team policy, render defaults, and selectors;
+  canonical hashes, optimistic concurrency, an advisory lock, atomic 0600
+  storage, and context-efficient section reads keep changes reviewable and
+  private.
+
+- **Opt-in editable Jira rich-text sections.** A typed Jira field view can set
+  `editable:true` when it uses `section` + `jira_wiki`. `jira apply` stages those
+  fields in explicit mirror-private pending state without changing the raw
+  snapshot; status and directory push include field-only edits. Push fresh-reads
+  every baseline, refuses field drift even with `--force`, sends Description and
+  fields in one typed update, reconciles ambiguous responses without replaying,
+  and refreshes/clears local state on success. Pending commits are path/hash
+  bound and crash-recoverable; `--rebase-pending` provides an explicit reviewed
+  conflict workflow. Transient views remain read-only.
 
 - **Guarded file-backed Jira custom fields.** `jira issue field set <KEY>`
   previews by default, reads repeatable `FIELD=PATH` raw or Markdown inputs
@@ -313,31 +331,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   literal; each inner line is guarded so one Jira would parse as its own block
   (a heading/blockquote line) is refused and a leading list marker is escaped to
   render literally.
-
-### Fixed
-
-- **`apply` no longer injects a `full`-profile view's decorations into the body.**
-  `conf apply` predated render profiles and assumed a body-only `.md`; on a
-  `full`-profile page (YAML frontmatter + a `## Comments` section) it fed those
-  decorations into the block merge, converting them into new page content (an
-  untouched full view "applied" with real blocks added). It now reproduces the
-  recorded pristine view and merges only the editable body between the
-  frontmatter and the Comments section, so an untouched full view applies to a
-  byte-identical `.csf`; editing either decoration is refused (exit `8`) with a
-  pointer to `conf page update`/`conf page move` or `conf comment add`.
-- **`jira apply` no longer refuses after a flag-overridden render.** Rendering
-  with `--render-profile full` and then running plain `jira apply` reconstructed
-  the pristine view under the *ambient* config, so the prefixes mismatched and an
-  untouched view was refused (exit `8`). `apply` now reproduces the view from the
-  render settings the `.md` was actually written with.
-- **Jira attachment uploads now stream from disk.** `jira issue attachment
-  upload` no longer buffers both the local file and multipart request body in
-  memory, and it avoids the normal JSON client's whole-request timeout for
-  long-running uploads.
-- **Jira attachment uploads now send a multipart `Content-Length` for files.**
-  Streaming uploads no longer rely on chunked multipart encoding for local
-  files, and early request-building failures unblock the multipart producer
-  instead of hanging the command.
 
 ## [0.3.0] - 2026-07-05
 

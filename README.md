@@ -338,6 +338,8 @@ atl jira issue comment add PROJ-1 --from-md note.md
 atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
 atl jira issue field set PROJ-1 --from-md customfield_10001=notes.md --allow-fields customfield_10001   # dry-run
 atl jira issue transition PROJ-1 --to Done
+# Before editing, re-render views without the current first-line version marker
+atl jira render mirror-jira
 # Edit supported generated sections, stage them, then push (block-level, non-lossy)
 atl jira apply mirror-jira/PROJ/PROJ-1.md --dry-run
 

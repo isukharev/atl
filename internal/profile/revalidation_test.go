@@ -3,6 +3,7 @@ package profile
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -175,7 +176,64 @@ func TestRevalidationBatchAndStateWritersAreBounded(t *testing.T) {
 			CheckedAt:      time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC),
 		}},
 	}
-	if err := writeRevalidationState(t.TempDir(), state); !errors.Is(err, domain.ErrCheckFailed) {
-		t.Fatalf("state size error = %v", err)
+	dir := t.TempDir()
+	if err := writeRevalidationState(dir, state); err != nil {
+		t.Fatalf("bounded state write = %v", err)
+	}
+	stored, err := readRevalidationState(dir)
+	if err != nil || len([]rune(stored.JiraFields[0].Error)) > maxRevalidationErrorRunes+1 {
+		t.Fatalf("bounded state read = %+v, err=%v", stored, err)
+	}
+}
+
+func TestRevalidationSanitizesFailureAndRejectsControls(t *testing.T) {
+	batch := RevalidationBatch{
+		SchemaVersion: 1, BaseProfileHash: MissingHash(), CheckedAt: time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC),
+		JiraFields: []JiraFieldCheck{{
+			ID: "customfield_1", Status: "failed", Source: "approved lookup",
+			Error: "GET https://private.example.test/path via //private-host/path, [fd00::1]:443, fd00::2, 192.0.2.1:8443, proxy.example.test, jira:8443",
+		}},
+	}
+	encoded, err := json.Marshal(batch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := DecodeRevalidationBatchStrict(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"example.test", "private-host", "fd00", "192.0.2.1", "jira:8443"} {
+		if strings.Contains(got.JiraFields[0].Error, secret) {
+			t.Fatalf("failure summary retained %q: %q", secret, got.JiraFields[0].Error)
+		}
+	}
+	batch.JiraFields[0].Error = "bad\tvalue"
+	encoded, _ = json.Marshal(batch)
+	if _, err := DecodeRevalidationBatchStrict(encoded); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("control-character error = %v", err)
+	}
+}
+
+func TestRevalidationStateRetainsNewestBoundedWindow(t *testing.T) {
+	state := revalidationState{SchemaVersion: 1, JiraFields: make([]jiraCheckState, maxItems+2)}
+	base := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	for i := range state.JiraFields {
+		state.JiraFields[i] = jiraCheckState{
+			JiraFieldCheck: JiraFieldCheck{ID: fmt.Sprintf("customfield_%04d", i), Status: "missing", Source: "approved lookup"},
+			CheckedAt:      base.Add(time.Duration(i) * time.Minute),
+		}
+	}
+	dir := t.TempDir()
+	if err := writeRevalidationState(dir, state); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readRevalidationState(dir)
+	if err != nil || len(got.JiraFields) != maxItems {
+		t.Fatalf("state len=%d err=%v", len(got.JiraFields), err)
+	}
+	for _, entry := range got.JiraFields {
+		if entry.ID == "customfield_0000" || entry.ID == "customfield_0001" {
+			t.Fatalf("oldest entry retained: %s", entry.ID)
+		}
 	}
 }

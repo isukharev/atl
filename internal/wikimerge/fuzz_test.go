@@ -20,6 +20,7 @@ var seedBodies = []string{
 	"{quote}\nquoted line\n{quote}",
 	"{panel:title=Note}\npanel body\n{panel}",
 	"|| H1 || H2 ||\n| a | b |\n| c | d |",
+	"|| People || Role ||\n| first@example.test\nsecond@example.test\nthird@example.test | builders |\n\nAfter table.",
 	"* one\n* two\n** nested\n# ordered",
 	"Text with {color:red}colored{color} span.",
 	"Mention [~jdoe] and image !pic.png! embed.",
