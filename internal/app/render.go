@@ -10,11 +10,11 @@ import (
 )
 
 // Canonical Jira render section/field names. The flat set is what include/exclude
-// operate on: frontmatter fields plus body sections. Keeping them as string
+// operate on: metadata fields plus body sections. Keeping them as string
 // constants (not an enum) mirrors the config file's stringly-typed keys and keeps
 // the include/exclude lists human-editable.
 const (
-	// Frontmatter fields (key + summary are always emitted, so they are not in
+	// Metadata fields (key + summary are always emitted, so they are not in
 	// this set — they cannot be toggled off).
 	SecStatus       = "status"
 	SecType         = "type"
@@ -112,7 +112,7 @@ func profileBase(backend, profile string) map[string]bool {
 	if backend == "jira" {
 		switch profile {
 		case "minimal":
-			// {} — only key + summary frontmatter and the description body.
+			// {} — only key + summary metadata and the description body.
 		case "full":
 			for _, s := range jiraFullSections {
 				out[s] = true
@@ -173,7 +173,6 @@ func computeSettings(backend string, svc config.RenderService) (RenderSettings, 
 		return RenderSettings{Sections: sections}, warns
 	}
 	views := make([]config.JiraFieldView, 0, len(svc.FieldViews))
-	seenKeys := map[string]bool{}
 	viewIDs := map[string]bool{}
 	for i, fv := range svc.FieldViews {
 		norm, err := config.NormalizeJiraFieldView(fv)
@@ -181,11 +180,10 @@ func computeSettings(backend string, svc config.RenderService) (RenderSettings, 
 			warns = append(warns, fmt.Sprintf("render: ignoring jira field_views[%d]: %v", i, err))
 			continue
 		}
-		if seenKeys[norm.Key] {
-			warns = append(warns, fmt.Sprintf("render: ignoring jira field_views[%d]: duplicate output key %q", i, norm.Key))
+		if viewIDs[norm.ID] {
+			warns = append(warns, fmt.Sprintf("render: ignoring jira field_views[%d]: duplicate field id %q", i, norm.ID))
 			continue
 		}
-		seenKeys[norm.Key] = true
 		viewIDs[norm.ID] = true
 		views = append(views, norm)
 	}
@@ -196,21 +194,13 @@ func computeSettings(backend string, svc config.RenderService) (RenderSettings, 
 		if field == "" {
 			continue
 		}
-		if config.IsReservedJiraFrontmatterKey(field) {
-			warns = append(warns, fmt.Sprintf("render: ignoring custom_fields entry %q because the key is reserved", field))
-			continue
-		}
 		if seenFields[field] {
 			warns = append(warns, fmt.Sprintf("render: ignoring duplicate custom_fields entry %q", field))
 			continue
 		}
 		seenFields[field] = true
 		if viewIDs[field] {
-			continue // the typed descriptor owns this field and output key
-		}
-		if seenKeys[field] {
-			warns = append(warns, fmt.Sprintf("render: ignoring custom_fields entry %q because a typed field view uses the same output key", field))
-			continue
+			continue // the typed descriptor owns this field's presentation
 		}
 		cf = append(cf, field)
 	}
@@ -308,7 +298,7 @@ func viewStateOf(rs RenderSettings) mirror.ViewState {
 	fields := make([]mirror.FieldViewState, 0, len(rs.FieldViews))
 	for _, fv := range rs.FieldViews {
 		fields = append(fields, mirror.FieldViewState{
-			ID: fv.ID, Key: fv.Key, Label: fv.Label, Placement: fv.Placement,
+			ID: fv.ID, Label: fv.Label, Placement: fv.Placement,
 			Format: fv.Format, ShowEmpty: fv.ShowEmpty,
 		})
 	}
@@ -333,7 +323,7 @@ func settingsFromViewState(vs mirror.ViewState) RenderSettings {
 	fields := make([]config.JiraFieldView, 0, len(vs.FieldViews))
 	for _, fv := range vs.FieldViews {
 		fields = append(fields, config.JiraFieldView{
-			ID: fv.ID, Key: fv.Key, Label: fv.Label, Placement: fv.Placement,
+			ID: fv.ID, Label: fv.Label, Placement: fv.Placement,
 			Format: fv.Format, ShowEmpty: fv.ShowEmpty,
 		})
 	}

@@ -34,7 +34,7 @@ type JiraApplyResult struct {
 // Apply merges edits made in an issue's `.md` view back into its `.wiki`
 // substrate (block-level, non-lossy: untouched Description blocks keep their
 // exact base bytes). Only the `## Description` section is writable through the
-// view — an edit to any other section (frontmatter/title, Comments, Links,
+// view — an edit to any other section (generated metadata/title, Comments, Links,
 // Image Attachments) is detected and refused with a pointer to the dedicated
 // command, so a stray edit never silently vanishes.
 //
@@ -94,7 +94,7 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 		return nil, fmt.Errorf("%w: %s has diverged from the last-synced base (the .wiki was edited directly) — push or re-pull before applying .md edits",
 			domain.ErrCheckFailed, keySeg+wikiExt)
 	}
-	// The `<KEY>.json` snapshot supplies the frontmatter/section fields needed to
+	// The `<KEY>.json` snapshot supplies the metadata/section fields needed to
 	// reproduce the pristine view.
 	is, snapOK := loadIssueSnapshot(root, filepath.Join(dir, keySeg+".json"))
 	if !snapOK {
@@ -206,7 +206,7 @@ func normalizeMD(s string) string {
 // extractEditedDescription locates the edited description between the pristine
 // view's structural anchors and enforces the "only ## Description is editable"
 // contract: the edited document must start with the exact pristine prefix
-// (frontmatter + title + the `## Description` heading when a body exists) and
+// (title + generated metadata + the `## Description` heading when a body exists) and
 // end with the exact pristine suffix (every generated section after the
 // description). Whatever sits between the anchors is the edited description
 // body. Anchoring — rather than re-parsing `## ` headings — is what keeps a
@@ -221,7 +221,10 @@ func normalizeMD(s string) string {
 // the middle and is unwrapped here.
 func extractEditedDescription(edited, prefix, suffix string, baseHasDesc bool) (string, error) {
 	if !strings.HasPrefix(edited, prefix) {
-		return "", fmt.Errorf("%w: the content above the description (frontmatter, title%s) changed, but it is read-only in the md view — edit the summary and fields with `jira issue update`%s",
+		if strings.HasPrefix(edited, "---\n") && !strings.HasPrefix(prefix, "---\n") {
+			return "", fmt.Errorf("%w: this is a legacy YAML-headed Jira view; run `jira render` (or pull again) before applying Markdown edits", domain.ErrCheckFailed)
+		}
+		return "", fmt.Errorf("%w: the generated metadata, title%s, or other content above the description changed, but it is read-only in the md view — edit the summary and fields with `jira issue update`%s",
 			domain.ErrCheckFailed,
 			map[bool]string{true: ", or the `## Description` heading", false: ""}[baseHasDesc],
 			map[bool]string{true: " and keep the heading (to clear the body, delete only the text under it)", false: ""}[baseHasDesc])

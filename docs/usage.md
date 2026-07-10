@@ -278,7 +278,7 @@ replace the view. Profiles never affect substrate hashes or dirty/drift state.
 
 | profile | Jira `.md` | Confluence `.md` |
 |---|---|---|
-| `minimal` | `key` + `summary` frontmatter, `## Description` only | body only (byte-identical to `default`) |
+| `minimal` | `key` + `summary` in `## Metadata`, `## Description` only | body only (byte-identical to `default`) |
 | `default` | minimal **plus** `status`, `type`, `project`, `assignee`, `labels`, `priority`, `parent`, `## Image Attachments`, `## Links`, `## Comments` | body only (byte-identical to the pre-profile view) |
 | `full` | everything visible: default **plus** `reporter`, `created`/`updated`, `resolution`, `duedate`, `components`, `fix_versions`, configured `custom_fields`, `## Attachments` (non-image list), `## Subtasks`, `## Sprint` | YAML frontmatter (`title`, `space`, `version`, `labels`) **plus** a `## Comments` section (from the `--comments` sidecar when present) |
 
@@ -318,22 +318,21 @@ atl jira pull --jql "project=PROJ" --render-include sprint --render-exclude comm
 # persisted (see atl config set)
 atl config set render.jira.profile full
 atl config set --local render.jira.custom_fields customfield_10001,customfield_10002
-atl config set --local render.jira.field_views '[{"id":"customfield_10003","key":"risk_notes","label":"Risk Notes","placement":"section","format":"jira_wiki"}]'
+atl config set --local render.jira.field_views '[{"id":"customfield_10003","label":"Risk Notes","placement":"section","format":"jira_wiki"}]'
 atl config set --local render.jira.epic_field customfield_10004
 atl config set --local render.jira.include custom_fields,epic_children
 ```
 
-`custom_fields` (Jira only) lists custom field ids to surface in the frontmatter
-under `full` (or when `custom_fields` is included); each renders as
-`<id>: <value>` from the raw field (scalar verbatim; object via
+`custom_fields` (Jira only) lists custom field ids to surface in the Markdown
+metadata table under `full` (or when `custom_fields` is included); each renders
+as a field/value row from the raw field (scalar verbatim; object via
 `name`/`value`/`displayName`; array comma-joined; missing → omitted).
 
-`field_views` is the typed, backward-compatible alternative. Each descriptor is:
+`field_views` is the typed alternative. Each descriptor is:
 
 ```json
 {
   "id": "customfield_10003",
-  "key": "risk_notes",
   "label": "Risk Notes",
   "placement": "section",
   "format": "jira_wiki",
@@ -343,10 +342,8 @@ under `full` (or when `custom_fields` is included); each renders as
 
 - `id` is the Jira API field id/key and is automatically added to pull's
   `fields=` projection.
-- `key` is the stable frontmatter key (defaults to `id`); `label` is the section
-  heading (defaults to `key`). Built-in keys such as `key`, `summary`, `status`,
-  and `updated` are reserved, so a descriptor can never create duplicate YAML.
-- `placement` is `frontmatter` (default) or `section`.
+- `label` is the metadata row label or section heading (defaults to `id`).
+- `placement` is `metadata` (default) or `section`.
 - `format` is `auto` (default), `scalar`, `list`, `jira_wiki`, `date`, or
   `datetime`; `jira_wiki` requires section placement and uses the same guarded
   wiki→Markdown renderer as Description. Valid `date` values normalize to
@@ -354,14 +351,19 @@ under `full` (or when `custom_fields` is included); each renders as
   source offset/fraction). Unexpected server values remain visible verbatim.
   A scalar with section `list` format becomes one bullet rather than an empty
   section.
-- missing/empty values are omitted unless `show_empty` is true (`null` in
-  frontmatter, `_Not set._` in a section).
+- missing/empty values are omitted unless `show_empty` is true (`—` in
+  metadata, `_Not set._` in a section).
 
 Typed descriptors and legacy `custom_fields` render only while the
 `custom_fields` section is enabled (`full` enables it; other profiles can
 `include` it). A typed descriptor owns its id when both forms mention the same
 field, preventing duplicate output. The raw value always remains unchanged in
 `<KEY>.json`.
+
+The beta metadata-table change removed the old descriptor `key` and renamed
+`placement: frontmatter` to `placement: metadata`. Update mirror-local configs
+and run `jira render` (or pull again) before editing an existing YAML-headed
+view; `jira apply` remains fail-closed when generated decorations do not match.
 
 `epic_children` is an opt-in related-data section, not the built-in `subtasks`
 field. On pull, atl resolves `render.jira.epic_field` lazily (or auto-detects the
@@ -382,8 +384,8 @@ re-run `jira pull` to populate it.
 **`apply` reproduces the view it was rendered with.** Every `pull`/`render`
 records the resolved render settings in `.atl/state.json` (a `views` map).
 `conf apply` / `jira apply` rebuild the pristine view from those recorded
-settings — so an untouched `full`-profile `.md` applies cleanly and its YAML
-frontmatter and `## Comments` section stay **read-only** (they are never merged
+settings — so an untouched `full`-profile `.md` applies cleanly and its generated
+metadata table and `## Comments` section stay **read-only** (they are never merged
 into the page/description body; editing them is refused with a pointer to the
 metadata / comment commands). No `--render-*` flags are needed on apply. To
 override the recorded view: `jira apply` accepts `--render-*` flags; `conf apply`
@@ -1612,7 +1614,7 @@ cannot be converted to wiki (a construct outside the subset) — make that edit 
 the `.wiki` directly; a wiki-only construct present in the base is dropped by the
 edit (`{panel}`, `{color}`, `[~mention]`, `!embed!`, a macro) and `--allow-loss`
 was not given (the dropped constructs are listed in `removed_constructs`); an edit
-touches any section other than `## Description` (frontmatter/title, Comments,
+touches any section other than `## Description` (generated metadata/title, Comments,
 Links, Image Attachments) — the refusal names the section and the dedicated
 command (`jira issue update`, `jira issue comment add`, `jira issue link add`,
 `jira issue attachment upload`); or the local `.wiki` has diverged from the

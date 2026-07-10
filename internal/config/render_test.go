@@ -153,7 +153,7 @@ func TestEffectiveRenderPrecedence(t *testing.T) {
 	global := &Config{Render: &RenderConfig{
 		Jira: &RenderService{
 			Profile: "full", Include: []string{"sprint"}, CustomFields: []string{"customfield_1"},
-			FieldViews: []JiraFieldView{{ID: "customfield_2", Key: "score"}}, EpicField: "customfield_3",
+			FieldViews: []JiraFieldView{{ID: "customfield_2", Label: "Score"}}, EpicField: "customfield_3",
 		},
 	}}
 	local := &LocalConfig{Render: &RenderConfig{
@@ -180,7 +180,7 @@ func TestEffectiveRenderPrecedence(t *testing.T) {
 	if prov["render.jira.custom_fields"] != "global" {
 		t.Errorf("custom_fields provenance = %q, want global", prov["render.jira.custom_fields"])
 	}
-	if got := render.Jira.FieldViews; len(got) != 1 || got[0].Key != "score" {
+	if got := render.Jira.FieldViews; len(got) != 1 || got[0].Label != "Score" {
 		t.Errorf("field_views = %+v, want global value", got)
 	}
 	if prov["render.jira.field_views"] != "global" || render.Jira.EpicField != "customfield_3" || prov["render.jira.epic_field"] != "global" {
@@ -228,7 +228,7 @@ func TestSetRenderKey(t *testing.T) {
 	if rc.Confluence == nil || len(rc.Confluence.Exclude) != 1 {
 		t.Errorf("confluence exclude not set: %+v", rc.Confluence)
 	}
-	if err := SetRenderKey(rc, "render.jira.field_views", `[{"id":"customfield_1","key":"risk","label":"Risk","placement":"section","format":"jira_wiki"}]`); err != nil {
+	if err := SetRenderKey(rc, "render.jira.field_views", `[{"id":"customfield_1","label":"Risk","placement":"section","format":"jira_wiki"}]`); err != nil {
 		t.Fatal(err)
 	}
 	if len(rc.Jira.FieldViews) != 1 || rc.Jira.FieldViews[0].Label != "Risk" {
@@ -254,8 +254,7 @@ func TestSetRenderKeyErrors(t *testing.T) {
 		{"render.jira.bogus", "x", false},               // bad field
 		{"render.confluence.custom_fields", "x", false}, // jira-only field
 		{"render.confluence.field_views", "[]", false},  // jira-only field
-		{"render.jira.field_views", `[{"id":"x","key":"bad key"}]`, false},
-		{"render.jira.field_views", `[{"id":"x","key":"summary"}]`, false},
+		{"render.jira.field_views", `[{"id":"x","placement":"frontmatter"}]`, false},
 		{"render.jira.field_views", `[{"id":"x","format":"jira_wiki"}]`, false},
 		{"render.jira.profile", "gigantic", false}, // bad profile value
 	}

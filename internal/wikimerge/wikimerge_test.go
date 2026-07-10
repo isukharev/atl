@@ -30,6 +30,7 @@ func TestRoundTrip(t *testing.T) {
 		"{code:go}\nfmt.Println(\"hi\")\n\nblank line inside\n{code}",
 		"{panel:title=Note}\npanel body\n{panel}",
 		"|| H1 || H2 ||\n| a | b |\n| c | d |",
+		"|| Owner || Role ||\n| [~first]\n[~second]\n[~third] | DS |\n| [~lead] | Lead |",
 		"* one\n* two\n** nested\n# ordered",
 		"User:\n # first\n # second",
 		"h2. Heading\n\ntext with trailing newline\n",

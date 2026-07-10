@@ -102,7 +102,7 @@ func scanWikiBlocks(base string) []block {
 		case strings.HasPrefix(ln, "|"):
 			j := i
 			for j < len(lines) && strings.HasPrefix(lines[j].text, "|") {
-				j++
+				j = wikiTableRowEnd(lines, j) + 1
 			}
 			add(i, j-1)
 			i = j
@@ -127,6 +127,24 @@ func scanWikiBlocks(base string) []block {
 		}
 	}
 	return blocks
+}
+
+// wikiTableRowEnd mirrors wikimd.tableRowEnd so render and apply agree that
+// non-`|` continuation lines ending in `|` belong to the table block.
+func wikiTableRowEnd(lines []wline, start int) int {
+	if strings.HasSuffix(strings.TrimSpace(lines[start].text), "|") {
+		return start
+	}
+	for i := start + 1; i < len(lines); i++ {
+		line := lines[i].text
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "|") {
+			return start
+		}
+		if strings.HasSuffix(strings.TrimSpace(line), "|") {
+			return i
+		}
+	}
+	return start
 }
 
 // macroEnd returns the index of the last line of a brace macro opened at line i.

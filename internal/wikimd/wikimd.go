@@ -303,10 +303,33 @@ func tableBlock(lines []string, i int, opts Options) (string, int) {
 	j := i
 	var rows []string
 	for j < len(lines) && strings.HasPrefix(lines[j], "|") {
-		rows = append(rows, lines[j])
-		j++
+		end := tableRowEnd(lines, j)
+		rows = append(rows, strings.Join(lines[j:end+1], "\n"))
+		j = end + 1
 	}
 	return renderTable(rows, opts), j
+}
+
+// tableRowEnd returns the last physical line of one logical Jira table row.
+// Jira's editor can store a literal line break inside a cell: the opening line
+// starts with `|`, continuation lines do not, and the final continuation closes
+// the row with `|`. We join only that unambiguous shape. An unterminated row,
+// blank line, or a new `|` line falls back to the old one-line behavior so a
+// malformed table cannot swallow the rest of the document.
+func tableRowEnd(lines []string, start int) int {
+	if strings.HasSuffix(strings.TrimSpace(lines[start]), "|") {
+		return start
+	}
+	for i := start + 1; i < len(lines); i++ {
+		line := lines[i]
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "|") {
+			return start
+		}
+		if strings.HasSuffix(strings.TrimSpace(line), "|") {
+			return i
+		}
+	}
+	return start
 }
 
 func renderTable(rows []string, opts Options) string {

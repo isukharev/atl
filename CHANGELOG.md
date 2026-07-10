@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Jira Markdown tables and metadata.** Physical line breaks inside one Jira
+  table cell now stay in the logical row and render as spaces instead of
+  breaking the GFM table. Legacy escaped-brace bold spans render without stray
+  braces. Jira issue metadata now uses one readable Markdown table instead of
+  YAML frontmatter; typed field descriptors are simplified to `id`, `label`,
+  `metadata|section` placement, format, and optional empty output.
+
 - **Documentation and client-skill contracts.** CI examples preserve failing
   exit codes, Confluence search documents both supported selector modes, Jira
   render examples use valid section names, mirror paths distinguish the
@@ -37,9 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Jira derived-view correctness.** Jira wiki list markers remain lists when
   the server stores leading whitespace, preventing ordered items from becoming
-  Markdown headings. Typed field views reject built-in frontmatter-key
-  collisions, quote YAML strings/lists safely, normalize valid date/datetime
-  values, and render a scalar `list` as one item. Epic-child discovery resolves
+  Markdown headings. Typed field views normalize valid date/datetime values and
+  render a scalar `list` as one item. Epic-child discovery resolves
   lazily, can infer localized epics from returned children when the field is
   configured, and refuses stale/mismatched sidecars during offline render/apply.
 
@@ -61,7 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Typed Jira field views and opt-in epic-child sidecars.** Jira render config
   now accepts `render.jira.field_views`: validated descriptors with a raw field
-  id, stable output key, display label, frontmatter/section placement,
+  id, display label, metadata/section placement,
   `auto|scalar|list|jira_wiki|date|datetime` format, and optional empty-value
   output. Configured fields widen the existing pull search projection, remain
   raw in `<KEY>.json`, render deterministically (long Jira-wiki values can be
@@ -90,7 +96,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of hand-writing wiki markup. Untouched blocks keep their exact base bytes (an
   untouched view applies to a byte-identical `.wiki`); changed/new blocks convert
   through the fail-closed `mdwiki` subset. Only `## Description` is writable — an
-  edit to the frontmatter/title or to the Comments/Links/Image Attachments sections
+  edit to the generated metadata/title or to the Comments/Links/Image Attachments sections
   is detected and refused (exit 8) with a pointer to the dedicated command, so a
   stray edit never silently vanishes. A wiki-only construct present in the base but
   dropped by the edit (`{panel}`, `{color}`, `[~mention]`, `!embed!`, a macro) is

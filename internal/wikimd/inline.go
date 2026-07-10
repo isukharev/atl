@@ -15,6 +15,18 @@ func inline(s string, opts Options) string {
 	for i < len(s) {
 		c := s[i]
 		switch {
+		case c == '\\':
+			if i+1 < len(s) && s[i+1] == '\\' {
+				b.WriteString("  \n")
+				i += 2
+				continue
+			}
+			if n := escapedBraceBold(&b, s, i, opts); n > 0 {
+				i += n
+				continue
+			}
+			b.WriteByte(c)
+			i++
 		case c == '{':
 			if n := monospan(&b, s[i:]); n > 0 {
 				i += n
@@ -44,10 +56,6 @@ func inline(s string, opts Options) string {
 			}
 			b.WriteByte(c)
 			i++
-		case c == '\\' && i+1 < len(s) && s[i+1] == '\\':
-			// Jira forced line break → markdown hard break.
-			b.WriteString("  \n")
-			i += 2
 		case c == '*':
 			if n := toggle(&b, s, i, '*', "**", opts); n > 0 {
 				i += n
@@ -75,6 +83,34 @@ func inline(s string, opts Options) string {
 		}
 	}
 	return b.String()
+}
+
+// escapedBraceBold recognizes a legacy Jira editor shape where an emphasized
+// span is serialized as `\{*}text{*}` instead of `*text*`. Treating its inner
+// stars as ordinary wiki delimiters leaks the braces into Markdown. The narrow
+// recognizer requires a non-empty, single-line span and leaves every other
+// backslash/braced construct literal.
+func escapedBraceBold(b *strings.Builder, s string, i int, opts Options) int {
+	const open = `\{*}`
+	const close = `{*}`
+	if !strings.HasPrefix(s[i:], open) || (i > 0 && isWordByte(s[i-1])) {
+		return 0
+	}
+	rest := s[i+len(open):]
+	end := strings.Index(rest, close)
+	if end <= 0 {
+		return 0
+	}
+	content := rest[:end]
+	if strings.ContainsAny(content, "\r\n") || strings.TrimSpace(content) != content {
+		return 0
+	}
+	after := i + len(open) + end + len(close)
+	if after < len(s) && isWordByte(s[after]) {
+		return 0
+	}
+	b.WriteString("**" + inline(content, opts) + "**")
+	return len(open) + end + len(close)
 }
 
 // monospan converts {{mono}} to an inline `code` span. Content is verbatim (no

@@ -727,8 +727,8 @@ const jiraDescStub = "<!-- atl: markdown view unavailable for this revision (the
 const jiraCommentStub = "<!-- atl: comment could not be rendered -->"
 
 // renderIssueMarkdown emits the derived Markdown staging view under the resolved
-// render settings: a YAML frontmatter (key + summary always; every other field only when
-// its section is enabled AND present), a rendered "## Description" (the native
+// render settings: a readable metadata table (key + summary always; every other
+// field only when its section is enabled AND present), a rendered "## Description" (the native
 // wiki body run through wikimd — the verbatim body lives in the sibling
 // <KEY>.wiki), and the enabled body sections. It never returns an error; a
 // renderer panic degrades one section to a stub (see guardRender) rather than
@@ -744,7 +744,7 @@ func renderIssueMarkdownWithRelated(is *domain.Issue, assets []JiraIssueAsset, r
 }
 
 // renderIssueMarkdownPartsWithRelated renders the view as three concatenable parts:
-// prefix (frontmatter + title + the `## Description` heading when a body
+// prefix (title + generated metadata + the `## Description` heading when a body
 // exists), desc (the rendered description body, no framing), and suffix
 // (everything after the description). renderIssueMarkdown is exactly
 // prefix+desc+suffix. The split exists for `jira apply`: the description must be
@@ -754,60 +754,62 @@ func renderIssueMarkdownWithRelated(is *domain.Issue, assets []JiraIssueAsset, r
 func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAsset, related *JiraEpicChildrenSidecar, rs RenderSettings) (prefix, desc, suffix string) {
 	images := assetImageMap(assets)
 	var b strings.Builder
-	b.WriteString("---\n")
-	fmt.Fprintf(&b, "key: %s\n", yamlEscape(is.Key))
-	fmt.Fprintf(&b, "summary: %s\n", yamlEscape(is.Summary))
-	emitFrontmatterField(&b, rs, SecStatus, is.Status)
-	emitFrontmatterField(&b, rs, SecType, is.Type)
-	emitFrontmatterField(&b, rs, SecProject, is.Project)
-	emitFrontmatterField(&b, rs, SecPriority, nestedNameField(is.Fields, "priority"))
-	emitFrontmatterField(&b, rs, SecParent, parentKey(is.Fields))
-	emitFrontmatterField(&b, rs, SecAssignee, is.Assignee)
-	emitFrontmatterField(&b, rs, SecReporter, is.Reporter)
-	emitFrontmatterField(&b, rs, SecResolution, nestedNameField(is.Fields, "resolution"))
-	emitFrontmatterField(&b, rs, SecDuedate, strField(is.Fields, "duedate"))
-	emitFrontmatterField(&b, rs, SecCreated, strField(is.Fields, "created"))
-	emitFrontmatterField(&b, rs, SecUpdated, strField(is.Fields, "updated"))
+	metadata := []jiraMetadataEntry{
+		{Label: "Key", Value: is.Key},
+		{Label: "Summary", Value: is.Summary},
+	}
+	addMetadataField(&metadata, rs, SecStatus, "Status", is.Status)
+	addMetadataField(&metadata, rs, SecType, "Type", is.Type)
+	addMetadataField(&metadata, rs, SecProject, "Project", is.Project)
+	addMetadataField(&metadata, rs, SecPriority, "Priority", nestedNameField(is.Fields, "priority"))
+	addMetadataField(&metadata, rs, SecParent, "Parent", parentKey(is.Fields))
+	addMetadataField(&metadata, rs, SecAssignee, "Assignee", is.Assignee)
+	addMetadataField(&metadata, rs, SecReporter, "Reporter", is.Reporter)
+	addMetadataField(&metadata, rs, SecResolution, "Resolution", nestedNameField(is.Fields, "resolution"))
+	addMetadataField(&metadata, rs, SecDuedate, "Due date", strField(is.Fields, "duedate"))
+	addMetadataField(&metadata, rs, SecCreated, "Created", strField(is.Fields, "created"))
+	addMetadataField(&metadata, rs, SecUpdated, "Updated", strField(is.Fields, "updated"))
 	if rs.On(SecLabels) && len(is.Labels) > 0 {
-		fmt.Fprintf(&b, "labels: %s\n", yamlStringList(is.Labels))
+		metadata = append(metadata, jiraMetadataEntry{Label: "Labels", Value: strings.Join(is.Labels, ", ")})
 	}
 	if rs.On(SecComponents) {
 		if names := namedListField(is.Fields, "components"); len(names) > 0 {
-			fmt.Fprintf(&b, "components: %s\n", yamlStringList(names))
+			metadata = append(metadata, jiraMetadataEntry{Label: "Components", Value: strings.Join(names, ", ")})
 		}
 	}
 	if rs.On(SecFixVersions) {
 		if names := namedListField(is.Fields, "fixVersions"); len(names) > 0 {
-			fmt.Fprintf(&b, "fix_versions: %s\n", yamlStringList(names))
+			metadata = append(metadata, jiraMetadataEntry{Label: "Fix versions", Value: strings.Join(names, ", ")})
 		}
 	}
 	if rs.On(SecCustomFields) {
 		viewIDs := make(map[string]bool, len(rs.FieldViews))
 		for _, fv := range rs.FieldViews {
 			viewIDs[fv.ID] = true
-			if fv.Placement != "frontmatter" {
+			if fv.Placement != "metadata" {
 				continue
 			}
 			v, present := is.Fields[fv.ID]
 			if !present || fieldEmpty(v) {
 				if fv.ShowEmpty {
-					fmt.Fprintf(&b, "%s: null\n", fv.Key)
+					metadata = append(metadata, jiraMetadataEntry{Label: fv.Label, Value: "—"})
 				}
 				continue
 			}
-			fmt.Fprintf(&b, "%s: %s\n", fv.Key, yamlFieldValue(v, fv.Format))
+			metadata = append(metadata, jiraMetadataEntry{Label: fv.Label, Value: renderFieldValueForFormat(v, fv.Format)})
 		}
 		for _, id := range rs.CustomFields {
 			if viewIDs[id] {
-				continue // the typed descriptor owns this field's presentation
+				continue
 			}
 			if v, ok := customFieldValue(is.Fields, id); ok {
-				fmt.Fprintf(&b, "%s: %s\n", id, yamlEscape(v))
+				metadata = append(metadata, jiraMetadataEntry{Label: id, Value: v})
 			}
 		}
 	}
-	b.WriteString("---\n\n")
 	fmt.Fprintf(&b, "# %s — %s\n\n", markdownSingleLine(is.Key), markdownSingleLine(is.Summary))
+	b.WriteString(renderJiraMetadata(metadata))
+	b.WriteString("\n\n")
 	if is.Body != "" {
 		b.WriteString("## Description\n\n")
 	}
@@ -924,13 +926,47 @@ func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAss
 	return prefix, desc, suffix
 }
 
-// emitFrontmatterField writes `name: value` when the section is enabled and the
-// value is non-empty. String values are YAML-escaped.
-func emitFrontmatterField(b *strings.Builder, rs RenderSettings, name, value string) {
-	if !rs.On(name) || value == "" {
+type jiraMetadataEntry struct {
+	Label string
+	Value string
+}
+
+func addMetadataField(entries *[]jiraMetadataEntry, rs RenderSettings, section, label, value string) {
+	if !rs.On(section) || value == "" {
 		return
 	}
-	fmt.Fprintf(b, "%s: %s\n", name, yamlEscape(value))
+	*entries = append(*entries, jiraMetadataEntry{Label: label, Value: value})
+}
+
+func renderJiraMetadata(entries []jiraMetadataEntry) string {
+	var b strings.Builder
+	b.WriteString("## Metadata\n\n| Field | Value |\n| --- | --- |\n")
+	for _, entry := range entries {
+		fmt.Fprintf(&b, "| %s | %s |\n", markdownTableValue(entry.Label), markdownTableValue(entry.Value))
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func markdownTableValue(s string) string {
+	s = markdownSingleLine(s)
+	// Metadata is server-controlled plain text, not an embedded Markdown
+	// surface. Entities keep the rendered text readable while preventing a field
+	// value from becoming a remote image/link, raw HTML/comment, emphasis, code,
+	// or a structural table delimiter in the local preview.
+	return strings.NewReplacer(
+		"&", "&amp;",
+		"\\", "&#92;",
+		"|", "&#124;",
+		"<", "&lt;",
+		">", "&gt;",
+		"`", "&#96;",
+		"*", "&#42;",
+		"_", "&#95;",
+		"~", "&#126;",
+		"[", "&#91;",
+		"]", "&#93;",
+		"!", "&#33;",
+	).Replace(s)
 }
 
 // nestedNameField reads fields[key].name defensively (Jira wraps priority /
@@ -1256,72 +1292,6 @@ func mdEscapeDest(s string) string {
 		"<", "%3C", ">", "%3E", `"`, "%22",
 	)
 	return r.Replace(s)
-}
-
-func yamlEscape(s string) string {
-	if !yamlPlainString(s) {
-		b, _ := json.Marshal(s)
-		return string(b)
-	}
-	return s
-}
-
-func yamlStringList(values []string) string {
-	parts := make([]string, 0, len(values))
-	for _, value := range values {
-		parts = append(parts, yamlEscape(value))
-	}
-	return "[" + strings.Join(parts, ", ") + "]"
-}
-
-func yamlFieldValue(v any, format string) string {
-	if format == "date" || format == "datetime" {
-		return yamlEscape(renderTemporalField(v, format))
-	}
-	if arr, ok := v.([]any); ok && (format == "auto" || format == "list") {
-		values := make([]string, 0, len(arr))
-		for _, item := range arr {
-			if value := renderFieldValue(item); value != "" {
-				values = append(values, value)
-			}
-		}
-		return yamlStringList(values)
-	}
-	switch value := v.(type) {
-	case bool:
-		return strconv.FormatBool(value)
-	case float64:
-		return strconv.FormatFloat(value, 'f', -1, 64)
-	case json.Number:
-		return value.String()
-	case map[string]any:
-		for _, key := range []string{"name", "value", "displayName"} {
-			if nested, ok := value[key]; ok && !fieldEmpty(nested) {
-				return yamlFieldValue(nested, format)
-			}
-		}
-	}
-	return yamlEscape(renderFieldValueForFormat(v, format))
-}
-
-func yamlPlainString(s string) bool {
-	if s == "" || strings.TrimSpace(s) != s || strings.IndexFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 || strings.ContainsAny(s, "\\:#,[]{}&*!|>'\"%@`") {
-		return false
-	}
-	if strings.ContainsAny(s[:1], "-?") {
-		return false
-	}
-	switch strings.ToLower(s) {
-	case "null", "~", "true", "false", "yes", "no", "on", "off", ".nan", ".inf", "-.inf", "+.inf":
-		return false
-	}
-	if _, err := strconv.ParseFloat(s, 64); err == nil {
-		return false
-	}
-	if _, err := time.Parse("2006-01-02", s); err == nil {
-		return false
-	}
-	return true
 }
 
 func markdownSingleLine(s string) string {

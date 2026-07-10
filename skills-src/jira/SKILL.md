@@ -92,12 +92,12 @@ so `jira status` stays clean.
 
 For readable non-core fields, prefer typed `render.jira.field_views` over the
 legacy id-only `custom_fields` list. A descriptor selects the Jira field `id`, a
-stable YAML `key`, a section `label`, `frontmatter|section` placement,
+human-readable `label`, `metadata|section` placement,
 `auto|scalar|list|jira_wiki|date|datetime` format, and optional `show_empty`.
 Enable the `custom_fields` section (`full` already does). Example:
 
 ```bash
-atl config set --local --into <root> render.jira.field_views '[{"id":"customfield_10003","key":"risk_notes","label":"Risk Notes","placement":"section","format":"jira_wiki"}]'
+atl config set --local --into <root> render.jira.field_views '[{"id":"customfield_10003","label":"Risk Notes","placement":"section","format":"jira_wiki"}]'
 atl config set --local --into <root> render.jira.include custom_fields,epic_children
 atl config set --local --into <root> render.jira.epic_field customfield_10004
 atl jira pull --jql '<JQL>' --into <root> --render-profile full
@@ -106,9 +106,9 @@ atl jira pull --jql '<JQL>' --into <root> --render-profile full
 `epic_children` is not in any profile by default because it performs one extra
 bounded related query per main-search page that actually needs it. It lazily
 auto-detects `Epic Link` unless `epic_field` is configured; explicit field ids
-also let returned children identify localized epic types. Built-in frontmatter
-keys are reserved, date/datetime formats normalize valid values, and YAML string
-values are quoted safely. Typed fields and epic children are recorded with the
+also let returned children identify localized epic types. Date/datetime formats
+normalize valid values, and metadata renders as a readable Markdown table.
+Typed fields and epic children are recorded with the
 view and remain read-only during `jira apply`; offline `jira render` uses the raw
 snapshot plus an identity-checked sidecar.
 
@@ -210,7 +210,7 @@ atl jira push <root>/                                # a dir pushes only locally
 This is the measured-cheaper edit surface (issue #88: fewer turns and a higher success rate than
 hand-writing wiki markup). Untouched blocks keep their **exact base bytes**; changed/new blocks
 convert through the same markdown subset as `--from-md`. **Only `## Description` is editable** — an
-edit to the frontmatter, title, or the Comments/Links/Image Attachments sections is refused (exit 8)
+edit to generated metadata, title, or the Comments/Links/Image Attachments sections is refused (exit 8)
 with a pointer to the dedicated command (`issue update` / `comment add` / `link add` /
 `attachment upload`). A wiki-only construct in the base (`{panel}`, `{color}`, `[~mention]`, `!embed!`,
 a macro) dropped by the edit is listed in `removed_constructs` and refused (exit 8) unless

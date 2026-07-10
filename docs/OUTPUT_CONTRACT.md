@@ -103,7 +103,9 @@ regenerated best-effort on pull/render), and `<KEY>.json` (the raw-fields snapsh
 result's `path` points at the `.md`; `wiki_path` points at the sibling `.wiki` substrate. To use the
 friendly surface, edit only `## Description` in `.md` and run `jira apply`, which merges supported
 changes into `.wiki`; `.md` is never sent directly and a later pull/render can replace it. Edit
-`.wiki` directly for constructs the staging view cannot express. The JSON snapshot is an object with
+`.wiki` directly for constructs the staging view cannot express. Generated issue fields appear in a
+read-only `## Metadata` Markdown table; update them through `jira issue update` and related commands,
+not by editing the table. The JSON snapshot is an object with
 stable identity at the top level and raw Jira fields under `fields`:
 
 ```json
