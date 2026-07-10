@@ -268,6 +268,77 @@ and ignored. Precedence is **local > global > default**, merged per key.
 
 ---
 
+## `atl profile`
+
+Store compact private workflow memory separately from credentials, mirrors, and
+workspace guidance. The profile lives at `ATL_CONFIG_DIR/profile.json` (normally
+`~/.config/atl/profile.json`), is written atomically with mode `0600`, and has five
+deliberately separate sections:
+
+- `schema`: Jira field and Confluence space facts with source + verification time;
+- `preferences`: human-confirmed services and mirror choice;
+- `team_policy`: explicit rules with declared provenance (never inferred);
+- `render_defaults`: the agreed render shape (it does not silently rewrite config);
+- `selectors`: named reusable JQL/CQL, without sampled issue/page content.
+
+The profile may contain private field names and selectors even though it contains
+no credentials. Never commit or publish it.
+All `profile` commands are local/offline and skip the background self-update
+check, so preview performs no network or unrelated filesystem mutation.
+
+### Preview and apply
+
+Every write is a two-phase optimistic operation:
+
+```sh
+PRIVATE_TMP="$(mktemp -d)"       # verify mode 0700
+CANDIDATE="$PRIVATE_TMP/profile.json"  # create/write with mode 0600
+atl profile preview --from-file "$CANDIDATE"
+
+atl profile apply --from-file "$CANDIDATE" \
+  --candidate-hash <candidate_hash> \
+  --expected-current-hash <current_hash>
+```
+
+Remove the private temporary directory on approval decline, error,
+interruption, or success; never use a predictable shared `/tmp` filename.
+
+`preview` strictly validates schema version 1, rejects unknown keys, normalizes
+unordered lists, and returns the complete normalized candidate plus per-section
+`added|removed|changed|unchanged` status. It never writes. `apply` requires both
+exact hashes: a modified candidate fails with exit 8; a current profile changed by
+another actor fails with exit 5. Concurrent cooperating applies are serialized by
+an owner-only advisory lock. Apply also repairs a semantically identical profile
+back to mode `0600` if it was restored with permissive permissions.
+
+Candidates must use schema version `1`. An ordinary `show` rejects an unsupported
+stored version, but `preview` may treat syntactically valid future-version bytes
+as opaque state: it reports `migration_from_schema_version` and a raw current
+hash. The same guarded apply can then replace those exact bytes with an approved
+version-1 candidate without interpreting unknown fields.
+
+### Context-efficient reads and guidance
+
+```sh
+atl profile show
+atl profile show --section all
+atl profile show --section preferences
+atl profile show --section schema --service jira
+atl profile show --section selectors --service confluence
+atl profile guidance -o text
+```
+
+`show` returns metadata `{exists,path,hash}` by default. Use an explicit `--section`
+and optional `--service` to load only needed data; `--section all` is the deliberate
+full-profile escape hatch.
+`guidance` emits only a short generic instruction pointing agents to those slices;
+it never embeds fields, selectors, policy rules, or sampled content. The optional
+`onboarding` client skill performs the consent-gated interview and preview/apply
+flow. Applying `render_defaults` to runtime config remains a separate explicit
+`atl config set render.* ...` review/write.
+
+---
+
 ## Render profiles
 
 The `.md` files in a mirror are derived staging views regenerated from the

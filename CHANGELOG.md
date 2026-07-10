@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Composable onboarding and private workflow profiles.** The explicit
+  onboarding skill interviews the user, reads only approved sample resources,
+  composes declared team defaults, and previews a versioned profile before any
+  write. `atl profile show|preview|apply|guidance` separates verified schema
+  facts, confirmed preferences, team policy, render defaults, and selectors;
+  canonical hashes, optimistic concurrency, an advisory lock, atomic 0600
+  storage, and context-efficient section reads keep changes reviewable and
+  private.
+
 - **Opt-in editable Jira rich-text sections.** A typed Jira field view can set
   `editable:true` when it uses `section` + `jira_wiki`. `jira apply` stages those
   fields in explicit mirror-private pending state without changing the raw

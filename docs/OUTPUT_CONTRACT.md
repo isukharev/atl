@@ -269,6 +269,32 @@ stdout stays clean.
 
 `atl config show` emits `{ "confluence_url"?, "jira_url"?, "update_base_url"?, "render", "render_provenance"?, "local_config_path"?, "mirror" }`. `render` is the **effective** merged render configuration (always present; both `jira` and `confluence` sections carry at least `profile`, defaulting to `default`). `render_provenance` maps each dotted render key whose value is *not* the built-in default to its source (`global` or `local`) and is `omitempty` — an all-default mirror emits none, keeping the shape backward-compatible. `local_config_path` appears only when a per-mirror `.atl/config.json` is in scope from the current directory. Warnings about forbidden/unknown keys in a local file go to **stderr** as `warning:` lines; stdout stays clean. `config set` accepts a positional dotted render key (`render.{jira,confluence}.{profile,include,exclude}`, plus `render.jira.custom_fields`, `render.jira.field_views`, and `render.jira.epic_field`) alongside the existing URL flags; `field_views` is a JSON descriptor array. `--local` writes the per-mirror file (render keys only — a URL flag with `--local` is a usage error, exit 2).
 
+`atl profile show` emits `{exists,path,hash,data?}`. A missing profile is a
+successful read with `exists:false`, the future profile path, and a stable
+64-hex missing-state hash. An existing profile also omits `data` by default.
+`--section all|schema|preferences|team_policy|render_defaults|selectors` adds
+the requested `data`;
+`--service jira|confluence` is valid only for `schema` and `selectors`.
+
+`atl profile preview --from-file FILE` emits
+`{path,current_exists,current_hash,candidate_hash,changed,migration_from_schema_version?,sections,normalized_candidate}`.
+It is read-only. Each `sections[]` item is `{section,status}` where status is
+`added|removed|changed|unchanged`. The normalized candidate uses profile schema
+version 1 and keeps schema facts, confirmed preferences, declared team policy,
+render defaults, and named selectors separate. When a syntactically valid
+future-version profile is present, preview never interprets it: it hashes the
+exact bytes, sets `migration_from_schema_version`, and reports every replacement
+section as changed.
+
+`atl profile apply --from-file FILE --candidate-hash HASH
+--expected-current-hash HASH` emits
+`{path,previous_hash,profile_hash,changed}`. Candidate mismatch is exit 8;
+current-profile mismatch is exit 5. A successful change atomically writes the
+owner-only private profile; an already-current candidate succeeds with
+`changed:false`. `atl profile guidance` emits
+`{configured,schema_version?,instructions}` and is guaranteed not to project
+profile values into `instructions`.
+
 `atl jira export --jql ... --out FILE --format jsonl|json|csv` writes one compact artifact and a
 sidecar manifest at `FILE.manifest.json`. `--ids` and `--keys` can be used instead of `--jql` to
 generate batched `id in (...)` / `key in (...)` queries. Stdout remains the normal `emit()` JSON

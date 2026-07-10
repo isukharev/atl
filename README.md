@@ -144,7 +144,9 @@ codex plugin add atl@atl
 ```
 
 Then start a new Codex session, invoke the `setup` skill from `/skills` or with `$setup`, and let it
-install/configure the `atl` CLI. After setup, Codex can invoke the same shared skills when relevant.
+install/configure the `atl` CLI. Optionally invoke `$onboarding` afterward to build a reviewed,
+private workflow profile from explicitly approved examples. After setup, Codex can invoke the same
+shared skills when relevant.
 
 Core skills:
 
@@ -152,6 +154,8 @@ Core skills:
   and where the mirror lives.
 - **`confluence`** — pull, edit `.csf`, validate, and push pages under the version gate.
 - **`jira`** — search/pull issues and create/update/transition/comment/link via commands.
+- **`onboarding`** — optional consent-gated workflow discovery, declared team defaults, and a
+  reviewed private profile; it never reads sample content or writes config without approval.
 
 On top of those references, the plugin ships workflow recipes — end-to-end processes with
 built-in approval gates before anything is created:

@@ -1,0 +1,5 @@
+{
+  "exists": true,
+  "path": "<config-dir>/profile.json",
+  "hash": "<sha256>"
+}
