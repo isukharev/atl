@@ -740,7 +740,15 @@ func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset, rs RenderSet
 }
 
 func renderIssueMarkdownWithRelated(is *domain.Issue, assets []JiraIssueAsset, related *JiraEpicChildrenSidecar, rs RenderSettings) []byte {
-	prefix, desc, suffix := renderIssueMarkdownPartsWithRelated(is, assets, related, rs)
+	prefix, desc, suffix := renderIssueMarkdownPartsWithRelatedMode(is, assets, related, rs, true)
+	return []byte(prefix + desc + suffix)
+}
+
+// renderTransientIssueMarkdown uses the shared presentation pipeline but marks
+// Description read-only: unlike a mirror view, transient output has no synced
+// base that `jira apply` could safely merge.
+func renderTransientIssueMarkdown(is *domain.Issue, related *JiraEpicChildrenSidecar, rs RenderSettings) []byte {
+	prefix, desc, suffix := renderIssueMarkdownPartsWithRelatedMode(is, nil, related, rs, false)
 	return []byte(prefix + desc + suffix)
 }
 
@@ -751,6 +759,10 @@ func renderIssueMarkdownWithRelated(is *domain.Issue, assets []JiraIssueAsset, r
 // prefix+desc+suffix. The split exists for `jira apply`: the description must be
 // located by these structural anchors, not by matching visible heading text.
 func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAsset, related *JiraEpicChildrenSidecar, rs RenderSettings) (prefix, desc, suffix string) {
+	return renderIssueMarkdownPartsWithRelatedMode(is, assets, related, rs, true)
+}
+
+func renderIssueMarkdownPartsWithRelatedMode(is *domain.Issue, assets []JiraIssueAsset, related *JiraEpicChildrenSidecar, rs RenderSettings, descriptionEditable bool) (prefix, desc, suffix string) {
 	images := assetImageMap(assets)
 	var b strings.Builder
 	metadata := []jiraMetadataEntry{
@@ -810,7 +822,7 @@ func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAss
 	fmt.Fprintf(&b, "# %s — %s\n\n", markdownSingleLine(is.Key), markdownSingleLine(is.Summary))
 	b.WriteString(renderJiraMetadata(metadata))
 	b.WriteString("\n\n")
-	writeJiraSectionHeading(&b, "description", "Description", true)
+	writeJiraSectionHeading(&b, "description", "Description", descriptionEditable)
 	prefix = b.String()
 	if is.Body != "" {
 		desc = guardRender(jiraDescStub, func() string {

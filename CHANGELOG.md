@@ -72,6 +72,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Transient configured Jira Markdown view.** `jira issue view <KEY>` renders
+  one live issue through the same profile/typed-field pipeline without writing
+  a mirror, snapshot, sidecar, asset, or writeback baseline. Default output is
+  `{key,markdown}` JSON; `-o text` emits raw Markdown. The request projection is
+  limited to fields required by the resolved view, and `--render-root` can read
+  presentation-only local config without modifying it.
+
 - **Typed Jira field views and opt-in epic-child sidecars.** Jira render config
   now accepts `render.jira.field_views`: validated descriptors with a raw field
   id, display label, metadata/section placement,

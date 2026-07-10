@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -557,8 +558,50 @@ func jiraIssueCmd() *cobra.Command {
 	tree.Flags().StringVar(&treeFields, "fields", "", "extra comma-separated fields to fetch")
 	tree.Flags().IntVar(&treeLimit, "limit", 100, "max issues (0 = all)")
 
-	c.AddCommand(get, search, create, update, edit, transition, check, del, assign, labels, history, refs, tree, comment, link, plan, linkEpic, attachment, images)
+	c.AddCommand(get, jiraIssueViewCmd(), search, create, update, edit, transition, check, del, assign, labels, history, refs, tree, comment, link, plan, linkEpic, attachment, images)
 	return c
+}
+
+func jiraIssueViewCmd() *cobra.Command {
+	var root string
+	var rf renderFlags
+	cmd := &cobra.Command{
+		Use:   "view <KEY>",
+		Short: "Render one issue as configured Markdown without writing a mirror",
+		Long: "Fetch and render one Jira issue through the configured Markdown view without writing files. " +
+			"Default JSON contains key and markdown; -o text emits raw Markdown. " +
+			"This is read-only and creates no writeback baseline: pull the issue before editing it.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			override, err := rf.override()
+			if err != nil {
+				return err
+			}
+			configRoot, err := filepath.Abs(root)
+			if err != nil {
+				return err
+			}
+			if detected, ok := app.MirrorRootOf(configRoot); ok {
+				configRoot = detected
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			res, err := svc.ViewIssue(cmd.Context(), args[0], app.JiraIssueViewOpts{
+				Root:   configRoot,
+				Render: override,
+			})
+			if err != nil {
+				return err
+			}
+			warnRender(cmd.ErrOrStderr(), res.Warnings)
+			return emit(cmd, res, func() string { return res.Markdown })
+		},
+	}
+	cmd.Flags().StringVar(&root, "render-root", mirrorRootDefault("."), "root whose .atl/config.json supplies local render settings (never written)")
+	rf.register(cmd)
+	return cmd
 }
 
 func jiraIssueAttachmentCmd() *cobra.Command {

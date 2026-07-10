@@ -37,7 +37,9 @@ version gate.
 ## Two habits that matter most
 
 1. **Search first, read narrow, edit precise.** Don't bulk-dump everything and grep it. Use
-   `conf search` / `jira issue search` (CQL/JQL) to find the few relevant items, `pull` only those,
+   `conf search` / `jira issue search` (CQL/JQL) to find the few relevant items. For a one-off Jira
+   read use `jira issue view <KEY> -o text` (configured Markdown, no files); `pull` only what needs
+   editing or repeatable offline access,
    read the rendered `.md` to locate, and edit there (merge back with `conf apply` / `jira apply`),
    opening the raw substrate only for what the md surface can't express.
    Keep live reads slim too: `--fields` on Jira gets/searches, `-o id` for piping, and a `| jq`

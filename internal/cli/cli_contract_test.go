@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -164,6 +165,88 @@ func TestJiraIssueGetGolden(t *testing.T) {
 		t.Fatalf("jira issue get: exit %d, want %d (stdout=%q)", code, exitOK, out)
 	}
 	assertGolden(t, "jira_issue_get.json", []byte(out))
+}
+
+func TestJiraIssueViewGolden(t *testing.T) {
+	const body = `{
+		"key": "ENG-42",
+		"fields": {
+			"summary": "Fix the thing",
+			"description": "h1. Steps\n\nDo the work."
+		}
+	}`
+	srv := jsonServer(t, http.StatusOK, body)
+
+	out, code := runCLI(t, jiraEnv(srv), "jira", "issue", "view", "ENG-42", "--render-profile", "minimal")
+	if code != exitOK {
+		t.Fatalf("jira issue view: exit %d, want %d (stdout=%q)", code, exitOK, out)
+	}
+	assertGolden(t, "jira_issue_view.json", []byte(out))
+}
+
+func TestJiraIssueViewTextUsesExactProjectionAndWritesNothing(t *testing.T) {
+	root := t.TempDir()
+	var gotFields string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotFields = r.URL.Query().Get("fields")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"key":"ENG-42","fields":{"summary":"Fix","description":"Body"}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	out, code := runCLI(t, jiraEnv(srv), "jira", "issue", "view", "ENG-42",
+		"--render-profile", "minimal", "--render-root", root, "-o", "text")
+	if code != exitOK {
+		t.Fatalf("jira issue view text: exit %d, want %d (stdout=%q)", code, exitOK, out)
+	}
+	if gotFields != "summary,description" {
+		t.Fatalf("fields query = %q, want exact minimal projection", gotFields)
+	}
+	if !strings.Contains(out, "# ENG-42 — Fix") || !strings.Contains(out, "# Description") {
+		t.Fatalf("text output is not raw Markdown:\n%s", out)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("transient view wrote under render root: %v", entries)
+	}
+}
+
+func TestJiraIssueViewFindsNearestLocalRenderConfig(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, ".atl")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{"render":{"jira":{"profile":"minimal","include":["status"]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(root, "project", "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(nested)
+
+	var gotFields string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotFields = r.URL.Query().Get("fields")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"key":"ENG-42","fields":{"summary":"Fix","description":"Body","status":{"name":"Open"}}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	out, code := runCLI(t, jiraEnv(srv), "jira", "issue", "view", "ENG-42", "-o", "text")
+	if code != exitOK {
+		t.Fatalf("jira issue view nearest config: exit %d (stdout=%q)", code, out)
+	}
+	if gotFields != "summary,description,status" {
+		t.Fatalf("fields query = %q, nearest local config was not applied", gotFields)
+	}
+	if !strings.Contains(out, "| Status | Open |") {
+		t.Fatalf("nearest local config did not affect Markdown:\n%s", out)
+	}
 }
 
 // --- Exit-code matrix (sentinel error → exit code) ---
