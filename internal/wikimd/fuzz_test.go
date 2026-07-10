@@ -39,6 +39,11 @@ func FuzzRender(f *testing.F) {
 		"Done! v1.2! yes",
 		"{code}\na\n```\nb\n{code}",
 		"[go|https://x/wiki/Go_(lang)] !shot (v1).png!",
+		// Issue #167: paragraph lines that collide with markdown block markup —
+		// a literal fence run, thematic-break runs, indented fence, and a {{mono}}
+		// span rendering leading backticks — must be escaped, never emitted raw.
+		"intro line\n```json\n---\n***\n___\ntail line",
+		"   ```go indented fence\n****\n{{`x}} mono leading backtick",
 	}
 	for _, s := range seeds {
 		f.Add(s)

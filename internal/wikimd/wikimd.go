@@ -119,7 +119,17 @@ func renderBlocks(b *strings.Builder, lines []string, opts Options) {
 			writeBlock(out)
 			i = next
 		default:
-			b.WriteString(inline(line, opts) + "\n")
+			rendered := inline(line, opts)
+			if wikiscanner.MarkdownBlockCollision(rendered) {
+				// A paragraph line whose RENDERED bytes would re-parse in markdown
+				// as a code fence or thematic break corrupts the md-view round trip
+				// (an edited paragraph fails `jira apply`, or a dash line silently
+				// upgrades to a wiki `----` hr). A single backslash keeps the block
+				// splitter (mdcsf.SplitBlocks) from opening a fence/hr block, so the
+				// line stays inside its paragraph and mdwiki reverses the escape.
+				rendered = `\` + rendered
+			}
+			b.WriteString(rendered + "\n")
 			i++
 		}
 	}
