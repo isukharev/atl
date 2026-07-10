@@ -418,3 +418,22 @@ func TestJiraApply_FenceDashLinesRoundTrip(t *testing.T) {
 		t.Errorf("report = %+v, want 1 converted", res.Report)
 	}
 }
+
+func TestJiraApply_CollisionEscapesPreserveWhitespaceAndGenuineSlash(t *testing.T) {
+	body := "Edit this word.\n    ```json\n\t```yaml\n---   \n\\```literal\n\\---\ntrailer."
+	svc, root, mdPath, wikiPath := scaffoldApplyIssue(t, body)
+	md := mustReadFile(t, mdPath)
+	for _, encoded := range []string{"\\    ```json", "\\\t```yaml", "\\---   ", "\\\\```literal", "\\\\---"} {
+		if !strings.Contains(md, encoded) {
+			t.Fatalf("view lacks encoded collision %q:\n%s", encoded, md)
+		}
+	}
+	mustWriteFile(t, mdPath, strings.Replace(md, "Edit this word.", "Edit that word.", 1))
+	if _, err := svc.Apply(mdPath, JiraApplyOpts{Into: root}); err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(body, "Edit this word.", "Edit that word.", 1)
+	if got := mustReadFile(t, wikiPath); got != want {
+		t.Fatalf("collision roundtrip:\n got=%q\nwant=%q", got, want)
+	}
+}

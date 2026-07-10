@@ -300,14 +300,19 @@ func TestConvertUnescapesBlockCollisions(t *testing.T) {
 		{"intro\n\\````\ntail", "intro\n````\ntail"},
 		// The remainder after the run still converts: md **bold** → wiki *bold*.
 		{"intro\n\\```lang **bold**\ntail", "intro\n```lang *bold*\ntail"},
+		{"intro\n\\    ```lang **bold**\ntail", "intro\n    ```lang *bold*\ntail"},
+		{"intro\n\\\t```lang **bold**\ntail", "intro\n\t```lang *bold*\ntail"},
 		// Thematic-break-collision lines: emitted as the bare run.
 		{"intro\n\\---\ntail", "intro\n---\ntail"},
+		{"intro\n\\---   \ntail", "intro\n---   \ntail"},
 		{"intro\n\\***\ntail", "intro\n***\ntail"},
 		{"intro\n\\___\ntail", "intro\n___\ntail"},
 		{"intro\n\\*****\ntail", "intro\n*****\ntail"},
 		// A whole-paragraph escaped line round-trips too (single-line block).
 		{"\\```yaml", "```yaml"},
 		{"\\---", "---"},
+		{"intro\n\\\\```json\ntail", "intro\n\\```json\ntail"},
+		{"intro\n\\\\---\ntail", "intro\n\\---\ntail"},
 		// NOT our escape: wikimd never escapes a 4+-dash line (that IS a wiki hr,
 		// caught before the paragraph branch), so `\----` must stay literal — a
 		// bare `----` here would silently create an hr.

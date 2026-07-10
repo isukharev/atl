@@ -35,14 +35,27 @@ func TestTableRowEnd(t *testing.T) {
 }
 
 func TestMarkdownBlockCollision(t *testing.T) {
-	for _, line := range []string{"```", "   ```go", "---", "*****", "___"} {
+	for _, line := range []string{"```", "   ```go", "    ```", "\t```go", "---", "---   ", "*****", "___"} {
 		if !MarkdownBlockCollision(line) {
 			t.Errorf("MarkdownBlockCollision(%q) = false", line)
 		}
 	}
-	for _, line := range []string{"  --", "text ```", "---- tail", "    ```"} {
+	for _, line := range []string{"  --", "text ```", "----", "---- tail"} {
 		if MarkdownBlockCollision(line) {
 			t.Errorf("MarkdownBlockCollision(%q) = true", line)
 		}
+	}
+}
+
+func TestMarkdownBlockCollisionEscapeIsReversible(t *testing.T) {
+	for _, original := range []string{"```json", "\\```json", "\\\\```json", "---", "\\---", "\t***   "} {
+		encoded := EscapeMarkdownBlockCollision(original)
+		decoded, _, ok := UnescapeMarkdownBlockCollision(encoded)
+		if !ok || decoded != original {
+			t.Fatalf("roundtrip %q -> %q -> %q, ok=%v", original, encoded, decoded, ok)
+		}
+	}
+	if _, _, ok := UnescapeMarkdownBlockCollision(`\----`); ok {
+		t.Fatal("single-slash 4-dash line treated as a synthetic escape")
 	}
 }
