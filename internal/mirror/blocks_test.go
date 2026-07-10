@@ -49,7 +49,7 @@ func TestRenderBlocksRangesAndJoin(t *testing.T) {
 		parts = append(parts, b.MD)
 	}
 	joined := strings.Join(parts, "\n\n") + "\n"
-	full := string(RenderMarkdown(root, nil))
+	_, full, _ := RenderMarkdownViewParts(root, nil, MDViewOpts{})
 	if joined != full {
 		t.Errorf("join mismatch:\n--- joined ---\n%q\n--- full ---\n%q", joined, full)
 	}

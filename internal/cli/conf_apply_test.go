@@ -34,7 +34,7 @@ func scaffoldApplyPage(t *testing.T) string {
 		t.Fatal(err)
 	}
 	refs := fragment.Extract(croot)
-	md := mirror.RenderMarkdown(croot, refs)
+	md := mirror.RenderMarkdownOpts(croot, refs, mirror.MDViewOpts{})
 	metaJSON := `{"id":"777","title":"page","version":1,"content_hash":"` + mirror.Hash([]byte(applyFixtureCSF)) + `"}`
 	for name, b := range map[string][]byte{
 		"page.csf":       []byte(applyFixtureCSF),

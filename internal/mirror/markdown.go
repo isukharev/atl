@@ -15,7 +15,12 @@ import (
 // (⟦…⟧) and images/diagrams as ![](assets/…) links. It is intentionally lossy —
 // the .csf file remains the editable source of truth.
 func RenderMarkdown(root *csf.Node, refs []domain.Ref) []byte {
-	return RenderMarkdownOpts(root, refs, MDViewOpts{})
+	r := newMDRenderer(refs)
+	var b strings.Builder
+	forEachBlockNode(root, func(n *csf.Node) {
+		r.block(&b, n)
+	})
+	return []byte(normalizeBlankLines(b.String()))
 }
 
 // PageFrontmatter is the metadata a `full`-profile Confluence view emits as YAML
@@ -39,30 +44,11 @@ type MDViewOpts struct {
 	Comments    []domain.Comment
 }
 
-// RenderMarkdownOpts renders the markdown view with optional YAML frontmatter and
-// a trailing "## Comments" section. With a zero MDViewOpts it is byte-identical to
-// RenderMarkdown so existing default-profile mirrors are unaffected.
+// RenderMarkdownOpts renders a versioned derived view with stable generated
+// boundaries, optional YAML metadata, and a trailing Comments section.
 func RenderMarkdownOpts(root *csf.Node, refs []domain.Ref, opts MDViewOpts) []byte {
-	r := newMDRenderer(refs)
-	var b strings.Builder
-	forEachBlockNode(root, func(n *csf.Node) {
-		r.block(&b, n)
-	})
-	body := normalizeBlankLines(b.String())
-	if opts.Frontmatter == nil && len(opts.Comments) == 0 {
-		return []byte(body)
-	}
-	var out strings.Builder
-	if opts.Frontmatter != nil {
-		out.WriteString(renderPageFrontmatter(opts.Frontmatter))
-		out.WriteString("\n")
-	}
-	out.WriteString(body)
-	if len(opts.Comments) > 0 {
-		out.WriteString("\n## Comments\n\n")
-		out.Write(RenderCommentsMarkdown(opts.Comments))
-	}
-	return []byte(strings.TrimRight(out.String(), "\n") + "\n")
+	prefix, body, suffix := RenderMarkdownViewParts(root, refs, opts)
+	return []byte(prefix + body + suffix)
 }
 
 // RenderMarkdownViewParts renders the view as three concatenable parts —
@@ -73,22 +59,14 @@ func RenderMarkdownOpts(root *csf.Node, refs []domain.Ref, opts MDViewOpts) []by
 // read-only in the view), NOT by re-parsing headings — a body heading renders
 // as a top-level `## ` line and would be misread as a generated section.
 func RenderMarkdownViewParts(root *csf.Node, refs []domain.Ref, opts MDViewOpts) (prefix, body, suffix string) {
-	r := newMDRenderer(refs)
-	var b strings.Builder
-	forEachBlockNode(root, func(n *csf.Node) {
-		r.block(&b, n)
-	})
-	body = normalizeBlankLines(b.String())
-	// Zero opts: RenderMarkdownOpts returns the body verbatim (no tail trim), so
-	// the identity is body alone.
-	if opts.Frontmatter == nil && len(opts.Comments) == 0 {
-		return "", body, ""
-	}
+	body = string(RenderMarkdown(root, refs))
+	prefix = ConfluenceDocumentMarker + "\n"
 	if opts.Frontmatter != nil {
-		prefix = renderPageFrontmatter(opts.Frontmatter) + "\n"
+		prefix += ConfluenceMetadataMarker + "\n" + renderPageFrontmatter(opts.Frontmatter) + "\n"
 	}
+	prefix += ConfluenceBodyMarker + "\n"
 	if len(opts.Comments) > 0 {
-		suffix = "\n## Comments\n\n" + string(RenderCommentsMarkdown(opts.Comments))
+		suffix = "\n" + ConfluenceCommentsMarker + "\n## Comments\n\n" + string(RenderCommentsMarkdown(opts.Comments))
 	}
 	// RenderMarkdownOpts applies TrimRight(whole, "\n")+"\n" to the concatenation.
 	// Reproduce it by trimming the assembled whole, then re-slicing at the raw

@@ -483,10 +483,15 @@ contain. Supported body edits become real only after `conf apply` / `jira
 apply`; generated metadata sections remain read-only, and pull/render may
 replace the view. Profiles never affect substrate hashes or dirty/drift state.
 
+Confluence views begin with `<!-- atl:document confluence-page v1 -->` and use
+reserved metadata/body/comments boundaries. Before editing an older or
+unmarked view, render the exact file/root again. Since render replaces `.md`,
+preserve existing edits as a private reviewed patch and reapply them afterward.
+
 | profile | Jira `.md` | Confluence `.md` |
 |---|---|---|
-| `minimal` | `key` + `summary` in `# Metadata`, `# Description` only | body only (byte-identical to `default`) |
-| `default` | minimal **plus** `status`, `type`, `project`, `assignee`, `labels`, `priority`, `parent`, `# Image Attachments`, `# Links`, `# Comments` | body only (byte-identical to the pre-profile view) |
+| `minimal` | `key` + `summary` in `# Metadata`, `# Description` only | body plus generated version/body boundaries (byte-identical to `default`) |
+| `default` | minimal **plus** `status`, `type`, `project`, `assignee`, `labels`, `priority`, `parent`, `# Image Attachments`, `# Links`, `# Comments` | body plus generated version/body boundaries |
 | `full` | everything visible: default **plus** `reporter`, `created`/`updated`, `resolution`, `duedate`, `components`, `fix_versions`, configured `custom_fields`, `# Attachments` (non-image list), `# Subtasks`, `# Sprint` | YAML frontmatter (`title`, `space`, `version`, `labels`) **plus** a `## Comments` section (from the `--comments` sidecar when present) |
 
 **Section names** (for `include`/`exclude`). Jira: `status`, `type`, `project`,
@@ -1003,8 +1008,8 @@ untouched row into an edited cell are cloned byte-exactly; macros are never
 cloned (a copy would duplicate the macro identity).
 
 ```bash
-atl conf apply mirror/DOCS/guide/guide.md
 atl conf apply guide.md --dry-run              # report without writing
+atl conf apply mirror/DOCS/guide/guide.md
 atl conf apply guide.md --allow-fragment-loss  # intentional macro/mention removal
 ```
 
@@ -1015,8 +1020,15 @@ atl conf apply guide.md --allow-fragment-loss  # intentional macro/mention remov
 | `--allow-fragment-loss` | proceed when the edit drops opaque fragments |
 | `--into` | mirror root (defaults to nearest `.atl`) |
 
-When the page was pulled under the `full` profile, the `.md` carries YAML
-frontmatter and a `## Comments` section. Both are **read-only** in the view:
+The first line must be `<!-- atl:document confluence-page v1 -->`. Apply rejects
+missing/legacy/unknown versions and reserved `<!-- atl:... -->` marker text in
+the editable body before writing. Re-render pristine unmarked old views before
+editing; for an already edited old view, preserve a private patch, render, then
+reapply. An unknown/future version requires a newer `atl`; do not downgrade it.
+
+All views carry generated document/body boundaries. When the page was pulled
+under the `full` profile, the `.md` also carries YAML metadata and a `## Comments`
+section. Generated regions are **read-only** in the view:
 `apply` reproduces them from the recorded render settings (`.atl/state.json`) and
 merges only the editable body between them, so an untouched `full`-profile page
 applies to a byte-identical `.csf` — the decorations are never converted into

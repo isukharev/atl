@@ -31,7 +31,7 @@ func scaffoldPage(t *testing.T, body string) (rootDir, mdPath string) {
 		t.Fatal(err)
 	}
 	refs := fragment.Extract(croot)
-	md := mirror.RenderMarkdown(croot, refs)
+	md := mirror.RenderMarkdownOpts(croot, refs, mirror.MDViewOpts{})
 	write := func(name string, b []byte) {
 		if err := os.WriteFile(filepath.Join(dir, name), b, 0o644); err != nil {
 			t.Fatal(err)
@@ -151,6 +151,87 @@ func TestApplyDryRunWritesNothing(t *testing.T) {
 	csfNow, _ := os.ReadFile(res.CSFPath)
 	if string(csfNow) != applyPage {
 		t.Fatal("dry run modified the .csf")
+	}
+}
+
+func TestApplyRejectsUnsupportedConfluenceViewFormatsBeforeWrite(t *testing.T) {
+	tests := []struct {
+		name string
+		edit func(string) string
+		want string
+	}{
+		{name: "legacy body only", edit: func(md string) string {
+			return strings.TrimPrefix(md, mirror.ConfluenceDocumentMarker+"\n"+mirror.ConfluenceBodyMarker+"\n")
+		}, want: "conf render"},
+		{name: "future", edit: func(md string) string {
+			return strings.Replace(md, mirror.ConfluenceDocumentMarker, "<!-- atl:document confluence-page v99 -->", 1)
+		}, want: "update atl"},
+		{name: "legacy yaml", edit: func(md string) string {
+			return "---\ntitle: old\n---\n\n" + md
+		}, want: "conf render"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root, mdPath := scaffoldPage(t, applyPage)
+			md := tt.edit(mustReadFile(t, mdPath))
+			if err := os.WriteFile(mdPath, []byte(md), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Apply(mdPath, ApplyOpts{Into: root})
+			if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("format refusal = %v", err)
+			}
+			if got := mustReadFile(t, strings.TrimSuffix(mdPath, ".md")+".csf"); got != applyPage {
+				t.Fatalf("CSF changed on format refusal: %q", got)
+			}
+		})
+	}
+}
+
+func TestApplyConfluenceViewCRLFAndReservedMarker(t *testing.T) {
+	root, mdPath := scaffoldPage(t, applyPage)
+	md := strings.ReplaceAll(mustReadFile(t, mdPath), "\n", "\r\n")
+	md = strings.Replace(md, "Hello world.", "Hello CRLF.", 1)
+	if err := os.WriteFile(mdPath, []byte(md), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(mdPath, ApplyOpts{Into: root}); err != nil {
+		t.Fatalf("CRLF apply: %v", err)
+	}
+	if !strings.Contains(mustReadFile(t, strings.TrimSuffix(mdPath, ".md")+".csf"), "Hello CRLF.") {
+		t.Fatal("CRLF edit was not applied")
+	}
+
+	root, mdPath = scaffoldPage(t, applyPage)
+	md = strings.Replace(mustReadFile(t, mdPath), "Hello world.", "Hello world.\n<!-- atl:section comments readonly -->", 1)
+	if err := os.WriteFile(mdPath, []byte(md), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Apply(mdPath, ApplyOpts{Into: root})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("reserved marker refusal = %v", err)
+	}
+	if got := mustReadFile(t, strings.TrimSuffix(mdPath, ".md")+".csf"); got != applyPage {
+		t.Fatal("CSF changed on reserved-marker refusal")
+	}
+}
+
+func TestApplyFailsClosedWhenPristineCSFNoLongerParses(t *testing.T) {
+	root, mdPath := scaffoldPage(t, applyPage)
+	broken := "<broken>"
+	if err := os.WriteFile(filepath.Join(root, ".atl", "base", "4242.csf"), []byte(broken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	csfPath := strings.TrimSuffix(mdPath, ".md") + ".csf"
+	if err := os.WriteFile(csfPath, []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Apply(mdPath, ApplyOpts{Into: root})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "no longer parses") {
+		t.Fatalf("parse refusal = %v", err)
+	}
+	if got := mustReadFile(t, csfPath); got != broken {
+		t.Fatal("CSF changed after pristine parse refusal")
 	}
 }
 

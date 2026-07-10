@@ -253,9 +253,10 @@ rg "decision" mirror/
 ### 3. Редактирование, валидация и публикация
 
 ```sh
-# Проще всего: правьте markdown-представление и слейте правки в .csf поблочно.
+# Проще всего: проверьте marker v1, правьте markdown-представление и слейте правки в .csf.
 # Нетронутые блоки сохраняют байты в точности; неконвертируемые правки отклоняются.
 $EDITOR mirror/DOCS/acme-adr/acme-adr.md
+atl conf apply mirror/DOCS/acme-adr/acme-adr.md --dry-run
 atl conf apply mirror/DOCS/acme-adr/acme-adr.md
 
 # Или редактируйте нативный формат напрямую

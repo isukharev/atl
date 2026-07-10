@@ -24,7 +24,14 @@ import (
 // stale render from a previous revision must never sit next to a newer .csf,
 // silently contradicting the source of truth. Exported so apply can uphold
 // the same invariant after a merge.
-const MDUnavailableStub = "<!-- atl: markdown view unavailable for this revision (the .csf did not parse); the .csf file is the source of truth -->\n"
+const (
+	ConfluenceDocumentMarker = "<!-- atl:document confluence-page v1 -->"
+	ConfluenceMetadataMarker = "<!-- atl:section metadata readonly -->"
+	ConfluenceBodyMarker     = "<!-- atl:section body editable -->"
+	ConfluenceCommentsMarker = "<!-- atl:section comments readonly -->"
+	ConfluenceReservedPrefix = "<!-- atl:"
+	MDUnavailableStub        = ConfluenceDocumentMarker + "\n<!-- atl:section body readonly -->\n<!-- atl: markdown view unavailable for this revision (the .csf did not parse); the .csf file is the source of truth -->\n"
+)
 
 // Mirror is rooted at a directory holding one or more spaces.
 type Mirror struct {
