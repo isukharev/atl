@@ -64,14 +64,14 @@ func TestJiraPullMarkdownIsRenderedView(t *testing.T) {
 		t.Fatalf("pull: %v", err)
 	}
 	md := readMD(t, into, "PROJ", "PROJ-2")
-	mustContain(t, md, "## Description")
-	mustContain(t, md, "## Foo")               // h2. → ##
+	mustContain(t, md, "# Description")
+	mustContain(t, md, "### Foo")              // h2. nests below generated Description
 	mustContain(t, md, "```go")                // fenced code with language
 	mustContain(t, md, "fmt.Println(x)")       // code body preserved
 	mustContain(t, md, "[docs](https://x/y).") // link converted
 	mustNotContain(t, md, "h2. Foo")           // raw wiki heading gone
 	mustNotContain(t, md, "{code:go}")         // raw wiki macro gone
-	mustNotContain(t, md, "## Description (Jira wiki)")
+	mustNotContain(t, md, "# Description (Jira wiki)")
 }
 
 // With --assets, an inline `!screenshot.png!` embed resolves to the downloaded

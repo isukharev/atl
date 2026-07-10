@@ -178,7 +178,7 @@ func TestJiraApply_LossRefusedThenAllowed(t *testing.T) {
 func TestJiraApply_CommentEditRefused(t *testing.T) {
 	svc, root, mdPath, wikiPath := scaffoldApplyIssue(t, applyBody)
 	md := mustReadFile(t, mdPath)
-	if !strings.Contains(md, "## Comments") {
+	if !strings.Contains(md, "# Comments") {
 		t.Fatalf("fixture view lacks a Comments section: %q", md)
 	}
 	mustWriteFile(t, mdPath, strings.Replace(md, "a comment", "a comment (edited)", 1))
@@ -212,7 +212,7 @@ func TestJiraApply_MetadataEditRefused(t *testing.T) {
 func TestJiraApply_LegacyYAMLViewRequiresRerender(t *testing.T) {
 	svc, root, mdPath, wikiPath := scaffoldApplyIssue(t, applyBody)
 	md := mustReadFile(t, mdPath)
-	desc := strings.Index(md, "## Description")
+	desc := strings.Index(md, "# Description")
 	if desc < 0 {
 		t.Fatal("fixture lacks Description")
 	}
@@ -299,8 +299,8 @@ func TestJiraApply_NotMdIsUsage(t *testing.T) {
 	}
 }
 
-// A wiki h2. heading inside the Description renders as a top-level "## " line in
-// the md view. It is BODY content, not a generated section — an untouched apply
+// A wiki h2. heading inside Description is nested below its generated section.
+// It is body content, not a generated section — an untouched apply
 // must round-trip the whole body, not truncate at the heading (regression:
 // review finding on #159).
 func TestJiraApply_BodyH2HeadingRoundTrips(t *testing.T) {

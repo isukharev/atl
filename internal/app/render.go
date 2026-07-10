@@ -32,8 +32,8 @@ const (
 	SecFixVersions  = "fix_versions"
 	SecCustomFields = "custom_fields"
 	// Body sections.
-	SecAttachments    = "attachments"     // "## Image Attachments" (image links only)
-	SecAttachmentsAll = "attachments_all" // "## Attachments" (full list incl. non-image)
+	SecAttachments    = "attachments"     // "# Image Attachments" (image links only)
+	SecAttachmentsAll = "attachments_all" // "# Attachments" (full list incl. non-image)
 	SecLinks          = "links"
 	SecComments       = "comments"
 	SecSprint         = "sprint"
@@ -42,7 +42,7 @@ const (
 
 	// Confluence sections.
 	SecFrontmatter = "frontmatter" // YAML frontmatter (title/space/version/labels/updated)
-	// SecComments is shared with Jira (a "## Comments" section).
+	// SecComments is shared; Jira uses H1 and Confluence uses H2.
 )
 
 // jiraSections is the closed, ordered set of valid Jira section names.

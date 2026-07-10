@@ -278,9 +278,9 @@ replace the view. Profiles never affect substrate hashes or dirty/drift state.
 
 | profile | Jira `.md` | Confluence `.md` |
 |---|---|---|
-| `minimal` | `key` + `summary` in `## Metadata`, `## Description` only | body only (byte-identical to `default`) |
-| `default` | minimal **plus** `status`, `type`, `project`, `assignee`, `labels`, `priority`, `parent`, `## Image Attachments`, `## Links`, `## Comments` | body only (byte-identical to the pre-profile view) |
-| `full` | everything visible: default **plus** `reporter`, `created`/`updated`, `resolution`, `duedate`, `components`, `fix_versions`, configured `custom_fields`, `## Attachments` (non-image list), `## Subtasks`, `## Sprint` | YAML frontmatter (`title`, `space`, `version`, `labels`) **plus** a `## Comments` section (from the `--comments` sidecar when present) |
+| `minimal` | `key` + `summary` in `# Metadata`, `# Description` only | body only (byte-identical to `default`) |
+| `default` | minimal **plus** `status`, `type`, `project`, `assignee`, `labels`, `priority`, `parent`, `# Image Attachments`, `# Links`, `# Comments` | body only (byte-identical to the pre-profile view) |
+| `full` | everything visible: default **plus** `reporter`, `created`/`updated`, `resolution`, `duedate`, `components`, `fix_versions`, configured `custom_fields`, `# Attachments` (non-image list), `# Subtasks`, `# Sprint` | YAML frontmatter (`title`, `space`, `version`, `labels`) **plus** a `## Comments` section (from the `--comments` sidecar when present) |
 
 **Section names** (for `include`/`exclude`). Jira: `status`, `type`, `project`,
 `assignee`, `labels`, `priority`, `parent`, `reporter`, `created`, `updated`,
@@ -347,8 +347,9 @@ as a field/value row from the raw field (scalar verbatim; object via
 - `format` is `auto` (default), `scalar`, `list`, `jira_wiki`, `date`, or
   `datetime`; `jira_wiki` requires section placement and uses the same guarded
   wiki→Markdown renderer as Description. Valid `date` values normalize to
-  `YYYY-MM-DD`; valid `datetime` values normalize to RFC 3339 (including the
-  source offset/fraction). Unexpected server values remain visible verbatim.
+  `YYYY-MM-DD`; valid `datetime` values use a compact, minute-precision form
+  such as `2026-06-03 12:55 UTC` or `2026-06-03 15:55 +03:00`. Unexpected
+  server values remain visible verbatim.
   A scalar with section `list` format becomes one bullet rather than an empty
   section.
 - missing/empty values are omitted unless `show_empty` is true (`—` in
@@ -360,10 +361,17 @@ Typed descriptors and legacy `custom_fields` render only while the
 field, preventing duplicate output. The raw value always remains unchanged in
 `<KEY>.json`.
 
-The beta metadata-table change removed the old descriptor `key` and renamed
-`placement: frontmatter` to `placement: metadata`. Update mirror-local configs
-and run `jira render` (or pull again) before editing an existing YAML-headed
-view; `jira apply` remains fail-closed when generated decorations do not match.
+Generated Jira-owned boundaries are level-one headings (`# Metadata`,
+`# Description`, and the configured/related-data sections) with stable hidden
+`atl:section` markers. Headings from Jira rich text are nested one level below
+their owner, so an original `h1.` becomes `##` while `h5.`/`h6.` keep their
+exact level through a small hidden marker. `jira apply` uses those boundaries
+and remains fail-closed if generated decorations are edited.
+
+The beta metadata-table change removed the old descriptor `key`, renamed
+`placement: frontmatter` to `placement: metadata`, and replaced old unmarked
+level-two Jira boundaries. Update mirror-local configs and run `jira render`
+(or pull again) before editing an existing view.
 
 `epic_children` is an opt-in related-data section, not the built-in `subtasks`
 field. On pull, atl resolves `render.jira.epic_field` lazily (or auto-detects the
@@ -385,7 +393,7 @@ re-run `jira pull` to populate it.
 records the resolved render settings in `.atl/state.json` (a `views` map).
 `conf apply` / `jira apply` rebuild the pristine view from those recorded
 settings — so an untouched `full`-profile `.md` applies cleanly and its generated
-metadata table and `## Comments` section stay **read-only** (they are never merged
+metadata table and generated `# Comments` section stay **read-only** (they are never merged
 into the page/description body; editing them is refused with a pointer to the
 metadata / comment commands). No `--render-*` flags are needed on apply. To
 override the recorded view: `jira apply` accepts `--render-*` flags; `conf apply`
@@ -1452,7 +1460,7 @@ Export issues matching a JQL query to disk. Each issue becomes three files:
 `<KEY>.wiki` (the native Jira wiki body, stored byte-for-byte — the editable
 source of truth, the Jira analog of a Confluence `.csf`), `<KEY>.md` (a
 derived Markdown staging view rendered from the wiki, regenerated best-effort on every
-pull), and `<KEY>.json` (identity plus raw Jira fields). Edit the `## Description`
+pull), and `<KEY>.json` (identity plus raw Jira fields). Edit the generated `# Description`
 of the `.md` view and merge it with `jira apply` (the recommended cycle, below), or
 edit the `.wiki` directly for what the md view can't express — a bare `.md` edit
 never reaches the server on its own.
@@ -1484,7 +1492,7 @@ unchanged by the profile.
 
 With `--assets`, image attachments (media type `image/*`) are streamed into
 `<KEY>.assets/<attachment-id>-<filename>` and referenced from a generated
-`## Image Attachments` section in the `.md`, placed between the description and
+`# Image Attachments` section in the `.md`, placed between the description and
 the links. The attachment id prefix keeps duplicate filenames distinct.
 Download is best-effort: a failed image is skipped (counted in `assets_skipped`
 and reported via a single stderr warning), the issue is still written, and only
@@ -1510,7 +1518,7 @@ mirror-jira/
 The `.md` is a lossy, best-effort read view (headings, emphasis, `{code}`/
 `{quote}`/`{panel}`, lists, tables, links, `!image!` embeds, `{color}`,
 `[~mentions]`); a render failure degrades that one section to a stub comment and
-never fails the pull. To change an issue body, edit the `## Description` section of
+never fails the pull. To change an issue body, edit the generated `# Description` section of
 the `<KEY>.md` view and fold it back into the `.wiki` with `jira apply` (block-level,
 non-lossy — the recommended loop just below), or edit `<KEY>.wiki` directly for what
 the md view can't express (a bare `.md` edit never pushes on its own). Either way,
@@ -1564,7 +1572,7 @@ authoring loop **pull → edit the `.md` → apply → push**: you edit a famili
 markdown view instead of hand-writing Jira wiki markup, and `apply` folds the
 change into the native substrate that `jira push` sends to the server.
 
-Only the `## Description` section is writable through the view. Blocks you did not
+Only the generated `# Description` section is writable through the view. Blocks you did not
 touch keep their **exact base bytes** (an untouched view applies to a
 byte-identical `.wiki`); changed or new blocks convert from the same strict
 markdown subset as `jira issue create --from-md` (headings, paragraphs, lists,
@@ -1614,7 +1622,7 @@ cannot be converted to wiki (a construct outside the subset) — make that edit 
 the `.wiki` directly; a wiki-only construct present in the base is dropped by the
 edit (`{panel}`, `{color}`, `[~mention]`, `!embed!`, a macro) and `--allow-loss`
 was not given (the dropped constructs are listed in `removed_constructs`); an edit
-touches any section other than `## Description` (generated metadata/title, Comments,
+touches any section other than generated `# Description` (Metadata, Comments,
 Links, Image Attachments) — the refusal names the section and the dedicated
 command (`jira issue update`, `jira issue comment add`, `jira issue link add`,
 `jira issue attachment upload`); or the local `.wiki` has diverged from the

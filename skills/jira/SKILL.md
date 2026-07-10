@@ -53,21 +53,21 @@ and carry explicit truncation fields.
 On disk per issue:
 ```
 <root>/<PROJECT>/<KEY>.wiki    # native Jira wiki body, VERBATIM — the substrate; edit directly only as fallback
-<root>/<PROJECT>/<KEY>.md      # rendered Markdown view — edit its ## Description, then `jira apply` (regenerated on pull)
+<root>/<PROJECT>/<KEY>.md      # rendered Markdown view — edit generated # Description, then `jira apply` (regenerated on pull)
 <root>/<PROJECT>/<KEY>.json    # {key,id,fields:{...}}; raw Jira fields live under .fields
 <root>/<PROJECT>/<KEY>.assets/ # only with --assets: image attachments, linked from the .md
 <root>/<PROJECT>/<KEY>.epic-children.json # only when epic_children is enabled for an epic
 ```
 The `.wiki` holds the byte-for-byte native body (like a Confluence `.csf`); the `.md` is a
 best-effort, lossy read view rendered from it and is regenerated on every pull. To change a body,
-edit the `## Description` section of the `<KEY>.md` view and fold it back with `jira apply` (the
+edit the generated `# Description` section of the `<KEY>.md` view and fold it back with `jira apply` (the
 recommended loop, see 4b), or edit `<KEY>.wiki` directly for what the md view can't express (see 4c);
 then push with `jira push` (the write-back loop below). The pull also records a
 sidecar + base copy so `jira status`/`jira push` can detect edits and drift; mirrors pulled by an
 older `atl` have no sidecar and read as never-synced until re-pulled.
 
 `--assets` streams each issue's `image/*` attachments into
-`<KEY>.assets/<attachment-id>-<filename>` and adds a `## Image Attachments`
+`<KEY>.assets/<attachment-id>-<filename>` and adds a `# Image Attachments`
 section to the `.md` (between description and links). It is best-effort: a failed
 image is skipped, counted in `assets_skipped`, and warned about on stderr; the
 issue is still written. Attachments with an empty or `application/octet-stream`
@@ -195,7 +195,7 @@ NBSP/invisible bytes). Reach for `update --from-md` only when most of the descri
 changes.
 
 ### 4b. Mirror write-back — edit the `.md` view, `jira apply`, then `jira push` (recommended)
-For a structural description rewrite, edit the `## Description` section of the pulled `<KEY>.md` view
+For a structural description rewrite, edit the generated `# Description` section of the pulled `<KEY>.md` view
 with normal text editing (it's markdown — no wiki-markup or invisible-byte traps), fold it back into
 the `.wiki` block-by-block with `jira apply` (the Jira analog of `conf apply`), then push:
 ```bash
@@ -210,7 +210,7 @@ atl jira push <root>/                                # a dir pushes only locally
 ```
 This is the measured-cheaper edit surface (issue #88: fewer turns and a higher success rate than
 hand-writing wiki markup). Untouched blocks keep their **exact base bytes**; changed/new blocks
-convert through the same markdown subset as `--from-md`. **Only `## Description` is editable** — an
+convert through the same markdown subset as `--from-md`. **Only generated `# Description` is editable** — an
 edit to generated metadata, title, or the Comments/Links/Image Attachments sections is refused (exit 8)
 with a pointer to the dedicated command (`issue update` / `comment add` / `link add` /
 `attachment upload`). A wiki-only construct in the base (`{panel}`, `{color}`, `[~mention]`, `!embed!`,
@@ -369,7 +369,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue images <KEY>` | Download image attachments (agent vision) | `--into DIR` |
 | `jira pull` | Export issues to disk (.wiki + .md + .json) | `--jql`, `--into`, `--limit`, `--fields`, `--assets`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `jira render [DIR\|FILE]` | Regenerate `.md` views offline (no network/PAT) | `--render-profile`, `--render-include`, `--render-exclude`, `--into` |
-| `jira apply <FILE.md>` | Merge `## Description` edits from the `.md` view into the `.wiki` (Description only; block-level) | `--dry-run`, `--allow-loss`, `--into`, `--render-profile`, `--render-include`, `--render-exclude` |
+| `jira apply <FILE.md>` | Merge generated `# Description` edits from the `.md` view into the `.wiki` (Description only; block-level) | `--dry-run`, `--allow-loss`, `--into`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `jira status [DIR]` | Show locally-edited (and `--remote` drifted) mirrored issues | `--remote` |
 | `jira push <file.wiki\|DIR>` | Preview (default) or `--apply` a `.wiki` description write-back | `--apply`, `--force`, `--into` |
 | `jira export` | Write one compact JSONL/JSON/CSV artifact plus manifest | `--jql`/`--ids`/`--keys`, `--out`, `--format`, `--limit`, `--fields`, `--batch-size`, `--raw-csv` |
@@ -416,7 +416,7 @@ refusals)? Offer the user a report — see the `atl` skill's feedback flow (cons
 sanitized issue + private case file).
 
 ## Hard rules
-- **Do not treat a bare `<KEY>.md` edit as complete.** Edit its `## Description`,
+- **Do not treat a bare `<KEY>.md` edit as complete.** Edit generated `# Description`,
   then run `jira apply` to fold the supported change into `.wiki`; pull/render
   may replace the derived staging view. `<KEY>.json` is a raw snapshot and is
   never an edit surface. The native body lives in `<KEY>.wiki`; edit it directly for

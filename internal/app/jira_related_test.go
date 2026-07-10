@@ -105,7 +105,7 @@ func TestPullEpicChildrenSidecarAndOfflineRender(t *testing.T) {
 	}
 	mdPath := filepath.Join(dir, "PROJ-1.md")
 	before := mustReadFile(t, mdPath)
-	for _, want := range []string{"## Epic Children", "PROJ-2 — second (Open; alice)", "PROJ-3 — third (Done)"} {
+	for _, want := range []string{"# Epic Children", "PROJ-2 — second (Open; alice)", "PROJ-3 — third (Done)"} {
 		if !strings.Contains(before, want) {
 			t.Errorf("md missing %q:\n%s", want, before)
 		}

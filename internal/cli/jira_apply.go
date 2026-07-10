@@ -11,7 +11,7 @@ import (
 )
 
 // jiraApplyCmd implements `jira apply`: merge edits from an issue's markdown view
-// back into the `.wiki` substrate, block by block. Only the `## Description`
+// back into the `.wiki` substrate, block by block. Only the `# Description`
 // section is writable — an edit to generated metadata/title or to any other section
 // (Comments, Links, Image Attachments) is detected and refused with a pointer to
 // the dedicated command. Untouched Description blocks keep their exact base bytes;
@@ -26,7 +26,7 @@ func jiraApplyCmd() *cobra.Command {
 		Use:   "apply <FILE.md>",
 		Short: "Merge .md view edits into the .wiki (Description only; block-level, non-lossy)",
 		Long: "Merge edits made in an issue's <KEY>.md view back into its <KEY>.wiki substrate.\n\n" +
-			"Only the `## Description` section is editable through the view; a change to the " +
+			"Only the generated `# Description` section is editable through the view; a change to the " +
 			"generated metadata/title, Comments, Links, or Image Attachments is refused (exit 8) with a " +
 			"pointer to the dedicated command. Untouched Description blocks keep their exact base " +
 			"bytes; a wiki-only construct ({panel}, {color}, mentions, !embeds!, macros) dropped by " +

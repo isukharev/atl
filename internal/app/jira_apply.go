@@ -33,7 +33,7 @@ type JiraApplyResult struct {
 
 // Apply merges edits made in an issue's `.md` view back into its `.wiki`
 // substrate (block-level, non-lossy: untouched Description blocks keep their
-// exact base bytes). Only the `## Description` section is writable through the
+// exact base bytes). Only the generated `# Description` section is writable through the
 // view — an edit to any other section (generated metadata/title, Comments, Links,
 // Image Attachments) is detected and refused with a pointer to the dedicated
 // command, so a stray edit never silently vanishes.
@@ -146,9 +146,9 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 
 	// Locate the edited description by the pristine view's structural anchors
 	// (everything before/after it must be byte-identical) and refuse any edit
-	// outside it. Heading-based splitting would be wrong here: a wiki `h2.` inside
-	// the body renders as a top-level `## ` line in the view.
-	editedDesc, err := extractEditedDescription(edited, prefix, suffix, is.Body != "")
+	// outside it. Stable generated markers and exact anchors keep remote headings
+	// inside the Description regardless of their visible text.
+	editedDesc, err := extractEditedDescription(edited, prefix, suffix)
 	if err != nil {
 		return nil, err
 	}
@@ -156,8 +156,9 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	// Merge the Description bodies. baseWiki stays raw (its own bytes, CRLF or not);
 	// editedDesc is LF-normalized. An untouched view yields the base body verbatim.
 	merged, rep, err := wikimerge.Merge(baseWiki, editedDesc, wikimerge.Options{
-		AllowLoss: o.AllowLoss,
-		Images:    assetImageMap(assets),
+		AllowLoss:     o.AllowLoss,
+		Images:        assetImageMap(assets),
+		HeadingOffset: 1,
 	})
 	res := &JiraApplyResult{Path: mdPath, WikiPath: wikiPath, DryRun: o.DryRun, Report: rep}
 	if err != nil {
@@ -204,30 +205,23 @@ func normalizeMD(s string) string {
 }
 
 // extractEditedDescription locates the edited description between the pristine
-// view's structural anchors and enforces the "only ## Description is editable"
+// view's structural anchors and enforces the "only # Description is editable"
 // contract: the edited document must start with the exact pristine prefix
-// (title + generated metadata + the `## Description` heading when a body exists) and
+// (title + generated metadata + the `# Description` boundary) and
 // end with the exact pristine suffix (every generated section after the
 // description). Whatever sits between the anchors is the edited description
 // body. Anchoring — rather than re-parsing `## ` headings — is what keeps a
-// body-internal heading (wiki `h2.` renders as a top-level `## ` line, possibly
-// even named like a generated section) as body content instead of a phantom
-// read-only section.
+// body-internal heading as body content instead of a phantom read-only section.
 //
 // Trailing newlines are compared loosely (an editor may add or strip a final
-// newline); everything else is byte-exact. baseHasDesc says whether the pristine
-// view carries a `## Description` heading (empty base bodies do not) — when it
-// does not, an added description arrives as a `## Description` heading inside
-// the middle and is unwrapped here.
-func extractEditedDescription(edited, prefix, suffix string, baseHasDesc bool) (string, error) {
+// newline); everything else is byte-exact. Empty descriptions still carry the
+// generated boundary, so adding text requires no special structural edit.
+func extractEditedDescription(edited, prefix, suffix string) (string, error) {
 	if !strings.HasPrefix(edited, prefix) {
 		if strings.HasPrefix(edited, "---\n") && !strings.HasPrefix(prefix, "---\n") {
 			return "", fmt.Errorf("%w: this is a legacy YAML-headed Jira view; run `jira render` (or pull again) before applying Markdown edits", domain.ErrCheckFailed)
 		}
-		return "", fmt.Errorf("%w: the generated metadata, title%s, or other content above the description changed, but it is read-only in the md view — edit the summary and fields with `jira issue update`%s",
-			domain.ErrCheckFailed,
-			map[bool]string{true: ", or the `## Description` heading", false: ""}[baseHasDesc],
-			map[bool]string{true: " and keep the heading (to clear the body, delete only the text under it)", false: ""}[baseHasDesc])
+		return "", fmt.Errorf("%w: the generated metadata, title, section markers, or `# Description` heading changed, but they are read-only — edit summary/fields with `jira issue update` and keep the Description boundary", domain.ErrCheckFailed)
 	}
 	rest := strings.TrimRight(edited[len(prefix):], "\n")
 	tail := strings.TrimRight(suffix, "\n")
@@ -238,16 +232,5 @@ func extractEditedDescription(edited, prefix, suffix string, baseHasDesc bool) (
 		}
 		rest = rest[:len(rest)-len(tail)]
 	}
-	desc := strings.Trim(rest, "\n")
-	if !baseHasDesc && desc != "" {
-		// An added description on an empty base arrives with its own heading;
-		// unwrap it so the merge input is the body alone.
-		if after, ok := strings.CutPrefix(desc, "## Description"); ok {
-			desc = strings.Trim(after, "\n")
-		} else {
-			return "", fmt.Errorf("%w: to add a description to an issue without one, start it with a `## Description` heading",
-				domain.ErrCheckFailed)
-		}
-	}
-	return desc, nil
+	return strings.Trim(rest, "\n"), nil
 }

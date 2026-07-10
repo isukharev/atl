@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Jira view hierarchy and human dates.** Generated Jira-owned regions now use
+  stable hidden section markers and level-one Markdown headings, while headings
+  originating in Description, comments, or rich-text custom fields are nested
+  below their owner without losing original `h5`/`h6` levels on apply. Displayed
+  Jira datetimes use a deterministic minute-precision human form; raw JSON
+  snapshots keep the exact server values.
+
 - **Jira Markdown tables and metadata.** Physical line breaks inside one Jira
   table cell now stay in the logical row and render as spaces instead of
   breaking the GFM table. Legacy escaped-brace bold spans render without stray
@@ -76,7 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `custom_fields` list remains compatible. A new opt-in `epic_children` render
   section resolves the configured/auto-detected Epic Link field, performs one
   bounded paginated child query per main-search page (never per child), writes
-  `<KEY>.epic-children.json`, and renders `## Epic Children` offline. It caps at
+  `<KEY>.epic-children.json`, and renders `# Epic Children` offline. It caps at
   1000 related issues with explicit sidecar/result truncation and a stderr
   warning. Provider-specific browser-only panels remain out of scope.
 
@@ -91,11 +98,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`jira apply` — merge markdown-view edits back into the `.wiki` substrate.**
   The Jira analog of `conf apply` closes the loop **pull → edit the `.md` → apply
-  → push**: edits to the `## Description` section of a `<KEY>.md` view are folded
+  → push**: edits to the generated `# Description` section of a `<KEY>.md` view are folded
   block-by-block into the native `<KEY>.wiki`, so agents author in markdown instead
   of hand-writing wiki markup. Untouched blocks keep their exact base bytes (an
   untouched view applies to a byte-identical `.wiki`); changed/new blocks convert
-  through the fail-closed `mdwiki` subset. Only `## Description` is writable — an
+  through the fail-closed `mdwiki` subset. Only generated `# Description` is writable — an
   edit to the generated metadata/title or to the Comments/Links/Image Attachments sections
   is detected and refused (exit 8) with a pointer to the dedicated command, so a
   stray edit never silently vanishes. A wiki-only construct present in the base but

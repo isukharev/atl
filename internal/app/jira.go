@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -716,7 +717,7 @@ func jiraPullFields(extra []string, rs RenderSettings) []string {
 	return out
 }
 
-// jiraDescStub replaces the rendered "## Description" section when the wiki→md
+// jiraDescStub replaces the rendered "# Description" section when the wiki→md
 // renderer panics: the read view must never fail a pull, and a stale/partial
 // render must never masquerade as the body. It points the reader at the .wiki
 // substrate (the source of truth) and, per its contract, never embeds the wiki
@@ -728,7 +729,7 @@ const jiraCommentStub = "<!-- atl: comment could not be rendered -->"
 
 // renderIssueMarkdown emits the derived Markdown staging view under the resolved
 // render settings: a readable metadata table (key + summary always; every other
-// field only when its section is enabled AND present), a rendered "## Description" (the native
+// field only when its section is enabled AND present), a rendered "# Description" (the native
 // wiki body run through wikimd — the verbatim body lives in the sibling
 // <KEY>.wiki), and the enabled body sections. It never returns an error; a
 // renderer panic degrades one section to a stub (see guardRender) rather than
@@ -744,13 +745,11 @@ func renderIssueMarkdownWithRelated(is *domain.Issue, assets []JiraIssueAsset, r
 }
 
 // renderIssueMarkdownPartsWithRelated renders the view as three concatenable parts:
-// prefix (title + generated metadata + the `## Description` heading when a body
-// exists), desc (the rendered description body, no framing), and suffix
+// prefix (title + generated metadata + the `# Description` boundary), desc
+// (the rendered description body, no framing), and suffix
 // (everything after the description). renderIssueMarkdown is exactly
 // prefix+desc+suffix. The split exists for `jira apply`: the description must be
-// located by these structural anchors, NOT by re-parsing `## ` headings — a
-// wiki `h2.` inside the body renders as a top-level `## ` line, so heading-based
-// splitting would misread body content as generated sections.
+// located by these structural anchors, not by matching visible heading text.
 func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAsset, related *JiraEpicChildrenSidecar, rs RenderSettings) (prefix, desc, suffix string) {
 	images := assetImageMap(assets)
 	var b strings.Builder
@@ -766,9 +765,9 @@ func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAss
 	addMetadataField(&metadata, rs, SecAssignee, "Assignee", is.Assignee)
 	addMetadataField(&metadata, rs, SecReporter, "Reporter", is.Reporter)
 	addMetadataField(&metadata, rs, SecResolution, "Resolution", nestedNameField(is.Fields, "resolution"))
-	addMetadataField(&metadata, rs, SecDuedate, "Due date", strField(is.Fields, "duedate"))
-	addMetadataField(&metadata, rs, SecCreated, "Created", strField(is.Fields, "created"))
-	addMetadataField(&metadata, rs, SecUpdated, "Updated", strField(is.Fields, "updated"))
+	addMetadataField(&metadata, rs, SecDuedate, "Due date", renderTemporalField(strField(is.Fields, "duedate"), "date"))
+	addMetadataField(&metadata, rs, SecCreated, "Created", renderTemporalField(strField(is.Fields, "created"), "datetime"))
+	addMetadataField(&metadata, rs, SecUpdated, "Updated", renderTemporalField(strField(is.Fields, "updated"), "datetime"))
 	if rs.On(SecLabels) && len(is.Labels) > 0 {
 		metadata = append(metadata, jiraMetadataEntry{Label: "Labels", Value: strings.Join(is.Labels, ", ")})
 	}
@@ -807,16 +806,15 @@ func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAss
 			}
 		}
 	}
+	b.WriteString("<!-- atl:document jira-issue -->\n")
 	fmt.Fprintf(&b, "# %s — %s\n\n", markdownSingleLine(is.Key), markdownSingleLine(is.Summary))
 	b.WriteString(renderJiraMetadata(metadata))
 	b.WriteString("\n\n")
-	if is.Body != "" {
-		b.WriteString("## Description\n\n")
-	}
+	writeJiraSectionHeading(&b, "description", "Description", true)
 	prefix = b.String()
 	if is.Body != "" {
 		desc = guardRender(jiraDescStub, func() string {
-			return wikimd.Render(is.Body, wikimd.Options{Images: images})
+			return wikimd.Render(is.Body, wikimd.Options{Images: images, HeadingOffset: 1})
 		})
 	}
 	b.Reset()
@@ -831,17 +829,18 @@ func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAss
 			v, present := is.Fields[fv.ID]
 			if !present || fieldEmpty(v) {
 				if fv.ShowEmpty {
-					fmt.Fprintf(&b, "## %s\n\n_Not set._\n\n", fv.Label)
+					writeJiraSectionHeading(&b, jiraFieldSectionID(fv.ID), fv.Label, false)
+					b.WriteString("_Not set._\n\n")
 				}
 				continue
 			}
-			fmt.Fprintf(&b, "## %s\n\n", fv.Label)
+			writeJiraSectionHeading(&b, jiraFieldSectionID(fv.ID), fv.Label, false)
 			b.WriteString(renderFieldSection(v, fv.Format))
 			b.WriteString("\n\n")
 		}
 	}
 	if rs.On(SecAttachments) && len(assets) > 0 {
-		b.WriteString("## Image Attachments\n\n")
+		writeJiraSectionHeading(&b, "image-attachments", "Image Attachments", false)
 		for _, a := range assets {
 			fmt.Fprintf(&b, "![%s](%s)\n", mdEscapeAlt(a.Title), mdEscapeDest(a.Path))
 		}
@@ -849,7 +848,7 @@ func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAss
 	}
 	if rs.On(SecAttachmentsAll) {
 		if list := decodeIssueAssets(is.Fields["attachment"]); len(list) > 0 {
-			b.WriteString("## Attachments\n\n")
+			writeJiraSectionHeading(&b, "attachments", "Attachments", false)
 			for _, a := range list {
 				fmt.Fprintf(&b, "- %s (%s, %s)\n", a.Title, humanSize(a.FileSize), mediaTypeOr(a.MediaType))
 			}
@@ -857,7 +856,7 @@ func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAss
 		}
 	}
 	if rs.On(SecLinks) && len(is.Links) > 0 {
-		b.WriteString("## Links\n\n")
+		writeJiraSectionHeading(&b, "links", "Links", false)
 		for _, l := range is.Links {
 			fmt.Fprintf(&b, "- %s %s\n", l.Type, l.Key)
 		}
@@ -865,7 +864,7 @@ func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAss
 	}
 	if rs.On(SecSubtasks) {
 		if subs := subtasks(is.Fields); len(subs) > 0 {
-			b.WriteString("## Subtasks\n\n")
+			writeJiraSectionHeading(&b, "subtasks", "Subtasks", false)
 			for _, st := range subs {
 				if st.summary != "" {
 					fmt.Fprintf(&b, "- %s — %s\n", st.key, st.summary)
@@ -877,7 +876,7 @@ func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAss
 		}
 	}
 	if rs.On(SecEpicChildren) && related != nil {
-		b.WriteString("## Epic Children\n\n")
+		writeJiraSectionHeading(&b, "epic-children", "Epic Children", false)
 		if len(related.Children) == 0 {
 			b.WriteString("_None._\n\n")
 		} else {
@@ -906,7 +905,7 @@ func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAss
 	}
 	if rs.On(SecSprint) {
 		if names := sprintNames(is.Fields); len(names) > 0 {
-			b.WriteString("## Sprint\n\n")
+			writeJiraSectionHeading(&b, "sprint", "Sprint", false)
 			for _, n := range names {
 				fmt.Fprintf(&b, "- %s\n", n)
 			}
@@ -914,12 +913,12 @@ func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAss
 		}
 	}
 	if rs.On(SecComments) && len(is.Comments) > 0 {
-		b.WriteString("## Comments\n\n")
+		writeJiraSectionHeading(&b, "comments", "Comments", false)
 		for _, c := range is.Comments {
 			body := guardRender(jiraCommentStub, func() string {
-				return wikimd.Render(c.Body, wikimd.Options{Images: images})
+				return wikimd.Render(c.Body, wikimd.Options{Images: images, HeadingOffset: 1})
 			})
-			fmt.Fprintf(&b, "**%s** (%s):\n\n%s\n\n", c.Author, c.Created, body)
+			fmt.Fprintf(&b, "**%s** (%s):\n\n%s\n\n", c.Author, renderTemporalField(c.Created, "datetime"), body)
 		}
 	}
 	suffix = b.String()
@@ -940,11 +939,24 @@ func addMetadataField(entries *[]jiraMetadataEntry, rs RenderSettings, section, 
 
 func renderJiraMetadata(entries []jiraMetadataEntry) string {
 	var b strings.Builder
-	b.WriteString("## Metadata\n\n| Field | Value |\n| --- | --- |\n")
+	writeJiraSectionHeading(&b, "metadata", "Metadata", false)
+	b.WriteString("| Field | Value |\n| --- | --- |\n")
 	for _, entry := range entries {
 		fmt.Fprintf(&b, "| %s | %s |\n", markdownTableValue(entry.Label), markdownTableValue(entry.Value))
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeJiraSectionHeading(b *strings.Builder, id, title string, editable bool) {
+	mode := "readonly"
+	if editable {
+		mode = "editable"
+	}
+	fmt.Fprintf(b, "<!-- atl:section %s %s -->\n# %s\n\n", id, mode, markdownSingleLine(title))
+}
+
+func jiraFieldSectionID(id string) string {
+	return "field." + base64.RawURLEncoding.EncodeToString([]byte(id))
 }
 
 func markdownTableValue(s string) string {
@@ -1101,7 +1113,20 @@ func renderTemporalField(v any, format string) string {
 		if format == "date" {
 			return parsed.Format("2006-01-02")
 		}
-		return parsed.Format(time.RFC3339Nano)
+		if layout == "2006-01-02" {
+			return parsed.Format("2006-01-02")
+		}
+		_, offset := parsed.Zone()
+		zone := "UTC"
+		if offset != 0 {
+			sign := "+"
+			if offset < 0 {
+				sign = "-"
+				offset = -offset
+			}
+			zone = fmt.Sprintf("%s%02d:%02d", sign, offset/3600, (offset%3600)/60)
+		}
+		return parsed.Format("2006-01-02 15:04") + " " + zone
 	}
 	return raw // total read view: preserve malformed/unexpected server values
 }
@@ -1112,7 +1137,7 @@ func renderTemporalField(v any, format string) string {
 func renderFieldSection(v any, format string) string {
 	if format == "jira_wiki" {
 		return guardRender("<!-- atl: configured Jira field could not be rendered -->", func() string {
-			return wikimd.Render(renderFieldValue(v), wikimd.Options{})
+			return wikimd.Render(renderFieldValue(v), wikimd.Options{HeadingOffset: 1})
 		})
 	}
 	if format == "list" || (format == "auto" && isFieldList(v)) {
@@ -1136,7 +1161,7 @@ func isFieldList(v any) bool {
 	return ok
 }
 
-// subtask is one child issue for the "## Subtasks" section.
+// subtask is one child issue for the generated "# Subtasks" section.
 type subtask struct {
 	key     string
 	summary string

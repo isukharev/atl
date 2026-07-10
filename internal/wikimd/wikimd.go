@@ -11,6 +11,7 @@
 package wikimd
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -20,7 +21,8 @@ import (
 // `jira pull --assets` run (e.g. "PROJ-1.assets/10001-name.png"). A filename
 // absent from the map renders as inline code signaling an unresolved image.
 type Options struct {
-	Images map[string]string
+	Images        map[string]string
+	HeadingOffset int // nest Jira headings below a generated owning section
 }
 
 // Render converts a Jira wiki body into a Markdown read view. It is total: any
@@ -90,7 +92,7 @@ func renderBlocks(b *strings.Builder, lines []string, opts Options) {
 		case headingRe.MatchString(line):
 			m := headingRe.FindStringSubmatch(line)
 			n := int(m[1][0] - '0') // m[1] is a single digit 1..6
-			writeBlock(strings.Repeat("#", n) + " " + inline(strings.TrimSpace(m[2]), opts))
+			writeBlock(renderHeading(n, strings.TrimSpace(m[2]), opts))
 			i++
 		case codeOpenRe.MatchString(line):
 			out, next := codeBlock(lines, i)
@@ -120,6 +122,27 @@ func renderBlocks(b *strings.Builder, lines []string, opts Options) {
 			i++
 		}
 	}
+}
+
+func renderHeading(level int, text string, opts Options) string {
+	offset := opts.HeadingOffset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > 5 {
+		offset = 5
+	}
+	rendered := level + offset
+	if rendered < 6 {
+		return strings.Repeat("#", rendered) + " " + inline(text, opts)
+	}
+	// Markdown has no level deeper than H6. Mark every H6 produced under an
+	// offset so mdwiki can distinguish the original Jira h5/h6 level and refuse
+	// a changed block if the marker is accidentally removed.
+	if offset > 0 {
+		return fmt.Sprintf("###### %s <!-- atl:jira-heading level=%d -->", inline(text, opts), level)
+	}
+	return "###### " + inline(text, opts)
 }
 
 // ensureBlankLine appends newlines so the builder ends with a blank line (an empty

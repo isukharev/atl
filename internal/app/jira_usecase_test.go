@@ -344,18 +344,18 @@ func TestRenderIssueMarkdownFull(t *testing.T) {
 	mustContain(t, got, "| Labels | backend, urgent |")
 	mustContain(t, got, "# PROJ-42 — Fix the thing")
 	// The .md is now a rendered read view: the section header is a plain
-	// "## Description" and the wiki body is converted to markdown (the verbatim
+	// "# Description" and the wiki body is converted to markdown (the verbatim
 	// wiki lives in the sibling <KEY>.wiki file, not here).
-	mustContain(t, got, "## Description\n")
-	mustNotContain(t, got, "## Description (Jira wiki)")
-	mustContain(t, got, "# Heading")                                     // h1. → #
+	mustContain(t, got, "# Description\n")
+	mustNotContain(t, got, "# Description (Jira wiki)")
+	mustContain(t, got, "\n## Heading\n")                                // Jira h1 nests below generated Description
 	mustContain(t, got, "Native **wiki** body with [a link](http://x).") // *wiki*/[a|b] converted
 	mustNotContain(t, got, "h1. Heading")                                // raw wiki heading gone
 	mustNotContain(t, got, "[a link|http://x]")                          // raw wiki link gone
-	mustContain(t, got, "## Links")
+	mustContain(t, got, "# Links")
 	mustContain(t, got, "- blocks PROJ-7")
 	mustContain(t, got, "- relates to PROJ-8")
-	mustContain(t, got, "## Comments")
+	mustContain(t, got, "# Comments")
 	mustContain(t, got, "**bob** (2026-01-01):")
 	mustContain(t, got, "first comment")
 	mustContain(t, got, "**carol** (2026-01-02):")
@@ -377,9 +377,9 @@ func TestRenderIssueMarkdownMinimal(t *testing.T) {
 	mustContain(t, got, "# MIN-1 — Bare issue")
 	mustNotContain(t, got, "| Assignee |")
 	mustNotContain(t, got, "| Labels |")
-	mustNotContain(t, got, "## Description")
-	mustNotContain(t, got, "## Links")
-	mustNotContain(t, got, "## Comments")
+	mustContain(t, got, "# Description")
+	mustNotContain(t, got, "# Links")
+	mustNotContain(t, got, "# Comments")
 }
 
 // Metadata is a valid Markdown table even when values contain table delimiters
