@@ -293,7 +293,9 @@ current-profile mismatch is exit 5. A successful change atomically writes the
 owner-only private profile; an already-current candidate succeeds with
 `changed:false`. `atl profile guidance` emits
 `{configured,schema_version?,instructions}` and is guaranteed not to project
-profile values into `instructions`.
+profile values into `instructions`. Its generic instructions explicitly state
+that saved render/mirror preferences are memory until separately compared with
+and synchronized to runtime; it never emits the saved values themselves.
 
 `atl profile suggest --from-file OBSERVATIONS --out SUGGESTION` emits
 `{path,suggestion_hash,base_profile_hash,previously_rejected}` and writes the

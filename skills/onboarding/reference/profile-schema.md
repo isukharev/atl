@@ -29,7 +29,7 @@ directory), mode 0600. It may contain private names and selectors. Never commit 
   "preferences": {
     "confirmed": true,
     "services": ["confluence", "jira"],
-    "mirror_root": "~/.atl/workspace"
+    "mirror_root": "/home/user/.atl/workspace"
   },
   "team_policy": {
     "source": "team onboarding policy v1",
@@ -70,8 +70,13 @@ Rules:
 - Every schema fact requires explicit `source` and `verified_at`; omit facts that were not checked.
 - Any non-empty `preferences` requires `confirmed: true`.
 - `team_policy` requires `source`; omit the whole section when no declared policy exists.
+- New onboarding candidates store `preferences.mirror_root` as a canonical absolute path. Existing
+  profiles may contain a legacy value beginning with `~`; expand it from the user's home without
+  `eval` before operational use, and always pass paths as one shell-quoted argument/value.
 - `render_defaults` uses the same service/field-view shape as atl render config, but applying the
   profile does not modify runtime config.
+- Clearing `mirror_root` or a render service removes the memory default only. It is not an implicit
+  request to unset an environment value or reset runtime config.
 - Selector names are unique per service. Store reusable JQL/CQL, never sampled content.
 - Unknown JSON keys are rejected.
 

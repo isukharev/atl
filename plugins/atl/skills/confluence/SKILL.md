@@ -26,6 +26,16 @@ not invent that path. Export `ATL_MIRROR_ROOT` or pass `--into`; otherwise the
 built-in Confluence fallback is `mirror`. An explicit `--into` still wins. See
 the `atl` skill's workflow reference for the rationale.
 
+If a workflow profile exists, load only `preferences` and `render_defaults` before the first
+render or mirror operation. Compare the relevant Confluence render defaults with `atl config show`;
+run that check from the target mirror root when local render config is intended. A saved
+`mirror_root` is memory, not an environment change. Compare it with the active root from `atl config
+show`: if they differ, present the conflict and ask which wins; if no root is active, preview
+explicit `--into <absolute-root>` and obtain separate approval before using the saved value. Expand
+`~` without `eval`, then pass the absolute path as one shell-quoted argument. A previously declined
+sync stays declined until the user approves it. A cleared memory preference does not reset runtime.
+Never silently edit shell/workspace configuration or assume that saved render defaults are active.
+
 ## The canonical loop
 
 ### 1. Find the pages
@@ -92,7 +102,11 @@ silently. Offer the `onboarding` skill's consent-gated learning flow. Load only
 `atl profile show --section schema --service confluence` or the corresponding `selectors` slice;
 verified space metadata and proposed preferences go through
 `profile suggest → suggestion review → apply|reject`. Use explicit
-`profile revalidation status` before relying on stale or previously failed space knowledge.
+`profile revalidation status` before relying on stale or previously failed space knowledge. After
+an applied render or mirror preference, separately compare it with `atl config show` and obtain
+approval before synchronizing runtime; for local render config, compare from the target mirror
+root, and verify explicit `--into` from the next approved command result rather than running a
+side-effecting command only for verification.
 → `{ "root": "...", "rendered": [ {id, title, path} ] }`. Only `.md` files are
 rewritten, so `conf status` stays clean.
 

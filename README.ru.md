@@ -158,7 +158,8 @@ codex plugin add atl@atl
 - **`jira`** — поиск/выгрузка задач и create/update/transition/comment/link через команды.
 - **`onboarding`** — опциональное consent-gated изучение workflow, явные командные defaults и
   проверяемый приватный профиль; дальнейшие наблюдения превращаются в deterministic
-  review/apply/reject suggestions, а schema facts ревалидируются явно — без скрытых изменений.
+  review/apply/reject suggestions, schema facts ревалидируются явно, а сохранённые настройки
+  рендера/зеркала синхронизируются с runtime только после отдельного подтверждения.
 
 Поверх справочных скиллов плагин включает workflow-рецепты — сквозные процессы со встроенным
 подтверждением перед созданием чего-либо:

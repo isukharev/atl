@@ -62,6 +62,19 @@ atl profile suggestion apply --from-file "$PRIVATE_TMP/learning.atl-suggestion.j
   --expected-current-hash <preview.current_hash>
 ```
 
+Applying the suggestion changes private memory only. If review reports changed `render_defaults`
+or `preferences`, load only those slices and compare them with `atl config show`. Separately preview
+and obtain approval for any runtime render command or mirror choice (`--into`, current-session
+`ATL_MIRROR_ROOT`, or a shell-profile handoff). Surface conflicts between active and saved roots;
+neither wins silently, and an earlier declined sync remains declined until the user approves it.
+Expand legacy `~` without `eval`, use an absolute path, and shell-quote it as one value. Verify
+effective render from the relevant global/target-mirror context and an environment-backed mirror
+with `atl config show`, or verify the resulting command's root/path when using explicit `--into`.
+If no approved mirror operation runs, mark `--into` verification pending rather than causing a
+read/write solely to test it. A cleared memory value does not reset runtime; that requires another
+exact preview and approval. If synchronization is declined, report the changed values as
+memory-only; never imply that the runtime adopted them.
+
 After rejection:
 
 ```bash

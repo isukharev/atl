@@ -21,7 +21,9 @@ This skill orients you. For the actual command flows, use the focused skills:
   structured profile) → explicitly invoke the `onboarding` skill. Runtime work should load only the
   relevant profile slice with `atl profile show --section ...`, never copy the profile into a repo.
   Repeated discoveries may become consent-gated `profile suggest` artifacts; they are reviewed and
-  applied or rejected explicitly, never learned in the background.
+  applied or rejected explicitly, never learned in the background. Saved `render_defaults` and
+  `preferences.mirror_root` remain memory until a separately approved runtime sync; compare them
+  with `atl config show` before relying on either.
 
 If `atl` is not installed (`command -v atl` fails), tell the user to run `/atl:setup` first.
 

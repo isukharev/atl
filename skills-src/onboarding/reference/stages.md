@@ -21,6 +21,8 @@ Ask only questions that affect a saved choice:
 - Is there a named team policy/onboarding source?
 
 Reflect the proposed preferences back and obtain confirmation.
+Resolve a selected mirror location to a canonical absolute path before storing it; never evaluate
+profile text as shell syntax.
 
 ## 3. Consent-gated evidence
 
@@ -43,10 +45,19 @@ error, interruption, or success.
 
 ## 6. Explicit writes
 
-Apply the profile with the preview hashes. Separately preview and obtain approval for runtime render
-config and workspace-guidance edits. Never leave the candidate behind after any terminal outcome.
+Apply the profile with the preview hashes. Treat `render_defaults` and `preferences.mirror_root` as
+memory until separately synchronized. Compare them with `atl config show`, preview exact render
+config commands and the chosen mirror mechanism (`--into`, current-session `ATL_MIRROR_ROOT`, or a
+shell-profile handoff), and obtain separate approval. Surface conflicts between active and saved
+roots instead of choosing one; expand `~` before using a root. Verify effective render from the
+relevant global/target-mirror context and an environment-backed mirror with `atl config show`; for
+explicit `--into`, verify the resulting command's root/path instead, or mark verification pending
+until the first approved mirror operation. Do not read the backend or write files only to verify a
+future parameter. A cleared memory preference does not reset runtime without another reviewed
+action. Separately preview workspace-guidance edits; generic guidance must not contain private root
+values and is not itself runtime sync. Never leave the candidate behind after any terminal outcome.
 
 ## 7. Verification and gaps
 
-Read back only needed sections. Report provenance, verification timestamps, approved writes, and
-unknowns. Do not fill gaps by guessing.
+Read back only needed sections. Report provenance, verification timestamps, approved writes,
+memory-only preferences that remain unsynchronized, and unknowns. Do not fill gaps by guessing.
