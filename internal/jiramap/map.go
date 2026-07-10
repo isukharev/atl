@@ -4,6 +4,7 @@
 package jiramap
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"strconv"
@@ -66,6 +67,8 @@ func str(value any) string {
 		return value
 	case float64:
 		return strconv.FormatFloat(value, 'f', -1, 64)
+	case json.Number:
+		return value.String()
 	case nil:
 		return ""
 	default:

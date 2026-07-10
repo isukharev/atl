@@ -172,6 +172,7 @@ atl jira issue get PROJ-1 [--fields summary,status,issuetype,project,labels,desc
 atl jira issue create --project PROJ --type Bug --summary 'Title' --from-md desc.md [--field k=v]
 atl jira issue update PROJ-1 [--summary 'New'] [--from-md desc.md] [--field k=v]       # see fields.md for big bodies
 atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'                  # targeted description edit
+atl jira issue field set PROJ-1 --from-md customfield_10001=notes.md --allow-fields customfield_10001  # guarded dry-run
 atl jira issue assign PROJ-1 --me                                                       # or --to <username> / --none
 atl jira issue transition PROJ-1 --to 'In Progress' [--comment 'why'] [--field k=v]    # list first ↓
 atl jira issue comment add PROJ-1 --from-md comment.md                                  # BREAKING: was comment PROJ-1
@@ -365,6 +366,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue search -o id` | Print matching issue keys one per line | `-o id` |
 | `jira issue create` | Create an issue | `--project`, `--type`, `--summary`, `--from-md`, `--from-file`, `--field k=v` |
 | `jira issue update <KEY>` | Update summary/description/fields (whole body) | `--summary`, `--from-md`, `--from-file`, `--field k=v` |
+| `jira issue field set <KEY>` | Guarded file-backed custom-field preview/apply | `--from-file FIELD=PATH`, `--from-md FIELD=PATH`, `--allow-fields`, `--expected-updated`, `--apply` |
 | `jira issue edit <KEY>` | Targeted description replace in one command | `--old`, `--new`, `--old-file`, `--new-file`, `--all`, `--dry-run` |
 | `jira issue assign <KEY>` | Set or clear the assignee | exactly one of `--to USER`, `--me`, `--none` |
 | `jira issue transition <KEY>` | Transition to a status | `--to`, `--comment`, `--field k=v` |
@@ -443,6 +445,12 @@ sanitized issue + private case file).
   what the md view can't express, then `jira push` (or `jira issue update --from-file`).
 - **Transient `jira issue view` output is read-only context.** It has no synced
   base or drift guard; run `jira pull` before any mirror-based edit/apply/push.
+- **Large custom fields use `jira issue field set`, not inline body values.**
+  Preview first, review normalized JSON plus `expected_updated`, then repeat
+  with the same files, exact `--allow-fields`, timestamp, and `--apply`. Only
+  custom fields are accepted; Markdown always becomes a string, while raw
+  top-level JSON objects/arrays stay structured. The 64 MiB aggregate cap is
+  fail-closed.
 - **Author bodies in markdown via `--from-md`** (fail-closed conversion, exit 8 names any
   unconvertible block). Raw `--from-file` bodies are **Jira wiki markup, not Markdown**
   (`*bold*`, `h2.`, `{code}` — see [wiki-markup.md](reference/wiki-markup.md)); Markdown

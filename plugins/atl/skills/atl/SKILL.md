@@ -71,7 +71,8 @@ Recent additions expand both surfaces — check the focused skills for full flag
 
 **Jira additions:** typed `render.jira.field_views` and opt-in `epic_children`
 views; issue history/check/attachments/refs/tree; guarded link suggestions and
-versioned plan apply; labels, users, planning reports, and compact exports.
+versioned plan apply; guarded file-backed custom-field preview/apply; labels,
+users, planning reports, and compact exports.
 `jira export` manifests hash configured backend identity but retain
 selectors/fields verbatim and may still be private. Boards/sprints use the Jira Software Agile API. Structure
 commands read metadata, forests, rows, values, issue snapshots, and offline

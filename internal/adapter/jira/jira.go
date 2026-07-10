@@ -62,7 +62,7 @@ func (j *Jira) GetIssue(ctx context.Context, key string, fields []string) (*doma
 		fq = strings.Join(fields, ",")
 	}
 	var d issueDTO
-	if err := j.c.GetJSON(ctx, "/rest/api/2/issue/"+url.PathEscape(key)+"?fields="+url.QueryEscape(fq), &d); err != nil {
+	if err := j.c.GetJSONUseNumber(ctx, "/rest/api/2/issue/"+url.PathEscape(key)+"?fields="+url.QueryEscape(fq), &d); err != nil {
 		return nil, err
 	}
 	return j.mapIssue(d), nil
@@ -165,6 +165,15 @@ func (j *Jira) Update(ctx context.Context, key, summary string, body []byte, fie
 		return fmt.Errorf("%w: nothing to update", domain.ErrUsage)
 	}
 	return j.c.SendJSON(ctx, "PUT", "/rest/api/2/issue/"+url.PathEscape(key), map[string]any{"fields": fl}, nil)
+}
+
+// SetFields writes explicitly typed values as-is. Unlike Update's compatibility
+// map[string]string path, it performs no JSON-shape guessing.
+func (j *Jira) SetFields(ctx context.Context, key string, fields map[string]any) error {
+	if len(fields) == 0 {
+		return fmt.Errorf("%w: no fields to update", domain.ErrUsage)
+	}
+	return j.c.SendJSON(ctx, "PUT", "/rest/api/2/issue/"+url.PathEscape(key), map[string]any{"fields": fields}, nil)
 }
 
 // Transition moves an issue to a target status by name, optionally commenting

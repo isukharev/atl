@@ -72,6 +72,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Guarded file-backed Jira custom fields.** `jira issue field set <KEY>`
+  previews by default, reads repeatable `FIELD=PATH` raw or Markdown inputs
+  under a 64 MiB aggregate cap, requires exact custom-field allowlists, and
+  captures Jira `updated` for a stale-refusing `--apply`. Markdown always
+  becomes a Jira-wiki string; raw top-level JSON objects/arrays remain typed.
+  JSON review output includes normalized proposals and hashes, while text mode
+  and verbose logs omit values.
+
 - **Transient configured Jira Markdown view.** `jira issue view <KEY>` renders
   one live issue through the same profile/typed-field pipeline without writing
   a mirror, snapshot, sidecar, asset, or writeback baseline. Default output is

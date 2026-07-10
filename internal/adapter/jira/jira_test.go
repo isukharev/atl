@@ -121,6 +121,33 @@ func TestUpdateCoercesExtraFieldValues(t *testing.T) {
 	}
 }
 
+func TestSetFieldsPreservesExplicitTypes(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.EscapedPath() != "/rest/api/2/issue/A%20B%2FC" {
+			t.Errorf("request = %s %s", r.Method, r.URL.EscapedPath())
+		}
+		got = readFields(t, r)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	j := newTestJira(srv)
+	err := j.SetFields(context.Background(), "A B/C", map[string]any{
+		"customfield_1": "{}",
+		"customfield_2": map[string]any{"id": "7"},
+	})
+	if err != nil {
+		t.Fatalf("SetFields: %v", err)
+	}
+	if got["customfield_1"] != "{}" {
+		t.Fatalf("literal string was retyped: %#v", got["customfield_1"])
+	}
+	if object, ok := got["customfield_2"].(map[string]any); !ok || object["id"] != "7" {
+		t.Fatalf("object type was lost: %#v", got["customfield_2"])
+	}
+}
+
 // --- Finding 2: mapIssue leaves Version at 0 (no API counter to populate) ---
 
 func TestMapIssueVersionIsZero(t *testing.T) {

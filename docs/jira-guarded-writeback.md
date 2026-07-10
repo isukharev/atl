@@ -1,6 +1,7 @@
 # Guarded Jira Writeback Design
 
-Status: implemented for `atl jira issue plan apply` CSV schema version 1.
+Status: implemented for `atl jira issue plan apply` CSV schema version 1 and
+single-issue `atl jira issue field set` file-backed updates.
 
 ## Goals
 
@@ -15,8 +16,15 @@ The guarded executor supports reviewed operations such as:
 - applying allowlisted field updates;
 - adding or removing allowlisted labels.
 
-It does not approve arbitrary custom-field mutation, workflow transitions, or
-silent bulk writes.
+It does not approve unallowlisted custom-field mutation, workflow transitions,
+or silent bulk writes.
+
+For a large value on one issue, `jira issue field set` is the direct guarded
+path: bodies are referenced as `FIELD=PATH`, not carried in argv; preview is the
+default; every field must be custom and present in `--allow-fields`; apply
+requires the previewed `expected_updated`. Raw top-level JSON objects/arrays
+remain structured, Markdown becomes a Jira-wiki string, and all fields are sent
+in one request. Input and normalized output are capped at 64 MiB.
 
 ## Non-Goals
 
@@ -118,6 +126,13 @@ No command should rely on request retries for idempotency. The HTTP layer alread
 does not retry POST; writeback commands must still make duplicate writes
 harmless through preflight checks.
 
+The single-issue field command never retries the PUT. After any write error it
+performs one fresh read. After a definitive 4xx rejection, desired values
+already visible → `already_satisfied` (possibly produced by another actor),
+otherwise → `failed`. For an ambiguous transport/timeout/5xx outcome, desired
+values visible → `applied`; otherwise → `unknown` because an immediate old
+read cannot rule out an in-flight commit. Reconciled results say so explicitly.
+
 ## Failure Behavior
 
 The default apply mode is fail-fast:
@@ -148,6 +163,10 @@ The implementation has regression tests for:
 - fail-fast versus `--continue-on-error`;
 - no writes during preview;
 - no PAT or backend hostname in preview/audit output.
+- bounded raw/Markdown file input, exact custom-field allowlists, and typed
+  request values for `jira issue field set`;
+- dry-run timestamp capture, stale refusal, atomic multi-field apply, and
+  already-satisfied no-op behavior for the single-issue field path.
 
 ## Implemented Gate
 
