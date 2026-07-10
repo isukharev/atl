@@ -151,7 +151,10 @@ atl jira fields                                   # if they use Jira
 
 `atl` prints JSON by default. A clean result means setup is complete — tell the user they can now
 ask Codex to work with Confluence pages or Jira issues (the `confluence` and `jira` skills engage
-automatically).
+automatically). Offer the separate explicit `onboarding` skill if they want atl to learn their
+recurring workflow, approved field/schema facts, render defaults, and common selectors. Do not run
+that interview or inspect sample content unless they opt in; technical setup remains complete
+without it.
 
 ## Version skew
 

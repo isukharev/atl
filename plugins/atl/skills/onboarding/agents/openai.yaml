@@ -1,0 +1,6 @@
+interface:
+  display_name: "atl onboarding"
+  short_description: "Discover and save an atl workflow profile"
+  default_prompt: "Use $onboarding to discover my Atlassian workflow and save a reviewed private profile."
+policy:
+  allow_implicit_invocation: false

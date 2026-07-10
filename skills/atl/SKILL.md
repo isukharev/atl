@@ -17,6 +17,9 @@ This skill orients you. For the actual command flows, use the focused skills:
   skill.
 - **First-time install & config** (`atl` binary, auth, backend URLs, mirror dir) →
   run `/atl:setup`.
+- **Optional workflow personalization** (consent-gated sample reads, team defaults, private
+  structured profile) → explicitly invoke the `onboarding` skill. Runtime work should load only the
+  relevant profile slice with `atl profile show --section ...`, never copy the profile into a repo.
 
 If `atl` is not installed (`command -v atl` fails), tell the user to run `/atl:setup` first.
 

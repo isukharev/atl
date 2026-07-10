@@ -400,6 +400,17 @@ Notable behaviors:
 
 ---
 
+### `internal/profile`
+
+Owns the versioned private workflow profile independently of backend adapters
+and mirrors. It strictly decodes and normalizes schema facts, confirmed user
+preferences, explicitly sourced team policy, render defaults, and named
+selectors. Canonical JSON hashes drive a two-phase preview/apply contract;
+apply rechecks both candidate and current hashes under a config-root advisory
+lock, then atomically replaces `profile.json` with mode 0600. The package never
+reads Atlassian content or applies runtime render config—those consent decisions
+remain in the onboarding skill/CLI orchestration.
+
 ### `internal/cli`
 
 The cobra command tree. Commands are thin:

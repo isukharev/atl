@@ -1,0 +1,12 @@
+{
+  "exists": true,
+  "path": "<config-dir>/profile.json",
+  "hash": "<sha256>",
+  "data": {
+    "confirmed": true,
+    "services": [
+      "jira"
+    ],
+    "mirror_root": "~/.atl/work"
+  }
+}

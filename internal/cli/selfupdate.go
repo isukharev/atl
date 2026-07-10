@@ -26,11 +26,11 @@ func runSelfUpdate(cmd *cobra.Command) {
 }
 
 // skipSelfUpdate disables the update check for offline/trivial commands where
-// any network latency is unwelcome (version, auth, config and their children).
+// any network latency is unwelcome (version, auth, config, profile and their children).
 func skipSelfUpdate(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
-		case "version", "auth", "config":
+		case "version", "auth", "config", "profile":
 			return true
 		}
 	}
