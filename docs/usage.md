@@ -334,8 +334,19 @@ full-profile escape hatch.
 `guidance` emits only a short generic instruction pointing agents to those slices;
 it never embeds fields, selectors, policy rules, or sampled content. The optional
 `onboarding` client skill performs the consent-gated interview and preview/apply
-flow. Applying `render_defaults` to runtime config remains a separate explicit
-`atl config set render.* ...` review/write.
+flow. Saved `render_defaults` and `preferences.mirror_root` are memory, not active
+runtime. The onboarding/learning flow compares them with `atl config show` and
+requires separate approval for `atl config set render.* ...`, current-session
+`ATL_MIRROR_ROOT`, explicit `--into`, or a shell-profile handoff. Declined sync is
+reported as memory-only; conflicts between active and saved roots require a choice,
+and shell/workspace files are never edited implicitly. Effective local render is
+verified by running `atl config show` from the target mirror root; an explicit
+`--into` is verified from the next approved command result's root/path, never by
+causing a read/write solely for verification. Newly captured mirror paths are
+canonical absolute values and are passed as one shell-quoted argument; a legacy
+leading `~` is expanded without `eval`. Clearing a profile preference removes only
+memory and never resets runtime implicitly. Generic workspace guidance retains
+this approval protocol but never embeds the private root itself.
 
 ### Consent-gated suggestions
 
@@ -402,7 +413,9 @@ Observation objects are partial: omitted preference fields preserve their
 current values, and a Jira-only/Confluence-only `render_defaults` proposal
 preserves the other service. An explicit empty value clears only that named
 preference/service value. Schema facts and selectors are upsert-only; removals
-require the ordinary full profile preview flow.
+require the ordinary full profile preview flow. Suggestion apply updates only the
+private profile; changed render/mirror preferences still require the same separate
+runtime comparison, approval, and verification as initial onboarding.
 
 ### Explicit schema revalidation
 

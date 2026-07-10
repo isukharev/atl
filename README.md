@@ -156,7 +156,8 @@ Core skills:
 - **`jira`** — search/pull issues and create/update/transition/comment/link via commands.
 - **`onboarding`** — optional consent-gated workflow discovery, declared team defaults, and a
   reviewed private profile; later observations become deterministic review/apply/reject
-  suggestions, never silent mutations, and stale schema facts are revalidated explicitly.
+  suggestions, never silent mutations, stale schema facts are revalidated explicitly, and saved
+  render/mirror preferences are synchronized to runtime only after separate approval.
 
 On top of those references, the plugin ships workflow recipes — end-to-end processes with
 built-in approval gates before anything is created:

@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Profile/runtime preference handoff.** Onboarding and later learning now distinguish private
+  profile memory from active render and mirror settings, require a separate reviewed runtime sync,
+  and make Jira/Confluence workflows verify the effective config or pass the confirmed mirror root
+  explicitly instead of assuming an applied profile changed runtime.
+
 - **Jira view hierarchy and human dates.** Generated Jira-owned regions now use
   stable hidden section markers and level-one Markdown headings, while headings
   originating in Description, comments, or rich-text custom fields are nested
