@@ -22,9 +22,11 @@ or silent bulk writes.
 For a large value on one issue, `jira issue field set` is the direct guarded
 path: bodies are referenced as `FIELD=PATH`, not carried in argv; preview is the
 default; every field must be custom and present in `--allow-fields`; apply
-requires the previewed `expected_updated`. Raw top-level JSON objects/arrays
-remain structured, Markdown becomes a Jira-wiki string, and all fields are sent
-in one request. Input and normalized output are capped at 64 MiB.
+requires the previewed `expected_updated` and aggregate `proposal_hash`. The
+timestamp binds remote state; the hash binds field ids, source kinds, types, and
+normalized values. Raw top-level JSON objects/arrays remain structured,
+Markdown becomes a Jira-wiki string, and all fields are sent in one request.
+Input and normalized output are capped at 64 MiB.
 
 ## Non-Goals
 
@@ -166,7 +168,9 @@ The implementation has regression tests for:
 - bounded raw/Markdown file input, exact custom-field allowlists, and typed
   request values for `jira issue field set`;
 - dry-run timestamp capture, stale refusal, atomic multi-field apply, and
-  already-satisfied no-op behavior for the single-issue field path.
+  already-satisfied no-op behavior for the single-issue field path;
+- changed-file proposal-hash refusal before network/write and reserved-marker
+  rejection inside editable Jira regions.
 
 ## Implemented Gate
 

@@ -113,6 +113,33 @@ func TestJiraApplyEditableFieldCreatesPendingWithoutChangingSnapshot(t *testing.
 	}
 }
 
+func TestJiraApplyReservedMarkerInDescriptionWritesNothing(t *testing.T) {
+	svc, root, mdPath, wikiPath, snapshotBefore := scaffoldEditableField(t)
+	md := mustReadFile(t, mdPath)
+	marker := "<!-- atl:section " + jiraFieldSectionID(editableFieldID) + " editable -->"
+	edited := strings.Replace(md, "Intro paragraph.", "Intro paragraph.\n\n"+marker, 1)
+	if edited == md {
+		t.Fatal("description edit anchor missing")
+	}
+	mustWriteFile(t, mdPath, edited)
+	if _, err := svc.Apply(mdPath, JiraApplyOpts{Into: root}); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("reserved marker apply error = %v, want check failure", err)
+	}
+	if got := mustReadFile(t, wikiPath); got != applyBody {
+		t.Fatalf("reserved marker changed wiki: %q", got)
+	}
+	snapshotAfter, err := os.ReadFile(strings.TrimSuffix(mdPath, ".md") + ".json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(snapshotAfter) != string(snapshotBefore) {
+		t.Fatal("reserved marker changed raw snapshot")
+	}
+	if _, ok, err := loadJiraPendingFields(root, "PROJ-42"); err != nil || ok {
+		t.Fatalf("reserved marker created pending state: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestJiraApplyEditableFieldAcceptsRelativeMirrorRoot(t *testing.T) {
 	svc, root, _, _, _ := scaffoldEditableField(t)
 	t.Chdir(root)

@@ -410,7 +410,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue search -o id` | Print matching issue keys one per line | `-o id` |
 | `jira issue create` | Create an issue | `--project`, `--type`, `--summary`, `--from-md`, `--from-file`, `--field k=v` |
 | `jira issue update <KEY>` | Update summary/description/fields (whole body) | `--summary`, `--from-md`, `--from-file`, `--field k=v` |
-| `jira issue field set <KEY>` | Guarded file-backed custom-field preview/apply | `--from-file FIELD=PATH`, `--from-md FIELD=PATH`, `--allow-fields`, `--expected-updated`, `--apply` |
+| `jira issue field set <KEY>` | Guarded file-backed custom-field preview/apply | `--from-file FIELD=PATH`, `--from-md FIELD=PATH`, `--allow-fields`, `--expected-updated`, `--expected-proposal-hash`, `--apply` |
 | `jira issue edit <KEY>` | Targeted description replace in one command | `--old`, `--new`, `--old-file`, `--new-file`, `--all`, `--dry-run` |
 | `jira issue assign <KEY>` | Set or clear the assignee | exactly one of `--to USER`, `--me`, `--none` |
 | `jira issue transition <KEY>` | Transition to a status | `--to`, `--comment`, `--field k=v` |
@@ -490,11 +490,11 @@ sanitized issue + private case file).
 - **Transient `jira issue view` output is read-only context.** It has no synced
   base or drift guard; run `jira pull` before any mirror-based edit/apply/push.
 - **Large custom fields use `jira issue field set`, not inline body values.**
-  Preview first, review normalized JSON plus `expected_updated`, then repeat
-  with the same files, exact `--allow-fields`, timestamp, and `--apply`. Only
-  custom fields are accepted; Markdown always becomes a string, while raw
-  top-level JSON objects/arrays stay structured. The 64 MiB aggregate cap is
-  fail-closed.
+  Preview first, review normalized JSON plus `expected_updated` and aggregate
+  `proposal_hash`, then repeat with the same files, exact `--allow-fields`, both
+  expected gates, and `--apply`. A changed file must be previewed again. Only custom
+  fields are accepted; Markdown always becomes a string, while raw top-level JSON
+  objects/arrays stay structured. The 64 MiB aggregate cap is fail-closed.
 - **Author bodies in markdown via `--from-md`** (fail-closed conversion, exit 8 names any
   unconvertible block). Raw `--from-file` bodies are **Jira wiki markup, not Markdown**
   (`*bold*`, `h2.`, `{code}` — see [wiki-markup.md](reference/wiki-markup.md)); Markdown

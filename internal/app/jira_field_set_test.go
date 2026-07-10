@@ -21,6 +21,7 @@ type fieldSetTracker struct {
 	setCalls       int
 	setError       error
 	getCalls       int
+	fieldCalls     int
 	reconcileError error
 	commitOnError  bool
 }
@@ -37,6 +38,7 @@ func (leakyFieldSetHTTPError) HTTPStatus() int { return 403 }
 func (leakyFieldSetHTTPError) Unwrap() error   { return domain.ErrForbidden }
 
 func (t *fieldSetTracker) Fields(context.Context) ([]domain.FieldDef, error) {
+	t.fieldCalls++
 	return t.defs, nil
 }
 
@@ -76,6 +78,22 @@ func fieldSetFixture() *fieldSetTracker {
 	}
 }
 
+func fieldSetApplyOpts(t *testing.T, allow []string, updated string, proposals []JiraFieldProposal) JiraFieldSetOpts {
+	t.Helper()
+	previews, _, err := normalizeFieldProposals(proposals, exactAllowSet(allow))
+	if err != nil {
+		t.Fatalf("normalize proposals: %v", err)
+	}
+	hash, err := jiraFieldProposalHash(previews)
+	if err != nil {
+		t.Fatalf("proposal hash: %v", err)
+	}
+	return JiraFieldSetOpts{
+		AllowFields: allow, Proposals: proposals, ExpectedUpdated: updated,
+		ExpectedProposalHash: hash, Apply: true,
+	}
+}
+
 func TestSetFieldsGuardedDryRunCapturesUpdatedAndNormalizesValues(t *testing.T) {
 	tr := fieldSetFixture()
 	svc := &JiraService{tr: tr}
@@ -92,6 +110,9 @@ func TestSetFieldsGuardedDryRunCapturesUpdatedAndNormalizesValues(t *testing.T) 
 	if res.Status != "would_apply" || res.Mode != "dry-run" || res.ExpectedUpdated != tr.issue.Fields["updated"] {
 		t.Fatalf("result = %+v", res)
 	}
+	if len(res.ProposalHash) != 64 {
+		t.Fatalf("proposal hash = %q", res.ProposalHash)
+	}
 	if tr.setCalls != 0 {
 		t.Fatalf("dry-run made %d writes", tr.setCalls)
 	}
@@ -104,12 +125,68 @@ func TestSetFieldsGuardedDryRunCapturesUpdatedAndNormalizesValues(t *testing.T) 
 	}
 }
 
+func TestJiraFieldProposalHashIsOrderIndependentAndValueBound(t *testing.T) {
+	allow := exactAllowSet([]string{"customfield_1", "customfield_2"})
+	a := []JiraFieldProposal{
+		{Field: "customfield_2", Source: "raw", Value: map[string]any{"id": "2"}},
+		{Field: "customfield_1", Source: "markdown", Value: "value"},
+	}
+	b := []JiraFieldProposal{a[1], a[0]}
+	previewA, _, err := normalizeFieldProposals(a, allow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewB, _, err := normalizeFieldProposals(b, allow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hashA, _ := jiraFieldProposalHash(previewA)
+	hashB, _ := jiraFieldProposalHash(previewB)
+	if hashA != hashB {
+		t.Fatalf("input order changed hash: %s != %s", hashA, hashB)
+	}
+	previewB[0].Value = "changed"
+	changed, _ := jiraFieldProposalHash(previewB)
+	if changed == hashA {
+		t.Fatal("changed normalized value kept proposal hash")
+	}
+}
+
+func TestSetFieldsGuardedApplyRequiresMatchingProposalHashBeforeNetwork(t *testing.T) {
+	proposals := []JiraFieldProposal{{Field: "customfield_1", Source: "raw", Value: "new"}}
+
+	t.Run("missing", func(t *testing.T) {
+		tr := fieldSetFixture()
+		_, err := (&JiraService{tr: tr}).SetFieldsGuarded(context.Background(), "PROJ-1", JiraFieldSetOpts{
+			AllowFields: []string{"customfield_1"}, Proposals: proposals,
+			ExpectedUpdated: "fresh", Apply: true,
+		})
+		if !errors.Is(err, domain.ErrUsage) || tr.fieldCalls != 0 || tr.getCalls != 0 || tr.setCalls != 0 {
+			t.Fatalf("err=%v calls fields/get/set=%d/%d/%d", err, tr.fieldCalls, tr.getCalls, tr.setCalls)
+		}
+	})
+
+	t.Run("changed", func(t *testing.T) {
+		tr := fieldSetFixture()
+		res, err := (&JiraService{tr: tr}).SetFieldsGuarded(context.Background(), "PROJ-1", JiraFieldSetOpts{
+			AllowFields: []string{"customfield_1"}, Proposals: proposals,
+			ExpectedUpdated: "fresh", ExpectedProposalHash: strings.Repeat("0", 64), Apply: true,
+		})
+		if !errors.Is(err, domain.ErrCheckFailed) || res == nil || res.Status != "blocked" || len(res.ProposalHash) != 64 {
+			t.Fatalf("result=%+v err=%v", res, err)
+		}
+		if tr.fieldCalls != 0 || tr.getCalls != 0 || tr.setCalls != 0 {
+			t.Fatalf("mismatch reached network: fields/get/set=%d/%d/%d", tr.fieldCalls, tr.getCalls, tr.setCalls)
+		}
+	})
+}
+
 func TestSetFieldsGuardedStaleApplyFailsClosed(t *testing.T) {
 	tr := fieldSetFixture()
-	res, err := (&JiraService{tr: tr}).SetFieldsGuarded(context.Background(), "PROJ-1", JiraFieldSetOpts{
-		AllowFields: []string{"customfield_1"}, ExpectedUpdated: "older", Apply: true,
-		Proposals: []JiraFieldProposal{{Field: "customfield_1", Source: "raw", Value: "new"}},
-	})
+	res, err := (&JiraService{tr: tr}).SetFieldsGuarded(context.Background(), "PROJ-1", fieldSetApplyOpts(t,
+		[]string{"customfield_1"}, "older",
+		[]JiraFieldProposal{{Field: "customfield_1", Source: "raw", Value: "new"}},
+	))
 	if !errors.Is(err, domain.ErrCheckFailed) || res == nil || res.Status != "blocked" {
 		t.Fatalf("result=%+v err=%v, want blocked ErrCheckFailed", res, err)
 	}
@@ -121,13 +198,13 @@ func TestSetFieldsGuardedStaleApplyFailsClosed(t *testing.T) {
 func TestSetFieldsGuardedApplyWritesTypedValuesAtomically(t *testing.T) {
 	tr := fieldSetFixture()
 	updated := tr.issue.Fields["updated"].(string)
-	res, err := (&JiraService{tr: tr}).SetFieldsGuarded(context.Background(), "PROJ-1", JiraFieldSetOpts{
-		AllowFields: []string{"customfield_1", "customfield_2"}, ExpectedUpdated: updated, Apply: true,
-		Proposals: []JiraFieldProposal{
+	res, err := (&JiraService{tr: tr}).SetFieldsGuarded(context.Background(), "PROJ-1", fieldSetApplyOpts(t,
+		[]string{"customfield_1", "customfield_2"}, updated,
+		[]JiraFieldProposal{
 			{Field: "customfield_1", Source: "markdown", Value: "{}"},
 			{Field: "customfield_2", Source: "raw", Value: map[string]any{"id": "2"}},
 		},
-	})
+	))
 	if err != nil || res.Status != "applied" {
 		t.Fatalf("result=%+v err=%v", res, err)
 	}
@@ -144,10 +221,10 @@ func TestSetFieldsGuardedApplyWritesTypedValuesAtomically(t *testing.T) {
 
 func TestSetFieldsGuardedAlreadySatisfiedSkipsWriteBeforeStaleCheck(t *testing.T) {
 	tr := fieldSetFixture()
-	res, err := (&JiraService{tr: tr}).SetFieldsGuarded(context.Background(), "PROJ-1", JiraFieldSetOpts{
-		AllowFields: []string{"customfield_2"}, ExpectedUpdated: "older", Apply: true,
-		Proposals: []JiraFieldProposal{{Field: "customfield_2", Source: "raw", Value: map[string]any{"id": "1"}}},
-	})
+	res, err := (&JiraService{tr: tr}).SetFieldsGuarded(context.Background(), "PROJ-1", fieldSetApplyOpts(t,
+		[]string{"customfield_2"}, "older",
+		[]JiraFieldProposal{{Field: "customfield_2", Source: "raw", Value: map[string]any{"id": "1"}}},
+	))
 	if err != nil || res.Status != "already_satisfied" || tr.setCalls != 0 {
 		t.Fatalf("result=%+v writes=%d err=%v", res, tr.setCalls, err)
 	}
@@ -219,10 +296,10 @@ func TestSetFieldsGuardedReconcilesAmbiguousWrite(t *testing.T) {
 	tr.setError = errors.New("connection closed")
 	tr.commitOnError = true
 	updated := tr.issue.Fields["updated"].(string)
-	res, err := (&JiraService{tr: tr}).SetFieldsGuarded(context.Background(), "PROJ-1", JiraFieldSetOpts{
-		AllowFields: []string{"customfield_1"}, ExpectedUpdated: updated, Apply: true,
-		Proposals: []JiraFieldProposal{{Field: "customfield_1", Source: "raw", Value: "new"}},
-	})
+	res, err := (&JiraService{tr: tr}).SetFieldsGuarded(context.Background(), "PROJ-1", fieldSetApplyOpts(t,
+		[]string{"customfield_1"}, updated,
+		[]JiraFieldProposal{{Field: "customfield_1", Source: "raw", Value: "new"}},
+	))
 	if err != nil || res.Status != "applied" || !res.Reconciled || tr.getCalls != 2 {
 		t.Fatalf("result=%+v getCalls=%d err=%v", res, tr.getCalls, err)
 	}
@@ -233,10 +310,10 @@ func TestSetFieldsGuardedDefinitiveRejectionWithConcurrentDesiredStateIsSatisfie
 	tr.setError = fieldSetHTTPError(400)
 	tr.commitOnError = true // models another actor producing the desired end state
 	updated := tr.issue.Fields["updated"].(string)
-	res, err := (&JiraService{tr: tr}).SetFieldsGuarded(context.Background(), "PROJ-1", JiraFieldSetOpts{
-		AllowFields: []string{"customfield_1"}, ExpectedUpdated: updated, Apply: true,
-		Proposals: []JiraFieldProposal{{Field: "customfield_1", Source: "raw", Value: "new"}},
-	})
+	res, err := (&JiraService{tr: tr}).SetFieldsGuarded(context.Background(), "PROJ-1", fieldSetApplyOpts(t,
+		[]string{"customfield_1"}, updated,
+		[]JiraFieldProposal{{Field: "customfield_1", Source: "raw", Value: "new"}},
+	))
 	if err != nil || res.Status != "already_satisfied" || !res.Reconciled {
 		t.Fatalf("result=%+v err=%v", res, err)
 	}
@@ -260,10 +337,10 @@ func TestSetFieldsGuardedClassifiesRejectedAndUnreconciledWrites(t *testing.T) {
 			tr.setError = tc.writeErr
 			tr.reconcileError = tc.reconcileErr
 			updated := tr.issue.Fields["updated"].(string)
-			res, err := (&JiraService{tr: tr}).SetFieldsGuarded(context.Background(), "PROJ-1", JiraFieldSetOpts{
-				AllowFields: []string{"customfield_1"}, ExpectedUpdated: updated, Apply: true,
-				Proposals: []JiraFieldProposal{{Field: "customfield_1", Source: "raw", Value: "new"}},
-			})
+			res, err := (&JiraService{tr: tr}).SetFieldsGuarded(context.Background(), "PROJ-1", fieldSetApplyOpts(t,
+				[]string{"customfield_1"}, updated,
+				[]JiraFieldProposal{{Field: "customfield_1", Source: "raw", Value: "new"}},
+			))
 			if err == nil || res.Status != tc.wantStatus || res.Reconciled != tc.wantReconciled || tr.setCalls != 1 {
 				t.Fatalf("result=%+v err=%v", res, err)
 			}
@@ -275,10 +352,10 @@ func TestSetFieldsGuardedSanitizesBackendWriteBodyAndPreservesClassification(t *
 	tr := fieldSetFixture()
 	tr.setError = leakyFieldSetHTTPError{}
 	updated := tr.issue.Fields["updated"].(string)
-	_, err := (&JiraService{tr: tr}).SetFieldsGuarded(context.Background(), "PROJ-1", JiraFieldSetOpts{
-		AllowFields: []string{"customfield_1"}, ExpectedUpdated: updated, Apply: true,
-		Proposals: []JiraFieldProposal{{Field: "customfield_1", Source: "raw", Value: "new"}},
-	})
+	_, err := (&JiraService{tr: tr}).SetFieldsGuarded(context.Background(), "PROJ-1", fieldSetApplyOpts(t,
+		[]string{"customfield_1"}, updated,
+		[]JiraFieldProposal{{Field: "customfield_1", Source: "raw", Value: "new"}},
+	))
 	if err == nil || strings.Contains(err.Error(), "super-secret") {
 		t.Fatalf("write error was not sanitized: %v", err)
 	}

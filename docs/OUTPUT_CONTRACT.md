@@ -585,6 +585,7 @@ dry-run by default and returns:
   "status": "would_apply",
   "expected_updated": "2026-01-02T03:04:05.000+0000",
   "actual_updated": "2026-01-02T03:04:05.000+0000",
+  "proposal_hash": "<hex>",
   "fields": [
     {
       "field": "customfield_10001",
@@ -608,8 +609,11 @@ are `failed`. An ambiguous transport/timeout/5xx outcome is `applied` when the
 proposals are visible and remains `unknown` otherwise (an
 immediate old read cannot prove an in-flight write will not commit). Successful
 reconciliation reads carry `"reconciled": true`. A stale
-apply still emits the `blocked` result and exits 8. Apply requires
-`--expected-updated`; all proposed fields are sent in one request.
+apply still emits the `blocked` result and exits 8. Apply requires both
+`--expected-updated` and `--expected-proposal-hash`. The latter binds sorted
+field ids, sources, normalized types, and values; a changed local input fails
+before backend metadata/read/write calls. All proposed fields are sent in one
+request.
 
 `atl jira structure rows <ID>` returns a parsed read-only view of a Tempo Structure forest:
 
