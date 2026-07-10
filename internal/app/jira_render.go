@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	jiraadapter "github.com/isukharev/atl/internal/adapter/jira"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/jiramap"
 	"github.com/isukharev/atl/internal/mirror"
 	"github.com/isukharev/atl/internal/safepath"
 )
@@ -176,5 +176,5 @@ func loadIssueSnapshot(root, path string) (*domain.Issue, bool) {
 	if snap.Key == "" {
 		return nil, false
 	}
-	return jiraadapter.MapIssueFields(snap.ID, snap.Key, snap.Fields), true
+	return jiramap.Issue(snap.ID, snap.Key, snap.Fields), true
 }

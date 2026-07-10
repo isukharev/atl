@@ -42,6 +42,7 @@ cross-cutting (no import of adapters or CLI):
   internal/domain   — ports, Resource, Ref, sentinel errors
   internal/csf      — read-only CSF DOM parser + validator
   internal/fragment — opaque-fragment extraction + resolution
+  internal/jiramap  — pure Jira snapshot → domain mapping
   internal/mirror   — on-disk layout + dirty/drift detection
   internal/selfupdate, internal/version
 ```
@@ -182,6 +183,10 @@ Implements `domain.DocStore`, `domain.AssetResolver`, and exports
 ### `internal/adapter/jira`
 
 Implements `domain.Tracker` against the Jira REST v2 API.
+
+Raw Jira field maps are converted by the transport-neutral `internal/jiramap`
+package. The REST adapter and offline renderer share that mapper without making
+ordinary app use-cases import transport code.
 
 - `Transition` resolves the target status by name (case-insensitive) against
   the live list from `/transitions`, so callers pass human names rather than
