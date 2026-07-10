@@ -22,6 +22,7 @@ const (
 	SuggestionSchemaVersion = 1
 	SuggestionFileSuffix    = ".atl-suggestion.json"
 	decisionsFileName       = "profile-decisions.json"
+	maxDecisionHashes       = 4096
 )
 
 // Observations is explicit, caller-authored evidence used to propose profile
@@ -104,7 +105,10 @@ func DecodeObservationsStrict(data []byte) (Observations, error) {
 			observations.Preferences.Services = &services
 		}
 		if observations.Preferences.MirrorRoot != nil {
-			root := strings.TrimSpace(*observations.Preferences.MirrorRoot)
+			root := *observations.Preferences.MirrorRoot
+			if !hasControl(root) {
+				root = strings.TrimSpace(root)
+			}
 			observations.Preferences.MirrorRoot = &root
 		}
 	}
@@ -423,6 +427,8 @@ func RejectSuggestion(configDir string, suggestion Suggestion, expectedSuggestio
 	}
 	for _, hash := range state.Rejected {
 		if hash == suggestion.SuggestionHash {
+			// Refresh the decision's recency without changing its semantic status.
+			state.Rejected = append(state.Rejected, hash)
 			if err := writeDecisions(configDir, state); err != nil { // repairs mode
 				return SuggestionRejectResult{}, err
 			}
@@ -430,7 +436,6 @@ func RejectSuggestion(configDir string, suggestion Suggestion, expectedSuggestio
 		}
 	}
 	state.Rejected = append(state.Rejected, suggestion.SuggestionHash)
-	sort.Strings(state.Rejected)
 	if err := writeDecisions(configDir, state); err != nil {
 		return SuggestionRejectResult{}, err
 	}
@@ -442,8 +447,12 @@ func WasRejected(configDir, suggestionHash string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	i := sort.SearchStrings(state.Rejected, suggestionHash)
-	return i < len(state.Rejected) && state.Rejected[i] == suggestionHash, nil
+	for _, rejected := range state.Rejected {
+		if rejected == suggestionHash {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func decisionsPath(configDir string) string { return filepath.Join(configDir, decisionsFileName) }
@@ -464,7 +473,7 @@ func readDecisions(configDir string) (decisions, error) {
 	if state.SchemaVersion != SuggestionSchemaVersion {
 		return decisions{}, fmt.Errorf("%w: unsupported profile decisions schema_version %d", domain.ErrConfig, state.SchemaVersion)
 	}
-	state.Rejected = uniqueSorted(state.Rejected)
+	state.Rejected = recentUnique(state.Rejected, maxDecisionHashes)
 	for _, hash := range state.Rejected {
 		if !validHash(hash) {
 			return decisions{}, fmt.Errorf("%w: invalid rejected suggestion hash", domain.ErrConfig)
@@ -493,7 +502,7 @@ func readPrivateState(configDir, path, label string) ([]byte, bool, error) {
 
 func writeDecisions(configDir string, state decisions) error {
 	state.SchemaVersion = SuggestionSchemaVersion
-	state.Rejected = uniqueSorted(state.Rejected)
+	state.Rejected = recentUnique(state.Rejected, maxDecisionHashes)
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
@@ -502,6 +511,30 @@ func writeDecisions(configDir string, state decisions) error {
 		return fmt.Errorf("%w: profile decisions would exceed the %d MiB limit", domain.ErrCheckFailed, MaxBytes>>20)
 	}
 	return safepath.WriteFileWithin(configDir, decisionsPath(configDir), append(data, '\n'), 0o600)
+}
+
+func recentUnique(items []string, limit int) []string {
+	seen := make(map[string]bool, len(items))
+	reversed := make([]string, 0, len(items))
+	for i := len(items) - 1; i >= 0; i-- {
+		item := items[i]
+		item = strings.TrimSpace(item)
+		if item != "" && !seen[item] {
+			seen[item] = true
+			reversed = append(reversed, item)
+		}
+	}
+	unique := make([]string, len(reversed))
+	for i := range reversed {
+		unique[len(reversed)-1-i] = reversed[i]
+	}
+	if len(unique) > limit {
+		unique = unique[len(unique)-limit:]
+	}
+	if len(unique) == 0 {
+		return nil
+	}
+	return unique
 }
 
 func canonicalSuggestion(suggestion Suggestion) (string, []byte, error) {

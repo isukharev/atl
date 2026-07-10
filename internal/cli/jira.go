@@ -1071,7 +1071,7 @@ func jiraPullCmd() *cobra.Command {
 	var rf renderFlags
 	cmd := &cobra.Command{
 		Use:   "pull",
-		Short: "Export issues matching --jql to one md+json per issue",
+		Short: "Export issues matching --jql to one .wiki + .md + .json set per issue",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if jql == "" {
 				return usageErr("--jql is required")

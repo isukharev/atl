@@ -709,6 +709,78 @@ func TestJiraPendingCanBeExplicitlyReboundToReviewedDirectWikiEdit(t *testing.T)
 	}
 }
 
+func TestJiraDirectWikiRebindRejectsUnsupportedViewMarkerBeforeWrite(t *testing.T) {
+	markers := map[string]string{
+		"unversioned": "<!-- atl:document jira-issue -->",
+		"future":      "<!-- atl:document jira-issue v99 -->",
+		"missing":     "",
+	}
+	for name, marker := range markers {
+		t.Run(name, func(t *testing.T) {
+			svc, _, root, mdPath, wikiPath := setupEditablePulled(t)
+			mustWriteFile(t, mdPath, strings.Replace(mustReadFile(t, mdPath), "first", "field changed", 1))
+			if _, err := svc.Apply(mdPath, JiraApplyOpts{Into: root}); err != nil {
+				t.Fatal(err)
+			}
+			pendingPath := jiraPendingFieldsPath(root, "PROJ-42")
+			pendingBefore := mustReadFile(t, pendingPath)
+			wikiBefore := applyBody + "\n\nDirect reviewed edit."
+			mustWriteFile(t, wikiPath, wikiBefore)
+			md := mustReadFile(t, mdPath)
+			if marker == "" {
+				md = strings.TrimPrefix(md, jiraIssueDocumentMarker+"\n")
+			} else {
+				md = strings.Replace(md, jiraIssueDocumentMarker, marker, 1)
+			}
+			mustWriteFile(t, mdPath, md)
+
+			_, err := svc.Apply(mdPath, JiraApplyOpts{Into: root, RebasePending: true})
+			if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "jira render") {
+				t.Fatalf("marker refusal = %v", err)
+			}
+			if got := mustReadFile(t, wikiPath); got != wikiBefore {
+				t.Fatalf("wiki changed on marker refusal: %q", got)
+			}
+			if got := mustReadFile(t, pendingPath); got != pendingBefore {
+				t.Fatal("pending state changed on marker refusal")
+			}
+			if got := mustReadFile(t, mdPath); got != md {
+				t.Fatal("derived view changed on marker refusal")
+			}
+			if _, statErr := os.Stat(jiraPendingFieldsTxnPath(root, "PROJ-42")); !os.IsNotExist(statErr) {
+				t.Fatalf("transaction state created on marker refusal: %v", statErr)
+			}
+		})
+	}
+}
+
+func TestJiraUnsupportedViewMarkerDoesNotRecoverPendingTransaction(t *testing.T) {
+	svc, _, root, mdPath, _ := setupEditablePulled(t)
+	mustWriteFile(t, mdPath, strings.Replace(mustReadFile(t, mdPath), "first", "field changed", 1))
+	if _, err := svc.Apply(mdPath, JiraApplyOpts{Into: root}); err != nil {
+		t.Fatal(err)
+	}
+	finalPath := jiraPendingFieldsPath(root, "PROJ-42")
+	txnPath := jiraPendingFieldsTxnPath(root, "PROJ-42")
+	if err := os.Rename(finalPath, txnPath); err != nil {
+		t.Fatal(err)
+	}
+	txnBefore := mustReadFile(t, txnPath)
+	md := strings.Replace(mustReadFile(t, mdPath), jiraIssueDocumentMarker, "<!-- atl:document jira-issue v99 -->", 1)
+	mustWriteFile(t, mdPath, md)
+
+	_, err := svc.Apply(mdPath, JiraApplyOpts{Into: root})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "jira render") {
+		t.Fatalf("marker refusal = %v", err)
+	}
+	if got := mustReadFile(t, txnPath); got != txnBefore {
+		t.Fatal("transaction changed before marker refusal")
+	}
+	if _, statErr := os.Stat(finalPath); !os.IsNotExist(statErr) {
+		t.Fatalf("transaction recovered before marker refusal: %v", statErr)
+	}
+}
+
 func TestJiraDirectWikiRebindRefusesUnappliedMarkdownFieldEdit(t *testing.T) {
 	svc, _, root, mdPath, wikiPath := setupEditablePulled(t)
 	mustWriteFile(t, mdPath, strings.Replace(mustReadFile(t, mdPath), "first", "staged", 1))

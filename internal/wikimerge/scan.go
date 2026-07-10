@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/isukharev/atl/internal/mdcsf"
+	"github.com/isukharev/atl/internal/wikiscanner"
 )
 
 // block is one base wiki block: the byte range [start,end) of its content in the
@@ -23,7 +24,6 @@ var (
 	quoteOpenRe = regexp.MustCompile(`^\{quote\}(.*)$`)
 	panelOpenRe = regexp.MustCompile(`^\{panel(?::([^}]*))?\}(.*)$`)
 	hrRe        = regexp.MustCompile(`^-{4,}[ \t]*$`)
-	listRe      = regexp.MustCompile(`^[ \t]*([*#]+)[ \t]+(.*)$`)
 )
 
 // wline is one physical line and its byte offsets in the source. end is the
@@ -106,9 +106,9 @@ func scanWikiBlocks(base string) []block {
 			}
 			add(i, j-1)
 			i = j
-		case listRe.MatchString(ln):
+		case wikiscanner.IsListLine(ln):
 			j := i
-			for j < len(lines) && listRe.MatchString(lines[j].text) {
+			for j < len(lines) && wikiscanner.IsListLine(lines[j].text) {
 				j++
 			}
 			add(i, j-1)
@@ -132,19 +132,7 @@ func scanWikiBlocks(base string) []block {
 // wikiTableRowEnd mirrors wikimd.tableRowEnd so render and apply agree that
 // non-`|` continuation lines ending in `|` belong to the table block.
 func wikiTableRowEnd(lines []wline, start int) int {
-	if strings.HasSuffix(strings.TrimSpace(lines[start].text), "|") {
-		return start
-	}
-	for i := start + 1; i < len(lines); i++ {
-		line := lines[i].text
-		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "|") {
-			return start
-		}
-		if strings.HasSuffix(strings.TrimSpace(line), "|") {
-			return i
-		}
-	}
-	return start
+	return wikiscanner.TableRowEnd(len(lines), start, func(i int) string { return lines[i].text })
 }
 
 // macroEnd returns the index of the last line of a brace macro opened at line i.
@@ -169,7 +157,7 @@ func macroEnd(lines []wline, i int, rest, closeTag string) int {
 func isSpecialStart(line string) bool {
 	return headingRe.MatchString(line) || codeOpenRe.MatchString(line) ||
 		quoteOpenRe.MatchString(line) || panelOpenRe.MatchString(line) ||
-		hrRe.MatchString(line) || strings.HasPrefix(line, "|") || listRe.MatchString(line)
+		hrRe.MatchString(line) || strings.HasPrefix(line, "|") || wikiscanner.IsListLine(line)
 }
 
 // splitMDBlocks splits a markdown fragment into trimmed blocks (blank-line

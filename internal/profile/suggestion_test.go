@@ -263,7 +263,15 @@ func TestSuggestionAndDecisionWritersEnforceReadLimit(t *testing.T) {
 	for i := range state.Rejected {
 		state.Rejected[i] = fmt.Sprintf("%064x", i)
 	}
-	if err := writeDecisions(dir, state); !errors.Is(err, domain.ErrCheckFailed) {
-		t.Fatalf("oversized decisions error = %v", err)
+	if err := writeDecisions(dir, state); err != nil {
+		t.Fatalf("bounded decisions write = %v", err)
+	}
+	stored, err := readDecisions(dir)
+	if err != nil || len(stored.Rejected) != maxDecisionHashes {
+		t.Fatalf("stored decisions = %d, err=%v", len(stored.Rejected), err)
+	}
+	if stored.Rejected[0] != fmt.Sprintf("%064x", len(state.Rejected)-maxDecisionHashes) ||
+		stored.Rejected[len(stored.Rejected)-1] != fmt.Sprintf("%064x", len(state.Rejected)-1) {
+		t.Fatalf("decision pruning did not retain the newest window")
 	}
 }

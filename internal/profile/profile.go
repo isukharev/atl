@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
@@ -152,6 +153,9 @@ func Validate(p Profile) error {
 		if service != "jira" && service != "confluence" {
 			return fmt.Errorf("%w: unknown preference service %q (want jira or confluence)", domain.ErrUsage, service)
 		}
+	}
+	if hasControl(p.Preferences.MirrorRoot) {
+		return fmt.Errorf("%w: preferences.mirror_root must not contain control characters", domain.ErrUsage)
 	}
 	if p.TeamPolicy != nil {
 		if strings.TrimSpace(p.TeamPolicy.Source) == "" {
@@ -464,7 +468,11 @@ func normalize(p *Profile) {
 		fact.Source = strings.TrimSpace(fact.Source)
 		fact.VerifiedAt = fact.VerifiedAt.UTC()
 	}
-	p.Preferences.MirrorRoot = strings.TrimSpace(p.Preferences.MirrorRoot)
+	// Preserve control characters until Validate can reject them. Trimming them
+	// here would make a malformed path appear valid after decoding.
+	if !hasControl(p.Preferences.MirrorRoot) {
+		p.Preferences.MirrorRoot = strings.TrimSpace(p.Preferences.MirrorRoot)
+	}
 	p.Preferences.Services = uniqueSorted(p.Preferences.Services)
 	if p.TeamPolicy != nil {
 		p.TeamPolicy.Source = strings.TrimSpace(p.TeamPolicy.Source)
@@ -521,6 +529,10 @@ func uniqueSorted(in []string) []string {
 		return nil
 	}
 	return out
+}
+
+func hasControl(s string) bool {
+	return strings.IndexFunc(s, unicode.IsControl) >= 0
 }
 
 func hasPreferences(p Preferences) bool {

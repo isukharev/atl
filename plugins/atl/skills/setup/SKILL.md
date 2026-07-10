@@ -2,7 +2,7 @@
 name: setup
 description: Install the atl CLI and configure Confluence/Jira authentication, backend URLs, and the local mirror directory. Run this once ($setup) before using atl.
 disable-model-invocation: true
-allowed-tools: Bash(command -v atl) Bash(atl version) Bash(brew install *) Bash(curl *) Bash(sh) Bash(go install *) Bash(go env *) Bash(echo *) Bash(atl config show) Bash(atl config set *) Bash(atl auth status) Bash(atl auth login *) Bash(atl conf search *) Bash(atl jira fields)
+allowed-tools: Bash(command -v atl) Bash(atl version) Bash(brew install *) Bash(curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh) Bash(go install *) Bash(go env *) Bash(echo *) Bash(atl config show) Bash(atl config set *) Bash(atl auth status) Bash(atl auth login *) Bash(atl conf search *) Bash(atl jira fields)
 ---
 <!-- Generated from skills-src/setup/SKILL.md — edit the source and run 'make gen-plugins'. -->
 

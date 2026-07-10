@@ -129,6 +129,18 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	if !snapOK {
 		return nil, fmt.Errorf("%w: no %s.json snapshot for %s — re-pull it", domain.ErrNotFound, keySeg, keySeg)
 	}
+	rawEdited, err := safepath.ReadFileWithin(root, mdPath)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", domain.ErrNotFound, err)
+	}
+	edited := normalizeMD(string(rawEdited))
+	if strings.HasPrefix(edited, "---\n") {
+		return nil, fmt.Errorf("%w: this is a legacy YAML-headed Jira view; save any edits outside the derived view, run `jira render` (or pull again), then reapply the reviewed edits", domain.ErrCheckFailed)
+	}
+	if err := validateJiraIssueDocumentMarker(edited); err != nil {
+		return nil, err
+	}
+
 	pending, _, err := loadJiraPendingFieldsLocked(root, keySeg)
 	if err != nil {
 		return nil, err
@@ -137,12 +149,6 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	if o.RebasePending && pending == nil {
 		return nil, fmt.Errorf("%w: --rebase-pending requires an existing pending field edit", domain.ErrUsage)
 	}
-
-	rawEdited, err := safepath.ReadFileWithin(root, mdPath)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", domain.ErrNotFound, err)
-	}
-	edited := normalizeMD(string(rawEdited))
 
 	// Reproduce the pristine view from the base body + snapshot fields under the
 	// render settings the .md was actually written with, so an untouched .md
@@ -251,9 +257,6 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	prefix, desc, suffix, fieldRegions := renderIssueMarkdownLayout(displayIssue, assets, related, rs, true, true)
 	pristine := prefix + desc + suffix
 	regions := jiraEditableRegions(prefix, desc, fieldRegions)
-	if strings.HasPrefix(edited, "---\n") && !strings.HasPrefix(pristine, "---\n") {
-		return nil, fmt.Errorf("%w: this is a legacy YAML-headed Jira view; run `jira render` (or pull again) before applying Markdown edits", domain.ErrCheckFailed)
-	}
 	editedValues, err := extractJiraEditableRegions(edited, pristine, regions)
 	if err != nil {
 		return nil, fmt.Errorf("%w; generated sections are read-only (use the matching Jira field/comment/link/attachment command)", err)
@@ -402,4 +405,15 @@ func normalizeMD(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\r", "\n")
 	return s
+}
+
+func validateJiraIssueDocumentMarker(edited string) error {
+	first, _, _ := strings.Cut(edited, "\n")
+	if first == jiraIssueDocumentMarker {
+		return nil
+	}
+	if strings.HasPrefix(first, "<!-- atl:document jira-issue") {
+		return fmt.Errorf("%w: unsupported Jira view format marker %q; save any edits outside the derived view, run `jira render` (or pull again), then reapply them", domain.ErrCheckFailed, first)
+	}
+	return fmt.Errorf("%w: missing Jira view format marker %q; save any edits outside the derived view, run `jira render` (or pull again), then reapply them", domain.ErrCheckFailed, jiraIssueDocumentMarker)
 }

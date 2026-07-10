@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/isukharev/atl/internal/wikiscanner"
 )
 
 // Options tunes the render. Images resolves a Jira image-embed filename (the
@@ -60,7 +62,6 @@ var (
 	quoteOpenRe = regexp.MustCompile(`^\{quote\}(.*)$`)
 	panelOpenRe = regexp.MustCompile(`^\{panel(?::([^}]*))?\}(.*)$`)
 	hrRe        = regexp.MustCompile(`^-{4,}[ \t]*$`)
-	listRe      = regexp.MustCompile(`^[ \t]*([*#]+)[ \t]+(.*)$`)
 	langRe      = regexp.MustCompile(`[^A-Za-z0-9#+.\-]`)
 )
 
@@ -113,7 +114,7 @@ func renderBlocks(b *strings.Builder, lines []string, opts Options) {
 			out, next := tableBlock(lines, i, opts)
 			writeBlock(out)
 			i = next
-		case listRe.MatchString(line):
+		case wikiscanner.IsListLine(line):
 			out, next := listBlock(lines, i, opts)
 			writeBlock(out)
 			i = next
@@ -340,19 +341,7 @@ func tableBlock(lines []string, i int, opts Options) (string, int) {
 // blank line, or a new `|` line falls back to the old one-line behavior so a
 // malformed table cannot swallow the rest of the document.
 func tableRowEnd(lines []string, start int) int {
-	if strings.HasSuffix(strings.TrimSpace(lines[start]), "|") {
-		return start
-	}
-	for i := start + 1; i < len(lines); i++ {
-		line := lines[i]
-		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "|") {
-			return start
-		}
-		if strings.HasSuffix(strings.TrimSpace(line), "|") {
-			return i
-		}
-	}
-	return start
+	return wikiscanner.TableRowEnd(len(lines), start, func(i int) string { return lines[i] })
 }
 
 func renderTable(rows []string, opts Options) string {
@@ -448,11 +437,10 @@ func listBlock(lines []string, i int, opts Options) (string, int) {
 	j := i
 	var b strings.Builder
 	for j < len(lines) {
-		m := listRe.FindStringSubmatch(lines[j])
-		if m == nil {
+		markers, text, ok := wikiscanner.ParseListLine(lines[j])
+		if !ok {
 			break
 		}
-		markers, text := m[1], m[2]
 		depth := len(markers)
 		marker := "- "
 		if markers[depth-1] == '#' {

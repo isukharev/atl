@@ -49,7 +49,9 @@ confirm allowed values with `field-options` rather than guessing.
 
 ## Large custom-field values from files
 
-Do not put a long custom-field body in `--field key=value` or shell argv. Use the
+If a pulled view already records the field as editable `section` + `jira_wiki`,
+it may use the combined mirror apply/push flow with Description. Otherwise, do
+not put a long custom-field body in `--field key=value` or shell argv; use the
 guarded file command, which previews by default:
 
 ```bash
