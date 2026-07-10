@@ -281,6 +281,7 @@ atl conf status mirror --remote
 atl conf search --cql 'space=DOCS and label="adr"'
 atl conf space tree --space DOCS
 # Идентификаторы страниц берутся из вывода atl conf pull (meta.json → поле "id") или URL страницы.
+atl conf page view 123456 -o text   # настроенный Markdown без артефактов mirror
 atl conf page get     --id 123456
 atl conf page get     --id 123456 --format csf
 atl conf page meta    --id 123456

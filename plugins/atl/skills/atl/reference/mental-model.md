@@ -39,6 +39,6 @@ instead keep the source of truth in Confluence/Jira. `atl` bridges that gap:
 
 ## When NOT to use `atl`
 
-- A single real-time lookup with no edit → the live MCP or a one-off `conf page get` / `jira issue
-  get` is lighter than standing up a mirror.
+- A single real-time lookup with no edit → the live MCP or a one-off `conf page view` / `jira issue
+  view` is lighter than standing up a mirror.
 - Content you must never persist to disk → don't mirror it; read it transiently.

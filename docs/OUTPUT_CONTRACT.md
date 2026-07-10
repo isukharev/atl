@@ -197,6 +197,14 @@ substrate write. Legacy/unmarked migration uses `conf render` or a fresh pull;
 callers preserve and reapply existing edits because render replaces `.md`.
 Unknown/future versions require an updated binary and must not be downgraded.
 
+`atl conf page view <ID>` is the non-persistent counterpart. Its JSON is
+`{"id","title","space","version","markdown"}`; text output is the exact
+Markdown string. It uses the same versioned renderer, but marks the body
+`readonly`, writes no mirror or view state, and cannot be used as an apply/push
+surface. Optional comments are fetched only when selected by the effective
+render settings; truncation is warned on stderr. A fresh pull is required before
+editing.
+
 Confluence pull/render/apply/push acquire one persistent mirror-internal
 advisory lock for their complete mutation/preview critical section. Contention
 is exit `8` before page/state writes. The file persists so every process locks

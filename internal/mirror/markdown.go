@@ -35,13 +35,15 @@ type PageFrontmatter struct {
 }
 
 // MDViewOpts carries the profile-driven additions to a Confluence markdown view.
-// Both fields are optional: a zero value renders exactly RenderMarkdown's output
-// (the default/minimal profile — byte-identical to the pre-profile view). The app
+// Metadata/comments are optional; ReadOnly switches the body boundary for a
+// transient document that has no writeback baseline. A zero value renders the
+// standard editable mirror envelope around RenderMarkdown's output. The app
 // layer assembles these from the page metadata and, for Comments, the
 // `<slug>.comments.json` sidecar (absent → nil → the section is skipped).
 type MDViewOpts struct {
 	Frontmatter *PageFrontmatter
 	Comments    []domain.Comment
+	ReadOnly    bool
 }
 
 // RenderMarkdownOpts renders a versioned derived view with stable generated
@@ -64,7 +66,11 @@ func RenderMarkdownViewParts(root *csf.Node, refs []domain.Ref, opts MDViewOpts)
 	if opts.Frontmatter != nil {
 		prefix += ConfluenceMetadataMarker + "\n" + renderPageFrontmatter(opts.Frontmatter) + "\n"
 	}
-	prefix += ConfluenceBodyMarker + "\n"
+	bodyMarker := ConfluenceBodyMarker
+	if opts.ReadOnly {
+		bodyMarker = ConfluenceBodyReadOnlyMarker
+	}
+	prefix += bodyMarker + "\n"
 	if len(opts.Comments) > 0 {
 		suffix = "\n" + ConfluenceCommentsMarker + "\n## Comments\n\n" + string(RenderCommentsMarkdown(opts.Comments))
 	}

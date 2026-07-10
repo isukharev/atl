@@ -18,7 +18,7 @@ or a command exits `7` ("not configured"), run `/atl:setup` and stop.
 ### 1. Get the notes
 
 Pasted text as-is; a Confluence page via
-`atl conf page get --id <id> --format view`, or find it first:
+`atl conf page view <id> -o text`, or find it first:
 `atl conf search --cql 'title ~ "<meeting title>"' --limit 5`.
 
 ### 2. Extract action items

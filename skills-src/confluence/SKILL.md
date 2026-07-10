@@ -53,6 +53,13 @@ required; default `--limit` is 25; paginate with `--cursor <next_cursor>`.)
 For a whole space's hierarchy: `atl conf space tree --space <KEY> [--depth N]`.
 
 ### 2. Pull only what you need
+
+For a one-off read that does not need offline reuse or editing, prefer
+`atl conf page view <id> -o text`. It uses the configured Markdown renderer but
+writes no mirror, assets, baseline, sidecars, or view state. Its document/body
+markers are explicitly read-only. If any change is needed, discard the
+transient output and pull the page fresh before editing.
+
 ```bash
 atl conf pull --id <id> --assets --into ~/.atl/<workspace>/
 # or:  --cql '<CQL>'   (caps at 1000 pages — see warning below)
@@ -214,6 +221,7 @@ does not take the mutation lock.
 | `conf space tree` | Page hierarchy of a space | `--space KEY`, `--depth N` |
 | `conf page list` | List pages in a space | `--space KEY`, `--status current\|archived\|trashed`, `--limit N` |
 | `conf page get` | Print a page body (CSF or rendered view) | `--id`, `--format csf\|view` |
+| `conf page view <ID>` | Configured read-only Markdown without mirror artifacts | `--render-root`, `--render-profile`, `--render-include`, `--render-exclude`, `-o text` |
 | `conf page meta` | Page metadata (version, ancestors, labels, restrictions) | `--id` |
 | `conf page history` | List page versions | `--id` |
 | `conf page open` | Open the page in the system browser | `--id` |
@@ -263,7 +271,7 @@ For exact edits or unresolved rendering questions, inspect the `.csf` source.
   [csf-authoring.md](reference/csf-authoring.md) — page skeleton,
   code/info/warning/expand/status/TOC macros, task lists, tables, page links, mentions.
 - Copy a page: `atl conf page copy --id <id> --title 'New Title' [--space KEY] [--parent <id>]`.
-- `atl conf page get --id <id> --format csf|view`, `atl conf page meta --id <id>`,
+- `atl conf page view <id> -o text`, `atl conf page get --id <id> --format csf|view`, `atl conf page meta --id <id>`,
   `atl conf page history --id <id>`, `atl conf page move --id <id> --parent <id>`,
   `atl conf page delete --id <id>`, `atl conf page open --id <id>`.
 - Comments: `atl conf comment list --id <id>` / `atl conf comment add --id <id> --from-file c.csf`.

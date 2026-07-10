@@ -52,6 +52,15 @@ func TestRenderMarkdownOptsFrontmatterAndComments(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownOptsReadOnlyBody(t *testing.T) {
+	root := parseNode(t, `<p>Hello</p>`)
+	got := string(RenderMarkdownOpts(root, nil, MDViewOpts{ReadOnly: true}))
+	wantPrefix := ConfluenceDocumentMarker + "\n" + ConfluenceBodyReadOnlyMarker + "\n"
+	if !strings.HasPrefix(got, wantPrefix) || strings.Contains(got, ConfluenceBodyMarker) {
+		t.Fatalf("read-only view marker mismatch:\n%s", got)
+	}
+}
+
 // RenderMarkdownViewParts must satisfy the concatenation identity
 // prefix+body+suffix == RenderMarkdownOpts across every opts shape, so conf
 // apply can anchor-extract the editable body byte-for-byte.
@@ -67,6 +76,7 @@ func TestRenderMarkdownViewPartsConcatIdentity(t *testing.T) {
 		{"frontmatter-only", "<p>Body text.</p>", MDViewOpts{Frontmatter: fm}},
 		{"comments-only", "<p>Body text.</p>", MDViewOpts{Comments: cs}},
 		{"both", "<h1>T</h1><p>Body text.</p>", MDViewOpts{Frontmatter: fm, Comments: cs}},
+		{"read-only", "<p>Body text.</p>", MDViewOpts{ReadOnly: true}},
 		{"empty-body-frontmatter", "", MDViewOpts{Frontmatter: fm}},
 		{"empty-body-both", "", MDViewOpts{Frontmatter: fm, Comments: cs}},
 	}
