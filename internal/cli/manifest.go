@@ -10,12 +10,12 @@ import (
 )
 
 func newManifestCmd() *cobra.Command {
-	c := &cobra.Command{Use: "manifest", Short: "Create sanitized local mirror/snapshot manifests"}
+	c := &cobra.Command{Use: "manifest", Short: "Create backend-identity-hashed local mirror/snapshot manifests"}
 
 	var root, out, command, service, selectors, fields, include string
 	create := &cobra.Command{
 		Use:   "create",
-		Short: "Write a sanitized manifest for a local mirror/snapshot root",
+		Short: "Write a backend-identity-hashed manifest for a local mirror/snapshot root",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := loadConfig()
 			if err != nil {

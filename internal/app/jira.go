@@ -333,8 +333,8 @@ func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, er
 	return paths, nil
 }
 
-// JiraPulled is one exported issue. Path points at the rendered read-only .md
-// view; WikiPath points at the sibling <KEY>.wiki substrate — the editable
+// JiraPulled is one exported issue. Path points at the rendered derived .md
+// staging view; WikiPath points at the sibling <KEY>.wiki substrate — the editable
 // native-wiki source of truth — so agents don't have to derive it by swapping
 // extensions. Assets counts image attachments mirrored into the issue's
 // <KEY>.assets/ directory; it is omitted at zero so the JSON shape is unchanged
@@ -478,7 +478,7 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 				return res, fmt.Errorf("refusing unsafe issue key %q", full.Key)
 			}
 			// Write the native Jira wiki body verbatim as the editable substrate
-			// (the .md beside it is a regenerated read-only view; the .wiki mirrors
+			// (the .md beside it is a regenerated staging view; the .wiki mirrors
 			// the role .csf plays for Confluence). Written even when the body is
 			// empty so the substrate file always exists for a later edit/push.
 			wikiPath := filepath.Join(dir, keySeg+".wiki")
@@ -533,7 +533,7 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 			// deferred flush (conf parity: sidecar state follows the page files).
 			// Keyed by the sanitized issue key (the .wiki basename); Version stays 0
 			// — Jira has no server-side version gate. Only the .wiki body is tracked;
-			// the .md/.json/assets are read-only views, outside the sync state.
+			// the derived .md/.json/assets stay outside the sync state.
 			if err := m.SaveBaseExt(keySeg, []byte(full.Body), ".wiki"); err != nil {
 				return res, err
 			}
@@ -726,8 +726,8 @@ const jiraDescStub = "<!-- atl: markdown view unavailable for this revision (the
 // jiraCommentStub is the same guard for a comment body that fails to render.
 const jiraCommentStub = "<!-- atl: comment could not be rendered -->"
 
-// renderIssueMarkdown emits the read-only markdown view under the resolved render
-// settings: a YAML frontmatter (key + summary always; every other field only when
+// renderIssueMarkdown emits the derived Markdown staging view under the resolved
+// render settings: a YAML frontmatter (key + summary always; every other field only when
 // its section is enabled AND present), a rendered "## Description" (the native
 // wiki body run through wikimd — the verbatim body lives in the sibling
 // <KEY>.wiki), and the enabled body sections. It never returns an error; a

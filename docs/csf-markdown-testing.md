@@ -1,10 +1,12 @@
 # Testing & extending the CSF→Markdown renderer
 
-The `.md` files in a mirror are a **read-only, intentionally lossy** view of the
+The `.md` files in a mirror are a **derived, intentionally lossy staging** view of the
 Confluence Storage Format (`.csf`) body, produced by `internal/mirror/markdown.go`
 (`RenderMarkdown`). The `.csf` bytes are the source of truth; a render failure is
 swallowed and never fails a pull. Because the view exists for humans and agents to
-`grep`/read, "correct" means **legible and faithful**, not byte-exact HTML↔Markdown.
+`grep`/read (and for supported edits merged by `conf apply`), "correct" means
+**legible and faithful**, not byte-exact HTML↔Markdown. The view is never pushed
+directly and may be regenerated.
 
 This document describes how we verify the renderer and how to grow its coverage.
 

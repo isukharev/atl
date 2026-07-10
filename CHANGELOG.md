@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Documentation and client-skill contracts.** CI examples preserve failing
+  exit codes, Confluence search documents both supported selector modes, Jira
+  render examples use valid section names, mirror paths distinguish the
+  recommended convention from built-in fallbacks, and derived Markdown plus
+  backend-identity-hashed manifest semantics are stated consistently.
+
 - **Jira mapper architecture boundary.** Live REST reads and offline snapshot
   rendering now share a transport-neutral mapper; an automated import-boundary
   test prevents ordinary app use-cases from depending on concrete adapters.
@@ -426,7 +432,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fields in each issue's JSON snapshot, and `jira fields` can be narrowed with
   `--name-like` or `--id`.
 - **Jira compact exports** — `jira export --jql ... --out FILE --format
-  jsonl|json|csv` writes one analysis artifact plus a sanitized manifest with
+  jsonl|json|csv` writes one analysis artifact plus a backend-identity-hashed manifest with
   query, fields, count, CLI version, and a backend URL hash (no hostname or
   PAT). `--ids` / `--keys` generate safely batched JQL, and `jira export diff`
   compares compact snapshots for added/removed/changed issues.

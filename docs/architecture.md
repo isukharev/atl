@@ -343,7 +343,11 @@ Transport-agnostic use-cases. `ConfluenceService` and `JiraService` are
 assembled in `wire.go` by wiring the config-loaded URL + PAT-resolved adapter
 and storing it behind the port interface. This layer is what a hypothetical
 future HTTP server tier would also call — no cobra, no stdin, no filesystem
-beyond the mirror.
+beyond explicit storage use-cases. The app layer orchestrates filesystem-backed
+use-cases through `internal/mirror`, `internal/safepath`, and narrow helpers;
+`internal/mirror` owns layout, sidecar, baseline, and dirty/drift primitives.
+Plan inputs, exports, manifests, attachments, and caller-selected output files
+use bounded/atomic I/O where applicable.
 
 Notable behaviors:
 
@@ -360,13 +364,14 @@ Notable behaviors:
 - `JiraService.Pull` exports each issue as three files under
   `mirror-jira/<PROJECT>/`: `<KEY>.wiki` (the native Jira wiki body, byte-for-byte
   — the editable substrate, mirroring `.csf`'s role for Confluence), `<KEY>.md`
-  (a best-effort read-only Markdown view rendered from the wiki by
+  (a best-effort derived Markdown staging view rendered from the wiki by
   `internal/wikimd`, regenerated on every pull — a render failure degrades one
   section to a stub, never failing the pull), and `<KEY>.json` (raw fields
   snapshot). The `.md` `path` is what the pull result reports. The pull also
   records the `.wiki` body in the sidecar plus a `.atl/base/<KEY>.wiki` base
   copy so the write-back cycle can detect edits and drift; only the `.wiki` body
-  is tracked (the `.md`/`.json`/assets are read-only views).
+  is tracked. `.md` body edits are merged into `.wiki` only by `jira apply`;
+  `.json` and assets remain read-only derived data.
 - `JiraService.Status` walks the mirror's `.wiki` files, compares hashes
   (`locally_edited`), and with `--remote` fires one `GetIssue` per issue,
   comparing the remote description to the stored base (`remote_drifted`); a file

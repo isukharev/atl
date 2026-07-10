@@ -225,7 +225,7 @@ mirror/
   DOCS/                         # space key
     acme-adr/
       acme-adr.csf              # source of truth (native storage format)
-      acme-adr.md               # read-only view: prose + ⟦fragment⟧ + ![](assets/…)
+      acme-adr.md               # derived staging view; supported edits go through conf apply
       acme-adr.meta.json        # id, version, content hash, resolved fragments, comment_count
       acme-adr.comments.json    # [{id,author,created,body}] (with --comments)
       acme-adr.comments.md      # derived human read view (with --comments)

@@ -229,7 +229,7 @@ mirror/
   DOCS/                         # ключ пространства
     acme-adr/
       acme-adr.csf              # источник правды (нативный формат хранения)
-      acme-adr.md               # read-only представление: текст + ⟦фрагменты⟧ + ![](assets/…)
+      acme-adr.md               # производное staging-представление; изменения через conf apply
       acme-adr.meta.json        # id, версия, хэш содержимого, разрешённые фрагменты, comment_count
       acme-adr.comments.json    # [{id,author,created,body}] (при --comments)
       acme-adr.comments.md      # производное представление для чтения (при --comments)

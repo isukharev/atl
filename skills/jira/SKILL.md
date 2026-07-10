@@ -20,8 +20,9 @@ never written to the trace.
 
 **Preflight:** `atl` must be installed and configured (Jira URL + PAT). If `command -v atl` fails or
 `atl config show` has an empty `jira_url` (or any command exits `7` = "not configured"), **run
-`/atl:setup` and stop** instead of pushing on. The mirror root is `~/.atl/<workspace>/`; when the
-workspace exported `ATL_MIRROR_ROOT`, `jira pull --into` already defaults to it.
+`/atl:setup` and stop** instead of pushing on. The recommended mirror
+root is `~/.atl/<workspace>/`; export it as `ATL_MIRROR_ROOT` or pass `--into`
+explicitly. Without either, Jira's built-in fallback is `mirror-jira`.
 
 Driving a ticket end-to-end while developing (assign → in progress → progress comments → check →
 done → update the linked Confluence page)? Follow the `atl` skill's dev-loop reference
@@ -415,10 +416,10 @@ refusals)? Offer the user a report — see the `atl` skill's feedback flow (cons
 sanitized issue + private case file).
 
 ## Hard rules
-- **Change a body through `jira apply`, not by hand-editing `<KEY>.md` / `<KEY>.json`.** The
-  `## Description` of the `.md` is an editable surface *only* through `jira apply` (which folds it
-  into the `.wiki`) — a bare `.md` edit is lost on the next pull, and `.json` is a raw snapshot that
-  changes nothing. The native wiki body lives in `<KEY>.wiki` (the substrate); edit it directly for
+- **Do not treat a bare `<KEY>.md` edit as complete.** Edit its `## Description`,
+  then run `jira apply` to fold the supported change into `.wiki`; pull/render
+  may replace the derived staging view. `<KEY>.json` is a raw snapshot and is
+  never an edit surface. The native body lives in `<KEY>.wiki`; edit it directly for
   what the md view can't express, then `jira push` (or `jira issue update --from-file`).
 - **Author bodies in markdown via `--from-md`** (fail-closed conversion, exit 8 names any
   unconvertible block). Raw `--from-file` bodies are **Jira wiki markup, not Markdown**

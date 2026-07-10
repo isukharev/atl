@@ -20,18 +20,22 @@ command -v atl >/dev/null || echo 'NOT INSTALLED → run {{atl.setup_cmd}}'
 atl config show   # confluence_url must be non-empty; exit 7 from any command also means "not set up"
 ```
 
-The mirror lives at `~/.atl/<workspace>/` by default; if the workspace exported `ATL_MIRROR_ROOT`,
-the commands below already default `--into`/the status dir to it, so you can omit `--into` (an
-explicit `--into` still wins). See the `atl` skill's workflow reference for the rationale.
+The recommended workspace convention is `~/.atl/<workspace>/`, but the CLI does
+not invent that path. Export `ATL_MIRROR_ROOT` or pass `--into`; otherwise the
+built-in Confluence fallback is `mirror`. An explicit `--into` still wins. See
+the `atl` skill's workflow reference for the rationale.
 
 ## The canonical loop
 
 ### 1. Find the pages
 ```bash
 atl conf search --cql '<CQL>' --limit 25
+# or use convenience filters (do not combine them with --cql):
+atl conf search --space <KEY> --title '<substring>' --type page --limit 25
 ```
 → `{ "results": [ {id, title, space, version, excerpt, url} ], "next_cursor": "<offset>" }`
-(`--cql` is required; default `--limit` is 25; paginate with `--cursor <next_cursor>`.)
+(Either `--cql` or at least one of `--space`/`--title`/`--label`/`--type` is
+required; default `--limit` is 25; paginate with `--cursor <next_cursor>`.)
 
 For a whole space's hierarchy: `atl conf space tree --space <KEY> [--depth N]`.
 
