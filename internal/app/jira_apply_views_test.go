@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	jiraadapter "github.com/isukharev/atl/internal/adapter/jira"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/jiramap"
 	"github.com/isukharev/atl/internal/mirror"
 )
 
@@ -32,7 +32,7 @@ func scaffoldApplyIssueFull(t *testing.T, body string) (svc *JiraService, root, 
 	}
 	fields := richFields()
 	fields["description"] = body
-	is := jiraadapter.MapIssueFields("1001", "PROJ-42", fields)
+	is := jiramap.Issue("1001", "PROJ-42", fields)
 	is.Body = body
 
 	rsFull := jiraRSFull(t)

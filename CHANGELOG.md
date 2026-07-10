@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Jira mapper architecture boundary.** Live REST reads and offline snapshot
+  rendering now share a transport-neutral mapper; an automated import-boundary
+  test prevents ordinary app use-cases from depending on concrete adapters.
+
 - **Safe, bounded tabular I/O.** Jira JSONL/CSV exports stream atomically,
   aggregate JSON is capped, Jira and Confluence CSV neutralize spreadsheet
   formulas by default with an explicit `--raw-csv` escape hatch, and Confluence

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	jiraadapter "github.com/isukharev/atl/internal/adapter/jira"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/jiramap"
 	"github.com/isukharev/atl/internal/mirror"
 )
 
@@ -58,7 +58,7 @@ func richFields() map[string]any {
 // richIssue is the fixture issue decoded from richFields via the pure adapter
 // mapper — the same shape both the live and offline paths produce.
 func richIssue() *domain.Issue {
-	return jiraadapter.MapIssueFields("1001", "PROJ-42", richFields())
+	return jiramap.Issue("1001", "PROJ-42", richFields())
 }
 
 func TestRenderIssueProfileMinimal(t *testing.T) {
@@ -171,7 +171,7 @@ func TestConfiguredTemporalAndScalarListFormats(t *testing.T) {
 	fields["customfield_datetime"] = "2026-01-02T23:30:00.125+0300"
 	fields["customfield_bad_date"] = "not-a-date"
 	fields["customfield_scalar_list"] = "single"
-	is := jiraadapter.MapIssueFields("1001", "PROJ-42", fields)
+	is := jiramap.Issue("1001", "PROJ-42", fields)
 	rs, warns := computeSettings("jira", config.RenderService{
 		Profile: "full",
 		FieldViews: []config.JiraFieldView{
@@ -356,7 +356,7 @@ func TestJiraRenderWarnsWhenEpicSidecarMissing(t *testing.T) {
 	}
 	fields := richFields()
 	fields["issuetype"] = map[string]any{"name": "Epic"}
-	mustWriteSnapshot(t, filepath.Join(dir, "PROJ-42.json"), jiraadapter.MapIssueFields("1001", "PROJ-42", fields))
+	mustWriteSnapshot(t, filepath.Join(dir, "PROJ-42.json"), jiramap.Issue("1001", "PROJ-42", fields))
 	res, err := NewJiraRenderer(&config.Config{}).Render(root, config.RenderService{Profile: "full", Include: []string{SecEpicChildren}})
 	if err != nil {
 		t.Fatal(err)
@@ -378,7 +378,7 @@ func TestJiraRenderIgnoresMismatchedEpicSidecar(t *testing.T) {
 	}
 	fields := richFields()
 	fields["issuetype"] = map[string]any{"name": "Epic", "hierarchyLevel": float64(1)}
-	mustWriteSnapshot(t, filepath.Join(dir, "PROJ-42.json"), jiraadapter.MapIssueFields("1001", "PROJ-42", fields))
+	mustWriteSnapshot(t, filepath.Join(dir, "PROJ-42.json"), jiramap.Issue("1001", "PROJ-42", fields))
 	if err := writeEpicChildrenSidecar(root, filepath.Join(dir, "PROJ-42.epic-children.json"), JiraEpicChildrenSidecar{
 		Epic: "OTHER-1", EpicField: "customfield_10010", Children: []JiraEpicChild{{Key: "OTHER-2"}},
 	}); err != nil {
@@ -411,7 +411,7 @@ func TestJiraRenderIgnoresSidecarFromDifferentEpicField(t *testing.T) {
 	}
 	fields := richFields()
 	fields["issuetype"] = map[string]any{"name": "Epic", "hierarchyLevel": float64(1)}
-	mustWriteSnapshot(t, filepath.Join(dir, "PROJ-42.json"), jiraadapter.MapIssueFields("1001", "PROJ-42", fields))
+	mustWriteSnapshot(t, filepath.Join(dir, "PROJ-42.json"), jiramap.Issue("1001", "PROJ-42", fields))
 	if err := writeEpicChildrenSidecar(root, filepath.Join(dir, "PROJ-42.epic-children.json"), JiraEpicChildrenSidecar{
 		Epic: "PROJ-42", EpicField: "customfield_10010", Children: []JiraEpicChild{{Key: "RELATED-99"}},
 	}); err != nil {
