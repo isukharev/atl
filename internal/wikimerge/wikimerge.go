@@ -33,6 +33,9 @@ type Options struct {
 	// the pristine `.md` view was rendered with, or unchanged-block detection for
 	// blocks containing an image embed degrades.
 	Images map[string]string
+	// HeadingOffset keeps changed Markdown headings aligned with the generated
+	// view's nesting contract and is reversed by mdwiki during conversion.
+	HeadingOffset int
 }
 
 // Construct is one notable wiki construct dropped by an edit (a panel, color
@@ -102,7 +105,7 @@ func Merge(baseWiki []byte, editedDescMD string, opts Options) ([]byte, *Report,
 	firstUnit := make([]int, len(blocks))
 	for bi, blk := range blocks {
 		firstUnit[bi] = len(units)
-		md := wikimd.Render(base[blk.start:blk.end], wikimd.Options{Images: opts.Images})
+		md := wikimd.Render(base[blk.start:blk.end], wikimd.Options{Images: opts.Images, HeadingOffset: opts.HeadingOffset})
 		ps := splitMDBlocks(md)
 		if len(ps) == 0 {
 			// A block that renders to nothing still needs a unit so an unchanged
@@ -186,7 +189,7 @@ func Merge(baseWiki []byte, editedDescMD string, opts Options) ([]byte, *Report,
 			rep.Moved++
 			continue
 		}
-		conv, err := mdwiki.ConvertBlock(txt)
+		conv, err := mdwiki.ConvertBlockWithOptions(txt, mdwiki.Options{HeadingOffset: opts.HeadingOffset})
 		if err != nil {
 			return nil, nil, &BlockError{Block: txt, Err: err}
 		}

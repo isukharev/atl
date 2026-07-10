@@ -69,7 +69,7 @@ func TestJiraPull_EpicChildrenSidecar(t *testing.T) {
 		t.Fatalf("sidecar: err=%v value=%+v", err, sidecar)
 	}
 	md, err := os.ReadFile(filepath.Join(into, "PROJ", "PROJ-1.md"))
-	if err != nil || !strings.Contains(string(md), "## Epic Children") {
+	if err != nil || !strings.Contains(string(md), "# Epic Children") {
 		t.Fatalf("epic section missing: err=%v md=%s", err, md)
 	}
 }

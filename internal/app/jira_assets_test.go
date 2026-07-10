@@ -172,7 +172,7 @@ func TestJiraPullAssetsDownloadsOnlyImages(t *testing.T) {
 	}
 	// The .md links only the images.
 	md := readMD(t, into, "PROJ", "PROJ-1")
-	mustContain(t, md, "## Image Attachments")
+	mustContain(t, md, "# Image Attachments")
 	mustContain(t, md, "![shot.png](PROJ-1.assets/10001-shot.png)")
 	mustContain(t, md, "![photo.jpg](PROJ-1.assets/10003-photo.jpg)")
 	mustNotContain(t, md, "spec.pdf")
@@ -201,7 +201,7 @@ func TestJiraPullAssetsSkipsEmptyAndOctetStream(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(into, "PROJ", "PROJ-2.assets")); !os.IsNotExist(err) {
 		t.Errorf("assets dir should not exist, stat err = %v", err)
 	}
-	mustNotContain(t, readMD(t, into, "PROJ", "PROJ-2"), "## Image Attachments")
+	mustNotContain(t, readMD(t, into, "PROJ", "PROJ-2"), "# Image Attachments")
 }
 
 func TestJiraPullAssetsDuplicateFilenames(t *testing.T) {
@@ -311,10 +311,10 @@ func TestJiraPullAssetsMarkdownPlacementBetweenDescriptionAndLinks(t *testing.T)
 		t.Fatalf("pull: %v", err)
 	}
 	md := readMD(t, into, "PROJ", "PROJ-6")
-	desc := strings.Index(md, "## Description")
-	img := strings.Index(md, "## Image Attachments")
-	links := strings.Index(md, "## Links")
-	comments := strings.Index(md, "## Comments")
+	desc := strings.Index(md, "# Description")
+	img := strings.Index(md, "# Image Attachments")
+	links := strings.Index(md, "# Links")
+	comments := strings.Index(md, "# Comments")
 	if desc < 0 || img < 0 || links < 0 || comments < 0 {
 		t.Fatalf("missing a section: desc=%d img=%d links=%d comments=%d\n%s", desc, img, links, comments, md)
 	}
@@ -371,7 +371,7 @@ func TestJiraPullWithoutAssetsSkipsImages(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(into, "PROJ", "PROJ-8.assets")); !os.IsNotExist(err) {
 		t.Errorf("assets dir created without --assets")
 	}
-	mustNotContain(t, readMD(t, into, "PROJ", "PROJ-8"), "## Image Attachments")
+	mustNotContain(t, readMD(t, into, "PROJ", "PROJ-8"), "# Image Attachments")
 }
 
 // A filename with markdown-significant characters (spaces, parens, brackets)

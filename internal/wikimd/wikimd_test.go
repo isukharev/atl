@@ -100,6 +100,22 @@ func TestRenderExact(t *testing.T) {
 	}
 }
 
+func TestRenderHeadingOffsetKeepsOriginalDeepLevel(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"h1. One", "## One"},
+		{"h4. Four", "##### Four"},
+		{"h5. Five", "###### Five <!-- atl:jira-heading level=5 -->"},
+		{"h6. Six", "###### Six <!-- atl:jira-heading level=6 -->"},
+	}
+	for _, tc := range cases {
+		if got := Render(tc.in, Options{HeadingOffset: 1}); got != tc.want {
+			t.Errorf("Render(%q, offset=1) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 // A {code} body must be passed through verbatim: no heading, list, or emphasis
 // inside it may be interpreted.
 func TestRenderCodeIsVerbatim(t *testing.T) {

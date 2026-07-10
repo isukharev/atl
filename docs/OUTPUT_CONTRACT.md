@@ -101,11 +101,14 @@ corrupts the JSON stream.
 the editable substrate), `<KEY>.md` (a derived Markdown staging view rendered from the wiki and
 regenerated best-effort on pull/render), and `<KEY>.json` (the raw-fields snapshot). The pull
 result's `path` points at the `.md`; `wiki_path` points at the sibling `.wiki` substrate. To use the
-friendly surface, edit only `## Description` in `.md` and run `jira apply`, which merges supported
+friendly surface, edit only generated `# Description` in `.md` and run `jira apply`, which merges supported
 changes into `.wiki`; `.md` is never sent directly and a later pull/render can replace it. Edit
 `.wiki` directly for constructs the staging view cannot express. Generated issue fields appear in a
-read-only `## Metadata` Markdown table; update them through `jira issue update` and related commands,
-not by editing the table. The JSON snapshot is an object with
+read-only `# Metadata` Markdown table; update them through `jira issue update` and related commands,
+not by editing the table. Generated regions carry hidden stable `atl:section`
+markers; Jira rich-text headings are nested below their generated owner. Human-facing
+datetime values are compacted to minute precision, while the JSON snapshot keeps
+the exact raw server value. The JSON snapshot is an object with
 stable identity at the top level and raw Jira fields under `fields`:
 
 ```json
@@ -199,7 +202,7 @@ shape as `conf apply` with `csf_path` replaced by `wiki_path`:
 `monospace`, `link`, `macro`, …). The merge is fail-closed and exits `8` (`ErrCheckFailed`, nothing
 written) on: an unconvertible edited block; a wiki-only construct dropped without `--allow-loss`
 (the report still carries `removed_constructs` so the caller can see what would go); an edit to any
-section other than `## Description` (the error names the section and its dedicated command); or a
+section other than generated `# Description` (the error names the section and its dedicated command); or a
 local `.wiki` diverged from the last-synced base. Exit `4` (`ErrNotFound`) when the issue was never
 pulled (no base/snapshot). On a successful write `wrote:true`; a failed `.md`-view refresh sets
 `warning` and is not an error.

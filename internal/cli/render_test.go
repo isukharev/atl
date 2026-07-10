@@ -76,10 +76,10 @@ func TestJiraRenderFlagPlumbing(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(md), "## Comments") {
+		if strings.Contains(string(md), "# Comments") {
 			t.Errorf("--render-exclude comments should drop the section:\n%s", md)
 		}
-		if !strings.Contains(string(md), "## Sprint") {
+		if !strings.Contains(string(md), "# Sprint") {
 			t.Errorf("full should still render Sprint:\n%s", md)
 		}
 	})
@@ -94,7 +94,7 @@ func TestJiraRenderFlagPlumbing(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(md), "## Sprint") {
+		if !strings.Contains(string(md), "# Sprint") {
 			t.Errorf("--render-include sprint should add the section on default:\n%s", md)
 		}
 	})

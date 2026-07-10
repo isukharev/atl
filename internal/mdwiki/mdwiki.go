@@ -47,7 +47,7 @@ func ConvertDocument(md string) (string, error) {
 	}
 	parts := make([]string, 0, len(blocks))
 	for i, block := range blocks {
-		out, err := convertBlock(block)
+		out, err := convertBlock(block, Options{})
 		if err != nil {
 			first, _, _ := strings.Cut(strings.TrimSpace(block), "\n")
 			return "", fmt.Errorf("block %d (%q): %w", i+1, clip(first), err)
@@ -63,10 +63,24 @@ func ConvertDocument(md string) (string, error) {
 // alignment and needs to convert one changed block at a time. Fail-closed like
 // ConvertDocument: an unconvertible block returns an *UnsupportedError.
 func ConvertBlock(block string) (string, error) {
-	return convertBlock(block)
+	return convertBlock(block, Options{})
+}
+
+// Options tune conversion of Markdown that came from a generated Jira view.
+// HeadingOffset reverses wikimd.Options.HeadingOffset. Standalone --from-md
+// conversion uses the zero value and keeps ordinary Markdown heading levels.
+type Options struct {
+	HeadingOffset int
+}
+
+// ConvertBlockWithOptions converts one block under an explicit generated-view
+// heading contract. It is used by wikimerge for changed Description blocks.
+func ConvertBlockWithOptions(block string, opts Options) (string, error) {
+	return convertBlock(block, opts)
 }
 
 var headingRe = regexp.MustCompile(`^(#{1,6})\s+(.*?)\s*$`)
+var jiraHeadingSuffixRe = regexp.MustCompile(`^######\s+(.*?)\s+<!-- atl:jira-heading level=([1-6]) -->\s*$`)
 var listItemRe = regexp.MustCompile(`^(\s*)(?:([-*+])|(\d+)[.)])\s+(.*)$`)
 
 // blockish matches a paragraph line that Jira would parse as block markup of
@@ -83,7 +97,7 @@ var blockish = regexp.MustCompile(`^(?:h[1-6]\.\s|bq\.\s|-{4,}\s*$)`)
 // escape prepended in convertParagraph renders it as the author's literal text.
 var wikiListLine = regexp.MustCompile(`^[*#-]+[ \t]`)
 
-func convertBlock(block string) (string, error) {
+func convertBlock(block string, opts Options) (string, error) {
 	block = strings.TrimRight(block, "\n")
 	if strings.TrimSpace(block) == "" {
 		return "", unsupported("empty block", "")
@@ -98,15 +112,21 @@ func convertBlock(block string) (string, error) {
 	}
 	lines := strings.Split(block, "\n")
 	first := strings.TrimSpace(lines[0])
+	markedHeading := jiraHeadingSuffixRe.MatchString(lines[0])
+	if strings.Contains(block, "<!-- atl:jira-heading") && !markedHeading {
+		return "", unsupported("malformed reserved atl heading marker", block)
+	}
 	switch {
+	case markedHeading:
+		return convertMarkedHeading(lines, opts)
 	case strings.HasPrefix(first, "```"):
 		return convertFence(lines)
 	case headingRe.MatchString(lines[0]):
-		return convertHeading(lines)
+		return convertHeading(lines, opts)
 	case isThematicBreak(first) && len(lines) == 1:
 		return "----", nil
 	case strings.HasPrefix(first, ">"):
-		return convertBlockquote(lines)
+		return convertBlockquote(lines, opts)
 	case strings.HasPrefix(first, "|"):
 		return convertTable(lines)
 	case listItemRe.MatchString(lines[0]):
@@ -120,16 +140,50 @@ func isThematicBreak(trimmed string) bool {
 	return trimmed == "---" || trimmed == "***" || trimmed == "___"
 }
 
-func convertHeading(lines []string) (string, error) {
+func convertHeading(lines []string, opts Options) (string, error) {
 	if len(lines) != 1 {
 		return "", unsupported("heading with continuation lines", lines[1])
 	}
 	m := headingRe.FindStringSubmatch(lines[0])
+	offset := opts.HeadingOffset
+	if offset < 0 || offset > 5 {
+		return "", unsupported("invalid heading offset", fmt.Sprint(offset))
+	}
+	mdLevel := len(m[1])
+	if offset > 0 && mdLevel == 6 {
+		return "", unsupported("generated-view H6 without atl heading marker", lines[0])
+	}
+	wikiLevel := mdLevel - offset
+	if wikiLevel < 1 {
+		return "", unsupported("heading level reserved for generated sections", lines[0])
+	}
 	body, err := inline(m[2])
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("h%d. %s", len(m[1]), body), nil
+	return fmt.Sprintf("h%d. %s", wikiLevel, body), nil
+}
+
+func convertMarkedHeading(lines []string, opts Options) (string, error) {
+	if opts.HeadingOffset <= 0 {
+		return "", unsupported("atl heading marker outside a generated view", lines[0])
+	}
+	if len(lines) != 1 {
+		return "", unsupported("marked Jira heading with continuation lines", strings.Join(lines, " "))
+	}
+	marked := jiraHeadingSuffixRe.FindStringSubmatch(lines[0])
+	if marked == nil {
+		return "", unsupported("invalid marked Jira heading", lines[0])
+	}
+	level := int(marked[2][0] - '0')
+	if level+opts.HeadingOffset < 6 {
+		return "", unsupported("unnecessary atl heading marker", marked[0])
+	}
+	body, err := inline(marked[1])
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("h%d. %s", level, body), nil
 }
 
 // convertParagraph converts a soft-wrapped markdown paragraph to wiki, joining
@@ -187,7 +241,7 @@ func convertFence(lines []string) (string, error) {
 	return tag + "\n" + body + "\n{code}", nil
 }
 
-func convertBlockquote(lines []string) (string, error) {
+func convertBlockquote(lines []string, opts Options) (string, error) {
 	inner := make([]string, len(lines))
 	for i, l := range lines {
 		t := strings.TrimSpace(l)
@@ -201,7 +255,7 @@ func convertBlockquote(lines []string) (string, error) {
 		if strings.HasPrefix(strings.TrimSpace(blk), ">") {
 			return "", unsupported("nested blockquote", blk)
 		}
-		out, err := convertBlock(blk)
+		out, err := convertBlock(blk, opts)
 		if err != nil {
 			return "", err
 		}

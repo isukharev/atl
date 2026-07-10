@@ -65,6 +65,21 @@ func TestEditLeadingSpaceOrderedList(t *testing.T) {
 	}
 }
 
+func TestHeadingOffsetRoundTripAndDeepHeadingEdit(t *testing.T) {
+	base := "h1. Top\n\nh5. Deep\n\nh6. Deepest"
+	opts := Options{HeadingOffset: 1}
+	md := wikimd.Render(base, wikimd.Options{HeadingOffset: 1})
+	out, rep := mergeOK(t, base, md, opts)
+	if string(out) != base || rep.Converted != 0 {
+		t.Fatalf("offset round-trip: out=%q report=%+v", out, rep)
+	}
+	edited := strings.Replace(md, "Deepest", "Deepest edited", 1)
+	out, rep = mergeOK(t, base, edited, opts)
+	if !strings.Contains(string(out), "h6. Deepest edited") || rep.Converted != 1 {
+		t.Fatalf("deep heading edit lost level: out=%q report=%+v", out, rep)
+	}
+}
+
 // TestRoundTripCRLF asserts a CRLF base body (the shape Jira DC serves) round-trips
 // byte-for-byte: the scanner keeps `\r` as line content and the assembler preserves
 // the original byte ranges, so the merged output carries the same CRLF line

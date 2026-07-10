@@ -66,11 +66,23 @@ func TestRenderIssueProfileMinimal(t *testing.T) {
 	// Only key + summary metadata; body/description present.
 	mustContain(t, got, "| Key | PROJ-42 |")
 	mustContain(t, got, "| Summary | Fix the thing |")
-	mustContain(t, got, "## Metadata")
+	mustContain(t, got, "# Metadata")
+	mustContain(t, got, "<!-- atl:section metadata readonly -->")
+	mustContain(t, got, "<!-- atl:section description editable -->")
 	mustNotContain(t, got, "---\n")
-	mustContain(t, got, "## Description")
-	for _, absent := range []string{"| Status |", "| Type |", "| Priority |", "| Parent |", "| Reporter |", "## Links", "## Comments", "## Subtasks"} {
+	mustContain(t, got, "# Description")
+	for _, absent := range []string{"| Status |", "| Type |", "| Priority |", "| Parent |", "| Reporter |", "# Links", "# Comments", "# Subtasks"} {
 		mustNotContain(t, got, absent)
+	}
+}
+
+func TestJiraMetadataDatesAreHumanReadableAndSnapshotValuesStayRaw(t *testing.T) {
+	is := richIssue()
+	got := string(renderIssueMarkdown(is, nil, jiraRSFull(t)))
+	mustContain(t, got, "| Created | 2026-01-01 10:00 UTC |")
+	mustContain(t, got, "| Updated | 2026-01-05 12:00 UTC |")
+	if is.Fields["created"] != "2026-01-01T10:00:00.000+0000" || is.Fields["updated"] != "2026-01-05T12:00:00.000+0000" {
+		t.Fatalf("render mutated raw fields: created=%v updated=%v", is.Fields["created"], is.Fields["updated"])
 	}
 }
 
@@ -79,10 +91,10 @@ func TestRenderIssueProfileDefaultAddsPriorityParent(t *testing.T) {
 	mustContain(t, got, "| Status | In Progress |")
 	mustContain(t, got, "| Priority | High |")
 	mustContain(t, got, "| Parent | PROJ-1 |")
-	mustContain(t, got, "## Links")
-	mustContain(t, got, "## Comments")
+	mustContain(t, got, "# Links")
+	mustContain(t, got, "# Comments")
 	// Full-only fields stay out of default.
-	for _, absent := range []string{"| Reporter |", "| Resolution |", "| Due date |", "| Components |", "| Fix versions |", "## Subtasks", "## Sprint", "## Attachments\n"} {
+	for _, absent := range []string{"| Reporter |", "| Resolution |", "| Due date |", "| Components |", "| Fix versions |", "# Subtasks", "# Sprint", "# Attachments\n"} {
 		mustNotContain(t, got, absent)
 	}
 }
@@ -95,13 +107,13 @@ func TestRenderIssueProfileFull(t *testing.T) {
 	mustContain(t, got, "| Components | backend, api |")
 	mustContain(t, got, "| Fix versions | v2.0 |")
 	mustContain(t, got, "| customfield&#95;10001 | custom scalar |")
-	mustContain(t, got, "## Subtasks")
+	mustContain(t, got, "# Subtasks")
 	mustContain(t, got, "- PROJ-43 — child task")
-	mustContain(t, got, "## Attachments")
+	mustContain(t, got, "# Attachments")
 	mustContain(t, got, "- spec.pdf (2.0 KB, application/pdf)")
-	mustContain(t, got, "## Sprint")
+	mustContain(t, got, "# Sprint")
 	mustContain(t, got, "- Sprint 7")
-	mustContain(t, got, "## Comments")
+	mustContain(t, got, "# Comments")
 }
 
 // jiraRSFull resolves the full profile with the fixture's custom field
@@ -152,7 +164,7 @@ func TestRenderConfiguredFieldViews(t *testing.T) {
 	}
 	got := string(renderIssueMarkdown(richIssue(), nil, rs))
 	for _, want := range []string{
-		"| Impact | 7 |", "## Risk Notes", "**Risk**", "## Objectives", "- A", "- B", "## Empty Field", "_Not set._",
+		"| Impact | 7 |", "# Risk Notes", "**Risk**", "# Objectives", "- A", "- B", "# Empty Field", "_Not set._",
 	} {
 		mustContain(t, got, want)
 	}
@@ -189,9 +201,9 @@ func TestConfiguredTemporalAndScalarListFormats(t *testing.T) {
 	got := string(renderIssueMarkdown(is, nil, rs))
 	for _, want := range []string{
 		`| Release date | 2026-01-02 |`,
-		`| Release at | 2026-01-02T23:30:00.125+03:00 |`,
+		`| Release at | 2026-01-02 23:30 +03:00 |`,
 		"| Raw bad date | not-a-date |",
-		"## Owners\n\n- single",
+		"# Owners\n\n- single",
 	} {
 		mustContain(t, got, want)
 	}
@@ -215,7 +227,7 @@ func TestJiraMetadataTableKeepsServerValuesPlainText(t *testing.T) {
 	got := string(renderIssueMarkdown(is, nil, jiraRSFull(t)))
 	mustNotContain(t, got, "![pixel]")
 	mustNotContain(t, got, "<img")
-	mustNotContain(t, got, "<!--")
+	mustNotContain(t, got, "<!-- note")
 	mustNotContain(t, got, "*bold*")
 	mustContain(t, got, `&#33;&#91;pixel&#93;(https://example.invalid/pixel) &lt;img src=x&gt; &lt;&#33;-- note --&gt; &#42;bold&#42;`)
 }
@@ -407,7 +419,7 @@ func TestJiraRenderIgnoresMismatchedEpicSidecar(t *testing.T) {
 		t.Fatalf("warnings = %v, want mismatched sidecar warning", res.Warnings)
 	}
 	md := mustReadFile(t, filepath.Join(dir, "PROJ-42.md"))
-	if strings.Contains(md, "OTHER-2") || strings.Contains(md, "## Epic Children") {
+	if strings.Contains(md, "OTHER-2") || strings.Contains(md, "# Epic Children") {
 		t.Fatalf("mismatched sidecar leaked into view:\n%s", md)
 	}
 }

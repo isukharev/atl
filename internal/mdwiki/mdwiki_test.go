@@ -57,6 +57,37 @@ func TestConvertBasics(t *testing.T) {
 	}
 }
 
+func TestConvertGeneratedViewHeadingOffset(t *testing.T) {
+	cases := []struct {
+		md, want string
+	}{
+		{"## One", "h1. One"},
+		{"##### Four", "h4. Four"},
+		{"###### Five edited <!-- atl:jira-heading level=5 -->", "h5. Five edited"},
+		{"###### Six edited <!-- atl:jira-heading level=6 -->", "h6. Six edited"},
+	}
+	for _, tc := range cases {
+		got, err := ConvertBlockWithOptions(tc.md, Options{HeadingOffset: 1})
+		if err != nil || got != tc.want {
+			t.Errorf("ConvertBlockWithOptions(%q) = %q, %v; want %q", tc.md, got, err, tc.want)
+		}
+	}
+	for _, bad := range []string{
+		"# generated collision",
+		"###### missing marker",
+		"##### changed level <!-- atl:jira-heading level=5 -->",
+		"#### malformed <!-- atl:jira-heading level=6 -->",
+		"paragraph <!-- atl:jira-heading level=5 -->",
+	} {
+		if _, err := ConvertBlockWithOptions(bad, Options{HeadingOffset: 1}); err == nil {
+			t.Errorf("ConvertBlockWithOptions(%q) should fail closed", bad)
+		}
+	}
+	if _, err := ConvertBlockWithOptions("###### Six <!-- atl:jira-heading level=6 -->", Options{}); err == nil {
+		t.Error("atl heading marker outside generated view should be rejected")
+	}
+}
+
 // TestConvertMultilineParagraph pins the intra-paragraph line-break behavior
 // (issue #164): soft-wrapped paragraph lines join with a real newline so the
 // line structure visible in the .md view is the structure Jira renders, and
