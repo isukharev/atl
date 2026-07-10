@@ -11,10 +11,10 @@ import (
 )
 
 // jiraApplyCmd implements `jira apply`: merge edits from an issue's markdown view
-// back into the `.wiki` substrate, block by block. Only the `# Description`
-// section is writable — an edit to generated metadata/title or to any other section
-// (Comments, Links, Image Attachments) is detected and refused with a pointer to
-// the dedicated command. Untouched Description blocks keep their exact base bytes;
+// back into the `.wiki` substrate/pending write set, block by block. Description
+// and explicitly configured editable jira_wiki field sections are writable; an
+// edit to generated metadata/title or any other section is detected and refused.
+// Untouched native wiki blocks keep their exact base bytes;
 // changed/new blocks convert from a strict markdown subset; a block it cannot
 // convert (or a dropped wiki construct without --allow-loss) fails closed with a
 // pointer to edit the .wiki directly. Local only — `jira push` remains the write
@@ -24,14 +24,15 @@ func jiraApplyCmd() *cobra.Command {
 	var rf renderFlags
 	cmd := &cobra.Command{
 		Use:   "apply <FILE.md>",
-		Short: "Merge .md view edits into the .wiki (Description only; block-level, non-lossy)",
+		Short: "Merge supported .md view edits into the guarded local Jira write set",
 		Long: "Merge edits made in an issue's <KEY>.md view back into its <KEY>.wiki substrate.\n\n" +
-			"Only the generated `# Description` section is editable through the view; a change to the " +
+			"The generated `# Description` section and field sections explicitly configured with " +
+			"`editable:true` + `format:jira_wiki` are editable through the view; a change to the " +
 			"generated metadata/title, Comments, Links, or Image Attachments is refused (exit 8) with a " +
-			"pointer to the dedicated command. Untouched Description blocks keep their exact base " +
+			"pointer to the dedicated command. Untouched native wiki blocks keep their exact base " +
 			"bytes; a wiki-only construct ({panel}, {color}, mentions, !embeds!, macros) dropped by " +
 			"the edit is refused (exit 8) unless --allow-loss. Local only — run `jira push` to send " +
-			"the merged .wiki to the server under its drift gate.\n\n" +
+			"the merged .wiki and pending fields to the server under their drift gates.\n\n" +
 			"The pristine view compared against the edit is reproduced from the render settings the " +
 			".md was last written with (recorded on pull/render), so no flags are needed; pass " +
 			"--render-* only to override that recorded view.",
@@ -57,9 +58,11 @@ func jiraApplyCmd() *cobra.Command {
 			return aerr
 		},
 	}
-	cmd.Flags().BoolVar(&o.DryRun, "dry-run", false, "report the merge without writing files")
+	cmd.Flags().BoolVar(&o.DryRun, "dry-run", false, "report without committing wiki, pending, or view changes")
 	cmd.Flags().BoolVar(&o.AllowLoss, "allow-loss", false,
 		"proceed even when the edit drops wiki-only constructs (panels, colors, mentions, embeds, macros)")
+	cmd.Flags().BoolVar(&o.RebasePending, "rebase-pending", false,
+		"after a fresh pull and review, adopt raw snapshot field values as new pending drift bases")
 	cmd.Flags().StringVar(&o.Into, "into", "", "mirror root (defaults to nearest .atl)")
 	rf.register(cmd)
 	return cmd
@@ -95,6 +98,16 @@ func jiraApplyText(res *app.JiraApplyResult) string {
 
 	if res.Warning != "" {
 		fmt.Fprintf(&b, "warning: %s\n", res.Warning)
+	}
+	if res.Rebased {
+		fmt.Fprintln(&b, "rebased: pending field bases updated from the raw snapshot")
+	}
+	for _, field := range res.Fields {
+		state := "unchanged"
+		if field.Pending {
+			state = "pending"
+		}
+		fmt.Fprintf(&b, "field %s: %s\n", field.ID, state)
 	}
 
 	hasLoss := r != nil && len(r.RemovedConstructs) > 0

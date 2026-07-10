@@ -33,8 +33,8 @@
 - **Работа с диаграммами** — draw.io-макросы разрешаются в PNG нужной ревизии, чтобы
   агент с поддержкой vision мог их изучить.
 - **Интеграция с Jira** — запросы, комментарии, переходы статусов; зеркалирование задач на диск
-  как нативный `.wiki` + отрендеренный `.md`, затем правка generated-раздела `# Description` в `.md`-виде и
-  слияние обратно через `jira apply` (или правка `.wiki` напрямую), и отправка через
+  как нативный `.wiki` + отрендеренный `.md`, затем правка `# Description` или явно разрешённых
+  rich-text полей в `.md`-виде и подготовка через `jira apply` (или правка `.wiki` напрямую), и отправка через
   `jira status` / `jira push` (по умолчанию dry-run; защита от дрейфа отклоняет устаревшую запись,
   так как в Jira нет серверного version gate).
 - **Bearer PAT, per-request** — токены отправляются только на настроенный хост и никогда
@@ -334,7 +334,7 @@ atl jira issue comment add PROJ-1 --from-md note.md
 atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
 atl jira issue field set PROJ-1 --from-md customfield_10001=notes.md --allow-fields customfield_10001   # dry-run
 atl jira issue transition PROJ-1 --to Done
-# Правка generated-раздела # Description, слияние в .wiki, затем push
+# Правка поддерживаемых generated-разделов, подготовка через apply, затем push
 atl jira apply mirror-jira/PROJ/PROJ-1.md --dry-run
 
 # Метаданные

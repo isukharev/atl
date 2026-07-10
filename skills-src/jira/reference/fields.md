@@ -71,9 +71,16 @@ an already-satisfied value does not write.
 **Check first:** for a bounded change (fix a value, add/remove a section, reword a
 paragraph) skip the file round-trip entirely — one `atl jira issue edit <KEY> --old … --new …`
 does fetch→splice→write with the `--old` match as the drift guard. For a structural rewrite of a
-**pulled** issue, prefer the mirror md cycle — edit generated `# Description` in the `<KEY>.md` view,
-`jira apply`, then `jira push` (jira skill §4b). The file pattern below is for composing a body in
+**pulled** issue, prefer the mirror md cycle — edit generated `# Description` or a configured
+editable rich-text field in `<KEY>.md`, run `jira apply`, then `jira push` (jira skill §4b).
+Editable fields require `section` + `jira_wiki` + `editable:true`; their proposed values are explicit
+pending state and do not mutate the raw snapshot. The file pattern below is for composing a body in
 wiki markup from scratch or a wholesale rewrite outside that cycle.
+
+If push reports pending-field drift, pull fresh, compare the remote raw value in
+`<KEY>.json` with the local proposal still overlaid in `<KEY>.md`, edit the proposal
+if necessary, then run `jira apply --rebase-pending`. This explicit step adopts
+the reviewed snapshot value as the new base; push immediately fresh-checks it again.
 
 Inline flags are awful for long bodies. Edit the wiki body as a file instead — Jira's `--from-file`
 accepts a body file. Compose it in Jira wiki markup, **not Markdown** — see
@@ -93,4 +100,4 @@ accepts a body file. Compose it in Jira wiki markup, **not Markdown** — see
 
 The scratch `.wiki` file is a working body file you feed to `--from-file` — it is **not** the
 mirror's native `<KEY>.wiki` substrate. A bare edit to the derived `<KEY>.md` staging view changes
-nothing until `jira apply` merges its supported body edit; `<KEY>.json` is always read-only.
+nothing until `jira apply` stages its supported edit; `<KEY>.json` is always read-only.

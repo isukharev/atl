@@ -204,7 +204,7 @@ func TestViewStateRoundTrip(t *testing.T) {
 	}
 	b.RecordView("P1", ViewState{
 		Sections: []string{"comments", "frontmatter"}, CustomFields: []string{"customfield_1"},
-		FieldViews: []FieldViewState{{ID: "customfield_2", Label: "Score", Placement: "metadata", Format: "auto"}},
+		FieldViews: []FieldViewState{{ID: "customfield_2", Label: "Score", Placement: "section", Format: "jira_wiki", Editable: true}},
 		EpicField:  "customfield_3",
 	})
 	// Nothing hits the sidecar until Flush.
@@ -221,7 +221,7 @@ func TestViewStateRoundTrip(t *testing.T) {
 	if len(vs.Sections) != 2 || vs.Sections[0] != "comments" || len(vs.CustomFields) != 1 {
 		t.Errorf("round-tripped view state wrong: %+v", vs)
 	}
-	if len(vs.FieldViews) != 1 || vs.FieldViews[0].Label != "Score" || vs.EpicField != "customfield_3" {
+	if len(vs.FieldViews) != 1 || vs.FieldViews[0].Label != "Score" || !vs.FieldViews[0].Editable || vs.EpicField != "customfield_3" {
 		t.Errorf("round-tripped extended view state wrong: %+v", vs)
 	}
 	if _, ok, err := m.ViewStateOf("missing"); err != nil || ok {

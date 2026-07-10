@@ -59,5 +59,7 @@ Jira note: Jira issue updates have **no version gate** (last-writer-wins). Run `
 immediately before an `update` to avoid blindly overwriting someone else's change. The mirror
 write-back path — edit the `.md` view, `jira apply`, then `jira status` / `jira push` (or edit
 `<KEY>.wiki` directly as a fallback) — adds the equivalent guard in
-software: `jira push` is dry-run by default and refuses on drift with exit `8` (re-pull or `--force`),
-never exit `5`, and writes only the description body.
+software: `jira push` is dry-run by default and refuses on drift with exit `8`, never exit `5`.
+`--force` can override Description drift only; pending opt-in rich-text fields always fail closed on
+drift. Reconcile those by fresh pull + raw/visible comparison + explicit `jira apply
+--rebase-pending`; no field outside the explicit pending set is written.

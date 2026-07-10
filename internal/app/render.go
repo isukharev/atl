@@ -299,7 +299,7 @@ func viewStateOf(rs RenderSettings) mirror.ViewState {
 	for _, fv := range rs.FieldViews {
 		fields = append(fields, mirror.FieldViewState{
 			ID: fv.ID, Label: fv.Label, Placement: fv.Placement,
-			Format: fv.Format, ShowEmpty: fv.ShowEmpty,
+			Format: fv.Format, ShowEmpty: fv.ShowEmpty, Editable: fv.Editable,
 		})
 	}
 	return mirror.ViewState{Sections: sections, CustomFields: cf, FieldViews: fields, EpicField: rs.EpicField}
@@ -324,7 +324,7 @@ func settingsFromViewState(vs mirror.ViewState) RenderSettings {
 	for _, fv := range vs.FieldViews {
 		fields = append(fields, config.JiraFieldView{
 			ID: fv.ID, Label: fv.Label, Placement: fv.Placement,
-			Format: fv.Format, ShowEmpty: fv.ShowEmpty,
+			Format: fv.Format, ShowEmpty: fv.ShowEmpty, Editable: fv.Editable,
 		})
 	}
 	return RenderSettings{Sections: sections, CustomFields: cf, FieldViews: fields, EpicField: vs.EpicField}

@@ -144,6 +144,18 @@ func TestJiraApplyText(t *testing.T) {
 	}
 }
 
+func TestJiraApplyTextReportsPendingFields(t *testing.T) {
+	res := &app.JiraApplyResult{
+		WikiPath: "PROJ/PROJ-1.wiki", Wrote: true,
+		Report: &wikimerge.Report{Unchanged: 1},
+		Fields: []app.JiraAppliedField{{ID: "customfield_1", Pending: true, Report: &wikimerge.Report{Converted: 1}}},
+	}
+	got := jiraApplyText(res)
+	if !strings.Contains(got, "field customfield_1: pending") {
+		t.Fatalf("pending field missing from text output:\n%s", got)
+	}
+}
+
 // TestJiraApply_TextUnchangedDryRun drives the CLI: `-o text` on an unedited
 // dry-run reports the all-unchanged merge and the "write it" hint.
 func TestJiraApply_TextUnchangedDryRun(t *testing.T) {

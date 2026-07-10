@@ -32,7 +32,8 @@ under an **optimistic version gate** that refuses to silently overwrite concurre
 - **Diagram awareness** — draw.io macros are resolved to PNGs of the exact revision so a
   vision-capable agent can inspect them.
 - **Jira integration** — query, comment, transition issues; mirror an issue set to disk as native
-  `.wiki` + rendered `.md`, then edit the `.md` view and merge it back with `jira apply` (or edit the
+  `.wiki` + rendered `.md`, then edit Description or opt-in rich-text field sections in the `.md`
+  view and stage them with `jira apply` (or edit the
   `.wiki` directly), and push with `jira status` / `jira push` (dry-run by default; a drift guard
   refuses stale writes since Jira has no server-side version gate).
 - **Bearer PAT auth, per-request** — tokens are sent only to the configured host and never
@@ -331,7 +332,7 @@ atl jira issue comment add PROJ-1 --from-md note.md
 atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
 atl jira issue field set PROJ-1 --from-md customfield_10001=notes.md --allow-fields customfield_10001   # dry-run
 atl jira issue transition PROJ-1 --to Done
-# Edit generated # Description, fold it into .wiki, then push (block-level, non-lossy)
+# Edit supported generated sections, stage them, then push (block-level, non-lossy)
 atl jira apply mirror-jira/PROJ/PROJ-1.md --dry-run
 
 # Metadata

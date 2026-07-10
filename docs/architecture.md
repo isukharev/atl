@@ -369,24 +369,34 @@ Notable behaviors:
   section to a stub, never failing the pull), and `<KEY>.json` (raw fields
   snapshot). The `.md` `path` is what the pull result reports. The pull also
   records the `.wiki` body in the sidecar plus a `.atl/base/<KEY>.wiki` base
-  copy so the write-back cycle can detect edits and drift; only the `.wiki` body
-  is tracked. `.md` body edits are merged into `.wiki` only by `jira apply`;
-  `.json` and assets remain read-only derived data.
-- `JiraService.Status` walks the mirror's `.wiki` files, compares hashes
-  (`locally_edited`), and with `--remote` fires one `GetIssue` per issue,
-  comparing the remote description to the stored base (`remote_drifted`); a file
+  copy so the write-back cycle can detect edits and drift. `.md` Description
+  edits are merged into `.wiki` by `jira apply`; typed rich-text field sections
+  explicitly configured editable are staged under `.atl/pending/jira/`. The raw
+  `.json` snapshot and assets remain read-only until a successful push refreshes
+  the snapshot.
+  Pending commits bind the recorded sidecar path and reviewed `.wiki` hash. A
+  non-discoverable transaction is published only after the atomic wiki write;
+  status/push recover an interrupted commit from its before/after hashes.
+  A stable mirror-global advisory lock inode serializes Jira mirror mutations
+  through sidecar flush; atomically replacing `.wiki` cannot bypass that lock.
+- `JiraService.Status` walks the mirror's `.wiki` files and pending-field state,
+  compares hashes (`locally_edited`), and with `--remote` fires one `GetIssue` per issue,
+  comparing the remote description/fields to stored bases (`remote_drifted`); a file
   with no sidecar entry reads never-synced (`synced:false`).
 - `JiraService.Push` is the guarded write-back. It is **dry-run by default**
   (`--apply` to write) because Jira has **no server-side version gate**: the
   staleness guard is an app-layer compare-and-swap — a fresh remote read is
-  compared to the pristine base, and a mismatch is refused as `ErrCheckFailed`
-  (exit 8, "re-pull or `--force`"), **never** `ErrVersionConflict` (#66). This
-  CAS has an inherent TOCTOU window (documented, not hidden); `--force` opts out
-  of the refusal rather than closing it. Only the description body is written
-  (empty summary, nil fields — the #29 allowlist). A server-side HTTP 409 stays
-  a generic conflict, untouched. On `--apply` success it re-fetches and
-  refreshes the `.wiki`/`.md`/base/sidecar; a refresh failure is a warning, not
-  an error.
+  compared to pristine bases, and a mismatch is refused as `ErrCheckFailed`
+  (exit 8), **never** `ErrVersionConflict` (#66). `--force` may override only
+  Description drift; pending fields always fail closed. Description and the
+  explicit pending field set are sent in one typed update. Ambiguous responses
+  are reconciled by a fresh end-state read without replay; retry also treats
+  remote==proposal as already applied and repairs local state only. Definitive
+  4xx errors are not reconciled, and backend response bodies are sanitized. A server-side HTTP
+  409 stays a generic conflict. On `--apply` success it re-fetches and refreshes
+  `.wiki`/`.md`/`.json`/base/sidecar and clears pending state. Transport/local
+  refresh failures are warnings; a successful verification read whose values
+  mismatch the full proposal retains pending and returns `ErrCheckFailed`.
 
 ---
 

@@ -38,6 +38,7 @@ type JiraFieldView struct {
 	Placement string `json:"placement,omitempty"` // metadata (default) | section
 	Format    string `json:"format,omitempty"`    // auto (default) | scalar | list | jira_wiki | date | datetime
 	ShowEmpty bool   `json:"show_empty,omitempty"`
+	Editable  bool   `json:"editable,omitempty"` // only section+jira_wiki; mirror views only
 }
 
 // RenderConfig groups the per-backend render sections. The pointer fields keep
@@ -380,6 +381,12 @@ func NormalizeJiraFieldView(fv JiraFieldView) (JiraFieldView, error) {
 	}
 	if fv.Format == "jira_wiki" && fv.Placement != "section" {
 		return JiraFieldView{}, fmt.Errorf("jira_wiki format requires section placement")
+	}
+	if fv.Editable && (fv.Placement != "section" || fv.Format != "jira_wiki") {
+		return JiraFieldView{}, fmt.Errorf("editable requires section placement with jira_wiki format")
+	}
+	if fv.Editable && fv.ID == "description" {
+		return JiraFieldView{}, fmt.Errorf("description already has its own editable generated section")
 	}
 	return fv, nil
 }

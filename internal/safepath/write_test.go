@@ -300,6 +300,9 @@ func TestRootContainedWritersRefuseEscapingParentSymlink(t *testing.T) {
 	if err := WriteFileWithin(root, target, []byte("secret"), 0o644); err == nil {
 		t.Fatal("WriteFileWithin followed an escaping parent symlink")
 	}
+	if err := RenameWithin(root, filepath.Join(link, "source"), target); err == nil {
+		t.Fatal("RenameWithin followed an escaping parent symlink")
+	}
 	if _, err := WriteReaderAtomicWithin(root, target, strings.NewReader("secret"), 0o644); err == nil {
 		t.Fatal("WriteReaderAtomicWithin followed an escaping parent symlink")
 	}
@@ -315,6 +318,52 @@ func TestRootContainedWritersRefuseEscapingParentSymlink(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outside, "assets")); !os.IsNotExist(err) {
 		t.Fatalf("outside directory was created: %v", err)
 	}
+}
+
+func TestRenameWithin(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "state")
+	if err := MkdirAllWithin(root, dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(dir, "txn")
+	dest := filepath.Join(dir, "pending")
+	if err := WriteFileWithin(root, source, []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := RenameWithin(root, source, dest); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ReadFileWithin(root, dest); err != nil || string(got) != "first" {
+		t.Fatalf("renamed content=%q err=%v", got, err)
+	}
+}
+
+func TestTryLockFileWithinIsExclusiveAndCrashScoped(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "state")
+	if err := MkdirAllWithin(root, dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "issue.lock")
+	if err := WriteFileWithin(root, path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first, acquired, err := TryLockFileWithin(root, path, 0o600)
+	if err != nil || !acquired {
+		t.Fatalf("first lock: acquired=%v err=%v", acquired, err)
+	}
+	if second, acquired, err := TryLockFileWithin(root, path, 0o600); err != nil || acquired || second != nil {
+		t.Fatalf("second lock: lock=%v acquired=%v err=%v", second, acquired, err)
+	}
+	if err := first.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+	third, acquired, err := TryLockFileWithin(root, path, 0o600)
+	if err != nil || !acquired {
+		t.Fatalf("lock after release: acquired=%v err=%v", acquired, err)
+	}
+	_ = third.Unlock()
 }
 
 func TestWriteFileWithinReplacesFinalSymlink(t *testing.T) {
