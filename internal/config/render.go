@@ -16,12 +16,13 @@ import (
 // presentation-only: none of these keys can influence where a PAT is sent, so
 // they are the sole content a per-mirror local config may carry.
 type RenderService struct {
-	Profile      string          `json:"profile,omitempty"` // minimal|default|full ("" = default)
-	Include      []string        `json:"include,omitempty"`
-	Exclude      []string        `json:"exclude,omitempty"`
-	CustomFields []string        `json:"custom_fields,omitempty"` // jira only
-	FieldViews   []JiraFieldView `json:"field_views,omitempty"`   // jira only; typed presentation
-	EpicField    string          `json:"epic_field,omitempty"`    // jira only; empty = auto-detect Epic Link
+	Profile      string                `json:"profile,omitempty"` // minimal|default|full ("" = default)
+	Include      []string              `json:"include,omitempty"`
+	Exclude      []string              `json:"exclude,omitempty"`
+	CustomFields []string              `json:"custom_fields,omitempty"` // jira only
+	FieldViews   []JiraFieldView       `json:"field_views,omitempty"`   // jira only; typed presentation
+	EpicField    string                `json:"epic_field,omitempty"`    // jira only; empty = auto-detect Epic Link
+	PageFields   []ConfluenceFieldView `json:"page_fields,omitempty"`   // confluence only; typed page metadata
 }
 
 // JiraFieldView describes how one raw Jira field is presented in the derived
@@ -39,6 +40,18 @@ type JiraFieldView struct {
 	Format    string `json:"format,omitempty"`    // auto (default) | scalar | list | jira_wiki | date | datetime
 	ShowEmpty bool   `json:"show_empty,omitempty"`
 	Editable  bool   `json:"editable,omitempty"` // only section+jira_wiki; mirror views only
+}
+
+// ConfluenceFieldView describes one closed, read-only page metadata field in a
+// Confluence derived view. ID is one of title, space, version, parent,
+// ancestors, labels, restricted, or updated. Placement is metadata (default)
+// or section; format is auto (default), scalar, list, date, or datetime.
+type ConfluenceFieldView struct {
+	ID        string `json:"id"`
+	Label     string `json:"label,omitempty"`
+	Placement string `json:"placement,omitempty"`
+	Format    string `json:"format,omitempty"`
+	ShowEmpty bool   `json:"show_empty,omitempty"`
 }
 
 // RenderConfig groups the per-backend render sections. The pointer fields keep
@@ -167,14 +180,31 @@ func sanitizeService(s *RenderService, keyPrefix, path string, warnings []string
 			kept = append(kept, norm)
 		}
 		s.FieldViews = kept
+		if len(s.PageFields) > 0 {
+			warnings = append(warnings, fmt.Sprintf("ignoring Confluence-only page_fields under %s in local config %s", keyPrefix, path))
+			s.PageFields = nil
+		}
 		if strings.ContainsAny(s.EpicField, "\r\n") {
 			warnings = append(warnings, fmt.Sprintf("ignoring %s.epic_field in local config %s: line breaks are not allowed", keyPrefix, path))
 			s.EpicField = ""
 		}
-	} else if len(s.FieldViews) > 0 || s.EpicField != "" {
-		warnings = append(warnings, fmt.Sprintf("ignoring Jira-only field_views/epic_field under %s in local config %s", keyPrefix, path))
-		s.FieldViews = nil
-		s.EpicField = ""
+	} else {
+		var kept []ConfluenceFieldView
+		for i, fv := range s.PageFields {
+			norm, err := NormalizeConfluenceFieldView(fv)
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf("ignoring %s.page_fields[%d] in local config %s: %v", keyPrefix, i, path, err))
+				continue
+			}
+			kept = append(kept, norm)
+		}
+		s.PageFields = kept
+		if len(s.CustomFields) > 0 || len(s.FieldViews) > 0 || s.EpicField != "" {
+			warnings = append(warnings, fmt.Sprintf("ignoring Jira-only custom_fields/field_views/epic_field under %s in local config %s", keyPrefix, path))
+			s.CustomFields = nil
+			s.FieldViews = nil
+			s.EpicField = ""
+		}
 	}
 	return s, warnings
 }
@@ -221,6 +251,8 @@ func mergeService(keyPrefix string, global, local *RenderService, prov Provenanc
 		prov[keyPrefix+".custom_fields"] = "default"
 		prov[keyPrefix+".field_views"] = "default"
 		prov[keyPrefix+".epic_field"] = "default"
+	} else {
+		prov[keyPrefix+".page_fields"] = "default"
 	}
 
 	apply := func(s *RenderService, source string) {
@@ -251,6 +283,10 @@ func mergeService(keyPrefix string, global, local *RenderService, prov Provenanc
 			out.EpicField = strings.TrimSpace(s.EpicField)
 			prov[keyPrefix+".epic_field"] = source
 		}
+		if !jira && len(s.PageFields) > 0 {
+			out.PageFields = append([]ConfluenceFieldView(nil), s.PageFields...)
+			prov[keyPrefix+".page_fields"] = source
+		}
 	}
 	apply(global, "global")
 	apply(local, "local")
@@ -266,6 +302,7 @@ var renderFields = map[string]bool{
 	"custom_fields": true,
 	"field_views":   true,
 	"epic_field":    true,
+	"page_fields":   true,
 }
 
 // ValidRenderKeys lists the accepted dotted keys for `config set`, for error
@@ -274,6 +311,7 @@ func ValidRenderKeys() []string {
 	return []string{
 		"render.jira.profile", "render.jira.include", "render.jira.exclude", "render.jira.custom_fields", "render.jira.field_views", "render.jira.epic_field",
 		"render.confluence.profile", "render.confluence.include", "render.confluence.exclude",
+		"render.confluence.page_fields",
 	}
 }
 
@@ -301,6 +339,9 @@ func SetRenderKey(rc *RenderConfig, key, value string) error {
 	}
 	if (field == "custom_fields" || field == "field_views" || field == "epic_field") && svc != "jira" {
 		return fmt.Errorf("%s is jira-only; %q is not valid", field, key)
+	}
+	if field == "page_fields" && svc != "confluence" {
+		return fmt.Errorf("page_fields is confluence-only; %q is not valid", key)
 	}
 
 	target := &rc.Jira
@@ -343,8 +384,77 @@ func SetRenderKey(rc *RenderConfig, key, value string) error {
 			return fmt.Errorf("epic_field must not contain line breaks")
 		}
 		s.EpicField = value
+	case "page_fields":
+		var views []ConfluenceFieldView
+		if err := json.Unmarshal([]byte(value), &views); err != nil {
+			return fmt.Errorf("page_fields must be a JSON array: %v", err)
+		}
+		for i, fv := range views {
+			norm, err := NormalizeConfluenceFieldView(fv)
+			if err != nil {
+				return fmt.Errorf("page_fields[%d]: %v", i, err)
+			}
+			views[i] = norm
+		}
+		s.PageFields = views
 	}
 	return nil
+}
+
+var confluenceFieldDefaults = map[string]struct {
+	label  string
+	format string
+}{
+	"title":      {label: "Title", format: "scalar"},
+	"space":      {label: "Space", format: "scalar"},
+	"version":    {label: "Version", format: "scalar"},
+	"parent":     {label: "Parent", format: "scalar"},
+	"ancestors":  {label: "Ancestors", format: "list"},
+	"labels":     {label: "Labels", format: "list"},
+	"restricted": {label: "Restricted", format: "scalar"},
+	"updated":    {label: "Updated", format: "datetime"},
+}
+
+// NormalizeConfluenceFieldView validates a closed Confluence page descriptor
+// and fills stable defaults. It deliberately has no editable mode.
+func NormalizeConfluenceFieldView(fv ConfluenceFieldView) (ConfluenceFieldView, error) {
+	fv.ID = strings.TrimSpace(fv.ID)
+	fv.Label = strings.TrimSpace(fv.Label)
+	fv.Placement = strings.TrimSpace(fv.Placement)
+	fv.Format = strings.TrimSpace(fv.Format)
+	def, ok := confluenceFieldDefaults[fv.ID]
+	if !ok {
+		return ConfluenceFieldView{}, fmt.Errorf("id %q is invalid (want ancestors|labels|parent|restricted|space|title|updated|version)", fv.ID)
+	}
+	if strings.ContainsAny(fv.Label, "\r\n") {
+		return ConfluenceFieldView{}, fmt.Errorf("label must not contain line breaks")
+	}
+	if fv.Label == "" {
+		fv.Label = def.label
+	}
+	if fv.Placement == "" {
+		fv.Placement = "metadata"
+	}
+	if fv.Placement != "metadata" && fv.Placement != "section" {
+		return ConfluenceFieldView{}, fmt.Errorf("placement %q is invalid (want metadata|section)", fv.Placement)
+	}
+	if fv.Format == "" || fv.Format == "auto" {
+		fv.Format = def.format
+	}
+	switch fv.Format {
+	case "scalar":
+	case "list":
+		if fv.ID != "ancestors" && fv.ID != "labels" {
+			return ConfluenceFieldView{}, fmt.Errorf("list format is only valid for ancestors or labels")
+		}
+	case "date", "datetime":
+		if fv.ID != "updated" {
+			return ConfluenceFieldView{}, fmt.Errorf("%s format is only valid for updated", fv.Format)
+		}
+	default:
+		return ConfluenceFieldView{}, fmt.Errorf("format %q is invalid (want auto|scalar|list|date|datetime)", fv.Format)
+	}
+	return fv, nil
 }
 
 // NormalizeJiraFieldView validates a descriptor and fills its stable defaults.

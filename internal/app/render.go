@@ -42,6 +42,7 @@ const (
 
 	// Confluence sections.
 	SecFrontmatter = "frontmatter" // YAML frontmatter (title/space/version/labels/updated)
+	SecPageFields  = "page_fields" // typed read-only Confluence page metadata
 	// SecComments is shared; Jira uses H1 and Confluence uses H2.
 )
 
@@ -65,7 +66,9 @@ var jiraFullSections = []string{
 }
 
 // confSections is the closed set of valid Confluence section names.
-var confSections = []string{SecFrontmatter, SecComments}
+var confSections = []string{SecPageFields, SecFrontmatter, SecComments}
+
+var confFullSections = []string{SecPageFields, SecComments}
 
 // jiraDefaultSections is what the `default` profile renders for Jira: the lean
 // set routine read-scenarios consume (#88). It extends the original #148 view
@@ -83,6 +86,7 @@ type RenderSettings struct {
 	Sections     map[string]bool
 	CustomFields []string
 	FieldViews   []config.JiraFieldView
+	PageFields   []config.ConfluenceFieldView
 	EpicField    string
 }
 
@@ -127,7 +131,7 @@ func profileBase(backend, profile string) map[string]bool {
 	// confluence
 	switch profile {
 	case "full":
-		for _, s := range confSections {
+		for _, s := range confFullSections {
 			out[s] = true
 		}
 	default: // "minimal" and "default" are both body-only (byte-identical to today)
@@ -167,12 +171,39 @@ func computeSettings(backend string, svc config.RenderService) (RenderSettings, 
 		delete(sections, name)
 	}
 	if backend != "jira" {
+		if sections[SecPageFields] && sections[SecFrontmatter] {
+			delete(sections, SecFrontmatter)
+			warns = append(warns, "render: page_fields replaces legacy Confluence frontmatter")
+		} else if sections[SecFrontmatter] {
+			warns = append(warns, "render: Confluence frontmatter is deprecated; use page_fields")
+		}
 		if len(svc.CustomFields) > 0 || len(svc.FieldViews) > 0 || svc.EpicField != "" {
 			warns = append(warns, "render: ignoring Jira-only custom_fields/field_views/epic_field for confluence")
 		}
-		return RenderSettings{Sections: sections}, warns
+		views := make([]config.ConfluenceFieldView, 0, len(svc.PageFields))
+		seen := map[string]bool{}
+		for i, fv := range svc.PageFields {
+			norm, err := config.NormalizeConfluenceFieldView(fv)
+			if err != nil {
+				warns = append(warns, fmt.Sprintf("render: ignoring confluence page_fields[%d]: %v", i, err))
+				continue
+			}
+			if seen[norm.ID] {
+				warns = append(warns, fmt.Sprintf("render: ignoring confluence page_fields[%d]: duplicate field id %q", i, norm.ID))
+				continue
+			}
+			seen[norm.ID] = true
+			views = append(views, norm)
+		}
+		if sections[SecPageFields] && len(views) == 0 {
+			views = defaultConfluencePageFields()
+		}
+		return RenderSettings{Sections: sections, PageFields: views}, warns
 	}
 	views := make([]config.JiraFieldView, 0, len(svc.FieldViews))
+	if len(svc.PageFields) > 0 {
+		warns = append(warns, "render: ignoring Confluence-only page_fields for jira")
+	}
 	viewIDs := map[string]bool{}
 	for i, fv := range svc.FieldViews {
 		norm, err := config.NormalizeJiraFieldView(fv)
@@ -272,6 +303,9 @@ func applyRenderOverride(svc, o config.RenderService) config.RenderService {
 	if len(o.FieldViews) > 0 {
 		out.FieldViews = append([]config.JiraFieldView(nil), o.FieldViews...)
 	}
+	if len(o.PageFields) > 0 {
+		out.PageFields = append([]config.ConfluenceFieldView(nil), o.PageFields...)
+	}
 	if o.EpicField != "" {
 		out.EpicField = o.EpicField
 	}
@@ -302,7 +336,13 @@ func viewStateOf(rs RenderSettings) mirror.ViewState {
 			Format: fv.Format, ShowEmpty: fv.ShowEmpty, Editable: fv.Editable,
 		})
 	}
-	return mirror.ViewState{Sections: sections, CustomFields: cf, FieldViews: fields, EpicField: rs.EpicField}
+	pageFields := make([]mirror.FieldViewState, 0, len(rs.PageFields))
+	for _, fv := range rs.PageFields {
+		pageFields = append(pageFields, mirror.FieldViewState{
+			ID: fv.ID, Label: fv.Label, Placement: fv.Placement, Format: fv.Format, ShowEmpty: fv.ShowEmpty,
+		})
+	}
+	return mirror.ViewState{Sections: sections, CustomFields: cf, FieldViews: fields, PageFields: pageFields, EpicField: rs.EpicField}
 }
 
 // settingsFromViewState is the inverse of viewStateOf: it rebuilds RenderSettings
@@ -327,7 +367,13 @@ func settingsFromViewState(vs mirror.ViewState) RenderSettings {
 			Format: fv.Format, ShowEmpty: fv.ShowEmpty, Editable: fv.Editable,
 		})
 	}
-	return RenderSettings{Sections: sections, CustomFields: cf, FieldViews: fields, EpicField: vs.EpicField}
+	pageFields := make([]config.ConfluenceFieldView, 0, len(vs.PageFields))
+	for _, fv := range vs.PageFields {
+		pageFields = append(pageFields, config.ConfluenceFieldView{
+			ID: fv.ID, Label: fv.Label, Placement: fv.Placement, Format: fv.Format, ShowEmpty: fv.ShowEmpty,
+		})
+	}
+	return RenderSettings{Sections: sections, CustomFields: cf, FieldViews: fields, PageFields: pageFields, EpicField: vs.EpicField}
 }
 
 // renderOverrideSet reports whether a per-run render override carries any
@@ -335,7 +381,7 @@ func settingsFromViewState(vs mirror.ViewState) RenderSettings {
 // decide whether the user asked for a specific view (honor the flags) or wants
 // the recorded pristine view reproduced.
 func renderOverrideSet(o config.RenderService) bool {
-	return o.Profile != "" || len(o.Include) > 0 || len(o.Exclude) > 0 || len(o.CustomFields) > 0 || len(o.FieldViews) > 0 || o.EpicField != ""
+	return o.Profile != "" || len(o.Include) > 0 || len(o.Exclude) > 0 || len(o.CustomFields) > 0 || len(o.FieldViews) > 0 || len(o.PageFields) > 0 || o.EpicField != ""
 }
 
 // sortedFieldKeys returns a raw fields map's keys in deterministic order so a

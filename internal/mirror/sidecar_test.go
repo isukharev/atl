@@ -205,6 +205,7 @@ func TestViewStateRoundTrip(t *testing.T) {
 	b.RecordView("P1", ViewState{
 		Sections: []string{"comments", "frontmatter"}, CustomFields: []string{"customfield_1"},
 		FieldViews: []FieldViewState{{ID: "customfield_2", Label: "Score", Placement: "section", Format: "jira_wiki", Editable: true}},
+		PageFields: []FieldViewState{{ID: "updated", Label: "Changed", Placement: "metadata", Format: "date"}},
 		EpicField:  "customfield_3",
 	})
 	// Nothing hits the sidecar until Flush.
@@ -223,6 +224,9 @@ func TestViewStateRoundTrip(t *testing.T) {
 	}
 	if len(vs.FieldViews) != 1 || vs.FieldViews[0].Label != "Score" || !vs.FieldViews[0].Editable || vs.EpicField != "customfield_3" {
 		t.Errorf("round-tripped extended view state wrong: %+v", vs)
+	}
+	if len(vs.PageFields) != 1 || vs.PageFields[0].ID != "updated" || vs.PageFields[0].Format != "date" {
+		t.Errorf("round-tripped Confluence page fields wrong: %+v", vs)
 	}
 	if _, ok, err := m.ViewStateOf("missing"); err != nil || ok {
 		t.Errorf("unrecorded id should report ok=false (ok=%v err=%v)", ok, err)

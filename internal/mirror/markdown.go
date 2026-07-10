@@ -23,9 +23,8 @@ func RenderMarkdown(root *csf.Node, refs []domain.Ref) []byte {
 	return []byte(normalizeBlankLines(b.String()))
 }
 
-// PageFrontmatter is the metadata a `full`-profile Confluence view emits as YAML
-// frontmatter above the body. Fields render only when non-empty (Updated is
-// omitted when the mirror has no timestamp for it).
+// PageFrontmatter is the deprecated YAML metadata shape retained so recorded
+// legacy views remain reproducible during apply. New views use PageField.
 type PageFrontmatter struct {
 	Title   string
 	Space   string
@@ -42,8 +41,19 @@ type PageFrontmatter struct {
 // `<slug>.comments.json` sidecar (absent → nil → the section is skipped).
 type MDViewOpts struct {
 	Frontmatter *PageFrontmatter
+	PageFields  []PageField
 	Comments    []domain.Comment
 	ReadOnly    bool
+}
+
+// PageField is one already-resolved, read-only Confluence metadata value. The
+// renderer owns structural and Markdown escaping; callers supply plain text.
+type PageField struct {
+	ID        string
+	Label     string
+	Placement string
+	Values    []string
+	ShowEmpty bool
 }
 
 // RenderMarkdownOpts renders a versioned derived view with stable generated
@@ -54,10 +64,10 @@ func RenderMarkdownOpts(root *csf.Node, refs []domain.Ref, opts MDViewOpts) []by
 }
 
 // RenderMarkdownViewParts renders the view as three concatenable parts —
-// prefix (frontmatter), body, suffix (the "## Comments" section) — such that
+// prefix (generated metadata), body, suffix (the "## Comments" section) — such that
 // prefix+body+suffix is byte-identical to RenderMarkdownOpts(root, refs, opts).
 // The split exists for `conf apply`: the editable body must be located by these
-// structural anchors (the frontmatter above and the Comments section below are
+// structural anchors (the metadata above and the Comments section below are
 // read-only in the view), NOT by re-parsing headings — a body heading renders
 // as a top-level `## ` line and would be misread as a generated section.
 func RenderMarkdownViewParts(root *csf.Node, refs []domain.Ref, opts MDViewOpts) (prefix, body, suffix string) {
@@ -65,6 +75,9 @@ func RenderMarkdownViewParts(root *csf.Node, refs []domain.Ref, opts MDViewOpts)
 	prefix = ConfluenceDocumentMarker + "\n"
 	if opts.Frontmatter != nil {
 		prefix += ConfluenceMetadataMarker + "\n" + renderPageFrontmatter(opts.Frontmatter) + "\n"
+	}
+	if fields := renderPageFields(opts.PageFields); fields != "" {
+		prefix += fields + "\n\n"
 	}
 	bodyMarker := ConfluenceBodyMarker
 	if opts.ReadOnly {
@@ -90,6 +103,98 @@ func RenderMarkdownViewParts(root *csf.Node, refs []domain.Ref, opts MDViewOpts)
 		bEnd = len(full)
 	}
 	return full[:pEnd], full[pEnd:bEnd], full[bEnd:]
+}
+
+func renderPageFields(fields []PageField) string {
+	var metadata []PageField
+	var sections []PageField
+	for _, field := range fields {
+		if len(field.Values) == 0 && !field.ShowEmpty {
+			continue
+		}
+		if field.Placement == "section" {
+			sections = append(sections, field)
+		} else {
+			metadata = append(metadata, field)
+		}
+	}
+	if len(metadata) == 0 && len(sections) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(ConfluencePageFieldsMarker + "\n")
+	if len(metadata) > 0 {
+		b.WriteString("# Metadata\n\n| Field | Value |\n| --- | --- |\n")
+		for _, field := range metadata {
+			fmt.Fprintf(&b, "| %s | %s |\n", pageTableValue(field.Label), pageTableValue(strings.Join(field.Values, ", ")))
+		}
+		b.WriteByte('\n')
+	}
+	for _, field := range sections {
+		fmt.Fprintf(&b, "<!-- atl:section page-field.%s readonly -->\n# %s\n\n", safeMarkerID(field.ID), pageTableValue(field.Label))
+		if len(field.Values) == 0 {
+			b.WriteString("_Empty_\n\n")
+		} else if len(field.Values) == 1 {
+			b.WriteString(pageSectionValue(field.Values[0]) + "\n\n")
+		} else {
+			for _, value := range field.Values {
+				b.WriteString("- " + pageSectionValue(value) + "\n")
+			}
+			b.WriteByte('\n')
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func pageSectionValue(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	escaped := pageTableValue(s)
+	if s == "" {
+		return escaped
+	}
+	switch s[0] {
+	case '-':
+		return "&#45;" + escaped[1:]
+	case '+':
+		return "&#43;" + escaped[1:]
+	}
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	if i > 0 && i < len(s) && (s[i] == '.' || s[i] == ')') {
+		entity := "&#46;"
+		if s[i] == ')' {
+			entity = "&#41;"
+		}
+		return escaped[:i] + entity + escaped[i+1:]
+	}
+	return escaped
+}
+
+func pageTableValue(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	return strings.NewReplacer(
+		"&", "&amp;", "\\", "&#92;", "|", "&#124;", "<", "&lt;", ">", "&gt;",
+		"`", "&#96;", "*", "&#42;", "_", "&#95;", "~", "&#126;",
+		"[", "&#91;", "]", "&#93;", "!", "&#33;", "#", "&#35;",
+	).Replace(s)
+}
+
+func safeMarkerID(s string) string {
+	const hex = "0123456789abcdef"
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' {
+			b.WriteByte(c)
+			continue
+		}
+		b.WriteByte('_')
+		b.WriteByte(hex[c>>4])
+		b.WriteByte(hex[c&15])
+	}
+	return b.String()
 }
 
 // renderPageFrontmatter emits the YAML frontmatter block (including the fencing

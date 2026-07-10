@@ -75,7 +75,11 @@ Recent additions expand both surfaces — check the focused skills for full flag
 - `--verbose` / `ATL_VERBOSE=1` — trace every HTTP request/response to stderr (token never logged).
 - Shell completion for fixed-value flags (e.g. `--output`, `--format`, `--status`) is registered.
 
-**Confluence additions:** `conf page list --space [--status]`, `conf page open --id`, `conf page copy --id --title [--space] [--parent]`, `conf attachment {list,get,upload,delete}`, `conf me`, `conf search --space/--title/--label/--type` convenience filters (no `--cql` needed), `.md` view renders internal links as `[[Title]]`.
+**Confluence additions:** typed read-only `render.confluence.page_fields` shared
+by mirror and transient views; `conf page list --space [--status]`, `conf page
+open --id`, `conf page copy --id --title [--space] [--parent]`, `conf attachment
+{list,get,upload,delete}`, `conf me`, `conf search --space/--title/--label/--type`
+convenience filters (no `--cql` needed), `.md` view renders internal links as `[[Title]]`.
 
 **Jira additions:** typed `render.jira.field_views` (including opt-in editable
 rich-text sections with explicit pending state) and opt-in `epic_children` views;

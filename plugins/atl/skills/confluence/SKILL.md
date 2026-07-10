@@ -66,7 +66,7 @@ atl conf pull --id <id> --assets --into ~/.atl/<workspace>/
 # or:  --cql '<CQL>'   (caps at 1000 pages — see warning below)
 # or:  --space <KEY>   (caps at 2000 pages; --depth N to limit)
 # add: --comments       to mirror page comments as sidecar files
-# add: --render-profile full   for a richer .md view (frontmatter + comments)
+# add: --render-profile full   for a richer .md view (typed metadata + comments)
 ```
 → `{ "root": "...", "pages": [ {id, title, path, version, assets} ] }`
 (`comments` count added per page when `--comments` is used)
@@ -97,16 +97,25 @@ id-suffixed dir (`<page-slug>-<id>/`) — same files inside, nothing overwritten
 
 **Render profiles** control the `.md` view (the `.csf` substrate is never
 affected). `default`/`minimal` contain only the body plus generated version/body
-boundaries — the standard, cheapest view. `full` adds YAML metadata (title,
-space, version, labels) and, when
+boundaries — the standard, cheapest view. `full` adds a read-only Markdown
+metadata table (title, space, version, labels, updated when known) and, when
 a `--comments` sidecar is present, appends a `## Comments` section. Set per run
-with `--render-profile full` / `--render-include frontmatter,comments` /
+with `--render-profile full` / `--render-include page_fields,comments` /
 `--render-exclude ...`, or persist with `atl config set render.confluence.profile
 full`. Re-render an existing mirror offline (no network) after a profile change:
 ```bash
 atl conf render mirror --render-profile full     # whole mirror
 atl conf render mirror/DOCS/page/page.csf        # one page
 ```
+
+For a custom metadata projection, set `render.confluence.page_fields` to a JSON
+array and include `page_fields`. Closed ids: `title`, `space`, `version`,
+`parent` (id), `ancestors` (titles), `labels`, `restricted`, `updated`.
+Placement is `metadata|section`; formats are `scalar`, `list` for list fields,
+and `date|datetime` for updated. Fields stay read-only. `restricted` is fetched
+only when selected; an offline unknown value requires a re-pull and is never
+presented as unrestricted. Legacy explicit `frontmatter` remains readable but
+new profiles should use `page_fields`.
 
 If repeated work reveals a useful space, selector, or render preference, do not edit agent memory
 silently. Offer the `onboarding` skill's consent-gated learning flow. Load only
@@ -162,11 +171,11 @@ change into one reviewed CSF cycle. Never direct-edit CSF while expecting
 remaining `.md` edits to apply in the same cycle.
 
 Every `.md` has reserved document/body boundaries. On a `full`-profile page it
-also has generated YAML metadata and a `## Comments` section; all generated regions are
+also has a generated Markdown metadata table and a `## Comments` section; all generated regions are
 **read-only** — apply reproduces them from the recorded view (`.atl/state.json`) and merges only
 the body between them (an untouched full page applies to a byte-identical `.csf`). Editing the
-frontmatter or Comments is refused (exit 8) — use `conf page update`/`conf page move` or
-`conf comment add`. `conf apply` takes no `--render-*` flags — it always uses the recorded view;
+page fields or Comments is refused (exit 8) — use the relevant dedicated operation instead.
+`conf apply` takes no `--render-*` flags — it always uses the recorded view;
 to change the view, re-run `conf render` with the desired settings (which re-records it).
 
 Direct-`.csf` edits and the md surface don't mix in one cycle: once you edit the `.csf`

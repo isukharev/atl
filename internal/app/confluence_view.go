@@ -41,7 +41,9 @@ func (s *ConfluenceService) ViewPage(ctx context.Context, id string, opts Conflu
 		root = "."
 	}
 	rs, warnings := ResolveRender(s.cfg, root, opts.Render, "confluence")
-	page, err := s.store.GetPage(ctx, id, domain.PullOpts{Format: "csf"})
+	page, err := s.store.GetPage(ctx, id, domain.PullOpts{
+		Format: "csf", IncludeRestrictions: confluenceNeedsRestrictions(rs),
+	})
 	if err != nil {
 		return nil, err
 	}

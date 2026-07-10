@@ -63,24 +63,25 @@ func TestConfRenderDefaultByteIdentical(t *testing.T) {
 	}
 }
 
-// Full profile adds frontmatter and, when the sidecar is present, a Comments
+// Full profile adds typed page fields and, when the sidecar is present, a Comments
 // section.
-func TestConfRenderFullAddsFrontmatterAndComments(t *testing.T) {
+func TestConfRenderFullAddsPageFieldsAndComments(t *testing.T) {
 	root, dir, slug := seedConfMirror(t, []domain.Comment{{Author: "alice", Created: "2026-01-01", Body: "hi"}})
 	svc := NewConfluenceRenderer(&config.Config{})
 	if _, err := svc.Render(root, config.RenderService{Profile: "full"}); err != nil {
 		t.Fatal(err)
 	}
 	md := mustReadFile(t, filepath.Join(dir, slug+".md"))
-	if !strings.HasPrefix(md, mirror.ConfluenceDocumentMarker+"\n"+mirror.ConfluenceMetadataMarker+"\n---\ntitle: My Page\nspace: DOCS\nversion: 3\nlabels: [a, b]\n---\n") {
-		t.Errorf("full render missing frontmatter:\n%s", md)
+	if !strings.HasPrefix(md, mirror.ConfluenceDocumentMarker+"\n"+mirror.ConfluencePageFieldsMarker+"\n# Metadata\n") ||
+		!strings.Contains(md, "| Title | My Page |") || !strings.Contains(md, "| Labels | a, b |") {
+		t.Errorf("full render missing typed page fields:\n%s", md)
 	}
 	if !strings.Contains(md, "## Comments") || !strings.Contains(md, "**alice** (2026-01-01):") {
 		t.Errorf("full render missing comments section:\n%s", md)
 	}
 }
 
-// Full profile with no comments sidecar renders frontmatter but silently skips
+// Full profile with no comments sidecar renders page fields but silently skips
 // the Comments section.
 func TestConfRenderFullNoSidecarSkipsComments(t *testing.T) {
 	root, dir, slug := seedConfMirror(t, nil)
@@ -89,11 +90,30 @@ func TestConfRenderFullNoSidecarSkipsComments(t *testing.T) {
 		t.Fatal(err)
 	}
 	md := mustReadFile(t, filepath.Join(dir, slug+".md"))
-	if !strings.Contains(md, "title: My Page") {
-		t.Errorf("expected frontmatter:\n%s", md)
+	if !strings.Contains(md, "| Title | My Page |") {
+		t.Errorf("expected page metadata table:\n%s", md)
 	}
 	if strings.Contains(md, "## Comments") {
 		t.Errorf("no sidecar → no Comments section:\n%s", md)
+	}
+}
+
+func TestConfRenderUnknownRestrictionIsExplicitAndWarned(t *testing.T) {
+	root, dir, slug := seedConfMirror(t, nil)
+	svc := NewConfluenceRenderer(&config.Config{})
+	res, err := svc.Render(root, config.RenderService{
+		Profile: "minimal", Include: []string{SecPageFields},
+		PageFields: []config.ConfluenceFieldView{{ID: "restricted", ShowEmpty: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "re-pull") {
+		t.Fatalf("warnings = %v", res.Warnings)
+	}
+	md := mustReadFile(t, filepath.Join(dir, slug+".md"))
+	if !strings.Contains(md, "| Restricted | Unknown — re-pull required |") {
+		t.Fatalf("unknown restriction was presented as a fact:\n%s", md)
 	}
 }
 

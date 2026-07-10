@@ -2,13 +2,16 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/mirror"
@@ -21,25 +24,26 @@ type recordingStore struct {
 	domain.DocStore
 
 	// recorded args
-	searchQuery  string
-	searchLimit  int
-	searchCursor string
-	getID        string
-	getFormat    string
-	metaID       string
-	historyID    string
-	treeSpace    string
-	treeDepth    int
-	commentsID   string
-	addCommentID string
-	addBody      []byte
-	createSpace  string
-	createParent string
-	createTitle  string
-	createBody   []byte
-	moveID       string
-	moveParent   string
-	deleteID     string
+	searchQuery     string
+	searchLimit     int
+	searchCursor    string
+	getID           string
+	getFormat       string
+	getRestrictions bool
+	metaID          string
+	historyID       string
+	treeSpace       string
+	treeDepth       int
+	commentsID      string
+	addCommentID    string
+	addBody         []byte
+	createSpace     string
+	createParent    string
+	createTitle     string
+	createBody      []byte
+	moveID          string
+	moveParent      string
+	deleteID        string
 
 	// canned returns
 	pageRefs          []domain.PageRef
@@ -60,7 +64,7 @@ func (s *recordingStore) Search(_ context.Context, q string, limit int, cursor s
 }
 
 func (s *recordingStore) GetPage(_ context.Context, id string, o domain.PullOpts) (*domain.Resource, error) {
-	s.getID, s.getFormat = id, o.Format
+	s.getID, s.getFormat, s.getRestrictions = id, o.Format, o.IncludeRestrictions
 	return s.page, s.err
 }
 
@@ -588,10 +592,11 @@ func (s *pullCapStore) GetPage(_ context.Context, id string, _ domain.PullOpts) 
 // pullStore serves a fixed set of pages by id for Pull orchestration tests.
 type pullStore struct {
 	domain.DocStore
-	pages   map[string]*domain.Resource
-	refs    []domain.PageRef // served by Tree for --space pulls
-	getErr  error
-	getErrs map[string]error
+	pages        map[string]*domain.Resource
+	refs         []domain.PageRef // served by Tree for --space pulls
+	getErr       error
+	getErrs      map[string]error
+	lastPullOpts domain.PullOpts
 
 	// comment plumbing for `pull --comments` tests.
 	comments          map[string][]domain.Comment // per-id comments to serve
@@ -612,7 +617,8 @@ func (s *pullStore) ListComments(_ context.Context, id string) ([]domain.Comment
 	return s.comments[id], s.commentsTruncated[id], nil
 }
 
-func (s *pullStore) GetPage(_ context.Context, id string, _ domain.PullOpts) (*domain.Resource, error) {
+func (s *pullStore) GetPage(_ context.Context, id string, opts domain.PullOpts) (*domain.Resource, error) {
+	s.lastPullOpts = opts
 	if s.getErrs != nil {
 		if err, ok := s.getErrs[id]; ok {
 			return nil, err
@@ -622,9 +628,65 @@ func (s *pullStore) GetPage(_ context.Context, id string, _ domain.PullOpts) (*d
 		return nil, s.getErr
 	}
 	if p, ok := s.pages[id]; ok {
-		return p, nil
+		copy := *p
+		if !opts.IncludeRestrictions {
+			copy.Restricted = nil
+		}
+		return &copy, nil
 	}
 	return nil, domain.ErrNotFound
+}
+
+func TestPullProjectsAndPersistsConfiguredPageFields(t *testing.T) {
+	into := t.TempDir()
+	restricted := true
+	st := &pullStore{pages: map[string]*domain.Resource{
+		"100": {
+			ID: "100", Title: "Alpha", SpaceKey: "SP", Version: 2, Parent: "9",
+			Ancestors: []string{"Home", "Docs"}, Labels: []string{"one"},
+			Updated: "2026-07-10T12:00:00Z", Restricted: &restricted, Body: []byte("<p>alpha</p>"),
+		},
+	}}
+	svc := &ConfluenceService{store: st}
+	view := config.RenderService{
+		Profile: "minimal", Include: []string{SecPageFields},
+		PageFields: []config.ConfluenceFieldView{{ID: "restricted"}, {ID: "ancestors"}, {ID: "updated"}},
+	}
+	res, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into, Render: view})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.lastPullOpts.IncludeRestrictions {
+		t.Fatal("pull did not request configured restriction metadata")
+	}
+	metaPath := strings.TrimSuffix(filepath.Join(into, res.Pages[0].Path), ".csf") + ".meta.json"
+	var meta mirror.Meta
+	metaBytes, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(metaBytes, &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.Restricted == nil || !*meta.Restricted || !reflect.DeepEqual(meta.Ancestors, []string{"Home", "Docs"}) || meta.Updated == "" {
+		t.Fatalf("typed metadata not persisted: %+v", meta)
+	}
+
+	// A narrower re-pull must clear the previously stored restriction fact.
+	if _, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into}); err != nil {
+		t.Fatal(err)
+	}
+	metaBytes, err = os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta = mirror.Meta{}
+	if err := json.Unmarshal(metaBytes, &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.Restricted != nil {
+		t.Fatalf("narrow re-pull retained stale restriction state: %+v", meta.Restricted)
+	}
 }
 
 func TestPullMirrorsPages(t *testing.T) {

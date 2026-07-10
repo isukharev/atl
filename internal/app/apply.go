@@ -103,7 +103,7 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 		return nil, verr
 	}
 	rsView := settingsFromViewState(vs)
-	decorated := hasView && (rsView.On(SecFrontmatter) || rsView.On(SecComments))
+	decorated := hasView
 
 	node, perr := csf.Parse(base)
 	if perr != nil {
@@ -141,7 +141,7 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 	// stub, and a failed write is a warning, not an error (the .csf write
 	// already succeeded; erroring here would tell the user the apply failed
 	// when it did not, and a retry would refuse on base divergence). On the
-	// decorated path the refresh re-emits the same frontmatter/comments so the
+	// decorated path the refresh re-emits the same generated metadata/comments so the
 	// view stays full; otherwise it is the body-only render.
 	md := []byte(mirror.MDUnavailableStub)
 	stub := true
@@ -171,20 +171,24 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 }
 
 // confPageFromMeta builds the minimal domain.Resource the markdown-view helpers
-// need (frontmatter fields) from a page's mirror meta.
+// need from a page's mirror meta.
 func confPageFromMeta(meta mirror.Meta) *domain.Resource {
 	return &domain.Resource{
-		Title:    meta.Title,
-		SpaceKey: meta.Space,
-		Version:  meta.Version,
-		Labels:   meta.Labels,
+		Title:      meta.Title,
+		SpaceKey:   meta.Space,
+		Version:    meta.Version,
+		Parent:     meta.Parent,
+		Ancestors:  meta.Ancestors,
+		Labels:     meta.Labels,
+		Updated:    meta.Updated,
+		Restricted: meta.Restricted,
 	}
 }
 
 // extractConfBody isolates the editable page body from a decorated `.md` view
-// (a YAML frontmatter above, a "## Comments" section below) and enforces that
+// (generated metadata above, a "## Comments" section below) and enforces that
 // both decorations are read-only. The edited document must start with the
-// byte-exact pristine prefix (frontmatter) and end with the pristine suffix (the
+// byte-exact pristine prefix (generated metadata) and end with the pristine suffix (the
 // Comments section) — trailing newlines compared loosely, everything else
 // byte-exact. Whatever sits between the anchors is the edited body, returned with
 // a single trailing newline so it feeds mdmerge exactly like a body-only view
@@ -193,7 +197,7 @@ func confPageFromMeta(meta mirror.Meta) *domain.Resource {
 // a body heading (which also renders as a top-level `## ` line) as body content.
 func extractConfBody(edited, prefix, suffix string) (string, error) {
 	if !strings.HasPrefix(edited, prefix) {
-		return "", fmt.Errorf("%w: generated frontmatter/metadata or the body boundary above editable content changed; run `conf render` only after preserving any edits externally", domain.ErrCheckFailed)
+		return "", fmt.Errorf("%w: generated page metadata or the body boundary above editable content changed; run `conf render` only after preserving any edits externally", domain.ErrCheckFailed)
 	}
 	rest := strings.TrimRight(edited[len(prefix):], "\n")
 	tail := strings.TrimRight(suffix, "\n")

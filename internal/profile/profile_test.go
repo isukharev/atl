@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/safepath"
 )
@@ -89,6 +90,33 @@ func TestProfileRejectsControlCharactersInMirrorRoot(t *testing.T) {
 		if _, _, err := Canonical(p); !errors.Is(err, domain.ErrUsage) {
 			t.Fatalf("Canonical mirror_root %q error = %v", root, err)
 		}
+	}
+}
+
+func TestProfileValidatesAndCanonicalizesConfluencePageFields(t *testing.T) {
+	p := validProfile()
+	p.RenderDefaults = &config.RenderConfig{Confluence: &config.RenderService{
+		PageFields: []config.ConfluenceFieldView{{ID: " updated ", Placement: "section"}},
+	}}
+	_, canonical, err := Canonical(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var normalized Profile
+	if err := json.Unmarshal(canonical, &normalized); err != nil {
+		t.Fatal(err)
+	}
+	got := normalized.RenderDefaults.Confluence.PageFields[0]
+	if got.ID != "updated" || got.Label != "Updated" || got.Format != "datetime" {
+		t.Fatalf("canonical field = %+v", got)
+	}
+
+	bad := validProfile()
+	bad.RenderDefaults = &config.RenderConfig{Jira: &config.RenderService{
+		PageFields: []config.ConfluenceFieldView{{ID: "title"}},
+	}}
+	if _, _, err := Canonical(bad); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("Jira accepted Confluence page_fields: %v", err)
 	}
 }
 

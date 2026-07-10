@@ -82,6 +82,26 @@ func TestConfigSetLocalJiraFieldViews(t *testing.T) {
 	}
 }
 
+func TestConfigSetLocalConfluencePageFields(t *testing.T) {
+	root := t.TempDir()
+	value := `[{"id":"updated","label":"Changed","format":"date"},{"id":"labels","placement":"section"}]`
+	out, code := runCLI(t, nil, "config", "set", "--local", "--into", root, "render.confluence.page_fields", value)
+	if code != exitOK {
+		t.Fatalf("config set page_fields: exit %d (out=%q)", code, out)
+	}
+	b, err := os.ReadFile(filepath.Join(root, ".atl", "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"label": "Changed"`) || !strings.Contains(string(b), `"format": "list"`) {
+		t.Errorf("local config missing normalized page fields:\n%s", b)
+	}
+	_, code = runCLI(t, nil, "config", "set", "--local", "--into", root, "render.jira.page_fields", value)
+	if code != exitUsage {
+		t.Errorf("Jira accepted Confluence page_fields: exit %d, want %d", code, exitUsage)
+	}
+}
+
 // TestConfigSetLocalOutsideMirrorExits2 fails clearly when no mirror is found.
 func TestConfigSetLocalOutsideMirrorExits2(t *testing.T) {
 	dir := t.TempDir() // no .atl anywhere up

@@ -27,6 +27,7 @@ import (
 const (
 	ConfluenceDocumentMarker     = "<!-- atl:document confluence-page v1 -->"
 	ConfluenceMetadataMarker     = "<!-- atl:section metadata readonly -->"
+	ConfluencePageFieldsMarker   = "<!-- atl:section page-fields readonly -->"
 	ConfluenceBodyMarker         = "<!-- atl:section body editable -->"
 	ConfluenceBodyReadOnlyMarker = "<!-- atl:section body readonly -->"
 	ConfluenceCommentsMarker     = "<!-- atl:section comments readonly -->"
@@ -43,15 +44,18 @@ func New(root string) *Mirror { return &Mirror{Root: root} }
 
 // Meta is the per-page sidecar visible to the agent.
 type Meta struct {
-	ID      string       `json:"id"`
-	Title   string       `json:"title"`
-	Space   string       `json:"space"`
-	Version int          `json:"version"`
-	Hash    string       `json:"content_hash"`
-	Parent  string       `json:"parent,omitempty"`
-	Labels  []string     `json:"labels,omitempty"`
-	URL     string       `json:"url,omitempty"`
-	Refs    []domain.Ref `json:"fragments,omitempty"`
+	ID         string       `json:"id"`
+	Title      string       `json:"title"`
+	Space      string       `json:"space"`
+	Version    int          `json:"version"`
+	Hash       string       `json:"content_hash"`
+	Parent     string       `json:"parent,omitempty"`
+	Ancestors  []string     `json:"ancestors,omitempty"`
+	Labels     []string     `json:"labels,omitempty"`
+	Updated    string       `json:"updated,omitempty"`
+	Restricted *bool        `json:"restricted,omitempty"`
+	URL        string       `json:"url,omitempty"`
+	Refs       []domain.Ref `json:"fragments,omitempty"`
 	// CommentsPulled / CommentCount / CommentsTruncated are populated only by a
 	// `pull --comments` (they surface comment presence to a slim .meta.json
 	// read). CommentsPulled is the explicit "comments were fetched" marker, so a
@@ -231,7 +235,7 @@ func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []
 	// fails a pull. The view must also never contradict the source of truth, so
 	// an unparseable body overwrites any previous revision's .md with a stub,
 	// and a failed write falls back to removing the stale file. mdOpts carries the
-	// profile-driven frontmatter/comments additions; a zero value renders exactly
+	// profile-driven generated metadata/comments additions; a zero value renders exactly
 	// the pre-profile body-only view.
 	mdPath := filepath.Join(dir, slug+".md")
 	md := []byte(MDUnavailableStub)
@@ -243,7 +247,8 @@ func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []
 	}
 	meta := Meta{
 		ID: page.ID, Title: page.Title, Space: page.SpaceKey, Version: page.Version,
-		Hash: Hash(page.Body), Parent: page.Parent, Labels: page.Labels, Refs: refs,
+		Hash: Hash(page.Body), Parent: page.Parent, Ancestors: page.Ancestors,
+		Labels: page.Labels, Updated: page.Updated, Restricted: page.Restricted, Refs: refs,
 	}
 	// Comment sidecars are written before the meta so a mid-write failure never
 	// leaves a meta claiming a comment count with no files behind it. The bytes
@@ -329,7 +334,7 @@ func (b *SyncBatch) Write(dir, slug string, page *domain.Resource, refs []domain
 	return b.write(dir, slug, page, refs, nil, MDViewOpts{})
 }
 
-// WriteView is Write with an explicit markdown-view profile (frontmatter, etc.).
+// WriteView is Write with explicit markdown-view additions (metadata, comments).
 func (b *SyncBatch) WriteView(dir, slug string, page *domain.Resource, refs []domain.Ref, mdOpts MDViewOpts) error {
 	return b.write(dir, slug, page, refs, nil, mdOpts)
 }
