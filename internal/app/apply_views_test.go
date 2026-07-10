@@ -109,7 +109,7 @@ func TestApplyFullProfileBodyEditMergesAndRefreshesFull(t *testing.T) {
 		t.Fatalf("body edit not merged: %s", csfNow)
 	}
 	mdNow, _ := os.ReadFile(mdPath)
-	if !strings.HasPrefix(string(mdNow), "---\n") || !strings.Contains(string(mdNow), "## Comments") {
+	if !strings.HasPrefix(string(mdNow), mirror.ConfluenceDocumentMarker+"\n") || !strings.Contains(string(mdNow), mirror.ConfluenceCommentsMarker+"\n## Comments") {
 		t.Fatalf("refreshed .md lost its full decorations:\n%s", mdNow)
 	}
 	if !strings.Contains(string(mdNow), "Hello edited world.") {

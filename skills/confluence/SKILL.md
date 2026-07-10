@@ -35,6 +35,9 @@ explicit `--into <absolute-root>` and obtain separate approval before using the 
 `~` without `eval`, then pass the absolute path as one shell-quoted argument. A previously declined
 sync stays declined until the user approves it. A cleared memory preference does not reset runtime.
 Never silently edit shell/workspace configuration or assume that saved render defaults are active.
+When the user supplies an existing mirror file, its nearest `.atl` root is
+authoritative for that edit/apply/push. A different selected root requires a
+fresh pull there before editing.
 
 ## The canonical loop
 
@@ -86,8 +89,9 @@ If two sibling titles slugify to the same name, the later-pulled page lands in a
 id-suffixed dir (`<page-slug>-<id>/`) — same files inside, nothing overwritten.
 
 **Render profiles** control the `.md` view (the `.csf` substrate is never
-affected). `default`/`minimal` are **body only** — the standard, cheapest read
-view. `full` prepends a YAML frontmatter (title, space, version, labels) and, when
+affected). `default`/`minimal` contain only the body plus generated version/body
+boundaries — the standard, cheapest view. `full` adds YAML metadata (title,
+space, version, labels) and, when
 a `--comments` sidecar is present, appends a `## Comments` section. Set per run
 with `--render-profile full` / `--render-include frontmatter,comments` /
 `--render-exclude ...`, or persist with `atl config set render.confluence.profile
@@ -114,8 +118,18 @@ rewritten, so `conf status` stays clean.
 The `.md` is an **editable surface**: make your edits there with normal text editing (it's
 markdown — no invisible-byte traps), then merge them into the `.csf` block by block:
 
+Before editing, the first line must be exactly
+`<!-- atl:document confluence-page v1 -->`. If it is missing/older and the view
+is pristine, run `conf render` against that exact file/root first. If edits
+already exist, save a private reviewed patch outside the derived `.md`, render,
+then reapply it; render rewrites `.md`. Keep the supplied file's nearest `.atl`
+root throughout.
+An unknown/future version is not a legacy view: stop and update `atl`; do not
+render it with an older binary or downgrade the marker.
+
 ```bash
-atl conf apply <…>/<page-slug>.md
+atl conf apply <…>/<page-slug>.md --dry-run  # review local merge/loss report
+atl conf apply <…>/<page-slug>.md            # write reviewed merge to .csf
 ```
 
 → `{ "report": {unchanged, converted, moved, removed, merged_tables?, removed_fragments?}, "csf_ok", "wrote" }`
@@ -133,7 +147,15 @@ structure). **Exit 8** means apply refused, nothing was written:
   cell) can't be edited via md: make that one edit on the `.csf` directly using
   the decision table in [csf.md](reference/csf.md) (`conf edit` / boundary-anchor splice).
 
-On a `full`-profile page the `.md` has YAML frontmatter and a `## Comments` section: both are
+For a change that mixes supported Markdown body edits with an unsupported
+rowspan/column/nested-table edit, choose one complete plan before touching CSF:
+either omit/revert the complex table edit, apply/validate/push the supported
+body, fresh-pull, then do a separate CSF table cycle; or move the whole combined
+change into one reviewed CSF cycle. Never direct-edit CSF while expecting
+remaining `.md` edits to apply in the same cycle.
+
+Every `.md` has reserved document/body boundaries. On a `full`-profile page it
+also has generated YAML metadata and a `## Comments` section; all generated regions are
 **read-only** — apply reproduces them from the recorded view (`.atl/state.json`) and merges only
 the body between them (an untouched full page applies to a byte-identical `.csf`). Editing the
 frontmatter or Comments is refused (exit 8) — use `conf page update`/`conf page move` or
@@ -254,7 +276,7 @@ For exact edits or unresolved rendering questions, inspect the `.csf` source.
 | Exit 6 | Token lacks permission for this page/space | Surface to the user; they may need a broader-scoped PAT or access |
 | Exit 3 | Token was rejected (expired/revoked/wrong instance) | Re-run `atl auth login --service confluence` with a valid PAT |
 | Exit 2 + "not well-formed" on `page create` | CSF body has structural errors | Fix the CSF (`conf validate body.csf`) before retrying |
-| Exit 8 on `conf apply` | Unconvertible block, dropped fragments, or `.csf` diverged from base | See step 3: fix the marker / edit the `.csf` directly / push or re-pull first |
+| Exit 8 on `conf apply` | Stale view format, reserved marker, unconvertible block, dropped fragments, or `.csf` divergence | Migrate a stale marker before editing; otherwise see step 3 and follow the named recovery |
 | Exit 8 on `page create --from-md` | A markdown block is outside the convertible subset (or the doc is empty) | The error names the block; author that body as CSF via `--from-file` ([csf-authoring.md](reference/csf-authoring.md)) |
 | Exit 8 + "corrupt mirror sidecar" on `status`/`push`/`pull`/`apply` | `.atl/state.json` is unparseable (interrupted edit, disk issue) | Fix the JSON, or delete the file to reset sync state and re-pull (pages read as never-synced until then) |
 | `conf search` requires `--cql` or filter | No query provided | Pass `--cql '<CQL>'` or at least one of `--space/--title/--label/--type` |

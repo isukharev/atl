@@ -189,6 +189,14 @@ sidecar `views` map only, so a later `apply` can reproduce it), so `status` is
 unchanged before and after. Render-resolution warnings go to **stderr**, never
 stdout.
 
+Every Confluence derived page view begins with
+`<!-- atl:document confluence-page v1 -->` and has reserved generated
+metadata/body/comments boundaries. `conf apply` rejects missing, legacy, or
+unknown versions and reserved marker text inside the editable body before any
+substrate write. Legacy/unmarked migration uses `conf render` or a fresh pull;
+callers preserve and reapply existing edits because render replaces `.md`.
+Unknown/future versions require an updated binary and must not be downgraded.
+
 `atl jira status [DIR] [--remote]` emits `{ "entries": [ { "path", "key", "locally_edited",
 "synced", "pending_fields"?, "local_error"?, "remote_drifted"?, "field_drifted"?, "remote_error"? }, ... ] }`.
 `locally_edited` is true when the `.wiki` differs from the pulled base or a configured field is

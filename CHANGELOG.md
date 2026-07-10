@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Versioned Confluence derived views.** Every page view and unavailable-view
+  stub now carries a versioned document marker plus stable generated section
+  boundaries. Apply rejects stale/unknown formats and reserved-marker collisions
+  before writes and no longer falls back to ambiguous raw Markdown when the
+  pristine CSF cannot be parsed.
+
 - **Versioned Jira views and bounded private workflow state.** Jira derived
   views now carry an explicit format version and apply refuses stale, missing,
   or unknown markers before writes. Profile paths reject control characters;

@@ -72,7 +72,7 @@ func TestConfRenderFullAddsFrontmatterAndComments(t *testing.T) {
 		t.Fatal(err)
 	}
 	md := mustReadFile(t, filepath.Join(dir, slug+".md"))
-	if !strings.HasPrefix(md, "---\ntitle: My Page\nspace: DOCS\nversion: 3\nlabels: [a, b]\n---\n") {
+	if !strings.HasPrefix(md, mirror.ConfluenceDocumentMarker+"\n"+mirror.ConfluenceMetadataMarker+"\n---\ntitle: My Page\nspace: DOCS\nversion: 3\nlabels: [a, b]\n---\n") {
 		t.Errorf("full render missing frontmatter:\n%s", md)
 	}
 	if !strings.Contains(md, "## Comments") || !strings.Contains(md, "**alice** (2026-01-01):") {

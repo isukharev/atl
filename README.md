@@ -251,9 +251,10 @@ rg "decision" mirror/
 ### 3. Edit, validate & push
 
 ```sh
-# Easiest: edit the markdown view, then merge it into the .csf block-by-block.
+# Easiest: ensure the v1 document marker, edit the markdown view, then merge it into .csf.
 # Untouched blocks keep their exact bytes; unconvertible edits fail closed.
 $EDITOR mirror/DOCS/acme-adr/acme-adr.md
+atl conf apply mirror/DOCS/acme-adr/acme-adr.md --dry-run
 atl conf apply mirror/DOCS/acme-adr/acme-adr.md
 
 # Or edit the native storage format directly

@@ -16,7 +16,8 @@ func render(t *testing.T, snippet string, refs []domain.Ref) string {
 	if err != nil {
 		t.Fatalf("parse %q: %v", snippet, err)
 	}
-	return string(RenderMarkdown(root, refs))
+	_, body, _ := RenderMarkdownViewParts(root, refs, MDViewOpts{})
+	return body
 }
 
 func mustContain(t *testing.T, md string, wants ...string) {

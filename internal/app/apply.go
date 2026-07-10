@@ -78,16 +78,21 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", domain.ErrNotFound, err)
 	}
+	edited := normalizeMD(string(rawEdited))
+	if strings.HasPrefix(edited, "---\n") {
+		return nil, fmt.Errorf("%w: this is a legacy YAML-headed Confluence view; save edits outside the derived view, run `conf render` (or pull again), then reapply them", domain.ErrCheckFailed)
+	}
+	if err := validateConfluenceDocumentMarker(edited); err != nil {
+		return nil, err
+	}
 
 	dir := filepath.Dir(csfPath)
 	slug := strings.TrimSuffix(filepath.Base(csfPath), ".csf")
 
-	// Resolve the recorded view state: it says whether the .md carries read-only
-	// decorations (a full-profile YAML frontmatter and/or a "## Comments" section)
-	// that must be anchored out before the merge. A corrupt sidecar is already
-	// ErrCheckFailed — propagate it. No recorded view (a pre-upgrade mirror or a
-	// body-only render) keeps today's byte path: the raw edited bytes go straight
-	// to mdmerge, so an existing mirror is unaffected.
+	// Resolve the recorded view state and reproduce the exact generated prefix /
+	// suffix around the editable body. A corrupt sidecar is already
+	// ErrCheckFailed — propagate it. A pre-version mirror must first be rendered
+	// again because its document marker was rejected above.
 	vs, hasView, verr := m.ViewStateOf(lc.Meta.ID)
 	if verr != nil {
 		return nil, verr
@@ -95,25 +100,16 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 	rsView := settingsFromViewState(vs)
 	decorated := hasView && (rsView.On(SecFrontmatter) || rsView.On(SecComments))
 
-	mergeInput := string(rawEdited)
-	if decorated {
-		// The view was written with frontmatter/comments. Feeding those raw into
-		// mdmerge would convert them into new CSF blocks (the injection bug), so
-		// reproduce the pristine prefix/suffix from the BASE csf and anchor-extract
-		// only the editable body. If the base cannot be parsed (it always should —
-		// it was pulled), fall back to the raw path rather than fail the apply.
-		if node, perr := csf.Parse(base); perr == nil {
-			page := confPageFromMeta(lc.Meta)
-			mdOpts := confMDViewOpts(rsView, page, readCommentsSidecar(m.Root, dir, slug))
-			prefix, _, suffix := mirror.RenderMarkdownViewParts(node, lc.Meta.Refs, mdOpts)
-			body, aerr := extractConfBody(normalizeMD(string(rawEdited)), prefix, suffix)
-			if aerr != nil {
-				return nil, aerr
-			}
-			mergeInput = body
-		} else {
-			decorated = false
-		}
+	node, perr := csf.Parse(base)
+	if perr != nil {
+		return nil, fmt.Errorf("%w: pristine CSF for page %s no longer parses; re-pull before applying Markdown edits: %v", domain.ErrCheckFailed, lc.Meta.ID, perr)
+	}
+	page := confPageFromMeta(lc.Meta)
+	mdOpts := confMDViewOpts(rsView, page, readCommentsSidecar(m.Root, dir, slug))
+	prefix, _, suffix := mirror.RenderMarkdownViewParts(node, lc.Meta.Refs, mdOpts)
+	mergeInput, err := extractConfBody(edited, prefix, suffix)
+	if err != nil {
+		return nil, err
 	}
 
 	out, rep, err := mdmerge.Merge(base, lc.Meta.Refs, mergeInput, mdmerge.Options{
@@ -149,7 +145,7 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 		if decorated {
 			md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, confMDViewOpts(rsView, confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug)))
 		} else {
-			md = mirror.RenderMarkdown(root2, lc.Meta.Refs)
+			md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, mirror.MDViewOpts{})
 		}
 	}
 	if werr := safepath.WriteFileWithin(m.Root, mdPath, md, 0o644); werr != nil {
@@ -192,7 +188,7 @@ func confPageFromMeta(meta mirror.Meta) *domain.Resource {
 // a body heading (which also renders as a top-level `## ` line) as body content.
 func extractConfBody(edited, prefix, suffix string) (string, error) {
 	if !strings.HasPrefix(edited, prefix) {
-		return "", fmt.Errorf("%w: the frontmatter above the body is read-only in the md view — edit page metadata with `conf page update` / `conf page move`", domain.ErrCheckFailed)
+		return "", fmt.Errorf("%w: generated frontmatter/metadata or the body boundary above editable content changed; run `conf render` only after preserving any edits externally", domain.ErrCheckFailed)
 	}
 	rest := strings.TrimRight(edited[len(prefix):], "\n")
 	tail := strings.TrimRight(suffix, "\n")
@@ -202,5 +198,20 @@ func extractConfBody(edited, prefix, suffix string) (string, error) {
 		}
 		rest = rest[:len(rest)-len(tail)]
 	}
-	return strings.Trim(rest, "\n") + "\n", nil
+	body := strings.Trim(rest, "\n") + "\n"
+	if strings.Contains(body, mirror.ConfluenceReservedPrefix) {
+		return "", fmt.Errorf("%w: editable Confluence body contains reserved atl document/section marker text", domain.ErrCheckFailed)
+	}
+	return body, nil
+}
+
+func validateConfluenceDocumentMarker(edited string) error {
+	first, _, _ := strings.Cut(edited, "\n")
+	if first == mirror.ConfluenceDocumentMarker {
+		return nil
+	}
+	if strings.HasPrefix(first, "<!-- atl:document confluence-page") {
+		return fmt.Errorf("%w: unsupported Confluence view format marker %q; preserve edits and update atl before opening this view — do not render or downgrade it with this binary", domain.ErrCheckFailed, first)
+	}
+	return fmt.Errorf("%w: missing Confluence view format marker %q; save edits outside the derived view, run `conf render` (or pull again), then reapply them", domain.ErrCheckFailed, mirror.ConfluenceDocumentMarker)
 }
