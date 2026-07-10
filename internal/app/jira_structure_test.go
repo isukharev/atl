@@ -1,10 +1,46 @@
 package app
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/isukharev/atl/internal/domain"
 )
+
+func TestStructureExportCSVNeutralizesFormulaCellsByDefault(t *testing.T) {
+	doc := StructureExportDocument{Rows: []StructureExportRow{{
+		RowID: 1, ItemType: "@folder", ItemID: "+item", IssueKey: "PROJ-1",
+		Fields: map[string]any{
+			"summary": "=HYPERLINK(\"https://example.invalid\")",
+			"=field":  "-formula",
+		},
+	}}}
+	safe, err := renderStructureExportCSV(doc, []string{"summary", "=field"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"'@folder", "'+item", "'=field", "'=HYPERLINK", "'-formula"} {
+		if !strings.Contains(string(safe), want) {
+			t.Fatalf("safe CSV missing %q: %q", want, safe)
+		}
+	}
+	raw, err := renderStructureExportCSV(doc, []string{"summary", "=field"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "'=HYPERLINK") || !strings.Contains(string(raw), "=HYPERLINK") {
+		t.Fatalf("raw CSV = %q", raw)
+	}
+}
+
+func TestStructureExportRawCSVRequiresCSVFormat(t *testing.T) {
+	svc := &JiraService{}
+	_, err := svc.StructureExport(t.Context(), 1, StructureExportOpts{Format: "json", Out: "out.json", RawCSV: true})
+	if !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("error = %v, want usage", err)
+	}
+}
 
 func TestParseStructureRowsBuildsHierarchyAndItemTypes(t *testing.T) {
 	forest := &domain.StructureForest{

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,36 @@ import (
 
 	"github.com/isukharev/atl/internal/domain"
 )
+
+func TestPlanningCSVNeutralizesFormulaCellsByDefault(t *testing.T) {
+	rows := []PlanningIssueQuality{{
+		Key: "=KEY", Level: "+level", Gaps: []string{"@gap", "-risk"}, Children: []string{"=CHILD"},
+	}}
+	safe, err := renderPlanningCSV(rows, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"'=KEY", "'+level", "'@gap", "'=CHILD"} {
+		if !strings.Contains(string(safe), want) {
+			t.Fatalf("safe CSV missing %q: %q", want, safe)
+		}
+	}
+	raw, err := renderPlanningCSV(rows, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "'=KEY") || !strings.Contains(string(raw), "=KEY") {
+		t.Fatalf("raw CSV = %q", raw)
+	}
+}
+
+func TestPlanningRawCSVRequiresCSVPath(t *testing.T) {
+	svc := &JiraService{}
+	_, err := svc.PlanningReport(context.Background(), PlanningReportOpts{JQL: "project = PROJ", RawCSV: true})
+	if !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("error = %v, want usage", err)
+	}
+}
 
 func TestExtractPlanningRefsClassifiesAndDedupes(t *testing.T) {
 	refs := ExtractPlanningRefs("See https://figma.com/file/abc and https://docs.example.com/spec. Again https://figma.com/file/abc")

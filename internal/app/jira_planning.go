@@ -25,6 +25,7 @@ type PlanningReportOpts struct {
 	EpicField     string
 	Limit         int
 	CSVPath       string
+	RawCSV        bool
 }
 
 type PlanningReport struct {
@@ -123,6 +124,9 @@ func (s *JiraService) PlanningReport(ctx context.Context, opts PlanningReportOpt
 	if strings.TrimSpace(opts.JQL) == "" {
 		return nil, fmt.Errorf("%w: --jql is required", domain.ErrUsage)
 	}
+	if opts.RawCSV && strings.TrimSpace(opts.CSVPath) == "" {
+		return nil, fmt.Errorf("%w: --raw-csv requires --csv", domain.ErrUsage)
+	}
 	fields := planningFields(opts)
 	issues, err := s.collectPlanningIssues(ctx, opts.JQL, fields, opts.Limit)
 	if err != nil {
@@ -141,7 +145,7 @@ func (s *JiraService) PlanningReport(ctx context.Context, opts PlanningReportOpt
 		}
 	}
 	if opts.CSVPath != "" {
-		data, err := renderPlanningCSV(rows)
+		data, err := renderPlanningCSV(rows, opts.RawCSV)
 		if err != nil {
 			return nil, err
 		}
@@ -451,14 +455,14 @@ func classifyPlanningRef(raw string) string {
 	}
 }
 
-func renderPlanningCSV(rows []PlanningIssueQuality) ([]byte, error) {
+func renderPlanningCSV(rows []PlanningIssueQuality, rawCSV bool) ([]byte, error) {
 	var b bytes.Buffer
 	w := csv.NewWriter(&b)
-	if err := w.Write([]string{"key", "level", "score", "max_score", "gaps", "refs", "children"}); err != nil {
+	if err := w.Write(spreadsheetRecord([]string{"key", "level", "score", "max_score", "gaps", "refs", "children"}, rawCSV)); err != nil {
 		return nil, err
 	}
 	for _, row := range rows {
-		if err := w.Write([]string{
+		if err := w.Write(spreadsheetRecord([]string{
 			row.Key,
 			row.Level,
 			fmt.Sprint(row.Score),
@@ -466,7 +470,7 @@ func renderPlanningCSV(rows []PlanningIssueQuality) ([]byte, error) {
 			strings.Join(row.Gaps, ";"),
 			fmt.Sprint(len(row.Refs)),
 			strings.Join(row.Children, ";"),
-		}); err != nil {
+		}, rawCSV)); err != nil {
 			return nil, err
 		}
 	}

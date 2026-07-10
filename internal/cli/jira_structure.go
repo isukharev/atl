@@ -198,6 +198,7 @@ func jiraStructureCmd() *cobra.Command {
 
 	var exportRoot, exportRootFields, exportFields, exportFormat, exportOut string
 	var exportBatchSize, exportLimit int
+	var exportRawCSV bool
 	exportCmd := &cobra.Command{
 		Use:   "export <STRUCTURE-ID>",
 		Short: "Write an offline Structure tree export with Jira issue fields",
@@ -219,6 +220,7 @@ func jiraStructureCmd() *cobra.Command {
 				Limit:      exportLimit,
 				Format:     exportFormat,
 				Out:        exportOut,
+				RawCSV:     exportRawCSV,
 			})
 			if err != nil {
 				return err
@@ -235,6 +237,7 @@ func jiraStructureCmd() *cobra.Command {
 	exportCmd.Flags().IntVar(&exportLimit, "limit", 0, "maximum Jira issues to fetch (0 means no limit)")
 	exportCmd.Flags().StringVar(&exportFormat, "format", "json", "export format: json, csv, or md")
 	exportCmd.Flags().StringVar(&exportOut, "out", "", "required output file path")
+	exportCmd.Flags().BoolVar(&exportRawCSV, "raw-csv", false, "write formula-leading CSV cells verbatim (unsafe in spreadsheets)")
 
 	c.AddCommand(get, forest, rows, values, pullIssues, exportCmd)
 	return c

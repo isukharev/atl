@@ -56,6 +56,7 @@ type StructureExportOpts struct {
 	Limit      int
 	Format     string
 	Out        string
+	RawCSV     bool
 }
 
 // StructureExportResult describes a written Structure export.
@@ -201,6 +202,9 @@ func (s *JiraService) StructureExport(ctx context.Context, id int64, opts Struct
 	if strings.TrimSpace(opts.Out) == "" || opts.Out == "-" {
 		return nil, fmt.Errorf("%w: --out is required and must be a file path", domain.ErrUsage)
 	}
+	if opts.RawCSV && format != "csv" {
+		return nil, fmt.Errorf("%w: --raw-csv requires --format csv", domain.ErrUsage)
+	}
 	pulled, err := s.StructurePullIssues(ctx, id, StructureIssuePullOpts{
 		Root:       opts.Root,
 		RootFields: opts.RootFields,
@@ -212,7 +216,7 @@ func (s *JiraService) StructureExport(ctx context.Context, id int64, opts Struct
 		return nil, err
 	}
 	doc := structureExportDocument(id, pulled.Version, pulled.Rows, pulled.IssueIDs, pulled.Issues)
-	data, err := renderStructureExport(format, doc, opts.Fields)
+	data, err := renderStructureExport(format, doc, opts.Fields, opts.RawCSV)
 	if err != nil {
 		return nil, err
 	}
@@ -492,7 +496,7 @@ func structureExportDocument(id int64, version *domain.StructureVersion, rows []
 	return StructureExportDocument{StructureID: id, Version: version, Rows: exportRows, IssueIDs: issueIDs, Issues: issues}
 }
 
-func renderStructureExport(format string, doc StructureExportDocument, fields []string) ([]byte, error) {
+func renderStructureExport(format string, doc StructureExportDocument, fields []string, rawCSV bool) ([]byte, error) {
 	switch format {
 	case "json":
 		b, err := json.MarshalIndent(doc, "", "  ")
@@ -501,7 +505,7 @@ func renderStructureExport(format string, doc StructureExportDocument, fields []
 		}
 		return append(b, '\n'), nil
 	case "csv":
-		return renderStructureExportCSV(doc, exportFields(fields))
+		return renderStructureExportCSV(doc, exportFields(fields), rawCSV)
 	case "md":
 		return renderStructureExportMarkdown(doc, exportFields(fields)), nil
 	default:
@@ -509,11 +513,11 @@ func renderStructureExport(format string, doc StructureExportDocument, fields []
 	}
 }
 
-func renderStructureExportCSV(doc StructureExportDocument, fields []string) ([]byte, error) {
+func renderStructureExportCSV(doc StructureExportDocument, fields []string, rawCSV bool) ([]byte, error) {
 	var b bytes.Buffer
 	w := csv.NewWriter(&b)
 	header := append([]string{"row_id", "depth", "parent_row_id", "item_type", "item_id", "issue_key", "issue_id"}, fields...)
-	if err := w.Write(header); err != nil {
+	if err := w.Write(spreadsheetRecord(header, rawCSV)); err != nil {
 		return nil, err
 	}
 	for _, row := range doc.Rows {
@@ -529,7 +533,7 @@ func renderStructureExportCSV(doc StructureExportDocument, fields []string) ([]b
 		for _, field := range fields {
 			record = append(record, csvFieldValue(row.Fields[field]))
 		}
-		if err := w.Write(record); err != nil {
+		if err := w.Write(spreadsheetRecord(record, rawCSV)); err != nil {
 			return nil, err
 		}
 	}
