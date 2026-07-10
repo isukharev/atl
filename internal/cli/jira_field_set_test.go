@@ -65,6 +65,9 @@ func TestJiraIssueFieldSetDryRunConvertsMarkdownAndCapturesUpdated(t *testing.T)
 	if res.Status != "would_apply" || res.ExpectedUpdated != "2026-07-10T10:00:00.000+0000" || putCalls != 0 {
 		t.Fatalf("result=%+v putCalls=%d", res, putCalls)
 	}
+	if len(res.ProposalHash) != 64 {
+		t.Fatalf("proposal hash = %q", res.ProposalHash)
+	}
 	if len(res.Fields) != 1 || res.Fields[0].Value != "h1. Progress\n\nDone." || res.Fields[0].Kind != "string" {
 		t.Fatalf("Markdown proposal = %+v", res.Fields)
 	}
@@ -84,12 +87,24 @@ func TestJiraIssueFieldSetApplySendsExplicitStringAndObject(t *testing.T) {
 	putCalls := 0
 	srv := fieldSetServer(t, "fresh", &put, &putCalls)
 	t.Cleanup(srv.Close)
-
-	out, code := runCLI(t, jiraEnv(srv), "jira", "issue", "field", "set", "ENG-1",
-		"--from-md", "customfield_1="+textPath,
-		"--from-file", "customfield_2="+objectPath,
+	baseArgs := []string{
+		"jira", "issue", "field", "set", "ENG-1",
+		"--from-md", "customfield_1=" + textPath,
+		"--from-file", "customfield_2=" + objectPath,
 		"--allow-fields", "customfield_1,customfield_2",
-		"--expected-updated", "fresh", "--apply")
+	}
+	previewOut, code := runCLI(t, jiraEnv(srv), baseArgs...)
+	if code != exitOK {
+		t.Fatalf("field set preview: exit=%d stdout=%s", code, previewOut)
+	}
+	var preview app.JiraFieldSetResult
+	if err := json.Unmarshal([]byte(previewOut), &preview); err != nil {
+		t.Fatal(err)
+	}
+
+	applyArgs := append(append([]string(nil), baseArgs...),
+		"--expected-updated", "fresh", "--expected-proposal-hash", preview.ProposalHash, "--apply")
+	out, code := runCLI(t, jiraEnv(srv), applyArgs...)
 	if code != exitOK || putCalls != 1 {
 		t.Fatalf("field set apply: exit=%d putCalls=%d stdout=%s", code, putCalls, out)
 	}
@@ -110,12 +125,56 @@ func TestJiraIssueFieldSetStaleApplyReturnsExit8WithoutWrite(t *testing.T) {
 	putCalls := 0
 	srv := fieldSetServer(t, "fresh", &put, &putCalls)
 	t.Cleanup(srv.Close)
+	baseArgs := []string{
+		"jira", "issue", "field", "set", "ENG-1", "--from-file", "customfield_1=" + path,
+		"--allow-fields", "customfield_1",
+	}
+	previewOut, code := runCLI(t, jiraEnv(srv), baseArgs...)
+	if code != exitOK {
+		t.Fatalf("preview: exit=%d stdout=%s", code, previewOut)
+	}
+	var preview app.JiraFieldSetResult
+	if err := json.Unmarshal([]byte(previewOut), &preview); err != nil {
+		t.Fatal(err)
+	}
 
-	out, code := runCLI(t, jiraEnv(srv), "jira", "issue", "field", "set", "ENG-1",
-		"--from-file", "customfield_1="+path, "--allow-fields", "customfield_1",
-		"--expected-updated", "stale", "--apply")
+	applyArgs := append(append([]string(nil), baseArgs...),
+		"--expected-updated", "stale", "--expected-proposal-hash", preview.ProposalHash, "--apply")
+	out, code := runCLI(t, jiraEnv(srv), applyArgs...)
 	if code != exitCheckFailed || putCalls != 0 || !strings.Contains(out, `"status": "blocked"`) {
 		t.Fatalf("stale apply: exit=%d putCalls=%d stdout=%s", code, putCalls, out)
+	}
+}
+
+func TestJiraIssueFieldSetChangedFileFailsProposalHashBeforeWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "value.txt")
+	if err := os.WriteFile(path, []byte("reviewed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var put map[string]any
+	putCalls := 0
+	srv := fieldSetServer(t, "fresh", &put, &putCalls)
+	t.Cleanup(srv.Close)
+	baseArgs := []string{
+		"jira", "issue", "field", "set", "ENG-1", "--from-file", "customfield_1=" + path,
+		"--allow-fields", "customfield_1",
+	}
+	previewOut, code := runCLI(t, jiraEnv(srv), baseArgs...)
+	if code != exitOK {
+		t.Fatalf("preview: exit=%d stdout=%s", code, previewOut)
+	}
+	var preview app.JiraFieldSetResult
+	if err := json.Unmarshal([]byte(previewOut), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("changed after review"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	applyArgs := append(append([]string(nil), baseArgs...),
+		"--expected-updated", "fresh", "--expected-proposal-hash", preview.ProposalHash, "--apply")
+	out, code := runCLI(t, jiraEnv(srv), applyArgs...)
+	if code != exitCheckFailed || putCalls != 0 || !strings.Contains(out, `"status": "blocked"`) {
+		t.Fatalf("changed-file apply: exit=%d puts=%d stdout=%s", code, putCalls, out)
 	}
 }
 

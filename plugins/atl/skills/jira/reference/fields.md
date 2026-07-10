@@ -56,8 +56,8 @@ guarded file command, which previews by default:
 atl jira issue field set PROJ-1 \
   --from-md customfield_10050=progress.md \
   --allow-fields customfield_10050
-# review expected_updated and normalized value, then repeat with:
-# --expected-updated '<exact value>' --apply
+# review expected_updated, proposal_hash, and normalized values, then repeat with:
+# --expected-updated '<exact value>' --expected-proposal-hash '<exact hash>' --apply
 ```
 
 `--from-md FIELD=PATH` always converts to a Jira-wiki **string**.
@@ -65,7 +65,8 @@ atl jira issue field set PROJ-1 \
 all other bytes are an exact string. The files/stdin and normalized proposals
 are capped at 64 MiB in aggregate. Only Jira custom fields named in the exact
 `--allow-fields` list are accepted. A stale `updated` value blocks with exit 8;
-an already-satisfied value does not write.
+a changed input file also blocks because apply requires the reviewed aggregate
+`proposal_hash`. An already-satisfied value does not write after both gates pass.
 
 ## Editing a large description / epic body as a file
 

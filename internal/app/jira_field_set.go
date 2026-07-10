@@ -25,10 +25,11 @@ type JiraFieldProposal struct {
 
 // JiraFieldSetOpts controls guarded custom-field preview/apply.
 type JiraFieldSetOpts struct {
-	Proposals       []JiraFieldProposal
-	AllowFields     []string
-	ExpectedUpdated string
-	Apply           bool
+	Proposals            []JiraFieldProposal
+	AllowFields          []string
+	ExpectedUpdated      string
+	ExpectedProposalHash string
+	Apply                bool
 }
 
 type JiraFieldSetResult struct {
@@ -37,6 +38,7 @@ type JiraFieldSetResult struct {
 	Status          string                `json:"status"`
 	ExpectedUpdated string                `json:"expected_updated"`
 	ActualUpdated   string                `json:"actual_updated"`
+	ProposalHash    string                `json:"proposal_hash"`
 	Reconciled      bool                  `json:"reconciled,omitempty"`
 	Fields          []JiraFieldSetPreview `json:"fields"`
 }
@@ -74,6 +76,9 @@ func (s *JiraService) SetFieldsGuarded(ctx context.Context, key string, opts Jir
 	if opts.Apply && strings.TrimSpace(opts.ExpectedUpdated) == "" {
 		return nil, fmt.Errorf("%w: --expected-updated is required with --apply; run the dry-run first to capture it", domain.ErrUsage)
 	}
+	if opts.Apply && strings.TrimSpace(opts.ExpectedProposalHash) == "" {
+		return nil, fmt.Errorf("%w: --expected-proposal-hash is required with --apply; run the dry-run first to capture it", domain.ErrUsage)
+	}
 	allowed := exactAllowSet(opts.AllowFields)
 	if len(allowed) == 0 {
 		return nil, fmt.Errorf("%w: --allow-fields is required", domain.ErrUsage)
@@ -82,6 +87,20 @@ func (s *JiraService) SetFieldsGuarded(ctx context.Context, key string, opts Jir
 	proposals, values, err := normalizeFieldProposals(opts.Proposals, allowed)
 	if err != nil {
 		return nil, err
+	}
+	proposalHash, err := jiraFieldProposalHash(proposals)
+	if err != nil {
+		return nil, err
+	}
+	mode := "dry-run"
+	if opts.Apply {
+		mode = "apply"
+	}
+	if opts.Apply && strings.TrimSpace(opts.ExpectedProposalHash) != proposalHash {
+		return &JiraFieldSetResult{
+			Key: key, Mode: mode, Status: "blocked", ExpectedUpdated: strings.TrimSpace(opts.ExpectedUpdated),
+			ProposalHash: proposalHash, Fields: proposals,
+		}, fmt.Errorf("%w: field proposal changed since review: expected hash %q, got %q", domain.ErrCheckFailed, strings.TrimSpace(opts.ExpectedProposalHash), proposalHash)
 	}
 	defs, err := s.tr.Fields(ctx)
 	if err != nil {
@@ -119,14 +138,10 @@ func (s *JiraService) SetFieldsGuarded(ctx context.Context, key string, opts Jir
 	if expectedUpdated == "" {
 		expectedUpdated = actualUpdated
 	}
-	mode := "dry-run"
-	if opts.Apply {
-		mode = "apply"
-	}
 	result := &JiraFieldSetResult{
 		Key: key, Mode: mode, Status: "would_apply",
 		ExpectedUpdated: expectedUpdated, ActualUpdated: actualUpdated,
-		Fields: proposals,
+		ProposalHash: proposalHash, Fields: proposals,
 	}
 
 	if fieldProposalsSatisfied(issue, proposals, values) {
@@ -172,6 +187,29 @@ func (s *JiraService) SetFieldsGuarded(ctx context.Context, key string, opts Jir
 	}
 	result.Status = "applied"
 	return result, nil
+}
+
+// jiraFieldProposalHash binds a review to the complete normalized proposal set,
+// independent of CLI input order. The per-field preview hashes remain useful to
+// humans, while this aggregate hash is the single apply gate.
+func jiraFieldProposalHash(previews []JiraFieldSetPreview) (string, error) {
+	type hashEntry struct {
+		Field  string `json:"field"`
+		Source string `json:"source"`
+		Kind   string `json:"kind"`
+		Value  any    `json:"value"`
+	}
+	entries := make([]hashEntry, len(previews))
+	for i, preview := range previews {
+		entries[i] = hashEntry{Field: preview.Field, Source: preview.Source, Kind: preview.Kind, Value: preview.Value}
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Field < entries[j].Field })
+	encoded, err := json.Marshal(entries)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize Jira field proposal: %w", err)
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 func normalizeFieldProposals(input []JiraFieldProposal, allowed map[string]bool) ([]JiraFieldSetPreview, map[string]any, error) {

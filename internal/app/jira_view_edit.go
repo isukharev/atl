@@ -82,5 +82,10 @@ func extractJiraEditableRegions(edited, pristine string, regions []jiraEditableR
 	if remainingEdited != remainingPristine {
 		return nil, fmt.Errorf("%w: generated/read-only Jira view suffix changed", domain.ErrCheckFailed)
 	}
+	for id, value := range values {
+		if strings.Contains(value, "<!-- atl:section ") || strings.Contains(value, "<!-- atl:document ") {
+			return nil, fmt.Errorf("%w: editable Jira region %q contains a reserved atl marker; remove it or edit the native .wiki substrate", domain.ErrCheckFailed, id)
+		}
+	}
 	return values, nil
 }

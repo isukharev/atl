@@ -18,14 +18,14 @@ import (
 func jiraIssueFieldCmd() *cobra.Command {
 	group := &cobra.Command{Use: "field", Short: "Guarded custom-field operations"}
 	var rawSpecs, mdSpecs []string
-	var allowFields, expectedUpdated string
+	var allowFields, expectedUpdated, expectedProposalHash string
 	var apply bool
 	set := &cobra.Command{
 		Use:   "set <KEY>",
 		Short: "Preview or apply bounded file-backed custom-field values",
 		Long: "Read custom-field values from bounded files/stdin, fresh-check Jira updated, and preview by default. " +
 			"Raw valid JSON objects/arrays stay structured; other raw input is a string. Markdown is converted to a Jira-wiki string. " +
-			"Apply requires --expected-updated from a reviewed dry-run.",
+			"Apply requires --expected-updated and --expected-proposal-hash from a reviewed dry-run.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			proposals, err := jiraFieldProposals(rawSpecs, mdSpecs)
@@ -38,7 +38,7 @@ func jiraIssueFieldCmd() *cobra.Command {
 			}
 			res, setErr := svc.SetFieldsGuarded(cmd.Context(), args[0], app.JiraFieldSetOpts{
 				Proposals: proposals, AllowFields: splitFields(allowFields),
-				ExpectedUpdated: expectedUpdated, Apply: apply,
+				ExpectedUpdated: expectedUpdated, ExpectedProposalHash: expectedProposalHash, Apply: apply,
 			})
 			if res != nil {
 				if emitErr := emit(cmd, res, func() string { return jiraFieldSetText(res) }); emitErr != nil {
@@ -52,6 +52,7 @@ func jiraIssueFieldCmd() *cobra.Command {
 	set.Flags().StringArrayVar(&mdSpecs, "from-md", nil, "FIELD=PATH Markdown file (repeatable; - reads stdin; converted to a Jira-wiki string)")
 	set.Flags().StringVar(&allowFields, "allow-fields", "", "comma-separated exact custom field ids allowed by this operation (required)")
 	set.Flags().StringVar(&expectedUpdated, "expected-updated", "", "reviewed Jira updated value (required with --apply; dry-run captures it)")
+	set.Flags().StringVar(&expectedProposalHash, "expected-proposal-hash", "", "reviewed aggregate proposal hash (required with --apply; dry-run captures it)")
 	set.Flags().BoolVar(&apply, "apply", false, "perform the guarded write (default: dry-run)")
 	group.AddCommand(set)
 	return group
@@ -155,7 +156,7 @@ func rawJiraFieldValue(data []byte) any {
 
 func jiraFieldSetText(res *app.JiraFieldSetResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s\t%s\t%s\texpected_updated=%s", res.Key, res.Mode, res.Status, res.ExpectedUpdated)
+	fmt.Fprintf(&b, "%s\t%s\t%s\texpected_updated=%s\tproposal_hash=%s", res.Key, res.Mode, res.Status, res.ExpectedUpdated, res.ProposalHash)
 	for _, field := range res.Fields {
 		fmt.Fprintf(&b, "\n%s\t%s\t%d bytes\tsha256=%s", field.Field, field.Kind, field.Bytes, field.SHA256)
 	}

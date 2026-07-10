@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Hash-bound Jira field review and reserved view markers.** File-backed custom-field apply now
+  requires the aggregate normalized proposal hash returned by dry-run in addition to Jira
+  `updated`, so a changed file cannot bypass review. Jira apply also rejects reserved document or
+  section markers inside editable values before writing substrate or pending state.
+
 - **Complete CSV spreadsheet safety.** Structure and planning CSV outputs now use the same default
   formula neutralization as primary Jira and Confluence exports, with an explicit CSV-only
   `--raw-csv` escape hatch for trusted non-spreadsheet consumers.

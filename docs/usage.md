@@ -1383,7 +1383,7 @@ Flags:
 Preview or atomically apply one or more large custom-field values from bounded
 files. The value itself never appears in argv. Preview is the default and
 fresh-reads the selected fields plus Jira `updated`; its result supplies the
-`expected_updated` value required by a later apply.
+`expected_updated` and aggregate `proposal_hash` required by a later apply.
 
 ```bash
 # Markdown is converted fail-closed to a Jira-wiki string
@@ -1391,11 +1391,12 @@ atl jira issue field set PROJ-1 \
   --from-md customfield_10001=progress.md \
   --allow-fields customfield_10001
 
-# Re-run the same command with the reviewed timestamp to write
+# Re-run the same command with both reviewed gates to write
 atl jira issue field set PROJ-1 \
   --from-md customfield_10001=progress.md \
   --allow-fields customfield_10001 \
-  --expected-updated '2026-01-02T03:04:05.000+0000' --apply
+  --expected-updated '2026-01-02T03:04:05.000+0000' \
+  --expected-proposal-hash '<proposal_hash>' --apply
 
 # Raw files: valid JSON objects/arrays stay structured; everything else is an exact string
 atl jira issue field set PROJ-1 \
@@ -1407,10 +1408,12 @@ atl jira issue field set PROJ-1 \
 Only Jira fields marked custom in field metadata are accepted. Each input must
 also be named in the exact `--allow-fields` policy. Use the dedicated commands
 for summary, Description, labels, assignee, links, comments, and transitions.
-Multiple fields are sent in one PUT, so one reviewed timestamp covers the
-atomic request. Already-satisfied values are a no-op; a stale timestamp emits a
-`blocked` result and exits 8 without writing. Jira has no server-side CAS, so a
-narrow read-to-write TOCTOU window remains.
+Multiple fields are sent in one PUT. The reviewed timestamp covers the remote
+issue state, while one deterministic proposal hash covers every normalized
+field value independent of CLI input order. A changed input file or stale
+timestamp emits a `blocked` result and exits 8 without writing.
+Already-satisfied values are a no-op after both gates pass. Jira has no
+server-side CAS, so a narrow read-to-write TOCTOU window remains.
 
 Raw parsing is deliberately small: only valid JSON whose top level is an object
 or array becomes structured. JSON-looking scalars (`true`, `7`, `null`) and
@@ -1418,8 +1421,8 @@ malformed/object-like text stay strings. `--from-md` always produces a string,
 even when its rendered Jira wiki happens to look like JSON. Aggregate input and
 normalized output are each capped at 64 MiB; stdin (`FIELD=-`) may be used once.
 
-Default JSON includes each normalized proposed `value`, its `kind`, byte size,
-and SHA-256. That stdout is the review artifact and may contain private issue
+Default JSON includes the aggregate `proposal_hash` plus each normalized
+proposed `value`, its `kind`, byte size, and SHA-256. That stdout is the review artifact and may contain private issue
 content. `-o text` omits values and prints only field ids, kinds, sizes, and
 hashes. Values are never written to verbose request logs.
 
@@ -1431,6 +1434,7 @@ Flags:
 | `--from-md FIELD=PATH` | Markdown file or stdin `-`, converted to a Jira-wiki string (repeatable) |
 | `--allow-fields IDS` | exact comma-separated custom field ids authorized for this operation (required) |
 | `--expected-updated VALUE` | reviewed Jira `updated` value; required with `--apply` |
+| `--expected-proposal-hash HASH` | reviewed aggregate proposal hash; required with `--apply` |
 | `--apply` | perform the guarded write; default is preview only |
 
 ### `atl jira issue edit`
@@ -1932,6 +1936,11 @@ removed constructs:
   - panel "{panel:title=Note}…"
 next: run `jira push PROJ-1.wiki` to publish
 ```
+
+The `<!-- atl:document ... -->` and `<!-- atl:section ... -->` prefixes are
+reserved view boundaries. If either appears inside an editable Description or
+field value, apply fails closed before changing `.wiki`, snapshot, or pending
+state; remove it or edit the native `.wiki` substrate deliberately.
 
 The merge is **fail-closed** (exit `8`, nothing written) when: an edited block
 cannot be converted to wiki (a construct outside the subset) — make that edit in
