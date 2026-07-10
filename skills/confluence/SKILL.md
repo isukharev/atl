@@ -201,6 +201,10 @@ atl conf status ~/.atl/<workspace>/ --remote
 Status and directory push scan fail closed with exit 8 when a mirrored `.csf`
 has missing, corrupt, or id-less sibling metadata. Repair or re-pull that entry;
 never treat a partial scan as clean or safe to push.
+Pull/render/apply/push share one persistent per-mirror advisory lock. Exit 8
+with "another Confluence mirror mutation is active" means wait for that process
+to finish; do not delete the lock file or retry concurrently. Read-only status
+does not take the mutation lock.
 
 ## Quick Reference — all `conf` commands
 
@@ -277,6 +281,7 @@ For exact edits or unresolved rendering questions, inspect the `.csf` source.
 | Exit 3 | Token was rejected (expired/revoked/wrong instance) | Re-run `atl auth login --service confluence` with a valid PAT |
 | Exit 2 + "not well-formed" on `page create` | CSF body has structural errors | Fix the CSF (`conf validate body.csf`) before retrying |
 | Exit 8 on `conf apply` | Stale view format, reserved marker, unconvertible block, dropped fragments, or `.csf` divergence | Migrate a stale marker before editing; otherwise see step 3 and follow the named recovery |
+| Exit 8 says another mirror mutation is active | Pull/render/apply/push already owns the mirror lock | Wait for it to finish; never remove the persistent lock file |
 | Exit 8 on `page create --from-md` | A markdown block is outside the convertible subset (or the doc is empty) | The error names the block; author that body as CSF via `--from-file` ([csf-authoring.md](reference/csf-authoring.md)) |
 | Exit 8 + "corrupt mirror sidecar" on `status`/`push`/`pull`/`apply` | `.atl/state.json` is unparseable (interrupted edit, disk issue) | Fix the JSON, or delete the file to reset sync state and re-pull (pages read as never-synced until then) |
 | `conf search` requires `--cql` or filter | No query provided | Pass `--cql '<CQL>'` or at least one of `--space/--title/--label/--type` |

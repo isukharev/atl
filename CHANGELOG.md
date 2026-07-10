@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Serialized Confluence mirror mutations.** Pull, render, apply, and push now
+  hold one persistent root-contained advisory lock through page/view/base/state
+  updates. Contention fails before partial writes; status remains lock-free.
+
 - **Versioned Confluence derived views.** Every page view and unavailable-view
   stub now carries a versioned document marker plus stable generated section
   boundaries. Apply rejects stale/unknown formats and reserved-marker collisions

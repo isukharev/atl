@@ -199,6 +199,11 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 		root = "mirror"
 	}
 	m := mirror.New(root)
+	lock, err := lockConfluenceMutations(root, true)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = lock.Unlock() }()
 	if err := m.EnsureScaffold(); err != nil {
 		return nil, err
 	}
@@ -433,7 +438,15 @@ func (s *ConfluenceService) Push(ctx context.Context, target string, o PushOpts)
 	if root == "" {
 		root = mirrorRootOf(target)
 	}
+	if _, err := os.Stat(target); err != nil {
+		return nil, fmt.Errorf("%w: push target %q: %v", domain.ErrUsage, target, err)
+	}
 	m := mirror.New(root)
+	lock, err := lockConfluenceMutations(root, false)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = lock.Unlock() }()
 	files, err := s.pushTargets(m, target)
 	if err != nil {
 		return nil, err

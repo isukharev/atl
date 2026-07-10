@@ -53,6 +53,11 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 		root = mirrorRootOf(csfPath)
 	}
 	m := mirror.New(root)
+	lock, err := lockConfluenceMutations(root, false)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = lock.Unlock() }()
 
 	lc, cur, err := m.LoadCSF(csfPath)
 	if err != nil {

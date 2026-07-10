@@ -83,8 +83,16 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 	if r, ok := MirrorRootOf(target); ok {
 		root = r
 	}
+	if _, err := os.Stat(target); err != nil {
+		return nil, fmt.Errorf("%w: render target %q: %v", domain.ErrUsage, target, err)
+	}
 	rs, warns := ResolveRender(s.cfg, root, override, "confluence")
 	res := &ConfRenderResult{Root: root, Rendered: []ConfRendered{}, Warnings: warns}
+	lock, err := lockConfluenceMutations(root, false)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = lock.Unlock() }()
 	m := mirror.New(root)
 	paths, err := confRenderTargets(m, target)
 	if err != nil {
