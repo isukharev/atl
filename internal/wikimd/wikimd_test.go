@@ -217,14 +217,19 @@ func TestRenderEscapesBlockCollisions(t *testing.T) {
 		{"bare triple backtick", "intro\n```\ntail", "intro\n\\```\ntail"},
 		{"longer backtick run", "intro\n````\ntail", "intro\n\\````\ntail"},
 		{"leading spaces still a fence", "intro\n   ```go\ntail", "intro\n\\   ```go\ntail"},
+		{"four spaces follow splitter", "intro\n    ```go\ntail", "intro\n\\    ```go\ntail"},
+		{"tab follows splitter", "intro\n\t```go\ntail", "intro\n\\\t```go\ntail"},
 		// A paragraph line that is exactly a 3+ run of -, *, or _ → thematic break.
 		{"triple dash", "intro\n---\ntail", "intro\n\\---\ntail"},
+		{"triple dash trailing spaces", "intro\n---   \ntail", "intro\n\\---   \ntail"},
 		{"triple star", "intro\n***\ntail", "intro\n\\***\ntail"},
 		{"triple underscore", "intro\n___\ntail", "intro\n\\___\ntail"},
 		{"longer star run", "intro\n*****\ntail", "intro\n\\*****\ntail"},
 		// inline() can itself land 3+ backticks at line start via a {{mono}} span
 		// whose content opens with a backtick — the escape fires on the result.
 		{"mono renders leading backticks", "{{`x}}", "\\```x``"},
+		{"genuine slash before fence", "intro\n\\```json\ntail", "intro\n\\\\```json\ntail"},
+		{"genuine slash before break", "intro\n\\---\ntail", "intro\n\\\\---\ntail"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

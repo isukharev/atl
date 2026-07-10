@@ -198,14 +198,15 @@ func convertMarkedHeading(lines []string, opts Options) (string, error) {
 // escaped so the newline never silently changes structure.
 func convertParagraph(lines []string) (string, error) {
 	out := make([]string, len(lines))
-	for i, ln := range trimAll(lines) {
-		if u, ok, err := unescapeBlockLine(ln); ok {
+	for i, raw := range lines {
+		if u, ok, err := unescapeBlockLine(raw); ok {
 			if err != nil {
 				return "", err
 			}
 			out[i] = u
 			continue
 		}
+		ln := strings.TrimSpace(raw)
 		body, err := inline(ln)
 		if err != nil {
 			return "", err
@@ -232,13 +233,13 @@ func convertParagraph(lines []string) (string, error) {
 // for any other line so the caller falls through to normal conversion — including
 // the generic `\`+escapable handling, which is left intact.
 func unescapeBlockLine(ln string) (out string, ok bool, err error) {
-	if !strings.HasPrefix(ln, `\`) {
+	original, kind, ok := wikiscanner.UnescapeMarkdownBlockCollision(ln)
+	if !ok {
 		return "", false, nil
 	}
-	rest := ln[1:]
-	body := rest[wikiscanner.MarkdownIndent(rest):]
-	switch {
-	case strings.HasPrefix(body, "```"):
+	switch kind {
+	case wikiscanner.MarkdownFence:
+		body := strings.TrimLeft(original, " \t\r\n")
 		n := 0
 		for n < len(body) && body[n] == '`' {
 			n++
@@ -247,13 +248,9 @@ func unescapeBlockLine(ln string) (out string, ok bool, err error) {
 		if e != nil {
 			return "", true, e
 		}
-		return rest[:len(rest)-len(body)+n] + conv, true, nil
-	case wikiscanner.IsThematicRun(body) && (body[0] != '-' || len(body) <= 3):
-		// wikimd never escapes a 4+-dash line (that IS a wiki hr, caught by its
-		// hrRe before the paragraph branch), so `\----` is not our escape:
-		// unescaping it to a bare `----` would silently create an hr. It falls
-		// through to the generic path and stays literal.
-		return rest, true, nil
+		return original[:len(original)-len(body)+n] + conv, true, nil
+	case wikiscanner.MarkdownThematicBreak:
+		return original, true, nil
 	default:
 		return "", false, nil
 	}
@@ -426,14 +423,6 @@ func buildList(b *strings.Builder, items []listItem, i, indent int, prefix strin
 		}
 	}
 	return i, nil
-}
-
-func trimAll(lines []string) []string {
-	out := make([]string, len(lines))
-	for i, l := range lines {
-		out[i] = strings.TrimSpace(l)
-	}
-	return out
 }
 
 func clip(s string) string {

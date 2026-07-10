@@ -7,6 +7,14 @@ import (
 	"strings"
 )
 
+type MarkdownBlockKind uint8
+
+const (
+	MarkdownParagraph MarkdownBlockKind = iota
+	MarkdownFence
+	MarkdownThematicBreak
+)
+
 var listRe = regexp.MustCompile(`^[ \t]*([*#]+)[ \t]+(.*)$`)
 
 // ParseListLine recognizes a Jira wiki list line and returns its marker run and
@@ -29,17 +37,49 @@ func IsListLine(line string) bool {
 // MarkdownBlockCollision reports whether a rendered paragraph line would be
 // parsed as a fenced code block or thematic break instead of paragraph text.
 func MarkdownBlockCollision(line string) bool {
-	body := line[MarkdownIndent(line):]
-	return strings.HasPrefix(body, "```") || IsThematicRun(body)
+	return MarkdownBlockType(line) != MarkdownParagraph
 }
 
-// MarkdownIndent returns Markdown's block-marker indentation allowance.
-func MarkdownIndent(line string) int {
+// MarkdownBlockType mirrors the block classifier used by mdcsf.SplitBlocks.
+func MarkdownBlockType(line string) MarkdownBlockKind {
+	body := strings.TrimSpace(line)
+	if strings.HasPrefix(body, "```") {
+		return MarkdownFence
+	}
+	if IsThematicRun(body) && (body[0] != '-' || len(body) == 3) {
+		return MarkdownThematicBreak
+	}
+	return MarkdownParagraph
+}
+
+// EscapeMarkdownBlockCollision adds one reversible sentinel slash whenever the
+// line, after any genuine leading slashes, would otherwise start a block.
+func EscapeMarkdownBlockCollision(line string) string {
 	n := 0
-	for n < 3 && n < len(line) && line[n] == ' ' {
+	for n < len(line) && line[n] == '\\' {
 		n++
 	}
-	return n
+	if MarkdownBlockCollision(line[n:]) {
+		return `\` + line
+	}
+	return line
+}
+
+// UnescapeMarkdownBlockCollision reverses one sentinel slash while preserving
+// every genuine leading slash. It returns the original line and block kind.
+func UnescapeMarkdownBlockCollision(line string) (string, MarkdownBlockKind, bool) {
+	n := 0
+	for n < len(line) && line[n] == '\\' {
+		n++
+	}
+	if n == 0 {
+		return "", MarkdownParagraph, false
+	}
+	kind := MarkdownBlockType(line[n:])
+	if kind == MarkdownParagraph {
+		return "", kind, false
+	}
+	return line[1:], kind, true
 }
 
 // IsThematicRun reports whether body is exactly 3+ '-', '*', or '_' bytes.

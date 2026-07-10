@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/isukharev/atl/internal/wikiscanner"
 )
 
 // UnsupportedError reports a markdown construct outside the supported subset.
@@ -49,26 +51,25 @@ func SplitBlocks(md string) []string {
 		}
 	}
 	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
 		if inFence {
 			cur = append(cur, line)
-			if strings.HasPrefix(trimmed, "```") {
+			if wikiscanner.MarkdownBlockType(line) == wikiscanner.MarkdownFence {
 				inFence = false
 				flush()
 			}
 			continue
 		}
-		if trimmed == "" {
+		if strings.TrimSpace(line) == "" {
 			flush()
 			continue
 		}
-		if strings.HasPrefix(trimmed, "```") {
+		if wikiscanner.MarkdownBlockType(line) == wikiscanner.MarkdownFence {
 			flush()
 			cur = append(cur, line)
 			inFence = true
 			continue
 		}
-		if headingRe.MatchString(line) || isThematicBreak(trimmed) {
+		if headingRe.MatchString(line) || wikiscanner.MarkdownBlockType(line) == wikiscanner.MarkdownThematicBreak {
 			// Single-line constructs: always their own block.
 			flush()
 			cur = append(cur, line)
@@ -82,10 +83,6 @@ func SplitBlocks(md string) []string {
 }
 
 var headingRe = regexp.MustCompile(`^(#{1,6})\s+(.*?)\s*$`)
-
-func isThematicBreak(trimmed string) bool {
-	return trimmed == "---" || trimmed == "***" || trimmed == "___"
-}
 
 // Convert turns one markdown block into CSF bytes. The result of a successful
 // conversion is always well-formed CSF (asserted by tests and fuzzing).
@@ -110,7 +107,7 @@ func Convert(block string) ([]byte, error) {
 		return convertFence(lines)
 	case headingRe.MatchString(lines[0]):
 		return convertHeading(lines)
-	case isThematicBreak(first) && len(lines) == 1:
+	case wikiscanner.MarkdownBlockType(first) == wikiscanner.MarkdownThematicBreak && len(lines) == 1:
 		return []byte("<hr/>"), nil
 	case strings.HasPrefix(first, ">"):
 		return convertBlockquote(lines)
