@@ -1249,6 +1249,7 @@ func jiraExportCmd() *cobra.Command {
 	var jql, out, format, fields, ids, keys string
 	var limit int
 	var batchSize int
+	var rawCSV bool
 	cmd := &cobra.Command{
 		Use:   "export",
 		Short: "Export issues matching --jql to one compact artifact plus a manifest",
@@ -1270,6 +1271,7 @@ func jiraExportCmd() *cobra.Command {
 				Limit:     limit,
 				Fields:    splitFields(fields),
 				Version:   version.Version,
+				RawCSV:    rawCSV,
 			})
 			if err != nil {
 				return err
@@ -1287,6 +1289,7 @@ func jiraExportCmd() *cobra.Command {
 	cmd.Flags().StringVar(&format, "format", "jsonl", "export format: jsonl, json, or csv")
 	cmd.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all)")
 	cmd.Flags().StringVar(&fields, "fields", "", "extra comma-separated field list to include")
+	cmd.Flags().BoolVar(&rawCSV, "raw-csv", false, "write formula-leading CSV cells verbatim (unsafe in spreadsheets)")
 	_ = cmd.RegisterFlagCompletionFunc("format", fixedComp("jsonl", "json", "csv"))
 	cmd.AddCommand(jiraExportDiffCmd())
 	return cmd

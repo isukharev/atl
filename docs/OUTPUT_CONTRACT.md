@@ -249,7 +249,12 @@ summary:
 ```
 
 JSONL emits one `JiraIssueSnapshot` object per line (`{key,id,fields}`); JSON emits
-`{manifest,issues}`; CSV emits `key,id` followed by the deterministic field list. The manifest
+`{manifest,issues}`; CSV emits `key,id` followed by the deterministic field list.
+JSONL/CSV are streamed atomically; aggregate JSON is limited to 10,000 issues
+and 64 MiB of serialized issue data. The row-stream identity index is capped at
+250,000 unique issues so exact deduplication remains memory-bounded.
+CSV formula-leading cells are apostrophe-prefixed by default. `--raw-csv`
+disables that protection and records `csv_raw: true` in the manifest. The manifest
 stores query mode, generated queries when applicable, fields, format, count, CLI version, and a
 backend URL hash only:
 

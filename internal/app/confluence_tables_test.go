@@ -108,6 +108,36 @@ func TestRenderConfluenceTableCSV(t *testing.T) {
 	}
 }
 
+func TestRenderConfluenceTableCSVNeutralizesFormulasUnlessRaw(t *testing.T) {
+	res := &ConfluenceTableExtract{Table: 1, Tables: []ConfluenceTable{{
+		ColumnCount: 1,
+		Headers:     []string{"=Header"},
+		Rows: []ConfluenceTableRow{
+			{Cells: []ConfluenceTableCell{{Markdown: "=Header"}}},
+			{Cells: []ConfluenceTableCell{{Markdown: "+cmd"}}},
+		},
+	}}}
+	safe, err := RenderConfluenceTableCSV(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := csv.NewReader(bytes.NewReader(safe)).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if records[0][0] != "'=Header" || records[1][0] != "'+cmd" {
+		t.Fatalf("safe records = %#v", records)
+	}
+	raw, err := RenderConfluenceTableCSVWithOptions(res, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, _ = csv.NewReader(bytes.NewReader(raw)).ReadAll()
+	if records[0][0] != "=Header" || records[1][0] != "+cmd" {
+		t.Fatalf("raw records = %#v", records)
+	}
+}
+
 func TestWriteConfluenceTableXLSX(t *testing.T) {
 	res, err := ExtractTablesFromCSF("123", "Doc", []byte(tableExtractCSF), 0)
 	if err != nil {

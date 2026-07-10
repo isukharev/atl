@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Safe, bounded tabular I/O.** Jira JSONL/CSV exports stream atomically,
+  aggregate JSON is capped, Jira and Confluence CSV neutralize spreadsheet
+  formulas by default with an explicit `--raw-csv` escape hatch, and Confluence
+  attachment multipart bodies stream instead of buffering the full file.
+
 - **Guarded Jira plan execution.** CSV plans now require schema version 1 and
   `expected_updated`, validate link metadata and allowlists before writes,
   compare structured fields canonically, fail fast by default, and preserve a

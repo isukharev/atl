@@ -110,15 +110,14 @@ func (s *ConfluenceService) DownloadAttachment(ctx context.Context, pageID, file
 	return p, nil
 }
 
-// UploadAttachment reads file bytes from filePath and uploads them as an
-// attachment to the given page.
+// UploadAttachment streams filePath as an attachment to the given page.
 func (s *ConfluenceService) UploadAttachment(ctx context.Context, pageID, filePath, comment string) (*domain.Attachment, error) {
-	data, err := os.ReadFile(filePath)
+	f, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
 	}
 	filename := filepath.Base(filePath)
-	return s.store.UploadAttachment(ctx, pageID, filename, data, comment)
+	return s.store.UploadAttachment(ctx, pageID, filename, f, comment)
 }
 
 // DeleteAttachment removes an attachment by its content id.

@@ -533,6 +533,7 @@ func confTableCmd() *cobra.Command {
 	c := &cobra.Command{Use: "table", Short: "Extract Confluence tables from native storage"}
 	var id, format, out string
 	var table int
+	var rawCSV bool
 	extract := &cobra.Command{
 		Use:   "extract",
 		Short: "Extract page tables as structured JSON, CSV, or XLSX",
@@ -548,6 +549,9 @@ func confTableCmd() *cobra.Command {
 			}
 			if table < 0 {
 				return usageErr("--table must be >= 1")
+			}
+			if rawCSV && format != "csv" {
+				return usageErr("--raw-csv requires --format csv")
 			}
 			svc, err := confService()
 			if err != nil {
@@ -574,7 +578,7 @@ func confTableCmd() *cobra.Command {
 					return fmt.Sprintf("%d table(s)", res.TableCount)
 				})
 			case "csv":
-				data, err := app.RenderConfluenceTableCSV(res)
+				data, err := app.RenderConfluenceTableCSVWithOptions(res, rawCSV)
 				if err != nil {
 					return err
 				}
@@ -603,6 +607,7 @@ func confTableCmd() *cobra.Command {
 	extract.Flags().IntVar(&table, "table", 0, "1-based table index to extract (0 = all tables)")
 	extract.Flags().StringVar(&format, "format", "json", "json|csv|xlsx")
 	extract.Flags().StringVar(&out, "out", "", "optional output file (required for xlsx)")
+	extract.Flags().BoolVar(&rawCSV, "raw-csv", false, "write formula-leading CSV cells verbatim (unsafe in spreadsheets)")
 	_ = extract.RegisterFlagCompletionFunc("format", fixedComp("json", "csv", "xlsx"))
 	c.AddCommand(extract)
 	return c

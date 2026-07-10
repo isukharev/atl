@@ -911,8 +911,13 @@ type attachmentStore struct {
 	deleteErr     error
 }
 
-func (s *attachmentStore) UploadAttachment(_ context.Context, pageID, filename string, data []byte, comment string) (*domain.Attachment, error) {
-	s.uploadPageID, s.uploadName, s.uploadData, s.uploadComment = pageID, filename, data, comment
+func (s *attachmentStore) UploadAttachment(_ context.Context, pageID, filename string, data io.ReadCloser, comment string) (*domain.Attachment, error) {
+	defer data.Close()
+	payload, err := io.ReadAll(data)
+	if err != nil {
+		return nil, err
+	}
+	s.uploadPageID, s.uploadName, s.uploadData, s.uploadComment = pageID, filename, payload, comment
 	return s.uploadReturn, s.uploadErr
 }
 

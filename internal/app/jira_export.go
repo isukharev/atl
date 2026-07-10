@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -31,6 +32,7 @@ type JiraExportOpts struct {
 	Limit     int
 	Fields    []string
 	Version   string
+	RawCSV    bool
 }
 
 // JiraExportResult describes files written by Export.
@@ -56,11 +58,16 @@ type JiraExportManifest struct {
 	Limit      int      `json:"limit"`
 	Count      int      `json:"count"`
 	ATLVersion string   `json:"atl_version,omitempty"`
+	CSVRaw     bool     `json:"csv_raw,omitempty"`
 	Backend    struct {
 		Service string `json:"service"`
 		URLHash string `json:"url_hash,omitempty"`
 	} `json:"backend"`
 }
+
+const jiraAggregateExportMaxIssues = 10000
+const jiraAggregateExportMaxBytes int64 = 64 << 20
+const jiraRowExportMaxIdentities = 250000
 
 // Export writes a compact Jira export and a sanitized provenance manifest.
 func (s *JiraService) Export(ctx context.Context, opts JiraExportOpts) (*JiraExportResult, error) {
@@ -77,20 +84,47 @@ func (s *JiraService) Export(ctx context.Context, opts JiraExportOpts) (*JiraExp
 	default:
 		return nil, fmt.Errorf("%w: --format must be jsonl, json, or csv", domain.ErrUsage)
 	}
+	if opts.RawCSV && format != "csv" {
+		return nil, fmt.Errorf("%w: --raw-csv requires --format csv", domain.ErrUsage)
+	}
 	if strings.TrimSpace(opts.Out) == "" || opts.Out == "-" {
 		return nil, fmt.Errorf("%w: --out is required and must be a file path", domain.ErrUsage)
 	}
-	issues, err := s.collectExportIssues(ctx, queries, opts.Fields, opts.Limit)
-	if err != nil {
-		return nil, err
+	if opts.Limit < 0 {
+		return nil, fmt.Errorf("%w: --limit must be >= 0", domain.ErrUsage)
 	}
-	manifest := s.exportManifest(opts, format, queryMode, queries, len(issues))
-	data, err := renderJiraExport(format, issues, opts.Fields, manifest)
-	if err != nil {
-		return nil, err
-	}
-	if err := writeUserFile(opts.Out, data); err != nil {
-		return nil, err
+	count := 0
+	var manifest JiraExportManifest
+	if format == "json" {
+		collectLimit := jiraAggregateExportMaxIssues + 1
+		if opts.Limit > 0 && opts.Limit < collectLimit {
+			collectLimit = opts.Limit
+		}
+		issues, collectErr := s.collectAggregateExportIssues(ctx, queries, opts.Fields, collectLimit, jiraAggregateExportMaxBytes)
+		if collectErr != nil {
+			return nil, collectErr
+		}
+		if len(issues) > jiraAggregateExportMaxIssues {
+			return nil, fmt.Errorf("%w: aggregate JSON export exceeds %d issues; use jsonl/csv or a smaller --limit", domain.ErrUsage, jiraAggregateExportMaxIssues)
+		}
+		count = len(issues)
+		manifest = s.exportManifest(opts, format, queryMode, queries, count)
+		data, renderErr := renderJiraExport(format, issues, opts.Fields, manifest, opts.RawCSV)
+		if renderErr != nil {
+			return nil, renderErr
+		}
+		if err := writeUserFile(opts.Out, data); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := writeUserFileStream(opts.Out, func(dst io.Writer) error {
+			var streamErr error
+			count, streamErr = s.streamJiraExport(ctx, dst, format, queries, opts.Fields, opts.Limit, opts.RawCSV)
+			return streamErr
+		}); err != nil {
+			return nil, err
+		}
+		manifest = s.exportManifest(opts, format, queryMode, queries, count)
 	}
 	manifestPath := opts.Out + ".manifest.json"
 	mb, err := json.MarshalIndent(manifest, "", "  ")
@@ -104,42 +138,107 @@ func (s *JiraService) Export(ctx context.Context, opts JiraExportOpts) (*JiraExp
 		Path:         opts.Out,
 		ManifestPath: manifestPath,
 		Format:       format,
-		Count:        len(issues),
+		Count:        count,
 		Manifest:     manifest,
 	}, nil
 }
 
-func (s *JiraService) collectExportIssues(ctx context.Context, queries []string, fields []string, limit int) ([]JiraIssueSnapshot, error) {
+func (s *JiraService) collectAggregateExportIssues(ctx context.Context, queries, fields []string, limit int, maxBytes int64) ([]JiraIssueSnapshot, error) {
 	var out []JiraIssueSnapshot
+	var encodedBytes int64
+	_, err := s.forEachExportIssue(ctx, queries, fields, limit, func(snapshot JiraIssueSnapshot) error {
+		encoded, err := json.Marshal(snapshot)
+		if err != nil {
+			return err
+		}
+		encodedBytes += int64(len(encoded)) + 1
+		if encodedBytes > maxBytes {
+			return fmt.Errorf("%w: aggregate JSON export exceeds %d bytes; use jsonl/csv or a smaller --limit", domain.ErrUsage, maxBytes)
+		}
+		out = append(out, snapshot)
+		return nil
+	})
+	return out, err
+}
+
+func (s *JiraService) streamJiraExport(ctx context.Context, dst io.Writer, format string, queries, fields []string, limit int, rawCSV bool) (int, error) {
+	var encode func(JiraIssueSnapshot) error
+	var csvWriter *csv.Writer
+	switch format {
+	case "jsonl":
+		enc := json.NewEncoder(dst)
+		enc.SetEscapeHTML(false)
+		encode = func(snapshot JiraIssueSnapshot) error { return enc.Encode(snapshot) }
+	case "csv":
+		w := csv.NewWriter(dst)
+		csvWriter = w
+		exportFields := exportFields(fields)
+		if err := w.Write(spreadsheetRecord(append([]string{"key", "id"}, exportFields...), rawCSV)); err != nil {
+			return 0, err
+		}
+		encode = func(is JiraIssueSnapshot) error {
+			row := []string{is.Key, is.ID}
+			for _, field := range exportFields {
+				row = append(row, csvFieldValue(is.Fields[field]))
+			}
+			return w.Write(spreadsheetRecord(row, rawCSV))
+		}
+	default:
+		return 0, fmt.Errorf("%w: unsupported streaming export format %q", domain.ErrUsage, format)
+	}
+	count, err := s.forEachExportIssue(ctx, queries, fields, limit, encode)
+	if csvWriter != nil {
+		csvWriter.Flush()
+		if err == nil {
+			err = csvWriter.Error()
+		}
+	}
+	return count, err
+}
+
+func (s *JiraService) forEachExportIssue(ctx context.Context, queries []string, fields []string, limit int, yield func(JiraIssueSnapshot) error) (int, error) {
+	return s.forEachExportIssueWithIdentityCap(ctx, queries, fields, limit, jiraRowExportMaxIdentities, yield)
+}
+
+func (s *JiraService) forEachExportIssueWithIdentityCap(ctx context.Context, queries []string, fields []string, limit, identityCap int, yield func(JiraIssueSnapshot) error) (int, error) {
+	count := 0
 	seen := map[string]bool{}
 	searchFields := exportFields(fields)
 	for _, jql := range queries {
 		cursor := ""
-		for len(out) < limit || limit == 0 {
+		for count < limit || limit == 0 {
 			pageLimit := 100
-			if limit > 0 && limit-len(out) < pageLimit {
-				pageLimit = limit - len(out)
+			if limit > 0 && limit-count < pageLimit {
+				pageLimit = limit - count
 			}
 			issues, next, err := s.tr.Search(ctx, jql, searchFields, pageLimit, cursor)
 			if err != nil {
-				return out, err
+				return count, err
 			}
-			for _, is := range issues {
-				identity := is.Key
-				if identity == "" {
-					identity = is.ID
+			for _, issue := range issues {
+				identity := issue.Key
+				if identity != "" {
+					identity = "key:" + strings.ToUpper(identity)
+				} else {
+					identity = "id:" + issue.ID
 				}
 				if seen[identity] {
 					continue
 				}
+				if len(seen) >= identityCap {
+					return count, fmt.Errorf("%w: row export exceeds the %d-issue identity safety cap; use a smaller --limit or split the selection", domain.ErrUsage, identityCap)
+				}
 				seen[identity] = true
-				fields := is.Fields
+				fields := issue.Fields
 				if fields == nil {
 					fields = map[string]any{}
 				}
-				out = append(out, JiraIssueSnapshot{Key: is.Key, ID: is.ID, Fields: fields})
-				if limit > 0 && len(out) >= limit {
-					return out, nil
+				if err := yield(JiraIssueSnapshot{Key: issue.Key, ID: issue.ID, Fields: fields}); err != nil {
+					return count, err
+				}
+				count++
+				if limit > 0 && count >= limit {
+					return count, nil
 				}
 			}
 			if next == "" || len(issues) == 0 {
@@ -148,7 +247,16 @@ func (s *JiraService) collectExportIssues(ctx context.Context, queries []string,
 			cursor = next
 		}
 	}
-	return out, nil
+	return count, nil
+}
+
+func (s *JiraService) collectExportIssues(ctx context.Context, queries []string, fields []string, limit int) ([]JiraIssueSnapshot, error) {
+	var out []JiraIssueSnapshot
+	_, err := s.forEachExportIssue(ctx, queries, fields, limit, func(snapshot JiraIssueSnapshot) error {
+		out = append(out, snapshot)
+		return nil
+	})
+	return out, err
 }
 
 func exportQueries(opts JiraExportOpts) ([]string, string, error) {
@@ -192,10 +300,13 @@ func exportQueries(opts JiraExportOpts) ([]string, string, error) {
 
 func cleanList(values []string) []string {
 	var out []string
+	seen := map[string]bool{}
 	for _, raw := range values {
 		for _, part := range strings.Split(raw, ",") {
 			part = strings.TrimSpace(part)
-			if part != "" {
+			identity := strings.ToUpper(part)
+			if part != "" && !seen[identity] {
+				seen[identity] = true
 				out = append(out, part)
 			}
 		}
@@ -255,6 +366,7 @@ func (s *JiraService) exportManifest(opts JiraExportOpts, format, queryMode stri
 		Limit:      opts.Limit,
 		Count:      count,
 		ATLVersion: opts.Version,
+		CSVRaw:     opts.RawCSV,
 	}
 	if queryMode != "jql" {
 		m.Queries = queries
@@ -406,7 +518,7 @@ func sortStrings(values []string) {
 	sort.Strings(values)
 }
 
-func renderJiraExport(format string, issues []JiraIssueSnapshot, fields []string, manifest JiraExportManifest) ([]byte, error) {
+func renderJiraExport(format string, issues []JiraIssueSnapshot, fields []string, manifest JiraExportManifest, rawCSV bool) ([]byte, error) {
 	switch format {
 	case "jsonl":
 		var b bytes.Buffer
@@ -426,17 +538,17 @@ func renderJiraExport(format string, issues []JiraIssueSnapshot, fields []string
 		}
 		return append(b, '\n'), nil
 	case "csv":
-		return renderJiraExportCSV(issues, exportFields(fields))
+		return renderJiraExportCSV(issues, exportFields(fields), rawCSV)
 	default:
 		return nil, fmt.Errorf("%w: unsupported export format %q", domain.ErrUsage, format)
 	}
 }
 
-func renderJiraExportCSV(issues []JiraIssueSnapshot, fields []string) ([]byte, error) {
+func renderJiraExportCSV(issues []JiraIssueSnapshot, fields []string, rawCSV bool) ([]byte, error) {
 	var b bytes.Buffer
 	w := csv.NewWriter(&b)
 	header := append([]string{"key", "id"}, fields...)
-	if err := w.Write(header); err != nil {
+	if err := w.Write(spreadsheetRecord(header, rawCSV)); err != nil {
 		return nil, err
 	}
 	for _, is := range issues {
@@ -444,7 +556,7 @@ func renderJiraExportCSV(issues []JiraIssueSnapshot, fields []string) ([]byte, e
 		for _, f := range fields {
 			row = append(row, csvFieldValue(is.Fields[f]))
 		}
-		if err := w.Write(row); err != nil {
+		if err := w.Write(spreadsheetRecord(row, rawCSV)); err != nil {
 			return nil, err
 		}
 	}
@@ -473,6 +585,13 @@ func csvFieldValue(v any) string {
 }
 
 func writeUserFile(path string, data []byte) error {
+	return writeUserFileStream(path, func(w io.Writer) error {
+		_, err := w.Write(data)
+		return err
+	})
+}
+
+func writeUserFileStream(path string, write func(io.Writer) error) (retErr error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -481,5 +600,25 @@ func writeUserFile(path string, data []byte) error {
 	if !safepath.Within(dir, clean) {
 		return fmt.Errorf("refusing unsafe output path %q", path)
 	}
-	return safepath.WriteFile(clean, data, 0o644)
+	tmp, err := os.CreateTemp(dir, ".atl-export-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		_ = tmp.Close()
+		if retErr != nil {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	if err := tmp.Chmod(0o644); err != nil {
+		return err
+	}
+	if err := write(tmp); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, clean)
 }
