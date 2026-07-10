@@ -1,6 +1,6 @@
 # Guarded Jira Writeback Design
 
-Status: proposal. No writeback implementation is approved by this document.
+Status: implemented for `atl jira issue plan apply` CSV schema version 1.
 
 ## Goals
 
@@ -9,7 +9,7 @@ high blast radius. The CLI must keep discovery, review, and apply phases
 separate, and every apply path must be explicit, previewed, idempotent, and
 guarded by fresh reads.
 
-This design covers future Jira operations such as:
+The guarded executor supports reviewed operations such as:
 
 - creating missing issue links from reviewed candidates;
 - applying allowlisted field updates;
@@ -20,7 +20,6 @@ silent bulk writes.
 
 ## Non-Goals
 
-- No Jira write operation is implemented as part of this proposal.
 - No LLM-generated candidate may be applied directly.
 - No command may infer an update from stale mirror files without re-reading Jira.
 - No PAT, backend hostname, or private issue content belongs in public examples,
@@ -47,42 +46,33 @@ format below.
 
 ### 2. Review
 
-The reviewed plan is the only apply input. It is a JSON document with an
-explicit schema version and a closed operation set:
+The reviewed plan is the only apply input. It is a CSV document with an
+explicit schema version and a closed operation set. Every row repeats
+`version=1` and the review-time Jira `updated` value:
 
-```json
-{
-  "version": 1,
-  "operations": [
-    {
-      "op": "link_issue",
-      "from": "PROJ-1",
-      "to": "PROJ-2",
-      "type": "blocks",
-      "expected_updated": "2026-01-02T03:04:05.000+0000"
-    }
-  ]
-}
+```csv
+version,op,source,target,type,field,value,rationale,expected_updated
+1,link,PROJ-1,PROJ-2,Blocks,,,reviewed dependency,2026-01-02T03:04:05.000+0000
 ```
 
 Allowed operation types:
 
-- `link_issue`
-- `add_labels`
-- `remove_labels`
-- `set_fields`
+- `link`
+- `label_add`
+- `label_remove`
+- `comment`
+- `field`
 
-`set_fields` requires a caller-provided allowlist. Unknown fields are rejected
+`field` requires a caller-provided allowlist. Unknown fields are rejected
 before any network write.
 
 ### 3. Preview
 
 Preview is mandatory and is the default behavior. It performs fresh Jira reads
-and prints a deterministic diff:
+and prints a deterministic per-operation report:
 
-- existing remote state;
-- proposed remote state;
 - no-op operations already satisfied;
+- operations that would be applied;
 - stale operations that must not be applied;
 - missing permission or missing target failures.
 
@@ -99,25 +89,29 @@ Required guards:
 - reject plans with unsupported schema versions;
 - reject operations not in the allowlist;
 - reject field ids not in the `--allow-field` set;
-- reject link types not returned by Jira metadata unless explicitly allowlisted;
+- reject link types not returned by Jira metadata unless explicitly allowlisted
+  with `--allow-link-types`;
 - reject stale issues when `expected_updated` does not match the fresh remote
   value;
+- reject multiple mutating rows for the same source issue in schema version 1,
+  because the first write would invalidate the next row's reviewed timestamp;
 - treat already-satisfied operations as no-ops;
 - stop or continue on per-operation failure according to an explicit
   `--continue-on-error` flag, defaulting to stop.
 
-Apply output must include every operation with `applied`, `noop`, `skipped`, or
-`failed` status.
+Apply output includes every operation with `applied`, `already_satisfied`,
+`skipped`, `blocked`, or `failed` status (`would_apply` in preview).
 
 ## Idempotency
 
 Every operation needs an idempotency check:
 
-- `link_issue`: list links first; if the same direction, type, and target already
+- `link`: list links first; if the same direction, type, and target already
   exist, mark `noop`.
-- `add_labels`: only add labels not already present.
-- `remove_labels`: only remove labels currently present.
-- `set_fields`: compare normalized current and desired values; skip unchanged
+- `label_add`: only add labels not already present.
+- `label_remove`: only remove labels currently present.
+- `comment`: list the complete comment collection and skip an exact body match.
+- `field`: compare normalized current and desired values; skip unchanged
   fields.
 
 No command should rely on request retries for idempotency. The HTTP layer already
@@ -138,13 +132,14 @@ must still return non-zero if any operation failed or was stale.
 
 ## Audit Trail
 
-Writeback commands should write an optional local audit file when `--audit FILE`
-is passed. The audit file may contain issue keys and operation outcomes, but it
-must not contain PATs or backend hostnames. A backend URL hash is acceptable.
+The JSON stdout result is the audit trail. It may contain issue keys and
+operation outcomes, but transport errors are reduced to safe reason categories;
+PATs and backend hostnames are never copied into row messages. Persisting that
+stdout to a file is the caller's responsibility; there is no `--audit` flag.
 
 ## Testing Requirements
 
-Before implementation, add tests for:
+The implementation has regression tests for:
 
 - schema rejection and unsupported operation rejection;
 - allowlist enforcement for fields and link types;
@@ -154,7 +149,8 @@ Before implementation, add tests for:
 - no writes during preview;
 - no PAT or backend hostname in preview/audit output.
 
-## Approval Gate
+## Implemented Gate
 
-Implementation should not start until this proposal is reviewed and the
-maintainer explicitly approves the first write operation type to build.
+The command is dry-run by default. Writes require both `--apply` and `--confirm
+APPLY`; a blocked or failed result emits the audit report and exits 8, including
+when `--continue-on-error` is used.

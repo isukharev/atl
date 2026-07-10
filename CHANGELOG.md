@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Guarded Jira plan execution.** CSV plans now require schema version 1 and
+  `expected_updated`, validate link metadata and allowlists before writes,
+  compare structured fields canonically, fail fast by default, and preserve a
+  non-zero audit result with optional `--continue-on-error`.
+
 - **Jira comment pagination.** Comment listing now fails closed at its safety
   guard instead of returning a partial list that could authorize a duplicate
   write.
