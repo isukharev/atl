@@ -122,6 +122,12 @@ atl jira export diff old.jsonl new.jsonl
 This writes the artifact plus `<out>.manifest.json`; the manifest includes query/fields/count and a
 backend URL hash, never the backend hostname or PAT. Use `--ids`/`--keys` when the CLI should build
 safe batched `id in (...)` / `key in (...)` JQL instead of hand-editing a long query.
+JSONL/CSV stream with bounded artifact memory. Aggregate JSON is capped at
+10,000 issues and 64 MiB of serialized issue data. CSV neutralizes formula-leading cells by default; use
+`--raw-csv` only for a trusted non-spreadsheet consumer that requires raw cell
+values, and treat the result as unsafe to open in a spreadsheet. A single
+row-stream export is capped at 250,000 unique issue identities; split larger
+selections.
 
 ### 3. Read for context
 Read `<KEY>.md` (human view) and `<KEY>.json` (raw fields) to ground your work.
@@ -365,7 +371,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira apply <FILE.md>` | Merge `## Description` edits from the `.md` view into the `.wiki` (Description only; block-level) | `--dry-run`, `--allow-loss`, `--into`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `jira status [DIR]` | Show locally-edited (and `--remote` drifted) mirrored issues | `--remote` |
 | `jira push <file.wiki\|DIR>` | Preview (default) or `--apply` a `.wiki` description write-back | `--apply`, `--force`, `--into` |
-| `jira export` | Write one compact JSONL/JSON/CSV artifact plus manifest | `--jql`/`--ids`/`--keys`, `--out`, `--format`, `--limit`, `--fields`, `--batch-size` |
+| `jira export` | Write one compact JSONL/JSON/CSV artifact plus manifest | `--jql`/`--ids`/`--keys`, `--out`, `--format`, `--limit`, `--fields`, `--batch-size`, `--raw-csv` |
 | `jira export diff <OLD> <NEW>` | Compare compact exports | — |
 | `jira planning report` | Deterministic planning quality report | `--jql`, `--require`, `--estimate-field`, `--epic-field`, `--limit`, `--csv` |
 | `jira quality-report` | Compatibility alias for planning report | same flags |

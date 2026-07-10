@@ -400,16 +400,22 @@ func normalizeCellText(s string) string {
 // emits a cell-level CSV so tables with different shapes can share one stream.
 // When a single table was selected via --table, it emits a rectangular table CSV.
 func RenderConfluenceTableCSV(res *ConfluenceTableExtract) ([]byte, error) {
+	return RenderConfluenceTableCSVWithOptions(res, false)
+}
+
+// RenderConfluenceTableCSVWithOptions renders CSV with formula neutralization
+// by default. rawCSV is an explicit escape hatch for non-spreadsheet consumers.
+func RenderConfluenceTableCSVWithOptions(res *ConfluenceTableExtract, rawCSV bool) ([]byte, error) {
 	if res == nil {
 		return nil, fmt.Errorf("%w: no table extract result", domain.ErrUsage)
 	}
 	if res.Table > 0 && len(res.Tables) == 1 {
-		return renderSelectedTableCSV(res.Tables[0])
+		return renderSelectedTableCSV(res.Tables[0], rawCSV)
 	}
-	return renderAllTablesCellCSV(res.Tables)
+	return renderAllTablesCellCSV(res.Tables, rawCSV)
 }
 
-func renderSelectedTableCSV(table ConfluenceTable) ([]byte, error) {
+func renderSelectedTableCSV(table ConfluenceTable, rawCSV bool) ([]byte, error) {
 	var b bytes.Buffer
 	w := csv.NewWriter(&b)
 	header := table.Headers
@@ -422,7 +428,7 @@ func renderSelectedTableCSV(table ConfluenceTable) ([]byte, error) {
 			header[i] = fmt.Sprintf("col_%d", i+1)
 		}
 	}
-	if err := w.Write(header); err != nil {
+	if err := w.Write(spreadsheetRecord(header, rawCSV)); err != nil {
 		return nil, err
 	}
 	for _, row := range table.Rows[start:] {
@@ -435,7 +441,7 @@ func renderSelectedTableCSV(table ConfluenceTable) ([]byte, error) {
 				}
 			}
 		}
-		if err := w.Write(record); err != nil {
+		if err := w.Write(spreadsheetRecord(record, rawCSV)); err != nil {
 			return nil, err
 		}
 	}
@@ -443,10 +449,10 @@ func renderSelectedTableCSV(table ConfluenceTable) ([]byte, error) {
 	return b.Bytes(), w.Error()
 }
 
-func renderAllTablesCellCSV(tables []ConfluenceTable) ([]byte, error) {
+func renderAllTablesCellCSV(tables []ConfluenceTable, rawCSV bool) ([]byte, error) {
 	var b bytes.Buffer
 	w := csv.NewWriter(&b)
-	if err := w.Write([]string{"table", "row", "column", "text", "markdown", "links", "styles", "repeated", "source_row", "source_column"}); err != nil {
+	if err := w.Write(spreadsheetRecord([]string{"table", "row", "column", "text", "markdown", "links", "styles", "repeated", "source_row", "source_column"}, rawCSV)); err != nil {
 		return nil, err
 	}
 	for _, table := range tables {
@@ -478,7 +484,7 @@ func renderAllTablesCellCSV(tables []ConfluenceTable) ([]byte, error) {
 				if cell.SourceColumn > 0 {
 					record[9] = strconv.Itoa(cell.SourceColumn)
 				}
-				if err := w.Write(record); err != nil {
+				if err := w.Write(spreadsheetRecord(record, rawCSV)); err != nil {
 					return nil, err
 				}
 			}

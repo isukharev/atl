@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/url"
 	"strconv"
+	"sync"
 
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
@@ -22,6 +23,18 @@ const (
 	maxPages = 100
 	maxItems = 100_000
 )
+
+type multipartReadCloser struct {
+	io.Reader
+	source io.Closer
+	once   sync.Once
+}
+
+func (r *multipartReadCloser) Close() error {
+	var err error
+	r.once.Do(func() { err = r.source.Close() })
+	return err
+}
 
 // ListComments returns a page's comments (storage bodies, rendered to text). It
 // follows _links.next, paging until the server stops signaling more. truncated
@@ -162,30 +175,40 @@ func (cf *Confluence) DownloadAttachment(ctx context.Context, pageID, filename s
 // UploadAttachment uploads file bytes as an attachment to a page via
 // multipart/form-data. DC endpoint: POST /rest/api/content/{pageId}/child/attachment.
 // X-Atlassian-Token: nocheck is required to bypass XSRF protection.
-func (cf *Confluence) UploadAttachment(ctx context.Context, pageID, filename string, data []byte, comment string) (*domain.Attachment, error) {
-	var buf bytes.Buffer
-	w := multipart.NewWriter(&buf)
+func (cf *Confluence) UploadAttachment(ctx context.Context, pageID, filename string, data io.ReadCloser, comment string) (*domain.Attachment, error) {
+	var framing bytes.Buffer
+	w := multipart.NewWriter(&framing)
 	if comment != "" {
 		if err := w.WriteField("comment", comment); err != nil {
+			_ = data.Close()
 			return nil, err
 		}
 	}
 	if err := w.WriteField("minorEdit", "true"); err != nil {
+		_ = data.Close()
 		return nil, err
 	}
-	fw, err := w.CreateFormFile("file", filename)
-	if err != nil {
+	if _, err := w.CreateFormFile("file", filename); err != nil {
+		_ = data.Close()
 		return nil, err
 	}
-	if _, err := fw.Write(data); err != nil {
-		return nil, err
-	}
+	prefixLen := framing.Len()
 	if err := w.Close(); err != nil {
+		_ = data.Close()
 		return nil, err
 	}
+	framingBytes := framing.Bytes()
+	prefix := append([]byte(nil), framingBytes[:prefixLen]...)
+	suffix := append([]byte(nil), framingBytes[prefixLen:]...)
+	body := &multipartReadCloser{
+		Reader: io.MultiReader(bytes.NewReader(prefix), data, bytes.NewReader(suffix)),
+		source: data,
+	}
+	defer func() { _ = body.Close() }()
 	headers := map[string]string{
 		"Content-Type":      w.FormDataContentType(),
 		"X-Atlassian-Token": "nocheck",
+		"Expect":            "100-continue",
 	}
 	var resp struct {
 		Results []struct {
@@ -203,7 +226,7 @@ func (cf *Confluence) UploadAttachment(ctx context.Context, pageID, filename str
 			} `json:"version"`
 		} `json:"results"`
 	}
-	raw, err := cf.c.Do(ctx, "POST", "/rest/api/content/"+url.PathEscape(pageID)+"/child/attachment", buf.Bytes(), headers)
+	raw, err := cf.c.DoStream(ctx, "POST", "/rest/api/content/"+url.PathEscape(pageID)+"/child/attachment", body, headers)
 	if err != nil {
 		return nil, err
 	}

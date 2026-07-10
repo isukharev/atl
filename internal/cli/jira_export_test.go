@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -52,6 +53,37 @@ func TestJiraExportCLIWritesArtifactAndManifest(t *testing.T) {
 	}
 	if !strings.Contains(string(mb), `"url_hash": "sha256:`) {
 		t.Fatalf("manifest missing backend hash:\n%s", mb)
+	}
+}
+
+func TestJiraExportCLICSVFormulaSafetyAndRawEscapeHatch(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/search", http.StatusOK, `{
+		"issues":[{"id":"10001","key":"PROJ-1","fields":{"summary":"=1+1"}}],
+		"startAt":0,"total":1
+	}`)
+	for _, tc := range []struct {
+		name string
+		raw  bool
+		want string
+	}{{"safe", false, "'=1+1"}, {"raw", true, "=1+1"}} {
+		path := filepath.Join(t.TempDir(), tc.name+".csv")
+		args := []string{"jira", "export", "--jql", "project=PROJ", "--out", path, "--format", "csv"}
+		if tc.raw {
+			args = append(args, "--raw-csv")
+		}
+		if _, code := runCLI(t, jiraEnv(js.srv), args...); code != exitOK {
+			t.Fatalf("%s CSV exit=%d", tc.name, code)
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		records, err := csv.NewReader(f).ReadAll()
+		_ = f.Close()
+		if err != nil || len(records) != 2 || records[1][2] != tc.want {
+			t.Fatalf("%s records=%#v error=%v", tc.name, records, err)
+		}
 	}
 }
 

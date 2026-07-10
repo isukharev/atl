@@ -611,6 +611,7 @@ atl conf table extract --id 12345678
 
 # one table as rectangular CSV
 atl conf table extract --id 12345678 --table 2 --format csv
+atl conf table extract --id 12345678 --table 2 --format csv --raw-csv # unsafe spreadsheet interoperability
 
 # all tables as an XLSX workbook, one sheet per table
 atl conf table extract --id 12345678 --format xlsx --out tables.xlsx
@@ -624,11 +625,15 @@ Flags:
 | `--table` | 1-based table index to extract (0 = all tables) |
 | `--format` | `json`, `csv`, or `xlsx` |
 | `--out` | optional output file; required for `xlsx` |
+| `--raw-csv` | preserve formula-leading cells verbatim; CSV only and unsafe in spreadsheets |
 
 JSON preserves the expanded cells, source coordinates for rowspan/colspan
 repeats, ordinary links, and visible inline color markers. CSV without
 `--table` emits a cell-level stream so pages with different table shapes can
 share one file; CSV with `--table` emits a rectangular table.
+CSV prefixes cells beginning with `=`, `+`, `-`, `@`, tab, CR, or LF with an
+apostrophe by default so opening untrusted page data in a spreadsheet does not
+execute it as a formula. `--raw-csv` is an explicit unsafe escape hatch.
 
 ### `atl conf status`
 
@@ -1667,7 +1672,8 @@ the backend hostname or token.
 ```bash
 atl jira export --jql "project=PROJ" --format jsonl --out issues.jsonl
 atl jira export --jql "project=PROJ" --format csv --fields customfield_10001 --out issues.csv
-atl jira export --jql "project=PROJ" --format json --out issues.json --limit 0
+atl jira export --jql "project=PROJ" --format csv --out raw.csv --raw-csv # unsafe in spreadsheets
+atl jira export --jql "project=PROJ" --format json --out issues.json --limit 10000
 atl jira export --keys PROJ-1,PROJ-2 --batch-size 100 --out selected.jsonl
 atl jira export diff old.jsonl new.jsonl
 ```
@@ -1684,6 +1690,16 @@ Flags:
 | `--format` | `jsonl`, `json`, or `csv` (default `jsonl`) |
 | `--limit` | max issues (0 = all; default 100) |
 | `--fields` | extra comma-separated fields to include |
+| `--raw-csv` | preserve formula-leading CSV cells verbatim (unsafe in spreadsheets) |
+
+JSONL and CSV are written incrementally through an atomic temporary file, so
+`--limit 0` does not accumulate issue payloads or the artifact in memory. Aggregate
+JSON intentionally caps at 10,000 issues and 64 MiB of serialized issue data;
+use JSONL/CSV or a smaller limit for larger selections. CSV neutralizes formula-leading cells by default using an
+apostrophe prefix. The manifest records `csv_raw: true` when the unsafe raw mode
+is explicitly selected. Exact cross-page deduplication uses a bounded identity
+index and refuses a single export above 250,000 unique issues; split larger
+selections into multiple exports.
 
 `jira export diff` compares compact JSONL/JSON/CSV exports by issue key (or id
 when key is absent) and reports deterministic `added`, `removed`, and `changed`

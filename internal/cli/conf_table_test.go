@@ -2,6 +2,7 @@ package cli
 
 import (
 	"archive/zip"
+	"encoding/csv"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -58,6 +59,30 @@ func TestConfTableExtractCLIJSON(t *testing.T) {
 	}
 	if got := res.Tables[1].Rows[1].Cells[1].Links[0].URL; got != "https://example.test/product" {
 		t.Fatalf("link url = %q", got)
+	}
+}
+
+func TestConfTableExtractCLICSVFormulaSafetyAndRawEscapeHatch(t *testing.T) {
+	const formulaTable = `<table><tbody><tr><th>=Header</th></tr><tr><td>@cmd</td></tr></tbody></table>`
+	for _, tc := range []struct {
+		raw        bool
+		wantHeader string
+		wantCell   string
+	}{{false, "'=Header", "'@cmd"}, {true, "=Header", "@cmd"}} {
+		cs := newConfServer(t)
+		cs.page = pageJSON("12345", "Formula", 1, formulaTable)
+		args := []string{"conf", "table", "extract", "--id", "12345", "--table", "1", "--format", "csv"}
+		if tc.raw {
+			args = append(args, "--raw-csv")
+		}
+		out, code := runCLI(t, confEnv(cs.srv), args...)
+		if code != exitOK {
+			t.Fatalf("raw=%v exit=%d output=%q", tc.raw, code, out)
+		}
+		records, err := csv.NewReader(strings.NewReader(out)).ReadAll()
+		if err != nil || len(records) != 2 || records[0][0] != tc.wantHeader || records[1][0] != tc.wantCell {
+			t.Fatalf("raw=%v records=%#v error=%v", tc.raw, records, err)
+		}
 	}
 }
 

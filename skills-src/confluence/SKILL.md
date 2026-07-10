@@ -182,6 +182,11 @@ atl conf status ~/.atl/<workspace>/ --remote
 | `conf attachment delete` | Delete an attachment by id | `--id` |
 | `conf me` | Print the authenticated Confluence user | — |
 
+`conf table extract --format csv` neutralizes formula-leading cells by default.
+Use `--raw-csv` only for a trusted non-spreadsheet consumer; the raw result is
+unsafe to open in a spreadsheet. Attachment uploads stream the selected file
+instead of buffering the complete multipart payload in memory.
+
 **Note on `-o id` and `-o text`:** Any command that has an ID projection (search, page list, attachment list) supports `-o id` to print identifiers one per line for piping. All commands accept `-o text` for a human-readable view instead of JSON.
 
 ### `.md` internal links
