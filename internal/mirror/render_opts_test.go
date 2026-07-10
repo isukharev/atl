@@ -61,6 +61,25 @@ func TestRenderMarkdownOptsReadOnlyBody(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownOptsTypedPageFieldsAreReadOnlyAndEscaped(t *testing.T) {
+	root := parseNode(t, `<p>Body</p>`)
+	out := string(RenderMarkdownOpts(root, nil, MDViewOpts{PageFields: []PageField{
+		{ID: "title", Label: "Ti|tle", Values: []string{"<b>*Roadmap*</b>"}},
+		{ID: "labels", Label: "Labels", Placement: "section", Values: []string{"- injected", "1. ordered", "---"}},
+	}}))
+	for _, want := range []string{
+		ConfluencePageFieldsMarker, "# Metadata", "| Ti&#124;tle | &lt;b&gt;&#42;Roadmap&#42;&lt;/b&gt; |",
+		"<!-- atl:section page-field.labels readonly -->", "- &#45; injected", "- 1&#46; ordered", "- &#45;--",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("page fields missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "<b>") {
+		t.Fatalf("raw server-controlled HTML survived:\n%s", out)
+	}
+}
+
 // RenderMarkdownViewParts must satisfy the concatenation identity
 // prefix+body+suffix == RenderMarkdownOpts across every opts shape, so conf
 // apply can anchor-extract the editable body byte-for-byte.
@@ -77,6 +96,7 @@ func TestRenderMarkdownViewPartsConcatIdentity(t *testing.T) {
 		{"comments-only", "<p>Body text.</p>", MDViewOpts{Comments: cs}},
 		{"both", "<h1>T</h1><p>Body text.</p>", MDViewOpts{Frontmatter: fm, Comments: cs}},
 		{"read-only", "<p>Body text.</p>", MDViewOpts{ReadOnly: true}},
+		{"page-fields", "<p>Body text.</p>", MDViewOpts{PageFields: []PageField{{ID: "title", Label: "Title", Values: []string{"T"}}}}},
 		{"empty-body-frontmatter", "", MDViewOpts{Frontmatter: fm}},
 		{"empty-body-both", "", MDViewOpts{Frontmatter: fm, Comments: cs}},
 	}

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/isukharev/atl/internal/config"
+	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/mirror"
 )
@@ -71,13 +72,68 @@ func TestConfluencePageViewFetchesConfiguredCommentsOnly(t *testing.T) {
 	if store.commentsID != "42" {
 		t.Fatalf("comments fetched for %q", store.commentsID)
 	}
-	for _, marker := range []string{mirror.ConfluenceMetadataMarker, mirror.ConfluenceCommentsMarker, "Ada", "Review"} {
+	if store.getRestrictions {
+		t.Fatal("default full view unexpectedly fetched restriction metadata")
+	}
+	for _, marker := range []string{mirror.ConfluencePageFieldsMarker, mirror.ConfluenceCommentsMarker, "Ada", "Review"} {
 		if !strings.Contains(res.Markdown, marker) {
 			t.Fatalf("full view missing %q:\n%s", marker, res.Markdown)
 		}
 	}
 	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "truncated") {
 		t.Fatalf("warnings = %v", res.Warnings)
+	}
+}
+
+func TestConfluencePageViewTypedFieldsAreProjectedEscapedAndRendererParity(t *testing.T) {
+	restricted := true
+	page := &domain.Resource{
+		ID: "42", Title: "Roadmap | <img src=x>", SpaceKey: "DOC", Version: 7,
+		Parent: "10", Ancestors: []string{"Home", "Plans"}, Labels: []string{"a*b", "x|y"},
+		Updated: "2026-06-03T12:55:30.000+0000", Restricted: &restricted,
+		Body: []byte(`<p>Hello</p>`),
+	}
+	store := &recordingStore{page: page}
+	svc := &ConfluenceService{store: store, cfg: &config.Config{}}
+	override := config.RenderService{
+		Profile: "minimal", Include: []string{SecPageFields},
+		PageFields: []config.ConfluenceFieldView{
+			{ID: "title"}, {ID: "updated", Format: "date"}, {ID: "restricted"},
+			{ID: "ancestors", Placement: "section"}, {ID: "labels"},
+		},
+	}
+	res, err := svc.ViewPage(context.Background(), "42", ConfluencePageViewOpts{Root: t.TempDir(), Render: override})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.getRestrictions {
+		t.Fatal("configured restricted field did not request restriction projection")
+	}
+	for _, want := range []string{
+		"| Title | Roadmap &#124; &lt;img src=x&gt; |", "| Updated | 2026-06-03 |",
+		"| Restricted | Yes |", "| Labels | a&#42;b, x&#124;y |",
+		"<!-- atl:section page-field.ancestors readonly -->", "- Home", "- Plans",
+	} {
+		if !strings.Contains(res.Markdown, want) {
+			t.Fatalf("typed view missing %q:\n%s", want, res.Markdown)
+		}
+	}
+	if strings.Contains(res.Markdown, "<img") {
+		t.Fatalf("server-controlled Markdown/HTML was not escaped:\n%s", res.Markdown)
+	}
+
+	rs, warns := computeSettings("confluence", override)
+	if len(warns) != 0 {
+		t.Fatalf("warnings = %v", warns)
+	}
+	node, err := csf.Parse(page.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persisted := string(mirror.RenderMarkdownOpts(node, nil, confMDViewOpts(rs, page, nil)))
+	normalizedTransient := strings.Replace(res.Markdown, mirror.ConfluenceBodyReadOnlyMarker, mirror.ConfluenceBodyMarker, 1)
+	if normalizedTransient != persisted {
+		t.Fatalf("transient/persisted renderer drift:\ntransient=%s\npersisted=%s", normalizedTransient, persisted)
 	}
 }
 

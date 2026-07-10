@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`apply` no longer injects a `full`-profile view's decorations into the body.**
   `conf apply` now reproduces the recorded pristine view and merges only the
   editable body, so an untouched full view applies to a byte-identical `.csf`;
-  editing frontmatter or Comments is refused with the dedicated command.
+  editing generated metadata or Comments is refused before body merge.
 
 - **`jira apply` no longer refuses after a flag-overridden render.** It now
   reproduces the view from the render settings the `.md` was actually written
@@ -127,6 +127,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keep query parameter names but redact their values.
 
 ### Added
+
+- **Typed read-only Confluence page fields.** Confluence mirror and transient
+  views share configurable metadata/section descriptors for title, hierarchy,
+  labels, version, update time, and opt-in restriction state. Values are safely
+  escaped; dates are human-readable; restriction data is fetched only when
+  selected and never guessed during offline rendering.
 
 - **Transient configured Confluence Markdown view.** `conf page view <ID>`
   renders native CSF through local/global presentation settings without writing
@@ -245,7 +251,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and any configured `custom_fields` (by id). `jira pull` widens its API `fields=`
   projection to the active profile, so `full` needs no extra per-issue fetch.
   **Confluence:** `default`/`minimal` stay **byte-identical** to today (body
-  only); `full` adds a YAML frontmatter (title, space, version, labels) and a
+  only); `full` adds a typed read-only Markdown metadata table and a
   `## Comments` section fed from the `--comments` sidecar when present (absent
   sidecar → section skipped, never an error). New `jira render [DIR|FILE]` /
   `conf render [DIR|FILE]` regenerate `.md` views from the local

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/fragment"
@@ -117,6 +118,51 @@ func TestApplyFullProfileBodyEditMergesAndRefreshesFull(t *testing.T) {
 	}
 }
 
+func TestApplyTypedPageFieldsStayReadOnlyAndSurviveBodyEdit(t *testing.T) {
+	rootDir, mdPath := scaffoldPage(t, applyPage)
+	dir := filepath.Dir(mdPath)
+	metaBytes, err := os.ReadFile(filepath.Join(dir, "page.meta.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta mirror.Meta
+	if err := json.Unmarshal(metaBytes, &meta); err != nil {
+		t.Fatal(err)
+	}
+	meta.Title, meta.Space, meta.Updated = "Page", "SP", "2026-07-10T12:00:00Z"
+	metaBytes, _ = json.Marshal(meta)
+	if err := os.WriteFile(filepath.Join(dir, "page.meta.json"), metaBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	node, err := csf.Parse([]byte(applyPage))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, warns := computeSettings("confluence", config.RenderService{Profile: "full", Exclude: []string{SecComments}})
+	if len(warns) != 0 {
+		t.Fatal(warns)
+	}
+	page := confPageFromMeta(meta)
+	view := string(mirror.RenderMarkdownOpts(node, meta.Refs, confMDViewOpts(rs, page, nil)))
+	if err := os.WriteFile(mdPath, []byte(strings.Replace(view, "Hello world.", "Hello typed fields.", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := mirror.New(rootDir).SaveViewStates(map[string]mirror.ViewState{meta.ID: viewStateOf(rs)}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Apply(mdPath, ApplyOpts{Into: rootDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mustReadFile(t, res.CSFPath); !strings.Contains(got, "<p>Hello typed fields.</p>") || strings.Contains(got, "# Metadata") {
+		t.Fatalf("typed fields leaked or edit was lost: %s", got)
+	}
+	refreshed := mustReadFile(t, mdPath)
+	if !strings.Contains(refreshed, mirror.ConfluencePageFieldsMarker) || !strings.Contains(refreshed, "| Updated | 2026-07-10 12:00 UTC |") {
+		t.Fatalf("typed fields were not preserved after apply:\n%s", refreshed)
+	}
+}
+
 // Editing the read-only YAML frontmatter is refused (exit 8) with a pointer at
 // the page-metadata commands.
 func TestApplyFullProfileFrontmatterEditRefused(t *testing.T) {
@@ -132,8 +178,8 @@ func TestApplyFullProfileFrontmatterEditRefused(t *testing.T) {
 	if !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("err = %v, want ErrCheckFailed", err)
 	}
-	if !strings.Contains(err.Error(), "frontmatter") {
-		t.Errorf("error should point at the frontmatter: %v", err)
+	if !strings.Contains(err.Error(), "metadata") {
+		t.Errorf("error should point at generated metadata: %v", err)
 	}
 	csfNow, _ := os.ReadFile(strings.TrimSuffix(mdPath, ".md") + ".csf")
 	if string(csfNow) != applyPage {

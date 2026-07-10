@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/isukharev/atl/internal/config"
@@ -15,8 +16,8 @@ import (
 )
 
 // confMDViewOpts assembles the profile-driven markdown-view additions for a
-// Confluence page from the resolved settings: a metadata frontmatter (full
-// profile) and a "## Comments" section fed from whatever comments the caller has
+// Confluence page from the resolved settings: typed read-only page fields (or
+// legacy frontmatter) and a "## Comments" section fed from whatever comments the caller has
 // (the just-fetched set on pull, or the sidecar on render/push). An empty return
 // yields the byte-identical body-only default view.
 func confMDViewOpts(rs RenderSettings, page *domain.Resource, comments []domain.Comment) mirror.MDViewOpts {
@@ -29,10 +30,97 @@ func confMDViewOpts(rs RenderSettings, page *domain.Resource, comments []domain.
 			Labels:  page.Labels,
 		}
 	}
+	if rs.On(SecPageFields) {
+		views := rs.PageFields
+		if len(views) == 0 {
+			views = defaultConfluencePageFields()
+		}
+		for _, view := range views {
+			values := confluencePageFieldValues(page, view)
+			if len(values) == 0 && !view.ShowEmpty {
+				continue
+			}
+			opts.PageFields = append(opts.PageFields, mirror.PageField{
+				ID: view.ID, Label: view.Label, Placement: view.Placement,
+				Values: values, ShowEmpty: view.ShowEmpty,
+			})
+		}
+	}
 	if rs.On(SecComments) && len(comments) > 0 {
 		opts.Comments = comments
 	}
 	return opts
+}
+
+func defaultConfluencePageFields() []config.ConfluenceFieldView {
+	ids := []string{"title", "space", "version", "labels", "updated"}
+	out := make([]config.ConfluenceFieldView, 0, len(ids))
+	for _, id := range ids {
+		view, _ := config.NormalizeConfluenceFieldView(config.ConfluenceFieldView{ID: id})
+		out = append(out, view)
+	}
+	return out
+}
+
+func confluencePageFieldValues(page *domain.Resource, view config.ConfluenceFieldView) []string {
+	var values []string
+	switch view.ID {
+	case "title":
+		values = scalarPageField(page.Title)
+	case "space":
+		values = scalarPageField(page.SpaceKey)
+	case "version":
+		if page.Version > 0 {
+			values = []string{strconv.Itoa(page.Version)}
+		}
+	case "parent":
+		values = scalarPageField(page.Parent)
+	case "ancestors":
+		values = append(values, page.Ancestors...)
+	case "labels":
+		values = append(values, page.Labels...)
+	case "restricted":
+		if page.Restricted == nil {
+			if view.ShowEmpty {
+				values = []string{"Unknown — re-pull required"}
+			}
+		} else if *page.Restricted {
+			values = []string{"Yes"}
+		} else {
+			values = []string{"No"}
+		}
+	case "updated":
+		rendered := page.Updated
+		if view.Format == "date" || view.Format == "datetime" {
+			rendered = renderTemporalField(page.Updated, view.Format)
+		}
+		if rendered != "" {
+			values = []string{rendered}
+		}
+	}
+	if view.Format == "scalar" && len(values) > 1 {
+		return []string{strings.Join(values, ", ")}
+	}
+	return values
+}
+
+func scalarPageField(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return []string{value}
+}
+
+func confluenceNeedsRestrictions(rs RenderSettings) bool {
+	if !rs.On(SecPageFields) {
+		return false
+	}
+	for _, view := range rs.PageFields {
+		if view.ID == "restricted" {
+			return true
+		}
+	}
+	return false
 }
 
 // readCommentsSidecar loads a page's `<slug>.comments.json` sidecar into a comment
@@ -111,10 +199,17 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 		md := []byte(mirror.MDUnavailableStub)
 		if node, perr := csf.Parse(body); perr == nil {
 			page := &domain.Resource{
-				Title:    lc.Meta.Title,
-				SpaceKey: lc.Meta.Space,
-				Version:  lc.Meta.Version,
-				Labels:   lc.Meta.Labels,
+				Title:      lc.Meta.Title,
+				SpaceKey:   lc.Meta.Space,
+				Version:    lc.Meta.Version,
+				Parent:     lc.Meta.Parent,
+				Ancestors:  lc.Meta.Ancestors,
+				Labels:     lc.Meta.Labels,
+				Updated:    lc.Meta.Updated,
+				Restricted: lc.Meta.Restricted,
+			}
+			if confluenceNeedsRestrictions(rs) && page.Restricted == nil {
+				res.Warnings = append(res.Warnings, fmt.Sprintf("render: restriction state for page %s was not mirrored; re-pull before relying on that field", lc.Meta.ID))
 			}
 			mdOpts := confMDViewOpts(rs, page, readCommentsSidecar(root, dir, slug))
 			md = mirror.RenderMarkdownOpts(node, lc.Meta.Refs, mdOpts)

@@ -26,12 +26,13 @@ type ViewState struct {
 	Sections     []string         `json:"sections"`
 	CustomFields []string         `json:"custom_fields,omitempty"`
 	FieldViews   []FieldViewState `json:"field_views,omitempty"`
+	PageFields   []FieldViewState `json:"page_fields,omitempty"`
 	EpicField    string           `json:"epic_field,omitempty"`
 }
 
-// FieldViewState is the serialized, backend-neutral shape of a configured Jira
-// field view. Mirror deliberately does not import config/app; the app layer
-// converts between this state and its resolved render settings.
+// FieldViewState is the serialized, backend-neutral shape of a configured
+// Jira field view or Confluence page field. Mirror deliberately does not import
+// config/app; the app layer converts it to resolved render settings.
 type FieldViewState struct {
 	ID        string `json:"id"`
 	Label     string `json:"label,omitempty"`

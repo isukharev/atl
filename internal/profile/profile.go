@@ -192,6 +192,9 @@ func Validate(p Profile) error {
 			return fmt.Errorf("%w: Confluence render_defaults cannot contain Jira-only custom_fields, field_views, or epic_field", domain.ErrUsage)
 		}
 		if p.RenderDefaults.Jira != nil {
+			if len(p.RenderDefaults.Jira.PageFields) > 0 {
+				return fmt.Errorf("%w: Jira render_defaults cannot contain Confluence-only page_fields", domain.ErrUsage)
+			}
 			for i, view := range p.RenderDefaults.Jira.FieldViews {
 				if _, err := config.NormalizeJiraFieldView(view); err != nil {
 					return fmt.Errorf("%w: invalid render_defaults Jira field_views[%d]: %v", domain.ErrUsage, i, err)
@@ -199,6 +202,13 @@ func Validate(p Profile) error {
 			}
 			if strings.ContainsAny(p.RenderDefaults.Jira.EpicField, "\r\n") {
 				return fmt.Errorf("%w: render_defaults Jira epic_field must not contain line breaks", domain.ErrUsage)
+			}
+		}
+		if p.RenderDefaults.Confluence != nil {
+			for i, view := range p.RenderDefaults.Confluence.PageFields {
+				if _, err := config.NormalizeConfluenceFieldView(view); err != nil {
+					return fmt.Errorf("%w: invalid render_defaults Confluence page_fields[%d]: %v", domain.ErrUsage, i, err)
+				}
 			}
 		}
 	}
@@ -508,6 +518,11 @@ func normalize(p *Profile) {
 		}
 		if p.RenderDefaults.Confluence != nil {
 			p.RenderDefaults.Confluence.Profile = strings.TrimSpace(p.RenderDefaults.Confluence.Profile)
+			for i, view := range p.RenderDefaults.Confluence.PageFields {
+				if normalized, err := config.NormalizeConfluenceFieldView(view); err == nil {
+					p.RenderDefaults.Confluence.PageFields[i] = normalized
+				}
+			}
 			p.RenderDefaults.Confluence.Include = uniqueSorted(p.RenderDefaults.Confluence.Include)
 			p.RenderDefaults.Confluence.Exclude = uniqueSorted(p.RenderDefaults.Confluence.Exclude)
 		}

@@ -7,17 +7,19 @@ package domain
 // deliberately backend-agnostic: a Confluence page and a Jira issue both map
 // onto it, so pull/status/push do not care which they hold.
 type Resource struct {
-	ID        string // backend id (Confluence content id, Jira issue key)
-	Title     string
-	SpaceKey  string   // Confluence space key / Jira project key
-	Version   int      // backend version number used for the optimistic gate
-	Body      []byte   // native-format bytes (Confluence Storage Format or Jira wiki)
-	Hash      string   // content hash of Body (canonical) — drives dirty detection
-	Refs      []Ref    // opaque fragments discovered in Body (resolved for read)
-	Parent    string   // parent content id, "" for top-level
-	Ancestors []string // ancestor titles top→down (drives mirror folder path)
-	Labels    []string
-	URL       string
+	ID         string // backend id (Confluence content id, Jira issue key)
+	Title      string
+	SpaceKey   string   // Confluence space key / Jira project key
+	Version    int      // backend version number used for the optimistic gate
+	Body       []byte   // native-format bytes (Confluence Storage Format or Jira wiki)
+	Hash       string   // content hash of Body (canonical) — drives dirty detection
+	Refs       []Ref    // opaque fragments discovered in Body (resolved for read)
+	Parent     string   // parent content id, "" for top-level
+	Ancestors  []string // ancestor titles top→down (drives mirror folder path)
+	Labels     []string
+	Updated    string
+	Restricted *bool // nil when restriction metadata was not requested
+	URL        string
 }
 
 // RefKind identifies the class of an opaque fragment inside a body.
@@ -64,6 +66,7 @@ type PageMeta struct {
 	Ancestors    []string `json:"ancestors,omitempty"`
 	Labels       []string `json:"labels,omitempty"`
 	Restrictions bool     `json:"restricted"`
+	Updated      string   `json:"updated,omitempty"`
 	URL          string   `json:"url,omitempty"`
 }
 

@@ -240,6 +240,52 @@ func TestSetRenderKey(t *testing.T) {
 	if rc.Jira.EpicField != "customfield_10010" {
 		t.Errorf("epic_field = %q", rc.Jira.EpicField)
 	}
+	if err := SetRenderKey(rc, "render.confluence.page_fields", `[{"id":"updated","label":"Last changed","format":"date"},{"id":"labels","placement":"section"}]`); err != nil {
+		t.Fatal(err)
+	}
+	if got := rc.Confluence.PageFields; len(got) != 2 || got[0].Label != "Last changed" || got[1].Format != "list" {
+		t.Errorf("page_fields not normalized: %+v", got)
+	}
+}
+
+func TestNormalizeConfluenceFieldView(t *testing.T) {
+	got, err := NormalizeConfluenceFieldView(ConfluenceFieldView{ID: " updated ", Placement: "section"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "updated" || got.Label != "Updated" || got.Format != "datetime" || got.Placement != "section" {
+		t.Fatalf("normalized = %+v", got)
+	}
+	bad := []ConfluenceFieldView{
+		{ID: "unknown"},
+		{ID: "title", Format: "list"},
+		{ID: "labels", Format: "date"},
+		{ID: "updated", Placement: "body"},
+		{ID: "title", Label: "bad\nlabel"},
+	}
+	for _, view := range bad {
+		if _, err := NormalizeConfluenceFieldView(view); err == nil {
+			t.Errorf("accepted invalid descriptor %+v", view)
+		}
+	}
+}
+
+func TestLocalRenderSeparatesJiraAndConfluenceFieldDescriptors(t *testing.T) {
+	root := t.TempDir()
+	writeLocal(t, root, `{"render":{"jira":{"page_fields":[{"id":"title"}]},"confluence":{"field_views":[{"id":"customfield_1"}],"page_fields":[{"id":"labels"},{"id":"bogus"}]}}}`)
+	lc, warns, err := LoadLocal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lc.Render.Jira.PageFields) != 0 || len(lc.Render.Confluence.FieldViews) != 0 {
+		t.Fatalf("cross-service descriptors survived: %+v", lc.Render)
+	}
+	if got := lc.Render.Confluence.PageFields; len(got) != 1 || got[0].ID != "labels" {
+		t.Fatalf("Confluence page fields = %+v", got)
+	}
+	if len(warns) != 3 {
+		t.Fatalf("warnings = %v", warns)
+	}
 }
 
 func TestSetRenderKeyErrors(t *testing.T) {

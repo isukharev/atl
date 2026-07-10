@@ -66,7 +66,7 @@ type content struct {
 			} `json:"results"`
 		} `json:"labels"`
 	} `json:"metadata"`
-	Restrictions struct {
+	Restrictions *struct {
 		Read struct {
 			Restrictions struct {
 				User struct {
@@ -86,7 +86,7 @@ type content struct {
 func (ct *content) toResource(base, body string) *domain.Resource {
 	r := &domain.Resource{
 		ID: ct.ID, Title: ct.Title, SpaceKey: ct.Space.Key,
-		Version: ct.Version.Number, Body: []byte(body),
+		Version: ct.Version.Number, Body: []byte(body), Updated: ct.Version.When,
 	}
 	for _, a := range ct.Ancestors {
 		r.Ancestors = append(r.Ancestors, a.Title)
@@ -109,6 +109,9 @@ func (cf *Confluence) GetPage(ctx context.Context, id string, opts domain.PullOp
 	if opts.Format == "view" {
 		expand = "body.view,version,space,ancestors,metadata.labels"
 	}
+	if opts.IncludeRestrictions {
+		expand += ",restrictions.read.restrictions.user,restrictions.read.restrictions.group"
+	}
 	var ct content
 	if err := cf.c.GetJSON(ctx, "/rest/api/content/"+url.PathEscape(id)+"?expand="+expand, &ct); err != nil {
 		return nil, err
@@ -117,7 +120,15 @@ func (cf *Confluence) GetPage(ctx context.Context, id string, opts domain.PullOp
 	if opts.Format == "view" {
 		body = ct.Body.View.Value
 	}
-	return ct.toResource(cf.base, body), nil
+	r := ct.toResource(cf.base, body)
+	if opts.IncludeRestrictions {
+		if ct.Restrictions != nil {
+			read := ct.Restrictions.Read.Restrictions
+			restricted := len(read.User.Results) > 0 || len(read.Group.Results) > 0
+			r.Restricted = &restricted
+		}
+	}
+	return r, nil
 }
 
 // GetMeta returns non-body metadata.
@@ -128,15 +139,17 @@ func (cf *Confluence) GetMeta(ctx context.Context, id string) (*domain.PageMeta,
 		"restrictions.read.restrictions.user,restrictions.read.restrictions.group", &ct); err != nil {
 		return nil, err
 	}
-	m := &domain.PageMeta{ID: ct.ID, Title: ct.Title, Space: ct.Space.Key, Version: ct.Version.Number}
+	m := &domain.PageMeta{ID: ct.ID, Title: ct.Title, Space: ct.Space.Key, Version: ct.Version.Number, Updated: ct.Version.When}
 	for _, a := range ct.Ancestors {
 		m.Ancestors = append(m.Ancestors, a.Title)
 	}
 	for _, l := range ct.Metadata.Labels.Results {
 		m.Labels = append(m.Labels, l.Name)
 	}
-	read := ct.Restrictions.Read.Restrictions
-	m.Restrictions = len(read.User.Results) > 0 || len(read.Group.Results) > 0
+	if ct.Restrictions != nil {
+		read := ct.Restrictions.Read.Restrictions
+		m.Restrictions = len(read.User.Results) > 0 || len(read.Group.Results) > 0
+	}
 	if ct.Links.WebUI != "" {
 		m.URL = cf.base + ct.Links.WebUI
 	}

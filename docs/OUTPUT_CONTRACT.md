@@ -197,6 +197,18 @@ substrate write. Legacy/unmarked migration uses `conf render` or a fresh pull;
 callers preserve and reapply existing edits because render replaces `.md`.
 Unknown/future versions require an updated binary and must not be downgraded.
 
+When `page_fields` is enabled, the read-only prefix contains
+`<!-- atl:section page-fields readonly -->` followed by a `# Metadata` table and
+optional `<!-- atl:section page-field.<id> readonly -->` sections. Descriptors
+are stored with the view state so apply/push reproduce the exact prefix. Values
+are single-line escaped plain text, not executable Markdown. `restricted` is
+absent/unknown unless explicitly projected; offline render never converts
+unknown into `false`.
+
+The sibling Confluence `.meta.json` persists `ancestors` and `updated` when the
+backend supplied them. `restricted` is present as a JSON boolean only when the
+pull explicitly selected that descriptor; a narrower later pull removes it.
+
 `atl conf page view <ID>` is the non-persistent counterpart. Its JSON is
 `{"id","title","space","version","markdown"}`; text output is the exact
 Markdown string. It uses the same versioned renderer, but marks the body

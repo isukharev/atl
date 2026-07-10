@@ -286,6 +286,9 @@ atl conf page get     --id 123456
 atl conf page get     --id 123456 --format csf
 atl conf page meta    --id 123456
 atl conf page history --id 123456
+# Типизированные read-only метаданные страницы (см. docs/usage.md)
+atl config set render.confluence.include page_fields
+atl config set render.confluence.page_fields '[{"id":"title"},{"id":"updated","format":"date"}]'
 atl conf table extract --id 123456 --format json
 atl conf table extract --id 123456 --table 2 --format csv # формулы нейтрализуются по умолчанию
 atl conf table extract --id 123456 --table 2 --format csv --raw-csv # небезопасно открывать в таблицах

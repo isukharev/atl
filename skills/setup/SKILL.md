@@ -76,11 +76,13 @@ host is rejected at set time.
 **Render config layer (presentation-only).** `config set` also takes a positional dotted render key
 that tunes the derived `.md` view — `render.{jira,confluence}.{profile,include,exclude}` (profile is
 `minimal`|`default`|`full`) plus Jira-only `custom_fields` (comma-separated), typed
-`field_views` (JSON descriptor array), and `epic_field`:
+`field_views` (JSON descriptor array), and `epic_field`; Confluence has a
+closed read-only `page_fields` JSON descriptor array:
 
 ```bash
 atl config set render.jira.profile full            # global (~/.config/atl/config.json)
 atl config set --local render.confluence.profile minimal   # per-mirror <root>/.atl/config.json
+atl config set --local render.confluence.page_fields '[{"id":"title"},{"id":"updated","format":"date"}]'
 atl config set --local render.jira.field_views '[{"id":"customfield_10003","label":"Risk Notes","placement":"section","format":"jira_wiki","editable":true}]'
 ```
 

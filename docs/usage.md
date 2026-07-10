@@ -239,6 +239,7 @@ atl config set --update-url https://releases.example.com/atl
 # Render (presentation-only) keys — global or per-mirror (--local):
 atl config set render.jira.profile full
 atl config set --local render.confluence.profile minimal
+atl config set --local render.confluence.page_fields '[{"id":"title"},{"id":"updated","format":"date"}]'
 atl config set --local render.jira.include sprint,epic_children
 ```
 
@@ -254,9 +255,9 @@ Flags:
 
 **Render keys** (`render.{jira,confluence}.{profile,include,exclude}`, plus
 `render.jira.custom_fields`, `render.jira.field_views`, and
-`render.jira.epic_field`) tune the derived `.md` view. `profile` is one of
+`render.jira.epic_field`, plus `render.confluence.page_fields`) tune the derived `.md` view. `profile` is one of
 `minimal`, `default`, `full`; `include`/`exclude`/`custom_fields` take a
-comma-separated list, while `field_views` takes a JSON descriptor array.
+comma-separated list, while `field_views` and `page_fields` take JSON descriptor arrays.
 
 **Local config layer (security boundary).** `--local` writes a per-mirror
 `.atl/config.json` that may carry **render keys only** — it is presentation-only.
@@ -492,7 +493,7 @@ preserve existing edits as a private reviewed patch and reapply them afterward.
 |---|---|---|
 | `minimal` | `key` + `summary` in `# Metadata`, `# Description` only | body plus generated version/body boundaries (byte-identical to `default`) |
 | `default` | minimal **plus** `status`, `type`, `project`, `assignee`, `labels`, `priority`, `parent`, `# Image Attachments`, `# Links`, `# Comments` | body plus generated version/body boundaries |
-| `full` | everything visible: default **plus** `reporter`, `created`/`updated`, `resolution`, `duedate`, `components`, `fix_versions`, configured `custom_fields`, `# Attachments` (non-image list), `# Subtasks`, `# Sprint` | YAML frontmatter (`title`, `space`, `version`, `labels`) **plus** a `## Comments` section (from the `--comments` sidecar when present) |
+| `full` | everything visible: default **plus** `reporter`, `created`/`updated`, `resolution`, `duedate`, `components`, `fix_versions`, configured `custom_fields`, `# Attachments` (non-image list), `# Subtasks`, `# Sprint` | read-only `# Metadata` table (`title`, `space`, `version`, `labels`, `updated` when known) **plus** a `## Comments` section (from the `--comments` sidecar when present) |
 
 **Section names** (for `include`/`exclude`). Jira: `status`, `type`, `project`,
 `assignee`, `labels`, `priority`, `parent`, `reporter`, `created`, `updated`,
@@ -500,7 +501,8 @@ preserve existing edits as a private reviewed patch and reapply them afterward.
 `attachments`, `attachments_all`, `links`, `comments`, `sprint`, `subtasks`,
 `epic_children`. `epic_children` is intentionally in no profile base — including
 it performs an additional bounded Jira query, so it must be enabled explicitly.
-Confluence: `frontmatter`, `comments`. An unknown name is warned about on stderr
+Confluence: `page_fields`, `comments`; `frontmatter` remains a deprecated
+explicit include for reproducing older configured views. An unknown name is warned about on stderr
 and ignored, never an error.
 
 **Resolution order** (highest wins, merged per key): `--render-profile` /
@@ -508,10 +510,40 @@ and ignored, never an error.
 **>** global config **>** built-in `default`. `include` adds sections to the
 profile base; `exclude` removes them.
 
+Confluence `page_fields` is a closed, read-only descriptor list. Configure it
+globally or in a mirror-local render config:
+
+```json
+{
+  "render": {
+    "confluence": {
+      "profile": "minimal",
+      "include": ["page_fields"],
+      "page_fields": [
+        {"id": "title"},
+        {"id": "ancestors", "placement": "section"},
+        {"id": "updated", "format": "date"},
+        {"id": "restricted", "show_empty": true}
+      ]
+    }
+  }
+}
+```
+
+IDs are `title`, `space`, `version`, `parent` (page id), `ancestors` (titles),
+`labels`, `restricted`, and `updated`. Placement is `metadata` (default) or
+`section`. Formats are `auto`, `scalar`, `list` (ancestors/labels), `date`, and
+`datetime` (updated). Server-controlled labels and values are emitted as plain,
+escaped Markdown text. Restriction state is an opt-in projection: it is fetched
+only when a configured descriptor selects it, stored as known true/false in the
+mirror, and cleared by a later pull that does not request it. Offline render
+never guesses an unknown value; it warns and, with `show_empty`, prints a
+re-pull-required value.
+
 Two deliberate consequences of per-key merging:
 
 - **List keys can be replaced, not emptied, by a higher layer.** An empty
-  `include`/`exclude`/`custom_fields`/`field_views` value means "not set here" and falls
+  `include`/`exclude`/`custom_fields`/`field_views`/`page_fields` value means "not set here" and falls
   through to the lower layer — a local config or flag cannot clear a list the
   global config sets. To stop rendering a globally-configured custom field in
   one mirror, override the list with a different value, or counter it (e.g.
@@ -833,7 +865,7 @@ mirror/
       child-page/
         child-page.csf           ← edit this
         child-page.md            ← derived staging view; supported edits go through conf apply
-        child-page.meta.json     ← id, version, content_hash, fragments, comments_pulled, comment_count
+        child-page.meta.json     ← id, version, hierarchy, labels, updated, optional restricted, content_hash, fragments, comment state
         child-page.comments.json ← only with --comments: [{id, author, created, body}]
         child-page.comments.md   ← only with --comments: derived human read view
         child-page.assets/
@@ -1031,14 +1063,14 @@ editing; for an already edited old view, preserve a private patch, render, then
 reapply. An unknown/future version requires a newer `atl`; do not downgrade it.
 
 All views carry generated document/body boundaries. When the page was pulled
-under the `full` profile, the `.md` also carries YAML metadata and a `## Comments`
+under the `full` profile, the `.md` also carries a read-only `# Metadata` table and a `## Comments`
 section. Generated regions are **read-only** in the view:
 `apply` reproduces them from the recorded render settings (`.atl/state.json`) and
 merges only the editable body between them, so an untouched `full`-profile page
 applies to a byte-identical `.csf` — the decorations are never converted into
-page content. Editing the frontmatter or the `## Comments` section is refused
-(exit `8`) with a pointer to `conf page update` / `conf page move` or
-`conf comment add`.
+page content. Editing generated page fields or the `## Comments` section is
+refused (exit `8`); use the relevant dedicated metadata/comment command where
+available rather than editing the derived view.
 
 Output: `{path, csf_path, dry_run, report: {unchanged, moved, converted,
 removed, merged_tables?, removed_fragments?, problems?}, csf_ok, wrote,

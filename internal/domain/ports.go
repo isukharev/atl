@@ -7,7 +7,8 @@ import (
 
 // PullOpts narrows what a DocStore.Pull returns.
 type PullOpts struct {
-	Format string // "csf" (default, native) | "view"
+	Format              string // "csf" (default, native) | "view"
+	IncludeRestrictions bool   // Confluence: request read-restriction metadata
 }
 
 // DocStore is the port for a document backend (Confluence today; Notion/etc.

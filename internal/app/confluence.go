@@ -213,7 +213,7 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 	}
 	// Resolve the effective render settings for THIS mirror root (local config
 	// lives under it). Default/minimal keep the body-only view byte-identical to
-	// today; only `full` (or an explicit include) adds frontmatter/comments.
+	// today; only `full` (or an explicit include) adds metadata/comments.
 	rs, warns := ResolveRender(s.cfg, root, o.Render, "confluence")
 	res := &PullResult{Root: root, Warnings: warns}
 	if truncated {
@@ -230,7 +230,7 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 	}
 	defer func() { _ = batch.Flush() }()
 	for _, id := range ids {
-		page, err := s.store.GetPage(ctx, id, domain.PullOpts{Format: "csf"})
+		page, err := s.store.GetPage(ctx, id, domain.PullOpts{Format: "csf", IncludeRestrictions: confluenceNeedsRestrictions(rs)})
 		if err != nil {
 			return res, fmt.Errorf("pull %s: %w", id, err)
 		}
@@ -272,7 +272,7 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 			return res, fmt.Errorf("write %s: %w", id, err)
 		}
 		// Record the render settings this .md view was written with so `conf
-		// apply` can reproduce the exact pristine view (frontmatter + comments
+		// apply` can reproduce the exact pristine view (metadata + comments
 		// stay read-only) instead of guessing from the ambient config.
 		batch.RecordView(page.ID, viewStateOf(rs))
 		rel, _ := filepath.Rel(root, filepath.Join(dir, slug+".csf"))
@@ -575,7 +575,13 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 	// Refresh the mirror entry so base/version/hash track the new remote state.
 	// If this fails the sidecar goes stale and the NEXT push could spuriously
 	// report drift — surface it as a warning rather than swallowing it.
-	page, gerr := s.store.GetPage(ctx, lc.Meta.ID, domain.PullOpts{Format: "csf"})
+	refreshRS, _ := ResolveRender(s.cfg, m.Root, config.RenderService{}, "confluence")
+	if view, ok, verr := m.ViewStateOf(lc.Meta.ID); verr == nil && ok {
+		refreshRS = settingsFromViewState(view)
+	}
+	page, gerr := s.store.GetPage(ctx, lc.Meta.ID, domain.PullOpts{
+		Format: "csf", IncludeRestrictions: confluenceNeedsRestrictions(refreshRS),
+	})
 	if gerr != nil {
 		item.Warning = "pushed but local refresh failed (re-pull recommended): " + gerr.Error()
 		return item, nil
@@ -587,14 +593,13 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 		refs = fragment.Resolve(ctx, page, fragment.Extract(r), fragment.Deps{Users: s.users})
 	}
 	// Keep the refreshed .md view consistent with the mirror's configured profile
-	// (no per-run override on push): a full-profile mirror keeps its frontmatter/
+	// (no per-run override on push): a full-profile mirror keeps its metadata/
 	// comments after a push instead of reverting to the body-only default. Comments
 	// are read from the existing sidecar (push does not fetch them).
-	rs, _ := ResolveRender(s.cfg, m.Root, config.RenderService{}, "confluence")
-	mdOpts := confMDViewOpts(rs, page, readCommentsSidecar(m.Root, dir, slug))
+	mdOpts := confMDViewOpts(refreshRS, page, readCommentsSidecar(m.Root, dir, slug))
 	if werr := m.WriteView(dir, slug, page, refs, mdOpts); werr != nil {
 		item.Warning = "pushed but local refresh failed (re-pull recommended): " + werr.Error()
-	} else if verr := m.SaveViewStates(map[string]mirror.ViewState{lc.Meta.ID: viewStateOf(rs)}); verr != nil {
+	} else if verr := m.SaveViewStates(map[string]mirror.ViewState{lc.Meta.ID: viewStateOf(refreshRS)}); verr != nil {
 		// Recording the view state is best-effort, like the refresh itself: the
 		// push already succeeded, so a sidecar-record failure is a warning, not a
 		// failed push.

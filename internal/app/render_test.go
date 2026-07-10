@@ -31,7 +31,7 @@ func TestProfileBases(t *testing.T) {
 		{"jira", "full", append([]string(nil), jiraFullSections...)},
 		{"confluence", "minimal", nil},
 		{"confluence", "default", nil},
-		{"confluence", "full", []string{"comments", "frontmatter"}},
+		{"confluence", "full", []string{"comments", "page_fields"}},
 	}
 	for _, c := range cases {
 		rs, warns := computeSettings(c.backend, config.RenderService{Profile: c.profile})
@@ -170,8 +170,43 @@ func TestComputeSettingsConfluenceIgnoresJiraOnlyOptions(t *testing.T) {
 	if len(rs.FieldViews) != 0 || len(rs.CustomFields) != 0 || rs.EpicField != "" {
 		t.Fatalf("Jira-only settings leaked into Confluence: %+v", rs)
 	}
-	if !rs.On("frontmatter") || !rs.On("comments") {
+	if !rs.On("page_fields") || !rs.On("comments") {
 		t.Fatalf("Confluence profile was not preserved: %+v", rs.Sections)
+	}
+}
+
+func TestComputeSettingsJiraIgnoresConfluencePageFields(t *testing.T) {
+	rs, warns := computeSettings("jira", config.RenderService{PageFields: []config.ConfluenceFieldView{{ID: "title"}}})
+	if len(warns) != 1 || !strings.Contains(warns[0], "Confluence-only") || len(rs.PageFields) != 0 {
+		t.Fatalf("cross-service page fields leaked: settings=%+v warnings=%v", rs, warns)
+	}
+}
+
+func TestComputeSettingsConfluencePageFieldsRoundTrip(t *testing.T) {
+	rs, warns := computeSettings("confluence", config.RenderService{
+		Profile: "minimal", Include: []string{SecPageFields},
+		PageFields: []config.ConfluenceFieldView{
+			{ID: "updated", Label: "Changed", Format: "date"},
+			{ID: "labels", Placement: "section"},
+			{ID: "labels", Label: "duplicate"},
+		},
+	})
+	if len(warns) != 1 || !strings.Contains(warns[0], "duplicate") {
+		t.Fatalf("warnings = %v", warns)
+	}
+	if len(rs.PageFields) != 2 || rs.PageFields[1].Format != "list" {
+		t.Fatalf("page fields = %+v", rs.PageFields)
+	}
+	restored := settingsFromViewState(viewStateOf(rs))
+	if !reflect.DeepEqual(restored.PageFields, rs.PageFields) || !restored.On(SecPageFields) {
+		t.Fatalf("view state lost page fields: restored=%+v original=%+v", restored, rs)
+	}
+}
+
+func TestComputeSettingsLegacyFrontmatterStillExplicitlyAccepted(t *testing.T) {
+	rs, warns := computeSettings("confluence", config.RenderService{Profile: "minimal", Include: []string{SecFrontmatter}})
+	if len(warns) != 1 || !strings.Contains(warns[0], "deprecated") || !rs.On(SecFrontmatter) {
+		t.Fatalf("legacy frontmatter include was not preserved: sections=%v warnings=%v", rs.Sections, warns)
 	}
 }
 

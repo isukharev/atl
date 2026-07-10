@@ -164,6 +164,50 @@ func TestGetPageStorage(t *testing.T) {
 	if strings.Contains(gotPath, "body.view") {
 		t.Errorf("csf pull should not request body.view: %q", gotPath)
 	}
+	if strings.Contains(gotPath, "restrictions") || r.Restricted != nil {
+		t.Errorf("default page read fetched restriction metadata: path=%q restricted=%v", gotPath, r.Restricted)
+	}
+}
+
+func TestGetPageRestrictionsAreExplicitlyProjected(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.RequestURI()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"55","version":{"number":4,"when":"2026-07-10T12:55:30.000Z"},"body":{"storage":{"value":"<p>x</p>"}},"restrictions":{"read":{"restrictions":{"user":{"results":[]},"group":{"results":[{}]}}}}}`))
+	}))
+	defer srv.Close()
+
+	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+	r, err := cf.GetPage(context.Background(), "55", domain.PullOpts{IncludeRestrictions: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(gotPath, "restrictions.read.restrictions") {
+		t.Fatalf("restriction expansion missing: %q", gotPath)
+	}
+	if r.Restricted == nil || !*r.Restricted {
+		t.Fatalf("restricted = %v", r.Restricted)
+	}
+	if r.Updated != "2026-07-10T12:55:30.000Z" {
+		t.Fatalf("updated = %q", r.Updated)
+	}
+}
+
+func TestGetPageOmittedRestrictionsRemainUnknown(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"55","body":{"storage":{"value":"<p>x</p>"}}}`))
+	}))
+	defer srv.Close()
+	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+	r, err := cf.GetPage(context.Background(), "55", domain.PullOpts{IncludeRestrictions: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Restricted != nil {
+		t.Fatalf("omitted restriction object was guessed as %v", *r.Restricted)
+	}
 }
 
 // TestGetPageView verifies opts.Format=="view" switches the expand to
