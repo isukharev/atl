@@ -20,7 +20,7 @@ it.
 
 ```
 atl conf search --cql "space=DOCS" -o text
-atl jira issue get PROJ-1 -o text
+atl jira issue view PROJ-1 -o text
 ```
 
 ### Body input (`--from-file`)
@@ -1037,6 +1037,39 @@ Flags:
 |---|---|
 | `PROJ-1` | issue key (positional, required) |
 | `--fields` | comma-separated field list to restrict the response |
+
+### `atl jira issue view`
+
+Fetch one issue and render the same configured Markdown projection used by
+`jira pull`/`jira render`, but write nothing to disk. This is the fast path for
+one-off agent reading when no offline cache or editing baseline is needed.
+
+```bash
+atl jira issue view PROJ-1 -o text
+atl jira issue view PROJ-1 --render-profile full
+atl jira issue view PROJ-1 --render-root ~/.atl/workspace
+```
+
+Default JSON is one object: `{"key":"PROJ-1","markdown":"..."}`. With
+`-o text`, stdout is raw Markdown. Render-resolution warnings go to stderr.
+The command requests only fields required by the selected profile and typed
+field config; configured `epic_children` may perform its bounded related query.
+It never creates a mirror, snapshot, sidecar, asset, or writeback baseline.
+Because transient reads do not download images, the local Image Attachments
+section is omitted; use `jira pull --assets` or `jira issue images` when image
+files are needed.
+
+Flags:
+
+| flag | description |
+|---|---|
+| `PROJ-1` | issue key (positional, required) |
+| `--render-profile` / `--render-include` / `--render-exclude` | override configured presentation for this read |
+| `--render-root` | root whose presentation-only `.atl/config.json` is used; defaults to `ATL_MIRROR_ROOT`, the nearest `.atl`, or the current directory; never written |
+
+Do not edit or save transient output as if it were a synchronized mirror. For
+writeback, first run a fresh `jira pull`, edit its generated view, then use
+`jira apply` and guarded `jira push`.
 
 ### `atl jira issue search`
 

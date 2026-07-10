@@ -38,6 +38,22 @@ atl jira issue search --jql '<JQL>' --limit 50
 `--fields summary,status`.) See [jql.md](reference/jql.md).
 
 ### 2. Pull issues you'll work with
+
+For a one-off read that will not be edited or cached, skip the mirror and use:
+
+```bash
+atl jira issue view <KEY> -o text [--render-profile full]
+```
+
+This fetches only the fields required by the configured Markdown view and
+writes no files. Default JSON is `{key,markdown}`; `-o text` is raw Markdown.
+It creates no baseline, so never edit it as a write surface — pull fresh first
+if the task turns into an edit. `--render-root <root>` selects that root's
+presentation-only local config without writing there. It does not download
+image files; use `pull --assets` or `issue images` when vision is needed.
+
+For work that needs editing, repeatable offline reads, or attachment files:
+
 ```bash
 atl jira pull --jql '<JQL>' --into ~/.atl/<workspace>/ --limit 0 [--fields customfield_10001,customfield_10002]
 atl jira pull --jql '<JQL>' --assets   # also mirror image attachments (opt-in)
@@ -131,6 +147,10 @@ selections.
 
 ### 3. Read for context
 Read `<KEY>.md` (human view) and `<KEY>.json` (raw fields) to ground your work.
+
+If the issue was not pulled because this is a one-off read, use `jira issue
+view <KEY> -o text`; use `issue get --fields ...` when you specifically need a
+structured raw-field response rather than the configured human view.
 
 **Keep live reads slim.** A bare `issue get` returns the full comment thread, attachments, and
 links — expensive in context. For a first look use
@@ -340,6 +360,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | Command | What it does | Key flags |
 |---|---|---|
 | `jira issue get <KEY>` | Get an issue | `--fields` |
+| `jira issue view <KEY>` | Render one configured Markdown view without writing files | `-o text`, `--render-root`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `jira issue search` | Search issues by JQL | `--jql`, `--fields`, `--limit`, `--cursor` |
 | `jira issue search -o id` | Print matching issue keys one per line | `-o id` |
 | `jira issue create` | Create an issue | `--project`, `--type`, `--summary`, `--from-md`, `--from-file`, `--field k=v` |
@@ -420,6 +441,8 @@ sanitized issue + private case file).
   may replace the derived staging view. `<KEY>.json` is a raw snapshot and is
   never an edit surface. The native body lives in `<KEY>.wiki`; edit it directly for
   what the md view can't express, then `jira push` (or `jira issue update --from-file`).
+- **Transient `jira issue view` output is read-only context.** It has no synced
+  base or drift guard; run `jira pull` before any mirror-based edit/apply/push.
 - **Author bodies in markdown via `--from-md`** (fail-closed conversion, exit 8 names any
   unconvertible block). Raw `--from-file` bodies are **Jira wiki markup, not Markdown**
   (`*bold*`, `h2.`, `{code}` — see [wiki-markup.md](reference/wiki-markup.md)); Markdown

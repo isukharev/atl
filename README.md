@@ -310,6 +310,7 @@ never silently discarded.
 ```sh
 # Read
 atl jira issue get  PROJ-1
+atl jira issue view PROJ-1 -o text   # configured Markdown, no files written
 atl jira issue search --jql 'project = PROJ AND status = "In Progress"'
 atl jira issue attachment list PROJ-1
 atl jira issue attachment get PROJ-1 --id spec.xlsx --into ./attachments

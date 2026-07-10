@@ -97,6 +97,14 @@ corrupts the JSON stream.
 
 ## Stable Snapshot Notes
 
+`atl jira issue view <KEY>` is the non-persistent counterpart to a mirror view.
+It writes no files and emits `{"key":<KEY>,"markdown":<configured-view>}` by
+default; under `-o text`, stdout is the raw Markdown document. Advisory render
+warnings remain on stderr. The selected render root is read only for its local
+presentation config and gains no snapshot, sidecar, assets, or writeback state.
+Consequently transient output cannot be applied or pushed: pull the issue fresh
+before editing it.
+
 `atl jira pull` writes three files per issue: `<KEY>.wiki` (the native Jira wiki body, byte-for-byte —
 the editable substrate), `<KEY>.md` (a derived Markdown staging view rendered from the wiki and
 regenerated best-effort on pull/render), and `<KEY>.json` (the raw-fields snapshot). The pull

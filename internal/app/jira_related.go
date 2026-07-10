@@ -116,6 +116,17 @@ func canonicalEpicFieldID(field string) string {
 // epics in a main-search page (up to 100). There is no per-child or per-epic
 // refetch. Non-epic issues simply have no entry in the result map.
 func (s *JiraService) fetchEpicChildrenPage(ctx context.Context, issues []domain.Issue, epicField string) (map[string]JiraEpicChildrenSidecar, bool, error) {
+	return s.fetchEpicChildrenPageMode(ctx, issues, epicField, true)
+}
+
+// fetchEpicChildrenPageTransient omits child issue type because the transient
+// Markdown row does not render or persist it. Mirror sidecars keep the wider
+// projection through fetchEpicChildrenPage for offline compatibility.
+func (s *JiraService) fetchEpicChildrenPageTransient(ctx context.Context, issues []domain.Issue, epicField string) (map[string]JiraEpicChildrenSidecar, bool, error) {
+	return s.fetchEpicChildrenPageMode(ctx, issues, epicField, false)
+}
+
+func (s *JiraService) fetchEpicChildrenPageMode(ctx context.Context, issues []domain.Issue, epicField string, includeChildType bool) (map[string]JiraEpicChildrenSidecar, bool, error) {
 	byEpic := map[string]JiraEpicChildrenSidecar{}
 	var candidateKeys []string
 	candidates := map[string]bool{}
@@ -134,7 +145,11 @@ func (s *JiraService) fetchEpicChildrenPage(ctx context.Context, issues []domain
 	}
 	sort.Strings(candidateKeys)
 	jql := fmt.Sprintf("%s in (%s) ORDER BY key", epicJQLField(epicField), quoteJQLValues(candidateKeys))
-	fields := []string{"summary", "status", "issuetype", "assignee", epicField}
+	fields := []string{"summary", "status", "assignee", epicField}
+	if includeChildType {
+		// Preserve the established mirror-sidecar projection order.
+		fields = []string{"summary", "status", "issuetype", "assignee", epicField}
+	}
 	cursor := ""
 	total := 0
 	truncated := false
