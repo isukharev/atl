@@ -361,6 +361,8 @@ atl jira field-options --project PROJ --field <field-id>
 - Request bodies via `--from-file <path>` or `--from-file -` (stdin, capped at 64 MiB;
   larger input is rejected, not truncated).
 - Never interactive.
+- Confluence pull/render/apply/push serialize per mirror; on lock contention,
+  wait for the active operation and never delete the persistent `.atl` lock.
 
 | Code | Meaning |
 |------|---------|

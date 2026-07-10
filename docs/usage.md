@@ -844,6 +844,10 @@ mirror/
       12345678.csf             ← pristine copy for diff
 ```
 
+Confluence pull/render/apply/push are serialized by one persistent advisory
+lock under `.atl`; contention exits `8` before page/state writes. Wait for the
+active operation—do not remove the lock file. Read-only status stays lock-free.
+
 ### `atl conf table extract`
 
 Extract tables from a page's native CSF body into structured data. This is useful

@@ -197,6 +197,11 @@ substrate write. Legacy/unmarked migration uses `conf render` or a fresh pull;
 callers preserve and reapply existing edits because render replaces `.md`.
 Unknown/future versions require an updated binary and must not be downgraded.
 
+Confluence pull/render/apply/push acquire one persistent mirror-internal
+advisory lock for their complete mutation/preview critical section. Contention
+is exit `8` before page/state writes. The file persists so every process locks
+the same inode; process exit releases ownership. Read-only status is lock-free.
+
 `atl jira status [DIR] [--remote]` emits `{ "entries": [ { "path", "key", "locally_edited",
 "synced", "pending_fields"?, "local_error"?, "remote_drifted"?, "field_drifted"?, "remote_error"? }, ... ] }`.
 `locally_edited` is true when the `.wiki` differs from the pulled base or a configured field is
