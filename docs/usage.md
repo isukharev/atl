@@ -2068,6 +2068,7 @@ atl jira planning report --jql "project=PROJ" \
   --epic-field customfield_10002 \
   --require fixVersions,components \
   --csv planning.csv
+atl jira planning report --jql "project=PROJ" --csv raw.csv --raw-csv # unsafe in spreadsheets
 atl jira quality-report --jql "project=PROJ"     # compatibility alias
 ```
 
@@ -2081,6 +2082,7 @@ Flags:
 | `--epic-field` | field id/name containing parent epic key; enables child lists and missing-epic gaps |
 | `--limit` | max issues (0 = all; default 100) |
 | `--csv` | optional CSV report path |
+| `--raw-csv` | preserve formula-leading cells verbatim; requires `--csv` and is unsafe in spreadsheets |
 
 Output includes per-issue `score`, `max_score`, `level` (`good|warn|poor`),
 `gaps`, extracted `refs`, and `children` for epic rows when `--epic-field` is
@@ -2183,6 +2185,7 @@ atl jira structure rows 123 --root "release train"  # first matching subtree
 atl jira structure values 123 --rows 100,101 --fields key,summary,status
 atl jira structure pull-issues 123 --fields summary,status
 atl jira structure export 123 --root "release train" --fields summary,status --format json --out structure.json
+atl jira structure export 123 --fields summary --format csv --out raw.csv --raw-csv # unsafe in spreadsheets
 ```
 
 `rows` parses Structure's forest formula into a stable row list. `--root`
@@ -2238,8 +2241,10 @@ the matching Jira issues via generated `id in (...)` JQL batches. It emits:
 with issue snapshots. Supported formats are `json`, `csv`, and `md`; `--out` is
 required. `json` contains `rows`, `issue_ids`, and `issues`; `csv` includes row
 metadata plus requested issue fields; `md` renders an indented tree for quick
-review. These commands are read-only and do not write Structure data back to
-Jira.
+review. CSV formula-leading cells are apostrophe-prefixed by default. `--raw-csv`
+preserves them verbatim only with `--format csv` and produces an artifact that is
+unsafe to open in a spreadsheet. These commands are read-only and do not write
+Structure data back to Jira.
 
 ### `atl manifest create`
 

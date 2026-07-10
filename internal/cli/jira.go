@@ -1385,6 +1385,7 @@ func jiraQualityReportCmd() *cobra.Command {
 func jiraPlanningReportCommand(use string) *cobra.Command {
 	var jql, require, estimateField, epicField, csvPath string
 	var limit int
+	var rawCSV bool
 	cmd := &cobra.Command{
 		Use:   use,
 		Short: "Build a deterministic planning quality report over JQL",
@@ -1403,6 +1404,7 @@ func jiraPlanningReportCommand(use string) *cobra.Command {
 				EpicField:     epicField,
 				Limit:         limit,
 				CSVPath:       csvPath,
+				RawCSV:        rawCSV,
 			})
 			if err != nil {
 				return err
@@ -1419,6 +1421,7 @@ func jiraPlanningReportCommand(use string) *cobra.Command {
 	cmd.Flags().StringVar(&epicField, "epic-field", "", "field id/name containing parent epic key")
 	cmd.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all)")
 	cmd.Flags().StringVar(&csvPath, "csv", "", "optional CSV report path")
+	cmd.Flags().BoolVar(&rawCSV, "raw-csv", false, "write formula-leading CSV cells verbatim (unsafe in spreadsheets; requires --csv)")
 	return cmd
 }
 

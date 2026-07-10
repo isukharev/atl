@@ -412,7 +412,9 @@ The backend hostname and PAT are never written to the manifest.
 ```
 
 When `--csv FILE` is passed, the same command writes a deterministic CSV sidecar
-and includes `csv_path` in the JSON result.
+and includes `csv_path` in the JSON result. Formula-leading cells are
+apostrophe-prefixed by default; `--raw-csv` requires `--csv` and disables that
+protection for trusted non-spreadsheet consumers.
 
 `atl jira issue refs <KEY>` and `atl jira issue refs --jql ...` return
 deterministic artifact references per issue:
@@ -669,7 +671,9 @@ artifact and returns a small result object:
 JSON export artifacts contain `{structure_id,version,rows,issue_ids,issues}`.
 CSV export artifacts contain row metadata (`row_id`, `depth`, `parent_row_id`,
 `item_type`, `item_id`, `issue_key`, `issue_id`) plus requested issue fields.
-Markdown export artifacts render an indented tree for review.
+Markdown export artifacts render an indented tree for review. CSV cells use the
+same default formula neutralization as `jira export`; `--raw-csv` disables it
+only for CSV and is unsafe for spreadsheet use.
 
 `atl manifest create --root DIR` writes a backend-identity-hashed local manifest and returns
 the written path plus the manifest body:

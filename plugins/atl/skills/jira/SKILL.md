@@ -388,6 +388,7 @@ atl jira structure rows 123 --root "release train"               # first matchin
 atl jira structure values 123 --rows 100,101 --fields key,summary,status
 atl jira structure pull-issues 123 --fields summary,status        # issue snapshots by generated id in (...) JQL
 atl jira structure export 123 --format json --out structure.json  # json|csv|md offline artifact
+atl jira structure export 123 --format csv --out raw.csv --raw-csv # unsafe spreadsheet interoperability
 ```
 `rows` reports `{structure_id,version,rows:[{row_id,depth,parent_row_id,item_type,item_id}]}`.
 `--root` matches row metadata first, then selected Structure values (`--root-fields`, default
@@ -395,6 +396,8 @@ atl jira structure export 123 --format json --out structure.json  # json|csv|md 
 `values` preserves the backend matrix in `responses`/`raw` and always exposes `inaccessible_rows`
 (`[]` when the server reports no permission gaps). `pull-issues` emits `{structure_id,rows,issue_ids,issues,count}`;
 `export` writes `json`, `csv`, or `md` and returns `{path,format,structure_id,row_count,issue_count}`.
+Structure and planning CSV neutralize formula-leading cells by default. Use `--raw-csv` only for a
+trusted non-spreadsheet consumer; planning requires `--csv`, Structure requires `--format csv`.
 If the plugin or object is unavailable, expect exit 4/6.
 
 ## Quick Reference — all `jira` commands
@@ -437,7 +440,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira push <file.wiki\|DIR>` | Preview (default) or `--apply` guarded Description + pending-field write-back | `--apply`, `--force`, `--into` |
 | `jira export` | Write one compact JSONL/JSON/CSV artifact plus manifest | `--jql`/`--ids`/`--keys`, `--out`, `--format`, `--limit`, `--fields`, `--batch-size`, `--raw-csv` |
 | `jira export diff <OLD> <NEW>` | Compare compact exports | — |
-| `jira planning report` | Deterministic planning quality report | `--jql`, `--require`, `--estimate-field`, `--epic-field`, `--limit`, `--csv` |
+| `jira planning report` | Deterministic planning quality report | `--jql`, `--require`, `--estimate-field`, `--epic-field`, `--limit`, `--csv`, `--raw-csv` |
 | `jira quality-report` | Compatibility alias for planning report | same flags |
 | `jira fields` | List Jira fields | `--name-like`, `--id`, `--id-like`, `--schema`, `--custom true|false` |
 | `jira field-options` | List allowed values for a field | `--project`, `--type`, `--field` |
@@ -451,7 +454,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira structure rows <ID>` | Parse Structure forest rows | `--root`, `--root-fields`, `-o id` |
 | `jira structure values <ID>` | Get row attribute values | `--rows`, `--fields` |
 | `jira structure pull-issues <ID>` | Fetch issue snapshots from Structure issue rows | `--root`, `--fields`, `--batch-size`, `--limit`, `--out`, `-o id` |
-| `jira structure export <ID>` | Write an offline Structure tree artifact | `--root`, `--fields`, `--format json|csv|md`, `--out` |
+| `jira structure export <ID>` | Write an offline Structure tree artifact | `--root`, `--fields`, `--format json|csv|md`, `--out`, `--raw-csv` |
 
 ## Common Errors
 

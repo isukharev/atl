@@ -151,7 +151,7 @@ func TestJiraStructureExportCLIWritesCSV(t *testing.T) {
 		"version":{"signature":55,"version":7}
 	}`)
 	js.route(http.MethodGet, "/rest/api/2/search", http.StatusOK, `{
-		"issues":[{"id":"10001","key":"PROJ-1","fields":{"summary":"First","status":{"name":"Open"}}}],
+		"issues":[{"id":"10001","key":"PROJ-1","fields":{"summary":"=HYPERLINK(\"https://example.invalid\")","status":{"name":"Open"}}}],
 		"startAt":0,
 		"maxResults":50,
 		"total":1
@@ -181,6 +181,19 @@ func TestJiraStructureExportCLIWritesCSV(t *testing.T) {
 	text := string(data)
 	if !strings.Contains(text, "row_id,depth,parent_row_id,item_type,item_id,issue_key,issue_id") || !strings.Contains(text, "PROJ-1") {
 		t.Fatalf("csv export = %q, want header and issue key", text)
+	}
+	if !strings.Contains(text, "'=HYPERLINK") {
+		t.Fatalf("csv export did not neutralize formula: %q", text)
+	}
+
+	rawPath := filepath.Join(t.TempDir(), "structure-raw.csv")
+	_, code = runCLI(t, jiraEnv(js.srv), "jira", "structure", "export", "123", "--format", "csv", "--out", rawPath, "--fields", "summary,status", "--raw-csv")
+	if code != exitOK {
+		t.Fatalf("raw structure export exit %d", code)
+	}
+	raw, err := os.ReadFile(rawPath)
+	if err != nil || strings.Contains(string(raw), "'=HYPERLINK") || !strings.Contains(string(raw), "=HYPERLINK") {
+		t.Fatalf("raw csv = %q err=%v", raw, err)
 	}
 }
 

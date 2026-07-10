@@ -90,6 +90,17 @@ func TestJiraPlanningReportRequiresJQLBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestJiraPlanningRawCSVRequiresCSV(t *testing.T) {
+	js := newJiraServer(t)
+	_, code := runCLI(t, jiraEnv(js.srv), "jira", "planning", "report", "--jql", "project=PROJ", "--raw-csv")
+	if code != exitUsage {
+		t.Fatalf("raw CSV without --csv exit = %d, want %d", code, exitUsage)
+	}
+	if len(js.requests()) != 0 {
+		t.Fatalf("sent %d requests, want none", len(js.requests()))
+	}
+}
+
 func TestJiraIssueRefsCLIForKeyAndJQL(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/api/2/issue/", http.StatusOK, `{

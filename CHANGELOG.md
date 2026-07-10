@@ -40,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Complete CSV spreadsheet safety.** Structure and planning CSV outputs now use the same default
+  formula neutralization as primary Jira and Confluence exports, with an explicit CSV-only
+  `--raw-csv` escape hatch for trusted non-spreadsheet consumers.
+
 - **Profile/runtime preference handoff.** Onboarding and later learning now distinguish private
   profile memory from active render and mirror settings, require a separate reviewed runtime sync,
   and make Jira/Confluence workflows verify the effective config or pass the confirmed mirror root
@@ -70,7 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test prevents ordinary app use-cases from depending on concrete adapters.
 
 - **Safe, bounded tabular I/O.** Jira JSONL/CSV exports stream atomically,
-  aggregate JSON is capped, Jira and Confluence CSV neutralize spreadsheet
+  aggregate JSON is capped, all Jira and Confluence CSV neutralize spreadsheet
   formulas by default with an explicit `--raw-csv` escape hatch, and Confluence
   attachment multipart bodies stream instead of buffering the full file.
 
