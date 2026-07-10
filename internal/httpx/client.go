@@ -167,6 +167,10 @@ func (e *APIError) Error() string {
 
 func (e *APIError) Unwrap() error { return e.kind }
 
+// HTTPStatus exposes the received response status without coupling upper
+// layers to this concrete transport error type.
+func (e *APIError) HTTPStatus() int { return e.Status }
+
 // sameHost reports whether a server-supplied URL host matches the configured
 // backend host. An empty request host means a base-relative path (same host).
 func sameHost(base, reqHost string) bool {
@@ -425,6 +429,33 @@ func (c *Client) GetJSON(ctx context.Context, path string, out any) error {
 		return err
 	}
 	return unmarshal(data, out)
+}
+
+// GetJSONUseNumber is GetJSON with lossless json.Number values inside dynamic
+// maps/slices. Typed numeric struct fields continue to decode normally. Use it
+// when a caller must compare arbitrary server JSON without float64 precision
+// loss (for example guarded field idempotency checks).
+func (c *Client) GetJSONUseNumber(ctx context.Context, path string, out any) error {
+	data, err := c.Do(ctx, http.MethodGet, path, nil, nil)
+	if err != nil {
+		return err
+	}
+	if out == nil {
+		return nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(out); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			err = fmt.Errorf("multiple JSON values")
+		}
+		return fmt.Errorf("decode response: trailing data: %w", err)
+	}
+	return nil
 }
 
 // SendJSON marshals in, sends it with method, and unmarshals the response into

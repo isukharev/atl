@@ -493,6 +493,42 @@ rows for the same source issue, preventing one successful write from making a
 later row self-stale. Failed-row messages use safe reason categories rather than
 raw transport errors, so backend URLs are not copied into the stdout audit.
 
+`atl jira issue field set <KEY>` is a separate single-issue guarded flow. It is
+dry-run by default and returns:
+
+```json
+{
+  "key": "PROJ-1",
+  "mode": "dry-run",
+  "status": "would_apply",
+  "expected_updated": "2026-01-02T03:04:05.000+0000",
+  "actual_updated": "2026-01-02T03:04:05.000+0000",
+  "fields": [
+    {
+      "field": "customfield_10001",
+      "source": "markdown",
+      "kind": "string",
+      "bytes": 42,
+      "sha256": "<hex>",
+      "value": "h2. Progress\n\nOn track."
+    }
+  ]
+}
+```
+
+The normalized values are intentionally present in JSON stdout for review and
+may be private. `-o text` omits them and prints hashes/sizes. Status is one of
+`would_apply`, `already_satisfied`, `applied`, `blocked`, `failed`, or `unknown`.
+After any PUT error atl performs one fresh reconciliation read. For a
+definitive 4xx rejection, proposals already visible are `already_satisfied`
+(another actor may have produced the end state); absent/unreadable proposals
+are `failed`. An ambiguous transport/timeout/5xx outcome is `applied` when the
+proposals are visible and remains `unknown` otherwise (an
+immediate old read cannot prove an in-flight write will not commit). Successful
+reconciliation reads carry `"reconciled": true`. A stale
+apply still emits the `blocked` result and exits 8. Apply requires
+`--expected-updated`; all proposed fields are sent in one request.
+
 `atl jira structure rows <ID>` returns a parsed read-only view of a Tempo Structure forest:
 
 ```json

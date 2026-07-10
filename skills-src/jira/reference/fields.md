@@ -46,6 +46,26 @@ Special cases with dedicated commands — prefer them over `--field`:
 Use the field `id` from `atl jira fields` (custom fields look like `customfield_10001`), and
 confirm allowed values with `field-options` rather than guessing.
 
+## Large custom-field values from files
+
+Do not put a long custom-field body in `--field key=value` or shell argv. Use the
+guarded file command, which previews by default:
+
+```bash
+atl jira issue field set PROJ-1 \
+  --from-md customfield_10050=progress.md \
+  --allow-fields customfield_10050
+# review expected_updated and normalized value, then repeat with:
+# --expected-updated '<exact value>' --apply
+```
+
+`--from-md FIELD=PATH` always converts to a Jira-wiki **string**.
+`--from-file FIELD=PATH` keeps valid top-level JSON objects/arrays structured;
+all other bytes are an exact string. The files/stdin and normalized proposals
+are capped at 64 MiB in aggregate. Only Jira custom fields named in the exact
+`--allow-fields` list are accepted. A stale `updated` value blocks with exit 8;
+an already-satisfied value does not write.
+
 ## Editing a large description / epic body as a file
 
 **Check first:** for a bounded change (fix a value, add/remove a section, reword a
@@ -56,7 +76,7 @@ does fetch→splice→write with the `--old` match as the drift guard. For a str
 wiki markup from scratch or a wholesale rewrite outside that cycle.
 
 Inline flags are awful for long bodies. Edit the wiki body as a file instead — Jira's `--from-file`
-accepts a body file (up to 64 MiB). Compose it in Jira wiki markup, **not Markdown** — see
+accepts a body file. Compose it in Jira wiki markup, **not Markdown** — see
 [wiki-markup.md](wiki-markup.md):
 
 1. **Seed** a working file from the current description:

@@ -316,6 +316,35 @@ func TestGetIssueExplicitFields(t *testing.T) {
 	}
 }
 
+func TestGetIssuePreservesDynamicNumberPrecision(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"key":"ABC-1","fields":{"customfield_1":{"large":9007199254740993}}}`)
+	}))
+	defer srv.Close()
+
+	is, err := newTestJira(srv).GetIssue(context.Background(), "ABC-1", []string{"customfield_1"})
+	if err != nil {
+		t.Fatalf("GetIssue: %v", err)
+	}
+	object, ok := is.Fields["customfield_1"].(map[string]any)
+	if !ok || object["large"] != json.Number("9007199254740993") {
+		t.Fatalf("large number lost precision: %#v", is.Fields["customfield_1"])
+	}
+}
+
+func TestGetIssueUseNumberStillRejectsTrailingJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"key":"ABC-1","fields":{}} {}`)
+	}))
+	defer srv.Close()
+
+	if _, err := newTestJira(srv).GetIssue(context.Background(), "ABC-1", []string{"summary"}); err == nil {
+		t.Fatal("GetIssue should reject trailing JSON")
+	}
+}
+
 func TestGetIssueEscapesKey(t *testing.T) {
 	var gotRawPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

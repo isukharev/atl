@@ -116,6 +116,10 @@ type Tracker interface {
 	Search(ctx context.Context, jql string, fields []string, limit int, cursor string) ([]Issue, string, error)
 	Create(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]string) (*Issue, error)
 	Update(ctx context.Context, key, summary string, body []byte, fields map[string]string) error
+	// SetFields writes already-typed Jira field values without the legacy
+	// string-to-JSON coercion used by Update. Guarded file-backed workflows use
+	// it to distinguish a literal string from an object/array explicitly.
+	SetFields(ctx context.Context, key string, fields map[string]any) error
 	// Transition moves an issue to a status by name, optionally commenting and
 	// setting fields on the transition (e.g. resolution at Done).
 	Transition(ctx context.Context, key, to, comment string, fields map[string]string) error

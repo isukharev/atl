@@ -243,6 +243,22 @@ func readBody(path string) ([]byte, error) {
 	}
 }
 
+func readFileBounded(path string, max int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > max {
+		return nil, usageErr("input file %q exceeds the %d MiB limit", path, max>>20)
+	}
+	return data, nil
+}
+
 // readBounded reads up to max bytes from r, returning a usage error when the
 // input is larger rather than silently truncating it.
 func readBounded(r io.Reader, max int64) ([]byte, error) {
