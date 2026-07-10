@@ -320,7 +320,7 @@ atl jira pull --jql 'project = PROJ AND status = Open' --assets
 # Choose how much the .md view shows: minimal | default | full (see docs/usage.md)
 atl jira pull --jql 'project = PROJ' --render-profile full
 atl jira render mirror-jira --render-profile default   # re-render offline, no re-pull
-# Typed custom fields (safe YAML/date/list rendering) and identity-checked epic children
+# Typed custom fields (readable metadata/date/list rendering) and identity-checked epic children
 # are configured per mirror; see docs/usage.md
 
 # Write

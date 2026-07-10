@@ -81,7 +81,7 @@ that tunes the derived `.md` view — `render.{jira,confluence}.{profile,include
 ```bash
 atl config set render.jira.profile full            # global (~/.config/atl/config.json)
 atl config set --local render.confluence.profile minimal   # per-mirror <root>/.atl/config.json
-atl config set --local render.jira.field_views '[{"id":"customfield_10003","key":"risk_notes","label":"Risk Notes","placement":"section","format":"jira_wiki"}]'
+atl config set --local render.jira.field_views '[{"id":"customfield_10003","label":"Risk Notes","placement":"section","format":"jira_wiki"}]'
 ```
 
 `--local` writes a per-mirror `.atl/config.json` (nearest `.atl` walking up from cwd, or `--into ROOT`).

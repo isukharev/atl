@@ -63,36 +63,38 @@ func richIssue() *domain.Issue {
 
 func TestRenderIssueProfileMinimal(t *testing.T) {
 	got := string(renderIssueMarkdown(richIssue(), nil, jiraRS("minimal")))
-	// Only key + summary in frontmatter; body/description present.
-	mustContain(t, got, "key: PROJ-42")
-	mustContain(t, got, "summary: Fix the thing")
+	// Only key + summary metadata; body/description present.
+	mustContain(t, got, "| Key | PROJ-42 |")
+	mustContain(t, got, "| Summary | Fix the thing |")
+	mustContain(t, got, "## Metadata")
+	mustNotContain(t, got, "---\n")
 	mustContain(t, got, "## Description")
-	for _, absent := range []string{"status:", "type:", "priority:", "parent:", "reporter:", "## Links", "## Comments", "## Subtasks"} {
+	for _, absent := range []string{"| Status |", "| Type |", "| Priority |", "| Parent |", "| Reporter |", "## Links", "## Comments", "## Subtasks"} {
 		mustNotContain(t, got, absent)
 	}
 }
 
 func TestRenderIssueProfileDefaultAddsPriorityParent(t *testing.T) {
 	got := string(renderIssueMarkdown(richIssue(), nil, jiraRS("default")))
-	mustContain(t, got, "status: In Progress")
-	mustContain(t, got, "priority: High")
-	mustContain(t, got, "parent: PROJ-1")
+	mustContain(t, got, "| Status | In Progress |")
+	mustContain(t, got, "| Priority | High |")
+	mustContain(t, got, "| Parent | PROJ-1 |")
 	mustContain(t, got, "## Links")
 	mustContain(t, got, "## Comments")
 	// Full-only fields stay out of default.
-	for _, absent := range []string{"reporter:", "resolution:", "duedate:", "components:", "fix_versions:", "## Subtasks", "## Sprint", "## Attachments\n"} {
+	for _, absent := range []string{"| Reporter |", "| Resolution |", "| Due date |", "| Components |", "| Fix versions |", "## Subtasks", "## Sprint", "## Attachments\n"} {
 		mustNotContain(t, got, absent)
 	}
 }
 
 func TestRenderIssueProfileFull(t *testing.T) {
 	got := string(renderIssueMarkdown(richIssue(), nil, jiraRSFull(t)))
-	mustContain(t, got, "reporter: bob")
-	mustContain(t, got, "resolution: Fixed")
-	mustContain(t, got, `duedate: "2026-02-01"`)
-	mustContain(t, got, "components: [backend, api]")
-	mustContain(t, got, "fix_versions: [v2.0]")
-	mustContain(t, got, "customfield_10001: custom scalar")
+	mustContain(t, got, "| Reporter | bob |")
+	mustContain(t, got, "| Resolution | Fixed |")
+	mustContain(t, got, "| Due date | 2026-02-01 |")
+	mustContain(t, got, "| Components | backend, api |")
+	mustContain(t, got, "| Fix versions | v2.0 |")
+	mustContain(t, got, "| customfield&#95;10001 | custom scalar |")
 	mustContain(t, got, "## Subtasks")
 	mustContain(t, got, "- PROJ-43 — child task")
 	mustContain(t, got, "## Attachments")
@@ -139,10 +141,10 @@ func TestRenderConfiguredFieldViews(t *testing.T) {
 		Profile:      "full",
 		CustomFields: []string{"customfield_10002"}, // typed view below must own it once
 		FieldViews: []config.JiraFieldView{
-			{ID: "customfield_10002", Key: "impact", Label: "Impact"},
-			{ID: "customfield_10003", Key: "risk_notes", Label: "Risk Notes", Placement: "section", Format: "jira_wiki"},
-			{ID: "customfield_10004", Key: "objectives", Label: "Objectives", Placement: "section", Format: "list"},
-			{ID: "customfield_missing", Key: "empty_field", Label: "Empty Field", Placement: "section", ShowEmpty: true},
+			{ID: "customfield_10002", Label: "Impact"},
+			{ID: "customfield_10003", Label: "Risk Notes", Placement: "section", Format: "jira_wiki"},
+			{ID: "customfield_10004", Label: "Objectives", Placement: "section", Format: "list"},
+			{ID: "customfield_missing", Label: "Empty Field", Placement: "section", ShowEmpty: true},
 		},
 	})
 	if len(warns) != 0 {
@@ -150,11 +152,11 @@ func TestRenderConfiguredFieldViews(t *testing.T) {
 	}
 	got := string(renderIssueMarkdown(richIssue(), nil, rs))
 	for _, want := range []string{
-		"impact: 7", "## Risk Notes", "**Risk**", "## Objectives", "- A", "- B", "## Empty Field", "_Not set._",
+		"| Impact | 7 |", "## Risk Notes", "**Risk**", "## Objectives", "- A", "- B", "## Empty Field", "_Not set._",
 	} {
 		mustContain(t, got, want)
 	}
-	if strings.Count(got, "impact: 7") != 1 || strings.Contains(got, "customfield_10002:") {
+	if strings.Count(got, "| Impact | 7 |") != 1 || strings.Contains(got, "| customfield_10002 |") {
 		t.Errorf("typed view should own duplicate legacy field once:\n%s", got)
 	}
 	projection := strings.Join(jiraPullFields(nil, rs), ",")
@@ -175,10 +177,10 @@ func TestConfiguredTemporalAndScalarListFormats(t *testing.T) {
 	rs, warns := computeSettings("jira", config.RenderService{
 		Profile: "full",
 		FieldViews: []config.JiraFieldView{
-			{ID: "customfield_date", Key: "release_date", Format: "date"},
-			{ID: "customfield_datetime", Key: "release_at", Format: "datetime"},
-			{ID: "customfield_bad_date", Key: "raw_bad_date", Format: "date"},
-			{ID: "customfield_scalar_list", Key: "owners", Label: "Owners", Placement: "section", Format: "list"},
+			{ID: "customfield_date", Label: "Release date", Format: "date"},
+			{ID: "customfield_datetime", Label: "Release at", Format: "datetime"},
+			{ID: "customfield_bad_date", Label: "Raw bad date", Format: "date"},
+			{ID: "customfield_scalar_list", Label: "Owners", Placement: "section", Format: "list"},
 		},
 	})
 	if len(warns) != 0 {
@@ -186,16 +188,16 @@ func TestConfiguredTemporalAndScalarListFormats(t *testing.T) {
 	}
 	got := string(renderIssueMarkdown(is, nil, rs))
 	for _, want := range []string{
-		`release_date: "2026-01-02"`,
-		`release_at: "2026-01-02T23:30:00.125+03:00"`,
-		"raw_bad_date: not-a-date",
+		`| Release date | 2026-01-02 |`,
+		`| Release at | 2026-01-02T23:30:00.125+03:00 |`,
+		"| Raw bad date | not-a-date |",
 		"## Owners\n\n- single",
 	} {
 		mustContain(t, got, want)
 	}
 }
 
-func TestJiraFrontmatterQuotesStringListsSafely(t *testing.T) {
+func TestJiraMetadataTableEscapesStructuralValues(t *testing.T) {
 	is := richIssue()
 	is.Labels = []string{"true", "a,b", `C:\temp`}
 	is.Fields["components"] = []any{
@@ -203,8 +205,19 @@ func TestJiraFrontmatterQuotesStringListsSafely(t *testing.T) {
 		map[string]any{"name": "line\nbreak"},
 	}
 	got := string(renderIssueMarkdown(is, nil, jiraRSFull(t)))
-	mustContain(t, got, `labels: ["true", "a,b", "C:\\temp"]`)
-	mustContain(t, got, `components: ["null", "line\nbreak"]`)
+	mustContain(t, got, `| Labels | true, a,b, C:&#92;temp |`)
+	mustContain(t, got, `| Components | null, line break |`)
+}
+
+func TestJiraMetadataTableKeepsServerValuesPlainText(t *testing.T) {
+	is := richIssue()
+	is.Assignee = `![pixel](https://example.invalid/pixel) <img src=x> <!-- note --> *bold*`
+	got := string(renderIssueMarkdown(is, nil, jiraRSFull(t)))
+	mustNotContain(t, got, "![pixel]")
+	mustNotContain(t, got, "<img")
+	mustNotContain(t, got, "<!--")
+	mustNotContain(t, got, "*bold*")
+	mustContain(t, got, `&#33;&#91;pixel&#93;(https://example.invalid/pixel) &lt;img src=x&gt; &lt;&#33;-- note --&gt; &#42;bold&#42;`)
 }
 
 // TestJiraRenderOfflineStable pulls a fake mirror, flips the profile via a local
@@ -251,7 +264,7 @@ func TestJiraRenderOfflineStable(t *testing.T) {
 		t.Fatalf("render result unexpected: %+v", res)
 	}
 	md := mustReadFile(t, filepath.Join(dir, "PROJ-42.md"))
-	if !strings.Contains(md, "reporter: bob") {
+	if !strings.Contains(md, "| Reporter | bob |") {
 		t.Errorf("full render missing reporter: %s", md)
 	}
 	// Substrate untouched.

@@ -142,6 +142,28 @@ func TestRenderTableCellInline(t *testing.T) {
 	}
 }
 
+func TestRenderMultilineTableCellAsOneRow(t *testing.T) {
+	in := "||Owner||Role||Notes||\n" +
+		"|[~first]  \n[~second]  \n[~third]|DS|ships models|\n" +
+		"|[~lead]|Lead|reviews|"
+	got := Render(in, Options{})
+	want := "| Owner | Role | Notes |\n" +
+		"| --- | --- | --- |\n" +
+		"| **@first**   **@second**   **@third** | DS | ships models |\n" +
+		"| **@lead** | Lead | reviews |"
+	if got != want {
+		t.Errorf("multiline table cell:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+func TestRenderEscapedBraceBold(t *testing.T) {
+	got := Render(`Shift by ~ \{*}3.5 weeks{*}, reason`, Options{})
+	want := "Shift by ~ **3.5 weeks**, reason"
+	if got != want {
+		t.Errorf("escaped-brace bold:\n got: %q\nwant: %q", got, want)
+	}
+}
+
 // Render is a total function: for a spread of gnarly inputs it must not panic
 // and must keep the output valid UTF-8 when the input is.
 func TestRenderTotalSpotChecks(t *testing.T) {

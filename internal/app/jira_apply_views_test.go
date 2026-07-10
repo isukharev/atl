@@ -113,7 +113,7 @@ func TestJiraApply_RecordedConfiguredAndEpicSectionsAreReadOnly(t *testing.T) {
 		is.Body = applyBody
 		rs, warns := computeSettings("jira", config.RenderService{
 			Profile: "full", Include: []string{SecEpicChildren}, EpicField: "customfield_10010",
-			FieldViews: []config.JiraFieldView{{ID: "customfield_10003", Key: "risk", Label: "Risk", Placement: "section", Format: "jira_wiki"}},
+			FieldViews: []config.JiraFieldView{{ID: "customfield_10003", Label: "Risk", Placement: "section", Format: "jira_wiki"}},
 		})
 		if len(warns) != 0 {
 			t.Fatalf("warnings: %v", warns)

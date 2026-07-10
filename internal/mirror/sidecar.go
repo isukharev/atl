@@ -34,7 +34,6 @@ type ViewState struct {
 // converts between this state and its resolved render settings.
 type FieldViewState struct {
 	ID        string `json:"id"`
-	Key       string `json:"key,omitempty"`
 	Label     string `json:"label,omitempty"`
 	Placement string `json:"placement,omitempty"`
 	Format    string `json:"format,omitempty"`

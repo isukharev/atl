@@ -336,12 +336,12 @@ func TestRenderIssueMarkdownFull(t *testing.T) {
 	}
 	got := string(renderIssueMarkdown(is, nil, jiraRS("default")))
 
-	mustContain(t, got, "key: PROJ-42")
-	mustContain(t, got, "status: In Progress")
-	mustContain(t, got, "type: Bug")
-	mustContain(t, got, "project: PROJ")
-	mustContain(t, got, "assignee: alice")
-	mustContain(t, got, "labels: [backend, urgent]")
+	mustContain(t, got, "| Key | PROJ-42 |")
+	mustContain(t, got, "| Status | In Progress |")
+	mustContain(t, got, "| Type | Bug |")
+	mustContain(t, got, "| Project | PROJ |")
+	mustContain(t, got, "| Assignee | alice |")
+	mustContain(t, got, "| Labels | backend, urgent |")
 	mustContain(t, got, "# PROJ-42 — Fix the thing")
 	// The .md is now a rendered read view: the section header is a plain
 	// "## Description" and the wiki body is converted to markdown (the verbatim
@@ -373,51 +373,30 @@ func TestRenderIssueMarkdownMinimal(t *testing.T) {
 	}
 	got := string(renderIssueMarkdown(is, nil, jiraRS("default")))
 
-	mustContain(t, got, "key: MIN-1")
+	mustContain(t, got, "| Key | MIN-1 |")
 	mustContain(t, got, "# MIN-1 — Bare issue")
-	mustNotContain(t, got, "assignee:")
-	mustNotContain(t, got, "labels:")
+	mustNotContain(t, got, "| Assignee |")
+	mustNotContain(t, got, "| Labels |")
 	mustNotContain(t, got, "## Description")
 	mustNotContain(t, got, "## Links")
 	mustNotContain(t, got, "## Comments")
 }
 
-// A summary containing YAML-significant characters must be quoted/escaped in the
-// frontmatter so the file stays valid YAML.
-func TestRenderIssueMarkdownYAMLEscape(t *testing.T) {
+// Metadata is a valid Markdown table even when values contain table delimiters
+// or physical line breaks.
+func TestRenderIssueMarkdownMetadataEscaping(t *testing.T) {
 	is := &domain.Issue{
 		Key:      "Q-1",
-		Summary:  `Title: with "quotes" and # hash`,
+		Summary:  "Title | with quotes\nand hash",
 		Status:   "Open",
 		Type:     "Task",
 		Project:  "Q",
-		Assignee: "name: with colon",
+		Assignee: "name | with pipe",
 	}
 	got := string(renderIssueMarkdown(is, nil, jiraRS("default")))
-	mustContain(t, got, `summary: "Title: with \"quotes\" and # hash"`)
-	mustContain(t, got, `assignee: "name: with colon"`)
-	// but the H1 heading uses the raw summary (not the escaped form)
-	mustContain(t, got, `# Q-1 — Title: with "quotes" and # hash`)
-}
-
-func TestYamlEscape(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"plain", "plain"},
-		{"control\x01", `"control\u0001"`},
-		{"has: colon", `"has: colon"`},
-		{"has # hash", `"has # hash"`},
-		{"has \"quote\"", `"has \"quote\""`},
-		{"has 'apostrophe'", `"has 'apostrophe'"`},
-		{"line\nbreak", `"line\nbreak"`},
-		{`C:\temp:dir`, `"C:\\temp:dir"`},
-		{"true", `"true"`},
-		{"42", `"42"`},
-	}
-	for _, c := range cases {
-		if got := yamlEscape(c.in); got != c.want {
-			t.Errorf("yamlEscape(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
+	mustContain(t, got, `| Summary | Title &#124; with quotes and hash |`)
+	mustContain(t, got, `| Assignee | name &#124; with pipe |`)
+	mustContain(t, got, "# Q-1 — Title | with quotes and hash")
 }
 
 // Pull writes the rendered markdown verbatim to disk and a sibling identity

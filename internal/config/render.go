@@ -25,18 +25,17 @@ type RenderService struct {
 }
 
 // JiraFieldView describes how one raw Jira field is presented in the derived
-// Markdown view. ID is the API field id/key. Key is the stable YAML key for a
-// frontmatter placement (defaults to ID); Label is the Markdown heading for a
-// section placement (defaults to Key/ID). Format is auto|scalar|list|jira_wiki|
+// Markdown view. ID is the API field id/key. Label is the human-readable name
+// in the metadata table or the Markdown heading for a section (defaults to ID).
+// Format is auto|scalar|list|jira_wiki|
 // date|datetime. Missing values are omitted unless ShowEmpty is true.
 //
 // These descriptors are presentation-only. They may live in a mirror-local
 // config without changing the backend host or credential scope.
 type JiraFieldView struct {
 	ID        string `json:"id"`
-	Key       string `json:"key,omitempty"`
 	Label     string `json:"label,omitempty"`
-	Placement string `json:"placement,omitempty"` // frontmatter (default) | section
+	Placement string `json:"placement,omitempty"` // metadata (default) | section
 	Format    string `json:"format,omitempty"`    // auto (default) | scalar | list | jira_wiki | date | datetime
 	ShowEmpty bool   `json:"show_empty,omitempty"`
 }
@@ -353,33 +352,23 @@ func SetRenderKey(rc *RenderConfig, key, value string) error {
 // renderer with an unsafe/ambiguous shape.
 func NormalizeJiraFieldView(fv JiraFieldView) (JiraFieldView, error) {
 	fv.ID = strings.TrimSpace(fv.ID)
-	fv.Key = strings.TrimSpace(fv.Key)
 	fv.Label = strings.TrimSpace(fv.Label)
 	fv.Placement = strings.TrimSpace(fv.Placement)
 	fv.Format = strings.TrimSpace(fv.Format)
 	if fv.ID == "" {
 		return JiraFieldView{}, fmt.Errorf("id is required")
 	}
-	if strings.ContainsAny(fv.ID+fv.Key+fv.Label, "\r\n") {
-		return JiraFieldView{}, fmt.Errorf("id, key, and label must not contain line breaks")
-	}
-	if fv.Key == "" {
-		fv.Key = fv.ID
-	}
-	if !validYAMLKey(fv.Key) {
-		return JiraFieldView{}, fmt.Errorf("key %q must start with a letter or underscore and contain only letters, digits, underscore, dot, or dash", fv.Key)
-	}
-	if IsReservedJiraFrontmatterKey(fv.Key) {
-		return JiraFieldView{}, fmt.Errorf("key %q is reserved by Jira frontmatter", fv.Key)
+	if strings.ContainsAny(fv.ID+fv.Label, "\r\n") {
+		return JiraFieldView{}, fmt.Errorf("id and label must not contain line breaks")
 	}
 	if fv.Label == "" {
-		fv.Label = fv.Key
+		fv.Label = fv.ID
 	}
 	if fv.Placement == "" {
-		fv.Placement = "frontmatter"
+		fv.Placement = "metadata"
 	}
-	if fv.Placement != "frontmatter" && fv.Placement != "section" {
-		return JiraFieldView{}, fmt.Errorf("placement %q is invalid (want frontmatter|section)", fv.Placement)
+	if fv.Placement != "metadata" && fv.Placement != "section" {
+		return JiraFieldView{}, fmt.Errorf("placement %q is invalid (want metadata|section)", fv.Placement)
 	}
 	if fv.Format == "" {
 		fv.Format = "auto"
@@ -394,26 +383,6 @@ func NormalizeJiraFieldView(fv JiraFieldView) (JiraFieldView, error) {
 	}
 	return fv, nil
 }
-
-func validYAMLKey(s string) bool {
-	for i, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' || (i > 0 && r >= '0' && r <= '9') || (i > 0 && (r == '.' || r == '-')) {
-			continue
-		}
-		return false
-	}
-	return s != ""
-}
-
-var reservedJiraFrontmatterKeys = map[string]bool{
-	"key": true, "summary": true, "status": true, "type": true,
-	"project": true, "priority": true, "parent": true, "assignee": true,
-	"reporter": true, "resolution": true, "duedate": true, "created": true,
-	"updated": true, "labels": true, "components": true, "fix_versions": true,
-}
-
-// IsReservedJiraFrontmatterKey reports keys owned by the built-in Jira view.
-func IsReservedJiraFrontmatterKey(key string) bool { return reservedJiraFrontmatterKeys[key] }
 
 // SaveLocal writes a render-only local config to <root>/.atl/config.json
 // atomically (0600), creating the .atl dir if needed. The file never contains

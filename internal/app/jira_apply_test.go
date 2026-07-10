@@ -195,17 +195,39 @@ func TestJiraApply_CommentEditRefused(t *testing.T) {
 	}
 }
 
-func TestJiraApply_FrontmatterEditRefused(t *testing.T) {
+func TestJiraApply_MetadataEditRefused(t *testing.T) {
 	svc, root, mdPath, wikiPath := scaffoldApplyIssue(t, applyBody)
 	md := mustReadFile(t, mdPath)
-	mustWriteFile(t, mdPath, strings.Replace(md, "summary: Fix the thing", "summary: Hijacked", 1))
+	mustWriteFile(t, mdPath, strings.Replace(md, "| Summary | Fix the thing |", "| Summary | Hijacked |", 1))
 
 	_, err := svc.Apply(mdPath, JiraApplyOpts{Into: root})
 	if !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("err = %v, want ErrCheckFailed", err)
 	}
 	if got := mustReadFile(t, wikiPath); got != applyBody {
-		t.Error(".wiki modified on a frontmatter-edit refusal")
+		t.Error(".wiki modified on a metadata-edit refusal")
+	}
+}
+
+func TestJiraApply_LegacyYAMLViewRequiresRerender(t *testing.T) {
+	svc, root, mdPath, wikiPath := scaffoldApplyIssue(t, applyBody)
+	md := mustReadFile(t, mdPath)
+	desc := strings.Index(md, "## Description")
+	if desc < 0 {
+		t.Fatal("fixture lacks Description")
+	}
+	legacy := "---\nkey: PROJ-42\nsummary: Fix the thing\n---\n\n# PROJ-42 — Fix the thing\n\n" + md[desc:]
+	mustWriteFile(t, mdPath, legacy)
+
+	_, err := svc.Apply(mdPath, JiraApplyOpts{Into: root})
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("legacy YAML view should require jira render, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "jira render") {
+		t.Fatalf("legacy refusal should name the migration command: %v", err)
+	}
+	if got := mustReadFile(t, wikiPath); got != applyBody {
+		t.Error(".wiki modified while refusing a legacy YAML view")
 	}
 }
 
