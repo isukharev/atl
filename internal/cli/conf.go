@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -206,6 +207,8 @@ func confPageCmd() *cobra.Command {
 	get.Flags().StringVar(&id, "id", "", "page id")
 	get.Flags().StringVar(&format, "format", "csf", "csf|view")
 	_ = get.RegisterFlagCompletionFunc("format", fixedComp("csf", "view"))
+
+	view := confPageViewCmd()
 
 	var metaID string
 	meta := &cobra.Command{
@@ -424,8 +427,51 @@ func confPageCmd() *cobra.Command {
 	cp.Flags().StringVar(&copySpace, "space", "", "target space key (default: same as source)")
 	cp.Flags().StringVar(&copyParent, "parent", "", "target parent page id (default: same as source)")
 
-	c.AddCommand(get, meta, hist, list, open, cp, create, move, del)
+	c.AddCommand(get, view, meta, hist, list, open, cp, create, move, del)
 	return c
+}
+
+func confPageViewCmd() *cobra.Command {
+	var root string
+	var rf renderFlags
+	cmd := &cobra.Command{
+		Use:   "view <ID>",
+		Short: "Render one page as configured Markdown without writing a mirror",
+		Long: "Fetch native CSF and render one Confluence page through the configured Markdown view without writing mirror artifacts. " +
+			"Default JSON contains stable page identity, version, and markdown; -o text emits raw Markdown. " +
+			"Every region is read-only because this creates no writeback baseline: pull the page before editing it.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			override, err := rf.override()
+			if err != nil {
+				return err
+			}
+			configRoot, err := filepath.Abs(root)
+			if err != nil {
+				return err
+			}
+			if detected, ok := app.MirrorRootOf(configRoot); ok {
+				configRoot = detected
+			}
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			res, err := svc.ViewPage(cmd.Context(), args[0], app.ConfluencePageViewOpts{Root: configRoot, Render: override})
+			if err != nil {
+				return err
+			}
+			warnRender(cmd.ErrOrStderr(), res.Warnings)
+			if outputFormat == "text" {
+				_, err := io.WriteString(cmd.OutOrStdout(), res.Markdown)
+				return err
+			}
+			return emit(cmd, res, nil)
+		},
+	}
+	cmd.Flags().StringVar(&root, "render-root", mirrorRootDefault("."), "root whose .atl/config.json supplies local render settings (never written)")
+	rf.register(cmd)
+	return cmd
 }
 
 func confPullCmd() *cobra.Command {

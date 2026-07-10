@@ -42,7 +42,7 @@ Fetch the 2–4 most relevant hits — weigh title match and recency over raw
 rank:
 
 ```sh
-atl conf page get --id <id> --format view      # rendered page body
+atl conf page view <id> -o text                # configured Markdown, no mirror artifacts
 atl jira issue get KEY-123                     # full issue incl. description
 atl jira issue comment list KEY-123            # when the discussion matters
 ```

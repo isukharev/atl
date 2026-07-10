@@ -20,7 +20,7 @@ or a command exits `7` ("not configured"), run `/atl:setup` and stop.
 ### 1. Fetch the spec
 
 ```sh
-atl conf page get --id <id> --format view
+atl conf page view <id> -o text
 ```
 
 Long or multi-section specs: mirror instead —

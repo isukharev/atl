@@ -1119,6 +1119,37 @@ Flags:
 | `--id` | page id (required) |
 | `--format` | `csf` (default) or `view` (rendered HTML) |
 
+### `atl conf page view`
+
+Fetch native CSF and render one page through the same configured Markdown
+pipeline as pull/render, without creating a mirror:
+
+```bash
+atl conf page view 12345678 -o text
+atl conf page view 12345678 --render-profile full
+atl conf page view 12345678 --render-root ~/.atl/workspace
+```
+
+JSON output contains `id`, `title`, `space`, `version`, and `markdown`; `-o
+text` emits only Markdown. The local `--render-root` is read for
+presentation-only config and is never created or modified. Binary assets and
+view state are not fetched or written. Comments are requested only when the
+effective render profile includes `comments`; a capped result produces a
+stderr warning.
+
+The document and its body are explicitly marked read-only because transient
+output has no synchronized CSF/baseline. Do not save it into a mirror or feed it
+to apply/push. Pull the page fresh before any edit.
+
+Flags:
+
+| flag | description |
+|---|---|
+| `--render-root` | root whose local render config is used; never written |
+| `--render-profile` | `minimal`, `default`, or `full` |
+| `--render-include` | comma-separated Confluence sections to add |
+| `--render-exclude` | comma-separated Confluence sections to remove |
+
 ### `atl conf page meta`
 
 Fetch non-body page metadata (version, ancestors, labels, restrictions).

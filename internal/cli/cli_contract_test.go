@@ -143,6 +143,93 @@ func TestConfPageGetGolden(t *testing.T) {
 	assertGolden(t, "conf_page_get.json", []byte(out))
 }
 
+func TestConfPageViewGolden(t *testing.T) {
+	const body = `{
+		"id": "12345",
+		"title": "Design Doc",
+		"space": {"key": "ENG"},
+		"version": {"number": 7},
+		"body": {"storage": {"value": "<h1>Plan</h1><p>Hello <strong>world</strong>.</p>"}}
+	}`
+	srv := jsonServer(t, http.StatusOK, body)
+
+	out, code := runCLI(t, confEnv(srv), "conf", "page", "view", "12345", "--render-profile", "minimal")
+	if code != exitOK {
+		t.Fatalf("conf page view: exit %d, want %d (stdout=%q)", code, exitOK, out)
+	}
+	assertGolden(t, "conf_page_view.json", []byte(out))
+}
+
+func TestConfPageViewTextWritesNothing(t *testing.T) {
+	root := t.TempDir()
+	srv := jsonServer(t, http.StatusOK, `{
+		"id":"12345","title":"Design Doc","space":{"key":"ENG"},
+		"version":{"number":7},"body":{"storage":{"value":"<p>Hello</p>"}}
+	}`)
+
+	out, code := runCLI(t, confEnv(srv), "conf", "page", "view", "12345",
+		"--render-profile", "minimal", "--render-root", root, "-o", "text")
+	if code != exitOK {
+		t.Fatalf("conf page view text: exit %d, want %d (stdout=%q)", code, exitOK, out)
+	}
+	want := "<!-- atl:document confluence-page v1 -->\n<!-- atl:section body readonly -->\nHello\n"
+	if out != want {
+		t.Fatalf("text output differs from exact rendered Markdown:\n got=%q\nwant=%q", out, want)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("transient Confluence view wrote under render root: %v", entries)
+	}
+}
+
+func TestConfPageViewFindsNearestLocalRenderConfig(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, ".atl")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(configDir, "config.json")
+	configBody := []byte(`{"render":{"confluence":{"profile":"minimal","include":["comments"]}}}`)
+	if err := os.WriteFile(configPath, configBody, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(root, "project", "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(nested)
+
+	commentsRequests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/child/comment") {
+			commentsRequests++
+			_, _ = w.Write([]byte(`{"results":[{"id":"9","history":{"createdBy":{"displayName":"Ada"}},"body":{"storage":{"value":"<p>Review</p>"}}}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"id":"12345","title":"Design","space":{"key":"ENG"},"version":{"number":7},"body":{"storage":{"value":"<p>Hello</p>"}}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	out, code := runCLI(t, confEnv(srv), "conf", "page", "view", "12345", "-o", "text")
+	if code != exitOK {
+		t.Fatalf("conf page view nearest config: exit %d (stdout=%q)", code, out)
+	}
+	if commentsRequests != 1 || !strings.Contains(out, "## Comments") || !strings.Contains(out, "Review") {
+		t.Fatalf("nearest local config was not applied (requests=%d):\n%s", commentsRequests, out)
+	}
+	gotConfig, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotConfig, configBody) {
+		t.Fatal("transient view modified local render config")
+	}
+}
+
 // TestJiraIssueGetGolden locks the JSON shape of `jira issue get`. The fields map
 // is kept minimal so the emitted Issue (including its echoed Fields map) is
 // deterministic; Go marshals map keys in sorted order.

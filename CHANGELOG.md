@@ -128,6 +128,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Transient configured Confluence Markdown view.** `conf page view <ID>`
+  renders native CSF through local/global presentation settings without writing
+  a mirror, assets, baselines, sidecars, or view state. Its body is explicitly
+  read-only; optional comments are fetched only when configured.
+
 - **Consent-gated profile learning and revalidation.** Explicit observations
   deterministically produce private hash-bound suggestions without changing the
   active profile; users review and exactly apply or reject them, with rejection
