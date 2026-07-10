@@ -421,13 +421,13 @@ func loadCSFWith(root string, sc sidecarFile, csfPath string) (*LocalCSF, []byte
 	metaPath := strings.TrimSuffix(csfPath, ".csf") + ".meta.json"
 	mb, err := safepath.ReadFileWithin(root, metaPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read metadata %s: %w", metaPath, err)
+		return nil, nil, fmt.Errorf("%w: read metadata %s: %v", domain.ErrCheckFailed, metaPath, err)
 	}
 	if err := json.Unmarshal(mb, &lc.Meta); err != nil {
-		return nil, nil, fmt.Errorf("parse metadata %s: %w", metaPath, err)
+		return nil, nil, fmt.Errorf("%w: parse metadata %s: %v", domain.ErrCheckFailed, metaPath, err)
 	}
 	if lc.Meta.ID == "" {
-		return nil, nil, fmt.Errorf("metadata %s has no page id", metaPath)
+		return nil, nil, fmt.Errorf("%w: metadata %s has no page id", domain.ErrCheckFailed, metaPath)
 	}
 	if st, ok := sc.Pages[lc.Meta.ID]; ok {
 		s := st

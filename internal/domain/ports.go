@@ -45,9 +45,10 @@ type DocStore interface {
 	// DownloadAttachment streams an attachment's bytes; the caller must Close
 	// the reader. version<=0 means latest.
 	DownloadAttachment(ctx context.Context, pageID, filename string, version int) (io.ReadCloser, error)
-	// UploadAttachment streams file bytes as an attachment to a page and takes
-	// ownership of data; implementations must close it on every return path.
-	UploadAttachment(ctx context.Context, pageID, filename string, data io.ReadCloser, comment string) (*Attachment, error)
+	// UploadAttachment streams exactly size file bytes as an attachment to a
+	// page and takes ownership of data; implementations must close it on every
+	// return path.
+	UploadAttachment(ctx context.Context, pageID, filename string, data io.ReadCloser, size int64, comment string) (*Attachment, error)
 	// DeleteAttachment deletes an attachment by its content id.
 	DeleteAttachment(ctx context.Context, attachmentID string) error
 }

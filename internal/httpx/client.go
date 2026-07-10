@@ -162,7 +162,7 @@ func (e *APIError) Error() string {
 	if len(msg) > 500 {
 		msg = msg[:500] + "…"
 	}
-	return fmt.Sprintf("%s %s → HTTP %d: %s", e.Method, e.Path, e.Status, strings.TrimSpace(msg))
+	return fmt.Sprintf("%s %s → HTTP %d: %s", e.Method, redactURLString(e.Path), e.Status, strings.TrimSpace(msg))
 }
 
 func (e *APIError) Unwrap() error { return e.kind }
@@ -407,6 +407,17 @@ func traceURL(u *neturl.URL) string {
 	redacted.RawQuery = q.Encode()
 	redacted.Fragment = ""
 	return redacted.String()
+}
+
+func redactURLString(raw string) string {
+	u, err := neturl.Parse(raw)
+	if err == nil {
+		return traceURL(u)
+	}
+	// Request construction already rejects malformed URLs. Keep this fallback
+	// opaque and fail-closed for manually constructed APIError values and future
+	// callers: malformed bytes can hide fragments, userinfo, or query content.
+	return "<redacted-invalid-url>"
 }
 
 // readBody reads up to max bytes, returning an error if the body is larger

@@ -175,6 +175,9 @@ atl conf status ~/.atl/<workspace>/ --remote
 ```
 → `{ "entries": [ {path, id, title, locally_edited, synced_version, remote_version, remote_drifted, remote_error} ] }`
 (`--remote` does one request per page to detect drift; omit it for a fast local-only view.)
+Status and directory push scan fail closed with exit 8 when a mirrored `.csf`
+has missing, corrupt, or id-less sibling metadata. Repair or re-pull that entry;
+never treat a partial scan as clean or safe to push.
 
 ## Quick Reference — all `conf` commands
 

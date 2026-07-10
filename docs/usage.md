@@ -884,6 +884,8 @@ atl conf status --remote          # also checks remote version (one request per 
 ```
 
 Local edits are shown with `M`; remote drift with `M↯` in text mode.
+Missing, corrupt, or id-less sibling `.meta.json` is a mirror integrity failure:
+the scan stops and returns exit `8` instead of silently omitting that page.
 
 Flags:
 
@@ -1203,6 +1205,9 @@ atl conf attachment get --id 12345678 --name diagram.png --into ./assets
 atl conf attachment upload --id 12345678 --file ./diagram.png [--comment 'v2']
 atl conf attachment delete --id <ATTACHMENT-ID> --force
 ```
+
+Uploads stream the selected file without buffering it and send the exact multipart
+`Content-Length`, preserving compatibility with intermediaries that reject chunked uploads.
 
 ### `atl conf me`
 
@@ -2052,7 +2057,7 @@ Flags:
 | `--fields` | extra comma-separated fields to include |
 | `--raw-csv` | preserve formula-leading CSV cells verbatim (unsafe in spreadsheets) |
 
-JSONL and CSV are written incrementally through an atomic temporary file, so
+JSONL and CSV are written incrementally through an fsynced atomic temporary file, so
 `--limit 0` does not accumulate issue payloads or the artifact in memory. Aggregate
 JSON intentionally caps at 10,000 issues and 64 MiB of serialized issue data;
 use JSONL/CSV or a smaller limit for larger selections. CSV neutralizes formula-leading cells by default using an
