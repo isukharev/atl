@@ -33,3 +33,16 @@ func TestTableRowEnd(t *testing.T) {
 		})
 	}
 }
+
+func TestMarkdownBlockCollision(t *testing.T) {
+	for _, line := range []string{"```", "   ```go", "---", "*****", "___"} {
+		if !MarkdownBlockCollision(line) {
+			t.Errorf("MarkdownBlockCollision(%q) = false", line)
+		}
+	}
+	for _, line := range []string{"  --", "text ```", "---- tail", "    ```"} {
+		if MarkdownBlockCollision(line) {
+			t.Errorf("MarkdownBlockCollision(%q) = true", line)
+		}
+	}
+}

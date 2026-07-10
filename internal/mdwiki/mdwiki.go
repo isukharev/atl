@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/mdcsf"
+	"github.com/isukharev/atl/internal/wikiscanner"
 )
 
 // UnsupportedError reports a markdown construct outside the supported subset.
@@ -235,7 +236,7 @@ func unescapeBlockLine(ln string) (out string, ok bool, err error) {
 		return "", false, nil
 	}
 	rest := ln[1:]
-	body := rest[leadingIndent(rest):]
+	body := rest[wikiscanner.MarkdownIndent(rest):]
 	switch {
 	case strings.HasPrefix(body, "```"):
 		n := 0
@@ -247,7 +248,7 @@ func unescapeBlockLine(ln string) (out string, ok bool, err error) {
 			return "", true, e
 		}
 		return rest[:len(rest)-len(body)+n] + conv, true, nil
-	case isThematicRun(body) && !(body[0] == '-' && len(body) > 3):
+	case wikiscanner.IsThematicRun(body) && (body[0] != '-' || len(body) <= 3):
 		// wikimd never escapes a 4+-dash line (that IS a wiki hr, caught by its
 		// hrRe before the paragraph branch), so `\----` is not our escape:
 		// unescaping it to a bare `----` would silently create an hr. It falls
@@ -256,34 +257,6 @@ func unescapeBlockLine(ln string) (out string, ok bool, err error) {
 	default:
 		return "", false, nil
 	}
-}
-
-// leadingIndent returns the count of up to 3 leading spaces — markdown's fence /
-// thematic-break indent tolerance — mirroring wikimd's escape detection.
-func leadingIndent(s string) int {
-	n := 0
-	for n < 3 && n < len(s) && s[n] == ' ' {
-		n++
-	}
-	return n
-}
-
-// isThematicRun reports whether body is exactly a run of 3+ of a single `-`, `*`,
-// or `_` — a markdown thematic break. Mirrors wikimd's escape detection.
-func isThematicRun(body string) bool {
-	if len(body) < 3 {
-		return false
-	}
-	c := body[0]
-	if c != '-' && c != '*' && c != '_' {
-		return false
-	}
-	for i := 0; i < len(body); i++ {
-		if body[i] != c {
-			return false
-		}
-	}
-	return true
 }
 
 // codeLangRe: languages Jira accepts in {code:lang}; anything else would leak

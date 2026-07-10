@@ -26,6 +26,39 @@ func IsListLine(line string) bool {
 	return ok
 }
 
+// MarkdownBlockCollision reports whether a rendered paragraph line would be
+// parsed as a fenced code block or thematic break instead of paragraph text.
+func MarkdownBlockCollision(line string) bool {
+	body := line[MarkdownIndent(line):]
+	return strings.HasPrefix(body, "```") || IsThematicRun(body)
+}
+
+// MarkdownIndent returns Markdown's block-marker indentation allowance.
+func MarkdownIndent(line string) int {
+	n := 0
+	for n < 3 && n < len(line) && line[n] == ' ' {
+		n++
+	}
+	return n
+}
+
+// IsThematicRun reports whether body is exactly 3+ '-', '*', or '_' bytes.
+func IsThematicRun(body string) bool {
+	if len(body) < 3 {
+		return false
+	}
+	c := body[0]
+	if c != '-' && c != '*' && c != '_' {
+		return false
+	}
+	for i := 1; i < len(body); i++ {
+		if body[i] != c {
+			return false
+		}
+	}
+	return true
+}
+
 // TableRowEnd returns the last physical line of one logical Jira table row.
 // lineAt lets scanners with different line representations share the exact
 // boundary rule without allocating a second copy of the input.
