@@ -962,8 +962,8 @@ func linkSuggestText(res *app.JiraLinkSuggestResult) string {
 func jiraIssuePlanCmd() *cobra.Command {
 	c := &cobra.Command{Use: "plan", Short: "Preview/apply guarded Jira operation plans"}
 
-	var csvPath, confirm, allowOps, allowFields string
-	var apply bool
+	var csvPath, confirm, allowOps, allowFields, allowLinkTypes string
+	var apply, continueOnError bool
 	applyCmd := &cobra.Command{
 		Use:   "apply",
 		Short: "Preview or apply a guarded CSV operation plan",
@@ -973,16 +973,21 @@ func jiraIssuePlanCmd() *cobra.Command {
 				return err
 			}
 			res, err := svc.ApplyPlan(cmd.Context(), app.JiraPlanApplyOpts{
-				CSVPath:     csvPath,
-				Apply:       apply,
-				Confirm:     confirm,
-				AllowOps:    splitFields(allowOps),
-				AllowFields: splitFields(allowFields),
+				CSVPath:         csvPath,
+				Apply:           apply,
+				Confirm:         confirm,
+				AllowOps:        splitFields(allowOps),
+				AllowFields:     splitFields(allowFields),
+				AllowLinkTypes:  splitFields(allowLinkTypes),
+				ContinueOnError: continueOnError,
 			})
-			if err != nil {
+			if res == nil {
 				return err
 			}
-			return emit(cmd, res, func() string { return issuePlanApplyText(res) })
+			if emitErr := emit(cmd, res, func() string { return issuePlanApplyText(res) }); emitErr != nil {
+				return emitErr
+			}
+			return err
 		},
 	}
 	applyCmd.Flags().StringVar(&csvPath, "csv", "", "CSV plan with op,source and operation-specific columns")
@@ -990,6 +995,8 @@ func jiraIssuePlanCmd() *cobra.Command {
 	applyCmd.Flags().StringVar(&confirm, "confirm", "", "required value APPLY when --apply is set")
 	applyCmd.Flags().StringVar(&allowOps, "allow-ops", "link", "comma-separated allowed operations: link,label_add,label_remove,comment,field")
 	applyCmd.Flags().StringVar(&allowFields, "allow-fields", "", "comma-separated field ids/names allowed for field operations")
+	applyCmd.Flags().StringVar(&allowLinkTypes, "allow-link-types", "", "comma-separated explicit link-type exceptions to Jira metadata")
+	applyCmd.Flags().BoolVar(&continueOnError, "continue-on-error", false, "continue independent rows after a blocked or failed operation")
 
 	c.AddCommand(applyCmd)
 	return c

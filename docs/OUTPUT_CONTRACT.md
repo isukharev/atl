@@ -442,6 +442,7 @@ report:
 
 ```json
 {
+  "version": 1,
   "path": "plan.csv",
   "mode": "dry-run",
   "count": 1,
@@ -453,16 +454,24 @@ report:
       "target": "PROJ-2",
       "type": "Blocks",
       "rationale": "reviewed dependency",
+      "expected_updated": "2026-01-02T03:04:05.000+0000",
       "status": "would_apply"
     }
   ]
 }
 ```
 
-Status values are `would_apply`, `already_satisfied`, `applied`, `blocked`, and
-`failed`. The command defaults to dry-run. Write mode requires `--apply
---confirm APPLY`; `field` operations also require the field to be included in
-`--allow-fields`.
+Status values are `would_apply`, `already_satisfied`, `applied`, `blocked`,
+`failed`, and fail-fast `skipped`. The command defaults to dry-run. Write mode
+requires `--apply --confirm APPLY`; `field` operations also require the field
+to be included in `--allow-fields`. Every CSV row carries `version=1` and a
+review-time `expected_updated` value. Blocked/failed runs still emit the full
+audit result on stdout and return exit 8. Default execution stops after the
+first runtime failure; `--continue-on-error` processes independent rows but
+does not turn the final exit into success. Schema version 1 rejects multiple
+rows for the same source issue, preventing one successful write from making a
+later row self-stale. Failed-row messages use safe reason categories rather than
+raw transport errors, so backend URLs are not copied into the stdout audit.
 
 `atl jira structure rows <ID>` returns a parsed read-only view of a Tempo Structure forest:
 

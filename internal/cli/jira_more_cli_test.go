@@ -308,9 +308,11 @@ func TestJiraIssueAttachmentUpload_RequiresFileBeforeNetwork(t *testing.T) {
 func TestJiraIssuePlanApplyDryRunAndConfirmGuard(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/api/2/issue/", http.StatusOK,
-		`{"key":"ENG-1","fields":{"issuelinks":[],"labels":["backend"],"priority":"Low"}}`)
+		`{"key":"ENG-1","fields":{"issuelinks":[],"labels":["backend"],"priority":"Low","updated":"2026-01-01"}}`)
+	js.route(http.MethodGet, "/rest/api/2/issueLinkType", http.StatusOK,
+		`{"issueLinkTypes":[{"name":"Blocks"}]}`)
 	csvPath := filepath.Join(t.TempDir(), "plan.csv")
-	if err := os.WriteFile(csvPath, []byte("op,source,target,type,field,value\nlink,ENG-1,ENG-2,Blocks,,\nfield,ENG-1,,,priority,High\n"), 0o644); err != nil {
+	if err := os.WriteFile(csvPath, []byte("version,op,source,target,type,field,value,expected_updated\n1,link,ENG-1,ENG-2,Blocks,,,2026-01-01\n1,field,ENG-3,,,priority,High,2026-01-01\n"), 0o644); err != nil {
 		t.Fatalf("write csv: %v", err)
 	}
 
@@ -343,6 +345,37 @@ func TestJiraIssuePlanApplyDryRunAndConfirmGuard(t *testing.T) {
 	}
 	if len(js.requests()) != 0 {
 		t.Fatalf("confirm guard should run before network, got %+v", js.requests())
+	}
+}
+
+func TestJiraIssuePlanApplyEmitsAuditResultAndExitsEightOnBlockedRow(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/issue/", http.StatusOK,
+		`{"key":"ENG-1","fields":{"priority":"Low","updated":"new"}}`)
+	path := filepath.Join(t.TempDir(), "plan.csv")
+	data := "version,op,source,field,value,expected_updated\n1,field,ENG-1,priority,High,old\n"
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, stderr, code := runCLIFull(t, jiraEnv(js.srv), "jira", "issue", "plan", "apply",
+		"--csv", path, "--allow-ops", "field", "--allow-fields", "priority")
+	if code != exitCheckFailed {
+		t.Fatalf("exit=%d stdout=%q stderr=%q, want exit 8", code, out, stderr)
+	}
+	var res struct {
+		Version int `json:"version"`
+		Results []struct {
+			Status string `json:"status"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("blocked result is not JSON: %v\n%s", err, out)
+	}
+	if res.Version != 1 || len(res.Results) != 1 || res.Results[0].Status != "blocked" {
+		t.Fatalf("result=%+v, want version 1 blocked audit row", res)
+	}
+	if len(js.writeReqsTo("/rest/api/2/issue/ENG-1")) != 0 {
+		t.Fatalf("blocked preview wrote to Jira: %+v", js.requests())
 	}
 }
 

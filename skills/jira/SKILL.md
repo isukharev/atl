@@ -155,7 +155,7 @@ atl jira issue link add PROJ-1 --to PROJ-2 --type blocks                        
 atl jira issue link list PROJ-1
 atl jira issue link delete <LINK-ID>
 atl jira issue link suggest --csv links.csv                                             # dry-run missing links; no writes
-atl jira issue plan apply --csv plan.csv                                                # dry-run guarded plan
+atl jira issue plan apply --csv plan.csv                                                # version=1 + expected_updated required
 atl jira issue plan apply --csv plan.csv --apply --confirm APPLY --allow-ops link       # explicit write mode
 atl jira issue link-epic PROJ-1 --epic PROJ-100
 atl jira issue labels PROJ-1 --add bug,backend [--remove wontfix]
@@ -354,7 +354,7 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue link list <KEY>` | List links with ids | — |
 | `jira issue link delete <LINK-ID>` | Delete a link by id | — |
 | `jira issue link suggest` | Read-only missing-link candidates from CSV | `--csv` |
-| `jira issue plan apply` | Dry-run/apply guarded CSV operation plan | `--csv`, `--allow-ops`, `--allow-fields`, `--apply`, `--confirm APPLY` |
+| `jira issue plan apply` | Dry-run/apply guarded CSV operation plan | `--csv`, `--allow-ops`, `--allow-fields`, `--allow-link-types`, `--continue-on-error`, `--apply`, `--confirm APPLY` |
 | `jira issue link-epic <KEY>` | Set the Epic Link | `--epic EPIC-KEY` |
 | `jira issue attachment list <KEY>` | List issue attachments | `-o id` |
 | `jira issue attachment get <KEY>` | Download an issue attachment | `--id ID-or-filename`, `--into DIR` |
@@ -425,5 +425,11 @@ sanitized issue + private case file).
   `field-options`, `link-types`) — Jira rejects unknown names.
 - Use `jira issue link suggest --csv ...` before bulk link work; it is read-only and emits
   only missing candidates from `source,target,type[,rationale]` CSV rows.
-- `jira issue plan apply` is dry-run unless both `--apply` and `--confirm APPLY` are passed.
+- `jira issue plan apply` requires CSV schema `version=1` and `expected_updated`
+  on every row. It validates live link-type metadata and freshness, is fail-fast
+  by default, and emits an audit result plus exit 8 on any blocked/failed row;
+  `--continue-on-error` does not suppress that non-zero exit. It is dry-run
+  unless both `--apply` and `--confirm APPLY` are passed. Version 1 permits one
+  row per source issue; review dependent mutations as separate plans so an
+  earlier write cannot invalidate a later row's freshness gate.
   Keep `--allow-ops` and `--allow-fields` narrow; prefer checking the JSON report before writing.

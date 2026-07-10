@@ -1265,18 +1265,21 @@ Flags:
 
 Preview or apply a guarded CSV operation plan. The default mode is **dry-run**:
 the command re-reads current Jira state, reports `would_apply`,
-`already_satisfied`, `blocked`, or `failed`, and performs no writes. Write mode
-requires both `--apply` and `--confirm APPLY`.
+`already_satisfied`, `blocked`, `failed`, or fail-fast `skipped` rows, and
+performs no writes. A blocked/failed plan still emits its JSON audit result but
+exits 8. Write mode requires both `--apply` and `--confirm APPLY`.
 
 ```bash
 atl jira issue plan apply --csv plan.csv
 atl jira issue plan apply --csv plan.csv --allow-ops link,label_add --apply --confirm APPLY
+atl jira issue plan apply --csv plan.csv --continue-on-error # still exits 8 if any row fails
 ```
 
 CSV columns:
 
 | column | description |
 |---|---|
+| `version` | required plan schema version; currently `1` |
 | `op` | `link`, `label_add`, `label_remove`, `comment`, or `field` |
 | `source` | issue key to read/write |
 | `target` | target issue key for `link` |
@@ -1284,6 +1287,7 @@ CSV columns:
 | `field` | field id/name for `field` |
 | `value` | label(s), comment body, or field value |
 | `rationale` | optional audit note |
+| `expected_updated` | required Jira `updated` value captured during review; a mismatch blocks the row |
 
 Flags:
 
@@ -1292,8 +1296,20 @@ Flags:
 | `--csv` | operation plan CSV (required) |
 | `--allow-ops` | comma-separated allowed operations (default `link`) |
 | `--allow-fields` | comma-separated field ids/names allowed for `field` operations |
+| `--allow-link-types` | explicit link-type exceptions when a type is absent from live Jira metadata |
+| `--continue-on-error` | continue independent rows after failures; final exit remains 8 |
 | `--apply` | perform writes instead of dry-run |
 | `--confirm` | must be exactly `APPLY` when `--apply` is set |
+
+The complete plan schema and live link-type metadata are validated before
+writes. Execution is fail-fast by default; remaining rows are reported as
+`skipped`. Every non-noop row re-reads the source issue and compares
+`expected_updated` immediately before its write. Schema version 1 permits only
+one mutating row per source issue; split dependent changes into separately
+reviewed plans. Structured `field` values use semantic JSON comparison: object
+key order and server-added object properties do not cause repeat updates, while
+arrays retain reviewed order. Invalid JSON-looking text remains a string, as in
+ordinary `--field` handling.
 
 ### `atl jira issue attachment {list,get,upload}`
 
