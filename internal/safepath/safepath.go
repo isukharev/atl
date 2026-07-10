@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -18,6 +19,10 @@ import (
 	"strings"
 	"syscall"
 )
+
+// ErrUnsafePrivatePath classifies a caller-selected private artifact path that
+// fails containment, parent-stability, or owner-only mode validation.
+var ErrUnsafePrivatePath = errors.New("unsafe private artifact path")
 
 // FileLock is an OS advisory lock held by an open root-contained file. Closing
 // a process releases it automatically, so a crash cannot leave a stale owner.
@@ -105,6 +110,55 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	_, err := WriteReaderAtomic(path, bytes.NewReader(data), perm)
 	return err
+}
+
+// WriteFileAtomicPrivate writes target through one held parent-directory
+// handle after proving that the opened directory itself is owner-only. The
+// caller is responsible for reserving a collision-safe basename/extension.
+// Mode validation, temp creation, and rename all use the same os.Root, so a
+// parent path swap cannot redirect the checked handle's later write.
+func WriteFileAtomicPrivate(target string, data []byte, perm os.FileMode) error {
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+	parentAbs, base := filepath.Dir(targetAbs), filepath.Base(targetAbs)
+	if base == "." || base == ".." || strings.ContainsAny(base, `/\`) {
+		return fmt.Errorf("%w: invalid artifact name %q", ErrUnsafePrivatePath, base)
+	}
+	r, err := os.OpenRoot(parentAbs)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = r.Close() }()
+	openedInfo, err := r.Stat(".")
+	if err != nil {
+		return err
+	}
+	if !openedInfo.IsDir() || openedInfo.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("%w: parent must have mode 0700 or stricter", ErrUnsafePrivatePath)
+	}
+	tmp, tmpName, err := createRootTemp(r, perm)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = r.Remove(tmpName) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return r.Rename(tmpName, base)
 }
 
 // MkdirAllWithin creates target beneath root using os.Root containment. The

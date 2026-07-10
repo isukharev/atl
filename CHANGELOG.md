@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Consent-gated profile learning and revalidation.** Explicit observations
+  deterministically produce private hash-bound suggestions without changing the
+  active profile; users review and exactly apply or reject them, with rejection
+  memory retaining hashes only. Schema revalidation uses explicit cutoffs and
+  approved check results, remembers fresh/stale/pending/missing/failed state,
+  and routes verified facts back through the same suggestion gate while
+  preserving the last verified fact on failures.
+
 - **Composable onboarding and private workflow profiles.** The explicit
   onboarding skill interviews the user, reads only approved sample resources,
   composes declared team defaults, and previews a versioned profile before any

@@ -20,6 +20,8 @@ This skill orients you. For the actual command flows, use the focused skills:
 - **Optional workflow personalization** (consent-gated sample reads, team defaults, private
   structured profile) → explicitly invoke the `onboarding` skill. Runtime work should load only the
   relevant profile slice with `atl profile show --section ...`, never copy the profile into a repo.
+  Repeated discoveries may become consent-gated `profile suggest` artifacts; they are reviewed and
+  applied or rejected explicitly, never learned in the background.
 
 If `atl` is not installed (`command -v atl` fails), tell the user to run `/atl:setup` first.
 

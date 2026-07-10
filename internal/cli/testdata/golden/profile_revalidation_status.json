@@ -1,0 +1,22 @@
+{
+  "profile_hash": "<sha256>",
+  "stale_before": "2026-07-01T00:00:00Z",
+  "entries": [
+    {
+      "service": "jira",
+      "id": "customfield_10001",
+      "name": "Risk",
+      "status": "verified_pending",
+      "last_checked_at": "2026-07-10T12:00:00Z",
+      "source": "approved lookup"
+    },
+    {
+      "service": "jira",
+      "id": "customfield_10002",
+      "status": "failed",
+      "last_checked_at": "2026-07-10T12:00:00Z",
+      "source": "approved lookup",
+      "error": "forbidden"
+    }
+  ]
+}

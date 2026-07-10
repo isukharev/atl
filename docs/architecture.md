@@ -411,6 +411,14 @@ lock, then atomically replaces `profile.json` with mode 0600. The package never
 reads Atlassian content or applies runtime render config—those consent decisions
 remain in the onboarding skill/CLI orchestration.
 
+Learning uses two more owner-only artifacts without weakening that boundary.
+Versioned observations deterministically build a hash-bound suggestion; review
+reuses the normal profile preview and apply guards, while rejection retains only
+the suggestion hash. Revalidation state records explicit verified/missing/failed
+metadata checks separately from the last verified profile fact. No background
+reader, clock-based mutation, or policy inference exists; callers supply an
+absolute stale cutoff and approved read results.
+
 ### `internal/cli`
 
 The cobra command tree. Commands are thin:

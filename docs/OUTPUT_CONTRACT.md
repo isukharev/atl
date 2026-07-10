@@ -295,6 +295,38 @@ owner-only private profile; an already-current candidate succeeds with
 `{configured,schema_version?,instructions}` and is guaranteed not to project
 profile values into `instructions`.
 
+`atl profile suggest --from-file OBSERVATIONS --out SUGGESTION` emits
+`{path,suggestion_hash,base_profile_hash,previously_rejected}` and writes the
+canonical version-1 suggestion mode 0600 under an already-private parent. It
+never writes `profile.json`. Observations are strict and versioned; non-schema
+proposals require `{source,observed_at,reason}` evidence and cannot contain team
+policy. Preference fields and Jira/Confluence render services merge
+independently, so omitted siblings are preserved. Generated artifacts and
+private state are bounded to the same 4 MiB read limit before write.
+Suggestion output names require `.atl-suggestion.json`; revalidation observation
+outputs require `.atl-observations.json`. These reserved non-state suffixes plus
+one held parent-directory handle prevent collisions and check/write redirection;
+the parent itself must be mode 0700 or stricter.
+
+`atl profile suggestion review --from-file SUGGESTION` emits
+`{suggestion_hash,previously_rejected,evidence?,preview}` where `preview` is the
+same exact profile-preview contract above. `suggestion apply` requires
+`--suggestion-hash`, `--candidate-hash`, and `--expected-current-hash`, returning
+`{suggestion_hash,profile}` with the normal apply result nested under `profile`.
+`suggestion reject` returns `{suggestion_hash,status:"rejected",changed,path}`;
+its owner-only decision file retains hashes only. Content/hash mismatch is exit
+8 and base/current profile mismatch is exit 5.
+
+`atl profile revalidation status --stale-before RFC3339 [--service ...]` emits
+`{profile_hash,stale_before,entries}`. Entries contain
+`{service,id,name?,status,verified_at?,last_checked_at?,source?,error?}` and status
+is `fresh|stale|verified_pending|missing|failed`. `atl profile revalidate
+--from-file CHECKS --out OBSERVATIONS` emits
+`{path,observations_hash,base_profile_hash,entries}`; immediate check-result
+entries use `verified|missing|failed`. It records the latest explicit check in
+private state, writes verified facts to a version-1 observations artifact, and
+never changes or deletes a profile fact.
+
 `atl jira export --jql ... --out FILE --format jsonl|json|csv` writes one compact artifact and a
 sidecar manifest at `FILE.manifest.json`. `--ids` and `--keys` can be used instead of `--jql` to
 generate batched `id in (...)` / `key in (...)` queries. Stdout remains the normal `emit()` JSON
