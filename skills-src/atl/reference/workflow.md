@@ -2,8 +2,10 @@
 
 ## Where the mirror lives
 
-**Default: `~/.atl/<workspace>/`** — outside the user's code repository, where `<workspace>` is a
-meaningful name (the code repo's basename or the Confluence space key, e.g. `~/.atl/payments/`).
+**Recommended convention: `~/.atl/<workspace>/`** — outside the user's code
+repository, where `<workspace>` is meaningful (for example,
+`~/.atl/payments/`). Export it as `ATL_MIRROR_ROOT` or pass `--into`; otherwise
+the CLI falls back to `mirror` for Confluence and `mirror-jira` for Jira.
 
 Mirror I/O is rooted at the selected directory: descendant symlinks cannot
 redirect writes outside it. `status` and directory `push` fail if a substrate
@@ -18,8 +20,8 @@ Why outside the repo:
   copies for diffing). That state is **essential, not a cache** — losing it resets the version gate
   and drift detection — so it stays co-located with the mirror, never in `~/.cache`.
 
-Always pass `--into ~/.atl/<workspace>/` to `conf pull` / `jira pull`, and pass the same root to
-`conf status`.
+Pass `--into ~/.atl/<workspace>/` to `conf pull` / `jira pull` and the same root
+to `conf status`, or export it once as `ATL_MIRROR_ROOT`.
 
 ### Overrides (use only when they apply)
 

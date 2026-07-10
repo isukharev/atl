@@ -34,7 +34,8 @@ type ManifestResult struct {
 	Manifest MirrorManifest `json:"manifest"`
 }
 
-// MirrorManifest is a sanitized local snapshot manifest.
+// MirrorManifest is a backend-identity-hashed local snapshot manifest. Caller
+// metadata and paths may still be sensitive and are intentionally retained.
 type MirrorManifest struct {
 	CreatedAt  string            `json:"created_at"`
 	Command    string            `json:"command"`
@@ -60,7 +61,7 @@ type ManifestBackend struct {
 	URLHash string `json:"url_hash"`
 }
 
-// CreateManifest writes a sanitized local mirror/snapshot manifest.
+// CreateManifest writes a backend-identity-hashed local mirror/snapshot manifest.
 func CreateManifest(opts ManifestOpts) (*ManifestResult, error) {
 	start := time.Now()
 	root := strings.TrimSpace(opts.Root)

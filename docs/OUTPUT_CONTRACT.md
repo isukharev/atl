@@ -98,10 +98,12 @@ corrupts the JSON stream.
 ## Stable Snapshot Notes
 
 `atl jira pull` writes three files per issue: `<KEY>.wiki` (the native Jira wiki body, byte-for-byte —
-the editable substrate), `<KEY>.md` (a read-only Markdown view rendered from the wiki, regenerated
-best-effort on every pull), and `<KEY>.json` (the raw-fields snapshot). The pull result's `path`
-points at the `.md`; `wiki_path` points at the sibling `.wiki` substrate (edit that file, not the
-`.md`). The JSON snapshot is an object with
+the editable substrate), `<KEY>.md` (a derived Markdown staging view rendered from the wiki and
+regenerated best-effort on pull/render), and `<KEY>.json` (the raw-fields snapshot). The pull
+result's `path` points at the `.md`; `wiki_path` points at the sibling `.wiki` substrate. To use the
+friendly surface, edit only `## Description` in `.md` and run `jira apply`, which merges supported
+changes into `.wiki`; `.md` is never sent directly and a later pull/render can replace it. Edit
+`.wiki` directly for constructs the staging view cannot express. The JSON snapshot is an object with
 stable identity at the top level and raw Jira fields under `fields`:
 
 ```json
@@ -540,7 +542,7 @@ CSV export artifacts contain row metadata (`row_id`, `depth`, `parent_row_id`,
 `item_type`, `item_id`, `issue_key`, `issue_id`) plus requested issue fields.
 Markdown export artifacts render an indented tree for review.
 
-`atl manifest create --root DIR` writes a sanitized local manifest and returns
+`atl manifest create --root DIR` writes a backend-identity-hashed local manifest and returns
 the written path plus the manifest body:
 
 ```json
@@ -573,4 +575,8 @@ the written path plus the manifest body:
 }
 ```
 
-Backend entries contain URL hashes only, never backend hostnames or tokens.
+Configured backend entries contain URL hashes only; `atl` does not read or add
+stored PATs to this artifact. Caller-provided `command`, selectors, JQL/CQL,
+fields, include values, and paths are preserved verbatim and are **not
+redacted**. Never pass credentials in that metadata, and review the manifest
+before publishing it.

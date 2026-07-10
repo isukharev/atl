@@ -73,5 +73,5 @@ accepts a body file (up to 64 MiB). Compose it in Jira wiki markup, **not Markdo
    ```
 
 The scratch `.wiki` file is a working body file you feed to `--from-file` — it is **not** the
-read-only `<KEY>.md`/`<KEY>.json` mirror snapshot, and editing those snapshots changes nothing on
-the server.
+mirror's native `<KEY>.wiki` substrate. A bare edit to the derived `<KEY>.md` staging view changes
+nothing until `jira apply` merges its supported body edit; `<KEY>.json` is always read-only.

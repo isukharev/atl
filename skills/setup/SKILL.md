@@ -2,7 +2,7 @@
 name: setup
 description: Install the atl CLI and configure Confluence/Jira authentication, backend URLs, and the local mirror directory. Run this once (/atl:setup) before using atl.
 disable-model-invocation: true
-allowed-tools: Bash(command -v atl) Bash(atl version) Bash(brew install *) Bash(atl config show) Bash(atl config set *) Bash(atl auth status) Bash(atl auth login *) Bash(atl conf search *) Bash(atl jira fields)
+allowed-tools: Bash(command -v atl) Bash(atl version) Bash(brew install *) Bash(curl *) Bash(sh) Bash(go install *) Bash(go env *) Bash(echo *) Bash(atl config show) Bash(atl config set *) Bash(atl auth status) Bash(atl auth login *) Bash(atl conf search *) Bash(atl jira fields)
 ---
 <!-- Generated from skills-src/setup/SKILL.md — edit the source and run 'make gen-plugins'. -->
 
@@ -122,8 +122,11 @@ atl auth status
 `atl` mirrors pages/issues to disk. Keep the mirror **out of the user's code repository** so it is
 fully greppable by the agent and never committed into their project's git history.
 
-- **Default:** `~/.atl/<workspace>/`, where `<workspace>` is a meaningful name (the code repo's
-  basename or the Confluence space key). Example: `~/.atl/payments-service/`.
+- **Recommended convention:** `~/.atl/<workspace>/`, where `<workspace>` is a
+  meaningful name (the code repo's basename or the Confluence space key).
+  Example: `~/.atl/payments-service/`. This is not the CLI's implicit default:
+  without `ATL_MIRROR_ROOT` or `--into`, Confluence uses `mirror` and Jira uses
+  `mirror-jira`.
 - **Fix it once with `ATL_MIRROR_ROOT`** so `conf pull` / `conf status` / `jira pull` default to the
   same place without re-passing `--into` every time. Record it where later sessions will pick it up —
   either export it in the shell profile, or add a line to the project's `CLAUDE.md`:

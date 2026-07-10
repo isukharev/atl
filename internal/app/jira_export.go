@@ -69,7 +69,8 @@ const jiraAggregateExportMaxIssues = 10000
 const jiraAggregateExportMaxBytes int64 = 64 << 20
 const jiraRowExportMaxIdentities = 250000
 
-// Export writes a compact Jira export and a sanitized provenance manifest.
+// Export writes a compact Jira export and a backend-identity-hashed provenance
+// manifest. Query selectors remain present verbatim for reproducibility.
 func (s *JiraService) Export(ctx context.Context, opts JiraExportOpts) (*JiraExportResult, error) {
 	queries, queryMode, err := exportQueries(opts)
 	if err != nil {

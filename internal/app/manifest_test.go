@@ -39,7 +39,7 @@ func TestCreateManifestWritesCountsAndHashesBackend(t *testing.T) {
 		t.Fatalf("read manifest: %v", err)
 	}
 	if strings.Contains(string(data), "jira.example.com") || !strings.Contains(string(data), `"url_hash": "sha256:`) {
-		t.Fatalf("manifest backend identity not sanitized:\n%s", data)
+		t.Fatalf("manifest backend identity not hashed:\n%s", data)
 	}
 	var decoded MirrorManifest
 	if err := json.Unmarshal(data, &decoded); err != nil {

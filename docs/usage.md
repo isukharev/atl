@@ -138,7 +138,9 @@ export ATL_NO_UPDATE=1
 export ATL_CONFIG_DIR="$(mktemp -d)"
 
 # 4. Fail fast with a clear signal if setup/connectivity is wrong.
-if ! atl conf search --cql 'type = page' --limit 1 >/dev/null; then
+if atl conf search --cql 'type = page' --limit 1 >/dev/null; then
+  : # connected
+else
   code=$?
   case $code in
     7) echo "atl is not configured (URL/PAT missing)"   >&2 ;;
@@ -237,7 +239,7 @@ atl config set --update-url https://releases.example.com/atl
 # Render (presentation-only) keys — global or per-mirror (--local):
 atl config set render.jira.profile full
 atl config set --local render.confluence.profile minimal
-atl config set --local render.jira.include sprint,epic
+atl config set --local render.jira.include sprint,epic_children
 ```
 
 Flags:
@@ -268,10 +270,11 @@ and ignored. Precedence is **local > global > default**, merged per key.
 
 ## Render profiles
 
-The `.md` files in a mirror are read-only views regenerated from the native
-substrate (`.csf` / `.wiki`). A **profile** chooses what those views contain. The
-substrate is never affected — profiles only change the derived `.md`, so dirty/
-drift detection (which hashes the substrate) is unchanged.
+The `.md` files in a mirror are derived staging views regenerated from the
+native substrate (`.csf` / `.wiki`). A **profile** chooses what those views
+contain. Supported body edits become real only after `conf apply` / `jira
+apply`; generated metadata sections remain read-only, and pull/render may
+replace the view. Profiles never affect substrate hashes or dirty/drift state.
 
 | profile | Jira `.md` | Confluence `.md` |
 |---|---|---|
@@ -496,17 +499,24 @@ atl auth logout --service confluence
 
 ### `atl conf search`
 
-Search pages by CQL. Returns `id`, `title`, `space`, `version`, `excerpt`.
+Search pages by raw CQL or convenience filters. Returns `id`, `title`, `space`,
+`version`, `excerpt`. Pass either `--cql` or at least one convenience filter;
+the two modes cannot be combined.
 
 ```
 atl conf search --cql "space=DOCS and title~\"API\"" --limit 10
+atl conf search --space DOCS --title API --type page --limit 10
 ```
 
 Flags:
 
 | flag | description |
 |---|---|
-| `--cql` | Confluence CQL query (required) |
+| `--cql` | Confluence CQL query (mutually exclusive with convenience filters) |
+| `--space` | convenience filter by space key |
+| `--title` | convenience substring filter by title |
+| `--label` | convenience filter by label |
+| `--type` | convenience filter by content type |
 | `--limit` | max results (default 25) |
 | `--cursor` | pagination cursor (start offset returned by the previous call) |
 
@@ -587,7 +597,7 @@ mirror/
     parent-page/
       child-page/
         child-page.csf           ← edit this
-        child-page.md            ← read-only view
+        child-page.md            ← derived staging view; supported edits go through conf apply
         child-page.meta.json     ← id, version, content_hash, fragments, comments_pulled, comment_count
         child-page.comments.json ← only with --comments: [{id, author, created, body}]
         child-page.comments.md   ← only with --comments: derived human read view
@@ -1439,7 +1449,7 @@ atl jira issue delete PROJ-1 --force [--delete-subtasks]
 Export issues matching a JQL query to disk. Each issue becomes three files:
 `<KEY>.wiki` (the native Jira wiki body, stored byte-for-byte — the editable
 source of truth, the Jira analog of a Confluence `.csf`), `<KEY>.md` (a
-read-only Markdown view rendered from the wiki, regenerated best-effort on every
+derived Markdown staging view rendered from the wiki, regenerated best-effort on every
 pull), and `<KEY>.json` (identity plus raw Jira fields). Edit the `## Description`
 of the `.md` view and merge it with `jira apply` (the recommended cycle, below), or
 edit the `.wiki` directly for what the md view can't express — a bare `.md` edit
@@ -1486,7 +1496,7 @@ Output layout:
 mirror-jira/
   PROJ/
     PROJ-1.wiki             # native Jira wiki body, verbatim — the editable source
-    PROJ-1.md               # read-only rendered Markdown view (regenerated on pull)
+    PROJ-1.md               # derived staging view; edit Description, then jira apply
     PROJ-1.json
     PROJ-1.assets/          # only with --assets, when the issue has images
       10001-screenshot.png
@@ -1663,7 +1673,7 @@ that item, not an error — re-pull if you see one.
 
 ### `atl jira export`
 
-Write one compact issue export artifact plus a sanitized provenance manifest.
+Write one compact issue export artifact plus a backend-identity-hashed provenance manifest.
 This is for scripts and analysis that need JSONL/JSON/CSV instead of a directory
 mirror. The manifest is written to `<out>.manifest.json` and stores query,
 fields, format, count, CLI version, and a backend URL hash; it does not store
@@ -1892,10 +1902,13 @@ Jira.
 
 ### `atl manifest create`
 
-Write a sanitized manifest for a local mirror or snapshot root. The manifest
+Write a backend-identity-hashed manifest for a local mirror or snapshot root. The manifest
 counts files/bytes/extensions and records reproducibility metadata such as the
 source command, selectors, fields, include flags, ATL version, and backend URL
-hashes. It never writes backend hostnames or tokens.
+hashes. Configured backend URLs are represented only by hashes and stored PATs
+are not read. Caller-provided command text, selectors, JQL/CQL, field names,
+include values, and paths are preserved verbatim without redaction: never put a
+credential in those flags, and review the manifest before publishing it.
 
 ```bash
 atl manifest create --root mirror-jira --service jira --selector 'jql=project=PROJ' --fields summary,status
