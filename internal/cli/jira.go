@@ -1205,7 +1205,13 @@ func jiraStatusCmd() *cobra.Command {
 							flag = " ? "
 						}
 					}
+					if e.LocalError != "" {
+						flag = "M! "
+					}
 					fmt.Fprintf(&b, "%s%s\t%s", flag, e.Key, e.Path)
+					if e.LocalError != "" {
+						fmt.Fprintf(&b, "\t(local: %s)", e.LocalError)
+					}
 					if e.RemoteError != "" {
 						fmt.Fprintf(&b, "\t(remote: %s)", e.RemoteError)
 					}
@@ -1223,13 +1229,13 @@ func jiraPushCmd() *cobra.Command {
 	var o app.JiraPushOpts
 	cmd := &cobra.Command{
 		Use:   "push <file.wiki|DIR>",
-		Short: "Preview (default) or --apply a local .wiki description edit back to the issue",
-		Long: "Push an edited <KEY>.wiki description back to its Jira issue.\n\n" +
+		Short: "Preview (default) or --apply guarded local Jira edits",
+		Long: "Push an edited <KEY>.wiki description and any pending opt-in rich-text fields back to its Jira issue.\n\n" +
 			"Dry-run by default: without --apply it only previews the unified diff and drift, " +
-			"writing nothing. Only the description body is written (no other field). Jira has no " +
+			"writing nothing. Fields are included only when their render descriptor explicitly enables editing. Jira has no " +
 			"server-side version gate, so staleness is caught by an app-layer compare against the " +
-			"pulled base (an inherent TOCTOU window); on drift the push is refused (exit 8) unless " +
-			"--force re-bases on the current remote and writes.",
+			"pulled base. Description drift may be overridden with --force; pending-field drift always " +
+			"fails closed and must be reconciled before writing.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := jiraService()
@@ -1250,7 +1256,7 @@ func jiraPushCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&o.Apply, "apply", false, "actually write the change (default: dry-run preview only)")
-	cmd.Flags().BoolVar(&o.Force, "force", false, "override the drift refusal (re-base on current remote and write)")
+	cmd.Flags().BoolVar(&o.Force, "force", false, "override description drift (pending-field drift still refuses)")
 	cmd.Flags().StringVar(&o.Into, "into", "", "mirror root (defaults to nearest .atl)")
 	return cmd
 }
@@ -1282,6 +1288,14 @@ func jiraPushText(res *app.JiraPushResult) string {
 		if it.Diff != "" {
 			for _, line := range strings.Split(strings.TrimRight(it.Diff, "\n"), "\n") {
 				fmt.Fprintf(&b, "   %s\n", line)
+			}
+		}
+		for _, field := range it.Fields {
+			fmt.Fprintf(&b, "   field %s:\n", field.ID)
+			for _, line := range strings.Split(strings.TrimRight(field.Diff, "\n"), "\n") {
+				if line != "" {
+					fmt.Fprintf(&b, "      %s\n", line)
+				}
 			}
 		}
 	}

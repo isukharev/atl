@@ -228,10 +228,10 @@ func TestSetRenderKey(t *testing.T) {
 	if rc.Confluence == nil || len(rc.Confluence.Exclude) != 1 {
 		t.Errorf("confluence exclude not set: %+v", rc.Confluence)
 	}
-	if err := SetRenderKey(rc, "render.jira.field_views", `[{"id":"customfield_1","label":"Risk","placement":"section","format":"jira_wiki"}]`); err != nil {
+	if err := SetRenderKey(rc, "render.jira.field_views", `[{"id":"customfield_1","label":"Risk","placement":"section","format":"jira_wiki","editable":true}]`); err != nil {
 		t.Fatal(err)
 	}
-	if len(rc.Jira.FieldViews) != 1 || rc.Jira.FieldViews[0].Label != "Risk" {
+	if len(rc.Jira.FieldViews) != 1 || rc.Jira.FieldViews[0].Label != "Risk" || !rc.Jira.FieldViews[0].Editable {
 		t.Errorf("field_views not set: %+v", rc.Jira.FieldViews)
 	}
 	if err := SetRenderKey(rc, "render.jira.epic_field", "customfield_10010"); err != nil {
@@ -256,6 +256,9 @@ func TestSetRenderKeyErrors(t *testing.T) {
 		{"render.confluence.field_views", "[]", false},  // jira-only field
 		{"render.jira.field_views", `[{"id":"x","placement":"frontmatter"}]`, false},
 		{"render.jira.field_views", `[{"id":"x","format":"jira_wiki"}]`, false},
+		{"render.jira.field_views", `[{"id":"x","editable":true}]`, false},
+		{"render.jira.field_views", `[{"id":"x","placement":"section","format":"list","editable":true}]`, false},
+		{"render.jira.field_views", `[{"id":"description","placement":"section","format":"jira_wiki","editable":true}]`, false},
 		{"render.jira.profile", "gigantic", false}, // bad profile value
 	}
 	for _, c := range cases {

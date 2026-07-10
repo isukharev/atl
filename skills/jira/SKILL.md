@@ -69,14 +69,14 @@ and carry explicit truncation fields.
 On disk per issue:
 ```
 <root>/<PROJECT>/<KEY>.wiki    # native Jira wiki body, VERBATIM — the substrate; edit directly only as fallback
-<root>/<PROJECT>/<KEY>.md      # rendered Markdown view — edit generated # Description, then `jira apply` (regenerated on pull)
+<root>/<PROJECT>/<KEY>.md      # rendered Markdown view — edit supported sections, then `jira apply` (regenerated on pull)
 <root>/<PROJECT>/<KEY>.json    # {key,id,fields:{...}}; raw Jira fields live under .fields
 <root>/<PROJECT>/<KEY>.assets/ # only with --assets: image attachments, linked from the .md
 <root>/<PROJECT>/<KEY>.epic-children.json # only when epic_children is enabled for an epic
 ```
 The `.wiki` holds the byte-for-byte native body (like a Confluence `.csf`); the `.md` is a
-best-effort, lossy read view rendered from it and is regenerated on every pull. To change a body,
-edit the generated `# Description` section of the `<KEY>.md` view and fold it back with `jira apply` (the
+best-effort, lossy staging view rendered from it and is regenerated on every pull. To change supported content,
+edit generated `# Description` and/or an opt-in editable field section, then run `jira apply` (the
 recommended loop, see 4b), or edit `<KEY>.wiki` directly for what the md view can't express (see 4c);
 then push with `jira push` (the write-back loop below). The pull also records a
 sidecar + base copy so `jira status`/`jira push` can detect edits and drift; mirrors pulled by an
@@ -110,11 +110,13 @@ so `jira status` stays clean.
 For readable non-core fields, prefer typed `render.jira.field_views` over the
 legacy id-only `custom_fields` list. A descriptor selects the Jira field `id`, a
 human-readable `label`, `metadata|section` placement,
-`auto|scalar|list|jira_wiki|date|datetime` format, and optional `show_empty`.
+`auto|scalar|list|jira_wiki|date|datetime` format, optional `show_empty`, and
+optional `editable`. Editing is valid only for `section` + `jira_wiki` and is
+off by default.
 Enable the `custom_fields` section (`full` already does). Example:
 
 ```bash
-atl config set --local --into <root> render.jira.field_views '[{"id":"customfield_10003","label":"Risk Notes","placement":"section","format":"jira_wiki"}]'
+atl config set --local --into <root> render.jira.field_views '[{"id":"customfield_10003","label":"Risk Notes","placement":"section","format":"jira_wiki","editable":true}]'
 atl config set --local --into <root> render.jira.include custom_fields,epic_children
 atl config set --local --into <root> render.jira.epic_field customfield_10004
 atl jira pull --jql '<JQL>' --into <root> --render-profile full
@@ -125,9 +127,11 @@ bounded related query per main-search page that actually needs it. It lazily
 auto-detects `Epic Link` unless `epic_field` is configured; explicit field ids
 also let returned children identify localized epic types. Date/datetime formats
 normalize valid values, and metadata renders as a readable Markdown table.
-Typed fields and epic children are recorded with the
-view and remain read-only during `jira apply`; offline `jira render` uses the raw
-snapshot plus an identity-checked sidecar.
+Typed fields and epic children are recorded with the view. Typed fields remain
+read-only unless explicitly editable; transient `jira issue view` is always
+read-only. Editable values are staged under `.atl/pending/jira/`, while the raw
+snapshot remains untouched until push succeeds. Offline `jira render` overlays
+pending values; epic children use an identity-checked sidecar.
 
 For compact analysis artifacts instead of a directory mirror:
 ```bash
@@ -216,37 +220,47 @@ NBSP/invisible bytes). Reach for `update --from-md` only when most of the descri
 changes.
 
 ### 4b. Mirror write-back — edit the `.md` view, `jira apply`, then `jira push` (recommended)
-For a structural description rewrite, edit the generated `# Description` section of the pulled `<KEY>.md` view
+For a structural description rewrite or an opted-in rich-text field update, edit the generated supported section of the pulled `<KEY>.md` view
 with normal text editing (it's markdown — no wiki-markup or invisible-byte traps), fold it back into
 the `.wiki` block-by-block with `jira apply` (the Jira analog of `conf apply`), then push:
 ```bash
-atl jira apply <root>/PROJECT/PROJ-1.md              # merge the .md Description into the .wiki
+atl jira apply <root>/PROJECT/PROJ-1.md              # merge/stage supported .md sections
 atl jira apply PROJ-1.md --dry-run                   # report the merge, write nothing
 atl jira apply PROJ-1.md --allow-loss                # intentional {panel}/{color}/mention/embed removal
+atl jira apply PROJ-1.md --rebase-pending            # after fresh pull + explicit remote/local field review
 atl jira status [<root>] [--remote]                  # what's locally edited / drifted; --remote = 1 GET/issue
 atl jira push <root>/PROJECT/PROJ-1.wiki             # DRY-RUN by default: prints the diff, writes nothing
 atl jira push --apply <root>/PROJECT/PROJ-1.wiki     # actually write it back
 atl jira push --apply --force <file.wiki>            # write over a drifted remote (re-base + write)
-atl jira push <root>/                                # a dir pushes only locally-edited files
+atl jira push <root>/                                # a dir includes dirty .wiki and field-only pending issues
 ```
 This is the measured-cheaper edit surface (issue #88: fewer turns and a higher success rate than
 hand-writing wiki markup). Untouched blocks keep their **exact base bytes**; changed/new blocks
-convert through the same markdown subset as `--from-md`. **Only generated `# Description` is editable** — an
-edit to generated metadata, title, or the Comments/Links/Image Attachments sections is refused (exit 8)
+convert through the same markdown subset as `--from-md`. Generated `# Description` and typed field
+sections configured with `editable:true` + `jira_wiki` are editable. An edit to generated metadata,
+title, or the Comments/Links/Image Attachments/read-only field sections is refused (exit 8)
 with a pointer to the dedicated command (`issue update` / `comment add` / `link add` /
 `attachment upload`). A wiki-only construct in the base (`{panel}`, `{color}`, `[~mention]`, `!embed!`,
 a macro) dropped by the edit is listed in `removed_constructs` and refused (exit 8) unless
 `--allow-loss`. A block it cannot convert, or a `.wiki` that diverged from the pulled base, also
 refuses (exit 8) — edit the `.wiki` directly (4c), or push/re-pull first. Local only: `jira apply`
-writes the `.wiki` (and refreshes the `.md`); `jira push` still sends it to the server. `apply`
+writes Description to `.wiki`, stages fields under `.atl/pending/jira/`, and refreshes `.md`;
+the raw `<KEY>.json` stays unchanged. `jira push` still sends the reviewed set to the server. `apply`
 reproduces the pristine view from the render settings the `.md` was written with (recorded on
 pull/render), so no `--render-*` flags are needed — pass them only to override that recorded view.
-→ `{ path, wiki_path, dry_run, report:{unchanged,moved,converted,removed,removed_constructs?}, wrote, warning? }`.
+→ `{ path, wiki_path, pending_path?, dry_run, report:{...}, fields?:[{id,pending,report}], wrote, warning? }`.
 
 Jira has **no server-side version gate**, so `jira push` guards staleness with an app-layer
-compare against the base recorded at pull: if the remote description changed since the pull, the push
-is **refused with exit 8** ("re-pull or `--force`") and nothing is written — an inherent TOCTOU
-window that `--force` opts out of, never exit 5. Always run the dry-run first and read the diff;
+compare against the bases recorded at pull/apply. Description drift is refused with exit 8 unless
+`--force`; pending-field drift is always refused, including with `--force`, and must be reconciled.
+Description plus fields are one typed write. An ambiguous response is reconciled by a fresh end-state
+read and never replayed. If remote already equals the proposal after refresh failure, retry repairs
+local state without a write. A transport/local refresh problem is a warning;
+a successful verification read that differs from the reviewed proposal retains
+pending and exits 8. For genuine field drift: pull fresh, compare raw `<KEY>.json` remote value
+with the local proposal still visible in `.md` (and any combined local Description preserved in
+`.wiki`), edit if needed, then run `jira apply --rebase-pending`;
+push fresh-checks the adopted base again. This remains an app-layer TOCTOU guard, never exit 5. Always run the dry-run first and read every diff;
 `--apply` is required to write. Prefer `issue edit` for a small, surgical text change (§4).
 
 ### 4c. Fallback — edit `<KEY>.wiki` directly
@@ -254,8 +268,11 @@ Reach for the substrate when the md view can't carry the change: an **unconverti
 exits 8 naming it), a **wiki-only construct you must author** (`{panel}`, `{color}`, a complex macro —
 outside the md subset), an **intentional `--allow-loss`** removal, or **bulk restructuring** where
 you'd rather work the raw bytes. Edit the pulled `<KEY>.wiki` in place and push the whole file back
-with the same `jira status` / `jira push` commands as 4b (only the **description** is written — no
-other field):
+with the same `jira status` / `jira push` commands as 4b. With no pending field
+state this writes only Description. If fields are already pending, a direct
+`.wiki` edit deliberately breaks their reviewed hash binding; inspect both edits
+and run `jira apply --rebase-pending` to explicitly bind the pending fields to
+that exact wiki before push:
 ```bash
 atl jira status [<root>] [--remote]                 # what's locally edited / drifted
 atl jira push <root>/PROJECT/PROJ-1.wiki            # DRY-RUN by default: prints the diff, writes nothing
@@ -263,7 +280,9 @@ atl jira push --apply <root>/PROJECT/PROJ-1.wiki    # actually write it back
 atl jira push --apply --force <file.wiki>           # write over a drifted remote (re-base + write)
 ```
 Once you edit the `.wiki` directly, `jira apply` refuses (exit 8 — the `.wiki` diverged from the
-pulled base) until you push or re-pull: the substrate and the md surface don't mix in one cycle. The
+pulled base) until you push or re-pull. The sole exception is the explicit
+`--rebase-pending` binding step above; it never merges a stale md Description.
+The
 same drift guard, dry-run default, and `--force` semantics from 4b apply. Prefer `issue edit` for a
 small, surgical change; use this path when you've hand-authored most of the `.wiki`.
 
@@ -392,9 +411,9 @@ If the plugin or object is unavailable, expect exit 4/6.
 | `jira issue images <KEY>` | Download image attachments (agent vision) | `--into DIR` |
 | `jira pull` | Export issues to disk (.wiki + .md + .json) | `--jql`, `--into`, `--limit`, `--fields`, `--assets`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `jira render [DIR\|FILE]` | Regenerate `.md` views offline (no network/PAT) | `--render-profile`, `--render-include`, `--render-exclude`, `--into` |
-| `jira apply <FILE.md>` | Merge generated `# Description` edits from the `.md` view into the `.wiki` (Description only; block-level) | `--dry-run`, `--allow-loss`, `--into`, `--render-profile`, `--render-include`, `--render-exclude` |
+| `jira apply <FILE.md>` | Merge/stage supported generated Description and opt-in rich-text field edits (block-level) | `--dry-run`, `--allow-loss`, `--rebase-pending`, `--into`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `jira status [DIR]` | Show locally-edited (and `--remote` drifted) mirrored issues | `--remote` |
-| `jira push <file.wiki\|DIR>` | Preview (default) or `--apply` a `.wiki` description write-back | `--apply`, `--force`, `--into` |
+| `jira push <file.wiki\|DIR>` | Preview (default) or `--apply` guarded Description + pending-field write-back | `--apply`, `--force`, `--into` |
 | `jira export` | Write one compact JSONL/JSON/CSV artifact plus manifest | `--jql`/`--ids`/`--keys`, `--out`, `--format`, `--limit`, `--fields`, `--batch-size`, `--raw-csv` |
 | `jira export diff <OLD> <NEW>` | Compare compact exports | — |
 | `jira planning report` | Deterministic planning quality report | `--jql`, `--require`, `--estimate-field`, `--epic-field`, `--limit`, `--csv` |
@@ -430,19 +449,19 @@ If the plugin or object is unavailable, expect exit 4/6.
 | Exit 4 from `issue edit` | `--old` not found (text changed or hidden bytes) | Read the quoted closest-region in the error; re-check with `issue get --fields description` |
 | Exit 2 from `issue edit` | `--old` matches more than once | Add surrounding context to make it unique, or pass `--all` |
 | Exit 8 from `issue edit` | Match would cross a line break `--old` doesn't have | Copy `--old` exactly from the description, newlines included |
-| Exit 8 from `jira push` | Remote description drifted since pull (no Jira version gate) | Re-pull and re-apply your edit, or `jira push --apply --force` to overwrite the remote |
+| Exit 8 from `jira push` | Remote Description or a pending field drifted (no Jira version gate) | For fields pull fresh, review raw remote vs visible local, then `jira apply --rebase-pending`; `--force` may overwrite Description drift but never pending-field drift |
 | Exit 2 from `jira push` | The `.wiki` was never pulled through the mirror (no sidecar/base) | Run `jira pull` first, then edit the `.md` view + `jira apply` (or `<KEY>.wiki` directly) and push |
-| Exit 8 from `jira apply` | Edit dropped a wiki construct, hit an unconvertible block, touched a non-Description section, or the `.wiki` diverged | Read the message: restore the construct / edit the `.wiki` directly / use the named dedicated command / push or re-pull; `--allow-loss` for an intentional construct removal |
+| Exit 8 from `jira apply` | Edit dropped a wiki construct, hit an unconvertible block, touched a read-only section, or the `.wiki` diverged | Read the message: restore the construct / edit the `.wiki` directly / use the named dedicated command / push or re-pull; `--allow-loss` for an intentional construct removal |
 
 Tool friction that cost you real turns (repeated failures, misleading errors, unexpected
 refusals)? Offer the user a report — see the `atl` skill's feedback flow (consent-gated
 sanitized issue + private case file).
 
 ## Hard rules
-- **Do not treat a bare `<KEY>.md` edit as complete.** Edit generated `# Description`,
-  then run `jira apply` to fold the supported change into `.wiki`; pull/render
+- **Do not treat a bare `<KEY>.md` edit as complete.** Edit generated Description or an
+  explicitly editable field section, then run `jira apply`; pull/render
   may replace the derived staging view. `<KEY>.json` is a raw snapshot and is
-  never an edit surface. The native body lives in `<KEY>.wiki`; edit it directly for
+  never an edit surface. Pending fields live under `.atl/pending/jira/`; the native body lives in `<KEY>.wiki`; edit it directly for
   what the md view can't express, then `jira push` (or `jira issue update --from-file`).
 - **Transient `jira issue view` output is read-only context.** It has no synced
   base or drift guard; run `jira pull` before any mirror-based edit/apply/push.

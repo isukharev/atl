@@ -52,15 +52,19 @@ func (s *JiraService) Render(target string, override config.RenderService) (*Jir
 	if err != nil {
 		return nil, err
 	}
-	views := map[string]mirror.ViewState{}
 	missingEpicSidecars := 0
 	for _, jsonPath := range snaps {
+		keySeg := strings.TrimSuffix(filepath.Base(jsonPath), ".json")
+		issueLock, lockErr := lockJiraPendingFields(root, keySeg)
+		if lockErr != nil {
+			return res, lockErr
+		}
 		is, ok := loadIssueSnapshot(root, jsonPath)
 		if !ok {
+			_ = issueLock.Unlock()
 			continue // unreadable/oddly-shaped snapshot: skip, never fail the batch
 		}
 		dir := filepath.Dir(jsonPath)
-		keySeg := strings.TrimSuffix(filepath.Base(jsonPath), ".json")
 		mdPath := filepath.Join(dir, keySeg+".md")
 		related := loadEpicChildrenSidecar(root, epicChildrenPath(dir, keySeg))
 		used := rs
@@ -75,22 +79,50 @@ func (s *JiraService) Render(target string, override config.RenderService) (*Jir
 		} else if rs.On(SecEpicChildren) && isEpicIssue(*is) {
 			missingEpicSidecars++
 		}
-		md := renderIssueMarkdownWithRelated(is, assetsOnDisk(root, dir, keySeg), related, used)
+		pending, _, pendingErr := loadJiraPendingFieldsLocked(root, keySeg)
+		if pendingErr != nil {
+			_ = issueLock.Unlock()
+			return res, pendingErr
+		}
+		if pendingErr := validatePendingFieldsEditable(pending, used); pendingErr != nil {
+			_ = issueLock.Unlock()
+			return res, pendingErr
+		}
+		displayIssue := issueWithPendingFields(is, pending)
+		if pending != nil {
+			wikiPath := strings.TrimSuffix(jsonPath, ".json") + wikiExt
+			lw, wiki, loadErr := mirror.New(root).LoadWiki(wikiPath)
+			if loadErr != nil {
+				_ = issueLock.Unlock()
+				return res, loadErr
+			}
+			if bindErr := validatePendingMirrorBinding(root, pending, lw, wiki); bindErr != nil {
+				_ = issueLock.Unlock()
+				return res, bindErr
+			}
+			if displayIssue == is {
+				copyIssue := *is
+				displayIssue = &copyIssue
+			}
+			displayIssue.Body = string(wiki)
+		}
+		md := renderIssueMarkdownWithRelated(displayIssue, assetsOnDisk(root, dir, keySeg), related, used)
 		if err := safepath.WriteFileWithin(root, mdPath, md, 0o644); err != nil {
+			_ = issueLock.Unlock()
 			return res, err
 		}
-		// Keyed by the .wiki basename, same key as the pull/apply paths.
-		views[keySeg] = viewStateOf(used)
+		if err := mirror.New(root).SaveViewStates(map[string]mirror.ViewState{keySeg: viewStateOf(used)}); err != nil {
+			_ = issueLock.Unlock()
+			return res, err
+		}
+		if err := issueLock.Unlock(); err != nil {
+			return res, err
+		}
 		rel, _ := filepath.Rel(root, mdPath)
 		res.Rendered = append(res.Rendered, JiraRendered{Key: is.Key, Path: rel})
 	}
 	if missingEpicSidecars > 0 {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("render: epic_children is enabled but %d epic snapshot(s) have no sidecar; re-run jira pull with the section enabled", missingEpicSidecars))
-	}
-	// Persist the recorded views in one load-modify-save. This writes only the
-	// `views` map, never a `pages` sync entry, so `jira status` stays clean.
-	if err := mirror.New(root).SaveViewStates(views); err != nil {
-		return res, err
 	}
 	return res, nil
 }

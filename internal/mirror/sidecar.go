@@ -38,6 +38,7 @@ type FieldViewState struct {
 	Placement string `json:"placement,omitempty"`
 	Format    string `json:"format,omitempty"`
 	ShowEmpty bool   `json:"show_empty,omitempty"`
+	Editable  bool   `json:"editable,omitempty"`
 }
 
 type sidecarFile struct {

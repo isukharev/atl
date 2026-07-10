@@ -109,11 +109,14 @@ before editing it.
 the editable substrate), `<KEY>.md` (a derived Markdown staging view rendered from the wiki and
 regenerated best-effort on pull/render), and `<KEY>.json` (the raw-fields snapshot). The pull
 result's `path` points at the `.md`; `wiki_path` points at the sibling `.wiki` substrate. To use the
-friendly surface, edit only generated `# Description` in `.md` and run `jira apply`, which merges supported
-changes into `.wiki`; `.md` is never sent directly and a later pull/render can replace it. Edit
+friendly surface, edit generated `# Description` and/or field sections explicitly configured as
+editable, then run `jira apply`. Description changes merge into `.wiki`; field changes become an
+explicit `.atl/pending/jira/<KEY>.json` write set. The raw issue snapshot is not changed until a
+successful push refreshes it. `.md` is never sent directly and a later pull/render can replace it. Edit
 `.wiki` directly for constructs the staging view cannot express. Generated issue fields appear in a
-read-only `# Metadata` Markdown table; update them through `jira issue update` and related commands,
-not by editing the table. Generated regions carry hidden stable `atl:section`
+read-only `# Metadata` Markdown table; update them through dedicated commands, not by editing the
+table. A typed field section is editable only with `editable:true`, `placement:"section"`, and
+`format:"jira_wiki"`; transient `jira issue view` output remains read-only. Generated regions carry hidden stable `atl:section`
 markers; Jira rich-text headings are nested below their generated owner. Human-facing
 datetime values are compacted to minute precision, while the JSON snapshot keeps
 the exact raw server value. The JSON snapshot is an object with
@@ -186,34 +189,51 @@ unchanged before and after. Render-resolution warnings go to **stderr**, never
 stdout.
 
 `atl jira status [DIR] [--remote]` emits `{ "entries": [ { "path", "key", "locally_edited",
-"synced", "remote_drifted"?, "remote_error"? }, ... ] }`. `locally_edited` is true when the `.wiki`
-differs from the pulled base; `synced` is false for a `.wiki` with no sidecar entry (never-synced —
-it also reads `locally_edited`). `remote_drifted` (the remote description differs from the stored
-base) and `remote_error` (the remote could not be checked) appear only with `--remote` and are
-`omitempty`.
+"synced", "pending_fields"?, "local_error"?, "remote_drifted"?, "field_drifted"?, "remote_error"? }, ... ] }`.
+`locally_edited` is true when the `.wiki` differs from the pulled base or a configured field is
+pending; `synced` is false for a `.wiki` with no sidecar entry (never-synced — it also reads
+`locally_edited`). `remote_drifted` covers description or pending-field drift; `field_drifted`
+identifies the latter. They and `remote_error` appear only with `--remote` and are
+`omitempty`. `local_error` is independent of `--remote` and reports a broken
+pending-to-mirror binding such as a missing or moved `.wiki`.
 
 `atl jira push <file.wiki|DIR> [--apply] [--force] [--into ROOT]` emits `{ "items": [ ... ] }`, one
 item per file: `{ "path", "key", "pushed", "dry_run"?, "skipped"?, "remote_drifted"?,
-"drift_overridden"?, "diff"?, "failed"?, "warning"? }`. It is **dry-run by default**: without
+"drift_overridden"?, "diff"?, "fields"?: [{"id","diff"?}], "field_drifted"?, "failed"?,
+"warning"? }`. It is **dry-run by default**: without
 `--apply`, `dry_run` is `true`, `pushed` is `false`, `diff` carries the unified diff of what the
 write changes on the server (current remote → local body; equal to base → local when there is no
-drift), and no write occurs. On drift without `--force` the item has `remote_drifted:true` and the
-command exits `8` (`ErrCheckFailed`) — never `5`. `--force` sets `drift_overridden` and writes.
-`--apply` sets `pushed:true`; a post-push mirror-refresh failure surfaces as `warning` on the item,
-not an error. `skipped:"unchanged"` marks a clean file.
+drift), and no write occurs. Field-only pending issues are included in directory pushes. Description
+drift without `--force` exits `8`; `--force` sets `drift_overridden`. Pending-field drift sets both
+`remote_drifted` and `field_drifted` and always exits `8`, even with `--force`. When Description and
+fields changed they are sent in one typed update. `--apply` sets `pushed:true`; a post-push
+transport/local mirror-refresh failure surfaces as a `warning`, not an error.
+A successful verification read that no longer matches the reviewed end state
+retains pending, sets drift/failed details, and exits `8` even though
+`pushed:true` records that the write request was sent. `skipped:"unchanged"`
+marks a clean file.
 
-`atl jira apply <FILE.md> [--dry-run] [--allow-loss] [--into ROOT] [--render-*]` emits the same
-shape as `conf apply` with `csf_path` replaced by `wiki_path`:
-`{ "path", "wiki_path", "dry_run", "report": { "unchanged", "moved", "converted", "removed",
-"removed_constructs"? }, "wrote", "warning"? }`. It is **local only** (no network). Each
+`atl jira apply <FILE.md> [--dry-run] [--allow-loss] [--rebase-pending] [--into ROOT] [--render-*]` emits the same
+shape as `conf apply` for Description, plus pending-field details:
+`{ "path", "wiki_path", "pending_path"?, "dry_run", "rebased"?, "report": {...},
+"fields"?: [{"id","pending","report"}], "wrote", "warning"? }`. It is **local only** (no network). Each
 `removed_constructs` entry is `{ "kind", "text" }` (`kind` ∈ `panel`, `color`, `mention`, `image`,
 `monospace`, `link`, `macro`, …). The merge is fail-closed and exits `8` (`ErrCheckFailed`, nothing
 written) on: an unconvertible edited block; a wiki-only construct dropped without `--allow-loss`
 (the report still carries `removed_constructs` so the caller can see what would go); an edit to any
-section other than generated `# Description` (the error names the section and its dedicated command); or a
+section other than generated `# Description` or an explicitly editable rich-text field (the error
+names the section and its dedicated command); or a
 local `.wiki` diverged from the last-synced base. Exit `4` (`ErrNotFound`) when the issue was never
-pulled (no base/snapshot). On a successful write `wrote:true`; a failed `.md`-view refresh sets
-`warning` and is not an error.
+pulled (no base/snapshot). Editable field values are stored under `.atl/pending/jira/` and do not
+mutate `<KEY>.json`; `pull`/`render` overlay them in the derived view. On a successful write
+`wrote:true`; a failed `.md`-view refresh sets `warning` and is not an error.
+`--rebase-pending` is the explicit conflict step after fresh pull/review: raw
+snapshot values become the new bases while visible local proposals remain.
+Pending commits bind the exact sidecar path and reviewed wiki hash; a hidden
+transaction record makes combined Description+field apply crash-recoverable.
+Jira mirror mutations use one persistent mirror-internal advisory lock inode;
+dry-runs may initialize that coordination file but never change Jira or commit
+wiki/pending/view content.
 
 Both `conf apply` and `jira apply` also carry a `-o text` projection — a compact loss-review
 (first line dry-run/applied, `blocks:` counts, `removed fragments:`/`removed constructs:` and

@@ -426,6 +426,11 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 	if err := m.EnsureScaffold(); err != nil {
 		return res, err
 	}
+	mirrorLock, err := lockJiraPendingFields(into, "pull")
+	if err != nil {
+		return res, err
+	}
+	defer func() { _ = mirrorLock.Unlock() }()
 	batch, err := m.BeginSync()
 	if err != nil {
 		return res, err
@@ -478,78 +483,130 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 			if !safepath.Within(dir, mdPath) {
 				return res, fmt.Errorf("refusing unsafe issue key %q", full.Key)
 			}
-			// Write the native Jira wiki body verbatim as the editable substrate
-			// (the .md beside it is a regenerated staging view; the .wiki mirrors
-			// the role .csf plays for Confluence). Written even when the body is
-			// empty so the substrate file always exists for a later edit/push.
 			wikiPath := filepath.Join(dir, keySeg+".wiki")
-			if !safepath.Within(dir, wikiPath) {
-				return res, fmt.Errorf("refusing unsafe issue key %q", full.Key)
-			}
-			if err := safepath.WriteFileWithin(into, wikiPath, []byte(full.Body), 0o644); err != nil {
-				return res, err
-			}
-			// Mirror image attachments (best-effort) before rendering so the .md
-			// links only the images that actually landed on disk.
-			var assets []JiraIssueAsset
-			if opts.Assets {
-				var skipped int
-				assets, skipped = s.mirrorIssueImages(ctx, into, dir, keySeg, full.Fields["attachment"])
-				res.AssetsSkipped += skipped
-			}
-			var related *JiraEpicChildrenSidecar
-			relatedPath := epicChildrenPath(dir, keySeg)
-			if sidecar, ok := relatedByEpic[full.Key]; ok {
-				related = &sidecar
-				if err := writeEpicChildrenSidecar(into, relatedPath, sidecar); err != nil {
-					return res, fmt.Errorf("epic children %s: %w", full.Key, err)
+			stop, issueErr := func() (bool, error) {
+				pending, _, pendingErr := loadJiraPendingFieldsLocked(into, keySeg)
+				if pendingErr != nil {
+					return false, pendingErr
 				}
-			} else if rs.On(SecEpicChildren) {
-				// The issue is no longer an epic (or never was). Do not let a stale
-				// sidecar from an earlier pull resurrect an obsolete child list.
-				if err := safepath.RemoveWithin(into, relatedPath); err != nil && !os.IsNotExist(err) {
-					return res, fmt.Errorf("remove stale epic children %s: %w", full.Key, err)
+				if pendingErr := validatePendingFieldsEditable(pending, rs); pendingErr != nil {
+					return false, pendingErr
 				}
+				bodyForView := full.Body
+				preserveLocalWiki := false
+				rebindPendingWiki := false
+				if pending != nil {
+					lw, localWiki, loadErr := m.LoadWiki(wikiPath)
+					if loadErr != nil {
+						return false, loadErr
+					}
+					if bindErr := validatePendingMirrorBinding(into, pending, lw, localWiki); bindErr != nil {
+						return false, bindErr
+					}
+					if lw.Dirty {
+						bodyForView = string(localWiki)
+						preserveLocalWiki = true
+					} else {
+						pending.BeforeWikiHash = mirror.Hash(localWiki)
+						pending.WikiHash = mirror.Hash([]byte(full.Body))
+						pending.WikiBody = full.Body
+						rebindPendingWiki = true
+					}
+				}
+				// Write the native Jira wiki body verbatim as the editable substrate
+				// (the .md beside it is a regenerated staging view; the .wiki mirrors
+				// the role .csf plays for Confluence). Written even when the body is
+				// empty so the substrate file always exists for a later edit/push.
+				if !safepath.Within(dir, wikiPath) {
+					return false, fmt.Errorf("refusing unsafe issue key %q", full.Key)
+				}
+				if !preserveLocalWiki {
+					if rebindPendingWiki {
+						if err := stageJiraPendingTransaction(into, pending); err != nil {
+							return false, err
+						}
+					}
+					if err := safepath.WriteFileWithin(into, wikiPath, []byte(full.Body), 0o644); err != nil {
+						return false, err
+					}
+					if rebindPendingWiki {
+						if err := commitJiraPendingTransaction(into, pending); err != nil {
+							return false, err
+						}
+					}
+				}
+				// Mirror image attachments (best-effort) before rendering so the .md
+				// links only the images that actually landed on disk.
+				var assets []JiraIssueAsset
+				if opts.Assets {
+					var skipped int
+					assets, skipped = s.mirrorIssueImages(ctx, into, dir, keySeg, full.Fields["attachment"])
+					res.AssetsSkipped += skipped
+				}
+				var related *JiraEpicChildrenSidecar
+				relatedPath := epicChildrenPath(dir, keySeg)
+				if sidecar, ok := relatedByEpic[full.Key]; ok {
+					related = &sidecar
+					if err := writeEpicChildrenSidecar(into, relatedPath, sidecar); err != nil {
+						return false, fmt.Errorf("epic children %s: %w", full.Key, err)
+					}
+				} else if rs.On(SecEpicChildren) {
+					// The issue is no longer an epic (or never was). Do not let a stale
+					// sidecar from an earlier pull resurrect an obsolete child list.
+					if err := safepath.RemoveWithin(into, relatedPath); err != nil && !os.IsNotExist(err) {
+						return false, fmt.Errorf("remove stale epic children %s: %w", full.Key, err)
+					}
+				}
+				viewIssue := issueWithPendingFields(full, pending)
+				if viewIssue == full {
+					copyIssue := *full
+					viewIssue = &copyIssue
+				}
+				viewIssue.Body = bodyForView
+				if err := safepath.WriteFileWithin(into, mdPath, renderIssueMarkdownWithRelated(viewIssue, assets, related, rs), 0o644); err != nil {
+					return false, err
+				}
+				snap := JiraIssueSnapshot{Key: full.Key, ID: full.ID, Fields: full.Fields}
+				if snap.Fields == nil {
+					snap.Fields = map[string]any{}
+				}
+				// The snapshot is part of the pull contract: a failed write must not
+				// report the issue as pulled with a missing/stale .json (#65).
+				jb, err := json.MarshalIndent(snap, "", "  ")
+				if err != nil {
+					return false, fmt.Errorf("snapshot %s: %w", full.Key, err)
+				}
+				if err := safepath.WriteFileWithin(into, filepath.Join(dir, keySeg+".json"), append(jb, '\n'), 0o644); err != nil {
+					return false, fmt.Errorf("snapshot %s: %w", full.Key, err)
+				}
+				// Record the .wiki substrate in the sidecar + a pristine base copy so
+				// `jira status`/`jira push` can detect local edits and remote drift.
+				// Recorded only AFTER every issue artifact (.wiki/.md/.json) is on disk
+				// — a failed write above must not leave the issue marked synced by the
+				// deferred flush (conf parity: sidecar state follows the page files).
+				// Keyed by the sanitized issue key (the .wiki basename); Version stays 0
+				// — Jira has no server-side version gate. Only the .wiki body is tracked;
+				// the derived .md/.json/assets stay outside the sync state.
+				if err := m.SaveBaseExt(keySeg, []byte(full.Body), ".wiki"); err != nil {
+					return false, err
+				}
+				relWiki, _ := filepath.Rel(into, wikiPath)
+				batch.Record(mirror.SyncState{ID: keySeg, Version: 0, Hash: mirror.Hash([]byte(full.Body)), Path: relWiki})
+				// Record the render settings this .md view was written with so
+				// `jira apply` can reproduce the exact pristine view later.
+				batch.RecordView(keySeg, viewStateOf(rs))
+				rel, _ := filepath.Rel(into, mdPath)
+				epicChildren := 0
+				if related != nil {
+					epicChildren = len(related.Children)
+				}
+				res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, WikiPath: relWiki, Assets: len(assets), EpicChildren: epicChildren})
+				return limit > 0 && len(res.Issues) >= limit, nil
+			}()
+			if issueErr != nil {
+				return res, issueErr
 			}
-			if err := safepath.WriteFileWithin(into, mdPath, renderIssueMarkdownWithRelated(full, assets, related, rs), 0o644); err != nil {
-				return res, err
-			}
-			snap := JiraIssueSnapshot{Key: full.Key, ID: full.ID, Fields: full.Fields}
-			if snap.Fields == nil {
-				snap.Fields = map[string]any{}
-			}
-			// The snapshot is part of the pull contract: a failed write must not
-			// report the issue as pulled with a missing/stale .json (#65).
-			jb, err := json.MarshalIndent(snap, "", "  ")
-			if err != nil {
-				return res, fmt.Errorf("snapshot %s: %w", full.Key, err)
-			}
-			if err := safepath.WriteFileWithin(into, filepath.Join(dir, keySeg+".json"), append(jb, '\n'), 0o644); err != nil {
-				return res, fmt.Errorf("snapshot %s: %w", full.Key, err)
-			}
-			// Record the .wiki substrate in the sidecar + a pristine base copy so
-			// `jira status`/`jira push` can detect local edits and remote drift.
-			// Recorded only AFTER every issue artifact (.wiki/.md/.json) is on disk
-			// — a failed write above must not leave the issue marked synced by the
-			// deferred flush (conf parity: sidecar state follows the page files).
-			// Keyed by the sanitized issue key (the .wiki basename); Version stays 0
-			// — Jira has no server-side version gate. Only the .wiki body is tracked;
-			// the derived .md/.json/assets stay outside the sync state.
-			if err := m.SaveBaseExt(keySeg, []byte(full.Body), ".wiki"); err != nil {
-				return res, err
-			}
-			relWiki, _ := filepath.Rel(into, wikiPath)
-			batch.Record(mirror.SyncState{ID: keySeg, Version: 0, Hash: mirror.Hash([]byte(full.Body)), Path: relWiki})
-			// Record the render settings this .md view was written with so
-			// `jira apply` can reproduce the exact pristine view later.
-			batch.RecordView(keySeg, viewStateOf(rs))
-			rel, _ := filepath.Rel(into, mdPath)
-			epicChildren := 0
-			if related != nil {
-				epicChildren = len(related.Children)
-			}
-			res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, WikiPath: relWiki, Assets: len(assets), EpicChildren: epicChildren})
-			if limit > 0 && len(res.Issues) >= limit {
+			if stop {
 				return res, nil
 			}
 		}
@@ -740,7 +797,7 @@ func renderIssueMarkdown(is *domain.Issue, assets []JiraIssueAsset, rs RenderSet
 }
 
 func renderIssueMarkdownWithRelated(is *domain.Issue, assets []JiraIssueAsset, related *JiraEpicChildrenSidecar, rs RenderSettings) []byte {
-	prefix, desc, suffix := renderIssueMarkdownPartsWithRelatedMode(is, assets, related, rs, true)
+	prefix, desc, suffix, _ := renderIssueMarkdownLayout(is, assets, related, rs, true, true)
 	return []byte(prefix + desc + suffix)
 }
 
@@ -748,21 +805,18 @@ func renderIssueMarkdownWithRelated(is *domain.Issue, assets []JiraIssueAsset, r
 // Description read-only: unlike a mirror view, transient output has no synced
 // base that `jira apply` could safely merge.
 func renderTransientIssueMarkdown(is *domain.Issue, related *JiraEpicChildrenSidecar, rs RenderSettings) []byte {
-	prefix, desc, suffix := renderIssueMarkdownPartsWithRelatedMode(is, nil, related, rs, false)
+	prefix, desc, suffix, _ := renderIssueMarkdownLayout(is, nil, related, rs, false, false)
 	return []byte(prefix + desc + suffix)
 }
 
-// renderIssueMarkdownPartsWithRelated renders the view as three concatenable parts:
-// prefix (title + generated metadata + the `# Description` boundary), desc
-// (the rendered description body, no framing), and suffix
-// (everything after the description). renderIssueMarkdown is exactly
-// prefix+desc+suffix. The split exists for `jira apply`: the description must be
-// located by these structural anchors, not by matching visible heading text.
-func renderIssueMarkdownPartsWithRelated(is *domain.Issue, assets []JiraIssueAsset, related *JiraEpicChildrenSidecar, rs RenderSettings) (prefix, desc, suffix string) {
-	return renderIssueMarkdownPartsWithRelatedMode(is, assets, related, rs, true)
+type jiraEditableFieldRegion struct {
+	FieldID  string
+	Start    int // byte offsets relative to suffix
+	End      int
+	BaseWiki string
 }
 
-func renderIssueMarkdownPartsWithRelatedMode(is *domain.Issue, assets []JiraIssueAsset, related *JiraEpicChildrenSidecar, rs RenderSettings, descriptionEditable bool) (prefix, desc, suffix string) {
+func renderIssueMarkdownLayout(is *domain.Issue, assets []JiraIssueAsset, related *JiraEpicChildrenSidecar, rs RenderSettings, descriptionEditable, fieldsEditable bool) (prefix, desc, suffix string, fieldRegions []jiraEditableFieldRegion) {
 	images := assetImageMap(assets)
 	var b strings.Builder
 	metadata := []jiraMetadataEntry{
@@ -839,15 +893,24 @@ func renderIssueMarkdownPartsWithRelatedMode(is *domain.Issue, assets []JiraIssu
 				continue
 			}
 			v, present := is.Fields[fv.ID]
+			baseWiki, stringValue := v.(string)
+			canEdit := fieldsEditable && fv.Editable && (!present || v == nil || stringValue)
 			if !present || fieldEmpty(v) {
-				if fv.ShowEmpty {
+				if canEdit {
+					writeJiraSectionHeading(&b, jiraFieldSectionID(fv.ID), fv.Label, true)
+					fieldRegions = append(fieldRegions, jiraEditableFieldRegion{FieldID: fv.ID, Start: b.Len(), End: b.Len(), BaseWiki: ""})
+				} else if fv.ShowEmpty {
 					writeJiraSectionHeading(&b, jiraFieldSectionID(fv.ID), fv.Label, false)
 					b.WriteString("_Not set._\n\n")
 				}
 				continue
 			}
-			writeJiraSectionHeading(&b, jiraFieldSectionID(fv.ID), fv.Label, false)
+			writeJiraSectionHeading(&b, jiraFieldSectionID(fv.ID), fv.Label, canEdit)
+			start := b.Len()
 			b.WriteString(renderFieldSection(v, fv.Format))
+			if canEdit {
+				fieldRegions = append(fieldRegions, jiraEditableFieldRegion{FieldID: fv.ID, Start: start, End: b.Len(), BaseWiki: baseWiki})
+			}
 			b.WriteString("\n\n")
 		}
 	}
@@ -934,7 +997,7 @@ func renderIssueMarkdownPartsWithRelatedMode(is *domain.Issue, assets []JiraIssu
 		}
 	}
 	suffix = b.String()
-	return prefix, desc, suffix
+	return prefix, desc, suffix, fieldRegions
 }
 
 type jiraMetadataEntry struct {

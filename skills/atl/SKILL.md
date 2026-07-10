@@ -69,8 +69,9 @@ Recent additions expand both surfaces — check the focused skills for full flag
 
 **Confluence additions:** `conf page list --space [--status]`, `conf page open --id`, `conf page copy --id --title [--space] [--parent]`, `conf attachment {list,get,upload,delete}`, `conf me`, `conf search --space/--title/--label/--type` convenience filters (no `--cql` needed), `.md` view renders internal links as `[[Title]]`.
 
-**Jira additions:** typed `render.jira.field_views` and opt-in `epic_children`
-views; issue history/check/attachments/refs/tree; guarded link suggestions and
+**Jira additions:** typed `render.jira.field_views` (including opt-in editable
+rich-text sections with explicit pending state) and opt-in `epic_children` views;
+issue history/check/attachments/refs/tree; guarded link suggestions and
 versioned plan apply; guarded file-backed custom-field preview/apply; labels,
 users, planning reports, and compact exports.
 `jira export` manifests hash configured backend identity but retain

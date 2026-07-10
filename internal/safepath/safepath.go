@@ -19,6 +19,27 @@ import (
 	"syscall"
 )
 
+// FileLock is an OS advisory lock held by an open root-contained file. Closing
+// a process releases it automatically, so a crash cannot leave a stale owner.
+type FileLock struct {
+	file   *os.File
+	unlock func() error
+}
+
+// Unlock releases and closes the advisory lock.
+func (l *FileLock) Unlock() error {
+	if l == nil || l.file == nil {
+		return nil
+	}
+	err := l.unlock()
+	closeErr := l.file.Close()
+	l.file = nil
+	if err != nil {
+		return err
+	}
+	return closeErr
+}
+
 // Segment reduces s to a single safe path component. Path separators, drive
 // colons, NUL and other control characters become '-'; a value that would be
 // empty, "." or ".." (which could traverse upward) becomes "_"; and a leading
@@ -119,6 +140,59 @@ func MkdirAllWithin(root, target string, perm os.FileMode) error {
 func WriteFileWithin(root, target string, data []byte, perm os.FileMode) error {
 	_, err := WriteReaderAtomicWithin(root, target, bytes.NewReader(data), perm)
 	return err
+}
+
+// RenameWithin atomically renames oldTarget to newTarget beneath one trust
+// root, refusing descendant symlinks in either parent path.
+func RenameWithin(root, oldTarget, newTarget string) error {
+	oldRel, err := relativeToRoot(root, oldTarget)
+	if err != nil {
+		return err
+	}
+	newRel, err := relativeToRoot(root, newTarget)
+	if err != nil {
+		return err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = r.Close() }()
+	if err := rejectSymlinkComponents(r, filepath.Dir(oldRel)); err != nil {
+		return err
+	}
+	if err := rejectSymlinkComponents(r, filepath.Dir(newRel)); err != nil {
+		return err
+	}
+	return r.Rename(oldRel, newRel)
+}
+
+// TryLockFileWithin non-blockingly acquires an exclusive advisory lock on a
+// regular file beneath root. acquired=false is not an error: another process
+// currently owns the lock.
+func TryLockFileWithin(root, target string, perm os.FileMode) (lock *FileLock, acquired bool, err error) {
+	rel, err := relativeToRoot(root, target)
+	if err != nil {
+		return nil, false, err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = r.Close() }()
+	if err := rejectSymlinkComponents(r, rel); err != nil {
+		return nil, false, err
+	}
+	f, err := r.OpenFile(rel, os.O_RDWR|os.O_CREATE, perm)
+	if err != nil {
+		return nil, false, err
+	}
+	unlock, acquired, err := tryAdvisoryLock(f)
+	if err != nil || !acquired {
+		_ = f.Close()
+		return nil, acquired, err
+	}
+	return &FileLock{file: f, unlock: unlock}, true, nil
 }
 
 // ReadFileWithin reads a regular mirror-owned file without following any

@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Opt-in editable Jira rich-text sections.** A typed Jira field view can set
+  `editable:true` when it uses `section` + `jira_wiki`. `jira apply` stages those
+  fields in explicit mirror-private pending state without changing the raw
+  snapshot; status and directory push include field-only edits. Push fresh-reads
+  every baseline, refuses field drift even with `--force`, sends Description and
+  fields in one typed update, reconciles ambiguous responses without replaying,
+  and refreshes/clears local state on success. Pending commits are path/hash
+  bound and crash-recoverable; `--rebase-pending` provides an explicit reviewed
+  conflict workflow. Transient views remain read-only.
+
 ### Fixed
 
 - **Jira view hierarchy and human dates.** Generated Jira-owned regions now use
