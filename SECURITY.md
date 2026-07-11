@@ -125,12 +125,19 @@ make genkey         # prints the public key to embed + writes a gitignored priva
 
 1. Paste the printed public key into `internal/selfupdate/pubkey.go`
    (`trustedPublicKeyB64`) and commit it.
-2. Add the private key as the repository secret `ATL_RELEASE_PRIVATE_KEY`
-   (Settings → Secrets and variables → Actions). Then delete the local copy.
-3. Rotation: generate a new pair, ship a release whose binaries embed the new
-   public key, and keep signing with the old key until enough users have updated;
-   then switch the secret. (Users on very old versions may need to reinstall via
-   `install.sh`.)
+2. Add the private key as the `ATL_RELEASE_PRIVATE_KEY` secret in the protected
+   `release` environment. Then delete the local copy after placing an offline
+   backup in a trusted vault.
+3. Rotation is staged. Generate a new pair and embed its public key, but keep the
+   old CI secret active for one bridge release. Existing clients trust the old
+   signature on that release, then install a binary that trusts the new key.
+   After an adoption window, replace the environment secret with the new private
+   key and remove any repository-scoped copy. Clients that miss the bridge
+   release may need to reinstall via `install.sh`.
+
+If the old private key is no longer retrievable but is still present as a CI
+secret, it can still sign the bridge release; do not shadow it with the new
+environment secret until that release has been published and verified.
 
 Never commit the private key. `.gitignore` blocks common key filenames as a
 backstop, but treat that as a safety net, not a control.

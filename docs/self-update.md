@@ -138,9 +138,10 @@ Commit this change. The public key is not secret.
 
 ### 3. Store the private key as a CI secret
 
-Add the private key as the `ATL_RELEASE_PRIVATE_KEY` secret in your GitHub
-repository settings (Settings → Secrets and variables → Actions). This secret
-is used only by the release workflow and is never written to disk or logs.
+Add the private key as the `ATL_RELEASE_PRIVATE_KEY` secret in the protected
+GitHub `release` environment (Settings → Environments → release). The release
+job must reference that environment. This keeps the key unavailable to jobs
+outside the approved release deployment and it is never written to logs.
 
 ### 4. Release workflow responsibilities
 
