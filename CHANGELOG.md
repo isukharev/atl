@@ -18,8 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **HTTP transport failures no longer disclose selectors.** DNS, TLS, timeout,
   and other pre-response failures report the method plus a query-redacted URL
-  on buffered, streamed-upload, and streamed-download paths while retaining the
-  original error for programmatic reconciliation.
+  on buffered, streamed-upload, and streamed-download paths. Cancellation and
+  sentinel identity remain testable without exposing URL-bearing causes to
+  generic unwrapping loggers.
 
 - **Confluence native-body projections fail closed.** Pull, transient view,
   table extraction, and copy refuse successful-but-partial page responses that

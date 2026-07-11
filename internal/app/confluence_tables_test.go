@@ -3,11 +3,24 @@ package app
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/csv"
+	"errors"
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/domain"
 )
+
+func TestExtractTablesRejectsProjectionWithoutNativeBody(t *testing.T) {
+	store := &recordingStore{page: &domain.Resource{ID: "123"}, omitBody: true}
+	svc := &ConfluenceService{store: store}
+	_, err := svc.ExtractTables(context.Background(), "123", 0)
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("error = %v, want check failure", err)
+	}
+}
 
 const tableExtractCSF = `
 <p>Intro</p>

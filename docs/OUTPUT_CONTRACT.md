@@ -244,7 +244,7 @@ contention therefore fails closed and cannot lose unrelated entries.
 
 A successful Confluence response that omits the requested native body is not
 equivalent to an empty page. Pull and read projections that require CSF fail
-with exit `8` before page artifacts are written. After a successful push, the
+with exit `8` before artifacts for that page are written. After a successful push, the
 same partial refresh is advisory: local body/base/state bytes are preserved and
 the item reports a re-pull warning. `BodyPresent=true` with zero body bytes is a
 valid explicitly empty page.

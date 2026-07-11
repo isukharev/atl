@@ -158,9 +158,9 @@ type APIError struct {
 }
 
 // TransportError keeps selectors and other query values out of stderr while
-// retaining the original error for errors.Is/As and ambiguous-write
-// reconciliation. The wrapped error is deliberately not formatted: standard
-// url.Error and custom transports may repeat the complete request URL.
+// retaining errors.Is identity for cancellation and ambiguous-write
+// reconciliation. The cause is deliberately not exposed through Unwrap:
+// standard url.Error and custom transports may repeat the complete request URL.
 type TransportError struct {
 	Method  string
 	safeURL string
@@ -171,7 +171,19 @@ func (e *TransportError) Error() string {
 	return fmt.Sprintf("%s %s: transport error", e.Method, e.safeURL)
 }
 
-func (e *TransportError) Unwrap() error { return e.err }
+// Is preserves sentinel/cancellation checks without making the potentially
+// URL-bearing cause available to generic unwrapping loggers.
+func (e *TransportError) Is(target error) bool { return errors.Is(e.err, target) }
+
+// Format keeps alternate fmt verbs from printing the private cause as a Go
+// struct. That cause can contain an unredacted *url.Error.
+func (e *TransportError) Format(state fmt.State, verb rune) {
+	safe := e.Error()
+	if verb == 'q' {
+		safe = strconv.Quote(safe)
+	}
+	_, _ = io.WriteString(state, safe)
+}
 
 func transportError(method string, u *neturl.URL, err error) error {
 	safe := ""

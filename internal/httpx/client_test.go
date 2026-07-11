@@ -219,17 +219,24 @@ func TestTransportErrorsRedactRequestURLAndPreserveCause(t *testing.T) {
 }
 
 func TestTransportErrorRedactsDownloadURL(t *testing.T) {
-	cause := errors.New("tls failed")
+	leaf := errors.New("tls failed")
 	u, err := neturl.Parse("https://user:pass@backend.example/file?cql=secret#fragment")
 	if err != nil {
 		t.Fatal(err)
 	}
+	cause := &neturl.Error{Op: "Get", URL: u.String(), Err: leaf}
 	got := transportError(http.MethodGet, u, cause)
-	if text := got.Error(); strings.Contains(text, "secret") || strings.Contains(text, "user") || strings.Contains(text, "pass") || strings.Contains(text, "fragment") {
-		t.Fatalf("download transport error leaked URL: %q", text)
+	for _, text := range []string{got.Error(), fmt.Sprintf("%v", got), fmt.Sprintf("%+v", got), fmt.Sprintf("%#v", got), fmt.Sprintf("%q", got)} {
+		if strings.Contains(text, "secret") || strings.Contains(text, "user") || strings.Contains(text, "pass") || strings.Contains(text, "fragment") {
+			t.Fatalf("download transport error leaked URL: %q", text)
+		}
 	}
-	if !errors.Is(got, cause) {
+	if !errors.Is(got, leaf) {
 		t.Fatalf("download cause was not preserved: %v", got)
+	}
+	var urlErr *neturl.Error
+	if errors.As(got, &urlErr) {
+		t.Fatalf("URL-bearing cause escaped safe wrapper: %#v", urlErr)
 	}
 }
 

@@ -1005,6 +1005,21 @@ func TestCopyPageDefaultsSpaceAndParent(t *testing.T) {
 	}
 }
 
+func TestCopyPageRejectsProjectionWithoutNativeBody(t *testing.T) {
+	st := &recordingStore{
+		page:     &domain.Resource{ID: "100", SpaceKey: "SRC", Version: 1},
+		omitBody: true,
+	}
+	svc := &ConfluenceService{store: st}
+	_, err := svc.CopyPage(context.Background(), "100", "Copy", "", "")
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("copy error = %v, want check failure", err)
+	}
+	if st.createTitle != "" || st.createBody != nil {
+		t.Fatalf("CreatePage called after partial projection: title=%q body=%q", st.createTitle, st.createBody)
+	}
+}
+
 // ---- Feature 6: Attachment upload/delete at service layer ----
 
 type attachmentStore struct {
