@@ -108,13 +108,18 @@ func (cf *Confluence) Tree(ctx context.Context, space string, depth int) ([]doma
 			return nil, false, err
 		}
 		for _, ct := range resp.Results {
-			d := len(ct.Ancestors)
+			d := 0
+			if ct.Ancestors != nil {
+				d = len(*ct.Ancestors)
+			}
 			if depth > 0 && d >= depth {
 				continue
 			}
 			pr := domain.PageRef{ID: ct.ID, Title: ct.Title, Space: ct.Space.Key, Version: ct.Version.Number}
-			if n := len(ct.Ancestors); n > 0 {
-				pr.Parent = ct.Ancestors[n-1].ID
+			if ct.Ancestors != nil {
+				if n := len(*ct.Ancestors); n > 0 {
+					pr.Parent = (*ct.Ancestors)[n-1].ID
+				}
 			}
 			out = append(out, pr)
 		}

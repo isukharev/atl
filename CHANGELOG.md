@@ -128,6 +128,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Guarded Confluence page moves.** `conf page move` now previews by
+  default, binds apply to the reviewed source version/current parent/proposal
+  hash, rejects hierarchy cycles, preserves fresh native body bytes, and
+  reconciles ambiguous outcomes without automatic replay.
+
 - **Guarded Confluence title updates.** `conf page title set` previews bounded
   file/stdin input by default, binds apply to the reviewed title hash and page
   version, writes the unchanged native body under the version gate, and verifies

@@ -47,7 +47,7 @@ type content struct {
 			DisplayName string `json:"displayName"`
 		} `json:"by"`
 	} `json:"version"`
-	Ancestors []struct {
+	Ancestors *[]struct {
 		ID    string `json:"id"`
 		Title string `json:"title"`
 	} `json:"ancestors"`
@@ -85,14 +85,18 @@ type content struct {
 
 func (ct *content) toResource(base, body string) *domain.Resource {
 	r := &domain.Resource{
-		ID: ct.ID, Title: ct.Title, SpaceKey: ct.Space.Key,
+		ID: ct.ID, Type: ct.Type, Title: ct.Title, SpaceKey: ct.Space.Key,
 		Version: ct.Version.Number, Body: []byte(body), Updated: ct.Version.When,
+		AncestorsPresent: ct.Ancestors != nil,
 	}
-	for _, a := range ct.Ancestors {
-		r.Ancestors = append(r.Ancestors, a.Title)
-	}
-	if n := len(ct.Ancestors); n > 0 {
-		r.Parent = ct.Ancestors[n-1].ID
+	if ct.Ancestors != nil {
+		for _, a := range *ct.Ancestors {
+			r.Ancestors = append(r.Ancestors, a.Title)
+			r.AncestorIDs = append(r.AncestorIDs, a.ID)
+		}
+		if n := len(*ct.Ancestors); n > 0 {
+			r.Parent = (*ct.Ancestors)[n-1].ID
+		}
 	}
 	for _, l := range ct.Metadata.Labels.Results {
 		r.Labels = append(r.Labels, l.Name)
@@ -153,8 +157,10 @@ func (cf *Confluence) GetMeta(ctx context.Context, id string) (*domain.PageMeta,
 		return nil, err
 	}
 	m := &domain.PageMeta{ID: ct.ID, Title: ct.Title, Space: ct.Space.Key, Version: ct.Version.Number, Updated: ct.Version.When}
-	for _, a := range ct.Ancestors {
-		m.Ancestors = append(m.Ancestors, a.Title)
+	if ct.Ancestors != nil {
+		for _, a := range *ct.Ancestors {
+			m.Ancestors = append(m.Ancestors, a.Title)
+		}
 	}
 	for _, l := range ct.Metadata.Labels.Results {
 		m.Labels = append(m.Labels, l.Name)
@@ -287,28 +293,27 @@ func (cf *Confluence) CreatePage(ctx context.Context, space, parent, title strin
 	return r, nil
 }
 
-// MovePage reparents by reading the page and re-putting it with new ancestors.
-// Unlike push, this always targets the latest version (read-modify-write); a
-// concurrent edit between the read and the PUT surfaces as a 409.
-func (cf *Confluence) MovePage(ctx context.Context, id, newParent string) error {
-	var cur content
-	if err := cf.c.GetJSON(ctx, "/rest/api/content/"+url.PathEscape(id)+"?expand=version,body.storage", &cur); err != nil {
-		return err
-	}
-	bodyValue, present := cur.storageBody()
-	if !present {
-		return fmt.Errorf("%w: page %s response omitted body.storage; refusing move", domain.ErrCheckFailed, id)
-	}
+// MovePage performs one version-gated ancestor update. Fresh reads, cycle
+// checks, and ambiguous-outcome reconciliation belong to the app layer.
+func (cf *Confluence) MovePage(ctx context.Context, id, newParent string, expectVersion int, title string, body []byte) (int, error) {
 	payload := map[string]any{
 		"type":      "page",
-		"title":     cur.Title,
-		"version":   map[string]any{"number": cur.Version.Number + 1},
+		"title":     title,
+		"version":   map[string]any{"number": expectVersion + 1},
 		"ancestors": []map[string]string{{"id": newParent}},
 		"body": map[string]any{
-			"storage": map[string]any{"value": bodyValue, "representation": "storage"},
+			"storage": map[string]any{"value": string(body), "representation": "storage"},
 		},
 	}
-	return cf.c.SendJSON(ctx, "PUT", "/rest/api/content/"+url.PathEscape(id), payload, nil)
+	var out struct {
+		Version struct {
+			Number int `json:"number"`
+		} `json:"version"`
+	}
+	if err := cf.c.SendJSON(ctx, "PUT", "/rest/api/content/"+url.PathEscape(id), payload, &out); err != nil {
+		return 0, err
+	}
+	return out.Version.Number, nil
 }
 
 // DeletePage trashes a page. Per-space permissions may yield ErrForbidden.

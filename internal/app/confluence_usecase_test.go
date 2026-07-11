@@ -98,9 +98,9 @@ func (s *recordingStore) CreatePage(_ context.Context, space, parent, title stri
 	return s.page, s.err
 }
 
-func (s *recordingStore) MovePage(_ context.Context, id, parent string) error {
+func (s *recordingStore) MovePage(_ context.Context, id, parent string, _ int, _ string, _ []byte) (int, error) {
 	s.moveID, s.moveParent = id, parent
-	return s.err
+	return 0, s.err
 }
 
 func (s *recordingStore) DeletePage(_ context.Context, id string) error {
@@ -218,17 +218,6 @@ func TestConfluenceWrappersPassThrough(t *testing.T) {
 		}
 	})
 
-	t.Run("Move", func(t *testing.T) {
-		st := &recordingStore{}
-		svc := &ConfluenceService{store: st}
-		if err := svc.Move(ctx, "id1", "par1"); err != nil {
-			t.Fatal(err)
-		}
-		if st.moveID != "id1" || st.moveParent != "par1" {
-			t.Errorf("move args not forwarded: %q %q", st.moveID, st.moveParent)
-		}
-	})
-
 	t.Run("Delete", func(t *testing.T) {
 		st := &recordingStore{}
 		svc := &ConfluenceService{store: st}
@@ -271,9 +260,6 @@ func TestConfluenceWrappersPropagateSentinel(t *testing.T) {
 	}
 	if _, err := svc.Create(ctx, "x", "", "t", nil); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("Create did not propagate sentinel: %v", err)
-	}
-	if err := svc.Move(ctx, "x", "y"); !errors.Is(err, domain.ErrNotFound) {
-		t.Errorf("Move did not propagate sentinel: %v", err)
 	}
 	if err := svc.Delete(ctx, "x"); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("Delete did not propagate sentinel: %v", err)

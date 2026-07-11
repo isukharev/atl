@@ -1271,11 +1271,38 @@ Flags:
 
 ### `atl conf page move`
 
-Reparent a page.
+Preview a page reparenting operation by default:
 
+```bash
+atl conf page move 12345678 --parent 87654321
+# review current_parent, current_version, and proposal_hash, then:
+atl conf page move 12345678 --parent 87654321 --apply \
+  --expected-version 7 \
+  --expected-parent 11111111 \
+  --expected-proposal-hash <hash-from-preview>
 ```
-atl conf page move --id 12345678 --parent 87654321
-```
+
+Apply fresh-reads both the source page and target parent, refuses self/descendant
+cycles, incomplete hierarchy identities, cross-space parents, stale source
+version/current-parent gates, and missing native source CSF. It sends the fresh
+title/body unchanged in one version-gated PUT. For a source page that currently
+has no parent, pass the explicit empty gate `--expected-parent=`.
+
+Every successful or ambiguous PUT is verified by another native source-page
+read. A verified exact parent/title/body/version reports `applied`; ambiguous
+outcomes report `unknown`, exit non-zero, and must be inspected rather than
+automatically replayed. The command does not relocate existing mirror files;
+after `applied`, re-pull the page before further mirror edits.
+
+Flags:
+
+| flag | description |
+|---|---|
+| `--parent ID` | proposed parent page id (required) |
+| `--apply` | perform the guarded move; default is dry-run |
+| `--expected-version` | reviewed current source version; required with apply |
+| `--expected-parent` | reviewed current parent; required with apply, empty for top-level |
+| `--expected-proposal-hash` | exact reviewed proposal hash; required with apply |
 
 ### `atl conf page delete`
 

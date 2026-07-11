@@ -1,0 +1,12 @@
+{
+  "id": "42",
+  "mode": "dry-run",
+  "status": "would_apply",
+  "current_parent": "10",
+  "parent": "20",
+  "current_version": 7,
+  "expected_version": 7,
+  "expected_parent": "10",
+  "target_version": 3,
+  "proposal_hash": "3a8602dae369c83c7b213c887f60f5bcbeea7005928780529066bbb3396dc1ca"
+}
