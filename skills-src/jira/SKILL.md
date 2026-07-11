@@ -331,7 +331,8 @@ For Agile board/sprint work, load the matching section of
 
 ### 9. Tempo Structure (read-only)
 
-For read-only Structure work, load the matching section of
+For read-only Structure work, including normalized Markdown/JSON/JSONL/CSV
+planning views and the distinction from browser saved views, load the matching section of
 [reference/extended-capabilities.md](reference/extended-capabilities.md).
 
 ## Command reference

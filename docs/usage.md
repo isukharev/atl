@@ -2404,7 +2404,7 @@ atl jira sprint remove PROJ-1               # move issue(s) back to the backlog
 `--board` must be a positive id (else exit 2). List commands expose
 `next_cursor`; `--limit` is capped at 50 by the Agile API.
 
-### `atl jira structure {get,forest,rows,values,pull-issues,export}`
+### `atl jira structure {get,view,forest,rows,values,pull-issues,export}`
 
 Read-only Tempo Structure access via the Structure REST API
 (`/rest/structure/2.0/`). Structures are addressed by numeric id. If the
@@ -2413,14 +2413,36 @@ visible to the token, Jira returns an API error (commonly exit 4 or 6).
 
 ```bash
 atl jira structure get 123
+atl jira structure view 123                         # normalized JSON; -o text -> Markdown table
+atl jira structure view 123 --fields key,summary,status,assignee
 atl jira structure forest 123
 atl jira structure rows 123                         # parsed forest rows; -o id -> row ids
 atl jira structure rows 123 --root "release train"  # first matching subtree
 atl jira structure values 123 --rows 100,101 --fields key,summary,status
 atl jira structure pull-issues 123 --fields summary,status
-atl jira structure export 123 --root "release train" --fields summary,status --format json --out structure.json
+atl jira structure export 123 --root "release train" --fields key,summary,status --format jsonl --out structure.jsonl
 atl jira structure export 123 --fields summary --format csv --out raw.csv --raw-csv # unsafe in spreadsheets
 ```
+
+`view` is the recommended agent read path. It joins the hierarchy's stable item
+identities with compact Jira issue fields; stored folders receive best-effort
+labels, while calculated grouping/generator rows keep honest technical labels.
+JSON is the default, `-o text` is a Markdown table, and `-o id` emits row ids.
+The default projection is `key,summary,status,assignee,priority,issuetype`;
+`--fields` accepts Jira field ids and replaces that list.
+
+Tempo's browser saved views and per-user column adjustments are a separate UI
+configuration surface and are not reproduced by the documented integration
+API. Every snapshot therefore includes an explicit `projection` object with
+`browser_view_reproduced:false`. Ask which planning columns matter and pass
+them through `--fields` instead of assuming the browser's currently selected
+view.
+
+Generated Structure rows may receive new ephemeral `row_id` values on a later
+expansion even when the plan is unchanged. Atl therefore resolves issue data by
+stable issue `item_id`, never by calculated row id. Use `values.key`, `item_id`,
+and the ordered hierarchy for durable analysis; use `row_id` only within one
+snapshot.
 
 `rows` parses Structure's forest formula into a stable row list. `--root`
 matches the first row by row id, item id/type/semantic, or by selected Structure

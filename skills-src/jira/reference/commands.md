@@ -50,8 +50,9 @@ Load this reference only when exact command or flag lookup is useful.
 | `jira user search <Q>` | Search users | `--limit` |
 | `jira user get <USERNAME>` | Get a user | — |
 | `jira structure get <ID>` | Get Structure metadata | `-o id` |
+| `jira structure view <ID>` | Read normalized hierarchy + Jira fields | `--root`, `--fields`, `--batch-size`, `-o text/id` |
 | `jira structure forest <ID>` | Get raw latest Structure forest formula | — |
 | `jira structure rows <ID>` | Parse Structure forest rows | `--root`, `--root-fields`, `-o id` |
 | `jira structure values <ID>` | Get row values | `--rows`, `--fields` |
 | `jira structure pull-issues <ID>` | Fetch snapshots from Structure rows | `--root`, `--fields`, `--batch-size`, `--limit`, `--out`, `-o id` |
-| `jira structure export <ID>` | Write an offline Structure artifact | `--root`, `--fields`, `--format json|csv|md`, `--out`, `--raw-csv` |
+| `jira structure export <ID>` | Write a normalized offline Structure artifact | `--root`, `--fields`, `--format json/jsonl/csv/md`, `--out`, `--raw-csv` |

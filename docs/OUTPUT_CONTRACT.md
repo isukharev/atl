@@ -778,6 +778,53 @@ value matrix under `responses` and `raw`; if the backend reports permission
 gaps, normalized row ids are also exposed as `inaccessible_rows`. The field is
 always present; when there are no reported gaps it is `[]`.
 
+`atl jira structure view <ID>` returns a normalized, version-checked snapshot:
+
+```json
+{
+  "schema_version": 1,
+  "structure": {"id": 123, "name": "Quarter plan"},
+  "forest_version": {"signature": 55, "version": 7},
+  "projection": {
+    "kind": "jira-fields-v1",
+    "source": "default",
+    "attributes": ["key", "summary", "status", "assignee", "priority", "issuetype"],
+    "browser_view_reproduced": false
+  },
+  "rows": [{
+    "row_id": 100,
+    "depth": 0,
+    "item_type": "issue",
+    "item_id": "10001",
+    "position": 0,
+    "accessible": true,
+    "values": {"key": "PROJ-1", "summary": "First", "status": "Open"}
+  }],
+  "row_count": 1,
+  "issue_count": 1,
+  "complete": true,
+  "inaccessible_rows": []
+}
+```
+
+`-o text` renders the same rows as a Markdown table with a hierarchy-aware
+Tree column; it does not dump raw Jira objects or transport URLs into cells.
+`-o id` emits row ids. The default attributes are shown above; explicit
+`--fields` selects Jira fields and changes both `projection.attributes` and row values. Browser saved
+views are deliberately not claimed as the source because Structure's supported
+integration API does not expose a stable saved-view column projection.
+
+Issue values are joined by the forest's stable numeric issue `item_id` through
+Jira search, not by Structure row id. Issues unavailable to the current
+token/read remain usable but visible as gaps: `complete` is false, affected rows have
+`accessible:false`, and their ids are listed in `inaccessible_rows`. Stored
+folder summaries are best effort; calculated grouping/generator rows retain
+their technical identity instead of risking a misleading label.
+
+Structure may regenerate row ids for calculated rows without changing the
+expanded plan. Treat `row_id` and `parent_row_id` as snapshot-local identities;
+issue keys and item ids remain the durable correlation keys.
+
 `atl jira structure pull-issues <ID>` returns:
 
 ```json
@@ -791,7 +838,7 @@ always present; when there are no reported gaps it is `[]`.
 }
 ```
 
-`atl jira structure export <ID> --out FILE --format json|csv|md` writes the
+`atl jira structure export <ID> --out FILE --format json|jsonl|csv|md` writes the
 artifact and returns a small result object:
 
 ```json
@@ -804,12 +851,14 @@ artifact and returns a small result object:
 }
 ```
 
-JSON export artifacts contain `{structure_id,version,rows,issue_ids,issues}`.
-CSV export artifacts contain row metadata (`row_id`, `depth`, `parent_row_id`,
-`item_type`, `item_id`, `issue_key`, `issue_id`) plus requested issue fields.
-Markdown export artifacts render an indented tree for review. CSV cells use the
+JSON and Markdown contain the same normalized snapshot as `structure view`.
+JSONL has one self-contained record per row, including schema, structure id,
+versions, projection, and row, which makes line-oriented filtering safe. CSV
+contains row metadata (`row_id`, `depth`, `parent_row_id`, `position`,
+`item_type`, `item_id`, `accessible`) plus selected Structure attributes. CSV cells use the
 same default formula neutralization as `jira export`; `--raw-csv` disables it
-only for CSV and is unsafe for spreadsheet use.
+only for CSV and is unsafe for spreadsheet use. Use `pull-issues` separately
+when raw Jira issue snapshots are required.
 
 `atl manifest create --root DIR` writes a backend-identity-hashed local manifest and returns
 the written path plus the manifest body:

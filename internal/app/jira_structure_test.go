@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -8,15 +9,69 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 )
 
-func TestStructureExportCSVNeutralizesFormulaCellsByDefault(t *testing.T) {
-	doc := StructureExportDocument{Rows: []StructureExportRow{{
-		RowID: 1, ItemType: "@folder", ItemID: "+item", IssueKey: "PROJ-1",
-		Fields: map[string]any{
-			"summary": "=HYPERLINK(\"https://example.invalid\")",
-			"=field":  "-formula",
+func TestNormalizeStructureValueRowsMapsAttributeMatrix(t *testing.T) {
+	values := &domain.StructureValues{Responses: []map[string]any{{
+		"rows": []any{float64(100), float64(101)},
+		"data": []any{
+			map[string]any{"attribute": map[string]any{"id": "summary", "format": "text"}, "values": []any{"Folder", "Issue"}},
+			map[string]any{"attribute": map[string]any{"id": "status", "format": "text"}, "values": []any{nil, "Open"}},
 		},
 	}}}
-	safe, err := renderStructureExportCSV(doc, []string{"summary", "=field"}, false)
+
+	rows, seen, err := normalizeStructureValueRows(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !seen[100] || !seen[101] || rows[100]["summary"] != "Folder" || rows[101]["status"] != "Open" {
+		t.Fatalf("normalized rows=%+v seen=%+v", rows, seen)
+	}
+}
+
+func TestRenderStructureSnapshotIsCompactAndStreamFriendly(t *testing.T) {
+	snapshot := &StructureSnapshot{
+		SchemaVersion: 1,
+		Structure:     StructureSnapshotMetadata{ID: 123, Name: "Quarter | plan"},
+		ForestVersion: domain.StructureVersion{Signature: 55, Version: 7},
+		Projection: StructureProjection{
+			Kind: "atl-attributes-v1", Source: "explicit", Attributes: []string{"key", "summary", "status"},
+		},
+		Rows: []StructureSnapshotRow{{
+			RowID: 100, ItemType: "issue", ItemID: "10001", Accessible: true, Values: map[string]any{
+				"key": "PROJ-1", "summary": "Line one\nline | two", "status": map[string]any{"name": "Open", "self": "https://example.invalid/private"},
+			},
+		}},
+		RowCount: 1, IssueCount: 1, Complete: true, InaccessibleRows: []int64{},
+	}
+
+	md := string(renderStructureSnapshotMarkdown(snapshot))
+	if !strings.Contains(md, `Line one line \| two`) || !strings.Contains(md, "| Open |") || strings.Contains(md, "example.invalid") {
+		t.Fatalf("Markdown is not compact/safe:\n%s", md)
+	}
+	jsonl, err := renderStructureSnapshot("jsonl", snapshot, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record struct {
+		StructureID int64                `json:"structure_id"`
+		Projection  StructureProjection  `json:"projection"`
+		Row         StructureSnapshotRow `json:"row"`
+	}
+	if err := json.Unmarshal(jsonl, &record); err != nil {
+		t.Fatalf("JSONL record: %v\n%s", err, jsonl)
+	}
+	if record.StructureID != 123 || record.Projection.Attributes[2] != "status" || record.Row.RowID != 100 {
+		t.Fatalf("JSONL record=%+v", record)
+	}
+}
+
+func TestStructureExportCSVNeutralizesFormulaCellsByDefault(t *testing.T) {
+	snapshot := &StructureSnapshot{
+		Projection: StructureProjection{Attributes: []string{"summary", "=field"}},
+		Rows: []StructureSnapshotRow{{RowID: 1, ItemType: "@folder", ItemID: "+item", Values: map[string]any{
+			"summary": "=HYPERLINK(\"https://example.invalid\")", "=field": "-formula",
+		}}},
+	}
+	safe, err := renderStructureSnapshotCSV(snapshot, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +80,7 @@ func TestStructureExportCSVNeutralizesFormulaCellsByDefault(t *testing.T) {
 			t.Fatalf("safe CSV missing %q: %q", want, safe)
 		}
 	}
-	raw, err := renderStructureExportCSV(doc, []string{"summary", "=field"}, true)
+	raw, err := renderStructureSnapshotCSV(snapshot, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,24 +147,5 @@ func TestFilterStructureRowsKeepsFirstMatchingSubtree(t *testing.T) {
 	}
 	if filtered[0].RowID != 100 || filtered[3].RowID != 103 {
 		t.Fatalf("filtered = %+v, want rows 100..103", filtered)
-	}
-}
-
-func TestStructureExportDocumentAttachesIssueFields(t *testing.T) {
-	rows := []domain.StructureRow{
-		{RowID: 100, Depth: 0, ItemType: "issue", ItemID: "10001"},
-		{RowID: 101, Depth: 1, ParentRowID: 100, ItemType: "folder", ItemID: "folder-a"},
-	}
-	doc := structureExportDocument(123, nil, rows, []string{"10001"}, []JiraIssueSnapshot{{
-		Key:    "PROJ-1",
-		ID:     "10001",
-		Fields: map[string]any{"summary": "First"},
-	}})
-
-	if len(doc.Rows) != 2 || doc.Rows[0].IssueKey != "PROJ-1" || doc.Rows[0].Fields["summary"] != "First" {
-		t.Fatalf("doc rows = %+v, want issue fields attached to row 100", doc.Rows)
-	}
-	if doc.Rows[1].IssueKey != "" || doc.Rows[1].Fields != nil {
-		t.Fatalf("folder row = %+v, want no issue attachment", doc.Rows[1])
 	}
 }

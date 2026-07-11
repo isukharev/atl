@@ -71,6 +71,9 @@ func mapStructureValues(raw map[string]any) *domain.StructureValues {
 				if v.ItemsVersion == (domain.StructureVersion{}) {
 					v.ItemsVersion = structureVersionFromAny(m["itemsVersion"])
 				}
+				if v.ForestVersion == (domain.StructureVersion{}) {
+					v.ForestVersion = structureVersionFromAny(m["forestVersion"])
+				}
 			}
 		}
 	}
@@ -80,6 +83,9 @@ func mapStructureValues(raw map[string]any) *domain.StructureValues {
 	}
 	if v.ItemsVersion == (domain.StructureVersion{}) {
 		v.ItemsVersion = structureVersionFromAny(raw["itemsVersion"])
+	}
+	if v.ForestVersion == (domain.StructureVersion{}) {
+		v.ForestVersion = structureVersionFromAny(raw["forestVersion"])
 	}
 	return v
 }
