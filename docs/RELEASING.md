@@ -45,6 +45,15 @@ First embed the new public key and publish one bridge release while the old key
 still signs in CI. Verify that release, allow an adoption window, then set the
 new environment secret and remove any repository-scoped copy of the old key.
 
+The release workflow enforces this ordering. Before building, it fetches
+`internal/selfupdate/pubkey.go` from the latest published stable release,
+derives the public key from `ATL_RELEASE_PRIVATE_KEY`, and requires an exact
+match. Thus the bridge must still use the old secret; after that bridge is the
+latest release, the next release may use the new secret it embedded. If no
+release exists yet, the first release is checked against its own source tree.
+The workflow also rejects missing and non-canonical private keys and never
+prints private material.
+
 ---
 
 ## 2. Create and push the public repository
@@ -150,6 +159,10 @@ The `release` workflow cross-compiles the four targets, generates `manifest.json
 (`atl.rb`), attests SLSA build provenance, and publishes the GitHub Release with
 the binaries, `.sha256` files, `manifest.json`, `manifest.json.sig`, `atl.rb`,
 and `install.sh`.
+
+Releases are never intentionally unsigned: a missing signing secret or a key
+that the latest published client does not trust fails the workflow before
+artifacts are built or published.
 
 ### Homebrew tap
 

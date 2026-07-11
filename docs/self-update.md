@@ -150,6 +150,12 @@ The CI release job must produce these assets alongside the compiled binaries:
 - `manifest.json` — the manifest listing the version and each binary's sha256.
 - `manifest.json.sig` — `base64(ed25519_sign(private_key, manifest.json_bytes))`.
 
+Before building, CI must also derive the public key from its protected private
+key and compare it with the key embedded in the latest published stable client.
+This makes the old-key-signed bridge release an enforced part of rotation, not
+only a runbook instruction. With no previous release, compare against the source
+being released. A missing or mismatched signing key must stop publication.
+
 An example signing step (using the `openssl` CLI or an equivalent Go tool):
 
 ```bash
