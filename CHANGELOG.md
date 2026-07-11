@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Stored folders receive best-effort labels; calculated grouping rows stay
   technical rather than risking an incorrect row/value join.
 
+### Security
+
+- **Release signing-key continuity is machine-enforced.** Before building a
+  tagged release, CI derives the public key from the protected signing secret
+  and requires it to match the trust key embedded in the latest published
+  stable client. Missing, malformed, non-canonical, or prematurely rotated keys
+  stop publication; the staged bridge-release path remains supported.
+
 ### Fixed
 
 - **Offline render cannot partially downgrade future derived views.** Jira now

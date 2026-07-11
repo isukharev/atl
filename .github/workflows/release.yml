@@ -52,7 +52,8 @@ jobs:
       id-token: write
       attestations: write
     env:
-      # Empty when the signing secret is not configured; gates the signing step.
+      # Empty when the signing secret is not configured; the release fails
+      # before building because the signed update chain is already established.
       HAS_SIGNING_KEY: ${{ secrets.ATL_RELEASE_PRIVATE_KEY != '' }}
       # Empty when the cross-repo tap token is not configured; gates the optional
       # Homebrew-tap auto-bump below. (secrets.* can't be used in a job-level `if`,
@@ -79,6 +80,29 @@ jobs:
             fi
           done
 
+      - name: Require release signing key
+        if: env.HAS_SIGNING_KEY != 'true'
+        run: |
+          echo "::error::ATL_RELEASE_PRIVATE_KEY is required for releases after the signed trust chain has started"
+          exit 1
+
+      - name: Verify signing-key continuity
+        env:
+          ATL_RELEASE_PRIVATE_KEY: ${{ secrets.ATL_RELEASE_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          previous_tag="$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // ""')"
+          trusted_source="$RUNNER_TEMP/trusted-pubkey.go"
+          if [ -n "$previous_tag" ]; then
+            gh api --method GET "repos/$GITHUB_REPOSITORY/contents/internal/selfupdate/pubkey.go" \
+              -f ref="$previous_tag" \
+              -H "Accept: application/vnd.github.raw+json" > "$trusted_source"
+          else
+            cp internal/selfupdate/pubkey.go "$trusted_source"
+          fi
+          go run ./scripts/check-release-key --trusted-source "$trusted_source"
+
       - name: Pin VERSION to the tag
         run: echo "${GITHUB_REF_NAME#v}" > VERSION
 
@@ -95,14 +119,9 @@ jobs:
         run: make homebrew
 
       - name: Sign manifest
-        if: env.HAS_SIGNING_KEY == 'true'
         env:
           ATL_RELEASE_PRIVATE_KEY: ${{ secrets.ATL_RELEASE_PRIVATE_KEY }}
         run: go run ./scripts/sign-manifest --manifest dist/manifest.json
-
-      - name: Warn if unsigned
-        if: env.HAS_SIGNING_KEY != 'true'
-        run: echo "::warning::ATL_RELEASE_PRIVATE_KEY is not set — publishing an UNSIGNED manifest. Client auto-update will stay disabled until a signed release is published."
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1

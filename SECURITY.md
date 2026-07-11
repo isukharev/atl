@@ -135,6 +135,12 @@ make genkey         # prints the public key to embed + writes a gitignored priva
    key and remove any repository-scoped copy. Clients that miss the bridge
    release may need to reinstall via `install.sh`.
 
+The release workflow verifies this continuity mechanically before building. It
+derives the public key from the protected private-key secret and compares it to
+the trust key in the latest published stable release's source. Missing,
+malformed, non-canonical, or prematurely rotated keys fail the release without
+printing private material. The first release bootstraps against its own source.
+
 If the old private key is no longer retrievable but is still present as a CI
 secret, it can still sign the bridge release; do not shadow it with the new
 environment secret until that release has been published and verified.
