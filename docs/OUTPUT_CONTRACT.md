@@ -238,6 +238,16 @@ Confluence pull/render/apply/push acquire one persistent mirror-internal
 advisory lock for their complete mutation/preview critical section. Contention
 is exit `8` before page/state writes. The file persists so every process locks
 the same inode; process exit releases ownership. Read-only status is lock-free.
+Jira retains its own workflow lock, while both services additionally merge
+sidecar patches under the shared `.atl/state.lock`; cross-service state
+contention therefore fails closed and cannot lose unrelated entries.
+
+A successful Confluence response that omits the requested native body is not
+equivalent to an empty page. Pull and read projections that require CSF fail
+with exit `8` before page artifacts are written. After a successful push, the
+same partial refresh is advisory: local body/base/state bytes are preserved and
+the item reports a re-pull warning. `BodyPresent=true` with zero body bytes is a
+valid explicitly empty page.
 
 `atl jira status [DIR] [--remote]` emits `{ "entries": [ { "path", "key", "locally_edited",
 "synced", "pending_fields"?, "local_error"?, "remote_drifted"?, "field_drifted"?, "remote_error"? }, ... ] }`.

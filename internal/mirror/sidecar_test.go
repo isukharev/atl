@@ -287,3 +287,70 @@ func TestViewStateNilMapOnOldSidecar(t *testing.T) {
 		t.Errorf("view not recorded onto old sidecar: %+v ok=%v", vs, ok)
 	}
 }
+
+func TestDisjointBatchesMergeAgainstLatestSharedSidecar(t *testing.T) {
+	root := t.TempDir()
+	m := New(root)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	first, err := m.BeginSync()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := m.BeginSync()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Record(SyncState{ID: "CONF-1", Version: 2, Hash: "conf", Path: "page.csf"})
+	first.RecordView("CONF-1", ViewState{Sections: []string{"page_fields"}})
+	second.Record(SyncState{ID: "JIRA-1", Version: 0, Hash: "jira", Path: "JIRA-1.wiki"})
+	second.RecordView("JIRA-1", ViewState{Sections: []string{"metadata"}})
+	if err := first.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	sc, err := m.loadSidecar()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"CONF-1", "JIRA-1"} {
+		if _, ok := sc.Pages[id]; !ok {
+			t.Fatalf("page state %s was lost: %+v", id, sc.Pages)
+		}
+		if _, ok := sc.Views[id]; !ok {
+			t.Fatalf("view state %s was lost: %+v", id, sc.Views)
+		}
+	}
+}
+
+func TestSaveViewStatesMergesWithAlreadyOpenBatch(t *testing.T) {
+	root := t.TempDir()
+	m := New(root)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	batch, err := m.BeginSync()
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch.Record(SyncState{ID: "PAGE", Version: 3, Hash: "body", Path: "page.csf"})
+	if err := m.SaveViewStates(map[string]ViewState{"ISSUE": {Sections: []string{"metadata"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := batch.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	sc, err := m.loadSidecar()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := sc.Pages["PAGE"]; !ok {
+		t.Fatalf("page patch missing: %+v", sc.Pages)
+	}
+	if _, ok := sc.Views["ISSUE"]; !ok {
+		t.Fatalf("view patch lost: %+v", sc.Views)
+	}
+}

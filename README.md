@@ -371,6 +371,8 @@ atl jira field-options --project PROJ --field <field-id>
 - Never interactive.
 - Confluence pull/render/apply/push serialize per mirror; on lock contention,
   wait for the active operation and never delete the persistent `.atl` lock.
+- Jira and Confluence updates to a shared mirror's `state.json` merge under one
+  backend-neutral state lock; contention fails closed instead of losing entries.
 
 | Code | Meaning |
 |------|---------|

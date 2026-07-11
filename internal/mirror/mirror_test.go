@@ -65,8 +65,7 @@ func TestSidecarRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.sc.Pages["123"] = SyncState{ID: "123", Version: 7, Hash: "deadbeef", Path: "ARCH/x/x.csf"}
-	b.dirty = true
+	b.Record(SyncState{ID: "123", Version: 7, Hash: "deadbeef", Path: "ARCH/x/x.csf"})
 	if err := b.Flush(); err != nil {
 		t.Fatal(err)
 	}

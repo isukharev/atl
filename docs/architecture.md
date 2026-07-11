@@ -328,11 +328,13 @@ mirror/
   error on every path that consults it (`status`, `push`, `pull`) — never a
   silent reset to "never synced", which would quietly disable drift
   detection. Multi-page writes go through `BeginSync`/`SyncBatch.Write`/
-  `Flush` so a pull loads and saves the file once (not once per page), and
-  `ListCSF` loads it once for the whole walk. Concurrency discipline: the
-  sidecar is whole-file last-writer-wins — run one `atl` process per mirror;
-  concurrent writers may lose each other's entries but the file always stays
-  valid. The `base/` directory stores pristine body copies so `push` can diff
+  `Flush` so a pull loads the file once, and `ListCSF` loads it once for the
+  whole walk. On flush, each batch acquires the backend-neutral
+  `.atl/state.lock`, re-reads the latest sidecar, and merges only the page/view
+  entries it changed before the atomic save. This prevents Jira and Confluence
+  processes sharing one root from overwriting each other's state; contention
+  fails closed instead of silently disabling drift detection. The `base/`
+  directory stores pristine body copies so `push` can diff
   fragments without a network round-trip.
 
 ---

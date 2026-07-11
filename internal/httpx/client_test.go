@@ -3,6 +3,7 @@ package httpx
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,10 @@ import (
 
 	"github.com/isukharev/atl/internal/domain"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestClassifyToSentinels(t *testing.T) {
 	cases := map[int]error{
@@ -163,6 +168,68 @@ func TestPostNotRetriedOnTransportError(t *testing.T) {
 	}
 	if atomic.LoadInt32(&hits) != 1 {
 		t.Errorf("POST must not retry on transport error; attempts = %d", atomic.LoadInt32(&hits))
+	}
+}
+
+func TestTransportErrorsRedactRequestURLAndPreserveCause(t *testing.T) {
+	secret := "project = PRIVATE and summary ~ hidden"
+	cause := errors.New("dial failed")
+	leaking := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("could not reach %s: %w", r.URL.String(), cause)
+	})
+	c := New("https://backend.example", "tok", "test")
+	c.hc.Transport = leaking
+	c.dl.Transport = leaking
+	path := "/search?jql=" + neturl.QueryEscape(secret) + "#private-fragment"
+
+	for _, tc := range []struct {
+		name string
+		do   func() error
+	}{
+		{name: "buffered", do: func() error {
+			_, err := c.Do(context.Background(), http.MethodPost, path, []byte(`{}`), nil)
+			return err
+		}},
+		{name: "streamed", do: func() error {
+			_, err := c.DoStream(context.Background(), http.MethodPost, path, strings.NewReader("body"), nil)
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.do()
+			if err == nil {
+				t.Fatal("expected transport error")
+			}
+			text := err.Error()
+			if strings.Contains(text, secret) || strings.Contains(text, "PRIVATE") || strings.Contains(text, "private-fragment") {
+				t.Fatalf("transport error leaked request URL: %q", text)
+			}
+			if !strings.Contains(text, "jql=%3Credacted%3E") {
+				t.Fatalf("transport error lost safe routing context: %q", text)
+			}
+			if !errors.Is(err, cause) {
+				t.Fatalf("transport cause was not preserved: %v", err)
+			}
+			var transport *TransportError
+			if !errors.As(err, &transport) {
+				t.Fatalf("error type = %T, want TransportError", err)
+			}
+		})
+	}
+}
+
+func TestTransportErrorRedactsDownloadURL(t *testing.T) {
+	cause := errors.New("tls failed")
+	u, err := neturl.Parse("https://user:pass@backend.example/file?cql=secret#fragment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := transportError(http.MethodGet, u, cause)
+	if text := got.Error(); strings.Contains(text, "secret") || strings.Contains(text, "user") || strings.Contains(text, "pass") || strings.Contains(text, "fragment") {
+		t.Fatalf("download transport error leaked URL: %q", text)
+	}
+	if !errors.Is(got, cause) {
+		t.Fatalf("download cause was not preserved: %v", got)
 	}
 }
 

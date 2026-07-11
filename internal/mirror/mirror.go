@@ -312,9 +312,10 @@ func RenderCommentsMarkdown(comments []domain.Comment) []byte {
 // performs one sidecar load (BeginSync) and one save (Flush) instead of a
 // full load+rewrite per page.
 type SyncBatch struct {
-	m     *Mirror
-	sc    sidecarFile
-	dirty bool
+	m          *Mirror
+	sc         sidecarFile
+	dirtyPages map[string]SyncState
+	dirtyViews map[string]ViewState
 }
 
 // BeginSync loads the sidecar once for a batch of page writes. See saveSidecar
@@ -324,7 +325,9 @@ func (m *Mirror) BeginSync() (*SyncBatch, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &SyncBatch{m: m, sc: sc}, nil
+	return &SyncBatch{
+		m: m, sc: sc, dirtyPages: map[string]SyncState{}, dirtyViews: map[string]ViewState{},
+	}, nil
 }
 
 // Write persists a page like Mirror.Write but records the sync state in
@@ -353,8 +356,9 @@ func (b *SyncBatch) write(dir, slug string, page *domain.Resource, refs []domain
 	if err != nil {
 		return err
 	}
-	b.sc.Pages[page.ID] = SyncState{ID: page.ID, Version: page.Version, Hash: Hash(page.Body), Path: rel}
-	b.dirty = true
+	state := SyncState{ID: page.ID, Version: page.Version, Hash: Hash(page.Body), Path: rel}
+	b.sc.Pages[page.ID] = state
+	b.dirtyPages[page.ID] = state
 	return nil
 }
 
@@ -364,7 +368,7 @@ func (b *SyncBatch) write(dir, slug string, page *domain.Resource, refs []domain
 // load/save. The pristine base copy is the caller's responsibility (SaveBaseExt).
 func (b *SyncBatch) Record(st SyncState) {
 	b.sc.Pages[st.ID] = st
-	b.dirty = true
+	b.dirtyPages[st.ID] = st
 }
 
 // RecordView records the render settings a resource's .md view was written with,
@@ -375,19 +379,20 @@ func (b *SyncBatch) RecordView(id string, vs ViewState) {
 		b.sc.Views = map[string]ViewState{}
 	}
 	b.sc.Views[id] = vs
-	b.dirty = true
+	b.dirtyViews[id] = vs
 }
 
 // Flush saves the accumulated sidecar state; a no-op when nothing was written,
 // so it is safe to call again on error paths after a successful flush.
 func (b *SyncBatch) Flush() error {
-	if !b.dirty {
+	if len(b.dirtyPages) == 0 && len(b.dirtyViews) == 0 {
 		return nil
 	}
-	if err := b.m.saveSidecar(b.sc); err != nil {
+	if err := b.m.mergeSidecarPatch(b.dirtyPages, b.dirtyViews); err != nil {
 		return err
 	}
-	b.dirty = false
+	clear(b.dirtyPages)
+	clear(b.dirtyViews)
 	return nil
 }
 

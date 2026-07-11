@@ -83,6 +83,9 @@ func (s *ConfluenceService) ExtractTables(ctx context.Context, id string, table 
 	if err != nil {
 		return nil, err
 	}
+	if err := requireConfluenceNativeBody(page, id, "table extraction"); err != nil {
+		return nil, err
+	}
 	return ExtractTablesFromCSF(page.ID, page.Title, page.Body, table)
 }
 

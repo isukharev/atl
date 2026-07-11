@@ -157,6 +157,30 @@ type APIError struct {
 	kind   error
 }
 
+// TransportError keeps selectors and other query values out of stderr while
+// retaining the original error for errors.Is/As and ambiguous-write
+// reconciliation. The wrapped error is deliberately not formatted: standard
+// url.Error and custom transports may repeat the complete request URL.
+type TransportError struct {
+	Method  string
+	safeURL string
+	err     error
+}
+
+func (e *TransportError) Error() string {
+	return fmt.Sprintf("%s %s: transport error", e.Method, e.safeURL)
+}
+
+func (e *TransportError) Unwrap() error { return e.err }
+
+func transportError(method string, u *neturl.URL, err error) error {
+	safe := ""
+	if u != nil {
+		safe = redactURLString(u.String())
+	}
+	return &TransportError{Method: method, safeURL: safe, err: err}
+}
+
 func (e *APIError) Error() string {
 	msg := e.Body
 	if len(msg) > 500 {
@@ -239,7 +263,7 @@ func (c *Client) DoStreamSized(ctx context.Context, method, path string, r io.Re
 	resp, err := c.dl.Do(req)
 	if err != nil {
 		tracef("× %s %s (transport error)\n", method, traceURL(req.URL))
-		return nil, err
+		return nil, transportError(method, req.URL, err)
 	}
 	tracef("← %d %s\n", resp.StatusCode, req.URL.Path)
 	data, err := readBody(resp.Body, jsonBodyCap)
@@ -282,12 +306,13 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 		resp, err := c.hc.Do(req)
 		if err != nil {
 			tracef("× %s %s (transport error)\n", method, traceURL(req.URL))
+			safeErr := transportError(method, req.URL, err)
 			// A committed-but-lost write can double-execute or turn success into a
 			// misleading conflict/not-found; only replay-safe reads retry here.
 			if !replaySafe(method) {
-				return nil, err
+				return nil, safeErr
 			}
-			lastErr = err
+			lastErr = safeErr
 			continue // network error → retry
 		}
 		tracef("← %d %s\n", resp.StatusCode, req.URL.Path)
@@ -525,7 +550,7 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 		if err != nil {
 			cancel()
 			tracef("× GET %s (transport error)\n", traceURL(req.URL))
-			lastErr = err
+			lastErr = transportError(http.MethodGet, req.URL, err)
 			continue // GET is idempotent → retry
 		}
 		tracef("← %d %s\n", resp.StatusCode, req.URL.Path)

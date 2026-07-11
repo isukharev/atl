@@ -1,11 +1,13 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -22,6 +24,7 @@ type stubStore struct {
 	newVer       int
 	updateErr    error
 	page         *domain.Resource
+	omitBody     bool
 }
 
 func (s *stubStore) GetMeta(context.Context, string) (*domain.PageMeta, error) {
@@ -35,9 +38,13 @@ func (s *stubStore) UpdatePage(context.Context, string, int, string, []byte, boo
 
 func (s *stubStore) GetPage(context.Context, string, domain.PullOpts) (*domain.Resource, error) {
 	if s.page != nil {
-		return s.page, nil
+		page := *s.page
+		if !s.omitBody {
+			page.BodyPresent = true
+		}
+		return &page, nil
 	}
-	return &domain.Resource{ID: "123", Title: "T", Body: []byte("<p>x</p>"), Version: s.newVer}, nil
+	return &domain.Resource{ID: "123", Title: "T", Body: []byte("<p>x</p>"), BodyPresent: !s.omitBody, Version: s.newVer}, nil
 }
 
 // syncedMirror lays down a page whose on-disk body matches its last-synced
@@ -91,6 +98,41 @@ func TestPushDryRunReportsDrift(t *testing.T) {
 	}
 	if stub.updateCalled {
 		t.Error("dry-run must not push")
+	}
+}
+
+func TestPushPreservesLocalMirrorWhenRefreshOmitsNativeBody(t *testing.T) {
+	root, csfPath := syncedMirror(t, 3)
+	edited := []byte("<p>x edited</p>")
+	if err := os.WriteFile(csfPath, edited, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stub := &stubStore{
+		newVer:   4,
+		omitBody: true,
+		page:     &domain.Resource{ID: "123", Title: "T", SpaceKey: "SP", Version: 4},
+	}
+	svc := &ConfluenceService{store: stub}
+	res, err := svc.Push(context.Background(), csfPath, PushOpts{Into: root})
+	if err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	if len(res.Items) != 1 || !res.Items[0].Pushed || !strings.Contains(res.Items[0].Warning, "partial body projection") {
+		t.Fatalf("push result = %+v", res.Items)
+	}
+	got, err := os.ReadFile(csfPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, edited) {
+		t.Fatalf("local body was replaced after partial refresh: %q", got)
+	}
+	lc, _, err := mirror.New(root).LoadCSF(csfPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lc.Synced == nil || lc.Synced.Version != 3 {
+		t.Fatalf("partial refresh changed sync state: %+v", lc.Synced)
 	}
 }
 
