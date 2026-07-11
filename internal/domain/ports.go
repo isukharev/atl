@@ -69,6 +69,7 @@ type Issue struct {
 	Key       string            `json:"key"`
 	Summary   string            `json:"summary"`
 	Status    string            `json:"status"`
+	StatusID  string            `json:"status_id,omitempty"`
 	Type      string            `json:"type"`
 	Project   string            `json:"project"`
 	Assignee  string            `json:"assignee,omitempty"`
@@ -177,6 +178,29 @@ type Board struct {
 	ProjectKey string `json:"project_key,omitempty"`
 }
 
+// BoardConfiguration is the workflow projection configured for an agile
+// board. Column order and status ids are authoritative for board snapshots.
+type BoardConfiguration struct {
+	ID              int           `json:"id"`
+	Name            string        `json:"name"`
+	Type            string        `json:"type"` // scrum | kanban
+	FilterID        string        `json:"filter_id,omitempty"`
+	KanbanSubquery  string        `json:"kanban_subquery,omitempty"`
+	ConstraintType  string        `json:"constraint_type,omitempty"`
+	Columns         []BoardColumn `json:"columns"`
+	EstimationType  string        `json:"estimation_type,omitempty"`
+	EstimationField string        `json:"estimation_field,omitempty"`
+	RankFieldID     string        `json:"rank_field_id,omitempty"`
+}
+
+// BoardColumn preserves the board's configured order and status mapping.
+type BoardColumn struct {
+	Name      string   `json:"name"`
+	StatusIDs []string `json:"status_ids"`
+	Min       *int     `json:"min,omitempty"`
+	Max       *int     `json:"max,omitempty"`
+}
+
 // Sprint is a sprint belonging to a scrum board. Dates are the backend's raw
 // ISO-8601 strings (kept verbatim; not all are set depending on state).
 type Sprint struct {
@@ -201,6 +225,13 @@ type Agile interface {
 	Boards(ctx context.Context, project string, limit int, cursor string) ([]Board, string, error)
 	// Board fetches one board by id.
 	Board(ctx context.Context, id int) (*Board, error)
+	// BoardConfiguration fetches the board filter, ordered columns/statuses,
+	// constraints, estimation, and rank configuration.
+	BoardConfiguration(ctx context.Context, id int) (*BoardConfiguration, error)
+	// BoardIssues lists issues currently in the board scope and backend rank order.
+	BoardIssues(ctx context.Context, boardID int, fields []string, jql string, limit int, cursor string) ([]Issue, string, error)
+	// BoardBacklog lists issues in the board's backlog scope and backend rank order.
+	BoardBacklog(ctx context.Context, boardID int, fields []string, jql string, limit int, cursor string) ([]Issue, string, error)
 	// Sprints lists a board's sprints, optionally filtered by state
 	// (active|closed|future; "" for all).
 	Sprints(ctx context.Context, boardID int, state string, limit int, cursor string) ([]Sprint, string, error)

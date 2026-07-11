@@ -153,7 +153,8 @@ Core skills:
 - **`atl`** — orientation: when to use `atl` (vs a live Atlassian MCP), the search-first workflow,
   and where the mirror lives.
 - **`confluence`** — pull, edit `.csf`, validate, and push pages under the version gate.
-- **`jira`** — search/pull issues and create/update/transition/comment/link via commands.
+- **`jira`** — search/pull issues, inspect normalized Structure and Kanban/Scrum board views,
+  and create/update/transition/comment/link via guarded commands.
 - **`onboarding`** — optional consent-gated workflow discovery, declared team defaults, and a
   reviewed private profile; later observations become deterministic review/apply/reject
   suggestions, never silent mutations, stale schema facts are revalidated explicitly, and saved

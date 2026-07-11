@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -22,13 +23,18 @@ type fakeAgile struct {
 	addKeys       []string
 	backlogKeys   []string
 
-	boards  []domain.Board
-	next    string
-	sprints []domain.Sprint
-	board   *domain.Board
-	sprint  *domain.Sprint
-	issues  []domain.Issue
-	err     error
+	boards          []domain.Board
+	next            string
+	sprints         []domain.Sprint
+	board           *domain.Board
+	sprint          *domain.Sprint
+	issues          []domain.Issue
+	config          *domain.BoardConfiguration
+	boardIssues     []domain.Issue
+	backlogIssues   []domain.Issue
+	boardIssueCalls int
+	backlogCalls    int
+	err             error
 }
 
 func (f *fakeAgile) Boards(_ context.Context, project string, limit int, cursor string) ([]domain.Board, string, error) {
@@ -38,6 +44,20 @@ func (f *fakeAgile) Boards(_ context.Context, project string, limit int, cursor 
 
 func (f *fakeAgile) Board(_ context.Context, _ int) (*domain.Board, error) {
 	return f.board, f.err
+}
+
+func (f *fakeAgile) BoardConfiguration(_ context.Context, _ int) (*domain.BoardConfiguration, error) {
+	return f.config, f.err
+}
+
+func (f *fakeAgile) BoardIssues(_ context.Context, _ int, _ []string, _ string, _ int, _ string) ([]domain.Issue, string, error) {
+	f.boardIssueCalls++
+	return f.boardIssues, "", f.err
+}
+
+func (f *fakeAgile) BoardBacklog(_ context.Context, _ int, _ []string, _ string, _ int, _ string) ([]domain.Issue, string, error) {
+	f.backlogCalls++
+	return f.backlogIssues, "", f.err
 }
 
 func (f *fakeAgile) Sprints(_ context.Context, boardID int, state string, _ int, _ string) ([]domain.Sprint, string, error) {
@@ -123,5 +143,98 @@ func TestAddRemoveSprintPassThrough(t *testing.T) {
 	}
 	if len(f.backlogKeys) != 1 || f.backlogKeys[0] != "ENG-2" {
 		t.Errorf("backlog recorded keys=%v, want [ENG-2]", f.backlogKeys)
+	}
+}
+
+func TestBoardSnapshotMapsColumnsAndScopeMembership(t *testing.T) {
+	f := &fakeAgile{
+		config: &domain.BoardConfiguration{ID: 5, Name: "Plan", Type: "scrum", Columns: []domain.BoardColumn{{Name: "Doing", StatusIDs: []string{"2"}}}},
+		boardIssues: []domain.Issue{
+			{ID: "1", Key: "ENG-1", Status: "In progress", StatusID: "2", Fields: map[string]any{"summary": "First", "status": map[string]any{"id": "2", "name": "In progress"}}},
+			{ID: "2", Key: "ENG-2", Status: "Unknown", StatusID: "9", Fields: map[string]any{"summary": "Second", "status": map[string]any{"id": "9", "name": "Unknown"}}},
+		},
+		backlogIssues: []domain.Issue{
+			{ID: "2", Key: "ENG-2", Status: "Unknown", StatusID: "9", Fields: map[string]any{"summary": "Second"}},
+			{ID: "3", Key: "ENG-3", Status: "In progress", StatusID: "2", Fields: map[string]any{"summary": "Third"}},
+		},
+	}
+	snapshot, err := (&JiraService{agile: f}).BoardSnapshot(t.Context(), 5, BoardSnapshotOpts{Scope: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Rows) != 3 || !snapshot.BacklogFetched || !snapshot.Rows[0].ColumnMapped || snapshot.Rows[0].Column != "Doing" || snapshot.Rows[1].ColumnMapped || !snapshot.Rows[1].InBoard || !snapshot.Rows[1].InBacklog || snapshot.Rows[2].InBoard || !snapshot.Rows[2].InBacklog {
+		t.Fatalf("snapshot=%+v", snapshot)
+	}
+}
+
+func TestBoardSnapshotKanbanDoesNotCallSprintOrBacklog(t *testing.T) {
+	f := &fakeAgile{
+		config:      &domain.BoardConfiguration{ID: 5, Name: "Flow", Type: "kanban", Columns: []domain.BoardColumn{}},
+		boardIssues: []domain.Issue{{ID: "1", Key: "ENG-1", Fields: map[string]any{}}},
+	}
+	snapshot, err := (&JiraService{agile: f}).BoardSnapshot(t.Context(), 5, BoardSnapshotOpts{Scope: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.backlogCalls != 0 || snapshot.BacklogFetched || len(snapshot.Rows) != 1 {
+		t.Fatalf("backlog_calls=%d snapshot=%+v", f.backlogCalls, snapshot)
+	}
+}
+
+type repeatedBoardPageAgile struct{ domain.Agile }
+
+func (repeatedBoardPageAgile) BoardConfiguration(context.Context, int) (*domain.BoardConfiguration, error) {
+	return &domain.BoardConfiguration{ID: 5, Type: "scrum", Columns: []domain.BoardColumn{}}, nil
+}
+
+func (repeatedBoardPageAgile) BoardIssues(_ context.Context, _ int, _ []string, _ string, _ int, cursor string) ([]domain.Issue, string, error) {
+	if cursor == "" {
+		return []domain.Issue{{Key: "ENG-1"}}, "1", nil
+	}
+	return []domain.Issue{{Key: "ENG-1"}}, "", nil
+}
+
+func TestBoardSnapshotRejectsDuplicateAcrossPages(t *testing.T) {
+	_, err := (&JiraService{agile: repeatedBoardPageAgile{}}).BoardSnapshot(t.Context(), 5, BoardSnapshotOpts{Scope: "board"})
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("err=%v, want check failed", err)
+	}
+}
+
+type limitedBoardAgile struct{ domain.Agile }
+
+func (limitedBoardAgile) BoardConfiguration(context.Context, int) (*domain.BoardConfiguration, error) {
+	return &domain.BoardConfiguration{ID: 5, Type: "scrum", Columns: []domain.BoardColumn{}}, nil
+}
+
+func (limitedBoardAgile) BoardIssues(context.Context, int, []string, string, int, string) ([]domain.Issue, string, error) {
+	return []domain.Issue{{Key: "ENG-1"}, {Key: "ENG-2"}}, "2", nil
+}
+
+func TestBoardSnapshotLimitIsExplicitTruncation(t *testing.T) {
+	snapshot, err := (&JiraService{agile: limitedBoardAgile{}}).BoardSnapshot(t.Context(), 5, BoardSnapshotOpts{Scope: "board", Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Complete || !snapshot.Truncated || snapshot.RowCount != 2 {
+		t.Fatalf("snapshot=%+v", snapshot)
+	}
+}
+
+func TestBoardJSONLUsesCompactIdentityInsteadOfRepeatingColumns(t *testing.T) {
+	snapshot := &BoardSnapshot{
+		SchemaVersion: 1,
+		Board:         &domain.BoardConfiguration{ID: 5, Name: "Plan", Type: "kanban", Columns: []domain.BoardColumn{{Name: "A", StatusIDs: []string{"1"}}}},
+		Scope:         "board", Projection: BoardProjection{Kind: "jira-fields-v1", Fields: []string{"summary"}, Ordering: "backend-rank"},
+		Rows:     []BoardSnapshotRow{{Key: "ENG-1", Column: "A", ColumnMapped: true, Values: map[string]any{"summary": "First"}}},
+		RowCount: 1, Complete: true,
+	}
+	data, err := renderBoardSnapshot("jsonl", snapshot, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, `"board_id":5`) || !strings.Contains(text, `"row_count":1`) || strings.Contains(text, `"columns"`) {
+		t.Fatalf("JSONL=%s", text)
 	}
 }

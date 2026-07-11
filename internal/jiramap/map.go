@@ -22,6 +22,7 @@ func Issue(id, key string, fields map[string]any) *domain.Issue {
 	is.Summary = str(fields["summary"])
 	is.Body = str(fields["description"])
 	is.Status = nestedName(fields["status"])
+	is.StatusID = nestedID(fields["status"])
 	is.Type = nestedName(fields["issuetype"])
 	is.Project = nestedKey(fields["project"])
 	is.Assignee = nestedDisplay(fields["assignee"])
@@ -86,6 +87,13 @@ func nestedName(value any) string {
 func nestedKey(value any) string {
 	if object, ok := value.(map[string]any); ok {
 		return str(object["key"])
+	}
+	return ""
+}
+
+func nestedID(value any) string {
+	if object, ok := value.(map[string]any); ok {
+		return str(object["id"])
 	}
 	return ""
 }

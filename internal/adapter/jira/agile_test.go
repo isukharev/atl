@@ -96,6 +96,56 @@ func TestBoardGetByID(t *testing.T) {
 	}
 }
 
+func TestBoardConfigurationMapsColumnsAndPolicy(t *testing.T) {
+	const body = `{
+		"id":5,"name":"Platform","type":"kanban",
+		"filter":{"id":42},"subQuery":{"query":"fixVersion is EMPTY"},
+		"columnConfig":{"constraintType":"issueCount","columns":[
+			{"name":"To Do","statuses":[{"id":"1"},{"id":"2"}],"max":7},
+			{"name":"Done","statuses":[{"id":"3"}]}
+		]},
+		"estimation":{"type":"field","field":{"fieldId":"customfield_10002"}},
+		"ranking":{"rankCustomFieldId":10019}
+	}`
+	j, reqs := agileServer(t, map[string]string{"GET /rest/agile/1.0/board/5/configuration": body})
+
+	config, err := j.BoardConfiguration(context.Background(), 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Type != "kanban" || config.FilterID != "42" || config.KanbanSubquery != "fixVersion is EMPTY" || len(config.Columns) != 2 || config.Columns[0].StatusIDs[1] != "2" || config.Columns[0].Max == nil || *config.Columns[0].Max != 7 || config.RankFieldID != "10019" || config.EstimationField != "customfield_10002" {
+		t.Fatalf("config=%+v", config)
+	}
+	if (*reqs)[0].path != "/rest/agile/1.0/board/5/configuration" {
+		t.Fatalf("path=%q", (*reqs)[0].path)
+	}
+}
+
+func TestBoardIssueScopesMapStatusIDAndPaginate(t *testing.T) {
+	const body = `{"startAt":0,"maxResults":50,"total":2,"issues":[
+		{"id":"10001","key":"ENG-1","fields":{"summary":"First","status":{"id":"11","name":"Open"}}}
+	]}`
+	j, reqs := agileServer(t, map[string]string{
+		"GET /rest/agile/1.0/board/5/issue":   body,
+		"GET /rest/agile/1.0/board/5/backlog": body,
+	})
+
+	issues, next, err := j.BoardIssues(context.Background(), 5, []string{"summary", "status"}, "priority = High", 50, "")
+	if err != nil || len(issues) != 1 || issues[0].StatusID != "11" || next != "1" {
+		t.Fatalf("issues=%+v next=%q err=%v", issues, next, err)
+	}
+	_, _, err = j.BoardBacklog(context.Background(), 5, []string{"summary"}, "", 25, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if (*reqs)[0].path != "/rest/agile/1.0/board/5/issue" || !strings.Contains((*reqs)[0].query, "fields=summary%2Cstatus") || !strings.Contains((*reqs)[0].query, "jql=priority+%3D+High") {
+		t.Fatalf("board request=%+v", (*reqs)[0])
+	}
+	if (*reqs)[1].path != "/rest/agile/1.0/board/5/backlog" || !strings.Contains((*reqs)[1].query, "maxResults=25") {
+		t.Fatalf("backlog request=%+v", (*reqs)[1])
+	}
+}
+
 func TestSprintsListByBoardAndState(t *testing.T) {
 	const body = `{"maxResults":50,"startAt":0,"total":1,"isLast":true,"values":[
 		{"id":7,"state":"active","name":"Sprint 3","goal":"ship it","startDate":"2026-06-01T00:00:00.000Z","endDate":"2026-06-15T00:00:00.000Z","originBoardId":5}

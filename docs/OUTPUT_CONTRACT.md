@@ -747,6 +747,98 @@ field ids, sources, normalized types, and values; a changed local input fails
 before backend metadata/read/write calls. All proposed fields are sent in one
 request.
 
+`atl jira board config <ID>` returns the workflow projection used to interpret
+board issues:
+
+```json
+{
+  "id": 5,
+  "name": "Quarter plan",
+  "type": "kanban",
+  "filter_id": "42",
+  "kanban_subquery": "fixVersion is EMPTY",
+  "constraint_type": "issueCount",
+  "columns": [
+    {"name": "To Do", "status_ids": ["11", "12"], "max": 7},
+    {"name": "Done", "status_ids": ["13"]}
+  ],
+  "rank_field_id": "10019"
+}
+```
+
+`board issues` and `board backlog` return one explicit page:
+
+```json
+{
+  "board_id": 5,
+  "scope": "board",
+  "fields": ["status", "summary", "assignee"],
+  "issues": [],
+  "count": 0,
+  "complete": false,
+  "next_cursor": "50"
+}
+```
+
+`next_cursor` is omitted at exhaustion and `complete` is then true. `status` is
+always requested because column mapping requires its id. The backlog issue
+endpoint is Scrum-only; `board backlog` refuses a Kanban board after reading its
+configuration and before calling the incompatible endpoint.
+
+`atl jira board view <ID>` returns a normalized multi-page snapshot:
+
+```json
+{
+  "schema_version": 1,
+  "board": {"id": 5, "name": "Quarter plan", "type": "kanban", "columns": []},
+  "scope": "all",
+  "projection": {
+    "kind": "jira-fields-v1",
+    "fields": ["status", "summary", "assignee", "priority", "issuetype"],
+    "ordering": "backend-rank"
+  },
+  "rows": [{
+    "key": "PROJ-1",
+    "id": "10001",
+    "position": 0,
+    "board_position": 0,
+    "in_board": true,
+    "in_backlog": false,
+    "status_id": "11",
+    "status": "Open",
+    "column": "To Do",
+    "column_index": 0,
+    "column_mapped": true,
+    "values": {"summary": "First", "status": "Open"}
+  }],
+  "row_count": 1,
+  "complete": true,
+  "truncated": false,
+  "backlog_fetched": false
+}
+```
+
+Rows from board scope retain backend rank order. For Scrum `scope:all`, backlog
+membership and backlog position are joined by issue key; backlog-only issues
+are appended in backlog order. For Kanban, `scope:all` reads board scope only,
+sets `backlog_fetched:false`, and never calls backlog or sprint endpoints.
+Unknown status ids use `column:"Unmapped"`, `column_index:-1`, and
+`column_mapped:false` rather than disappearing.
+
+`--limit 0` follows pagination to exhaustion. A positive limit applies per
+requested scope; when more rows exist the output sets `complete:false` and
+`truncated:true`. Repeated issues across pages, a non-advancing cursor, or the
+pagination safety cap return check-failed (exit 8). There is no board snapshot
+version in Jira's API, so `complete` means all reported pages were consumed,
+not that concurrent board changes were transactionally excluded.
+
+`board export --format json|jsonl|csv|md` writes the same projection. JSONL
+repeats compact board identity, projection, row count, and completeness with each row. CSV contains rank,
+scope membership, status/column mapping, and selected fields; formula-leading
+cells are neutralized unless `--raw-csv` is explicitly approved. Markdown is a
+compact review table. None of these read paths call rank, sprint, move, or issue
+write endpoints.
+
 `atl jira structure rows <ID>` returns a parsed read-only view of a Tempo Structure forest:
 
 ```json

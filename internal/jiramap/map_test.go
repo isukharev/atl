@@ -6,7 +6,7 @@ func TestIssueMapsSnapshotFieldsDefensively(t *testing.T) {
 	fields := map[string]any{
 		"summary":     "Summary",
 		"description": "Body",
-		"status":      map[string]any{"name": "Open"},
+		"status":      map[string]any{"id": "11", "name": "Open"},
 		"issuetype":   map[string]any{"name": "Task"},
 		"project":     map[string]any{"key": "PROJ"},
 		"assignee":    map[string]any{"displayName": "Alice"},
@@ -20,7 +20,7 @@ func TestIssueMapsSnapshotFieldsDefensively(t *testing.T) {
 		}}},
 	}
 	issue := Issue("1", "PROJ-1", fields)
-	if issue.Summary != "Summary" || issue.Body != "Body" || issue.Status != "Open" || issue.Type != "Task" || issue.Project != "PROJ" || issue.Assignee != "Alice" {
+	if issue.Summary != "Summary" || issue.Body != "Body" || issue.Status != "Open" || issue.StatusID != "11" || issue.Type != "Task" || issue.Project != "PROJ" || issue.Assignee != "Alice" {
 		t.Fatalf("mapped issue = %+v", issue)
 	}
 	if len(issue.Labels) != 2 || len(issue.Links) != 1 || issue.Links[0].TypeName != "Blocks" || issue.Links[0].Type != "blocks" || len(issue.Comments) != 1 {

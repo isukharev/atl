@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -14,15 +15,15 @@ import (
 // non-numeric value to a usage error (exit 2) before any network call.
 func atoiArg(name, s string) (int, error) {
 	n, err := strconv.Atoi(s)
-	if err != nil {
-		return 0, usageErr("%s must be a number, got %q", name, s)
+	if err != nil || n <= 0 {
+		return 0, usageErr("%s must be a positive number, got %q", name, s)
 	}
 	return n, nil
 }
 
-// jiraBoardCmd builds `jira board {list,get}` over the Agile API (Jira Software).
+// jiraBoardCmd builds read-only board analysis plus existing board discovery.
 func jiraBoardCmd() *cobra.Command {
-	c := &cobra.Command{Use: "board", Short: "Agile boards (Jira Software): list/get"}
+	c := &cobra.Command{Use: "board", Short: "Inspect Agile boards, workflow columns, ranked issues, and backlog"}
 
 	var project, cursor string
 	var limit int
@@ -81,8 +82,165 @@ func jiraBoardCmd() *cobra.Command {
 		},
 	}
 
-	c.AddCommand(list, get)
+	configCmd := &cobra.Command{
+		Use:   "config <BOARD-ID>",
+		Short: "Get board filter, columns/statuses, constraints, estimation, and rank configuration",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := atoiArg("board id", args[0])
+			if err != nil {
+				return err
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			config, err := svc.BoardConfiguration(cmd.Context(), id)
+			if err != nil {
+				return err
+			}
+			return emitID(cmd, config, func() string { return boardConfigText(config) }, func() []string { return []string{strconv.Itoa(config.ID)} })
+		},
+	}
+
+	var issueFields, issueJQL, issueCursor string
+	var issueLimit int
+	issuesCmd := boardIssuePageCmd("issues", "board", &issueFields, &issueJQL, &issueCursor, &issueLimit)
+
+	var backlogFields, backlogJQL, backlogCursor string
+	var backlogLimit int
+	backlogCmd := boardIssuePageCmd("backlog", "backlog", &backlogFields, &backlogJQL, &backlogCursor, &backlogLimit)
+
+	var viewScope, viewFields, viewJQL string
+	var viewLimit int
+	view := &cobra.Command{
+		Use:   "view <BOARD-ID>",
+		Short: "Read a normalized board/config/backlog snapshot",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := atoiArg("board id", args[0])
+			if err != nil {
+				return err
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			snapshot, err := svc.BoardSnapshot(cmd.Context(), id, app.BoardSnapshotOpts{Scope: viewScope, Fields: splitFields(viewFields), JQL: viewJQL, Limit: viewLimit})
+			if err != nil {
+				return err
+			}
+			return emitID(cmd, snapshot, func() string { return app.BoardSnapshotMarkdown(snapshot) }, func() []string { return boardSnapshotKeys(snapshot) })
+		},
+	}
+	view.Flags().StringVar(&viewScope, "scope", "all", "snapshot scope: all, board, or backlog")
+	view.Flags().StringVar(&viewFields, "fields", "", "comma-separated Jira fields (default: summary,status,assignee,priority,issuetype)")
+	view.Flags().StringVar(&viewJQL, "jql", "", "optional JQL refinement applied by the board endpoints")
+	view.Flags().IntVar(&viewLimit, "limit", 0, "maximum issues per requested scope (0 means all)")
+	_ = view.RegisterFlagCompletionFunc("scope", fixedComp("all", "board", "backlog"))
+
+	var exportScope, exportFields, exportJQL, exportFormat, exportOut string
+	var exportLimit int
+	var exportRawCSV bool
+	exportCmd := &cobra.Command{
+		Use:   "export <BOARD-ID>",
+		Short: "Write a normalized board snapshot as JSON, JSONL, CSV, or Markdown",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := atoiArg("board id", args[0])
+			if err != nil {
+				return err
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			result, err := svc.BoardExport(cmd.Context(), id, app.BoardExportOpts{
+				BoardSnapshotOpts: app.BoardSnapshotOpts{Scope: exportScope, Fields: splitFields(exportFields), JQL: exportJQL, Limit: exportLimit},
+				Format:            exportFormat, Out: exportOut, RawCSV: exportRawCSV,
+			})
+			if err != nil {
+				return err
+			}
+			return emit(cmd, result, func() string {
+				return fmt.Sprintf("%s\tformat=%s\trows=%d\tcomplete=%t", result.Path, result.Format, result.RowCount, result.Complete)
+			})
+		},
+	}
+	exportCmd.Flags().StringVar(&exportScope, "scope", "all", "snapshot scope: all, board, or backlog")
+	exportCmd.Flags().StringVar(&exportFields, "fields", "", "comma-separated Jira fields")
+	exportCmd.Flags().StringVar(&exportJQL, "jql", "", "optional JQL refinement applied by the board endpoints")
+	exportCmd.Flags().IntVar(&exportLimit, "limit", 0, "maximum issues per requested scope (0 means all)")
+	exportCmd.Flags().StringVar(&exportFormat, "format", "json", "export format: json, jsonl, csv, or md")
+	exportCmd.Flags().StringVar(&exportOut, "out", "", "required output file path")
+	exportCmd.Flags().BoolVar(&exportRawCSV, "raw-csv", false, "write formula-leading CSV cells verbatim (unsafe in spreadsheets)")
+	_ = exportCmd.RegisterFlagCompletionFunc("scope", fixedComp("all", "board", "backlog"))
+
+	c.AddCommand(list, get, configCmd, issuesCmd, backlogCmd, view, exportCmd)
 	return c
+}
+
+func boardIssuePageCmd(use, scope string, fields, jql, cursor *string, limit *int) *cobra.Command {
+	scopeLabel := "board scope"
+	if scope == "backlog" {
+		scopeLabel = "Scrum backlog scope"
+	}
+	cmd := &cobra.Command{
+		Use:   use + " <BOARD-ID>",
+		Short: "List one ranked page from the " + scopeLabel,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := atoiArg("board id", args[0])
+			if err != nil {
+				return err
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			page, err := svc.BoardIssuePage(cmd.Context(), id, scope, splitFields(*fields), *jql, *limit, *cursor)
+			if err != nil {
+				return err
+			}
+			return emitID(cmd, page, func() string { return boardIssueLines(page.Issues) }, func() []string {
+				keys := make([]string, len(page.Issues))
+				for i, issue := range page.Issues {
+					keys[i] = issue.Key
+				}
+				return keys
+			})
+		},
+	}
+	cmd.Flags().StringVar(fields, "fields", "", "comma-separated Jira fields")
+	cmd.Flags().StringVar(jql, "jql", "", "optional JQL refinement")
+	cmd.Flags().IntVar(limit, "limit", 50, "page size (capped at 50 by the Agile API)")
+	cmd.Flags().StringVar(cursor, "cursor", "", "pagination cursor (startAt)")
+	return cmd
+}
+
+func boardConfigText(config *domain.BoardConfiguration) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d\t%s\t%s\tfilter=%s\n", config.ID, config.Type, config.Name, config.FilterID)
+	for index, column := range config.Columns {
+		fmt.Fprintf(&b, "%d\t%s\tstatuses=%s\n", index, column.Name, strings.Join(column.StatusIDs, ","))
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func boardIssueLines(issues []domain.Issue) string {
+	var b strings.Builder
+	for _, issue := range issues {
+		fmt.Fprintf(&b, "%s\t[%s]\t%s\n", issue.Key, issue.Status, issue.Summary)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func boardSnapshotKeys(snapshot *app.BoardSnapshot) []string {
+	keys := make([]string, len(snapshot.Rows))
+	for i, row := range snapshot.Rows {
+		keys[i] = row.Key
+	}
+	return keys
 }
 
 // jiraSprintCmd builds `jira sprint {list,get,current,issues,add,remove}`.
