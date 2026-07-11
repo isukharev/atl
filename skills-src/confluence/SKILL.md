@@ -231,6 +231,7 @@ does not take the mutation lock.
 | `conf page list` | List pages in a space | `--space KEY`, `--status current\|archived\|trashed`, `--limit N` |
 | `conf page get` | Print a page body (CSF or rendered view) | `--id`, `--format csf\|view` |
 | `conf page view <ID>` | Configured read-only Markdown without mirror artifacts | `--render-root`, `--render-profile`, `--render-include`, `--render-exclude`, `-o text` |
+| `conf page title set <ID>` | Guarded file-backed title preview/apply | `--from-file`, `--apply`, `--expected-version`, `--expected-proposal-hash` |
 | `conf page meta` | Page metadata (version, ancestors, labels, restrictions) | `--id` |
 | `conf page history` | List page versions | `--id` |
 | `conf page open` | Open the page in the system browser | `--id` |
@@ -267,6 +268,14 @@ values across covered rows, and mark colored spans as `⟦color:...⟧text⟦/co
 For exact edits or unresolved rendering questions, inspect the `.csf` source.
 
 ## Creating, moving, commenting
+- **Update a title (guarded):** write the proposed one-line title to a private
+  file, run `atl conf page title set <id> --from-file title.txt`, review the
+  normalized title, current version, and proposal hash, then repeat the exact
+  input with `--apply --expected-version <v> --expected-proposal-hash <hash>`.
+  Never put a private title in argv, add `--force`, or replay an `unknown`
+  outcome; inspect the live page first. The body is fresh-read and sent
+  unchanged under the version gate. After `applied`, re-pull before using an
+  existing mirror again; the title command does not rewrite local paths/state.
 - **New page from markdown (preferred):**
   `atl conf page create --space <KEY> --title '<T>' [--parent <id>] --from-md body.md` —
   write the body in the same markdown subset the `.md` view uses (headings, lists, task
@@ -280,7 +289,8 @@ For exact edits or unresolved rendering questions, inspect the `.csf` source.
   [csf-authoring.md](reference/csf-authoring.md) — page skeleton,
   code/info/warning/expand/status/TOC macros, task lists, tables, page links, mentions.
 - Copy a page: `atl conf page copy --id <id> --title 'New Title' [--space KEY] [--parent <id>]`.
-- `atl conf page view <id> -o text`, `atl conf page get --id <id> --format csf|view`, `atl conf page meta --id <id>`,
+- `atl conf page view <id> -o text`, `atl conf page title set <id> --from-file <path>`,
+  `atl conf page get --id <id> --format csf|view`, `atl conf page meta --id <id>`,
   `atl conf page history --id <id>`, `atl conf page move --id <id> --parent <id>`,
   `atl conf page delete --id <id>`, `atl conf page open --id <id>`.
 - Comments: `atl conf comment list --id <id>` / `atl conf comment add --id <id> --from-file c.csf`.

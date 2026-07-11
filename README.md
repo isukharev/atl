@@ -284,6 +284,9 @@ atl conf page get     --id 123456
 atl conf page get     --id 123456 --format csf
 atl conf page meta    --id 123456
 atl conf page history --id 123456
+# Guarded title update: title stays in a bounded file/stdin, not argv
+atl conf page title set 123456 --from-file title.txt
+# Re-run with --apply, --expected-version, and --expected-proposal-hash from that preview
 # Typed read-only page metadata (closed field ids; see docs/usage.md)
 atl config set render.confluence.include page_fields
 atl config set render.confluence.page_fields '[{"id":"title"},{"id":"updated","format":"date"}]'

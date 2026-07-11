@@ -1,0 +1,12 @@
+{
+  "id": "42",
+  "mode": "dry-run",
+  "status": "would_apply",
+  "current_title": "Old title",
+  "title": "New title",
+  "title_bytes": 9,
+  "title_sha256": "522156b9b0af7eb99063569c92036931a3c9f027728ac6de8a70bcd0a1d3721c",
+  "current_version": 7,
+  "expected_version": 7,
+  "proposal_hash": "b12fd24e69ed1d3f3851083e1651866d080bdaad0b58f9e06434cd5c644cbdb7"
+}

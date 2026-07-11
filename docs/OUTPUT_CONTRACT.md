@@ -209,6 +209,14 @@ The sibling Confluence `.meta.json` persists `ancestors` and `updated` when the
 backend supplied them. `restricted` is present as a JSON boolean only when the
 pull explicitly selected that descriptor; a narrower later pull removes it.
 
+`atl conf page title set <ID>` is dry-run by default and emits
+`{id,mode,status,current_title,title,title_bytes,title_sha256,current_version,
+expected_version,final_version?,proposal_hash,reconciled?}`. Apply requires the
+reviewed version and aggregate hash, reuses the fresh native CSF bytes unchanged,
+and verifies title, body hash, and exactly `current_version+1`. Status is
+`would_apply`, `already_satisfied`, `blocked`, `failed`, `applied`, or `unknown`.
+Unknown is non-zero and must never be automatically replayed.
+
 `atl conf page view <ID>` is the non-persistent counterpart. Its JSON is
 `{"id","title","space","version","markdown"}`; text output is the exact
 Markdown string. It uses the same versioned renderer, but marks the body
