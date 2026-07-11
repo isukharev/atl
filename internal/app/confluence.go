@@ -23,7 +23,20 @@ func (s *ConfluenceService) Search(ctx context.Context, cql string, limit int, c
 }
 
 func (s *ConfluenceService) Get(ctx context.Context, id, format string) (*domain.Resource, error) {
-	return s.store.GetPage(ctx, id, domain.PullOpts{Format: format})
+	page, err := s.store.GetPage(ctx, id, domain.PullOpts{Format: format})
+	if err != nil {
+		return nil, err
+	}
+	projection := "body.storage.value"
+	bodyKind := "native body"
+	if format == "view" {
+		projection = "body.view.value"
+		bodyKind = "rendered body"
+	}
+	if err := requireConfluenceBodyProjection(page, id, "page get", projection, bodyKind); err != nil {
+		return nil, err
+	}
+	return page, nil
 }
 
 func (s *ConfluenceService) Meta(ctx context.Context, id string) (*domain.PageMeta, error) {
@@ -81,10 +94,21 @@ func (s *ConfluenceService) CopyPage(ctx context.Context, srcID, newTitle, space
 }
 
 func requireConfluenceNativeBody(page *domain.Resource, id, operation string) error {
+	return requireConfluenceBodyProjection(page, id, operation, "body.storage.value", "native body")
+}
+
+func requireConfluenceBodyProjection(page *domain.Resource, id, operation, projection, bodyKind string) error {
 	if page == nil || !page.BodyPresent {
-		return fmt.Errorf("%w: %s page %s response omitted body.storage.value; refusing to treat a partial projection as an empty native body", domain.ErrCheckFailed, operation, id)
+		return fmt.Errorf("%w: %s page %s response omitted %s; refusing to treat a partial projection as an empty %s", domain.ErrCheckFailed, operation, id, projection, bodyKind)
 	}
 	return nil
+}
+
+func localConfluenceTargetError(operation, target string, err error) error {
+	if os.IsNotExist(err) {
+		return fmt.Errorf("%w: %s target %q does not exist", domain.ErrNotFound, operation, target)
+	}
+	return fmt.Errorf("%w: inspect %s target %q: %v", domain.ErrCheckFailed, operation, target, err)
 }
 
 // DownloadAttachment streams a page attachment by filename into outDir (an
@@ -329,9 +353,18 @@ func planConfluencePageRelocation(m *mirror.Mirror, id, newRel string) (*mirror.
 		return nil, err
 	}
 	oldCSF := filepath.Join(m.Root, filepath.FromSlash(st.Path))
+	oldBase := strings.TrimSuffix(oldCSF, ".csf")
+	for _, path := range []string{oldCSF, oldBase + ".md", oldBase + ".meta.json"} {
+		if _, readErr := safepath.ReadFileWithin(m.Root, path); os.IsNotExist(readErr) {
+			// Route every kind of absent primary artifact through the mirror's
+			// complete three-file classifier. LoadCSF's metadata diagnostics are
+			// intentionally formatted for users and need not preserve fs identity.
+			return m.PlanPageRelocation(id, newRel, nil)
+		}
+	}
 	lc, current, err := m.LoadCSF(oldCSF)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: inspect tracked relocation source %s: %v", domain.ErrCheckFailed, oldCSF, err)
 	}
 	base, ok := m.BaseBody(id)
 	if !ok || mirror.Hash(current) != mirror.Hash(base) {
@@ -504,7 +537,7 @@ func (s *ConfluenceService) Push(ctx context.Context, target string, o PushOpts)
 		root = mirrorRootOf(target)
 	}
 	if _, err := os.Stat(target); err != nil {
-		return nil, fmt.Errorf("%w: push target %q: %v", domain.ErrUsage, target, err)
+		return nil, localConfluenceTargetError("push", target, err)
 	}
 	m := mirror.New(root)
 	lock, err := lockConfluenceMutations(root, false)
@@ -684,8 +717,7 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 func (s *ConfluenceService) pushTargets(m *mirror.Mirror, target string) ([]string, error) {
 	info, err := os.Stat(target)
 	if err != nil {
-		// A bad push target is a usage error (exit 2), not a generic failure.
-		return nil, fmt.Errorf("%w: push target %q: %v", domain.ErrUsage, target, err)
+		return nil, localConfluenceTargetError("push", target, err)
 	}
 	if !info.IsDir() {
 		return []string{target}, nil

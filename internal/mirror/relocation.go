@@ -24,6 +24,7 @@ type PageRelocation struct {
 	tombstonePath   string
 	tombstoneHash   string
 	tombstoneExists bool
+	sourcePresent   bool
 }
 
 type relocationTombstone struct {
@@ -77,16 +78,42 @@ func (m *Mirror) PlanPageRelocation(id, newRel string, pristineMD []byte) (*Page
 	} else if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("%w: inspect relocation target ownership %s: %v", domain.ErrCheckFailed, newTombstone, err)
 	}
-	csfBytes, err := safepath.ReadFileWithin(m.Root, oldCSF)
-	if err != nil {
-		return nil, fmt.Errorf("%w: tracked relocation source %s is unreadable: %v", domain.ErrCheckFailed, oldCSF, err)
+	oldPrimary := []string{oldCSF, oldMD, oldMeta}
+	primaryBytes := make([][]byte, len(oldPrimary))
+	missing := 0
+	for i, path := range oldPrimary {
+		primaryBytes[i], err = safepath.ReadFileWithin(m.Root, path)
+		switch {
+		case err == nil:
+		case os.IsNotExist(err):
+			missing++
+		default:
+			return nil, fmt.Errorf("%w: tracked relocation source %s is unreadable: %v", domain.ErrCheckFailed, path, err)
+		}
 	}
+	if missing == len(oldPrimary) {
+		// The user may deliberately clean an obsolete page directory after a
+		// remote title/move. With no primary bytes left to preserve or prove,
+		// allow the pull to establish the replacement path and repair state.json.
+		// A removed directory has no retained bytes to reserve; an existing one
+		// still needs the same ownership tombstone as a normal relocation.
+		if _, dirErr := safepath.ReadDirWithin(m.Root, filepath.Dir(oldCSF)); os.IsNotExist(dirErr) {
+			return nil, nil
+		} else if dirErr != nil {
+			return nil, fmt.Errorf("%w: inspect abandoned relocation directory %s: %v", domain.ErrCheckFailed, filepath.Dir(oldCSF), dirErr)
+		}
+		return &PageRelocation{
+			id: id, newRel: newRel, oldCSF: oldCSF, oldMD: oldMD, oldMeta: oldMeta,
+			tombstonePath: oldTombstone, tombstoneHash: oldTombstoneHash,
+			tombstoneExists: oldTombstoneExists, sourcePresent: false,
+		}, nil
+	}
+	if missing != 0 {
+		return nil, fmt.Errorf("%w: tracked relocation source is only partially present; preserve the remaining artifacts, restore the complete old page or remove all three primary files (.csf, .md, .meta.json), then re-pull", domain.ErrCheckFailed)
+	}
+	csfBytes, mdBytes, metaBytes := primaryBytes[0], primaryBytes[1], primaryBytes[2]
 	if Hash(csfBytes) != st.Hash {
 		return nil, fmt.Errorf("%w: tracked relocation source %s has local CSF edits; apply/push or preserve them before re-pulling", domain.ErrCheckFailed, oldCSF)
-	}
-	metaBytes, err := safepath.ReadFileWithin(m.Root, oldMeta)
-	if err != nil {
-		return nil, fmt.Errorf("%w: tracked relocation metadata %s is unreadable: %v", domain.ErrCheckFailed, oldMeta, err)
 	}
 	var meta Meta
 	if json.Unmarshal(metaBytes, &meta) != nil || meta.ID != id {
@@ -95,17 +122,21 @@ func (m *Mirror) PlanPageRelocation(id, newRel string, pristineMD []byte) (*Page
 	if meta.Hash != st.Hash || meta.Version != st.Version {
 		return nil, fmt.Errorf("%w: relocation source metadata %s diverges from tracked version/hash; preserve and reconcile it before re-pulling", domain.ErrCheckFailed, oldMeta)
 	}
-	mdBytes, err := safepath.ReadFileWithin(m.Root, oldMD)
-	if err != nil {
-		return nil, fmt.Errorf("%w: tracked relocation view %s is unreadable: %v", domain.ErrCheckFailed, oldMD, err)
-	}
 	if Hash(mdBytes) != Hash(pristineMD) {
+		first, _, _ := strings.Cut(string(mdBytes), "\n")
+		if first == "<!-- atl:document confluence-page v1 -->" || first == "<!-- atl:document confluence-page -->" {
+			return nil, fmt.Errorf("%w: tracked relocation view %s uses a legacy document format, so atl cannot distinguish old-format bytes from local edits; preserve any edits, run `conf render` at the old path to migrate the view, then re-pull", domain.ErrCheckFailed, oldMD)
+		}
+		if strings.HasPrefix(first, "<!-- atl:document confluence-page") && first != ConfluenceDocumentMarker {
+			return nil, fmt.Errorf("%w: tracked relocation view %s uses unsupported format marker %q; preserve it and update atl before re-pulling", domain.ErrCheckFailed, oldMD, first)
+		}
 		return nil, fmt.Errorf("%w: tracked relocation view %s has unapplied Markdown edits; preserve/apply them before re-pulling", domain.ErrCheckFailed, oldMD)
 	}
 	return &PageRelocation{
 		id: id, newRel: newRel, oldCSF: oldCSF, oldMD: oldMD, oldMeta: oldMeta,
 		csfHash: Hash(csfBytes), mdHash: Hash(mdBytes), metaHash: Hash(metaBytes),
 		tombstonePath: oldTombstone, tombstoneHash: oldTombstoneHash, tombstoneExists: oldTombstoneExists,
+		sourcePresent: true,
 	}, nil
 }
 
@@ -155,24 +186,27 @@ func (m *Mirror) RetirePageRelocation(plan *PageRelocation) error {
 	}
 	// Validate the complete set before removing anything, so an edit already
 	// present at retirement time preserves all three reconciliation inputs.
-	for _, artifact := range artifacts {
-		got, err := safepath.ReadFileWithin(m.Root, artifact.path)
-		if err != nil || Hash(got) != artifact.hash {
-			return fmt.Errorf("%w: relocation source changed before retirement: %s; preserve and reconcile the old artifact manually", domain.ErrCheckFailed, artifact.path)
+	if plan.sourcePresent {
+		for _, artifact := range artifacts {
+			got, err := safepath.ReadFileWithin(m.Root, artifact.path)
+			if err != nil || Hash(got) != artifact.hash {
+				return fmt.Errorf("%w: relocation source changed before retirement: %s; preserve and reconcile the old artifact manually", domain.ErrCheckFailed, artifact.path)
+			}
 		}
-	}
-	// Remove the native substrate first: once state.json points at the new path,
-	// this immediately prevents the old directory from being mistaken for a
-	// second current page. All bytes were hash-revalidated above.
-	for _, artifact := range artifacts {
-		// Re-read immediately before each removal. The mirror lock serializes atl
-		// operations, while this narrow check also refuses a late external edit.
-		got, err := safepath.ReadFileWithin(m.Root, artifact.path)
-		if err != nil || Hash(got) != artifact.hash {
-			return fmt.Errorf("%w: relocation source changed before retirement: %s; preserve and reconcile the old artifact manually", domain.ErrCheckFailed, artifact.path)
-		}
-		if err := safepath.RemoveWithin(m.Root, artifact.path); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("%w: retire old page artifact %s: %v", domain.ErrCheckFailed, artifact.path, err)
+		// Remove the native substrate first: once state.json points at the new
+		// path, this immediately prevents the old directory from being mistaken
+		// for a second current page. All bytes were hash-revalidated above.
+		for _, artifact := range artifacts {
+			// Re-read immediately before each removal. The mirror lock serializes
+			// atl operations, while this narrow check also refuses a late external
+			// edit.
+			got, err := safepath.ReadFileWithin(m.Root, artifact.path)
+			if err != nil || Hash(got) != artifact.hash {
+				return fmt.Errorf("%w: relocation source changed before retirement: %s; preserve and reconcile the old artifact manually", domain.ErrCheckFailed, artifact.path)
+			}
+			if err := safepath.RemoveWithin(m.Root, artifact.path); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("%w: retire old page artifact %s: %v", domain.ErrCheckFailed, artifact.path, err)
+			}
 		}
 	}
 	// os.Remove semantics through RemoveWithin are non-recursive. Ignore a

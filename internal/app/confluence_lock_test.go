@@ -158,10 +158,10 @@ func TestConfluenceInvalidTargetsDoNotCreateMirrorState(t *testing.T) {
 	if _, err := Apply(stray, ApplyOpts{Into: base}); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("stray apply error = %v", err)
 	}
-	if _, err := svc.Render("missing.md", config.RenderService{}); !errors.Is(err, domain.ErrUsage) {
+	if _, err := svc.Render("missing.md", config.RenderService{}); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("missing render error = %v", err)
 	}
-	if _, err := svc.Push(context.Background(), "missing.csf", PushOpts{}); !errors.Is(err, domain.ErrUsage) {
+	if _, err := svc.Push(context.Background(), "missing.csf", PushOpts{}); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("missing push error = %v", err)
 	}
 	for _, unexpected := range []string{filepath.Join(base, ".atl"), filepath.Join(base, "mirror"), filepath.Join(base, "missing.md")} {

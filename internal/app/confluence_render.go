@@ -164,7 +164,7 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 		root = r
 	}
 	if _, err := os.Stat(target); err != nil {
-		return nil, fmt.Errorf("%w: render target %q: %v", domain.ErrUsage, target, err)
+		return nil, localConfluenceTargetError("render", target, err)
 	}
 	rs, warns := ResolveRender(s.cfg, root, override, "confluence")
 	res := &ConfRenderResult{Root: root, Rendered: []ConfRendered{}, Warnings: warns}
@@ -188,6 +188,9 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 		dir := filepath.Dir(csfPath)
 		slug := strings.TrimSuffix(filepath.Base(csfPath), ".csf")
 		mdPath := filepath.Join(dir, slug+".md")
+		if err := preflightConfluenceRenderView(mdPath); err != nil {
+			return res, err
+		}
 		md := []byte(mirror.MDUnavailableStub)
 		if node, perr := csf.Parse(body); perr == nil {
 			page := &domain.Resource{
@@ -229,7 +232,7 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 func confRenderTargets(m *mirror.Mirror, target string) ([]string, error) {
 	info, err := os.Stat(target)
 	if err != nil {
-		return nil, fmt.Errorf("%w: render target %q: %v", domain.ErrUsage, target, err)
+		return nil, localConfluenceTargetError("render", target, err)
 	}
 	if !info.IsDir() {
 		csfPath := target
@@ -242,7 +245,10 @@ func confRenderTargets(m *mirror.Mirror, target string) ([]string, error) {
 			return nil, fmt.Errorf("%w: render target %q must be a directory, a .md, or a .csf file", domain.ErrUsage, target)
 		}
 		if _, err := os.Stat(csfPath); err != nil {
-			return nil, fmt.Errorf("%w: no .csf for %q (%v)", domain.ErrUsage, target, err)
+			if os.IsNotExist(err) {
+				return nil, fmt.Errorf("%w: no .csf for render target %q", domain.ErrNotFound, target)
+			}
+			return nil, fmt.Errorf("%w: inspect .csf for render target %q: %v", domain.ErrCheckFailed, target, err)
 		}
 		return []string{csfPath}, nil
 	}
@@ -257,4 +263,26 @@ func confRenderTargets(m *mirror.Mirror, target string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// preflightConfluenceRenderView prevents an older binary from destroying an
+// existing view whose document format it does not understand. Legacy v1 and
+// unversioned views remain intentionally render-migratable to the current
+// format; only an explicit different version marker is a downgrade hazard.
+func preflightConfluenceRenderView(mdPath string) error {
+	b, err := os.ReadFile(mdPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("%w: inspect existing render target %s: %v", domain.ErrCheckFailed, mdPath, err)
+	}
+	first, _, _ := strings.Cut(string(b), "\n")
+	if strings.HasPrefix(first, "<!-- atl:document confluence-page") &&
+		first != mirror.ConfluenceDocumentMarker &&
+		first != "<!-- atl:document confluence-page v1 -->" &&
+		first != "<!-- atl:document confluence-page -->" {
+		return fmt.Errorf("%w: existing view %s uses unsupported format marker %q; preserve it and update atl before rendering — do not downgrade it with this binary", domain.ErrCheckFailed, mdPath, first)
+	}
+	return nil
 }

@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -60,6 +62,45 @@ func TestConfRenderDefaultByteIdentical(t *testing.T) {
 	}
 	if strings.Contains(after, "---\ntitle:") {
 		t.Error("default profile must not add frontmatter")
+	}
+}
+
+func TestConfRenderRefusesUnsupportedExistingViewVersion(t *testing.T) {
+	root, dir, slug := seedConfMirror(t, nil)
+	mdPath := filepath.Join(dir, slug+".md")
+	future := strings.Replace(mustReadFile(t, mdPath), mirror.ConfluenceDocumentMarker, "<!-- atl:document confluence-page v99 -->", 1)
+	if err := os.WriteFile(mdPath, []byte(future), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewConfluenceRenderer(&config.Config{})
+	if _, err := svc.Render(root, config.RenderService{}); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("future view render error = %v", err)
+	}
+	if got := mustReadFile(t, mdPath); got != future {
+		t.Fatalf("future view was overwritten:\n%s", got)
+	}
+}
+
+func TestConfRenderMigratesKnownLegacyViewMarkers(t *testing.T) {
+	for _, marker := range []string{
+		"<!-- atl:document confluence-page v1 -->",
+		"<!-- atl:document confluence-page -->",
+	} {
+		t.Run(marker, func(t *testing.T) {
+			root, dir, slug := seedConfMirror(t, nil)
+			mdPath := filepath.Join(dir, slug+".md")
+			legacy := strings.Replace(mustReadFile(t, mdPath), mirror.ConfluenceDocumentMarker, marker, 1)
+			if err := os.WriteFile(mdPath, []byte(legacy), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			svc := NewConfluenceRenderer(&config.Config{})
+			if _, err := svc.Render(root, config.RenderService{}); err != nil {
+				t.Fatalf("legacy render migration: %v", err)
+			}
+			if got := mustReadFile(t, mdPath); !strings.HasPrefix(got, mirror.ConfluenceDocumentMarker+"\n") {
+				t.Fatalf("legacy marker was not upgraded: %q", got)
+			}
+		})
 	}
 }
 

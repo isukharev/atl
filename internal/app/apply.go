@@ -250,8 +250,8 @@ func validateConfluenceDocumentMarker(edited string) error {
 	if first == mirror.ConfluenceDocumentMarker {
 		return nil
 	}
-	if first == "<!-- atl:document confluence-page v1 -->" {
-		return fmt.Errorf("%w: this Confluence view uses legacy format v1; preserve edits outside the derived view, run `conf render` (or pull again) with this binary, then reapply them", domain.ErrCheckFailed)
+	if first == "<!-- atl:document confluence-page v1 -->" || first == "<!-- atl:document confluence-page -->" {
+		return fmt.Errorf("%w: this Confluence view uses a legacy document format; preserve edits outside the derived view, run `conf render` (or pull again) with this binary, then reapply them", domain.ErrCheckFailed)
 	}
 	if strings.HasPrefix(first, "<!-- atl:document confluence-page") {
 		return fmt.Errorf("%w: unsupported Confluence view format marker %q; preserve edits and update atl before opening this view — do not render or downgrade it with this binary", domain.ErrCheckFailed, first)

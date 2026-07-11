@@ -151,6 +151,24 @@ func TestConfluenceWrappersPassThrough(t *testing.T) {
 		}
 	})
 
+	t.Run("Get rejects partial body projection", func(t *testing.T) {
+		for _, tc := range []struct{ format, projection string }{{"csf", "body.storage.value"}, {"view", "body.view.value"}} {
+			st := &recordingStore{page: &domain.Resource{ID: "42"}, omitBody: true}
+			svc := &ConfluenceService{store: st}
+			if _, err := svc.Get(ctx, "42", tc.format); !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), tc.projection) {
+				t.Fatalf("partial %s page get error = %v", tc.format, err)
+			}
+		}
+	})
+
+	t.Run("Get accepts explicit empty body projection", func(t *testing.T) {
+		st := &recordingStore{page: &domain.Resource{ID: "42", Body: []byte{}}}
+		svc := &ConfluenceService{store: st}
+		if got, err := svc.Get(ctx, "42", "csf"); err != nil || !got.BodyPresent || len(got.Body) != 0 {
+			t.Fatalf("explicit empty page get = %+v, %v", got, err)
+		}
+	})
+
 	t.Run("Meta", func(t *testing.T) {
 		st := &recordingStore{meta: &domain.PageMeta{ID: "7", Version: 3}}
 		svc := &ConfluenceService{store: st}
@@ -783,6 +801,136 @@ func TestPullRelocationRefusesUnappliedMarkdownEdit(t *testing.T) {
 	}
 	if _, err := os.Stat(oldCSF); err != nil {
 		t.Fatalf("refused relocation removed old native artifact: %v", err)
+	}
+}
+
+func TestPullRelocationRecoversWhenOldPrimaryArtifactsWereRemoved(t *testing.T) {
+	into := t.TempDir()
+	page := &domain.Resource{ID: "100", Title: "Old", SpaceKey: "SP", Version: 1, Body: []byte("<p>body</p>")}
+	st := &pullStore{pages: map[string]*domain.Resource{"100": page}}
+	svc := &ConfluenceService{store: st}
+	first, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldCSF := filepath.Join(into, first.Pages[0].Path)
+	oldBase := strings.TrimSuffix(oldCSF, ".csf")
+	retained := filepath.Join(filepath.Dir(oldCSF), "local-notes.txt")
+	if err := os.WriteFile(retained, []byte("preserve"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{".csf", ".md", ".meta.json"} {
+		if err := os.Remove(oldBase + suffix); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page.Title, page.Version = "New", 2
+	second, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
+	if err != nil {
+		t.Fatalf("re-pull after deliberate old-path cleanup: %v", err)
+	}
+	if second.Pages[0].Path == first.Pages[0].Path {
+		t.Fatal("replacement path did not change")
+	}
+	lc, _, err := mirror.New(into).LoadCSF(filepath.Join(into, second.Pages[0].Path))
+	if err != nil || lc.Synced == nil || lc.Synced.Path != second.Pages[0].Path {
+		t.Fatalf("replacement did not repair canonical state: lc=%+v err=%v", lc, err)
+	}
+	if got, err := os.ReadFile(retained); err != nil || string(got) != "preserve" {
+		t.Fatalf("retained old-directory bytes changed: %q, %v", got, err)
+	}
+	oldSlug := strings.TrimSuffix(filepath.Base(oldCSF), ".csf")
+	if _, err := os.Stat(filepath.Join(filepath.Dir(oldCSF), oldSlug+".relocated.json")); err != nil {
+		t.Fatalf("recovery did not reserve retained old directory: %v", err)
+	}
+	otherDir, _, err := mirror.New(into).ClaimPageDir("SP", nil, "Old", "200")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if otherDir == filepath.Dir(oldCSF) {
+		t.Fatal("another page inherited the recovered page's retained directory")
+	}
+}
+
+func TestPullRelocationRecoversWhenWholeOldLeafDirectoryWasRemoved(t *testing.T) {
+	into := t.TempDir()
+	page := &domain.Resource{ID: "100", Title: "Old", SpaceKey: "SP", Version: 1, Body: []byte("<p>body</p>")}
+	st := &pullStore{pages: map[string]*domain.Resource{"100": page}}
+	svc := &ConfluenceService{store: st}
+	first, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldCSF := filepath.Join(into, first.Pages[0].Path)
+	oldBase := strings.TrimSuffix(oldCSF, ".csf")
+	for _, suffix := range []string{".csf", ".md", ".meta.json"} {
+		if err := os.Remove(oldBase + suffix); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Remove(filepath.Dir(oldCSF)); err != nil {
+		t.Fatal(err)
+	}
+	page.Title, page.Version = "New", 2
+	second, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
+	if err != nil {
+		t.Fatalf("re-pull after whole-directory cleanup: %v", err)
+	}
+	if second.Pages[0].Path == first.Pages[0].Path {
+		t.Fatal("replacement path did not change")
+	}
+}
+
+func TestPullRelocationRejectsPartiallyRemovedOldPrimaryArtifacts(t *testing.T) {
+	for _, suffix := range []string{".csf", ".md", ".meta.json"} {
+		t.Run(suffix, func(t *testing.T) {
+			into := t.TempDir()
+			page := &domain.Resource{ID: "100", Title: "Old", SpaceKey: "SP", Version: 1, Body: []byte("<p>body</p>")}
+			st := &pullStore{pages: map[string]*domain.Resource{"100": page}}
+			svc := &ConfluenceService{store: st}
+			first, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
+			if err != nil {
+				t.Fatal(err)
+			}
+			oldBase := strings.TrimSuffix(filepath.Join(into, first.Pages[0].Path), ".csf")
+			if err := os.Remove(oldBase + suffix); err != nil {
+				t.Fatal(err)
+			}
+			page.Title, page.Version = "New", 2
+			_, err = svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
+			if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "partially present") {
+				t.Fatalf("partial old source error = %v", err)
+			}
+		})
+	}
+}
+
+func TestPullRelocationExplainsLegacyViewMigration(t *testing.T) {
+	for _, marker := range []string{"<!-- atl:document confluence-page v1 -->", "<!-- atl:document confluence-page -->"} {
+		t.Run(marker, func(t *testing.T) {
+			into := t.TempDir()
+			page := &domain.Resource{ID: "100", Title: "Old", SpaceKey: "SP", Version: 1, Body: []byte("<p>body</p>")}
+			st := &pullStore{pages: map[string]*domain.Resource{"100": page}}
+			svc := &ConfluenceService{store: st}
+			first, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
+			if err != nil {
+				t.Fatal(err)
+			}
+			mdPath := strings.TrimSuffix(filepath.Join(into, first.Pages[0].Path), ".csf") + ".md"
+			md, err := os.ReadFile(mdPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			legacy := strings.Replace(string(md), mirror.ConfluenceDocumentMarker, marker, 1)
+			if err := os.WriteFile(mdPath, []byte(legacy), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			page.Title, page.Version = "New", 2
+			_, err = svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
+			if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "legacy document format") || !strings.Contains(err.Error(), "conf render") {
+				t.Fatalf("legacy relocation error = %v", err)
+			}
+		})
 	}
 }
 

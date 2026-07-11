@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/safepath"
@@ -57,14 +58,23 @@ func (m *Mirror) lockSidecar() (*safepath.FileLock, error) {
 	if err := safepath.MkdirAllWithin(m.Root, filepath.Dir(m.sidecarPath()), 0o755); err != nil {
 		return nil, err
 	}
-	lock, acquired, err := safepath.TryLockFileWithin(m.Root, m.sidecarLockPath(), 0o600)
-	if err != nil {
-		return nil, err
+	// Service-level mutations use distinct Jira/Confluence locks, so two short
+	// sidecar commits may overlap even though neither operation is unsafe. Give
+	// the other atomic patch a bounded window to finish; prolonged contention
+	// still fails closed instead of waiting indefinitely or losing entries.
+	for attempt := 0; attempt < 20; attempt++ {
+		lock, acquired, err := safepath.TryLockFileWithin(m.Root, m.sidecarLockPath(), 0o600)
+		if err != nil {
+			return nil, err
+		}
+		if acquired {
+			return lock, nil
+		}
+		if attempt < 19 {
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
-	if !acquired {
-		return nil, fmt.Errorf("%w: another mirror state update is active for %s", domain.ErrCheckFailed, m.Root)
-	}
-	return lock, nil
+	return nil, fmt.Errorf("%w: another mirror state update is active for %s after a brief retry window", domain.ErrCheckFailed, m.Root)
 }
 
 // loadSidecar reads .atl/state.json. A missing file is an empty state (fresh

@@ -554,14 +554,14 @@ func maskPath(s, csfPath string) string {
 
 // TestConfPush_MissingTargetNoPanic pins the nil-result guard: a push target
 // that cannot be stat'ed must not panic in -o text (pushText(nil)), must not
-// print a stray "null" in JSON mode, and must exit 2 (usage), not 1.
+// print a stray "null" in JSON mode, and must exit 4 (not found), not 1.
 func TestConfPush_MissingTargetNoPanic(t *testing.T) {
 	cs := newConfServer(t)
 	missing := filepath.Join(t.TempDir(), "does-not-exist.csf")
 	for _, format := range []string{"json", "text"} {
 		out, code := runCLI(t, confEnv(cs.srv), "conf", "push", missing, "-o", format)
-		if code != exitUsage {
-			t.Fatalf("-o %s: exit %d, want %d", format, code, exitUsage)
+		if code != exitNotFound {
+			t.Fatalf("-o %s: exit %d, want %d", format, code, exitNotFound)
 		}
 		if strings.TrimSpace(out) != "" {
 			t.Fatalf("-o %s: expected empty stdout, got %q", format, out)

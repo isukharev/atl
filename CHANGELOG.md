@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Confluence relocation recovery and local diagnostics are fail-closed but
+  actionable.** A re-pull now repairs stale sidecar state when all old primary
+  page artifacts were deliberately removed, while partial remnants still block
+  with recovery guidance. Legacy relocation views receive migration-specific
+  instructions, future derived views cannot be overwritten by offline render,
+  missing local targets consistently return not-found, direct page reads reject
+  omitted native bodies, `conf edit` commits atomically, shared state updates
+  tolerate brief safe contention, and HTTP transport errors expose only a
+  coarse URL-free cause category.
+
 - **Confluence re-pulls retire stale metadata paths safely.** When a title or
   ancestor change moves a tracked page, pull now binds relocation by page id,
   refuses native/Markdown edits and target collisions, publishes the new

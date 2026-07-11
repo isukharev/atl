@@ -267,6 +267,26 @@ func ReadFileWithin(root, target string) ([]byte, error) {
 	return r.ReadFile(rel)
 }
 
+// StatWithin returns metadata for a mirror-owned path without following any
+// descendant symlink. It shares the same held-root containment as ReadFileWithin
+// so callers can preserve file modes without reopening a path through the
+// ambient filesystem namespace.
+func StatWithin(root, target string) (os.FileInfo, error) {
+	rel, err := relativeToRoot(root, target)
+	if err != nil {
+		return nil, err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = r.Close() }()
+	if err := rejectSymlinkComponents(r, rel); err != nil {
+		return nil, err
+	}
+	return r.Stat(rel)
+}
+
 // ReadDirWithin lists a mirror-owned directory without following a descendant
 // symlink at any component.
 func ReadDirWithin(root, target string) ([]os.DirEntry, error) {

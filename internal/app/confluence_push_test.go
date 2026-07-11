@@ -285,7 +285,7 @@ func TestPushMissingTargetIsUsageError(t *testing.T) {
 	if res != nil {
 		t.Fatalf("expected nil result for unresolvable target, got %+v", res)
 	}
-	if !errors.Is(err, domain.ErrUsage) {
-		t.Fatalf("missing push target must map to ErrUsage (exit 2), got %v", err)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("missing push target must map to ErrNotFound (exit 4), got %v", err)
 	}
 }

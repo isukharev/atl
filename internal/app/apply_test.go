@@ -169,6 +169,9 @@ func TestApplyRejectsUnsupportedConfluenceViewFormatsBeforeWrite(t *testing.T) {
 		{name: "legacy v1", edit: func(md string) string {
 			return strings.Replace(md, mirror.ConfluenceDocumentMarker, "<!-- atl:document confluence-page v1 -->", 1)
 		}, want: "conf render"},
+		{name: "legacy unversioned marker", edit: func(md string) string {
+			return strings.Replace(md, mirror.ConfluenceDocumentMarker, "<!-- atl:document confluence-page -->", 1)
+		}, want: "conf render"},
 		{name: "legacy yaml", edit: func(md string) string {
 			return "---\ntitle: old\n---\n\n" + md
 		}, want: "conf render"},

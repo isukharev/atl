@@ -265,7 +265,8 @@ is exit `8` before page/state writes. The file persists so every process locks
 the same inode; process exit releases ownership. Read-only status is lock-free.
 Jira retains its own workflow lock, while both services additionally merge
 sidecar patches under the shared `.atl/state.lock`; cross-service state
-contention therefore fails closed and cannot lose unrelated entries.
+contention is retried for a brief fixed window, then fails closed and cannot
+lose unrelated entries.
 
 When a Confluence re-pull computes a different path for an already tracked page
 id, relocation is fail-closed. The old native body must match its synced hash,
@@ -278,6 +279,11 @@ directory for the same page id so a future slug collision cannot inherit them.
 The `<slug>.relocated.json` marker is atl-managed reserved state: do not edit or
 remove it. A pre-existing invalid/different-owner marker blocks relocation and
 is never overwritten.
+When all three old primary artifacts are absent, pull treats the old copy as
+deliberately abandoned and replaces its stale sidecar path with the new
+canonical path. Partial absence remains exit `8` because ownership and local
+edits cannot be proven. A legacy v1 view produces migration-specific guidance;
+an unknown/future view is preserved and requires a newer binary.
 If cleanup is interrupted, path-aware state lookup keeps an old copy
 untracked/dirty rather than presenting it as current.
 Such a copy is reported by status with `non_canonical:true` and
@@ -285,12 +291,21 @@ Such a copy is reported by status with `non_canonical:true` and
 drift probing is skipped for this stale copy. Push/dry-run refuses it with exit
 `8` even under `--force`.
 
-A successful Confluence response that omits the requested native body is not
-equivalent to an empty page. Pull and read projections that require CSF fail
-with exit `8` before artifacts for that page are written. After a successful push, the
+A successful Confluence response that omits the requested body projection is
+not equivalent to an empty page. Pull and native-CSF reads require
+`body.storage.value`; `conf page get --format view` requires `body.view.value`.
+Either omission fails with exit `8` before output/artifacts are treated as an
+empty page. After a successful push, the
 same partial refresh is advisory: local body/base/state bytes are preserved and
 the item reports a re-pull warning. `BodyPresent=true` with zero body bytes is a
 valid explicitly empty page.
+
+Missing local page targets for Confluence render/apply/push use
+`ErrNotFound`/exit `4`; syntactically invalid target types continue to use
+`ErrUsage`/exit `2`. Transport failures expose a fixed coarse category
+(`dns`, `tls`, `timeout`, `connection-refused`, `connection-lost`,
+`unreachable`, `canceled`, or `network`) alongside a query-redacted URL. The
+raw cause remains non-unwrappable and no category includes cause text.
 
 `atl jira status [DIR] [--remote]` emits `{ "entries": [ { "path", "key", "locally_edited",
 "synced", "pending_fields"?, "local_error"?, "remote_drifted"?, "field_drifted"?, "remote_error"? }, ... ] }`.

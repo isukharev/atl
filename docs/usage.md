@@ -888,15 +888,23 @@ Confluence pull/render/apply/push and mirror-local `conf edit` are serialized by
 lock under `.atl`; contention exits `8` before page/state writes. Wait for the
 active operation—do not remove the lock file. Read-only status stays lock-free.
 When Jira and Confluence share the root, their sidecar patches also use the
-backend-neutral `.atl/state.lock`: a collision fails closed rather than losing
-the other service's `state.json` entries.
+backend-neutral `.atl/state.lock`: a collision gets a brief bounded retry
+window, then fails closed rather than losing the other service's `state.json`
+entries.
 
-Pull requires an explicit native CSF body projection from the backend. A
-successful partial response that omits the body exits `8` before page artifacts
-are written; an explicitly present, zero-byte body is accepted as an empty
-page. If only the refresh after a successful push omits the body, atl preserves
+Pull and direct page reads require the requested body projection from the
+backend (`body.storage.value` for CSF, `body.view.value` for rendered view). A
+successful partial response that omits it exits `8` before output/artifacts are
+treated as an empty page; an explicitly present, zero-byte body is accepted.
+If only the refresh after a successful push omits the body, atl preserves
 the local mirror and reports a re-pull warning instead of replacing it with an
 empty page.
+
+Missing local targets for `conf render`, `conf apply`, and `conf push` all map
+to exit `4` (`not found`). Malformed target kinds or incompatible flag
+combinations remain exit `2` (`usage`). Offline render may migrate legacy or
+unversioned local views, but refuses to overwrite an explicit unknown/future
+document version.
 
 ### `atl conf table extract`
 
@@ -1180,6 +1188,11 @@ Flags:
 | `--id` | page id (required) |
 | `--format` | `csf` (default) or `view` (rendered HTML) |
 
+Both formats require the backend to include the requested body projection
+(`body.storage.value` or `body.view.value`). An omitted projection exits `8`
+instead of appearing as an empty body; an explicitly present empty value is
+valid.
+
 ### `atl conf page view`
 
 Fetch native CSF and render one page through the same configured Markdown
@@ -1252,6 +1265,11 @@ when the old CSF and recorded Markdown are pristine and the new path is
 unoccupied; otherwise it fails closed without deleting descendants.
 Retained descendants/assets/comments stay protected by a local ownership marker,
 so another page with the old slug is diverted instead of inheriting them.
+If all old `.csf`, `.md`, and `.meta.json` primary files were deliberately
+removed, re-pull repairs the stale sidecar path. A partial removal remains
+ambiguous and exits `8`; restore the complete old page or remove all three
+primary files, then re-pull. A legacy v1 view receives an explicit `conf render`
+migration instruction instead of the generic local-edit diagnostic.
 If interrupted cleanup leaves an old copy, `conf status` marks it
 `non_canonical` and names `canonical_path`; `conf push` refuses the old path
 even with `--force`.
