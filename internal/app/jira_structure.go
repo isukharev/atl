@@ -6,7 +6,6 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"html"
 	"strconv"
 	"strings"
 
@@ -238,7 +237,7 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 			BrowserViewReproduced: false,
 		},
 		Rows:             []StructureSnapshotRow{},
-		IssueCount:       len(issueIDs),
+		IssueCount:       0,
 		Complete:         true,
 		InaccessibleRows: []int64{},
 	}
@@ -269,13 +268,15 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 		})
 	}
 	result.RowCount = len(result.Rows)
+	result.IssueCount = len(structureIssueIDs(rows))
 
 	return result, nil
 }
 
 func structureSnapshotValues(row domain.StructureRow, attributes []string, issues map[string]JiraIssueSnapshot, folderLabels map[int64]string) map[string]any {
 	selected := make(map[string]any, len(attributes))
-	issue, isIssue := issues[row.ItemID]
+	issue, foundIssue := issues[row.ItemID]
+	isIssue := row.ItemType == "issue" && foundIssue
 	for _, attribute := range attributes {
 		var value any
 		if isIssue {
@@ -867,7 +868,12 @@ func markdownTableCell(value string) string {
 	value = strings.ReplaceAll(value, "\r\n", " ")
 	value = strings.ReplaceAll(value, "\r", " ")
 	value = strings.ReplaceAll(value, "\n", " ")
-	value = html.EscapeString(value)
+	// Preserve ordinary punctuation such as quotes/apostrophes while blocking
+	// inline HTML and keeping literal backslashes plus table separators stable.
+	value = strings.ReplaceAll(value, "&", "&amp;")
+	value = strings.ReplaceAll(value, "<", "&lt;")
+	value = strings.ReplaceAll(value, ">", "&gt;")
+	value = strings.ReplaceAll(value, `\`, `\\`)
 	value = strings.ReplaceAll(value, "|", `\|`)
 	return strings.TrimSpace(value)
 }

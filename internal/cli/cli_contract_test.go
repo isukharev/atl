@@ -256,7 +256,7 @@ func TestJiraIssueGetGolden(t *testing.T) {
 		"fields": {
 			"summary": "Fix the thing",
 			"description": "h1. Steps\n\nDo the work.",
-			"status": {"name": "In Progress"},
+			"status": {"id": "3", "name": "In Progress"},
 			"issuetype": {"name": "Bug"},
 			"project": {"key": "ENG"},
 			"labels": ["backend", "urgent"]

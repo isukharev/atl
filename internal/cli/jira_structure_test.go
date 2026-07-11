@@ -304,6 +304,34 @@ func TestJiraStructureExportMarksExplicitPermissionGaps(t *testing.T) {
 	}
 }
 
+func TestJiraStructureViewCountsIssuesAfterRootFiltering(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/structure/2.0/structure/123", http.StatusOK, `{"id":123,"name":"Plan"}`)
+	js.route(http.MethodGet, "/rest/structure/2.0/forest/latest", http.StatusOK, `{
+		"formula":"100:0:10001,200:0:20001",
+		"version":{"signature":55,"version":7}
+	}`)
+	js.route(http.MethodGet, "/rest/api/2/search", http.StatusOK, `{
+		"issues":[
+			{"id":"10001","key":"PROJ-1","fields":{"summary":"First"}},
+			{"id":"20001","key":"PROJ-2","fields":{"summary":"Second"}}
+		],
+		"startAt":0,"maxResults":50,"total":2
+	}`)
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "structure", "view", "123", "--root", "Second")
+	if code != exitOK {
+		t.Fatalf("structure view root: exit=%d output=%q", code, out)
+	}
+	var got struct {
+		RowCount   int `json:"row_count"`
+		IssueCount int `json:"issue_count"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil || got.RowCount != 1 || got.IssueCount != 1 {
+		t.Fatalf("snapshot=%+v err=%v", got, err)
+	}
+}
+
 func TestJiraStructureValuesCLI(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodPost, "/rest/structure/2.0/value", http.StatusOK, `{"responses":[{"rows":[100],"data":[]}],"inaccessibleRows":[]}`)

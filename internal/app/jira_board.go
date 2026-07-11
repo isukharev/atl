@@ -380,10 +380,27 @@ func BoardSnapshotMarkdown(snapshot *BoardSnapshot) string {
 	if snapshot.Truncated {
 		b.WriteString("> **Truncated:** increase or remove `--limit` for a complete snapshot.\n\n")
 	}
-	b.WriteString("| # | Key | Summary | Status | Column | Backlog | Assignee | Priority | Type |\n")
-	b.WriteString("| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	header := []string{"#", "Key", "Status", "Column", "Backlog"}
+	fields := make([]string, 0, len(snapshot.Projection.Fields))
+	for _, field := range snapshot.Projection.Fields {
+		if field == "status" {
+			continue
+		}
+		fields = append(fields, field)
+		header = append(header, markdownTableCell(field))
+	}
+	b.WriteString("| ")
+	b.WriteString(strings.Join(header, " | "))
+	b.WriteString(" |\n|")
+	for range header {
+		b.WriteString(" --- |")
+	}
+	b.WriteByte('\n')
 	for _, row := range snapshot.Rows {
-		cells := []string{strconv.Itoa(row.Position), markdownTableCell(row.Key), markdownTableCell(snapshotText(row.Values["summary"])), markdownTableCell(row.Status), markdownTableCell(row.Column), strconv.FormatBool(row.InBacklog), markdownTableCell(snapshotText(row.Values["assignee"])), markdownTableCell(snapshotText(row.Values["priority"])), markdownTableCell(snapshotText(row.Values["issuetype"]))}
+		cells := []string{strconv.Itoa(row.Position), markdownTableCell(row.Key), markdownTableCell(row.Status), markdownTableCell(row.Column), strconv.FormatBool(row.InBacklog)}
+		for _, field := range fields {
+			cells = append(cells, markdownTableCell(snapshotText(row.Values[field])))
+		}
 		b.WriteString("| ")
 		b.WriteString(strings.Join(cells, " | "))
 		b.WriteString(" |\n")

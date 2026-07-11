@@ -64,6 +64,23 @@ func TestRenderStructureSnapshotIsCompactAndStreamFriendly(t *testing.T) {
 	}
 }
 
+func TestStructureSnapshotValuesNeverJoinNonIssueNumericCollision(t *testing.T) {
+	issues := map[string]JiraIssueSnapshot{"10001": {Key: "PROJ-1", ID: "10001", Fields: map[string]any{"summary": "Issue"}}}
+	row := domain.StructureRow{RowID: 7, ItemType: "folder", ItemID: "10001"}
+	values := structureSnapshotValues(row, []string{"key", "summary"}, issues, map[int64]string{7: "Folder"})
+	if values["key"] != nil || values["summary"] != "Folder" {
+		t.Fatalf("values=%+v, want folder label without colliding issue fields", values)
+	}
+}
+
+func TestMarkdownTableCellPreservesPunctuationAndBackslash(t *testing.T) {
+	got := markdownTableCell(`owner's "plan" \\| <draft>`)
+	want := `owner's "plan" \\\\\| &lt;draft&gt;`
+	if got != want {
+		t.Fatalf("markdownTableCell=%q, want %q", got, want)
+	}
+}
+
 func TestStructureExportCSVNeutralizesFormulaCellsByDefault(t *testing.T) {
 	snapshot := &StructureSnapshot{
 		Projection: StructureProjection{Attributes: []string{"summary", "=field"}},
