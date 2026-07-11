@@ -150,7 +150,8 @@ per-mirror mutation lock. If exit 8 says another mutation is active, wait;
 never delete the lock or retry concurrently. Status and directory push also
 fail closed on missing/corrupt sidecars. Jira and Confluence also share a
 short-lived state lock when they use the same root, so never bypass a
-state-lock refusal. Repair or re-pull; never treat a partial scan or a missing
+state-lock refusal after its bounded retry window. Repair or re-pull; never
+treat a partial scan or a missing
 native-body projection as clean.
 
 ## Route details only when needed

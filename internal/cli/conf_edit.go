@@ -12,6 +12,7 @@ import (
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/safepath"
 	"github.com/isukharev/atl/internal/textedit"
 )
 
@@ -53,9 +54,18 @@ func confEditCmd() *cobra.Command {
 				}
 				defer func() { _ = release() }()
 			}
-			raw, err := os.ReadFile(path)
+			var raw []byte
+			if root != "" {
+				raw, err = safepath.ReadFileWithin(root, path)
+			} else {
+				raw, err = os.ReadFile(path)
+			}
 			if err != nil {
-				return fmt.Errorf("%w: %v", domain.ErrUsage, err)
+				kind := domain.ErrUsage
+				if root != "" {
+					kind = domain.ErrCheckFailed
+				}
+				return fmt.Errorf("%w: read edit target: %v", kind, err)
 			}
 
 			res, rerr := textedit.Replace(string(raw), old, repl, all)
@@ -98,12 +108,27 @@ func confEditCmd() *cobra.Command {
 			}
 
 			if !dryRun {
-				info, serr := os.Stat(path)
 				mode := os.FileMode(0o644)
+				var info os.FileInfo
+				var serr error
+				if root != "" {
+					info, serr = safepath.StatWithin(root, path)
+				} else {
+					info, serr = os.Stat(path)
+				}
+				if serr != nil && root != "" {
+					return fmt.Errorf("%w: inspect edit target: %v", domain.ErrCheckFailed, serr)
+				}
 				if serr == nil {
 					mode = info.Mode()
 				}
-				if werr := os.WriteFile(path, []byte(res.Text), mode); werr != nil {
+				var werr error
+				if root != "" {
+					werr = safepath.WriteFileWithin(root, path, []byte(res.Text), mode)
+				} else {
+					werr = safepath.WriteFileAtomic(path, []byte(res.Text), mode)
+				}
+				if werr != nil {
 					return werr
 				}
 			}

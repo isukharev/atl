@@ -388,6 +388,22 @@ func TestWriteFileWithinReplacesFinalSymlink(t *testing.T) {
 	}
 }
 
+func TestStatWithinRefusesIntermediateSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	victim := filepath.Join(outside, "victim")
+	if err := os.WriteFile(victim, []byte("private"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "swapped")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := StatWithin(root, filepath.Join(link, "victim")); err == nil {
+		t.Fatal("StatWithin followed an intermediate symlink outside root")
+	}
+}
+
 func TestRootContainedWritersRejectInRootDirectorySymlink(t *testing.T) {
 	root := t.TempDir()
 	realDir := filepath.Join(root, "real")

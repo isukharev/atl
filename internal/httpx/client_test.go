@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	neturl "net/url"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -237,6 +239,44 @@ func TestTransportErrorRedactsDownloadURL(t *testing.T) {
 	var urlErr *neturl.Error
 	if errors.As(got, &urlErr) {
 		t.Fatalf("URL-bearing cause escaped safe wrapper: %#v", urlErr)
+	}
+}
+
+func TestTransportErrorReportsOnlySafeCoarseCategory(t *testing.T) {
+	u, err := neturl.Parse("https://backend.example/search?cql=private")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "canceled", err: context.Canceled, want: "canceled"},
+		{name: "deadline", err: context.DeadlineExceeded, want: "timeout"},
+		{name: "dns", err: &net.DNSError{Err: "private resolver detail", Name: "private.example"}, want: "dns"},
+		{name: "refused", err: syscall.ECONNREFUSED, want: "connection-refused"},
+		{name: "reset", err: syscall.ECONNRESET, want: "connection-lost"},
+		{name: "unreachable", err: syscall.ENETUNREACH, want: "unreachable"},
+		{name: "other", err: errors.New("private transport detail"), want: "network"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := transportError(http.MethodGet, u, tc.err)
+			var transport *TransportError
+			if !errors.As(got, &transport) || transport.Category != tc.want {
+				t.Fatalf("transport = %#v, want category %q", transport, tc.want)
+			}
+			text := fmt.Sprintf("%+v", got)
+			if !strings.Contains(text, "transport error ("+tc.want+")") {
+				t.Fatalf("safe category missing from %q", text)
+			}
+			for _, private := range []string{"private", "resolver detail", "transport detail"} {
+				if strings.Contains(text, private) {
+					t.Fatalf("category diagnostic leaked cause detail: %q", text)
+				}
+			}
+		})
 	}
 }
 

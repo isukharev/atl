@@ -8,9 +8,63 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/safepath"
 )
+
+func TestSidecarPatchWaitsBrieflyForCrossServiceWriter(t *testing.T) {
+	root := t.TempDir()
+	m := New(root)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".atl"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lock, acquired, err := safepath.TryLockFileWithin(root, filepath.Join(root, ".atl", "state.lock"), 0o600)
+	if err != nil || !acquired {
+		t.Fatalf("seed state lock: acquired=%v err=%v", acquired, err)
+	}
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(25 * time.Millisecond)
+		_ = lock.Unlock()
+		close(released)
+	}()
+	if err := m.SaveViewStates(map[string]ViewState{"PAGE": {Sections: []string{"metadata"}}}); err != nil {
+		t.Fatalf("brief state contention failed: %v", err)
+	}
+	<-released
+	if _, ok, err := m.ViewStateOf("PAGE"); err != nil || !ok {
+		t.Fatalf("state patch missing after retry: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestSidecarPatchFailsClosedAfterBoundedContention(t *testing.T) {
+	root := t.TempDir()
+	m := New(root)
+	if err := os.MkdirAll(filepath.Join(root, ".atl"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lock, acquired, err := safepath.TryLockFileWithin(root, filepath.Join(root, ".atl", "state.lock"), 0o600)
+	if err != nil || !acquired {
+		t.Fatalf("seed state lock: acquired=%v err=%v", acquired, err)
+	}
+	defer func() { _ = lock.Unlock() }()
+	start := time.Now()
+	err = m.SaveViewStates(map[string]ViewState{"PAGE": {Sections: []string{"metadata"}}})
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("held state lock error = %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("state lock retry was not bounded: %v", elapsed)
+	}
+	if _, ok, readErr := m.ViewStateOf("PAGE"); readErr != nil || ok {
+		t.Fatalf("refused state patch became visible: ok=%v err=%v", ok, readErr)
+	}
+}
 
 func corruptSidecar(t *testing.T, m *Mirror) {
 	t.Helper()

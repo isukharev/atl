@@ -8,17 +8,21 @@ package httpx
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	neturl "net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -162,13 +166,14 @@ type APIError struct {
 // reconciliation. The cause is deliberately not exposed through Unwrap:
 // standard url.Error and custom transports may repeat the complete request URL.
 type TransportError struct {
-	Method  string
-	safeURL string
-	err     error
+	Method   string
+	Category string
+	safeURL  string
+	err      error
 }
 
 func (e *TransportError) Error() string {
-	return fmt.Sprintf("%s %s: transport error", e.Method, e.safeURL)
+	return fmt.Sprintf("%s %s: transport error (%s)", e.Method, e.safeURL, e.Category)
 }
 
 // Is preserves sentinel/cancellation checks without making the potentially
@@ -190,7 +195,45 @@ func transportError(method string, u *neturl.URL, err error) error {
 	if u != nil {
 		safe = redactURLString(u.String())
 	}
-	return &TransportError{Method: method, safeURL: safe, err: err}
+	return &TransportError{Method: method, Category: transportErrorCategory(err), safeURL: safe, err: err}
+}
+
+// transportErrorCategory intentionally returns only a small type-derived
+// vocabulary. It never includes Error() text from the cause, which may contain
+// a raw request URL, proxy address, hostname, or selector.
+func transportErrorCategory(err error) string {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "timeout"
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return "dns"
+	}
+	var hostnameErr x509.HostnameError
+	var authorityErr x509.UnknownAuthorityError
+	var invalidErr x509.CertificateInvalidError
+	var tlsHeaderErr tls.RecordHeaderError
+	if errors.As(err, &hostnameErr) || errors.As(err, &authorityErr) ||
+		errors.As(err, &invalidErr) || errors.As(err, &tlsHeaderErr) {
+		return "tls"
+	}
+	switch {
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return "connection-refused"
+	case errors.Is(err, syscall.ECONNRESET), errors.Is(err, syscall.EPIPE):
+		return "connection-lost"
+	case errors.Is(err, syscall.ENETUNREACH), errors.Is(err, syscall.EHOSTUNREACH):
+		return "unreachable"
+	default:
+		return "network"
+	}
 }
 
 func (e *APIError) Error() string {
@@ -274,7 +317,7 @@ func (c *Client) DoStreamSized(ctx context.Context, method, path string, r io.Re
 	tracef("→ %s %s\n", method, traceURL(req.URL))
 	resp, err := c.dl.Do(req)
 	if err != nil {
-		tracef("× %s %s (transport error)\n", method, traceURL(req.URL))
+		tracef("× %s %s (transport error: %s)\n", method, traceURL(req.URL), transportErrorCategory(err))
 		return nil, transportError(method, req.URL, err)
 	}
 	tracef("← %d %s\n", resp.StatusCode, req.URL.Path)
@@ -317,7 +360,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 		tracef("→ %s %s\n", method, traceURL(req.URL))
 		resp, err := c.hc.Do(req)
 		if err != nil {
-			tracef("× %s %s (transport error)\n", method, traceURL(req.URL))
+			tracef("× %s %s (transport error: %s)\n", method, traceURL(req.URL), transportErrorCategory(err))
 			safeErr := transportError(method, req.URL, err)
 			// A committed-but-lost write can double-execute or turn success into a
 			// misleading conflict/not-found; only replay-safe reads retry here.
@@ -561,7 +604,7 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 		resp, err := c.dl.Do(req)
 		if err != nil {
 			cancel()
-			tracef("× GET %s (transport error)\n", traceURL(req.URL))
+			tracef("× GET %s (transport error: %s)\n", traceURL(req.URL), transportErrorCategory(err))
 			lastErr = transportError(http.MethodGet, req.URL, err)
 			continue // GET is idempotent → retry
 		}

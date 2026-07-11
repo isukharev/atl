@@ -375,9 +375,12 @@ atl jira field-options --project PROJ --field <field-id>
   wait for the active operation and never delete the persistent `.atl` lock.
 - A Confluence re-pull that changes a tracked page path refuses local edits or
   collisions, records the new path, and retires only that page's old primary
-  files; descendant/unrelated directories are never recursively deleted.
+  files; descendant/unrelated directories are never recursively deleted. If
+  all three old primary files were deliberately removed, pull repairs the stale
+  path record; a partial removal remains an exit-8 reconciliation error.
 - Jira and Confluence updates to a shared mirror's `state.json` merge under one
-  backend-neutral state lock; contention fails closed instead of losing entries.
+  backend-neutral state lock; brief contention is retried within a fixed bound,
+  then fails closed instead of losing entries.
 
 | Code | Meaning |
 |------|---------|
