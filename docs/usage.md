@@ -1514,7 +1514,7 @@ Search issues by JQL.
 ```bash
 atl jira issue search --jql "project=PROJ and status=Open" --limit 20
 atl jira issue search --jql "assignee=currentUser()" --cursor 50
-atl jira issue search --jql "project=PROJ" --fields summary,status,customfield_10001
+atl jira issue search --jql "project=PROJ" --columns key,summary,status,customfield_10001
 ```
 
 Flags:
@@ -1522,9 +1522,14 @@ Flags:
 | flag | description |
 |---|---|
 | `--jql` | JQL query (required) |
-| `--fields` | comma-separated field list |
+| `--columns` | ordered metadata, Jira-field, and source-context columns |
 | `--limit` | max results (default 50) |
 | `--cursor` | pagination cursor (startAt offset) |
+
+JSON uses the common IssueList contract documented below under boards and
+sprints. Read rows with `.rows[]`, selected fields with `.values.<field>`, and
+resume from `.page.next_cursor`. `-o text` is a Markdown table in the exact
+`--columns` order; `-o id` prints only keys.
 
 ### `atl jira issue create`
 
@@ -2398,21 +2403,25 @@ instance the Agile endpoints 404 (exit 4). Boards and sprints are addressed by
 atl jira board list --project PROJ          # {boards:[{id,name,type,project_key}]}; -o id → board ids
 atl jira board get 5
 atl jira board config 5                     # filter, ordered columns/status ids, limits, estimation, rank field
-atl jira board issues 5 --fields summary,status,assignee       # one ranked page; -o id → issue keys
-atl jira board backlog 5 --fields summary,status               # Scrum only; explicit pagination
+atl jira board issues 5 --columns position,key,summary,status,assignee # one ranked page; -o id → keys
+atl jira board backlog 5 --columns position,key,summary,status          # Scrum only; explicit pagination
 atl jira board view 5 -o text               # normalized config + status-to-column mapping
 atl jira board view 5 --jql 'statusCategory != Done' --limit 500
 atl jira board export 5 --format jsonl --out board.jsonl
 atl jira sprint list --board 5 [--state active|closed|future]   # {sprints:[...]}; -o id → sprint ids
 atl jira sprint current --board 5           # the active sprint (exit 4 if none)
-atl jira sprint issues 7 [--fields summary,status]              # issues in sprint 7; -o id → keys
+atl jira sprint issues 7 --columns position,key,summary,status  # issues in sprint 7; -o id → keys
 atl jira sprint add 7 PROJ-1 PROJ-2         # move issues into sprint 7
 atl jira sprint remove PROJ-1               # move issue(s) back to the backlog
 ```
 
 `--board` and positional board/sprint ids must be positive (else exit 2).
-`board issues` and `board backlog` expose one API page with `complete` and
-`next_cursor`; page size is capped at 50. `board view` follows all pages by
+JQL search, `board issues`/`board backlog`, and `sprint issues` return one
+versioned issue-list shape: `source`, `selection`, ordered
+`projection.columns/fields`, `rows[]` with identity plus `values` and namespaced
+source `context`, and `page`. Their `-o text` form is a Markdown table; `-o id`
+remains one key per line. Board pages expose one API page with `page.complete`
+and `page.next_cursor`; page size is capped at 50. `board view` follows all pages by
 default (`--limit 0`) and preserves backend rank order. A positive view/export
 limit applies per requested scope and sets `complete:false`, `truncated:true`
 when more rows exist.
@@ -2431,9 +2440,10 @@ neutralized by default; `--raw-csv` is the explicit unsafe opt-out. Board reads
 never call rank/move/update endpoints. Sprint `add`/`remove` remain separate
 mutating commands and require explicit user intent.
 
-Markdown columns follow `--fields` (with status and board mapping kept
-explicit), so a custom-field projection is visible in both machine and review
-formats rather than only JSON/CSV.
+Use `--columns` as the single list projection control. It derives backend Jira
+fields and preserves the requested order in Markdown. Namespaced source columns
+include `board.column`, `board.in_backlog`, and `sprint.id`; unavailable context
+columns fail with usage rather than silently rendering empty.
 
 ### `atl jira structure {get,view,forest,rows,values,pull-issues,export}`
 

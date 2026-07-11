@@ -52,7 +52,7 @@ version gate.
    editing or repeatable offline access,
    read the rendered `.md` to locate, and edit there (merge back with `conf apply` / `jira apply`),
    opening the raw substrate only for what the md surface can't express.
-   Keep live reads slim too: `--fields` on Jira gets/searches, `-o id` for piping, and a `| jq`
+   Keep live reads slim too: `--fields` on Jira gets, `--columns` on Jira issue lists, `-o id` for piping, and a `| jq`
    projection when only a few values are needed — include Jira `attachment` when you need the
    presence/names of files, but avoid a bare `issue get` because it drags the whole comment thread
    into context.

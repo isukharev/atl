@@ -107,7 +107,7 @@ func jiraIssueCmd() *cobra.Command {
 	}
 	get.Flags().StringVar(&fields, "fields", "", "comma-separated field list")
 
-	var jql, searchFields, cursor string
+	var jql, searchColumns, cursor string
 	var limit int
 	search := &cobra.Command{
 		Use:   "search",
@@ -120,27 +120,15 @@ func jiraIssueCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			issues, next, err := svc.Search(cmd.Context(), jql, splitFields(searchFields), limit, cursor)
+			list, err := svc.SearchIssueList(cmd.Context(), jql, splitFields(searchColumns), limit, cursor)
 			if err != nil {
 				return err
 			}
-			return emitID(cmd, map[string]any{"issues": issues, "next_cursor": next}, func() string {
-				var b strings.Builder
-				for _, is := range issues {
-					fmt.Fprintf(&b, "%s\t[%s]\t%s\n", is.Key, is.Status, is.Summary)
-				}
-				return strings.TrimRight(b.String(), "\n")
-			}, func() []string {
-				keys := make([]string, len(issues))
-				for i, is := range issues {
-					keys[i] = is.Key
-				}
-				return keys
-			})
+			return emitID(cmd, list, func() string { return app.IssueListMarkdown(list, false) }, func() []string { return app.IssueListKeys(list) })
 		},
 	}
 	search.Flags().StringVar(&jql, "jql", "", "JQL query")
-	search.Flags().StringVar(&searchFields, "fields", "", "comma-separated field list")
+	search.Flags().StringVar(&searchColumns, "columns", "", "ordered list columns (default: key,summary,status,assignee)")
 	search.Flags().IntVar(&limit, "limit", 50, "max results")
 	search.Flags().StringVar(&cursor, "cursor", "", "pagination cursor (startAt)")
 

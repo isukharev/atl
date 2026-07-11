@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **One Jira issue-list contract for agents and humans.** JQL search, board and
+  backlog pages, and sprint issue pages now return a versioned app-layer
+  projection with ordered fields, namespaced source context, and uniform page
+  metadata. A shared safe table renderer powers their Markdown `-o text` views
+  and normalized board snapshot Markdown.
+
 - **Kanban/Scrum board snapshots for agent planning.** Jira board commands now
   expose workflow configuration, ranked issue pages, Scrum backlog pages, and a
   normalized status-to-column view with JSON/JSONL/safe CSV/Markdown exports.
@@ -27,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   technical rather than risking an incorrect row/value join.
 
 ### Changed
+
+- **Issue-list projection is now `--columns`.** During beta, list-oriented Jira
+  commands replace their duplicated `--fields`/TSV surfaces with ordered
+  `--columns`, common JSON rows under `rows`, pagination under `page`, Markdown
+  tables for `-o text`, and unchanged one-key-per-line `-o id`.
 
 - **Structure export now uses the normalized snapshot contract.** During the
   beta, the former aggregate `{rows,issue_ids,issues}` export and its
