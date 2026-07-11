@@ -88,7 +88,7 @@ func TestConfluenceTitleApplyGatesAndIdempotency(t *testing.T) {
 		res, err := (&ConfluenceService{store: store}).SetTitleGuarded(context.Background(), "42", ConfluenceTitleSetOpts{
 			Title: []byte("New"), ExpectedVersion: 7, ExpectedProposalHash: "stale", Apply: true,
 		})
-		if err != nil || res.Status != "already_satisfied" || store.updateCalls != 0 {
+		if !errors.Is(err, domain.ErrCheckFailed) || res.Status != "blocked" || store.updateCalls != 0 {
 			t.Fatalf("res=%+v err=%v updates=%d", res, err, store.updateCalls)
 		}
 	})

@@ -144,6 +144,17 @@ func TestConfluenceMoveExplicitTopLevelParentGate(t *testing.T) {
 	}
 }
 
+func TestConfluenceMoveAlreadySatisfiedStillRequiresReviewedGates(t *testing.T) {
+	store := &moveStore{reads: []*domain.Resource{movePage("42", "20", 9, "body"), moveTarget("20", 3)}}
+	res, err := (&ConfluenceService{store: store}).MoveGuarded(context.Background(), "42", ConfluenceMoveOpts{
+		Parent: "20", ExpectedVersion: 7, ExpectedParent: "10", ExpectedParentSet: true,
+		ExpectedProposalHash: "stale", Apply: true,
+	})
+	if !errors.Is(err, domain.ErrCheckFailed) || res.Status != "blocked" || store.moveCalls != 0 {
+		t.Fatalf("res=%+v err=%v moves=%d", res, err, store.moveCalls)
+	}
+}
+
 func TestConfluenceMoveApplyGates(t *testing.T) {
 	baseReads := func() []*domain.Resource {
 		return []*domain.Resource{movePage("42", "10", 7, "body"), moveTarget("20", 3, "10")}

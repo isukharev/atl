@@ -412,8 +412,11 @@ func validateJiraIssueDocumentMarker(edited string) error {
 	if first == jiraIssueDocumentMarker {
 		return nil
 	}
+	if first == "<!-- atl:document jira-issue -->" {
+		return fmt.Errorf("%w: this Jira view uses an unversioned legacy format; save edits outside the derived view, run `jira render` (or pull again), then reapply them", domain.ErrCheckFailed)
+	}
 	if strings.HasPrefix(first, "<!-- atl:document jira-issue") {
-		return fmt.Errorf("%w: unsupported Jira view format marker %q; save any edits outside the derived view, run `jira render` (or pull again), then reapply them", domain.ErrCheckFailed, first)
+		return fmt.Errorf("%w: unsupported Jira view format marker %q; preserve edits and update atl before opening this view — do not render or downgrade it with this binary", domain.ErrCheckFailed, first)
 	}
 	return fmt.Errorf("%w: missing Jira view format marker %q; save any edits outside the derived view, run `jira render` (or pull again), then reapply them", domain.ErrCheckFailed, jiraIssueDocumentMarker)
 }

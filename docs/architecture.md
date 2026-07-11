@@ -376,6 +376,9 @@ Notable behaviors:
   explicitly configured editable are staged under `.atl/pending/jira/`. The raw
   `.json` snapshot and assets remain read-only until a successful push refreshes
   the snapshot.
+  `internal/wikiscanner` owns the Jira heading/macro/hr/list/table recognition
+  rules consumed by both `wikimd` and `wikimerge`, so renderer and apply block
+  boundaries cannot drift through duplicated regular expressions.
   Pending commits bind the recorded sidecar path and reviewed `.wiki` hash. A
   non-discoverable transaction is published only after the atomic wiki write;
   status/push recover an interrupted commit from its before/after hashes.

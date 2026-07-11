@@ -284,7 +284,7 @@ atl conf space tree --space DOCS
 atl conf page view 123456 -o text   # настроенный Markdown без артефактов mirror
 atl conf page get     --id 123456
 atl conf page get     --id 123456 --format csf
-atl conf page meta    --id 123456
+atl conf page meta    --id 123456  # если restricted отсутствует, состояние неизвестно
 atl conf page history --id 123456
 # Guarded-обновление title: значение берётся из файла/stdin, а не argv
 atl conf page title set 123456 --from-file title.txt
@@ -373,7 +373,7 @@ atl jira field-options --project PROJ --field <field-id>
 - Тела запросов передаются через `--from-file <path>` или `--from-file -` (stdin, лимит 64 MiB;
   больший ввод отклоняется с ошибкой, а не усекается).
 - Никаких интерактивных запросов.
-- Confluence pull/render/apply/push сериализуются для каждого mirror; при
+- Confluence pull/render/apply/push и локальный `conf edit` сериализуются для каждого mirror; при
   конфликте дождитесь активной операции и не удаляйте постоянный lock в `.atl`.
 - Обновления общего `state.json` из Jira и Confluence объединяются под одним
   нейтральным lock; при конфликте операция завершается безопасно, не теряя записи.

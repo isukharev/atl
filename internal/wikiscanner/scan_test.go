@@ -12,6 +12,24 @@ func TestParseListLine(t *testing.T) {
 	}
 }
 
+func TestSharedWikiBlockRecognizers(t *testing.T) {
+	if level, body, ok := ParseHeading("h3. Title"); !ok || level != 3 || body != "Title" {
+		t.Fatalf("ParseHeading = %d, %q, %v", level, body, ok)
+	}
+	if macro, params, rest, ok := ParseCodeOpen("{code:go}fmt.Println()"); !ok || macro != "code" || params != "go" || rest != "fmt.Println()" {
+		t.Fatalf("ParseCodeOpen = %q, %q, %q, %v", macro, params, rest, ok)
+	}
+	if rest, ok := ParseQuoteOpen("{quote}Text"); !ok || rest != "Text" {
+		t.Fatalf("ParseQuoteOpen = %q, %v", rest, ok)
+	}
+	if params, rest, ok := ParsePanelOpen("{panel:title=Note}Text"); !ok || params != "title=Note" || rest != "Text" {
+		t.Fatalf("ParsePanelOpen = %q, %q, %v", params, rest, ok)
+	}
+	if !IsHorizontalRule("----") || IsHorizontalRule("---") {
+		t.Fatal("horizontal rule recognition drifted")
+	}
+}
+
 func TestTableRowEnd(t *testing.T) {
 	tests := []struct {
 		name  string

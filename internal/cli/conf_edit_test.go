@@ -5,7 +5,85 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/isukharev/atl/internal/app"
 )
+
+func TestConfEditJoinsMirrorMutationLock(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".atl"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(root, "page.csf")
+	if err := os.WriteFile(p, []byte("<p>old</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	release, err := app.AcquireConfluenceMutation(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = release() }()
+	_, code := runCLI(t, nil, "conf", "edit", p, "--old", "old", "--new", "new")
+	if code != exitCheckFailed {
+		t.Fatalf("lock contention exit = %d, want %d", code, exitCheckFailed)
+	}
+	got, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "<p>old</p>" {
+		t.Fatalf("locked edit changed file: %q", got)
+	}
+}
+
+func TestConfEditExternalSymlinkJoinsTargetMirrorLock(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".atl"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "page.csf")
+	if err := os.WriteFile(target, []byte("<p>old</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "alias.csf")
+	if err := os.Symlink(target, alias); err != nil {
+		t.Fatal(err)
+	}
+	release, err := app.AcquireConfluenceMutation(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = release() }()
+	_, code := runCLI(t, nil, "conf", "edit", alias, "--old", "old", "--new", "new")
+	if code != exitCheckFailed {
+		t.Fatalf("symlink lock contention exit = %d, want %d", code, exitCheckFailed)
+	}
+	if got, _ := os.ReadFile(target); string(got) != "<p>old</p>" {
+		t.Fatalf("locked symlink edit changed target: %q", got)
+	}
+}
+
+func TestConfEditRefusesMirrorSymlinkEscapingRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".atl"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "outside.csf")
+	if err := os.WriteFile(target, []byte("<p>old</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "alias.csf")
+	if err := os.Symlink(target, alias); err != nil {
+		t.Fatal(err)
+	}
+	_, code := runCLI(t, nil, "conf", "edit", alias, "--old", "old", "--new", "new")
+	if code != exitCheckFailed {
+		t.Fatalf("escaping symlink exit = %d, want %d", code, exitCheckFailed)
+	}
+	if got, _ := os.ReadFile(target); string(got) != "<p>old</p>" {
+		t.Fatalf("refused symlink edit changed external target: %q", got)
+	}
+}
 
 func writeEditFixture(t *testing.T, name, content string) string {
 	t.Helper()

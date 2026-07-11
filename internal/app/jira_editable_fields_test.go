@@ -717,6 +717,10 @@ func TestJiraDirectWikiRebindRejectsUnsupportedViewMarkerBeforeWrite(t *testing.
 	}
 	for name, marker := range markers {
 		t.Run(name, func(t *testing.T) {
+			want := "jira render"
+			if name == "future" {
+				want = "update atl"
+			}
 			svc, _, root, mdPath, wikiPath := setupEditablePulled(t)
 			mustWriteFile(t, mdPath, strings.Replace(mustReadFile(t, mdPath), "first", "field changed", 1))
 			if _, err := svc.Apply(mdPath, JiraApplyOpts{Into: root}); err != nil {
@@ -735,7 +739,7 @@ func TestJiraDirectWikiRebindRejectsUnsupportedViewMarkerBeforeWrite(t *testing.
 			mustWriteFile(t, mdPath, md)
 
 			_, err := svc.Apply(mdPath, JiraApplyOpts{Into: root, RebasePending: true})
-			if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "jira render") {
+			if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), want) {
 				t.Fatalf("marker refusal = %v", err)
 			}
 			if got := mustReadFile(t, wikiPath); got != wikiBefore {
@@ -770,7 +774,7 @@ func TestJiraUnsupportedViewMarkerDoesNotRecoverPendingTransaction(t *testing.T)
 	mustWriteFile(t, mdPath, md)
 
 	_, err := svc.Apply(mdPath, JiraApplyOpts{Into: root})
-	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "jira render") {
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "update atl") {
 		t.Fatalf("marker refusal = %v", err)
 	}
 	if got := mustReadFile(t, txnPath); got != txnBefore {

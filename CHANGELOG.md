@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Guarded workflow edge cases now share one contract.** Jira field proposal
+  hashes bind the issue key; Confluence title/move and Jira field no-op outcomes
+  still require reviewed freshness gates; unknown restriction metadata remains
+  unknown; `conf edit` resolves symlinks and joins the real mirror mutation
+  lock; Jira transient text no longer gains an emitter newline; and Jira
+  render/merge block recognizers have one source of truth. Future Jira view
+  markers now require a newer binary.
+
 - **Readable, identity-safe Confluence view v2.** Derived page views now expose
   clear `# Metadata`, `# Content`, and `# Comments` regions; comments retain
   native CSF formatting; page links show label plus space/target identity; and

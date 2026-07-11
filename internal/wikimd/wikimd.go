@@ -57,12 +57,7 @@ func tidy(s string) string {
 }
 
 var (
-	headingRe   = regexp.MustCompile(`^h([1-6])\.[ \t]+(.*)$`)
-	codeOpenRe  = regexp.MustCompile(`^\{(code|noformat)(?::([^}]*))?\}(.*)$`)
-	quoteOpenRe = regexp.MustCompile(`^\{quote\}(.*)$`)
-	panelOpenRe = regexp.MustCompile(`^\{panel(?::([^}]*))?\}(.*)$`)
-	hrRe        = regexp.MustCompile(`^-{4,}[ \t]*$`)
-	langRe      = regexp.MustCompile(`[^A-Za-z0-9#+.\-]`)
+	langRe = regexp.MustCompile(`[^A-Za-z0-9#+.\-]`)
 )
 
 // renderBlocks is the line-based block scanner. Each iteration recognizes one
@@ -90,24 +85,23 @@ func renderBlocks(b *strings.Builder, lines []string, opts Options) {
 		case strings.TrimSpace(line) == "":
 			b.WriteString("\n")
 			i++
-		case headingRe.MatchString(line):
-			m := headingRe.FindStringSubmatch(line)
-			n := int(m[1][0] - '0') // m[1] is a single digit 1..6
-			writeBlock(renderHeading(n, strings.TrimSpace(m[2]), opts))
+		case isWikiHeading(line):
+			n, body, _ := wikiscanner.ParseHeading(line)
+			writeBlock(renderHeading(n, strings.TrimSpace(body), opts))
 			i++
-		case codeOpenRe.MatchString(line):
+		case isWikiCodeOpen(line):
 			out, next := codeBlock(lines, i)
 			writeBlock(out)
 			i = next
-		case quoteOpenRe.MatchString(line):
+		case isWikiQuoteOpen(line):
 			out, next := quoteBlock(lines, i, opts)
 			writeBlock(out)
 			i = next
-		case panelOpenRe.MatchString(line):
+		case isWikiPanelOpen(line):
 			out, next := panelBlock(lines, i, opts)
 			writeBlock(out)
 			i = next
-		case hrRe.MatchString(line):
+		case wikiscanner.IsHorizontalRule(line):
 			writeBlock("---")
 			i++
 		case strings.HasPrefix(line, "|"):
@@ -178,8 +172,7 @@ func ensureBlankLine(b *strings.Builder) {
 // verbatim (no inline wiki parsing). An unterminated macro consumes the rest of
 // the document as body rather than losing it (best-effort, never an error).
 func codeBlock(lines []string, i int) (string, int) {
-	m := codeOpenRe.FindStringSubmatch(lines[i])
-	macro, params, rest := m[1], m[2], m[3]
+	macro, params, rest, _ := wikiscanner.ParseCodeOpen(lines[i])
 	lang := ""
 	if macro == "code" {
 		lang = codeLang(params)
@@ -258,16 +251,17 @@ func codeLang(params string) string {
 // quoteBlock renders a {quote} macro as a `>` blockquote. Inner content is
 // rendered recursively so it keeps its own structure (headings, lists, code).
 func quoteBlock(lines []string, i int, opts Options) (string, int) {
-	inner, next := collectMacroBody(lines, i, quoteOpenRe.FindStringSubmatch(lines[i])[1], "{quote}")
+	rest, _ := wikiscanner.ParseQuoteOpen(lines[i])
+	inner, next := collectMacroBody(lines, i, rest, "{quote}")
 	return blockquote(Render(inner, opts)), next
 }
 
 // panelBlock renders a {panel}/{panel:title=X} macro as a blockquote; a title
 // becomes a leading bold line.
 func panelBlock(lines []string, i int, opts Options) (string, int) {
-	m := panelOpenRe.FindStringSubmatch(lines[i])
-	title := panelTitle(m[1])
-	inner, next := collectMacroBody(lines, i, m[2], "{panel}")
+	params, rest, _ := wikiscanner.ParsePanelOpen(lines[i])
+	title := panelTitle(params)
+	inner, next := collectMacroBody(lines, i, rest, "{panel}")
 	body := Render(inner, opts)
 	content := body
 	if title != "" {
@@ -277,6 +271,26 @@ func panelBlock(lines []string, i int, opts Options) (string, int) {
 		}
 	}
 	return blockquote(content), next
+}
+
+func isWikiHeading(line string) bool {
+	_, _, ok := wikiscanner.ParseHeading(line)
+	return ok
+}
+
+func isWikiCodeOpen(line string) bool {
+	_, _, _, ok := wikiscanner.ParseCodeOpen(line)
+	return ok
+}
+
+func isWikiQuoteOpen(line string) bool {
+	_, ok := wikiscanner.ParseQuoteOpen(line)
+	return ok
+}
+
+func isWikiPanelOpen(line string) bool {
+	_, _, ok := wikiscanner.ParsePanelOpen(line)
+	return ok
 }
 
 // collectMacroBody gathers the raw inner text of a paired brace macro whose

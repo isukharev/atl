@@ -66,8 +66,9 @@ atl jira issue field set PROJ-1 \
 all other bytes are an exact string. The files/stdin and normalized proposals
 are capped at 64 MiB in aggregate. Only Jira custom fields named in the exact
 `--allow-fields` list are accepted. A stale `updated` value blocks with exit 8;
-a changed input file also blocks because apply requires the reviewed aggregate
-`proposal_hash`. An already-satisfied value does not write after both gates pass.
+a changed input file or different issue key also blocks because apply requires
+the key-bound schema-v2 aggregate `proposal_hash`. An already-satisfied value
+does not write after both gates pass.
 
 ## Editing a large description / epic body as a file
 
