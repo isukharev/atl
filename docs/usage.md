@@ -904,7 +904,8 @@ Missing local targets for `conf render`, `conf apply`, and `conf push` all map
 to exit `4` (`not found`). Malformed target kinds or incompatible flag
 combinations remain exit `2` (`usage`). Offline render may migrate legacy or
 unversioned local views, but refuses to overwrite an explicit unknown/future
-document version.
+document version. Directory renders inspect every selected view first and make
+no view changes if any selected marker is from an unsupported future format.
 
 ### `atl conf table extract`
 
@@ -2159,7 +2160,8 @@ The first line is the versioned format marker
 `<!-- atl:document jira-issue v1 -->`; missing or unversioned markers fail
 closed and require `jira render` (or a fresh pull) before editing. A future or
 unknown version requires updating `atl`; never render/downgrade it with the
-older binary. Because
+older binary. Directory render checks all selected markers before rewriting the
+first view. Because
 render rewrites `.md`, save any existing edits as a reviewed external patch,
 render the exact file/root, then reapply them. The
 `<!-- atl:document ... -->` and `<!-- atl:section ... -->` prefixes are reserved

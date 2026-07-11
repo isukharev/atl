@@ -52,6 +52,16 @@ func (s *JiraService) Render(target string, override config.RenderService) (*Jir
 	if err != nil {
 		return nil, err
 	}
+	// Refuse the whole batch before locks, pending-state recovery, view-state
+	// updates, or sibling rewrites. A newer derived format must never be
+	// silently downgraded by an older renderer.
+	for _, jsonPath := range snaps {
+		keySeg := strings.TrimSuffix(filepath.Base(jsonPath), ".json")
+		mdPath := filepath.Join(filepath.Dir(jsonPath), keySeg+".md")
+		if err := preflightJiraRenderView(root, mdPath); err != nil {
+			return res, err
+		}
+	}
 	missingEpicSidecars := 0
 	for _, jsonPath := range snaps {
 		keySeg := strings.TrimSuffix(filepath.Base(jsonPath), ".json")
@@ -125,6 +135,26 @@ func (s *JiraService) Render(target string, override config.RenderService) (*Jir
 		res.Warnings = append(res.Warnings, fmt.Sprintf("render: epic_children is enabled but %d epic snapshot(s) have no sidecar; re-run jira pull with the section enabled", missingEpicSidecars))
 	}
 	return res, nil
+}
+
+// preflightJiraRenderView permits the current marker and the known
+// unversioned legacy view (which render migrates to v1), but protects any
+// explicit unknown version from downgrade.
+func preflightJiraRenderView(root, mdPath string) error {
+	b, err := safepath.ReadFileWithin(root, mdPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("%w: inspect existing render target %s: %v", domain.ErrCheckFailed, mdPath, err)
+	}
+	first, _, _ := strings.Cut(string(b), "\n")
+	if strings.HasPrefix(first, "<!-- atl:document jira-issue") &&
+		first != jiraIssueDocumentMarker &&
+		first != "<!-- atl:document jira-issue -->" {
+		return fmt.Errorf("%w: existing view %s uses unsupported format marker %q; preserve it and update atl before rendering — do not downgrade it with this binary", domain.ErrCheckFailed, mdPath, first)
+	}
+	return nil
 }
 
 // jiraSnapshotFiles returns the `<KEY>.json` snapshot paths a render should

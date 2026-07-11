@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Offline render cannot partially downgrade future derived views.** Jira now
+  enforces the same marker-version preflight as Confluence, and both services
+  inspect the entire selected render batch before rewriting any sibling.
+  Confluence marker reads also use root-contained mirror I/O.
+
 - **Structure and board projections remain honest at visibility and format
   boundaries.** Jira search no longer rejects a whole id batch because one issue
   is deleted or hidden; only issue-typed Structure rows can receive issue values,

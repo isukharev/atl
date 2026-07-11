@@ -228,7 +228,8 @@ already exist, save a reviewed patch outside the derived `.md`, render, then
 reapply the patch; render rewrites `.md`. Use the existing file's nearest
 `.atl` root throughout, or fresh-pull into a newly approved root before editing.
 If the marker has a future/unknown version, update `atl`; never render or
-downgrade that view with the older binary.
+downgrade that view with the older binary. A directory render preflights all
+selected view versions before rewriting any sibling.
 
 This is the measured-cheaper edit surface (issue #88: fewer turns and a higher success rate than
 hand-writing wiki markup). Untouched blocks keep their **exact base bytes**; changed/new blocks
