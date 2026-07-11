@@ -85,7 +85,7 @@ func (s *ConfluenceService) MoveGuarded(ctx context.Context, id string, opts Con
 		return nil, fmt.Errorf("%w: target parent %s is a descendant of page %s", domain.ErrCheckFailed, parent, id)
 	}
 
-	proposalHash := confluenceMoveProposalHash(id, current.Version, current.Parent, parent)
+	proposalHash := confluenceMoveProposalHash(id, current.Version, current.Parent, parent, target.Version)
 	mode := "dry-run"
 	if opts.Apply {
 		mode = "apply"
@@ -122,6 +122,23 @@ func (s *ConfluenceService) MoveGuarded(ctx context.Context, id string, opts Con
 	}
 	if !opts.Apply {
 		return result, nil
+	}
+	// Re-read the destination immediately before the PUT. Confluence exposes no
+	// multi-page transaction/CAS, but this closes the long preview/preflight
+	// window and refuses a target whose version or hierarchy changed.
+	freshTarget, err := s.store.GetPage(ctx, parent, domain.PullOpts{Format: "csf"})
+	if err != nil {
+		result.Status = "blocked"
+		return result, fmt.Errorf("%w: revalidate target parent %s: %v", domain.ErrCheckFailed, parent, err)
+	}
+	if err := validateMovePageRead(freshTarget, parent, false); err != nil {
+		result.Status = "blocked"
+		return result, err
+	}
+	if freshTarget.Version != target.Version || freshTarget.SpaceKey != target.SpaceKey ||
+		!slices.Equal(freshTarget.AncestorIDs, target.AncestorIDs) || slices.Contains(freshTarget.AncestorIDs, id) {
+		result.Status = "blocked"
+		return result, fmt.Errorf("%w: target parent %s changed during move preflight; preview again", domain.ErrCheckFailed, parent)
 	}
 
 	_, writeErr := s.store.MovePage(ctx, id, parent, current.Version, current.Title, current.Body)
@@ -191,14 +208,15 @@ func validMoveHierarchy(page *domain.Resource) bool {
 	return true
 }
 
-func confluenceMoveProposalHash(id string, version int, currentParent, parent string) string {
+func confluenceMoveProposalHash(id string, version int, currentParent, parent string, targetVersion int) string {
 	canonical, _ := json.Marshal(struct {
 		SchemaVersion int    `json:"schema_version"`
 		ID            string `json:"id"`
 		Version       int    `json:"version"`
 		CurrentParent string `json:"current_parent"`
 		Parent        string `json:"parent"`
-	}{SchemaVersion: 1, ID: id, Version: version, CurrentParent: currentParent, Parent: parent})
+		TargetVersion int    `json:"target_version"`
+	}{SchemaVersion: 2, ID: id, Version: version, CurrentParent: currentParent, Parent: parent, TargetVersion: targetVersion})
 	sum := sha256.Sum256(canonical)
 	return hex.EncodeToString(sum[:])
 }

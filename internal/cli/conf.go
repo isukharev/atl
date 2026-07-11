@@ -698,6 +698,10 @@ func confStatusCmd() *cobra.Command {
 				var b strings.Builder
 				for _, e := range entries {
 					flag := "   "
+					if e.NonCanonical {
+						fmt.Fprintf(&b, "S! %s\t%s\t(canonical: %s)\n", e.ID, e.Path, e.CanonicalPath)
+						continue
+					}
 					if e.LocallyEdited {
 						flag = "M  "
 					}

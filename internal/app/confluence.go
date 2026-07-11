@@ -247,6 +247,11 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 		if derr != nil {
 			return res, fmt.Errorf("pull %s: %w", id, derr)
 		}
+		rel, _ := filepath.Rel(root, filepath.Join(dir, slug+".csf"))
+		relocation, rerr := planConfluencePageRelocation(m, page.ID, rel)
+		if rerr != nil {
+			return res, fmt.Errorf("pull %s: %w", id, rerr)
+		}
 		refs := []domain.Ref{}
 		if root, perr := csf.Parse(page.Body); perr == nil {
 			refs = fragment.Extract(root)
@@ -284,7 +289,17 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 		// apply` can reproduce the exact pristine view (metadata + comments
 		// stay read-only) instead of guessing from the ambient config.
 		batch.RecordView(page.ID, viewStateOf(rs))
-		rel, _ := filepath.Rel(root, filepath.Join(dir, slug+".csf"))
+		if relocation != nil {
+			// Publish the new canonical state before retiring the old exact page
+			// artifacts. A crash can therefore leave only an untracked stale copy,
+			// never a sidecar that calls the stale path current.
+			if err := batch.Flush(); err != nil {
+				return res, err
+			}
+			if err := m.RetirePageRelocation(relocation); err != nil {
+				return res, err
+			}
+		}
 		assetCount := 0
 		for _, r := range refs {
 			if r.Asset != "" {
@@ -302,6 +317,41 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 		return res, err
 	}
 	return res, nil
+}
+
+// planConfluencePageRelocation reconstructs the exact recorded pristine view
+// at a page's old tracked path. This keeps mirror's filesystem primitive
+// backend-neutral while letting it reject both native and unapplied Markdown
+// edits before a metadata-driven path change.
+func planConfluencePageRelocation(m *mirror.Mirror, id, newRel string) (*mirror.PageRelocation, error) {
+	st, ok, err := m.SyncStateOf(id)
+	if err != nil || !ok || filepath.Clean(st.Path) == filepath.Clean(newRel) {
+		return nil, err
+	}
+	oldCSF := filepath.Join(m.Root, filepath.FromSlash(st.Path))
+	lc, current, err := m.LoadCSF(oldCSF)
+	if err != nil {
+		return nil, err
+	}
+	base, ok := m.BaseBody(id)
+	if !ok || mirror.Hash(current) != mirror.Hash(base) {
+		return nil, fmt.Errorf("%w: old tracked page %s has local native edits; apply/push or preserve them before re-pulling", domain.ErrCheckFailed, oldCSF)
+	}
+	view, hasView, err := m.ViewStateOf(id)
+	if err != nil {
+		return nil, err
+	}
+	dir := filepath.Dir(oldCSF)
+	slug := strings.TrimSuffix(filepath.Base(oldCSF), ".csf")
+	md := []byte(mirror.MDUnavailableStub)
+	if node, parseErr := csf.Parse(base); parseErr == nil {
+		opts := mirror.MDViewOpts{}
+		if hasView {
+			opts = confMDViewOpts(settingsFromViewState(view), confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug))
+		}
+		md = mirror.RenderMarkdownOpts(node, lc.Meta.Refs, opts)
+	}
+	return m.PlanPageRelocation(id, newRel, md)
 }
 
 // cqlPullCap bounds how many ids a `--cql` pull collects. Confluence offers no
@@ -376,6 +426,8 @@ type StatusEntry struct {
 	RemoteVersion int    `json:"remote_version,omitempty"`
 	Drifted       bool   `json:"remote_drifted"`
 	RemoteError   string `json:"remote_error,omitempty"`
+	NonCanonical  bool   `json:"non_canonical,omitempty"`
+	CanonicalPath string `json:"canonical_path,omitempty"`
 }
 
 // Status reports locally-edited and remote-drifted pages under dir.
@@ -391,10 +443,14 @@ func (s *ConfluenceService) Status(ctx context.Context, dir string, checkRemote 
 	var out []StatusEntry
 	for _, lc := range locals {
 		e := StatusEntry{Path: lc.Path, ID: lc.Meta.ID, Title: lc.Meta.Title, LocallyEdited: lc.Dirty}
+		if lc.TrackedElsewhere {
+			e.NonCanonical = true
+			e.CanonicalPath = filepath.Join(m.Root, filepath.FromSlash(lc.CanonicalPath))
+		}
 		if lc.Synced != nil {
 			e.SyncedVersion = lc.Synced.Version
 		}
-		if checkRemote && lc.Meta.ID != "" {
+		if checkRemote && lc.Meta.ID != "" && !lc.TrackedElsewhere {
 			// Record the reason a remote check failed (deleted/forbidden/network)
 			// so a page that could not be checked is not silently reported as
 			// in-sync — which would mislead a "safe to push?" decision.
@@ -530,6 +586,10 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 		return item, err
 	}
 	item.ID = lc.Meta.ID
+	if lc.TrackedElsewhere {
+		item.Skipped = "non-canonical-path"
+		return item, fmt.Errorf("%w: %s is a stale copy for page %s; canonical mirror path is %s — never push this copy, including with --force; reconcile or remove only the stale primary artifacts", domain.ErrCheckFailed, path, lc.Meta.ID, filepath.Join(m.Root, filepath.FromSlash(lc.CanonicalPath)))
+	}
 	// Block on malformed CSF.
 	problems := csf.Validate(body)
 	item.Problems = problems

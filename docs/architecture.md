@@ -379,6 +379,13 @@ Notable behaviors:
   `internal/wikiscanner` owns the Jira heading/macro/hr/list/table recognition
   rules consumed by both `wikimd` and `wikimerge`, so renderer and apply block
   boundaries cannot drift through duplicated regular expressions.
+
+Confluence path relocation is id-based rather than directory-based. A re-pull
+reconstructs the recorded pristine view in `app`, while `mirror` hash-binds and
+retires only the old page's primary artifacts after the replacement sidecar
+path is durable. State lookup also requires path identity, so a crash-left old
+copy is untracked/dirty. Descendant and auxiliary directories are never removed
+recursively.
   Pending commits bind the recorded sidecar path and reviewed `.wiki` hash. A
   non-discoverable transaction is published only after the atomic wiki write;
   status/push recover an interrupted commit from its before/after hashes.

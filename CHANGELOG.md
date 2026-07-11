@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Confluence re-pulls retire stale metadata paths safely.** When a title or
+  ancestor change moves a tracked page, pull now binds relocation by page id,
+  refuses native/Markdown edits and target collisions, publishes the new
+  sidecar path, then retires only the old page's primary artifacts. Descendants,
+  assets, comment caches, and unrelated files are preserved. Guarded moves also
+  bind the reviewed target version and re-read its hierarchy immediately before
+  the write.
+
 - **Guarded workflow edge cases now share one contract.** Jira field proposal
   hashes bind the issue key; Confluence title/move and Jira field no-op outcomes
   still require reviewed freshness gates; unknown restriction metadata remains

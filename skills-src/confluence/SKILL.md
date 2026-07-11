@@ -126,7 +126,9 @@ Use this order so each later operation sees fresh identity/version state:
 
 1. **Body**: finish one apply/validate/dry-run/push cycle.
 2. **Metadata**: fresh-read, preview, then apply guarded title/move operations;
-   re-pull after `applied` because title/move may change mirror paths.
+   re-pull after `applied` because title/move may change mirror paths. Re-pull
+   relocates only a pristine id-matched page; on local edits or a path collision,
+   preserve both copies and follow exit-8 recovery instead of deleting dirs.
 3. **Comment**: add last from a private validated CSF file. List existing
    comments before POST to avoid duplicates; a truncation warning blocks the
    write. If the outcome is ambiguous, list again and reconcile by
