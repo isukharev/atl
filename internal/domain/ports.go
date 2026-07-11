@@ -265,6 +265,7 @@ type StructureRow struct {
 type StructureValues struct {
 	Responses        []map[string]any  `json:"responses,omitempty"`
 	ItemTypes        map[string]string `json:"item_types,omitempty"`
+	ForestVersion    StructureVersion  `json:"forest_version,omitempty"`
 	ItemsVersion     StructureVersion  `json:"items_version,omitempty"`
 	InaccessibleRows []int64           `json:"inaccessible_rows"`
 	Raw              map[string]any    `json:"raw,omitempty"`

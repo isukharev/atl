@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Normalized Tempo Structure snapshots for agent planning.** `jira structure
+  view` joins hierarchy rows with compact Jira fields by stable issue identity and
+  renders JSON, Markdown tables, or row ids without inflating cells with raw
+  Jira objects. Offline exports now share that projection and add self-contained
+  JSONL alongside JSON, safe CSV, and Markdown. Snapshots record that browser
+  saved-view columns were not reproduced and mark per-row permission gaps.
+  Stored folders receive best-effort labels; calculated grouping rows stay
+  technical rather than risking an incorrect row/value join.
+
 ### Fixed
 
 - **Confluence relocation recovery and local diagnostics are fail-closed but

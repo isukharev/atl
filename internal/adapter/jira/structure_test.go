@@ -92,7 +92,7 @@ func TestStructureForestWiresLatestForestSpec(t *testing.T) {
 }
 
 func TestStructureValuesWiresRowsAndAttributes(t *testing.T) {
-	const body = `{"responses":[{"inaccessibleRows":[12],"itemTypes":{"1":"folder"},"itemsVersion":{"signature":9,"version":2},"rows":[10,12],"data":[]}]}`
+	const body = `{"responses":[{"inaccessibleRows":[12],"itemTypes":{"1":"folder"},"forestVersion":{"signature":8,"version":3},"itemsVersion":{"signature":9,"version":2},"rows":[10,12],"data":[]}]}`
 	j, reqs := agileServer(t, map[string]string{"POST /rest/structure/2.0/value": body})
 
 	vals, err := j.StructureValues(context.Background(), 123, []int64{10, 12}, []string{"key", "summary"})
@@ -102,8 +102,8 @@ func TestStructureValuesWiresRowsAndAttributes(t *testing.T) {
 	if len(vals.Responses) != 1 || len(vals.InaccessibleRows) != 1 || vals.InaccessibleRows[0] != 12 {
 		t.Fatalf("values = %+v, want one response and inaccessible row 12", vals)
 	}
-	if vals.ItemTypes["1"] != "folder" || vals.ItemsVersion.Version != 2 {
-		t.Errorf("values metadata = %+v, want itemTypes and itemsVersion", vals)
+	if vals.ItemTypes["1"] != "folder" || vals.ItemsVersion.Version != 2 || vals.ForestVersion.Signature != 8 {
+		t.Errorf("values metadata = %+v, want itemTypes, forestVersion, and itemsVersion", vals)
 	}
 	req := (*reqs)[0]
 	if req.method != http.MethodPost || req.path != "/rest/structure/2.0/value" {

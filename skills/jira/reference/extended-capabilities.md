@@ -72,16 +72,31 @@ Structure commands use numeric ids and never write Structure data:
 
 ```bash
 atl jira structure get 123
+atl jira structure view 123 -o text
+atl jira structure view 123 --fields key,summary,status,assignee
 atl jira structure forest 123
 atl jira structure rows 123 --root "release train"
 atl jira structure values 123 --rows 100,101 --fields key,summary,status
 atl jira structure pull-issues 123 --fields summary,status
-atl jira structure export 123 --format json --out structure.json
+atl jira structure export 123 --format jsonl --out structure.jsonl
 ```
 
-`rows` reports parsed hierarchy; `--root` returns the first matching row and its
-descendants. `values` preserves backend responses and permission gaps.
-`pull-issues` fetches snapshots referenced by issue rows. Exports support
-`json|csv|md`; CSV neutralizes formulas unless the user explicitly approves
-`--raw-csv` for a trusted non-spreadsheet consumer. Plugin/object/permission
-problems normally surface as exit 4/6.
+Use `view` first for agent analysis: JSON is compact and jq-friendly, `-o text`
+is a readable Markdown table, and stored folders receive best-effort labels.
+Calculated grouping rows intentionally keep technical identities because their
+row ids can be regenerated. The default Jira-field projection is
+`key,summary,status,assignee,priority,issuetype`; use `--fields` for the PM's
+planning columns. Do not claim this matches the browser's selected saved view:
+the supported integration API does not reliably expose saved/per-user columns,
+and the output explicitly records `browser_view_reproduced:false`.
+Generated `row_id` values can be ephemeral; atl resolves issues by stable
+`item_id`. Filter and correlate primarily by `row.values.key`, `row.item_id`,
+and hierarchy position within one snapshot.
+
+For repeated filtering, export JSONL and use `jq -c` per record; use CSV for
+spreadsheet/relational tools and Markdown for human review. Exports support
+`json|jsonl|csv|md`; CSV neutralizes formulas unless the user explicitly
+approves `--raw-csv` for a trusted non-spreadsheet consumer. `rows` and `values`
+remain low-level diagnostics. `pull-issues` is the separate rich/raw Jira
+snapshot path. Explicit per-row permission gaps remain visible through `complete`, `accessible`, and
+`inaccessible_rows`; plugin/object failures normally surface as exit 4/6.

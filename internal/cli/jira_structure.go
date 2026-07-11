@@ -44,7 +44,7 @@ func parseInt64List(name, s string) ([]int64, error) {
 
 // jiraStructureCmd builds read-only Tempo Structure commands.
 func jiraStructureCmd() *cobra.Command {
-	c := &cobra.Command{Use: "structure", Short: "Read Tempo Structure metadata, forests, rows, values, and issue snapshots"}
+	c := &cobra.Command{Use: "structure", Short: "Read Tempo Structure metadata, normalized views, forests, rows, and values"}
 
 	get := &cobra.Command{
 		Use:   "get <STRUCTURE-ID>",
@@ -158,6 +158,42 @@ func jiraStructureCmd() *cobra.Command {
 	values.Flags().StringVar(&valueRows, "rows", "", "comma-separated Structure row ids")
 	values.Flags().StringVar(&valueFields, "fields", "", "comma-separated Structure attribute ids (for example key,summary,status)")
 
+	var viewRoot, viewFields string
+	var viewBatchSize int
+	view := &cobra.Command{
+		Use:   "view <STRUCTURE-ID>",
+		Short: "Read a normalized agent-facing Structure snapshot",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := atoi64Arg("structure id", args[0])
+			if err != nil {
+				return err
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			res, err := svc.StructureSnapshot(cmd.Context(), id, app.StructureSnapshotOpts{
+				Root:       viewRoot,
+				Attributes: splitFields(viewFields),
+				BatchSize:  viewBatchSize,
+			})
+			if err != nil {
+				return err
+			}
+			return emitID(cmd, res, func() string { return app.StructureSnapshotMarkdown(res) }, func() []string {
+				ids := make([]string, len(res.Rows))
+				for i, row := range res.Rows {
+					ids[i] = strconv.FormatInt(row.RowID, 10)
+				}
+				return ids
+			})
+		},
+	}
+	view.Flags().StringVar(&viewRoot, "root", "", "optional root row/id/text; includes the first matching subtree")
+	view.Flags().StringVar(&viewFields, "fields", "", "comma-separated Jira fields (default: key,summary,status,assignee,priority,issuetype)")
+	view.Flags().IntVar(&viewBatchSize, "batch-size", 100, "issue id batch size for generated JQL")
+
 	var pullRoot, pullRootFields, pullFields, pullOut string
 	var pullBatchSize, pullLimit int
 	pullIssues := &cobra.Command{
@@ -196,12 +232,12 @@ func jiraStructureCmd() *cobra.Command {
 	pullIssues.Flags().IntVar(&pullLimit, "limit", 0, "maximum Jira issues to fetch (0 means no limit)")
 	pullIssues.Flags().StringVar(&pullOut, "out", "", "optional JSON file path for the pulled snapshot")
 
-	var exportRoot, exportRootFields, exportFields, exportFormat, exportOut string
-	var exportBatchSize, exportLimit int
+	var exportRoot, exportFields, exportFormat, exportOut string
+	var exportBatchSize int
 	var exportRawCSV bool
 	exportCmd := &cobra.Command{
 		Use:   "export <STRUCTURE-ID>",
-		Short: "Write an offline Structure tree export with Jira issue fields",
+		Short: "Write a normalized offline Structure snapshot",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := atoi64Arg("structure id", args[0])
@@ -213,14 +249,12 @@ func jiraStructureCmd() *cobra.Command {
 				return err
 			}
 			res, err := svc.StructureExport(cmd.Context(), id, app.StructureExportOpts{
-				Root:       exportRoot,
-				RootFields: splitFields(exportRootFields),
-				Fields:     splitFields(exportFields),
-				BatchSize:  exportBatchSize,
-				Limit:      exportLimit,
-				Format:     exportFormat,
-				Out:        exportOut,
-				RawCSV:     exportRawCSV,
+				Root:      exportRoot,
+				Fields:    splitFields(exportFields),
+				BatchSize: exportBatchSize,
+				Format:    exportFormat,
+				Out:       exportOut,
+				RawCSV:    exportRawCSV,
 			})
 			if err != nil {
 				return err
@@ -231,15 +265,13 @@ func jiraStructureCmd() *cobra.Command {
 		},
 	}
 	exportCmd.Flags().StringVar(&exportRoot, "root", "", "optional root row/id/text; exports the first matching subtree")
-	exportCmd.Flags().StringVar(&exportRootFields, "root-fields", "key,summary", "comma-separated Structure attributes used when matching --root")
-	exportCmd.Flags().StringVar(&exportFields, "fields", "", "comma-separated Jira fields to include")
+	exportCmd.Flags().StringVar(&exportFields, "fields", "", "comma-separated Jira fields (default: key,summary,status,assignee,priority,issuetype)")
 	exportCmd.Flags().IntVar(&exportBatchSize, "batch-size", 100, "issue id batch size for generated JQL")
-	exportCmd.Flags().IntVar(&exportLimit, "limit", 0, "maximum Jira issues to fetch (0 means no limit)")
-	exportCmd.Flags().StringVar(&exportFormat, "format", "json", "export format: json, csv, or md")
+	exportCmd.Flags().StringVar(&exportFormat, "format", "json", "export format: json, jsonl, csv, or md")
 	exportCmd.Flags().StringVar(&exportOut, "out", "", "required output file path")
 	exportCmd.Flags().BoolVar(&exportRawCSV, "raw-csv", false, "write formula-leading CSV cells verbatim (unsafe in spreadsheets)")
 
-	c.AddCommand(get, forest, rows, values, pullIssues, exportCmd)
+	c.AddCommand(get, view, forest, rows, values, pullIssues, exportCmd)
 	return c
 }
 
