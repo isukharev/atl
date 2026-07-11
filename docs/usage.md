@@ -1042,9 +1042,10 @@ exits 8 before reading or changing the file. Symlink targets are resolved before
 lock discovery; an alias outside the mirror joins the target mirror's lock, and
 an alias visibly inside a mirror that resolves outside it is refused.
 
-Exit codes: `4` — the text was not found in any pass (the error carries a
-quoted dump of the closest region, exposing hidden bytes); `2` — the match is
-ambiguous (make `--old` more specific or pass `--all`).
+Exit codes: `4` — the target file is missing or the text was not found in any
+pass (a no-match error carries a quoted dump of the closest region, exposing
+hidden bytes); `2` — the match is ambiguous (make `--old` more specific or pass
+`--all`).
 
 Usage notes: keep `--old`/`--new` short and inline — match an anchor around
 the change, not a whole sentence or table row; `--old-file`/`--new-file` are

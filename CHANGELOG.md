@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Stored folders receive best-effort labels; calculated grouping rows stay
   technical rather than risking an incorrect row/value join.
 
+### Changed
+
+- **Structure export now uses the normalized snapshot contract.** During the
+  beta, the former aggregate `{rows,issue_ids,issues}` export and its
+  export-only `--root-fields`/`--limit` flags were replaced by the same compact
+  projection as `jira structure view`. Use `pull-issues` when raw Jira snapshots
+  or an issue limit are required.
+
 ### Security
 
 - **Release signing-key continuity is machine-enforced.** Before building a
@@ -35,6 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stop publication; the staged bridge-release path remains supported.
 
 ### Fixed
+
+- **Small agent contracts are explicit.** A missing `conf edit` target returns
+  not-found instead of usage, unknown non-empty Jira field objects render as
+  `[object]` rather than disappearing, and normalized Structure JSON is pinned
+  by a CLI golden test.
 
 - **Offline render cannot partially downgrade future derived views.** Jira now
   enforces the same marker-version preflight as Confluence, and both services

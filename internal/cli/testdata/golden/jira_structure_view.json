@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "structure": {
+    "id": 123,
+    "name": "Quarter plan"
+  },
+  "forest_version": {
+    "signature": 55,
+    "version": 7
+  },
+  "projection": {
+    "kind": "jira-fields-v1",
+    "source": "default",
+    "attributes": [
+      "key",
+      "summary",
+      "status",
+      "assignee",
+      "priority",
+      "issuetype"
+    ],
+    "browser_view_reproduced": false
+  },
+  "rows": [
+    {
+      "row_id": 100,
+      "depth": 0,
+      "item_type": "folder",
+      "item_id": "root",
+      "position": 0,
+      "accessible": true,
+      "values": {
+        "assignee": null,
+        "issuetype": null,
+        "key": null,
+        "priority": null,
+        "status": null,
+        "summary": "Planning | root"
+      }
+    },
+    {
+      "row_id": 101,
+      "depth": 1,
+      "parent_row_id": 100,
+      "item_type": "issue",
+      "item_id": "10001",
+      "position": 1,
+      "accessible": true,
+      "values": {
+        "assignee": "Owner",
+        "issuetype": "Story",
+        "key": "PROJ-1",
+        "priority": "High",
+        "status": "Open",
+        "summary": "First issue"
+      }
+    }
+  ],
+  "row_count": 2,
+  "issue_count": 1,
+  "complete": true,
+  "inaccessible_rows": []
+}

@@ -81,6 +81,13 @@ func TestMarkdownTableCellPreservesPunctuationAndBackslash(t *testing.T) {
 	}
 }
 
+func TestSnapshotTextMarksUnknownNonEmptyObject(t *testing.T) {
+	got := snapshotText(map[string]any{"self": "https://example.invalid/private", "opaque": true})
+	if got != "[object]" {
+		t.Fatalf("snapshotText=%q, want explicit non-empty object marker", got)
+	}
+}
+
 func TestStructureExportCSVNeutralizesFormulaCellsByDefault(t *testing.T) {
 	snapshot := &StructureSnapshot{
 		Projection: StructureProjection{Attributes: []string{"summary", "=field"}},

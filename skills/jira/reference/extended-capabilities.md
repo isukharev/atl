@@ -113,6 +113,9 @@ row ids can be regenerated. The default Jira-field projection is
 planning columns. Do not claim this matches the browser's selected saved view:
 the supported integration API does not reliably expose saved/per-user columns,
 and the output explicitly records `browser_view_reproduced:false`.
+Compact projections use human labels for known Jira objects and `[object]` for
+an unknown non-empty object; inspect a raw issue snapshot when its internal
+shape is required.
 Generated `row_id` values can be ephemeral; atl resolves issues by stable
 `item_id` only on `item_type:issue` rows. A deleted or permission-hidden id does
 not reject the rest of a Jira search batch; its row remains explicit with

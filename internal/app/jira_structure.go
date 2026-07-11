@@ -913,6 +913,13 @@ func snapshotText(value any) string {
 				return text
 			}
 		}
+		if len(v) > 0 {
+			// Do not make an unknown, non-empty custom-field object
+			// indistinguishable from a missing value. Raw objects may contain
+			// transport URLs or other noisy internals, so keep the fallback
+			// explicit without dumping them into compact agent projections.
+			return "[object]"
+		}
 		return ""
 	default:
 		return fmt.Sprint(v)

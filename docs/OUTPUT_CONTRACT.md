@@ -905,6 +905,9 @@ always present; when there are no reported gaps it is `[]`.
 
 `-o text` renders the same rows as a Markdown table with a hierarchy-aware
 Tree column; it does not dump raw Jira objects or transport URLs into cells.
+Known Jira objects use their human label/name; an unknown non-empty object is
+shown as `[object]` so it cannot be mistaken for a missing value without leaking
+transport internals.
 `-o id` emits row ids. The default attributes are shown above; explicit
 `--fields` selects Jira fields and changes both `projection.attributes` and row values. Browser saved
 views are deliberately not claimed as the source because Structure's supported

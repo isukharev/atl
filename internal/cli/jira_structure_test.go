@@ -258,6 +258,12 @@ func TestJiraStructureViewCLIEmitsNormalizedMarkdownAndIDs(t *testing.T) {
 		"startAt":0,"maxResults":50,"total":1
 	}`)
 
+	jsonOut, code := runCLI(t, jiraEnv(js.srv), "jira", "structure", "view", "123")
+	if code != exitOK {
+		t.Fatalf("structure view JSON: exit %d, want 0 (stdout=%q)", code, jsonOut)
+	}
+	assertGolden(t, "jira_structure_view.json", []byte(jsonOut))
+
 	out, code := runCLI(t, jiraEnv(js.srv), "jira", "structure", "view", "123", "-o", "text")
 	if code != exitOK {
 		t.Fatalf("structure view text: exit %d, want 0 (stdout=%q)", code, out)
