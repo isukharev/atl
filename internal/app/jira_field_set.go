@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -294,13 +293,4 @@ func fieldProposalsSatisfied(issue *domain.Issue, proposals []JiraFieldSetPrevie
 		}
 	}
 	return true
-}
-
-func definitiveWriteRejection(err error) bool {
-	var statusErr interface{ HTTPStatus() int }
-	if !errors.As(err, &statusErr) {
-		return false
-	}
-	status := statusErr.HTTPStatus()
-	return status >= 400 && status < 500 && status != 408 && status != 425 && status != 429
 }

@@ -251,8 +251,43 @@ func TestGetPageEmptyBody(t *testing.T) {
 	if len(r.Body) != 0 {
 		t.Errorf("expected empty body, got %q", r.Body)
 	}
+	if r.BodyPresent {
+		t.Fatal("omitted body.storage was marked present")
+	}
 	if r.Title != "Empty" {
 		t.Errorf("title = %q", r.Title)
+	}
+}
+
+func TestGetPageExplicitEmptyBodyIsPresent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"55","body":{"storage":{"value":""}}}`))
+	}))
+	defer srv.Close()
+	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+	r, err := cf.GetPage(context.Background(), "55", domain.PullOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.BodyPresent || len(r.Body) != 0 {
+		t.Fatalf("explicit empty body = present:%t bytes:%q", r.BodyPresent, r.Body)
+	}
+}
+
+func TestGetPageStorageObjectWithoutValueIsAbsent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"55","body":{"storage":{}}}`))
+	}))
+	defer srv.Close()
+	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+	r, err := cf.GetPage(context.Background(), "55", domain.PullOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.BodyPresent {
+		t.Fatal("storage object without value was marked present")
 	}
 }
 

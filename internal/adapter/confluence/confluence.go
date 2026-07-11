@@ -52,11 +52,11 @@ type content struct {
 		Title string `json:"title"`
 	} `json:"ancestors"`
 	Body struct {
-		Storage struct {
-			Value string `json:"value"`
+		Storage *struct {
+			Value *string `json:"value"`
 		} `json:"storage"`
-		View struct {
-			Value string `json:"value"`
+		View *struct {
+			Value *string `json:"value"`
 		} `json:"view"`
 	} `json:"body"`
 	Metadata struct {
@@ -103,6 +103,13 @@ func (ct *content) toResource(base, body string) *domain.Resource {
 	return r
 }
 
+func (ct *content) storageBody() (string, bool) {
+	if ct == nil || ct.Body.Storage == nil || ct.Body.Storage.Value == nil {
+		return "", false
+	}
+	return *ct.Body.Storage.Value, true
+}
+
 // GetPage fetches a page; Body is native CSF unless opts.Format=="view".
 func (cf *Confluence) GetPage(ctx context.Context, id string, opts domain.PullOpts) (*domain.Resource, error) {
 	expand := "body.storage,version,space,ancestors,metadata.labels"
@@ -116,11 +123,17 @@ func (cf *Confluence) GetPage(ctx context.Context, id string, opts domain.PullOp
 	if err := cf.c.GetJSON(ctx, "/rest/api/content/"+url.PathEscape(id)+"?expand="+expand, &ct); err != nil {
 		return nil, err
 	}
-	body := ct.Body.Storage.Value
+	body, present := ct.storageBody()
 	if opts.Format == "view" {
-		body = ct.Body.View.Value
+		present = ct.Body.View != nil && ct.Body.View.Value != nil
+		if present {
+			body = *ct.Body.View.Value
+		} else {
+			body = ""
+		}
 	}
 	r := ct.toResource(cf.base, body)
+	r.BodyPresent = present
 	if opts.IncludeRestrictions {
 		if ct.Restrictions != nil {
 			read := ct.Restrictions.Read.Restrictions
@@ -268,7 +281,10 @@ func (cf *Confluence) CreatePage(ctx context.Context, space, parent, title strin
 	if err := cf.c.SendJSON(ctx, "POST", "/rest/api/content", payload, &out); err != nil {
 		return nil, err
 	}
-	return out.toResource(cf.base, out.Body.Storage.Value), nil
+	bodyValue, present := out.storageBody()
+	r := out.toResource(cf.base, bodyValue)
+	r.BodyPresent = present
+	return r, nil
 }
 
 // MovePage reparents by reading the page and re-putting it with new ancestors.
@@ -279,13 +295,17 @@ func (cf *Confluence) MovePage(ctx context.Context, id, newParent string) error 
 	if err := cf.c.GetJSON(ctx, "/rest/api/content/"+url.PathEscape(id)+"?expand=version,body.storage", &cur); err != nil {
 		return err
 	}
+	bodyValue, present := cur.storageBody()
+	if !present {
+		return fmt.Errorf("%w: page %s response omitted body.storage; refusing move", domain.ErrCheckFailed, id)
+	}
 	payload := map[string]any{
 		"type":      "page",
 		"title":     cur.Title,
 		"version":   map[string]any{"number": cur.Version.Number + 1},
 		"ancestors": []map[string]string{{"id": newParent}},
 		"body": map[string]any{
-			"storage": map[string]any{"value": cur.Body.Storage.Value, "representation": "storage"},
+			"storage": map[string]any{"value": bodyValue, "representation": "storage"},
 		},
 	}
 	return cf.c.SendJSON(ctx, "PUT", "/rest/api/content/"+url.PathEscape(id), payload, nil)

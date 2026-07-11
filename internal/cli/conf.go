@@ -173,7 +173,7 @@ func confSpaceCmd() *cobra.Command {
 }
 
 func confPageCmd() *cobra.Command {
-	c := &cobra.Command{Use: "page", Short: "Page get/meta/history/create/move/delete"}
+	c := &cobra.Command{Use: "page", Short: "Page get/view/title/meta/history/create/move/delete"}
 	var id, format string
 	get := &cobra.Command{
 		Use:   "get",
@@ -209,6 +209,7 @@ func confPageCmd() *cobra.Command {
 	_ = get.RegisterFlagCompletionFunc("format", fixedComp("csf", "view"))
 
 	view := confPageViewCmd()
+	titleCmd := confPageTitleCmd()
 
 	var metaID string
 	meta := &cobra.Command{
@@ -427,7 +428,7 @@ func confPageCmd() *cobra.Command {
 	cp.Flags().StringVar(&copySpace, "space", "", "target space key (default: same as source)")
 	cp.Flags().StringVar(&copyParent, "parent", "", "target parent page id (default: same as source)")
 
-	c.AddCommand(get, view, meta, hist, list, open, cp, create, move, del)
+	c.AddCommand(get, view, titleCmd, meta, hist, list, open, cp, create, move, del)
 	return c
 }
 

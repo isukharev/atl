@@ -1190,6 +1190,42 @@ Fetch non-body page metadata (version, ancestors, labels, restrictions).
 atl conf page meta --id 12345678
 ```
 
+### `atl conf page title set`
+
+Preview a page-title update from a bounded file or stdin; no write occurs by
+default and the title never needs to appear in argv:
+
+```bash
+atl conf page title set 12345678 --from-file title.txt
+# review title, hashes, and current_version, then:
+atl conf page title set 12345678 --from-file title.txt --apply \
+  --expected-version 7 \
+  --expected-proposal-hash <hash-from-preview>
+```
+
+The preview normalizes surrounding whitespace, rejects empty/multiline/control
+text and inputs over 4096 bytes, and returns `current_title`, `title`,
+`title_bytes`, `title_sha256`, `current_version`, `expected_version`, and an
+aggregate `proposal_hash` binding page id + version + normalized title. Apply
+fresh-reads native CSF/title/version, requires both reviewed gates, and sends the
+unchanged CSF with the new title in one version-gated PUT. There is no `--force`.
+
+Every successful or ambiguous PUT is verified by another native page read. A
+verified exact title/body/version reports `applied`; a pre-existing target title
+reports `already_satisfied`. Ambiguous outcomes report `unknown`, exit non-zero,
+and must be inspected rather than automatically replayed. The command does not
+rewrite an existing mirror path or sidecar; after `applied`, re-pull that page
+before further mirror edits.
+
+Flags:
+
+| flag | description |
+|---|---|
+| `--from-file FILE|-` | required bounded title input |
+| `--apply` | perform the guarded write; default is dry-run |
+| `--expected-version` | reviewed current version; required with apply |
+| `--expected-proposal-hash` | exact reviewed proposal hash; required with apply |
+
 ### `atl conf page history`
 
 List up to 50 version records for a page, newest first.

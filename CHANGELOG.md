@@ -128,6 +128,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Guarded Confluence title updates.** `conf page title set` previews bounded
+  file/stdin input by default, binds apply to the reviewed title hash and page
+  version, writes the unchanged native body under the version gate, and verifies
+  ambiguous/success outcomes without automatic replay.
+
 - **Typed read-only Confluence page fields.** Confluence mirror and transient
   views share configurable metadata/section descriptors for title, hierarchy,
   labels, version, update time, and opt-in restriction state. Values are safely
