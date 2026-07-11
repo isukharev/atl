@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   metadata. A shared safe table renderer powers their Markdown `-o text` views
   and normalized board snapshot Markdown.
 
+- **Direct epic-child lists.** `jira issue children` resolves the configured
+  Epic Link field and returns one paginated IssueList page without per-child
+  reads. Durable and transient Jira views now render epic children and subtasks
+  with the same safe embedded Markdown table primitive.
+
 - **Fast exact Structure folder navigation.** `jira structure folders` returns
   stable folder ids, exact paths, batched labels, and local subtree statistics
   without Jira issue searches. Rows/view/pull/export accept exact folder id,

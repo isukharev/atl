@@ -750,8 +750,8 @@ field ids, sources, normalized types, and values; a changed local input fails
 before backend metadata/read/write calls. All proposed fields are sent in one
 request.
 
-List-oriented Jira reads (`issue search`, `board issues/backlog`, and `sprint
-issues`) share one app-layer contract:
+List-oriented Jira reads (`issue search`, `issue children`, `board
+issues/backlog`, and `sprint issues`) share one app-layer contract:
 
 ```json
 {
@@ -782,6 +782,15 @@ identity, Jira field ids, and source-specific names such as `board.column` or
 `sprint.id`. Unknown/foreign context columns fail with usage. `-o text` renders
 the same rows as one safe Markdown table (or `_None._`); `-o id` prints keys.
 The page cursor is `null` at exhaustion and resumable only when non-null.
+
+`jira issue children <EPIC-KEY>` returns `source.kind:"epic"`, records the
+parent key and resolved Epic Link field under `selection`, and namespaces
+`parent` plus relation `epic-child` under `rows[].context.epic`. It resolves
+field metadata once and executes one paginated generated JQL request; it does
+not read every child individually. Its default columns are
+`key,summary,status,issuetype,assignee`. The generated epic-children and
+subtasks sections in transient/durable issue Markdown use the same table
+renderer in embedded mode; an empty related list is `_None._`.
 
 `atl jira board config <ID>` returns the workflow projection used to interpret
 board issues:

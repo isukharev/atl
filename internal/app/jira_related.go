@@ -15,6 +15,17 @@ import (
 
 const jiraEpicChildrenCap = 1000
 
+var defaultEpicChildrenColumns = []string{"key", "summary", "status", "issuetype", "assignee"}
+
+// JiraEpicChildrenOpts controls the direct, read-only IssueList projection for
+// one epic. EpicField accepts the same id-or-display-name selector as rendering.
+type JiraEpicChildrenOpts struct {
+	Columns   []string
+	Limit     int
+	Cursor    string
+	EpicField string
+}
+
 // JiraEpicChild is the compact, stable read model stored for one epic child.
 // It deliberately carries no arbitrary raw fields: the sidecar is a derived
 // offline-render input, not another issue snapshot.
@@ -64,6 +75,39 @@ func loadEpicChildrenSidecar(root, path string) *JiraEpicChildrenSidecar {
 		sidecar.Children = []JiraEpicChild{}
 	}
 	return &sidecar
+}
+
+// EpicChildrenIssueList reads one page of children without per-child requests.
+// The parent key is a quoted value in generated JQL; the field itself is
+// resolved through Jira metadata so localized/renamed epic issue types do not
+// affect discovery.
+func (s *JiraService) EpicChildrenIssueList(ctx context.Context, epicKey string, opts JiraEpicChildrenOpts) (*IssueList, error) {
+	epicKey = strings.TrimSpace(epicKey)
+	if epicKey == "" {
+		return nil, fmt.Errorf("%w: epic key is required", domain.ErrUsage)
+	}
+	columns, fields, err := NormalizeIssueListColumns(opts.Columns, defaultEpicChildrenColumns, "epic")
+	if err != nil {
+		return nil, err
+	}
+	epicField, err := s.resolveEpicField(ctx, opts.EpicField)
+	if err != nil {
+		return nil, err
+	}
+	jql := fmt.Sprintf("%s in (%s) ORDER BY key", epicJQLField(epicField), quoteJQLValues([]string{epicKey}))
+	issues, next, err := s.tr.Search(ctx, jql, issueListBackendFields(fields), opts.Limit, opts.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	contexts := make([]map[string]map[string]any, len(issues))
+	for i := range contexts {
+		contexts[i] = map[string]map[string]any{"epic": {"parent": epicKey, "relation": "epic-child"}}
+	}
+	return NewIssueList(
+		IssueListSource{Kind: "epic", ID: epicKey},
+		map[string]any{"parent": epicKey, "epic_field": epicField},
+		columns, fields, "key-order", issues, contexts, next,
+	), nil
 }
 
 // resolveEpicField returns the raw API field id used to group children. An
@@ -116,17 +160,6 @@ func canonicalEpicFieldID(field string) string {
 // epics in a main-search page (up to 100). There is no per-child or per-epic
 // refetch. Non-epic issues simply have no entry in the result map.
 func (s *JiraService) fetchEpicChildrenPage(ctx context.Context, issues []domain.Issue, epicField string) (map[string]JiraEpicChildrenSidecar, bool, error) {
-	return s.fetchEpicChildrenPageMode(ctx, issues, epicField, true)
-}
-
-// fetchEpicChildrenPageTransient omits child issue type because the transient
-// Markdown row does not render or persist it. Mirror sidecars keep the wider
-// projection through fetchEpicChildrenPage for offline compatibility.
-func (s *JiraService) fetchEpicChildrenPageTransient(ctx context.Context, issues []domain.Issue, epicField string) (map[string]JiraEpicChildrenSidecar, bool, error) {
-	return s.fetchEpicChildrenPageMode(ctx, issues, epicField, false)
-}
-
-func (s *JiraService) fetchEpicChildrenPageMode(ctx context.Context, issues []domain.Issue, epicField string, includeChildType bool) (map[string]JiraEpicChildrenSidecar, bool, error) {
 	byEpic := map[string]JiraEpicChildrenSidecar{}
 	var candidateKeys []string
 	candidates := map[string]bool{}
@@ -145,11 +178,7 @@ func (s *JiraService) fetchEpicChildrenPageMode(ctx context.Context, issues []do
 	}
 	sort.Strings(candidateKeys)
 	jql := fmt.Sprintf("%s in (%s) ORDER BY key", epicJQLField(epicField), quoteJQLValues(candidateKeys))
-	fields := []string{"summary", "status", "assignee", epicField}
-	if includeChildType {
-		// Preserve the established mirror-sidecar projection order.
-		fields = []string{"summary", "status", "issuetype", "assignee", epicField}
-	}
+	fields := []string{"summary", "status", "issuetype", "assignee", epicField}
 	cursor := ""
 	total := 0
 	truncated := false
@@ -258,4 +287,19 @@ func quoteJQLValues(values []string) string {
 		quoted = append(quoted, `"`+value+`"`)
 	}
 	return strings.Join(quoted, ",")
+}
+
+func epicChildrenSidecarIssueList(sidecar *JiraEpicChildrenSidecar) *IssueList {
+	issues := make([]domain.Issue, len(sidecar.Children))
+	contexts := make([]map[string]map[string]any, len(sidecar.Children))
+	for i, child := range sidecar.Children {
+		issues[i] = domain.Issue{Key: child.Key, Summary: child.Summary, Status: child.Status, Type: child.Type, Assignee: child.Assignee, Fields: map[string]any{}}
+		contexts[i] = map[string]map[string]any{"epic": {"parent": sidecar.Epic, "relation": "epic-child"}}
+	}
+	list := NewIssueList(IssueListSource{Kind: "epic", ID: sidecar.Epic}, map[string]any{"parent": sidecar.Epic}, defaultEpicChildrenColumns, []string{"summary", "status", "issuetype", "assignee"}, "key-order", issues, contexts, "")
+	if sidecar.Truncated {
+		list.Page.Complete = false
+		list.Page.Truncated = true
+	}
+	return list
 }

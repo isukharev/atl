@@ -142,7 +142,7 @@ func TestJiraApply_RecordedConfiguredAndEpicSectionsAreReadOnly(t *testing.T) {
 	t.Run("generated section edit refused", func(t *testing.T) {
 		svc, root, mdPath, _ := setup(t)
 		md := mustReadFile(t, mdPath)
-		md = strings.Replace(md, "PROJ-43 — child", "PROJ-43 — changed", 1)
+		md = strings.Replace(md, "| PROJ-43 | child |", "| PROJ-43 | changed |", 1)
 		mustWriteFile(t, mdPath, md)
 		_, err := svc.Apply(mdPath, JiraApplyOpts{Into: root})
 		if !errors.Is(err, domain.ErrCheckFailed) {

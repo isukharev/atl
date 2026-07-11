@@ -48,7 +48,7 @@ func (s *JiraService) ViewIssue(ctx context.Context, key string, opts JiraIssueV
 			return nil, resolveErr
 		}
 		rs.EpicField = epicField
-		byEpic, truncated, fetchErr := s.fetchEpicChildrenPageTransient(ctx, []domain.Issue{*is}, epicField)
+		byEpic, truncated, fetchErr := s.fetchEpicChildrenPage(ctx, []domain.Issue{*is}, epicField)
 		if fetchErr != nil {
 			return nil, fetchErr
 		}

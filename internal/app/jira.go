@@ -954,40 +954,14 @@ func renderIssueMarkdownLayout(is *domain.Issue, assets []JiraIssueAsset, relate
 	if rs.On(SecSubtasks) {
 		if subs := subtasks(is.Fields); len(subs) > 0 {
 			writeJiraSectionHeading(&b, "subtasks", "Subtasks", false)
-			for _, st := range subs {
-				if st.summary != "" {
-					fmt.Fprintf(&b, "- %s — %s\n", st.key, st.summary)
-				} else {
-					fmt.Fprintf(&b, "- %s\n", st.key)
-				}
-			}
+			b.WriteString(IssueListMarkdown(subtasksIssueList(is.Key, subs), true))
 			b.WriteString("\n")
 		}
 	}
 	if rs.On(SecEpicChildren) && related != nil {
 		writeJiraSectionHeading(&b, "epic-children", "Epic Children", false)
-		if len(related.Children) == 0 {
-			b.WriteString("_None._\n\n")
-		} else {
-			for _, child := range related.Children {
-				fmt.Fprintf(&b, "- %s", markdownSingleLine(child.Key))
-				if child.Summary != "" {
-					fmt.Fprintf(&b, " — %s", markdownSingleLine(child.Summary))
-				}
-				var meta []string
-				if child.Status != "" {
-					meta = append(meta, markdownSingleLine(child.Status))
-				}
-				if child.Assignee != "" {
-					meta = append(meta, markdownSingleLine(child.Assignee))
-				}
-				if len(meta) > 0 {
-					fmt.Fprintf(&b, " (%s)", strings.Join(meta, "; "))
-				}
-				b.WriteByte('\n')
-			}
-			b.WriteByte('\n')
-		}
+		b.WriteString(IssueListMarkdown(epicChildrenSidecarIssueList(related), true))
+		b.WriteByte('\n')
 		if related.Truncated {
 			fmt.Fprintf(&b, "> Warning: epic children truncated at %d issues; this list is incomplete.\n\n", related.TruncatedAt)
 		}
@@ -1252,8 +1226,12 @@ func isFieldList(v any) bool {
 
 // subtask is one child issue for the generated "# Subtasks" section.
 type subtask struct {
-	key     string
-	summary string
+	id       string
+	key      string
+	summary  string
+	status   string
+	typeName string
+	assignee string
 }
 
 // subtasks extracts child issues from fields["subtasks"] (an array of {key,
@@ -1269,15 +1247,39 @@ func subtasks(fields map[string]any) []subtask {
 		if !ok {
 			continue
 		}
-		st := subtask{key: asString(m["key"])}
+		st := subtask{id: asString(m["id"]), key: asString(m["key"])}
 		if sf, ok := m["fields"].(map[string]any); ok {
 			st.summary = asString(sf["summary"])
+			st.status = nestedFieldName(sf["status"])
+			st.typeName = nestedFieldName(sf["issuetype"])
+			st.assignee = nestedFieldDisplay(sf["assignee"])
 		}
 		if st.key != "" {
 			out = append(out, st)
 		}
 	}
 	return out
+}
+
+func subtasksIssueList(parent string, subtasks []subtask) *IssueList {
+	issues := make([]domain.Issue, len(subtasks))
+	for i, child := range subtasks {
+		issues[i] = domain.Issue{ID: child.id, Key: child.key, Summary: child.summary, Status: child.status, Type: child.typeName, Assignee: child.assignee, Fields: map[string]any{}}
+	}
+	return NewIssueList(IssueListSource{Kind: "subtasks", ID: parent}, map[string]any{"parent": parent}, defaultEpicChildrenColumns, []string{"summary", "status", "issuetype", "assignee"}, "backend-order", issues, nil, "")
+}
+
+func nestedFieldName(value any) string {
+	object, _ := value.(map[string]any)
+	return asString(object["name"])
+}
+
+func nestedFieldDisplay(value any) string {
+	object, _ := value.(map[string]any)
+	if display := asString(object["displayName"]); display != "" {
+		return display
+	}
+	return asString(object["name"])
 }
 
 // sprintNames best-effort extracts sprint names from whichever custom field

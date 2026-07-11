@@ -8,6 +8,7 @@ Load this reference only when exact command or flag lookup is useful.
 | `jira issue view <KEY>` | Render one configured Markdown view without writing files | `-o text`, `--render-root`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `jira issue search` | Search as a common IssueList / Markdown table | `--jql`, `--columns`, `--limit`, `--cursor` |
 | `jira issue search -o id` | Print matching issue keys one per line | `-o id` |
+| `jira issue children <EPIC-KEY>` | Read direct epic children as a common IssueList without per-child reads | `--columns`, `--limit`, `--cursor`, `--epic-field`, `-o text/id` |
 | `jira issue create` | Create an issue | `--project`, `--type`, `--summary`, `--from-md`, `--from-file`, `--field k=v` |
 | `jira issue update <KEY>` | Update summary/description/fields (whole body) | `--summary`, `--from-md`, `--from-file`, `--field k=v` |
 | `jira issue field set <KEY>` | Guarded file-backed custom-field preview/apply | `--from-file FIELD=PATH`, `--from-md FIELD=PATH`, `--allow-fields`, `--expected-updated`, `--expected-proposal-hash`, `--apply` |

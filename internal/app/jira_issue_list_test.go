@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -17,6 +18,31 @@ func TestIssueListColumnsDriveFieldsAndRejectForeignContext(t *testing.T) {
 	}
 	if _, _, err := NormalizeIssueListColumns([]string{"structure.depth"}, nil, "board"); err == nil {
 		t.Fatal("foreign source context was accepted")
+	}
+}
+
+func TestEpicChildrenIssueListResolvesFieldAndPreservesContext(t *testing.T) {
+	tracker := &recordingTracker{
+		fieldDefs: []domain.FieldDef{{ID: "customfield_10010", Name: "Epic Link"}},
+		issues:    []domain.Issue{{ID: "10002", Key: "PROJ-2", Summary: "Child", Status: "Open", Type: "Story", Fields: map[string]any{}}},
+	}
+	list, err := (&JiraService{tr: tracker}).EpicChildrenIssueList(context.Background(), "PROJ-1", JiraEpicChildrenOpts{
+		Columns: []string{"key", "summary", "epic.parent", "epic.relation"}, Limit: 25,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tracker.issueKey != "" {
+		t.Fatalf("unexpected per-parent issue read: %q", tracker.issueKey)
+	}
+	if !strings.Contains(tracker.searchJQL, `cf[10010] in ("PROJ-1") ORDER BY key`) || tracker.searchLimit != 25 {
+		t.Fatalf("search jql=%q limit=%d", tracker.searchJQL, tracker.searchLimit)
+	}
+	if got := list.Rows[0].Context["epic"]; got["parent"] != "PROJ-1" || got["relation"] != "epic-child" {
+		t.Fatalf("context=%v", got)
+	}
+	if md := IssueListMarkdown(list, false); !strings.Contains(md, "| PROJ-2 | Child | PROJ-1 | epic-child |") {
+		t.Fatalf("markdown:\n%s", md)
 	}
 }
 
