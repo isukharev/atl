@@ -40,3 +40,15 @@ func lockConfluenceMutations(root string, bootstrap bool) (*safepath.FileLock, e
 	}
 	return lock, nil
 }
+
+// AcquireConfluenceMutation serializes a CLI-local mutation with the same lock
+// used by pull/render/apply/push. Mirror-local CLI edits use this narrow bridge
+// because the external editor invocation itself remains a CLI concern. The
+// returned release function must be deferred.
+func AcquireConfluenceMutation(root string) (func() error, error) {
+	lock, err := lockConfluenceMutations(root, false)
+	if err != nil {
+		return nil, err
+	}
+	return lock.Unlock, nil
+}

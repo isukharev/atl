@@ -142,12 +142,13 @@ On exit 5, remote version moved: re-pull and reconcile. Never auto-`--force`;
 use it only after a human decides to overwrite remote changes. Read
 [push.md](reference/push.md) for the version gate and outcome checklist.
 
-Pull/render/apply/push share a persistent per-mirror mutation lock. If exit 8
-says another mutation is active, wait; never delete the lock or retry
-concurrently. Status and directory push also fail closed on missing/corrupt
-sidecars. Jira and Confluence also share a short-lived state lock when they use
-the same root, so never bypass a state-lock refusal. Repair or re-pull; never
-treat a partial scan or a missing native-body projection as clean.
+Pull/render/apply/push and mirror-local `conf edit` share a persistent
+per-mirror mutation lock. If exit 8 says another mutation is active, wait;
+never delete the lock or retry concurrently. Status and directory push also
+fail closed on missing/corrupt sidecars. Jira and Confluence also share a
+short-lived state lock when they use the same root, so never bypass a
+state-lock refusal. Repair or re-pull; never treat a partial scan or a missing
+native-body projection as clean.
 
 ## Route details only when needed
 

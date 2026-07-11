@@ -1,7 +1,6 @@
 package wikimerge
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/isukharev/atl/internal/mdcsf"
@@ -14,17 +13,6 @@ import (
 type block struct {
 	start, end int
 }
-
-// These recognisers mirror internal/wikimd's block scanner exactly. The block
-// boundaries MUST stay consistent with how wikimd renders, because alignment
-// compares edited markdown against wikimd's rendered output of each base block.
-var (
-	headingRe   = regexp.MustCompile(`^h([1-6])\.[ \t]+(.*)$`)
-	codeOpenRe  = regexp.MustCompile(`^\{(code|noformat)(?::([^}]*))?\}(.*)$`)
-	quoteOpenRe = regexp.MustCompile(`^\{quote\}(.*)$`)
-	panelOpenRe = regexp.MustCompile(`^\{panel(?::([^}]*))?\}(.*)$`)
-	hrRe        = regexp.MustCompile(`^-{4,}[ \t]*$`)
-)
 
 // wline is one physical line and its byte offsets in the source. end is the
 // offset just past the last content byte (before the newline), so a block's byte
@@ -83,20 +71,22 @@ func scanWikiBlocks(base string) []block {
 		switch {
 		case strings.TrimSpace(ln) == "":
 			i++ // blank line: a gap, preserved by the assembler
-		case headingRe.MatchString(ln), hrRe.MatchString(ln):
+		case isWikiHeading(ln), wikiscanner.IsHorizontalRule(ln):
 			add(i, i)
 			i++
-		case codeOpenRe.MatchString(ln):
-			m := codeOpenRe.FindStringSubmatch(ln)
-			end := macroEnd(lines, i, m[3], "{"+m[1]+"}")
+		case isWikiCodeOpen(ln):
+			macro, _, rest, _ := wikiscanner.ParseCodeOpen(ln)
+			end := macroEnd(lines, i, rest, "{"+macro+"}")
 			add(i, end)
 			i = end + 1
-		case quoteOpenRe.MatchString(ln):
-			end := macroEnd(lines, i, quoteOpenRe.FindStringSubmatch(ln)[1], "{quote}")
+		case isWikiQuoteOpen(ln):
+			rest, _ := wikiscanner.ParseQuoteOpen(ln)
+			end := macroEnd(lines, i, rest, "{quote}")
 			add(i, end)
 			i = end + 1
-		case panelOpenRe.MatchString(ln):
-			end := macroEnd(lines, i, panelOpenRe.FindStringSubmatch(ln)[2], "{panel}")
+		case isWikiPanelOpen(ln):
+			_, rest, _ := wikiscanner.ParsePanelOpen(ln)
+			end := macroEnd(lines, i, rest, "{panel}")
 			add(i, end)
 			i = end + 1
 		case strings.HasPrefix(ln, "|"):
@@ -155,9 +145,28 @@ func macroEnd(lines []wline, i int, rest, closeTag string) int {
 // run stops before it (the same triggers wikimd's scanner tries before its
 // paragraph fallthrough).
 func isSpecialStart(line string) bool {
-	return headingRe.MatchString(line) || codeOpenRe.MatchString(line) ||
-		quoteOpenRe.MatchString(line) || panelOpenRe.MatchString(line) ||
-		hrRe.MatchString(line) || strings.HasPrefix(line, "|") || wikiscanner.IsListLine(line)
+	return isWikiHeading(line) || isWikiCodeOpen(line) || isWikiQuoteOpen(line) || isWikiPanelOpen(line) ||
+		wikiscanner.IsHorizontalRule(line) || strings.HasPrefix(line, "|") || wikiscanner.IsListLine(line)
+}
+
+func isWikiHeading(line string) bool {
+	_, _, ok := wikiscanner.ParseHeading(line)
+	return ok
+}
+
+func isWikiCodeOpen(line string) bool {
+	_, _, _, ok := wikiscanner.ParseCodeOpen(line)
+	return ok
+}
+
+func isWikiQuoteOpen(line string) bool {
+	_, ok := wikiscanner.ParseQuoteOpen(line)
+	return ok
+}
+
+func isWikiPanelOpen(line string) bool {
+	_, _, ok := wikiscanner.ParsePanelOpen(line)
+	return ok
 }
 
 // splitMDBlocks splits a markdown fragment into trimmed blocks (blank-line

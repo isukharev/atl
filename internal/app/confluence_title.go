@@ -88,6 +88,14 @@ func (s *ConfluenceService) SetTitleGuarded(ctx context.Context, id string, opts
 		Title: title, TitleBytes: len([]byte(title)), TitleSHA256: titleHash,
 		CurrentVersion: current.Version, ExpectedVersion: expected, ProposalHash: proposalHash,
 	}
+	if opts.Apply && expected != current.Version {
+		result.Status = "blocked"
+		return result, fmt.Errorf("%w: stale page %s: expected version %d, got %d", domain.ErrCheckFailed, id, expected, current.Version)
+	}
+	if opts.Apply && strings.TrimSpace(opts.ExpectedProposalHash) != proposalHash {
+		result.Status = "blocked"
+		return result, fmt.Errorf("%w: title proposal changed since review: expected hash %q, got %q", domain.ErrCheckFailed, strings.TrimSpace(opts.ExpectedProposalHash), proposalHash)
+	}
 	if current.Title == title {
 		result.Status = "already_satisfied"
 		result.FinalVersion = current.Version
@@ -95,14 +103,6 @@ func (s *ConfluenceService) SetTitleGuarded(ctx context.Context, id string, opts
 	}
 	if !opts.Apply {
 		return result, nil
-	}
-	if expected != current.Version {
-		result.Status = "blocked"
-		return result, fmt.Errorf("%w: stale page %s: expected version %d, got %d", domain.ErrCheckFailed, id, expected, current.Version)
-	}
-	if strings.TrimSpace(opts.ExpectedProposalHash) != proposalHash {
-		result.Status = "blocked"
-		return result, fmt.Errorf("%w: title proposal changed since review: expected hash %q, got %q", domain.ErrCheckFailed, strings.TrimSpace(opts.ExpectedProposalHash), proposalHash)
 	}
 
 	_, writeErr := s.store.UpdatePage(ctx, id, current.Version, title, current.Body, false)

@@ -71,6 +71,12 @@ View v2 removed legacy YAML `frontmatter`; use `page_fields`. A stale include is
 ignored with the normal unknown-section warning, so render or pull again after
 updating the config and before editing.
 
+Pull/render record the exact resolved section and typed-field descriptors in
+`.atl/state.json.views`. `conf apply` reproduces that recorded pristine view;
+ambient config changes do not silently redefine generated/read-only regions.
+If a pre-version mirror lacks view state, preserve edits outside `.md`, render
+that exact page/root once, then reapply the reviewed patch.
+
 ## Status and outputs
 
 ```bash

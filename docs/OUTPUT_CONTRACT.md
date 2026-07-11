@@ -100,7 +100,8 @@ fragments, so a failed request does not reintroduce JQL/CQL/selectors through st
 
 `atl jira issue view <KEY>` is the non-persistent counterpart to a mirror view.
 It writes no files and emits `{"key":<KEY>,"markdown":<configured-view>}` by
-default; under `-o text`, stdout is the raw Markdown document. Advisory render
+default; under `-o text`, stdout is the exact raw Markdown string with no
+emitter-added newline (matching `conf page view`). Advisory render
 warnings remain on stderr. The selected render root is read only for its local
 presentation config and gains no snapshot, sidecar, assets, or writeback state.
 Consequently transient output cannot be applied or pushed: pull the issue fresh
@@ -233,6 +234,7 @@ expected_version,final_version?,proposal_hash,reconciled?}`. Apply requires the
 reviewed version and aggregate hash, reuses the fresh native CSF bytes unchanged,
 and verifies title, body hash, and exactly `current_version+1`. Status is
 `would_apply`, `already_satisfied`, `blocked`, `failed`, `applied`, or `unknown`.
+`already_satisfied` is returned only after the reviewed version/hash gates pass.
 Unknown is non-zero and must never be automatically replayed.
 
 `atl conf page move <ID>` is also dry-run by default and emits
@@ -243,6 +245,8 @@ explicit empty value for a top-level page), and proposal hash. It validates the
 fresh source/target hierarchy, writes the unchanged native body/title once,
 and verifies parent, body, title, space, and exactly `current_version+1`.
 `unknown` is non-zero and must never be automatically replayed.
+An already-satisfied parent still requires the reviewed source version, current
+parent, and proposal hash before it can return success.
 
 `atl conf page view <ID>` is the non-persistent counterpart. Its JSON is
 `{"id","title","space","version","markdown"}`; text output is the exact
@@ -252,7 +256,7 @@ surface. Optional comments are fetched only when selected by the effective
 render settings; truncation is warned on stderr. A fresh pull is required before
 editing.
 
-Confluence pull/render/apply/push acquire one persistent mirror-internal
+Confluence pull/render/apply/push and mirror-local `conf edit` acquire one persistent mirror-internal
 advisory lock for their complete mutation/preview critical section. Contention
 is exit `8` before page/state writes. The file persists so every process locks
 the same inode; process exit releases ownership. Read-only status is lock-free.
@@ -296,9 +300,10 @@ marks a clean file.
 shape as `conf apply` for Description, plus pending-field details:
 `{ "path", "wiki_path", "pending_path"?, "dry_run", "rebased"?, "report": {...},
 "fields"?: [{"id","pending","report"}], "wrote", "warning"? }`. It is **local only** (no network). Each
-accepted view begins with `<!-- atl:document jira-issue v1 -->`; a missing,
-unversioned, or unknown document marker exits `8` before any write and requires
-an offline `jira render` or fresh pull before editing. Since render rewrites the
+accepted view begins with `<!-- atl:document jira-issue v1 -->`; a missing or
+unversioned marker exits `8` before any write and requires an offline
+`jira render` or fresh pull before editing. A future/unknown version requires a
+newer binary and must not be rendered or downgraded by the current one. Since render rewrites the
 derived `.md`, callers preserve any existing edits externally and reapply them
 after migration.
 `removed_constructs` entry is `{ "kind", "text" }` (`kind` ∈ `panel`, `color`, `mention`, `image`,
@@ -688,7 +693,9 @@ dry-run by default and returns:
 }
 ```
 
-The normalized values are intentionally present in JSON stdout for review and
+The aggregate proposal hash uses schema v2 and binds the issue key plus the
+complete normalized field set, so a review for one issue cannot authorize the
+same values on another. The normalized values are intentionally present in JSON stdout for review and
 may be private. `-o text` omits them and prints hashes/sizes. Status is one of
 `would_apply`, `already_satisfied`, `applied`, `blocked`, `failed`, or `unknown`.
 After any PUT error atl performs one fresh reconciliation read. For a

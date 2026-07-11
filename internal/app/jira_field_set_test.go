@@ -84,7 +84,7 @@ func fieldSetApplyOpts(t *testing.T, allow []string, updated string, proposals [
 	if err != nil {
 		t.Fatalf("normalize proposals: %v", err)
 	}
-	hash, err := jiraFieldProposalHash(previews)
+	hash, err := jiraFieldProposalHash("PROJ-1", previews)
 	if err != nil {
 		t.Fatalf("proposal hash: %v", err)
 	}
@@ -140,15 +140,19 @@ func TestJiraFieldProposalHashIsOrderIndependentAndValueBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hashA, _ := jiraFieldProposalHash(previewA)
-	hashB, _ := jiraFieldProposalHash(previewB)
+	hashA, _ := jiraFieldProposalHash("ENG-1", previewA)
+	hashB, _ := jiraFieldProposalHash("ENG-1", previewB)
 	if hashA != hashB {
 		t.Fatalf("input order changed hash: %s != %s", hashA, hashB)
 	}
 	previewB[0].Value = "changed"
-	changed, _ := jiraFieldProposalHash(previewB)
+	changed, _ := jiraFieldProposalHash("ENG-1", previewB)
 	if changed == hashA {
 		t.Fatal("changed normalized value kept proposal hash")
+	}
+	otherKey, _ := jiraFieldProposalHash("ENG-2", previewA)
+	if otherKey == hashA {
+		t.Fatal("proposal hash was reusable for another issue key")
 	}
 }
 
@@ -219,13 +223,13 @@ func TestSetFieldsGuardedApplyWritesTypedValuesAtomically(t *testing.T) {
 	}
 }
 
-func TestSetFieldsGuardedAlreadySatisfiedSkipsWriteBeforeStaleCheck(t *testing.T) {
+func TestSetFieldsGuardedAlreadySatisfiedStillRequiresFreshReview(t *testing.T) {
 	tr := fieldSetFixture()
 	res, err := (&JiraService{tr: tr}).SetFieldsGuarded(context.Background(), "PROJ-1", fieldSetApplyOpts(t,
 		[]string{"customfield_2"}, "older",
 		[]JiraFieldProposal{{Field: "customfield_2", Source: "raw", Value: map[string]any{"id": "1"}}},
 	))
-	if err != nil || res.Status != "already_satisfied" || tr.setCalls != 0 {
+	if !errors.Is(err, domain.ErrCheckFailed) || res.Status != "blocked" || tr.setCalls != 0 {
 		t.Fatalf("result=%+v writes=%d err=%v", res, tr.setCalls, err)
 	}
 }

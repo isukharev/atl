@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
 )
 
@@ -42,7 +43,7 @@ func TestGetMetaGroupRestrictions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMeta: %v", err)
 	}
-	if !m.Restrictions {
+	if m.Restrictions == nil || !*m.Restrictions {
 		t.Fatalf("expected Restrictions=true for group-only restriction, got false")
 	}
 }
@@ -75,8 +76,61 @@ func TestGetMetaNoRestrictions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMeta: %v", err)
 	}
-	if m.Restrictions {
+	if m.Restrictions == nil || *m.Restrictions {
 		t.Fatalf("expected Restrictions=false when both user and group are empty, got true")
+	}
+}
+
+func TestGetMetaOmittedRestrictionsRemainUnknown(t *testing.T) {
+	const body = `{"id":"102","title":"Unknown","space":{"key":"DOC"},"version":{"number":1}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	m, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).GetMeta(context.Background(), "102")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Restrictions != nil {
+		t.Fatalf("omitted restrictions were guessed as %v", *m.Restrictions)
+	}
+}
+
+func TestPartialRestrictionsRemainUnknown(t *testing.T) {
+	tests := []struct {
+		name         string
+		restrictions string
+	}{
+		{name: "empty outer", restrictions: `{}`},
+		{name: "empty read", restrictions: `{"read":{}}`},
+		{name: "missing group", restrictions: `{"read":{"restrictions":{"user":{"results":[]}}}}`},
+		{name: "missing user results", restrictions: `{"read":{"restrictions":{"user":{},"group":{"results":[]}}}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := `{"id":"103","type":"page","title":"Partial","space":{"key":"DOC"},"version":{"number":1},"body":{"storage":{"value":"<p>x</p>"}},"restrictions":` + tt.restrictions + `}`
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(body))
+			}))
+			defer srv.Close()
+			cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+			m, err := cf.GetMeta(context.Background(), "103")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if m.Restrictions != nil {
+				t.Fatalf("partial meta restrictions guessed as %v", *m.Restrictions)
+			}
+			page, err := cf.GetPage(context.Background(), "103", domain.PullOpts{IncludeRestrictions: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if page.Restricted != nil {
+				t.Fatalf("partial page restrictions guessed as %v", *page.Restricted)
+			}
+		})
 	}
 }
 

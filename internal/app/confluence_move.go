@@ -103,6 +103,18 @@ func (s *ConfluenceService) MoveGuarded(ctx context.Context, id string, opts Con
 		Parent: parent, CurrentVersion: current.Version, ExpectedVersion: expectedVersion,
 		ExpectedParent: expectedParent, TargetVersion: target.Version, ProposalHash: proposalHash,
 	}
+	if opts.Apply && expectedVersion != current.Version {
+		result.Status = "blocked"
+		return result, fmt.Errorf("%w: stale page %s: expected version %d, got %d", domain.ErrCheckFailed, id, expectedVersion, current.Version)
+	}
+	if opts.Apply && expectedParent != current.Parent {
+		result.Status = "blocked"
+		return result, fmt.Errorf("%w: page %s parent changed: expected %q, got %q", domain.ErrCheckFailed, id, expectedParent, current.Parent)
+	}
+	if opts.Apply && strings.TrimSpace(opts.ExpectedProposalHash) != proposalHash {
+		result.Status = "blocked"
+		return result, fmt.Errorf("%w: move proposal changed since review: expected hash %q, got %q", domain.ErrCheckFailed, strings.TrimSpace(opts.ExpectedProposalHash), proposalHash)
+	}
 	if current.Parent == parent {
 		result.Status = "already_satisfied"
 		result.FinalVersion = current.Version
@@ -110,18 +122,6 @@ func (s *ConfluenceService) MoveGuarded(ctx context.Context, id string, opts Con
 	}
 	if !opts.Apply {
 		return result, nil
-	}
-	if expectedVersion != current.Version {
-		result.Status = "blocked"
-		return result, fmt.Errorf("%w: stale page %s: expected version %d, got %d", domain.ErrCheckFailed, id, expectedVersion, current.Version)
-	}
-	if expectedParent != current.Parent {
-		result.Status = "blocked"
-		return result, fmt.Errorf("%w: page %s parent changed: expected %q, got %q", domain.ErrCheckFailed, id, expectedParent, current.Parent)
-	}
-	if strings.TrimSpace(opts.ExpectedProposalHash) != proposalHash {
-		result.Status = "blocked"
-		return result, fmt.Errorf("%w: move proposal changed since review: expected hash %q, got %q", domain.ErrCheckFailed, strings.TrimSpace(opts.ExpectedProposalHash), proposalHash)
 	}
 
 	_, writeErr := s.store.MovePage(ctx, id, parent, current.Version, current.Title, current.Body)

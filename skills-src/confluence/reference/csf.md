@@ -46,6 +46,10 @@ atl conf edit page.csf --old ' obsolete sentence.' --new ''        # delete
   hidden bytes made visible; **exit 2** = ambiguous — tighten `--old` or pass `--all`.
 - For `.csf` files the result is auto-validated (`csf_ok` in the JSON) — no separate
   `conf validate` call needed after a `conf edit`.
+- Inside an initialized mirror it joins the persistent Confluence mutation lock,
+  including for dry-run; wait on exit 8 and never bypass the lock.
+- Symlink aliases are resolved before lock discovery. An alias outside a mirror
+  still joins its target mirror; an alias inside a mirror may not escape it.
 - Skip `--dry-run` for routine replacements: the command is atomic — on a miss (exit 4) the
   file is untouched. Reserve `--dry-run` for genuinely risky substitutions (e.g. `--all`).
 - Keep `--old`/`--new` **inline and short**. Don't write helper files just to feed

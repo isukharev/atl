@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 
@@ -596,7 +597,11 @@ func jiraIssueViewCmd() *cobra.Command {
 				return err
 			}
 			warnRender(cmd.ErrOrStderr(), res.Warnings)
-			return emit(cmd, res, func() string { return res.Markdown })
+			if outputFormat == "text" {
+				_, err := io.WriteString(cmd.OutOrStdout(), res.Markdown)
+				return err
+			}
+			return emit(cmd, res, nil)
 		},
 	}
 	cmd.Flags().StringVar(&root, "render-root", mirrorRootDefault("."), "root whose .atl/config.json supplies local render settings (never written)")

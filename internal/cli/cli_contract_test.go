@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -119,6 +120,22 @@ func TestConfPageMetaGolden(t *testing.T) {
 		t.Fatalf("conf page meta: exit %d, want %d (stdout=%q)", code, exitOK, out)
 	}
 	assertGolden(t, "conf_page_meta.json", []byte(out))
+}
+
+func TestConfPageMetaKeepsOmittedRestrictionsUnknown(t *testing.T) {
+	body := `{"id":"12345","title":"Design Doc","space":{"key":"ENG"},"version":{"number":7}}`
+	srv := jsonServer(t, http.StatusOK, body)
+	out, code := runCLI(t, confEnv(srv), "conf", "page", "meta", "--id", "12345")
+	if code != exitOK {
+		t.Fatalf("conf page meta: exit %d (stdout=%q)", code, out)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := got["restricted"]; exists {
+		t.Fatalf("unknown restriction state rendered as a boolean: %s", out)
+	}
 }
 
 // TestConfPageGetGolden locks the JSON shape of `conf page get` (csf format). The
@@ -291,6 +308,20 @@ func TestJiraIssueViewTextUsesExactProjectionAndWritesNothing(t *testing.T) {
 	}
 	if !strings.Contains(out, "# ENG-42 — Fix") || !strings.Contains(out, "# Description") {
 		t.Fatalf("text output is not raw Markdown:\n%s", out)
+	}
+	jsonOut, jsonCode := runCLI(t, jiraEnv(srv), "jira", "issue", "view", "ENG-42",
+		"--render-profile", "minimal", "--render-root", root)
+	if jsonCode != exitOK {
+		t.Fatalf("jira issue view JSON: exit %d (stdout=%q)", jsonCode, jsonOut)
+	}
+	var view struct {
+		Markdown string `json:"markdown"`
+	}
+	if err := json.Unmarshal([]byte(jsonOut), &view); err != nil {
+		t.Fatal(err)
+	}
+	if out != view.Markdown {
+		t.Fatalf("text output differs from JSON markdown: text=%q markdown=%q", out, view.Markdown)
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil {

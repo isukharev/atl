@@ -884,7 +884,7 @@ mirror/
       12345678.csf             ← pristine copy for diff
 ```
 
-Confluence pull/render/apply/push are serialized by one persistent advisory
+Confluence pull/render/apply/push and mirror-local `conf edit` are serialized by one persistent advisory
 lock under `.atl`; contention exits `8` before page/state writes. Wait for the
 active operation—do not remove the lock file. Read-only status stays lock-free.
 When Jira and Confluence share the root, their sidecar patches also use the
@@ -1026,6 +1026,12 @@ and quoted `region_before`/`region_after` context for review. For `.csf`
 files the result is validated automatically: `"csf_ok"` plus `"problems"`
 appear in the output, and a not-well-formed result prints a stderr warning
 (the file is still written; `conf push` remains the gate).
+
+When the file belongs to an initialized mirror, dry-run and write both join the
+same persistent Confluence mutation lock as pull/render/apply/push; contention
+exits 8 before reading or changing the file. Symlink targets are resolved before
+lock discovery; an alias outside the mirror joins the target mirror's lock, and
+an alias visibly inside a mirror that resolves outside it is refused.
 
 Exit codes: `4` — the text was not found in any pass (the error carries a
 quoted dump of the closest region, exposing hidden bytes); `2` — the match is
@@ -1208,6 +1214,8 @@ Flags:
 ### `atl conf page meta`
 
 Fetch non-body page metadata (version, ancestors, labels, restrictions).
+`restricted` is omitted when the backend omitted restriction state; absence
+means unknown, never unrestricted.
 
 ```
 atl conf page meta --id 12345678
@@ -1235,7 +1243,8 @@ unchanged CSF with the new title in one version-gated PUT. There is no `--force`
 
 Every successful or ambiguous PUT is verified by another native page read. A
 verified exact title/body/version reports `applied`; a pre-existing target title
-reports `already_satisfied`. Ambiguous outcomes report `unknown`, exit non-zero,
+reports `already_satisfied` only after the reviewed version and proposal-hash
+gates pass. Ambiguous outcomes report `unknown`, exit non-zero,
 and must be inspected rather than automatically replayed. The command does not
 rewrite an existing mirror path or sidecar; after `applied`, re-pull that page
 before further mirror edits.
@@ -1317,6 +1326,8 @@ read. A verified exact parent/title/body/version reports `applied`; ambiguous
 outcomes report `unknown`, exit non-zero, and must be inspected rather than
 automatically replayed. The command does not relocate existing mirror files;
 after `applied`, re-pull the page before further mirror edits.
+An already-satisfied parent is also a reviewed outcome: apply checks source
+version, current parent, and proposal hash before returning it.
 
 Flags:
 
@@ -1584,7 +1595,8 @@ also be named in the exact `--allow-fields` policy. Use the dedicated commands
 for summary, Description, labels, assignee, links, comments, and transitions.
 Multiple fields are sent in one PUT. The reviewed timestamp covers the remote
 issue state, while one deterministic proposal hash covers every normalized
-field value independent of CLI input order. A changed input file or stale
+field value independent of CLI input order and bound to the issue key (proposal
+hash schema v2). A changed input file, different issue key, or stale
 timestamp emits a `blocked` result and exits 8 without writing.
 Already-satisfied values are a no-op after both gates pass. Jira has no
 server-side CAS, so a narrow read-to-write TOCTOU window remains.
@@ -2112,8 +2124,10 @@ next: run `jira push PROJ-1.wiki` to publish
 ```
 
 The first line is the versioned format marker
-`<!-- atl:document jira-issue v1 -->`; missing, unversioned, or unknown markers
-fail closed and require `jira render` (or a fresh pull) before editing. Because
+`<!-- atl:document jira-issue v1 -->`; missing or unversioned markers fail
+closed and require `jira render` (or a fresh pull) before editing. A future or
+unknown version requires updating `atl`; never render/downgrade it with the
+older binary. Because
 render rewrites `.md`, save any existing edits as a reviewed external patch,
 render the exact file/root, then reapply them. The
 `<!-- atl:document ... -->` and `<!-- atl:section ... -->` prefixes are reserved

@@ -235,23 +235,24 @@ func TestJiraApply_RejectsUnsupportedDocumentMarkersBeforeWrite(t *testing.T) {
 	tests := []struct {
 		name string
 		edit func(string) string
+		want string
 	}{
 		{name: "unversioned", edit: func(md string) string {
 			return strings.Replace(md, jiraIssueDocumentMarker, "<!-- atl:document jira-issue -->", 1)
-		}},
+		}, want: "jira render"},
 		{name: "future", edit: func(md string) string {
 			return strings.Replace(md, jiraIssueDocumentMarker, "<!-- atl:document jira-issue v99 -->", 1)
-		}},
+		}, want: "update atl"},
 		{name: "missing", edit: func(md string) string {
 			return strings.TrimPrefix(md, jiraIssueDocumentMarker+"\n")
-		}},
+		}, want: "jira render"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc, root, mdPath, wikiPath := scaffoldApplyIssue(t, applyBody)
 			mustWriteFile(t, mdPath, tt.edit(mustReadFile(t, mdPath)))
 			_, err := svc.Apply(mdPath, JiraApplyOpts{Into: root})
-			if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "jira render") {
+			if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("format refusal = %v", err)
 			}
 			if got := mustReadFile(t, wikiPath); got != applyBody {

@@ -282,7 +282,7 @@ atl conf space tree --space DOCS
 atl conf page view 123456 -o text   # configured Markdown, no mirror artifacts
 atl conf page get     --id 123456
 atl conf page get     --id 123456 --format csf
-atl conf page meta    --id 123456
+atl conf page meta    --id 123456  # omitted restricted = unknown, not false
 atl conf page history --id 123456
 # Guarded title update: title stays in a bounded file/stdin, not argv
 atl conf page title set 123456 --from-file title.txt
@@ -371,7 +371,7 @@ atl jira field-options --project PROJ --field <field-id>
 - Request bodies via `--from-file <path>` or `--from-file -` (stdin, capped at 64 MiB;
   larger input is rejected, not truncated).
 - Never interactive.
-- Confluence pull/render/apply/push serialize per mirror; on lock contention,
+- Confluence pull/render/apply/push and mirror-local `conf edit` serialize per mirror; on lock contention,
   wait for the active operation and never delete the persistent `.atl` lock.
 - Jira and Confluence updates to a shared mirror's `state.json` merge under one
   backend-neutral state lock; contention fails closed instead of losing entries.

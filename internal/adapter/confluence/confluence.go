@@ -67,20 +67,35 @@ type content struct {
 		} `json:"labels"`
 	} `json:"metadata"`
 	Restrictions *struct {
-		Read struct {
-			Restrictions struct {
-				User struct {
-					Results []json.RawMessage `json:"results"`
-				} `json:"user"`
-				Group struct {
-					Results []json.RawMessage `json:"results"`
-				} `json:"group"`
+		Read *struct {
+			Restrictions *struct {
+				User  *restrictionSubjects `json:"user"`
+				Group *restrictionSubjects `json:"group"`
 			} `json:"restrictions"`
 		} `json:"read"`
 	} `json:"restrictions"`
 	Links struct {
 		WebUI string `json:"webui"`
 	} `json:"_links"`
+}
+
+type restrictionSubjects struct {
+	Results *[]json.RawMessage `json:"results"`
+}
+
+// restrictionState returns nil unless the expanded response explicitly
+// contains both user and group result arrays. A partial expansion is not proof
+// that the page is unrestricted.
+func (ct *content) restrictionState() *bool {
+	if ct == nil || ct.Restrictions == nil || ct.Restrictions.Read == nil || ct.Restrictions.Read.Restrictions == nil {
+		return nil
+	}
+	r := ct.Restrictions.Read.Restrictions
+	if r.User == nil || r.Group == nil || r.User.Results == nil || r.Group.Results == nil {
+		return nil
+	}
+	restricted := len(*r.User.Results) > 0 || len(*r.Group.Results) > 0
+	return &restricted
 }
 
 func (ct *content) toResource(base, body string) *domain.Resource {
@@ -139,11 +154,7 @@ func (cf *Confluence) GetPage(ctx context.Context, id string, opts domain.PullOp
 	r := ct.toResource(cf.base, body)
 	r.BodyPresent = present
 	if opts.IncludeRestrictions {
-		if ct.Restrictions != nil {
-			read := ct.Restrictions.Read.Restrictions
-			restricted := len(read.User.Results) > 0 || len(read.Group.Results) > 0
-			r.Restricted = &restricted
-		}
+		r.Restricted = ct.restrictionState()
 	}
 	return r, nil
 }
@@ -165,10 +176,7 @@ func (cf *Confluence) GetMeta(ctx context.Context, id string) (*domain.PageMeta,
 	for _, l := range ct.Metadata.Labels.Results {
 		m.Labels = append(m.Labels, l.Name)
 	}
-	if ct.Restrictions != nil {
-		read := ct.Restrictions.Read.Restrictions
-		m.Restrictions = len(read.User.Results) > 0 || len(read.Group.Results) > 0
-	}
+	m.Restrictions = ct.restrictionState()
 	if ct.Links.WebUI != "" {
 		m.URL = cf.base + ct.Links.WebUI
 	}

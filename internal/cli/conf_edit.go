@@ -4,10 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/textedit"
@@ -40,7 +42,18 @@ func confEditCmd() *cobra.Command {
 			if !cmd.Flags().Changed("new") && newFile == "" {
 				return usageErr("--new (or --new-file) is required (pass --new '' to delete the matched text)")
 			}
-			raw, err := os.ReadFile(args[0])
+			path, root, err := canonicalConfEditTarget(args[0])
+			if err != nil {
+				return err
+			}
+			if root != "" {
+				release, lockErr := app.AcquireConfluenceMutation(root)
+				if lockErr != nil {
+					return lockErr
+				}
+				defer func() { _ = release() }()
+			}
+			raw, err := os.ReadFile(path)
 			if err != nil {
 				return fmt.Errorf("%w: %v", domain.ErrUsage, err)
 			}
@@ -72,7 +85,7 @@ func confEditCmd() *cobra.Command {
 			out["region_before"] = quoteRegion(string(raw), m.Start, m.End)
 			out["region_after"] = quoteRegion(res.Text, m.Start, m.Start+len(repl))
 
-			if strings.HasSuffix(args[0], ".csf") {
+			if strings.HasSuffix(path, ".csf") {
 				problems := csf.Validate([]byte(res.Text))
 				out["csf_ok"] = !csf.HasErrors(problems)
 				if len(problems) > 0 {
@@ -85,12 +98,12 @@ func confEditCmd() *cobra.Command {
 			}
 
 			if !dryRun {
-				info, serr := os.Stat(args[0])
+				info, serr := os.Stat(path)
 				mode := os.FileMode(0o644)
 				if serr == nil {
 					mode = info.Mode()
 				}
-				if werr := os.WriteFile(args[0], []byte(res.Text), mode); werr != nil {
+				if werr := os.WriteFile(path, []byte(res.Text), mode); werr != nil {
 					return werr
 				}
 			}
@@ -110,6 +123,36 @@ func confEditCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "replace every match instead of requiring a unique one")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "report the match without writing the file")
 	return cmd
+}
+
+// canonicalConfEditTarget makes symlink aliases participate in the lock of
+// their real mirror. A path lexically inside one mirror may not resolve outside
+// it (or into another mirror), because that would make the visible lock scope a
+// lie. The returned path is used for every target read and write.
+func canonicalConfEditTarget(target string) (path, root string, err error) {
+	abs, err := filepath.Abs(target)
+	if err != nil {
+		return "", "", err
+	}
+	real, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", "", fmt.Errorf("%w: resolve edit target: %v", domain.ErrUsage, err)
+	}
+	lexicalRoot, lexicalMirror := app.MirrorRootOf(abs)
+	realRoot, realMirror := app.MirrorRootOf(real)
+	if lexicalMirror {
+		canonicalRoot, rootErr := filepath.EvalSymlinks(lexicalRoot)
+		if rootErr != nil {
+			return "", "", fmt.Errorf("%w: resolve mirror root: %v", domain.ErrCheckFailed, rootErr)
+		}
+		if !realMirror || canonicalRoot != realRoot {
+			return "", "", fmt.Errorf("%w: edit target resolves outside its visible mirror", domain.ErrCheckFailed)
+		}
+	}
+	if realMirror {
+		root = realRoot
+	}
+	return real, root, nil
 }
 
 // textFromFlagPair resolves an inline flag vs its --*-file variant.

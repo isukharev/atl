@@ -15,7 +15,54 @@ const (
 	MarkdownThematicBreak
 )
 
-var listRe = regexp.MustCompile(`^[ \t]*([*#]+)[ \t]+(.*)$`)
+var (
+	listRe           = regexp.MustCompile(`^[ \t]*([*#]+)[ \t]+(.*)$`)
+	headingRe        = regexp.MustCompile(`^h([1-6])\.[ \t]+(.*)$`)
+	codeOpenRe       = regexp.MustCompile(`^\{(code|noformat)(?::([^}]*))?\}(.*)$`)
+	quoteOpenRe      = regexp.MustCompile(`^\{quote\}(.*)$`)
+	panelOpenRe      = regexp.MustCompile(`^\{panel(?::([^}]*))?\}(.*)$`)
+	horizontalRuleRe = regexp.MustCompile(`^-{4,}[ \t]*$`)
+)
+
+// ParseHeading recognizes a Jira wiki heading and returns its numeric level
+// and inline body.
+func ParseHeading(line string) (level int, body string, ok bool) {
+	m := headingRe.FindStringSubmatch(line)
+	if m == nil {
+		return 0, "", false
+	}
+	return int(m[1][0] - '0'), m[2], true
+}
+
+// ParseCodeOpen recognizes a {code} or {noformat} opening line.
+func ParseCodeOpen(line string) (macro, params, rest string, ok bool) {
+	m := codeOpenRe.FindStringSubmatch(line)
+	if m == nil {
+		return "", "", "", false
+	}
+	return m[1], m[2], m[3], true
+}
+
+// ParseQuoteOpen recognizes a {quote} opening line and returns trailing text.
+func ParseQuoteOpen(line string) (rest string, ok bool) {
+	m := quoteOpenRe.FindStringSubmatch(line)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
+}
+
+// ParsePanelOpen recognizes a {panel} opening line.
+func ParsePanelOpen(line string) (params, rest string, ok bool) {
+	m := panelOpenRe.FindStringSubmatch(line)
+	if m == nil {
+		return "", "", false
+	}
+	return m[1], m[2], true
+}
+
+// IsHorizontalRule reports whether line is a Jira wiki horizontal rule.
+func IsHorizontalRule(line string) bool { return horizontalRuleRe.MatchString(line) }
 
 // ParseListLine recognizes a Jira wiki list line and returns its marker run and
 // body. Both renderer and merge scanner use this function so their block

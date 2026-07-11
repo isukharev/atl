@@ -87,7 +87,7 @@ func (s *JiraService) SetFieldsGuarded(ctx context.Context, key string, opts Jir
 	if err != nil {
 		return nil, err
 	}
-	proposalHash, err := jiraFieldProposalHash(proposals)
+	proposalHash, err := jiraFieldProposalHash(key, proposals)
 	if err != nil {
 		return nil, err
 	}
@@ -143,13 +143,13 @@ func (s *JiraService) SetFieldsGuarded(ctx context.Context, key string, opts Jir
 		ProposalHash: proposalHash, Fields: proposals,
 	}
 
-	if fieldProposalsSatisfied(issue, proposals, values) {
-		result.Status = "already_satisfied"
-		return result, nil
-	}
 	if expectedUpdated != actualUpdated {
 		result.Status = "blocked"
 		return result, fmt.Errorf("%w: stale issue %s: expected updated %q, got %q", domain.ErrCheckFailed, key, expectedUpdated, actualUpdated)
+	}
+	if fieldProposalsSatisfied(issue, proposals, values) {
+		result.Status = "already_satisfied"
+		return result, nil
 	}
 	if !opts.Apply {
 		return result, nil
@@ -191,7 +191,7 @@ func (s *JiraService) SetFieldsGuarded(ctx context.Context, key string, opts Jir
 // jiraFieldProposalHash binds a review to the complete normalized proposal set,
 // independent of CLI input order. The per-field preview hashes remain useful to
 // humans, while this aggregate hash is the single apply gate.
-func jiraFieldProposalHash(previews []JiraFieldSetPreview) (string, error) {
+func jiraFieldProposalHash(key string, previews []JiraFieldSetPreview) (string, error) {
 	type hashEntry struct {
 		Field  string `json:"field"`
 		Source string `json:"source"`
@@ -203,7 +203,11 @@ func jiraFieldProposalHash(previews []JiraFieldSetPreview) (string, error) {
 		entries[i] = hashEntry{Field: preview.Field, Source: preview.Source, Kind: preview.Kind, Value: preview.Value}
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Field < entries[j].Field })
-	encoded, err := json.Marshal(entries)
+	encoded, err := json.Marshal(struct {
+		SchemaVersion int         `json:"schema_version"`
+		Key           string      `json:"key"`
+		Entries       []hashEntry `json:"entries"`
+	}{SchemaVersion: 2, Key: strings.TrimSpace(key), Entries: entries})
 	if err != nil {
 		return "", fmt.Errorf("canonicalize Jira field proposal: %w", err)
 	}
