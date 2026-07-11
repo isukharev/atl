@@ -147,6 +147,14 @@ func TestConfEdit_NoMatchIsExit4WithContext(t *testing.T) {
 	}
 }
 
+func TestConfEdit_MissingTargetIsExit4(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing.csf")
+	_, code := runCLI(t, nil, "conf", "edit", missing, "--old", "old", "--new", "new")
+	if code != exitNotFound {
+		t.Fatalf("missing target: exit %d, want %d", code, exitNotFound)
+	}
+}
+
 func TestConfEdit_AmbiguousIsExit2UnlessAll(t *testing.T) {
 	p := writeEditFixture(t, "page.csf", "<td>да</td><td>да</td>")
 

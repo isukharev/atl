@@ -161,6 +161,9 @@ func canonicalConfEditTarget(target string) (path, root string, err error) {
 	}
 	real, err := filepath.EvalSymlinks(abs)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return "", "", fmt.Errorf("%w: edit target %q does not exist", domain.ErrNotFound, target)
+		}
 		return "", "", fmt.Errorf("%w: resolve edit target: %v", domain.ErrUsage, err)
 	}
 	lexicalRoot, lexicalMirror := app.MirrorRootOf(abs)
