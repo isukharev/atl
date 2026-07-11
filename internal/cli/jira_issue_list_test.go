@@ -52,6 +52,26 @@ func TestJiraIssueListColumnsDriveBackendProjection(t *testing.T) {
 	}
 }
 
+func TestJiraEpicChildrenUsesCommonListAndResolvedField(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/field", http.StatusOK, `[{"id":"customfield_10010","name":"Epic Link","custom":true}]`)
+	js.route(http.MethodGet, "/rest/api/2/search", http.StatusOK, `{"issues":[{"id":"10002","key":"ENG-2","fields":{"summary":"Child","status":{"name":"Open"},"issuetype":{"name":"Story"},"assignee":{"displayName":"Owner"}}}],"startAt":0,"maxResults":50,"total":1}`)
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "children", "ENG-1", "--columns", "key,summary,epic.parent,epic.relation", "-o", "text")
+	if code != exitOK || !strings.Contains(out, "| Key | Summary | Epic | Relation |") || !strings.Contains(out, "| ENG-2 | Child | ENG-1 | epic-child |") {
+		t.Fatalf("children exit=%d output=%q", code, out)
+	}
+	requests := js.requests()
+	if len(requests) != 2 || !strings.Contains(requests[1].query, "jql=cf%5B10010%5D") || strings.Contains(requests[1].query, "fields=description") {
+		t.Fatalf("requests=%+v", requests)
+	}
+
+	ids, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "children", "ENG-1", "-o", "id")
+	if code != exitOK || ids != "ENG-2\n" {
+		t.Fatalf("children ids exit=%d output=%q", code, ids)
+	}
+}
+
 func TestBoardAndSprintPagesUseCommonListMarkdown(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/agile/1.0/board/5/issue", http.StatusOK, boardIssuesBody)

@@ -186,7 +186,7 @@ func issueListColumnLabel(column string) string {
 	labels := map[string]string{
 		"position": "#", "key": "Key", "id": "ID", "summary": "Summary", "status": "Status",
 		"assignee": "Assignee", "priority": "Priority", "issuetype": "Type", "board.column": "Column",
-		"board.in_backlog": "Backlog", "structure.depth": "Depth", "structure.path": "Path", "epic.parent": "Epic",
+		"board.in_backlog": "Backlog", "structure.depth": "Depth", "structure.path": "Path", "epic.parent": "Epic", "epic.relation": "Relation",
 	}
 	if label := labels[column]; label != "" {
 		return label

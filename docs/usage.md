@@ -642,7 +642,9 @@ candidate keys from that main search page into one paginated JQL query, and
 writes `<KEY>.epic-children.json` for known/inferred epics. With an explicitly
 configured field, returned child rows identify localized/renamed epic types
 without relying solely on the display name. The sidecar stores compact
-key/summary/status/type/assignee rows and drives offline `jira render`. The
+key/summary/status/type/assignee rows and drives offline `jira render` through
+the shared safe IssueList table renderer. The built-in `subtasks` section uses
+the same embedded table shape. The
 related query is capped at 1000 issues; a cap hit sets `truncated` /
 `truncated_at` in sidecars, adds truncation fields to the pull result, and warns
 on stderr. Re-pulling a non-epic with the section enabled removes a stale
@@ -1530,6 +1532,26 @@ JSON uses the common IssueList contract documented below under boards and
 sprints. Read rows with `.rows[]`, selected fields with `.values.<field>`, and
 resume from `.page.next_cursor`. `-o text` is a Markdown table in the exact
 `--columns` order; `-o id` prints only keys.
+
+### `atl jira issue children`
+
+Read one page of direct epic children without constructing project-wide JQL or
+performing per-child requests:
+
+```bash
+atl jira issue children PROJ-100
+atl jira issue children PROJ-100 --columns key,summary,status,issuetype,assignee
+atl jira issue children PROJ-100 --cursor 50 -o text
+```
+
+The command resolves Jira's `Epic Link` field metadata once, then performs one
+generated, key-ordered child query. Use `--epic-field parent`, a custom field
+id, or its exact display name when auto-detection is not appropriate. JSON uses
+the common IssueList contract with `source.kind:"epic"`, the parent and
+resolved field under `selection`, and `epic.parent`/`epic.relation` under each
+row's namespaced context. Defaults are
+`key,summary,status,issuetype,assignee`; `--limit`, `--cursor`, `-o text`, and
+`-o id` have the same meaning as `issue search`. This is read-only.
 
 ### `atl jira issue create`
 

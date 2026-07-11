@@ -132,6 +132,31 @@ func jiraIssueCmd() *cobra.Command {
 	search.Flags().IntVar(&limit, "limit", 50, "max results")
 	search.Flags().StringVar(&cursor, "cursor", "", "pagination cursor (startAt)")
 
+	var childrenColumns, childrenCursor, childrenEpicField string
+	var childrenLimit int
+	children := &cobra.Command{
+		Use:   "children <EPIC-KEY>",
+		Short: "List direct epic children through the common IssueList projection",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			list, err := svc.EpicChildrenIssueList(cmd.Context(), args[0], app.JiraEpicChildrenOpts{
+				Columns: splitFields(childrenColumns), Limit: childrenLimit, Cursor: childrenCursor, EpicField: childrenEpicField,
+			})
+			if err != nil {
+				return err
+			}
+			return emitID(cmd, list, func() string { return app.IssueListMarkdown(list, false) }, func() []string { return app.IssueListKeys(list) })
+		},
+	}
+	children.Flags().StringVar(&childrenColumns, "columns", "", "ordered list columns (default: key,summary,status,issuetype,assignee)")
+	children.Flags().IntVar(&childrenLimit, "limit", 50, "max results")
+	children.Flags().StringVar(&childrenCursor, "cursor", "", "pagination cursor (startAt)")
+	children.Flags().StringVar(&childrenEpicField, "epic-field", "", "Epic Link field id or display name (auto-detected when omitted)")
+
 	var project, issueType, summary, fromFile, fromMD string
 	var fieldKV []string
 	create := &cobra.Command{
@@ -547,7 +572,7 @@ func jiraIssueCmd() *cobra.Command {
 	tree.Flags().StringVar(&treeFields, "fields", "", "extra comma-separated fields to fetch")
 	tree.Flags().IntVar(&treeLimit, "limit", 100, "max issues (0 = all)")
 
-	c.AddCommand(get, jiraIssueViewCmd(), search, create, update, edit, transition, check, del, assign, labels, history, refs, tree, comment, link, plan, jiraIssueFieldCmd(), linkEpic, attachment, images)
+	c.AddCommand(get, jiraIssueViewCmd(), search, children, create, update, edit, transition, check, del, assign, labels, history, refs, tree, comment, link, plan, jiraIssueFieldCmd(), linkEpic, attachment, images)
 	return c
 }
 

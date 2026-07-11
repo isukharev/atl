@@ -74,10 +74,10 @@ func TestJiraIssueViewFetchesConfiguredEpicChildrenWithoutSidecar(t *testing.T) 
 	if want := []string{"summary", "description"}; !reflect.DeepEqual(tr.issueFields, want) {
 		t.Fatalf("main fields = %v, want exact explicit-epic projection %v", tr.issueFields, want)
 	}
-	if want := []string{"summary", "status", "assignee", "customfield_10001"}; !reflect.DeepEqual(tr.searchFields, want) {
+	if want := []string{"summary", "status", "issuetype", "assignee", "customfield_10001"}; !reflect.DeepEqual(tr.searchFields, want) {
 		t.Fatalf("related fields = %v, want exact transient row projection %v", tr.searchFields, want)
 	}
-	if !strings.Contains(res.Markdown, "# Epic Children") || !strings.Contains(res.Markdown, "PROJ-2 — Child") {
+	if !strings.Contains(res.Markdown, "# Epic Children") || !strings.Contains(res.Markdown, "| PROJ-2 | Child | Open | Story |  |") {
 		t.Fatalf("transient related section missing:\n%s", res.Markdown)
 	}
 }

@@ -5,6 +5,9 @@
 
 - `atl jira issue search --jql '<JQL>'` returns a lightweight list to stdout — use it to find the
   right issues without writing anything to disk. Default `--limit 50`.
+- `atl jira issue children <EPIC-KEY>` is the narrower path for one epic: it
+  resolves the Epic Link field and returns a paginated IssueList without
+  per-child reads or project-wide JQL.
 - `atl jira pull --jql '<JQL>' --into ~/.atl/<workspace>/` writes one `<KEY>.wiki`,
   `<KEY>.md`, and `<KEY>.json` per issue — use it once you know which issues you'll work with.
   The `.wiki` is the native substrate; `.md` is a derived staging view whose supported body edits

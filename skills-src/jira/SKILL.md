@@ -52,6 +52,15 @@ atl jira issue search --jql '<JQL>' --limit 50
 `--columns key,summary,status`; use `-o text` for a Markdown table and `-o id`
 for keys. See [jql.md](reference/jql.md).
 
+For one epic, prefer the direct list over project-wide JQL:
+
+```bash
+atl jira issue children <EPIC-KEY> --columns key,summary,status,assignee
+```
+
+It resolves the epic field, pages without per-child reads, and returns the same
+IssueList contract. Follow `page.next_cursor` when non-null.
+
 ### 2. Pull issues you'll work with
 
 For a one-off read that will not be edited or cached, skip the mirror and use:
@@ -157,6 +166,8 @@ read-only unless explicitly editable; transient `jira issue view` is always
 read-only. Editable values are staged under `.atl/pending/jira/`, while the raw
 snapshot remains untouched until push succeeds. Offline `jira render` overlays
 pending values; epic children use an identity-checked sidecar.
+Generated epic-children and subtasks sections are safe embedded Markdown
+tables, so scan columns directly instead of parsing legacy bullet prose.
 
 For compact exports instead of a directory mirror, load the export section of
 [reference/extended-capabilities.md](reference/extended-capabilities.md).
