@@ -106,6 +106,9 @@ func TestToResource(t *testing.T) {
 	if len(r.Ancestors) != 2 || r.Ancestors[0] != "Root" || r.Ancestors[1] != "Mid" {
 		t.Errorf("ancestors = %v", r.Ancestors)
 	}
+	if len(r.AncestorIDs) != 2 || r.AncestorIDs[0] != "1" || r.AncestorIDs[1] != "2" {
+		t.Errorf("ancestor ids = %v", r.AncestorIDs)
+	}
 	if r.Parent != "2" {
 		t.Errorf("parent = %q, want 2 (last ancestor id)", r.Parent)
 	}
@@ -134,6 +137,28 @@ func TestToResourceNoAncestorsNoWebUI(t *testing.T) {
 	}
 	if r.URL != "" {
 		t.Errorf("expected empty URL when webui absent, got %q", r.URL)
+	}
+}
+
+func TestToResourcePreservesAncestorProjectionPresence(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		json    string
+		present bool
+	}{
+		{name: "omitted", json: `{}`},
+		{name: "null", json: `{"ancestors":null}`},
+		{name: "explicit empty", json: `{"ancestors":[]}`, present: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var ct content
+			if err := json.Unmarshal([]byte(tt.json), &ct); err != nil {
+				t.Fatal(err)
+			}
+			if got := ct.toResource("", "").AncestorsPresent; got != tt.present {
+				t.Fatalf("AncestorsPresent=%v want %v", got, tt.present)
+			}
+		})
 	}
 }
 
@@ -789,9 +814,8 @@ func TestCreatePageForbidden(t *testing.T) {
 
 // --- MovePage -------------------------------------------------------------
 
-// TestMovePage verifies the read-modify-write: it GETs version+body.storage,
-// then PUTs with version.number = current+1, the new ancestor, and preserves
-// the existing title and body bytes verbatim.
+// TestMovePage verifies the adapter performs one concrete PUT using the
+// caller-reviewed version, title, body, and parent.
 func TestMovePage(t *testing.T) {
 	var got struct {
 		Title   string `json:"title"`
@@ -810,21 +834,22 @@ func TestMovePage(t *testing.T) {
 	var putMethod string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		switch r.Method {
-		case http.MethodGet:
-			_, _ = w.Write([]byte(`{"id":"55","title":"Movable","version":{"number":8},"body":{"storage":{"value":"<p>keep me</p>"}}}`))
-		case http.MethodPut:
+		if r.Method == http.MethodPut {
 			putMethod = r.Method
 			b, _ := io.ReadAll(r.Body)
 			_ = json.Unmarshal(b, &got)
-			_, _ = w.Write([]byte(`{}`))
+			_, _ = w.Write([]byte(`{"version":{"number":9}}`))
 		}
 	}))
 	defer srv.Close()
 
 	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
-	if err := cf.MovePage(context.Background(), "55", "newdad"); err != nil {
+	version, err := cf.MovePage(context.Background(), "55", "newdad", 8, "Movable", []byte("<p>keep me</p>"))
+	if err != nil {
 		t.Fatalf("MovePage: %v", err)
+	}
+	if version != 9 {
+		t.Fatalf("returned version = %d, want 9", version)
 	}
 	if putMethod != http.MethodPut {
 		t.Fatalf("expected a PUT")
@@ -843,16 +868,15 @@ func TestMovePage(t *testing.T) {
 	}
 }
 
-// TestMovePageReadNotFound verifies a 404 returned mid-move (on the read) maps
-// to ErrNotFound.
-func TestMovePageReadNotFound(t *testing.T) {
+// TestMovePageWriteNotFound verifies adapter write errors retain sentinels.
+func TestMovePageWriteNotFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer srv.Close()
 
 	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
-	err := cf.MovePage(context.Background(), "55", "newdad")
+	_, err := cf.MovePage(context.Background(), "55", "newdad", 8, "Movable", []byte("body"))
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}

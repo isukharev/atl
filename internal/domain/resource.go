@@ -8,19 +8,24 @@ package domain
 // onto it, so pull/status/push do not care which they hold.
 type Resource struct {
 	ID          string // backend id (Confluence content id, Jira issue key)
+	Type        string `json:"-"` // backend resource type when safety checks require an explicit projection
 	Title       string
 	SpaceKey    string   // Confluence space key / Jira project key
 	Version     int      // backend version number used for the optimistic gate
 	Body        []byte   // native-format bytes (Confluence Storage Format or Jira wiki)
-	BodyPresent bool     // false when a successful partial response omitted the requested body projection
+	BodyPresent bool     `json:"-"` // false when a successful partial response omitted the requested body projection
 	Hash        string   // content hash of Body (canonical) — drives dirty detection
 	Refs        []Ref    // opaque fragments discovered in Body (resolved for read)
 	Parent      string   // parent content id, "" for top-level
 	Ancestors   []string // ancestor titles top→down (drives mirror folder path)
-	Labels      []string
-	Updated     string
-	Restricted  *bool // nil when restriction metadata was not requested
-	URL         string
+	AncestorIDs []string `json:"-"` // ancestor content ids top→down (hierarchy safety checks)
+	// AncestorsPresent distinguishes an explicit top-level [] projection from a
+	// partial response that omitted or nulled hierarchy data.
+	AncestorsPresent bool `json:"-"`
+	Labels           []string
+	Updated          string
+	Restricted       *bool // nil when restriction metadata was not requested
+	URL              string
 }
 
 // RefKind identifies the class of an opaque fragment inside a body.

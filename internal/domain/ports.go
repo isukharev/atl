@@ -32,8 +32,9 @@ type DocStore interface {
 	UpdatePage(ctx context.Context, id string, expectVersion int, title string, body []byte, force bool) (int, error)
 	// CreatePage creates a new page under parent (may be "").
 	CreatePage(ctx context.Context, space, parent, title string, body []byte) (*Resource, error)
-	// MovePage reparents a page.
-	MovePage(ctx context.Context, id, newParent string) error
+	// MovePage reparents a page with an optimistic version gate while preserving
+	// the caller-supplied native body and title. It performs one write attempt.
+	MovePage(ctx context.Context, id, newParent string, expectVersion int, title string, body []byte) (int, error)
 	// DeletePage trashes a page. May return ErrForbidden on per-space perms.
 	DeletePage(ctx context.Context, id string) error
 	// Comments. ListComments returns a page's comments; truncated reports that an

@@ -238,7 +238,7 @@ does not take the mutation lock.
 | `conf page open` | Open the page in the system browser | `--id` |
 | `conf page create` | Create a page (markdown body via `--from-md`, or CSF via `--from-file`) | `--space`, `--title`, `--parent`, `--from-md`, `--from-file` |
 | `conf page copy` | Copy a page (same CSF body, new title/space/parent) | `--id`, `--title`, `--space`, `--parent` |
-| `conf page move` | Reparent a page | `--id`, `--parent` |
+| `conf page move <ID>` | Guarded page reparent preview/apply | `--parent`, `--apply`, `--expected-version`, `--expected-parent`, `--expected-proposal-hash` |
 | `conf page delete` | Trash a page | `--id` |
 | `conf pull` | Mirror pages to disk (.csf + .md + .meta.json + assets + comments) | `--id`, `--cql`, `--space`, `--assets`, `--comments`, `--into`, `--depth`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `conf render [DIR\|FILE]` | Regenerate `.md` views offline (no network/PAT) | `--render-profile`, `--render-include`, `--render-exclude`, `--into` |
@@ -277,6 +277,13 @@ For exact edits or unresolved rendering questions, inspect the `.csf` source.
   outcome; inspect the live page first. The body is fresh-read and sent
   unchanged under the version gate. After `applied`, re-pull before using an
   existing mirror again; the title command does not rewrite local paths/state.
+- **Move a page (guarded):** run `atl conf page move <id> --parent <id>` and
+  review `current_parent`, `current_version`, and `proposal_hash`. Apply the
+  same proposal with `--apply --expected-version <v> --expected-parent <id>
+  --expected-proposal-hash <hash>`; for a top-level source use the explicit
+  empty `--expected-parent=`. Never replay `unknown`. The command rejects
+  hierarchy cycles, preserves fresh native CSF/title, and does not relocate an
+  existing mirror; re-pull after `applied`.
 - **New page from markdown (preferred):**
   `atl conf page create --space <KEY> --title '<T>' [--parent <id>] --from-md body.md` —
   write the body in the same markdown subset the `.md` view uses (headings, lists, task
@@ -292,7 +299,7 @@ For exact edits or unresolved rendering questions, inspect the `.csf` source.
 - Copy a page: `atl conf page copy --id <id> --title 'New Title' [--space KEY] [--parent <id>]`.
 - `atl conf page view <id> -o text`, `atl conf page title set <id> --from-file <path>`,
   `atl conf page get --id <id> --format csf|view`, `atl conf page meta --id <id>`,
-  `atl conf page history --id <id>`, `atl conf page move --id <id> --parent <id>`,
+  `atl conf page history --id <id>`, `atl conf page move <id> --parent <id>`,
   `atl conf page delete --id <id>`, `atl conf page open --id <id>`.
 - Comments: `atl conf comment list --id <id>` / `atl conf comment add --id <id> --from-file c.csf`.
 - Attachments: `atl conf attachment list|get|upload|delete`.

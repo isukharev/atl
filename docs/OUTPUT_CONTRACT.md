@@ -217,6 +217,15 @@ and verifies title, body hash, and exactly `current_version+1`. Status is
 `would_apply`, `already_satisfied`, `blocked`, `failed`, `applied`, or `unknown`.
 Unknown is non-zero and must never be automatically replayed.
 
+`atl conf page move <ID>` is also dry-run by default and emits
+`{id,mode,status,current_parent,parent,current_version,expected_version,
+expected_parent,target_version,final_version?,proposal_hash,reconciled?}`.
+Apply requires the reviewed source version, exact current parent (including an
+explicit empty value for a top-level page), and proposal hash. It validates the
+fresh source/target hierarchy, writes the unchanged native body/title once,
+and verifies parent, body, title, space, and exactly `current_version+1`.
+`unknown` is non-zero and must never be automatically replayed.
+
 `atl conf page view <ID>` is the non-persistent counterpart. Its JSON is
 `{"id","title","space","version","markdown"}`; text output is the exact
 Markdown string. It uses the same versioned renderer, but marks the body

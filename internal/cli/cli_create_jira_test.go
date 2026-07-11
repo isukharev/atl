@@ -641,43 +641,6 @@ func TestJiraLinkTypes_Emit(t *testing.T) {
 	}
 }
 
-// TestConfPageMove_WirePath covers `conf page move`: the adapter reads the page
-// then re-PUTs it with new ancestors; assert exit 0 and that the PUT carried the
-// new parent id and the bumped version (current+1).
-func TestConfPageMove_WirePath(t *testing.T) {
-	cs := newConfServer(t)
-	const current = 4
-	cs.page = pageJSON("12345", "Movable", current, sampleCSF)
-	cs.writes = []cannedResp{{status: http.StatusOK, body: pageJSON("12345", "Movable", current+1, sampleCSF)}}
-
-	out, code := runCLI(t, confEnv(cs.srv), "conf", "page", "move", "--id", "12345", "--parent", "999")
-	if code != exitOK {
-		t.Fatalf("conf page move: exit %d, want 0 (stdout=%q)", code, out)
-	}
-	if !strings.Contains(out, `"status": "moved"`) {
-		t.Errorf("move output = %q, want status moved", out)
-	}
-
-	writes := cs.writeReqs()
-	if len(writes) != 1 {
-		t.Fatalf("expected 1 PUT, got %d: %+v", len(writes), writes)
-	}
-	if got := putVersionNumber(t, writes[0].body); got != current+1 {
-		t.Errorf("move PUT version = %d, want %d (current+1)", got, current+1)
-	}
-	var payload struct {
-		Ancestors []struct {
-			ID string `json:"id"`
-		} `json:"ancestors"`
-	}
-	if err := json.Unmarshal([]byte(writes[0].body), &payload); err != nil {
-		t.Fatalf("decode move PUT body: %v", err)
-	}
-	if len(payload.Ancestors) != 1 || payload.Ancestors[0].ID != "999" {
-		t.Errorf("move ancestors = %+v, want [{id:999}]", payload.Ancestors)
-	}
-}
-
 // TestConfPageDelete_WireMethod covers `conf page delete`: a DELETE is sent to
 // /rest/api/content/<id> and the command reports status "trashed".
 func TestConfPageDelete_WireMethod(t *testing.T) {

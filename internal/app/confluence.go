@@ -56,10 +56,6 @@ func (s *ConfluenceService) Create(ctx context.Context, space, parent, title str
 	return s.store.CreatePage(ctx, space, parent, title, body)
 }
 
-func (s *ConfluenceService) Move(ctx context.Context, id, parent string) error {
-	return s.store.MovePage(ctx, id, parent)
-}
-
 func (s *ConfluenceService) Delete(ctx context.Context, id string) error {
 	return s.store.DeletePage(ctx, id)
 }

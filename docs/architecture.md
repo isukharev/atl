@@ -69,7 +69,7 @@ type DocStore interface {
     History(ctx, id) ([]Version, error)
     UpdatePage(ctx, id, expectVersion, title, body, force) (newVersion, error)
     CreatePage(ctx, space, parent, title, body) (*Resource, error)
-    MovePage(ctx, id, newParent) error
+    MovePage(ctx, id, newParent, expectVersion, title, body) (newVersion, error)
     DeletePage(ctx, id) error
     ListComments / AddComment / ListAttachments / DownloadAttachment
 }
