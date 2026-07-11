@@ -2472,9 +2472,10 @@ view.
 Generated Structure rows may receive new ephemeral `row_id` values on a later
 expansion even when the plan is unchanged. Atl therefore resolves issue data by
 stable issue `item_id` only when `item_type` is `issue`, never by calculated row
-id. Jira's advisory strict-query validation is disabled for these reads so one
-deleted or permission-hidden id does not reject the whole batch; inaccessible
-rows remain explicit. Use `values.key`, `item_id`,
+id. Jira's advisory strict-query validation is disabled only for these generated
+Structure identity joins so one deleted or permission-hidden id does not reject
+the whole batch; user-authored JQL remains strict and inaccessible rows remain
+explicit. Use `values.key`, `item_id`,
 and the ordered hierarchy for durable analysis; use `row_id` only within one
 snapshot.
 

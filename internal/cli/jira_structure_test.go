@@ -162,7 +162,7 @@ func TestJiraStructurePullIssuesCLI(t *testing.T) {
 	}
 	var sawIDJQL bool
 	for _, req := range js.requests() {
-		if req.path == "/rest/api/2/search" && strings.Contains(req.query, "id+in+%2810001%2C10002%29") {
+		if req.path == "/rest/api/2/search" && strings.Contains(req.query, "id+in+%2810001%2C10002%29") && strings.Contains(req.query, "validateQuery=false") {
 			sawIDJQL = true
 		}
 	}

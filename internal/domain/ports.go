@@ -168,6 +168,14 @@ type Tracker interface {
 	LinkTypes(ctx context.Context) ([]string, error)
 }
 
+// LenientIssueSearcher is an optional Jira-specific capability for generated
+// identity joins. It disables advisory semantic query validation so a deleted
+// or permission-hidden id does not reject the other ids in the same batch.
+// User-authored JQL must continue through Tracker.Search.
+type LenientIssueSearcher interface {
+	SearchLenient(ctx context.Context, jql string, fields []string, limit int, cursor string) ([]Issue, string, error)
+}
+
 // Board is an agile board (scrum/kanban) on Jira Software. ProjectKey is the
 // board's location project when the backend reports one (board listings do;
 // the single-board fetch may not).

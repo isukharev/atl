@@ -117,8 +117,9 @@ an unknown non-empty object; inspect a raw issue snapshot when its internal
 shape is required.
 Generated `row_id` values can be ephemeral; atl resolves issues by stable
 `item_id` only on `item_type:issue` rows. A deleted or permission-hidden id does
-not reject the rest of a Jira search batch; its row remains explicit with
-`accessible:false`. Filter and correlate primarily by `row.values.key`, `row.item_id`,
+not reject the rest of a generated Structure identity-join batch; its row
+remains explicit with `accessible:false`. Ordinary user-authored JQL remains
+strict. Filter and correlate primarily by `row.values.key`, `row.item_id`,
 and hierarchy position within one snapshot.
 
 For repeated filtering, export JSONL and use `jq -c` per record; use CSV for

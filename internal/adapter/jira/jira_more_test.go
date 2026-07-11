@@ -568,8 +568,28 @@ func TestSearchExplicitFields(t *testing.T) {
 	if gotFields != "summary,key" {
 		t.Errorf("fields = %q, want summary,key", gotFields)
 	}
-	if gotValidateQuery != "false" {
-		t.Errorf("validateQuery = %q, want false so inaccessible ids do not reject a whole batch", gotValidateQuery)
+	if gotValidateQuery != "" {
+		t.Errorf("validateQuery = %q, want Jira's strict default for user JQL", gotValidateQuery)
+	}
+}
+
+func TestSearchLenientIsExplicitAndStrictSearchStillRejectsSemanticErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("validateQuery") != "false" {
+			http.Error(w, "value does not exist", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, searchPage(t, 0, 50, 0))
+	}))
+	defer srv.Close()
+
+	j := newTestJira(srv)
+	if _, _, err := j.Search(context.Background(), "project = TYPO", nil, 10, ""); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("strict Search error=%v, want usage", err)
+	}
+	if _, _, err := j.SearchLenient(context.Background(), "id in (10001,10002)", nil, 10, ""); err != nil {
+		t.Fatalf("SearchLenient: %v", err)
 	}
 }
 

@@ -215,7 +215,7 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 	}
 	issues := []JiraIssueSnapshot{}
 	if len(issueIDs) > 0 {
-		issues, err = s.collectExportIssues(ctx, batchedJQL("id", issueIDs, normalizeBatchSize(opts.BatchSize), false), issueFields, 0)
+		issues, err = s.collectStructureIssues(ctx, batchedJQL("id", issueIDs, normalizeBatchSize(opts.BatchSize), false), issueFields, 0)
 		if err != nil {
 			return nil, err
 		}
@@ -449,7 +449,7 @@ func (s *JiraService) StructurePullIssues(ctx context.Context, id int64, opts St
 	}
 	if len(ids) > 0 {
 		queries := batchedJQL("id", ids, normalizeBatchSize(opts.BatchSize), false)
-		issues, err := s.collectExportIssues(ctx, queries, opts.Fields, opts.Limit)
+		issues, err := s.collectStructureIssues(ctx, queries, opts.Fields, opts.Limit)
 		if err != nil {
 			return nil, err
 		}
@@ -612,7 +612,7 @@ func (s *JiraService) filterStructureRows(ctx context.Context, id int64, rows []
 			issueFields = append(issueFields, field)
 		}
 	}
-	issues, err := s.collectExportIssues(ctx, batchedJQL("id", issueIDs, normalizeBatchSize(0), false), issueFields, 0)
+	issues, err := s.collectStructureIssues(ctx, batchedJQL("id", issueIDs, normalizeBatchSize(0), false), issueFields, 0)
 	if err != nil {
 		return nil, err
 	}
