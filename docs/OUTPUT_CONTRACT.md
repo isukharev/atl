@@ -128,6 +128,7 @@ stable identity at the top level and raw Jira fields under `fields`:
 {
   "key": "PROJ-1",
   "id": "10001",
+  "status_id": "11",
   "fields": {
     "summary": "Issue summary"
   }
@@ -836,7 +837,8 @@ not that concurrent board changes were transactionally excluded.
 repeats compact board identity, projection, row count, and completeness with each row. CSV contains rank,
 scope membership, status/column mapping, and selected fields; formula-leading
 cells are neutralized unless `--raw-csv` is explicitly approved. Markdown is a
-compact review table. None of these read paths call rank, sprint, move, or issue
+compact review table whose columns follow the requested field projection (with
+status and board mapping columns kept explicit). None of these read paths call rank, sprint, move, or issue
 write endpoints.
 
 `atl jira structure rows <ID>` returns a parsed read-only view of a Tempo Structure forest:
@@ -906,14 +908,19 @@ Tree column; it does not dump raw Jira objects or transport URLs into cells.
 views are deliberately not claimed as the source because Structure's supported
 integration API does not expose a stable saved-view column projection.
 
-Issue values are joined by the forest's stable numeric issue `item_id` through
-Jira search, not by Structure row id. Issues unavailable to the current
+Issue values are joined only for rows whose type is `issue`, using the forest's
+stable numeric issue `item_id` through Jira search, not by Structure row id.
+Search disables Jira's advisory strict-query validation so one deleted or hidden
+id cannot reject an otherwise readable batch; Jira parsing and permission
+filtering still apply. Issues unavailable to the current
 token/read remain usable but visible as gaps: `complete` is false, affected rows have
 `accessible:false`, and their ids are listed in `inaccessible_rows`. Stored
 folder summaries are best effort; calculated grouping/generator rows retain
 their technical identity instead of risking a misleading label.
 
-Structure may regenerate row ids for calculated rows without changing the
+`issue_count` describes unique issue identities in the final emitted
+root/subtree scope rather than the unfiltered forest. Structure may regenerate
+row ids for calculated rows without changing the
 expanded plan. Treat `row_id` and `parent_row_id` as snapshot-local identities;
 issue keys and item ids remain the durable correlation keys.
 

@@ -2,6 +2,7 @@
   "key": "ENG-42",
   "summary": "Fix the thing",
   "status": "In Progress",
+  "status_id": "3",
   "type": "Bug",
   "project": "ENG",
   "description": "h1. Steps\n\nDo the work.",
@@ -18,6 +19,7 @@
       "key": "ENG"
     },
     "status": {
+      "id": "3",
       "name": "In Progress"
     },
     "summary": "Fix the thing"

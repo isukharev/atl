@@ -100,6 +100,12 @@ func (j *Jira) Search(ctx context.Context, jql string, fields []string, limit in
 	q.Set("startAt", strconv.Itoa(startAt))
 	q.Set("maxResults", strconv.Itoa(limit))
 	q.Set("fields", fq)
+	// Structure and other id-based snapshots must retain rows for issues that
+	// were deleted or are not visible to the current principal. Jira's strict
+	// query validation can reject the entire `id in (...)` batch in that case,
+	// before returning the still-accessible issues. Disabling that advisory
+	// validation does not disable JQL parsing or permission filtering.
+	q.Set("validateQuery", "false")
 	var resp struct {
 		Issues     []issueDTO `json:"issues"`
 		StartAt    int        `json:"startAt"`

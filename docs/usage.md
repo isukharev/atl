@@ -2428,6 +2428,10 @@ neutralized by default; `--raw-csv` is the explicit unsafe opt-out. Board reads
 never call rank/move/update endpoints. Sprint `add`/`remove` remain separate
 mutating commands and require explicit user intent.
 
+Markdown columns follow `--fields` (with status and board mapping kept
+explicit), so a custom-field projection is visible in both machine and review
+formats rather than only JSON/CSV.
+
 ### `atl jira structure {get,view,forest,rows,values,pull-issues,export}`
 
 Read-only Tempo Structure access via the Structure REST API
@@ -2464,7 +2468,10 @@ view.
 
 Generated Structure rows may receive new ephemeral `row_id` values on a later
 expansion even when the plan is unchanged. Atl therefore resolves issue data by
-stable issue `item_id`, never by calculated row id. Use `values.key`, `item_id`,
+stable issue `item_id` only when `item_type` is `issue`, never by calculated row
+id. Jira's advisory strict-query validation is disabled for these reads so one
+deleted or permission-hidden id does not reject the whole batch; inaccessible
+rows remain explicit. Use `values.key`, `item_id`,
 and the ordered hierarchy for durable analysis; use `row_id` only within one
 snapshot.
 
@@ -2517,11 +2524,12 @@ the matching Jira issues via generated `id in (...)` JQL batches. It emits:
 }
 ```
 
-`export` writes a single offline artifact that combines the Structure row tree
-with issue snapshots. Supported formats are `json`, `csv`, and `md`; `--out` is
-required. `json` contains `rows`, `issue_ids`, and `issues`; `csv` includes row
-metadata plus requested issue fields; `md` renders an indented tree for quick
-review. CSV formula-leading cells are apostrophe-prefixed by default. `--raw-csv`
+`export` writes the same normalized projection as `view`. Supported formats are
+`json`, `jsonl`, `csv`, and `md`; `--out` is required. JSONL emits one
+self-contained hierarchy row for line-oriented tools, CSV includes row metadata
+plus requested issue fields, and Markdown renders a compact hierarchy table.
+The reported unique-issue count follows the emitted root/subtree. CSV formula-leading
+cells are apostrophe-prefixed by default. `--raw-csv`
 preserves them verbatim only with `--format csv` and produces an artifact that is
 unsafe to open in a spreadsheet. These commands are read-only and do not write
 Structure data back to Jira.

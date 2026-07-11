@@ -552,9 +552,10 @@ func TestSearchClampsLimitAndDefaultFields(t *testing.T) {
 }
 
 func TestSearchExplicitFields(t *testing.T) {
-	var gotFields string
+	var gotFields, gotValidateQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotFields = r.URL.Query().Get("fields")
+		gotValidateQuery = r.URL.Query().Get("validateQuery")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, searchPage(t, 0, 50, 0))
 	}))
@@ -566,6 +567,9 @@ func TestSearchExplicitFields(t *testing.T) {
 	}
 	if gotFields != "summary,key" {
 		t.Errorf("fields = %q, want summary,key", gotFields)
+	}
+	if gotValidateQuery != "false" {
+		t.Errorf("validateQuery = %q, want false so inaccessible ids do not reject a whole batch", gotValidateQuery)
 	}
 }
 

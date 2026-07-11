@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Structure and board projections remain honest at visibility and format
+  boundaries.** Jira search no longer rejects a whole id batch because one issue
+  is deleted or hidden; only issue-typed Structure rows can receive issue values,
+  subtree counts follow emitted rows, and Markdown tables preserve punctuation,
+  backslashes, and requested board fields. Jira issue JSON now explicitly
+  documents the optional stable status id used for board-column mapping.
+
 - **Confluence relocation recovery and local diagnostics are fail-closed but
   actionable.** A re-pull now repairs stale sidecar state when all old primary
   page artifacts were deliberately removed, while partial remnants still block

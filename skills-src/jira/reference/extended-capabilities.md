@@ -84,6 +84,8 @@ explicit. Use `--jql 'statusCategory != Done'` or another user-approved
 refinement when an old board has a very large history. `--limit 0` reads all;
 positive limits are explicit truncation per scope. For repeated filters, export
 JSONL and use `jq -c`; CSV is formula-safe by default; Markdown is for review.
+Markdown follows the requested field projection, while retaining explicit
+status, column, and backlog context.
 These reads never call rank/move/update endpoints. Sprint `add/remove` are
 separate writes and still require explicit user intent.
 
@@ -111,7 +113,9 @@ planning columns. Do not claim this matches the browser's selected saved view:
 the supported integration API does not reliably expose saved/per-user columns,
 and the output explicitly records `browser_view_reproduced:false`.
 Generated `row_id` values can be ephemeral; atl resolves issues by stable
-`item_id`. Filter and correlate primarily by `row.values.key`, `row.item_id`,
+`item_id` only on `item_type:issue` rows. A deleted or permission-hidden id does
+not reject the rest of a Jira search batch; its row remains explicit with
+`accessible:false`. Filter and correlate primarily by `row.values.key`, `row.item_id`,
 and hierarchy position within one snapshot.
 
 For repeated filtering, export JSONL and use `jq -c` per record; use CSV for
@@ -121,3 +125,4 @@ approves `--raw-csv` for a trusted non-spreadsheet consumer. `rows` and `values`
 remain low-level diagnostics. `pull-issues` is the separate rich/raw Jira
 snapshot path. Explicit per-row permission gaps remain visible through `complete`, `accessible`, and
 `inaccessible_rows`; plugin/object failures normally surface as exit 4/6.
+The reported unique-issue count always describes the emitted root/subtree.
