@@ -2,7 +2,8 @@ name: release
 
 # Build, sign, and publish release binaries when a vX.Y.Z tag is pushed.
 # Binaries are produced ONLY here — never uploaded by hand — and the manifest the
-# CLI self-updates from is signed with a key that lives only as a repo secret.
+# CLI self-updates from is signed with a key scoped to the protected release
+# environment.
 on:
   push:
     tags: ['v*']
@@ -42,6 +43,10 @@ jobs:
   release:
     needs: [test]
     runs-on: ubuntu-latest
+    # Environment protection is a second gate after the protected v* tag: only
+    # this credential-bearing job can request release secrets, and it must wait
+    # for the configured owner approval before GitHub makes them available.
+    environment: release
     permissions:
       contents: write
       id-token: write
