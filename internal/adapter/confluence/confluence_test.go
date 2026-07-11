@@ -123,6 +123,9 @@ func TestListCommentsPaginates(t *testing.T) {
 			t.Errorf("comment[%d].ID = %q, want %q", i, got[i].ID, w)
 		}
 	}
+	if got[0].Body != "one" || got[0].BodyStorage != "<p>one</p>" {
+		t.Fatalf("comment body projection = %+v, want plain fallback plus native storage", got[0])
+	}
 }
 
 // TestListCommentsTruncates verifies that a server that never stops signaling

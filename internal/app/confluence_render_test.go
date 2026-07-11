@@ -76,7 +76,7 @@ func TestConfRenderFullAddsPageFieldsAndComments(t *testing.T) {
 		!strings.Contains(md, "| Title | My Page |") || !strings.Contains(md, "| Labels | a, b |") {
 		t.Errorf("full render missing typed page fields:\n%s", md)
 	}
-	if !strings.Contains(md, "## Comments") || !strings.Contains(md, "**alice** (2026-01-01):") {
+	if !strings.Contains(md, "# Comments") || !strings.Contains(md, "## Comment by alice (2026-01-01)") {
 		t.Errorf("full render missing comments section:\n%s", md)
 	}
 }
@@ -93,7 +93,7 @@ func TestConfRenderFullNoSidecarSkipsComments(t *testing.T) {
 	if !strings.Contains(md, "| Title | My Page |") {
 		t.Errorf("expected page metadata table:\n%s", md)
 	}
-	if strings.Contains(md, "## Comments") {
+	if strings.Contains(md, "# Comments") {
 		t.Errorf("no sidecar → no Comments section:\n%s", md)
 	}
 }

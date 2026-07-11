@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"html"
 	"os"
 	"regexp"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/mirror"
 )
 
 // ConfluenceTableExtract is a structured, read-only view of tables on a page.
@@ -353,7 +355,7 @@ func cellMarkdown(n *csf.Node) string {
 	render = func(x *csf.Node) string {
 		switch x.Type {
 		case csf.Text, csf.CData:
-			return x.Data
+			return html.EscapeString(x.Data)
 		case csf.Element:
 			var b strings.Builder
 			for _, c := range x.Children {
@@ -366,7 +368,10 @@ func cellMarkdown(n *csf.Node) string {
 				}
 			}
 			if color := styleColor(x); color != "" {
-				return "⟦color:" + color + "⟧" + normalizeCellText(inner) + "⟦/color⟧"
+				if safe, ok := mirror.SafeCSSColor(color); ok {
+					return "<span style=\"color: " + html.EscapeString(safe) + "\">" + normalizeCellText(inner) + "</span>"
+				}
+				return "<span data-atl-color=\"" + html.EscapeString(color) + "\">" + normalizeCellText(inner) + "</span>"
 			}
 			return inner
 		default:

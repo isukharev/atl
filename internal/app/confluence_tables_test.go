@@ -68,7 +68,7 @@ func TestExtractTablesFromCSFMultipleTablesAndCellMetadata(t *testing.T) {
 	if !repeated.Repeated || repeated.SourceRow != 2 || repeated.SourceColumn != 1 || repeated.Text != origin.Text {
 		t.Fatalf("repeated = %+v, origin = %+v", repeated, origin)
 	}
-	if origin.Styles["color"] != "red" || !strings.Contains(origin.Markdown, "⟦color:red⟧") {
+	if origin.Styles["color"] != "red" || !strings.Contains(origin.Markdown, "<span style=\"color: red\">") {
 		t.Fatalf("origin style/markdown = %+v / %q", origin.Styles, origin.Markdown)
 	}
 	linkCell := first.Rows[1].Cells[2]
@@ -78,6 +78,19 @@ func TestExtractTablesFromCSFMultipleTablesAndCellMetadata(t *testing.T) {
 	second := res.Tables[1]
 	if second.Rows[0].Cells[0].Colspan != 2 || !second.Rows[0].Cells[1].Repeated {
 		t.Fatalf("second header cells = %+v", second.Rows[0].Cells)
+	}
+}
+
+func TestExtractTablesKeepsUnsafeColorAndLiteralHTMLInert(t *testing.T) {
+	body := `<table><tbody><tr><td><span data-color="url(https://attacker.invalid/x)">&lt;img src="https://attacker.invalid/pixel"&gt;</span></td></tr></tbody></table>`
+	res, err := ExtractTablesFromCSF("123", "Doc", []byte(body), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	md := res.Tables[0].Rows[0].Cells[0].Markdown
+	if !strings.Contains(md, `data-atl-color="url(https://attacker.invalid/x)"`) ||
+		!strings.Contains(md, `&lt;img src=`) || strings.Contains(md, `<span style=`) || strings.Contains(md, `<img src=`) {
+		t.Fatalf("unsafe table color/html became active: %s", md)
 	}
 }
 

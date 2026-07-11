@@ -36,6 +36,9 @@ func TestConvertBasics(t *testing.T) {
 		{"[Foo](https://en.wikipedia.org/wiki/Foo_(bar)) tail",
 			`<p><a href="https://en.wikipedia.org/wiki/Foo_(bar)">Foo</a> tail</p>`},
 		{"[[Page Title]]", `<p><ac:link><ri:page ri:content-title="Page Title"/></ac:link></p>`},
+		{"[Guide](confluence-page:DOC/Other%20Page)", `<p><ac:link><ri:page ri:content-title="Other Page" ri:space-key="DOC"/><ac:link-body>Guide</ac:link-body></ac:link></p>`},
+		{"[See \\[Guide\\] \\\\ path](confluence-page:D%2FOC/Other%2F%25%3F%23%28x%29)",
+			`<p><ac:link><ri:page ri:content-title="Other/%?#(x)" ri:space-key="D/OC"/><ac:link-body>See [Guide] \ path</ac:link-body></ac:link></p>`},
 		{"[DS-1](jira:DS-1)", `<p><ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">DS-1</ac:parameter></ac:structured-macro></p>`},
 		{"snake_case stays_literal", "<p>snake_case stays_literal</p>"},
 		{"unmatched **bold", "<p>unmatched **bold</p>"},
@@ -128,6 +131,7 @@ func TestConvertFailsClosed(t *testing.T) {
 		"![img](attachment:x.png)",
 		"[fixed bug](jira:DS-1)", // jira link text must equal the key
 		"[file](attachment:report.pdf)",
+		"<span style=\"color: red\">important</span>",
 		"```\nunterminated",
 		"# h1\ncontinuation",
 	} {
@@ -186,7 +190,7 @@ func TestRoundTrip(t *testing.T) {
 		"| K | V |\n| --- | --- |\n| a | 1 |\n| b | 2 |",
 		"```go\nfunc main() {\n\tfmt.Println(\"hi\")\n}\n```",
 		"> WARNING: Careful\n> \n> Don't touch.",
-		"Ссылка на [[Другую Страницу]] по заголовку.",
+		"Ссылка на [Другую Страницу](confluence-page:%D0%94%D1%80%D1%83%D0%B3%D1%83%D1%8E%20%D0%A1%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D1%83) по заголовку.",
 	}
 	for _, md := range cases {
 		out := convertOK(t, md)

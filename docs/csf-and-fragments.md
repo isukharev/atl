@@ -221,8 +221,8 @@ human-readable and grep-friendly `.md` file. It is intentionally lossy: the
 | `<code>` | `` `…` `` |
 | `<br>` | space |
 | `<a href="…">` | `[label](href)` |
-| `<span style="color: …">` | `⟦color:…⟧text⟦/color⟧` marker |
-| `<ac:link>` to a page | `[[title]]` |
+| `<span style="color: …">` | protected `<span style="color: …">text</span>` for safe CSS colors; inert `data-atl-color` otherwise |
+| `<ac:link>` to a page | `[label](confluence-page:SPACE/percent-encoded-title)` (space omitted when absent) |
 | `<ac:link>` to an attachment | `[filename](attachment:filename)` |
 | `<ri:user>` | resolved display name, or `@rawkey` |
 | `<ac:image>` | `![filename](slug.assets/filename)` if downloaded; otherwise `![filename](attachment:filename)` |

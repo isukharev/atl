@@ -31,24 +31,72 @@ func TestRenderMarkdownOptsZeroWrapsBody(t *testing.T) {
 	}
 }
 
-func TestRenderMarkdownOptsFrontmatterAndComments(t *testing.T) {
+func TestRenderMarkdownOptsMetadataAndComments(t *testing.T) {
 	root := parseNode(t, "<p>Body text.</p>")
 	out := string(RenderMarkdownOpts(root, nil, MDViewOpts{
-		Frontmatter: &PageFrontmatter{Title: "My Page", Space: "DOCS", Version: 3, Labels: []string{"a", "b"}},
-		Comments:    []domain.Comment{{Author: "alice", Created: "2026-01-01", Body: "nice"}},
+		PageFields: []PageField{
+			{ID: "title", Label: "Title", Values: []string{"My Page"}},
+			{ID: "space", Label: "Space", Values: []string{"DOCS"}},
+			{ID: "version", Label: "Version", Values: []string{"3"}},
+		},
+		Comments: []domain.Comment{{Author: "alice", Created: "2026-01-01", Body: "nice"}},
 	}))
-	wantPrefix := ConfluenceDocumentMarker + "\n" + ConfluenceMetadataMarker + "\n---\ntitle: My Page\nspace: DOCS\nversion: 3\nlabels: [a, b]\n---\n\n" + ConfluenceBodyMarker + "\n"
+	wantPrefix := ConfluenceDocumentMarker + "\n" + ConfluencePageFieldsMarker + "\n# Metadata\n\n"
 	if !strings.HasPrefix(out, wantPrefix) {
-		t.Errorf("frontmatter block wrong:\n%s", out)
+		t.Errorf("metadata block wrong:\n%s", out)
 	}
 	if !strings.Contains(out, "Body text.") {
 		t.Errorf("body missing:\n%s", out)
 	}
-	if !strings.Contains(out, "## Comments\n\n**alice** (2026-01-01):\n\nnice") {
+	if !strings.Contains(out, "# Content\n\nBody text.") {
+		t.Errorf("content boundary missing:\n%s", out)
+	}
+	if !strings.Contains(out, "# Comments\n\n## Comment by alice (2026-01-01)\n\nnice") {
 		t.Errorf("comments section wrong:\n%s", out)
 	}
-	if !strings.Contains(out, ConfluenceCommentsMarker+"\n## Comments") {
+	if !strings.Contains(out, ConfluenceCommentsMarker+"\n# Comments") {
 		t.Errorf("comments boundary missing:\n%s", out)
+	}
+}
+
+func TestRenderCommentsMarkdownPreservesNativeFormattingAndNestsHeadings(t *testing.T) {
+	got := string(RenderCommentsMarkdown([]domain.Comment{{
+		Author: "Ada", Created: "2026-01-01", Body: "flattened fallback",
+		BodyStorage: "<h1>Decision</h1><p><strong>Ship</strong> it.</p><ul><li>First</li><li>Second</li></ul>",
+	}}))
+	for _, want := range []string{
+		"# Comments", "## Comment by Ada (2026-01-01)", "### Decision",
+		"**Ship** it.", "- First", "- Second",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("formatted comment missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "flattened fallback") {
+		t.Fatalf("native comment formatting was not preferred:\n%s", got)
+	}
+}
+
+func TestRenderCommentsMarkdownPreservesPastedMultilineCodeTable(t *testing.T) {
+	storage := `<p>Run this:</p><table><tbody><tr><td><p><code>first<br/>second<br/>third</code></p></td></tr></tbody></table>`
+	got := string(RenderCommentsMarkdown([]domain.Comment{{Author: "Ada", BodyStorage: storage}}))
+	if !strings.Contains(got, "Run this:\n\n```\nfirst\nsecond\nthird\n```") {
+		t.Fatalf("multiline comment code collapsed:\n%s", got)
+	}
+}
+
+func TestRenderCommentsMarkdownDoesNotCollapseOrdinaryCodeTables(t *testing.T) {
+	for _, storage := range []string{
+		`<table><tbody><tr><td><p>Run <code>first<br/>second</code> now</p></td></tr></tbody></table>`,
+		`<table><tbody><tr><td><p><code>inline only</code></p></td></tr></tbody></table>`,
+	} {
+		got := string(RenderCommentsMarkdown([]domain.Comment{{Author: "Ada", BodyStorage: storage}}))
+		if strings.Contains(got, "```\n") {
+			t.Fatalf("ordinary table was rewritten as a code fence:\n%s", got)
+		}
+		if strings.Contains(storage, "Run ") && (!strings.Contains(got, "Run") || !strings.Contains(got, "now")) {
+			t.Fatalf("surrounding table prose was dropped:\n%s", got)
+		}
 	}
 }
 
@@ -84,7 +132,7 @@ func TestRenderMarkdownOptsTypedPageFieldsAreReadOnlyAndEscaped(t *testing.T) {
 // prefix+body+suffix == RenderMarkdownOpts across every opts shape, so conf
 // apply can anchor-extract the editable body byte-for-byte.
 func TestRenderMarkdownViewPartsConcatIdentity(t *testing.T) {
-	fm := &PageFrontmatter{Title: "My Page", Space: "DOCS", Version: 3, Labels: []string{"a", "b"}}
+	fields := []PageField{{ID: "title", Label: "Title", Values: []string{"My Page"}}}
 	cs := []domain.Comment{{Author: "alice", Created: "2026-01-01", Body: "nice"}}
 	cases := []struct {
 		name string
@@ -92,13 +140,13 @@ func TestRenderMarkdownViewPartsConcatIdentity(t *testing.T) {
 		opts MDViewOpts
 	}{
 		{"zero", "<h1>Title</h1><p>Body text.</p>", MDViewOpts{}},
-		{"frontmatter-only", "<p>Body text.</p>", MDViewOpts{Frontmatter: fm}},
+		{"metadata-only", "<p>Body text.</p>", MDViewOpts{PageFields: fields}},
 		{"comments-only", "<p>Body text.</p>", MDViewOpts{Comments: cs}},
-		{"both", "<h1>T</h1><p>Body text.</p>", MDViewOpts{Frontmatter: fm, Comments: cs}},
+		{"both", "<h1>T</h1><p>Body text.</p>", MDViewOpts{PageFields: fields, Comments: cs}},
 		{"read-only", "<p>Body text.</p>", MDViewOpts{ReadOnly: true}},
 		{"page-fields", "<p>Body text.</p>", MDViewOpts{PageFields: []PageField{{ID: "title", Label: "Title", Values: []string{"T"}}}}},
-		{"empty-body-frontmatter", "", MDViewOpts{Frontmatter: fm}},
-		{"empty-body-both", "", MDViewOpts{Frontmatter: fm, Comments: cs}},
+		{"empty-body-metadata", "", MDViewOpts{PageFields: fields}},
+		{"empty-body-both", "", MDViewOpts{PageFields: fields, Comments: cs}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -109,16 +157,5 @@ func TestRenderMarkdownViewPartsConcatIdentity(t *testing.T) {
 				t.Errorf("concat identity broken:\n got=%q\nwant=%q", got, want)
 			}
 		})
-	}
-}
-
-// A title with YAML-significant characters is quoted.
-func TestRenderMarkdownOptsFrontmatterYAMLEscape(t *testing.T) {
-	root := parseNode(t, "<p>x</p>")
-	out := string(RenderMarkdownOpts(root, nil, MDViewOpts{
-		Frontmatter: &PageFrontmatter{Title: `Plan: Q1 #1`, Space: "S", Version: 1},
-	}))
-	if !strings.Contains(out, `title: "Plan: Q1 #1"`) {
-		t.Errorf("title not YAML-escaped:\n%s", out)
 	}
 }

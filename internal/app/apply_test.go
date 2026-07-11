@@ -166,6 +166,9 @@ func TestApplyRejectsUnsupportedConfluenceViewFormatsBeforeWrite(t *testing.T) {
 		{name: "future", edit: func(md string) string {
 			return strings.Replace(md, mirror.ConfluenceDocumentMarker, "<!-- atl:document confluence-page v99 -->", 1)
 		}, want: "update atl"},
+		{name: "legacy v1", edit: func(md string) string {
+			return strings.Replace(md, mirror.ConfluenceDocumentMarker, "<!-- atl:document confluence-page v1 -->", 1)
+		}, want: "conf render"},
 		{name: "legacy yaml", edit: func(md string) string {
 			return "---\ntitle: old\n---\n\n" + md
 		}, want: "conf render"},
@@ -185,6 +188,37 @@ func TestApplyRejectsUnsupportedConfluenceViewFormatsBeforeWrite(t *testing.T) {
 				t.Fatalf("CSF changed on format refusal: %q", got)
 			}
 		})
+	}
+}
+
+func TestApplyAllowsUnchangedContentBorneReservedMarker(t *testing.T) {
+	page := "<p>&lt;!-- atl:section example readonly --&gt;</p><p>Original prose.</p>"
+	root, mdPath := scaffoldPage(t, page)
+	md := mustReadFile(t, mdPath)
+	if !strings.Contains(md, "<!-- atl:section example readonly -->") {
+		t.Fatalf("fixture did not render marker prose:\n%s", md)
+	}
+	md = strings.Replace(md, "Original prose.", "Edited prose.", 1)
+	if err := os.WriteFile(mdPath, []byte(md), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(mdPath, ApplyOpts{Into: root}); err != nil {
+		t.Fatalf("content-borne marker blocked unrelated edit: %v", err)
+	}
+	got := mustReadFile(t, strings.TrimSuffix(mdPath, ".md")+".csf")
+	if !strings.Contains(got, "Edited prose.") || !strings.Contains(got, "&lt;!-- atl:section example readonly --&gt;") {
+		t.Fatalf("marker prose or edit was not preserved: %s", got)
+	}
+}
+
+func TestReservedMarkerInventoryRejectsReordering(t *testing.T) {
+	pristine := "<!-- atl:section first readonly -->\ntext\n<!-- atl:section second readonly -->"
+	reordered := "<!-- atl:section second readonly -->\ntext\n<!-- atl:section first readonly -->"
+	if sameReservedMarkerText(reordered, pristine) {
+		t.Fatal("reserved marker reordering was accepted")
+	}
+	if !sameReservedMarkerText("edited prose\n"+pristine, pristine) {
+		t.Fatal("ordinary prose edit changed the reserved marker inventory")
 	}
 }
 

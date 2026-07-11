@@ -190,10 +190,12 @@ unchanged before and after. Render-resolution warnings go to **stderr**, never
 stdout.
 
 Every Confluence derived page view begins with
-`<!-- atl:document confluence-page v1 -->` and has reserved generated
+`<!-- atl:document confluence-page v2 -->` and has reserved generated
 metadata/body/comments boundaries. `conf apply` rejects missing, legacy, or
-unknown versions and reserved marker text inside the editable body before any
-substrate write. Legacy/unmarked migration uses `conf render` or a fresh pull;
+unknown versions and additions/removals/renames/reordering in the reserved marker sequence inside
+the editable body before any substrate write. Marker-looking prose already
+present in the native page remains valid when unchanged. Legacy/unmarked
+migration uses `conf render` or a fresh pull;
 callers preserve and reapply existing edits because render replaces `.md`.
 Unknown/future versions require an updated binary and must not be downgraded.
 
@@ -204,6 +206,22 @@ are stored with the view state so apply/push reproduce the exact prefix. Values
 are single-line escaped plain text, not executable Markdown. `restricted` is
 absent/unknown unless explicitly projected; offline render never converts
 unknown into `false`.
+
+The editable body begins visibly at `# Content`; native page headings retain
+their original levels beneath that delimiter so Markdown-to-CSF identity is not
+changed. A full view ends with readonly `# Comments`. Each comment is headed at
+level two, and its native storage-format body is rendered with headings nested
+below the comment. The comments sidecar retains both a plain fallback `body`
+and optional `body_storage` CSF.
+
+Native page links render as readable synthetic Markdown links whose destination
+is `confluence-page:` plus optional space and percent-encoded title; explicit
+labels stay separate from targets. Native colored spans render as protected
+HTML color spans only for a closed inert CSS-color grammar; other values use a
+non-styling `data-atl-color` marker, and literal inner HTML is escaped. Both
+remain opaque byte-preserving merge markers. Apply's
+loss report counts full page-link identity (space, target, label) and color
+spans, so same-label links cannot hide removal of a different target.
 
 The sibling Confluence `.meta.json` persists `ancestors` and `updated` when the
 backend supplied them. `restricted` is present as a JSON boolean only when the
@@ -322,7 +340,7 @@ found none, distinguishable from "not fetched"):
 ```
 
 With `--comments`, two sidecar files are written next to the page:
-`<slug>.comments.json` (a `[{id, author, created, body}]` array, pretty-printed
+`<slug>.comments.json` (a `[{id, author, created, body, body_storage?}]` array, pretty-printed
 with a trailing newline) and `<slug>.comments.md` (a derived read view). The
 page's `.meta.json` gains `comments_pulled: true` (the explicit "comments were
 fetched" marker — present even when the count is zero) plus `comment_count` (and

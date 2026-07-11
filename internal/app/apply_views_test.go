@@ -21,7 +21,7 @@ var fullViewComments = []domain.Comment{
 }
 
 // scaffoldFullPage lays out a mirrored page whose .md view was written under the
-// FULL Confluence profile (YAML frontmatter + a "## Comments" section) and whose
+// FULL Confluence profile (typed metadata + a "# Comments" section) and whose
 // view state is recorded in the sidecar — the shape `conf pull --render-profile
 // full` produces. It returns the mirror root, the .md path, and the exact full
 // view bytes on disk.
@@ -41,7 +41,10 @@ func scaffoldFullPage(t *testing.T, body string) (rootDir, mdPath, fullMD string
 	meta := mirror.Meta{ID: "4242", Title: "page", Space: "SP", Version: 3, Labels: []string{"x"}, Hash: mirror.Hash([]byte(body)), Refs: refs}
 	page := &domain.Resource{Title: meta.Title, SpaceKey: meta.Space, Version: meta.Version, Labels: meta.Labels}
 
-	rsFull := settingsFromViewState(mirror.ViewState{Sections: []string{SecComments, SecFrontmatter}})
+	rsFull, warns := computeSettings("confluence", config.RenderService{Profile: "full"})
+	if len(warns) != 0 {
+		t.Fatal(warns)
+	}
 	mdOpts := confMDViewOpts(rsFull, page, fullViewComments)
 	full := mirror.RenderMarkdownOpts(croot, refs, mdOpts)
 	fullMD = string(full)
@@ -66,14 +69,14 @@ func scaffoldFullPage(t *testing.T, body string) (rootDir, mdPath, fullMD string
 		t.Fatal(err)
 	}
 	m := mirror.New(rootDir)
-	if err := m.SaveViewStates(map[string]mirror.ViewState{"4242": {Sections: []string{SecComments, SecFrontmatter}}}); err != nil {
+	if err := m.SaveViewStates(map[string]mirror.ViewState{"4242": viewStateOf(rsFull)}); err != nil {
 		t.Fatal(err)
 	}
 	return rootDir, filepath.Join(dir, "page.md"), fullMD
 }
 
 // The core regression for #166: an untouched FULL-profile view must not inject
-// its frontmatter/comments decorations into the page body. The report shows zero
+// its metadata/comments decorations into the page body. The report shows zero
 // converted/added blocks and the .csf stays byte-identical.
 func TestApplyFullProfileUntouchedNoInjection(t *testing.T) {
 	rootDir, mdPath, _ := scaffoldFullPage(t, applyPage)
@@ -91,7 +94,7 @@ func TestApplyFullProfileUntouchedNoInjection(t *testing.T) {
 }
 
 // A body edit under the full profile merges into the .csf and the refreshed .md
-// keeps its full decorations (frontmatter + Comments).
+// keeps its full decorations (metadata + Comments).
 func TestApplyFullProfileBodyEditMergesAndRefreshesFull(t *testing.T) {
 	rootDir, mdPath, fullMD := scaffoldFullPage(t, applyPage)
 	edited := strings.Replace(fullMD, "Hello world.", "Hello edited world.", 1)
@@ -110,7 +113,7 @@ func TestApplyFullProfileBodyEditMergesAndRefreshesFull(t *testing.T) {
 		t.Fatalf("body edit not merged: %s", csfNow)
 	}
 	mdNow, _ := os.ReadFile(mdPath)
-	if !strings.HasPrefix(string(mdNow), mirror.ConfluenceDocumentMarker+"\n") || !strings.Contains(string(mdNow), mirror.ConfluenceCommentsMarker+"\n## Comments") {
+	if !strings.HasPrefix(string(mdNow), mirror.ConfluenceDocumentMarker+"\n") || !strings.Contains(string(mdNow), mirror.ConfluenceCommentsMarker+"\n# Comments") {
 		t.Fatalf("refreshed .md lost its full decorations:\n%s", mdNow)
 	}
 	if !strings.Contains(string(mdNow), "Hello edited world.") {
@@ -163,13 +166,13 @@ func TestApplyTypedPageFieldsStayReadOnlyAndSurviveBodyEdit(t *testing.T) {
 	}
 }
 
-// Editing the read-only YAML frontmatter is refused (exit 8) with a pointer at
+// Editing the read-only metadata table is refused (exit 8) with a pointer at
 // the page-metadata commands.
-func TestApplyFullProfileFrontmatterEditRefused(t *testing.T) {
+func TestApplyFullProfileMetadataEditRefused(t *testing.T) {
 	rootDir, mdPath, fullMD := scaffoldFullPage(t, applyPage)
-	edited := strings.Replace(fullMD, "version: 3", "version: 999", 1)
+	edited := strings.Replace(fullMD, "| Version | 3 |", "| Version | 999 |", 1)
 	if edited == fullMD {
-		t.Fatal("frontmatter anchor not found")
+		t.Fatal("metadata anchor not found")
 	}
 	if err := os.WriteFile(mdPath, []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
@@ -187,7 +190,7 @@ func TestApplyFullProfileFrontmatterEditRefused(t *testing.T) {
 	}
 }
 
-// Editing the read-only "## Comments" section is refused (exit 8) with a pointer
+// Editing the read-only "# Comments" section is refused (exit 8) with a pointer
 // at `conf comment add`.
 func TestApplyFullProfileCommentsEditRefused(t *testing.T) {
 	rootDir, mdPath, fullMD := scaffoldFullPage(t, applyPage)

@@ -70,8 +70,8 @@ func TestCorpusSweep(t *testing.T) {
 		// page so no body shape breaks the identity.
 		refs := fragment.Extract(root)
 		opts := MDViewOpts{
-			Frontmatter: &PageFrontmatter{Title: "T", Space: "S", Version: 1},
-			Comments:    []domain.Comment{{Author: "a", Created: "d", Body: "c"}},
+			PageFields: []PageField{{ID: "title", Label: "Title", Values: []string{"T"}}},
+			Comments:   []domain.Comment{{Author: "a", Created: "d", Body: "c"}},
 		}
 		want := string(RenderMarkdownOpts(root, refs, opts))
 		p, bmid, sfx := RenderMarkdownViewParts(root, refs, opts)

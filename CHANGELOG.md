@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Readable, identity-safe Confluence view v2.** Derived page views now expose
+  clear `# Metadata`, `# Content`, and `# Comments` regions; comments retain
+  native CSF formatting; page links show label plus space/target identity; and
+  colored spans use readable HTML. Apply preserves exact native bytes for
+  protected constructs, detects link/color loss, and permits unchanged
+  marker-looking prose that originated in page content.
+
 - **Cross-service mirror state updates no longer lose entries.** Jira and
   Confluence batches merge only their changed records into the latest
   `.atl/state.json` under a shared root-contained state lock. Concurrent

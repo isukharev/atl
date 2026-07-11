@@ -69,7 +69,7 @@ render profiles, output layout, status, bulk commands, and the full inventory.
 1. Keep the selected mirror root fixed for the whole cycle.
 2. On an existing mirror, check local/remote status and never pull over
    unreviewed local edits.
-3. Require first line `<!-- atl:document confluence-page v1 -->` in `.md`.
+3. Require first line `<!-- atl:document confluence-page v2 -->` in `.md`.
 4. If a pristine view is missing/older, render that exact file/root first. If it
    already has edits, save a private reviewed patch outside the derived view,
    render, then reapply it. For a future marker, update `atl`; never downgrade.

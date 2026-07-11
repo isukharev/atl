@@ -234,7 +234,7 @@ mirror/
       acme-adr.csf              # source of truth (native storage format)
       acme-adr.md               # derived staging view; supported edits go through conf apply
       acme-adr.meta.json        # id, version, content hash, resolved fragments, comment_count
-      acme-adr.comments.json    # [{id,author,created,body}] (with --comments)
+      acme-adr.comments.json    # [{id,author,created,body,body_storage?}] (with --comments)
       acme-adr.comments.md      # derived human read view (with --comments)
       acme-adr.assets/*.png     # draw.io renders + page images (with --assets)
       child-page/…              # folder tree mirrors the page hierarchy
@@ -251,7 +251,7 @@ rg "decision" mirror/
 ### 3. Edit, validate & push
 
 ```sh
-# Easiest: ensure the v1 document marker, edit the markdown view, then merge it into .csf.
+# Easiest: ensure the v2 document marker, edit the markdown view, then merge it into .csf.
 # Untouched blocks keep their exact bytes; unconvertible edits fail closed.
 $EDITOR mirror/DOCS/acme-adr/acme-adr.md
 atl conf apply mirror/DOCS/acme-adr/acme-adr.md --dry-run
@@ -290,6 +290,8 @@ atl conf page title set 123456 --from-file title.txt
 # Typed read-only page metadata (closed field ids; see docs/usage.md)
 atl config set render.confluence.include page_fields
 atl config set render.confluence.page_fields '[{"id":"title"},{"id":"updated","format":"date"}]'
+# View v2 visibly separates # Metadata / # Content / # Comments; native
+# comment formatting and page-link target identity remain readable.
 atl conf table extract --id 123456 --format json
 atl conf table extract --id 123456 --table 2 --format csv
 atl conf table extract --id 123456 --table 2 --format csv --raw-csv # unsafe in spreadsheets

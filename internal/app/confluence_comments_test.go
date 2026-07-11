@@ -54,7 +54,8 @@ func TestPullCommentsFlagOffNoCallNoFiles(t *testing.T) {
 // sidecars on re-pull.
 func TestPullCommentsMirrorsSidecars(t *testing.T) {
 	comments := []domain.Comment{
-		{ID: "c1", Author: "Alice", Created: "2026-01-01T00:00:00.000Z", Body: "first"},
+		{ID: "c1", Author: "Alice", Created: "2026-01-01T00:00:00.000Z", Body: "first",
+			BodyStorage: "<p><strong>first</strong></p><ul><li>nested item</li></ul>"},
 		{ID: "c2", Author: "Bob", Created: "2026-01-02T00:00:00.000Z", Body: "second"},
 	}
 	newStore := func() *pullStore {
@@ -89,7 +90,7 @@ func TestPullCommentsMirrorsSidecars(t *testing.T) {
 	}
 
 	// .comments.md is the derived read view.
-	wantMD := "**Alice** (2026-01-01T00:00:00.000Z):\n\nfirst\n\n**Bob** (2026-01-02T00:00:00.000Z):\n\nsecond\n\n"
+	wantMD := "# Comments\n\n## Comment by Alice (2026-01-01T00:00:00.000Z)\n\n**first**\n\n- nested item\n\n## Comment by Bob (2026-01-02T00:00:00.000Z)\n\nsecond\n\n"
 	gotMD, err := os.ReadFile(filepath.Join(dir, slug+".comments.md"))
 	if err != nil {
 		t.Fatalf("read comments.md: %v", err)

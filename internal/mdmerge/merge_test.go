@@ -126,6 +126,85 @@ func TestMergeDeleteBlockRequiresLossGate(t *testing.T) {
 	}
 }
 
+func TestMergeRefusesLossOfColoredSpanIdentity(t *testing.T) {
+	page := "<p>Before <span style=\"color: rgb(59,59,59);\">important</span> after.</p>"
+	md := renderOf(t, page, nil)
+	marker := "<span style=\"color: rgb(59,59,59)\">important</span>"
+	if !strings.Contains(md, marker) {
+		t.Fatalf("fixture marker missing:\n%s", md)
+	}
+	edited := strings.Replace(md, marker, "important", 1)
+	_, rep, err := Merge([]byte(page), nil, edited, Options{})
+	var loss *LossError
+	if !errors.As(err, &loss) {
+		t.Fatalf("colored span loss error = %v, report=%+v", err, rep)
+	}
+	if len(rep.RemovedFragments) == 0 || rep.RemovedFragments[0].Kind != "color" {
+		t.Fatalf("colored span missing from loss report: %+v", rep.RemovedFragments)
+	}
+}
+
+func TestMergeDistinguishesSameLabelPageLinksByTargetAndSpace(t *testing.T) {
+	page := "<p>" +
+		"<ac:link><ri:page ri:content-title=\"One\" ri:space-key=\"A\"/><ac:plain-text-link-body>Guide</ac:plain-text-link-body></ac:link> " +
+		"<ac:link><ri:page ri:content-title=\"Two\" ri:space-key=\"B\"/><ac:plain-text-link-body>Guide</ac:plain-text-link-body></ac:link>" +
+		"</p>"
+	md := renderOf(t, page, nil)
+	first := "[Guide](confluence-page:A/One)"
+	second := "[Guide](confluence-page:B/Two)"
+	if !strings.Contains(md, first) || !strings.Contains(md, second) {
+		t.Fatalf("page-link identities missing:\n%s", md)
+	}
+	edited := strings.Replace(md, first+" ", "", 1)
+	_, rep, err := Merge([]byte(page), nil, edited, Options{})
+	var loss *LossError
+	if !errors.As(err, &loss) {
+		t.Fatalf("page-link loss error = %v, report=%+v", err, rep)
+	}
+	found := false
+	for _, removed := range rep.RemovedFragments {
+		if removed.Kind == domain.RefPageLink && strings.Contains(removed.Key, "A") && strings.Contains(removed.Key, "One") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("removed target identity missing: %+v", rep.RemovedFragments)
+	}
+}
+
+func TestMergeProtectsRichLinkAndSameColorSubtreeIdentity(t *testing.T) {
+	page := "<p>" +
+		"<ac:link><ri:page ri:content-title=\"One\"/><ac:plain-text-link-body>Guide</ac:plain-text-link-body></ac:link> " +
+		"<ac:link><ri:page ri:content-title=\"One\"/><ac:link-body><strong>Guide</strong></ac:link-body></ac:link> " +
+		"<span style=\"color: red;\">alpha</span> <span style=\"color: red;\">beta</span>" +
+		"</p>"
+	md := renderOf(t, page, nil)
+	rich := "[**Guide**](confluence-page:One)"
+	coloredAlpha := "<span style=\"color: red\">alpha</span>"
+	if !strings.Contains(md, rich) || !strings.Contains(md, coloredAlpha) {
+		t.Fatalf("protected fixture identities missing:\n%s", md)
+	}
+	edited := strings.Replace(md, rich+" ", "", 1)
+	edited = strings.Replace(edited, coloredAlpha, "alpha", 1)
+	_, rep, err := Merge([]byte(page), nil, edited, Options{})
+	var loss *LossError
+	if !errors.As(err, &loss) {
+		t.Fatalf("rich/color loss error = %v, report=%+v", err, rep)
+	}
+	var pageLinks, colors int
+	for _, removed := range rep.RemovedFragments {
+		switch removed.Kind {
+		case domain.RefPageLink:
+			pageLinks++
+		case "color":
+			colors++
+		}
+	}
+	if pageLinks != 1 || colors != 1 {
+		t.Fatalf("subtree-specific loss report = %+v", rep.RemovedFragments)
+	}
+}
+
 func TestMergeMoveReusesBytes(t *testing.T) {
 	md := renderOf(t, samplePage, nil)
 	// Move the toc marker line to the end of the page.
