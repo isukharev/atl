@@ -2445,7 +2445,7 @@ fields and preserves the requested order in Markdown. Namespaced source columns
 include `board.column`, `board.in_backlog`, and `sprint.id`; unavailable context
 columns fail with usage rather than silently rendering empty.
 
-### `atl jira structure {get,view,forest,rows,values,pull-issues,export}`
+### `atl jira structure {get,view,forest,rows,folders,values,pull-issues,export}`
 
 Read-only Tempo Structure access via the Structure REST API
 (`/rest/structure/2.0/`). Structures are addressed by numeric id. If the
@@ -2459,6 +2459,9 @@ atl jira structure view 123 --fields key,summary,status,assignee
 atl jira structure forest 123
 atl jira structure rows 123                         # parsed forest rows; -o id -> row ids
 atl jira structure rows 123 --root "release train"  # first matching subtree
+atl jira structure folders 123                     # stable folder ids, paths, subtree statistics
+atl jira structure view 123 --folder-id 100        # exact stable folder selector
+atl jira structure view 123 --folder-path 'Plans / Quarter' -o text
 atl jira structure values 123 --rows 100,101 --fields key,summary,status
 atl jira structure pull-issues 123 --fields summary,status
 atl jira structure export 123 --root "release train" --fields key,summary,status --format jsonl --out structure.jsonl
@@ -2469,7 +2472,7 @@ atl jira structure export 123 --fields summary --format csv --out raw.csv --raw-
 identities with compact Jira issue fields; stored folders receive best-effort
 labels, while calculated grouping/generator rows keep honest technical labels.
 JSON is the default, `-o text` is a Markdown table, and `-o id` emits row ids.
-The default projection is `key,summary,status,assignee,priority,issuetype`;
+The default projection is `key,summary,status,assignee`;
 `--fields` accepts Jira field ids and replaces that list.
 
 Tempo's browser saved views and per-user column adjustments are a separate UI
@@ -2488,6 +2491,23 @@ the whole batch; user-authored JQL remains strict and inaccessible rows remain
 explicit. Use `values.key`, `item_id`,
 and the ordered hierarchy for durable analysis; use `row_id` only within one
 snapshot.
+
+`folders` is the fast discovery path: it reads metadata, one forest, and one
+batched Structure Value projection for stored-folder labels, but never searches
+Jira issues. JSON reports stable `folder_id`, snapshot-local `row_id`, exact
+folder path, parent folder, depth, and subtree statistics for descendant rows,
+issue occurrences, unique issues, descendant folders, and maximum relative
+depth. `-o id` prints stable folder item ids; `-o text` is a compact Markdown
+table. Label failures retain ids/statistics with `complete:false` and bounded
+warnings.
+
+`rows`, `view`, `pull-issues`, and `export` accept exactly one selector:
+`--folder-id` (preferred stable id), `--folder-row` (one current-forest
+occurrence), `--folder-path` (exact normalized slash-separated path), or legacy
+fuzzy `--root`. Exact selectors verify a stored folder, never fall back to the
+first substring match, and fail closed on absence/ambiguity. JSON preserves
+absolute `depth`/`parent_row_id`, adds `relative_depth`, and returns a
+`selection` object. Selected Markdown starts at depth zero.
 
 `rows` parses Structure's forest formula into a stable row list. `--root`
 matches the first row by row id, item id/type/semantic, or by selected Structure
@@ -2537,6 +2557,10 @@ the matching Jira issues via generated `id in (...)` JQL batches. It emits:
   "count": 1
 }
 ```
+
+Full Structure Markdown uses separate emitted `#`, numeric `Depth`, technical
+`Type` and `Item`, Jira value columns, and `Access`; it no longer combines
+indentation, key, and summary into a duplicated `Tree` cell.
 
 `export` writes the same normalized projection as `view`. Supported formats are
 `json`, `jsonl`, `csv`, and `md`; `--out` is required. JSONL emits one

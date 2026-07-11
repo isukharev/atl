@@ -15,9 +15,7 @@
       "key",
       "summary",
       "status",
-      "assignee",
-      "priority",
-      "issuetype"
+      "assignee"
     ],
     "browser_view_reproduced": false
   },
@@ -31,9 +29,7 @@
       "accessible": true,
       "values": {
         "assignee": null,
-        "issuetype": null,
         "key": null,
-        "priority": null,
         "status": null,
         "summary": "Planning | root"
       }
@@ -48,9 +44,7 @@
       "accessible": true,
       "values": {
         "assignee": "Owner",
-        "issuetype": "Story",
         "key": "PROJ-1",
-        "priority": "High",
         "status": "Open",
         "summary": "First issue"
       }
@@ -59,5 +53,6 @@
   "row_count": 2,
   "issue_count": 1,
   "complete": true,
-  "inaccessible_rows": []
+  "inaccessible_rows": [],
+  "warnings": []
 }

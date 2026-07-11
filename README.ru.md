@@ -155,7 +155,7 @@ codex plugin add atl@atl
 - **`atl`** — ориентация: когда использовать `atl` (а когда live Atlassian MCP), workflow
   «сначала поиск» и где живёт зеркало.
 - **`confluence`** — pull, правка `.csf`, валидация и публикация страниц под version gate.
-- **`jira`** — поиск/выгрузка задач, нормализованные срезы Structure и Kanban/Scrum-досок,
+- **`jira`** — поиск/выгрузка задач, точное обнаружение папок и нормализованные срезы Structure и Kanban/Scrum-досок,
   а также create/update/transition/comment/link через guarded-команды.
 - **`onboarding`** — опциональное consent-gated изучение workflow, явные командные defaults и
   проверяемый приватный профиль; дальнейшие наблюдения превращаются в deterministic

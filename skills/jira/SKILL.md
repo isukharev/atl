@@ -336,8 +336,9 @@ column/status views, backlog capability, pagination, and exports, load the match
 
 ### 9. Tempo Structure (read-only)
 
-For read-only Structure work, including normalized Markdown/JSON/JSONL/CSV
-planning views and the distinction from browser saved views, load the matching section of
+For read-only Structure work, including fast folder discovery, exact stable
+folder selection, normalized Markdown/JSON/JSONL/CSV planning views, and the
+distinction from browser saved views, load the matching section of
 [reference/extended-capabilities.md](reference/extended-capabilities.md).
 
 ## Command reference
@@ -376,7 +377,7 @@ sanitized issue + private case file).
   unconvertible block). Raw `--from-file` bodies are **Jira wiki markup, not Markdown**
   (`*bold*`, `h2.`, `{code}` — see [wiki-markup.md](reference/wiki-markup.md)); Markdown
   syntax pasted there publishes as literal characters.
-- Structure commands are read-only inspection tools; do not infer that `atl` can write Structure data.
+- Structure commands are read-only inspection tools; do not infer that `atl` can write Structure data. Prefer `structure folders` → `--folder-id`; use fuzzy `--root` only when fuzzy selection is explicitly intended.
 - No version gate → always `get` right before `update`. (`issue edit` checks implicitly:
   the `--old` match fails closed if the text moved.)
 - Before setting a status, field value, or link type, confirm it exists (`transitions`,

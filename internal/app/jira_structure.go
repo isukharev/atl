@@ -16,6 +16,7 @@ import (
 type StructureRowsOpts struct {
 	Root       string
 	RootFields []string
+	StructureFolderSelector
 }
 
 // StructureRowsResult is a parsed Structure row snapshot.
@@ -23,6 +24,9 @@ type StructureRowsResult struct {
 	StructureID int64                    `json:"structure_id"`
 	Version     *domain.StructureVersion `json:"version,omitempty"`
 	Rows        []domain.StructureRow    `json:"rows"`
+	Selection   *StructureSelection      `json:"selection,omitempty"`
+	Complete    bool                     `json:"complete"`
+	Warnings    []string                 `json:"warnings"`
 }
 
 // StructureIssuePullOpts controls Structure issue collection.
@@ -33,6 +37,7 @@ type StructureIssuePullOpts struct {
 	BatchSize  int
 	Limit      int
 	Out        string
+	StructureFolderSelector
 }
 
 // StructureIssuePullResult contains issue snapshots referenced by a Structure.
@@ -45,6 +50,9 @@ type StructureIssuePullResult struct {
 	Count            int                      `json:"count"`
 	InaccessibleRows []int64                  `json:"inaccessible_rows,omitempty"`
 	Path             string                   `json:"path,omitempty"`
+	Selection        *StructureSelection      `json:"selection,omitempty"`
+	Complete         bool                     `json:"complete"`
+	Warnings         []string                 `json:"warnings"`
 }
 
 // StructureExportOpts controls Structure offline exports.
@@ -55,6 +63,7 @@ type StructureExportOpts struct {
 	Format    string
 	Out       string
 	RawCSV    bool
+	StructureFolderSelector
 }
 
 // StructureExportResult describes a written Structure export.
@@ -71,6 +80,7 @@ type StructureSnapshotOpts struct {
 	Root       string
 	Attributes []string
 	BatchSize  int
+	StructureFolderSelector
 }
 
 // StructureProjection makes it explicit that atl selected Jira fields; it is
@@ -101,23 +111,26 @@ type StructureSnapshot struct {
 	IssueCount       int                       `json:"issue_count"`
 	Complete         bool                      `json:"complete"`
 	InaccessibleRows []int64                   `json:"inaccessible_rows"`
+	Selection        *StructureSelection       `json:"selection,omitempty"`
+	Warnings         []string                  `json:"warnings"`
 }
 
 // StructureSnapshotRow is one jq/JSONL-friendly hierarchy row with selected
 // Jira fields for issues and a best-effort summary for stored folders.
 type StructureSnapshotRow struct {
-	RowID       int64          `json:"row_id"`
-	Depth       int            `json:"depth"`
-	ParentRowID int64          `json:"parent_row_id,omitempty"`
-	ItemType    string         `json:"item_type"`
-	ItemID      string         `json:"item_id"`
-	Semantic    string         `json:"semantic,omitempty"`
-	Position    int            `json:"position"`
-	Accessible  bool           `json:"accessible"`
-	Values      map[string]any `json:"values"`
+	RowID         int64          `json:"row_id"`
+	Depth         int            `json:"depth"`
+	RelativeDepth *int           `json:"relative_depth,omitempty"`
+	ParentRowID   int64          `json:"parent_row_id,omitempty"`
+	ItemType      string         `json:"item_type"`
+	ItemID        string         `json:"item_id"`
+	Semantic      string         `json:"semantic,omitempty"`
+	Position      int            `json:"position"`
+	Accessible    bool           `json:"accessible"`
+	Values        map[string]any `json:"values"`
 }
 
-var defaultStructureAttributes = []string{"key", "summary", "status", "assignee", "priority", "issuetype"}
+var defaultStructureAttributes = []string{"key", "summary", "status", "assignee"}
 
 // Structure fetches metadata for a Tempo Structure.
 func (s *JiraService) Structure(ctx context.Context, id int64) (*domain.Structure, error) {
@@ -150,17 +163,29 @@ func (s *JiraService) StructureRows(ctx context.Context, id int64) ([]domain.Str
 
 // StructureRowsWithOptions parses Structure rows and optionally keeps one subtree.
 func (s *JiraService) StructureRowsWithOptions(ctx context.Context, id int64, opts StructureRowsOpts) (*StructureRowsResult, error) {
+	if err := validateStructureSelector(opts.Root, opts.StructureFolderSelector); err != nil {
+		return nil, err
+	}
 	rows, version, err := s.StructureRows(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(opts.Root) != "" {
+	result := &StructureRowsResult{StructureID: id, Version: version, Rows: rows, Complete: true, Warnings: []string{}}
+	if selectorCount(opts.StructureFolderSelector) > 0 {
+		labels, complete, warnings := s.structureFolderLabelsChecked(ctx, id, rows)
+		selected, selection, selectErr := selectStructureFolder(rows, buildStructureFolders(rows, labels), complete, opts.StructureFolderSelector)
+		if selectErr != nil {
+			return nil, selectErr
+		}
+		result.Rows, result.Selection, result.Complete, result.Warnings = selected, selection, complete, warnings
+	} else if strings.TrimSpace(opts.Root) != "" {
 		rows, err = s.filterStructureRows(ctx, id, rows, opts)
 		if err != nil {
 			return nil, err
 		}
+		result.Rows = rows
 	}
-	return &StructureRowsResult{StructureID: id, Version: version, Rows: rows}, nil
+	return result, nil
 }
 
 // StructureValues fetches attribute values for selected Structure rows.
@@ -184,6 +209,9 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 	if id <= 0 {
 		return nil, fmt.Errorf("%w: structure id must be positive", domain.ErrUsage)
 	}
+	if err := validateStructureSelector(opts.Root, opts.StructureFolderSelector); err != nil {
+		return nil, err
+	}
 	attributes, source := normalizedStructureAttributes(opts.Attributes)
 
 	metadata, err := s.Structure(ctx, id)
@@ -198,8 +226,16 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 	if err != nil {
 		return nil, err
 	}
+	folderLabels, labelsComplete, warnings := s.structureFolderLabelsChecked(ctx, id, rows)
+	var selection *StructureSelection
+	if selectorCount(opts.StructureFolderSelector) > 0 {
+		rows, selection, err = selectStructureFolder(rows, buildStructureFolders(rows, folderLabels), labelsComplete, opts.StructureFolderSelector)
+		if err != nil {
+			return nil, err
+		}
+	}
 	root := strings.TrimSpace(opts.Root)
-	rootResolved := root == ""
+	rootResolved := root == "" || selection != nil
 	if root != "" {
 		if filtered := FilterStructureRows(rows, root, nil); len(filtered) > 0 {
 			rows = filtered
@@ -224,8 +260,6 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 	for _, issue := range issues {
 		issuesByID[issue.ID] = issue
 	}
-	folderLabels := s.structureFolderLabels(ctx, id, rows)
-
 	result := &StructureSnapshot{
 		SchemaVersion: 1,
 		Structure: StructureSnapshotMetadata{
@@ -238,8 +272,10 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 		},
 		Rows:             []StructureSnapshotRow{},
 		IssueCount:       0,
-		Complete:         true,
+		Complete:         labelsComplete,
 		InaccessibleRows: []int64{},
+		Selection:        selection,
+		Warnings:         warnings,
 	}
 
 	if !rootResolved {
@@ -262,7 +298,7 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 			result.InaccessibleRows = append(result.InaccessibleRows, row.RowID)
 		}
 		result.Rows = append(result.Rows, StructureSnapshotRow{
-			RowID: row.RowID, Depth: row.Depth, ParentRowID: row.ParentRowID,
+			RowID: row.RowID, Depth: row.Depth, RelativeDepth: row.RelativeDepth, ParentRowID: row.ParentRowID,
 			ItemType: row.ItemType, ItemID: row.ItemID, Semantic: row.Semantic,
 			Position: row.Position, Accessible: accessible, Values: selected,
 		})
@@ -298,29 +334,7 @@ func structureSnapshotValues(row domain.StructureRow, attributes []string, issue
 // non-issue rows deliberately keep technical identities because Value API row
 // ids can be regenerated before the value request is evaluated.
 func (s *JiraService) structureFolderLabels(ctx context.Context, id int64, rows []domain.StructureRow) map[int64]string {
-	labels := map[int64]string{}
-	var folderRows []int64
-	for _, row := range rows {
-		if structureItemTypeLabel(row.ItemType) == "folder" {
-			folderRows = append(folderRows, row.RowID)
-		}
-	}
-	if len(folderRows) == 0 {
-		return labels
-	}
-	values, err := s.StructureValues(ctx, id, folderRows, []string{"key", "summary"})
-	if err != nil {
-		return labels
-	}
-	normalized, _, err := normalizeStructureValueRows(values)
-	if err != nil {
-		return labels
-	}
-	for _, rowID := range folderRows {
-		if snapshotText(normalized[rowID]["key"]) == "" {
-			labels[rowID] = snapshotText(normalized[rowID]["summary"])
-		}
-	}
+	labels, _, _ := s.structureFolderLabelsChecked(ctx, id, rows)
 	return labels
 }
 
@@ -435,7 +449,7 @@ func mapSlice(v any) []map[string]any {
 
 // StructurePullIssues fetches Jira issue snapshots referenced by Structure issue rows.
 func (s *JiraService) StructurePullIssues(ctx context.Context, id int64, opts StructureIssuePullOpts) (*StructureIssuePullResult, error) {
-	rowResult, err := s.StructureRowsWithOptions(ctx, id, StructureRowsOpts{Root: opts.Root, RootFields: opts.RootFields})
+	rowResult, err := s.StructureRowsWithOptions(ctx, id, StructureRowsOpts{Root: opts.Root, RootFields: opts.RootFields, StructureFolderSelector: opts.StructureFolderSelector})
 	if err != nil {
 		return nil, err
 	}
@@ -446,6 +460,9 @@ func (s *JiraService) StructurePullIssues(ctx context.Context, id int64, opts St
 		Rows:        rowResult.Rows,
 		IssueIDs:    ids,
 		Issues:      []JiraIssueSnapshot{},
+		Selection:   rowResult.Selection,
+		Complete:    rowResult.Complete,
+		Warnings:    rowResult.Warnings,
 	}
 	if len(ids) > 0 {
 		queries := batchedJQL("id", ids, normalizeBatchSize(opts.BatchSize), false)
@@ -491,9 +508,10 @@ func (s *JiraService) StructureExport(ctx context.Context, id int64, opts Struct
 		return nil, fmt.Errorf("%w: --raw-csv requires --format csv", domain.ErrUsage)
 	}
 	snapshot, err := s.StructureSnapshot(ctx, id, StructureSnapshotOpts{
-		Root:       opts.Root,
-		Attributes: opts.Fields,
-		BatchSize:  opts.BatchSize,
+		Root:                    opts.Root,
+		Attributes:              opts.Fields,
+		BatchSize:               opts.BatchSize,
+		StructureFolderSelector: opts.StructureFolderSelector,
 	})
 	if err != nil {
 		return nil, err
@@ -753,8 +771,15 @@ func renderStructureSnapshot(format string, snapshot *StructureSnapshot, rawCSV 
 				Projection    StructureProjection     `json:"projection"`
 				Complete      bool                    `json:"complete"`
 				Inaccessible  []int64                 `json:"inaccessible_rows"`
+				Selection     *StructureSelection     `json:"selection,omitempty"`
+				Warnings      []string                `json:"warnings"`
 				Row           StructureSnapshotRow    `json:"row"`
-			}{snapshot.SchemaVersion, snapshot.Structure.ID, snapshot.ForestVersion, snapshot.Projection, snapshot.Complete, snapshot.InaccessibleRows, row}
+			}{
+				SchemaVersion: snapshot.SchemaVersion, StructureID: snapshot.Structure.ID,
+				ForestVersion: snapshot.ForestVersion, Projection: snapshot.Projection,
+				Complete: snapshot.Complete, Inaccessible: snapshot.InaccessibleRows,
+				Selection: snapshot.Selection, Warnings: snapshot.Warnings, Row: row,
+			}
 			if err := enc.Encode(record); err != nil {
 				return nil, err
 			}
@@ -772,7 +797,7 @@ func renderStructureSnapshot(format string, snapshot *StructureSnapshot, rawCSV 
 func renderStructureSnapshotCSV(snapshot *StructureSnapshot, rawCSV bool) ([]byte, error) {
 	var b bytes.Buffer
 	w := csv.NewWriter(&b)
-	header := append([]string{"row_id", "depth", "parent_row_id", "position", "item_type", "item_id", "accessible"}, snapshot.Projection.Attributes...)
+	header := append([]string{"row_id", "depth", "relative_depth", "parent_row_id", "position", "item_type", "item_id", "accessible"}, snapshot.Projection.Attributes...)
 	if err := w.Write(spreadsheetRecord(header, rawCSV)); err != nil {
 		return nil, err
 	}
@@ -780,6 +805,7 @@ func renderStructureSnapshotCSV(snapshot *StructureSnapshot, rawCSV bool) ([]byt
 		record := []string{
 			strconv.FormatInt(row.RowID, 10),
 			strconv.Itoa(row.Depth),
+			optionalInt(row.RelativeDepth),
 			emptyZero(row.ParentRowID),
 			strconv.Itoa(row.Position),
 			row.ItemType,
@@ -811,29 +837,34 @@ func renderStructureSnapshotMarkdown(snapshot *StructureSnapshot) []byte {
 	b.WriteString("\n\n")
 	fmt.Fprintf(&b, "> ATL Jira-field projection (`%s`, source: `%s`); browser saved-view columns are not reproduced. Forest version: `%d`; rows: %d.\n\n",
 		snapshot.Projection.Kind, snapshot.Projection.Source, snapshot.ForestVersion.Version, snapshot.RowCount)
-	if !snapshot.Complete {
+	if snapshot.Selection != nil {
+		fmt.Fprintf(&b, "> Selected folder: `%s`; path: %s; depth is relative in this table.\n\n", snapshot.Selection.FolderID, markdownTableCell(strings.Join(snapshot.Selection.Path, " / ")))
+	}
+	if len(snapshot.InaccessibleRows) > 0 {
 		fmt.Fprintf(&b, "> **Partial visibility:** %d issue rows were unavailable; they remain in the hierarchy with empty values and `Accessible = false`.\n\n", len(snapshot.InaccessibleRows))
 	}
-	header := []string{"Row", "Tree", "Type", "Accessible"}
+	for _, warning := range snapshot.Warnings {
+		fmt.Fprintf(&b, "> **Warning:** %s.\n\n", warning)
+	}
+	header := []string{"#", "Depth", "Type", "Item"}
 	for _, attribute := range snapshot.Projection.Attributes {
-		header = append(header, markdownTableCell(attribute))
+		header = append(header, issueListColumnLabel(attribute))
 	}
-	b.WriteString("| ")
-	b.WriteString(strings.Join(header, " | "))
-	b.WriteString(" |\n|")
-	for range header {
-		b.WriteString(" --- |")
-	}
-	b.WriteByte('\n')
-	for _, row := range snapshot.Rows {
-		cells := []string{strconv.FormatInt(row.RowID, 10), structureTreeLabel(row), markdownTableCell(structureItemTypeLabel(row.ItemType)), strconv.FormatBool(row.Accessible)}
-		for _, attribute := range snapshot.Projection.Attributes {
-			cells = append(cells, markdownTableCell(snapshotText(row.Values[attribute])))
+	header = append(header, "Access")
+	rows := make([][]string, 0, len(snapshot.Rows))
+	for index, row := range snapshot.Rows {
+		depth := row.Depth
+		if row.RelativeDepth != nil {
+			depth = *row.RelativeDepth
 		}
-		b.WriteString("| ")
-		b.WriteString(strings.Join(cells, " | "))
-		b.WriteString(" |\n")
+		cells := []string{strconv.Itoa(index), strconv.Itoa(depth), structureItemTypeLabel(row.ItemType), row.ItemID}
+		for _, attribute := range snapshot.Projection.Attributes {
+			cells = append(cells, snapshotText(row.Values[attribute]))
+		}
+		cells = append(cells, strconv.FormatBool(row.Accessible))
+		rows = append(rows, cells)
 	}
+	b.WriteString(MarkdownTable(header, rows))
 	return []byte(b.String())
 }
 
@@ -841,20 +872,6 @@ func renderStructureSnapshotMarkdown(snapshot *StructureSnapshot) []byte {
 // `jira structure view -o text` and Markdown exports.
 func StructureSnapshotMarkdown(snapshot *StructureSnapshot) string {
 	return string(renderStructureSnapshotMarkdown(snapshot))
-}
-
-func structureTreeLabel(row StructureSnapshotRow) string {
-	label := snapshotText(row.Values["summary"])
-	key := snapshotText(row.Values["key"])
-	if label == "" {
-		label = key
-	} else if key != "" && key != label {
-		label = key + " — " + label
-	}
-	if label == "" {
-		label = structureItemTypeLabel(row.ItemType) + ":" + row.ItemID
-	}
-	return strings.Repeat("↳ ", row.Depth) + markdownTableCell(label)
 }
 
 func structureItemTypeLabel(itemType string) string {

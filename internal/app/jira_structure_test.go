@@ -173,3 +173,67 @@ func TestFilterStructureRowsKeepsFirstMatchingSubtree(t *testing.T) {
 		t.Fatalf("filtered = %+v, want rows 100..103", filtered)
 	}
 }
+
+func TestBuildStructureFoldersCalculatesPathsAndOccurrenceStats(t *testing.T) {
+	rows := []domain.StructureRow{
+		{RowID: 10, Depth: 0, ItemType: "folder", ItemID: "f-root"},
+		{RowID: 11, Depth: 1, ItemType: "issue", ItemID: "10001"},
+		{RowID: 12, Depth: 1, ItemType: "folder", ItemID: "f-child"},
+		{RowID: 13, Depth: 2, ItemType: "issue", ItemID: "10001"},
+		{RowID: 14, Depth: 2, ItemType: "issue", ItemID: "10002"},
+		{RowID: 20, Depth: 0, ItemType: "folder", ItemID: "f-other"},
+	}
+	folders := buildStructureFolders(rows, map[int64]string{10: "Plans", 12: "Quarter", 20: "Plans"})
+	if len(folders) != 3 || strings.Join(folders[1].Path, "/") != "Plans/Quarter" || folders[1].ParentFolderID != "f-root" {
+		t.Fatalf("folders=%+v", folders)
+	}
+	stats := folders[0].Stats
+	if stats.DescendantRows != 4 || stats.IssueRows != 3 || stats.UniqueIssues != 2 || stats.Subfolders != 1 || stats.MaxRelativeDepth != 2 {
+		t.Fatalf("stats=%+v", stats)
+	}
+}
+
+func TestSelectStructureFolderIsExactFailClosedAndRelative(t *testing.T) {
+	rows := []domain.StructureRow{
+		{RowID: 10, Depth: 0, ItemType: "folder", ItemID: "f-root"},
+		{RowID: 11, Depth: 1, ItemType: "folder", ItemID: "f-child"},
+		{RowID: 12, Depth: 2, ItemType: "issue", ItemID: "10001"},
+		{RowID: 20, Depth: 0, ItemType: "folder", ItemID: "f-other"},
+		{RowID: 21, Depth: 1, ItemType: "folder", ItemID: "f-child-2"},
+	}
+	folders := buildStructureFolders(rows, map[int64]string{10: "Plans", 11: "Quarter", 20: "Archive", 21: "Quarter"})
+	selected, selection, err := selectStructureFolder(rows, folders, true, StructureFolderSelector{FolderPath: " plans / quarter "})
+	if err != nil || len(selected) != 2 || selection.FolderID != "f-child" || selected[0].RelativeDepth == nil || *selected[0].RelativeDepth != 0 || *selected[1].RelativeDepth != 1 || selected[0].Depth != 1 {
+		t.Fatalf("selected=%+v selection=%+v err=%v", selected, selection, err)
+	}
+	if _, _, err := selectStructureFolder(rows, folders, true, StructureFolderSelector{FolderPath: "Quarter"}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("non-exact path error=%v", err)
+	}
+	if _, _, err := selectStructureFolder(rows, folders, false, StructureFolderSelector{FolderPath: "Plans/Quarter"}); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("incomplete labels error=%v", err)
+	}
+}
+
+func TestSelectStructureFolderRejectsDuplicateStableIDOccurrences(t *testing.T) {
+	rows := []domain.StructureRow{{RowID: 10, ItemType: "folder", ItemID: "same"}, {RowID: 20, ItemType: "folder", ItemID: "same"}}
+	folders := buildStructureFolders(rows, map[int64]string{10: "A", 20: "B"})
+	if _, _, err := selectStructureFolder(rows, folders, true, StructureFolderSelector{FolderID: "same"}); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("duplicate id error=%v", err)
+	}
+}
+
+func TestSelectStructureFolderRejectsDuplicateExactPathsAndNonFolderRows(t *testing.T) {
+	rows := []domain.StructureRow{
+		{RowID: 10, Depth: 0, ItemType: "folder", ItemID: "root"},
+		{RowID: 11, Depth: 1, ItemType: "folder", ItemID: "a"},
+		{RowID: 12, Depth: 1, ItemType: "folder", ItemID: "b"},
+		{RowID: 13, Depth: 1, ItemType: "issue", ItemID: "10001"},
+	}
+	folders := buildStructureFolders(rows, map[int64]string{10: "Plans", 11: "Same", 12: "Same"})
+	if _, _, err := selectStructureFolder(rows, folders, true, StructureFolderSelector{FolderPath: "Plans/Same"}); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("duplicate path error=%v", err)
+	}
+	if _, _, err := selectStructureFolder(rows, folders, true, StructureFolderSelector{FolderRow: 13}); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("non-folder row error=%v", err)
+	}
+}
