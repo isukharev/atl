@@ -29,15 +29,21 @@ This prints a **public key** and writes the **private key** to
    Commit that change. (Until this is set, clients fail-closed and never
    auto-update — which is the safe default.)
 
-2. Store the private key as a repo secret, then delete the local copy:
+2. Store the private key in the protected `release` environment, then delete the
+   local copy after placing an offline backup in a trusted vault:
    ```bash
-   gh secret set ATL_RELEASE_PRIVATE_KEY < atl-release-key.b64
+   gh secret set ATL_RELEASE_PRIVATE_KEY --env release < atl-release-key.b64
    rm atl-release-key.b64
    ```
 
-> Keep a secure offline backup of the private key if you want to be able to keep
-> signing after a laptop loss. Losing it just means generating a new pair and
-> shipping a release that embeds the new public key (see SECURITY.md → rotation).
+> Keep a secure offline backup of the private key. Rotation requires a bridge
+> release signed by the old key; clients that miss that bridge may otherwise
+> need a manual reinstall (see SECURITY.md → rotation).
+
+For a staged rotation, do **not** install the new environment secret immediately.
+First embed the new public key and publish one bridge release while the old key
+still signs in CI. Verify that release, allow an adoption window, then set the
+new environment secret and remove any repository-scoped copy of the old key.
 
 ---
 
