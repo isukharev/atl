@@ -81,6 +81,38 @@ func TestConfRenderRefusesUnsupportedExistingViewVersion(t *testing.T) {
 	}
 }
 
+func TestConfRenderPreflightsWholeBatchBeforeSiblingRewrite(t *testing.T) {
+	root, dir, slug := seedConfMirror(t, nil)
+	firstPath := filepath.Join(dir, slug+".md")
+	firstBefore := mustReadFile(t, firstPath)
+	m := mirror.New(root)
+	page := &domain.Resource{ID: "1002", Title: "Future", SpaceKey: "DOCS", Version: 1, Body: []byte("<p>Future.</p>")}
+	secondDir, secondSlug, err := m.ClaimPageDir(page.SpaceKey, nil, page.Title, page.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := m.BeginSync()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Write(secondDir, secondSlug, page, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	secondPath := filepath.Join(secondDir, secondSlug+".md")
+	future := strings.Replace(mustReadFile(t, secondPath), mirror.ConfluenceDocumentMarker, "<!-- atl:document confluence-page v99 -->", 1)
+	mustWriteFile(t, secondPath, future)
+
+	if _, err := NewConfluenceRenderer(&config.Config{}).Render(root, config.RenderService{Profile: "full"}); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("render error=%v, want check failed", err)
+	}
+	if got := mustReadFile(t, firstPath); got != firstBefore {
+		t.Fatal("sibling view changed before future-version refusal")
+	}
+}
+
 func TestConfRenderMigratesKnownLegacyViewMarkers(t *testing.T) {
 	for _, marker := range []string{
 		"<!-- atl:document confluence-page v1 -->",

@@ -180,6 +180,15 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 	}
 	vs := viewStateOf(rs)
 	views := map[string]mirror.ViewState{}
+	// Inspect every existing target before rewriting any sibling so one future
+	// view version cannot leave a directory render half-migrated.
+	for _, csfPath := range paths {
+		dir := filepath.Dir(csfPath)
+		slug := strings.TrimSuffix(filepath.Base(csfPath), ".csf")
+		if err := preflightConfluenceRenderView(root, filepath.Join(dir, slug+".md")); err != nil {
+			return res, err
+		}
+	}
 	for _, csfPath := range paths {
 		lc, body, err := m.LoadCSF(csfPath)
 		if err != nil {
@@ -188,9 +197,6 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 		dir := filepath.Dir(csfPath)
 		slug := strings.TrimSuffix(filepath.Base(csfPath), ".csf")
 		mdPath := filepath.Join(dir, slug+".md")
-		if err := preflightConfluenceRenderView(mdPath); err != nil {
-			return res, err
-		}
 		md := []byte(mirror.MDUnavailableStub)
 		if node, perr := csf.Parse(body); perr == nil {
 			page := &domain.Resource{
@@ -269,8 +275,8 @@ func confRenderTargets(m *mirror.Mirror, target string) ([]string, error) {
 // existing view whose document format it does not understand. Legacy v1 and
 // unversioned views remain intentionally render-migratable to the current
 // format; only an explicit different version marker is a downgrade hazard.
-func preflightConfluenceRenderView(mdPath string) error {
-	b, err := os.ReadFile(mdPath)
+func preflightConfluenceRenderView(root, mdPath string) error {
+	b, err := safepath.ReadFileWithin(root, mdPath)
 	if os.IsNotExist(err) {
 		return nil
 	}

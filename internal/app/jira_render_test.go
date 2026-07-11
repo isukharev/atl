@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -285,6 +286,42 @@ func TestJiraRenderOfflineStable(t *testing.T) {
 	}
 	if mustReadFile(t, filepath.Join(dir, "PROJ-42.json")) != jsonBefore {
 		t.Error(".json was modified by render")
+	}
+}
+
+func TestJiraRenderRefusesFutureViewBeforeAnySiblingRewrite(t *testing.T) {
+	root := t.TempDir()
+	m := mirror.New(root)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "PROJ")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	first := richIssue()
+	second := richIssue()
+	second.Key, second.ID = "PROJ-43", "1002"
+	mustWriteSnapshot(t, filepath.Join(dir, "PROJ-42.json"), first)
+	mustWriteSnapshot(t, filepath.Join(dir, "PROJ-43.json"), second)
+	svc := NewJiraRenderer(&config.Config{})
+	if _, err := svc.Render(root, config.RenderService{}); err != nil {
+		t.Fatal(err)
+	}
+	firstPath := filepath.Join(dir, "PROJ-42.md")
+	secondPath := filepath.Join(dir, "PROJ-43.md")
+	firstBefore := mustReadFile(t, firstPath)
+	future := strings.Replace(mustReadFile(t, secondPath), jiraIssueDocumentMarker, "<!-- atl:document jira-issue v99 -->", 1)
+	mustWriteFile(t, secondPath, future)
+
+	if _, err := svc.Render(root, config.RenderService{Profile: "full"}); !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "update atl") {
+		t.Fatalf("render error=%v, want actionable check failure", err)
+	}
+	if got := mustReadFile(t, firstPath); got != firstBefore {
+		t.Fatal("sibling Jira view changed before future-version refusal")
+	}
+	if got := mustReadFile(t, secondPath); got != future {
+		t.Fatal("future Jira view was overwritten")
 	}
 }
 

@@ -340,7 +340,9 @@ shape as `conf apply` for Description, plus pending-field details:
 accepted view begins with `<!-- atl:document jira-issue v1 -->`; a missing or
 unversioned marker exits `8` before any write and requires an offline
 `jira render` or fresh pull before editing. A future/unknown version requires a
-newer binary and must not be rendered or downgraded by the current one. Since render rewrites the
+newer binary and must not be rendered or downgraded by the current one. A
+directory render preflights every existing view before rewriting any sibling,
+so one future marker cannot produce a half-migrated batch. Since render rewrites the
 derived `.md`, callers preserve any existing edits externally and reapply them
 after migration.
 `removed_constructs` entry is `{ "kind", "text" }` (`kind` ∈ `panel`, `color`, `mention`, `image`,

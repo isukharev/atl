@@ -74,6 +74,7 @@ render profiles, output layout, status, bulk commands, and the full inventory.
 4. If a pristine view is missing/older, render that exact file/root first. If it
    already has edits, save a private reviewed patch outside the derived view,
    render, then reapply it. For a future marker, update `atl`; never downgrade.
+   A directory render preflights all selected markers before changing any view.
 5. Treat generated metadata/comment regions as readonly. Use dedicated
    operations for metadata and comments.
 6. Choose one body surface for the cycle:
