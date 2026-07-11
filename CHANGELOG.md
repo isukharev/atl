@@ -341,6 +341,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Confluence skill progressive disclosure.** The always-loaded workflow now
+  focuses on safe read/edit/write decisions and routes command inventory,
+  metadata/comments, tables/attachments, errors, and advanced CSF details to
+  one-hop references.
+
 - **`.atl/state.json` gains a `views` map, and `apply` reproduces the recorded
   view.** Every `pull`/`render`/`apply` now records the resolved render settings
   (the enabled section list, not the profile name) per resource, keyed the same
