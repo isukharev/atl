@@ -242,6 +242,9 @@ gh issue list --label roadmap/now --state open
 
 ## Agent handoff rules
 
+- Never merge a pull request authored by anyone other than `isukharev` unless
+  `isukharev` explicitly instructs you to merge that specific PR. Green CI,
+  labels, assignments, or general autonomy do not count as authorization.
 - Do not start broad implementation work from chat-only context when an issue is
   expected; create or update the issue first.
 - Keep the issue updated when scope changes.

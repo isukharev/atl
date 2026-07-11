@@ -163,6 +163,9 @@ Canonical guides live outside this file: `AGENTS.md` (cross-agent handoff rules)
   "Structure id", "custom field", "backend".
 - **PR flow:** open as draft, mark ready when green, wait for CI, merge, then remove
   `agent-working` from the closed issue. PR bodies include verification.
+- **External PR merge gate:** never merge a pull request authored by anyone other than
+  `isukharev` unless `isukharev` explicitly instructs you to merge that specific PR. Green
+  CI, labels, assignments, or general autonomy do not count as authorization.
 - `ROADMAP.md` is the **public** roadmap. Internal product/brand strategy lives in the
   gitignored `local-docs/` (kept out of this public repo) — never commit it, and never point
   public docs/issues at it.
