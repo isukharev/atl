@@ -51,7 +51,7 @@ func newProfileCmd() *cobra.Command {
 		},
 	}
 	show.Flags().StringVar(&section, "section", "", "profile data: all|schema|preferences|team_policy|render_defaults|selectors")
-	show.Flags().StringVar(&service, "service", "", "narrow schema/selectors to jira|confluence")
+	show.Flags().StringVar(&service, "service", "", "narrow schema/render_defaults/selectors to jira|confluence")
 	_ = show.RegisterFlagCompletionFunc("section", fixedComp("all", "schema", "preferences", "team_policy", "render_defaults", "selectors"))
 	_ = show.RegisterFlagCompletionFunc("service", fixedComp("jira", "confluence"))
 
@@ -146,8 +146,8 @@ func profileSlice(p profilepkg.Profile, exists bool, section, service string) (a
 	if !validProfileSection(section) {
 		return nil, usageErr("invalid --section %q (want schema|preferences|team_policy|render_defaults|selectors)", section)
 	}
-	if service != "" && section != "schema" && section != "selectors" {
-		return nil, usageErr("--service is valid only with --section schema or selectors")
+	if service != "" && section != "schema" && section != "render_defaults" && section != "selectors" {
+		return nil, usageErr("--service is valid only with --section schema, render_defaults, or selectors")
 	}
 	if !exists {
 		return nil, nil
@@ -171,7 +171,22 @@ func profileSlice(p profilepkg.Profile, exists bool, section, service string) (a
 	case "team_policy":
 		return p.TeamPolicy, nil
 	case "render_defaults":
-		return p.RenderDefaults, nil
+		switch service {
+		case "jira":
+			var selected *config.RenderService
+			if p.RenderDefaults != nil {
+				selected = p.RenderDefaults.Jira
+			}
+			return map[string]any{"jira": selected}, nil
+		case "confluence":
+			var selected *config.RenderService
+			if p.RenderDefaults != nil {
+				selected = p.RenderDefaults.Confluence
+			}
+			return map[string]any{"confluence": selected}, nil
+		default:
+			return p.RenderDefaults, nil
+		}
 	case "selectors":
 		switch service {
 		case "jira":

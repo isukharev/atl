@@ -128,6 +128,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Service-scoped profile render memory.** `profile show --section
+  render_defaults --service jira|confluence` returns only the selected
+  backend's typed render defaults, while partial suggestions preserve the
+  other backend and runtime synchronization remains a separate approval.
+
 - **Guarded Confluence page moves.** `conf page move` now previews by
   default, binds apply to the reviewed source version/current parent/proposal
   hash, rejects hierarchy cycles, preserves fresh native body bytes, and

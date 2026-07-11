@@ -19,7 +19,8 @@ This skill orients you. For the actual command flows, use the focused skills:
   run `$setup`.
 - **Optional workflow personalization** (consent-gated sample reads, team defaults, private
   structured profile) → explicitly invoke the `onboarding` skill. Runtime work should load only the
-  relevant profile slice with `atl profile show --section ...`, never copy the profile into a repo.
+  relevant profile slice with `atl profile show --section ...`; for render memory use
+  `--section render_defaults --service jira|confluence`. Never copy the profile into a repo.
   Repeated discoveries may become consent-gated `profile suggest` artifacts; they are reviewed and
   applied or rejected explicitly, never learned in the background. Saved `render_defaults` and
   `preferences.mirror_root` remain memory until a separately approved runtime sync; compare them

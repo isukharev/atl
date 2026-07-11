@@ -137,6 +137,7 @@ decision. Do not retry exit 5/8 by regenerating hashes without a new review.
 
 - Preferences: `atl profile show --section preferences`.
 - One service's fields/spaces: `--section schema --service jira|confluence`.
+- One service's render memory: `--section render_defaults --service jira|confluence`.
 - One service's selectors: `--section selectors --service ...`.
 - Team policy: load only when a task needs policy decisions.
 - Revalidation status: load only when a fact is stale/missing/failed or before changing field

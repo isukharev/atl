@@ -241,6 +241,72 @@ func TestPartialPreferenceAndRenderProposalsPreserveSiblingValues(t *testing.T) 
 	}
 }
 
+func TestConfluenceRenderProposalPreservesTypedJiraMemory(t *testing.T) {
+	dir := t.TempDir()
+	p := Profile{
+		SchemaVersion: 1,
+		RenderDefaults: &config.RenderConfig{
+			Jira: &config.RenderService{Profile: "full", FieldViews: []config.JiraFieldView{{
+				ID: "customfield_10001", Label: "Risk", Placement: "section", Format: "jira_wiki", Editable: true,
+			}}},
+			Confluence: &config.RenderService{Profile: "default"},
+		},
+	}
+	hash := installProfile(t, dir, p)
+	observations := Observations{
+		SchemaVersion: 1, BaseProfileHash: hash,
+		RenderDefaults: &config.RenderConfig{Confluence: &config.RenderService{
+			Profile: "minimal", PageFields: []config.ConfluenceFieldView{{ID: " updated ", Format: "date"}},
+		}},
+		Evidence: []Evidence{{
+			Source: "approved workflow review", ObservedAt: time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC),
+			Reason: "user confirmed compact Confluence rendering",
+		}},
+	}
+	suggestion, _, err := BuildSuggestion(dir, observations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jira := suggestion.Candidate.RenderDefaults.Jira
+	if jira == nil || jira.Profile != "full" || len(jira.FieldViews) != 1 || jira.FieldViews[0].ID != "customfield_10001" || !jira.FieldViews[0].Editable {
+		t.Fatalf("Jira render memory changed: %+v", jira)
+	}
+	confluence := suggestion.Candidate.RenderDefaults.Confluence
+	if confluence == nil || confluence.Profile != "minimal" || len(confluence.PageFields) != 1 || confluence.PageFields[0].ID != "updated" || confluence.PageFields[0].Placement != "metadata" || confluence.PageFields[0].Format != "date" {
+		t.Fatalf("Confluence render proposal not canonicalized: %+v", confluence)
+	}
+}
+
+func TestObservationRenderServicesValidateIndependently(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		render *config.RenderConfig
+	}{
+		{name: "invalid Confluence descriptor", render: &config.RenderConfig{
+			Jira:       &config.RenderService{FieldViews: []config.JiraFieldView{{ID: "summary", Format: "scalar"}}},
+			Confluence: &config.RenderService{PageFields: []config.ConfluenceFieldView{{ID: "not-a-page-field"}}},
+		}},
+		{name: "invalid Jira descriptor", render: &config.RenderConfig{
+			Jira:       &config.RenderService{FieldViews: []config.JiraFieldView{{ID: "summary", Placement: "sideways"}}},
+			Confluence: &config.RenderService{PageFields: []config.ConfluenceFieldView{{ID: "updated", Format: "date"}}},
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			observations := Observations{
+				SchemaVersion: 1, BaseProfileHash: MissingHash(), RenderDefaults: tt.render,
+				Evidence: []Evidence{{Source: "approved review", ObservedAt: time.Now().UTC(), Reason: "render choice"}},
+			}
+			data, err := json.Marshal(observations)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := DecodeObservationsStrict(data); !errors.Is(err, domain.ErrUsage) {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
+
 func TestSuggestionAndDecisionWritersEnforceReadLimit(t *testing.T) {
 	dir := t.TempDir()
 	suggestion := Suggestion{

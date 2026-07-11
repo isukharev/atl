@@ -1,0 +1,18 @@
+{
+  "exists": true,
+  "path": "<config-dir>/profile.json",
+  "hash": "<sha256>",
+  "data": {
+    "confluence": {
+      "profile": "minimal",
+      "page_fields": [
+        {
+          "id": "updated",
+          "label": "Updated",
+          "placement": "metadata",
+          "format": "date"
+        }
+      ]
+    }
+  }
+}

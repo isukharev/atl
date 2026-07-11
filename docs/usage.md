@@ -325,13 +325,18 @@ atl profile show
 atl profile show --section all
 atl profile show --section preferences
 atl profile show --section schema --service jira
+atl profile show --section render_defaults --service confluence
 atl profile show --section selectors --service confluence
 atl profile guidance -o text
 ```
 
 `show` returns metadata `{exists,path,hash}` by default. Use an explicit `--section`
-and optional `--service` to load only needed data; `--section all` is the deliberate
-full-profile escape hatch.
+and optional `--service` for `schema`, `render_defaults`, or `selectors` to load
+only one backend's data; `--section all` is the deliberate full-profile escape
+hatch. Service-scoped render reads return only the selected `jira` or
+`confluence` object (`null` means no saved memory for that service, independent
+of its sibling). They remain memory: neither `show` nor suggestion apply changes
+active render config.
 `guidance` emits only a short generic instruction pointing agents to those slices;
 it never embeds fields, selectors, policy rules, or sampled content. The optional
 `onboarding` client skill performs the consent-gated interview and preview/apply
