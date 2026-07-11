@@ -6,7 +6,7 @@ Load this reference only when exact command or flag lookup is useful.
 |---|---|---|
 | `jira issue get <KEY>` | Get an issue | `--fields` |
 | `jira issue view <KEY>` | Render one configured Markdown view without writing files | `-o text`, `--render-root`, `--render-profile`, `--render-include`, `--render-exclude` |
-| `jira issue search` | Search issues by JQL | `--jql`, `--fields`, `--limit`, `--cursor` |
+| `jira issue search` | Search as a common IssueList / Markdown table | `--jql`, `--columns`, `--limit`, `--cursor` |
 | `jira issue search -o id` | Print matching issue keys one per line | `-o id` |
 | `jira issue create` | Create an issue | `--project`, `--type`, `--summary`, `--from-md`, `--from-file`, `--field k=v` |
 | `jira issue update <KEY>` | Update summary/description/fields (whole body) | `--summary`, `--from-md`, `--from-file`, `--field k=v` |
@@ -52,10 +52,11 @@ Load this reference only when exact command or flag lookup is useful.
 | `jira board list` | Discover Agile boards | `--project`, `--limit`, `--cursor`, `-o id` |
 | `jira board get <ID>` | Get board identity | `-o id` |
 | `jira board config <ID>` | Get filter, ordered columns/statuses, constraints, estimation, rank | `-o text/id` |
-| `jira board issues <ID>` | Read one backend-ranked board page | `--fields`, `--jql`, `--limit`, `--cursor`, `-o text/id` |
-| `jira board backlog <ID>` | Read one Scrum backlog page | `--fields`, `--jql`, `--limit`, `--cursor`, `-o text/id` |
-| `jira board view <ID>` | Read normalized config/issues/backlog snapshot | `--scope all/board/backlog`, `--fields`, `--jql`, `--limit`, `-o text/id` |
-| `jira board export <ID>` | Write normalized board artifact | `--scope`, `--fields`, `--jql`, `--limit`, `--format json/jsonl/csv/md`, `--out`, `--raw-csv` |
+| `jira board issues <ID>` | Read one backend-ranked IssueList page | `--columns`, `--jql`, `--limit`, `--cursor`, `-o text/id` |
+| `jira board backlog <ID>` | Read one Scrum backlog IssueList page | `--columns`, `--jql`, `--limit`, `--cursor`, `-o text/id` |
+| `jira board view <ID>` | Read normalized config/issues/backlog snapshot | `--scope all/board/backlog`, `--columns`, `--jql`, `--limit`, `-o text/id` |
+| `jira board export <ID>` | Write normalized board artifact | `--scope`, `--columns`, `--jql`, `--limit`, `--format json/jsonl/csv/md`, `--out`, `--raw-csv` |
+| `jira sprint issues <ID>` | Read one sprint IssueList page | `--columns`, `--limit`, `--cursor`, `-o text/id` |
 | `jira structure get <ID>` | Get Structure metadata | `-o id` |
 | `jira structure view <ID>` | Read normalized hierarchy + Jira fields | `--root`, `--fields`, `--batch-size`, `-o text/id` |
 | `jira structure forest <ID>` | Get raw latest Structure forest formula | — |

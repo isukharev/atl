@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/isukharev/atl/internal/domain"
 )
@@ -45,6 +46,22 @@ func (s *JiraService) Sprint(ctx context.Context, id int) (*domain.Sprint, error
 // SprintIssues lists the issues assigned to a sprint.
 func (s *JiraService) SprintIssues(ctx context.Context, sprintID int, fields []string, limit int, cursor string) ([]domain.Issue, string, error) {
 	return s.agile.SprintIssues(ctx, sprintID, fields, limit, cursor)
+}
+
+func (s *JiraService) SprintIssueList(ctx context.Context, sprintID int, columns []string, limit int, cursor string) (*IssueList, error) {
+	resolved, fields, err := NormalizeIssueListColumns(columns, []string{"position", "key", "summary", "status", "assignee"}, "sprint")
+	if err != nil {
+		return nil, err
+	}
+	issues, next, err := s.agile.SprintIssues(ctx, sprintID, issueListBackendFields(fields), limit, cursor)
+	if err != nil {
+		return nil, err
+	}
+	contexts := make([]map[string]map[string]any, len(issues))
+	for i := range issues {
+		contexts[i] = map[string]map[string]any{"sprint": {"id": sprintID}}
+	}
+	return NewIssueList(IssueListSource{Kind: "sprint", ID: strconv.Itoa(sprintID)}, map[string]any{}, resolved, fields, "backend-order", issues, contexts, next), nil
 }
 
 // SprintCurrent returns the board's single active sprint. It is a use-case

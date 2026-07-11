@@ -32,7 +32,7 @@ atl jira issue search --jql 'project = KEY AND created >= -7d' --limit 50
 ```
 
 Sprint-scoped variant: `atl jira sprint current --board <id>` →
-`atl jira sprint issues <sprintId> --fields summary,status,assignee,priority`
+`atl jira sprint issues <sprintId> --columns position,key,summary,status,assignee,priority`
 (Agile API caps each call at 50 — paginate with `--cursor`).
 
 Status names vary per instance ("Blocked" is often a flag, not a status) —

@@ -31,6 +31,18 @@ func (s *JiraService) Search(ctx context.Context, jql string, fields []string, l
 	return s.tr.Search(ctx, jql, fields, limit, cursor)
 }
 
+func (s *JiraService) SearchIssueList(ctx context.Context, jql string, columns []string, limit int, cursor string) (*IssueList, error) {
+	resolved, fields, err := NormalizeIssueListColumns(columns, defaultIssueListColumns)
+	if err != nil {
+		return nil, err
+	}
+	issues, next, err := s.tr.Search(ctx, jql, issueListBackendFields(fields), limit, cursor)
+	if err != nil {
+		return nil, err
+	}
+	return NewIssueList(IssueListSource{Kind: "jql"}, map[string]any{"jql": jql}, resolved, fields, "jql-order", issues, nil, next), nil
+}
+
 func (s *JiraService) Create(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]string) (*domain.Issue, error) {
 	return s.tr.Create(ctx, project, issueType, summary, body, fields)
 }

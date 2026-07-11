@@ -30,7 +30,7 @@ filter rather than a board, go straight to JQL.
 ### 2. Fetch the data
 
 ```sh
-atl jira sprint issues <sprintId> --fields summary,status,assignee,priority,issuetype,updated
+atl jira sprint issues <sprintId> --columns position,key,summary,status,assignee,priority,issuetype,updated
 ```
 
 The Agile API caps each call at 50 — paginate with `--cursor` until exhausted.

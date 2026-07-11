@@ -46,9 +46,11 @@ done → update the linked Confluence page)? Follow the `atl` skill's dev-loop r
 ```bash
 atl jira issue search --jql '<JQL>' --limit 50
 ```
-→ `{ "issues": [ {key, summary, status, type, project, assignee, labels} ], "next_cursor": "<startAt>" }`
-(`--jql` required; default `--limit` 50; paginate with `--cursor <next_cursor>`; slim output with
-`--fields summary,status`.) See [jql.md](reference/jql.md).
+→ common `{schema_version,source,selection,projection,rows,page}` issue-list contract.
+`--jql` is required; default `--limit` is 50; resume with
+`--cursor <page.next_cursor>`. Select a narrow ordered projection with
+`--columns key,summary,status`; use `-o text` for a Markdown table and `-o id`
+for keys. See [jql.md](reference/jql.md).
 
 ### 2. Pull issues you'll work with
 

@@ -103,15 +103,15 @@ func jiraBoardCmd() *cobra.Command {
 		},
 	}
 
-	var issueFields, issueJQL, issueCursor string
+	var issueColumns, issueJQL, issueCursor string
 	var issueLimit int
-	issuesCmd := boardIssuePageCmd("issues", "board", &issueFields, &issueJQL, &issueCursor, &issueLimit)
+	issuesCmd := boardIssuePageCmd("issues", "board", &issueColumns, &issueJQL, &issueCursor, &issueLimit)
 
-	var backlogFields, backlogJQL, backlogCursor string
+	var backlogColumns, backlogJQL, backlogCursor string
 	var backlogLimit int
-	backlogCmd := boardIssuePageCmd("backlog", "backlog", &backlogFields, &backlogJQL, &backlogCursor, &backlogLimit)
+	backlogCmd := boardIssuePageCmd("backlog", "backlog", &backlogColumns, &backlogJQL, &backlogCursor, &backlogLimit)
 
-	var viewScope, viewFields, viewJQL string
+	var viewScope, viewColumns, viewJQL string
 	var viewLimit int
 	view := &cobra.Command{
 		Use:   "view <BOARD-ID>",
@@ -126,7 +126,7 @@ func jiraBoardCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			snapshot, err := svc.BoardSnapshot(cmd.Context(), id, app.BoardSnapshotOpts{Scope: viewScope, Fields: splitFields(viewFields), JQL: viewJQL, Limit: viewLimit})
+			snapshot, err := svc.BoardSnapshot(cmd.Context(), id, app.BoardSnapshotOpts{Scope: viewScope, Columns: splitFields(viewColumns), JQL: viewJQL, Limit: viewLimit})
 			if err != nil {
 				return err
 			}
@@ -134,12 +134,12 @@ func jiraBoardCmd() *cobra.Command {
 		},
 	}
 	view.Flags().StringVar(&viewScope, "scope", "all", "snapshot scope: all, board, or backlog")
-	view.Flags().StringVar(&viewFields, "fields", "", "comma-separated Jira fields (default: summary,status,assignee,priority,issuetype)")
+	view.Flags().StringVar(&viewColumns, "columns", "", "ordered list columns (default: position,key,summary,status,board.column,assignee)")
 	view.Flags().StringVar(&viewJQL, "jql", "", "optional JQL refinement applied by the board endpoints")
 	view.Flags().IntVar(&viewLimit, "limit", 0, "maximum issues per requested scope (0 means all)")
 	_ = view.RegisterFlagCompletionFunc("scope", fixedComp("all", "board", "backlog"))
 
-	var exportScope, exportFields, exportJQL, exportFormat, exportOut string
+	var exportScope, exportColumns, exportJQL, exportFormat, exportOut string
 	var exportLimit int
 	var exportRawCSV bool
 	exportCmd := &cobra.Command{
@@ -156,7 +156,7 @@ func jiraBoardCmd() *cobra.Command {
 				return err
 			}
 			result, err := svc.BoardExport(cmd.Context(), id, app.BoardExportOpts{
-				BoardSnapshotOpts: app.BoardSnapshotOpts{Scope: exportScope, Fields: splitFields(exportFields), JQL: exportJQL, Limit: exportLimit},
+				BoardSnapshotOpts: app.BoardSnapshotOpts{Scope: exportScope, Columns: splitFields(exportColumns), JQL: exportJQL, Limit: exportLimit},
 				Format:            exportFormat, Out: exportOut, RawCSV: exportRawCSV,
 			})
 			if err != nil {
@@ -168,7 +168,7 @@ func jiraBoardCmd() *cobra.Command {
 		},
 	}
 	exportCmd.Flags().StringVar(&exportScope, "scope", "all", "snapshot scope: all, board, or backlog")
-	exportCmd.Flags().StringVar(&exportFields, "fields", "", "comma-separated Jira fields")
+	exportCmd.Flags().StringVar(&exportColumns, "columns", "", "ordered list columns")
 	exportCmd.Flags().StringVar(&exportJQL, "jql", "", "optional JQL refinement applied by the board endpoints")
 	exportCmd.Flags().IntVar(&exportLimit, "limit", 0, "maximum issues per requested scope (0 means all)")
 	exportCmd.Flags().StringVar(&exportFormat, "format", "json", "export format: json, jsonl, csv, or md")
@@ -180,7 +180,7 @@ func jiraBoardCmd() *cobra.Command {
 	return c
 }
 
-func boardIssuePageCmd(use, scope string, fields, jql, cursor *string, limit *int) *cobra.Command {
+func boardIssuePageCmd(use, scope string, columns, jql, cursor *string, limit *int) *cobra.Command {
 	scopeLabel := "board scope"
 	if scope == "backlog" {
 		scopeLabel = "Scrum backlog scope"
@@ -198,20 +198,14 @@ func boardIssuePageCmd(use, scope string, fields, jql, cursor *string, limit *in
 			if err != nil {
 				return err
 			}
-			page, err := svc.BoardIssuePage(cmd.Context(), id, scope, splitFields(*fields), *jql, *limit, *cursor)
+			list, err := svc.BoardIssueList(cmd.Context(), id, scope, splitFields(*columns), *jql, *limit, *cursor)
 			if err != nil {
 				return err
 			}
-			return emitID(cmd, page, func() string { return boardIssueLines(page.Issues) }, func() []string {
-				keys := make([]string, len(page.Issues))
-				for i, issue := range page.Issues {
-					keys[i] = issue.Key
-				}
-				return keys
-			})
+			return emitID(cmd, list, func() string { return app.IssueListMarkdown(list, false) }, func() []string { return app.IssueListKeys(list) })
 		},
 	}
-	cmd.Flags().StringVar(fields, "fields", "", "comma-separated Jira fields")
+	cmd.Flags().StringVar(columns, "columns", "", "ordered list columns (default: position,key,summary,status,assignee)")
 	cmd.Flags().StringVar(jql, "jql", "", "optional JQL refinement")
 	cmd.Flags().IntVar(limit, "limit", 50, "page size (capped at 50 by the Agile API)")
 	cmd.Flags().StringVar(cursor, "cursor", "", "pagination cursor (startAt)")
@@ -223,14 +217,6 @@ func boardConfigText(config *domain.BoardConfiguration) string {
 	fmt.Fprintf(&b, "%d\t%s\t%s\tfilter=%s\n", config.ID, config.Type, config.Name, config.FilterID)
 	for index, column := range config.Columns {
 		fmt.Fprintf(&b, "%d\t%s\tstatuses=%s\n", index, column.Name, strings.Join(column.StatusIDs, ","))
-	}
-	return strings.TrimRight(b.String(), "\n")
-}
-
-func boardIssueLines(issues []domain.Issue) string {
-	var b strings.Builder
-	for _, issue := range issues {
-		fmt.Fprintf(&b, "%s\t[%s]\t%s\n", issue.Key, issue.Status, issue.Summary)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -325,7 +311,7 @@ func jiraSprintCmd() *cobra.Command {
 	}
 	current.Flags().IntVar(&curBoard, "board", 0, "board id (required)")
 
-	var issuesFields, issuesCursor string
+	var issuesColumns, issuesCursor string
 	var issuesLimit int
 	issues := &cobra.Command{
 		Use:   "issues <SPRINT-ID>",
@@ -340,26 +326,14 @@ func jiraSprintCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			issueList, next, err := svc.SprintIssues(cmd.Context(), id, splitFields(issuesFields), issuesLimit, issuesCursor)
+			list, err := svc.SprintIssueList(cmd.Context(), id, splitFields(issuesColumns), issuesLimit, issuesCursor)
 			if err != nil {
 				return err
 			}
-			return emitID(cmd, map[string]any{"sprint": id, "issues": issueList, "next_cursor": next}, func() string {
-				var b strings.Builder
-				for _, is := range issueList {
-					fmt.Fprintf(&b, "%s\t[%s]\t%s\n", is.Key, is.Status, is.Summary)
-				}
-				return strings.TrimRight(b.String(), "\n")
-			}, func() []string {
-				keys := make([]string, len(issueList))
-				for i, is := range issueList {
-					keys[i] = is.Key
-				}
-				return keys
-			})
+			return emitID(cmd, list, func() string { return app.IssueListMarkdown(list, false) }, func() []string { return app.IssueListKeys(list) })
 		},
 	}
-	issues.Flags().StringVar(&issuesFields, "fields", "", "comma-separated field list")
+	issues.Flags().StringVar(&issuesColumns, "columns", "", "ordered list columns (default: position,key,summary,status,assignee)")
 	issues.Flags().IntVar(&issuesLimit, "limit", 50, "max results (capped at 50 by the Agile API)")
 	issues.Flags().StringVar(&issuesCursor, "cursor", "", "pagination cursor (startAt)")
 

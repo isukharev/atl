@@ -62,16 +62,60 @@ func (s *JiraService) BoardIssuePage(ctx context.Context, boardID int, scope str
 	return &BoardIssuePage{BoardID: boardID, Scope: scope, Fields: fields, Issues: issues, Count: len(issues), Complete: next == "", NextCursor: next}, nil
 }
 
+func (s *JiraService) BoardIssueList(ctx context.Context, boardID int, scope string, columns []string, jql string, limit int, cursor string) (*IssueList, error) {
+	defaults := []string{"position", "key", "summary", "status", "assignee"}
+	resolved, fields, err := NormalizeIssueListColumns(columns, defaults, "board")
+	if err != nil {
+		return nil, err
+	}
+	needColumn := false
+	for _, column := range resolved {
+		if strings.HasPrefix(column, "board.") {
+			needColumn = needColumn || column == "board.column" || column == "board.column_index" || column == "board.column_mapped"
+		}
+	}
+	backendFields := append([]string(nil), fields...)
+	if needColumn && !slicesContain(backendFields, "status") {
+		backendFields = append(backendFields, "status")
+	}
+	page, err := s.BoardIssuePage(ctx, boardID, scope, backendFields, jql, limit, cursor)
+	if err != nil {
+		return nil, err
+	}
+	var config *domain.BoardConfiguration
+	if needColumn {
+		config, err = s.BoardConfiguration(ctx, boardID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	contexts := make([]map[string]map[string]any, len(page.Issues))
+	for position, issue := range page.Issues {
+		board := map[string]any{"rank": position, "in_board": scope == "board", "in_backlog": scope == "backlog"}
+		if needColumn {
+			column, index, mapped := boardColumnForStatus(config, issue.StatusID)
+			board["column"], board["column_index"], board["column_mapped"] = column, index, mapped
+		}
+		contexts[position] = map[string]map[string]any{"board": board}
+	}
+	selection := map[string]any{"scope": scope}
+	if strings.TrimSpace(jql) != "" {
+		selection["jql"] = jql
+	}
+	return NewIssueList(IssueListSource{Kind: "board", ID: strconv.Itoa(boardID)}, selection, resolved, fields, "backend-rank", page.Issues, contexts, page.NextCursor), nil
+}
+
 // BoardSnapshotOpts controls a complete normalized board read.
 type BoardSnapshotOpts struct {
-	Scope  string
-	Fields []string
-	JQL    string
-	Limit  int
+	Scope   string
+	Columns []string
+	JQL     string
+	Limit   int
 }
 
 type BoardProjection struct {
 	Kind     string   `json:"kind"`
+	Columns  []string `json:"columns"`
 	Fields   []string `json:"fields"`
 	Ordering string   `json:"ordering"`
 }
@@ -159,7 +203,11 @@ func (s *JiraService) BoardSnapshot(ctx context.Context, boardID int, opts Board
 	if scope != "all" && scope != "board" && scope != "backlog" {
 		return nil, fmt.Errorf("%w: --scope must be all, board, or backlog", domain.ErrUsage)
 	}
-	fields := normalizedBoardFields(opts.Fields)
+	columns, fields, err := NormalizeIssueListColumns(opts.Columns, []string{"position", "key", "summary", "status", "board.column", "assignee"}, "board")
+	if err != nil {
+		return nil, err
+	}
+	backendFields := normalizedBoardFields(fields)
 	config, err := s.BoardConfiguration(ctx, boardID)
 	if err != nil {
 		return nil, err
@@ -173,21 +221,21 @@ func (s *JiraService) BoardSnapshot(ctx context.Context, boardID int, opts Board
 		return nil, fmt.Errorf("%w: Jira Software exposes the backlog issue endpoint only for Scrum boards; use --scope board and configured columns", domain.ErrUsage)
 	}
 	if scope == "all" || scope == "board" {
-		boardIssues, boardComplete, err = s.collectBoardScope(ctx, boardID, fields, opts.JQL, opts.Limit, s.agile.BoardIssues)
+		boardIssues, boardComplete, err = s.collectBoardScope(ctx, boardID, backendFields, opts.JQL, opts.Limit, s.agile.BoardIssues)
 		if err != nil {
 			return nil, err
 		}
 	}
 	backlogFetched := strings.EqualFold(config.Type, "scrum") && (scope == "all" || scope == "backlog")
 	if backlogFetched {
-		backlogIssues, backlogComplete, err = s.collectBoardScope(ctx, boardID, fields, opts.JQL, opts.Limit, s.agile.BoardBacklog)
+		backlogIssues, backlogComplete, err = s.collectBoardScope(ctx, boardID, backendFields, opts.JQL, opts.Limit, s.agile.BoardBacklog)
 		if err != nil {
 			return nil, err
 		}
 	}
 	result := &BoardSnapshot{
 		SchemaVersion: 1, Board: config, Scope: scope,
-		Projection: BoardProjection{Kind: "jira-fields-v1", Fields: fields, Ordering: "backend-rank"},
+		Projection: BoardProjection{Kind: "jira-fields-v1", Columns: columns, Fields: fields, Ordering: "backend-rank"},
 		Rows:       []BoardSnapshotRow{}, Complete: boardComplete && backlogComplete, BacklogFetched: backlogFetched,
 	}
 	result.Truncated = !result.Complete
@@ -362,50 +410,29 @@ func renderBoardSnapshotCSV(snapshot *BoardSnapshot, rawCSV bool) ([]byte, error
 }
 
 func BoardSnapshotMarkdown(snapshot *BoardSnapshot) string {
-	var b strings.Builder
-	name := ""
-	if snapshot != nil && snapshot.Board != nil {
-		name = snapshot.Board.Name
+	columns := snapshot.Projection.Columns
+	if len(columns) == 0 {
+		columns = []string{"position", "key", "summary", "status", "board.column", "assignee"}
 	}
-	b.WriteString("# Jira Board")
-	if name != "" {
-		b.WriteString(": ")
-		b.WriteString(markdownTableCell(name))
+	fields := snapshot.Projection.Fields
+	list := &IssueList{SchemaVersion: 1, Source: IssueListSource{Kind: "board"}, Selection: map[string]any{"scope": snapshot.Scope}, Projection: IssueListProjection{Columns: columns, Fields: fields, Ordering: "backend-rank"}, Rows: []IssueListRow{}, Page: IssueListPage{Count: snapshot.RowCount, Complete: snapshot.Complete, Truncated: snapshot.Truncated}}
+	if snapshot.Board != nil {
+		list.Source.ID = strconv.Itoa(snapshot.Board.ID)
+		list.Source.Name = snapshot.Board.Name
 	}
-	b.WriteString("\n\n")
-	fmt.Fprintf(&b, "> Scope: `%s`; ordering: `backend-rank`; complete: `%t`; backlog fetched: `%t`; rows: %d.\n\n", snapshot.Scope, snapshot.Complete, snapshot.BacklogFetched, snapshot.RowCount)
-	if snapshot.Board != nil && strings.EqualFold(snapshot.Board.Type, "kanban") && snapshot.Scope == "all" {
-		b.WriteString("> Kanban note: Jira's backlog issue endpoint is Scrum-only; use configured columns to interpret Kanban workflow scope.\n\n")
-	}
-	if snapshot.Truncated {
-		b.WriteString("> **Truncated:** increase or remove `--limit` for a complete snapshot.\n\n")
-	}
-	header := []string{"#", "Key", "Status", "Column", "Backlog"}
-	fields := make([]string, 0, len(snapshot.Projection.Fields))
-	for _, field := range snapshot.Projection.Fields {
-		if field == "status" {
-			continue
-		}
-		fields = append(fields, field)
-		header = append(header, markdownTableCell(field))
-	}
-	b.WriteString("| ")
-	b.WriteString(strings.Join(header, " | "))
-	b.WriteString(" |\n|")
-	for range header {
-		b.WriteString(" --- |")
-	}
-	b.WriteByte('\n')
 	for _, row := range snapshot.Rows {
-		cells := []string{strconv.Itoa(row.Position), markdownTableCell(row.Key), markdownTableCell(row.Status), markdownTableCell(row.Column), strconv.FormatBool(row.InBacklog)}
+		values := make(map[string]any, len(fields))
 		for _, field := range fields {
-			cells = append(cells, markdownTableCell(snapshotText(row.Values[field])))
+			if field == "status" {
+				values[field] = row.Status
+			} else {
+				values[field] = row.Values[field]
+			}
 		}
-		b.WriteString("| ")
-		b.WriteString(strings.Join(cells, " | "))
-		b.WriteString(" |\n")
+		context := map[string]map[string]any{"board": {"rank": row.Position, "column": row.Column, "column_index": row.ColumnIndex, "column_mapped": row.ColumnMapped, "in_backlog": row.InBacklog, "in_board": row.InBoard}}
+		list.Rows = append(list.Rows, IssueListRow{Key: row.Key, ID: row.ID, Position: row.Position, Values: values, Context: context})
 	}
-	return b.String()
+	return IssueListMarkdown(list, false)
 }
 
 func optionalInt(value *int) string {

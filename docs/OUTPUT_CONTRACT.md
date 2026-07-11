@@ -750,6 +750,39 @@ field ids, sources, normalized types, and values; a changed local input fails
 before backend metadata/read/write calls. All proposed fields are sent in one
 request.
 
+List-oriented Jira reads (`issue search`, `board issues/backlog`, and `sprint
+issues`) share one app-layer contract:
+
+```json
+{
+  "schema_version": 1,
+  "source": {"kind": "board", "id": "5"},
+  "selection": {"scope": "board", "jql": "status in (11,12)"},
+  "projection": {
+    "columns": ["position", "key", "summary", "status", "board.column"],
+    "fields": ["summary", "status"],
+    "ordering": "backend-rank"
+  },
+  "rows": [{
+    "key": "PROJ-1",
+    "id": "10001",
+    "position": 0,
+    "values": {"summary": "First", "status": "Open"},
+    "context": {"board": {"rank": 0, "column": "To Do", "in_board": true, "in_backlog": false}}
+  }],
+  "page": {"count": 1, "complete": true, "truncated": false, "next_cursor": null}
+}
+```
+
+`rows` is always an array. Identity/order fields are fixed; selected Jira fields
+live under `values`, and source semantics stay namespaced under `context`.
+`projection.fields` exactly names `values`; `projection.columns` preserves the
+requested human order. `--columns` derives backend fields and accepts common
+identity, Jira field ids, and source-specific names such as `board.column` or
+`sprint.id`. Unknown/foreign context columns fail with usage. `-o text` renders
+the same rows as one safe Markdown table (or `_None._`); `-o id` prints keys.
+The page cursor is `null` at exhaustion and resumable only when non-null.
+
 `atl jira board config <ID>` returns the workflow projection used to interpret
 board issues:
 
@@ -769,22 +802,9 @@ board issues:
 }
 ```
 
-`board issues` and `board backlog` return one explicit page:
-
-```json
-{
-  "board_id": 5,
-  "scope": "board",
-  "fields": ["status", "summary", "assignee"],
-  "issues": [],
-  "count": 0,
-  "complete": false,
-  "next_cursor": "50"
-}
-```
-
-`next_cursor` is omitted at exhaustion and `complete` is then true. `status` is
-always requested because column mapping requires its id. The backlog issue
+`board issues` and `board backlog` return one explicit common IssueList page.
+The backend request may include `status` when board column context needs its id,
+without adding an unrequested value to `projection.fields`. The backlog issue
 endpoint is Scrum-only; `board backlog` refuses a Kanban board after reading its
 configuration and before calling the incompatible endpoint.
 
@@ -797,7 +817,8 @@ configuration and before calling the incompatible endpoint.
   "scope": "all",
   "projection": {
     "kind": "jira-fields-v1",
-    "fields": ["status", "summary", "assignee", "priority", "issuetype"],
+    "columns": ["position", "key", "summary", "status", "board.column", "assignee"],
+    "fields": ["summary", "status", "assignee"],
     "ordering": "backend-rank"
   },
   "rows": [{
@@ -839,8 +860,8 @@ not that concurrent board changes were transactionally excluded.
 repeats compact board identity, projection, row count, and completeness with each row. CSV contains rank,
 scope membership, status/column mapping, and selected fields; formula-leading
 cells are neutralized unless `--raw-csv` is explicitly approved. Markdown is a
-compact review table whose columns follow the requested field projection (with
-status and board mapping columns kept explicit). None of these read paths call rank, sprint, move, or issue
+compact review table rendered by the same primitive as other issue lists. None
+of these read paths call rank, sprint, move, or issue
 write endpoints.
 
 `atl jira structure rows <ID>` returns a parsed read-only view of a Tempo Structure forest:

@@ -27,9 +27,10 @@ Quote multi-word values with double quotes inside the single-quoted shell argume
 
 ## Slimming and paginating
 
-- `--fields summary,status,assignee` limits the columns fetched (cheaper, less noise).
-- Pagination: the response includes `next_cursor` (a `startAt` offset). Pass it back via
-  `--cursor <next_cursor>` to get the next page.
+- `--columns key,summary,status,assignee` controls both ordered output and the
+  fields fetched (cheaper, less noise).
+- Pagination lives under `page.next_cursor` (a `startAt` offset). Pass it back
+  via `--cursor <page.next_cursor>` to get the next page.
 
 ## Picking a query
 

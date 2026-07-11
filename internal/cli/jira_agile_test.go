@@ -87,7 +87,7 @@ func TestJiraBoardConfigAndKanbanViewNeverCallSprintOrBacklog(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("board view exit=%d output=%q", code, viewOut)
 	}
-	for _, want := range []string{"# Jira Board: Flow", "Kanban note", "| 0 | ENG-1 |", "| To Do |", "| Unmapped |"} {
+	for _, want := range []string{"# Jira issues", "Source: board `5`", "| 0 | ENG-1 |", "| To Do |", "| Unmapped |"} {
 		if !strings.Contains(viewOut, want) {
 			t.Fatalf("view missing %q:\n%s", want, viewOut)
 		}
