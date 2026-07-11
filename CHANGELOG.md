@@ -49,6 +49,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `[object]` rather than disappearing, and normalized Structure JSON is pinned
   by a CLI golden test.
 
+- **Lenient Jira validation is scoped to generated Structure joins.** Ordinary
+  `jira issue search` and every other user-authored JQL path again use Jira's
+  strict semantic validation, while Structure id batches can still retain rows
+  for deleted or permission-hidden issues.
+
 - **Offline render cannot partially downgrade future derived views.** Jira now
   enforces the same marker-version preflight as Confluence, and both services
   inspect the entire selected render batch before rewriting any sibling.

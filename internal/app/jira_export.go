@@ -202,6 +202,12 @@ func (s *JiraService) forEachExportIssue(ctx context.Context, queries []string, 
 }
 
 func (s *JiraService) forEachExportIssueWithIdentityCap(ctx context.Context, queries []string, fields []string, limit, identityCap int, yield func(JiraIssueSnapshot) error) (int, error) {
+	return s.forEachExportIssueWithSearch(ctx, queries, fields, limit, identityCap, s.tr.Search, yield)
+}
+
+type jiraIssueSearch func(context.Context, string, []string, int, string) ([]domain.Issue, string, error)
+
+func (s *JiraService) forEachExportIssueWithSearch(ctx context.Context, queries []string, fields []string, limit, identityCap int, search jiraIssueSearch, yield func(JiraIssueSnapshot) error) (int, error) {
 	count := 0
 	seen := map[string]bool{}
 	searchFields := exportFields(fields)
@@ -212,7 +218,7 @@ func (s *JiraService) forEachExportIssueWithIdentityCap(ctx context.Context, que
 			if limit > 0 && limit-count < pageLimit {
 				pageLimit = limit - count
 			}
-			issues, next, err := s.tr.Search(ctx, jql, searchFields, pageLimit, cursor)
+			issues, next, err := search(ctx, jql, searchFields, pageLimit, cursor)
 			if err != nil {
 				return count, err
 			}
@@ -251,9 +257,13 @@ func (s *JiraService) forEachExportIssueWithIdentityCap(ctx context.Context, que
 	return count, nil
 }
 
-func (s *JiraService) collectExportIssues(ctx context.Context, queries []string, fields []string, limit int) ([]JiraIssueSnapshot, error) {
+func (s *JiraService) collectStructureIssues(ctx context.Context, queries []string, fields []string, limit int) ([]JiraIssueSnapshot, error) {
+	search := s.tr.Search
+	if lenient, ok := s.tr.(domain.LenientIssueSearcher); ok {
+		search = lenient.SearchLenient
+	}
 	var out []JiraIssueSnapshot
-	_, err := s.forEachExportIssue(ctx, queries, fields, limit, func(snapshot JiraIssueSnapshot) error {
+	_, err := s.forEachExportIssueWithSearch(ctx, queries, fields, limit, jiraRowExportMaxIdentities, search, func(snapshot JiraIssueSnapshot) error {
 		out = append(out, snapshot)
 		return nil
 	})

@@ -915,9 +915,10 @@ integration API does not expose a stable saved-view column projection.
 
 Issue values are joined only for rows whose type is `issue`, using the forest's
 stable numeric issue `item_id` through Jira search, not by Structure row id.
-Search disables Jira's advisory strict-query validation so one deleted or hidden
-id cannot reject an otherwise readable batch; Jira parsing and permission
-filtering still apply. Issues unavailable to the current
+Structure's generated identity join disables Jira's advisory strict-query
+validation so one deleted or hidden id cannot reject an otherwise readable
+batch; ordinary user-authored JQL remains strict, and Jira parsing and
+permission filtering still apply. Issues unavailable to the current
 token/read remain usable but visible as gaps: `complete` is false, affected rows have
 `accessible:false`, and their ids are listed in `inaccessible_rows`. Stored
 folder summaries are best effort; calculated grouping/generator rows retain
