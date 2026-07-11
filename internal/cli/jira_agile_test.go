@@ -3,11 +3,27 @@ package cli
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/isukharev/atl/internal/domain"
 )
+
+const kanbanConfigBody = `{
+	"id":5,"name":"Flow","type":"kanban","filter":{"id":"42"},
+	"subQuery":{"query":"fixVersion is EMPTY"},
+	"columnConfig":{"constraintType":"issueCount","columns":[
+		{"name":"To Do","statuses":[{"id":"11"}]},
+		{"name":"Done","statuses":[{"id":"12"}]}
+	]},"ranking":{"rankCustomFieldId":10019}
+}`
+
+const boardIssuesBody = `{"startAt":0,"maxResults":50,"total":2,"issues":[
+	{"id":"10001","key":"ENG-1","fields":{"summary":"=Formula","status":{"id":"11","name":"Open"},"assignee":{"displayName":"Owner"},"priority":{"name":"High"},"issuetype":{"name":"Story"}}},
+	{"id":"10002","key":"ENG-2","fields":{"summary":"Second","status":{"id":"99","name":"Custom"}}}
+]}`
 
 const boardsBody = `{"maxResults":50,"startAt":0,"total":1,"isLast":true,"values":[
 	{"id":5,"name":"ENG board","type":"scrum","location":{"projectKey":"ENG"}}
@@ -55,6 +71,62 @@ func TestJiraBoardList_EmitsFiltersAndID(t *testing.T) {
 	}
 	if strings.TrimSpace(idOut) != "5" {
 		t.Errorf("board list -o id = %q, want \"5\"", idOut)
+	}
+}
+
+func TestJiraBoardConfigAndKanbanViewNeverCallSprintOrBacklog(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/agile/1.0/board/5/configuration", http.StatusOK, kanbanConfigBody)
+	js.route(http.MethodGet, "/rest/agile/1.0/board/5/issue", http.StatusOK, boardIssuesBody)
+
+	configOut, code := runCLI(t, jiraEnv(js.srv), "jira", "board", "config", "5")
+	if code != exitOK || !strings.Contains(configOut, `"filter_id": "42"`) || !strings.Contains(configOut, `"status_ids"`) {
+		t.Fatalf("board config exit=%d output=%q", code, configOut)
+	}
+	viewOut, code := runCLI(t, jiraEnv(js.srv), "jira", "board", "view", "5", "-o", "text")
+	if code != exitOK {
+		t.Fatalf("board view exit=%d output=%q", code, viewOut)
+	}
+	for _, want := range []string{"# Jira Board: Flow", "Kanban note", "| 0 | ENG-1 |", "| To Do |", "| Unmapped |"} {
+		if !strings.Contains(viewOut, want) {
+			t.Fatalf("view missing %q:\n%s", want, viewOut)
+		}
+	}
+	for _, request := range js.requests() {
+		if strings.Contains(request.path, "/sprint") || strings.Contains(request.path, "/backlog") {
+			t.Fatalf("Kanban view called incompatible endpoint: %+v", request)
+		}
+	}
+}
+
+func TestJiraBoardKanbanBacklogRefusesBeforeBacklogEndpoint(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/agile/1.0/board/5/configuration", http.StatusOK, kanbanConfigBody)
+
+	_, code := runCLI(t, jiraEnv(js.srv), "jira", "board", "backlog", "5")
+	if code != exitUsage {
+		t.Fatalf("Kanban backlog exit=%d, want usage", code)
+	}
+	for _, request := range js.requests() {
+		if strings.Contains(request.path, "/backlog") {
+			t.Fatalf("called Kanban backlog endpoint: %+v", request)
+		}
+	}
+}
+
+func TestJiraBoardExportCSVNeutralizesFormula(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/agile/1.0/board/5/configuration", http.StatusOK, kanbanConfigBody)
+	js.route(http.MethodGet, "/rest/agile/1.0/board/5/issue", http.StatusOK, boardIssuesBody)
+	outPath := filepath.Join(t.TempDir(), "board.csv")
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "board", "export", "5", "--scope", "board", "--format", "csv", "--out", outPath)
+	if code != exitOK {
+		t.Fatalf("board export exit=%d output=%q", code, out)
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil || !strings.Contains(string(data), "'=Formula") || !strings.Contains(string(data), "Unmapped") {
+		t.Fatalf("board CSV=%q err=%v", data, err)
 	}
 }
 

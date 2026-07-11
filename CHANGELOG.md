@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Kanban/Scrum board snapshots for agent planning.** Jira board commands now
+  expose workflow configuration, ranked issue pages, Scrum backlog pages, and a
+  normalized status-to-column view with JSON/JSONL/safe CSV/Markdown exports.
+  Pagination and truncation are explicit, unknown statuses remain visible, and
+  Kanban routing never calls incompatible sprint/backlog endpoints.
+
 - **Normalized Tempo Structure snapshots for agent planning.** `jira structure
   view` joins hierarchy rows with compact Jira fields by stable issue identity and
   renders JSON, Markdown tables, or row ids without inflating cells with raw

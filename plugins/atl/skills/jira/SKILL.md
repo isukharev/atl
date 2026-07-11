@@ -327,7 +327,8 @@ For planning reports, load the matching section of
 
 ### 8. Boards & sprints (Jira Software only)
 
-For Agile board/sprint work, load the matching section of
+For Agile board/sprint work, including Kanban-vs-Scrum routing, normalized
+column/status views, backlog capability, pagination, and exports, load the matching section of
 [reference/extended-capabilities.md](reference/extended-capabilities.md).
 
 ### 9. Tempo Structure (read-only)

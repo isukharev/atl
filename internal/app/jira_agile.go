@@ -17,6 +17,21 @@ func (s *JiraService) Board(ctx context.Context, id int) (*domain.Board, error) 
 	return s.agile.Board(ctx, id)
 }
 
+// BoardConfiguration returns the board's configured workflow projection.
+func (s *JiraService) BoardConfiguration(ctx context.Context, id int) (*domain.BoardConfiguration, error) {
+	return s.agile.BoardConfiguration(ctx, id)
+}
+
+// BoardIssues returns one backend-ranked page from the full board scope.
+func (s *JiraService) BoardIssues(ctx context.Context, id int, fields []string, jql string, limit int, cursor string) ([]domain.Issue, string, error) {
+	return s.agile.BoardIssues(ctx, id, fields, jql, limit, cursor)
+}
+
+// BoardBacklog returns one backend-ranked page from the board backlog scope.
+func (s *JiraService) BoardBacklog(ctx context.Context, id int, fields []string, jql string, limit int, cursor string) ([]domain.Issue, string, error) {
+	return s.agile.BoardBacklog(ctx, id, fields, jql, limit, cursor)
+}
+
 // Sprints lists a board's sprints, optionally filtered by state.
 func (s *JiraService) Sprints(ctx context.Context, boardID int, state string, limit int, cursor string) ([]domain.Sprint, string, error) {
 	return s.agile.Sprints(ctx, boardID, state, limit, cursor)

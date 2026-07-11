@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"html"
 	"strconv"
 	"strings"
 
@@ -866,6 +867,7 @@ func markdownTableCell(value string) string {
 	value = strings.ReplaceAll(value, "\r\n", " ")
 	value = strings.ReplaceAll(value, "\r", " ")
 	value = strings.ReplaceAll(value, "\n", " ")
+	value = html.EscapeString(value)
 	value = strings.ReplaceAll(value, "|", `\|`)
 	return strings.TrimSpace(value)
 }

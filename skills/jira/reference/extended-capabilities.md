@@ -59,12 +59,34 @@ These commands require Jira Software (GreenHopper); Core-only instances return
 ```bash
 atl jira board list --project PROJ
 atl jira board get 5
+atl jira board config 5
+atl jira board view 5 -o text
+atl jira board view 5 --jql 'statusCategory != Done' --limit 500
+atl jira board export 5 --format jsonl --out board.jsonl
 atl jira sprint list --board 5 --state active
 atl jira sprint current --board 5
 atl jira sprint issues 7 --fields summary,status
 atl jira sprint add 7 PROJ-1 PROJ-2
 atl jira sprint remove PROJ-1
 ```
+
+Route by board type before asking for sprints:
+
+- For Kanban, use `board config`, `board issues`, and `board view`. The Jira DC
+  backlog issue endpoint is Scrum-only; `view --scope all` records
+  `backlog_fetched:false` and does not call backlog or sprint endpoints. Use the
+  configured ordered columns/status ids to understand workflow state.
+- For Scrum, `view --scope all` additionally reads backlog membership, and only
+  then use `sprint list/current/issues` when sprint context is relevant.
+
+`board view` is the recommended compact agent path. It preserves backend rank
+order, maps status ids to configured columns, and keeps unmapped statuses
+explicit. Use `--jql 'statusCategory != Done'` or another user-approved
+refinement when an old board has a very large history. `--limit 0` reads all;
+positive limits are explicit truncation per scope. For repeated filters, export
+JSONL and use `jq -c`; CSV is formula-safe by default; Markdown is for review.
+These reads never call rank/move/update endpoints. Sprint `add/remove` are
+separate writes and still require explicit user intent.
 
 ## Tempo Structure (read-only)
 

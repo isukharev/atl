@@ -2,6 +2,7 @@ package jira
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -90,6 +91,120 @@ func (j *Jira) Board(ctx context.Context, id int) (*domain.Board, error) {
 	}
 	b := d.toDomain()
 	return &b, nil
+}
+
+type boardConfigDTO struct {
+	ID     int    `json:"id"`
+	Name   string `json:"name"`
+	Type   string `json:"type"`
+	Filter struct {
+		ID any `json:"id"`
+	} `json:"filter"`
+	SubQuery struct {
+		Query string `json:"query"`
+	} `json:"subQuery"`
+	ColumnConfig struct {
+		ConstraintType string `json:"constraintType"`
+		Columns        []struct {
+			Name     string `json:"name"`
+			Min      *int   `json:"min"`
+			Max      *int   `json:"max"`
+			Statuses []struct {
+				ID string `json:"id"`
+			} `json:"statuses"`
+		} `json:"columns"`
+	} `json:"columnConfig"`
+	Estimation struct {
+		Type  string `json:"type"`
+		Field struct {
+			FieldID string `json:"fieldId"`
+		} `json:"field"`
+	} `json:"estimation"`
+	Ranking struct {
+		RankCustomFieldID any `json:"rankCustomFieldId"`
+	} `json:"ranking"`
+}
+
+func (d boardConfigDTO) toDomain() domain.BoardConfiguration {
+	out := domain.BoardConfiguration{
+		ID: d.ID, Name: d.Name, Type: d.Type, FilterID: agileIDString(d.Filter.ID),
+		KanbanSubquery: d.SubQuery.Query, ConstraintType: d.ColumnConfig.ConstraintType,
+		EstimationType: d.Estimation.Type, EstimationField: d.Estimation.Field.FieldID,
+		RankFieldID: agileIDString(d.Ranking.RankCustomFieldID), Columns: []domain.BoardColumn{},
+	}
+	for _, column := range d.ColumnConfig.Columns {
+		mapped := domain.BoardColumn{Name: column.Name, Min: column.Min, Max: column.Max, StatusIDs: []string{}}
+		for _, status := range column.Statuses {
+			mapped.StatusIDs = append(mapped.StatusIDs, status.ID)
+		}
+		out.Columns = append(out.Columns, mapped)
+	}
+	return out
+}
+
+func agileIDString(value any) string {
+	switch value := value.(type) {
+	case string:
+		return value
+	case json.Number:
+		return value.String()
+	case float64:
+		return strconv.FormatFloat(value, 'f', -1, 64)
+	case nil:
+		return ""
+	default:
+		return fmt.Sprint(value)
+	}
+}
+
+// BoardConfiguration fetches the workflow projection configured for a board.
+func (j *Jira) BoardConfiguration(ctx context.Context, id int) (*domain.BoardConfiguration, error) {
+	var d boardConfigDTO
+	if err := j.c.GetJSONUseNumber(ctx, "/rest/agile/1.0/board/"+strconv.Itoa(id)+"/configuration", &d); err != nil {
+		return nil, err
+	}
+	config := d.toDomain()
+	return &config, nil
+}
+
+func (j *Jira) boardIssuePage(ctx context.Context, boardID int, scope string, fields []string, jql string, limit int, cursor string) ([]domain.Issue, string, error) {
+	startAt, err := parseCursor(cursor)
+	if err != nil {
+		return nil, "", err
+	}
+	q := url.Values{}
+	q.Set("startAt", strconv.Itoa(startAt))
+	q.Set("maxResults", strconv.Itoa(agileLimit(limit)))
+	if len(fields) > 0 {
+		q.Set("fields", strings.Join(fields, ","))
+	}
+	if strings.TrimSpace(jql) != "" {
+		q.Set("jql", jql)
+	}
+	var resp struct {
+		StartAt int        `json:"startAt"`
+		Total   int        `json:"total"`
+		Issues  []issueDTO `json:"issues"`
+	}
+	path := "/rest/agile/1.0/board/" + strconv.Itoa(boardID) + "/" + scope + "?" + q.Encode()
+	if err := j.c.GetJSON(ctx, path, &resp); err != nil {
+		return nil, "", err
+	}
+	out := make([]domain.Issue, 0, len(resp.Issues))
+	for _, issue := range resp.Issues {
+		out = append(out, *j.mapIssue(issue))
+	}
+	return out, agileNext(startAt, len(resp.Issues), resp.Total, nil), nil
+}
+
+// BoardIssues lists issues in backend rank order for the full board scope.
+func (j *Jira) BoardIssues(ctx context.Context, boardID int, fields []string, jql string, limit int, cursor string) ([]domain.Issue, string, error) {
+	return j.boardIssuePage(ctx, boardID, "issue", fields, jql, limit, cursor)
+}
+
+// BoardBacklog lists issues in backend rank order for the backlog scope.
+func (j *Jira) BoardBacklog(ctx context.Context, boardID int, fields []string, jql string, limit int, cursor string) ([]domain.Issue, string, error) {
+	return j.boardIssuePage(ctx, boardID, "backlog", fields, jql, limit, cursor)
 }
 
 type sprintDTO struct {

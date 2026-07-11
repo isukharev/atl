@@ -50,6 +50,13 @@ Load this reference only when exact command or flag lookup is useful.
 | `jira me` | Show the authenticated Jira user | — |
 | `jira user search <Q>` | Search users | `--limit` |
 | `jira user get <USERNAME>` | Get a user | — |
+| `jira board list` | Discover Agile boards | `--project`, `--limit`, `--cursor`, `-o id` |
+| `jira board get <ID>` | Get board identity | `-o id` |
+| `jira board config <ID>` | Get filter, ordered columns/statuses, constraints, estimation, rank | `-o text/id` |
+| `jira board issues <ID>` | Read one backend-ranked board page | `--fields`, `--jql`, `--limit`, `--cursor`, `-o text/id` |
+| `jira board backlog <ID>` | Read one Scrum backlog page | `--fields`, `--jql`, `--limit`, `--cursor`, `-o text/id` |
+| `jira board view <ID>` | Read normalized config/issues/backlog snapshot | `--scope all/board/backlog`, `--fields`, `--jql`, `--limit`, `-o text/id` |
+| `jira board export <ID>` | Write normalized board artifact | `--scope`, `--fields`, `--jql`, `--limit`, `--format json/jsonl/csv/md`, `--out`, `--raw-csv` |
 | `jira structure get <ID>` | Get Structure metadata | `-o id` |
 | `jira structure view <ID>` | Read normalized hierarchy + Jira fields | `--root`, `--fields`, `--batch-size`, `-o text/id` |
 | `jira structure forest <ID>` | Get raw latest Structure forest formula | — |
