@@ -50,7 +50,22 @@ type sidecarFile struct {
 	Views map[string]ViewState `json:"views,omitempty"`
 }
 
-func (m *Mirror) sidecarPath() string { return filepath.Join(m.Root, ".atl", "state.json") }
+func (m *Mirror) sidecarPath() string     { return filepath.Join(m.Root, ".atl", "state.json") }
+func (m *Mirror) sidecarLockPath() string { return filepath.Join(m.Root, ".atl", "state.lock") }
+
+func (m *Mirror) lockSidecar() (*safepath.FileLock, error) {
+	if err := safepath.MkdirAllWithin(m.Root, filepath.Dir(m.sidecarPath()), 0o755); err != nil {
+		return nil, err
+	}
+	lock, acquired, err := safepath.TryLockFileWithin(m.Root, m.sidecarLockPath(), 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if !acquired {
+		return nil, fmt.Errorf("%w: another mirror state update is active for %s", domain.ErrCheckFailed, m.Root)
+	}
+	return lock, nil
+}
 
 // loadSidecar reads .atl/state.json. A missing file is an empty state (fresh
 // mirror); an unparseable one is a loud error — silently treating it as empty
@@ -79,16 +94,40 @@ func (m *Mirror) loadSidecar() (sidecarFile, error) {
 }
 
 // saveSidecar replaces state.json atomically (temp + fsync + rename), so a
-// crash mid-save can never leave a half-written file. Concurrency discipline:
-// the sidecar is a whole-file, last-writer-wins artifact — run one atl process
-// against a mirror at a time; concurrent writers may lose each other's entries
-// but the file itself stays valid.
+// crash mid-save can never leave a half-written file. Callers that perform a
+// read-modify-write must hold lockSidecar or use mergeSidecarPatch.
 func (m *Mirror) saveSidecar(sc sidecarFile) error {
 	if err := safepath.MkdirAllWithin(m.Root, filepath.Dir(m.sidecarPath()), 0o755); err != nil {
 		return err
 	}
 	b, _ := json.MarshalIndent(sc, "", "  ")
 	return safepath.WriteFileWithin(m.Root, m.sidecarPath(), append(b, '\n'), 0o600)
+}
+
+// mergeSidecarPatch applies only the entries changed by one operation to the
+// latest state under a backend-neutral lock. Re-reading after lock acquisition
+// is essential: Jira and Confluence may share one mirror root and batches can
+// have been opened from the same old snapshot.
+func (m *Mirror) mergeSidecarPatch(pages map[string]SyncState, views map[string]ViewState) error {
+	if len(pages) == 0 && len(views) == 0 {
+		return nil
+	}
+	lock, err := m.lockSidecar()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Unlock() }()
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return err
+	}
+	for id, state := range pages {
+		sc.Pages[id] = state
+	}
+	for id, state := range views {
+		sc.Views[id] = state
+	}
+	return m.saveSidecar(sc)
 }
 
 // SyncedVersion returns the last-synced version for an id (0 if untracked).
@@ -120,17 +159,7 @@ func (m *Mirror) ViewStateOf(id string) (ViewState, bool, error) {
 // load-modify-save (for the render commands, which rewrite many .md views but
 // touch no sync state). Existing entries for other ids are preserved.
 func (m *Mirror) SaveViewStates(views map[string]ViewState) error {
-	if len(views) == 0 {
-		return nil
-	}
-	sc, err := m.loadSidecar()
-	if err != nil {
-		return err
-	}
-	for id, vs := range views {
-		sc.Views[id] = vs
-	}
-	return m.saveSidecar(sc)
+	return m.mergeSidecarPatch(nil, views)
 }
 
 // saveBaseExt stores a pristine copy of the last-synced body under a

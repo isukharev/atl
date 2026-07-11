@@ -146,6 +146,15 @@ func TestConfluencePageViewRejectsUnrenderableCSF(t *testing.T) {
 	}
 }
 
+func TestConfluencePageViewRejectsProjectionWithoutNativeBody(t *testing.T) {
+	store := &recordingStore{page: &domain.Resource{ID: "42"}, omitBody: true}
+	svc := &ConfluenceService{store: store, cfg: &config.Config{}}
+	_, err := svc.ViewPage(context.Background(), "42", ConfluencePageViewOpts{Root: t.TempDir()})
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("error = %v, want check failure", err)
+	}
+}
+
 func TestConfluencePageViewCannotBeAppliedAsMirrorEdit(t *testing.T) {
 	root, mdPath := scaffoldPage(t, applyPage)
 	csfPath := strings.TrimSuffix(mdPath, ".md") + ".csf"

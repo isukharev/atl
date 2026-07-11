@@ -68,6 +68,9 @@ func (s *ConfluenceService) CopyPage(ctx context.Context, srcID, newTitle, space
 	if err != nil {
 		return nil, err
 	}
+	if err := requireConfluenceNativeBody(src, srcID, "copy"); err != nil {
+		return nil, err
+	}
 	if space == "" {
 		space = src.SpaceKey
 	}
@@ -75,6 +78,13 @@ func (s *ConfluenceService) CopyPage(ctx context.Context, srcID, newTitle, space
 		parent = src.Parent
 	}
 	return s.store.CreatePage(ctx, space, parent, newTitle, src.Body)
+}
+
+func requireConfluenceNativeBody(page *domain.Resource, id, operation string) error {
+	if page == nil || !page.BodyPresent {
+		return fmt.Errorf("%w: %s page %s response omitted body.storage.value; refusing to treat a partial projection as an empty native body", domain.ErrCheckFailed, operation, id)
+	}
+	return nil
 }
 
 // DownloadAttachment streams a page attachment by filename into outDir (an
@@ -229,6 +239,9 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 		page, err := s.store.GetPage(ctx, id, domain.PullOpts{Format: "csf", IncludeRestrictions: confluenceNeedsRestrictions(rs)})
 		if err != nil {
 			return res, fmt.Errorf("pull %s: %w", id, err)
+		}
+		if err := requireConfluenceNativeBody(page, id, "pull"); err != nil {
+			return res, err
 		}
 		dir, slug, derr := m.ClaimPageDir(page.SpaceKey, page.Ancestors, page.Title, page.ID)
 		if derr != nil {
@@ -580,6 +593,10 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 	})
 	if gerr != nil {
 		item.Warning = "pushed but local refresh failed (re-pull recommended): " + gerr.Error()
+		return item, nil
+	}
+	if berr := requireConfluenceNativeBody(page, lc.Meta.ID, "post-push refresh"); berr != nil {
+		item.Warning = "pushed but local refresh returned a partial body projection; local files were preserved (re-pull recommended)"
 		return item, nil
 	}
 	dir := filepath.Dir(path)

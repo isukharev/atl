@@ -884,6 +884,16 @@ mirror/
 Confluence pull/render/apply/push are serialized by one persistent advisory
 lock under `.atl`; contention exits `8` before page/state writes. Wait for the
 active operation—do not remove the lock file. Read-only status stays lock-free.
+When Jira and Confluence share the root, their sidecar patches also use the
+backend-neutral `.atl/state.lock`: a collision fails closed rather than losing
+the other service's `state.json` entries.
+
+Pull requires an explicit native CSF body projection from the backend. A
+successful partial response that omits the body exits `8` before page artifacts
+are written; an explicitly present, zero-byte body is accepted as an empty
+page. If only the refresh after a successful push omits the body, atl preserves
+the local mirror and reports a re-pull warning instead of replacing it with an
+empty page.
 
 ### `atl conf table extract`
 

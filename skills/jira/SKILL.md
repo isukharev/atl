@@ -247,6 +247,9 @@ pull/render), so no `--render-*` flags are needed — pass them only to override
 Jira has **no server-side version gate**, so `jira push` guards staleness with an app-layer
 compare against the bases recorded at pull/apply. Description drift is refused with exit 8 unless
 `--force`; pending-field drift is always refused, including with `--force`, and must be reconciled.
+When Jira shares a mirror root with Confluence, both services merge sidecar
+patches under the same short-lived state lock; wait on an exit-8 contention and
+never remove or bypass that lock.
 Description plus fields are one typed write. An ambiguous response is reconciled by a fresh end-state
 read and never replayed. If remote already equals the proposal after refresh failure, retry repairs
 local state without a write. A transport/local refresh problem is a warning;

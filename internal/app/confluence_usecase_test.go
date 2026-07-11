@@ -56,6 +56,7 @@ type recordingStore struct {
 	commentsTruncated bool
 	comment           *domain.Comment
 	err               error
+	omitBody          bool
 }
 
 func (s *recordingStore) Search(_ context.Context, q string, limit int, cursor string) ([]domain.PageRef, string, error) {
@@ -65,7 +66,14 @@ func (s *recordingStore) Search(_ context.Context, q string, limit int, cursor s
 
 func (s *recordingStore) GetPage(_ context.Context, id string, o domain.PullOpts) (*domain.Resource, error) {
 	s.getID, s.getFormat, s.getRestrictions = id, o.Format, o.IncludeRestrictions
-	return s.page, s.err
+	if s.page == nil || s.err != nil {
+		return s.page, s.err
+	}
+	page := *s.page
+	if !s.omitBody {
+		page.BodyPresent = true
+	}
+	return &page, nil
 }
 
 func (s *recordingStore) GetMeta(_ context.Context, id string) (*domain.PageMeta, error) {
@@ -570,7 +578,7 @@ func (s *pullCapStore) Search(_ context.Context, _ string, limit int, _ string) 
 }
 
 func (s *pullCapStore) GetPage(_ context.Context, id string, _ domain.PullOpts) (*domain.Resource, error) {
-	return &domain.Resource{ID: id, Title: id, SpaceKey: "SP", Version: 1, Body: []byte("<p>body</p>")}, nil
+	return &domain.Resource{ID: id, Title: id, SpaceKey: "SP", Version: 1, Body: []byte("<p>body</p>"), BodyPresent: true}, nil
 }
 
 // ---- Pull orchestration ----
@@ -589,6 +597,7 @@ type pullStore struct {
 	commentsTruncated map[string]bool             // per-id truncation flag
 	commentsErr       error                       // forces a ListComments failure
 	listCommentsCalls int                         // how many times ListComments ran
+	omitBody          bool                        // simulates a successful partial body projection
 }
 
 func (s *pullStore) Tree(_ context.Context, _ string, _ int) ([]domain.PageRef, bool, error) {
@@ -615,6 +624,9 @@ func (s *pullStore) GetPage(_ context.Context, id string, opts domain.PullOpts) 
 	}
 	if p, ok := s.pages[id]; ok {
 		copy := *p
+		if !s.omitBody {
+			copy.BodyPresent = true
+		}
 		if !opts.IncludeRestrictions {
 			copy.Restricted = nil
 		}
@@ -702,6 +714,55 @@ func TestPullMirrorsPages(t *testing.T) {
 	// (the no-Markdown-round-trip invariant).
 	if string(body) != "<p>alpha</p>" {
 		t.Errorf("csf body not written verbatim: got %q, want %q", body, "<p>alpha</p>")
+	}
+}
+
+func TestPullRejectsMissingNativeBodyBeforeWritingArtifacts(t *testing.T) {
+	into := t.TempDir()
+	st := &pullStore{
+		omitBody: true,
+		pages: map[string]*domain.Resource{
+			"100": {ID: "100", Title: "Partial", SpaceKey: "SP", Version: 2},
+		},
+	}
+	svc := &ConfluenceService{store: st}
+	_, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "native body") {
+		t.Fatalf("partial projection error = %v, want check failure", err)
+	}
+	var artifacts []string
+	if walkErr := filepath.WalkDir(into, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && (strings.HasSuffix(path, ".csf") || strings.HasSuffix(path, ".meta.json")) {
+			artifacts = append(artifacts, path)
+		}
+		return nil
+	}); walkErr != nil {
+		t.Fatal(walkErr)
+	}
+	if len(artifacts) != 0 {
+		t.Fatalf("partial projection wrote page artifacts: %v", artifacts)
+	}
+}
+
+func TestPullAcceptsExplicitlyEmptyNativeBody(t *testing.T) {
+	into := t.TempDir()
+	st := &pullStore{pages: map[string]*domain.Resource{
+		"100": {ID: "100", Title: "Empty", SpaceKey: "SP", Version: 2, Body: []byte{}},
+	}}
+	svc := &ConfluenceService{store: st}
+	res, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
+	if err != nil {
+		t.Fatalf("explicit empty body: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(into, res.Pages[0].Path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body) != 0 {
+		t.Fatalf("mirrored body = %q, want explicitly empty", body)
 	}
 }
 
@@ -941,6 +1002,21 @@ func TestCopyPageDefaultsSpaceAndParent(t *testing.T) {
 	}
 	if st.createParent != "origpar" {
 		t.Errorf("parent should default to source parent, got %q", st.createParent)
+	}
+}
+
+func TestCopyPageRejectsProjectionWithoutNativeBody(t *testing.T) {
+	st := &recordingStore{
+		page:     &domain.Resource{ID: "100", SpaceKey: "SRC", Version: 1},
+		omitBody: true,
+	}
+	svc := &ConfluenceService{store: st}
+	_, err := svc.CopyPage(context.Background(), "100", "Copy", "", "")
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("copy error = %v, want check failure", err)
+	}
+	if st.createTitle != "" || st.createBody != nil {
+		t.Fatalf("CreatePage called after partial projection: title=%q body=%q", st.createTitle, st.createBody)
 	}
 }
 

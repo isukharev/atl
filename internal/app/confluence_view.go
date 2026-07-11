@@ -47,6 +47,9 @@ func (s *ConfluenceService) ViewPage(ctx context.Context, id string, opts Conflu
 	if err != nil {
 		return nil, err
 	}
+	if err := requireConfluenceNativeBody(page, id, "view"); err != nil {
+		return nil, err
+	}
 	node, err := csf.Parse(page.Body)
 	if err != nil {
 		return nil, fmt.Errorf("%w: page %s CSF cannot be rendered as Markdown: %v", domain.ErrCheckFailed, id, err)

@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Cross-service mirror state updates no longer lose entries.** Jira and
+  Confluence batches merge only their changed records into the latest
+  `.atl/state.json` under a shared root-contained state lock. Concurrent
+  sidecar updates now either preserve both services' records or fail closed.
+
+- **HTTP transport failures no longer disclose selectors.** DNS, TLS, timeout,
+  and other pre-response failures report the method plus a query-redacted URL
+  on buffered, streamed-upload, and streamed-download paths. Cancellation and
+  sentinel identity remain testable without exposing URL-bearing causes to
+  generic unwrapping loggers.
+
+- **Confluence native-body projections fail closed.** Pull, transient view,
+  table extraction, and copy refuse successful-but-partial page responses that
+  omit storage-format content. A partial post-push refresh preserves local
+  files and sync state and returns a re-pull warning; an explicitly empty body
+  remains valid.
+
 - **Serialized Confluence mirror mutations.** Pull, render, apply, and push now
   hold one persistent root-contained advisory lock through page/view/base/state
   updates. Contention fails before partial writes; status remains lock-free.
