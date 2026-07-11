@@ -136,6 +136,39 @@ func TestPushPreservesLocalMirrorWhenRefreshOmitsNativeBody(t *testing.T) {
 	}
 }
 
+func TestPushRefusesStaleRelocationCopyEvenWithForce(t *testing.T) {
+	root, oldCSF := syncedMirror(t, 3)
+	m := mirror.New(root)
+	newPage := &domain.Resource{ID: "123", Title: "Renamed", SpaceKey: "SP", Version: 3, Body: []byte("<p>x</p>")}
+	newDir, newSlug := m.PageDir(newPage.SpaceKey, nil, newPage.Title)
+	if err := m.Write(newDir, newSlug, newPage, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldCSF, []byte("<p>stale local edit</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name   string
+		target string
+		dryRun bool
+	}{
+		{name: "single forced", target: oldCSF},
+		{name: "single dry-run forced", target: oldCSF, dryRun: true},
+		{name: "directory forced", target: root},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			stub := &stubStore{}
+			res, err := (&ConfluenceService{store: stub}).Push(context.Background(), tt.target, PushOpts{Into: root, Force: true, DryRun: tt.dryRun})
+			if !errors.Is(err, domain.ErrCheckFailed) || stub.updateCalled {
+				t.Fatalf("res=%+v err=%v update=%v", res, err, stub.updateCalled)
+			}
+			if len(res.Items) != 1 || res.Items[0].Skipped != "non-canonical-path" {
+				t.Fatalf("unexpected refusal result: %+v", res.Items)
+			}
+		})
+	}
+}
+
 func TestStatusReportsRemoteCheckError(t *testing.T) {
 	root, _ := syncedMirror(t, 3)
 	stub := &stubStore{metaErr: domain.ErrForbidden}

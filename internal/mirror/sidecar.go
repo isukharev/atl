@@ -141,6 +141,17 @@ func (m *Mirror) SyncedVersion(id string) (int, error) {
 	return sc.Pages[id].Version, nil
 }
 
+// SyncStateOf returns the complete tracked state for one resource. It is used
+// by relocation preflight to find the old canonical path by stable page id.
+func (m *Mirror) SyncStateOf(id string) (SyncState, bool, error) {
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return SyncState{}, false, err
+	}
+	st, ok := sc.Pages[id]
+	return st, ok, nil
+}
+
 // ViewStateOf returns the render settings a resource's .md view was last written
 // with. ok is false when no view state was ever recorded (a pre-upgrade mirror
 // or a never-rendered resource). The error is the loud corrupt-sidecar signal,

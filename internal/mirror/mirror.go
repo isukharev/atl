@@ -151,6 +151,15 @@ func (m *Mirror) pageOwner(dir, slug string) (owner string, occupied bool) {
 	} else if !os.IsNotExist(err) {
 		return "", true
 	}
+	if rb, err := safepath.ReadFileWithin(m.Root, filepath.Join(dir, slug+".relocated.json")); err == nil {
+		var marker relocationTombstone
+		if json.Unmarshal(rb, &marker) == nil && marker.ID != "" {
+			return marker.ID, true
+		}
+		return "", true
+	} else if !os.IsNotExist(err) {
+		return "", true
+	}
 	return "", false
 }
 
@@ -423,11 +432,13 @@ func (m *Mirror) EnsureScaffold() error {
 
 // LocalCSF describes a tracked .csf file and its expected (last-synced) state.
 type LocalCSF struct {
-	Path    string // absolute path to the .csf
-	Meta    Meta
-	Synced  *SyncState // last-synced state from the sidecar (nil if untracked)
-	Current string     // current on-disk content hash
-	Dirty   bool       // current != synced
+	Path             string // absolute path to the .csf
+	Meta             Meta
+	Synced           *SyncState // last-synced state at this exact path (nil if untracked)
+	Current          string     // current on-disk content hash
+	Dirty            bool       // current != synced
+	TrackedElsewhere bool       // same id has a different canonical sidecar path
+	CanonicalPath    string     // canonical path relative to mirror root
 }
 
 // LoadCSF reads a .csf path and its neighboring meta + sidecar state. A
@@ -461,13 +472,24 @@ func loadCSFWith(root string, sc sidecarFile, csfPath string) (*LocalCSF, []byte
 		return nil, nil, fmt.Errorf("%w: metadata %s has no page id", domain.ErrCheckFailed, metaPath)
 	}
 	if st, ok := sc.Pages[lc.Meta.ID]; ok {
-		s := st
-		lc.Synced = &s
-		lc.Dirty = s.Hash != lc.Current
+		if sameTrackedPath(root, csfPath, st.Path) {
+			s := st
+			lc.Synced = &s
+			lc.Dirty = s.Hash != lc.Current
+		} else {
+			lc.TrackedElsewhere = true
+			lc.CanonicalPath = st.Path
+			lc.Dirty = true
+		}
 	} else {
 		lc.Dirty = true // untracked / never synced
 	}
 	return lc, body, nil
+}
+
+func sameTrackedPath(root, absolute, trackedRel string) bool {
+	rel, err := filepath.Rel(root, absolute)
+	return err == nil && filepath.Clean(rel) == filepath.Clean(filepath.FromSlash(trackedRel))
 }
 
 // ListCSF walks the mirror returning every tracked .csf with dirty status.

@@ -373,6 +373,9 @@ atl jira field-options --project PROJ --field <field-id>
 - Never interactive.
 - Confluence pull/render/apply/push and mirror-local `conf edit` serialize per mirror; on lock contention,
   wait for the active operation and never delete the persistent `.atl` lock.
+- A Confluence re-pull that changes a tracked page path refuses local edits or
+  collisions, records the new path, and retires only that page's old primary
+  files; descendant/unrelated directories are never recursively deleted.
 - Jira and Confluence updates to a shared mirror's `state.json` merge under one
   backend-neutral state lock; contention fails closed instead of losing entries.
 

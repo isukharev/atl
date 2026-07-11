@@ -10,6 +10,8 @@
 | Exit 8 on apply | Stale marker, reserved edit, fragment loss, divergence, or unconvertible block | Follow the named refusal; migrate pristine old view or choose direct CSF |
 | Exit 8: mutation active | Another pull/render/apply/push or mirror-local `conf edit` holds the mirror lock | Wait; never remove the lock or run concurrently |
 | Exit 8: corrupt/missing sidecar | Mirror scan cannot prove complete state | Repair or re-pull; never accept partial clean status |
+| Exit 8: non-canonical page path | The same page id is tracked at another path after relocation | Use the reported canonical path; preserve/reconcile local bytes, never push the stale copy or bypass with `--force` |
+| Exit 8: relocation ownership marker | Reserved `<slug>.relocated.json` is invalid, changed, or owned by another page | Preserve it and both page paths; never edit/delete the marker or recursively clean the directory |
 | Exit 8 on `create --from-md` | Block outside Markdown subset | Use validated CSF `--from-file` |
 | `unknown` guarded write | Verification could not prove outcome | Inspect/re-read; never auto-replay |
 | Search says query required | No CQL/filter | Supply CQL or `--space/--title/--label/--type` |

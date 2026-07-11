@@ -89,7 +89,7 @@ func TestConfluenceMoveDryRunAndApply(t *testing.T) {
 	}
 
 	applyStore := &moveStore{reads: []*domain.Resource{
-		movePage("42", "10", 7, "body"), moveTarget("20", 3, "10"), movedPage("42", "20", 8, "body", "10", "20"),
+		movePage("42", "10", 7, "body"), moveTarget("20", 3, "10"), moveTarget("20", 3, "10"), movedPage("42", "20", 8, "body", "10", "20"),
 	}}
 	result, err := (&ConfluenceService{store: applyStore}).MoveGuarded(context.Background(), "42", ConfluenceMoveOpts{
 		Parent: "20", ExpectedVersion: 7, ExpectedParent: "10", ExpectedParentSet: true,
@@ -132,9 +132,9 @@ func TestConfluenceMoveFailsClosedBeforeWrite(t *testing.T) {
 }
 
 func TestConfluenceMoveExplicitTopLevelParentGate(t *testing.T) {
-	hash := confluenceMoveProposalHash("42", 7, "", "20")
+	hash := confluenceMoveProposalHash("42", 7, "", "20", 3)
 	store := &moveStore{reads: []*domain.Resource{
-		movePage("42", "", 7, "body"), moveTarget("20", 3), movedPage("42", "20", 8, "body", "20"),
+		movePage("42", "", 7, "body"), moveTarget("20", 3), moveTarget("20", 3), movedPage("42", "20", 8, "body", "20"),
 	}}
 	res, err := (&ConfluenceService{store: store}).MoveGuarded(context.Background(), "42", ConfluenceMoveOpts{
 		Parent: "20", ExpectedVersion: 7, ExpectedParentSet: true, ExpectedProposalHash: hash, Apply: true,
@@ -159,7 +159,7 @@ func TestConfluenceMoveApplyGates(t *testing.T) {
 	baseReads := func() []*domain.Resource {
 		return []*domain.Resource{movePage("42", "10", 7, "body"), moveTarget("20", 3, "10")}
 	}
-	hash := confluenceMoveProposalHash("42", 7, "10", "20")
+	hash := confluenceMoveProposalHash("42", 7, "10", "20", 3)
 	for _, tt := range []struct {
 		name string
 		opts ConfluenceMoveOpts
@@ -178,34 +178,49 @@ func TestConfluenceMoveApplyGates(t *testing.T) {
 	}
 }
 
+func TestConfluenceMoveRevalidatesTargetImmediatelyBeforeWrite(t *testing.T) {
+	hash := confluenceMoveProposalHash("42", 7, "10", "20", 3)
+	changed := moveTarget("20", 4, "10", "30")
+	store := &moveStore{reads: []*domain.Resource{
+		movePage("42", "10", 7, "body"), moveTarget("20", 3, "10"), changed,
+	}}
+	res, err := (&ConfluenceService{store: store}).MoveGuarded(context.Background(), "42", ConfluenceMoveOpts{
+		Parent: "20", ExpectedVersion: 7, ExpectedParent: "10", ExpectedParentSet: true,
+		ExpectedProposalHash: hash, Apply: true,
+	})
+	if !errors.Is(err, domain.ErrCheckFailed) || res.Status != "blocked" || store.moveCalls != 0 || store.getCalls != 3 {
+		t.Fatalf("res=%+v err=%v store=%+v", res, err, store)
+	}
+}
+
 func TestConfluenceMoveAmbiguousWriteReconcilesWithoutReplay(t *testing.T) {
-	hash := confluenceMoveProposalHash("42", 7, "10", "20")
+	hash := confluenceMoveProposalHash("42", 7, "10", "20", 3)
 	store := &moveStore{
-		reads:   []*domain.Resource{movePage("42", "10", 7, "body"), moveTarget("20", 3, "10"), movedPage("42", "20", 8, "body", "10", "20")},
+		reads:   []*domain.Resource{movePage("42", "10", 7, "body"), moveTarget("20", 3, "10"), moveTarget("20", 3, "10"), movedPage("42", "20", 8, "body", "10", "20")},
 		moveErr: errors.New("connection reset after write"),
 	}
 	res, err := (&ConfluenceService{store: store}).MoveGuarded(context.Background(), "42", ConfluenceMoveOpts{
 		Parent: "20", ExpectedVersion: 7, ExpectedParent: "10", ExpectedParentSet: true, ExpectedProposalHash: hash, Apply: true,
 	})
-	if err != nil || res.Status != "applied" || !res.Reconciled || store.moveCalls != 1 || store.getCalls != 3 {
+	if err != nil || res.Status != "applied" || !res.Reconciled || store.moveCalls != 1 || store.getCalls != 4 {
 		t.Fatalf("res=%+v err=%v store=%+v", res, err, store)
 	}
 }
 
 func TestConfluenceMoveUnknownAndDefinitiveRejection(t *testing.T) {
-	hash := confluenceMoveProposalHash("42", 7, "10", "20")
+	hash := confluenceMoveProposalHash("42", 7, "10", "20", 3)
 	opts := ConfluenceMoveOpts{Parent: "20", ExpectedVersion: 7, ExpectedParent: "10", ExpectedParentSet: true, ExpectedProposalHash: hash, Apply: true}
 	t.Run("verification mismatch", func(t *testing.T) {
-		store := &moveStore{reads: []*domain.Resource{movePage("42", "10", 7, "body"), moveTarget("20", 3, "10"), movedPage("42", "20", 8, "changed", "10", "20")}}
+		store := &moveStore{reads: []*domain.Resource{movePage("42", "10", 7, "body"), moveTarget("20", 3, "10"), moveTarget("20", 3, "10"), movedPage("42", "20", 8, "changed", "10", "20")}}
 		res, err := (&ConfluenceService{store: store}).MoveGuarded(context.Background(), "42", opts)
 		if err == nil || res.Status != "unknown" || store.moveCalls != 1 {
 			t.Fatalf("res=%+v err=%v store=%+v", res, err, store)
 		}
 	})
 	t.Run("definitive rejection", func(t *testing.T) {
-		store := &moveStore{reads: []*domain.Resource{movePage("42", "10", 7, "body"), moveTarget("20", 3, "10")}, moveErr: titleHTTPError{status: 409}}
+		store := &moveStore{reads: []*domain.Resource{movePage("42", "10", 7, "body"), moveTarget("20", 3, "10"), moveTarget("20", 3, "10")}, moveErr: titleHTTPError{status: 409}}
 		res, err := (&ConfluenceService{store: store}).MoveGuarded(context.Background(), "42", opts)
-		if err == nil || res.Status != "failed" || store.moveCalls != 1 || store.getCalls != 2 {
+		if err == nil || res.Status != "failed" || store.moveCalls != 1 || store.getCalls != 3 {
 			t.Fatalf("res=%+v err=%v store=%+v", res, err, store)
 		}
 	})

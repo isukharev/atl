@@ -244,6 +244,9 @@ Apply requires the reviewed source version, exact current parent (including an
 explicit empty value for a top-level page), and proposal hash. It validates the
 fresh source/target hierarchy, writes the unchanged native body/title once,
 and verifies parent, body, title, space, and exactly `current_version+1`.
+Proposal-hash schema v2 also binds `target_version`; apply re-reads the target
+identity, version, space, and ancestor ids immediately before PUT and blocks if
+they changed. This narrows but cannot eliminate the backend's two-page TOCTOU.
 `unknown` is non-zero and must never be automatically replayed.
 An already-satisfied parent still requires the reviewed source version, current
 parent, and proposal hash before it can return success.
@@ -263,6 +266,24 @@ the same inode; process exit releases ownership. Read-only status is lock-free.
 Jira retains its own workflow lock, while both services additionally merge
 sidecar patches under the shared `.atl/state.lock`; cross-service state
 contention therefore fails closed and cannot lose unrelated entries.
+
+When a Confluence re-pull computes a different path for an already tracked page
+id, relocation is fail-closed. The old native body must match its synced hash,
+the old Markdown must exactly match its recorded pristine view, metadata must
+prove the same page id, and the destination must be unoccupied. Pull records the
+new canonical path before removing only the old `.csf`, `.md`, and
+`.meta.json`. Descendants, assets, comment caches, and unrelated files are never
+recursively removed. A local relocation ownership marker reserves their old
+directory for the same page id so a future slug collision cannot inherit them.
+The `<slug>.relocated.json` marker is atl-managed reserved state: do not edit or
+remove it. A pre-existing invalid/different-owner marker blocks relocation and
+is never overwritten.
+If cleanup is interrupted, path-aware state lookup keeps an old copy
+untracked/dirty rather than presenting it as current.
+Such a copy is reported by status with `non_canonical:true` and
+`canonical_path`; text output uses `S! <id> <old> (canonical: <new>)`. Remote
+drift probing is skipped for this stale copy. Push/dry-run refuses it with exit
+`8` even under `--force`.
 
 A successful Confluence response that omits the requested native body is not
 equivalent to an empty page. Pull and read projections that require CSF fail

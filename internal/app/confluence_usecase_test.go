@@ -717,6 +717,75 @@ func TestPullMirrorsPages(t *testing.T) {
 	}
 }
 
+func TestPullRelocatesChangedPagePathWithoutDeletingDescendants(t *testing.T) {
+	into := t.TempDir()
+	page := &domain.Resource{ID: "100", Title: "Old", SpaceKey: "SP", Version: 1, Body: []byte("<p>body</p>")}
+	st := &pullStore{pages: map[string]*domain.Resource{"100": page}}
+	svc := &ConfluenceService{store: st}
+	first, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldCSF := filepath.Join(into, first.Pages[0].Path)
+	oldDir := filepath.Dir(oldCSF)
+	child := filepath.Join(oldDir, "child", "child.csf")
+	if err := os.MkdirAll(filepath.Dir(child), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(child, []byte("descendant"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	page.Title, page.Version = "New", 2
+	second, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Pages[0].Path == first.Pages[0].Path {
+		t.Fatal("title change did not produce a relocation control case")
+	}
+	for _, path := range []string{oldCSF, strings.TrimSuffix(oldCSF, ".csf") + ".md", strings.TrimSuffix(oldCSF, ".csf") + ".meta.json"} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("old primary artifact survived relocation: %s (%v)", path, err)
+		}
+	}
+	if got, err := os.ReadFile(child); err != nil || string(got) != "descendant" {
+		t.Fatalf("descendant was not preserved: %q, %v", got, err)
+	}
+	lc, _, err := mirror.New(into).LoadCSF(filepath.Join(into, second.Pages[0].Path))
+	if err != nil || lc.Synced == nil || lc.Synced.Path != second.Pages[0].Path {
+		t.Fatalf("new path is not canonical in sidecar: lc=%+v err=%v", lc, err)
+	}
+}
+
+func TestPullRelocationRefusesUnappliedMarkdownEdit(t *testing.T) {
+	into := t.TempDir()
+	page := &domain.Resource{ID: "100", Title: "Old", SpaceKey: "SP", Version: 1, Body: []byte("<p>body</p>")}
+	st := &pullStore{pages: map[string]*domain.Resource{"100": page}}
+	svc := &ConfluenceService{store: st}
+	first, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldCSF := filepath.Join(into, first.Pages[0].Path)
+	oldMD := strings.TrimSuffix(oldCSF, ".csf") + ".md"
+	f, err := os.OpenFile(oldMD, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("\nlocal edit\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	page.Title, page.Version = "New", 2
+	_, err = svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "unapplied Markdown edits") {
+		t.Fatalf("local Markdown relocation error = %v", err)
+	}
+	if _, err := os.Stat(oldCSF); err != nil {
+		t.Fatalf("refused relocation removed old native artifact: %v", err)
+	}
+}
+
 func TestPullRejectsMissingNativeBodyBeforeWritingArtifacts(t *testing.T) {
 	into := t.TempDir()
 	st := &pullStore{

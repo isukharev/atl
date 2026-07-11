@@ -1245,9 +1245,16 @@ Every successful or ambiguous PUT is verified by another native page read. A
 verified exact title/body/version reports `applied`; a pre-existing target title
 reports `already_satisfied` only after the reviewed version and proposal-hash
 gates pass. Ambiguous outcomes report `unknown`, exit non-zero,
-and must be inspected rather than automatically replayed. The command does not
-rewrite an existing mirror path or sidecar; after `applied`, re-pull that page
-before further mirror edits.
+and must be inspected rather than automatically replayed. The command itself
+does not rewrite an existing mirror path or sidecar; after `applied`, re-pull
+that page before further mirror edits. Re-pull relocates by stable page id only
+when the old CSF and recorded Markdown are pristine and the new path is
+unoccupied; otherwise it fails closed without deleting descendants.
+Retained descendants/assets/comments stay protected by a local ownership marker,
+so another page with the old slug is diverted instead of inheriting them.
+If interrupted cleanup leaves an old copy, `conf status` marks it
+`non_canonical` and names `canonical_path`; `conf push` refuses the old path
+even with `--force`.
 
 Flags:
 
@@ -1324,10 +1331,17 @@ has no parent, pass the explicit empty gate `--expected-parent=`.
 Every successful or ambiguous PUT is verified by another native source-page
 read. A verified exact parent/title/body/version reports `applied`; ambiguous
 outcomes report `unknown`, exit non-zero, and must be inspected rather than
-automatically replayed. The command does not relocate existing mirror files;
-after `applied`, re-pull the page before further mirror edits.
+automatically replayed. The command itself does not relocate existing mirror
+files; after `applied`, re-pull the page before further mirror edits. Re-pull
+uses the same id-bound, local-edit-aware relocation path as a title change.
 An already-satisfied parent is also a reviewed outcome: apply checks source
 version, current parent, and proposal hash before returning it.
+The proposal hash also binds the reviewed target version. Apply fetches the
+target again immediately before PUT and refuses a changed version, space, or
+ancestor identity. This narrows the two-page race; the source page remains the
+only object protected by Confluence's write-version gate. The server's cycle
+backstop was not write-tested as part of this change; do not treat it as a
+client-side guarantee.
 
 Flags:
 

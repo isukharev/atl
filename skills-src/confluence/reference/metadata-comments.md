@@ -18,7 +18,9 @@ atl conf page title set <id> --from-file <same-file> --apply \
 Review normalized title/version/hash. There is no force mode. The command
 fresh-reads and preserves native body bytes. On `unknown`, inspect the live
 page; never replay automatically. Re-pull after `applied` because mirror paths
-can change.
+can change. Relocation requires a pristine id-matched old CSF/Markdown pair and
+an unoccupied destination; preserve both paths on exit 8 and never recursively
+delete the old directory.
 
 ## Guarded page move
 
@@ -30,9 +32,12 @@ atl conf page move <id> --parent <same-parent-id> --apply \
   --expected-proposal-hash <preview-hash>
 ```
 
-For a top-level source pass explicit `--expected-parent=`. The command
-fresh-reads source/target, rejects hierarchy cycles and incomplete projections,
-preserves body/title, and never replays. Re-pull after `applied`.
+For a top-level source pass explicit `--expected-parent=`. The schema-v2 hash
+binds the target version; apply fresh-reads source/target, then re-reads target
+identity/version/hierarchy immediately before PUT. It rejects changed targets,
+cycles, and incomplete projections, preserves body/title, and never replays.
+The second read narrows but cannot eliminate the backend's two-page race.
+Re-pull after `applied`.
 
 ## Other lifecycle and metadata operations
 
