@@ -290,13 +290,14 @@ type StructureForest struct {
 
 // StructureRow is one parsed formula component.
 type StructureRow struct {
-	RowID       int64  `json:"row_id"`
-	Depth       int    `json:"depth"`
-	ItemType    string `json:"item_type"`
-	ItemID      string `json:"item_id"`
-	Semantic    string `json:"semantic,omitempty"`
-	Position    int    `json:"position"`
-	ParentRowID int64  `json:"parent_row_id,omitempty"`
+	RowID         int64  `json:"row_id"`
+	Depth         int    `json:"depth"`
+	ItemType      string `json:"item_type"`
+	ItemID        string `json:"item_id"`
+	Semantic      string `json:"semantic,omitempty"`
+	Position      int    `json:"position"`
+	ParentRowID   int64  `json:"parent_row_id,omitempty"`
+	RelativeDepth *int   `json:"relative_depth,omitempty"`
 }
 
 // StructureValues preserves Structure's value matrix and explicitly exposes

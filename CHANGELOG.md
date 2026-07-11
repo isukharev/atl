@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   metadata. A shared safe table renderer powers their Markdown `-o text` views
   and normalized board snapshot Markdown.
 
+- **Fast exact Structure folder navigation.** `jira structure folders` returns
+  stable folder ids, exact paths, batched labels, and local subtree statistics
+  without Jira issue searches. Rows/view/pull/export accept exact folder id,
+  row, or path selectors and expose verified selection metadata plus relative
+  depth.
+
 - **Kanban/Scrum board snapshots for agent planning.** Jira board commands now
   expose workflow configuration, ranked issue pages, Scrum backlog pages, and a
   normalized status-to-column view with JSON/JSONL/safe CSV/Markdown exports.
@@ -38,6 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commands replace their duplicated `--fields`/TSV surfaces with ordered
   `--columns`, common JSON rows under `rows`, pagination under `page`, Markdown
   tables for `-o text`, and unchanged one-key-per-line `-o id`.
+
+- **Structure Markdown separates hierarchy from issue identity.** The former
+  combined Tree/row-id view is replaced during beta by emitted position,
+  relative numeric Depth, technical Type/Item, separate Jira value cells, and
+  Access. The compact default Jira projection is key/summary/status/assignee.
 
 - **Structure export now uses the normalized snapshot contract.** During the
   beta, the former aggregate `{rows,issue_ids,issues}` export and its

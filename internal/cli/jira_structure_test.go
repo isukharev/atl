@@ -214,7 +214,7 @@ func TestJiraStructureExportCLIWritesCSV(t *testing.T) {
 		t.Fatalf("read export: %v", err)
 	}
 	text := string(data)
-	if !strings.Contains(text, "row_id,depth,parent_row_id,position,item_type,item_id,accessible,summary,status") || !strings.Contains(text, "folder,folder-a,true,'+Folder") {
+	if !strings.Contains(text, "row_id,depth,relative_depth,parent_row_id,position,item_type,item_id,accessible,summary,status") || !strings.Contains(text, "folder,folder-a,true,'+Folder") {
 		t.Fatalf("csv export = %q, want normalized header and non-issue row values", text)
 	}
 	if !strings.Contains(text, "'=HYPERLINK") {
@@ -268,7 +268,7 @@ func TestJiraStructureViewCLIEmitsNormalizedMarkdownAndIDs(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("structure view text: exit %d, want 0 (stdout=%q)", code, out)
 	}
-	for _, want := range []string{"browser saved-view columns are not reproduced", "| Row | Tree | Type | Accessible |", `Planning \| root`, "↳ PROJ-1 — First issue"} {
+	for _, want := range []string{"browser saved-view columns are not reproduced", "| # | Depth | Type | Item | Key | Summary | Status | Assignee | Access |", `Planning \| root`, "| 1 | 1 | issue | 10001 | PROJ-1 | First issue | Open | Owner | true |"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("Markdown missing %q:\n%s", want, out)
 		}
@@ -335,6 +335,112 @@ func TestJiraStructureViewCountsIssuesAfterRootFiltering(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(out), &got); err != nil || got.RowCount != 1 || got.IssueCount != 1 {
 		t.Fatalf("snapshot=%+v err=%v", got, err)
+	}
+}
+
+func TestJiraStructureFoldersIsFastStableDiscovery(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/structure/2.0/structure/123", http.StatusOK, `{"id":123,"name":"Plan"}`)
+	js.route(http.MethodGet, "/rest/structure/2.0/forest/latest", http.StatusOK, `{
+		"formula":"100:0:1/f-root,101:1:10001,102:1:1/f-child,103:2:10001,104:2:10002",
+		"itemTypes":{"1":"folder"},"version":{"signature":55,"version":7}
+	}`)
+	js.route(http.MethodPost, "/rest/structure/2.0/value", http.StatusOK, `{
+		"responses":[{"rows":[100,102],"data":[
+			{"attribute":{"id":"key","format":"text"},"values":[null,null]},
+			{"attribute":{"id":"summary","format":"text"},"values":["Plans","Quarter"]}
+		]}]
+	}`)
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "structure", "folders", "123")
+	if code != exitOK {
+		t.Fatalf("folders exit=%d output=%q", code, out)
+	}
+	var got struct {
+		Complete bool `json:"complete"`
+		Folders  []struct {
+			FolderID string   `json:"folder_id"`
+			Path     []string `json:"path"`
+			Stats    struct {
+				IssueRows    int `json:"issue_rows"`
+				UniqueIssues int `json:"unique_issues"`
+				Subfolders   int `json:"subfolders"`
+			} `json:"stats"`
+		} `json:"folders"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil || !got.Complete || len(got.Folders) != 2 || got.Folders[0].Stats.IssueRows != 3 || got.Folders[0].Stats.UniqueIssues != 2 || got.Folders[0].Stats.Subfolders != 1 || strings.Join(got.Folders[1].Path, "/") != "Plans/Quarter" {
+		t.Fatalf("folders=%+v err=%v", got, err)
+	}
+	idOut, code := runCLI(t, jiraEnv(js.srv), "jira", "structure", "folders", "123", "-o", "id")
+	if code != exitOK || idOut != "f-root\nf-child\n" {
+		t.Fatalf("folder ids exit=%d output=%q", code, idOut)
+	}
+	for _, request := range js.requests() {
+		if request.path == "/rest/api/2/search" {
+			t.Fatalf("folder discovery fetched Jira issues: %+v", request)
+		}
+	}
+}
+
+func TestJiraStructureFoldersReportsPartialLabels(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/structure/2.0/structure/123", http.StatusOK, `{"id":123,"name":"Plan"}`)
+	js.route(http.MethodGet, "/rest/structure/2.0/forest/latest", http.StatusOK, `{"formula":"100:0:1/a,200:0:1/b","itemTypes":{"1":"folder"}}`)
+	js.route(http.MethodPost, "/rest/structure/2.0/value", http.StatusOK, `{"responses":[{"rows":[100,200],"data":[{"attribute":{"id":"summary","format":"text"},"values":["Known",null]}]}]}`)
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "structure", "folders", "123")
+	if code != exitOK {
+		t.Fatalf("folders exit=%d output=%q", code, out)
+	}
+	var got struct {
+		Complete bool     `json:"complete"`
+		Warnings []string `json:"warnings"`
+		Folders  []struct {
+			Path []string `json:"path"`
+		} `json:"folders"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil || got.Complete || len(got.Warnings) != 1 || len(got.Folders) != 2 || got.Folders[1].Path[0] != "folder:b" {
+		t.Fatalf("partial=%+v err=%v", got, err)
+	}
+}
+
+func TestJiraStructureExactFolderSelectionUsesOneForestScope(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/structure/2.0/structure/123", http.StatusOK, `{"id":123,"name":"Plan"}`)
+	js.route(http.MethodGet, "/rest/structure/2.0/forest/latest", http.StatusOK, `{
+		"formula":"100:0:1/a,101:1:10001,200:0:1/b,201:1:20001",
+		"itemTypes":{"1":"folder"},"version":{"signature":55,"version":7}
+	}`)
+	js.route(http.MethodPost, "/rest/structure/2.0/value", http.StatusOK, `{
+		"responses":[{"rows":[100,200],"data":[
+			{"attribute":{"id":"summary","format":"text"},"values":["First","Second"]}
+		]}]
+	}`)
+	js.route(http.MethodGet, "/rest/api/2/search", http.StatusOK, `{
+		"issues":[{"id":"20001","key":"PROJ-2","fields":{"summary":"Selected","status":{"name":"Open"}}}],
+		"startAt":0,"maxResults":50,"total":1
+	}`)
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "structure", "view", "123", "--folder-id", "b")
+	if code != exitOK {
+		t.Fatalf("exact view exit=%d output=%q", code, out)
+	}
+	var got struct {
+		Selection struct {
+			FolderID string `json:"folder_id"`
+		} `json:"selection"`
+		Rows []struct {
+			Depth         int  `json:"depth"`
+			RelativeDepth *int `json:"relative_depth"`
+		} `json:"rows"`
+		IssueCount int `json:"issue_count"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil || got.Selection.FolderID != "b" || len(got.Rows) != 2 || got.Rows[0].Depth != 0 || got.Rows[0].RelativeDepth == nil || *got.Rows[0].RelativeDepth != 0 || got.IssueCount != 1 {
+		t.Fatalf("view=%+v err=%v", got, err)
+	}
+	for _, request := range js.requests() {
+		if request.path == "/rest/api/2/search" && (!strings.Contains(request.query, "20001") || strings.Contains(request.query, "10001")) {
+			t.Fatalf("search escaped selected subtree: %+v", request)
+		}
 	}
 }
 

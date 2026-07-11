@@ -864,6 +864,32 @@ compact review table rendered by the same primitive as other issue lists. None
 of these read paths call rank, sprint, move, or issue
 write endpoints.
 
+`atl jira structure folders <ID>` is the fast stored-folder index. It fetches
+metadata, one forest, and one batched folder-label value projection; it never
+searches Jira issues:
+
+```json
+{
+  "schema_version": 1,
+  "structure": {"id": 123, "name": "Planning"},
+  "forest_version": {"signature": 10, "version": 2},
+  "folders": [{
+    "folder_id": "100",
+    "row_id": 500,
+    "name": "Quarter",
+    "path": ["Plans", "Quarter"],
+    "depth": 1,
+    "parent_folder_id": "99",
+    "stats": {"descendant_rows": 86, "issue_rows": 72, "unique_issues": 70, "subfolders": 2, "max_relative_depth": 4}
+  }],
+  "complete": true,
+  "warnings": []
+}
+```
+
+`-o id` emits stable folder item ids, not row ids. Missing/partial labels keep
+technical ids and statistics, set `complete:false`, and add bounded warnings.
+
 `atl jira structure rows <ID>` returns a parsed read-only view of a Tempo Structure forest:
 
 ```json
@@ -890,6 +916,14 @@ one per line. `--root` emits the first matching row plus descendants; matching i
 by row metadata first and then by Structure values fetched through
 `--root-fields` (default `key,summary`).
 
+Rows/view/pull-issues/export also accept one mutually exclusive exact selector:
+`--folder-id`, `--folder-row`, or `--folder-path`. Exact selectors verify a
+stored folder in the same forest snapshot, never fall back to fuzzy matching,
+and return not-found or check-failed on absence/ambiguity. Results include
+`selection`; selected rows retain absolute `depth` and `parent_row_id` and add
+`relative_depth` beginning at zero. `--folder-id` is the durable agent path;
+`--folder-row` is snapshot-local and path selection requires complete labels.
+
 `atl jira structure values <ID> --rows ... --fields ...` preserves the backend
 value matrix under `responses` and `raw`; if the backend reports permission
 gaps, normalized row ids are also exposed as `inaccessible_rows`. The field is
@@ -905,7 +939,7 @@ always present; when there are no reported gaps it is `[]`.
   "projection": {
     "kind": "jira-fields-v1",
     "source": "default",
-    "attributes": ["key", "summary", "status", "assignee", "priority", "issuetype"],
+    "attributes": ["key", "summary", "status", "assignee"],
     "browser_view_reproduced": false
   },
   "rows": [{
@@ -920,12 +954,14 @@ always present; when there are no reported gaps it is `[]`.
   "row_count": 1,
   "issue_count": 1,
   "complete": true,
-  "inaccessible_rows": []
+  "inaccessible_rows": [],
+  "warnings": []
 }
 ```
 
-`-o text` renders the same rows as a Markdown table with a hierarchy-aware
-Tree column; it does not dump raw Jira objects or transport URLs into cells.
+`-o text` renders emitted `#`, numeric Depth (relative when selected), technical
+Type/Item, separate Jira value columns, and Access. It does not duplicate key
+and summary in a combined Tree cell or dump raw Jira objects/transport URLs.
 Known Jira objects use their human label/name; an unknown non-empty object is
 shown as `[object]` so it cannot be mistaken for a missing value without leaking
 transport internals.
@@ -980,7 +1016,7 @@ artifact and returns a small result object:
 JSON and Markdown contain the same normalized snapshot as `structure view`.
 JSONL has one self-contained record per row, including schema, structure id,
 versions, projection, and row, which makes line-oriented filtering safe. CSV
-contains row metadata (`row_id`, `depth`, `parent_row_id`, `position`,
+contains row metadata (`row_id`, `depth`, `relative_depth`, `parent_row_id`, `position`,
 `item_type`, `item_id`, `accessible`) plus selected Structure attributes. CSV cells use the
 same default formula neutralization as `jira export`; `--raw-csv` disables it
 only for CSV and is unsafe for spreadsheet use. Use `pull-issues` separately

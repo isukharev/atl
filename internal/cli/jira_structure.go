@@ -93,7 +93,8 @@ func jiraStructureCmd() *cobra.Command {
 		},
 	}
 
-	var rowsRoot, rowsRootFields string
+	var rowsRoot, rowsRootFields, rowsFolderID, rowsFolderPath string
+	var rowsFolderRow int64
 	rows := &cobra.Command{
 		Use:   "rows <STRUCTURE-ID>",
 		Short: "Parse the latest Structure forest into rows",
@@ -108,8 +109,9 @@ func jiraStructureCmd() *cobra.Command {
 				return err
 			}
 			res, err := svc.StructureRowsWithOptions(cmd.Context(), id, app.StructureRowsOpts{
-				Root:       rowsRoot,
-				RootFields: splitFields(rowsRootFields),
+				Root:                    rowsRoot,
+				RootFields:              splitFields(rowsRootFields),
+				StructureFolderSelector: app.StructureFolderSelector{FolderID: rowsFolderID, FolderRow: rowsFolderRow, FolderPath: rowsFolderPath},
 			})
 			if err != nil {
 				return err
@@ -125,6 +127,34 @@ func jiraStructureCmd() *cobra.Command {
 	}
 	rows.Flags().StringVar(&rowsRoot, "root", "", "optional root row/id/text; emits the first matching row subtree")
 	rows.Flags().StringVar(&rowsRootFields, "root-fields", "key,summary", "comma-separated Structure attributes used when matching --root")
+	addStructureFolderSelectorFlags(rows, &rowsFolderID, &rowsFolderRow, &rowsFolderPath)
+
+	folders := &cobra.Command{
+		Use:   "folders <STRUCTURE-ID>",
+		Short: "Discover stable stored folders and subtree statistics without Jira issue reads",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := atoi64Arg("structure id", args[0])
+			if err != nil {
+				return err
+			}
+			svc, err := jiraService()
+			if err != nil {
+				return err
+			}
+			result, err := svc.StructureFolders(cmd.Context(), id)
+			if err != nil {
+				return err
+			}
+			return emitID(cmd, result, func() string { return app.StructureFoldersMarkdown(result) }, func() []string {
+				ids := make([]string, len(result.Folders))
+				for i, folder := range result.Folders {
+					ids[i] = folder.FolderID
+				}
+				return ids
+			})
+		},
+	}
 
 	var valueRows, valueFields string
 	values := &cobra.Command{
@@ -158,7 +188,8 @@ func jiraStructureCmd() *cobra.Command {
 	values.Flags().StringVar(&valueRows, "rows", "", "comma-separated Structure row ids")
 	values.Flags().StringVar(&valueFields, "fields", "", "comma-separated Structure attribute ids (for example key,summary,status)")
 
-	var viewRoot, viewFields string
+	var viewRoot, viewFields, viewFolderID, viewFolderPath string
+	var viewFolderRow int64
 	var viewBatchSize int
 	view := &cobra.Command{
 		Use:   "view <STRUCTURE-ID>",
@@ -174,9 +205,10 @@ func jiraStructureCmd() *cobra.Command {
 				return err
 			}
 			res, err := svc.StructureSnapshot(cmd.Context(), id, app.StructureSnapshotOpts{
-				Root:       viewRoot,
-				Attributes: splitFields(viewFields),
-				BatchSize:  viewBatchSize,
+				Root:                    viewRoot,
+				Attributes:              splitFields(viewFields),
+				BatchSize:               viewBatchSize,
+				StructureFolderSelector: app.StructureFolderSelector{FolderID: viewFolderID, FolderRow: viewFolderRow, FolderPath: viewFolderPath},
 			})
 			if err != nil {
 				return err
@@ -191,11 +223,13 @@ func jiraStructureCmd() *cobra.Command {
 		},
 	}
 	view.Flags().StringVar(&viewRoot, "root", "", "optional root row/id/text; includes the first matching subtree")
-	view.Flags().StringVar(&viewFields, "fields", "", "comma-separated Jira fields (default: key,summary,status,assignee,priority,issuetype)")
+	view.Flags().StringVar(&viewFields, "fields", "", "comma-separated Jira fields (default: key,summary,status,assignee)")
 	view.Flags().IntVar(&viewBatchSize, "batch-size", 100, "issue id batch size for generated JQL")
+	addStructureFolderSelectorFlags(view, &viewFolderID, &viewFolderRow, &viewFolderPath)
 
-	var pullRoot, pullRootFields, pullFields, pullOut string
+	var pullRoot, pullRootFields, pullFields, pullOut, pullFolderID, pullFolderPath string
 	var pullBatchSize, pullLimit int
+	var pullFolderRow int64
 	pullIssues := &cobra.Command{
 		Use:   "pull-issues <STRUCTURE-ID>",
 		Short: "Fetch Jira issue snapshots referenced by Structure rows",
@@ -210,12 +244,13 @@ func jiraStructureCmd() *cobra.Command {
 				return err
 			}
 			res, err := svc.StructurePullIssues(cmd.Context(), id, app.StructureIssuePullOpts{
-				Root:       pullRoot,
-				RootFields: splitFields(pullRootFields),
-				Fields:     splitFields(pullFields),
-				BatchSize:  pullBatchSize,
-				Limit:      pullLimit,
-				Out:        pullOut,
+				Root:                    pullRoot,
+				RootFields:              splitFields(pullRootFields),
+				Fields:                  splitFields(pullFields),
+				BatchSize:               pullBatchSize,
+				Limit:                   pullLimit,
+				Out:                     pullOut,
+				StructureFolderSelector: app.StructureFolderSelector{FolderID: pullFolderID, FolderRow: pullFolderRow, FolderPath: pullFolderPath},
 			})
 			if err != nil {
 				return err
@@ -231,9 +266,11 @@ func jiraStructureCmd() *cobra.Command {
 	pullIssues.Flags().IntVar(&pullBatchSize, "batch-size", 100, "issue id batch size for generated JQL")
 	pullIssues.Flags().IntVar(&pullLimit, "limit", 0, "maximum Jira issues to fetch (0 means no limit)")
 	pullIssues.Flags().StringVar(&pullOut, "out", "", "optional JSON file path for the pulled snapshot")
+	addStructureFolderSelectorFlags(pullIssues, &pullFolderID, &pullFolderRow, &pullFolderPath)
 
-	var exportRoot, exportFields, exportFormat, exportOut string
+	var exportRoot, exportFields, exportFormat, exportOut, exportFolderID, exportFolderPath string
 	var exportBatchSize int
+	var exportFolderRow int64
 	var exportRawCSV bool
 	exportCmd := &cobra.Command{
 		Use:   "export <STRUCTURE-ID>",
@@ -249,12 +286,13 @@ func jiraStructureCmd() *cobra.Command {
 				return err
 			}
 			res, err := svc.StructureExport(cmd.Context(), id, app.StructureExportOpts{
-				Root:      exportRoot,
-				Fields:    splitFields(exportFields),
-				BatchSize: exportBatchSize,
-				Format:    exportFormat,
-				Out:       exportOut,
-				RawCSV:    exportRawCSV,
+				Root:                    exportRoot,
+				Fields:                  splitFields(exportFields),
+				BatchSize:               exportBatchSize,
+				Format:                  exportFormat,
+				Out:                     exportOut,
+				RawCSV:                  exportRawCSV,
+				StructureFolderSelector: app.StructureFolderSelector{FolderID: exportFolderID, FolderRow: exportFolderRow, FolderPath: exportFolderPath},
 			})
 			if err != nil {
 				return err
@@ -265,14 +303,21 @@ func jiraStructureCmd() *cobra.Command {
 		},
 	}
 	exportCmd.Flags().StringVar(&exportRoot, "root", "", "optional root row/id/text; exports the first matching subtree")
-	exportCmd.Flags().StringVar(&exportFields, "fields", "", "comma-separated Jira fields (default: key,summary,status,assignee,priority,issuetype)")
+	exportCmd.Flags().StringVar(&exportFields, "fields", "", "comma-separated Jira fields (default: key,summary,status,assignee)")
 	exportCmd.Flags().IntVar(&exportBatchSize, "batch-size", 100, "issue id batch size for generated JQL")
 	exportCmd.Flags().StringVar(&exportFormat, "format", "json", "export format: json, jsonl, csv, or md")
 	exportCmd.Flags().StringVar(&exportOut, "out", "", "required output file path")
 	exportCmd.Flags().BoolVar(&exportRawCSV, "raw-csv", false, "write formula-leading CSV cells verbatim (unsafe in spreadsheets)")
+	addStructureFolderSelectorFlags(exportCmd, &exportFolderID, &exportFolderRow, &exportFolderPath)
 
-	c.AddCommand(get, view, forest, rows, values, pullIssues, exportCmd)
+	c.AddCommand(get, view, forest, rows, folders, values, pullIssues, exportCmd)
 	return c
+}
+
+func addStructureFolderSelectorFlags(cmd *cobra.Command, folderID *string, folderRow *int64, folderPath *string) {
+	cmd.Flags().StringVar(folderID, "folder-id", "", "exact stable stored-folder item id")
+	cmd.Flags().Int64Var(folderRow, "folder-row", 0, "exact stored-folder row id in the current forest snapshot")
+	cmd.Flags().StringVar(folderPath, "folder-path", "", "exact slash-separated stored-folder path")
 }
 
 func structureRowLines(rows []domain.StructureRow) string {
