@@ -220,12 +220,16 @@ func TestTableMergeSpanWrappedMacroNotCloneable(t *testing.T) {
 	md := renderOf(t, page, nil)
 	// Row 1 (the span row) stays untouched; row 2's Name cell tries to copy
 	// the span's marker text.
-	start := strings.Index(md, "⟦color")
-	end := strings.Index(md, "⟦/color⟧")
+	start := strings.Index(md, "<span style=\"color:")
+	end := -1
+	if start >= 0 {
+		end = strings.Index(md[start:], "</span>")
+	}
 	if start < 0 || end < 0 {
 		t.Fatalf("fixture md misses the color marker: %s", md)
 	}
-	markerTxt := md[start : end+len("⟦/color⟧")]
+	end += start
+	markerTxt := md[start : end+len("</span>")]
 	edited := strings.Replace(md, "| 2 | beta | yes |", "| 2 | "+markerTxt+" | yes |", 1)
 	out, _, err := Merge([]byte(page), nil, edited, Options{})
 	var be *BlockError

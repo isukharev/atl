@@ -203,13 +203,6 @@ func TestComputeSettingsConfluencePageFieldsRoundTrip(t *testing.T) {
 	}
 }
 
-func TestComputeSettingsLegacyFrontmatterStillExplicitlyAccepted(t *testing.T) {
-	rs, warns := computeSettings("confluence", config.RenderService{Profile: "minimal", Include: []string{SecFrontmatter}})
-	if len(warns) != 1 || !strings.Contains(warns[0], "deprecated") || !rs.On(SecFrontmatter) {
-		t.Fatalf("legacy frontmatter include was not preserved: sections=%v warnings=%v", rs.Sections, warns)
-	}
-}
-
 func TestResolveRenderOverride(t *testing.T) {
 	root := t.TempDir()
 	// Write a local config selecting the full profile for jira.

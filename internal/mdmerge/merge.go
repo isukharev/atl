@@ -8,6 +8,7 @@
 package mdmerge
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"sort"
 	"strings"
@@ -302,13 +303,22 @@ func removedFragments(baseRoot *csf.Node, result []byte) []domain.Ref {
 	}
 	have := map[string]int{}
 	for _, r := range fragment.Extract(resRoot) {
+		if r.Kind == domain.RefPageLink {
+			continue // counted below with space + target + label identity
+		}
 		have[string(r.Kind)+"\x00"+r.Key]++
 	}
 	for name, c := range macroCounts(resRoot) {
 		have["macro\x00"+name] = c
 	}
+	for signature, item := range protectedInlineInventory(resRoot) {
+		have["protected\x00"+signature] = item.count
+	}
 	var removed []domain.Ref
 	for _, r := range fragment.Extract(baseRoot) {
+		if r.Kind == domain.RefPageLink {
+			continue // counted below with space + target + label identity
+		}
 		k := string(r.Kind) + "\x00" + r.Key
 		if have[k] > 0 {
 			have[k]--
@@ -321,6 +331,13 @@ func removedFragments(baseRoot *csf.Node, result []byte) []domain.Ref {
 		missing := c - have[k]
 		for i := 0; i < missing; i++ {
 			removed = append(removed, domain.Ref{Kind: "macro", Key: name, Display: name})
+		}
+	}
+	for signature, item := range protectedInlineInventory(baseRoot) {
+		k := "protected\x00" + signature
+		missing := item.count - have[k]
+		for i := 0; i < missing; i++ {
+			removed = append(removed, item.ref)
 		}
 	}
 	sort.Slice(removed, func(i, j int) bool {
@@ -385,6 +402,104 @@ func macroCounts(root *csf.Node) map[string]int {
 		return true
 	})
 	return counts
+}
+
+type protectedInlineItem struct {
+	count int
+	ref   domain.Ref
+}
+
+// protectedInlineInventory covers identity that fragment.Extract cannot
+// represent precisely enough for a loss gate. The signature hashes the complete
+// parsed subtree (element names, ordered attributes, text and descendants), so
+// rich labels and same-color spans with different content cannot mask loss.
+func protectedInlineInventory(root *csf.Node) map[string]protectedInlineItem {
+	items := map[string]protectedInlineItem{}
+	csf.Walk(root, func(n *csf.Node) bool {
+		switch {
+		case n.Name.Space == "ac" && n.Name.Local == "link":
+			var title, space, label string
+			csf.Walk(n, func(x *csf.Node) bool {
+				switch {
+				case x.Name.Space == "ri" && x.Name.Local == "page":
+					title = x.Attrv("ri", "content-title")
+					space = x.Attrv("ri", "space-key")
+				case x.Name.Space == "ac" && (x.Name.Local == "link-body" || x.Name.Local == "plain-text-link-body"):
+					label = csf.TextContent(x)
+				}
+				return true
+			})
+			if title != "" {
+				if label == "" {
+					label = title
+				}
+				key := title
+				if space != "" {
+					key = space + "/" + key
+				}
+				if label != title {
+					key += " (" + label + ")"
+				}
+				signature := string(domain.RefPageLink) + "\x00" + protectedNodeHash(n)
+				item := items[signature]
+				item.count++
+				item.ref = domain.Ref{Kind: domain.RefPageLink, Key: key, Display: label}
+				items[signature] = item
+			}
+		case n.Name.Space == "" && n.Name.Local == "span":
+			if color := protectedSpanColor(n); color != "" {
+				signature := "color\x00" + protectedNodeHash(n)
+				item := items[signature]
+				item.count++
+				item.ref = domain.Ref{Kind: "color", Key: color, Display: color}
+				items[signature] = item
+			}
+		}
+		return true
+	})
+	return items
+}
+
+func protectedNodeHash(root *csf.Node) string {
+	var b strings.Builder
+	var writePart = func(s string) {
+		fmt.Fprintf(&b, "%d:", len(s))
+		b.WriteString(s)
+	}
+	var walk func(*csf.Node)
+	walk = func(n *csf.Node) {
+		fmt.Fprintf(&b, "%d;", n.Type)
+		writePart(n.Name.Space)
+		writePart(n.Name.Local)
+		fmt.Fprintf(&b, "%d;", len(n.Attr))
+		for _, attr := range n.Attr {
+			writePart(attr.Name.Space)
+			writePart(attr.Name.Local)
+			writePart(attr.Value)
+		}
+		writePart(n.Data)
+		fmt.Fprintf(&b, "%d;", len(n.Children))
+		for _, child := range n.Children {
+			walk(child)
+		}
+	}
+	walk(root)
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(b.String())))
+}
+
+func protectedSpanColor(n *csf.Node) string {
+	if color := strings.TrimSpace(n.Attrv("", "data-color")); color != "" {
+		return color
+	}
+	for _, decl := range strings.Split(n.Attrv("", "style"), ";") {
+		key, value, ok := strings.Cut(decl, ":")
+		if ok && strings.EqualFold(strings.TrimSpace(key), "color") {
+			if color := strings.TrimSpace(value); color != "" {
+				return color
+			}
+		}
+	}
+	return ""
 }
 
 func clipBlock(s string) string {

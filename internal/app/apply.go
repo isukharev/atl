@@ -111,8 +111,8 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 	}
 	page := confPageFromMeta(lc.Meta)
 	mdOpts := confMDViewOpts(rsView, page, readCommentsSidecar(m.Root, dir, slug))
-	prefix, _, suffix := mirror.RenderMarkdownViewParts(node, lc.Meta.Refs, mdOpts)
-	mergeInput, err := extractConfBody(edited, prefix, suffix)
+	prefix, pristineBody, suffix := mirror.RenderMarkdownViewParts(node, lc.Meta.Refs, mdOpts)
+	mergeInput, err := extractConfBody(edited, prefix, pristineBody, suffix)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +186,7 @@ func confPageFromMeta(meta mirror.Meta) *domain.Resource {
 }
 
 // extractConfBody isolates the editable page body from a decorated `.md` view
-// (generated metadata above, a "## Comments" section below) and enforces that
+// (generated metadata above, a "# Comments" section below) and enforces that
 // both decorations are read-only. The edited document must start with the
 // byte-exact pristine prefix (generated metadata) and end with the pristine suffix (the
 // Comments section) — trailing newlines compared loosely, everything else
@@ -195,7 +195,7 @@ func confPageFromMeta(meta mirror.Meta) *domain.Resource {
 // would (an untouched full view then yields zero converted blocks and a
 // byte-identical .csf). Anchoring — not re-parsing `## ` headings — is what keeps
 // a body heading (which also renders as a top-level `## ` line) as body content.
-func extractConfBody(edited, prefix, suffix string) (string, error) {
+func extractConfBody(edited, prefix, pristineBody, suffix string) (string, error) {
 	if !strings.HasPrefix(edited, prefix) {
 		return "", fmt.Errorf("%w: generated page metadata or the body boundary above editable content changed; run `conf render` only after preserving any edits externally", domain.ErrCheckFailed)
 	}
@@ -203,21 +203,55 @@ func extractConfBody(edited, prefix, suffix string) (string, error) {
 	tail := strings.TrimRight(suffix, "\n")
 	if tail != "" {
 		if !strings.HasSuffix(rest, tail) {
-			return "", fmt.Errorf("%w: the \"## Comments\" section is read-only in the md view — use `conf comment add`", domain.ErrCheckFailed)
+			return "", fmt.Errorf("%w: the \"# Comments\" section is read-only in the md view — use `conf comment add`", domain.ErrCheckFailed)
 		}
 		rest = rest[:len(rest)-len(tail)]
 	}
 	body := strings.Trim(rest, "\n") + "\n"
-	if strings.Contains(body, mirror.ConfluenceReservedPrefix) {
-		return "", fmt.Errorf("%w: editable Confluence body contains reserved atl document/section marker text", domain.ErrCheckFailed)
+	if !sameReservedMarkerText(body, pristineBody) {
+		return "", fmt.Errorf("%w: editable Confluence body added, removed, renamed, or reordered reserved atl document/section marker text; edit the native .csf for intentional marker prose changes", domain.ErrCheckFailed)
 	}
 	return body, nil
+}
+
+func sameReservedMarkerText(edited, pristine string) bool {
+	tokens := func(s string) []string {
+		var out []string
+		for {
+			start := strings.Index(s, mirror.ConfluenceReservedPrefix)
+			if start < 0 {
+				return out
+			}
+			s = s[start:]
+			end := strings.Index(s, "-->")
+			if end < 0 {
+				out = append(out, s)
+				return out
+			}
+			token := s[:end+3]
+			out = append(out, token)
+			s = s[end+3:]
+		}
+	}
+	a, b := tokens(edited), tokens(pristine)
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func validateConfluenceDocumentMarker(edited string) error {
 	first, _, _ := strings.Cut(edited, "\n")
 	if first == mirror.ConfluenceDocumentMarker {
 		return nil
+	}
+	if first == "<!-- atl:document confluence-page v1 -->" {
+		return fmt.Errorf("%w: this Confluence view uses legacy format v1; preserve edits outside the derived view, run `conf render` (or pull again) with this binary, then reapply them", domain.ErrCheckFailed)
 	}
 	if strings.HasPrefix(first, "<!-- atl:document confluence-page") {
 		return fmt.Errorf("%w: unsupported Confluence view format marker %q; preserve edits and update atl before opening this view — do not render or downgrade it with this binary", domain.ErrCheckFailed, first)

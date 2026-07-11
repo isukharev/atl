@@ -78,7 +78,7 @@ func isOpaqueInline(n *csf.Node) bool {
 	case n.Name.Space == "ri" && n.Name.Local == "user":
 		return true
 	case n.Name.Space == "" && n.Name.Local == "span":
-		// A colored span renders as ⟦color:…⟧ markers.
+		// A colored span renders as protected readable HTML.
 		return spanHasColor(n)
 	}
 	return false

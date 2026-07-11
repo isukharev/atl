@@ -3,9 +3,10 @@
 // agent changed are converted; everything else keeps its original bytes. The
 // converter therefore fails closed — any construct outside the subset returns
 // an *UnsupportedError naming it, never partial or guessed output. Opaque
-// markers the renderer emits (⟦…⟧ placeholders, jira:/attachment: link
-// schemes, images) are rejected here by design: the apply layer substitutes
-// their original CSF bytes before conversion.
+// markers the renderer emits (⟦…⟧ placeholders, attachment links, protected
+// color HTML, images) are rejected here by design: apply substitutes original
+// CSF bytes first. Explicit jira: and confluence-page: links have strict safe
+// conversions for newly authored targets.
 package mdcsf
 
 import (

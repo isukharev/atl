@@ -1,6 +1,7 @@
 package mdcsf
 
 import (
+	neturl "net/url"
 	"strings"
 )
 
@@ -25,6 +26,13 @@ func inline(s string) (string, error) {
 			i += n
 		case strings.HasPrefix(s[i:], "⟦"):
 			return "", unsupported("opaque placeholder", clip(s[i:]))
+		case strings.HasPrefix(s[i:], "<span style=\"color:"),
+			strings.HasPrefix(s[i:], "<span data-atl-color="):
+			// The read renderer uses this readable HTML form for a protected
+			// native color span. mdmerge must substitute the exact base bytes;
+			// accepting an unmatched copy would turn identity-bearing markup
+			// into escaped text and make the view lie about the result.
+			return "", unsupported("protected color span", clip(s[i:]))
 		case strings.HasPrefix(s[i:], "!["):
 			return "", unsupported("image", clip(s[i:]))
 		case strings.HasPrefix(s[i:], "[["):
@@ -170,10 +178,10 @@ func pageLink(b *strings.Builder, s string) (int, error) {
 
 // link handles [text](url). Returns 0 when the bracket is not a link (caller
 // emits '[' literally). Marker schemes the renderer produces for opaque
-// targets (jira:, attachment:, page:) must be substituted from base bytes by
-// the caller before conversion — refuse them here.
+// targets such as attachment markers must be substituted from base bytes by
+// the caller. Jira and confluence-page links have explicit safe conversions.
 func link(b *strings.Builder, s string) (int, error) {
-	closeBr := strings.Index(s, "]")
+	closeBr := markdownLinkLabelEnd(s)
 	if closeBr < 0 || closeBr+1 >= len(s) || s[closeBr+1] != '(' {
 		return 0, nil
 	}
@@ -217,9 +225,63 @@ func link(b *strings.Builder, s string) (int, error) {
 		b.WriteString(`<ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">` +
 			escapeText(key) + `</ac:parameter></ac:structured-macro>`)
 		return end + 1, nil
+	case strings.HasPrefix(url, "confluence-page:"):
+		identity := strings.TrimPrefix(url, "confluence-page:")
+		space, encodedTitle, hasSpace := strings.Cut(identity, "/")
+		if !hasSpace {
+			encodedTitle = space
+			space = ""
+		}
+		title, err := neturl.PathUnescape(encodedTitle)
+		if err != nil || strings.TrimSpace(title) == "" {
+			return 0, unsupported("invalid Confluence page target", clip(url))
+		}
+		if space != "" {
+			space, err = neturl.PathUnescape(space)
+			if err != nil || strings.TrimSpace(space) == "" {
+				return 0, unsupported("invalid Confluence space target", clip(url))
+			}
+		}
+		attrs := ` ri:content-title="` + escapeAttr(title) + `"`
+		if space != "" {
+			attrs += ` ri:space-key="` + escapeAttr(space) + `"`
+		}
+		b.WriteString(`<ac:link><ri:page` + attrs + `/>`)
+		if text != title {
+			inner, err := inline(text)
+			if err != nil {
+				return 0, err
+			}
+			b.WriteString(`<ac:link-body>` + inner + `</ac:link-body>`)
+		}
+		b.WriteString(`</ac:link>`)
+		return end + 1, nil
 	default:
 		return 0, unsupported("link scheme", clip(url))
 	}
+}
+
+func markdownLinkLabelEnd(s string) int {
+	if len(s) == 0 || s[0] != '[' {
+		return -1
+	}
+	depth := 1
+	for i := 1; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			i++
+			continue
+		}
+		switch s[i] {
+		case '[':
+			depth++
+		case ']':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 func escapeText(s string) string {

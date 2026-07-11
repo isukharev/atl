@@ -2,6 +2,8 @@ package mirror
 
 import (
 	"fmt"
+	"html"
+	neturl "net/url"
 	"strconv"
 	"strings"
 	"unicode"
@@ -15,22 +17,127 @@ import (
 // (⟦…⟧) and images/diagrams as ![](assets/…) links. It is intentionally lossy —
 // the .csf file remains the editable source of truth.
 func RenderMarkdown(root *csf.Node, refs []domain.Ref) []byte {
-	r := newMDRenderer(refs)
+	return []byte(renderMarkdownHeadingOffset(root, refs, 0))
+}
+
+func renderMarkdownHeadingOffset(root *csf.Node, refs []domain.Ref, headingOffset int) string {
+	r := newMDRendererOffset(refs, headingOffset)
 	var b strings.Builder
 	forEachBlockNode(root, func(n *csf.Node) {
 		r.block(&b, n)
 	})
-	return []byte(normalizeBlankLines(b.String()))
+	return normalizeBlankLines(b.String())
 }
 
-// PageFrontmatter is the deprecated YAML metadata shape retained so recorded
-// legacy views remain reproducible during apply. New views use PageField.
-type PageFrontmatter struct {
-	Title   string
-	Space   string
-	Version int
-	Labels  []string
-	Updated string
+func renderCommentMarkdown(root *csf.Node) string {
+	r := newMDRendererOffset(nil, 2)
+	var b strings.Builder
+	forEachBlockNode(root, func(n *csf.Node) {
+		if code, ok := commentCodeTable(n); ok {
+			fence := markdownFence(code)
+			fmt.Fprintf(&b, "%s\n%s\n%s\n\n", fence, code, fence)
+			return
+		}
+		r.block(&b, n)
+	})
+	return normalizeBlankLines(b.String())
+}
+
+// commentCodeTable recognizes the one-cell table Confluence commonly creates
+// when a pasted multiline code snippet is placed in a comment. Rendering it as
+// a GFM table collapses every <br>; a fenced block preserves the readable shape.
+func commentCodeTable(n *csf.Node) (string, bool) {
+	if n.Type != csf.Element || n.Name.Space != "" || n.Name.Local != "table" {
+		return "", false
+	}
+	rows := tableRows(n)
+	if len(rows) != 1 {
+		return "", false
+	}
+	cells := rowCells(rows[0])
+	if len(cells) != 1 {
+		return "", false
+	}
+	var code *csf.Node
+	csf.Walk(cells[0], func(x *csf.Node) bool {
+		if code == nil && x.Type == csf.Element && x.Name.Space == "" && x.Name.Local == "code" {
+			code = x
+			return false
+		}
+		return true
+	})
+	if code == nil {
+		return "", false
+	}
+	if !exclusiveCommentCodeWrapper(cells[0], code) || !commentCodeIsMultiline(code) {
+		return "", false
+	}
+	var b strings.Builder
+	var write func(*csf.Node)
+	write = func(x *csf.Node) {
+		switch x.Type {
+		case csf.Text, csf.CData:
+			b.WriteString(x.Data)
+		case csf.Element:
+			if x.Name.Space == "" && x.Name.Local == "br" {
+				b.WriteByte('\n')
+				return
+			}
+			for _, child := range x.Children {
+				write(child)
+			}
+		}
+	}
+	write(code)
+	value := strings.TrimSpace(b.String())
+	return value, value != ""
+}
+
+func exclusiveCommentCodeWrapper(n, code *csf.Node) bool {
+	if n == code {
+		return true
+	}
+	var meaningful []*csf.Node
+	for _, child := range n.Children {
+		if (child.Type == csf.Text || child.Type == csf.CData) && strings.TrimSpace(child.Data) == "" {
+			continue
+		}
+		meaningful = append(meaningful, child)
+	}
+	if len(meaningful) != 1 || meaningful[0].Type != csf.Element {
+		return false
+	}
+	child := meaningful[0]
+	if child != code && (child.Name.Space != "" || child.Name.Local != "p") {
+		return false
+	}
+	return exclusiveCommentCodeWrapper(child, code)
+}
+
+func commentCodeIsMultiline(code *csf.Node) bool {
+	multiline := false
+	csf.Walk(code, func(n *csf.Node) bool {
+		if n.Type == csf.Element && n.Name.Space == "" && n.Name.Local == "br" ||
+			(n.Type == csf.Text || n.Type == csf.CData) && strings.Contains(n.Data, "\n") {
+			multiline = true
+			return false
+		}
+		return !multiline
+	})
+	return multiline
+}
+
+func markdownFence(content string) string {
+	longest, run := 0, 0
+	for _, r := range content {
+		if r == rune(0x60) {
+			run++
+			longest = max(longest, run)
+		} else {
+			run = 0
+		}
+	}
+	return strings.Repeat(string(rune(0x60)), max(3, longest+1))
 }
 
 // MDViewOpts carries the profile-driven additions to a Confluence markdown view.
@@ -40,10 +147,9 @@ type PageFrontmatter struct {
 // layer assembles these from the page metadata and, for Comments, the
 // `<slug>.comments.json` sidecar (absent → nil → the section is skipped).
 type MDViewOpts struct {
-	Frontmatter *PageFrontmatter
-	PageFields  []PageField
-	Comments    []domain.Comment
-	ReadOnly    bool
+	PageFields []PageField
+	Comments   []domain.Comment
+	ReadOnly   bool
 }
 
 // PageField is one already-resolved, read-only Confluence metadata value. The
@@ -64,7 +170,7 @@ func RenderMarkdownOpts(root *csf.Node, refs []domain.Ref, opts MDViewOpts) []by
 }
 
 // RenderMarkdownViewParts renders the view as three concatenable parts —
-// prefix (generated metadata), body, suffix (the "## Comments" section) — such that
+// prefix (generated metadata), body, suffix (the "# Comments" section) — such that
 // prefix+body+suffix is byte-identical to RenderMarkdownOpts(root, refs, opts).
 // The split exists for `conf apply`: the editable body must be located by these
 // structural anchors (the metadata above and the Comments section below are
@@ -73,9 +179,6 @@ func RenderMarkdownOpts(root *csf.Node, refs []domain.Ref, opts MDViewOpts) []by
 func RenderMarkdownViewParts(root *csf.Node, refs []domain.Ref, opts MDViewOpts) (prefix, body, suffix string) {
 	body = string(RenderMarkdown(root, refs))
 	prefix = ConfluenceDocumentMarker + "\n"
-	if opts.Frontmatter != nil {
-		prefix += ConfluenceMetadataMarker + "\n" + renderPageFrontmatter(opts.Frontmatter) + "\n"
-	}
 	if fields := renderPageFields(opts.PageFields); fields != "" {
 		prefix += fields + "\n\n"
 	}
@@ -83,9 +186,9 @@ func RenderMarkdownViewParts(root *csf.Node, refs []domain.Ref, opts MDViewOpts)
 	if opts.ReadOnly {
 		bodyMarker = ConfluenceBodyReadOnlyMarker
 	}
-	prefix += bodyMarker + "\n"
+	prefix += bodyMarker + "\n# Content\n\n"
 	if len(opts.Comments) > 0 {
-		suffix = "\n" + ConfluenceCommentsMarker + "\n## Comments\n\n" + string(RenderCommentsMarkdown(opts.Comments))
+		suffix = "\n" + ConfluenceCommentsMarker + "\n" + string(RenderCommentsMarkdown(opts.Comments))
 	}
 	// RenderMarkdownOpts applies TrimRight(whole, "\n")+"\n" to the concatenation.
 	// Reproduce it by trimming the assembled whole, then re-slicing at the raw
@@ -197,44 +300,22 @@ func safeMarkerID(s string) string {
 	return b.String()
 }
 
-// renderPageFrontmatter emits the YAML frontmatter block (including the fencing
-// `---` lines and a trailing newline). Title/space/version always render; labels
-// and updated render only when present.
-func renderPageFrontmatter(fm *PageFrontmatter) string {
-	var b strings.Builder
-	b.WriteString("---\n")
-	fmt.Fprintf(&b, "title: %s\n", mdYAMLEscape(fm.Title))
-	fmt.Fprintf(&b, "space: %s\n", mdYAMLEscape(fm.Space))
-	fmt.Fprintf(&b, "version: %d\n", fm.Version)
-	if len(fm.Labels) > 0 {
-		fmt.Fprintf(&b, "labels: [%s]\n", strings.Join(fm.Labels, ", "))
-	}
-	if fm.Updated != "" {
-		fmt.Fprintf(&b, "updated: %s\n", mdYAMLEscape(fm.Updated))
-	}
-	b.WriteString("---\n")
-	return b.String()
-}
-
-// mdYAMLEscape quotes a frontmatter scalar when it contains YAML-significant
-// characters, matching the Jira view's yamlEscape.
-func mdYAMLEscape(s string) string {
-	if strings.ContainsAny(s, ":#\n\"'") {
-		return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
-	}
-	return s
-}
-
 type mdRenderer struct {
-	refs map[string]domain.Ref
+	refs           map[string]domain.Ref
+	headingOffset  int
+	escapeHTMLText bool
 }
 
 func newMDRenderer(refs []domain.Ref) *mdRenderer {
+	return newMDRendererOffset(refs, 0)
+}
+
+func newMDRendererOffset(refs []domain.Ref, headingOffset int) *mdRenderer {
 	byKey := map[string]domain.Ref{}
 	for _, r := range refs {
 		byKey[string(r.Kind)+"\x00"+r.Key] = r
 	}
-	return &mdRenderer{refs: byKey}
+	return &mdRenderer{refs: byKey, headingOffset: headingOffset}
 }
 
 func (r *mdRenderer) ref(kind domain.RefKind, key string) (domain.Ref, bool) {
@@ -256,7 +337,7 @@ func (r *mdRenderer) block(b *strings.Builder, n *csf.Node) {
 	}
 	switch {
 	case isHeading(n.Name):
-		level := int(n.Name.Local[1] - '0')
+		level := min(6, int(n.Name.Local[1]-'0')+r.headingOffset)
 		fmt.Fprintf(b, "%s %s\n\n", strings.Repeat("#", level), r.inline(n))
 	case n.Name.Local == "p" && n.Name.Space == "":
 		// Confluence routinely wraps a single block macro in <p>; route it to
@@ -591,7 +672,11 @@ func (r *mdRenderer) inlineNoBlock(n *csf.Node) string {
 
 func (r *mdRenderer) inlineNode(b *strings.Builder, n *csf.Node) {
 	if n.Type == csf.Text || n.Type == csf.CData {
-		b.WriteString(collapseWS(n.Data))
+		text := collapseWS(n.Data)
+		if r.escapeHTMLText {
+			text = html.EscapeString(text)
+		}
+		b.WriteString(text)
 		return
 	}
 	if n.Type != csf.Element {
@@ -623,8 +708,16 @@ func (r *mdRenderer) inlineNode(b *strings.Builder, n *csf.Node) {
 		b.WriteString("[" + r.inline(n) + "](" + href + ")")
 	case n.Name.Local == "span" && n.Name.Space == "":
 		if color := styleColor(n); color != "" {
-			if inner := r.inline(n); inner != "" {
-				b.WriteString("⟦color:" + color + "⟧" + inner + "⟦/color⟧")
+			wasEscaping := r.escapeHTMLText
+			r.escapeHTMLText = true
+			inner := r.inline(n)
+			r.escapeHTMLText = wasEscaping
+			if inner != "" {
+				if safe, ok := SafeCSSColor(color); ok {
+					b.WriteString("<span style=\"color: " + html.EscapeString(safe) + "\">" + inner + "</span>")
+				} else {
+					b.WriteString("<span data-atl-color=\"" + html.EscapeString(color) + "\">" + inner + "</span>")
+				}
 			}
 			return
 		}
@@ -702,11 +795,13 @@ func isFlowBreak(n csf.Name) bool {
 
 func (r *mdRenderer) acLink(b *strings.Builder, n *csf.Node) {
 	// Resolve the link target from its ri:* child.
-	var label, target string
+	var label, target, pageTitle, pageSpace string
 	csf.Walk(n, func(x *csf.Node) bool {
 		switch {
 		case x.Name.Space == "ri" && x.Name.Local == "page":
-			target = "page:" + x.Attrv("ri", "content-title")
+			pageTitle = x.Attrv("ri", "content-title")
+			pageSpace = x.Attrv("ri", "space-key")
+			target = "page:" + pageTitle
 		case x.Name.Space == "ri" && x.Name.Local == "attachment":
 			target = "attachment:" + x.Attrv("ri", "filename")
 		case x.Name.Space == "ri" && x.Name.Local == "user":
@@ -720,7 +815,7 @@ func (r *mdRenderer) acLink(b *strings.Builder, n *csf.Node) {
 		case x.Name.Space == "ac" && x.Name.Local == "link-body":
 			label = r.inline(x)
 		case x.Name.Space == "ac" && x.Name.Local == "plain-text-link-body":
-			label = csf.TextContent(x)
+			label = collapseWS(csf.TextContent(x))
 		}
 		return true
 	})
@@ -732,10 +827,24 @@ func (r *mdRenderer) acLink(b *strings.Builder, n *csf.Node) {
 		return
 	}
 	if strings.HasPrefix(target, "page:") {
-		b.WriteString("[[" + label + "]]")
+		b.WriteString("[" + markdownLinkLabel(label) + "](confluence-page:" + pageLinkIdentity(pageSpace, pageTitle) + ")")
 		return
 	}
 	b.WriteString("[" + label + "](" + target + ")")
+}
+
+func pageLinkIdentity(space, title string) string {
+	identity := neturl.PathEscape(title)
+	if space != "" {
+		identity = neturl.PathEscape(space) + "/" + identity
+	}
+	return identity
+}
+
+func markdownLinkLabel(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "[", "\\[")
+	return strings.ReplaceAll(s, "]", "\\]")
 }
 
 func (r *mdRenderer) acImage(b *strings.Builder, n *csf.Node) {
@@ -926,6 +1035,57 @@ func styleColor(n *csf.Node) string {
 		}
 	}
 	return ""
+}
+
+// SafeCSSColor accepts only inert CSS color values. It deliberately excludes
+// var(), url(), declarations and arbitrary functions so a server-controlled
+// page cannot turn a derived Markdown preview into an active network/style
+// injection surface.
+func SafeCSSColor(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 96 {
+		return "", false
+	}
+	if value[0] == '#' {
+		n := len(value) - 1
+		if n != 3 && n != 4 && n != 6 && n != 8 {
+			return "", false
+		}
+		for _, r := range value[1:] {
+			if !strings.ContainsRune("0123456789abcdefABCDEF", r) {
+				return "", false
+			}
+		}
+		return value, true
+	}
+	lettersOnly := true
+	for _, r := range value {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') {
+			lettersOnly = false
+			break
+		}
+	}
+	if lettersOnly {
+		return value, true
+	}
+	lower := strings.ToLower(value)
+	for _, fn := range []string{"rgb(", "rgba(", "hsl(", "hsla("} {
+		if !strings.HasPrefix(lower, fn) || !strings.HasSuffix(lower, ")") {
+			continue
+		}
+		inside := value[len(fn) : len(value)-1]
+		if strings.TrimSpace(inside) == "" {
+			return "", false
+		}
+		for _, r := range inside {
+			if (r >= '0' && r <= '9') || strings.ContainsRune(" \t.,%/+-", r) {
+				continue
+			}
+			return "", false
+		}
+		return value, true
+	}
+	return "", false
 }
 
 // attachmentNameUnder finds a ri:attachment filename nested anywhere in a macro

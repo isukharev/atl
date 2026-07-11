@@ -172,7 +172,7 @@ func TestConfPageViewTextWritesNothing(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("conf page view text: exit %d, want %d (stdout=%q)", code, exitOK, out)
 	}
-	want := "<!-- atl:document confluence-page v1 -->\n<!-- atl:section body readonly -->\nHello\n"
+	want := "<!-- atl:document confluence-page v2 -->\n<!-- atl:section body readonly -->\n# Content\n\nHello\n"
 	if out != want {
 		t.Fatalf("text output differs from exact rendered Markdown:\n got=%q\nwant=%q", out, want)
 	}
@@ -218,7 +218,7 @@ func TestConfPageViewFindsNearestLocalRenderConfig(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("conf page view nearest config: exit %d (stdout=%q)", code, out)
 	}
-	if commentsRequests != 1 || !strings.Contains(out, "## Comments") || !strings.Contains(out, "Review") {
+	if commentsRequests != 1 || !strings.Contains(out, "# Comments") || !strings.Contains(out, "Review") {
 		t.Fatalf("nearest local config was not applied (requests=%d):\n%s", commentsRequests, out)
 	}
 	gotConfig, err := os.ReadFile(configPath)

@@ -25,14 +25,13 @@ import (
 // silently contradicting the source of truth. Exported so apply can uphold
 // the same invariant after a merge.
 const (
-	ConfluenceDocumentMarker     = "<!-- atl:document confluence-page v1 -->"
-	ConfluenceMetadataMarker     = "<!-- atl:section metadata readonly -->"
+	ConfluenceDocumentMarker     = "<!-- atl:document confluence-page v2 -->"
 	ConfluencePageFieldsMarker   = "<!-- atl:section page-fields readonly -->"
 	ConfluenceBodyMarker         = "<!-- atl:section body editable -->"
 	ConfluenceBodyReadOnlyMarker = "<!-- atl:section body readonly -->"
 	ConfluenceCommentsMarker     = "<!-- atl:section comments readonly -->"
 	ConfluenceReservedPrefix     = "<!-- atl:"
-	MDUnavailableStub            = ConfluenceDocumentMarker + "\n" + ConfluenceBodyReadOnlyMarker + "\n<!-- atl: markdown view unavailable for this revision (the .csf did not parse); the .csf file is the source of truth -->\n"
+	MDUnavailableStub            = ConfluenceDocumentMarker + "\n" + ConfluenceBodyReadOnlyMarker + "\n# Content\n\n<!-- atl: markdown view unavailable for this revision (the .csf did not parse); the .csf file is the source of truth -->\n"
 )
 
 // Mirror is rooted at a directory holding one or more spaces.
@@ -296,14 +295,28 @@ func (m *Mirror) writeCommentSidecar(dir, slug string, comments []domain.Comment
 	return safepath.WriteFileWithin(m.Root, filepath.Join(dir, slug+".comments.md"), RenderCommentsMarkdown(comments), 0o644)
 }
 
-// RenderCommentsMarkdown renders a page's comments as a derived human read view,
-// mirroring the Jira issue `## Comments` style: for each comment
-// `**<author>** (<created>):\n\n<body>\n\n`. Bodies are the plain-text read view
-// the adapter already flattens (csf.TextContent) — not a lossless substrate.
+// RenderCommentsMarkdown renders a complete readonly comments view. Native
+// Confluence storage bodies retain paragraphs, lists, links and headings; the
+// plain Body field remains a fallback for legacy sidecars and other backends.
 func RenderCommentsMarkdown(comments []domain.Comment) []byte {
 	var b strings.Builder
+	b.WriteString("# Comments\n\n")
 	for _, c := range comments {
-		fmt.Fprintf(&b, "**%s** (%s):\n\n%s\n\n", c.Author, c.Created, c.Body)
+		fmt.Fprintf(&b, "## Comment by %s", pageSectionValue(c.Author))
+		if created := pageSectionValue(c.Created); created != "" {
+			fmt.Fprintf(&b, " (%s)", created)
+		}
+		b.WriteString("\n\n")
+		body := strings.TrimSpace(c.Body)
+		if c.BodyStorage != "" {
+			if root, err := csf.Parse([]byte(c.BodyStorage)); err == nil {
+				body = strings.TrimSpace(renderCommentMarkdown(root))
+			}
+		}
+		if body != "" {
+			b.WriteString(body)
+			b.WriteString("\n\n")
+		}
 	}
 	return []byte(b.String())
 }
@@ -345,7 +358,7 @@ func (b *SyncBatch) WriteView(dir, slug string, page *domain.Resource, refs []do
 // WriteComments persists a page plus its comment sidecars (`pull --comments`).
 // The comment bytes are auxiliary: the recorded sync state below hashes
 // page.Body alone, so a page carrying comments sidecars still reads as Clean.
-// mdOpts drives whether the .md view embeds a "## Comments" section (full
+// mdOpts drives whether the .md view embeds a "# Comments" section (full
 // profile) or leaves comments in the sidecar only (default profile).
 func (b *SyncBatch) WriteComments(dir, slug string, page *domain.Resource, refs []domain.Ref, comments []domain.Comment, truncated bool, mdOpts MDViewOpts) error {
 	return b.write(dir, slug, page, refs, &commentSidecar{comments: comments, truncated: truncated}, mdOpts)

@@ -108,3 +108,11 @@ When you change the body, `atl` diffs fragments against the pristine baseline an
 `added_fragments` / `removed_fragments` in the push (and dry-run) output. If a dry-run shows a
 `removed_fragments` entry you didn't intend (e.g. you accidentally deleted a macro or diagram),
 stop and fix the `.csf` before pushing.
+
+View v2 renders page links as
+`[label](confluence-page:SPACE/percent-encoded-title)` so label, target, and
+cross-space identity stay visible. Colored text uses readable protected HTML
+spans for a closed safe-color grammar and inert `data-atl-color` otherwise.
+Leave either representation intact for byte-preserving edits; changing
+or removing one is included in the apply loss gate, including when two links
+share a label but point to different pages.

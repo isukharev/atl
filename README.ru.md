@@ -236,7 +236,7 @@ mirror/
       acme-adr.csf              # источник правды (нативный формат хранения)
       acme-adr.md               # производное staging-представление; изменения через conf apply
       acme-adr.meta.json        # id, версия, хэш содержимого, разрешённые фрагменты, comment_count
-      acme-adr.comments.json    # [{id,author,created,body}] (при --comments)
+      acme-adr.comments.json    # [{id,author,created,body,body_storage?}] (при --comments)
       acme-adr.comments.md      # производное представление для чтения (при --comments)
       acme-adr.assets/*.png     # рендеры draw.io + изображения страницы (при --assets)
       child-page/…              # дерево папок воспроизводит иерархию страниц
@@ -253,7 +253,7 @@ rg "decision" mirror/
 ### 3. Редактирование, валидация и публикация
 
 ```sh
-# Проще всего: проверьте marker v1, правьте markdown-представление и слейте правки в .csf.
+# Проще всего: проверьте marker v2, правьте markdown-представление и слейте правки в .csf.
 # Нетронутые блоки сохраняют байты в точности; неконвертируемые правки отклоняются.
 $EDITOR mirror/DOCS/acme-adr/acme-adr.md
 atl conf apply mirror/DOCS/acme-adr/acme-adr.md --dry-run
@@ -292,6 +292,8 @@ atl conf page title set 123456 --from-file title.txt
 # Типизированные read-only метаданные страницы (см. docs/usage.md)
 atl config set render.confluence.include page_fields
 atl config set render.confluence.page_fields '[{"id":"title"},{"id":"updated","format":"date"}]'
+# View v2 явно разделяет # Metadata / # Content / # Comments; нативное
+# форматирование комментариев и target ссылок на страницы сохраняются.
 atl conf table extract --id 123456 --format json
 atl conf table extract --id 123456 --table 2 --format csv # формулы нейтрализуются по умолчанию
 atl conf table extract --id 123456 --table 2 --format csv --raw-csv # небезопасно открывать в таблицах

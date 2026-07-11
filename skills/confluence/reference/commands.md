@@ -67,8 +67,9 @@ atl conf render <mirror-or-page.csf> --render-profile full
 `updated`; placements `metadata|section`; formats `scalar`, list for list
 fields, and `date|datetime` for updated. Fields are readonly. `restricted` is
 fetched only when selected; unknown offline is never shown as unrestricted.
-Legacy explicit `frontmatter` remains readable, but new configs use
-`page_fields`.
+View v2 removed legacy YAML `frontmatter`; use `page_fields`. A stale include is
+ignored with the normal unknown-section warning, so render or pull again after
+updating the config and before editing.
 
 ## Status and outputs
 

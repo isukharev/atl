@@ -16,20 +16,12 @@ import (
 )
 
 // confMDViewOpts assembles the profile-driven markdown-view additions for a
-// Confluence page from the resolved settings: typed read-only page fields (or
-// legacy frontmatter) and a "## Comments" section fed from whatever comments the caller has
+// Confluence page from the resolved settings: typed read-only page fields and a
+// "# Comments" section fed from whatever comments the caller has
 // (the just-fetched set on pull, or the sidecar on render/push). An empty return
 // yields the byte-identical body-only default view.
 func confMDViewOpts(rs RenderSettings, page *domain.Resource, comments []domain.Comment) mirror.MDViewOpts {
 	var opts mirror.MDViewOpts
-	if rs.On(SecFrontmatter) {
-		opts.Frontmatter = &mirror.PageFrontmatter{
-			Title:   page.Title,
-			Space:   page.SpaceKey,
-			Version: page.Version,
-			Labels:  page.Labels,
-		}
-	}
 	if rs.On(SecPageFields) {
 		views := rs.PageFields
 		if len(views) == 0 {
@@ -124,7 +116,7 @@ func confluenceNeedsRestrictions(rs RenderSettings) bool {
 }
 
 // readCommentsSidecar loads a page's `<slug>.comments.json` sidecar into a comment
-// slice. A missing or unreadable sidecar yields nil so the "## Comments" section
+// slice. A missing or unreadable sidecar yields nil so the "# Comments" section
 // is silently skipped rather than failing the render (its contract).
 func readCommentsSidecar(root, dir, slug string) []domain.Comment {
 	b, err := safepath.ReadFileWithin(root, filepath.Join(dir, slug+".comments.json"))

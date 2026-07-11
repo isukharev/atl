@@ -135,7 +135,26 @@ func TestRenderTableCellLink(t *testing.T) {
 // indistinguishable from ordinary text.
 func TestRenderColoredSpanMarker(t *testing.T) {
 	md := render(t, `<p><span style="color: red;">Important</span> draft</p>`, nil)
-	mustContain(t, md, "⟦color:red⟧Important⟦/color⟧ draft")
+	mustContain(t, md, "<span style=\"color: red\">Important</span> draft")
+}
+
+func TestRenderColorWhitelistKeepsUnsafeCSSAndHTMLInert(t *testing.T) {
+	for _, value := range []string{"red", "#aabbcc", "rgb(59,59,59)", "hsl(120 50% 50% / 25%)"} {
+		if got, ok := SafeCSSColor(value); !ok || got != value {
+			t.Fatalf("safe color %q rejected as %q/%v", value, got, ok)
+		}
+	}
+	for _, value := range []string{"url(https://attacker.invalid/x)", "var(--secret)", "red; background:url(x)", `red" onmouseover="x`} {
+		if _, ok := SafeCSSColor(value); ok {
+			t.Fatalf("active color %q accepted", value)
+		}
+	}
+
+	md := render(t, `<p><span data-color="red; background-image:url(https://attacker.invalid/x)">&lt;/span&gt;&lt;img src="https://attacker.invalid/pixel"&gt;</span></p>`, nil)
+	mustContain(t, md, `<span data-atl-color="red; background-image:url(https://attacker.invalid/x)">`)
+	mustContain(t, md, `&lt;/span&gt;&lt;img src=`)
+	mustNotContain(t, md, `<span style=`)
+	mustNotContain(t, md, `<img src=`)
 }
 
 // Gap: expand macro must keep its title (body was already kept).
@@ -217,13 +236,18 @@ func TestRenderTaskListWithInlineBody(t *testing.T) {
 	mustContain(t, md, "- [ ] Ada ping on 2021-07-15")
 }
 
-func TestRenderPageLinkWikiStyle(t *testing.T) {
-	// A plain page link with no explicit label → [[Page Title]]
+func TestRenderPageLinkPreservesTargetAndLabel(t *testing.T) {
+	// A plain page link carries its target even when the label matches.
 	md := render(t, `<p>See <ac:link><ri:page ri:content-title="My Page"/></ac:link> here</p>`, nil)
-	mustContain(t, md, "[[My Page]]")
-	mustNotContain(t, md, "(page:My Page)")
+	mustContain(t, md, "[My Page](confluence-page:My%20Page)")
 
-	// A page link with an explicit label → [[Custom Label]]
+	// An explicit label stays distinct from the target.
 	md = render(t, `<p>See <ac:link><ri:page ri:content-title="My Page"/><ac:plain-text-link-body>Custom Label</ac:plain-text-link-body></ac:link> here</p>`, nil)
-	mustContain(t, md, "[[Custom Label]]")
+	mustContain(t, md, "[Custom Label](confluence-page:My%20Page)")
+
+	md = render(t, `<p><ac:link><ri:page ri:content-title="Other Page" ri:space-key="DOC"/><ac:plain-text-link-body>Cross-space</ac:plain-text-link-body></ac:link></p>`, nil)
+	mustContain(t, md, "[Cross-space](confluence-page:DOC/Other%20Page)")
+
+	md = render(t, `<p><ac:link><ri:page ri:content-title="Раздел/(v2)?#%" ri:space-key="D/OC"/><ac:plain-text-link-body>See [Guide] \ path</ac:plain-text-link-body></ac:link></p>`, nil)
+	mustContain(t, md, `[See \[Guide\] \\ path](confluence-page:D%2FOC/`)
 }

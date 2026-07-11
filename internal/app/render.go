@@ -41,8 +41,7 @@ const (
 	SecEpicChildren   = "epic_children" // opt-in: requires an additional bounded Jira query
 
 	// Confluence sections.
-	SecFrontmatter = "frontmatter" // YAML frontmatter (title/space/version/labels/updated)
-	SecPageFields  = "page_fields" // typed read-only Confluence page metadata
+	SecPageFields = "page_fields" // typed read-only Confluence page metadata
 	// SecComments is shared; Jira uses H1 and Confluence uses H2.
 )
 
@@ -66,7 +65,7 @@ var jiraFullSections = []string{
 }
 
 // confSections is the closed set of valid Confluence section names.
-var confSections = []string{SecPageFields, SecFrontmatter, SecComments}
+var confSections = []string{SecPageFields, SecComments}
 
 var confFullSections = []string{SecPageFields, SecComments}
 
@@ -171,12 +170,6 @@ func computeSettings(backend string, svc config.RenderService) (RenderSettings, 
 		delete(sections, name)
 	}
 	if backend != "jira" {
-		if sections[SecPageFields] && sections[SecFrontmatter] {
-			delete(sections, SecFrontmatter)
-			warns = append(warns, "render: page_fields replaces legacy Confluence frontmatter")
-		} else if sections[SecFrontmatter] {
-			warns = append(warns, "render: Confluence frontmatter is deprecated; use page_fields")
-		}
 		if len(svc.CustomFields) > 0 || len(svc.FieldViews) > 0 || svc.EpicField != "" {
 			warns = append(warns, "render: ignoring Jira-only custom_fields/field_views/epic_field for confluence")
 		}

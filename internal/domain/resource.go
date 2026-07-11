@@ -89,8 +89,9 @@ type Attachment struct {
 
 // Comment is a page or issue comment.
 type Comment struct {
-	ID      string `json:"id"`
-	Author  string `json:"author"`
-	Created string `json:"created"`
-	Body    string `json:"body"`
+	ID          string `json:"id"`
+	Author      string `json:"author"`
+	Created     string `json:"created"`
+	Body        string `json:"body"`
+	BodyStorage string `json:"body_storage,omitempty"` // native CSF when available; Body remains the plain fallback
 }

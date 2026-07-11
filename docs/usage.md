@@ -489,16 +489,16 @@ contain. Supported body edits become real only after `conf apply` / `jira
 apply`; generated metadata sections remain read-only, and pull/render may
 replace the view. Profiles never affect substrate hashes or dirty/drift state.
 
-Confluence views begin with `<!-- atl:document confluence-page v1 -->` and use
+Confluence views begin with `<!-- atl:document confluence-page v2 -->` and use
 reserved metadata/body/comments boundaries. Before editing an older or
 unmarked view, render the exact file/root again. Since render replaces `.md`,
 preserve existing edits as a private reviewed patch and reapply them afterward.
 
 | profile | Jira `.md` | Confluence `.md` |
 |---|---|---|
-| `minimal` | `key` + `summary` in `# Metadata`, `# Description` only | body plus generated version/body boundaries (byte-identical to `default`) |
-| `default` | minimal **plus** `status`, `type`, `project`, `assignee`, `labels`, `priority`, `parent`, `# Image Attachments`, `# Links`, `# Comments` | body plus generated version/body boundaries |
-| `full` | everything visible: default **plus** `reporter`, `created`/`updated`, `resolution`, `duedate`, `components`, `fix_versions`, configured `custom_fields`, `# Attachments` (non-image list), `# Subtasks`, `# Sprint` | read-only `# Metadata` table (`title`, `space`, `version`, `labels`, `updated` when known) **plus** a `## Comments` section (from the `--comments` sidecar when present) |
+| `minimal` | `key` + `summary` in `# Metadata`, `# Description` only | visible `# Content` boundary plus the native page body (same as `default`) |
+| `default` | minimal **plus** `status`, `type`, `project`, `assignee`, `labels`, `priority`, `parent`, `# Image Attachments`, `# Links`, `# Comments` | visible `# Content` boundary plus the native page body |
+| `full` | everything visible: default **plus** `reporter`, `created`/`updated`, `resolution`, `duedate`, `components`, `fix_versions`, configured `custom_fields`, `# Attachments` (non-image list), `# Subtasks`, `# Sprint` | read-only `# Metadata`, visible `# Content`, and readonly `# Comments` from the comments sidecar when present |
 
 **Section names** (for `include`/`exclude`). Jira: `status`, `type`, `project`,
 `assignee`, `labels`, `priority`, `parent`, `reporter`, `created`, `updated`,
@@ -506,8 +506,9 @@ preserve existing edits as a private reviewed patch and reapply them afterward.
 `attachments`, `attachments_all`, `links`, `comments`, `sprint`, `subtasks`,
 `epic_children`. `epic_children` is intentionally in no profile base — including
 it performs an additional bounded Jira query, so it must be enabled explicitly.
-Confluence: `page_fields`, `comments`; `frontmatter` remains a deprecated
-explicit include for reproducing older configured views. An unknown name is warned about on stderr
+Confluence: `page_fields`, `comments`. The v2 format removed the legacy
+`frontmatter` section; stale configs receive the normal unknown-section warning
+and should migrate to typed `page_fields`. An unknown name is warned about on stderr
 and ignored, never an error.
 
 **Resolution order** (highest wins, merged per key): `--render-profile` /
@@ -854,8 +855,10 @@ result JSON is unchanged by the profile (they affect only the `.md` view).
 `--comments` is opt-in: without it, no comment endpoint is contacted and no
 comment files are written. Comments are auxiliary read-only data — they never
 enter the page content hash or the version gate, so a page carrying comment
-sidecars still reports Clean in `conf status`. Comment bodies are a plain-text
-read view (CSF stripped), not a lossless substrate. A re-pull **with**
+sidecars still reports Clean in `conf status`. Each comment retains a plain-text
+`body` fallback and, when supplied, native `body_storage` CSF so the readonly
+Markdown preserves paragraphs, lists, links, emphasis, and headings. It is not
+part of the page write substrate. A re-pull **with**
 `--comments` rewrites the sidecars; a re-pull **without** `--comments` leaves any
 existing comment files untouched (they are never auto-deleted). If a page's
 comment listing hits the fetch safety cap, the sidecar is incomplete, the meta
@@ -871,7 +874,7 @@ mirror/
         child-page.csf           ← edit this
         child-page.md            ← derived staging view; supported edits go through conf apply
         child-page.meta.json     ← id, version, hierarchy, labels, updated, optional restricted, content_hash, fragments, comment state
-        child-page.comments.json ← only with --comments: [{id, author, created, body}]
+        child-page.comments.json ← only with --comments: [{id, author, created, body, body_storage?}]
         child-page.comments.md   ← only with --comments: derived human read view
         child-page.assets/
           diagram.png
@@ -1043,7 +1046,8 @@ Merge edits from a page's markdown view (`page.md`) into its `.csf`, block by
 block. The markdown file becomes an editable surface: blocks you did not touch
 keep their **exact base bytes**; changed or new blocks are converted from a
 strict markdown subset (headings, paragraphs, lists, task lists, simple
-tables, fenced code, blockquotes/admonitions, links, `[[Page Links]]`,
+tables, fenced code, blockquotes/admonitions, links, legacy `[[Page Links]]`
+(canonicalized to identity-bearing `confluence-page:` links),
 `[KEY](jira:KEY)`); opaque elements in edited blocks (macros, mentions,
 links, images) keep their original bytes. Local only — `conf push` remains
 the write path to the server.
@@ -1071,19 +1075,23 @@ atl conf apply guide.md --allow-fragment-loss  # intentional macro/mention remov
 | `--allow-fragment-loss` | proceed when the edit drops opaque fragments |
 | `--into` | mirror root (defaults to nearest `.atl`) |
 
-The first line must be `<!-- atl:document confluence-page v1 -->`. Apply rejects
-missing/legacy/unknown versions and reserved `<!-- atl:... -->` marker text in
-the editable body before writing. Re-render pristine unmarked old views before
+The first line must be `<!-- atl:document confluence-page v2 -->`. Apply rejects
+missing/legacy/unknown versions and additions, removals, renames, or reordering of reserved
+`<!-- atl:... -->` marker text in the editable body before writing. Marker prose
+that already came from native page content is allowed when left unchanged.
+Re-render pristine unmarked old views before
 editing; for an already edited old view, preserve a private patch, render, then
 reapply. An unknown/future version requires a newer `atl`; do not downgrade it.
 
 All views carry generated document/body boundaries. When the page was pulled
-under the `full` profile, the `.md` also carries a read-only `# Metadata` table and a `## Comments`
-section. Generated regions are **read-only** in the view:
+under every profile the body starts at visible `# Content`; `full` also carries
+read-only `# Metadata` and `# Comments` sections. Native page headings keep
+their original levels; comment headings are nested under their comment entry.
+Generated regions are **read-only** in the view:
 `apply` reproduces them from the recorded render settings (`.atl/state.json`) and
 merges only the editable body between them, so an untouched `full`-profile page
 applies to a byte-identical `.csf` — the decorations are never converted into
-page content. Editing generated page fields or the `## Comments` section is
+page content. Editing generated page fields or the `# Comments` section is
 refused (exit `8`); use the relevant dedicated metadata/comment command where
 available rather than editing the derived view.
 
@@ -1267,7 +1275,8 @@ atl conf page create --space DOCS --title "From markdown" --from-md body.md
 
 `--from-md` accepts the same markdown subset as `conf apply` (headings,
 paragraphs, emphasis/links, lists and task lists, GFM tables, fenced code,
-blockquotes/admonitions, `---`, `[[Page Title]]` page links, `[KEY](jira:KEY)`
+blockquotes/admonitions, `---`, legacy `[[Page Title]]` page links,
+identity-bearing `[label](confluence-page:SPACE/title)` links, `[KEY](jira:KEY)`
 issue links). Conversion is fail-closed: the first construct outside the
 subset aborts with exit 8 naming the offending block, and the page is **not**
 created — write those bodies as CSF via `--from-file` instead. An empty

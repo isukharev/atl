@@ -36,7 +36,8 @@ func (r *multipartReadCloser) Close() error {
 	return err
 }
 
-// ListComments returns a page's comments (storage bodies, rendered to text). It
+// ListComments returns a page's comments with both a plain-text fallback and
+// the native storage body used by readonly Markdown rendering. It
 // follows _links.next, paging until the server stops signaling more. truncated
 // is true when a safety cap (maxPages/maxItems) stopped the listing while the
 // server still signaled _links.next — the mirror must surface that, never bake
@@ -73,13 +74,14 @@ func (cf *Confluence) ListComments(ctx context.Context, id string) ([]domain.Com
 			return nil, false, err
 		}
 		for _, r := range resp.Results {
-			body := r.Body.Storage.Value
+			storage := r.Body.Storage.Value
+			body := storage
 			if root, err := csf.Parse([]byte(body)); err == nil {
 				body = csf.TextContent(root)
 			}
 			out = append(out, domain.Comment{
 				ID: r.ID, Author: r.History.CreatedBy.DisplayName,
-				Created: r.History.CreatedDate, Body: body,
+				Created: r.History.CreatedDate, Body: body, BodyStorage: storage,
 			})
 		}
 		if resp.Links.Next == "" || len(resp.Results) == 0 {
