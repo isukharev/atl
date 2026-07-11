@@ -50,7 +50,9 @@ from later observations or revalidating schema facts.
      --expected-current-hash <current_hash>
    ```
 
-8. `render_defaults` and `preferences.mirror_root` are saved memory, not active runtime. Compare
+8. Load only the relevant render memory with `atl profile show --section
+   render_defaults --service jira|confluence`. `render_defaults` and
+   `preferences.mirror_root` are saved memory, not active runtime. Compare
    both profile slices with `atl config show`; when reviewing a deliberate local override, run
    `atl config show` from the target mirror root so it resolves that root's `.atl/config.json`.
    Preview the corresponding `atl config set render.* ...` commands and execute only those the

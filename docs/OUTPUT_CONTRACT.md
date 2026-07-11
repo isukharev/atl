@@ -329,8 +329,11 @@ stdout stays clean.
 successful read with `exists:false`, the future profile path, and a stable
 64-hex missing-state hash. An existing profile also omits `data` by default.
 `--section all|schema|preferences|team_policy|render_defaults|selectors` adds
-the requested `data`;
-`--service jira|confluence` is valid only for `schema` and `selectors`.
+the requested `data`; `--service jira|confluence` is valid for `schema`,
+`render_defaults`, and `selectors`. A service-scoped render read returns only
+`data.{jira|confluence}` and never changes runtime configuration. The selected
+value is `null` when that service has no saved render memory, independent of
+whether the sibling service is configured.
 
 `atl profile preview --from-file FILE` emits
 `{path,current_exists,current_hash,candidate_hash,changed,migration_from_schema_version?,sections,normalized_candidate}`.

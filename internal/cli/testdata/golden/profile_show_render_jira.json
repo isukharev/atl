@@ -1,0 +1,18 @@
+{
+  "exists": true,
+  "path": "<config-dir>/profile.json",
+  "hash": "<sha256>",
+  "data": {
+    "jira": {
+      "profile": "full",
+      "field_views": [
+        {
+          "id": "customfield_10001",
+          "label": "customfield_10001",
+          "placement": "metadata",
+          "format": "scalar"
+        }
+      ]
+    }
+  }
+}

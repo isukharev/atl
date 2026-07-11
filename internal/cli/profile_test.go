@@ -7,6 +7,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/config"
+	profilepkg "github.com/isukharev/atl/internal/profile"
 )
 
 const profileFixture = `{
@@ -105,6 +108,81 @@ func TestProfileShowMissingAndFlagValidation(t *testing.T) {
 	_, code = runCLI(t, env, "profile", "show", "--section", "preferences", "--service", "jira")
 	if code != exitUsage {
 		t.Fatalf("invalid service/section exit = %d, want %d", code, exitUsage)
+	}
+}
+
+func TestProfileShowServiceScopedRenderDefaults(t *testing.T) {
+	cfgDir := t.TempDir()
+	candidate := filepath.Join(t.TempDir(), "candidate.json")
+	render := `"render_defaults": {
+    "jira": {"profile":"full","field_views":[{"id":"customfield_10001","format":"scalar"}]},
+    "confluence": {"profile":"minimal","page_fields":[{"id":" updated ","format":"date"}]}
+  },
+  "selectors"`
+	body := strings.Replace(profileFixture, `"selectors"`, render, 1)
+	if err := os.WriteFile(candidate, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{"ATL_CONFIG_DIR": cfgDir, "ATL_NO_UPDATE": "1"}
+	preview := profilePreviewHashes(t, env, candidate)
+	if _, code := runCLI(t, env, "profile", "apply", "--from-file", candidate,
+		"--candidate-hash", preview.CandidateHash, "--expected-current-hash", preview.CurrentHash); code != exitOK {
+		t.Fatalf("apply exit %d", code)
+	}
+
+	confluenceOut, code := runCLI(t, env, "profile", "show", "--section", "render_defaults", "--service", "confluence")
+	if code != exitOK || strings.Contains(confluenceOut, `"jira"`) || strings.Contains(confluenceOut, `"field_views"`) || !strings.Contains(confluenceOut, `"page_fields"`) {
+		t.Fatalf("Confluence render slice exit=%d out=%s", code, confluenceOut)
+	}
+	assertGolden(t, "profile_show_render_confluence.json", normalizeProfileGolden(confluenceOut, cfgDir))
+
+	jiraOut, code := runCLI(t, env, "profile", "show", "--section", "render_defaults", "--service", "jira")
+	if code != exitOK || strings.Contains(jiraOut, `"confluence"`) || strings.Contains(jiraOut, `"page_fields"`) || !strings.Contains(jiraOut, `"field_views"`) {
+		t.Fatalf("Jira render slice exit=%d out=%s", code, jiraOut)
+	}
+	assertGolden(t, "profile_show_render_jira.json", normalizeProfileGolden(jiraOut, cfgDir))
+}
+
+func TestProfileRenderSliceShapeDependsOnlyOnSelectedService(t *testing.T) {
+	for _, service := range []string{"jira", "confluence"} {
+		t.Run(service, func(t *testing.T) {
+			selectedPopulated := &config.RenderService{Profile: "full"}
+			siblingPopulated := &config.RenderService{Profile: "minimal"}
+			var siblingOnly, selectedEmpty, selectedValue *config.RenderConfig
+			if service == "jira" {
+				siblingOnly = &config.RenderConfig{Confluence: siblingPopulated}
+				selectedEmpty = &config.RenderConfig{Jira: &config.RenderService{}}
+				selectedValue = &config.RenderConfig{Jira: selectedPopulated, Confluence: siblingPopulated}
+			} else {
+				siblingOnly = &config.RenderConfig{Jira: siblingPopulated}
+				selectedEmpty = &config.RenderConfig{Confluence: &config.RenderService{}}
+				selectedValue = &config.RenderConfig{Jira: siblingPopulated, Confluence: selectedPopulated}
+			}
+			for _, tt := range []struct {
+				name   string
+				render *config.RenderConfig
+				want   string
+			}{
+				{name: "outer absent", want: `{"` + service + `":null}`},
+				{name: "sibling only", render: siblingOnly, want: `{"` + service + `":null}`},
+				{name: "selected explicit empty", render: selectedEmpty, want: `{"` + service + `":{}}`},
+				{name: "selected populated", render: selectedValue, want: `{"` + service + `":{"profile":"full"}}`},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					data, err := profileSlice(profilepkg.Profile{RenderDefaults: tt.render}, true, "render_defaults", service)
+					if err != nil {
+						t.Fatal(err)
+					}
+					encoded, err := json.Marshal(data)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if string(encoded) != tt.want {
+						t.Fatalf("slice=%s want=%s", encoded, tt.want)
+					}
+				})
+			}
+		})
 	}
 }
 
