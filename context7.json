@@ -3,6 +3,8 @@
   "projectTitle": "atl",
   "description": "A safety-oriented CLI for agent and human workflows with Jira and Confluence Server/Data Center.",
   "branch": "main",
+  "url": "https://context7.com/isukharev/atl",
+  "public_key": "pk_NIFQm8iP6pykrT8Uit4xD",
   "folders": [
     "docs"
   ],

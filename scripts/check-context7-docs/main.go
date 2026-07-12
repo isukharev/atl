@@ -72,6 +72,12 @@ func validate(root string) (report, error) {
 	if len(cfg.Rules) == 0 {
 		return report{}, errors.New("context7.json must carry agent-facing rules")
 	}
+	if cfg.URL != "https://context7.com/isukharev/atl" {
+		return report{}, errors.New("context7.json must carry the canonical Context7 ownership URL")
+	}
+	if !strings.HasPrefix(cfg.PublicKey, "pk_") || len(cfg.PublicKey) <= len("pk_") {
+		return report{}, errors.New("context7.json must carry the public ownership verifier")
+	}
 
 	excludedFiles := stringSet(cfg.ExcludeFiles)
 	var problems []string

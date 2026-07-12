@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contributor/roadmap files, supplies core CLI/write-safety rules, and adds
   code-bearing agent recipes plus a deterministic scope/snippet check. The
   registration, benchmark, verification, and refresh runbook remains the
-  external quality gate.
+  external quality gate. The config also carries Context7's public repository
+  ownership URL and verifier without exposing an API credential.
 
 - **Confluence Jira JQL macros use shared issue tables.** Transient page views
   and pulls can resolve query macros through bounded Jira searches, render the
