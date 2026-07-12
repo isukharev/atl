@@ -42,7 +42,7 @@ Load this reference only when exact command or flag lookup is useful.
 | `jira apply <FILE.md>` | Merge/stage supported generated edits | `--dry-run`, `--allow-loss`, `--rebase-pending`, `--into`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `jira status [DIR]` | Show local edits and optional remote drift | `--remote` |
 | `jira push <file.wiki\|DIR>` | Preview or apply guarded write-back | `--apply`, `--force`, `--into` |
-| `jira export` | Write compact JSONL/JSON/CSV plus manifest | `--jql`/`--ids`/`--keys`, `--out`, `--format`, `--limit`, `--fields`, `--batch-size`, `--raw-csv` |
+| `jira export` | Write compact JSONL/JSON/CSV plus manifest, or artifact-only stdout with `--out -` | `--jql`/`--ids`/`--keys`, `--out`, `--format`, `--limit`, `--fields` ids/names, `--batch-size`, `--raw-csv` |
 | `jira export diff <OLD> <NEW>` | Compare compact exports | — |
 | `jira planning report` | Deterministic planning quality report | `--jql`, `--require`, `--estimate-field`, `--epic-field`, `--limit`, `--csv`, `--raw-csv` |
 | `jira quality-report` | Compatibility alias | same flags as `planning report` |

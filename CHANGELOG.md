@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `jira export --out -` now writes artifact-only JSONL, aggregate JSON arrays,
+  or formula-safe CSV directly to stdout without a manifest/result envelope;
+  exact field display names resolve to stable ids before batch search.
+
 - `jira issue history` now exposes explicit changelog completeness/provenance,
   paginates where the Jira Data Center endpoint is available, preserves field
   ids, supports exact `--field` plus inclusive `--since`/`--until` filters, and

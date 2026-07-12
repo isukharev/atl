@@ -24,6 +24,15 @@ type generatedExportTracker struct {
 
 type duplicateExportTracker struct{ domain.Tracker }
 
+type failingSecondPageExportTracker struct{ domain.Tracker }
+
+func (failingSecondPageExportTracker) Search(_ context.Context, _ string, _ []string, _ int, cursor string) ([]domain.Issue, string, error) {
+	if cursor != "" {
+		return nil, "", errors.New("later page failed")
+	}
+	return []domain.Issue{{ID: "1", Key: "PROJ-1", Fields: map[string]any{"summary": "first"}}}, "next", nil
+}
+
 func (duplicateExportTracker) Search(_ context.Context, _ string, _ []string, _ int, _ string) ([]domain.Issue, string, error) {
 	return []domain.Issue{{ID: "1", Key: "PROJ-1", Fields: map[string]any{"summary": "same"}}}, "", nil
 }
@@ -108,6 +117,23 @@ func TestJiraExportWritesJSONLAndSanitizedManifest(t *testing.T) {
 	}
 }
 
+func TestJiraExportTransientRequiresExplicitWriter(t *testing.T) {
+	_, err := (&JiraService{tr: partialTracker{}}).Export(context.Background(), JiraExportOpts{JQL: "project = PROJ", Out: "-"})
+	if !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("err=%v, want ErrUsage", err)
+	}
+}
+
+func TestJiraExportTransientReturnsErrorAfterWrittenPrefix(t *testing.T) {
+	var out bytes.Buffer
+	_, err := (&JiraService{tr: failingSecondPageExportTracker{}}).Export(context.Background(), JiraExportOpts{
+		JQL: "project = PROJ", Out: "-", Format: "jsonl", Writer: &out,
+	})
+	if err == nil || !strings.Contains(out.String(), `"key":"PROJ-1"`) {
+		t.Fatalf("err=%v output=%q", err, out.String())
+	}
+}
+
 func TestRenderJiraExportCSVUsesDeterministicHeader(t *testing.T) {
 	data, err := renderJiraExport("csv", []JiraIssueSnapshot{{
 		Key: "PROJ-1",
@@ -117,7 +143,7 @@ func TestRenderJiraExportCSVUsesDeterministicHeader(t *testing.T) {
 			"customfield_10001": "team-a",
 			"status":            map[string]any{"name": "Open"},
 		},
-	}}, []string{"customfield_10001"}, JiraExportManifest{}, false)
+	}}, []string{"customfield_10001"}, JiraExportManifest{}, false, false)
 	if err != nil {
 		t.Fatalf("render csv: %v", err)
 	}
