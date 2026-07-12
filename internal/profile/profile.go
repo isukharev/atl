@@ -192,8 +192,8 @@ func Validate(p Profile) error {
 			return fmt.Errorf("%w: Confluence render_defaults cannot contain Jira-only custom_fields, field_views, or epic_field", domain.ErrUsage)
 		}
 		if p.RenderDefaults.Jira != nil {
-			if len(p.RenderDefaults.Jira.PageFields) > 0 {
-				return fmt.Errorf("%w: Jira render_defaults cannot contain Confluence-only page_fields", domain.ErrUsage)
+			if len(p.RenderDefaults.Jira.PageFields) > 0 || p.RenderDefaults.Jira.JiraMacros != "" {
+				return fmt.Errorf("%w: Jira render_defaults cannot contain Confluence-only page_fields or jira_macros", domain.ErrUsage)
 			}
 			for i, view := range p.RenderDefaults.Jira.FieldViews {
 				if _, err := config.NormalizeJiraFieldView(view); err != nil {
@@ -205,6 +205,9 @@ func Validate(p Profile) error {
 			}
 		}
 		if p.RenderDefaults.Confluence != nil {
+			if !config.ValidJiraMacroMode(p.RenderDefaults.Confluence.JiraMacros) {
+				return fmt.Errorf("%w: invalid render_defaults Confluence jira_macros policy %q", domain.ErrUsage, p.RenderDefaults.Confluence.JiraMacros)
+			}
 			for i, view := range p.RenderDefaults.Confluence.PageFields {
 				if _, err := config.NormalizeConfluenceFieldView(view); err != nil {
 					return fmt.Errorf("%w: invalid render_defaults Confluence page_fields[%d]: %v", domain.ErrUsage, i, err)

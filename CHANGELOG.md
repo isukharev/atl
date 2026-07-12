@@ -109,6 +109,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Confluence Jira-query views remain byte-stable through guarded writes.**
+  Post-push refresh now reconstructs recorded query suffixes through the same
+  sidecar-aware path as render/apply/relocation, diagnostics distinguish Jira
+  Queries from Comments, intentional macro removal retires obsolete sidecars,
+  and stale recovery no longer loops. A new config/per-run `auto|off` policy
+  lets agents retain placeholders without loading Jira credentials or executing
+  page-provided JQL.
+
 - **Jira derived views close check-to-write gaps.** Offline render repeats each
   marker check under the mirror mutation lock, pull refuses to overwrite an
   unknown future view before changing that issue's artifacts, malformed or

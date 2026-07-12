@@ -262,6 +262,7 @@ atl config set --update-url https://releases.example.com/atl
 atl config set render.jira.profile full
 atl config set --local render.confluence.profile minimal
 atl config set --local render.confluence.page_fields '[{"id":"title"},{"id":"updated","format":"date"}]'
+atl config set render.confluence.jira_macros off # global-only: controls authenticated Jira reads
 atl config set --local render.jira.include sprint,epic_children
 
 # Reusable Jira list projection; omitted sources inherit "default":
@@ -280,7 +281,10 @@ Flags:
 
 **Render keys** (`render.{jira,confluence}.{profile,include,exclude}`, plus
 `render.jira.custom_fields`, `render.jira.field_views`, and
-`render.jira.epic_field`, plus `render.confluence.page_fields`) tune the derived `.md` view. `profile` is one of
+`render.jira.epic_field`, plus `render.confluence.page_fields` and
+`render.confluence.jira_macros`) tune the derived `.md` view. The macro policy
+is global-only (or an explicit per-run flag); mirror-local config cannot enable
+authenticated Jira reads. `profile` is one of
 `minimal`, `default`, `full`; `include`/`exclude`/`custom_fields` take a
 comma-separated list, while `field_views` and `page_fields` take JSON descriptor arrays.
 
@@ -891,6 +895,7 @@ Flags:
 | `--assets` | download draw.io PNG renders and inline images |
 | `--comments` | mirror page comments to `<slug>.comments.json` (+ `.comments.md`) sidecars |
 | `--jira-view` | named `jira_list_views` projection for Jira JQL macros whose macro configuration does not specify columns |
+| `--jira-macros` | `auto` (default) or `off`; `off` keeps placeholders and performs no Jira credential read/search |
 | `--into` | mirror root directory (default `mirror`) |
 | `--render-profile` | `.md` view profile: `minimal` \| `default` \| `full` (see [Render profiles](#render-profiles)) |
 | `--render-include` | comma-separated sections to add to the profile |
@@ -912,6 +917,13 @@ configuration or one failed query retains the placeholder and emits a bounded
 stderr warning; it never blocks the native page pull. Resolution is capped per
 page at 20 JQL macros and 2000 total rows (1000 per macro); omitted macros stay
 as placeholders and are reported.
+
+Set `render.confluence.jira_macros` to `off`, or pass `--jira-macros off` to
+`conf pull` / `conf page view`, when page-provided JQL should not execute with
+the current user's Jira identity. The opt-out is resolved before Jira
+credentials are loaded, retains readable placeholders, removes any generated
+query sidecar on pull, and emits a bounded warning. `--jira-view` is invalid
+while expansion is off.
 
 `--comments` is opt-in: without it, no comment endpoint is contacted and no
 comment files are written. Comments are auxiliary read-only data — they never
@@ -1177,7 +1189,12 @@ Queries` is refused; change the native macro in Confluence or select another
 `jira_list_views` projection on the next pull. The
 `.jira-macros.json` sidecar is bound to the page id and ordered macro
 descriptors. Missing or stale enrichment never becomes editable page content:
-apply fails closed and asks for a fresh pull.
+apply fails closed and names the generated section that changed. A corrupt or
+non-empty mismatched sidecar gives a non-looping recovery step: remove only the
+generated `.jira-macros.json`, then run `conf pull`. When an explicitly
+loss-approved body edit removes the native macro, apply retires the obsolete
+sidecar automatically. Post-push refresh rebuilds the same suffix, so an
+untouched subsequent apply remains byte-stable.
 
 Output: `{path, csf_path, dry_run, report: {unchanged, moved, converted,
 removed, merged_tables?, removed_fragments?, problems?}, csf_ok, wrote,

@@ -202,6 +202,27 @@ func TestConfPageViewTextWritesNothing(t *testing.T) {
 	}
 }
 
+func TestConfPageViewJiraMacroOptOut(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"12345","title":"Plan","space":{"key":"ENG"},"version":{"number":7},"body":{"storage":{"value":"<ac:structured-macro ac:name=\"jira\"><ac:parameter ac:name=\"jqlQuery\">project = PROJ</ac:parameter></ac:structured-macro>"}}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	out, stderr, code := runCLIFull(t, confEnv(srv), "conf", "page", "view", "12345", "--jira-macros", "off", "-o", "text")
+	if code != exitOK {
+		t.Fatalf("conf page view opt-out: exit=%d stdout=%q stderr=%q", code, out, stderr)
+	}
+	if requests != 1 || !strings.Contains(out, "jira query: project = PROJ") || strings.Contains(out, "# Jira Queries") {
+		t.Fatalf("opt-out requests=%d output=%s", requests, out)
+	}
+	if !strings.Contains(stderr, "no Jira request was made") {
+		t.Fatalf("opt-out warning=%q", stderr)
+	}
+}
+
 func TestConfPageViewFindsNearestLocalRenderConfig(t *testing.T) {
 	root := t.TempDir()
 	configDir := filepath.Join(root, ".atl")

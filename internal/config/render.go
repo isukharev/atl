@@ -12,9 +12,10 @@ import (
 	"github.com/isukharev/atl/internal/safepath"
 )
 
-// RenderService holds the markdown-view rendering knobs for one backend. It is
-// presentation-only: none of these keys can influence where a PAT is sent, so
-// they are the sole content a per-mirror local config may carry.
+// RenderService holds view-related knobs for one backend. Most are
+// presentation-only and may live in a mirror-local config. JiraMacros is the
+// exception: it controls whether authenticated Jira reads may occur and is
+// therefore global/per-run only; LoadLocal always drops it.
 type RenderService struct {
 	Profile      string                `json:"profile,omitempty"` // minimal|default|full ("" = default)
 	Include      []string              `json:"include,omitempty"`
@@ -23,6 +24,7 @@ type RenderService struct {
 	FieldViews   []JiraFieldView       `json:"field_views,omitempty"`   // jira only; typed presentation
 	EpicField    string                `json:"epic_field,omitempty"`    // jira only; empty = auto-detect Epic Link
 	PageFields   []ConfluenceFieldView `json:"page_fields,omitempty"`   // confluence only; typed page metadata
+	JiraMacros   string                `json:"jira_macros,omitempty"`   // confluence only: auto (default) | off
 }
 
 // JiraFieldView describes how one raw Jira field is presented in the derived
@@ -80,6 +82,10 @@ const DefaultProfile = "default"
 
 // validProfiles is the closed set of render profile names (empty means default).
 var validProfiles = map[string]bool{"minimal": true, "default": true, "full": true}
+
+// ValidJiraMacroMode reports whether a Confluence Jira-query expansion policy
+// is accepted. Empty inherits the effective default (auto).
+func ValidJiraMacroMode(mode string) bool { return mode == "" || mode == "auto" || mode == "off" }
 
 // ValidProfile reports whether p is an accepted render profile. Empty is valid
 // (it falls back to the default profile).
@@ -184,11 +190,19 @@ func sanitizeService(s *RenderService, keyPrefix, path string, warnings []string
 			warnings = append(warnings, fmt.Sprintf("ignoring Confluence-only page_fields under %s in local config %s", keyPrefix, path))
 			s.PageFields = nil
 		}
+		if s.JiraMacros != "" {
+			warnings = append(warnings, fmt.Sprintf("ignoring Confluence-only jira_macros under %s in local config %s", keyPrefix, path))
+			s.JiraMacros = ""
+		}
 		if strings.ContainsAny(s.EpicField, "\r\n") {
 			warnings = append(warnings, fmt.Sprintf("ignoring %s.epic_field in local config %s: line breaks are not allowed", keyPrefix, path))
 			s.EpicField = ""
 		}
 	} else {
+		if s.JiraMacros != "" {
+			warnings = append(warnings, fmt.Sprintf("ignoring global-only %s.jira_macros in local config %s: a shared mirror cannot enable authenticated Jira reads", keyPrefix, path))
+			s.JiraMacros = ""
+		}
 		var kept []ConfluenceFieldView
 		for i, fv := range s.PageFields {
 			norm, err := NormalizeConfluenceFieldView(fv)
@@ -253,6 +267,8 @@ func mergeService(keyPrefix string, global, local *RenderService, prov Provenanc
 		prov[keyPrefix+".epic_field"] = "default"
 	} else {
 		prov[keyPrefix+".page_fields"] = "default"
+		prov[keyPrefix+".jira_macros"] = "default"
+		out.JiraMacros = "auto"
 	}
 
 	apply := func(s *RenderService, source string) {
@@ -287,6 +303,10 @@ func mergeService(keyPrefix string, global, local *RenderService, prov Provenanc
 			out.PageFields = append([]ConfluenceFieldView(nil), s.PageFields...)
 			prov[keyPrefix+".page_fields"] = source
 		}
+		if !jira && s.JiraMacros != "" {
+			out.JiraMacros = s.JiraMacros
+			prov[keyPrefix+".jira_macros"] = source
+		}
 	}
 	apply(global, "global")
 	apply(local, "local")
@@ -303,6 +323,7 @@ var renderFields = map[string]bool{
 	"field_views":   true,
 	"epic_field":    true,
 	"page_fields":   true,
+	"jira_macros":   true,
 }
 
 // ValidRenderKeys lists the accepted dotted keys for `config set`, for error
@@ -312,6 +333,7 @@ func ValidRenderKeys() []string {
 		"render.jira.profile", "render.jira.include", "render.jira.exclude", "render.jira.custom_fields", "render.jira.field_views", "render.jira.epic_field",
 		"render.confluence.profile", "render.confluence.include", "render.confluence.exclude",
 		"render.confluence.page_fields",
+		"render.confluence.jira_macros",
 	}
 }
 
@@ -339,6 +361,9 @@ func SetRenderKey(rc *RenderConfig, key, value string) error {
 	}
 	if (field == "custom_fields" || field == "field_views" || field == "epic_field") && svc != "jira" {
 		return fmt.Errorf("%s is jira-only; %q is not valid", field, key)
+	}
+	if field == "jira_macros" && svc != "confluence" {
+		return fmt.Errorf("jira_macros is confluence-only; %q is not valid", key)
 	}
 	if field == "page_fields" && svc != "confluence" {
 		return fmt.Errorf("page_fields is confluence-only; %q is not valid", key)
@@ -397,6 +422,12 @@ func SetRenderKey(rc *RenderConfig, key, value string) error {
 			views[i] = norm
 		}
 		s.PageFields = views
+	case "jira_macros":
+		value = strings.TrimSpace(value)
+		if !ValidJiraMacroMode(value) || value == "" {
+			return fmt.Errorf("jira_macros must be auto or off")
+		}
+		s.JiraMacros = value
 	}
 	return nil
 }

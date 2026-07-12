@@ -110,9 +110,9 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 		return nil, fmt.Errorf("%w: pristine CSF for page %s no longer parses; re-pull before applying Markdown edits: %v", domain.ErrCheckFailed, lc.Meta.ID, perr)
 	}
 	page := confPageFromMeta(lc.Meta)
-	mdOpts := confMDViewOpts(rsView, page, readCommentsSidecar(m.Root, dir, slug))
-	if err := addConfluenceJiraMacrosFromSidecar(&mdOpts, m.Root, dir, slug, lc.Meta.ID, node); err != nil {
-		return nil, fmt.Errorf("%w: Jira macro enrichment sidecar cannot reproduce the generated view: %v; re-run conf pull before applying", domain.ErrCheckFailed, err)
+	mdOpts, sidecarErr := confMDViewOptsFromSidecars(rsView, page, readCommentsSidecar(m.Root, dir, slug), m.Root, dir, slug, lc.Meta.ID, node)
+	if sidecarErr != nil {
+		return nil, fmt.Errorf("%w: Jira macro enrichment sidecar cannot reproduce the generated view: %v; remove only the generated .jira-macros.json sidecar, then run `conf pull`", domain.ErrCheckFailed, sidecarErr)
 	}
 	prefix, pristineBody, suffix := mirror.RenderMarkdownViewParts(node, lc.Meta.Refs, mdOpts)
 	mergeInput, err := extractConfBody(edited, prefix, pristineBody, suffix)
@@ -151,8 +151,15 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 	if root2, perr := csf.Parse(out); perr == nil {
 		stub = false
 		if decorated {
-			opts := confMDViewOpts(rsView, confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug))
-			if sidecarErr := addConfluenceJiraMacrosFromSidecar(&opts, m.Root, dir, slug, lc.Meta.ID, root2); sidecarErr == nil {
+			if jiraMacroDescriptorHash(mirror.JiraMacroDescriptors(node)) != jiraMacroDescriptorHash(mirror.JiraMacroDescriptors(root2)) {
+				if removeErr := writeConfluenceJiraMacroSidecar(m.Root, dir, slug, nil); removeErr != nil {
+					res.Warning = "applied, but the obsolete Jira macro sidecar could not be removed: " + removeErr.Error()
+				} else {
+					res.Warning = "applied; Jira query results were retired because the native macro set changed — re-pull to resolve remaining macros"
+				}
+			}
+			opts, sidecarErr := confMDViewOptsFromSidecars(rsView, confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug), m.Root, dir, slug, lc.Meta.ID, root2)
+			if sidecarErr == nil {
 				md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, opts)
 			} else {
 				md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, confMDViewOpts(rsView, confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug)))
@@ -211,16 +218,57 @@ func extractConfBody(edited, prefix, pristineBody, suffix string) (string, error
 	rest := strings.TrimRight(edited[len(prefix):], "\n")
 	tail := strings.TrimRight(suffix, "\n")
 	if tail != "" {
-		if !strings.HasSuffix(rest, tail) {
-			return "", fmt.Errorf("%w: the \"# Comments\" section is read-only in the md view — use `conf comment add`", domain.ErrCheckFailed)
+		var suffixErr error
+		rest, suffixErr = stripConfluenceGeneratedSuffix(rest, tail)
+		if suffixErr != nil {
+			return "", suffixErr
 		}
-		rest = rest[:len(rest)-len(tail)]
 	}
 	body := strings.Trim(rest, "\n") + "\n"
 	if !sameReservedMarkerText(body, pristineBody) {
 		return "", fmt.Errorf("%w: editable Confluence body added, removed, renamed, or reordered reserved atl document/section marker text; edit the native .csf for intentional marker prose changes", domain.ErrCheckFailed)
 	}
 	return body, nil
+}
+
+func stripConfluenceGeneratedSuffix(edited, pristine string) (string, error) {
+	type section struct {
+		marker string
+		label  string
+		remedy string
+	}
+	// Generated order is Jira Queries followed by Comments, so validate and
+	// strip in reverse. This lets an unchanged trailing Comments section prove
+	// that a preceding Jira table—not Comments—was the region that changed.
+	sections := []section{
+		{marker: mirror.ConfluenceCommentsMarker, label: "# Comments", remedy: "use `conf comment add`"},
+		{marker: mirror.ConfluenceJiraMacrosMarker, label: "# Jira Queries", remedy: "re-pull to refresh query results and use Jira commands to change issues"},
+	}
+	remaining := pristine
+	for _, generated := range sections {
+		needle := "\n" + generated.marker + "\n"
+		start := strings.Index(remaining, needle)
+		if start < 0 {
+			if strings.HasPrefix(remaining, generated.marker+"\n") {
+				start = 0
+			} else {
+				continue
+			}
+		}
+		sectionBytes := remaining[start:]
+		if !strings.HasSuffix(edited, sectionBytes) {
+			return "", fmt.Errorf("%w: the %q generated section is read-only in the md view — %s", domain.ErrCheckFailed, generated.label, generated.remedy)
+		}
+		edited = strings.TrimRight(edited[:len(edited)-len(sectionBytes)], "\n")
+		remaining = strings.TrimRight(remaining[:start], "\n")
+	}
+	if remaining != "" {
+		if !strings.HasSuffix(edited, remaining) {
+			return "", fmt.Errorf("%w: a generated read-only suffix changed; restore it from `conf render` after preserving body edits", domain.ErrCheckFailed)
+		}
+		edited = edited[:len(edited)-len(remaining)]
+	}
+	return edited, nil
 }
 
 func sameReservedMarkerText(edited, pristine string) bool {

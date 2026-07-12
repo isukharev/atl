@@ -284,6 +284,7 @@ atl conf space tree --space DOCS
 # Идентификаторы страниц берутся из вывода atl conf pull (meta.json → поле "id") или URL страницы.
 atl conf page view 123456 -o text   # настроенный Markdown без артефактов mirror
 atl conf page view 123456 --jira-view full -o text # read-only таблицы Jira-макросов
+atl conf page view 123456 --jira-macros off -o text # только placeholders; без Jira credentials/search
 atl conf page get     --id 123456
 atl conf page get     --id 123456 --format csf
 atl conf page meta    --id 123456  # если restricted отсутствует, состояние неизвестно
@@ -294,6 +295,7 @@ atl conf page title set 123456 --from-file title.txt
 # Типизированные read-only метаданные страницы (см. docs/usage.md)
 atl config set render.confluence.include page_fields
 atl config set render.confluence.page_fields '[{"id":"title"},{"id":"updated","format":"date"}]'
+atl config set render.confluence.jira_macros off # default auto; отключить JQL со страниц глобально
 # View v3 разделяет # Metadata / # Content / Jira-запросы / # Comments; нативное
 # форматирование комментариев и target ссылок на страницы сохраняются.
 atl conf table extract --id 123456 --format json

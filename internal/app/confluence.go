@@ -225,12 +225,16 @@ type PullResult struct {
 
 // Pull mirrors pages selected by id/cql/space into Into.
 func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, error) {
-	if err := s.validateConfluenceJiraView(o.JiraView); err != nil {
-		return nil, err
-	}
 	root := o.Into
 	if root == "" {
 		root = "mirror"
+	}
+	// Resolve presentation policy before backend reads or mirror writes. In
+	// particular, jira_macros=off guarantees that this command never loads Jira
+	// credentials or executes page-provided JQL.
+	rs, warns := ResolveRender(s.cfg, root, o.Render, "confluence")
+	if err := s.validateConfluenceJiraView(o.JiraView, rs.ExpandJiraMacros); err != nil {
+		return nil, err
 	}
 	m := mirror.New(root)
 	lock, err := lockConfluenceMutations(root, true)
@@ -248,7 +252,6 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 	// Resolve the effective render settings for THIS mirror root (local config
 	// lives under it). Default/minimal keep the body-only view byte-identical to
 	// today; only `full` (or an explicit include) adds metadata/comments.
-	rs, warns := ResolveRender(s.cfg, root, o.Render, "confluence")
 	res := &PullResult{Root: root, Warnings: warns}
 	if truncated {
 		res.Truncated = true
@@ -263,6 +266,7 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 		return nil, err
 	}
 	defer func() { _ = batch.Flush() }()
+	macroOptOutWarned := false
 	for _, id := range ids {
 		page, err := s.store.GetPage(ctx, id, domain.PullOpts{Format: "csf", IncludeRestrictions: confluenceNeedsRestrictions(rs)})
 		if err != nil {
@@ -309,11 +313,14 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 		}
 		mdOpts := confMDViewOpts(rs, page, comments)
 		var jiraMacros *confluenceJiraMacroSidecar
-		if pageNode != nil {
+		if pageNode != nil && rs.ExpandJiraMacros {
 			var macroWarnings []string
 			jiraMacros, macroWarnings = s.resolveConfluenceJiraMacros(ctx, page.ID, pageNode, o.JiraView)
 			res.Warnings = append(res.Warnings, macroWarnings...)
 			mdOpts.JiraMacros = confluenceJiraMacroViews(jiraMacros)
+		} else if pageNode != nil && len(mirror.JiraMacroDescriptors(pageNode)) > 0 && !macroOptOutWarned {
+			res.Warnings = append(res.Warnings, "render: Jira query macro expansion is disabled; placeholders retained and no Jira request was made")
+			macroOptOutWarned = true
 		}
 		if o.Comments {
 			if err := batch.WriteComments(dir, slug, page, refs, comments, commentsTruncated, mdOpts); err != nil {
@@ -396,9 +403,9 @@ func planConfluencePageRelocation(m *mirror.Mirror, id, newRel string) (*mirror.
 	if node, parseErr := csf.Parse(base); parseErr == nil {
 		opts := mirror.MDViewOpts{}
 		if hasView {
-			opts = confMDViewOpts(settingsFromViewState(view), confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug))
-			if sidecarErr := addConfluenceJiraMacrosFromSidecar(&opts, m.Root, dir, slug, lc.Meta.ID, node); sidecarErr != nil {
-				return nil, fmt.Errorf("%w: Jira macro enrichment sidecar cannot reproduce relocation source: %v; re-pull first", domain.ErrCheckFailed, sidecarErr)
+			opts, err = confMDViewOptsFromSidecars(settingsFromViewState(view), confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug), m.Root, dir, slug, lc.Meta.ID, node)
+			if err != nil {
+				return nil, fmt.Errorf("%w: Jira macro enrichment sidecar cannot reproduce relocation source: %v; remove only the generated .jira-macros.json sidecar, then run `conf pull`", domain.ErrCheckFailed, err)
 			}
 		}
 		md = mirror.RenderMarkdownOpts(node, lc.Meta.Refs, opts)
@@ -714,7 +721,9 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 	dir := filepath.Dir(path)
 	slug := strings.TrimSuffix(filepath.Base(path), ".csf")
 	refs := []domain.Ref{}
+	var pageNode *csf.Node
 	if r, perr := csf.Parse(page.Body); perr == nil {
+		pageNode = r
 		refs = fragment.Resolve(ctx, page, fragment.Extract(r), fragment.Deps{Users: s.users})
 	}
 	// Keep the refreshed .md view consistent with the mirror's configured profile
@@ -722,6 +731,14 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 	// comments after a push instead of reverting to the body-only default. Comments
 	// are read from the existing sidecar (push does not fetch them).
 	mdOpts := confMDViewOpts(refreshRS, page, readCommentsSidecar(m.Root, dir, slug))
+	if pageNode != nil {
+		var sidecarErr error
+		mdOpts, sidecarErr = confMDViewOptsFromSidecars(refreshRS, page, readCommentsSidecar(m.Root, dir, slug), m.Root, dir, slug, lc.Meta.ID, pageNode)
+		if sidecarErr != nil {
+			item.Warning = "pushed but Jira macro view state could not be reproduced; local files were preserved (remove only the generated .jira-macros.json sidecar, then run `conf pull`): " + sidecarErr.Error()
+			return item, nil
+		}
+	}
 	if werr := m.WriteView(dir, slug, page, refs, mdOpts); werr != nil {
 		item.Warning = "pushed but local refresh failed (re-pull recommended): " + werr.Error()
 	} else if verr := m.SaveViewStates(map[string]mirror.ViewState{lc.Meta.ID: viewStateOf(refreshRS)}); verr != nil {

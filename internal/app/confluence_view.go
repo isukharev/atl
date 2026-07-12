@@ -37,14 +37,14 @@ type ConfluencePageViewResult struct {
 // fetching binary assets. Every generated section, including the body, is
 // marked read-only because this transient document has no writeback baseline.
 func (s *ConfluenceService) ViewPage(ctx context.Context, id string, opts ConfluencePageViewOpts) (*ConfluencePageViewResult, error) {
-	if err := s.validateConfluenceJiraView(opts.JiraView); err != nil {
-		return nil, err
-	}
 	root := strings.TrimSpace(opts.Root)
 	if root == "" {
 		root = "."
 	}
 	rs, warnings := ResolveRender(s.cfg, root, opts.Render, "confluence")
+	if err := s.validateConfluenceJiraView(opts.JiraView, rs.ExpandJiraMacros); err != nil {
+		return nil, err
+	}
 	page, err := s.store.GetPage(ctx, id, domain.PullOpts{
 		Format: "csf", IncludeRestrictions: confluenceNeedsRestrictions(rs),
 	})
@@ -72,9 +72,13 @@ func (s *ConfluenceService) ViewPage(ctx context.Context, id string, opts Conflu
 		}
 	}
 	mdOpts := confMDViewOpts(rs, page, comments)
-	jiraMacros, macroWarnings := s.resolveConfluenceJiraMacros(ctx, page.ID, node, opts.JiraView)
-	warnings = append(warnings, macroWarnings...)
-	mdOpts.JiraMacros = confluenceJiraMacroViews(jiraMacros)
+	if rs.ExpandJiraMacros {
+		jiraMacros, macroWarnings := s.resolveConfluenceJiraMacros(ctx, page.ID, node, opts.JiraView)
+		warnings = append(warnings, macroWarnings...)
+		mdOpts.JiraMacros = confluenceJiraMacroViews(jiraMacros)
+	} else if len(mirror.JiraMacroDescriptors(node)) > 0 {
+		warnings = append(warnings, "render: Jira query macro expansion is disabled; placeholders retained and no Jira request was made")
+	}
 	mdOpts.ReadOnly = true
 	return &ConfluencePageViewResult{
 		ID:       page.ID,

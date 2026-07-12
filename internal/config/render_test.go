@@ -208,6 +208,33 @@ func TestEffectiveRenderNilInputs(t *testing.T) {
 	}
 }
 
+func TestEffectiveConfluenceJiraMacroPolicy(t *testing.T) {
+	render, prov := EffectiveRender(nil, nil)
+	if render.Confluence == nil || render.Confluence.JiraMacros != "auto" || prov["render.confluence.jira_macros"] != "default" {
+		t.Fatalf("default Jira macro policy: render=%+v provenance=%v", render.Confluence, prov)
+	}
+	global := &Config{Render: &RenderConfig{Confluence: &RenderService{JiraMacros: "off"}}}
+	render, prov = EffectiveRender(global, nil)
+	if render.Confluence.JiraMacros != "off" || prov["render.confluence.jira_macros"] != "global" {
+		t.Fatalf("global Jira macro policy: render=%+v provenance=%v", render.Confluence, prov)
+	}
+}
+
+func TestLoadLocalInvalidJiraMacroPolicyDropped(t *testing.T) {
+	root := t.TempDir()
+	writeLocal(t, root, `{"render":{"confluence":{"jira_macros":"execute-everything"}}}`)
+	lc, warnings, err := LoadLocal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "global-only") || !strings.Contains(warnings[0], "authenticated Jira reads") {
+		t.Fatalf("warnings=%v", warnings)
+	}
+	if lc == nil || lc.Render == nil || lc.Render.Confluence == nil || lc.Render.Confluence.JiraMacros != "" {
+		t.Fatalf("invalid local Jira macro policy survived: %+v", lc)
+	}
+}
+
 func TestSetRenderKey(t *testing.T) {
 	rc := &RenderConfig{}
 	if err := SetRenderKey(rc, "render.jira.profile", "full"); err != nil {
@@ -242,6 +269,12 @@ func TestSetRenderKey(t *testing.T) {
 	}
 	if err := SetRenderKey(rc, "render.confluence.page_fields", `[{"id":"updated","label":"Last changed","format":"date"},{"id":"labels","placement":"section"}]`); err != nil {
 		t.Fatal(err)
+	}
+	if err := SetRenderKey(rc, "render.confluence.jira_macros", "off"); err != nil {
+		t.Fatal(err)
+	}
+	if rc.Confluence.JiraMacros != "off" {
+		t.Fatalf("jira_macros=%q", rc.Confluence.JiraMacros)
 	}
 	if got := rc.Confluence.PageFields; len(got) != 2 || got[0].Label != "Last changed" || got[1].Format != "list" {
 		t.Errorf("page_fields not normalized: %+v", got)

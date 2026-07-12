@@ -82,11 +82,12 @@ var jiraDefaultSections = []string{
 // consume — resolution (profile + include/exclude + flag override) happens once,
 // upstream, so a renderer never touches config.
 type RenderSettings struct {
-	Sections     map[string]bool
-	CustomFields []string
-	FieldViews   []config.JiraFieldView
-	PageFields   []config.ConfluenceFieldView
-	EpicField    string
+	Sections         map[string]bool
+	CustomFields     []string
+	FieldViews       []config.JiraFieldView
+	PageFields       []config.ConfluenceFieldView
+	EpicField        string
+	ExpandJiraMacros bool
 }
 
 // On reports whether a section is enabled.
@@ -191,7 +192,15 @@ func computeSettings(backend string, svc config.RenderService) (RenderSettings, 
 		if sections[SecPageFields] && len(views) == 0 {
 			views = defaultConfluencePageFields()
 		}
-		return RenderSettings{Sections: sections, PageFields: views}, warns
+		expandJiraMacros := svc.JiraMacros == "" || svc.JiraMacros == "auto"
+		if !config.ValidJiraMacroMode(svc.JiraMacros) {
+			// This key controls authenticated Jira reads, so a manually corrupted
+			// global config fails closed to placeholders rather than treating an
+			// unknown value as auto.
+			expandJiraMacros = false
+			warns = append(warns, fmt.Sprintf("render: invalid confluence jira_macros policy %q; disabling authenticated Jira macro reads (want auto|off)", svc.JiraMacros))
+		}
+		return RenderSettings{Sections: sections, PageFields: views, ExpandJiraMacros: expandJiraMacros}, warns
 	}
 	views := make([]config.JiraFieldView, 0, len(svc.FieldViews))
 	if len(svc.PageFields) > 0 {
@@ -301,6 +310,9 @@ func applyRenderOverride(svc, o config.RenderService) config.RenderService {
 	}
 	if o.EpicField != "" {
 		out.EpicField = o.EpicField
+	}
+	if o.JiraMacros != "" {
+		out.JiraMacros = o.JiraMacros
 	}
 	return out
 }

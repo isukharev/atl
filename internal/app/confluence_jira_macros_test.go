@@ -109,6 +109,95 @@ func TestConfluenceJiraMacroPullSidecarKeepsOfflineRenderAndApplyStable(t *testi
 	}
 }
 
+func TestConfluenceJiraMacroPushRefreshKeepsNextApplyStable(t *testing.T) {
+	tracker := &recordingTracker{issues: []domain.Issue{{ID: "10001", Key: "PROJ-1", Summary: "First", Status: "Open", Fields: map[string]any{}}}}
+	page := &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 1, Body: []byte(jiraQueryMacroCSF)}
+	root := t.TempDir()
+	pull, err := (&ConfluenceService{store: &recordingStore{page: page}, jiraRead: tracker, cfg: &config.Config{}}).Pull(context.Background(), PullOpts{ID: "42", Into: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	csfPath := filepath.Join(root, filepath.FromSlash(pull.Pages[0].Path))
+	base := strings.TrimSuffix(csfPath, ".csf")
+	editedBody := strings.Replace(jiraQueryMacroCSF, "Plan", "Updated plan", 1)
+	if err := os.WriteFile(csfPath, []byte(editedBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := &stubStore{newVer: 2, page: &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 2, Body: []byte(editedBody)}}
+	result, err := (&ConfluenceService{store: store, cfg: &config.Config{}}).Push(context.Background(), csfPath, PushOpts{Into: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 || !result.Items[0].Pushed || result.Items[0].Warning != "" {
+		t.Fatalf("push=%+v", result)
+	}
+	md, err := os.ReadFile(base + ".md")
+	if err != nil || !strings.Contains(string(md), mirror.ConfluenceJiraMacrosMarker) {
+		t.Fatalf("post-push view lost Jira query suffix: %q err=%v", md, err)
+	}
+	if _, err := Apply(base+".md", ApplyOpts{Into: root, DryRun: true}); err != nil {
+		t.Fatalf("untouched apply after push refresh: %v", err)
+	}
+}
+
+func TestConfluenceJiraMacroEditNamesJiraQueriesSection(t *testing.T) {
+	tracker := &recordingTracker{issues: []domain.Issue{{ID: "10001", Key: "PROJ-1", Summary: "First", Status: "Open", Fields: map[string]any{}}}}
+	page := &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 1, Body: []byte(jiraQueryMacroCSF)}
+	root := t.TempDir()
+	pull, err := (&ConfluenceService{store: &recordingStore{page: page}, jiraRead: tracker, cfg: &config.Config{}}).Pull(context.Background(), PullOpts{ID: "42", Into: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := strings.TrimSuffix(filepath.Join(root, filepath.FromSlash(pull.Pages[0].Path)), ".csf")
+	md, err := os.ReadFile(base + ".md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := strings.Replace(string(md), "| PROJ-1 | First |", "| PROJ-1 | Changed |", 1)
+	if err := os.WriteFile(base+".md", []byte(tampered), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Apply(base+".md", ApplyOpts{Into: root, DryRun: true})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "# Jira Queries") || strings.Contains(err.Error(), "# Comments") {
+		t.Fatalf("generated-section diagnostic=%v", err)
+	}
+}
+
+func TestConfluenceJiraMacroIntentionalRemovalRetiresSidecar(t *testing.T) {
+	tracker := &recordingTracker{issues: []domain.Issue{{ID: "10001", Key: "PROJ-1", Summary: "First", Status: "Open", Fields: map[string]any{}}}}
+	page := &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 1, Body: []byte(jiraQueryMacroCSF)}
+	root := t.TempDir()
+	pull, err := (&ConfluenceService{store: &recordingStore{page: page}, jiraRead: tracker, cfg: &config.Config{}}).Pull(context.Background(), PullOpts{ID: "42", Into: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := strings.TrimSuffix(filepath.Join(root, filepath.FromSlash(pull.Pages[0].Path)), ".csf")
+	md, err := os.ReadFile(base + ".md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := strings.Replace(string(md), "⟦jira query: project = PROJ⟧", "", 1)
+	if edited == string(md) {
+		t.Fatal("fixture did not render the Jira macro placeholder")
+	}
+	if err := os.WriteFile(base+".md", []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(base+".md", ApplyOpts{Into: root, AllowFragmentLoss: true}); err != nil {
+		t.Fatalf("intentional macro removal: %v", err)
+	}
+	if _, err := os.Stat(base + ".jira-macros.json"); !os.IsNotExist(err) {
+		t.Fatalf("obsolete Jira macro sidecar remains: %v", err)
+	}
+	if _, err := NewConfluenceRenderer(&config.Config{}).Render(root, config.RenderService{}); err != nil {
+		t.Fatalf("offline render after intentional macro removal: %v", err)
+	}
+	refreshed, err := os.ReadFile(base + ".md")
+	if err != nil || strings.Contains(string(refreshed), mirror.ConfluenceJiraMacrosMarker) {
+		t.Fatalf("retired Jira macro suffix returned: %q err=%v", refreshed, err)
+	}
+}
+
 func TestConfluenceJiraMacroTamperedSidecarFailsApplyClosed(t *testing.T) {
 	tracker := &recordingTracker{issues: []domain.Issue{{ID: "10001", Key: "PROJ-1", Summary: "First", Status: "Open", Fields: map[string]any{}}}}
 	page := &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 1, Body: []byte(jiraQueryMacroCSF)}
@@ -159,5 +248,56 @@ func TestConfluenceJiraMacroWithoutJiraKeepsPlaceholderAndWarns(t *testing.T) {
 	}
 	if !strings.Contains(result.Markdown, "jira query: project = PROJ") || strings.Contains(result.Markdown, mirror.ConfluenceJiraMacrosMarker) || len(result.Warnings) != 1 {
 		t.Fatalf("markdown=%s warnings=%v", result.Markdown, result.Warnings)
+	}
+}
+
+func TestConfluenceJiraMacroOptOutNeverLoadsJiraCredentials(t *testing.T) {
+	for _, operation := range []string{"view", "pull"} {
+		t.Run(operation, func(t *testing.T) {
+			factoryCalls := 0
+			service := &ConfluenceService{
+				store: &recordingStore{page: &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 1, Body: []byte(jiraQueryMacroCSF)}},
+				cfg:   &config.Config{},
+				jiraReadFactory: func() (domain.Tracker, string) {
+					factoryCalls++
+					return &recordingTracker{}, ""
+				},
+			}
+			override := config.RenderService{JiraMacros: "off"}
+			var markdown string
+			var warnings []string
+			if operation == "view" {
+				result, err := service.ViewPage(context.Background(), "42", ConfluencePageViewOpts{Root: t.TempDir(), Render: override})
+				if err != nil {
+					t.Fatal(err)
+				}
+				markdown, warnings = result.Markdown, result.Warnings
+			} else {
+				root := t.TempDir()
+				result, err := service.Pull(context.Background(), PullOpts{ID: "42", Into: root, Render: override})
+				if err != nil {
+					t.Fatal(err)
+				}
+				warnings = result.Warnings
+				mdPath := strings.TrimSuffix(filepath.Join(root, filepath.FromSlash(result.Pages[0].Path)), ".csf") + ".md"
+				b, err := os.ReadFile(mdPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				markdown = string(b)
+				if _, err := os.Stat(strings.TrimSuffix(mdPath, ".md") + ".jira-macros.json"); !os.IsNotExist(err) {
+					t.Fatalf("opt-out persisted Jira query results: %v", err)
+				}
+			}
+			if factoryCalls != 0 {
+				t.Fatalf("Jira credential factory called %d time(s)", factoryCalls)
+			}
+			if strings.Contains(markdown, mirror.ConfluenceJiraMacrosMarker) || !strings.Contains(markdown, "jira query: project = PROJ") {
+				t.Fatalf("opt-out markdown=%s", markdown)
+			}
+			if len(warnings) != 1 || !strings.Contains(warnings[0], "disabled") || !strings.Contains(warnings[0], "no Jira request") {
+				t.Fatalf("opt-out warnings=%v", warnings)
+			}
+		})
 	}
 }

@@ -242,6 +242,9 @@ func runSetLocal(cmd *cobra.Command, key, value string, hasKV bool, into, conflu
 	if key == "jira.list_views" || strings.HasPrefix(key, "jira.list_views.") {
 		return usageErr("%s is global-only; omit --local", key)
 	}
+	if key == "render.confluence.jira_macros" {
+		return usageErr("%s is global-only because it controls authenticated Jira reads; omit --local", key)
+	}
 	root, err := resolveLocalRoot(into)
 	if err != nil {
 		return err

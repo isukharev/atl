@@ -79,6 +79,17 @@ func TestConfigSetLocalInsideMirror(t *testing.T) {
 	}
 }
 
+func TestConfigSetLocalRejectsJiraMacroExecutionPolicy(t *testing.T) {
+	root := t.TempDir()
+	_, _, code := runCLIFull(t, nil, "config", "set", "--local", "--into", root, "render.confluence.jira_macros", "auto")
+	if code != exitUsage {
+		t.Fatalf("local Jira macro policy: exit=%d", code)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".atl", "config.json")); !os.IsNotExist(err) {
+		t.Fatalf("rejected policy wrote local config: %v", err)
+	}
+}
+
 // TestConfigSetLocalIntoRoot targets a root explicitly with --into, creating the
 // .atl dir there.
 func TestConfigSetLocalIntoRoot(t *testing.T) {
