@@ -18,6 +18,7 @@ type IssueListProjection struct {
 	Columns  []string `json:"columns"`
 	Fields   []string `json:"fields"`
 	Ordering string   `json:"ordering"`
+	View     string   `json:"view,omitempty"`
 }
 
 type IssueListRow struct {
@@ -43,8 +44,6 @@ type IssueList struct {
 	Rows          []IssueListRow      `json:"rows"`
 	Page          IssueListPage       `json:"page"`
 }
-
-var defaultIssueListColumns = []string{"key", "summary", "status", "assignee"}
 
 var issueListContextColumns = map[string]bool{
 	"board.column": true, "board.column_index": true, "board.column_mapped": true,
@@ -163,6 +162,9 @@ func IssueListMarkdown(list *IssueList, embedded bool) string {
 		}
 		if list.Source.Name != "" {
 			fmt.Fprintf(&b, " — %s", markdownSingleLine(list.Source.Name))
+		}
+		if list.Projection.View != "" {
+			fmt.Fprintf(&b, "; view: %s", list.Projection.View)
 		}
 		fmt.Fprintf(&b, "; ordering: %s; complete: %t; rows: %d.\n\n", strings.ReplaceAll(list.Projection.Ordering, "-", " "), list.Page.Complete, list.Page.Count)
 		if list.Page.Truncated {

@@ -763,7 +763,8 @@ issues/backlog`, and `sprint issues`) share one app-layer contract:
   "projection": {
     "columns": ["position", "key", "summary", "status", "board.column"],
     "fields": ["summary", "status"],
-    "ordering": "backend-rank"
+    "ordering": "backend-rank",
+    "view": "default"
   },
   "rows": [{
     "key": "PROJ-1",
@@ -787,6 +788,14 @@ The page cursor is `null` at exhaustion and resumable only when non-null.
 For board pages, top-level `position` is the zero-based position within the
 returned page; ordering is backend rank, but ATL does not expose that index as
 a durable Jira rank value.
+
+`projection.view` is `default`, `full`, a configured custom name, or
+`explicit` when `--columns`/`--fields` supplied the projection. Applicable
+commands accept `--view`; explicit projection flags win. Effective config
+always exposes source-specific built-in `default` and `full` entries under
+`jira_list_views`; custom entries inherit default arrays they omit. Unknown
+views or context columns invalid for the selected source fail with usage before
+network access.
 
 `jira issue children <EPIC-KEY>` returns `source.kind:"epic"`, records the
 parent key and resolved Epic Link field under `selection`, and namespaces

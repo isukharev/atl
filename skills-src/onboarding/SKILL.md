@@ -64,7 +64,12 @@ from later observations or revalidating schema facts.
    means "no memory default", not "reset runtime": preview any runtime reset as a separate action,
    and report when no exact reset command exists. Never edit a shell profile or claim
    synchronization without approval and verification. Prefer global render defaults; use `--local`
-   only for a deliberate mirror-specific override.
+   only for a deliberate mirror-specific override. Also inspect `atl config show |
+   jq '.jira_list_views'`. Propose source-aware named list views when repeated
+   Jira/Structure columns were confirmed during onboarding. Preview the exact
+   global `atl config set jira.list_views.<name> '<JSON>'` command and execute
+   only after separate approval; explicit command columns remain the one-off
+   override.
 9. Run `atl profile guidance -o text`. Offer its short output for `{{atl.guidance_file}}`; do not
    paste the profile, field catalog, JQL/CQL, or team rules into workspace guidance. Never edit the
    guidance file without approval. This generic guidance preserves the load/approval protocol, but

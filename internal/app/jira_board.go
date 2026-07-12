@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -63,8 +64,15 @@ func (s *JiraService) BoardIssuePage(ctx context.Context, boardID int, scope str
 }
 
 func (s *JiraService) BoardIssueList(ctx context.Context, boardID int, scope string, columns []string, jql string, limit int, cursor string) (*IssueList, error) {
-	defaults := []string{"position", "key", "summary", "status", "assignee"}
-	resolved, fields, err := NormalizeIssueListColumns(columns, defaults, "board")
+	return s.BoardIssueListView(ctx, boardID, scope, columns, "", jql, limit, cursor)
+}
+
+func (s *JiraService) BoardIssueListView(ctx context.Context, boardID int, scope string, columns []string, view, jql string, limit int, cursor string) (*IssueList, error) {
+	selected, preset, err := s.resolveListColumns(config.JiraListSourceBoard, view, columns)
+	if err != nil {
+		return nil, err
+	}
+	resolved, fields, err := NormalizeIssueListColumns(selected, nil, "board")
 	if err != nil {
 		return nil, err
 	}
@@ -102,13 +110,16 @@ func (s *JiraService) BoardIssueList(ctx context.Context, boardID int, scope str
 	if strings.TrimSpace(jql) != "" {
 		selection["jql"] = jql
 	}
-	return NewIssueList(IssueListSource{Kind: "board", ID: strconv.Itoa(boardID)}, selection, resolved, fields, "backend-rank", page.Issues, contexts, page.NextCursor), nil
+	list := NewIssueList(IssueListSource{Kind: "board", ID: strconv.Itoa(boardID)}, selection, resolved, fields, "backend-rank", page.Issues, contexts, page.NextCursor)
+	list.Projection.View = preset
+	return list, nil
 }
 
 // BoardSnapshotOpts controls a complete normalized board read.
 type BoardSnapshotOpts struct {
 	Scope   string
 	Columns []string
+	View    string
 	JQL     string
 	Limit   int
 }
@@ -118,6 +129,7 @@ type BoardProjection struct {
 	Columns  []string `json:"columns"`
 	Fields   []string `json:"fields"`
 	Ordering string   `json:"ordering"`
+	View     string   `json:"view,omitempty"`
 }
 
 // BoardSnapshot is a jq-friendly workflow snapshot. All scope membership and
@@ -203,7 +215,11 @@ func (s *JiraService) BoardSnapshot(ctx context.Context, boardID int, opts Board
 	if scope != "all" && scope != "board" && scope != "backlog" {
 		return nil, fmt.Errorf("%w: --scope must be all, board, or backlog", domain.ErrUsage)
 	}
-	columns, fields, err := NormalizeIssueListColumns(opts.Columns, []string{"position", "key", "summary", "status", "board.column", "assignee"}, "board")
+	selected, preset, err := s.resolveListColumns(config.JiraListSourceBoardSnapshot, opts.View, opts.Columns)
+	if err != nil {
+		return nil, err
+	}
+	columns, fields, err := NormalizeIssueListColumns(selected, nil, "board")
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +251,7 @@ func (s *JiraService) BoardSnapshot(ctx context.Context, boardID int, opts Board
 	}
 	result := &BoardSnapshot{
 		SchemaVersion: 1, Board: config, Scope: scope,
-		Projection: BoardProjection{Kind: "jira-fields-v1", Columns: columns, Fields: fields, Ordering: "backend-rank"},
+		Projection: BoardProjection{Kind: "jira-fields-v1", Columns: columns, Fields: fields, Ordering: "backend-rank", View: preset},
 		Rows:       []BoardSnapshotRow{}, Complete: boardComplete && backlogComplete, BacklogFetched: backlogFetched,
 	}
 	result.Truncated = !result.Complete
@@ -419,7 +435,7 @@ func BoardSnapshotMarkdown(snapshot *BoardSnapshot) string {
 		columns = []string{"position", "key", "summary", "status", "board.column", "assignee"}
 	}
 	fields := snapshot.Projection.Fields
-	list := &IssueList{SchemaVersion: 1, Source: IssueListSource{Kind: "board"}, Selection: map[string]any{"scope": snapshot.Scope}, Projection: IssueListProjection{Columns: columns, Fields: fields, Ordering: "backend-rank"}, Rows: []IssueListRow{}, Page: IssueListPage{Count: snapshot.RowCount, Complete: snapshot.Complete, Truncated: snapshot.Truncated}}
+	list := &IssueList{SchemaVersion: 1, Source: IssueListSource{Kind: "board"}, Selection: map[string]any{"scope": snapshot.Scope}, Projection: IssueListProjection{Columns: columns, Fields: fields, Ordering: "backend-rank", View: snapshot.Projection.View}, Rows: []IssueListRow{}, Page: IssueListPage{Count: snapshot.RowCount, Complete: snapshot.Complete, Truncated: snapshot.Truncated}}
 	if snapshot.Board != nil {
 		list.Source.ID = strconv.Itoa(snapshot.Board.ID)
 		list.Source.Name = snapshot.Board.Name

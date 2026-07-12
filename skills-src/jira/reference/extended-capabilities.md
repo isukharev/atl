@@ -86,6 +86,8 @@ positive limits are explicit truncation per scope. For repeated filters, export
 JSONL and use `jq -c`; CSV is formula-safe by default; Markdown is for review.
 Markdown follows the requested field projection, while retaining explicit
 status, column, and backlog context.
+Use a confirmed `--view <name>` from `atl config show` for recurring team
+projections; explicit `--columns` wins for one read.
 These reads never call rank/move/update endpoints. Sprint `add/remove` are
 separate writes and still require explicit user intent.
 
@@ -97,6 +99,7 @@ Structure commands use numeric ids and never write Structure data:
 atl jira structure get 123
 atl jira structure view 123 -o text
 atl jira structure view 123 --fields key,summary,status,assignee
+atl jira structure view 123 --view full
 atl jira structure forest 123
 atl jira structure rows 123 --root "release train"
 atl jira structure folders 123
@@ -111,7 +114,8 @@ is a readable Markdown table, and stored folders receive best-effort labels.
 Calculated grouping rows intentionally keep technical identities because their
 row ids can be regenerated. The default Jira-field projection is
 `key,summary,status,assignee`; use `--fields` for the PM's
-planning columns. Do not claim this matches the browser's selected saved view:
+planning columns or a confirmed named `--view` for repeated projections.
+Do not claim this matches the browser's selected saved view:
 the supported integration API does not reliably expose saved/per-user columns,
 and the output explicitly records `browser_view_reproduced:false`.
 Compact projections use human labels for known Jira objects and `[object]` for

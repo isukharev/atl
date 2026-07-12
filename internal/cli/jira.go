@@ -107,7 +107,7 @@ func jiraIssueCmd() *cobra.Command {
 	}
 	get.Flags().StringVar(&fields, "fields", "", "comma-separated field list")
 
-	var jql, searchColumns, cursor string
+	var jql, searchColumns, searchView, cursor string
 	var limit int
 	search := &cobra.Command{
 		Use:   "search",
@@ -120,7 +120,7 @@ func jiraIssueCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			list, err := svc.SearchIssueList(cmd.Context(), jql, splitFields(searchColumns), limit, cursor)
+			list, err := svc.SearchIssueListView(cmd.Context(), jql, splitFields(searchColumns), searchView, limit, cursor)
 			if err != nil {
 				return err
 			}
@@ -129,10 +129,11 @@ func jiraIssueCmd() *cobra.Command {
 	}
 	search.Flags().StringVar(&jql, "jql", "", "JQL query")
 	search.Flags().StringVar(&searchColumns, "columns", "", "ordered list columns (default: key,summary,status,assignee)")
+	search.Flags().StringVar(&searchView, "view", "", "named Jira list view from config (default: default; explicit --columns wins)")
 	search.Flags().IntVar(&limit, "limit", 50, "max results")
 	search.Flags().StringVar(&cursor, "cursor", "", "pagination cursor (startAt)")
 
-	var childrenColumns, childrenCursor, childrenEpicField string
+	var childrenColumns, childrenView, childrenCursor, childrenEpicField string
 	var childrenLimit int
 	children := &cobra.Command{
 		Use:   "children <EPIC-KEY>",
@@ -144,7 +145,7 @@ func jiraIssueCmd() *cobra.Command {
 				return err
 			}
 			list, err := svc.EpicChildrenIssueList(cmd.Context(), args[0], app.JiraEpicChildrenOpts{
-				Columns: splitFields(childrenColumns), Limit: childrenLimit, Cursor: childrenCursor, EpicField: childrenEpicField,
+				Columns: splitFields(childrenColumns), View: childrenView, Limit: childrenLimit, Cursor: childrenCursor, EpicField: childrenEpicField,
 			})
 			if err != nil {
 				return err
@@ -153,6 +154,7 @@ func jiraIssueCmd() *cobra.Command {
 		},
 	}
 	children.Flags().StringVar(&childrenColumns, "columns", "", "ordered list columns (default: key,summary,status,issuetype,assignee)")
+	children.Flags().StringVar(&childrenView, "view", "", "named Jira list view from config (default: default; explicit --columns wins)")
 	children.Flags().IntVar(&childrenLimit, "limit", 50, "max results")
 	children.Flags().StringVar(&childrenCursor, "cursor", "", "pagination cursor (startAt)")
 	children.Flags().StringVar(&childrenEpicField, "epic-field", "", "Epic Link field id or display name (auto-detected when omitted)")

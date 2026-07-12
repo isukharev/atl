@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -37,6 +38,7 @@ type StructureIssuePullOpts struct {
 	BatchSize  int
 	Limit      int
 	Out        string
+	View       string
 	StructureFolderSelector
 }
 
@@ -63,6 +65,7 @@ type StructureExportOpts struct {
 	Format    string
 	Out       string
 	RawCSV    bool
+	View      string
 	StructureFolderSelector
 }
 
@@ -80,6 +83,7 @@ type StructureSnapshotOpts struct {
 	Root       string
 	Attributes []string
 	BatchSize  int
+	View       string
 	StructureFolderSelector
 }
 
@@ -90,6 +94,7 @@ type StructureProjection struct {
 	Source                string   `json:"source"`
 	Attributes            []string `json:"attributes"`
 	BrowserViewReproduced bool     `json:"browser_view_reproduced"`
+	View                  string   `json:"view,omitempty"`
 }
 
 // StructureSnapshotMetadata is the compact identity needed to interpret a
@@ -212,7 +217,17 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 	if err := validateStructureSelector(opts.Root, opts.StructureFolderSelector); err != nil {
 		return nil, err
 	}
-	attributes, source := normalizedStructureAttributes(opts.Attributes)
+	selected, preset, err := s.resolveListColumns(config.JiraListSourceStructure, opts.View, opts.Attributes)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateStructureViewFields(selected); err != nil {
+		return nil, err
+	}
+	attributes, source := normalizedStructureAttributes(selected)
+	if preset != "explicit" {
+		source = "list-view"
+	}
 
 	metadata, err := s.Structure(ctx, id)
 	if err != nil {
@@ -287,7 +302,7 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 		ForestVersion: forest.Version,
 		Projection: StructureProjection{
 			Kind: "jira-fields-v1", Source: source, Attributes: attributes,
-			BrowserViewReproduced: false,
+			BrowserViewReproduced: false, View: preset,
 		},
 		Rows:             []StructureSnapshotRow{},
 		IssueCount:       0,
@@ -455,6 +470,14 @@ func mapSlice(v any) []map[string]any {
 
 // StructurePullIssues fetches Jira issue snapshots referenced by Structure issue rows.
 func (s *JiraService) StructurePullIssues(ctx context.Context, id int64, opts StructureIssuePullOpts) (*StructureIssuePullResult, error) {
+	selectedFields, _, err := s.resolveListColumns(config.JiraListSourceStructure, opts.View, opts.Fields)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateStructureViewFields(selectedFields); err != nil {
+		return nil, err
+	}
+	opts.Fields = selectedFields
 	rowResult, err := s.StructureRowsWithOptions(ctx, id, StructureRowsOpts{Root: opts.Root, RootFields: opts.RootFields, StructureFolderSelector: opts.StructureFolderSelector})
 	if err != nil {
 		return nil, err
@@ -517,6 +540,7 @@ func (s *JiraService) StructureExport(ctx context.Context, id int64, opts Struct
 		Root:                    opts.Root,
 		Attributes:              opts.Fields,
 		BatchSize:               opts.BatchSize,
+		View:                    opts.View,
 		StructureFolderSelector: opts.StructureFolderSelector,
 	})
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -49,7 +50,15 @@ func (s *JiraService) SprintIssues(ctx context.Context, sprintID int, fields []s
 }
 
 func (s *JiraService) SprintIssueList(ctx context.Context, sprintID int, columns []string, limit int, cursor string) (*IssueList, error) {
-	resolved, fields, err := NormalizeIssueListColumns(columns, []string{"position", "key", "summary", "status", "assignee"}, "sprint")
+	return s.SprintIssueListView(ctx, sprintID, columns, "", limit, cursor)
+}
+
+func (s *JiraService) SprintIssueListView(ctx context.Context, sprintID int, columns []string, view string, limit int, cursor string) (*IssueList, error) {
+	selected, preset, err := s.resolveListColumns(config.JiraListSourceSprint, view, columns)
+	if err != nil {
+		return nil, err
+	}
+	resolved, fields, err := NormalizeIssueListColumns(selected, nil, "sprint")
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +70,9 @@ func (s *JiraService) SprintIssueList(ctx context.Context, sprintID int, columns
 	for i := range issues {
 		contexts[i] = map[string]map[string]any{"sprint": {"id": sprintID}}
 	}
-	return NewIssueList(IssueListSource{Kind: "sprint", ID: strconv.Itoa(sprintID)}, map[string]any{}, resolved, fields, "backend-order", issues, contexts, next), nil
+	list := NewIssueList(IssueListSource{Kind: "sprint", ID: strconv.Itoa(sprintID)}, map[string]any{}, resolved, fields, "backend-order", issues, contexts, next)
+	list.Projection.View = preset
+	return list, nil
 }
 
 // SprintCurrent returns the board's single active sprint. It is a use-case

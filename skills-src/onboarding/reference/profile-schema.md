@@ -75,6 +75,9 @@ Rules:
 - `render_defaults` uses the same service/field-view shape as atl render config, but applying the
   profile does not modify runtime config. Read only one backend's memory with
   `atl profile show --section render_defaults --service jira|confluence`.
+- Reusable Jira `jira_list_views` are active global config, not sampled profile
+  history. Inspect them through `atl config show`; add/change a named view only
+  through a separately approved `atl config set jira.list_views.<name> ...`.
 - Clearing `mirror_root` or a render service removes the memory default only. It is not an implicit
   request to unset an environment value or reset runtime config.
 - Selector names are unique per service. Store reusable JQL/CQL, never sampled content.

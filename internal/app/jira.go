@@ -35,7 +35,15 @@ func (s *JiraService) Search(ctx context.Context, jql string, fields []string, l
 }
 
 func (s *JiraService) SearchIssueList(ctx context.Context, jql string, columns []string, limit int, cursor string) (*IssueList, error) {
-	resolved, fields, err := NormalizeIssueListColumns(columns, defaultIssueListColumns)
+	return s.SearchIssueListView(ctx, jql, columns, "", limit, cursor)
+}
+
+func (s *JiraService) SearchIssueListView(ctx context.Context, jql string, columns []string, view string, limit int, cursor string) (*IssueList, error) {
+	selected, preset, err := s.resolveListColumns(config.JiraListSourceSearch, view, columns)
+	if err != nil {
+		return nil, err
+	}
+	resolved, fields, err := NormalizeIssueListColumns(selected, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +51,9 @@ func (s *JiraService) SearchIssueList(ctx context.Context, jql string, columns [
 	if err != nil {
 		return nil, err
 	}
-	return NewIssueList(IssueListSource{Kind: "jql"}, map[string]any{"jql": jql}, resolved, fields, "jql-order", issues, nil, next), nil
+	list := NewIssueList(IssueListSource{Kind: "jql"}, map[string]any{"jql": jql}, resolved, fields, "jql-order", issues, nil, next)
+	list.Projection.View = preset
+	return list, nil
 }
 
 func (s *JiraService) Create(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]string) (*domain.Issue, error) {

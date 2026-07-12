@@ -10,14 +10,15 @@
   },
   "projection": {
     "kind": "jira-fields-v1",
-    "source": "default",
+    "source": "list-view",
     "attributes": [
       "key",
       "summary",
       "status",
       "assignee"
     ],
-    "browser_view_reproduced": false
+    "browser_view_reproduced": false,
+    "view": "default"
   },
   "rows": [
     {

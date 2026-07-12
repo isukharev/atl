@@ -333,6 +333,7 @@ atl conf comment add  --id 123456 --from-file comment.csf
 atl jira issue get  PROJ-1
 atl jira issue view PROJ-1 -o text   # настроенный Markdown без записи файлов
 atl jira issue search --jql 'project = PROJ AND status = "In Progress"' --columns key,summary,status,assignee
+atl jira issue search --jql 'project = PROJ' --view full
 atl jira issue children PROJ-100 --columns key,summary,status,assignee
 atl jira issue attachment list PROJ-1
 atl jira issue attachment get PROJ-1 --id spec.xlsx --into ./attachments

@@ -26,6 +26,9 @@ type Config struct {
 	// config without render keys stays byte-stable (no empty "render":{}) when
 	// re-saved. This is the only section a per-mirror local file may set.
 	Render *RenderConfig `json:"render,omitempty"`
+	// JiraListViews contains reusable source-aware list projections. Built-in
+	// default/full entries are always present in effective config.
+	JiraListViews map[string]JiraListView `json:"jira_list_views"`
 }
 
 // Dir returns the per-user config directory (~/.config/atl), honoring
@@ -67,6 +70,11 @@ func Load() (*Config, error) {
 	c.ConfluenceURL = strings.TrimRight(c.ConfluenceURL, "/")
 	c.JiraURL = strings.TrimRight(c.JiraURL, "/")
 	c.UpdateBaseURL = strings.TrimRight(c.UpdateBaseURL, "/")
+	views, err := NormalizeJiraListViews(c.JiraListViews)
+	if err != nil {
+		return nil, fmt.Errorf("jira_list_views: %w", err)
+	}
+	c.JiraListViews = views
 	return c, nil
 }
 
@@ -75,7 +83,13 @@ func Save(c *Config) error {
 	if err := os.MkdirAll(Dir(), 0o700); err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(c, "", "  ")
+	views, err := NormalizeJiraListViews(c.JiraListViews)
+	if err != nil {
+		return fmt.Errorf("jira_list_views: %w", err)
+	}
+	copy := *c
+	copy.JiraListViews = views
+	b, err := json.MarshalIndent(&copy, "", "  ")
 	if err != nil {
 		return err
 	}
