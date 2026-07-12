@@ -1,0 +1,23 @@
+[confluence-meta]
+42	v7	ENG	Plan
+updated	2026-07-12
+ancestors	Home > Quarter
+labels	roadmap, reviewed
+restricted	true
+url	https://example.invalid/pages/42
+[confluence-history]
+7	2026-07-12	Alex	reviewed
+[confluence-comments]
+99	Alex (2026-07-12):
+Looks good.
+[jira-fields]
+summary	Summary	custom=false
+customfield_10001	Delivery Notes	custom=true	schema=string
+[jira-options]
+High Priority
+Low
+[jira-transitions]
+31	In Progress	Start progress
+[jira-link-types]
+blocks
+relates to

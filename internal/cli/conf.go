@@ -287,7 +287,7 @@ func confPageCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return emit(cmd, m, nil)
+			return emit(cmd, m, func() string { return confluencePageMetaText(m) })
 		},
 	}
 	meta.Flags().StringVar(&metaID, "id", "", "page id or supported same-origin URL")
@@ -308,7 +308,7 @@ func confPageCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return emit(cmd, map[string]any{"versions": vs}, nil)
+			return emit(cmd, map[string]any{"versions": vs}, func() string { return confluenceVersionsText(vs) })
 		},
 	}
 	hist.Flags().StringVar(&histID, "id", "", "page id or supported same-origin URL")
@@ -698,7 +698,9 @@ func confTableCmd() *cobra.Command {
 					if err := os.WriteFile(out, data, 0o644); err != nil {
 						return err
 					}
-					return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount}, nil)
+					return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount}, func() string {
+						return fmt.Sprintf("%s\tformat=%s\ttables=%d", out, format, res.TableCount)
+					})
 				}
 				return emit(cmd, res, func() string {
 					return fmt.Sprintf("%d table(s)", res.TableCount)
@@ -712,7 +714,9 @@ func confTableCmd() *cobra.Command {
 					if err := os.WriteFile(out, data, 0o644); err != nil {
 						return err
 					}
-					return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount}, nil)
+					return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount}, func() string {
+						return fmt.Sprintf("%s\tformat=%s\ttables=%d", out, format, res.TableCount)
+					})
 				}
 				_, err = cmd.OutOrStdout().Write(data)
 				return err
@@ -723,7 +727,9 @@ func confTableCmd() *cobra.Command {
 				if err := app.WriteConfluenceTableXLSX(out, res); err != nil {
 					return err
 				}
-				return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount}, nil)
+				return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount}, func() string {
+					return fmt.Sprintf("%s\tformat=%s\ttables=%d", out, format, res.TableCount)
+				})
 			default:
 				return nil
 			}
@@ -899,7 +905,7 @@ func confCommentCmd() *cobra.Command {
 				fmt.Fprint(cmd.ErrOrStderr(),
 					"warning: comment listing hit the fetch cap — some comments were not returned\n")
 			}
-			return emit(cmd, map[string]any{"comments": cs}, nil)
+			return emit(cmd, map[string]any{"comments": cs}, func() string { return commentsText(cs) })
 		},
 	}
 	list.Flags().StringVar(&id, "id", "", "page id or supported same-origin URL")

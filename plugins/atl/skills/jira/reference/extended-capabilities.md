@@ -21,7 +21,8 @@ neutralizes formulas unless the user explicitly approves `--raw-csv` for a
 trusted non-spreadsheet consumer.
 
 Use `--out -` for transient analysis: stdout is only JSONL, a bare JSON array,
-or CSV, with no manifest/result envelope and no created files. Display names in
+or CSV, with no manifest/result envelope and no created files. Choose it with
+`--format` and omit `-o text`, which is not an artifact format. Display names in
 `--fields` resolve to ids before search. Always honor the exit code and discard
 a streamed prefix after non-zero exit.
 

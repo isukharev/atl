@@ -141,6 +141,9 @@ func newRoot() *cobra.Command {
 		default:
 			return usageErr("invalid --output %q (want json|text|id)", outputFormat)
 		}
+		if err := enforceOutputContract(cmd); err != nil {
+			return err
+		}
 		policyEnabled, err := resolveReadOnlyPolicy(cmd, readOnly)
 		if err != nil {
 			return err
@@ -242,6 +245,7 @@ func emit(cmd *cobra.Command, v any, text func() string) error {
 			fmt.Fprintln(w, text())
 			return nil
 		}
+		return usageErr("-o text is not supported for this command; use -o json")
 	case "id":
 		return usageErr("-o id is not supported for this command")
 	}

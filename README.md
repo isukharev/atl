@@ -390,7 +390,8 @@ atl jira field-options --project PROJ --field <field-id>
 
 ## Conventions & exit codes
 
-- JSON to **stdout** by default; `-o text` for human-readable output.
+- JSON to **stdout** by default; `-o text` for commands with an explicit
+  human-readable projection (unsupported requests fail with exit 2, never JSON).
 - Logs and errors to **stderr** — on failure, `{"error": "...", "code": N}` JSON by default
   (or a plain `error: <msg>` line under `-o text`).
 - Request bodies via `--from-file <path>` or `--from-file -` (stdin, capped at 64 MiB;
