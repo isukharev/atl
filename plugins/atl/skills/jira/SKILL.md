@@ -22,6 +22,8 @@ When `ATL_READ_ONLY=1`, global `--read-only`, or config read-only policy is
 active, use search/get/view/pull/status/export only. A JSON refusal with
 `policy:"read_only"` and exit 8 requires human approval to change the policy;
 never disable it just to finish a requested Jira write.
+For other failures, use JSON `kind`/`remediation` instead of parsing `error`;
+never turn remediation guidance into an automatic write retry.
 
 **Preflight:** `atl` must be installed and configured (Jira URL + PAT). If `command -v atl` fails or
 `atl config show` has an empty `jira_url` (or any command exits `7` = "not configured"), **run

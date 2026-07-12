@@ -39,11 +39,17 @@ Shell completion for the three values is registered on the root flag.
 On failure `atl` writes to **stderr**, never stdout, so a piped JSON result on stdout is never
 contaminated. The format follows `-o`:
 
-- **`-o json` (default):** `{"error": "<message>", "code": <exit-code>}` (one JSON object, newline-terminated).
+- **`-o json` (default):** `{"error":"<message>","code":N,"kind":"<stable-kind>","remediation":"<stable-action>"}` (one JSON object, newline-terminated).
 - **`-o text`:** `error: <message>`.
 
-The `code` field in the JSON error object echoes the process exit code so a caller that captured only
-stderr can still classify the failure without inspecting the exit code separately.
+The existing `error` and `code` fields remain compatible. `kind` is always
+present; `remediation` is deterministic guidance, not an instruction to execute
+automatically. Both are derived from local sentinels/typed metadata, never by
+parsing backend prose. Current exit classes map to `unexpected_error`,
+`usage_error`, `authentication_failed`, `not_found`, `version_conflict`,
+`forbidden`, `configuration_error`, and `check_failed`. Typed specializations
+include `read_only_policy`, `transport_error`, and `api_error` without changing
+their exit code.
 
 ---
 
