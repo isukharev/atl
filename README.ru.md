@@ -462,7 +462,8 @@ go test  ./...
 | `internal/cli` | Тонкий слой команд Cobra |
 
 Дополнительно: [docs/architecture.md](docs/architecture.md) · [docs/usage.md](docs/usage.md) ·
-[docs/self-update.md](docs/self-update.md) · [интеграция Context7](docs/context7.md)
+[рецепты для агентов](docs/agent-recipes.md) · [docs/self-update.md](docs/self-update.md) ·
+[интеграция Context7](docs/context7.md)
 
 ---
 

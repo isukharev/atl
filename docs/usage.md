@@ -56,7 +56,7 @@ a usage error (exit 2) instead of hanging forever waiting for input.
 | 5 | version conflict (remote moved since last pull; re-pull and retry) |
 | 6 | forbidden (per-space or per-issue permission) |
 | 7 | not configured (backend URL or PAT **not set** yet; run `atl config set` / `atl auth login`) |
-| 8 | check failed (`jira issue check` found empty required fields) |
+| 8 | safety/check failed (validation, lossy conversion, ambiguous write outcome, or app-layer Jira drift) |
 
 A script can therefore tell three distinct "auth-ish" states apart: `7` = you
 have not finished setup (no URL/token) → run setup; `3` = the token you supplied

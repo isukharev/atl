@@ -12,9 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Scoped Context7 documentation index.** A schema-declared root config limits
-  parsing to maintained public docs, supplies core CLI/write-safety rules, and
-  is accompanied by a registration, verification, and refresh runbook for
-  maintainers and agents.
+  parsing to maintained public runtime docs, explicitly excludes implicit root
+  contributor/roadmap files, supplies core CLI/write-safety rules, and adds
+  code-bearing agent recipes plus a deterministic scope/snippet check. The
+  registration, benchmark, verification, and refresh runbook remains the
+  external quality gate.
 
 - **Confluence Jira JQL macros use shared issue tables.** Transient page views
   and pulls can resolve query macros through bounded Jira searches, render the
