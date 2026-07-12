@@ -340,7 +340,10 @@ returns the raw catalog plus `jira_list_views_error`. Replace the catalog, set a
 corrected preset, or remove the bad custom preset with
 `atl config set jira.list_views.<name> null`. Invalid JSON syntax in
 `config.json` cannot be repaired safely as a dotted update; fix the file itself
-and rerun `config show`.
+and rerun `config show`. `atl version`, help/completion, and classified
+read-only auth/config/profile diagnostics remain available because they are
+offline and already skip self-update. `config show` still returns exit 7 with
+the parse error; all mutations and online reads remain blocked until valid.
 
 ---
 

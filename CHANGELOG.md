@@ -122,6 +122,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Malformed config no longer hides offline diagnostics.** Classified
+  read-only commands that already skip self-update (including version, help,
+  auth/config/profile diagnostics, and completion) bypass policy decoding;
+  mutations and online reads remain config-fail-closed.
+
 - **Help and shell completion remain available under access policy.** Cobra's
   lazily registered help/completion commands are initialized and classified
   before execution; hidden completion requests are narrowly recognized, while

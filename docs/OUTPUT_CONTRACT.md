@@ -440,7 +440,9 @@ an invalid catalog to config exit 7. Recovery is deliberately narrower:
 `config set jira.list_views...` may replace/delete the invalid entry. Other
 commands never consume a partially valid catalog. Malformed `config.json` JSON
 also maps to exit 7 and must be repaired as a file rather than overwritten from
-an uncertain partial decode.
+an uncertain partial decode. Offline, skip-self-update diagnostic reads may run
+without decoding the policy so version/help/profile evidence remains available;
+this exception never applies to a mutating command or online read.
 
 `atl profile show` emits `{exists,path,hash,data?}`. A missing profile is a
 successful read with `exists:false`, the future profile path, and a stable

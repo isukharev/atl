@@ -20,6 +20,9 @@ until a human edits/removes `read_only` in the owner-only global config file.
 When setup commands fail, use JSON `kind` and `remediation` rather than parsing
 the backend message. `configuration_error` means complete local setup;
 `authentication_failed` means replace/re-enter the rejected credential.
+If `config.json` itself is malformed, `atl version`, help/completion, and
+offline profile/auth diagnostics still work; use their evidence, then have the
+human repair the owner-only file. Do not attempt online reads or mutations.
 
 Invocation: install/enable the atl plugin in Codex, then run this skill from `/skills` or with `$setup`.
 

@@ -141,7 +141,7 @@ func newRoot() *cobra.Command {
 		default:
 			return usageErr("invalid --output %q (want json|text|id)", outputFormat)
 		}
-		policyEnabled, err := resolveReadOnlyPolicy(readOnly)
+		policyEnabled, err := resolveReadOnlyPolicy(cmd, readOnly)
 		if err != nil {
 			return err
 		}
