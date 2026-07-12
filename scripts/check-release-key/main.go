@@ -21,22 +21,30 @@ import (
 const trustedKeyConstant = "trustedPublicKeyB64"
 
 func main() {
-	trustedSource := flag.String("trusted-source", "", "pubkey.go from the latest published release")
+	trustedSource := flag.String("trusted-source", "", "pubkey.go from the highest published stable release")
+	currentSource := flag.String("current-source", "", "pubkey.go from the release being built")
 	flag.Parse()
 	if strings.TrimSpace(*trustedSource) == "" {
 		fail("--trusted-source is required")
+	}
+	if strings.TrimSpace(*currentSource) == "" {
+		fail("--current-source is required")
 	}
 	source, err := os.ReadFile(*trustedSource)
 	if err != nil {
 		fail("read trusted client source: " + err.Error())
 	}
-	if err := checkReleaseKey(os.Getenv("ATL_RELEASE_PRIVATE_KEY"), source); err != nil {
+	current, err := os.ReadFile(*currentSource)
+	if err != nil {
+		fail("read current client source: " + err.Error())
+	}
+	if err := checkReleaseKey(os.Getenv("ATL_RELEASE_PRIVATE_KEY"), source, current); err != nil {
 		fail(err.Error())
 	}
-	fmt.Fprintln(os.Stderr, "release signing key matches the latest published client's trust key")
+	fmt.Fprintln(os.Stderr, "release signing key matches the highest published stable client's trust key")
 }
 
-func checkReleaseKey(privateB64 string, trustedSource []byte) error {
+func checkReleaseKey(privateB64 string, trustedSource, currentSource []byte) error {
 	privateRaw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(privateB64))
 	if err != nil {
 		return fmt.Errorf("decode ATL_RELEASE_PRIVATE_KEY: %w", err)
@@ -49,22 +57,33 @@ func checkReleaseKey(privateB64 string, trustedSource []byte) error {
 		return fmt.Errorf("ATL_RELEASE_PRIVATE_KEY is not a canonical Ed25519 private key")
 	}
 
-	trustedB64, err := trustedPublicKeyFromSource(trustedSource)
+	trustedRaw, err := publicKeyFromSource("published", trustedSource)
 	if err != nil {
 		return err
 	}
-	trustedRaw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(trustedB64))
-	if err != nil {
-		return fmt.Errorf("decode published %s: %w", trustedKeyConstant, err)
-	}
-	if len(trustedRaw) != ed25519.PublicKeySize {
-		return fmt.Errorf("published %s must decode to %d bytes, got %d", trustedKeyConstant, ed25519.PublicKeySize, len(trustedRaw))
+	if _, err := publicKeyFromSource("current", currentSource); err != nil {
+		return err
 	}
 	derived := canonical[ed25519.SeedSize:]
 	if subtle.ConstantTimeCompare(derived, trustedRaw) != 1 {
-		return fmt.Errorf("release signing key does not match the latest published client's trust key; configure the trusted key (a rotation bridge must still be signed by the old key)")
+		return fmt.Errorf("release signing key does not match the highest published stable client's trust key; configure the trusted key (a rotation bridge must still be signed by the old key)")
 	}
 	return nil
+}
+
+func publicKeyFromSource(label string, source []byte) ([]byte, error) {
+	encoded, err := trustedPublicKeyFromSource(source)
+	if err != nil {
+		return nil, fmt.Errorf("%s client: %w", label, err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
+	if err != nil {
+		return nil, fmt.Errorf("decode %s %s: %w", label, trustedKeyConstant, err)
+	}
+	if len(raw) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("%s %s must decode to %d bytes, got %d", label, trustedKeyConstant, ed25519.PublicKeySize, len(raw))
+	}
+	return raw, nil
 }
 
 func trustedPublicKeyFromSource(source []byte) (string, error) {

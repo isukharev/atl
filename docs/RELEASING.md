@@ -45,14 +45,30 @@ First embed the new public key and publish one bridge release while the old key
 still signs in CI. Verify that release, allow an adoption window, then set the
 new environment secret and remove any repository-scoped copy of the old key.
 
-The release workflow enforces this ordering. Before building, it fetches
-`internal/selfupdate/pubkey.go` from the latest published stable release,
+The release workflow enforces this ordering. Before building, it enumerates all
+published non-draft/non-prerelease releases, selects the maximum canonical
+semantic version (not the most recently created release), and requires the new
+tag to advance it. It fetches `internal/selfupdate/pubkey.go` from that release,
 derives the public key from `ATL_RELEASE_PRIVATE_KEY`, and requires an exact
-match. Thus the bridge must still use the old secret; after that bridge is the
-latest release, the next release may use the new secret it embedded. If no
-release exists yet, the first release is checked against its own source tree.
-The workflow also rejects missing and non-canonical private keys and never
-prints private material.
+match. It also parses and validates the public key in the source being released,
+so a malformed bridge key cannot strand the next release. Thus the bridge must
+still use the old secret; after that bridge becomes the highest stable version,
+the next release may use the new secret it embedded.
+
+An empty release listing fails closed because an API outage must not look like a
+new repository. For the genuine first release only, set a protected `release`
+environment variable to that exact tag, publish, then remove it immediately:
+
+```bash
+gh variable set ATL_RELEASE_TRUST_BOOTSTRAP_TAG --env release --body v0.1.0
+# publish and verify v0.1.0
+gh variable delete ATL_RELEASE_TRUST_BOOTSTRAP_TAG --env release
+```
+
+Once any stable release exists, a leftover bootstrap variable is itself a hard
+failure. Missing/non-canonical keys, non-monotonic/backport tags, ambiguous
+release metadata, and a missing/empty `manifest.json.sig` all stop publication.
+Private material is never printed.
 
 ---
 
