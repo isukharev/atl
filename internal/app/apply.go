@@ -111,6 +111,9 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 	}
 	page := confPageFromMeta(lc.Meta)
 	mdOpts := confMDViewOpts(rsView, page, readCommentsSidecar(m.Root, dir, slug))
+	if err := addConfluenceJiraMacrosFromSidecar(&mdOpts, m.Root, dir, slug, lc.Meta.ID, node); err != nil {
+		return nil, fmt.Errorf("%w: Jira macro enrichment sidecar cannot reproduce the generated view: %v; re-run conf pull before applying", domain.ErrCheckFailed, err)
+	}
 	prefix, pristineBody, suffix := mirror.RenderMarkdownViewParts(node, lc.Meta.Refs, mdOpts)
 	mergeInput, err := extractConfBody(edited, prefix, pristineBody, suffix)
 	if err != nil {
@@ -148,7 +151,13 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 	if root2, perr := csf.Parse(out); perr == nil {
 		stub = false
 		if decorated {
-			md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, confMDViewOpts(rsView, confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug)))
+			opts := confMDViewOpts(rsView, confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug))
+			if sidecarErr := addConfluenceJiraMacrosFromSidecar(&opts, m.Root, dir, slug, lc.Meta.ID, root2); sidecarErr == nil {
+				md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, opts)
+			} else {
+				md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, confMDViewOpts(rsView, confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug)))
+				res.Warning = "applied, but Jira macro enrichment could not be refreshed; re-pull the page"
+			}
 		} else {
 			md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, mirror.MDViewOpts{})
 		}
@@ -250,7 +259,7 @@ func validateConfluenceDocumentMarker(edited string) error {
 	if first == mirror.ConfluenceDocumentMarker {
 		return nil
 	}
-	if first == "<!-- atl:document confluence-page v1 -->" || first == "<!-- atl:document confluence-page -->" {
+	if first == "<!-- atl:document confluence-page v2 -->" || first == "<!-- atl:document confluence-page v1 -->" || first == "<!-- atl:document confluence-page -->" {
 		return fmt.Errorf("%w: this Confluence view uses a legacy document format; preserve edits outside the derived view, run `conf render` (or pull again) with this binary, then reapply them", domain.ErrCheckFailed)
 	}
 	if strings.HasPrefix(first, "<!-- atl:document confluence-page") {

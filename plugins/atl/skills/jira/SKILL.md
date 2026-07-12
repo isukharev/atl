@@ -57,7 +57,10 @@ For repeated projections, inspect `atl config show | jq '.jira_list_views'` and
 use `--view default|full|<custom>`. Explicit `--columns`/Structure `--fields`
 wins for one call. Never guess a custom name: an unknown/source-invalid view
 fails before network. Add one only after user approval with `atl config set
-jira.list_views.<name> '<JSON object>'`.
+jira.list_views.<name> '<JSON object>'`. The same catalog controls Confluence
+JQL-macro tables through each preset's `confluence_macro` entry and `conf
+pull|page view --jira-view <name>`; explicit columns stored in the macro still
+win.
 
 For one epic, prefer the direct list over project-wide JQL:
 

@@ -213,6 +213,9 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 				res.Warnings = append(res.Warnings, fmt.Sprintf("render: restriction state for page %s was not mirrored; re-pull before relying on that field", lc.Meta.ID))
 			}
 			mdOpts := confMDViewOpts(rs, page, readCommentsSidecar(root, dir, slug))
+			if err := addConfluenceJiraMacrosFromSidecar(&mdOpts, root, dir, slug, lc.Meta.ID, node); err != nil {
+				res.Warnings = append(res.Warnings, fmt.Sprintf("render: Jira macro enrichment for page %s is unavailable (%v); re-pull to refresh it", lc.Meta.ID, err))
+			}
 			md = mirror.RenderMarkdownOpts(node, lc.Meta.Refs, mdOpts)
 		}
 		if err := safepath.WriteFileWithin(root, mdPath, md, 0o644); err != nil {
@@ -286,6 +289,7 @@ func preflightConfluenceRenderView(root, mdPath string) error {
 	first, _, _ := strings.Cut(string(b), "\n")
 	if strings.HasPrefix(first, "<!-- atl:document confluence-page") &&
 		first != mirror.ConfluenceDocumentMarker &&
+		first != "<!-- atl:document confluence-page v2 -->" &&
 		first != "<!-- atl:document confluence-page v1 -->" &&
 		first != "<!-- atl:document confluence-page -->" {
 		return fmt.Errorf("%w: existing view %s uses unsupported format marker %q; preserve it and update atl before rendering — do not downgrade it with this binary", domain.ErrCheckFailed, mdPath, first)

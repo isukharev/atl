@@ -906,7 +906,7 @@ func TestPullRelocationRejectsPartiallyRemovedOldPrimaryArtifacts(t *testing.T) 
 }
 
 func TestPullRelocationExplainsLegacyViewMigration(t *testing.T) {
-	for _, marker := range []string{"<!-- atl:document confluence-page v1 -->", "<!-- atl:document confluence-page -->"} {
+	for _, marker := range []string{"<!-- atl:document confluence-page v2 -->", "<!-- atl:document confluence-page v1 -->", "<!-- atl:document confluence-page -->"} {
 		t.Run(marker, func(t *testing.T) {
 			into := t.TempDir()
 			page := &domain.Resource{ID: "100", Title: "Old", SpaceKey: "SP", Version: 1, Body: []byte("<p>body</p>")}

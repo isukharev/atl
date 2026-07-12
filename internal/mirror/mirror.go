@@ -25,11 +25,12 @@ import (
 // silently contradicting the source of truth. Exported so apply can uphold
 // the same invariant after a merge.
 const (
-	ConfluenceDocumentMarker     = "<!-- atl:document confluence-page v2 -->"
+	ConfluenceDocumentMarker     = "<!-- atl:document confluence-page v3 -->"
 	ConfluencePageFieldsMarker   = "<!-- atl:section page-fields readonly -->"
 	ConfluenceBodyMarker         = "<!-- atl:section body editable -->"
 	ConfluenceBodyReadOnlyMarker = "<!-- atl:section body readonly -->"
 	ConfluenceCommentsMarker     = "<!-- atl:section comments readonly -->"
+	ConfluenceJiraMacrosMarker   = "<!-- atl:section jira-macros readonly -->"
 	ConfluenceReservedPrefix     = "<!-- atl:"
 	MDUnavailableStub            = ConfluenceDocumentMarker + "\n" + ConfluenceBodyReadOnlyMarker + "\n# Content\n\n<!-- atl: markdown view unavailable for this revision (the .csf did not parse); the .csf file is the source of truth -->\n"
 )

@@ -281,6 +281,7 @@ atl conf search --cql 'space=DOCS and label="adr"'
 atl conf space tree --space DOCS
 # Page ids come from atl conf pull output (meta.json → "id" field) or the page URL.
 atl conf page view 123456 -o text   # configured Markdown, no mirror artifacts
+atl conf page view 123456 --jira-view full -o text # readonly Jira-macro tables
 atl conf page get     --id 123456
 atl conf page get     --id 123456 --format csf
 atl conf page meta    --id 123456  # omitted restricted = unknown, not false
@@ -291,7 +292,7 @@ atl conf page title set 123456 --from-file title.txt
 # Typed read-only page metadata (closed field ids; see docs/usage.md)
 atl config set render.confluence.include page_fields
 atl config set render.confluence.page_fields '[{"id":"title"},{"id":"updated","format":"date"}]'
-# View v2 visibly separates # Metadata / # Content / # Comments; native
+# View v3 separates # Metadata / # Content / generated Jira queries / # Comments; native
 # comment formatting and page-link target identity remain readable.
 atl conf table extract --id 123456 --format json
 atl conf table extract --id 123456 --table 2 --format csv

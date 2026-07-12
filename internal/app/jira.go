@@ -39,7 +39,11 @@ func (s *JiraService) SearchIssueList(ctx context.Context, jql string, columns [
 }
 
 func (s *JiraService) SearchIssueListView(ctx context.Context, jql string, columns []string, view string, limit int, cursor string) (*IssueList, error) {
-	selected, preset, err := s.resolveListColumns(config.JiraListSourceSearch, view, columns)
+	return s.searchIssueListSourceView(ctx, jql, columns, view, config.JiraListSourceSearch, limit, cursor)
+}
+
+func (s *JiraService) searchIssueListSourceView(ctx context.Context, jql string, columns []string, view, source string, limit int, cursor string) (*IssueList, error) {
+	selected, preset, err := s.resolveListColumns(source, view, columns)
 	if err != nil {
 		return nil, err
 	}

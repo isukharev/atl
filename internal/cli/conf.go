@@ -448,7 +448,7 @@ func confPageCmd() *cobra.Command {
 }
 
 func confPageViewCmd() *cobra.Command {
-	var root string
+	var root, jiraView string
 	var rf renderFlags
 	cmd := &cobra.Command{
 		Use:   "view <ID>",
@@ -473,7 +473,7 @@ func confPageViewCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			res, err := svc.ViewPage(cmd.Context(), args[0], app.ConfluencePageViewOpts{Root: configRoot, Render: override})
+			res, err := svc.ViewPage(cmd.Context(), args[0], app.ConfluencePageViewOpts{Root: configRoot, Render: override, JiraView: jiraView})
 			if err != nil {
 				return err
 			}
@@ -486,6 +486,7 @@ func confPageViewCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&root, "render-root", mirrorRootDefault("."), "root whose .atl/config.json supplies local render settings (never written)")
+	cmd.Flags().StringVar(&jiraView, "jira-view", "", "named Jira list view for JQL macros (default: default; macro columns win)")
 	rf.register(cmd)
 	return cmd
 }
@@ -546,6 +547,7 @@ func confPullCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&o.Assets, "assets", false, "download diagram/image renders")
 	cmd.Flags().BoolVar(&o.Comments, "comments", false, "mirror page comments into <slug>.comments.json/.md sidecars")
 	cmd.Flags().StringVar(&o.Into, "into", mirrorRootDefault("mirror"), "mirror root dir (default: $ATL_MIRROR_ROOT or \"mirror\")")
+	cmd.Flags().StringVar(&o.JiraView, "jira-view", "", "named Jira list view for JQL macros (default: default; macro columns win)")
 	rf.register(cmd)
 	return cmd
 }

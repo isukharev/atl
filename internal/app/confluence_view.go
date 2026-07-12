@@ -15,8 +15,9 @@ import (
 // ConfluencePageViewOpts controls a transient, read-only Markdown projection.
 // Root selects the presentation-only local config layer and is never written.
 type ConfluencePageViewOpts struct {
-	Root   string
-	Render config.RenderService
+	Root     string
+	Render   config.RenderService
+	JiraView string
 }
 
 // ConfluencePageViewResult is the scriptable JSON form of `conf page view`.
@@ -36,6 +37,9 @@ type ConfluencePageViewResult struct {
 // fetching binary assets. Every generated section, including the body, is
 // marked read-only because this transient document has no writeback baseline.
 func (s *ConfluenceService) ViewPage(ctx context.Context, id string, opts ConfluencePageViewOpts) (*ConfluencePageViewResult, error) {
+	if err := s.validateConfluenceJiraView(opts.JiraView); err != nil {
+		return nil, err
+	}
 	root := strings.TrimSpace(opts.Root)
 	if root == "" {
 		root = "."
@@ -68,6 +72,9 @@ func (s *ConfluenceService) ViewPage(ctx context.Context, id string, opts Conflu
 		}
 	}
 	mdOpts := confMDViewOpts(rs, page, comments)
+	jiraMacros, macroWarnings := s.resolveConfluenceJiraMacros(ctx, page.ID, node, opts.JiraView)
+	warnings = append(warnings, macroWarnings...)
+	mdOpts.JiraMacros = confluenceJiraMacroViews(jiraMacros)
 	mdOpts.ReadOnly = true
 	return &ConfluencePageViewResult{
 		ID:       page.ID,

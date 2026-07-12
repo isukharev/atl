@@ -149,6 +149,7 @@ func markdownFence(content string) string {
 type MDViewOpts struct {
 	PageFields []PageField
 	Comments   []domain.Comment
+	JiraMacros []JiraMacroView
 	ReadOnly   bool
 }
 
@@ -187,8 +188,20 @@ func RenderMarkdownViewParts(root *csf.Node, refs []domain.Ref, opts MDViewOpts)
 		bodyMarker = ConfluenceBodyReadOnlyMarker
 	}
 	prefix += bodyMarker + "\n# Content\n\n"
+	if len(opts.JiraMacros) > 0 {
+		var generated strings.Builder
+		generated.WriteString("\n" + ConfluenceJiraMacrosMarker + "\n# Jira Queries\n\n")
+		for _, macro := range opts.JiraMacros {
+			fmt.Fprintf(&generated, "## Jira Query %d\n\n%s", macro.Index+1, strings.TrimSpace(macro.Markdown))
+			if macro.Truncated || !macro.Complete {
+				generated.WriteString("\n\n> **Partial:** this macro result is truncated; refresh the page view to retrieve current rows.")
+			}
+			generated.WriteString("\n\n")
+		}
+		suffix = generated.String()
+	}
 	if len(opts.Comments) > 0 {
-		suffix = "\n" + ConfluenceCommentsMarker + "\n" + string(RenderCommentsMarkdown(opts.Comments))
+		suffix += "\n" + ConfluenceCommentsMarker + "\n" + string(RenderCommentsMarkdown(opts.Comments))
 	}
 	// RenderMarkdownOpts applies TrimRight(whole, "\n")+"\n" to the concatenation.
 	// Reproduce it by trimming the assembled whole, then re-slicing at the raw

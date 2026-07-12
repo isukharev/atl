@@ -69,13 +69,15 @@ render profiles, output layout, status, bulk commands, and the full inventory.
 1. Keep the selected mirror root fixed for the whole cycle.
 2. On an existing mirror, check local/remote status and never pull over
    unreviewed local edits.
-3. Require first line `<!-- atl:document confluence-page v2 -->` in `.md`.
+3. Require first line `<!-- atl:document confluence-page v3 -->` in `.md`.
 4. If a pristine view is missing/older, render that exact file/root first. If it
    already has edits, save a private reviewed patch outside the derived view,
    render, then reapply it. For a future marker, update `atl`; never downgrade.
    A directory render preflights all selected markers before changing any view.
 5. Treat generated metadata/comment regions as readonly. Use dedicated
    operations for metadata and comments.
+   Generated `# Jira Queries` tables are readonly too; change the native macro
+   or re-pull with `--jira-view`, never edit the table into page content.
 6. Choose one body surface for the cycle:
    - ordinary prose/headings/lists/code/simple tables → edit `.md`, then apply;
    - unsupported wrappers, ambiguous mentions, column/rowspan/colspan/nested-table

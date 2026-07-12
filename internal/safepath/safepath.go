@@ -267,6 +267,37 @@ func ReadFileWithin(root, target string) ([]byte, error) {
 	return r.ReadFile(rel)
 }
 
+// ReadFileWithinLimit reads a contained regular file while bounding allocation.
+// It uses the same held os.Root containment as ReadFileWithin and reads one
+// byte past max so callers can distinguish an exact-limit file from overflow.
+func ReadFileWithinLimit(root, target string, max int64) ([]byte, error) {
+	if max < 0 {
+		return nil, fmt.Errorf("invalid read limit %d", max)
+	}
+	rel, err := relativeToRoot(root, target)
+	if err != nil {
+		return nil, err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = r.Close() }()
+	f, err := r.Open(rel)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	b, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(b)) > max {
+		return nil, fmt.Errorf("file exceeds %d-byte read limit", max)
+	}
+	return b, nil
+}
+
 // StatWithin returns metadata for a mirror-owned path without following any
 // descendant symlink. It shares the same held-root containment as ReadFileWithin
 // so callers can preserve file modes without reopening a path through the

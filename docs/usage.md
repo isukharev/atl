@@ -528,8 +528,8 @@ contain. Supported body edits become real only after `conf apply` / `jira
 apply`; generated metadata sections remain read-only, and pull/render may
 replace the view. Profiles never affect substrate hashes or dirty/drift state.
 
-Confluence views begin with `<!-- atl:document confluence-page v2 -->` and use
-reserved metadata/body/comments boundaries. Before editing an older or
+Confluence views begin with `<!-- atl:document confluence-page v3 -->` and use
+reserved metadata/body/comments/Jira-query boundaries. Before editing an older or
 unmarked view, render the exact file/root again. Since render replaces `.md`,
 preserve existing edits as a private reviewed patch and reapply them afterward.
 
@@ -883,6 +883,7 @@ Flags:
 | `--depth` | depth limit when using `--space` (0 = unlimited) |
 | `--assets` | download draw.io PNG renders and inline images |
 | `--comments` | mirror page comments to `<slug>.comments.json` (+ `.comments.md`) sidecars |
+| `--jira-view` | named `jira_list_views` projection for Jira JQL macros whose macro configuration does not specify columns |
 | `--into` | mirror root directory (default `mirror`) |
 | `--render-profile` | `.md` view profile: `minimal` \| `default` \| `full` (see [Render profiles](#render-profiles)) |
 | `--render-include` | comma-separated sections to add to the profile |
@@ -892,6 +893,18 @@ At most one of `--id`, `--cql`, `--space` may be given.
 
 The `--render-*` flags override the configured profile for this run; the pull
 result JSON is unchanged by the profile (they affect only the `.md` view).
+
+Jira JQL macros are enriched on a best-effort read path when Jira credentials
+are configured. Their original placeholder stays in `# Content`; resolved rows
+use the shared Jira IssueList Markdown table under generated readonly `# Jira
+Queries`. Explicit macro columns win, otherwise `--jira-view` selects the
+`confluence_macro` projection (`default` when omitted). Pull records the typed
+snapshot in `<slug>.jira-macros.json`, allowing offline render and apply to
+reproduce the exact generated suffix without rerunning JQL. A missing Jira
+configuration or one failed query retains the placeholder and emits a bounded
+stderr warning; it never blocks the native page pull. Resolution is capped per
+page at 20 JQL macros and 2000 total rows (1000 per macro); omitted macros stay
+as placeholders and are reported.
 
 `--comments` is opt-in: without it, no comment endpoint is contacted and no
 comment files are written. Comments are auxiliary read-only data — they never
@@ -1132,7 +1145,7 @@ atl conf apply guide.md --allow-fragment-loss  # intentional macro/mention remov
 | `--allow-fragment-loss` | proceed when the edit drops opaque fragments |
 | `--into` | mirror root (defaults to nearest `.atl`) |
 
-The first line must be `<!-- atl:document confluence-page v2 -->`. Apply rejects
+The first line must be `<!-- atl:document confluence-page v3 -->`. Apply rejects
 missing/legacy/unknown versions and additions, removals, renames, or reordering of reserved
 `<!-- atl:... -->` marker text in the editable body before writing. Marker prose
 that already came from native page content is allowed when left unchanged.
@@ -1151,6 +1164,13 @@ applies to a byte-identical `.csf` — the decorations are never converted into
 page content. Editing generated page fields or the `# Comments` section is
 refused (exit `8`); use the relevant dedicated metadata/comment command where
 available rather than editing the derived view.
+
+Resolved Jira macro tables are generated/read-only too. Editing `# Jira
+Queries` is refused; change the native macro in Confluence or select another
+`jira_list_views` projection on the next pull. The
+`.jira-macros.json` sidecar is bound to the page id and ordered macro
+descriptors. Missing or stale enrichment never becomes editable page content:
+apply fails closed and asks for a fresh pull.
 
 Output: `{path, csf_path, dry_run, report: {unchanged, moved, converted,
 removed, merged_tables?, removed_fragments?, problems?}, csf_ok, wrote,
@@ -1245,6 +1265,7 @@ pipeline as pull/render, without creating a mirror:
 atl conf page view 12345678 -o text
 atl conf page view 12345678 --render-profile full
 atl conf page view 12345678 --render-root ~/.atl/workspace
+atl conf page view 12345678 --jira-view full -o text
 ```
 
 JSON output contains `id`, `title`, `space`, `version`, and `markdown`; `-o
@@ -1253,6 +1274,12 @@ presentation-only config and is never created or modified. Binary assets and
 view state are not fetched or written. Comments are requested only when the
 effective render profile includes `comments`; a capped result produces a
 stderr warning.
+
+Jira JQL macros use the same read-only IssueList enrichment as pull. Their
+configured columns take precedence; otherwise `--jira-view` selects the named
+`confluence_macro` projection. This may make bounded Jira search requests, but
+never per-issue reads or Jira writes. Single-key Jira macros remain ordinary
+readable Jira links.
 
 The document and its body are explicitly marked read-only because transient
 output has no synchronized CSF/baseline. Do not save it into a mirror or feed it
@@ -1266,6 +1293,7 @@ Flags:
 | `--render-profile` | `minimal`, `default`, or `full` |
 | `--render-include` | comma-separated Confluence sections to add |
 | `--render-exclude` | comma-separated Confluence sections to remove |
+| `--jira-view` | named Jira list projection for JQL macros (default `default`) |
 
 ### `atl conf page meta`
 
