@@ -11,7 +11,7 @@ atl conf search --cql '<CQL>' --limit 25
 atl conf search --space <KEY> --title '<substring>' --type page --limit 25
 atl conf space tree --space <KEY> [--depth N]
 atl conf page list --space <KEY> [--status current|archived|trashed]
-atl conf page view <id> -o text
+atl conf page view <id> --jira-view default -o text
 ```
 
 Do not combine `--cql` with convenience filters. Search requires CQL or at
@@ -20,7 +20,7 @@ least one of `--space/--title/--label/--type`; paginate with `--cursor`.
 Use transient `page view` only for one-off readonly work. For a mirror:
 
 ```bash
-atl conf pull --id <id> --assets --comments --into <root>
+atl conf pull --id <id> --assets --comments --jira-view default --into <root>
 # alternatives: --cql '<CQL>' or --space <KEY> [--depth N]
 ```
 
@@ -37,6 +37,7 @@ complete.
     <page-slug>.meta.json     auto-managed metadata/fragments
     <page-slug>.comments.json optional readonly sidecar
     <page-slug>.comments.md   optional derived comment view
+    <page-slug>.jira-macros.json optional readonly Jira IssueList snapshots
     <page-slug>.assets/       optional diagram/image renders
 <root>/.atl/                  baseline/view state; never edit or commit
 ```
@@ -71,6 +72,15 @@ View v2 removed legacy YAML `frontmatter`; use `page_fields`. A stale include is
 ignored with the normal unknown-section warning, so render or pull again after
 updating the config and before editing.
 
+Jira JQL macros retain their placeholder in the editable body and render
+resolved IssueList tables in readonly `# Jira Queries`. Macro-defined columns
+win; otherwise `--jira-view <name>` chooses the configured
+`jira_list_views.<name>.confluence_macro` projection. Pull records the result in
+the typed sidecar for byte-stable offline render/apply. Missing Jira access or a
+failed query warns and keeps the placeholder. Never edit a generated macro
+table as page body. Treat the result as partial when the command warns: one page
+is capped at 20 JQL macros and 2000 aggregate rows (1000 per macro).
+
 Pull/render record the exact resolved section and typed-field descriptors in
 `.atl/state.json.views`. `conf apply` reproduces that recorded pristine view;
 ambient config changes do not silently redefine generated/read-only regions.
@@ -94,11 +104,11 @@ ID projection accept `-o id` for one identifier per line.
 |---|---|---|
 | `conf search` | Find pages | `--cql` or convenience filters, `--limit`, `--cursor` |
 | `conf space tree` | Space hierarchy | `--space`, `--depth` |
-| `conf page list|get|view|meta|history|open` | Page reads | command-specific id/format/render flags |
+| `conf page list|get|view|meta|history|open` | Page reads | command-specific id/format/render flags; view supports `--jira-view` |
 | `conf page title set <ID>` | Guarded title preview/apply | `--from-file`, `--apply`, expected gates |
 | `conf page move <ID>` | Guarded move preview/apply | `--parent`, `--apply`, expected gates |
 | `conf page create|copy|delete` | Page lifecycle | command-specific title/space/parent/file flags |
-| `conf pull` | Mirror pages | selector, `--assets`, `--comments`, `--into`, render flags |
+| `conf pull` | Mirror pages | selector, `--assets`, `--comments`, `--jira-view`, `--into`, render flags |
 | `conf render` | Regenerate Markdown offline | path, render flags, `--into` |
 | `conf status` | Dirty/drift state | path, `--remote` |
 | `conf apply` | Merge Markdown to CSF | page md, `--dry-run`, `--allow-fragment-loss`, `--into` |

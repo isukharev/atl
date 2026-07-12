@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Confluence Jira JQL macros use shared issue tables.** Transient page views
+  and pulls can resolve query macros through bounded Jira searches, render the
+  common IssueList Markdown table in a generated readonly suffix, select named
+  `confluence_macro` projections with `--jira-view`, and persist identity-bound
+  snapshots for byte-stable offline render/apply. Missing Jira access and
+  individual query failures remain visible placeholders with bounded warnings.
+
 - **Named Jira list views.** Effective config now contains editable `default`
   and `full` source-aware projections plus user-defined presets. Jira search,
   epic children, board/sprint pages and exports, Structure reads/exports, and
@@ -50,6 +57,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   technical rather than risking an incorrect row/value join.
 
 ### Changed
+
+- **Confluence durable views use document format v3.** The optional generated
+  Jira-query suffix changes readonly bytes, so v2/v1/unversioned views receive
+  explicit migration guidance and offline render upgrades known legacy views
+  while continuing to refuse future markers.
 
 - **Jira durable views use document format v2.** The generated Subtasks and
   Epic Children tables changed read-only bytes, so v1/unversioned views now

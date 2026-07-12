@@ -187,6 +187,7 @@ type PullOpts struct {
 	Comments bool
 	Into     string
 	Render   config.RenderService
+	JiraView string
 }
 
 // PulledPage is one mirrored page.
@@ -224,6 +225,9 @@ type PullResult struct {
 
 // Pull mirrors pages selected by id/cql/space into Into.
 func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, error) {
+	if err := s.validateConfluenceJiraView(o.JiraView); err != nil {
+		return nil, err
+	}
 	root := o.Into
 	if root == "" {
 		root = "mirror"
@@ -277,7 +281,9 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 			return res, fmt.Errorf("pull %s: %w", id, rerr)
 		}
 		refs := []domain.Ref{}
+		var pageNode *csf.Node
 		if root, perr := csf.Parse(page.Body); perr == nil {
+			pageNode = root
 			refs = fragment.Extract(root)
 			deps := fragment.Deps{Assets: m.AssetSink(dir, slug), Users: s.users}
 			if o.Assets {
@@ -302,12 +308,22 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 			}
 		}
 		mdOpts := confMDViewOpts(rs, page, comments)
+		var jiraMacros *confluenceJiraMacroSidecar
+		if pageNode != nil {
+			var macroWarnings []string
+			jiraMacros, macroWarnings = s.resolveConfluenceJiraMacros(ctx, page.ID, pageNode, o.JiraView)
+			res.Warnings = append(res.Warnings, macroWarnings...)
+			mdOpts.JiraMacros = confluenceJiraMacroViews(jiraMacros)
+		}
 		if o.Comments {
 			if err := batch.WriteComments(dir, slug, page, refs, comments, commentsTruncated, mdOpts); err != nil {
 				return res, fmt.Errorf("write %s: %w", id, err)
 			}
 		} else if err := batch.WriteView(dir, slug, page, refs, mdOpts); err != nil {
 			return res, fmt.Errorf("write %s: %w", id, err)
+		}
+		if err := writeConfluenceJiraMacroSidecar(root, dir, slug, jiraMacros); err != nil {
+			return res, fmt.Errorf("write Jira macro sidecar %s: %w", id, err)
 		}
 		// Record the render settings this .md view was written with so `conf
 		// apply` can reproduce the exact pristine view (metadata + comments
@@ -381,6 +397,9 @@ func planConfluencePageRelocation(m *mirror.Mirror, id, newRel string) (*mirror.
 		opts := mirror.MDViewOpts{}
 		if hasView {
 			opts = confMDViewOpts(settingsFromViewState(view), confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug))
+			if sidecarErr := addConfluenceJiraMacrosFromSidecar(&opts, m.Root, dir, slug, lc.Meta.ID, node); sidecarErr != nil {
+				return nil, fmt.Errorf("%w: Jira macro enrichment sidecar cannot reproduce relocation source: %v; re-pull first", domain.ErrCheckFailed, sidecarErr)
+			}
 		}
 		md = mirror.RenderMarkdownOpts(node, lc.Meta.Refs, opts)
 	}

@@ -25,6 +25,9 @@ type ConfluenceService struct {
 	baseURL  string
 	verifier domain.Verifier
 	cfg      *config.Config
+	jiraRead domain.Tracker
+	// jiraReadReason is deliberately coarse and URL-free for render warnings.
+	jiraReadReason string
 }
 
 // JiraService bundles the Jira use-cases over a Tracker. agile and structure are
@@ -60,7 +63,23 @@ func NewConfluence(cfg *config.Config, version string) (*ConfluenceService, erro
 		return nil, err
 	}
 	cf := confluence.New(cfg.ConfluenceURL, tok, version)
-	return &ConfluenceService{store: cf, users: cf.ResolveUser, assets: cf, baseURL: cfg.ConfluenceURL, verifier: cf, cfg: cfg}, nil
+	service := &ConfluenceService{store: cf, users: cf.ResolveUser, assets: cf, baseURL: cfg.ConfluenceURL, verifier: cf, cfg: cfg}
+	service.jiraRead, service.jiraReadReason = optionalJiraRead(cfg, version)
+	return service, nil
+}
+
+func optionalJiraRead(cfg *config.Config, version string) (domain.Tracker, string) {
+	if cfg == nil || cfg.JiraURL == "" {
+		return nil, "Jira URL is not configured"
+	}
+	if err := config.CheckSecureURL(cfg.JiraURL); err != nil {
+		return nil, "Jira URL is not approved for authenticated reads"
+	}
+	token, err := auth.Token(auth.Jira)
+	if err != nil {
+		return nil, "Jira credentials are not configured"
+	}
+	return jira.New(cfg.JiraURL, token, version), ""
 }
 
 // NewConfluenceRenderer builds a ConfluenceService for the offline `conf render`

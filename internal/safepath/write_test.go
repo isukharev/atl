@@ -481,3 +481,28 @@ func TestWithinRelError(t *testing.T) {
 		t.Error("Within should reject a sibling path that escapes the root")
 	}
 }
+
+func TestReadFileWithinLimit(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "bounded.txt")
+	if err := os.WriteFile(target, []byte("12345"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ReadFileWithinLimit(root, target, 5); err != nil || string(got) != "12345" {
+		t.Fatalf("exact limit got=%q err=%v", got, err)
+	}
+	if _, err := ReadFileWithinLimit(root, target, 4); err == nil || !strings.Contains(err.Error(), "read limit") {
+		t.Fatalf("overflow err=%v", err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link.txt")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := ReadFileWithinLimit(root, link, 16); err == nil {
+		t.Fatal("bounded read followed an escaping symlink")
+	}
+}

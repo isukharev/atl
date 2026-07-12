@@ -192,14 +192,25 @@ unchanged before and after. Render-resolution warnings go to **stderr**, never
 stdout.
 
 Every Confluence derived page view begins with
-`<!-- atl:document confluence-page v2 -->` and has reserved generated
-metadata/body/comments boundaries. `conf apply` rejects missing, legacy, or
+`<!-- atl:document confluence-page v3 -->` and has reserved generated
+metadata/body/comments/Jira-query boundaries. `conf apply` rejects missing, legacy, or
 unknown versions and additions/removals/renames/reordering in the reserved marker sequence inside
 the editable body before any substrate write. Marker-looking prose already
 present in the native page remains valid when unchanged. Legacy/unmarked
 migration uses `conf render` or a fresh pull;
 callers preserve and reapply existing edits because render replaces `.md`.
 Unknown/future versions require an updated binary and must not be downgraded.
+
+JQL-bearing Confluence Jira macros keep a readable query placeholder in the
+editable body and, when Jira read access succeeds, append a generated readonly
+`# Jira Queries` suffix rendered by the shared IssueList Markdown table. Macro
+columns override the selected named list view; otherwise the view's
+`confluence_macro` projection is used. Pull persists a page/macro-hash-bound
+`<slug>.jira-macros.json` snapshot so offline render and apply remain
+byte-stable without network access. Per-query failures are bounded warnings and
+leave placeholders; invalid or stale recorded enrichment is never merged into
+CSF and makes apply fail closed pending a fresh pull. One page resolves at most
+20 JQL macros and 2000 aggregate rows, with a 1000-row per-macro cap.
 
 When `page_fields` is enabled, the read-only prefix contains
 `<!-- atl:section page-fields readonly -->` followed by a `# Metadata` table and
