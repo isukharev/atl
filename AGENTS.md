@@ -113,6 +113,9 @@ patterns over introducing cross-layer shortcuts.
   document-format marker review. If existing pristine views would reconstruct
   differently, bump the marker, add render migration and apply diagnostics, and
   test current, legacy, unversioned, and future-marker behavior.
+- Context7-selected runtime documentation must contain at least one real,
+  non-empty language-tagged fenced example. Run `make check-context7-docs` when
+  adding root Markdown, changing `context7.json`, or editing the indexed corpus.
 - Keep PRs small; commit subjects use `<type>: <summary>`.
 
 ## GitHub tracking

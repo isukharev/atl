@@ -210,3 +210,6 @@ Canonical guides live outside this file: `AGENTS.md` (cross-agent handoff rules)
 - Never commit secrets/PATs (see `.gitignore`). The ed25519 release signing private key is
   never committed.
 - Keep PRs small; commit subjects `<type>: <summary>` (e.g. `fix: handle empty body in push`).
+- Context7-selected runtime documentation must contain at least one real,
+  non-empty language-tagged fenced example. Run `make check-context7-docs` when
+  adding root Markdown, changing `context7.json`, or editing the indexed corpus.

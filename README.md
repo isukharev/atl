@@ -459,7 +459,8 @@ The codebase follows a **hexagonal (ports & adapters)** architecture:
 | `internal/cli` | Thin Cobra command layer |
 
 Further reading: [docs/architecture.md](docs/architecture.md) · [docs/usage.md](docs/usage.md) ·
-[docs/self-update.md](docs/self-update.md) · [Context7 integration](docs/context7.md)
+[agent recipes](docs/agent-recipes.md) · [docs/self-update.md](docs/self-update.md) ·
+[Context7 integration](docs/context7.md)
 
 ---
 

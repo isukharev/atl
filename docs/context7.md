@@ -2,9 +2,12 @@
 
 Context7 can index atl's public documentation so an agent can retrieve the
 current CLI contract without cloning or opening this repository. The root
-[`context7.json`](../context7.json) deliberately selects `docs/` and excludes
-implementation, private, historical-plan, and generated plugin trees. Context7
-never receives Jira or Confluence mirror content through this integration.
+[`context7.json`](../context7.json) deliberately selects `docs/`, then excludes
+maintainer-only, implementation, private, historical-plan, and generated plugin
+content. Context7 always considers root-level Markdown even when `folders` is
+narrow, so every root file except the user-facing `README.md` is listed in
+`excludeFiles`. Context7 never receives Jira or Confluence mirror content
+through this integration.
 
 Registration is external state. The presence of `context7.json` does not by
 itself prove that the library is registered or fresh; verify it before relying
@@ -63,17 +66,38 @@ and the two successful verification queries are separate acceptance gates.
 
 ## Add or change indexed documentation
 
-Put maintained user or maintainer documentation under `docs/`. A normal merge
-to `main` makes it eligible for the next parse. Keep implementation details in
-code and private backend artifacts outside the selected tree. When adding a new
-documentation category, review `folders`, `excludeFolders`, and the short
-`rules` list rather than widening the index implicitly.
+Put maintained runtime/user documentation under `docs/`. A normal merge to
+`main` makes it eligible for the next parse unless its filename or directory is
+excluded. Keep implementation details in code and private backend artifacts
+outside the selected tree. When adding a new documentation category, review
+`folders`, `excludeFolders`, `excludeFiles`, and the short `rules` list rather
+than widening the index implicitly.
+
+Context7 extracts explanations around code examples and may ignore a page that
+has no code. Every selected atl document therefore needs at least one real,
+non-empty fenced example with a language tag such as `sh`, `json`, `yaml`,
+`text`, or `xml`. Do not add decorative or impossible commands merely to raise
+the snippet count. Prefer a small task recipe that a user can run, followed by
+the output shape or safety constraint it demonstrates. The curated
+[agent recipes](agent-recipes.md) cover high-frequency workflows while
+`usage.md` remains the exhaustive reference.
 
 The index intentionally excludes `docs/proposals/` and `docs/superpowers/`:
 they describe historical or prospective designs and can conflict with the
 shipped CLI contract. Promote durable behavior into `docs/usage.md`,
 `docs/OUTPUT_CONTRACT.md`, or another maintained reference before expecting an
 agent to use it.
+
+Before merging an indexed documentation change, run:
+
+```sh
+make check-context7-docs
+```
+
+The repository check fails when a root Markdown file would be indexed
+implicitly without review or when a selected document lacks a non-empty named
+fenced snippet. It does not replace Context7's parser or benchmark; it protects
+the local scope and minimum snippet contract.
 
 ## How often Context7 updates atl
 
@@ -125,11 +149,26 @@ and review what is selected:
 
 ```sh
 jq empty context7.json
+make check-context7-docs
 curl --fail --silent --show-error https://context7.com/schema/context7.json | jq '.properties | keys'
 ```
 
 Schema validity does not replace the post-index query check: Context7 parsing
 and library registration are external operations with their own status.
+
+After registration or a major documentation rewrite, run representative
+queries rather than checking only that the library resolves:
+
+```sh
+npx ctx7@latest docs /isukharev/atl "Find Jira issues, paginate the JSON result, and explain partial results"
+npx ctx7@latest docs /isukharev/atl "Safely edit a Confluence page through pull, apply, preview, and push"
+npx ctx7@latest docs /isukharev/atl "Read a board and a Structure folder as JSONL for jq processing"
+npx ctx7@latest docs /isukharev/atl "Set a large Jira custom field with review gates and no value in argv"
+```
+
+The returned snippets should contain runnable commands plus the relevant
+write/partial-result warning. Library owners can then use Context7's Benchmark
+tab to compare retrieval quality after scope or recipe changes.
 
 Official references: [adding libraries](https://context7.com/docs/adding-libraries),
 [configuration schema](https://context7.com/schema/context7.json), and
