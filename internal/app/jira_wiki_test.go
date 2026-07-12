@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,6 +73,44 @@ func TestJiraPullMarkdownIsRenderedView(t *testing.T) {
 	mustNotContain(t, md, "h2. Foo")           // raw wiki heading gone
 	mustNotContain(t, md, "{code:go}")         // raw wiki macro gone
 	mustNotContain(t, md, "# Description (Jira wiki)")
+}
+
+func TestJiraPullRefusesToDowngradeFutureMarkdownView(t *testing.T) {
+	into := t.TempDir()
+	tr := &assetPullTracker{t: t, issues: []domain.Issue{{
+		Key: "PROJ-2", Project: "PROJ", Summary: "S", Status: "Open", Type: "Task", Body: "original body",
+	}}}
+	svc := &JiraService{tr: tr}
+	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1}); err != nil {
+		t.Fatalf("initial pull: %v", err)
+	}
+	mdPath := filepath.Join(into, "PROJ", "PROJ-2.md")
+	wikiPath := filepath.Join(into, "PROJ", "PROJ-2.wiki")
+	future := strings.Replace(string(mustReadBytes(t, mdPath)), jiraIssueDocumentMarker, "<!-- atl:document jira-issue v99 -->", 1)
+	if err := os.WriteFile(mdPath, []byte(future), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wikiBefore := mustReadBytes(t, wikiPath)
+	tr.issues[0].Body = "new remote body"
+
+	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1}); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("future view pull error=%v, want check failure", err)
+	}
+	if got := string(mustReadBytes(t, mdPath)); got != future {
+		t.Fatal("future Jira view was overwritten by pull")
+	}
+	if got := mustReadBytes(t, wikiPath); string(got) != string(wikiBefore) {
+		t.Fatalf("wiki substrate changed before future-view refusal: got=%q want=%q", got, wikiBefore)
+	}
+}
+
+func mustReadBytes(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }
 
 // With --assets, an inline `!screenshot.png!` embed resolves to the downloaded

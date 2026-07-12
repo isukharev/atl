@@ -726,6 +726,13 @@ recorded in `.atl/state.json` (the `views` map) so a later `apply` can reproduce
 it. A Confluence `.csf` that fails to parse yields the same markdown-unavailable
 stub as `pull`.
 
+Jira directory render checks every existing document marker before the first
+rewrite, then repeats each target check under the mutation lock. `jira pull`
+also refuses to overwrite an explicit future/unknown `.md` marker before it
+changes that issue's artifacts. A CRLF marker line is recognized without
+normalizing the rest of the view. Malformed or unreadable Jira `.json`
+snapshots are skipped with one stderr warning per path; they are never silent.
+
 | flag | description |
 |---|---|
 | `--render-profile` | `minimal` \| `default` \| `full` (overrides config) |

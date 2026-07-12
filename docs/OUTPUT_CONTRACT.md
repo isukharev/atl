@@ -355,9 +355,14 @@ bullet form of Subtasks/Epic Children and is intentionally not reconstructed as
 v2 during apply. A future/unknown version requires a
 newer binary and must not be rendered or downgraded by the current one. A
 directory render preflights every existing view before rewriting any sibling,
-so one future marker cannot produce a half-migrated batch. Since render rewrites the
-derived `.md`, callers preserve any existing edits externally and reapply them
-after migration.
+so one future marker cannot produce a half-migrated batch. It repeats each
+target check under the mirror mutation lock immediately before writing; `pull`
+uses the same locked check before changing that issue's artifacts. A CRLF on
+the marker line is recognized without normalizing the rest of the file.
+Unreadable or malformed `.json` snapshots remain advisory skips, but each is
+named in a stderr warning instead of disappearing silently. Since render
+rewrites the derived `.md`, callers preserve any existing edits externally and
+reapply them after migration.
 `removed_constructs` entry is `{ "kind", "text" }` (`kind` ∈ `panel`, `color`, `mention`, `image`,
 `monospace`, `link`, `macro`, …). The merge is fail-closed and exits `8` (`ErrCheckFailed`, nothing
 written) on: an unconvertible edited block; a wiki-only construct dropped without `--allow-loss`

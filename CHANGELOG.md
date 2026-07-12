@@ -109,6 +109,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Jira derived views close check-to-write gaps.** Offline render repeats each
+  marker check under the mirror mutation lock, pull refuses to overwrite an
+  unknown future view before changing that issue's artifacts, malformed or
+  unreadable snapshots produce explicit warnings, current CRLF marker lines
+  receive accurate handling, and descendant symlink refusals map to a stable
+  check failure.
+
 - **List and Structure projections are scoped and readable.** Selected
   Structure subtrees no longer become incomplete because of missing folder
   labels elsewhere in the forest, typed string slices render as comma-separated
