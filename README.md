@@ -20,6 +20,7 @@ For investigation-only sessions, set `ATL_READ_ONLY=1` (or pass global
 self-update, or network access; reads, pulls, status, and exports remain usable.
 Persist the guard with `atl config set safety.read_only true`.
 Help and shell completion remain available in read-only mode.
+Confluence durable-view marker checks accept either LF or CRLF line endings.
 
 > **Non-affiliation notice:** This project is an independent open-source tool and is NOT
 > affiliated with, endorsed by, or sponsored by Atlassian Pty Ltd. See the

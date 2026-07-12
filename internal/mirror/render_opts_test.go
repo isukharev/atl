@@ -159,3 +159,13 @@ func TestRenderMarkdownViewPartsConcatIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestConfluenceDocumentMarkerLineNormalizesOnlyAttachedCR(t *testing.T) {
+	document := ConfluenceDocumentMarker + "\r\nbody\r\n"
+	if got := ConfluenceDocumentMarkerLine(document); got != ConfluenceDocumentMarker {
+		t.Fatalf("marker=%q", got)
+	}
+	if !strings.Contains(document, "body\r\n") {
+		t.Fatal("test control lost body bytes")
+	}
+}

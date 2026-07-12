@@ -114,6 +114,41 @@ func TestPageRelocationFailsClosedOnLocalViewEditAndCollision(t *testing.T) {
 	}
 }
 
+func TestPageRelocationClassifiesCRLFMarkerWithoutChangingBodySemantics(t *testing.T) {
+	tests := []struct {
+		name, marker, want string
+	}{
+		{"current", ConfluenceDocumentMarker, "unapplied Markdown edits"},
+		{"legacy", "<!-- atl:document confluence-page v2 -->", "legacy document format"},
+		{"future", "<!-- atl:document confluence-page v99 -->", "unsupported format marker"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := New(t.TempDir())
+			page := relocationPage("Old")
+			oldDir, oldSlug, _ := m.ClaimPageDir(page.SpaceKey, nil, page.Title, page.ID)
+			if err := m.Write(oldDir, oldSlug, page, nil); err != nil {
+				t.Fatal(err)
+			}
+			oldMDPath := filepath.Join(oldDir, oldSlug+".md")
+			pristine, _ := os.ReadFile(oldMDPath)
+			changed := strings.Replace(string(pristine), ConfluenceDocumentMarker+"\n", tt.marker+"\r\n", 1)
+			if err := os.WriteFile(oldMDPath, []byte(changed), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			newDir, newSlug := m.PageDir("S", nil, "New")
+			newRel, _ := filepath.Rel(m.Root, filepath.Join(newDir, newSlug+".csf"))
+			_, err := m.PlanPageRelocation(page.ID, newRel, pristine)
+			if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error=%v, want %q", err, tt.want)
+			}
+			if tt.name == "current" && strings.Contains(err.Error(), "unsupported format marker") {
+				t.Fatalf("current CRLF marker misclassified: %v", err)
+			}
+		})
+	}
+}
+
 func TestPageRelocationRequiresDurableValidReplacementBeforeRetirement(t *testing.T) {
 	m := New(t.TempDir())
 	old := relocationPage("Old")

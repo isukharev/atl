@@ -69,6 +69,7 @@ func TestConfRenderRefusesUnsupportedExistingViewVersion(t *testing.T) {
 	root, dir, slug := seedConfMirror(t, nil)
 	mdPath := filepath.Join(dir, slug+".md")
 	future := strings.Replace(mustReadFile(t, mdPath), mirror.ConfluenceDocumentMarker, "<!-- atl:document confluence-page v99 -->", 1)
+	future = strings.Replace(future, "\n", "\r\n", 1)
 	if err := os.WriteFile(mdPath, []byte(future), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -78,6 +79,19 @@ func TestConfRenderRefusesUnsupportedExistingViewVersion(t *testing.T) {
 	}
 	if got := mustReadFile(t, mdPath); got != future {
 		t.Fatalf("future view was overwritten:\n%s", got)
+	}
+}
+
+func TestConfRenderAcceptsCurrentCRLFMarkerLine(t *testing.T) {
+	root, dir, slug := seedConfMirror(t, nil)
+	mdPath := filepath.Join(dir, slug+".md")
+	crlfMarker := strings.Replace(mustReadFile(t, mdPath), "\n", "\r\n", 1)
+	mustWriteFile(t, mdPath, crlfMarker)
+	if _, err := NewConfluenceRenderer(&config.Config{}).Render(root, config.RenderService{}); err != nil {
+		t.Fatalf("current CRLF marker render: %v", err)
+	}
+	if got := mustReadFile(t, mdPath); !strings.HasPrefix(got, mirror.ConfluenceDocumentMarker+"\n") {
+		t.Fatalf("marker was not regenerated canonically: %q", got)
 	}
 }
 

@@ -212,6 +212,9 @@ present in the native page remains valid when unchanged. Legacy/unmarked
 migration uses `conf render` or a fresh pull;
 callers preserve and reapply existing edits because render replaces `.md`.
 Unknown/future versions require an updated binary and must not be downgraded.
+The marker line may end in LF or CRLF. Atl strips only the CR attached to that
+first line for version classification; remaining Markdown bytes stay
+significant for dirty/edit/relocation checks.
 
 JQL-bearing Confluence Jira macros keep a readable query placeholder in the
 editable body and, when Jira read access succeeds, append a generated readonly

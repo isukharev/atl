@@ -19,6 +19,7 @@
 self-update и сети; чтение, pull, status и export остаются доступны. Постоянный
 guard: `atl config set safety.read_only true`.
 Help и shell completion остаются доступны в read-only режиме.
+Маркеры durable-view Confluence принимают окончания строк LF и CRLF.
 
 > **Отказ от аффилиации:** этот проект является независимым инструментом с открытым
 > исходным кодом и НЕ связан с Atlassian Pty Ltd, не одобрен и не спонсирован ею.
