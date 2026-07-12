@@ -91,7 +91,7 @@ func TestReadOnlyRefusalHasStableJSONMetadata(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body["policy"] != "read_only" || body["command"] != "atl jira push" || body["code"] != float64(exitCheckFailed) {
+	if body["policy"] != "read_only" || body["command"] != "atl jira push" || body["code"] != float64(exitCheckFailed) || body["kind"] != "read_only_policy" || body["remediation"] != "request_human_approval" {
 		t.Fatalf("body=%v", body)
 	}
 }

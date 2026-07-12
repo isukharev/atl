@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Stable machine-readable error guidance.** JSON errors preserve `error` and
+  exit `code` while adding sentinel-derived `kind` and deterministic
+  `remediation`; typed read-only, transport, and API failures are specialized
+  without trusting backend prose.
+
 - **Process-wide read-only execution policy.** `--read-only`,
   `ATL_READ_ONLY=1`, or global `safety.read_only=true` blocks every classified
   mutating command before credentials, request bodies, self-update, or network

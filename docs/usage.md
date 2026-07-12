@@ -156,9 +156,10 @@ atl conf pull --cql 'label = runbook' --into "$PWD/mirror"
 Notes for scripts:
 
 - **Errors are JSON too.** On success `atl` prints a JSON result to stdout; on
-  failure it prints `{"error": "...", "code": N}` to **stderr** (use `-o text`
-  for a plain `error: <msg>` line instead). Branch on the exit code; parse stdout
-  for results and, if you capture stderr, parse it the same way.
+  failure it prints `error`, the unchanged numeric `code`, stable `kind`, and
+  deterministic `remediation` to **stderr** (use `-o text` for a plain
+  `error: <msg>` line). Branch on `kind`/exit code; remediation is guidance for
+  the agent to present, never permission to retry or mutate automatically.
 - **`--cql` pull caps at 1000 pages; `--space` at 2000.** When either cap is
   hit the result carries `"truncated": true` / `"truncated_at": N` and a
   `warning:` line is printed to stderr — the rest is not mirrored. Narrow the

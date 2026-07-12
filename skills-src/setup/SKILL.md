@@ -16,6 +16,10 @@ URL/auth setup first, then offer `atl config set safety.read_only true` as the
 last step. Explain that persistent mode intentionally blocks later `config set`
 until a human edits/removes `read_only` in the owner-only global config file.
 
+When setup commands fail, use JSON `kind` and `remediation` rather than parsing
+the backend message. `configuration_error` means complete local setup;
+`authentication_failed` means replace/re-enter the rejected credential.
+
 {{atl.setup_invocation_note}}
 
 ## 1. Detect an existing install

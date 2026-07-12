@@ -55,7 +55,8 @@ func Execute() {
 }
 
 // writeError renders a failed command's error to w. With JSON output (the
-// default) it emits a single machine-readable object {"error","code"} so a
+// default) it emits a single machine-readable object with error/code plus
+// stable local kind/remediation metadata so a
 // script can parse stderr the same way it parses stdout; with `-o text` it
 // prints the familiar `error: <msg>` line. The exit code is echoed in the JSON
 // so a caller that only captured stderr still learns the classification.
@@ -67,12 +68,48 @@ func writeError(w io.Writer, format string, err error, code int) {
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	body := map[string]any{"error": err.Error(), "code": code}
+	kind, remediation := classifyError(err)
+	body["kind"] = kind
+	if remediation != "" {
+		body["remediation"] = remediation
+	}
 	if command, ok := readOnlyErrorMetadata(err); ok {
 		body["policy"] = "read_only"
 		body["command"] = command
 	}
 	// Encode never fails for these plain types; ignore its error.
 	_ = enc.Encode(body)
+}
+
+func classifyError(err error) (kind, remediation string) {
+	if _, ok := readOnlyErrorMetadata(err); ok {
+		return "read_only_policy", "request_human_approval"
+	}
+	switch {
+	case errors.Is(err, domain.ErrAuth):
+		return "authentication_failed", "reauthenticate"
+	case errors.Is(err, domain.ErrNotFound):
+		return "not_found", "verify_identifier_or_access"
+	case errors.Is(err, domain.ErrVersionConflict):
+		return "version_conflict", "refresh_and_reapply"
+	case errors.Is(err, domain.ErrForbidden):
+		return "forbidden", "request_access"
+	case errors.Is(err, domain.ErrConfig):
+		return "configuration_error", "complete_configuration"
+	case errors.Is(err, domain.ErrCheckFailed):
+		return "check_failed", "review_failed_check"
+	case errors.Is(err, domain.ErrUsage):
+		return "usage_error", "fix_request"
+	}
+	var transportErr *httpx.TransportError
+	if errors.As(err, &transportErr) {
+		return "transport_error", "inspect_network_before_retry"
+	}
+	var apiErr *httpx.APIError
+	if errors.As(err, &apiErr) {
+		return "api_error", "inspect_backend_error"
+	}
+	return "unexpected_error", "inspect_error"
 }
 
 func newRoot() *cobra.Command {

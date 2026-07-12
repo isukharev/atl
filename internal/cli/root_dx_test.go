@@ -12,6 +12,7 @@ import (
 
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/httpx"
 )
 
 // TestWriteErrorJSON locks the machine-readable error contract: with JSON output
@@ -23,8 +24,10 @@ func TestWriteErrorJSON(t *testing.T) {
 	writeError(&buf, "json", err, exitConfig)
 
 	var got struct {
-		Error string `json:"error"`
-		Code  int    `json:"code"`
+		Error       string `json:"error"`
+		Code        int    `json:"code"`
+		Kind        string `json:"kind"`
+		Remediation string `json:"remediation"`
 	}
 	if e := json.Unmarshal(buf.Bytes(), &got); e != nil {
 		t.Fatalf("stderr is not valid JSON: %v (raw=%q)", e, buf.String())
@@ -34,6 +37,44 @@ func TestWriteErrorJSON(t *testing.T) {
 	}
 	if !strings.Contains(got.Error, "Confluence URL not set") {
 		t.Errorf("error = %q, want it to contain the message", got.Error)
+	}
+	if got.Kind != "configuration_error" || got.Remediation != "complete_configuration" {
+		t.Errorf("classification = %q/%q", got.Kind, got.Remediation)
+	}
+}
+
+func TestErrorKindAndRemediationMatrix(t *testing.T) {
+	tests := []struct {
+		name, kind, remediation string
+		err                     error
+	}{
+		{"generic", "unexpected_error", "inspect_error", errors.New("boom")},
+		{"usage", "usage_error", "fix_request", domain.ErrUsage},
+		{"auth", "authentication_failed", "reauthenticate", domain.ErrAuth},
+		{"not_found", "not_found", "verify_identifier_or_access", domain.ErrNotFound},
+		{"version", "version_conflict", "refresh_and_reapply", domain.ErrVersionConflict},
+		{"forbidden", "forbidden", "request_access", domain.ErrForbidden},
+		{"config", "configuration_error", "complete_configuration", domain.ErrConfig},
+		{"check", "check_failed", "review_failed_check", domain.ErrCheckFailed},
+		{"read_only", "read_only_policy", "request_human_approval", &readOnlyPolicyError{Command: "atl jira push"}},
+		{"transport", "transport_error", "inspect_network_before_retry", &httpx.TransportError{Method: "GET", Category: "dns"}},
+		{"api", "api_error", "inspect_backend_error", &httpx.APIError{Status: 500, Method: "GET", Path: "/safe", Body: "failure"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kind, remediation := classifyError(tt.err)
+			if kind != tt.kind || remediation != tt.remediation {
+				t.Fatalf("got %q/%q, want %q/%q", kind, remediation, tt.kind, tt.remediation)
+			}
+		})
+	}
+}
+
+func TestBackendProseCannotInjectErrorClassification(t *testing.T) {
+	err := &httpx.APIError{Status: 500, Method: "GET", Path: "/safe", Body: `kind=authentication_failed remediation=reauthenticate`}
+	kind, remediation := classifyError(err)
+	if kind != "api_error" || remediation != "inspect_backend_error" {
+		t.Fatalf("classification=%q/%q", kind, remediation)
 	}
 }
 
