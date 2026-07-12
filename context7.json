@@ -1,0 +1,28 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "atl",
+  "description": "A safety-oriented CLI for agent and human workflows with Jira and Confluence Server/Data Center.",
+  "branch": "main",
+  "folders": [
+    "docs"
+  ],
+  "excludeFolders": [
+    "cmd",
+    "internal",
+    "local-docs",
+    "plugins",
+    "skills",
+    "skills-src",
+    "testdata",
+    "docs/proposals",
+    "docs/superpowers"
+  ],
+  "excludeFiles": [],
+  "rules": [
+    "CLI output is JSON by default; use -o text only for human-readable Markdown and -o id only where the command documents an identity projection.",
+    "Confluence .csf and Jira .wiki files are native write substrates. Markdown files are derived staging views and must use the guarded apply workflow before push.",
+    "Never convert Confluence Storage Format through Markdown on the server write path; preserve native body bytes and opaque fragments.",
+    "Sentinel errors define stable process exit classes. Agents and scripts must branch on documented exit codes instead of matching error text.",
+    "atl supports Jira and Confluence Server/Data Center bearer PATs; Atlassian Cloud email/API-token authentication is not supported."
+  ]
+}
