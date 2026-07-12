@@ -1,6 +1,10 @@
 <!-- Generated from skills-src/jira/reference/commands.md — edit the source and run 'make gen-plugins'. -->
 # Jira command reference
 
+For status/quarter analysis, choose commands through
+[evidence-workflow.md](evidence-workflow.md) instead of mechanically calling
+every read primitive.
+
 Load this reference only when exact command or flag lookup is useful.
 
 | Command | What it does | Key flags |

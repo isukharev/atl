@@ -64,6 +64,10 @@ stays declined. Never edit shell/workspace config implicitly.
   section <ref> --heading "Exact heading" -o text`. Honor `complete`; supply
   `--occurrence` when duplicate headings are reported. Do not download the full
   view merely to slice Markdown with a regex.
+- When a page is evidence linked from Jira, preserve the resolved page id and
+  fetch only the exact section required. Follow the Jira skill's
+  `reference/evidence-workflow.md`; do not broaden a bounded digest into a full
+  page/mirror read unless the question requires it.
 - Editing, attachments/assets, comments, repeated/offline work, or exact CSF
   inspection: use a mirror. Fresh-pull only the needed page when creating that
   mirror or after the existing-mirror status gate says it is safe/needed.

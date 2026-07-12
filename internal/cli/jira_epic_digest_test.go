@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
 )
 
-func TestJiraEpicDigestGolden(t *testing.T) {
+func epicDigestServer(t *testing.T) *jiraServer {
+	t.Helper()
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/api/2/field", http.StatusOK, `[
 		{"id":"customfield_10001","name":"Epic Link","custom":true,"schema":{"type":"any"}},
@@ -22,6 +24,11 @@ func TestJiraEpicDigestGolden(t *testing.T) {
 	js.route(http.MethodGet, "/rest/api/2/search", http.StatusOK, `{
 		"startAt":0,"maxResults":100,"total":1,"issues":[{"id":"10002","key":"PROJ-2","fields":{"summary":"Child","status":{"name":"Done"},"issuetype":{"name":"Task"},"updated":"2026-04-03T00:00:00.000+0000"}}]}
 	`)
+	return js
+}
+
+func TestJiraEpicDigestGolden(t *testing.T) {
+	js := epicDigestServer(t)
 
 	out, code := runCLI(t, jiraEnv(js.srv), "jira", "epic", "digest", "PROJ-1", "--quarter", "2026-Q2", "--status-field", "Delivery Notes", "--epic-field", "customfield_10001")
 	if code != exitOK {
@@ -31,6 +38,49 @@ func TestJiraEpicDigestGolden(t *testing.T) {
 		t.Fatalf("digest output=%s", out)
 	}
 	assertGolden(t, "jira_epic_digest.json", []byte(out))
+}
+
+// TestEvidenceFirstEpicWorkflowBudget is a deterministic agent-contract
+// benchmark, not a wall-clock microbenchmark. It pins the first-use workflow
+// (discover non-empty fields, then request the aggregate digest) to a bounded
+// number of read-only backend calls and a bounded context payload.
+func TestEvidenceFirstEpicWorkflowBudget(t *testing.T) {
+	js := epicDigestServer(t)
+	env := jiraEnv(js.srv)
+	fields, code := runCLI(t, env, "--read-only", "jira", "issue", "fields", "PROJ-1")
+	if code != exitOK {
+		t.Fatalf("fields exit=%d output=%s", code, fields)
+	}
+	digest, code := runCLI(t, env, "--read-only", "jira", "epic", "digest", "PROJ-1", "--quarter", "2026-Q2", "--status-field", "Delivery Notes", "--epic-field", "customfield_10001")
+	if code != exitOK {
+		t.Fatalf("digest exit=%d output=%s", code, digest)
+	}
+	requests := js.requests()
+	if got, wantMax := len(requests), 7; got > wantMax {
+		t.Fatalf("backend request budget exceeded: got=%d max=%d requests=%+v", got, wantMax, requests)
+	}
+	for _, request := range requests {
+		if request.method != http.MethodGet {
+			t.Fatalf("evidence workflow issued a write: %+v", request)
+		}
+	}
+	if got, wantMax := len(fields)+len(digest), 8<<10; got > wantMax {
+		t.Fatalf("context budget exceeded: got=%d max=%d", got, wantMax)
+	}
+	var decoded struct {
+		Sources map[string]struct {
+			Complete bool `json:"complete"`
+		} `json:"sources"`
+	}
+	if err := json.Unmarshal([]byte(digest), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range []string{"identity", "status-field", "children", "comments", "links", "history", "refs"} {
+		value, ok := decoded.Sources[source]
+		if !ok || !value.Complete {
+			t.Fatalf("source %q missing/incomplete: %+v", source, decoded.Sources)
+		}
+	}
 }
 
 func TestJiraEpicDigestTextIsEvidenceNotNarrative(t *testing.T) {

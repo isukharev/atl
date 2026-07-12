@@ -54,26 +54,13 @@ then apply with the exact proposal hash. Never replay `unknown`; if
 
 ## The canonical loop
 
-Before assuming standard fields contain the whole story, run `atl jira issue
-fields <KEY>`. Its default non-empty compact projection is the safe discovery
-surface; select exact names/ids with repeated `--field`. Do not begin with
-`*all` or `--raw`, which can carry large private user/transport objects.
-
-For time-sensitive evidence, use `atl jira issue history <KEY> --field "Exact
-Name" --since YYYY-MM-DD`. Check `complete` before drawing negative conclusions
-and use `last_changes`, not list position, for a selected field's latest update.
-
-For several known keys, avoid shell loops and durable artifacts: `atl jira
-export --keys PROJ-1,PROJ-2 --fields "Exact Name" --out - | jq -s '.'` (JSONL
-default), or add `--format json` and consume the array directly. The artifact is
-valid only on exit 0; a failed streaming read may have emitted a prefix.
-
-For one epic/quarter, prefer `atl jira epic digest <KEY> --quarter YYYY-QN
---status-field "Exact Name"` over manually joining get/children/comments/history/
-refs. Inspect every `sources.*.complete` before conclusions. Treat `staleness`
-as dated evidence only; write any management synthesis yourself from the result.
-Add `--dod-field` explicitly when DoD lives outside description. Expand
-Confluence only with a known exact heading and a small requested count.
+Start unfamiliar analysis with compact non-empty `jira issue fields`, not
+standard fields or `*all`. Then choose the shortest evidence path: selected
+qualified history/refs for one issue, transient export for several keys, or one
+`jira epic digest` for a known epic/period. Inspect every completeness field,
+stop when evidence is sufficient, and expand only a known Confluence heading.
+Load [evidence-workflow.md](reference/evidence-workflow.md) for the exact
+decision table, commands, partial-result rules, and private-output handling.
 
 ### 1. Find issues
 ```bash
