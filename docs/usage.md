@@ -1297,6 +1297,33 @@ Flags:
 | `--force` | bypass the version gate (ignores remote drift) |
 | `--into` | mirror root, when the file path is outside the default `mirror/` tree |
 
+### `atl conf page resolve`
+
+Resolve a Confluence content id or supported same-origin page URL to one stable
+content id:
+
+```bash
+atl conf page resolve 12345678
+atl conf page resolve 'https://confluence.example.test/spaces/ENG/pages/12345678/Page'
+atl conf page resolve 'https://confluence.example.test/pages/viewpage.action?pageId=12345678'
+atl conf page resolve '/x/AwAG'
+```
+
+Supported URL forms are modern `/spaces/<space>/pages/<id>/...`, exact
+`/pages/viewpage.action?pageId=<id>`, REST self links, legacy
+`/display/<space>/<title>`, and one `/x/<token>` short-link redirect. Absolute
+URLs must exactly match the configured scheme, host/port, and context path;
+userinfo, foreign hosts, HTTPS downgrades, duplicate page ids, nested short
+links, and unsupported final redirects fail closed. Display links use one exact
+CQL lookup and reject zero or ambiguous matches. Numeric/opaque ids and direct
+id-bearing URLs need no backend request.
+
+JSON is `{id,kind,via?,network_requests,space?,title?}`; `-o id`/`-o text`
+prints the stable id. The same resolver is used by read-only page
+get/view/meta/history/open, `pull --id`, `comment list`, `page labels list`,
+attachment list/get, and `table extract`. Mutating page selectors remain
+explicit ids.
+
 ### `atl conf page get`
 
 Fetch a page body directly (without mirroring to disk).

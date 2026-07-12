@@ -23,6 +23,11 @@ func (s *ConfluenceService) Search(ctx context.Context, cql string, limit int, c
 }
 
 func (s *ConfluenceService) Get(ctx context.Context, id, format string) (*domain.Resource, error) {
+	resolved, err := s.ResolvePageReference(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	id = resolved.ID
 	page, err := s.store.GetPage(ctx, id, domain.PullOpts{Format: format})
 	if err != nil {
 		return nil, err
@@ -40,10 +45,20 @@ func (s *ConfluenceService) Get(ctx context.Context, id, format string) (*domain
 }
 
 func (s *ConfluenceService) Meta(ctx context.Context, id string) (*domain.PageMeta, error) {
+	resolved, err := s.ResolvePageReference(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	id = resolved.ID
 	return s.store.GetMeta(ctx, id)
 }
 
 func (s *ConfluenceService) History(ctx context.Context, id string) ([]domain.Version, error) {
+	resolved, err := s.ResolvePageReference(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	id = resolved.ID
 	return s.store.History(ctx, id)
 }
 
@@ -54,6 +69,11 @@ func (s *ConfluenceService) Tree(ctx context.Context, space string, depth int) (
 // Comments returns a page's comments and whether the listing was truncated by a
 // safety cap (so the CLI can warn instead of presenting a silently-clipped set).
 func (s *ConfluenceService) Comments(ctx context.Context, id string) ([]domain.Comment, bool, error) {
+	resolved, err := s.ResolvePageReference(ctx, id)
+	if err != nil {
+		return nil, false, err
+	}
+	id = resolved.ID
 	return s.store.ListComments(ctx, id)
 }
 
@@ -62,6 +82,11 @@ func (s *ConfluenceService) AddComment(ctx context.Context, id string, body []by
 }
 
 func (s *ConfluenceService) Attachments(ctx context.Context, id string) ([]domain.Attachment, error) {
+	resolved, err := s.ResolvePageReference(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	id = resolved.ID
 	return s.store.ListAttachments(ctx, id)
 }
 
@@ -115,6 +140,11 @@ func localConfluenceTargetError(operation, target string, err error) error {
 // atomic write: an interrupted transfer never leaves a truncated file).
 // Returns the written file path.
 func (s *ConfluenceService) DownloadAttachment(ctx context.Context, pageID, filename string, version int, outDir string) (string, error) {
+	resolved, err := s.ResolvePageReference(ctx, pageID)
+	if err != nil {
+		return "", err
+	}
+	pageID = resolved.ID
 	if outDir == "" {
 		outDir = "."
 	}
@@ -424,7 +454,11 @@ const cqlPullCap = 1000
 func (s *ConfluenceService) resolveIDs(ctx context.Context, o PullOpts) (ids []string, truncated bool, err error) {
 	switch {
 	case o.ID != "":
-		return []string{o.ID}, false, nil
+		resolved, err := s.ResolvePageReference(ctx, o.ID)
+		if err != nil {
+			return nil, false, err
+		}
+		return []string{resolved.ID}, false, nil
 	case o.CQL != "":
 		return s.collectSearch(ctx, o.CQL)
 	case o.Space != "":

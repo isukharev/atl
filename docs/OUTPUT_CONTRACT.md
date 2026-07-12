@@ -872,6 +872,17 @@ when the process exits zero. File destinations retain the existing atomic
 artifact plus `<out>.manifest.json` contract. Exact field display names are
 resolved before search and exported under stable field ids.
 
+`atl conf page resolve <ID-OR-URL>` emits
+`{id,kind,via?,network_requests,space?,title?}`. `kind` is `id`, `canonical`,
+`viewpage`, `rest`, `display`, or `short`; a short link records the final parsed
+form in `via`. `network_requests` is zero for direct identity-bearing forms,
+one for exact display search or an id-bearing short-link target, and at most two
+when a short link ends at an exact display URL. `-o id` and `-o text` emit only
+the resolved id. Same-origin/context validation happens
+before a request; ambiguous display matches and unsupported/malformed redirect
+targets fail closed. Read-only page consumers accept the same references but
+continue to emit the backend's stable page id in their existing result shapes.
+
 List-oriented Jira reads (`issue search`, `issue children`, `board
 issues/backlog`, and `sprint issues`) share one app-layer contract:
 

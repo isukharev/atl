@@ -81,6 +81,11 @@ func (s *ConfluenceService) ExtractTables(ctx context.Context, id string, table 
 	if strings.TrimSpace(id) == "" {
 		return nil, fmt.Errorf("%w: --id is required", domain.ErrUsage)
 	}
+	resolved, err := s.ResolvePageReference(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	id = resolved.ID
 	page, err := s.store.GetPage(ctx, id, domain.PullOpts{Format: "csf"})
 	if err != nil {
 		return nil, err

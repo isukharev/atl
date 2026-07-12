@@ -118,6 +118,7 @@ conf page list
 conf page meta
 conf page move
 conf page open
+conf page resolve
 conf page title set
 conf page view
 conf pull

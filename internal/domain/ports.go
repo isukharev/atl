@@ -74,6 +74,13 @@ type ContentLabelStore interface {
 	RemoveContentLabel(ctx context.Context, id, name string) error
 }
 
+// PageShortLinkResolver follows one same-origin Confluence tiny link and
+// returns its final URL. The HTTP adapter owns redirect/origin enforcement;
+// app code then extracts or exactly resolves the stable content id.
+type PageShortLinkResolver interface {
+	ResolveShortPageLink(ctx context.Context, path string) (string, error)
+}
+
 // Version is a single revision record.
 type Version struct {
 	Number  int    `json:"number"`

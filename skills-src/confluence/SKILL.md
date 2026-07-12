@@ -56,8 +56,10 @@ stays declined. Never edit shell/workspace config implicitly.
 
 ## Choose the read mode
 
-- One-off read/summarize with no editing or offline reuse: use
-  `atl conf page view <id> -o text`. It writes nothing and has readonly markers.
+- One-off read/summarize with no editing or offline reuse: use `atl conf page
+  view <id-or-same-origin-url> -o text`. It writes nothing and has readonly
+  markers. If provenance matters, run `atl conf page resolve <reference>` once
+  and retain its stable id; never guess a title from `/x/`.
 - Editing, attachments/assets, comments, repeated/offline work, or exact CSF
   inspection: use a mirror. Fresh-pull only the needed page when creating that
   mirror or after the existing-mirror status gate says it is safe/needed.

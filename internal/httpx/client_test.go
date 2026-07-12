@@ -38,6 +38,44 @@ func TestClassifyToSentinels(t *testing.T) {
 	}
 }
 
+func TestResolveGETReturnsFinalSameOriginURLWithScopedAuth(t *testing.T) {
+	var auth []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = append(auth, r.Header.Get("Authorization"))
+		if r.URL.Path == "/x/AwAG" {
+			http.Redirect(w, r, "/pages/viewpage.action?pageId=42", http.StatusFound)
+			return
+		}
+		_, _ = io.WriteString(w, "page")
+	}))
+	defer srv.Close()
+
+	finalURL, err := New(srv.URL, "secret", "test").ResolveGET(context.Background(), "/x/AwAG")
+	if err != nil || finalURL != srv.URL+"/pages/viewpage.action?pageId=42" {
+		t.Fatalf("finalURL=%q err=%v", finalURL, err)
+	}
+	if len(auth) != 2 || auth[0] != "Bearer secret" || auth[1] != "Bearer secret" {
+		t.Fatalf("auth=%v", auth)
+	}
+}
+
+func TestResolveGETRejectsCrossOriginRedirectBeforeRequest(t *testing.T) {
+	var foreignRequests atomic.Int32
+	foreign := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		foreignRequests.Add(1)
+	}))
+	defer foreign.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, foreign.URL+"/pages/viewpage.action?pageId=42", http.StatusFound)
+	}))
+	defer origin.Close()
+
+	_, err := New(origin.URL, "secret", "test").ResolveGET(context.Background(), "/x/AwAG")
+	if err == nil || foreignRequests.Load() != 0 {
+		t.Fatalf("err=%v foreign_requests=%d", err, foreignRequests.Load())
+	}
+}
+
 func TestAPIErrorUnwraps(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(404)

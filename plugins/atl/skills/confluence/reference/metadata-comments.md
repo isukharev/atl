@@ -43,7 +43,7 @@ Re-pull after `applied`.
 ## Other lifecycle and metadata operations
 
 ```bash
-atl conf page meta --id <id>
+atl conf page meta --id <id-or-same-origin-url>
 atl conf page history --id <id>
 atl conf page open --id <id>
 atl conf page copy --id <id> --title '<title>' [--space <KEY>] [--parent <id>]

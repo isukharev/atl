@@ -12,7 +12,7 @@ import (
 func confPageLabelsCmd() *cobra.Command {
 	group := &cobra.Command{Use: "labels", Short: "List or safely change page labels"}
 	list := &cobra.Command{
-		Use:   "list <ID>",
+		Use:   "list <ID-OR-URL>",
 		Short: "List all labels on a page",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

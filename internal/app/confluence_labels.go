@@ -68,6 +68,11 @@ func (s *ConfluenceService) ListLabels(ctx context.Context, id string) (*Conflue
 	if id == "" {
 		return nil, fmt.Errorf("%w: page id is required", domain.ErrUsage)
 	}
+	resolved, err := s.ResolvePageReference(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	id = resolved.ID
 	store, err := s.contentLabelStore()
 	if err != nil {
 		return nil, err
