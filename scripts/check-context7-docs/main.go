@@ -297,25 +297,110 @@ func contains(values []string, want string) bool {
 }
 
 func validateAutomation(root string) error {
-	require := func(path string, fragments ...string) error {
+	read := func(path string) (string, error) {
 		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
 		if err != nil {
-			return err
+			return "", err
 		}
-		content := string(b)
+		return string(b), nil
+	}
+	require := func(path, scope, content string, fragments ...string) error {
 		for _, fragment := range fragments {
 			if !strings.Contains(content, fragment) {
-				return fmt.Errorf("%s must contain %q", path, fragment)
+				return fmt.Errorf("%s %s must contain %q", path, scope, fragment)
 			}
 		}
 		return nil
 	}
-	if err := require(".github/workflows/release.yml",
-		"refresh-context7:", "environment: context7", "refs/heads/stable",
+	releasePath := ".github/workflows/release.yml"
+	release, err := read(releasePath)
+	if err != nil {
+		return err
+	}
+	releaseJob, err := yamlChildBlock(release, "jobs", "refresh-context7")
+	if err != nil {
+		return fmt.Errorf("%s: %w", releasePath, err)
+	}
+	if err := require(releasePath, "job refresh-context7", releaseJob,
+		"environment: context7", "refs/heads/stable", "secrets.CONTEXT7_API_KEY",
 		"https://context7.com/api/v1/refresh", "continue-on-error: true"); err != nil {
 		return err
 	}
-	return require(".github/workflows/context7-refresh.yml",
-		"workflow_dispatch:", "environment: context7",
+	manualPath := ".github/workflows/context7-refresh.yml"
+	manual, err := read(manualPath)
+	if err != nil {
+		return err
+	}
+	trigger, err := yamlChildBlock(manual, "on", "workflow_dispatch")
+	if err != nil {
+		return fmt.Errorf("%s: %w", manualPath, err)
+	}
+	if err := require(manualPath, "trigger workflow_dispatch", trigger, "workflow_dispatch:"); err != nil {
+		return err
+	}
+	manualJob, err := yamlChildBlock(manual, "jobs", "refresh")
+	if err != nil {
+		return fmt.Errorf("%s: %w", manualPath, err)
+	}
+	return require(manualPath, "job refresh", manualJob,
+		"environment: context7", "secrets.CONTEXT7_API_KEY",
 		"https://context7.com/api/v1/refresh")
+}
+
+// yamlChildBlock returns one direct child's indentation-bounded YAML block.
+// Workflow validation deliberately needs only this small structural boundary:
+// fragments in sibling jobs must never satisfy a target job's controls.
+func yamlChildBlock(content, parent, child string) (string, error) {
+	lines := strings.Split(content, "\n")
+	parentLine, parentIndent := -1, -1
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if leadingSpaces(line) == 0 && strings.TrimSuffix(trimmed, ":") == parent && strings.HasSuffix(trimmed, ":") {
+			parentLine, parentIndent = i, leadingSpaces(line)
+			break
+		}
+	}
+	if parentLine < 0 {
+		return "", fmt.Errorf("missing YAML mapping %q", parent)
+	}
+	childLine, childIndent, directIndent := -1, -1, -1
+	for i := parentLine + 1; i < len(lines); i++ {
+		line, trimmed := lines[i], strings.TrimSpace(lines[i])
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		indent := leadingSpaces(line)
+		if indent <= parentIndent {
+			break
+		}
+		if directIndent < 0 {
+			directIndent = indent
+		}
+		if indent == directIndent && strings.TrimSuffix(trimmed, ":") == child && strings.HasSuffix(trimmed, ":") {
+			childLine, childIndent = i, indent
+			break
+		}
+	}
+	if childLine < 0 {
+		return "", fmt.Errorf("YAML mapping %q is missing child %q", parent, child)
+	}
+	end := len(lines)
+	for i := childLine + 1; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if leadingSpaces(lines[i]) <= childIndent {
+			end = i
+			break
+		}
+	}
+	return strings.Join(lines[childLine:end], "\n"), nil
+}
+
+func leadingSpaces(line string) int {
+	return len(line) - len(strings.TrimLeft(line, " "))
 }
