@@ -120,6 +120,26 @@ func TestProfileValidatesAndCanonicalizesConfluencePageFields(t *testing.T) {
 	}
 }
 
+func TestProfileValidatesConfluenceJiraMacroPolicy(t *testing.T) {
+	valid := validProfile()
+	valid.RenderDefaults = &config.RenderConfig{Confluence: &config.RenderService{JiraMacros: "off"}}
+	if _, _, err := Canonical(valid); err != nil {
+		t.Fatalf("valid Confluence Jira macro policy: %v", err)
+	}
+
+	invalid := validProfile()
+	invalid.RenderDefaults = &config.RenderConfig{Confluence: &config.RenderService{JiraMacros: "unknown"}}
+	if _, _, err := Canonical(invalid); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("invalid Confluence Jira macro policy: %v", err)
+	}
+
+	jira := validProfile()
+	jira.RenderDefaults = &config.RenderConfig{Jira: &config.RenderService{JiraMacros: "off"}}
+	if _, _, err := Canonical(jira); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("Jira accepted Confluence jira_macros: %v", err)
+	}
+}
+
 func TestDecodeStrictAndBoundaries(t *testing.T) {
 	tests := []struct {
 		name string

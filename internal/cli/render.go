@@ -14,9 +14,14 @@ import (
 // `pull` and `render` on both backends. Empty values mean "no override" — the
 // effective settings then come from local + global config + defaults.
 type renderFlags struct {
-	profile string
-	include string
-	exclude string
+	profile    string
+	include    string
+	exclude    string
+	jiraMacros string
+}
+
+func (rf *renderFlags) registerConfluenceJiraMacros(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&rf.jiraMacros, "jira-macros", "", "Jira query macro expansion: auto|off (overrides config)")
 }
 
 // register adds --render-profile/--render-include/--render-exclude to a command.
@@ -33,10 +38,14 @@ func (rf *renderFlags) override() (config.RenderService, error) {
 	if !config.ValidProfile(rf.profile) {
 		return config.RenderService{}, usageErr(fmt.Sprintf("--render-profile %q is invalid (want minimal|default|full)", rf.profile))
 	}
+	if !config.ValidJiraMacroMode(rf.jiraMacros) {
+		return config.RenderService{}, usageErr(fmt.Sprintf("--jira-macros %q is invalid (want auto|off)", rf.jiraMacros))
+	}
 	return config.RenderService{
-		Profile: rf.profile,
-		Include: splitCommaList(rf.include),
-		Exclude: splitCommaList(rf.exclude),
+		Profile:    rf.profile,
+		Include:    splitCommaList(rf.include),
+		Exclude:    splitCommaList(rf.exclude),
+		JiraMacros: rf.jiraMacros,
 	}, nil
 }
 

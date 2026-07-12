@@ -46,6 +46,24 @@ func TestProfileBases(t *testing.T) {
 	}
 }
 
+func TestConfluenceJiraMacroPolicyFailsClosed(t *testing.T) {
+	for _, tc := range []struct {
+		mode       string
+		wantExpand bool
+		wantWarn   bool
+	}{
+		{mode: "", wantExpand: true},
+		{mode: "auto", wantExpand: true},
+		{mode: "off", wantExpand: false},
+		{mode: "unexpected", wantExpand: false, wantWarn: true},
+	} {
+		rs, warnings := computeSettings("confluence", config.RenderService{JiraMacros: tc.mode})
+		if rs.ExpandJiraMacros != tc.wantExpand || (len(warnings) > 0) != tc.wantWarn {
+			t.Errorf("mode=%q expand=%v warnings=%v", tc.mode, rs.ExpandJiraMacros, warnings)
+		}
+	}
+}
+
 func TestComputeSettingsIncludeExclude(t *testing.T) {
 	// default + include sprint - comments.
 	rs, warns := computeSettings("jira", config.RenderService{

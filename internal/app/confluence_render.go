@@ -212,9 +212,9 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 			if confluenceNeedsRestrictions(rs) && page.Restricted == nil {
 				res.Warnings = append(res.Warnings, fmt.Sprintf("render: restriction state for page %s was not mirrored; re-pull before relying on that field", lc.Meta.ID))
 			}
-			mdOpts := confMDViewOpts(rs, page, readCommentsSidecar(root, dir, slug))
-			if err := addConfluenceJiraMacrosFromSidecar(&mdOpts, root, dir, slug, lc.Meta.ID, node); err != nil {
-				res.Warnings = append(res.Warnings, fmt.Sprintf("render: Jira macro enrichment for page %s is unavailable (%v); re-pull to refresh it", lc.Meta.ID, err))
+			mdOpts, sidecarErr := confMDViewOptsFromSidecars(rs, page, readCommentsSidecar(root, dir, slug), root, dir, slug, lc.Meta.ID, node)
+			if sidecarErr != nil {
+				res.Warnings = append(res.Warnings, fmt.Sprintf("render: Jira macro enrichment for page %s is unavailable (%v); re-pull to refresh it", lc.Meta.ID, sidecarErr))
 			}
 			md = mirror.RenderMarkdownOpts(node, lc.Meta.Refs, mdOpts)
 		}

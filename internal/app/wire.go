@@ -6,6 +6,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/isukharev/atl/internal/adapter/confluence"
 	"github.com/isukharev/atl/internal/adapter/jira"
@@ -19,13 +20,15 @@ import (
 // merge global + per-mirror local settings; it is never used to reach the
 // backend (that goes through store).
 type ConfluenceService struct {
-	store    domain.DocStore
-	users    domain.UserResolver
-	assets   domain.AssetResolver
-	baseURL  string
-	verifier domain.Verifier
-	cfg      *config.Config
-	jiraRead domain.Tracker
+	store           domain.DocStore
+	users           domain.UserResolver
+	assets          domain.AssetResolver
+	baseURL         string
+	verifier        domain.Verifier
+	cfg             *config.Config
+	jiraRead        domain.Tracker
+	jiraReadFactory func() (domain.Tracker, string)
+	jiraReadOnce    sync.Once
 	// jiraReadReason is deliberately coarse and URL-free for render warnings.
 	jiraReadReason string
 }
@@ -64,7 +67,7 @@ func NewConfluence(cfg *config.Config, version string) (*ConfluenceService, erro
 	}
 	cf := confluence.New(cfg.ConfluenceURL, tok, version)
 	service := &ConfluenceService{store: cf, users: cf.ResolveUser, assets: cf, baseURL: cfg.ConfluenceURL, verifier: cf, cfg: cfg}
-	service.jiraRead, service.jiraReadReason = optionalJiraRead(cfg, version)
+	service.jiraReadFactory = func() (domain.Tracker, string) { return optionalJiraRead(cfg, version) }
 	return service, nil
 }
 

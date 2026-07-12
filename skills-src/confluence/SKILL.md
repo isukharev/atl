@@ -78,6 +78,8 @@ render profiles, output layout, status, bulk commands, and the full inventory.
    operations for metadata and comments.
    Generated `# Jira Queries` tables are readonly too; change the native macro
    or re-pull with `--jira-view`, never edit the table into page content.
+   For an untrusted/heavy page use `--jira-macros off`, which retains the query
+   placeholder but loads no Jira credential and performs no Jira search.
 6. Choose one body surface for the cycle:
    - ordinary prose/headings/lists/code/simple tables → edit `.md`, then apply;
    - unsupported wrappers, ambiguous mentions, column/rowspan/colspan/nested-table

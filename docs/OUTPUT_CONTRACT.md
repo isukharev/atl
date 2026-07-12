@@ -211,6 +211,13 @@ byte-stable without network access. Per-query failures are bounded warnings and
 leave placeholders; invalid or stale recorded enrichment is never merged into
 CSF and makes apply fail closed pending a fresh pull. One page resolves at most
 20 JQL macros and 2000 aggregate rows, with a 1000-row per-macro cap.
+`render.confluence.jira_macros` and the per-run `--jira-macros auto|off`
+override control whether page-provided JQL may execute. `off` is resolved before
+Jira credentials are loaded, performs no Jira search, keeps placeholders, and
+emits no query sidecar. The config key is global-only; mirror-local config is
+untrusted for authenticated-read policy and cannot enable it. Post-push refresh uses the same sidecar-aware view
+constructor as render/apply/relocation, preserving generated suffix bytes.
+Read-only refusal diagnostics distinguish `# Jira Queries` from `# Comments`.
 
 When `page_fields` is enabled, the read-only prefix contains
 `<!-- atl:section page-fields readonly -->` followed by a `# Metadata` table and

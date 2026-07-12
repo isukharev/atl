@@ -84,6 +84,7 @@ closed read-only `page_fields` JSON descriptor array:
 atl config set render.jira.profile full            # global (~/.config/atl/config.json)
 atl config set --local render.confluence.profile minimal   # per-mirror <root>/.atl/config.json
 atl config set --local render.confluence.page_fields '[{"id":"title"},{"id":"updated","format":"date"}]'
+atl config set render.confluence.jira_macros off # global-only: never execute page JQL
 atl config set --local render.jira.field_views '[{"id":"customfield_10003","label":"Risk Notes","placement":"section","format":"jira_wiki","editable":true}]'
 ```
 

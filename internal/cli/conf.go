@@ -488,6 +488,7 @@ func confPageViewCmd() *cobra.Command {
 	cmd.Flags().StringVar(&root, "render-root", mirrorRootDefault("."), "root whose .atl/config.json supplies local render settings (never written)")
 	cmd.Flags().StringVar(&jiraView, "jira-view", "", "named Jira list view for JQL macros (default: default; macro columns win)")
 	rf.register(cmd)
+	rf.registerConfluenceJiraMacros(cmd)
 	return cmd
 }
 
@@ -549,6 +550,7 @@ func confPullCmd() *cobra.Command {
 	cmd.Flags().StringVar(&o.Into, "into", mirrorRootDefault("mirror"), "mirror root dir (default: $ATL_MIRROR_ROOT or \"mirror\")")
 	cmd.Flags().StringVar(&o.JiraView, "jira-view", "", "named Jira list view for JQL macros (default: default; macro columns win)")
 	rf.register(cmd)
+	rf.registerConfluenceJiraMacros(cmd)
 	return cmd
 }
 

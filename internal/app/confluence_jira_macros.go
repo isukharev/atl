@@ -46,9 +46,12 @@ func jiraMacroDescriptorHash(descriptors []mirror.JiraMacroDescriptor) string {
 	return mirror.Hash(b)
 }
 
-func (s *ConfluenceService) validateConfluenceJiraView(view string) error {
+func (s *ConfluenceService) validateConfluenceJiraView(view string, expand bool) error {
 	if strings.TrimSpace(view) == "" {
 		return nil
+	}
+	if !expand {
+		return fmt.Errorf("%w: --jira-view cannot be combined with disabled Jira macro expansion", domain.ErrUsage)
 	}
 	var views map[string]config.JiraListView
 	if s != nil && s.cfg != nil {
@@ -65,6 +68,12 @@ func (s *ConfluenceService) resolveConfluenceJiraMacros(ctx context.Context, pag
 	if len(descriptors) == 0 {
 		return nil, nil
 	}
+	s.jiraReadOnce.Do(func() {
+		if s.jiraRead == nil && s.jiraReadFactory != nil {
+			s.jiraRead, s.jiraReadReason = s.jiraReadFactory()
+			s.jiraReadFactory = nil
+		}
+	})
 	if s.jiraRead == nil {
 		reason := s.jiraReadReason
 		if reason == "" {
@@ -80,7 +89,7 @@ func (s *ConfluenceService) resolveConfluenceJiraMacros(ctx context.Context, pag
 	remainingRows := confluenceJiraMacroRowsPerPage
 	processed := 0
 	for descriptorPosition, descriptor := range descriptors {
-		if processed >= confluenceJiraMacroQueriesPerPage || remainingRows == 0 {
+		if processed >= confluenceJiraMacroQueriesPerPage || remainingRows <= 0 {
 			warnings = append(warnings, fmt.Sprintf("render: %d Jira query macro(s) omitted by the page safety cap; placeholders retained", len(descriptors)-descriptorPosition))
 			break
 		}
@@ -248,4 +257,24 @@ func addConfluenceJiraMacrosFromSidecar(opts *mirror.MDViewOpts, root, dir, slug
 	}
 	opts.JiraMacros = confluenceJiraMacroViews(sidecar)
 	return nil
+}
+
+// confMDViewOptsFromSidecars is the single constructor for a durable
+// Confluence view backed by recorded local sidecars. Keeping comments, page
+// fields, and Jira-query snapshots together prevents one writer path from
+// accidentally emitting a different pristine prefix/suffix than apply later
+// reconstructs.
+func confMDViewOptsFromSidecars(rs RenderSettings, page *domain.Resource, comments []domain.Comment, root, dir, slug, pageID string, node *csf.Node) (mirror.MDViewOpts, error) {
+	opts := confMDViewOpts(rs, page, comments)
+	if len(mirror.JiraMacroDescriptors(node)) == 0 {
+		// A sidecar cannot be meaningful once the native page contains no Jira
+		// query macro. Ignore that generated orphan without mutating here: this
+		// constructor is also used by dry-run apply. Pull and a successful
+		// loss-approved apply retire the file on their explicit mutation paths.
+		return opts, nil
+	}
+	if err := addConfluenceJiraMacrosFromSidecar(&opts, root, dir, slug, pageID, node); err != nil {
+		return opts, err
+	}
+	return opts, nil
 }

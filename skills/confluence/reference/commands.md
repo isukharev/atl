@@ -12,6 +12,7 @@ atl conf search --space <KEY> --title '<substring>' --type page --limit 25
 atl conf space tree --space <KEY> [--depth N]
 atl conf page list --space <KEY> [--status current|archived|trashed]
 atl conf page view <id> --jira-view default -o text
+atl conf page view <id> --jira-macros off -o text # untrusted/heavy page: placeholders only
 ```
 
 Do not combine `--cql` with convenience filters. Search requires CQL or at
@@ -54,6 +55,7 @@ typed metadata and comments when available. Per-run flags:
 ```bash
 --render-profile full
 --render-include page_fields,comments
+--jira-macros auto|off # page view/pull only; off means no Jira credential read/search
 --render-exclude <section>
 ```
 
@@ -80,6 +82,13 @@ the typed sidecar for byte-stable offline render/apply. Missing Jira access or a
 failed query warns and keeps the placeholder. Never edit a generated macro
 table as page body. Treat the result as partial when the command warns: one page
 is capped at 20 JQL macros and 2000 aggregate rows (1000 per macro).
+For an untrusted or unexpectedly heavy page, use `--jira-macros off`; persist
+the global-only preference with `config set render.confluence.jira_macros off`.
+Mirror-local config cannot enable authenticated Jira reads. Do not pair
+`--jira-view` with the opt-out. Push refresh preserves a recorded query suffix.
+If a corrupt/stale sidecar blocks recovery, remove only the generated
+`.jira-macros.json` file and pull again; intentional loss-approved macro removal
+retires it automatically.
 
 Pull/render record the exact resolved section and typed-field descriptors in
 `.atl/state.json.views`. `conf apply` reproduces that recorded pristine view;
@@ -104,11 +113,11 @@ ID projection accept `-o id` for one identifier per line.
 |---|---|---|
 | `conf search` | Find pages | `--cql` or convenience filters, `--limit`, `--cursor` |
 | `conf space tree` | Space hierarchy | `--space`, `--depth` |
-| `conf page list|get|view|meta|history|open` | Page reads | command-specific id/format/render flags; view supports `--jira-view` |
+| `conf page list|get|view|meta|history|open` | Page reads | command-specific id/format/render flags; view supports `--jira-view`, `--jira-macros` |
 | `conf page title set <ID>` | Guarded title preview/apply | `--from-file`, `--apply`, expected gates |
 | `conf page move <ID>` | Guarded move preview/apply | `--parent`, `--apply`, expected gates |
 | `conf page create|copy|delete` | Page lifecycle | command-specific title/space/parent/file flags |
-| `conf pull` | Mirror pages | selector, `--assets`, `--comments`, `--jira-view`, `--into`, render flags |
+| `conf pull` | Mirror pages | selector, `--assets`, `--comments`, `--jira-view`, `--jira-macros`, `--into`, render flags |
 | `conf render` | Regenerate Markdown offline | path, render flags, `--into` |
 | `conf status` | Dirty/drift state | path, `--remote` |
 | `conf apply` | Merge Markdown to CSF | page md, `--dry-run`, `--allow-fragment-loss`, `--into` |
