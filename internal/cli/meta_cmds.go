@@ -127,6 +127,7 @@ func newConfigCmd() *cobra.Command {
 				JiraURL:          cfg.JiraURL,
 				UpdateBaseURL:    cfg.UpdateBaseURL,
 				Render:           render,
+				JiraListViews:    cfg.JiraListViews,
 				RenderProvenance: nonDefaultProvenance(prov),
 				LocalConfigPath:  localPath,
 				Mirror:           mirrorHints(),
@@ -207,11 +208,19 @@ func runSetGlobal(cmd *cobra.Command, key, value string, hasKV bool, confluenceU
 		cfg.UpdateBaseURL = updateURL
 	}
 	if hasKV {
-		if cfg.Render == nil {
-			cfg.Render = &config.RenderConfig{}
-		}
-		if err := applyRenderKey(cfg.Render, key, value); err != nil {
-			return err
+		if key == "jira.list_views" || strings.HasPrefix(key, "jira.list_views.") {
+			views, setErr := config.SetJiraListViewsJSON(cfg.JiraListViews, key, value)
+			if setErr != nil {
+				return usageErr("%v", setErr)
+			}
+			cfg.JiraListViews = views
+		} else {
+			if cfg.Render == nil {
+				cfg.Render = &config.RenderConfig{}
+			}
+			if err := applyRenderKey(cfg.Render, key, value); err != nil {
+				return err
+			}
 		}
 	}
 	if err := config.Save(cfg); err != nil {
@@ -229,6 +238,9 @@ func runSetLocal(cmd *cobra.Command, key, value string, hasKV bool, into, conflu
 	}
 	if !hasKV {
 		return usageErr("config set --local needs a render key and value, e.g. `config set --local render.jira.profile full`")
+	}
+	if key == "jira.list_views" || strings.HasPrefix(key, "jira.list_views.") {
+		return usageErr("%s is global-only; omit --local", key)
 	}
 	root, err := resolveLocalRoot(into)
 	if err != nil {
@@ -334,6 +346,12 @@ func configShowText(out configShowResult) string {
 		out.ConfluenceURL, out.JiraURL, out.UpdateBaseURL)
 	fmt.Fprintf(&b, "render_jira_profile: %s\nrender_confluence_profile: %s\n",
 		out.Render.Jira.Profile, out.Render.Confluence.Profile)
+	viewNames := make([]string, 0, len(out.JiraListViews))
+	for name := range out.JiraListViews {
+		viewNames = append(viewNames, name)
+	}
+	sort.Strings(viewNames)
+	fmt.Fprintf(&b, "jira_list_views: %s\n", strings.Join(viewNames, ","))
 	if len(out.RenderProvenance) > 0 {
 		keys := make([]string, 0, len(out.RenderProvenance))
 		for k := range out.RenderProvenance {
@@ -353,13 +371,14 @@ func configShowText(out configShowResult) string {
 }
 
 type configShowResult struct {
-	ConfluenceURL    string              `json:"confluence_url,omitempty"`
-	JiraURL          string              `json:"jira_url,omitempty"`
-	UpdateBaseURL    string              `json:"update_base_url,omitempty"`
-	Render           config.RenderConfig `json:"render"`
-	RenderProvenance map[string]string   `json:"render_provenance,omitempty"`
-	LocalConfigPath  string              `json:"local_config_path,omitempty"`
-	Mirror           mirrorHint          `json:"mirror"`
+	ConfluenceURL    string                         `json:"confluence_url,omitempty"`
+	JiraURL          string                         `json:"jira_url,omitempty"`
+	UpdateBaseURL    string                         `json:"update_base_url,omitempty"`
+	Render           config.RenderConfig            `json:"render"`
+	JiraListViews    map[string]config.JiraListView `json:"jira_list_views"`
+	RenderProvenance map[string]string              `json:"render_provenance,omitempty"`
+	LocalConfigPath  string                         `json:"local_config_path,omitempty"`
+	Mirror           mirrorHint                     `json:"mirror"`
 }
 
 type mirrorHint struct {

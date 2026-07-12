@@ -204,6 +204,28 @@ JSON output:
     "jira": { "profile": "default" },
     "confluence": { "profile": "minimal" }
   },
+  "jira_list_views": {
+    "default": {
+      "description": "Compact everyday agent view",
+      "search": ["key", "summary", "status", "assignee"],
+      "epic_children": ["key", "summary", "status", "issuetype", "assignee"],
+      "board": ["position", "key", "summary", "status", "assignee"],
+      "board_snapshot": ["position", "key", "summary", "status", "board.column", "assignee"],
+      "sprint": ["position", "key", "summary", "status", "assignee"],
+      "structure": ["key", "summary", "status", "assignee"],
+      "confluence_macro": ["key", "summary", "status", "assignee"]
+    },
+    "full": {
+      "description": "Broader planning and review context",
+      "search": ["position", "key", "summary", "status", "issuetype", "priority", "assignee", "labels"],
+      "epic_children": ["position", "key", "summary", "status", "issuetype", "priority", "assignee", "labels", "epic.parent"],
+      "board": ["position", "key", "summary", "status", "board.column", "issuetype", "priority", "assignee", "labels"],
+      "board_snapshot": ["position", "key", "summary", "status", "board.column", "board.in_backlog", "issuetype", "priority", "assignee", "labels"],
+      "sprint": ["position", "key", "summary", "status", "issuetype", "priority", "assignee", "labels"],
+      "structure": ["key", "summary", "status", "issuetype", "priority", "assignee", "labels"],
+      "confluence_macro": ["position", "key", "summary", "status", "issuetype", "priority", "assignee", "labels"]
+    }
+  },
   "render_provenance": {
     "render.confluence.profile": "local"
   },
@@ -241,6 +263,9 @@ atl config set render.jira.profile full
 atl config set --local render.confluence.profile minimal
 atl config set --local render.confluence.page_fields '[{"id":"title"},{"id":"updated","format":"date"}]'
 atl config set --local render.jira.include sprint,epic_children
+
+# Reusable Jira list projection; omitted sources inherit "default":
+atl config set jira.list_views.planning '{"description":"Quarter planning","board":["position","key","summary","status","board.column","priority","assignee"],"structure":["key","summary","status","priority","assignee"]}'
 ```
 
 Flags:
@@ -259,6 +284,12 @@ Flags:
 `minimal`, `default`, `full`; `include`/`exclude`/`custom_fields` take a
 comma-separated list, while `field_views` and `page_fields` take JSON descriptor arrays.
 
+Set a whole catalog with `jira.list_views` or one preset with
+`jira.list_views.<name>`; pass JSON objects and use `null` to remove a custom
+preset. Names match `[a-z][a-z0-9_-]{0,31}`. Built-in `default`/`full` cannot be
+removed but may be overridden. List views are global-only; `--local` refuses
+them.
+
 **Local config layer (security boundary).** `--local` writes a per-mirror
 `.atl/config.json` that may carry **render keys only** — it is presentation-only.
 A mirror directory can be shared or checked out, so a repo-local file must never
@@ -266,6 +297,14 @@ be able to redirect where a PAT is sent: backend/update URLs are global/env-only
 and `config set --local` refuses any URL flag (exit 2). At read time, any
 credential-adjacent or unknown key found in a local file is warned about on stderr
 and ignored. Precedence is **local > global > default**, merged per key.
+
+`jira_list_views` is the effective global catalog of reusable Jira list
+projections. Built-in `default` and `full` entries are always present and are
+written into a newly saved config. Each view has source-specific arrays for
+`search`, `epic_children`, `board`, `board_snapshot`, `sprint`, `structure`, and
+`confluence_macro`; a custom view inherits the built-in default for omitted
+sources. It is global-only because these transient reads are not bound to one
+mirror root.
 
 ---
 
@@ -1524,6 +1563,7 @@ Flags:
 | flag | description |
 |---|---|
 | `--jql` | JQL query (required) |
+| `--view` | named configured list view (`default` when omitted) |
 | `--columns` | ordered metadata, Jira-field, and source-context columns |
 | `--limit` | max results (default 50) |
 | `--cursor` | pagination cursor (startAt offset) |
@@ -1551,7 +1591,9 @@ the common IssueList contract with `source.kind:"epic"`, the parent and
 resolved field under `selection`, and `epic.parent`/`epic.relation` under each
 row's namespaced context. Defaults are
 `key,summary,status,issuetype,assignee`; `--limit`, `--cursor`, `-o text`, and
-`-o id` have the same meaning as `issue search`. This is read-only.
+`-o id` have the same meaning as `issue search`. `--view NAME` selects the
+configured `epic_children` projection; explicit `--columns` wins. This is
+read-only.
 
 ### `atl jira issue create`
 
@@ -2428,6 +2470,7 @@ atl jira board list --project PROJ          # {boards:[{id,name,type,project_key
 atl jira board get 5
 atl jira board config 5                     # filter, ordered columns/status ids, limits, estimation, rank field
 atl jira board issues 5 --columns position,key,summary,status,assignee # one ranked page; -o id → keys
+atl jira board issues 5 --view full                  # reusable configured projection
 atl jira board backlog 5 --columns position,key,summary,status          # Scrum only; explicit pagination
 atl jira board view 5 -o text               # normalized config + status-to-column mapping
 atl jira board view 5 --jql 'statusCategory != Done' --limit 500
@@ -2468,6 +2511,10 @@ Use `--columns` as the single list projection control. It derives backend Jira
 fields and preserves the requested order in Markdown. Namespaced source columns
 include `board.column`, `board.in_backlog`, and `sprint.id`; unavailable context
 columns fail with usage rather than silently rendering empty.
+For repeated work, use `--view default|full|<custom>` instead. Precedence is
+explicit `--columns` → named view → built-in `default`; output records the
+resolved name as `projection.view`. Unknown views and source-invalid columns
+fail before a backend request.
 
 ### `atl jira structure {get,view,forest,rows,folders,values,pull-issues,export}`
 
@@ -2480,6 +2527,7 @@ visible to the token, Jira returns an API error (commonly exit 4 or 6).
 atl jira structure get 123
 atl jira structure view 123                         # normalized JSON; -o text -> Markdown table
 atl jira structure view 123 --fields key,summary,status,assignee
+atl jira structure view 123 --view full
 atl jira structure forest 123
 atl jira structure rows 123                         # parsed forest rows; -o id -> row ids
 atl jira structure rows 123 --root "release train"  # first matching subtree
@@ -2497,7 +2545,9 @@ identities with compact Jira issue fields; stored folders receive best-effort
 labels, while calculated grouping/generator rows keep honest technical labels.
 JSON is the default, `-o text` is a Markdown table, and `-o id` emits row ids.
 The default projection is `key,summary,status,assignee`;
-`--fields` accepts Jira field ids and replaces that list.
+`--fields` accepts Jira field ids and replaces that list. `--view NAME` selects
+the preset's `structure` fields; explicit `--fields` wins. Structure presets
+accept Jira field ids only because hierarchy columns remain fixed and honest.
 
 Tempo's browser saved views and per-user column adjustments are a separate UI
 configuration surface and are not reproduced by the documented integration

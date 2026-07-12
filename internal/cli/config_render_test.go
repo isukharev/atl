@@ -24,6 +24,36 @@ func TestConfigSetRenderGlobal(t *testing.T) {
 	}
 }
 
+func TestConfigListViewsExposeBuiltinsAndAddNamedPreset(t *testing.T) {
+	cfgDir := t.TempDir()
+	env := map[string]string{"ATL_CONFIG_DIR": cfgDir}
+	out, code := runCLI(t, env, "config", "show")
+	if code != exitOK {
+		t.Fatalf("config show exit=%d output=%q", code, out)
+	}
+	var shown configShowResult
+	if err := json.Unmarshal([]byte(out), &shown); err != nil || len(shown.JiraListViews["default"].Board) == 0 || len(shown.JiraListViews["full"].Structure) == 0 {
+		t.Fatalf("built-in list views=%+v err=%v", shown.JiraListViews, err)
+	}
+	value := `{"description":"Planning focus","board":["position","key","summary","status","priority"]}`
+	out, code = runCLI(t, env, "config", "set", "jira.list_views.planning", value)
+	if code != exitOK {
+		t.Fatalf("config set list view exit=%d output=%q", code, out)
+	}
+	b, err := os.ReadFile(filepath.Join(cfgDir, "config.json"))
+	if err != nil || !strings.Contains(string(b), `"planning"`) || !strings.Contains(string(b), `"confluence_macro"`) {
+		t.Fatalf("saved list views=%s err=%v", b, err)
+	}
+	_, code = runCLI(t, env, "config", "set", "--local", "--into", t.TempDir(), "jira.list_views.planning", value)
+	if code != exitUsage {
+		t.Fatalf("local list view exit=%d, want usage", code)
+	}
+	_, code = runCLI(t, env, "config", "set", "jira.list_views.bad", `{"search":["board.column"]}`)
+	if code != exitUsage {
+		t.Fatalf("source-invalid list view exit=%d, want usage", code)
+	}
+}
+
 // TestConfigSetLocalInsideMirror writes the per-mirror file when run from inside
 // a mirror (an .atl marker dir present).
 func TestConfigSetLocalInsideMirror(t *testing.T) {

@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Named Jira list views.** Effective config now contains editable `default`
+  and `full` source-aware projections plus user-defined presets. Jira search,
+  epic children, board/sprint pages and exports, Structure reads/exports, and
+  Confluence Jira-macro enrichment share `--view NAME`; explicit projection
+  flags remain the highest-precedence one-off override.
+
 - **One Jira issue-list contract for agents and humans.** JQL search, board and
   backlog pages, and sprint issue pages now return a versioned app-layer
   projection with ordered fields, namespaced source context, and uniform page

@@ -22,7 +22,8 @@
       "issuetype",
       "assignee"
     ],
-    "ordering": "key-order"
+    "ordering": "key-order",
+    "view": "default"
   },
   "rows": [
     {

@@ -192,7 +192,7 @@ func jiraStructureCmd() *cobra.Command {
 	values.Flags().StringVar(&valueRows, "rows", "", "comma-separated Structure row ids")
 	values.Flags().StringVar(&valueFields, "fields", "", "comma-separated Structure attribute ids (for example key,summary,status)")
 
-	var viewRoot, viewFields, viewFolderID, viewFolderPath string
+	var viewRoot, viewFields, viewPreset, viewFolderID, viewFolderPath string
 	var viewFolderRow int64
 	var viewBatchSize int
 	view := &cobra.Command{
@@ -216,6 +216,7 @@ func jiraStructureCmd() *cobra.Command {
 				Root:                    viewRoot,
 				Attributes:              splitFields(viewFields),
 				BatchSize:               viewBatchSize,
+				View:                    viewPreset,
 				StructureFolderSelector: selector,
 			})
 			if err != nil {
@@ -232,10 +233,11 @@ func jiraStructureCmd() *cobra.Command {
 	}
 	view.Flags().StringVar(&viewRoot, "root", "", "optional root row/id/text; includes the first matching subtree")
 	view.Flags().StringVar(&viewFields, "fields", "", "comma-separated Jira fields (default: key,summary,status,assignee)")
+	view.Flags().StringVar(&viewPreset, "view", "", "named Jira list view from config (default: default; explicit --fields wins)")
 	view.Flags().IntVar(&viewBatchSize, "batch-size", 100, "issue id batch size for generated JQL")
 	addStructureFolderSelectorFlags(view, &viewFolderID, &viewFolderRow, &viewFolderPath)
 
-	var pullRoot, pullRootFields, pullFields, pullOut, pullFolderID, pullFolderPath string
+	var pullRoot, pullRootFields, pullFields, pullView, pullOut, pullFolderID, pullFolderPath string
 	var pullBatchSize, pullLimit int
 	var pullFolderRow int64
 	pullIssues := &cobra.Command{
@@ -262,6 +264,7 @@ func jiraStructureCmd() *cobra.Command {
 				BatchSize:               pullBatchSize,
 				Limit:                   pullLimit,
 				Out:                     pullOut,
+				View:                    pullView,
 				StructureFolderSelector: selector,
 			})
 			if err != nil {
@@ -275,12 +278,13 @@ func jiraStructureCmd() *cobra.Command {
 	pullIssues.Flags().StringVar(&pullRoot, "root", "", "optional root row/id/text; fetches issues from the first matching subtree")
 	pullIssues.Flags().StringVar(&pullRootFields, "root-fields", "key,summary", "comma-separated Structure attributes used when matching --root")
 	pullIssues.Flags().StringVar(&pullFields, "fields", "", "comma-separated Jira fields to include")
+	pullIssues.Flags().StringVar(&pullView, "view", "", "named Jira list view from config (default: default; explicit --fields wins)")
 	pullIssues.Flags().IntVar(&pullBatchSize, "batch-size", 100, "issue id batch size for generated JQL")
 	pullIssues.Flags().IntVar(&pullLimit, "limit", 0, "maximum Jira issues to fetch (0 means no limit)")
 	pullIssues.Flags().StringVar(&pullOut, "out", "", "optional JSON file path for the pulled snapshot")
 	addStructureFolderSelectorFlags(pullIssues, &pullFolderID, &pullFolderRow, &pullFolderPath)
 
-	var exportRoot, exportFields, exportFormat, exportOut, exportFolderID, exportFolderPath string
+	var exportRoot, exportFields, exportView, exportFormat, exportOut, exportFolderID, exportFolderPath string
 	var exportBatchSize int
 	var exportFolderRow int64
 	var exportRawCSV bool
@@ -308,6 +312,7 @@ func jiraStructureCmd() *cobra.Command {
 				Format:                  exportFormat,
 				Out:                     exportOut,
 				RawCSV:                  exportRawCSV,
+				View:                    exportView,
 				StructureFolderSelector: selector,
 			})
 			if err != nil {
@@ -320,6 +325,7 @@ func jiraStructureCmd() *cobra.Command {
 	}
 	exportCmd.Flags().StringVar(&exportRoot, "root", "", "optional root row/id/text; exports the first matching subtree")
 	exportCmd.Flags().StringVar(&exportFields, "fields", "", "comma-separated Jira fields (default: key,summary,status,assignee)")
+	exportCmd.Flags().StringVar(&exportView, "view", "", "named Jira list view from config (default: default; explicit --fields wins)")
 	exportCmd.Flags().IntVar(&exportBatchSize, "batch-size", 100, "issue id batch size for generated JQL")
 	exportCmd.Flags().StringVar(&exportFormat, "format", "json", "export format: json, jsonl, csv, or md")
 	exportCmd.Flags().StringVar(&exportOut, "out", "", "required output file path")

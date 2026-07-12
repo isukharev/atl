@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/safepath"
 )
@@ -21,6 +22,7 @@ var defaultEpicChildrenColumns = []string{"key", "summary", "status", "issuetype
 // one epic. EpicField accepts the same id-or-display-name selector as rendering.
 type JiraEpicChildrenOpts struct {
 	Columns   []string
+	View      string
 	Limit     int
 	Cursor    string
 	EpicField string
@@ -86,7 +88,11 @@ func (s *JiraService) EpicChildrenIssueList(ctx context.Context, epicKey string,
 	if epicKey == "" {
 		return nil, fmt.Errorf("%w: epic key is required", domain.ErrUsage)
 	}
-	columns, fields, err := NormalizeIssueListColumns(opts.Columns, defaultEpicChildrenColumns, "epic")
+	selected, preset, err := s.resolveListColumns(config.JiraListSourceEpicChildren, opts.View, opts.Columns)
+	if err != nil {
+		return nil, err
+	}
+	columns, fields, err := NormalizeIssueListColumns(selected, nil, "epic")
 	if err != nil {
 		return nil, err
 	}
@@ -103,11 +109,13 @@ func (s *JiraService) EpicChildrenIssueList(ctx context.Context, epicKey string,
 	for i := range contexts {
 		contexts[i] = map[string]map[string]any{"epic": {"parent": epicKey, "relation": "epic-child"}}
 	}
-	return NewIssueList(
+	list := NewIssueList(
 		IssueListSource{Kind: "epic", ID: epicKey},
 		map[string]any{"parent": epicKey, "epic_field": epicField},
 		columns, fields, "key-order", issues, contexts, next,
-	), nil
+	)
+	list.Projection.View = preset
+	return list, nil
 }
 
 // resolveEpicField returns the raw API field id used to group children. An

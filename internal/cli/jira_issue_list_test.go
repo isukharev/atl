@@ -52,6 +52,34 @@ func TestJiraIssueListColumnsDriveBackendProjection(t *testing.T) {
 	}
 }
 
+func TestJiraIssueSearchUsesNamedListViewAndExplicitColumnsWin(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/search", http.StatusOK, `{"issues":[],"startAt":0,"maxResults":50,"total":0}`)
+	cfgDir := t.TempDir()
+	env := map[string]string{"ATL_CONFIG_DIR": cfgDir, "ATL_JIRA_URL": js.srv.URL, "ATL_JIRA_PAT": "test-pat"}
+	value := `{"search":["key","summary","priority"]}`
+	if out, code := runCLI(t, env, "config", "set", "jira.list_views.planning", value); code != exitOK {
+		t.Fatalf("set preset exit=%d output=%q", code, out)
+	}
+	out, code := runCLI(t, env, "jira", "issue", "search", "--jql", "project = ENG", "--view", "planning")
+	if code != exitOK || !strings.Contains(out, `"view": "planning"`) {
+		t.Fatalf("preset search exit=%d output=%q", code, out)
+	}
+	requests := js.requests()
+	if len(requests) != 1 || !strings.Contains(requests[0].query, "fields=summary%2Cpriority") {
+		t.Fatalf("preset requests=%+v", requests)
+	}
+	out, code = runCLI(t, env, "jira", "issue", "search", "--jql", "project = ENG", "--view", "missing", "--columns", "key,status")
+	if code != exitOK || !strings.Contains(out, `"view": "explicit"`) {
+		t.Fatalf("explicit override exit=%d output=%q", code, out)
+	}
+	before := len(js.requests())
+	_, code = runCLI(t, env, "jira", "issue", "search", "--jql", "project = ENG", "--view", "missing")
+	if code != exitUsage || len(js.requests()) != before {
+		t.Fatalf("unknown preset exit=%d requests before=%d after=%d", code, before, len(js.requests()))
+	}
+}
+
 func TestJiraEpicChildrenUsesCommonListAndResolvedField(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/api/2/field", http.StatusOK, `[{"id":"customfield_10010","name":"Epic Link","custom":true}]`)

@@ -53,6 +53,12 @@ atl jira issue search --jql '<JQL>' --limit 50
 `--columns key,summary,status`; use `-o text` for a Markdown table and `-o id`
 for keys. See [jql.md](reference/jql.md).
 
+For repeated projections, inspect `atl config show | jq '.jira_list_views'` and
+use `--view default|full|<custom>`. Explicit `--columns`/Structure `--fields`
+wins for one call. Never guess a custom name: an unknown/source-invalid view
+fails before network. Add one only after user approval with `atl config set
+jira.list_views.<name> '<JSON object>'`.
+
 For one epic, prefer the direct list over project-wide JQL:
 
 ```bash

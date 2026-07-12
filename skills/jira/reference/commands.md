@@ -7,9 +7,9 @@ Load this reference only when exact command or flag lookup is useful.
 |---|---|---|
 | `jira issue get <KEY>` | Get an issue | `--fields` |
 | `jira issue view <KEY>` | Render one configured Markdown view without writing files | `-o text`, `--render-root`, `--render-profile`, `--render-include`, `--render-exclude` |
-| `jira issue search` | Search as a common IssueList / Markdown table | `--jql`, `--columns`, `--limit`, `--cursor` |
+| `jira issue search` | Search as a common IssueList / Markdown table | `--jql`, `--view`, `--columns`, `--limit`, `--cursor` |
 | `jira issue search -o id` | Print matching issue keys one per line | `-o id` |
-| `jira issue children <EPIC-KEY>` | Read direct epic children as a common IssueList without per-child reads | `--columns`, `--limit`, `--cursor`, `--epic-field`, `-o text/id` |
+| `jira issue children <EPIC-KEY>` | Read direct epic children as a common IssueList without per-child reads | `--view`, `--columns`, `--limit`, `--cursor`, `--epic-field`, `-o text/id` |
 | `jira issue create` | Create an issue | `--project`, `--type`, `--summary`, `--from-md`, `--from-file`, `--field k=v` |
 | `jira issue update <KEY>` | Update summary/description/fields (whole body) | `--summary`, `--from-md`, `--from-file`, `--field k=v` |
 | `jira issue field set <KEY>` | Guarded file-backed custom-field preview/apply | `--from-file FIELD=PATH`, `--from-md FIELD=PATH`, `--allow-fields`, `--expected-updated`, `--expected-proposal-hash`, `--apply` |
@@ -54,16 +54,16 @@ Load this reference only when exact command or flag lookup is useful.
 | `jira board list` | Discover Agile boards | `--project`, `--limit`, `--cursor`, `-o id` |
 | `jira board get <ID>` | Get board identity | `-o id` |
 | `jira board config <ID>` | Get filter, ordered columns/statuses, constraints, estimation, rank | `-o text/id` |
-| `jira board issues <ID>` | Read one backend-ranked IssueList page | `--columns`, `--jql`, `--limit`, `--cursor`, `-o text/id` |
-| `jira board backlog <ID>` | Read one Scrum backlog IssueList page | `--columns`, `--jql`, `--limit`, `--cursor`, `-o text/id` |
-| `jira board view <ID>` | Read normalized config/issues/backlog snapshot | `--scope all/board/backlog`, `--columns`, `--jql`, `--limit`, `-o text/id` |
-| `jira board export <ID>` | Write normalized board artifact | `--scope`, `--columns`, `--jql`, `--limit`, `--format json/jsonl/csv/md`, `--out`, `--raw-csv` |
-| `jira sprint issues <ID>` | Read one sprint IssueList page | `--columns`, `--limit`, `--cursor`, `-o text/id` |
+| `jira board issues <ID>` | Read one backend-ranked IssueList page | `--view`, `--columns`, `--jql`, `--limit`, `--cursor`, `-o text/id` |
+| `jira board backlog <ID>` | Read one Scrum backlog IssueList page | `--view`, `--columns`, `--jql`, `--limit`, `--cursor`, `-o text/id` |
+| `jira board view <ID>` | Read normalized config/issues/backlog snapshot | `--scope all/board/backlog`, `--view`, `--columns`, `--jql`, `--limit`, `-o text/id` |
+| `jira board export <ID>` | Write normalized board artifact | `--scope`, `--view`, `--columns`, `--jql`, `--limit`, `--format json/jsonl/csv/md`, `--out`, `--raw-csv` |
+| `jira sprint issues <ID>` | Read one sprint IssueList page | `--view`, `--columns`, `--limit`, `--cursor`, `-o text/id` |
 | `jira structure get <ID>` | Get Structure metadata | `-o id` |
-| `jira structure view <ID>` | Read normalized hierarchy + Jira fields | exact folder selector or fuzzy `--root`, `--fields`, `--batch-size`, `-o text/id` |
+| `jira structure view <ID>` | Read normalized hierarchy + Jira fields | exact folder selector or fuzzy `--root`, `--view`, `--fields`, `--batch-size`, `-o text/id` |
 | `jira structure forest <ID>` | Get raw latest Structure forest formula | — |
 | `jira structure rows <ID>` | Parse Structure forest rows | exact folder selector or fuzzy `--root`, `--root-fields`, `-o id` |
 | `jira structure folders <ID>` | Discover stable stored folders, paths, and subtree statistics without Jira issue reads | `-o text/id` |
 | `jira structure values <ID>` | Get row values | `--rows`, `--fields` |
-| `jira structure pull-issues <ID>` | Fetch snapshots from Structure rows | exact folder selector or fuzzy `--root`, `--fields`, `--batch-size`, `--limit`, `--out`, `-o id` |
-| `jira structure export <ID>` | Write a normalized offline Structure artifact | exact folder selector or fuzzy `--root`, `--fields`, `--format json/jsonl/csv/md`, `--out`, `--raw-csv` |
+| `jira structure pull-issues <ID>` | Fetch snapshots from Structure rows | exact folder selector or fuzzy `--root`, `--view`, `--fields`, `--batch-size`, `--limit`, `--out`, `-o id` |
+| `jira structure export <ID>` | Write a normalized offline Structure artifact | exact folder selector or fuzzy `--root`, `--view`, `--fields`, `--format json/jsonl/csv/md`, `--out`, `--raw-csv` |
