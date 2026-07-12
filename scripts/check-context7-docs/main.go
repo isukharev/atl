@@ -12,25 +12,32 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
 
 type context7Config struct {
-	Schema           string          `json:"$schema"`
-	ProjectTitle     string          `json:"projectTitle"`
-	Description      string          `json:"description"`
-	Branch           string          `json:"branch"`
-	Folders          []string        `json:"folders"`
-	ExcludeFolders   []string        `json:"excludeFolders"`
-	ExcludeFiles     []string        `json:"excludeFiles"`
-	Rules            []string        `json:"rules"`
-	Disallow         bool            `json:"disallow"`
-	Redirect         string          `json:"redirect"`
-	PreviousVersions json.RawMessage `json:"previousVersions"`
-	URL              string          `json:"url"`
-	PublicKey        string          `json:"public_key"`
+	Schema           string            `json:"$schema"`
+	ProjectTitle     string            `json:"projectTitle"`
+	Description      string            `json:"description"`
+	Branch           string            `json:"branch"`
+	Folders          []string          `json:"folders"`
+	ExcludeFolders   []string          `json:"excludeFolders"`
+	ExcludeFiles     []string          `json:"excludeFiles"`
+	Rules            []string          `json:"rules"`
+	Disallow         bool              `json:"disallow"`
+	Redirect         string            `json:"redirect"`
+	PreviousVersions []context7Version `json:"previousVersions"`
+	URL              string            `json:"url"`
+	PublicKey        string            `json:"public_key"`
 }
+
+type context7Version struct {
+	Tag string `json:"tag"`
+}
+
+var releaseTagPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$`)
 
 type report struct {
 	Documents int
@@ -40,12 +47,23 @@ type report struct {
 func main() {
 	root := flag.String("root", ".", "repository root")
 	flag.Parse()
-	report, err := validate(*root)
+	report, err := validateRepository(*root)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	fmt.Printf("Context7 docs: %d selected documents, %d named fenced snippets\n", report.Documents, report.Snippets)
+}
+
+func validateRepository(root string) (report, error) {
+	report, err := validate(root)
+	if err != nil {
+		return report, err
+	}
+	if err := validateAutomation(root); err != nil {
+		return report, err
+	}
+	return report, nil
 }
 
 func validate(root string) (report, error) {
@@ -77,6 +95,30 @@ func validate(root string) (report, error) {
 	}
 	if !strings.HasPrefix(cfg.PublicKey, "pk_") || len(cfg.PublicKey) <= len("pk_") {
 		return report{}, errors.New("context7.json must carry the public ownership verifier")
+	}
+	if cfg.Branch != "stable" {
+		return report{}, errors.New("context7.json must parse the release-bound stable branch")
+	}
+	if len(cfg.PreviousVersions) == 0 || len(cfg.PreviousVersions) > 20 {
+		return report{}, errors.New("context7.json must expose between 1 and 20 release tag versions")
+	}
+	versionBytes, err := os.ReadFile(filepath.Join(root, "VERSION"))
+	if err != nil {
+		return report{}, fmt.Errorf("read VERSION: %w", err)
+	}
+	wantCurrentTag := "v" + strings.TrimSpace(string(versionBytes))
+	seenVersions := map[string]bool{}
+	for i, version := range cfg.PreviousVersions {
+		if !releaseTagPattern.MatchString(version.Tag) {
+			return report{}, fmt.Errorf("context7.json previousVersions[%d] has invalid release tag %q", i, version.Tag)
+		}
+		if seenVersions[version.Tag] {
+			return report{}, fmt.Errorf("context7.json repeats release tag %q", version.Tag)
+		}
+		seenVersions[version.Tag] = true
+	}
+	if cfg.PreviousVersions[0].Tag != wantCurrentTag {
+		return report{}, fmt.Errorf("context7.json newest version must be %q from VERSION", wantCurrentTag)
 	}
 
 	excludedFiles := stringSet(cfg.ExcludeFiles)
@@ -252,4 +294,28 @@ func contains(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func validateAutomation(root string) error {
+	require := func(path string, fragments ...string) error {
+		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+		if err != nil {
+			return err
+		}
+		content := string(b)
+		for _, fragment := range fragments {
+			if !strings.Contains(content, fragment) {
+				return fmt.Errorf("%s must contain %q", path, fragment)
+			}
+		}
+		return nil
+	}
+	if err := require(".github/workflows/release.yml",
+		"refresh-context7:", "environment: context7", "refs/heads/stable",
+		"https://context7.com/api/v1/refresh", "continue-on-error: true"); err != nil {
+		return err
+	}
+	return require(".github/workflows/context7-refresh.yml",
+		"workflow_dispatch:", "environment: context7",
+		"https://context7.com/api/v1/refresh")
 }

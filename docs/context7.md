@@ -70,9 +70,11 @@ and the two successful verification queries are separate acceptance gates.
 
 ## Add or change indexed documentation
 
-Put maintained runtime/user documentation under `docs/`. A normal merge to
-`main` makes it eligible for the next parse unless its filename or directory is
-excluded. Keep implementation details in code and private backend artifacts
+Put maintained runtime/user documentation under `docs/`. Changes merge to
+`main` and pass the local corpus check, but default Context7 retrieval reads the
+release-bound `stable` branch—not unreleased `main`. The release workflow
+fast-forwards `stable` to the successfully published tag and only then requests
+a refresh. Keep implementation details in code and private backend artifacts
 outside the selected tree. When adding a new documentation category, review
 `folders`, `excludeFolders`, `excludeFiles`, and the short `rules` list rather
 than widening the index implicitly.
@@ -103,7 +105,38 @@ implicitly without review or when a selected document lacks a non-empty named
 fenced snippet. It does not replace Context7's parser or benchmark; it protects
 the local scope and minimum snippet contract.
 
-## How often Context7 updates atl
+## Stable and versioned documentation
+
+The unqualified library id always means the latest published atl release:
+
+```text
+/isukharev/atl
+```
+
+`context7.json` selects branch `stable`. That branch is initialized from the
+latest release tag, is never developed on directly, and is advanced without
+history rewrites by the non-blocking post-release job. If it is not an ancestor
+of a new release tag, automation refuses to rewind or fork it.
+
+Release tags listed under `previousVersions` provide immutable version-specific
+ids:
+
+```text
+/isukharev/atl/v0.3.0
+/isukharev/atl/v0.2.0
+```
+
+Context7 supports at most 20 configured tag/branch versions. Release prep puts
+the upcoming `vX.Y.Z` first, matching `VERSION`, and removes the oldest entry
+when necessary. A documentation correction for already released behavior
+should normally ship as a patch release; do not push an ad-hoc docs commit to
+`stable`, because the next release must advance it by fast-forward.
+
+`main` remains the source for future documentation and local agent skills, but
+is intentionally not a public Context7 preview. This prevents an agent using a
+released binary from retrieving commands that have not shipped yet.
+
+## Refresh timing
 
 Context7 checks staleness when a library is requested. Its current documented
 automatic thresholds depend on popularity:
@@ -121,18 +154,31 @@ library may therefore remain old until it is requested. These service-side
 thresholds can change; check the official [library update
 policy](https://context7.com/docs/library-updates) when freshness matters.
 
-For a release or important CLI contract change, use one of the deterministic
-paths instead of waiting:
+Every successful GitHub release triggers a separate, non-blocking job that:
+
+1. fast-forwards `stable` to the released tag;
+2. requests a Context7 refresh through the dedicated `context7` environment.
+
+Release artifacts remain published even if Context7 is unavailable. To retry
+without moving `stable`, run the **refresh Context7 stable docs** workflow from
+the default `main` ref. Environment policy allows only `main` workflows and
+`v*` tag jobs to request `CONTEXT7_API_KEY`; the secret value is never exposed.
+
+Leave `release_tag` empty for a parse-only retry. If the post-release job failed
+before advancing `stable`, supply the already published `vX.Y.Z` tag: the
+manual workflow verifies the GitHub Release and ancestry before the same
+fast-forward operation, then refreshes.
+
+Other deterministic refresh paths are:
 
 - trigger **Refresh** from the library page while logged in; or
 - call the owner refresh API; or
-- after adding the repository secret `CONTEXT7_API_KEY`, install a GitHub
-  Actions workflow that refreshes on pushes to `main`.
+- run the repository's manual `workflow_dispatch` retry.
 
 The minimal refresh request is:
 
 ```sh
-curl --fail-with-body --silent --show-error \
+curl --fail --silent --show-error \
   --request POST https://context7.com/api/v1/refresh \
   --header 'Content-Type: application/json' \
   --header "Authorization: Bearer $CONTEXT7_API_KEY" \
@@ -141,9 +187,9 @@ curl --fail-with-body --silent --show-error \
 
 Keep the API key in an environment variable or GitHub Actions secret. The
 official [GitHub Actions guide](https://context7.com/docs/integrations/github-actions)
-contains the current workflow. This repository does not enable that workflow
-until the library is registered and a maintainer deliberately configures the
-secret; an absent secret must not turn every documentation push red.
+documents the underlying API pattern. In this repository the key is an
+environment secret, not a repository secret, and ordinary pushes to `main` do
+not refresh the stable public corpus.
 
 ## Validate `context7.json`
 

@@ -1,0 +1,64 @@
+name: refresh Context7 stable docs
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Optional published vX.Y.Z tag to fast-forward stable before refresh
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: context7-stable
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    environment: context7
+    env:
+      HAS_CONTEXT7_KEY: ${{ secrets.CONTEXT7_API_KEY != '' }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        if: env.RELEASE_TAG != ''
+        with:
+          fetch-depth: 0
+
+      - name: Require Context7 refresh key
+        if: env.HAS_CONTEXT7_KEY != 'true'
+        run: |
+          echo "::error::CONTEXT7_API_KEY is not configured in the context7 environment"
+          exit 1
+
+      - name: Recover stable branch to a published release
+        if: env.RELEASE_TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          if ! printf '%s\n' "$RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+            echo "::error::release_tag must be a published vX.Y.Z tag"
+            exit 1
+          fi
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          git fetch origin stable:refs/remotes/origin/stable "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          target="$(git rev-parse "$RELEASE_TAG^{commit}")"
+          if ! git merge-base --is-ancestor origin/stable "$target"; then
+            echo "::error::stable is not an ancestor of $RELEASE_TAG; refusing to rewind or fork release documentation"
+            exit 1
+          fi
+          git push origin "$target:refs/heads/stable"
+
+      - name: Refresh release-bound Context7 library
+        env:
+          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY }}
+        run: |
+          curl --fail --silent --show-error \
+            --request POST https://context7.com/api/v1/refresh \
+            --header 'Content-Type: application/json' \
+            --header "Authorization: Bearer $CONTEXT7_API_KEY" \
+            --data '{"libraryName":"/isukharev/atl"}'

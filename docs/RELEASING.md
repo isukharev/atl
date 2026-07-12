@@ -139,8 +139,9 @@ Then in the GitHub UI, double-check:
 ## 4. Cut a release
 
 ```bash
-# In a normal reviewed PR first: bump VERSION + CHANGELOG, and set the SAME
-# version in BOTH plugin manifests:
+# In a normal reviewed PR first: bump VERSION + CHANGELOG, set the SAME
+# version in BOTH plugin manifests, and prepend the matching vX.Y.Z tag to
+# context7.json previousVersions (keep at most 20 entries):
 #   .claude-plugin/plugin.json          ("version": "X.Y.Z")
 #   plugins/atl/.codex-plugin/plugin.json
 # Then, from main:
@@ -154,6 +155,11 @@ trigger for installed plugins — while it is unchanged, `/plugin update` report
 forever, even as the binary self-updates. The release workflow fail-fast
 asserts both manifests equal the tag, so a forgotten bump cannot ship.
 
+`make check-context7-docs` also requires `context7.json` to select `stable` and
+the first `previousVersions` tag to equal `v$(cat VERSION)`. This makes the
+version-specific Context7 id part of release prep rather than a post-release
+guess.
+
 The `release` workflow cross-compiles the four targets, generates `manifest.json`,
 **signs it** with `ATL_RELEASE_PRIVATE_KEY`, generates the Homebrew formula
 (`atl.rb`), attests SLSA build provenance, and publishes the GitHub Release with
@@ -163,6 +169,30 @@ and `install.sh`.
 Releases are never intentionally unsigned: a missing signing secret or a key
 that the latest published client does not trust fails the workflow before
 artifacts are built or published.
+
+### Context7 stable documentation
+
+After the release job succeeds, a separate non-blocking job uses the dedicated
+`context7` environment to fast-forward branch `stable` to the released tag and
+request a refresh of `/isukharev/atl`. The environment exposes only
+`CONTEXT7_API_KEY` and permits jobs from `v*` tags plus the trusted `main`
+workflow used for manual retries. A Context7 outage does not invalidate or
+remove an already published release.
+
+Verify the branch and the versioned library after the workflow finishes:
+
+```bash
+test "$(git ls-remote origin refs/heads/stable | cut -f1)" = "$(git rev-parse "$TAG")"
+npx ctx7@latest docs "/isukharev/atl/$TAG" "Show the installed version's output and guarded write contracts"
+```
+
+If the post-release job fails after publication, inspect its logs and run
+**Actions → refresh Context7 stable docs → Run workflow** from `main`. Leave
+`release_tag` empty when only Context7 parsing failed; set it to the already
+published tag when branch advancement failed. The recovery path verifies the
+release and ancestry before moving `stable`. Do not force-push or commit
+directly to `stable`. A released documentation correction should be a patch
+release so the branch remains a fast-forward-only release pointer.
 
 ### Homebrew tap
 

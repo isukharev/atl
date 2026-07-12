@@ -254,7 +254,7 @@ rg "decision" mirror/
 ### 3. Редактирование, валидация и публикация
 
 ```sh
-# Проще всего: проверьте marker v2, правьте markdown-представление и слейте правки в .csf.
+# Проще всего: проверьте marker v3, правьте markdown-представление и слейте правки в .csf.
 # Нетронутые блоки сохраняют байты в точности; неконвертируемые правки отклоняются.
 $EDITOR mirror/DOCS/acme-adr/acme-adr.md
 atl conf apply mirror/DOCS/acme-adr/acme-adr.md --dry-run
@@ -464,6 +464,10 @@ go test  ./...
 Дополнительно: [docs/architecture.md](docs/architecture.md) · [docs/usage.md](docs/usage.md) ·
 [рецепты для агентов](docs/agent-recipes.md) · [docs/self-update.md](docs/self-update.md) ·
 [интеграция Context7](docs/context7.md)
+
+Библиотека Context7 `/isukharev/atl` следует за последним опубликованным
+релизом через ветку `stable`. Документация разработки в `main` может описывать
+ещё не выпущенное поведение; для точного релиза используйте id `/vX.Y.Z`.
 
 ---
 

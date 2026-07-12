@@ -193,3 +193,51 @@ jobs:
       - name: Note tap not auto-bumped
         if: env.HAS_TAP_TOKEN != 'true'
         run: echo "::notice::HOMEBREW_TAP_TOKEN is not set — skipping tap auto-bump. Copy dist/atl.rb into isukharev/homebrew-tap manually (see docs/RELEASING.md)."
+
+  # Release publication above is authoritative and must never depend on a
+  # third-party documentation service. This follow-up advances the docs source
+  # only after publish succeeds, then requests a best-effort Context7 refresh.
+  refresh-context7:
+    name: Refresh Context7 stable docs (non-blocking)
+    needs: [release]
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    environment: context7
+    permissions:
+      contents: write
+    concurrency:
+      group: context7-stable
+      cancel-in-progress: false
+    env:
+      HAS_CONTEXT7_KEY: ${{ secrets.CONTEXT7_API_KEY != '' }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Require Context7 refresh key
+        if: env.HAS_CONTEXT7_KEY != 'true'
+        run: |
+          echo "::error::CONTEXT7_API_KEY is not configured in the context7 environment"
+          exit 1
+
+      - name: Advance stable branch without rewriting history
+        run: |
+          set -eu
+          git fetch origin stable:refs/remotes/origin/stable
+          target="$(git rev-parse "$GITHUB_REF_NAME^{commit}")"
+          if ! git merge-base --is-ancestor origin/stable "$target"; then
+            echo "::error::stable is not an ancestor of $GITHUB_REF_NAME; refusing to rewind or fork release documentation"
+            exit 1
+          fi
+          git push origin "$target:refs/heads/stable"
+
+      - name: Refresh Context7 library
+        env:
+          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY }}
+        run: |
+          curl --fail --silent --show-error \
+            --request POST https://context7.com/api/v1/refresh \
+            --header 'Content-Type: application/json' \
+            --header "Authorization: Bearer $CONTEXT7_API_KEY" \
+            --data '{"libraryName":"/isukharev/atl"}'
