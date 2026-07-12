@@ -2520,11 +2520,12 @@ proposal, pending state is retained and the command fails closed with exit 8.
 
 ### `atl jira export`
 
-Write one compact issue export artifact plus a backend-identity-hashed provenance manifest.
-This is for scripts and analysis that need JSONL/JSON/CSV instead of a directory
-mirror. The manifest is written to `<out>.manifest.json` and stores query,
-fields, format, count, CLI version, and a backend URL hash; it does not store
-the backend hostname or token.
+Write one compact issue export as a file plus backend-identity-hashed provenance
+manifest, or as a transient stdout artifact. This is for scripts and analysis
+that need JSONL/JSON/CSV instead of a directory mirror. For file destinations,
+the manifest is written to `<out>.manifest.json` and stores query, fields,
+format, count, CLI version, and a backend URL hash; it does not store the backend
+hostname or token.
 
 ```bash
 atl jira export --jql "project=PROJ" --format jsonl --out issues.jsonl
@@ -2532,6 +2533,8 @@ atl jira export --jql "project=PROJ" --format csv --fields customfield_10001 --o
 atl jira export --jql "project=PROJ" --format csv --out raw.csv --raw-csv # unsafe in spreadsheets
 atl jira export --jql "project=PROJ" --format json --out issues.json --limit 10000
 atl jira export --keys PROJ-1,PROJ-2 --batch-size 100 --out selected.jsonl
+atl jira export --keys PROJ-1,PROJ-2 --fields "Delivery Notes" --out - | jq -s '.'
+atl jira export --ids 10001,10002 --format json --out - | jq 'map(.key)'
 atl jira export diff old.jsonl new.jsonl
 ```
 
@@ -2543,10 +2546,10 @@ Flags:
 | `--ids` | comma-separated numeric issue ids; generates batched `id in (...)` JQL |
 | `--keys` | comma-separated issue keys; generates batched `key in (...)` JQL |
 | `--batch-size` | max ids/keys per generated JQL batch (default 100) |
-| `--out` | output artifact path (required; manifest path is `<out>.manifest.json`) |
+| `--out` | artifact path (writes `<out>.manifest.json`), or `-` for artifact-only stdout with no files/manifest |
 | `--format` | `jsonl`, `json`, or `csv` (default `jsonl`) |
 | `--limit` | max issues (0 = all; default 100) |
-| `--fields` | extra comma-separated fields to include |
+| `--fields` | extra comma-separated exact field ids or unambiguous display names |
 | `--raw-csv` | preserve formula-leading CSV cells verbatim (unsafe in spreadsheets) |
 
 JSONL and CSV are written incrementally through an fsynced atomic temporary file, so
@@ -2557,6 +2560,16 @@ apostrophe prefix. The manifest records `csv_raw: true` when the unsafe raw mode
 is explicitly selected. Exact cross-page deduplication uses a bounded identity
 index and refuses a single export above 250,000 unique issues; split larger
 selections into multiple exports.
+
+With `--out -`, stdout contains **only** the artifact: one object per line for
+JSONL, a JSON array for `--format json`, or CSV bytes. No manifest, command
+result object, or trailing status line is emitted, and no filesystem artifact is
+created. Warnings/errors remain on stderr. JSON keeps the same 10,000-issue and
+64 MiB aggregate caps; JSONL/CSV retain the 250,000-identity safety cap and
+formula neutralization. A streaming request can have written a prefix before a
+later backend failure, so pipelines must check atl's exit status and discard
+stdout on non-zero exit. Display-name fields resolve fail-closed before the
+first search and the artifact uses their stable ids.
 
 `jira export diff` compares compact JSONL/JSON/CSV exports by issue key (or id
 when key is absent) and reports deterministic `added`, `removed`, and `changed`

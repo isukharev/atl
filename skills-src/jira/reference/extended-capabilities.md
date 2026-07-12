@@ -8,6 +8,8 @@ Load only the section needed for the current task.
 atl jira export --jql '<JQL>' --format jsonl --out issues.jsonl
 atl jira export --jql '<JQL>' --format csv --out issues.csv
 atl jira export --keys PROJ-1,PROJ-2 --batch-size 100 --out selected.jsonl
+atl jira export --keys PROJ-1,PROJ-2 --fields "Delivery Notes" --out - | jq -s '.'
+atl jira export --keys PROJ-1,PROJ-2 --format json --out - | jq 'map(.key)'
 atl jira export diff old.jsonl new.jsonl
 ```
 
@@ -16,6 +18,11 @@ credential-sanitized but may still be private. JSONL/CSV stream; aggregate JSON
 is capped at 10,000 issues/64 MiB and row streams at 250,000 identities. CSV
 neutralizes formulas unless the user explicitly approves `--raw-csv` for a
 trusted non-spreadsheet consumer.
+
+Use `--out -` for transient analysis: stdout is only JSONL, a bare JSON array,
+or CSV, with no manifest/result envelope and no created files. Display names in
+`--fields` resolve to ids before search. Always honor the exit code and discard
+a streamed prefix after non-zero exit.
 
 ## Guarded bulk links and plans
 

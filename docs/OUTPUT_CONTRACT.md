@@ -861,6 +861,17 @@ after the qualified read. `last_changes` reports the newest matching change per
 selected resolved field within those boundaries. `-o text` is a status line and
 a structurally escaped Markdown table.
 
+`atl jira export ... --out -` is an artifact stdout mode, not a command-result
+mode. JSONL emits one `JiraIssueSnapshot` per line, aggregate JSON emits a bare
+snapshot array, and CSV emits its header and rows. It emits no manifest, export
+result envelope, or trailing status bytes and creates no files. Diagnostics are
+stderr-only. Aggregate JSON retains the 10,000-issue/64 MiB caps; row formats
+retain the identity cap and safe-CSV default. Because a late read/write failure
+can leave a streamed prefix on stdout, consumers must accept the artifact only
+when the process exits zero. File destinations retain the existing atomic
+artifact plus `<out>.manifest.json` contract. Exact field display names are
+resolved before search and exported under stable field ids.
+
 List-oriented Jira reads (`issue search`, `issue children`, `board
 issues/backlog`, and `sprint issues`) share one app-layer contract:
 

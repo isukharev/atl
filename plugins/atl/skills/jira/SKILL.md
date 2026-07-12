@@ -64,6 +64,11 @@ For time-sensitive evidence, use `atl jira issue history <KEY> --field "Exact
 Name" --since YYYY-MM-DD`. Check `complete` before drawing negative conclusions
 and use `last_changes`, not list position, for a selected field's latest update.
 
+For several known keys, avoid shell loops and durable artifacts: `atl jira
+export --keys PROJ-1,PROJ-2 --fields "Exact Name" --out - | jq -s '.'` (JSONL
+default), or add `--format json` and consume the array directly. The artifact is
+valid only on exit 0; a failed streaming read may have emitted a prefix.
+
 ### 1. Find issues
 ```bash
 atl jira issue search --jql '<JQL>' --limit 50

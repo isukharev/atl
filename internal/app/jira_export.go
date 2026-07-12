@@ -33,14 +33,18 @@ type JiraExportOpts struct {
 	Fields    []string
 	Version   string
 	RawCSV    bool
+	// Writer is required only when Out is "-". The CLI supplies stdout; keeping
+	// it explicit prevents the app layer from reaching process-global streams.
+	Writer io.Writer
 }
 
 // JiraExportResult describes files written by Export.
 type JiraExportResult struct {
 	Path         string             `json:"path"`
-	ManifestPath string             `json:"manifest_path"`
+	ManifestPath string             `json:"manifest_path,omitempty"`
 	Format       string             `json:"format"`
 	Count        int                `json:"count"`
+	Transient    bool               `json:"transient,omitempty"`
 	Manifest     JiraExportManifest `json:"-"`
 }
 
@@ -88,11 +92,22 @@ func (s *JiraService) Export(ctx context.Context, opts JiraExportOpts) (*JiraExp
 	if opts.RawCSV && format != "csv" {
 		return nil, fmt.Errorf("%w: --raw-csv requires --format csv", domain.ErrUsage)
 	}
-	if strings.TrimSpace(opts.Out) == "" || opts.Out == "-" {
-		return nil, fmt.Errorf("%w: --out is required and must be a file path", domain.ErrUsage)
+	if strings.TrimSpace(opts.Out) == "" {
+		return nil, fmt.Errorf("%w: --out is required", domain.ErrUsage)
+	}
+	transient := opts.Out == "-"
+	if transient && opts.Writer == nil {
+		return nil, fmt.Errorf("%w: stdout writer is required for --out -", domain.ErrUsage)
 	}
 	if opts.Limit < 0 {
 		return nil, fmt.Errorf("%w: --limit must be >= 0", domain.ErrUsage)
+	}
+	if len(opts.Fields) > 0 {
+		resolved, resolveErr := s.resolveJiraFieldSelectors(ctx, opts.Fields)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		opts.Fields = fieldDefIDs(resolved)
 	}
 	count := 0
 	var manifest JiraExportManifest
@@ -109,23 +124,43 @@ func (s *JiraService) Export(ctx context.Context, opts JiraExportOpts) (*JiraExp
 			return nil, fmt.Errorf("%w: aggregate JSON export exceeds %d issues; use jsonl/csv or a smaller --limit", domain.ErrUsage, jiraAggregateExportMaxIssues)
 		}
 		count = len(issues)
-		manifest = s.exportManifest(opts, format, queryMode, queries, count)
-		data, renderErr := renderJiraExport(format, issues, opts.Fields, manifest, opts.RawCSV)
+		if !transient {
+			manifest = s.exportManifest(opts, format, queryMode, queries, count)
+		}
+		data, renderErr := renderJiraExport(format, issues, opts.Fields, manifest, opts.RawCSV, transient)
 		if renderErr != nil {
 			return nil, renderErr
 		}
-		if err := writeUserFile(opts.Out, data); err != nil {
-			return nil, err
+		if transient {
+			if _, err := opts.Writer.Write(data); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := writeUserFile(opts.Out, data); err != nil {
+				return nil, err
+			}
 		}
 	} else {
-		if err := writeUserFileStream(opts.Out, func(dst io.Writer) error {
+		writeStream := func(dst io.Writer) error {
 			var streamErr error
 			count, streamErr = s.streamJiraExport(ctx, dst, format, queries, opts.Fields, opts.Limit, opts.RawCSV)
 			return streamErr
-		}); err != nil {
-			return nil, err
 		}
-		manifest = s.exportManifest(opts, format, queryMode, queries, count)
+		var writeErr error
+		if transient {
+			writeErr = writeStream(opts.Writer)
+		} else {
+			writeErr = writeUserFileStream(opts.Out, writeStream)
+		}
+		if writeErr != nil {
+			return nil, writeErr
+		}
+		if !transient {
+			manifest = s.exportManifest(opts, format, queryMode, queries, count)
+		}
+	}
+	if transient {
+		return &JiraExportResult{Path: "-", Format: format, Count: count, Transient: true}, nil
 	}
 	manifestPath := opts.Out + ".manifest.json"
 	mb, err := json.MarshalIndent(manifest, "", "  ")
@@ -529,7 +564,7 @@ func sortStrings(values []string) {
 	sort.Strings(values)
 }
 
-func renderJiraExport(format string, issues []JiraIssueSnapshot, fields []string, manifest JiraExportManifest, rawCSV bool) ([]byte, error) {
+func renderJiraExport(format string, issues []JiraIssueSnapshot, fields []string, manifest JiraExportManifest, rawCSV, transient bool) ([]byte, error) {
 	switch format {
 	case "jsonl":
 		var b bytes.Buffer
@@ -542,6 +577,13 @@ func renderJiraExport(format string, issues []JiraIssueSnapshot, fields []string
 		}
 		return b.Bytes(), nil
 	case "json":
+		if transient {
+			b, err := json.MarshalIndent(issues, "", "  ")
+			if err != nil {
+				return nil, err
+			}
+			return append(b, '\n'), nil
+		}
 		out := map[string]any{"manifest": manifest, "issues": issues}
 		b, err := json.MarshalIndent(out, "", "  ")
 		if err != nil {

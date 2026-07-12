@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/app"
 )
 
 func TestJiraExportCLIWritesArtifactAndManifest(t *testing.T) {
@@ -120,6 +122,62 @@ func TestJiraExportCLIGeneratesKeyBatches(t *testing.T) {
 	if !strings.Contains(reqs[0].query, "key+in+%28%22PROJ-1%22%29") ||
 		!strings.Contains(reqs[1].query, "key+in+%28%22PROJ-2%22%29") {
 		t.Fatalf("queries = %q / %q, want one key per generated batch", reqs[0].query, reqs[1].query)
+	}
+}
+
+func TestJiraExportCLIStreamsArtifactOnlyToStdout(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/field", http.StatusOK,
+		`[{"id":"customfield_10001","name":"Delivery Notes","custom":true,"schema":{"type":"string"}}]`)
+	js.route(http.MethodGet, "/rest/api/2/search", http.StatusOK, `{
+		"issues":[
+			{"id":"10001","key":"PROJ-1","fields":{"summary":"=formula","customfield_10001":"ready"}},
+			{"id":"10002","key":"PROJ-2","fields":{"summary":"Second","customfield_10001":"done"}}
+		],"startAt":0,"maxResults":100,"total":2
+	}`)
+	for _, path := range []string{"-", "-.manifest.json"} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("test requires absent sentinel path %q: %v", path, err)
+		}
+	}
+
+	jsonl, code := runCLI(t, jiraEnv(js.srv), "jira", "export", "--keys", "PROJ-1,PROJ-2", "--fields", "Delivery Notes", "--format", "jsonl", "--out", "-")
+	if code != exitOK || strings.Count(strings.TrimSpace(jsonl), "\n") != 1 || strings.Contains(jsonl, "manifest_path") {
+		t.Fatalf("jsonl exit=%d output=%q", code, jsonl)
+	}
+	for i, line := range strings.Split(strings.TrimSpace(jsonl), "\n") {
+		var snapshot app.JiraIssueSnapshot
+		if err := json.Unmarshal([]byte(line), &snapshot); err != nil || snapshot.Key == "" {
+			t.Fatalf("jsonl line %d: snapshot=%+v err=%v", i+1, snapshot, err)
+		}
+	}
+
+	aggregate, code := runCLI(t, jiraEnv(js.srv), "jira", "export", "--keys", "PROJ-1,PROJ-2", "--format", "json", "--out", "-")
+	var snapshots []app.JiraIssueSnapshot
+	if code != exitOK || json.Unmarshal([]byte(aggregate), &snapshots) != nil || len(snapshots) != 2 || strings.Contains(aggregate, `"manifest"`) {
+		t.Fatalf("json exit=%d snapshots=%+v output=%q", code, snapshots, aggregate)
+	}
+	assertGolden(t, "jira_export_stdout.json", []byte(aggregate))
+
+	csvOut, code := runCLI(t, jiraEnv(js.srv), "jira", "export", "--keys", "PROJ-1,PROJ-2", "--format", "csv", "--out", "-")
+	records, csvErr := csv.NewReader(strings.NewReader(csvOut)).ReadAll()
+	if code != exitOK || csvErr != nil || len(records) != 3 || records[1][2] != "'=formula" {
+		t.Fatalf("csv exit=%d records=%#v err=%v output=%q", code, records, csvErr, csvOut)
+	}
+
+	for _, path := range []string{"-", "-.manifest.json"} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("transient export created sentinel path %q: %v", path, err)
+		}
+	}
+	var resolved bool
+	for _, request := range js.requests() {
+		if request.path == "/rest/api/2/search" && strings.Contains(request.query, "customfield_10001") {
+			resolved = true
+		}
+	}
+	if !resolved {
+		t.Fatalf("display-name field was not resolved before search: %+v", js.requests())
 	}
 }
 

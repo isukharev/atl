@@ -1,0 +1,18 @@
+[
+  {
+    "key": "PROJ-1",
+    "id": "10001",
+    "fields": {
+      "customfield_10001": "ready",
+      "summary": "=formula"
+    }
+  },
+  {
+    "key": "PROJ-2",
+    "id": "10002",
+    "fields": {
+      "customfield_10001": "done",
+      "summary": "Second"
+    }
+  }
+]

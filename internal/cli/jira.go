@@ -1327,7 +1327,7 @@ func jiraExportCmd() *cobra.Command {
 	var rawCSV bool
 	cmd := &cobra.Command{
 		Use:   "export",
-		Short: "Export issues matching --jql to one compact artifact plus a manifest",
+		Short: "Export issues to a compact file+manifest or transient stdout artifact",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if out == "" {
 				return usageErr("--out is required")
@@ -1347,9 +1347,13 @@ func jiraExportCmd() *cobra.Command {
 				Fields:    splitFields(fields),
 				Version:   version.Version,
 				RawCSV:    rawCSV,
+				Writer:    cmd.OutOrStdout(),
 			})
 			if err != nil {
 				return err
+			}
+			if out == "-" {
+				return nil
 			}
 			return emit(cmd, res, func() string {
 				return fmt.Sprintf("%s\t%s\t%d issues", res.Path, res.Format, res.Count)
@@ -1360,10 +1364,10 @@ func jiraExportCmd() *cobra.Command {
 	cmd.Flags().StringVar(&ids, "ids", "", "comma-separated numeric issue ids; generates batched `id in (...)` JQL")
 	cmd.Flags().StringVar(&keys, "keys", "", "comma-separated issue keys; generates batched `key in (...)` JQL")
 	cmd.Flags().IntVar(&batchSize, "batch-size", 100, "max ids/keys per generated JQL batch")
-	cmd.Flags().StringVar(&out, "out", "", "output artifact path (manifest is written to <out>.manifest.json)")
+	cmd.Flags().StringVar(&out, "out", "", "artifact path, or - for artifact-only stdout (no manifest)")
 	cmd.Flags().StringVar(&format, "format", "jsonl", "export format: jsonl, json, or csv")
 	cmd.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all)")
-	cmd.Flags().StringVar(&fields, "fields", "", "extra comma-separated field list to include")
+	cmd.Flags().StringVar(&fields, "fields", "", "extra comma-separated exact field ids or display names")
 	cmd.Flags().BoolVar(&rawCSV, "raw-csv", false, "write formula-leading CSV cells verbatim (unsafe in spreadsheets)")
 	_ = cmd.RegisterFlagCompletionFunc("format", fixedComp("jsonl", "json", "csv"))
 	cmd.AddCommand(jiraExportDiffCmd())
