@@ -25,7 +25,7 @@ preserves ordinary links, and marks colors as
 ## Table extraction
 
 ```bash
-atl conf table extract --id <page-id> [--table N] --format json|csv|xlsx [--out <file>]
+atl conf table extract --id <page-id-or-same-origin-url> [--table N] --format json|csv|xlsx [--out <file>]
 ```
 
 `--table` is 1-based; zero selects all tables. XLSX requires `--out`. CSV

@@ -14,6 +14,22 @@ func newTestClient(url string) *httpx.Client {
 	return httpx.New(url, "token", "test")
 }
 
+func TestResolveShortPageLinkUsesScopedRedirectClient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/x/AwAG" {
+			http.Redirect(w, r, "/pages/viewpage.action?pageId=42", http.StatusFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	cf := New(srv.URL, "token", "test")
+	finalURL, err := cf.ResolveShortPageLink(context.Background(), "/x/AwAG")
+	if err != nil || finalURL != srv.URL+"/pages/viewpage.action?pageId=42" {
+		t.Fatalf("finalURL=%q err=%v", finalURL, err)
+	}
+}
+
 // TestGetMetaGroupRestrictions verifies that a page whose read.user.results is
 // empty but read.group.results is non-empty reports Restrictions==true. The old
 // substring heuristic missed group-only restrictions.

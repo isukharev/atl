@@ -10,8 +10,9 @@ atl conf search --cql '<CQL>' --limit 25
 atl conf search --space <KEY> --title '<substring>' --type page --limit 25
 atl conf space tree --space <KEY> [--depth N]
 atl conf page list --space <KEY> [--status current|archived|trashed]
-atl conf page view <id> --jira-view default -o text
-atl conf page view <id> --jira-macros off -o text # untrusted/heavy page: placeholders only
+atl conf page resolve <id-or-same-origin-url> -o id
+atl conf page view <id-or-same-origin-url> --jira-view default -o text
+atl conf page view <id-or-same-origin-url> --jira-macros off -o text # untrusted/heavy page: placeholders only
 ```
 
 Do not combine `--cql` with convenience filters. Search requires CQL or at
@@ -23,6 +24,11 @@ Use transient `page view` only for one-off readonly work. For a mirror:
 atl conf pull --id <id> --assets --comments --jira-view default --into <root>
 # alternatives: --cql '<CQL>' or --space <KEY> [--depth N]
 ```
+
+Read-only page selectors accept stable ids, same-origin canonical/viewpage/REST
+URLs, exact display URLs, and one `/x/` redirect. Resolve once when several
+commands share a reference. Never send foreign URLs or replace exact resolution
+with fuzzy title search; ambiguity is exit 8.
 
 `--cql` caps at 1000 pages; `--space` and tree cap at 2000. A capped result has
 `truncated:true` and a stderr warning. Narrow the selection; never treat it as
@@ -114,7 +120,7 @@ ID projection accept `-o id` for one identifier per line.
 |---|---|---|
 | `conf search` | Find pages | `--cql` or convenience filters, `--limit`, `--cursor` |
 | `conf space tree` | Space hierarchy | `--space`, `--depth` |
-| `conf page list|get|view|meta|history|open` | Page reads | command-specific id/format/render flags; view supports `--jira-view`, `--jira-macros` |
+| `conf page resolve|list|get|view|meta|history|open` | Reference resolution and page reads | read selectors accept id/same-origin URL; view supports `--jira-view`, `--jira-macros` |
 | `conf page labels list <ID>` | Complete page-label read | no write; inspect `complete` |
 | `conf page labels add\|remove <ID> <LABEL>...` | Guarded label preview/apply | `--apply`, `--expected-proposal-hash` |
 | `conf page title set <ID>` | Guarded title preview/apply | `--from-file`, `--apply`, expected gates |

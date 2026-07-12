@@ -292,6 +292,47 @@ func (c *Client) Do(ctx context.Context, method, path string, body []byte, heade
 	return c.do(ctx, method, path, body, headers, jsonBodyCap)
 }
 
+// ResolveGET follows the client's normal redirect policy for one GET and
+// returns the final response URL without reading the success body. It is for
+// same-origin short-link resolution; callers must still validate the returned
+// path as an application-level reference.
+func (c *Client) ResolveGET(ctx context.Context, path string) (string, error) {
+	resolved, err := c.resolveURL(path)
+	if err != nil {
+		return "", err
+	}
+	req, err := c.newRequest(ctx, http.MethodGet, resolved, nil, nil)
+	if err != nil {
+		return "", err
+	}
+	tracef("→ GET %s\n", traceURL(req.URL))
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		return "", transportError(http.MethodGet, req.URL, err)
+	}
+	defer resp.Body.Close()
+	finalURL := req.URL
+	if resp.Request != nil && resp.Request.URL != nil {
+		finalURL = resp.Request.URL
+	}
+	tracef("← %d %s\n", resp.StatusCode, finalURL.Path)
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return finalURL.String(), nil
+	}
+	data, readErr := readBody(resp.Body, jsonBodyCap)
+	if readErr != nil {
+		return "", readErr
+	}
+	kind := classify(resp.StatusCode)
+	if c.noVersionGate && kind == domain.ErrVersionConflict {
+		kind = nil
+	}
+	return "", &APIError{Status: resp.StatusCode, Method: http.MethodGet, Path: path, Body: string(data), kind: kind}
+}
+
 // DoStream issues a request whose body is streamed from r and returns a bounded
 // response body. It uses the streaming client, so long uploads are not killed by
 // the normal JSON client's whole-request timeout. The caller must provide

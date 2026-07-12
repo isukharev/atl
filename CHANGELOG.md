@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Confluence read workflows now share a fail-closed page-reference resolver for
+  opaque content ids, same-origin canonical/viewpage/display URLs, and one
+  bounded `/x/` short-link redirect; `conf page resolve` exposes the stable id
+  and resolution provenance directly.
+
 - `jira export --out -` now writes artifact-only JSONL, aggregate JSON arrays,
   or formula-safe CSV directly to stdout without a manifest/result envelope;
   exact field display names resolve to stable ids before batch search.

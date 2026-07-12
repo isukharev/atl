@@ -29,6 +29,11 @@ func New(base, token, version string) *Confluence {
 var _ domain.DocStore = (*Confluence)(nil)
 var _ domain.AssetResolver = (*Confluence)(nil)
 var _ domain.Verifier = (*Confluence)(nil)
+var _ domain.PageShortLinkResolver = (*Confluence)(nil)
+
+func (cf *Confluence) ResolveShortPageLink(ctx context.Context, path string) (string, error) {
+	return cf.c.ResolveGET(ctx, path)
+}
 
 // --- REST DTOs (only the fields we use) ---
 

@@ -174,6 +174,22 @@ func confSpaceCmd() *cobra.Command {
 
 func confPageCmd() *cobra.Command {
 	c := &cobra.Command{Use: "page", Short: "Page get/view/title/meta/history/create/move/delete"}
+	resolve := &cobra.Command{
+		Use:   "resolve <ID-OR-URL>",
+		Short: "Resolve a safe page reference to its stable content id",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			result, err := svc.ResolvePageReference(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return emitID(cmd, result, func() string { return result.ID }, func() []string { return []string{result.ID} })
+		},
+	}
 	var id, format string
 	get := &cobra.Command{
 		Use:   "get",
@@ -204,7 +220,7 @@ func confPageCmd() *cobra.Command {
 			}, nil)
 		},
 	}
-	get.Flags().StringVar(&id, "id", "", "page id")
+	get.Flags().StringVar(&id, "id", "", "page id or supported same-origin URL")
 	get.Flags().StringVar(&format, "format", "csf", "csf|view")
 	_ = get.RegisterFlagCompletionFunc("format", fixedComp("csf", "view"))
 
@@ -231,7 +247,7 @@ func confPageCmd() *cobra.Command {
 			return emit(cmd, m, nil)
 		},
 	}
-	meta.Flags().StringVar(&metaID, "id", "", "page id")
+	meta.Flags().StringVar(&metaID, "id", "", "page id or supported same-origin URL")
 
 	var histID string
 	hist := &cobra.Command{
@@ -252,7 +268,7 @@ func confPageCmd() *cobra.Command {
 			return emit(cmd, map[string]any{"versions": vs}, nil)
 		},
 	}
-	hist.Flags().StringVar(&histID, "id", "", "page id")
+	hist.Flags().StringVar(&histID, "id", "", "page id or supported same-origin URL")
 
 	var space, parent, title, fromFile, fromMD string
 	create := &cobra.Command{
@@ -411,12 +427,12 @@ func confPageCmd() *cobra.Command {
 			if err := defaultBrowserOpener(cmd.Context(), m.URL); err != nil {
 				return fmt.Errorf("open browser: %w", err)
 			}
-			return emit(cmd, map[string]string{"id": openID, "url": m.URL}, func() string {
+			return emit(cmd, map[string]string{"id": m.ID, "url": m.URL}, func() string {
 				return m.URL
 			})
 		},
 	}
-	open.Flags().StringVar(&openID, "id", "", "page id")
+	open.Flags().StringVar(&openID, "id", "", "page id or supported same-origin URL")
 
 	var copyID, copyTitle, copySpace, copyParent string
 	cp := &cobra.Command{
@@ -444,7 +460,7 @@ func confPageCmd() *cobra.Command {
 	cp.Flags().StringVar(&copySpace, "space", "", "target space key (default: same as source)")
 	cp.Flags().StringVar(&copyParent, "parent", "", "target parent page id (default: same as source)")
 
-	c.AddCommand(get, view, titleCmd, labelsCmd, meta, hist, list, open, cp, create, move, del)
+	c.AddCommand(resolve, get, view, titleCmd, labelsCmd, meta, hist, list, open, cp, create, move, del)
 	return c
 }
 
@@ -452,7 +468,7 @@ func confPageViewCmd() *cobra.Command {
 	var root, jiraView string
 	var rf renderFlags
 	cmd := &cobra.Command{
-		Use:   "view <ID>",
+		Use:   "view <ID-OR-URL>",
 		Short: "Render one page as configured Markdown without writing a mirror",
 		Long: "Fetch native CSF and render one Confluence page through the configured Markdown view without writing mirror artifacts. " +
 			"Default JSON contains stable page identity, version, and markdown; -o text emits raw Markdown. " +
@@ -542,7 +558,7 @@ func confPullCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&o.ID, "id", "", "page id")
+	cmd.Flags().StringVar(&o.ID, "id", "", "page id or supported same-origin URL")
 	cmd.Flags().StringVar(&o.CQL, "cql", "", "CQL selecting pages")
 	cmd.Flags().StringVar(&o.Space, "space", "", "space key (whole space)")
 	cmd.Flags().IntVar(&o.Depth, "depth", 0, "space depth limit")
@@ -670,7 +686,7 @@ func confTableCmd() *cobra.Command {
 			}
 		},
 	}
-	extract.Flags().StringVar(&id, "id", "", "page id")
+	extract.Flags().StringVar(&id, "id", "", "page id or supported same-origin URL")
 	extract.Flags().IntVar(&table, "table", 0, "1-based table index to extract (0 = all tables)")
 	extract.Flags().StringVar(&format, "format", "json", "json|csv|xlsx")
 	extract.Flags().StringVar(&out, "out", "", "optional output file (required for xlsx)")
@@ -843,7 +859,7 @@ func confCommentCmd() *cobra.Command {
 			return emit(cmd, map[string]any{"comments": cs}, nil)
 		},
 	}
-	list.Flags().StringVar(&id, "id", "", "page id")
+	list.Flags().StringVar(&id, "id", "", "page id or supported same-origin URL")
 
 	var addID, fromFile string
 	add := &cobra.Command{
@@ -910,7 +926,7 @@ func confAttachmentCmd() *cobra.Command {
 			})
 		},
 	}
-	list.Flags().StringVar(&listID, "id", "", "page id")
+	list.Flags().StringVar(&listID, "id", "", "page id or supported same-origin URL")
 
 	var getPageID, getName, getInto string
 	var getVersion int
@@ -935,7 +951,7 @@ func confAttachmentCmd() *cobra.Command {
 			})
 		},
 	}
-	get.Flags().StringVar(&getPageID, "id", "", "page id")
+	get.Flags().StringVar(&getPageID, "id", "", "page id or supported same-origin URL")
 	get.Flags().StringVar(&getName, "name", "", "attachment filename")
 	get.Flags().IntVar(&getVersion, "version", 0, "attachment version (0 = latest)")
 	get.Flags().StringVar(&getInto, "into", ".", "output directory")

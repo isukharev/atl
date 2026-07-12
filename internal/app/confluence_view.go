@@ -37,6 +37,11 @@ type ConfluencePageViewResult struct {
 // fetching binary assets. Every generated section, including the body, is
 // marked read-only because this transient document has no writeback baseline.
 func (s *ConfluenceService) ViewPage(ctx context.Context, id string, opts ConfluencePageViewOpts) (*ConfluencePageViewResult, error) {
+	resolved, err := s.ResolvePageReference(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	id = resolved.ID
 	root := strings.TrimSpace(opts.Root)
 	if root == "" {
 		root = "."
