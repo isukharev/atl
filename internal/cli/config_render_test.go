@@ -87,6 +87,20 @@ func TestConfigListViewsInvalidSectionCanBeShownAndRepaired(t *testing.T) {
 	}
 }
 
+func TestConfigSetReadOnlyIsLastWriteAndRemainsInspectable(t *testing.T) {
+	env := map[string]string{"ATL_CONFIG_DIR": t.TempDir()}
+	if _, code := runCLI(t, env, "config", "set", "safety.read_only", "true"); code != exitOK {
+		t.Fatalf("enable read-only exit=%d", code)
+	}
+	out, code := runCLI(t, env, "config", "show")
+	if code != exitOK || !strings.Contains(out, `"read_only": true`) {
+		t.Fatalf("show exit=%d output=%s", code, out)
+	}
+	if _, code := runCLI(t, env, "config", "set", "safety.read_only", "false"); code != exitCheckFailed {
+		t.Fatalf("disable through guarded CLI exit=%d", code)
+	}
+}
+
 // TestConfigSetLocalInsideMirror writes the per-mirror file when run from inside
 // a mirror (an .atl marker dir present).
 func TestConfigSetLocalInsideMirror(t *testing.T) {

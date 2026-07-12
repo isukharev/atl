@@ -20,6 +20,11 @@ atl config show
 If `atl` or `confluence_url`/auth is missing, run `/atl:setup` and stop.
 Exit 7 also means setup is incomplete.
 
+When `ATL_READ_ONLY=1`, global `--read-only`, or config read-only policy is
+active, keep to search/get/view/pull/render/status/validate/export operations.
+Exit 8 with `policy:"read_only"` is a human-decision boundary; do not disable
+the policy to apply/push/create/move/delete content.
+
 Resolve the mirror root before a mirror command. An explicit `--into` wins;
 otherwise `ATL_MIRROR_ROOT` or nearest `.atl` root applies, with `mirror` as the
 built-in fallback. If the user supplies an existing mirror file, its nearest

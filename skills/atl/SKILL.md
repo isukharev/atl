@@ -60,6 +60,13 @@ version gate.
    review a dry-run diff → push under the version gate. On a conflict, a human decides whether to
    re-pull or force — never auto-force.
 
+For a session that must not mutate Jira, Confluence, auth/config, or profile
+state, set `ATL_READ_ONLY=1` for the whole agent process (or pass global
+`--read-only` on every call). Do not remove or override it inside the workflow.
+Exit 8 with `policy:"read_only"` is a deliberate safety refusal, not a retry;
+ask the human before changing the launcher/config policy. Pulls, views, status,
+validation, and exports remain available.
+
 The recommended convention keeps the mirror **outside the user's code
 repository** at `~/.atl/<workspace>/`, so it is fully greppable yet never
 committed. The CLI uses that path only when the workspace exports
@@ -72,6 +79,7 @@ committed. The CLI uses that path only when the workspace exports
 Recent additions expand both surfaces — check the focused skills for full flag details:
 
 **Global flags (all commands):**
+- `--read-only` / `ATL_READ_ONLY=1` — fail closed on every mutating command before credentials/body/network access.
 - `-o id` — print just the primary identifier(s) one per line (issue keys, page IDs) for safe piping into `xargs` or scripts. Not all commands support it; those that don't return an error.
 - `--verbose` / `ATL_VERBOSE=1` — trace every HTTP request/response to stderr (token never logged).
 - Shell completion for fixed-value flags (e.g. `--output`, `--format`, `--status`) is registered.

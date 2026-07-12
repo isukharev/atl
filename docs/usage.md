@@ -184,6 +184,22 @@ Notes for scripts:
 Manage non-secret settings (backend URLs). PATs are managed separately via
 `atl auth`.
 
+### Global read-only policy
+
+Use `atl --read-only ...`, `ATL_READ_ONLY=1`, or persist
+`atl config set safety.read_only true`. Enabling is monotonic: a true CLI flag,
+environment value, or config value wins; `--read-only=false` cannot downgrade a
+true environment/config guard. Mutating commands fail with exit 8 before
+credentials, request-body files/stdin, self-update, or network access. Read-only
+search/get/view/pull/render/status/export/validation commands remain available.
+The JSON error adds `"policy":"read_only"` and the full `command` path.
+
+Persistent read-only mode intentionally blocks `config set`, including its own
+disable operation. After explicit human approval, edit `read_only` to `false`
+in the owner-only global `config.json` (under `ATL_CONFIG_DIR`, normally
+`~/.config/atl/`) or remove that key. A process environment guard must be
+removed by the process launcher.
+
 ### `atl config show`
 
 Print the resolved configuration (file + env overlay).
@@ -197,6 +213,7 @@ JSON output:
 
 ```json
 {
+  "read_only": false,
   "confluence_url": "https://confluence.example.com",
   "jira_url": "https://jira.example.com",
   "update_base_url": "",
@@ -293,6 +310,9 @@ Set a whole catalog with `jira.list_views` or one preset with
 preset. Names match `[a-z][a-z0-9_-]{0,31}`. Built-in `default`/`full` cannot be
 removed but may be overridden. List views are global-only; `--local` refuses
 them.
+
+`safety.read_only` accepts `true|false` and is global-only. Set it to `true` as
+the last configuration step for an investigation-only agent or CI profile.
 
 **Local config layer (security boundary).** `--local` writes a per-mirror
 `.atl/config.json` that may carry **render keys only** — it is presentation-only.
