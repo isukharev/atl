@@ -115,6 +115,8 @@ ID projection accept `-o id` for one identifier per line.
 | `conf search` | Find pages | `--cql` or convenience filters, `--limit`, `--cursor` |
 | `conf space tree` | Space hierarchy | `--space`, `--depth` |
 | `conf page list|get|view|meta|history|open` | Page reads | command-specific id/format/render flags; view supports `--jira-view`, `--jira-macros` |
+| `conf page labels list <ID>` | Complete page-label read | no write; inspect `complete` |
+| `conf page labels add\|remove <ID> <LABEL>...` | Guarded label preview/apply | `--apply`, `--expected-proposal-hash` |
 | `conf page title set <ID>` | Guarded title preview/apply | `--from-file`, `--apply`, expected gates |
 | `conf page move <ID>` | Guarded move preview/apply | `--parent`, `--apply`, expected gates |
 | `conf page create|copy|delete` | Page lifecycle | command-specific title/space/parent/file flags |

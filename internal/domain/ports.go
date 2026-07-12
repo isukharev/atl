@@ -55,6 +55,25 @@ type DocStore interface {
 	DeleteAttachment(ctx context.Context, attachmentID string) error
 }
 
+// ContentLabel is one Confluence content-label record. Name and Prefix are
+// kept exactly as returned by the backend; callers must not infer that an
+// omitted/unknown prefix is global.
+type ContentLabel struct {
+	ID     string `json:"id,omitempty"`
+	Prefix string `json:"prefix,omitempty"`
+	Name   string `json:"name"`
+	Label  string `json:"label,omitempty"`
+}
+
+// ContentLabelStore is an optional document-backend capability. Writes are
+// deliberately split into one POST for additions and one DELETE per removal;
+// generic HTTP retry must never replay either operation.
+type ContentLabelStore interface {
+	ListContentLabels(ctx context.Context, id string) (labels []ContentLabel, truncated bool, err error)
+	AddContentLabels(ctx context.Context, id string, labels []ContentLabel) error
+	RemoveContentLabel(ctx context.Context, id, name string) error
+}
+
 // Version is a single revision record.
 type Version struct {
 	Number  int    `json:"number"`

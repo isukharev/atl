@@ -1366,6 +1366,37 @@ means unknown, never unrestricted.
 atl conf page meta --id 12345678
 ```
 
+### `atl conf page labels list|add|remove`
+
+List the complete content-label collection, or preview a guarded change:
+
+```bash
+atl conf page labels list 12345678
+atl conf page labels add 12345678 release-ready needs-review
+atl conf page labels remove 12345678 obsolete --apply \
+  --expected-proposal-hash <hash-from-preview>
+```
+
+`list` follows Confluence pagination and emits `complete:false` plus a stderr
+warning if the safety cap is reached. Mutation inputs are trimmed,
+deduplicated byte-exactly, sorted for a stable review, bounded to 100 unique
+names and 255 bytes per name, and rejected on control/invisible characters.
+The preview hash binds page id, operation, normalized names, and the complete
+current prefix/name set. Apply re-reads that set and requires the exact hash,
+including when the goal is already satisfied.
+
+Mutations deliberately manage only `global` labels; personal/team labels remain
+visible in `list` and preview but never satisfy or become mutation targets. Add
+uses one global-label POST; remove uses one query-parameter DELETE per reviewed
+global name so `/` never becomes a path component. Because that endpoint
+selects only by name, removal fails closed if the same name also has a
+non-global prefix. Writes are never retried.
+The command re-lists labels after any write: verified state reports `applied`,
+a pre-existing goal reports `already_satisfied`, and an unverifiable or partial
+outcome reports `unknown` with a non-zero exit and must not be replayed
+automatically. Re-pull the page after a successful change if an existing mirror
+must show the new metadata.
+
 ### `atl conf page title set`
 
 Preview a page-title update from a bounded file or stdin; no write occurs by

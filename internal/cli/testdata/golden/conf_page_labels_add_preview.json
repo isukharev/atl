@@ -1,0 +1,19 @@
+{
+  "id": "42",
+  "operation": "add",
+  "mode": "dry-run",
+  "status": "would_apply",
+  "requested": [
+    "release"
+  ],
+  "current": [
+    {
+      "id": "1",
+      "prefix": "global",
+      "name": "existing",
+      "label": "global:existing"
+    }
+  ],
+  "proposal_hash": "5c83bea4a405389802cae81f81baaef54e91be145e02456ea73a9b5e14d60f97",
+  "complete": true
+}

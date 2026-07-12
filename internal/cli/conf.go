@@ -210,6 +210,7 @@ func confPageCmd() *cobra.Command {
 
 	view := confPageViewCmd()
 	titleCmd := confPageTitleCmd()
+	labelsCmd := confPageLabelsCmd()
 
 	var metaID string
 	meta := &cobra.Command{
@@ -443,7 +444,7 @@ func confPageCmd() *cobra.Command {
 	cp.Flags().StringVar(&copySpace, "space", "", "target space key (default: same as source)")
 	cp.Flags().StringVar(&copyParent, "parent", "", "target parent page id (default: same as source)")
 
-	c.AddCommand(get, view, titleCmd, meta, hist, list, open, cp, create, move, del)
+	c.AddCommand(get, view, titleCmd, labelsCmd, meta, hist, list, open, cp, create, move, del)
 	return c
 }
 

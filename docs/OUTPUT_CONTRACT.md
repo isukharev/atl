@@ -271,6 +271,22 @@ and verifies title, body hash, and exactly `current_version+1`. Status is
 `already_satisfied` is returned only after the reviewed version/hash gates pass.
 Unknown is non-zero and must never be automatically replayed.
 
+`atl conf page labels list <ID>` emits
+`{id,labels:[{id?,prefix?,name,label?}],count,complete,truncated?}`. It follows
+offset pagination to exhaustion; hitting a safety cap keeps the collected
+prefix but sets `complete:false`, `truncated:true`, and writes a warning to
+stderr. Text output is one `prefix<TAB>name` record per line.
+
+`atl conf page labels add|remove <ID> <LABEL>...` emits
+`{id,operation,mode,status,requested,current:[label-records],final?:[label-records],proposal_hash,complete,
+reconciled?}` and is dry-run by default. The hash binds the page, operation,
+normalized request, and complete current prefix/name set. Apply requires that
+exact reviewed hash before `already_satisfied` or a write. Writes are sent once;
+only `global` labels are mutation targets, while other prefixes remain visible
+in the records. The final collection is re-read. Status is `would_apply`, `already_satisfied`,
+`blocked`, `failed`, `applied`, or `unknown`; unknown is non-zero and must not
+be replayed automatically.
+
 `atl conf page move <ID>` is also dry-run by default and emits
 `{id,mode,status,current_parent,parent,current_version,expected_version,
 expected_parent,target_version,final_version?,proposal_hash,reconciled?}`.
