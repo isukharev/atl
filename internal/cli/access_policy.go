@@ -146,6 +146,7 @@ jira board get
 jira board issues
 jira board list
 jira board view
+jira epic digest
 jira export
 jira export diff
 jira field-options

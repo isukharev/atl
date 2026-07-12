@@ -900,6 +900,19 @@ rendered block boundaries; `complete:false,truncated:true` is never a complete
 section. `-o text` emits only `markdown`. No mirror artifact or writeback base
 is created.
 
+`atl jira epic digest <KEY>` emits schema v1 with
+`{schema_version,period,includes,sources,epic,status_field?,dod_field?,children?,
+comments?,links?,blockers?,history?,refs?,confluence?,staleness,warnings?}`.
+`sources` qualifies each attempted component with `complete`, returned `count`,
+and optional bounded `warning`; optional-source failure is never encoded as an
+empty complete result. `children.list` is the common IssueList contract.
+`staleness` contains `evaluated`, `stale`, selected status-field timestamp,
+latest newer evidence timestamp, child/comment counts, and deterministic
+reasons. It is evidence, not a score. Quarter/date boundaries are inclusive.
+Component count/text/request caps and bounded Confluence `page section` results
+remain explicit. `-o text` renders source completeness, selected status text,
+and child distribution without inventing narrative conclusions.
+
 List-oriented Jira reads (`issue search`, `issue children`, `board
 issues/backlog`, and `sprint issues`) share one app-layer contract:
 

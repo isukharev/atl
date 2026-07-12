@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `jira epic digest` now composes identity, configurable status/DoD fields,
+  qualified history, paginated child distributions, comments, blockers, refs,
+  explainable staleness, and optional bounded Confluence sections into one
+  deterministic read-only evidence result with per-source completeness.
+
 - `conf page outline` and `conf page section` now expose structural CSF heading
   hierarchies and bounded single-section Markdown without writing a mirror;
   duplicate headings require an occurrence and truncation stops at whole block

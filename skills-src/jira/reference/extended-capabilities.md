@@ -24,6 +24,20 @@ or CSV, with no manifest/result envelope and no created files. Display names in
 `--fields` resolve to ids before search. Always honor the exit code and discard
 a streamed prefix after non-zero exit.
 
+## Epic evidence digest
+
+```bash
+atl jira epic digest PROJ-1 --quarter 2026-Q2 \
+  --status-field 'Delivery Notes' --dod-field 'Definition of Done'
+```
+
+Use this before assembling a quarterly result from separate calls. It composes
+the common IssueList children contract, qualified history, bounded comments,
+links/blockers, refs, and configured narrative fields. Check every source's
+`complete` flag and the dated reasons under `staleness`; the CLI deliberately
+does not write a subjective summary. Optional Confluence expansion requires an
+exact heading and remains same-origin/bounded.
+
 ## Guarded bulk links and plans
 
 Use `jira issue link suggest --csv ...` before bulk link work. Plan CSV requires

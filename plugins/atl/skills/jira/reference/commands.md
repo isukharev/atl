@@ -11,6 +11,7 @@ Load this reference only when exact command or flag lookup is useful.
 | `jira issue search` | Search as a common IssueList / Markdown table | `--jql`, `--view`, `--columns`, `--limit`, `--cursor` |
 | `jira issue search -o id` | Print matching issue keys one per line | `-o id` |
 | `jira issue children <EPIC-KEY>` | Read direct epic children as a common IssueList without per-child reads | `--view`, `--columns`, `--limit`, `--cursor`, `--epic-field`, `-o text/id` |
+| `jira epic digest <EPIC-KEY>` | Deterministic multi-source epic evidence with per-source completeness | `--quarter` or `--since/--until`, `--include`, `--status-field`, `--dod-field`, caps, optional bounded Confluence heading expansion |
 | `jira issue create` | Create an issue | `--project`, `--type`, `--summary`, `--from-md`, `--from-file`, `--field k=v` |
 | `jira issue update <KEY>` | Update summary/description/fields (whole body) | `--summary`, `--from-md`, `--from-file`, `--field k=v` |
 | `jira issue field set <KEY>` | Guarded file-backed custom-field preview/apply | `--from-file FIELD=PATH`, `--from-md FIELD=PATH`, `--allow-fields`, `--expected-updated`, `--expected-proposal-hash`, `--apply` |
