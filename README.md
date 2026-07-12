@@ -341,6 +341,8 @@ never silently discarded.
 ```sh
 # Read
 atl jira issue get  PROJ-1
+atl jira issue fields PROJ-1 # compact non-empty named fields by default
+atl jira issue fields PROJ-1 --field "Delivery Notes"
 atl jira issue view PROJ-1 -o text   # configured Markdown, no files written
 atl jira issue search --jql 'project = PROJ AND status = "In Progress"' --columns key,summary,status,assignee
 atl jira issue search --jql 'project = PROJ' --view full

@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Compact non-empty Jira field inspection.** `jira issue fields <KEY>` now
+  reports named, non-empty compact values by default; exact field names resolve
+  alongside ids with ambiguity refusal, while `--include-empty` and explicitly
+  private `--raw` modes opt into broader output. Online get/view/pull selectors
+  resolve names to ids and recorded views retain those stable ids offline.
+
 - **Guarded Jira Data Center watcher operations.** `jira issue watchers list`
   exposes complete membership or an explicit hidden/truncated state; `add` and
   `remove` accept one reviewed username or safely resolve `--me`, preview by

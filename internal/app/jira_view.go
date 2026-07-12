@@ -35,6 +35,11 @@ func (s *JiraService) ViewIssue(ctx context.Context, key string, opts JiraIssueV
 		root = "."
 	}
 	rs, warnings := ResolveRender(s.cfg, root, opts.Render, "jira")
+	var resolveErr error
+	rs, resolveErr = s.resolveRenderFieldSelectors(ctx, rs)
+	if resolveErr != nil {
+		return nil, resolveErr
+	}
 	is, err := s.tr.GetIssue(ctx, key, jiraIssueViewFields(rs))
 	if err != nil {
 		return nil, err

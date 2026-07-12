@@ -101,6 +101,7 @@ convenience filters (no `--cql` needed), `.md` view renders internal links as `[
 
 **Jira additions:** typed `render.jira.field_views` (including opt-in editable
 rich-text sections with explicit pending state) and opt-in `epic_children` views;
+compact non-empty named issue-field inspection;
 issue history/check/attachments/refs/tree; guarded link suggestions and
 versioned plan apply; guarded file-backed custom-field preview/apply; labels;
 complete/guarded watcher list/add/remove;

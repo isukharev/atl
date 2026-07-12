@@ -96,7 +96,7 @@ func jiraIssueCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			is, err := svc.Issue(cmd.Context(), args[0], splitFields(fields))
+			is, err := svc.IssueResolved(cmd.Context(), args[0], splitFields(fields))
 			if err != nil {
 				return err
 			}
@@ -574,7 +574,7 @@ func jiraIssueCmd() *cobra.Command {
 	tree.Flags().StringVar(&treeFields, "fields", "", "extra comma-separated fields to fetch")
 	tree.Flags().IntVar(&treeLimit, "limit", 100, "max issues (0 = all)")
 
-	c.AddCommand(get, jiraIssueViewCmd(), search, children, create, update, edit, transition, check, del, assign, labels, jiraIssueWatchersCmd(), history, refs, tree, comment, link, plan, jiraIssueFieldCmd(), linkEpic, attachment, images)
+	c.AddCommand(get, jiraIssueViewCmd(), jiraIssueFieldsCmd(), search, children, create, update, edit, transition, check, del, assign, labels, jiraIssueWatchersCmd(), history, refs, tree, comment, link, plan, jiraIssueFieldCmd(), linkEpic, attachment, images)
 	return c
 }
 

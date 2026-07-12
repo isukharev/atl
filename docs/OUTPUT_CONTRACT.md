@@ -833,6 +833,22 @@ then verifies membership. Status is `would_apply`, `already_satisfied`,
 `blocked`, `failed`, `applied`, or `unknown`; unknown is non-zero and must not
 be automatically replayed. Incomplete membership refuses every mutation.
 
+`atl jira issue fields <KEY>` emits
+`{key,mode,non_empty_only,count,omitted_empty?,fields:[{id,name,custom,
+schema?,empty?,value,truncated?,original_bytes?}]}`. Default mode is `compact`
+and omits empty fields. Exact repeatable `--field` selectors accept ids or
+case-insensitive display names; ambiguous names fail before the issue read.
+Compact user values omit email/avatar/self data, known options/named values use
+closed projections, and unknown objects expose only bounded non-empty key names.
+Explicit `--include-empty` expands the catalog. Explicit `--raw` switches mode
+to `raw`, preserves unprojected private values, and writes a privacy warning to
+stderr. `-o text` is a structurally escaped Markdown table.
+
+Online Jira get/pull/view field selectors resolve exact names through the same
+catalog. Render selectors are stored as resolved ids in view state, so offline
+render/apply does not depend on a later metadata lookup. Existing technical ids
+remain valid without an extra field-catalog request.
+
 List-oriented Jira reads (`issue search`, `issue children`, `board
 issues/backlog`, and `sprint issues`) share one app-layer contract:
 

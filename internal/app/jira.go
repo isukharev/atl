@@ -30,6 +30,17 @@ func (s *JiraService) Issue(ctx context.Context, key string, fields []string) (*
 	return s.tr.GetIssue(ctx, key, fields)
 }
 
+func (s *JiraService) IssueResolved(ctx context.Context, key string, selectors []string) (*domain.Issue, error) {
+	if len(selectors) == 0 {
+		return s.tr.GetIssue(ctx, key, nil)
+	}
+	defs, err := s.resolveJiraFieldSelectors(ctx, selectors)
+	if err != nil {
+		return nil, err
+	}
+	return s.tr.GetIssue(ctx, key, fieldDefIDs(defs))
+}
+
 func (s *JiraService) Search(ctx context.Context, jql string, fields []string, limit int, cursor string) ([]domain.Issue, string, error) {
 	return s.tr.Search(ctx, jql, fields, limit, cursor)
 }
@@ -444,10 +455,23 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 	// ever widens from the compat base set (the `.json` snapshot keeps its
 	// standard shape under smaller profiles; profiles shape the .md view only).
 	rs, warns := ResolveRender(s.cfg, into, opts.Render, "jira")
+	var resolveErr error
+	rs, resolveErr = s.resolveRenderFieldSelectors(ctx, rs)
+	if resolveErr != nil {
+		return res, resolveErr
+	}
 	res.Warnings = warns
 	epicSelector := strings.TrimSpace(rs.EpicField)
 	explicitEpicField := strings.TrimSpace(rs.EpicField) != ""
-	pullFields := jiraPullFields(opts.Fields, rs)
+	extraFields := opts.Fields
+	if len(extraFields) > 0 {
+		resolvedExtra, fieldErr := s.resolveJiraFieldSelectors(ctx, extraFields)
+		if fieldErr != nil {
+			return res, fieldErr
+		}
+		extraFields = fieldDefIDs(resolvedExtra)
+	}
+	pullFields := jiraPullFields(extraFields, rs)
 	// Wire the pull through the mirror sidecar so an edited <KEY>.wiki can later be
 	// pushed back under the drift guard. One sidecar load (BeginSync) and one save
 	// (Flush) for the whole pull; the deferred flush persists the issues already

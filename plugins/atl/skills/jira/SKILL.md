@@ -55,6 +55,11 @@ then apply with the exact proposal hash. Never replay `unknown`; if
 
 ## The canonical loop
 
+Before assuming standard fields contain the whole story, run `atl jira issue
+fields <KEY>`. Its default non-empty compact projection is the safe discovery
+surface; select exact names/ids with repeated `--field`. Do not begin with
+`*all` or `--raw`, which can carry large private user/transport objects.
+
 ### 1. Find issues
 ```bash
 atl jira issue search --jql '<JQL>' --limit 50
