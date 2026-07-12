@@ -45,6 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Jira durable views use document format v2.** The generated Subtasks and
+  Epic Children tables changed read-only bytes, so v1/unversioned views now
+  receive explicit migration guidance instead of being compared against a v2
+  pristine render. Offline `jira render` migrates known legacy views and still
+  refuses future markers.
+
 - **Issue-list projection is now `--columns`.** During beta, list-oriented Jira
   commands replace their duplicated `--fields`/TSV surfaces with ordered
   `--columns`, common JSON rows under `rows`, pagination under `page`, Markdown
@@ -70,6 +76,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stop publication; the staged bridge-release path remains supported.
 
 ### Fixed
+
+- **List and Structure projections are scoped and readable.** Selected
+  Structure subtrees no longer become incomplete because of missing folder
+  labels elsewhere in the forest, typed string slices render as comma-separated
+  cells, board reads no longer fetch status unless their projection needs it,
+  the misleading page-local `board.rank` context is removed in favor of the
+  common `position`, and board Markdown includes the board name plus an explicit
+  Kanban note.
 
 - **Small agent contracts are explicit.** A missing `conf edit` target returns
   not-found instead of usage, unknown non-empty Jira field objects render as

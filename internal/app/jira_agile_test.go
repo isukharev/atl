@@ -241,13 +241,13 @@ func TestBoardJSONLUsesCompactIdentityInsteadOfRepeatingColumns(t *testing.T) {
 
 func TestBoardMarkdownUsesRequestedProjectionFields(t *testing.T) {
 	snapshot := &BoardSnapshot{
-		Board: &domain.BoardConfiguration{Name: "Plan"}, Scope: "board", Complete: true,
+		Board: &domain.BoardConfiguration{Name: "Plan", Type: "kanban"}, Scope: "board", Complete: true,
 		Projection: BoardProjection{Columns: []string{"position", "key", "status", "board.column", "summary", "customfield_10001"}, Fields: []string{"status", "summary", "customfield_10001"}},
 		Rows:       []BoardSnapshotRow{{Key: "ENG-1", Status: "Open", Column: "To Do", Values: map[string]any{"summary": "First", "customfield_10001": "Team A"}}},
 		RowCount:   1,
 	}
 	md := BoardSnapshotMarkdown(snapshot)
-	for _, want := range []string{"| # | Key | Status | Column | Summary | customfield_10001 |", "| 0 | ENG-1 | Open | To Do | First | Team A |"} {
+	for _, want := range []string{"Kanban board", "Source: board", "— Plan", "| # | Key | Status | Column | Summary | customfield_10001 |", "| 0 | ENG-1 | Open | To Do | First | Team A |"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("Markdown missing %q:\n%s", want, md)
 		}

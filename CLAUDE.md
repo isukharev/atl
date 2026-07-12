@@ -204,6 +204,9 @@ Canonical guides live outside this file: `AGENTS.md` (cross-agent handoff rules)
 - **Security-boundary tests assert the guarantee fails when the control is removed** (O_NOFOLLOW,
   atomic symlink-replace, ed25519 verify-before-parse). Tamper *inside a valid payload* so the
   control under test — not an incidental parse failure — is what rejects it.
+- **Durable derived-view byte changes require a document-format marker review.** If an existing
+  pristine `.md` would reconstruct differently, bump the marker, add render migration and apply
+  diagnostics, and test current, legacy, unversioned, and future-marker behavior.
 - Never commit secrets/PATs (see `.gitignore`). The ed25519 release signing private key is
   never committed.
 - Keep PRs small; commit subjects `<type>: <summary>` (e.g. `fix: handle empty body in push`).

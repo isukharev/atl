@@ -356,6 +356,7 @@ func TestJiraStructureFoldersIsFastStableDiscovery(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("folders exit=%d output=%q", code, out)
 	}
+	assertGolden(t, "jira_structure_folders.json", []byte(out))
 	var got struct {
 		Complete bool `json:"complete"`
 		Folders  []struct {
@@ -400,6 +401,25 @@ func TestJiraStructureFoldersReportsPartialLabels(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(out), &got); err != nil || got.Complete || len(got.Warnings) != 1 || len(got.Folders) != 2 || got.Folders[1].Path[0] != "folder:b" {
 		t.Fatalf("partial=%+v err=%v", got, err)
+	}
+}
+
+func TestJiraStructureSelectedSubtreeCompletenessIgnoresOutsideLabels(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/structure/2.0/structure/123", http.StatusOK, `{"id":123,"name":"Plan"}`)
+	js.route(http.MethodGet, "/rest/structure/2.0/forest/latest", http.StatusOK, `{"formula":"100:0:1/a,200:0:1/b","itemTypes":{"1":"folder"}}`)
+	js.route(http.MethodPost, "/rest/structure/2.0/value", http.StatusOK, `{"responses":[{"rows":[100,200],"data":[{"attribute":{"id":"summary","format":"text"},"values":["Selected",null]}]}]}`)
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "structure", "view", "123", "--folder-id", "a")
+	if code != exitOK {
+		t.Fatalf("selected view exit=%d output=%q", code, out)
+	}
+	var got struct {
+		Complete bool     `json:"complete"`
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil || !got.Complete || len(got.Warnings) != 0 {
+		t.Fatalf("selected completeness=%+v err=%v", got, err)
 	}
 }
 
@@ -490,5 +510,16 @@ func TestJiraStructureRejectsBadIDsBeforeNetwork(t *testing.T) {
 	}
 	if len(js.requests()) != 0 {
 		t.Fatalf("sent %d requests, want none", len(js.requests()))
+	}
+}
+
+func TestJiraStructureRejectsExplicitZeroFolderRowBeforeNetwork(t *testing.T) {
+	js := newJiraServer(t)
+	_, code := runCLI(t, jiraEnv(js.srv), "jira", "structure", "view", "123", "--folder-row", "0")
+	if code != exitUsage {
+		t.Fatalf("zero folder row exit=%d, want usage", code)
+	}
+	if len(js.requests()) != 0 {
+		t.Fatalf("sent requests for invalid folder row: %+v", js.requests())
 	}
 }

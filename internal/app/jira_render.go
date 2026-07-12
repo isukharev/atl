@@ -137,9 +137,9 @@ func (s *JiraService) Render(target string, override config.RenderService) (*Jir
 	return res, nil
 }
 
-// preflightJiraRenderView permits the current marker and the known
-// unversioned legacy view (which render migrates to v1), but protects any
-// explicit unknown version from downgrade.
+// preflightJiraRenderView permits the current marker and known legacy views,
+// which render migrates to the current format, but protects any explicit
+// unknown version from downgrade.
 func preflightJiraRenderView(root, mdPath string) error {
 	b, err := safepath.ReadFileWithin(root, mdPath)
 	if os.IsNotExist(err) {
@@ -151,6 +151,7 @@ func preflightJiraRenderView(root, mdPath string) error {
 	first, _, _ := strings.Cut(string(b), "\n")
 	if strings.HasPrefix(first, "<!-- atl:document jira-issue") &&
 		first != jiraIssueDocumentMarker &&
+		first != jiraIssueDocumentMarkerV1 &&
 		first != "<!-- atl:document jira-issue -->" {
 		return fmt.Errorf("%w: existing view %s uses unsupported format marker %q; preserve it and update atl before rendering — do not downgrade it with this binary", domain.ErrCheckFailed, mdPath, first)
 	}

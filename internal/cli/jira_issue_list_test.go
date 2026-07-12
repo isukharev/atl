@@ -72,6 +72,17 @@ func TestJiraEpicChildrenUsesCommonListAndResolvedField(t *testing.T) {
 	}
 }
 
+func TestJiraEpicChildrenJSONGolden(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/field", http.StatusOK, `[{"id":"customfield_10010","name":"Epic Link","custom":true}]`)
+	js.route(http.MethodGet, "/rest/api/2/search", http.StatusOK, `{"issues":[{"id":"10002","key":"ENG-2","fields":{"summary":"Child","status":{"name":"Open"},"issuetype":{"name":"Story"},"assignee":{"displayName":"Owner"}}}],"startAt":0,"maxResults":50,"total":1}`)
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "children", "ENG-1")
+	if code != exitOK {
+		t.Fatalf("children exit=%d output=%q", code, out)
+	}
+	assertGolden(t, "jira_issue_children.json", []byte(out))
+}
+
 func TestBoardAndSprintPagesUseCommonListMarkdown(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/agile/1.0/board/5/issue", http.StatusOK, boardIssuesBody)
@@ -95,5 +106,18 @@ func TestBoardIssueListResolvesRequestedColumnContext(t *testing.T) {
 	out, code := runCLI(t, jiraEnv(js.srv), "jira", "board", "issues", "5", "--columns", "position,key,board.column", "-o", "text")
 	if code != exitOK || !strings.Contains(out, "| # | Key | Column |") || !strings.Contains(out, "| 0 | ENG-1 | To Do |") || !strings.Contains(out, "| 1 | ENG-2 | Unmapped |") {
 		t.Fatalf("board column exit=%d output=%q", code, out)
+	}
+}
+
+func TestBoardIdentityOnlyProjectionDoesNotFetchStatus(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/agile/1.0/board/5/issue", http.StatusOK, `{"startAt":0,"maxResults":50,"total":0,"issues":[]}`)
+	_, code := runCLI(t, jiraEnv(js.srv), "jira", "board", "issues", "5", "--columns", "key")
+	if code != exitOK {
+		t.Fatalf("board identity list exit=%d", code)
+	}
+	requests := js.requests()
+	if len(requests) != 1 || !strings.Contains(requests[0].query, "fields=key") || strings.Contains(requests[0].query, "status") {
+		t.Fatalf("requests=%+v", requests)
 	}
 }

@@ -234,7 +234,7 @@ atl jira push --apply --force <file.wiki>            # write over a drifted remo
 atl jira push <root>/                                # a dir includes dirty .wiki and field-only pending issues
 ```
 Before editing, inspect the first line. It must be exactly
-`<!-- atl:document jira-issue v1 -->`. If it is missing or older and the view is
+`<!-- atl:document jira-issue v2 -->`. If it is v1, missing, or older and the view is
 still pristine, run `jira render` against that exact file/root first. If edits
 already exist, save a reviewed patch outside the derived `.md`, render, then
 reapply the patch; render rewrites `.md`. Use the existing file's nearest

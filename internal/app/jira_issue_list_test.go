@@ -72,3 +72,9 @@ func TestMarkdownTableEscapesStructuralTextAndEmptyList(t *testing.T) {
 		t.Fatalf("empty table=%q", empty)
 	}
 }
+
+func TestSnapshotTextNormalizesTypedStringSlices(t *testing.T) {
+	if got := snapshotText([]string{"bug", "ui"}); got != "bug, ui" {
+		t.Fatalf("snapshotText([]string)=%q", got)
+	}
+}
