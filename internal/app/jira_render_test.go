@@ -326,6 +326,35 @@ func TestJiraRenderRefusesFutureViewBeforeAnySiblingRewrite(t *testing.T) {
 	}
 }
 
+func TestJiraRenderRechecksViewAfterBatchPreflight(t *testing.T) {
+	root := t.TempDir()
+	m := mirror.New(root)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "PROJ")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteSnapshot(t, filepath.Join(dir, "PROJ-42.json"), richIssue())
+	svc := NewJiraRenderer(&config.Config{})
+	if _, err := svc.Render(root, config.RenderService{}); err != nil {
+		t.Fatal(err)
+	}
+	mdPath := filepath.Join(dir, "PROJ-42.md")
+	var future string
+	_, err := svc.render(root, config.RenderService{Profile: "full"}, func() {
+		future = strings.Replace(mustReadFile(t, mdPath), jiraIssueDocumentMarker, "<!-- atl:document jira-issue v99 -->", 1)
+		mustWriteFile(t, mdPath, future)
+	})
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("render error=%v, want locked recheck failure", err)
+	}
+	if got := mustReadFile(t, mdPath); got != future {
+		t.Fatal("view changed after its post-batch marker was replaced")
+	}
+}
+
 func TestJiraRenderMigratesV1ViewToV2(t *testing.T) {
 	root := t.TempDir()
 	m := mirror.New(root)
@@ -349,6 +378,78 @@ func TestJiraRenderMigratesV1ViewToV2(t *testing.T) {
 	}
 	if got := mustReadFile(t, path); !strings.HasPrefix(got, jiraIssueDocumentMarker+"\n") {
 		t.Fatalf("marker was not migrated: %q", strings.SplitN(got, "\n", 2)[0])
+	}
+}
+
+func TestJiraRenderAcceptsCRLFOnCurrentMarkerLine(t *testing.T) {
+	root := t.TempDir()
+	m := mirror.New(root)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "PROJ")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteSnapshot(t, filepath.Join(dir, "PROJ-42.json"), richIssue())
+	svc := NewJiraRenderer(&config.Config{})
+	if _, err := svc.Render(root, config.RenderService{}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "PROJ-42.md")
+	crlfMarker := strings.Replace(mustReadFile(t, path), jiraIssueDocumentMarker+"\n", jiraIssueDocumentMarker+"\r\n", 1)
+	mustWriteFile(t, path, crlfMarker)
+
+	if _, err := svc.Render(path, config.RenderService{}); err != nil {
+		t.Fatalf("render current marker with CRLF: %v", err)
+	}
+	if got := mustReadFile(t, path); !strings.HasPrefix(got, jiraIssueDocumentMarker+"\n") {
+		t.Fatalf("render did not regenerate the canonical marker line: %q", strings.SplitN(got, "\n", 2)[0])
+	}
+}
+
+func TestJiraRenderWarnsWhenSnapshotIsUnreadable(t *testing.T) {
+	root := t.TempDir()
+	m := mirror.New(root)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "PROJ")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, filepath.Join(dir, "PROJ-42.json"), "{not-json")
+
+	res, err := NewJiraRenderer(&config.Config{}).Render(root, config.RenderService{})
+	if err != nil {
+		t.Fatalf("unreadable snapshot remains an advisory skip: %v", err)
+	}
+	if len(res.Rendered) != 0 || len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "PROJ-42.json") || !strings.Contains(res.Warnings[0], "decode snapshot") {
+		t.Fatalf("render result does not expose the skipped snapshot: %+v", res)
+	}
+}
+
+func TestJiraRenderRefusesDanglingViewSymlink(t *testing.T) {
+	root := t.TempDir()
+	m := mirror.New(root)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "PROJ")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteSnapshot(t, filepath.Join(dir, "PROJ-42.json"), richIssue())
+	mdPath := filepath.Join(dir, "PROJ-42.md")
+	if err := os.Symlink(filepath.Join(t.TempDir(), "missing.md"), mdPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	if _, err := NewJiraRenderer(&config.Config{}).Render(root, config.RenderService{}); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("dangling view symlink error=%v, want check failure", err)
+	}
+	if info, err := os.Lstat(mdPath); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("dangling view symlink was replaced: info=%v err=%v", info, err)
 	}
 }
 

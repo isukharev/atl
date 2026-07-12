@@ -38,6 +38,13 @@ type JiraRenderResult struct {
 // `.wiki`/`.json` substrate or the `pages` sync entries, so `jira status` stays
 // clean across a re-render.
 func (s *JiraService) Render(target string, override config.RenderService) (*JiraRenderResult, error) {
+	return s.render(target, override, nil)
+}
+
+// render accepts a package-private post-batch hook so the check-to-lock window
+// can be exercised deterministically in regression tests. Production callers
+// always use Render and therefore pass no hook.
+func (s *JiraService) render(target string, override config.RenderService, afterBatchPreflight func()) (*JiraRenderResult, error) {
 	if target == "" {
 		target = "mirror-jira"
 	}
@@ -62,6 +69,9 @@ func (s *JiraService) Render(target string, override config.RenderService) (*Jir
 			return res, err
 		}
 	}
+	if afterBatchPreflight != nil {
+		afterBatchPreflight()
+	}
 	missingEpicSidecars := 0
 	for _, jsonPath := range snaps {
 		keySeg := strings.TrimSuffix(filepath.Base(jsonPath), ".json")
@@ -69,13 +79,25 @@ func (s *JiraService) Render(target string, override config.RenderService) (*Jir
 		if lockErr != nil {
 			return res, lockErr
 		}
-		is, ok := loadIssueSnapshot(root, jsonPath)
-		if !ok {
+		// The batch preflight above preserves all-or-nothing behavior for the
+		// initial filesystem state. Repeat it while holding the mutation lock so
+		// a cooperative writer cannot replace the view between check and write.
+		mdPath := strings.TrimSuffix(jsonPath, ".json") + ".md"
+		if err := preflightJiraRenderView(root, mdPath); err != nil {
 			_ = issueLock.Unlock()
-			continue // unreadable/oddly-shaped snapshot: skip, never fail the batch
+			return res, err
+		}
+		is, loadErr := loadIssueSnapshotDetailed(root, jsonPath)
+		if loadErr != nil {
+			_ = issueLock.Unlock()
+			rel, relErr := filepath.Rel(root, jsonPath)
+			if relErr != nil {
+				rel = jsonPath
+			}
+			res.Warnings = append(res.Warnings, fmt.Sprintf("render: skipped unreadable Jira snapshot %s: %v", rel, loadErr))
+			continue
 		}
 		dir := filepath.Dir(jsonPath)
-		mdPath := filepath.Join(dir, keySeg+".md")
 		related := loadEpicChildrenSidecar(root, epicChildrenPath(dir, keySeg))
 		used := rs
 		if related != nil && !compatibleEpicSidecar(related, is.Key, used.EpicField) {
@@ -148,7 +170,7 @@ func preflightJiraRenderView(root, mdPath string) error {
 	if err != nil {
 		return fmt.Errorf("%w: inspect existing render target %s: %v", domain.ErrCheckFailed, mdPath, err)
 	}
-	first, _, _ := strings.Cut(string(b), "\n")
+	first := jiraDocumentMarkerLine(string(b))
 	if strings.HasPrefix(first, "<!-- atl:document jira-issue") &&
 		first != jiraIssueDocumentMarker &&
 		first != jiraIssueDocumentMarkerV1 &&
@@ -200,10 +222,10 @@ func jiraSnapshotFiles(root, target string) ([]string, error) {
 	var out []string
 	err = filepath.WalkDir(physicalTarget, func(path string, d os.DirEntry, werr error) error {
 		if werr != nil {
-			return werr
+			return fmt.Errorf("%w: inspect Jira render target %s: %v", domain.ErrCheckFailed, path, werr)
 		}
 		if d.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("refusing descendant symlink in mirror: %s", path)
+			return fmt.Errorf("%w: refusing descendant symlink in Jira mirror: %s", domain.ErrCheckFailed, path)
 		}
 		if d.IsDir() {
 			return nil
@@ -224,20 +246,35 @@ func jiraSnapshotFiles(root, target string) ([]string, error) {
 	return out, nil
 }
 
-// loadIssueSnapshot decodes a `<KEY>.json` mirror snapshot into a domain.Issue
-// via the pure adapter mapper. Returns ok=false on any read/parse failure so the
-// caller skips the file rather than aborting the whole render.
-func loadIssueSnapshot(root, path string) (*domain.Issue, bool) {
+// loadIssueSnapshotDetailed decodes a `<KEY>.json` mirror snapshot into a
+// domain.Issue via the pure adapter mapper and retains the reason a render may
+// need to skip it. loadIssueSnapshot keeps the older bool contract for guarded
+// apply paths, where an unavailable snapshot maps to the existing not-found
+// diagnostic.
+func loadIssueSnapshotDetailed(root, path string) (*domain.Issue, error) {
 	b, err := safepath.ReadFileWithin(root, path)
 	if err != nil {
-		return nil, false
+		return nil, err
 	}
 	var snap JiraIssueSnapshot
 	if err := json.Unmarshal(b, &snap); err != nil {
-		return nil, false
+		return nil, fmt.Errorf("decode snapshot: %w", err)
 	}
 	if snap.Key == "" {
-		return nil, false
+		return nil, fmt.Errorf("snapshot has an empty issue key")
 	}
-	return jiramap.Issue(snap.ID, snap.Key, snap.Fields), true
+	return jiramap.Issue(snap.ID, snap.Key, snap.Fields), nil
+}
+
+func loadIssueSnapshot(root, path string) (*domain.Issue, bool) {
+	is, err := loadIssueSnapshotDetailed(root, path)
+	return is, err == nil
+}
+
+// jiraDocumentMarkerLine normalizes only the line ending attached to the
+// marker. The rest of the document remains byte-significant and is never
+// silently normalized by render preflight.
+func jiraDocumentMarkerLine(document string) string {
+	first, _, _ := strings.Cut(document, "\n")
+	return strings.TrimSuffix(first, "\r")
 }

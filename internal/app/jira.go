@@ -516,6 +516,12 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 			}
 			wikiPath := filepath.Join(dir, keySeg+".wiki")
 			stop, issueErr := func() (bool, error) {
+				// Pull holds the same mirror mutation lock as render/apply/push.
+				// Refuse an unknown derived format before changing any artifact for
+				// this issue, so an older binary cannot silently downgrade its view.
+				if err := preflightJiraRenderView(into, mdPath); err != nil {
+					return false, err
+				}
 				pending, _, pendingErr := loadJiraPendingFieldsLocked(into, keySeg)
 				if pendingErr != nil {
 					return false, pendingErr

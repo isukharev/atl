@@ -345,6 +345,7 @@ atl jira pull --jql 'project = PROJ AND status = Open' --assets
 # Выберите объём .md-представления: minimal | default | full (см. docs/usage.md)
 atl jira pull --jql 'project = PROJ' --render-profile full
 atl jira render mirror-jira --render-profile default   # перерендер офлайн, без повторного pull
+# Pull/render не затирают будущие форматы .md; render предупреждает о каждом нечитаемом snapshot.
 # Типизированные custom fields (читаемые metadata/date/list) и проверяемые задачи эпика
 # настраиваются для зеркала; см. docs/usage.md
 

@@ -109,6 +109,21 @@ func TestJiraRenderFlagPlumbing(t *testing.T) {
 			t.Errorf("expected an unknown-section warning on stderr, got %q", stderr)
 		}
 	})
+
+	t.Run("unreadable snapshot warns on stderr", func(t *testing.T) {
+		root := seedJiraMirror(t)
+		snapshot := filepath.Join(root, "PROJ", "PROJ-42.json")
+		if err := os.WriteFile(snapshot, []byte("{not-json"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, stderr, code := runCLIFull(t, nil, "jira", "render", root)
+		if code != exitOK {
+			t.Fatalf("render: exit %d stderr=%q", code, stderr)
+		}
+		if !strings.Contains(stderr, "skipped unreadable Jira snapshot") || !strings.Contains(stderr, "PROJ-42.json") {
+			t.Errorf("expected a snapshot warning on stderr, got %q", stderr)
+		}
+	})
 }
 
 // seedConfMirrorCLI writes one Confluence page mirror for the offline conf render.

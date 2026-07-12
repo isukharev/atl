@@ -250,7 +250,10 @@ reapply the patch; render rewrites `.md`. Use the existing file's nearest
 `.atl` root throughout, or fresh-pull into a newly approved root before editing.
 If the marker has a future/unknown version, update `atl`; never render or
 downgrade that view with the older binary. A directory render preflights all
-selected view versions before rewriting any sibling.
+selected view versions before rewriting any sibling, repeats the target check
+under the mutation lock, and warns on stderr for every unreadable snapshot it
+skips. Pull applies the same future-marker guard before changing that issue's
+artifacts. A CRLF marker line is recognized, but other bytes remain significant.
 
 This is the measured-cheaper edit surface (issue #88: fewer turns and a higher success rate than
 hand-writing wiki markup). Untouched blocks keep their **exact base bytes**; changed/new blocks
