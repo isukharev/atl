@@ -14,7 +14,7 @@ func TestRepositoryContext7Documentation(t *testing.T) {
 		t.Fatal("resolve test path")
 	}
 	root := filepath.Clean(filepath.Join(filepath.Dir(current), "..", ".."))
-	report, err := validate(root)
+	report, err := validateRepository(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,8 @@ func TestValidateRejectsImplicitRootMarkdownAndSnippetlessDocs(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string]string{
-		"context7.json": `{"$schema":"https://context7.com/schema/context7.json","url":"https://context7.com/isukharev/atl","public_key":"pk_fixture","folders":["docs"],"excludeFolders":[],"excludeFiles":[],"rules":["rule"]}`,
+		"context7.json": `{"$schema":"https://context7.com/schema/context7.json","url":"https://context7.com/isukharev/atl","public_key":"pk_fixture","branch":"stable","previousVersions":[{"tag":"v0.1.0"}],"folders":["docs"],"excludeFolders":[],"excludeFiles":[],"rules":["rule"]}`,
+		"VERSION":       "0.1.0\n",
 		"README.md":     "# Project\n\n```sh\nproject --help\n```\n",
 		"AGENTS.md":     "# Internal instructions\n",
 		"docs/usage.md": "# Usage without examples\n",

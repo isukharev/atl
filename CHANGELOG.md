@@ -66,6 +66,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Context7 now follows releases, not development main.** The default library
+  parses a fast-forward-only `stable` branch, release tags are exposed as
+  versioned documentation, and a dedicated environment-scoped post-release job
+  refreshes Context7 without making third-party availability part of release
+  success. A manual workflow provides safe refresh retries.
+
 - **Confluence durable views use document format v3.** The optional generated
   Jira-query suffix changes readonly bytes, so v2/v1/unversioned views receive
   explicit migration guidance and offline render upgrades known legacy views

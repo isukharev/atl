@@ -252,7 +252,7 @@ rg "decision" mirror/
 ### 3. Edit, validate & push
 
 ```sh
-# Easiest: ensure the v2 document marker, edit the markdown view, then merge it into .csf.
+# Easiest: ensure the v3 document marker, edit the markdown view, then merge it into .csf.
 # Untouched blocks keep their exact bytes; unconvertible edits fail closed.
 $EDITOR mirror/DOCS/acme-adr/acme-adr.md
 atl conf apply mirror/DOCS/acme-adr/acme-adr.md --dry-run
@@ -461,6 +461,10 @@ The codebase follows a **hexagonal (ports & adapters)** architecture:
 Further reading: [docs/architecture.md](docs/architecture.md) · [docs/usage.md](docs/usage.md) ·
 [agent recipes](docs/agent-recipes.md) · [docs/self-update.md](docs/self-update.md) ·
 [Context7 integration](docs/context7.md)
+
+Context7 library `/isukharev/atl` follows the latest published release through
+the `stable` branch. Development documentation on `main` may describe behavior
+that has not shipped yet; query a `/vX.Y.Z` library id for an exact release.
 
 ---
 

@@ -2,9 +2,14 @@
   "$schema": "https://context7.com/schema/context7.json",
   "projectTitle": "atl",
   "description": "A safety-oriented CLI for agent and human workflows with Jira and Confluence Server/Data Center.",
-  "branch": "main",
+  "branch": "stable",
   "url": "https://context7.com/isukharev/atl",
   "public_key": "pk_NIFQm8iP6pykrT8Uit4xD",
+  "previousVersions": [
+    {"tag": "v0.3.0"},
+    {"tag": "v0.2.0"},
+    {"tag": "v0.1.0"}
+  ],
   "folders": [
     "docs"
   ],
