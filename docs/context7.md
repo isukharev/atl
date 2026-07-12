@@ -13,6 +13,11 @@ Registration is external state. The presence of `context7.json` does not by
 itself prove that the library is registered or fresh; verify it before relying
 on the index.
 
+The root config also carries Context7's repository ownership `url` and
+`public_key`. The `public_key` is intentionally public and lets Context7 verify
+the committed default branch; it is not `CONTEXT7_API_KEY`, grants no API
+access, and must never be used as an Authorization credential.
+
 ## Use atl through the Context7 CLI
 
 Resolve the library first when its id is not already known:
@@ -44,13 +49,12 @@ the default branch:
 
 1. Open [Add a Library](https://context7.com/add-library), choose the GitHub
    tab, and select or enter the public `isukharev/atl` repository.
-2. Submit it and wait for parsing to complete. If offered, claim ownership from
-   the library/admin page so maintainers receive the owner refresh limits. The
-   claim dialog provides library-specific `url` and `public_key` values. Add
-   those two public values to the existing `context7.json` (do not replace its
-   indexing scope or rules), merge them to `main`, then complete verification.
-   The public key is an ownership verifier, not the private API key;
-   `CONTEXT7_API_KEY` must remain a secret.
+2. Submit it and wait for parsing to complete. To claim ownership, compare the
+   modal's library-specific `url` and `public_key` with the values already
+   committed in `context7.json`, then click **Claim Library**. If Context7 ever
+   rotates either value, update only those fields—do not replace the indexing
+   scope or rules. The public key is an ownership verifier, not the private API
+   key; `CONTEXT7_API_KEY` must remain a secret.
 3. Verify both lookup and content:
 
    ```sh
