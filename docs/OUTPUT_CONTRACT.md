@@ -49,7 +49,8 @@ parsing backend prose. Current exit classes map to `unexpected_error`,
 `usage_error`, `authentication_failed`, `not_found`, `version_conflict`,
 `forbidden`, `configuration_error`, and `check_failed`. Typed specializations
 include `read_only_policy`, `transport_error`, and `api_error` without changing
-their exit code.
+their exit code. A missing command registration invariant is
+`internal_error`/`report_bug` (still exit 8), not a user check failure.
 
 ---
 

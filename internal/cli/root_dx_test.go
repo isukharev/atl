@@ -56,6 +56,7 @@ func TestErrorKindAndRemediationMatrix(t *testing.T) {
 		{"forbidden", "forbidden", "request_access", domain.ErrForbidden},
 		{"config", "configuration_error", "complete_configuration", domain.ErrConfig},
 		{"check", "check_failed", "review_failed_check", domain.ErrCheckFailed},
+		{"internal", "internal_error", "report_bug", &accessPolicyInvariantError{Command: "atl future"}},
 		{"read_only", "read_only_policy", "request_human_approval", &readOnlyPolicyError{Command: "atl jira push"}},
 		{"transport", "transport_error", "inspect_network_before_retry", &httpx.TransportError{Method: "GET", Category: "dns"}},
 		{"api", "api_error", "inspect_backend_error", &httpx.APIError{Status: 500, Method: "GET", Path: "/safe", Body: "failure"}},

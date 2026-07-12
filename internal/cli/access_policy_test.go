@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -79,8 +82,54 @@ func TestReadOnlyEnvironmentAndConfigCannotBeDowngradedByFalseFlag(t *testing.T)
 
 func TestUnclassifiedCommandFailsClosed(t *testing.T) {
 	cmd := &cobra.Command{Use: "future", Annotations: map[string]string{accessAnnotation: "unclassified"}}
-	if err := enforceAccessPolicy(cmd, false); codeFor(err) != exitCheckFailed {
+	err := enforceAccessPolicy(cmd, false)
+	if codeFor(err) != exitCheckFailed {
 		t.Fatalf("error=%v code=%d", err, codeFor(err))
+	}
+	if kind, remediation := classifyError(err); kind != "internal_error" || remediation != "report_bug" {
+		t.Fatalf("classification=%q/%q", kind, remediation)
+	}
+}
+
+func TestCobraHelpAndCompletionBuiltinsRemainReadOnly(t *testing.T) {
+	tests := []struct {
+		name          string
+		args          []string
+		want          string
+		captureStdout bool
+	}{
+		{"help", []string{"help"}, "Usage:", false},
+		{"nested_help", []string{"help", "jira"}, "Jira: read/search/pull", false},
+		{"completion_script", []string{"--read-only", "completion", "bash"}, "__start_atl", true},
+		{"hidden_completion", []string{"--read-only", cobra.ShellCompRequestCmd, "jira", "iss"}, ":", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out string
+			var code int
+			if tt.captureStdout {
+				read, write, err := os.Pipe()
+				if err != nil {
+					t.Fatal(err)
+				}
+				original := os.Stdout
+				os.Stdout = write
+				_, code = runCLI(t, nil, tt.args...)
+				_ = write.Close()
+				os.Stdout = original
+				captured, readErr := io.ReadAll(read)
+				_ = read.Close()
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+				out = string(captured)
+			} else {
+				out, code = runCLI(t, nil, tt.args...)
+			}
+			if code != exitOK || !strings.Contains(out, tt.want) {
+				t.Fatalf("exit=%d output=%q, want %q", code, out, tt.want)
+			}
+		})
 	}
 }
 

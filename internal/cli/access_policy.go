@@ -30,6 +30,22 @@ func readOnlyErrorMetadata(err error) (string, bool) {
 	return "", false
 }
 
+type accessPolicyInvariantError struct{ Command string }
+
+func (e *accessPolicyInvariantError) Error() string {
+	return fmt.Sprintf("command %q has no access-policy classification", e.Command)
+}
+
+func (e *accessPolicyInvariantError) Unwrap() error { return domain.ErrCheckFailed }
+
+func accessPolicyInvariantMetadata(err error) (string, bool) {
+	var invariantErr *accessPolicyInvariantError
+	if errors.As(err, &invariantErr) {
+		return invariantErr.Command, true
+	}
+	return "", false
+}
+
 var mutatingCommandPaths = stringSetFromLines(`
 auth login
 auth logout
@@ -105,8 +121,13 @@ conf space tree
 conf status
 conf table extract
 conf validate
+completion bash
+completion fish
+completion powershell
+completion zsh
 config set
 config show
+help
 jira apply
 jira board backlog
 jira board config
@@ -235,7 +256,10 @@ func resolveReadOnlyPolicy(flagEnabled bool) (bool, error) {
 func enforceAccessPolicy(cmd *cobra.Command, enabled bool) error {
 	access := cmd.Annotations[accessAnnotation]
 	if access == "unclassified" || access == "" {
-		return fmt.Errorf("%w: command %q has no access-policy classification", domain.ErrCheckFailed, cmd.CommandPath())
+		if cmd.Name() == cobra.ShellCompRequestCmd || cmd.Name() == cobra.ShellCompNoDescRequestCmd {
+			return nil
+		}
+		return &accessPolicyInvariantError{Command: cmd.CommandPath()}
 	}
 	if access != "mutating" {
 		return nil

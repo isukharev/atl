@@ -87,6 +87,7 @@ Recent additions expand both surfaces — check the focused skills for full flag
 - `-o id` — print just the primary identifier(s) one per line (issue keys, page IDs) for safe piping into `xargs` or scripts. Not all commands support it; those that don't return an error.
 - `--verbose` / `ATL_VERBOSE=1` — trace every HTTP request/response to stderr (token never logged).
 - Shell completion for fixed-value flags (e.g. `--output`, `--format`, `--status`) is registered.
+  Help and completion remain usable while global read-only policy is active.
 
 **Confluence additions:** typed read-only `render.confluence.page_fields` shared
 by mirror and transient views; the `render.confluence.jira_macros=auto|off`
