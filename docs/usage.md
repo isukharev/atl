@@ -1324,6 +1324,38 @@ get/view/meta/history/open, `pull --id`, `comment list`, `page labels list`,
 attachment list/get, and `table extract`. Mutating page selectors remain
 explicit ids.
 
+### `atl conf page outline` / `atl conf page section`
+
+Inspect a long page without placing its entire rendered body in agent context:
+
+```bash
+atl conf page outline 12345678
+atl conf page outline '/x/AwAG' -o text
+atl conf page section 12345678 --heading 'Delivery Notes' -o text
+atl conf page section 12345678 --heading 'Delivery Notes' --occurrence 2 --max-bytes 131072
+```
+
+`outline` parses native CSF and walks the same structural block traversal as the
+Markdown renderer. Headings inside code/structured macros, tables, and other
+opaque blocks are not promoted into page sections. JSON includes ordered
+`headings` with `index`, native `level`, normalized hierarchy `path`, and a
+1-based occurrence among equal case/whitespace-normalized titles. `count` is
+the emitted count, `total` is the parsed count, and `complete`/`truncated`
+expose the 1000-heading/262144-byte safety caps; `original_bytes` and
+`emitted_bytes` qualify the bounded heading records. `-o text` emits an indented
+Markdown list.
+
+`section` selects an exact case/whitespace-normalized heading and renders it,
+its body, and descendant headings through the existing link/color/table-aware
+renderer, stopping before the next heading of the same or higher rank. Duplicate
+titles fail with exit 8 until `--occurrence` is supplied. JSON reports the
+selected `heading`, `level`, `path`, `occurrence`, `markdown`, `complete`,
+`truncated`, `original_bytes`, and `emitted_bytes`. The default output cap is
+262144 bytes; `--max-bytes` accepts 1..1048576 and truncates only before a whole
+rendered block, adding a visible marker when it fits. `-o text` emits only the
+selected Markdown. Both commands accept the safe page references above, are
+read-only, and create no mirror artifacts.
+
 ### `atl conf page get`
 
 Fetch a page body directly (without mirroring to disk).

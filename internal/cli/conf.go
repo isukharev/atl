@@ -190,6 +190,49 @@ func confPageCmd() *cobra.Command {
 			return emitID(cmd, result, func() string { return result.ID }, func() []string { return []string{result.ID} })
 		},
 	}
+	outline := &cobra.Command{
+		Use:   "outline <ID-OR-URL>",
+		Short: "List structural page headings without rendering the full body",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			result, err := svc.PageOutline(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return emit(cmd, result, func() string { return app.ConfluenceOutlineMarkdown(result) })
+		},
+	}
+	var sectionHeading string
+	var sectionOccurrence, sectionMaxBytes int
+	section := &cobra.Command{
+		Use:   "section <ID-OR-URL>",
+		Short: "Render one structurally bounded page section as Markdown",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			result, err := svc.PageSection(cmd.Context(), args[0], app.ConfluencePageSectionOpts{
+				Heading: sectionHeading, Occurrence: sectionOccurrence, MaxBytes: sectionMaxBytes,
+			})
+			if err != nil {
+				return err
+			}
+			if outputFormat == "text" {
+				_, err := io.WriteString(cmd.OutOrStdout(), result.Markdown)
+				return err
+			}
+			return emit(cmd, result, nil)
+		},
+	}
+	section.Flags().StringVar(&sectionHeading, "heading", "", "exact heading text (case/whitespace normalized)")
+	section.Flags().IntVar(&sectionOccurrence, "occurrence", 0, "1-based occurrence when the heading is duplicated")
+	section.Flags().IntVar(&sectionMaxBytes, "max-bytes", 256<<10, "maximum Markdown bytes (1..1048576; truncates at block boundary)")
 	var id, format string
 	get := &cobra.Command{
 		Use:   "get",
@@ -460,7 +503,7 @@ func confPageCmd() *cobra.Command {
 	cp.Flags().StringVar(&copySpace, "space", "", "target space key (default: same as source)")
 	cp.Flags().StringVar(&copyParent, "parent", "", "target parent page id (default: same as source)")
 
-	c.AddCommand(resolve, get, view, titleCmd, labelsCmd, meta, hist, list, open, cp, create, move, del)
+	c.AddCommand(resolve, outline, section, get, view, titleCmd, labelsCmd, meta, hist, list, open, cp, create, move, del)
 	return c
 }
 
