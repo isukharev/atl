@@ -32,6 +32,13 @@ func TestEveryExecutableCommandHasExplicitAccessPolicy(t *testing.T) {
 			if (access == "mutating") != mutatingCommandPaths[path] {
 				t.Errorf("%s mutation classification drift", cmd.CommandPath())
 			}
+			textSupport := cmd.Annotations[textOutputAnnotation]
+			if textSupport != "supported" && textSupport != "unsupported" {
+				t.Errorf("%s text output=%q", cmd.CommandPath(), textSupport)
+			}
+			if (textSupport == "supported") != textOutputCommandPaths[path] {
+				t.Errorf("%s text-output classification drift", cmd.CommandPath())
+			}
 		}
 		for _, child := range cmd.Commands() {
 			walk(child)
@@ -41,6 +48,11 @@ func TestEveryExecutableCommandHasExplicitAccessPolicy(t *testing.T) {
 	for path := range knownCommandPaths {
 		if !seen[path] {
 			t.Errorf("classified command %q is no longer registered", path)
+		}
+	}
+	for path := range textOutputCommandPaths {
+		if !seen[path] {
+			t.Errorf("text-output command %q is no longer registered", path)
 		}
 	}
 }

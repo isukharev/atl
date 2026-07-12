@@ -119,8 +119,10 @@ atl conf validate <page.csf>
 ```
 
 Remote status makes one request per page. Omit `--remote` for local-only state.
-All commands default to JSON. `-o text` selects human output; commands with an
-ID projection accept `-o id` for one identifier per line.
+All commands default to JSON. `-o text` selects an explicitly registered human
+projection; unsupported text requests fail before network access rather than
+falling back to JSON. Commands with an ID projection accept `-o id` for one
+identifier per line.
 
 ## Command inventory
 

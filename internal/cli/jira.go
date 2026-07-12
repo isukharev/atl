@@ -1332,6 +1332,9 @@ func jiraExportCmd() *cobra.Command {
 			if out == "" {
 				return usageErr("--out is required")
 			}
+			if out == "-" && outputFormat == "text" {
+				return usageErr("-o text is not an artifact format for --out -; use --format and omit -o text")
+			}
 			svc, err := jiraService()
 			if err != nil {
 				return err
@@ -1465,7 +1468,7 @@ func jiraMetaCmds() []*cobra.Command {
 			if err != nil {
 				return err
 			}
-			return emit(cmd, map[string]any{"fields": fs}, nil)
+			return emit(cmd, map[string]any{"fields": fs}, func() string { return jiraFieldsText(fs) })
 		},
 	}
 	fields.Flags().StringVar(&nameLike, "name-like", "", "case-insensitive substring filter for field name")
@@ -1490,7 +1493,7 @@ func jiraMetaCmds() []*cobra.Command {
 			if err != nil {
 				return err
 			}
-			return emit(cmd, map[string]any{"options": vals}, nil)
+			return emit(cmd, map[string]any{"options": vals}, func() string { return stringLines(vals) })
 		},
 	}
 	opts.Flags().StringVar(&project, "project", "", "project key")
@@ -1513,7 +1516,7 @@ func jiraMetaCmds() []*cobra.Command {
 			if err != nil {
 				return err
 			}
-			return emit(cmd, map[string]any{"transitions": trs}, nil)
+			return emit(cmd, map[string]any{"transitions": trs}, func() string { return jiraTransitionsText(trs) })
 		},
 	}
 	transitions.Flags().StringVar(&transKey, "key", "", "issue key")
@@ -1530,7 +1533,7 @@ func jiraMetaCmds() []*cobra.Command {
 			if err != nil {
 				return err
 			}
-			return emit(cmd, map[string]any{"link_types": lts}, nil)
+			return emit(cmd, map[string]any{"link_types": lts}, func() string { return stringLines(lts) })
 		},
 	}
 

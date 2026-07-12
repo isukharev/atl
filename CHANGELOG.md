@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Explicit `-o text` requests are now checked against a command-tree output
+  contract before config, stdin, or network access and return exit 2 when the
+  command has no text projection instead of silently emitting JSON. Confluence
+  page metadata/history/comments and Jira field/transition/link discovery now
+  have compact text projections.
+
 ### Added
 
 - `jira epic digest` now composes identity, configurable status/DoD fields,

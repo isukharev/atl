@@ -47,10 +47,10 @@ Load this reference only when exact command or flag lookup is useful.
 | `jira export diff <OLD> <NEW>` | Compare compact exports | — |
 | `jira planning report` | Deterministic planning quality report | `--jql`, `--require`, `--estimate-field`, `--epic-field`, `--limit`, `--csv`, `--raw-csv` |
 | `jira quality-report` | Compatibility alias | same flags as `planning report` |
-| `jira fields` | List Jira fields | `--name-like`, `--id`, `--id-like`, `--schema`, `--custom true|false` |
-| `jira field-options` | List allowed field values | `--project`, `--type`, `--field` |
-| `jira transitions` | List available transitions | `--key` |
-| `jira link-types` | List issue link types | — |
+| `jira fields` | List Jira fields | `--name-like`, `--id`, `--id-like`, `--schema`, `--custom true|false`, `-o text` |
+| `jira field-options` | List allowed field values | `--project`, `--type`, `--field`, `-o text` |
+| `jira transitions` | List available transitions | `--key`, `-o text` |
+| `jira link-types` | List issue link types | `-o text` |
 | `jira me` | Show the authenticated Jira user | — |
 | `jira user search <Q>` | Search users | `--limit` |
 | `jira user get <USERNAME>` | Get a user | — |

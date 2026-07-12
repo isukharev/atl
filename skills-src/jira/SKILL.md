@@ -353,13 +353,13 @@ small, surgical change; use this path when you've hand-authored most of the `.wi
 
 ### 5. Discover valid values before writing
 ```bash
-atl jira fields                                              # {fields:[{id,name,custom}]}
+atl jira fields                                              # {fields:[{id,name,custom}]}; -o text for compact records
 atl jira fields --name-like Epic
 atl jira fields --id customfield_10001
 atl jira fields --custom true --schema string --id-like customfield
-atl jira field-options --project PROJ --type Bug --field priority   # {options:[...]}
-atl jira transitions --key PROJ-1                            # {transitions:[{id,name,to}]}
-atl jira link-types                                          # {link_types:[...]}
+atl jira field-options --project PROJ --type Bug --field priority   # {options:[...]}; -o text one value/line
+atl jira transitions --key PROJ-1                            # {transitions:[{id,name,to}]}; -o text compact records
+atl jira link-types                                          # {link_types:[...]}; -o text one value/line
 atl jira me                                                  # authenticated user
 atl jira user search 'alice'                                 # find users by name/username
 atl jira user get alice                                      # get a user by DC username

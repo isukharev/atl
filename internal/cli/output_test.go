@@ -64,6 +64,52 @@ func TestEmit_RejectsIDFormatWhenUnsupported(t *testing.T) {
 	}
 }
 
+func TestEmitRejectsTextFormatWhenUnsupported(t *testing.T) {
+	withFormat(t, "text")
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	err := emit(cmd, map[string]any{"x": 1}, nil)
+	if !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("want ErrUsage for unsupported -o text, got %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("unsupported text emitted output: %q", buf.String())
+	}
+}
+
+func TestUnsupportedTextIsRejectedBeforeCommandExecution(t *testing.T) {
+	stdout, stderr, code := runCLIFull(t, nil, "-o", "text", "auth", "logout", "--service", "jira")
+	if code != exitUsage {
+		t.Fatalf("exit=%d stderr=%q", code, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout=%q", stdout)
+	}
+}
+
+func TestHighValueTextProjections(t *testing.T) {
+	restricted := true
+	meta := confluencePageMetaText(&domain.PageMeta{
+		ID: "42", Title: "Plan", Space: "ENG", Version: 7, Ancestors: []string{"Home", "Quarter"},
+		Labels: []string{"roadmap", "reviewed"}, Restrictions: &restricted, Updated: "2026-07-12", URL: "https://example.invalid/pages/42",
+	})
+	versions := confluenceVersionsText([]domain.Version{{Number: 7, When: "2026-07-12", By: "Alex", Message: "reviewed"}})
+	comments := commentsText([]domain.Comment{{ID: "99", Author: "Alex", Created: "2026-07-12", Body: "Looks good."}})
+	fields := jiraFieldsText([]domain.FieldDef{{ID: "summary", Name: "Summary"}, {ID: "customfield_10001", Name: "Delivery\nNotes", Custom: true, Schema: "string"}})
+	transitions := jiraTransitionsText([]domain.TransitionDef{{ID: "31", Name: "Start progress", To: "In Progress"}})
+	assertGolden(t, "explicit_text_projections.txt", []byte(strings.Join([]string{
+		"[confluence-meta]", meta,
+		"[confluence-history]", versions,
+		"[confluence-comments]", comments,
+		"[jira-fields]", fields,
+		"[jira-options]", stringLines([]string{"High\tPriority", "Low"}),
+		"[jira-transitions]", transitions,
+		"[jira-link-types]", stringLines([]string{"blocks", "relates to"}), "",
+	}, "\n")))
+}
+
 // readBounded must reject an over-limit body loudly (exit 2), never truncate:
 // a truncated Jira wiki body would be pushed as-is with no validation gate.
 func TestReadBoundedRejectsOversizedInput(t *testing.T) {

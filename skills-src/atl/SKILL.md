@@ -125,7 +125,9 @@ manifest before publishing.
 
 ## Reacting to results
 
-`atl` prints JSON to stdout by default (use `-o text` only for a human view) and signals outcomes
+`atl` prints JSON to stdout by default. Use `-o text` only where the command
+documents a human view; unsupported text requests fail with exit 2 and never
+fall back to JSON. The CLI signals outcomes
 through exit codes. Parse the JSON; map the exit code per [exit-codes.md](reference/exit-codes.md)
 (e.g. `5` = version conflict → re-pull and reconcile before considering `--force`; `7` = not
 configured → run `{{atl.setup_cmd}}`; `3` = the server rejected the token → re-`auth login` with a valid

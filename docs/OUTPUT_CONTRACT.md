@@ -12,7 +12,7 @@ It is derived from `internal/cli/root.go` (`codeFor`, `emit`, `emitID`, `writeEr
 | Mode | Flag | What is written to stdout |
 |---|---|---|
 | **json** | `-o json` (default) | Indented, HTML-unescaped JSON; one object per command |
-| **text** | `-o text` | Human-readable plain text; only available for commands that supply a text renderer — commands without one fall back to JSON |
+| **text** | `-o text` | Human-readable text for commands with an explicit text projection; unsupported commands return exit 2 before config, stdin, or network access and never emit JSON |
 | **id** | `-o id` | Primary identifier(s) one per line (issue keys, page IDs, attachment IDs) — for safe piping into `xargs`. Only commands that register an id projection support this; others return exit 2 |
 
 Shell completion for the three values is registered on the root flag.
@@ -23,7 +23,8 @@ Shell completion for the three values is registered on the root flag.
 
 - With `-o json`: writes `v` as indented JSON to stdout. HTML escaping is disabled (`&`, `<`, `>` pass through literally).
 - With `-o text` and a non-nil `textFn`: calls `textFn()` and writes the result to stdout.
-- With `-o text` and a nil `textFn`: falls back to JSON (no text view defined for this command).
+- With `-o text` and a nil `textFn`: returns exit 2 as a defensive backstop;
+  the command-tree preflight normally rejects unsupported text before `RunE`.
 - With `-o id`: returns exit 2 (usage error) — use `emitID` for commands that export identifiers.
 
 ### `emitID()` — JSON / text / id output
@@ -31,7 +32,7 @@ Shell completion for the three values is registered on the root flag.
 `emitID(cmd, v, textFn, idsFn)` extends `emit` with an id projection:
 
 - With `-o id`: calls `idsFn()` and prints each returned string on its own line. No JSON envelope.
-- With `-o json` or `-o text`: delegates to `emit` (same rules as above).
+- With `-o json` or supported `-o text`: delegates to `emit` (same rules as above).
 - Commands that have no meaningful identifier set `ids = nil`; `emitID` then returns exit 2 for `-o id`.
 
 ### Error output
@@ -865,7 +866,9 @@ a structurally escaped Markdown table.
 mode. JSONL emits one `JiraIssueSnapshot` per line, aggregate JSON emits a bare
 snapshot array, and CSV emits its header and rows. It emits no manifest, export
 result envelope, or trailing status bytes and creates no files. Diagnostics are
-stderr-only. Aggregate JSON retains the 10,000-issue/64 MiB caps; row formats
+stderr-only. `--format`, not the global output flag, selects those artifact
+bytes; `-o text` with `--out -` is rejected with exit 2. Aggregate JSON retains
+the 10,000-issue/64 MiB caps; row formats
 retain the identity cap and safe-CSV default. Because a late read/write failure
 can leave a streamed prefix on stdout, consumers must accept the artifact only
 when the process exits zero. File destinations retain the existing atomic

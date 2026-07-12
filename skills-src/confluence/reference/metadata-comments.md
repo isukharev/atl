@@ -49,6 +49,9 @@ atl conf page copy --id <id> --title '<title>' [--space <KEY>] [--parent <id>]
 atl conf page delete --id <id>
 ```
 
+Add `-o text` for compact metadata/version records. Unknown restriction state
+is printed as `restricted unknown`, not as unrestricted.
+
 Create a page from the Markdown subset when possible:
 
 ```bash
@@ -69,6 +72,9 @@ atl conf validate <private-comment.csf>
 atl conf comment list --id <page-id>
 atl conf comment add --id <page-id> --from-file <private-comment.csf>
 ```
+
+For review, `-o text` prints each stable comment id, author/time, and plain
+body; JSON remains the machine contract.
 
 Before POST, inspect current comments for the intended content so retries do
 not duplicate an earlier attempt. Also inspect stderr: if listing warns that it

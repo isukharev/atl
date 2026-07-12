@@ -16,7 +16,9 @@ See also: [../README.md](../README.md) · [architecture.md](architecture.md) ·
 
 By default every command writes JSON to stdout. Pass `-o text` (or
 `--output text`) for human-readable output on the same commands that support
-it.
+it. Text support is an explicit per-command contract: an unsupported request
+returns a usage error (exit 2) before config, stdin, or network access and never
+falls back to JSON.
 
 ```
 atl conf search --cql "space=DOCS" -o text
@@ -1421,7 +1423,8 @@ Flags:
 
 Fetch non-body page metadata (version, ancestors, labels, restrictions).
 `restricted` is omitted when the backend omitted restriction state; absence
-means unknown, never unrestricted.
+means unknown, never unrestricted. `-o text` prints identity/version first,
+then only present metadata plus an explicit `restricted true|false|unknown`.
 
 ```
 atl conf page meta --id 12345678
@@ -1657,7 +1660,8 @@ atl conf me
 
 List page comments. Bodies are returned as plain text (CSF stripped). If the
 listing hits the fetch safety cap, a warning is written to stderr (the returned
-set is incomplete) — the JSON result on stdout stays clean.
+set is incomplete) — the JSON result on stdout stays clean. `-o text` prints
+stable comment id, author/time, and the plain body for each comment.
 
 ```
 atl conf comment list --id 12345678
@@ -2662,7 +2666,9 @@ selections into multiple exports.
 With `--out -`, stdout contains **only** the artifact: one object per line for
 JSONL, a JSON array for `--format json`, or CSV bytes. No manifest, command
 result object, or trailing status line is emitted, and no filesystem artifact is
-created. Warnings/errors remain on stderr. JSON keeps the same 10,000-issue and
+created. The artifact type is selected by `--format`; do not pass `-o text`
+with `--out -` (that combination returns exit 2). Warnings/errors remain on
+stderr. JSON keeps the same 10,000-issue and
 64 MiB aggregate caps; JSONL/CSV retain the 250,000-identity safety cap and
 formula neutralization. A streaming request can have written a prefix before a
 later backend failure, so pipelines must check atl's exit status and discard
@@ -2720,7 +2726,9 @@ atl jira fields --custom true --schema string --id-like customfield
 Filters are applied client-side to Jira's field list. Available filters are
 `--id`, `--id-like`, `--name-like`, `--schema`, and `--custom true|false`. Use
 `field-options` when you need values allowed for a specific project and issue
-type.
+type. `-o text` emits one tab-separated `id, name, custom, schema` record per
+field; field options and link types emit one value per line, and transitions
+emit `id, destination, name`.
 
 ### `atl jira field-options`
 

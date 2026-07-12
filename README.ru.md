@@ -392,7 +392,8 @@ atl jira field-options --project PROJ --field <field-id>
 
 ## Соглашения и коды выхода
 
-- JSON в **stdout** по умолчанию; `-o text` для человекочитаемого вывода.
+- JSON в **stdout** по умолчанию; `-o text` только для команд с явным
+  человекочитаемым представлением (иначе exit 2, без подмены на JSON).
 - Логи и ошибки в **stderr** — при сбое по умолчанию JSON `{"error": "...", "code": N}`
   (или строка `error: <msg>` при `-o text`).
 - Тела запросов передаются через `--from-file <path>` или `--from-file -` (stdin, лимит 64 MiB;

@@ -241,6 +241,7 @@ func classifyCommandTree(root *cobra.Command) {
 			if cmd.Annotations == nil {
 				cmd.Annotations = map[string]string{}
 			}
+			classifyTextOutput(cmd, path)
 			switch {
 			case !knownCommandPaths[path]:
 				cmd.Annotations[accessAnnotation] = "unclassified"
