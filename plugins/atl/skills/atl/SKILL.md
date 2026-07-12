@@ -93,7 +93,8 @@ Recent additions expand both surfaces — check the focused skills for full flag
 **Confluence additions:** typed read-only `render.confluence.page_fields` shared
 by mirror and transient views; the `render.confluence.jira_macros=auto|off`
 safety policy; guarded file-backed `conf page title set` and
-review-bound `conf page move`; `conf page list --space [--status]`, `conf page
+review-bound `conf page move`; complete/guarded `conf page labels
+list|add|remove`; `conf page list --space [--status]`, `conf page
 open --id`, `conf page copy --id --title [--space] [--parent]`, `conf attachment
 {list,get,upload,delete}`, `conf me`, `conf search --space/--title/--label/--type`
 convenience filters (no `--cql` needed), `.md` view renders internal links as `[[Title]]`.

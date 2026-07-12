@@ -57,6 +57,8 @@ conf edit
 conf page copy
 conf page create
 conf page delete
+conf page labels add
+conf page labels remove
 conf page move
 conf page title set
 conf push
@@ -107,6 +109,9 @@ conf page create
 conf page delete
 conf page get
 conf page history
+conf page labels add
+conf page labels list
+conf page labels remove
 conf page list
 conf page meta
 conf page move

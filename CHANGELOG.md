@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Guarded Confluence page-label operations.** `conf page labels list` follows
+  the complete content-label collection with explicit truncation semantics;
+  `add` and `remove` preview by default, bind apply to the reviewed current set
+  and normalized labels, send writes only once, and reconcile ambiguous
+  outcomes without automatic replay.
+
 - **Stable machine-readable error guidance.** JSON errors preserve `error` and
   exit `code` while adding sentinel-derived `kind` and deterministic
   `remediation`; typed read-only, transport, and API failures are specialized

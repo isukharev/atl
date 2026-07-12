@@ -85,7 +85,9 @@ render profiles, output layout, status, bulk commands, and the full inventory.
    render, then reapply it. For a future marker, update `atl`; never downgrade.
    A directory render preflights all selected markers before changing any view.
 5. Treat generated metadata/comment regions as readonly. Use dedicated
-   operations for metadata and comments.
+   operations for metadata and comments. For labels, use `conf page labels
+   list|add|remove`: review the default dry-run and bind apply to its exact
+   proposal hash; never replay an `unknown` outcome.
    Generated `# Jira Queries` tables are readonly too; change the native macro
    or re-pull with `--jira-view`, never edit the table into page content.
    For an untrusted/heavy page use `--jira-macros off`, which retains the query
