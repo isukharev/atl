@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -142,5 +143,37 @@ func TestReadOnlyRefusalHasStableJSONMetadata(t *testing.T) {
 	}
 	if body["policy"] != "read_only" || body["command"] != "atl jira push" || body["code"] != float64(exitCheckFailed) || body["kind"] != "read_only_policy" || body["remediation"] != "request_human_approval" {
 		t.Fatalf("body=%v", body)
+	}
+}
+
+func TestMalformedConfigKeepsOfflineDiagnosticsButBlocksWritesAndOnlineReads(t *testing.T) {
+	cfgDir := t.TempDir()
+	cfgPath := filepath.Join(cfgDir, "config.json")
+	malformed := []byte(`{"read_only":`)
+	if err := os.WriteFile(cfgPath, malformed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{"ATL_CONFIG_DIR": cfgDir}
+	for _, args := range [][]string{{"version"}, {"help"}, {"profile", "show"}} {
+		if _, code := runCLI(t, env, args...); code != exitOK {
+			t.Errorf("%v exit=%d, want diagnostic success", args, code)
+		}
+	}
+	if _, code := runCLI(t, env, "config", "show"); code != exitConfig {
+		t.Fatalf("config show exit=%d, want explicit malformed-config diagnosis", code)
+	}
+	if _, code := runCLI(t, env, "config", "set", "safety.read_only", "false"); code != exitConfig {
+		t.Fatalf("config mutation exit=%d", code)
+	}
+	if after, err := os.ReadFile(cfgPath); err != nil || !bytes.Equal(after, malformed) {
+		t.Fatalf("malformed config changed: %q err=%v", after, err)
+	}
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	defer srv.Close()
+	env["ATL_JIRA_URL"] = srv.URL
+	env["ATL_JIRA_PAT"] = "test-pat"
+	if _, code := runCLI(t, env, "jira", "issue", "search", "--jql", "project=PROJ"); code != exitConfig || requests != 0 {
+		t.Fatalf("online read exit=%d requests=%d", code, requests)
 	}
 }

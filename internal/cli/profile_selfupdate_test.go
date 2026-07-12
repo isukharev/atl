@@ -1,6 +1,10 @@
 package cli
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/spf13/cobra"
+)
 
 func TestProfileCommandsAlwaysSkipSelfUpdate(t *testing.T) {
 	root := newRoot()
@@ -15,5 +19,21 @@ func TestProfileCommandsAlwaysSkipSelfUpdate(t *testing.T) {
 		if !skipSelfUpdate(child) {
 			t.Errorf("profile %s must skip self-update", child.Name())
 		}
+	}
+}
+
+func TestCobraDiagnosticBuiltinsSkipSelfUpdate(t *testing.T) {
+	root := newRoot()
+	for _, args := range [][]string{{"help"}, {"completion", "bash"}} {
+		cmd, _, err := root.Find(args)
+		if err != nil {
+			t.Fatalf("find %v: %v", args, err)
+		}
+		if !skipSelfUpdate(cmd) {
+			t.Errorf("%s must skip self-update", cmd.CommandPath())
+		}
+	}
+	if !skipSelfUpdate(&cobra.Command{Use: cobra.ShellCompRequestCmd}) {
+		t.Error("hidden completion request must skip self-update")
 	}
 }

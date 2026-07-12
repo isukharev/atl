@@ -242,9 +242,16 @@ func classifyCommandTree(root *cobra.Command) {
 	walk(root)
 }
 
-func resolveReadOnlyPolicy(flagEnabled bool) (bool, error) {
+func resolveReadOnlyPolicy(cmd *cobra.Command, flagEnabled bool) (bool, error) {
 	if flagEnabled || envReadOnly() {
 		return true, nil
+	}
+	// Offline/trivial reads are incapable of backend/config mutation and are
+	// already guaranteed not to self-update. Keep them usable for diagnosis
+	// when config.json itself is malformed; every mutator and online read still
+	// decodes the policy strictly below.
+	if cmd.Annotations[accessAnnotation] == "read-only" && skipSelfUpdate(cmd) {
+		return false, nil
 	}
 	cfg, err := config.LoadForEdit()
 	if err != nil {
