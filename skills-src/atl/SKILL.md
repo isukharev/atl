@@ -104,7 +104,8 @@ convenience filters (no `--cql` needed), `.md` view renders internal links as `[
 rich-text sections with explicit pending state) and opt-in `epic_children` views;
 compact non-empty named issue-field inspection; qualified, filterable issue
 history with explicit completeness and last-field-change metadata;
-transient multi-key export to artifact-only stdout; check/attachments/refs/tree;
+transient multi-key export to artifact-only stdout; deterministic epic evidence
+digest with per-source completeness; check/attachments/refs/tree;
 guarded link suggestions and
 versioned plan apply; guarded file-backed custom-field preview/apply; labels;
 complete/guarded watcher list/add/remove;

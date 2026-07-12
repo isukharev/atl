@@ -2211,6 +2211,45 @@ window. Treat `complete:false` as incomplete evidence rather than absence of a
 change. `-o text` renders a completeness line followed by an escaped Markdown
 table.
 
+### `atl jira epic digest`
+
+Aggregate the dated evidence commonly needed for an epic/quarter analysis
+without generating subjective management prose:
+
+```bash
+atl jira epic digest PROJ-1 --quarter 2026-Q2 \
+  --status-field 'Delivery Notes' --dod-field 'Definition of Done'
+atl jira epic digest PROJ-1 --since 2026-04-01 --until 2026-06-30 \
+  --epic-field customfield_10001 --include identity,children,comments,history,refs
+atl jira epic digest PROJ-1 --quarter 2026-Q2 --status-field customfield_10002 \
+  --expand-confluence 2 --confluence-heading 'Metrics'
+```
+
+`--quarter YYYY-Q1..Q4` maps to inclusive UTC calendar dates and conflicts with
+explicit `--since/--until`, which must be supplied together. The default include
+set is `identity,status-field,children,comments,links,history,refs`; repeat
+`--include` or pass a comma list to narrow it. Identity is always present.
+Status/DoD/Epic Link selectors accept exact ids or display names and never guess
+a company-specific narrative field.
+
+The schema-v1 JSON contains `period`, sorted `includes`, a `sources` map,
+`epic`, optional `status_field`/`dod_field`, a common IssueList under `children`
+plus `by_status` and dated updates, bounded newest comments/history, links and
+blockers, artifact refs, optional Confluence sections, and `staleness`.
+History and comments are filtered to the selected period; current child rows
+remain visible while `updated_in_period` and staleness apply the period boundary.
+Staleness is explainable evidence: the selected status-field change time,
+latest newer evidence time, newer child/comment counts, and textual reasons —
+not an opaque score or generated conclusion.
+
+Every component declares `complete`, `count`, and an optional bounded warning.
+Defaults/caps are 1000 children, 50 comments, 500 history entries, 128 KiB per
+large text value, and 10 Confluence expansions. A source failure remains visible
+and does not become proof of absence. Confluence expansion additionally requires
+an exact heading; it scans at most 50 refs, accepts only the safe same-origin
+references supported by `conf page resolve`, and reuses bounded `page section`.
+`-o text` is a compact evidence overview, not a management summary.
+
 ### `atl jira issue labels`
 
 Add and/or remove labels without clobbering labels set by others (uses the

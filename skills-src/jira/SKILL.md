@@ -68,6 +68,13 @@ export --keys PROJ-1,PROJ-2 --fields "Exact Name" --out - | jq -s '.'` (JSONL
 default), or add `--format json` and consume the array directly. The artifact is
 valid only on exit 0; a failed streaming read may have emitted a prefix.
 
+For one epic/quarter, prefer `atl jira epic digest <KEY> --quarter YYYY-QN
+--status-field "Exact Name"` over manually joining get/children/comments/history/
+refs. Inspect every `sources.*.complete` before conclusions. Treat `staleness`
+as dated evidence only; write any management synthesis yourself from the result.
+Add `--dod-field` explicitly when DoD lives outside description. Expand
+Confluence only with a known exact heading and a small requested count.
+
 ### 1. Find issues
 ```bash
 atl jira issue search --jql '<JQL>' --limit 50

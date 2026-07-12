@@ -51,7 +51,7 @@ func wikiBody(cmd *cobra.Command, fromFile, fromMD string) ([]byte, error) {
 
 func newJiraCmd() *cobra.Command {
 	c := &cobra.Command{Use: "jira", Short: "Jira: read/search/pull issues, edit via commands (native wiki)"}
-	cmds := []*cobra.Command{jiraIssueCmd(), jiraPullCmd(), jiraRenderCmd(), jiraApplyCmd(), jiraStatusCmd(), jiraPushCmd(), jiraExportCmd(), jiraPlanningCmd(), jiraQualityReportCmd(), jiraMeCmd(), jiraUserCmd(), jiraBoardCmd(), jiraSprintCmd(), jiraStructureCmd()}
+	cmds := []*cobra.Command{jiraIssueCmd(), jiraEpicCmd(), jiraPullCmd(), jiraRenderCmd(), jiraApplyCmd(), jiraStatusCmd(), jiraPushCmd(), jiraExportCmd(), jiraPlanningCmd(), jiraQualityReportCmd(), jiraMeCmd(), jiraUserCmd(), jiraBoardCmd(), jiraSprintCmd(), jiraStructureCmd()}
 	cmds = append(cmds, jiraMetaCmds()...)
 	c.AddCommand(cmds...)
 	return c
