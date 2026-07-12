@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Jira/Confluence/ATL skills now route status and quarter analysis through one
+  evidence-first decision flow, and CI pins its first-use epic path to a
+  read-only request/context budget with explicit source completeness.
+
 - Explicit `-o text` requests are now checked against a command-tree output
   contract before config, stdin, or network access and return exit 2 when the
   command has no text projection instead of silently emitting JSON. Confluence

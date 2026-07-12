@@ -81,6 +81,77 @@ atl jira issue search --jql 'project = PROJ ORDER BY key' --limit 50 |
 Transient views are read-only. Do not save their Markdown into a mirror or feed
 it to apply.
 
+## Analyze Jira evidence without manual joins
+
+Choose the narrowest path instead of calling every read command:
+
+| Question shape | Efficient path |
+|---|---|
+| unfamiliar single issue | compact non-empty fields → selected history/refs |
+| epic/quarter with known field names | one epic digest |
+| epic/quarter with unknown field names | compact fields → one epic digest |
+| several known keys | transient batch export → per-key exceptions only |
+| linked long Confluence page | resolve → outline → one exact section |
+
+For a first analysis of an unfamiliar epic:
+
+```sh
+atl --read-only jira issue fields PROJ-42
+
+atl --read-only jira epic digest PROJ-42 \
+  --quarter 2026-Q2 \
+  --status-field 'Delivery Notes' \
+  --dod-field 'Definition of Done'
+```
+
+The first command omits empty fields and compacts users/options/unknown objects.
+Choose an exact field name or stable id; do not begin with `*all` or raw values.
+The digest joins the current epic, dated field changes, paginated children,
+comments, blockers, refs, and explainable staleness. It deliberately does not
+write management prose. Inspect every `sources.<name>.complete`; an incomplete
+source means an absent fact is unproven.
+
+For a non-epic issue, qualify only the evidence field and period you need:
+
+```sh
+atl --read-only jira issue history PROJ-43 \
+  --field 'Delivery Notes' --since 2026-04-01 --until 2026-06-30
+atl --read-only jira issue refs PROJ-43 --fields 'Delivery Notes'
+```
+
+Use `last_changes` rather than list position. For several keys, avoid shell
+loops and durable manifests:
+
+```sh
+atl --read-only jira export \
+  --keys PROJ-42,PROJ-43,PROJ-44 \
+  --fields 'Delivery Notes,Impact' \
+  --format json --out - |
+  jq 'map({key, status: .fields.status.name, evidence: .fields.customfield_10001})'
+```
+
+Accept streamed stdout only on exit zero. Keep fields narrow; JSONL is the
+bounded choice for larger selections.
+
+Expand Confluence only after a reference is known, and only to the requested
+section:
+
+```sh
+atl --read-only conf page resolve '<same-origin-page-or-short-url>'
+atl --read-only conf page outline '<same-origin-page-or-short-url>'
+atl --read-only conf page section '<same-origin-page-or-short-url>' \
+  --heading 'Metrics' --max-bytes 65536 -o text
+```
+
+A digest can expand up to a requested small count with
+`--expand-confluence 1 --confluence-heading 'Metrics'`. Honor both digest-source
+and section completeness. Do not download a whole page to regex-slice Markdown.
+
+Private output belongs in an owner-only ignored directory, never a public
+repository or transcript. Avoid verbose tracing unless diagnosing a failure;
+do not publish queries, page URLs, bodies, or user records. Read-only analysis
+does not authorize comments, transitions, edits, or mirror replacement.
+
 ## Reuse named list projections
 
 Built-in `default` and `full` projections are present in effective config.

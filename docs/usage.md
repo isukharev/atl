@@ -2220,6 +2220,10 @@ table.
 Aggregate the dated evidence commonly needed for an epic/quarter analysis
 without generating subjective management prose:
 
+For the decision flow around unfamiliar issues, several keys, and linked
+Confluence evidence, see the evidence-first recipe in
+[agent-recipes.md](agent-recipes.md#analyze-jira-evidence-without-manual-joins).
+
 ```bash
 atl jira epic digest PROJ-1 --quarter 2026-Q2 \
   --status-field 'Delivery Notes' --dod-field 'Definition of Done'
