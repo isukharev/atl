@@ -47,6 +47,11 @@ Driving a ticket end-to-end while developing (assign → in progress → progres
 done → update the linked Confluence page)? Follow the `atl` skill's dev-loop reference
 (`skills/atl/reference/dev-loop.md`).
 
+For watcher membership, use `jira issue watchers list|add|remove`. Mutations
+preview by default: review the resolved DC username and complete current list,
+then apply with the exact proposal hash. Never replay `unknown`; if
+`complete:false`, stop because Jira did not disclose every identity.
+
 ## The canonical loop
 
 ### 1. Find issues

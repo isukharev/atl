@@ -18,6 +18,8 @@ Load this reference only when exact command or flag lookup is useful.
 | `jira issue check <KEY>` | Audit required/important fields; non-zero exit if required field empty | `--require fields`, `--warn fields` |
 | `jira issue delete <KEY>` | Permanently delete (DC has no trash) | `--force`, `--delete-subtasks` |
 | `jira issue labels <KEY>` | Add/remove labels | `--add labels`, `--remove labels` |
+| `jira issue watchers list <KEY>` | Read watcher membership | inspect `complete` |
+| `jira issue watchers add\|remove <KEY>` | Guarded watcher preview/apply | exactly one of `--username`, `--me`; `--apply`, `--expected-proposal-hash` |
 | `jira issue history <KEY>` | Show issue changelog | — |
 | `jira issue refs [KEY]` | Extract artifact references | `--jql`, `--fields`, `--limit` |
 | `jira issue tree` | Build read-only epic-to-child grouping | `--jql`, `--epic-field`, `--fields`, `--limit` |

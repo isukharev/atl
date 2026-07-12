@@ -79,6 +79,8 @@ jira issue link-epic
 jira issue plan apply
 jira issue transition
 jira issue update
+jira issue watchers add
+jira issue watchers remove
 jira push
 jira sprint add
 jira sprint remove
@@ -174,6 +176,9 @@ jira issue transition
 jira issue tree
 jira issue update
 jira issue view
+jira issue watchers add
+jira issue watchers list
+jira issue watchers remove
 jira link-types
 jira me
 jira planning report

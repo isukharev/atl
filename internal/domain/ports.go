@@ -195,6 +195,36 @@ type LenientIssueSearcher interface {
 	SearchLenient(ctx context.Context, jql string, fields []string, limit int, cursor string) ([]Issue, string, error)
 }
 
+// IssueWatcher is one Jira Data Center watcher identity. Name is the mutable
+// DC username; Key is retained for display/diagnostics but is not sent to the
+// watcher endpoints.
+type IssueWatcher struct {
+	Name        string `json:"name"`
+	Key         string `json:"key,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	Active      bool   `json:"active"`
+}
+
+// IssueWatcherList is Jira's non-paginated watcher projection. Complete is
+// false when watchCount proves that the returned identities are only a prefix
+// (usually because the caller cannot view every watcher).
+type IssueWatcherList struct {
+	WatchCount int            `json:"watch_count"`
+	IsWatching bool           `json:"is_watching"`
+	Watchers   []IssueWatcher `json:"watchers"`
+	Complete   bool           `json:"complete"`
+	Truncated  bool           `json:"truncated,omitempty"`
+}
+
+// IssueWatcherStore is an optional Jira capability. POST/DELETE writes are
+// single-attempt operations; callers reconcile by re-reading instead of
+// replaying an ambiguous request.
+type IssueWatcherStore interface {
+	ListIssueWatchers(ctx context.Context, key string) (*IssueWatcherList, error)
+	AddIssueWatcher(ctx context.Context, key, username string) error
+	RemoveIssueWatcher(ctx context.Context, key, username string) error
+}
+
 // Board is an agile board (scrum/kanban) on Jira Software. ProjectKey is the
 // board's location project when the backend reports one (board listings do;
 // the single-board fetch may not).

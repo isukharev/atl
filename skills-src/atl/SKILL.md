@@ -101,7 +101,8 @@ convenience filters (no `--cql` needed), `.md` view renders internal links as `[
 **Jira additions:** typed `render.jira.field_views` (including opt-in editable
 rich-text sections with explicit pending state) and opt-in `epic_children` views;
 issue history/check/attachments/refs/tree; guarded link suggestions and
-versioned plan apply; guarded file-backed custom-field preview/apply; labels,
+versioned plan apply; guarded file-backed custom-field preview/apply; labels;
+complete/guarded watcher list/add/remove;
 users, planning reports, and compact exports.
 `jira export` manifests hash configured backend identity but retain
 selectors/fields verbatim and may still be private. Boards/sprints use the Jira Software Agile API. Structure

@@ -2112,6 +2112,33 @@ atl jira issue labels PROJ-1 --add bug,backend [--remove wontfix]
 
 Flags: `--add` / `--remove` (comma-separated; at least one required, else exit 2).
 
+### `atl jira issue watchers list|add|remove`
+
+Read complete Jira Data Center watcher membership or preview one guarded
+membership change:
+
+```bash
+atl jira issue watchers list PROJ-1
+atl jira issue watchers add PROJ-1 --username alice
+atl jira issue watchers remove PROJ-1 --me --apply \
+  --expected-proposal-hash <hash-from-preview>
+```
+
+Choose exactly one of `--username` and `--me`. The latter resolves
+`/rest/api/2/myself` and requires a non-empty Data Center `name`; it never
+substitutes a Cloud account id. Usernames are trimmed, bounded to 255 bytes,
+and rejected on control/invisible characters. The preview hash binds issue key,
+operation, resolved username, and the complete sorted watcher membership. Apply
+re-reads membership and requires the same hash even when already satisfied.
+
+The Jira watcher endpoint is not paginated. `watchCount` must equal the number
+of returned named identities; otherwise list emits `complete:false`,
+`truncated:true`, and a stderr warning, while mutation fails closed. POST uses
+Jira DC's raw JSON-string body and DELETE uses an encoded `username` query.
+Each write is sent once and followed by a verification GET. Verified state is
+`applied`; ambiguous/partial state is `unknown` with a non-zero exit and must
+not be replayed automatically.
+
 ### `atl jira issue check`
 
 Audit that required/important fields are populated — a CI / pre-transition gate.
