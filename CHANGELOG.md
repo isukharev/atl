@@ -102,10 +102,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - **Release signing-key continuity is machine-enforced.** Before building a
-  tagged release, CI derives the public key from the protected signing secret
-  and requires it to match the trust key embedded in the latest published
-  stable client. Missing, malformed, non-canonical, or prematurely rotated keys
-  stop publication; the staged bridge-release path remains supported.
+  tagged release, CI enumerates stable releases, selects the maximum semantic
+  version, requires monotonic advancement, derives the public key from the
+  protected signing secret, and requires it to match that predecessor's trust
+  key. Empty discovery needs an exact one-shot bootstrap tag; current/predecessor
+  keys and the detached signature are mandatory and validated. The staged
+  bridge-release path remains supported.
 
 ### Fixed
 

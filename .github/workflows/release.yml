@@ -55,6 +55,9 @@ jobs:
       # Empty when the signing secret is not configured; the release fails
       # before building because the signed update chain is already established.
       HAS_SIGNING_KEY: ${{ secrets.ATL_RELEASE_PRIVATE_KEY != '' }}
+      # First-release bootstrap is intentionally tag-bound and must be removed
+      # after that release. An empty/transient release listing otherwise fails.
+      TRUST_BOOTSTRAP_TAG: ${{ vars.ATL_RELEASE_TRUST_BOOTSTRAP_TAG }}
       # Empty when the cross-repo tap token is not configured; gates the optional
       # Homebrew-tap auto-bump below. (secrets.* can't be used in a job-level `if`,
       # so it is surfaced as an env var and checked at step level.)
@@ -92,16 +95,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          previous_tag="$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // ""')"
+          releases="$RUNNER_TEMP/releases.json"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$releases"
+          previous_tag="$(go run ./scripts/select-release-predecessor \
+            --current "$GITHUB_REF_NAME" \
+            --bootstrap-tag "$TRUST_BOOTSTRAP_TAG" < "$releases")"
           trusted_source="$RUNNER_TEMP/trusted-pubkey.go"
-          if [ -n "$previous_tag" ]; then
+          if [ "$previous_tag" != "$GITHUB_REF_NAME" ]; then
             gh api --method GET "repos/$GITHUB_REPOSITORY/contents/internal/selfupdate/pubkey.go" \
               -f ref="$previous_tag" \
               -H "Accept: application/vnd.github.raw+json" > "$trusted_source"
           else
             cp internal/selfupdate/pubkey.go "$trusted_source"
           fi
-          go run ./scripts/check-release-key --trusted-source "$trusted_source"
+          go run ./scripts/check-release-key \
+            --trusted-source "$trusted_source" \
+            --current-source internal/selfupdate/pubkey.go
 
       - name: Pin VERSION to the tag
         run: echo "${GITHUB_REF_NAME#v}" > VERSION
@@ -121,7 +130,10 @@ jobs:
       - name: Sign manifest
         env:
           ATL_RELEASE_PRIVATE_KEY: ${{ secrets.ATL_RELEASE_PRIVATE_KEY }}
-        run: go run ./scripts/sign-manifest --manifest dist/manifest.json
+        run: |
+          set -eu
+          go run ./scripts/sign-manifest --manifest dist/manifest.json
+          test -s dist/manifest.json.sig
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
@@ -147,10 +159,7 @@ jobs:
                   dist/atl-linux-arm64 dist/atl-linux-arm64.sha256 \
                   dist/atl-darwin-amd64 dist/atl-darwin-amd64.sha256 \
                   dist/atl-darwin-arm64 dist/atl-darwin-arm64.sha256 \
-                  dist/manifest.json dist/atl.rb install.sh"
-          if [ -f dist/manifest.json.sig ]; then
-            assets="$assets dist/manifest.json.sig"
-          fi
+                  dist/manifest.json dist/manifest.json.sig dist/atl.rb install.sh"
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
             --generate-notes \

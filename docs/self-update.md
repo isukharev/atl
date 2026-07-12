@@ -150,11 +150,15 @@ The CI release job must produce these assets alongside the compiled binaries:
 - `manifest.json` — the manifest listing the version and each binary's sha256.
 - `manifest.json.sig` — `base64(ed25519_sign(private_key, manifest.json_bytes))`.
 
-Before building, CI must also derive the public key from its protected private
-key and compare it with the key embedded in the latest published stable client.
+Before building, CI must enumerate published stable releases, choose the maximum
+semantic version, require the new tag to advance it, derive the public key from
+its protected private key, and compare it with the key embedded in that client.
 This makes the old-key-signed bridge release an enforced part of rotation, not
-only a runbook instruction. With no previous release, compare against the source
-being released. A missing or mismatched signing key must stop publication.
+only a runbook instruction. The source tree's new public key must also parse as a
+canonical Ed25519 key. With no previous release, fail unless a protected,
+tag-bound first-release bootstrap variable explicitly names the current tag;
+then compare against the source being released. A missing/mismatched key or
+missing/empty detached signature must stop publication.
 
 An example signing step (using the `openssl` CLI or an equivalent Go tool):
 
