@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `conf page outline` and `conf page section` now expose structural CSF heading
+  hierarchies and bounded single-section Markdown without writing a mirror;
+  duplicate headings require an occurrence and truncation stops at whole block
+  boundaries with explicit completeness metadata.
+
 - Confluence read workflows now share a fail-closed page-reference resolver for
   opaque content ids, same-origin canonical/viewpage/display URLs, and one
   bounded `/x/` short-link redirect; `conf page resolve` exposes the stable id

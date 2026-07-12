@@ -1,0 +1,51 @@
+{
+  "id": "42",
+  "title": "Example",
+  "space": "ENG",
+  "version": 3,
+  "count": 4,
+  "total": 4,
+  "complete": true,
+  "original_bytes": 322,
+  "emitted_bytes": 322,
+  "headings": [
+    {
+      "index": 1,
+      "level": 1,
+      "title": "Overview",
+      "path": [
+        "Overview"
+      ],
+      "occurrence": 1
+    },
+    {
+      "index": 2,
+      "level": 2,
+      "title": "Details",
+      "path": [
+        "Overview",
+        "Details"
+      ],
+      "occurrence": 1
+    },
+    {
+      "index": 3,
+      "level": 2,
+      "title": "Details",
+      "path": [
+        "Overview",
+        "Details"
+      ],
+      "occurrence": 2
+    },
+    {
+      "index": 4,
+      "level": 1,
+      "title": "Appendix",
+      "path": [
+        "Appendix"
+      ],
+      "occurrence": 1
+    }
+  ]
+}

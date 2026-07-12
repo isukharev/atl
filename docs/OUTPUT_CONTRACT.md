@@ -883,6 +883,23 @@ before a request; ambiguous display matches and unsupported/malformed redirect
 targets fail closed. Read-only page consumers accept the same references but
 continue to emit the backend's stable page id in their existing result shapes.
 
+`atl conf page outline <REF>` emits
+`{id,title,space,version,count,total,complete,truncated?,original_bytes,
+emitted_bytes,headings:[{index,level,title,path,occurrence}]}`. The 1000-heading
+and 262144-byte structural caps are explicit: `count`/`emitted_bytes` describe
+emitted records and `total`/`original_bytes` describe parsed records. `-o text`
+is an indented Markdown list. Macro/code/table-contained headings are not
+entries.
+
+`atl conf page section <REF> --heading ...` emits
+`{id,page_title,space,version,heading,level,path,occurrence,markdown,complete,
+truncated?,original_bytes,emitted_bytes}`. Duplicate normalized titles require
+an explicit 1-based `--occurrence`. The section includes descendant headings
+and ends before the next same/higher-level heading. The byte cap is applied at
+rendered block boundaries; `complete:false,truncated:true` is never a complete
+section. `-o text` emits only `markdown`. No mirror artifact or writeback base
+is created.
+
 List-oriented Jira reads (`issue search`, `issue children`, `board
 issues/backlog`, and `sprint issues`) share one app-layer contract:
 

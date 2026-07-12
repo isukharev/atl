@@ -12,6 +12,8 @@ atl conf search --space <KEY> --title '<substring>' --type page --limit 25
 atl conf space tree --space <KEY> [--depth N]
 atl conf page list --space <KEY> [--status current|archived|trashed]
 atl conf page resolve <id-or-same-origin-url> -o id
+atl conf page outline <id-or-same-origin-url>
+atl conf page section <id-or-same-origin-url> --heading '<exact>' -o text
 atl conf page view <id-or-same-origin-url> --jira-view default -o text
 atl conf page view <id-or-same-origin-url> --jira-macros off -o text # untrusted/heavy page: placeholders only
 ```
@@ -30,6 +32,11 @@ Read-only page selectors accept stable ids, same-origin canonical/viewpage/REST
 URLs, exact display URLs, and one `/x/` redirect. Resolve once when several
 commands share a reference. Never send foreign URLs or replace exact resolution
 with fuzzy title search; ambiguity is exit 8.
+
+For long pages, outline before reading. Section selection is exact after
+case/whitespace normalization, includes descendant headings, and requires
+`--occurrence N` for duplicates. Check `complete`; `--max-bytes` truncates only
+at whole rendered blocks and a truncated section is not complete evidence.
 
 `--cql` caps at 1000 pages; `--space` and tree cap at 2000. A capped result has
 `truncated:true` and a stderr warning. Narrow the selection; never treat it as
@@ -121,7 +128,7 @@ ID projection accept `-o id` for one identifier per line.
 |---|---|---|
 | `conf search` | Find pages | `--cql` or convenience filters, `--limit`, `--cursor` |
 | `conf space tree` | Space hierarchy | `--space`, `--depth` |
-| `conf page resolve|list|get|view|meta|history|open` | Reference resolution and page reads | read selectors accept id/same-origin URL; view supports `--jira-view`, `--jira-macros` |
+| `conf page resolve|outline|section|list|get|view|meta|history|open` | Reference resolution and page reads | outline before long reads; section uses exact heading/occurrence/byte cap; view supports `--jira-view`, `--jira-macros` |
 | `conf page labels list <ID>` | Complete page-label read | no write; inspect `complete` |
 | `conf page labels add\|remove <ID> <LABEL>...` | Guarded label preview/apply | `--apply`, `--expected-proposal-hash` |
 | `conf page title set <ID>` | Guarded title preview/apply | `--from-file`, `--apply`, expected gates |

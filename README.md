@@ -346,6 +346,7 @@ atl jira issue fields PROJ-1 --field "Delivery Notes"
 atl jira issue history PROJ-1 --field "Delivery Notes" --since 2026-04-01
 atl jira export --keys PROJ-1,PROJ-2 --fields "Delivery Notes" --out - | jq -s '.'
 atl conf page resolve 'https://confluence.example.test/spaces/ENG/pages/42/Page'
+atl conf page outline 42 && atl conf page section 42 --heading 'Delivery Notes' -o text
 atl jira issue view PROJ-1 -o text   # configured Markdown, no files written
 atl jira issue search --jql 'project = PROJ AND status = "In Progress"' --columns key,summary,status,assignee
 atl jira issue search --jql 'project = PROJ' --view full
