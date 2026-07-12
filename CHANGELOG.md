@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Guarded Jira Data Center watcher operations.** `jira issue watchers list`
+  exposes complete membership or an explicit hidden/truncated state; `add` and
+  `remove` accept one reviewed username or safely resolve `--me`, preview by
+  default, hash-bind apply to current membership, send one write attempt, and
+  reconcile without automatic replay.
+
 - **Guarded Confluence page-label operations.** `conf page labels list` follows
   the complete content-label collection with explicit truncation semantics;
   `add` and `remove` preview by default, bind apply to the reviewed current set

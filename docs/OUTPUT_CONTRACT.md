@@ -817,6 +817,22 @@ field ids, sources, normalized types, and values; a changed local input fails
 before backend metadata/read/write calls. All proposed fields are sent in one
 request.
 
+`atl jira issue watchers list <KEY>` emits
+`{key,watch_count,is_watching,watchers:[{name,key?,display_name?,active}],
+complete,truncated?}`. Jira DC does not paginate this endpoint: completeness
+requires every counted watcher to have a returned username. A count/identity
+mismatch sets `complete:false`, `truncated:true`, and a stderr warning.
+
+`atl jira issue watchers add|remove <KEY>` is dry-run by default and emits
+`{key,operation,mode,status,username,identity_source,current,final?,
+proposal_hash,complete,reconciled?}`. Exactly one of an explicit DC
+`--username` or `/myself`-resolved `--me` is required. The proposal hash binds
+issue, operation, resolved username, and complete current membership. Apply
+requires the reviewed hash before `already_satisfied` or one non-retried write,
+then verifies membership. Status is `would_apply`, `already_satisfied`,
+`blocked`, `failed`, `applied`, or `unknown`; unknown is non-zero and must not
+be automatically replayed. Incomplete membership refuses every mutation.
+
 List-oriented Jira reads (`issue search`, `issue children`, `board
 issues/backlog`, and `sprint issues`) share one app-layer contract:
 

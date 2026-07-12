@@ -1,0 +1,17 @@
+{
+  "key": "PROJ-1",
+  "operation": "add",
+  "mode": "dry-run",
+  "status": "would_apply",
+  "username": "bob",
+  "identity_source": "username",
+  "current": [
+    {
+      "name": "alice",
+      "key": "user-1",
+      "active": true
+    }
+  ],
+  "proposal_hash": "49b55c67bdf5095d2fb6c8b3e1d6fb385ae80a42cd4ae178b7a098459de5ea5f",
+  "complete": true
+}

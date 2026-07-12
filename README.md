@@ -361,6 +361,8 @@ atl jira render mirror-jira --render-profile default   # re-render offline, no r
 # Write
 atl jira issue attachment upload PROJ-1 --file ./spec.xlsx
 atl jira issue assign PROJ-1 --me
+atl jira issue watchers list PROJ-1
+atl jira issue watchers add PROJ-1 --me # dry-run; apply with emitted proposal hash
 atl jira issue comment add PROJ-1 --from-md note.md
 atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
 atl jira issue field set PROJ-1 --from-md customfield_10001=notes.md --allow-fields customfield_10001   # dry-run
