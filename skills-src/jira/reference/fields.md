@@ -5,7 +5,11 @@
 Jira rejects unknown field ids, status names, and link types — discover the valid values first:
 
 - `atl jira fields` → `{ "fields": [ {id, name, custom} ] }`. Custom fields look like
-  `customfield_10001`; use the `id`, not the display name, with `--field`.
+  `customfield_10001`; exact ids and unambiguous display names are both valid selectors.
+- `atl jira issue fields <KEY>` → compact named records for non-empty fields by
+  default. Start here when the evidence-bearing custom fields are unknown;
+  repeat `--field "Exact Name"` to narrow. Use `--raw` only when the compact
+  projection is insufficient and private transport/user data is acceptable.
 - `atl jira field-options --project PROJ --type Bug --field priority` → `{ "options": [ ... ] }`
   the allowed values for a field in that project/issue-type context.
 - `atl jira transitions --key PROJ-1` → `{ "transitions": [ {id, name, to} ] }`. Pass the

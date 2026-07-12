@@ -653,12 +653,14 @@ atl config set --local render.jira.epic_field customfield_10004
 atl config set --local render.jira.include custom_fields,epic_children
 ```
 
-`custom_fields` (Jira only) lists custom field ids to surface in the Markdown
+`custom_fields` (Jira only) lists custom field ids or exact display names to surface in the Markdown
 metadata table under `full` (or when `custom_fields` is included); each renders
 as a field/value row from the raw field (scalar verbatim; object via
 `name`/`value`/`displayName`; array comma-joined; missing → omitted).
 
-`field_views` is the typed alternative. Each descriptor is:
+`field_views` is the typed alternative. Its `id` accepts a technical id or exact
+display name during an online pull/view. Names resolve fail-closed and the
+resolved id is recorded for byte-stable offline render/apply. Each descriptor is:
 
 ```json
 {
@@ -1625,8 +1627,38 @@ project, assignee, reporter, labels, links, comments, attachments.
 ```bash
 atl jira issue get PROJ-1
 atl jira issue get PROJ-1 --fields summary,status,issuetype,project,labels,description,attachment
+atl jira issue get PROJ-1 --fields summary,"Delivery Notes"
 atl jira issue get PROJ-1 -o text
 ```
+
+`--fields` accepts exact technical ids or exact case-insensitive display names.
+An ambiguous display name fails closed and lists candidate ids; use an id (or
+`id:<id>`) to disambiguate.
+
+### `atl jira issue fields`
+
+Inspect the fields actually carrying evidence on one issue:
+
+```bash
+atl jira issue fields PROJ-1
+atl jira issue fields PROJ-1 --field "Delivery Notes" --field Impact
+atl jira issue fields PROJ-1 --include-empty
+atl jira issue fields PROJ-1 --field assignee --raw
+```
+
+The default is deliberately **non-empty + compact**. Each record carries
+`id`, human `name`, `custom`, schema type, and a normalized value. User objects
+retain only stable username/key/display/active fields; options and named Jira
+objects omit email, avatars, `self` URLs, and unrelated transport properties.
+Unknown structured objects are represented by their non-empty key names rather
+than recursively exposing arbitrary private data. Strings, arrays, and nesting
+have explicit caps; a clipped record sets `truncated` and `original_bytes`.
+
+`--include-empty` adds missing/null/empty catalog fields. `--raw` returns the
+unprojected Jira values, may include private contact and transport data, and
+writes a warning to stderr. Exact `--field` selectors accept ids or names;
+duplicates after resolution are collapsed, while ambiguous names fail before
+the issue read.
 
 Flags:
 

@@ -1,0 +1,35 @@
+{
+  "key": "PROJ-1",
+  "mode": "compact",
+  "non_empty_only": true,
+  "count": 3,
+  "omitted_empty": 1,
+  "fields": [
+    {
+      "id": "assignee",
+      "name": "Assignee",
+      "custom": false,
+      "schema": "user",
+      "value": {
+        "active": true,
+        "display_name": "Alice",
+        "kind": "user",
+        "name": "alice"
+      }
+    },
+    {
+      "id": "customfield_1",
+      "name": "Delivery Notes",
+      "custom": true,
+      "schema": "string",
+      "value": "Current delivery evidence"
+    },
+    {
+      "id": "summary",
+      "name": "Summary",
+      "custom": false,
+      "schema": "string",
+      "value": "Plan"
+    }
+  ]
+}

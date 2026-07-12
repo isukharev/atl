@@ -5,6 +5,7 @@ Load this reference only when exact command or flag lookup is useful.
 | Command | What it does | Key flags |
 |---|---|---|
 | `jira issue get <KEY>` | Get an issue | `--fields` |
+| `jira issue fields <KEY>` | Compact non-empty named field inspection | repeat `--field`; opt in with `--include-empty` or private `--raw` |
 | `jira issue view <KEY>` | Render one configured Markdown view without writing files | `-o text`, `--render-root`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `jira issue search` | Search as a common IssueList / Markdown table | `--jql`, `--view`, `--columns`, `--limit`, `--cursor` |
 | `jira issue search -o id` | Print matching issue keys one per line | `-o id` |
