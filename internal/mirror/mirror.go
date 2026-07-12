@@ -35,6 +35,14 @@ const (
 	MDUnavailableStub            = ConfluenceDocumentMarker + "\n" + ConfluenceBodyReadOnlyMarker + "\n# Content\n\n<!-- atl: markdown view unavailable for this revision (the .csf did not parse); the .csf file is the source of truth -->\n"
 )
 
+// ConfluenceDocumentMarkerLine returns only the first marker line and removes
+// a CR attached to its line ending. All remaining Markdown bytes stay
+// significant; callers must not treat this as whole-document normalization.
+func ConfluenceDocumentMarkerLine(document string) string {
+	first, _, _ := strings.Cut(document, "\n")
+	return strings.TrimSuffix(first, "\r")
+}
+
 // Mirror is rooted at a directory holding one or more spaces.
 type Mirror struct {
 	Root string

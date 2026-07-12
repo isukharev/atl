@@ -122,6 +122,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Confluence marker checks accept CRLF line endings.** Render preflight and
+  relocation share one first-line helper that strips only the marker's attached
+  CR; current/legacy markers are classified correctly, future markers remain
+  fail-closed, and all body bytes stay significant.
+
 - **Malformed config no longer hides offline diagnostics.** Classified
   read-only commands that already skip self-update (including version, help,
   auth/config/profile diagnostics, and completion) bypass policy decoding;

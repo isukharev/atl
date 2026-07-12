@@ -9,6 +9,8 @@ description: Pull, read, edit, validate, and push Confluence pages with the atl 
 Use configured Markdown for reading and ordinary body edits. Keep native
 Confluence Storage Format (CSF) as the write substrate. `atl` prints JSON by
 default.
+Durable document markers may use LF or CRLF; atl normalizes only that marker
+line and never treats whole-document newline conversion as content-neutral.
 
 ## Preflight once per session
 

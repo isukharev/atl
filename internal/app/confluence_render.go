@@ -286,7 +286,7 @@ func preflightConfluenceRenderView(root, mdPath string) error {
 	if err != nil {
 		return fmt.Errorf("%w: inspect existing render target %s: %v", domain.ErrCheckFailed, mdPath, err)
 	}
-	first, _, _ := strings.Cut(string(b), "\n")
+	first := mirror.ConfluenceDocumentMarkerLine(string(b))
 	if strings.HasPrefix(first, "<!-- atl:document confluence-page") &&
 		first != mirror.ConfluenceDocumentMarker &&
 		first != "<!-- atl:document confluence-page v2 -->" &&

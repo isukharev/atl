@@ -123,7 +123,7 @@ func (m *Mirror) PlanPageRelocation(id, newRel string, pristineMD []byte) (*Page
 		return nil, fmt.Errorf("%w: relocation source metadata %s diverges from tracked version/hash; preserve and reconcile it before re-pulling", domain.ErrCheckFailed, oldMeta)
 	}
 	if Hash(mdBytes) != Hash(pristineMD) {
-		first, _, _ := strings.Cut(string(mdBytes), "\n")
+		first := ConfluenceDocumentMarkerLine(string(mdBytes))
 		if first == "<!-- atl:document confluence-page v2 -->" || first == "<!-- atl:document confluence-page v1 -->" || first == "<!-- atl:document confluence-page -->" {
 			return nil, fmt.Errorf("%w: tracked relocation view %s uses a legacy document format, so atl cannot distinguish old-format bytes from local edits; preserve any edits, run `conf render` at the old path to migrate the view, then re-pull", domain.ErrCheckFailed, oldMD)
 		}
