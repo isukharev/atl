@@ -40,7 +40,9 @@ Each item in a real `atl conf push` reports one of:
 - `failed: "<reason>"` — e.g. `forbidden` (exit 6), `not-found` (exit 4), `auth` (exit 3).
 - `problems: [...]` with `error` severity — invalid CSF; fix and retry.
 - `warning: "<text>"` — non-fatal (e.g. the post-push refresh of the mirror failed; the push
-  itself succeeded).
+  itself succeeded). Multiple independent refresh degradations are preserved in
+  that field. If the native Jira-macro set changed, atl retires its obsolete
+  generated snapshot and the warning asks you to re-pull current query rows.
 
 ## Pre-push checklist
 

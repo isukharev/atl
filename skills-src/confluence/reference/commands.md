@@ -87,7 +87,9 @@ Mirror-local config cannot enable authenticated Jira reads. Do not pair
 `--jira-view` with the opt-out. Push refresh preserves a recorded query suffix.
 If a corrupt/stale sidecar blocks recovery, remove only the generated
 `.jira-macros.json` file and pull again; intentional loss-approved macro removal
-retires it automatically.
+retires it automatically. A successful push that changes the native macro set
+also retires the obsolete snapshot and warns the agent to re-pull before
+relying on refreshed Jira query rows.
 
 Pull/render record the exact resolved section and typed-field descriptors in
 `.atl/state.json.views`. `conf apply` reproduces that recorded pristine view;

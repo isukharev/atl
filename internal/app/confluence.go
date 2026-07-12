@@ -732,20 +732,42 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 	// are read from the existing sidecar (push does not fetch them).
 	mdOpts := confMDViewOpts(refreshRS, page, readCommentsSidecar(m.Root, dir, slug))
 	if pageNode != nil {
+		if len(mirror.JiraMacroDescriptors(pageNode)) == 0 {
+			sidecarPath := confluenceJiraMacroPath(dir, slug)
+			if _, statErr := safepath.StatWithin(m.Root, sidecarPath); statErr == nil {
+				if removeErr := writeConfluenceJiraMacroSidecar(m.Root, dir, slug, nil); removeErr != nil {
+					item.Warning = appendWarning(item.Warning, "pushed but obsolete Jira macro view state could not be retired; local files were preserved: "+removeErr.Error())
+					return item, nil
+				}
+				item.Warning = appendWarning(item.Warning, "pushed; Jira query results were retired because the native macro set changed")
+			} else if !os.IsNotExist(statErr) {
+				item.Warning = appendWarning(item.Warning, "pushed but Jira macro view state could not be inspected; local files were preserved: "+statErr.Error())
+				return item, nil
+			}
+		}
 		var sidecarErr error
 		mdOpts, sidecarErr = confMDViewOptsFromSidecars(refreshRS, page, readCommentsSidecar(m.Root, dir, slug), m.Root, dir, slug, lc.Meta.ID, pageNode)
 		if sidecarErr != nil {
-			item.Warning = "pushed but Jira macro view state could not be reproduced; local files were preserved (remove only the generated .jira-macros.json sidecar, then run `conf pull`): " + sidecarErr.Error()
-			return item, nil
+			if errors.Is(sidecarErr, errStaleConfluenceJiraMacroSidecar) {
+				if removeErr := writeConfluenceJiraMacroSidecar(m.Root, dir, slug, nil); removeErr != nil {
+					item.Warning = appendWarning(item.Warning, "pushed but obsolete Jira macro view state could not be retired; local files were preserved (remove only the generated .jira-macros.json sidecar, then run `conf pull`): "+removeErr.Error())
+					return item, nil
+				}
+				mdOpts = confMDViewOpts(refreshRS, page, readCommentsSidecar(m.Root, dir, slug))
+				item.Warning = appendWarning(item.Warning, "pushed; Jira query results were retired because the native macro set changed — re-pull to resolve current macros")
+			} else {
+				item.Warning = appendWarning(item.Warning, "pushed but Jira macro view state could not be reproduced; local files were preserved (remove only the generated .jira-macros.json sidecar, then run `conf pull`): "+sidecarErr.Error())
+				return item, nil
+			}
 		}
 	}
 	if werr := m.WriteView(dir, slug, page, refs, mdOpts); werr != nil {
-		item.Warning = "pushed but local refresh failed (re-pull recommended): " + werr.Error()
+		item.Warning = appendWarning(item.Warning, "pushed but local refresh failed (re-pull recommended): "+werr.Error())
 	} else if verr := m.SaveViewStates(map[string]mirror.ViewState{lc.Meta.ID: viewStateOf(refreshRS)}); verr != nil {
 		// Recording the view state is best-effort, like the refresh itself: the
 		// push already succeeded, so a sidecar-record failure is a warning, not a
 		// failed push.
-		item.Warning = "pushed but view state could not be recorded (re-pull recommended): " + verr.Error()
+		item.Warning = appendWarning(item.Warning, "pushed but view state could not be recorded (re-pull recommended): "+verr.Error())
 	}
 	return item, nil
 }

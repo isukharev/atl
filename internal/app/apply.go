@@ -153,9 +153,9 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 		if decorated {
 			if jiraMacroDescriptorHash(mirror.JiraMacroDescriptors(node)) != jiraMacroDescriptorHash(mirror.JiraMacroDescriptors(root2)) {
 				if removeErr := writeConfluenceJiraMacroSidecar(m.Root, dir, slug, nil); removeErr != nil {
-					res.Warning = "applied, but the obsolete Jira macro sidecar could not be removed: " + removeErr.Error()
+					res.Warning = appendWarning(res.Warning, "applied, but the obsolete Jira macro sidecar could not be removed: "+removeErr.Error())
 				} else {
-					res.Warning = "applied; Jira query results were retired because the native macro set changed — re-pull to resolve remaining macros"
+					res.Warning = appendWarning(res.Warning, "applied; Jira query results were retired because the native macro set changed — re-pull to resolve remaining macros")
 				}
 			}
 			opts, sidecarErr := confMDViewOptsFromSidecars(rsView, confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug), m.Root, dir, slug, lc.Meta.ID, root2)
@@ -163,14 +163,14 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 				md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, opts)
 			} else {
 				md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, confMDViewOpts(rsView, confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug)))
-				res.Warning = "applied, but Jira macro enrichment could not be refreshed; re-pull the page"
+				res.Warning = appendWarning(res.Warning, "applied, but Jira macro enrichment could not be refreshed; re-pull the page")
 			}
 		} else {
 			md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, mirror.MDViewOpts{})
 		}
 	}
 	if werr := safepath.WriteFileWithin(m.Root, mdPath, md, 0o644); werr != nil {
-		res.Warning = "applied, but the .md view could not be refreshed and may be stale: " + werr.Error()
+		res.Warning = appendWarning(res.Warning, "applied, but the .md view could not be refreshed and may be stale: "+werr.Error())
 	} else if !stub {
 		// Record the settings the refreshed view was written with: the recorded
 		// (decorated) settings, or body-only when no decorations applied. Skipped
@@ -180,7 +180,7 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 			used = rsView
 		}
 		if rerr := m.SaveViewStates(map[string]mirror.ViewState{lc.Meta.ID: viewStateOf(used)}); rerr != nil {
-			res.Warning = "applied, but the view state could not be recorded: " + rerr.Error()
+			res.Warning = appendWarning(res.Warning, "applied, but the view state could not be recorded: "+rerr.Error())
 		}
 	}
 	return res, nil

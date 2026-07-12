@@ -423,7 +423,7 @@ handling the `--cql` page cap), see [docs/usage.md → Scripting & CI](docs/usag
 |---------|--------------------|
 | `command not found: atl` after install | `~/.local/bin` (or `$(go env GOBIN)`) is not on `PATH` — add it to your shell profile and reopen the shell. |
 | Exit **7** / "URL not set" / "no PAT found" | Setup is incomplete — run `atl config set --confluence-url …` and `atl auth login --service …` (or set `ATL_*_URL` / `ATL_*_PAT`). |
-| Exit **7** mentions `jira_list_views` | Run `atl config show`, inspect `jira_list_views_error`, then replace or remove the invalid preset with `atl config set jira.list_views.<name> …`; runtime reads stay blocked until the catalog is valid. |
+| Exit **7** mentions `jira_list_views` | Run `atl config show`, inspect `jira_list_views_error`, then replace or remove invalid presets with `atl config set jira.list_views.<name> …`; if several entries are invalid, delete them one at a time. Runtime reads stay blocked until the complete catalog is valid. |
 | Malformed `config.json` blocks normal commands | `atl version`, `atl help`, completion, and offline profile/auth diagnostics remain available. Repair the owner-only file; online reads and all mutations stay blocked. |
 | Exit **3** on every call | The PAT was refused (expired/revoked, or it belongs to a different instance) — create a fresh token and re-`auth login`. |
 | "refusing to send the PAT over http…" | The backend URL is non-https on a non-loopback host. Use `https`, or `export ATL_ALLOW_INSECURE=1` for an internal http instance you trust. |

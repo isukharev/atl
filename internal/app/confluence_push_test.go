@@ -47,6 +47,13 @@ func (s *stubStore) GetPage(context.Context, string, domain.PullOpts) (*domain.R
 	return &domain.Resource{ID: "123", Title: "T", Body: []byte("<p>x</p>"), BodyPresent: !s.omitBody, Version: s.newVer}, nil
 }
 
+func TestAppendWarningPreservesIndependentDegradations(t *testing.T) {
+	got := appendWarning(appendWarning("first", "second"), "third")
+	if got != "first; second; third" {
+		t.Fatalf("warnings=%q", got)
+	}
+}
+
 // syncedMirror lays down a page whose on-disk body matches its last-synced
 // state (so lc.Dirty == false) and returns the mirror root and the .csf path.
 func syncedMirror(t *testing.T, version int) (root, csfPath string) {
