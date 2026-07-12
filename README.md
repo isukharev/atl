@@ -398,7 +398,7 @@ atl jira field-options --project PROJ --field <field-id>
 | 4 | Not found |
 | 5 | Version conflict (optimistic lock) |
 | 6 | Forbidden (token lacks permission) |
-| 7 | Not configured — backend URL or PAT **not set** yet |
+| 7 | Invalid/incomplete configuration — for example a missing URL/PAT or invalid named view |
 | 8 | Check failed — `jira issue check` found empty required fields |
 
 `7` vs `3`: `7` means "finish setup" (no URL/token); `3` means "replace the token" (it was refused).
@@ -413,6 +413,7 @@ handling the `--cql` page cap), see [docs/usage.md → Scripting & CI](docs/usag
 |---------|--------------------|
 | `command not found: atl` after install | `~/.local/bin` (or `$(go env GOBIN)`) is not on `PATH` — add it to your shell profile and reopen the shell. |
 | Exit **7** / "URL not set" / "no PAT found" | Setup is incomplete — run `atl config set --confluence-url …` and `atl auth login --service …` (or set `ATL_*_URL` / `ATL_*_PAT`). |
+| Exit **7** mentions `jira_list_views` | Run `atl config show`, inspect `jira_list_views_error`, then replace or remove the invalid preset with `atl config set jira.list_views.<name> …`; runtime reads stay blocked until the catalog is valid. |
 | Exit **3** on every call | The PAT was refused (expired/revoked, or it belongs to a different instance) — create a fresh token and re-`auth login`. |
 | "refusing to send the PAT over http…" | The backend URL is non-https on a non-loopback host. Use `https`, or `export ATL_ALLOW_INSECURE=1` for an internal http instance you trust. |
 | Exit **5** on push | The remote page moved since your last pull (expected) — re-pull, reapply your edit, and push again; `--force` only after a human decides. |

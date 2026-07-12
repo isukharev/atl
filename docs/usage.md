@@ -310,6 +310,15 @@ written into a newly saved config. Each view has source-specific arrays for
 sources. It is global-only because these transient reads are not bound to one
 mirror root.
 
+Runtime commands validate the complete catalog before any network request. An
+invalid catalog fails with config exit 7 instead of silently falling back to an
+unrelated projection. `atl config show` remains available for recovery: it
+returns the raw catalog plus `jira_list_views_error`. Replace the catalog, set a
+corrected preset, or remove the bad custom preset with
+`atl config set jira.list_views.<name> null`. Invalid JSON syntax in
+`config.json` cannot be repaired safely as a dotted update; fix the file itself
+and rerun `config show`.
+
 ---
 
 ## `atl profile`
@@ -2600,6 +2609,8 @@ The default projection is `key,summary,status,assignee`;
 `--fields` accepts Jira field ids and replaces that list. `--view NAME` selects
 the preset's `structure` fields; explicit `--fields` wins. Structure presets
 accept Jira field ids only because hierarchy columns remain fixed and honest.
+The JSON projection records `source:"list-view"` for named/default presets and
+`source:"explicit"` only when `--fields` supplied the projection.
 
 Tempo's browser saved views and per-user column adjustments are a separate UI
 configuration surface and are not reproduced by the documented integration
@@ -2668,7 +2679,9 @@ resource. The output preserves the raw response under `raw`, exposes
 `inaccessible_rows` so scripts can detect permission gaps.
 
 `pull-issues` collects numeric Jira issue ids from Structure issue rows and reads
-the matching Jira issues via generated `id in (...)` JQL batches. It emits:
+the matching Jira issues via generated `id in (...)` JQL batches. Its default
+field set comes from `jira.list_views.default.structure`; use `--view` for a
+named projection or explicit `--fields` to override it. It emits:
 
 ```json
 {

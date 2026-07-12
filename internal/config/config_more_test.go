@@ -2,11 +2,14 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/domain"
 )
 
 // clearConfigEnv removes every environment variable that influences Dir/Load so
@@ -186,9 +189,9 @@ func TestLoadLegacyEnvNamesOverlay(t *testing.T) {
 	}
 }
 
-// Malformed JSON is tolerated, not fatal: json.Unmarshal's error is swallowed so
-// a partial/legacy file never blocks a run. Env still overlays on top.
-func TestLoadMalformedJSONIsTolerated(t *testing.T) {
+// Malformed JSON fails as configuration before env overlays or backend access;
+// silently treating it as empty could erase unrelated settings on the next set.
+func TestLoadMalformedJSONFailsClosed(t *testing.T) {
 	clearConfigEnv(t)
 	dir := t.TempDir()
 	t.Setenv("ATL_CONFIG_DIR", dir)
@@ -197,15 +200,11 @@ func TestLoadMalformedJSONIsTolerated(t *testing.T) {
 	}
 	t.Setenv("ATL_JIRA_URL", "https://env-jira.example.com")
 
-	c, err := Load()
-	if err != nil {
-		t.Fatalf("Load() with malformed JSON should not error, got %v", err)
+	if _, err := Load(); !errors.Is(err, domain.ErrConfig) {
+		t.Fatalf("Load() malformed error=%v", err)
 	}
-	if c.ConfluenceURL != "" {
-		t.Errorf("ConfluenceURL = %q, want empty (malformed file ignored)", c.ConfluenceURL)
-	}
-	if c.JiraURL != "https://env-jira.example.com" {
-		t.Errorf("JiraURL = %q, want env overlay to still apply", c.JiraURL)
+	if _, err := LoadForEdit(); !errors.Is(err, domain.ErrConfig) {
+		t.Fatalf("LoadForEdit() malformed error=%v", err)
 	}
 }
 

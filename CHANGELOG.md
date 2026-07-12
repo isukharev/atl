@@ -109,6 +109,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Named Jira list-view config is recoverable and fail-closed.** Invalid
+  catalogs now stop runtime commands with config exit 7 before network access
+  while `config show` and `config set` expose a narrow repair path. Precedence
+  is covered across every list source and Structure projections consistently
+  report `list-view` for built-in/custom presets.
+
 - **Confluence Jira-query views remain byte-stable through guarded writes.**
   Post-push refresh now reconstructs recorded query suffixes through the same
   sidecar-aware path as render/apply/relocation, diagnostics distinguish Jira

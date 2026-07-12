@@ -45,6 +45,8 @@ type IssueList struct {
 	Page          IssueListPage       `json:"page"`
 }
 
+const issueListSchemaVersion = 1
+
 var issueListContextColumns = map[string]bool{
 	"board.column": true, "board.column_index": true, "board.column_mapped": true,
 	"board.in_board": true, "board.in_backlog": true, "sprint.id": true,
@@ -110,7 +112,7 @@ func NewIssueList(source IssueListSource, selection map[string]any, columns, fie
 	}
 	complete := next == ""
 	return &IssueList{
-		SchemaVersion: 1, Source: source, Selection: selection,
+		SchemaVersion: issueListSchemaVersion, Source: source, Selection: selection,
 		Projection: IssueListProjection{Columns: columns, Fields: fields, Ordering: ordering},
 		Rows:       rows, Page: IssueListPage{Count: len(rows), Complete: complete, Truncated: !complete, NextCursor: nextCursor},
 	}
