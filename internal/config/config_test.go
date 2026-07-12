@@ -1,9 +1,30 @@
 package config
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/domain"
 )
+
+func TestLoadInvalidJiraListViewsIsConfigErrorButEditable(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("ATL_CONFIG_DIR", dir)
+	body := `{"jira_list_views":{"broken":{"search":["board.column"]}}}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(); !errors.Is(err, domain.ErrConfig) || !strings.Contains(err.Error(), "jira_list_views") {
+		t.Fatalf("strict load error=%v", err)
+	}
+	cfg, err := LoadForEdit()
+	if err != nil || cfg.JiraListViews["broken"].Search[0] != "board.column" {
+		t.Fatalf("editable load=%+v err=%v", cfg, err)
+	}
+}
 
 func TestCheckSecureURL(t *testing.T) {
 	t.Setenv("ATL_ALLOW_INSECURE", "")

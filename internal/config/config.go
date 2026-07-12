@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/safepath"
 )
 
@@ -52,9 +53,28 @@ func path() string { return filepath.Join(Dir(), "config.json") }
 // Load reads the config file (if any) then overlays environment variables.
 // Env always wins so CI/agents can override without touching disk.
 func Load() (*Config, error) {
+	c, err := LoadForEdit()
+	if err != nil {
+		return nil, err
+	}
+	views, err := NormalizeJiraListViews(c.JiraListViews)
+	if err != nil {
+		return nil, fmt.Errorf("%w: jira_list_views: %v", domain.ErrConfig, err)
+	}
+	c.JiraListViews = views
+	return c, nil
+}
+
+// LoadForEdit reads non-secret config and applies environment URL overrides
+// without normalizing jira_list_views. It is reserved for `config show` and a
+// list-view repair operation, so a malformed view can be inspected or replaced
+// through atl while every runtime command continues to use strict Load.
+func LoadForEdit() (*Config, error) {
 	c := &Config{}
 	if b, err := os.ReadFile(path()); err == nil {
-		_ = json.Unmarshal(b, c) // tolerate partial/legacy files
+		if err := json.Unmarshal(b, c); err != nil {
+			return nil, fmt.Errorf("%w: decode config.json: %v", domain.ErrConfig, err)
+		}
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
@@ -70,11 +90,6 @@ func Load() (*Config, error) {
 	c.ConfluenceURL = strings.TrimRight(c.ConfluenceURL, "/")
 	c.JiraURL = strings.TrimRight(c.JiraURL, "/")
 	c.UpdateBaseURL = strings.TrimRight(c.UpdateBaseURL, "/")
-	views, err := NormalizeJiraListViews(c.JiraListViews)
-	if err != nil {
-		return nil, fmt.Errorf("jira_list_views: %w", err)
-	}
-	c.JiraListViews = views
 	return c, nil
 }
 
@@ -85,7 +100,7 @@ func Save(c *Config) error {
 	}
 	views, err := NormalizeJiraListViews(c.JiraListViews)
 	if err != nil {
-		return fmt.Errorf("jira_list_views: %w", err)
+		return fmt.Errorf("%w: jira_list_views: %v", domain.ErrConfig, err)
 	}
 	copy := *c
 	copy.JiraListViews = views

@@ -61,7 +61,7 @@ maps them via `errors.Is`:
 | `4` | `exitNotFound` | `domain.ErrNotFound` | Resource does not exist or is not visible |
 | `5` | `exitVersionConfl` | `domain.ErrVersionConflict` | Confluence push: remote moved past synced version |
 | `6` | `exitForbidden` | `domain.ErrForbidden` | Authenticated but lacks permission for this object |
-| `7` | `exitConfig` | `domain.ErrConfig` | Backend URL or PAT not set — setup incomplete |
+| `7` | `exitConfig` | `domain.ErrConfig` | Invalid/incomplete configuration, including a missing backend URL/PAT or invalid named view |
 | `8` | `exitCheckFailed` | `domain.ErrCheckFailed` | `jira issue check`: a `--require` field is empty (gate failed) |
 
 ### Practical notes
@@ -420,7 +420,15 @@ gating. When any page's comment listing is truncated, the result carries
 `comments_truncated: true` and the CLI writes a stderr warning; the JSON on
 stdout stays clean.
 
-`atl config show` emits `{ "confluence_url"?, "jira_url"?, "update_base_url"?, "render", "render_provenance"?, "local_config_path"?, "mirror" }`. `render` is the **effective** merged render configuration (always present; both `jira` and `confluence` sections carry at least `profile`, defaulting to `default`). `render_provenance` maps each dotted render key whose value is *not* the built-in default to its source (`global` or `local`) and is `omitempty` — an all-default mirror emits none, keeping the shape backward-compatible. `local_config_path` appears only when a per-mirror `.atl/config.json` is in scope from the current directory. Warnings about forbidden/unknown keys in a local file go to **stderr** as `warning:` lines; stdout stays clean. `config set` accepts a positional dotted render key (`render.{jira,confluence}.{profile,include,exclude}`, plus `render.jira.custom_fields`, `render.jira.field_views`, and `render.jira.epic_field`) alongside the existing URL flags; `field_views` is a JSON descriptor array. `--local` writes the per-mirror file (render keys only — a URL flag with `--local` is a usage error, exit 2).
+`atl config show` emits `{ "confluence_url"?, "jira_url"?, "update_base_url"?, "render", "jira_list_views", "jira_list_views_error"?, "render_provenance"?, "local_config_path"?, "mirror" }`. `render` is the **effective** merged render configuration (always present; both `jira` and `confluence` sections carry at least `profile`, defaulting to `default`). `render_provenance` maps each dotted render key whose value is *not* the built-in default to its source (`global` or `local`) and is `omitempty` — an all-default mirror emits none, keeping the shape backward-compatible. `local_config_path` appears only when a per-mirror `.atl/config.json` is in scope from the current directory. Warnings about forbidden/unknown keys in a local file go to **stderr** as `warning:` lines; stdout stays clean. `config set` accepts a positional dotted render key (`render.{jira,confluence}.{profile,include,exclude}`, plus `render.jira.custom_fields`, `render.jira.field_views`, and `render.jira.epic_field`) alongside the existing URL flags; `field_views` is a JSON descriptor array. `--local` writes the per-mirror file (render keys only — a URL flag with `--local` is a usage error, exit 2).
+
+Runtime commands validate all `jira_list_views` before network access and map
+an invalid catalog to config exit 7. Recovery is deliberately narrower:
+`config show` returns the raw entries and `jira_list_views_error`, and
+`config set jira.list_views...` may replace/delete the invalid entry. Other
+commands never consume a partially valid catalog. Malformed `config.json` JSON
+also maps to exit 7 and must be repaired as a file rather than overwritten from
+an uncertain partial decode.
 
 `atl profile show` emits `{exists,path,hash,data?}`. A missing profile is a
 successful read with `exists:false`, the future profile path, and a stable
@@ -988,7 +996,7 @@ always present; when there are no reported gaps it is `[]`.
   "forest_version": {"signature": 55, "version": 7},
   "projection": {
     "kind": "jira-fields-v1",
-    "source": "default",
+    "source": "list-view",
     "attributes": ["key", "summary", "status", "assignee"],
     "browser_view_reproduced": false
   },
@@ -1008,6 +1016,10 @@ always present; when there are no reported gaps it is `[]`.
   "warnings": []
 }
 ```
+
+`projection.source` is `list-view` for the built-in default, `full`, and custom
+named views; it is `explicit` when `--fields` wins. The selected preset name is
+reported separately as `projection.view`.
 
 `-o text` renders emitted `#`, numeric Depth (relative when selected), technical
 Type/Item, separate Jira value columns, and Access. It does not duplicate key

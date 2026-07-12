@@ -435,7 +435,7 @@ func BoardSnapshotMarkdown(snapshot *BoardSnapshot) string {
 		columns = []string{"position", "key", "summary", "status", "board.column", "assignee"}
 	}
 	fields := snapshot.Projection.Fields
-	list := &IssueList{SchemaVersion: 1, Source: IssueListSource{Kind: "board"}, Selection: map[string]any{"scope": snapshot.Scope}, Projection: IssueListProjection{Columns: columns, Fields: fields, Ordering: "backend-rank", View: snapshot.Projection.View}, Rows: []IssueListRow{}, Page: IssueListPage{Count: snapshot.RowCount, Complete: snapshot.Complete, Truncated: snapshot.Truncated}}
+	list := &IssueList{SchemaVersion: issueListSchemaVersion, Source: IssueListSource{Kind: "board"}, Selection: map[string]any{"scope": snapshot.Scope}, Projection: IssueListProjection{Columns: columns, Fields: fields, Ordering: "backend-rank", View: snapshot.Projection.View}, Rows: []IssueListRow{}, Page: IssueListPage{Count: snapshot.RowCount, Complete: snapshot.Complete, Truncated: snapshot.Truncated}}
 	if snapshot.Board != nil {
 		list.Source.ID = strconv.Itoa(snapshot.Board.ID)
 		list.Source.Name = snapshot.Board.Name

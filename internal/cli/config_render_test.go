@@ -54,6 +54,39 @@ func TestConfigListViewsExposeBuiltinsAndAddNamedPreset(t *testing.T) {
 	}
 }
 
+func TestConfigListViewsInvalidSectionCanBeShownAndRepaired(t *testing.T) {
+	cfgDir := t.TempDir()
+	env := map[string]string{"ATL_CONFIG_DIR": cfgDir}
+	configPath := filepath.Join(cfgDir, "config.json")
+	invalid := `{"jira_list_views":{"broken":{"search":["board.column"]}}}`
+	if err := os.WriteFile(configPath, []byte(invalid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := runCLI(t, env, "config", "show")
+	if code != exitOK {
+		t.Fatalf("config show invalid views: exit=%d output=%q", code, out)
+	}
+	var shown configShowResult
+	if err := json.Unmarshal([]byte(out), &shown); err != nil || shown.JiraListViewsError == "" || shown.JiraListViews["broken"].Search[0] != "board.column" {
+		t.Fatalf("inspect invalid views=%+v err=%v output=%s", shown, err, out)
+	}
+	if _, code := runCLI(t, env, "jira", "issue", "search", "--jql", "project = PROJ"); code != exitConfig {
+		t.Fatalf("runtime invalid-view exit=%d, want config", code)
+	}
+	if _, code := runCLI(t, env, "config", "set", "jira.list_views.broken", "null"); code != exitOK {
+		t.Fatalf("repair invalid view exit=%d", code)
+	}
+	out, code = runCLI(t, env, "config", "show")
+	if code != exitOK {
+		t.Fatalf("config show after repair: exit=%d output=%q", code, out)
+	}
+	shown = configShowResult{}
+	if err := json.Unmarshal([]byte(out), &shown); err != nil || shown.JiraListViewsError != "" || len(shown.JiraListViews["default"].Search) == 0 {
+		t.Fatalf("repaired views=%+v err=%v", shown, err)
+	}
+}
+
 // TestConfigSetLocalInsideMirror writes the per-mirror file when run from inside
 // a mirror (an .atl marker dir present).
 func TestConfigSetLocalInsideMirror(t *testing.T) {

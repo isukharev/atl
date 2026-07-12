@@ -114,23 +114,30 @@ func newConfigCmd() *cobra.Command {
 		Use:   "show",
 		Short: "Show resolved config (effective render + provenance)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := loadConfig()
+			cfg, err := config.LoadForEdit()
 			if err != nil {
 				return err
+			}
+			views, viewErr := config.NormalizeJiraListViews(cfg.JiraListViews)
+			viewError := ""
+			if viewErr != nil {
+				views = cfg.JiraListViews
+				viewError = viewErr.Error()
 			}
 			// Resolve the local (per-mirror) render layer from cwd. Warnings from a
 			// shared/hostile local file go to stderr and never influence output.
 			local, localPath := loadLocalFromCwd(cmd.ErrOrStderr())
 			render, prov := config.EffectiveRender(cfg, local)
 			out := configShowResult{
-				ConfluenceURL:    cfg.ConfluenceURL,
-				JiraURL:          cfg.JiraURL,
-				UpdateBaseURL:    cfg.UpdateBaseURL,
-				Render:           render,
-				JiraListViews:    cfg.JiraListViews,
-				RenderProvenance: nonDefaultProvenance(prov),
-				LocalConfigPath:  localPath,
-				Mirror:           mirrorHints(),
+				ConfluenceURL:      cfg.ConfluenceURL,
+				JiraURL:            cfg.JiraURL,
+				UpdateBaseURL:      cfg.UpdateBaseURL,
+				Render:             render,
+				JiraListViews:      views,
+				JiraListViewsError: viewError,
+				RenderProvenance:   nonDefaultProvenance(prov),
+				LocalConfigPath:    localPath,
+				Mirror:             mirrorHints(),
 			}
 			return emit(cmd, out, func() string { return configShowText(out) })
 		},
@@ -186,7 +193,14 @@ func parseSetArgs(args []string) (key, value string, hasKV bool, err error) {
 
 // runSetGlobal persists URL flags and/or a render key to the global config.
 func runSetGlobal(cmd *cobra.Command, key, value string, hasKV bool, confluenceURL, jiraURL, updateURL string) error {
-	cfg, err := loadConfig()
+	repairingViews := hasKV && (key == "jira.list_views" || strings.HasPrefix(key, "jira.list_views."))
+	var cfg *config.Config
+	var err error
+	if repairingViews {
+		cfg, err = config.LoadForEdit()
+	} else {
+		cfg, err = loadConfig()
+	}
 	if err != nil {
 		return err
 	}
@@ -355,6 +369,9 @@ func configShowText(out configShowResult) string {
 	}
 	sort.Strings(viewNames)
 	fmt.Fprintf(&b, "jira_list_views: %s\n", strings.Join(viewNames, ","))
+	if out.JiraListViewsError != "" {
+		fmt.Fprintf(&b, "jira_list_views_error: %s\n", out.JiraListViewsError)
+	}
 	if len(out.RenderProvenance) > 0 {
 		keys := make([]string, 0, len(out.RenderProvenance))
 		for k := range out.RenderProvenance {
@@ -374,14 +391,15 @@ func configShowText(out configShowResult) string {
 }
 
 type configShowResult struct {
-	ConfluenceURL    string                         `json:"confluence_url,omitempty"`
-	JiraURL          string                         `json:"jira_url,omitempty"`
-	UpdateBaseURL    string                         `json:"update_base_url,omitempty"`
-	Render           config.RenderConfig            `json:"render"`
-	JiraListViews    map[string]config.JiraListView `json:"jira_list_views"`
-	RenderProvenance map[string]string              `json:"render_provenance,omitempty"`
-	LocalConfigPath  string                         `json:"local_config_path,omitempty"`
-	Mirror           mirrorHint                     `json:"mirror"`
+	ConfluenceURL      string                         `json:"confluence_url,omitempty"`
+	JiraURL            string                         `json:"jira_url,omitempty"`
+	UpdateBaseURL      string                         `json:"update_base_url,omitempty"`
+	Render             config.RenderConfig            `json:"render"`
+	JiraListViews      map[string]config.JiraListView `json:"jira_list_views"`
+	JiraListViewsError string                         `json:"jira_list_views_error,omitempty"`
+	RenderProvenance   map[string]string              `json:"render_provenance,omitempty"`
+	LocalConfigPath    string                         `json:"local_config_path,omitempty"`
+	Mirror             mirrorHint                     `json:"mirror"`
 }
 
 type mirrorHint struct {

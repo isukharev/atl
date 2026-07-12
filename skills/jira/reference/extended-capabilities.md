@@ -116,6 +116,8 @@ Calculated grouping rows intentionally keep technical identities because their
 row ids can be regenerated. The default Jira-field projection is
 `key,summary,status,assignee`; use `--fields` for the PM's
 planning columns or a confirmed named `--view` for repeated projections.
+The snapshot reports `projection.source:list-view` for built-in/custom presets
+and `projection.source:explicit` only when `--fields` wins.
 Do not claim this matches the browser's selected saved view:
 the supported integration API does not reliably expose saved/per-user columns,
 and the output explicitly records `browser_view_reproduced:false`.
