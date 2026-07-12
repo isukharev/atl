@@ -122,6 +122,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Review follow-ups preserve recoverability and generated state.** A
+  successful Confluence push retires obsolete Jira-macro snapshots when the
+  native macro set changes, multiple invalid named list views can be deleted
+  one at a time while runtime reads remain fail-closed, independent post-write
+  warnings accumulate, and Context7 workflow controls must be active rather
+  than merely present in YAML comments. Context7 exclusion tests also pin the
+  official any-depth simple-name and root-scoped path/glob semantics.
+
 - **Confluence marker checks accept CRLF line endings.** Render preflight and
   relocation share one first-line helper that strips only the marker's attached
   CR; current/legacy markers are classified correctly, future markers remain

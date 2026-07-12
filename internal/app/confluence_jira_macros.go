@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -24,6 +25,8 @@ const (
 	confluenceJiraMacroRowsPerPage    = 2000
 	confluenceJiraMacroSidecarMax     = 32 << 20
 )
+
+var errStaleConfluenceJiraMacroSidecar = errors.New("stale Jira macro sidecar")
 
 type confluenceJiraMacroEntry struct {
 	Index int        `json:"index"`
@@ -215,7 +218,7 @@ func readConfluenceJiraMacroSidecar(root, dir, slug, pageID string, node *csf.No
 	}
 	descriptors := mirror.JiraMacroDescriptors(node)
 	if sidecar.MacroHash != jiraMacroDescriptorHash(descriptors) {
-		return nil, fmt.Errorf("stale Jira macro sidecar")
+		return nil, errStaleConfluenceJiraMacroSidecar
 	}
 	validIndices := make(map[int]bool, len(descriptors))
 	for _, descriptor := range descriptors {
@@ -224,7 +227,7 @@ func readConfluenceJiraMacroSidecar(root, dir, slug, pageID string, node *csf.No
 	seenIndices := map[int]bool{}
 	rows := 0
 	for _, entry := range sidecar.Entries {
-		if !validIndices[entry.Index] || seenIndices[entry.Index] || entry.List == nil || entry.List.SchemaVersion != 1 {
+		if !validIndices[entry.Index] || seenIndices[entry.Index] || entry.List == nil || entry.List.SchemaVersion != issueListSchemaVersion {
 			return nil, fmt.Errorf("invalid Jira macro sidecar entry")
 		}
 		seenIndices[entry.Index] = true

@@ -244,7 +244,9 @@ func namedFencedSnippets(path string) (int, error) {
 func excludedDirectory(path string, patterns []string) bool {
 	path = strings.TrimPrefix(filepath.ToSlash(path), "./")
 	for _, pattern := range patterns {
-		pattern = strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(pattern)), "./")
+		pattern = filepath.ToSlash(strings.TrimSpace(pattern))
+		rootSpecific := strings.HasPrefix(pattern, "./")
+		pattern = strings.TrimPrefix(pattern, "./")
 		if pattern == "" {
 			continue
 		}
@@ -253,7 +255,7 @@ func excludedDirectory(path string, patterns []string) bool {
 		}
 		// Simple names match a directory at any depth, matching Context7's
 		// documented exclusion semantics.
-		if !strings.Contains(pattern, "/") {
+		if !rootSpecific && !strings.Contains(pattern, "/") {
 			for _, segment := range strings.Split(path, "/") {
 				matched, matchErr := filepath.Match(pattern, segment)
 				if matchErr == nil && matched {
@@ -261,8 +263,41 @@ func excludedDirectory(path string, patterns []string) bool {
 				}
 			}
 		}
+		// Path-shaped and root-specific glob patterns are anchored at the
+		// repository root. The leading ./ changes scope; it is not discarded
+		// into the simple-name any-depth behavior above.
+		if (rootSpecific || strings.Contains(pattern, "/")) && directoryGlobMatch(path, pattern) {
+			return true
+		}
 	}
 	return false
+}
+
+func directoryGlobMatch(path, pattern string) bool {
+	var expression strings.Builder
+	expression.WriteString("^")
+	for index := 0; index < len(pattern); {
+		switch {
+		case strings.HasPrefix(pattern[index:], "**/"):
+			expression.WriteString("(?:.*/)?")
+			index += 3
+		case strings.HasPrefix(pattern[index:], "**"):
+			expression.WriteString(".*")
+			index += 2
+		case pattern[index] == '*':
+			expression.WriteString("[^/]*")
+			index++
+		case pattern[index] == '?':
+			expression.WriteString("[^/]")
+			index++
+		default:
+			expression.WriteString(regexp.QuoteMeta(pattern[index : index+1]))
+			index++
+		}
+	}
+	expression.WriteString("(?:/.*)?$")
+	matched, err := regexp.MatchString(expression.String(), path)
+	return err == nil && matched
 }
 
 func isMarkdown(name string) bool {
@@ -305,6 +340,7 @@ func validateAutomation(root string) error {
 		return string(b), nil
 	}
 	require := func(path, scope, content string, fragments ...string) error {
+		content = yamlActiveContent(content)
 		for _, fragment := range fragments {
 			if !strings.Contains(content, fragment) {
 				return fmt.Errorf("%s %s must contain %q", path, scope, fragment)
@@ -345,6 +381,36 @@ func validateAutomation(root string) error {
 	return require(manualPath, "job refresh", manualJob,
 		"environment: context7", "secrets.CONTEXT7_API_KEY",
 		"https://context7.com/api/v1/refresh")
+}
+
+func yamlActiveContent(content string) string {
+	lines := strings.Split(content, "\n")
+	for index, line := range lines {
+		single, double, escaped := false, false, false
+		for offset, char := range line {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if char == '\\' && double {
+				escaped = true
+				continue
+			}
+			if char == '\'' && !double {
+				single = !single
+				continue
+			}
+			if char == '"' && !single {
+				double = !double
+				continue
+			}
+			if char == '#' && !single && !double {
+				lines[index] = line[:offset]
+				break
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // yamlChildBlock returns one direct child's indentation-bounded YAML block.

@@ -87,6 +87,33 @@ func TestConfigListViewsInvalidSectionCanBeShownAndRepaired(t *testing.T) {
 	}
 }
 
+func TestConfigListViewsCanDeleteMultipleInvalidPresetsSequentially(t *testing.T) {
+	cfgDir := t.TempDir()
+	env := map[string]string{"ATL_CONFIG_DIR": cfgDir}
+	configPath := filepath.Join(cfgDir, "config.json")
+	invalid := `{"jira_list_views":{"first":{"search":["board.column"]},"second":{"structure":["position"]}}}`
+	if err := os.WriteFile(configPath, []byte(invalid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, code := runCLI(t, env, "config", "set", "jira.list_views.first", "null"); code != exitOK {
+		t.Fatalf("first recovery delete exit=%d", code)
+	}
+	if _, code := runCLI(t, env, "jira", "issue", "search", "--jql", "project=PROJ"); code != exitConfig {
+		t.Fatalf("runtime after partial repair exit=%d, want strict config", code)
+	}
+	body, err := os.ReadFile(configPath)
+	if err != nil || strings.Contains(string(body), `"first"`) || !strings.Contains(string(body), `"second"`) {
+		t.Fatalf("partial repair config=%s err=%v", body, err)
+	}
+	if _, code := runCLI(t, env, "config", "set", "jira.list_views.second", "null"); code != exitOK {
+		t.Fatalf("second recovery delete exit=%d", code)
+	}
+	out, code := runCLI(t, env, "config", "show")
+	if code != exitOK || strings.Contains(out, "jira_list_views_error") || !strings.Contains(out, `"default"`) {
+		t.Fatalf("final repaired show exit=%d output=%s", code, out)
+	}
+}
+
 func TestConfigSetReadOnlyIsLastWriteAndRemainsInspectable(t *testing.T) {
 	env := map[string]string{"ATL_CONFIG_DIR": t.TempDir()}
 	if _, code := runCLI(t, env, "config", "set", "safety.read_only", "true"); code != exitOK {

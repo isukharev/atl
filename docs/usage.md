@@ -338,7 +338,9 @@ invalid catalog fails with config exit 7 instead of silently falling back to an
 unrelated projection. `atl config show` remains available for recovery: it
 returns the raw catalog plus `jira_list_views_error`. Replace the catalog, set a
 corrected preset, or remove the bad custom preset with
-`atl config set jira.list_views.<name> null`. Invalid JSON syntax in
+`atl config set jira.list_views.<name> null`. When several custom entries are
+invalid, repeat that deletion for each one: each narrow repair is persisted,
+but runtime commands stay at exit 7 until the whole catalog validates. Invalid JSON syntax in
 `config.json` cannot be repaired safely as a dotted update; fix the file itself
 and rerun `config show`. `atl version`, help/completion, and classified
 read-only auth/config/profile diagnostics remain available because they are

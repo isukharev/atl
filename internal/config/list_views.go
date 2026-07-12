@@ -152,8 +152,17 @@ func SetJiraListViewsJSON(current map[string]JiraListView, key, value string) (m
 	}
 	name := strings.TrimPrefix(key, prefix)
 	if strings.TrimSpace(value) == "null" {
+		if !jiraListViewName.MatchString(name) {
+			return nil, fmt.Errorf("jira list view name %q must match %s", name, jiraListViewName.String())
+		}
 		delete(next, name)
-		return NormalizeJiraListViews(next)
+		if normalized, err := NormalizeJiraListViews(next); err == nil {
+			return normalized, nil
+		}
+		// A narrow recovery delete must be persistable even when another entry
+		// remains invalid. Runtime Load still validates the whole catalog and
+		// stays fail-closed until every bad entry has been removed/replaced.
+		return next, nil
 	}
 	var view JiraListView
 	if err := decode(&view); err != nil {

@@ -143,6 +143,18 @@ func TestValidateAutomationRejectsControlsOnlyInSiblingJobs(t *testing.T) {
 			}
 		})
 	}
+	for _, fragment := range []string{
+		"continue-on-error: true", "environment: context7", "secrets.CONTEXT7_API_KEY",
+		"refs/heads/stable", "https://context7.com/api/v1/refresh",
+	} {
+		t.Run("release_commented_"+fragment, func(t *testing.T) {
+			target := strings.ReplaceAll(releaseTarget, fragment, "# "+fragment)
+			err := validateAutomation(writeWorkflows(t, target, manualTarget))
+			if err == nil || !strings.Contains(err.Error(), "job refresh-context7 must contain "+strconv.Quote(fragment)) {
+				t.Fatalf("validation error=%v", err)
+			}
+		})
+	}
 	if err := validateAutomation(writeWorkflows(t, releaseTarget, manualTarget)); err != nil {
 		t.Fatalf("valid job-specific controls: %v", err)
 	}
@@ -187,5 +199,38 @@ jobs:
 	err := validateAutomation(root)
 	if err == nil || !strings.Contains(err.Error(), `missing child "workflow_dispatch"`) {
 		t.Fatalf("validation error=%v", err)
+	}
+}
+
+func TestYAMLActiveContentIgnoresCommentsButPreservesQuotedHashes(t *testing.T) {
+	input := "# environment: context7\nvalue: ok # continue-on-error: true\nquoted: \"# keep\"\nsingle: '# also keep'\n"
+	got := yamlActiveContent(input)
+	if strings.Contains(got, "environment: context7") || strings.Contains(got, "continue-on-error: true") {
+		t.Fatalf("commented controls remained active: %q", got)
+	}
+	if !strings.Contains(got, `"# keep"`) || !strings.Contains(got, "'# also keep'") {
+		t.Fatalf("quoted hashes were stripped: %q", got)
+	}
+}
+
+func TestExcludedDirectoryMatchesOfficialSimpleNameAndRootPatterns(t *testing.T) {
+	tests := []struct {
+		path, pattern string
+		want          bool
+	}{
+		{"docs/node_modules", "node_modules", true},
+		{"docs/deep/node_modules", "node_modules", true},
+		{"build", "./build", true},
+		{"docs/build", "./build", false},
+		{"build-cache", "./build-*", true},
+		{"docs/build-cache", "./build-*", false},
+		{"docs/dist", "**/dist", true},
+		{"docs/v1/internal", "docs/**/internal", true},
+		{"src/internal", "docs/**/internal", false},
+	}
+	for _, tt := range tests {
+		if got := excludedDirectory(tt.path, []string{tt.pattern}); got != tt.want {
+			t.Errorf("path=%q pattern=%q got=%t want=%t", tt.path, tt.pattern, got, tt.want)
+		}
 	}
 }

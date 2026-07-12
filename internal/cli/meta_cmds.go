@@ -196,6 +196,7 @@ func parseSetArgs(args []string) (key, value string, hasKV bool, err error) {
 // runSetGlobal persists URL flags and/or a render key to the global config.
 func runSetGlobal(cmd *cobra.Command, key, value string, hasKV bool, confluenceURL, jiraURL, updateURL string) error {
 	repairingViews := hasKV && (key == "jira.list_views" || strings.HasPrefix(key, "jira.list_views."))
+	deletingView := hasKV && strings.HasPrefix(key, "jira.list_views.") && strings.TrimSpace(value) == "null"
 	var cfg *config.Config
 	var err error
 	if repairingViews {
@@ -245,8 +246,18 @@ func runSetGlobal(cmd *cobra.Command, key, value string, hasKV bool, confluenceU
 			}
 		}
 	}
-	if err := config.Save(cfg); err != nil {
-		return err
+	var saveErr error
+	if deletingView {
+		if _, normalizeErr := config.NormalizeJiraListViews(cfg.JiraListViews); normalizeErr != nil {
+			saveErr = config.SaveForListViewRepair(cfg)
+		} else {
+			saveErr = config.Save(cfg)
+		}
+	} else {
+		saveErr = config.Save(cfg)
+	}
+	if saveErr != nil {
+		return saveErr
 	}
 	return emit(cmd, cfg, nil)
 }

@@ -425,7 +425,7 @@ atl jira field-options --project PROJ --field <field-id>
 |---------|------------------------------|
 | `command not found: atl` после установки | `~/.local/bin` (или `$(go env GOBIN)`) не в `PATH` — добавьте в профиль шелла и переоткройте терминал. |
 | Код **7** / «URL not set» / «no PAT found» | Настройка не завершена — выполните `atl config set --confluence-url …` и `atl auth login --service …` (или задайте `ATL_*_URL` / `ATL_*_PAT`). |
-| Код **7** упоминает `jira_list_views` | Выполните `atl config show`, изучите `jira_list_views_error`, затем замените или удалите некорректный preset через `atl config set jira.list_views.<name> …`; runtime-чтения заблокированы до исправления каталога. |
+| Код **7** упоминает `jira_list_views` | Выполните `atl config show`, изучите `jira_list_views_error`, затем замените или удалите некорректные presets через `atl config set jira.list_views.<name> …`; если ошибочных записей несколько, удаляйте их по одной. Runtime-чтения заблокированы до исправления всего каталога. |
 | Некорректный JSON в `config.json` блокирует обычные команды | `atl version`, `atl help`, completion и offline-диагностика profile/auth остаются доступны. Исправьте owner-only файл; online-чтения и все мутации остаются заблокированы. |
 | Код **3** на каждый вызов | PAT отклонён (истёк/отозван или принадлежит другому инстансу) — создайте новый токен и заново `auth login`. |
 | «refusing to send the PAT over http…» | Базовый URL non-https на non-loopback хосте. Используйте `https` или `export ATL_ALLOW_INSECURE=1` для доверенного внутреннего http-инстанса. |

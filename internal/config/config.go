@@ -108,7 +108,22 @@ func Save(c *Config) error {
 	}
 	copy := *c
 	copy.JiraListViews = views
-	b, err := json.MarshalIndent(&copy, "", "  ")
+	return saveConfigBytes(&copy)
+}
+
+// SaveForListViewRepair persists a config loaded through LoadForEdit after one
+// custom list-view deletion. It intentionally skips whole-catalog
+// normalization so multiple invalid entries can be removed one at a time;
+// runtime Load remains strict. Do not use this for general config writes.
+func SaveForListViewRepair(c *Config) error {
+	if err := os.MkdirAll(Dir(), 0o700); err != nil {
+		return err
+	}
+	return saveConfigBytes(c)
+}
+
+func saveConfigBytes(c *Config) error {
+	b, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}

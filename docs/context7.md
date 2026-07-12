@@ -206,7 +206,14 @@ curl --fail --silent --show-error https://context7.com/schema/context7.json | jq
 The repository check also inspects Context7 automation structurally: release
 controls must be present inside the `refresh-context7` job and manual controls
 inside the `refresh` job. A similarly named secret, environment, endpoint, or
-`continue-on-error` setting in a sibling job does not satisfy the check.
+`continue-on-error` setting in a sibling job or YAML comment does not satisfy
+the check.
+
+The scope checker mirrors Context7's documented `excludeFolders` matching:
+a simple name such as `node_modules` matches that directory at any depth,
+`./build` is repository-root-specific, and path globs such as `**/dist` or
+`docs/**/internal` retain their path scope. Keep the leading `./` when the
+exclusion must apply only at the root.
 
 Schema validity does not replace the post-index query check: Context7 parsing
 and library registration are external operations with their own status.

@@ -72,7 +72,9 @@ If a runtime command reports config exit 7 for `jira_list_views`, do not bypass
 the catalog or guess a projection. Run `atl config show`, inspect
 `jira_list_views_error` and the raw offending entry, then propose a repair. With
 approval, replace it or remove a custom entry via `atl config set
-jira.list_views.<name> null`; rerun `config show` before the Jira read.
+jira.list_views.<name> null`; if several entries are invalid, remove them one
+at a time. Runtime remains fail-closed until `config show` reports a valid
+whole catalog; rerun it before the Jira read.
 
 For one epic, prefer the direct list over project-wide JQL:
 

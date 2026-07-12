@@ -440,7 +440,8 @@ stdout stays clean.
 Runtime commands validate all `jira_list_views` before network access and map
 an invalid catalog to config exit 7. Recovery is deliberately narrower:
 `config show` returns the raw entries and `jira_list_views_error`, and
-`config set jira.list_views...` may replace/delete the invalid entry. Other
+`config set jira.list_views...` may replace/delete invalid entries one at a
+time. A repair deletion can persist while another entry remains invalid; other
 commands never consume a partially valid catalog. Malformed `config.json` JSON
 also maps to exit 7 and must be repaired as a file rather than overwritten from
 an uncertain partial decode. Offline, skip-self-update diagnostic reads may run
