@@ -158,7 +158,9 @@ asserts both manifests equal the tag, so a forgotten bump cannot ship.
 `make check-context7-docs` also requires `context7.json` to select `stable` and
 the first `previousVersions` tag to equal `v$(cat VERSION)`. This makes the
 version-specific Context7 id part of release prep rather than a post-release
-guess.
+guess. It additionally scopes automation assertions to the intended
+`refresh-context7` and manual `refresh` jobs, so controls in unrelated workflow
+jobs cannot mask a broken refresh path.
 
 The `release` workflow cross-compiles the four targets, generates `manifest.json`,
 **signs it** with `ATL_RELEASE_PRIVATE_KEY`, generates the Homebrew formula

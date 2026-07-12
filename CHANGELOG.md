@@ -109,6 +109,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Context7 automation checks are job-scoped.** Release and manual refresh
+  controls are now validated within their intended workflow jobs, with
+  controls-removed tests proving unrelated jobs cannot accidentally satisfy the
+  check.
+
 - **Named Jira list-view config is recoverable and fail-closed.** Invalid
   catalogs now stop runtime commands with config exit 7 before network access
   while `config show` and `config set` expose a narrow repair path. Precedence

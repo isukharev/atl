@@ -203,6 +203,11 @@ make check-context7-docs
 curl --fail --silent --show-error https://context7.com/schema/context7.json | jq '.properties | keys'
 ```
 
+The repository check also inspects Context7 automation structurally: release
+controls must be present inside the `refresh-context7` job and manual controls
+inside the `refresh` job. A similarly named secret, environment, endpoint, or
+`continue-on-error` setting in a sibling job does not satisfy the check.
+
 Schema validity does not replace the post-index query check: Context7 parsing
 and library registration are external operations with their own status.
 
