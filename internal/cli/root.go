@@ -82,6 +82,9 @@ func writeError(w io.Writer, format string, err error, code int) {
 }
 
 func classifyError(err error) (kind, remediation string) {
+	if _, ok := accessPolicyInvariantMetadata(err); ok {
+		return "internal_error", "report_bug"
+	}
 	if _, ok := readOnlyErrorMetadata(err); ok {
 		return "read_only_policy", "request_human_approval"
 	}
@@ -154,6 +157,21 @@ func newRoot() *cobra.Command {
 			runSelfUpdate(cmd)
 		}
 		return nil
+	}
+	// Cobra otherwise registers these commands lazily inside ExecuteC, after our
+	// access-policy walk. Initialize the public built-ins now; hidden __complete
+	// requests are recognized narrowly in enforceAccessPolicy because Cobra has
+	// no public initializer for them.
+	root.InitDefaultHelpCmd()
+	root.InitDefaultCompletionCmd()
+	for _, builtIn := range root.Commands() {
+		if builtIn.Name() == "help" {
+			// Cobra deliberately accepts a command path of arbitrary depth.
+			// Declare that policy explicitly so our no-nil Args invariant still
+			// covers every initialized executable command.
+			builtIn.Args = cobra.ArbitraryArgs
+			break
+		}
 	}
 	normalizeArgs(root)
 	classifyCommandTree(root)

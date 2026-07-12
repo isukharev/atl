@@ -122,6 +122,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Help and shell completion remain available under access policy.** Cobra's
+  lazily registered help/completion commands are initialized and classified
+  before execution; hidden completion requests are narrowly recognized, while
+  unknown application commands still fail closed as `internal_error`.
+
 - **Context7 automation checks are job-scoped.** Release and manual refresh
   controls are now validated within their intended workflow jobs, with
   controls-removed tests proving unrelated jobs cannot accidentally satisfy the

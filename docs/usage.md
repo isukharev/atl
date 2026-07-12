@@ -194,6 +194,8 @@ true environment/config guard. Mutating commands fail with exit 8 before
 credentials, request-body files/stdin, self-update, or network access. Read-only
 search/get/view/pull/render/status/export/validation commands remain available.
 The JSON error adds `"policy":"read_only"` and the full `command` path.
+`atl help`, nested help, generated `completion <shell>` scripts, and hidden
+shell-completion requests are classified read-only and remain available.
 
 Persistent read-only mode intentionally blocks `config set`, including its own
 disable operation. After explicit human approval, edit `read_only` to `false`
