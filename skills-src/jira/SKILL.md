@@ -17,6 +17,11 @@ per line, suitable for piping into `xargs` or scripts. `-o text` gives a human-r
 `--verbose` (or `ATL_VERBOSE=1`) traces every HTTP request/response to stderr; the bearer token is
 never written to the trace.
 
+When `ATL_READ_ONLY=1`, global `--read-only`, or config read-only policy is
+active, use search/get/view/pull/status/export only. A JSON refusal with
+`policy:"read_only"` and exit 8 requires human approval to change the policy;
+never disable it just to finish a requested Jira write.
+
 **Preflight:** `atl` must be installed and configured (Jira URL + PAT). If `command -v atl` fails or
 `atl config show` has an empty `jira_url` (or any command exits `7` = "not configured"), **run
 `{{atl.setup_cmd}}` and stop** instead of pushing on. The recommended mirror

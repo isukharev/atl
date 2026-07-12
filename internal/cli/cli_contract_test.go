@@ -45,6 +45,7 @@ func runCLIFull(t *testing.T, env map[string]string, args ...string) (stdout, st
 		"ATL_CONFLUENCE_URL", "CONFLUENCE_URL", "ATL_JIRA_URL", "JIRA_URL",
 		"ATL_CONFLUENCE_PAT", "CONFLUENCE_PAT", "ATL_JIRA_PAT", "JIRA_PAT",
 		"ATL_MIRROR_ROOT", "ATL_ALLOW_INSECURE",
+		"ATL_READ_ONLY",
 	} {
 		t.Setenv(k, "")
 	}

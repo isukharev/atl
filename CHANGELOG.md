@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Process-wide read-only execution policy.** `--read-only`,
+  `ATL_READ_ONLY=1`, or global `safety.read_only=true` blocks every classified
+  mutating command before credentials, request bodies, self-update, or network
+  access. Read/search/view/pull/status/export paths remain available; unknown
+  future commands fail closed until classified.
+
 - **Scoped Context7 documentation index.** A schema-declared root config limits
   parsing to maintained public runtime docs, explicitly excludes implicit root
   contributor/roadmap files, supplies core CLI/write-safety rules, and adds

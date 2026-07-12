@@ -38,6 +38,7 @@ const (
 var (
 	outputFormat string
 	verbose      bool
+	readOnly     bool
 )
 
 // Execute builds and runs the root command, mapping errors to exit codes.
@@ -65,8 +66,13 @@ func writeError(w io.Writer, format string, err error, code int) {
 	}
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
+	body := map[string]any{"error": err.Error(), "code": code}
+	if command, ok := readOnlyErrorMetadata(err); ok {
+		body["policy"] = "read_only"
+		body["command"] = command
+	}
 	// Encode never fails for these plain types; ignore its error.
-	_ = enc.Encode(map[string]any{"error": err.Error(), "code": code})
+	_ = enc.Encode(body)
 }
 
 func newRoot() *cobra.Command {
@@ -79,6 +85,7 @@ func newRoot() *cobra.Command {
 	}
 	root.PersistentFlags().StringVarP(&outputFormat, "output", "o", "json", "output format: json|text|id")
 	root.PersistentFlags().BoolVar(&verbose, "verbose", false, "trace HTTP requests/responses to stderr (token never logged); also ATL_VERBOSE=1")
+	root.PersistentFlags().BoolVar(&readOnly, "read-only", false, "block every mutating command before credentials, stdin, or network access; also ATL_READ_ONLY=1")
 	_ = root.RegisterFlagCompletionFunc("output", fixedComp("json", "text", "id"))
 	// A flag-parse failure (unknown flag, bad value) is a usage error: map it to
 	// exit 2, not the generic 1. Inherited by every subcommand.
@@ -94,15 +101,25 @@ func newRoot() *cobra.Command {
 		default:
 			return usageErr("invalid --output %q (want json|text|id)", outputFormat)
 		}
+		policyEnabled, err := resolveReadOnlyPolicy(readOnly)
+		if err != nil {
+			return err
+		}
+		if err := enforceAccessPolicy(cmd, policyEnabled); err != nil {
+			return err
+		}
 		// --verbose (or ATL_VERBOSE) traces every HTTP request to stderr. The
 		// bearer token is never written. stdout stays reserved for the result.
 		if verbose || os.Getenv("ATL_VERBOSE") != "" {
 			httpx.SetTrace(cmd.ErrOrStderr())
 		}
-		runSelfUpdate(cmd)
+		if !policyEnabled {
+			runSelfUpdate(cmd)
+		}
 		return nil
 	}
 	normalizeArgs(root)
+	classifyCommandTree(root)
 	return root
 }
 

@@ -18,6 +18,10 @@ import (
 
 // Config holds non-secret settings.
 type Config struct {
+	// ReadOnly blocks mutating CLI commands before credentials, stdin, or
+	// network access. ATL_READ_ONLY and the global --read-only flag can enable
+	// the same monotonic safety policy for one process.
+	ReadOnly      bool   `json:"read_only,omitempty"`
 	ConfluenceURL string `json:"confluence_url,omitempty"`
 	JiraURL       string `json:"jira_url,omitempty"`
 	// UpdateBaseURL is the distribution server used for self-update; empty

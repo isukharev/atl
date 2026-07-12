@@ -12,6 +12,11 @@ Get the user from zero to ready: install the `atl` binary, point it at their Con
 authenticate, and agree on where the local mirror lives. Work through the steps in order; skip a
 step only if its check shows it is already done.
 
+If the user wants an investigation-only agent/CI profile, finish all required
+URL/auth setup first, then offer `atl config set safety.read_only true` as the
+last step. Explain that persistent mode intentionally blocks later `config set`
+until a human edits/removes `read_only` in the owner-only global config file.
+
 ## 1. Detect an existing install
 
 ```bash

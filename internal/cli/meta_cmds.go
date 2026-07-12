@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -108,7 +109,7 @@ func newAuthCmd() *cobra.Command {
 }
 
 func newConfigCmd() *cobra.Command {
-	c := &cobra.Command{Use: "config", Short: "Get/set non-secret config (backend URLs, render.*)"}
+	c := &cobra.Command{Use: "config", Short: "Get/set non-secret config (safety, backend URLs, render)"}
 
 	show := &cobra.Command{
 		Use:   "show",
@@ -129,6 +130,7 @@ func newConfigCmd() *cobra.Command {
 			local, localPath := loadLocalFromCwd(cmd.ErrOrStderr())
 			render, prov := config.EffectiveRender(cfg, local)
 			out := configShowResult{
+				ReadOnly:           cfg.ReadOnly,
 				ConfluenceURL:      cfg.ConfluenceURL,
 				JiraURL:            cfg.JiraURL,
 				UpdateBaseURL:      cfg.UpdateBaseURL,
@@ -148,9 +150,9 @@ func newConfigCmd() *cobra.Command {
 	var into string
 	set := &cobra.Command{
 		Use:   "set [<key> <value>]",
-		Short: "Persist backend URLs or a render.* key",
+		Short: "Persist safety policy, backend URLs, render, or Jira list views",
 		Long: "Persist backend URLs (via --confluence-url/--jira-url/--update-url) or a\n" +
-			"dotted render key positionally, e.g. `config set render.jira.profile full`.\n" +
+			"dotted key positionally, e.g. `config set safety.read_only true` or `config set render.jira.profile full`.\n" +
 			"Valid render keys: " + strings.Join(config.ValidRenderKeys(), ", ") + ".\n" +
 			"include/exclude/custom_fields take a comma-separated value.\n\n" +
 			"--local writes the per-mirror <root>/.atl/config.json (render.* only; a\n" +
@@ -222,7 +224,13 @@ func runSetGlobal(cmd *cobra.Command, key, value string, hasKV bool, confluenceU
 		cfg.UpdateBaseURL = updateURL
 	}
 	if hasKV {
-		if key == "jira.list_views" || strings.HasPrefix(key, "jira.list_views.") {
+		if key == "safety.read_only" {
+			parsed, parseErr := strconv.ParseBool(strings.TrimSpace(value))
+			if parseErr != nil {
+				return usageErr("safety.read_only must be true or false")
+			}
+			cfg.ReadOnly = parsed
+		} else if key == "jira.list_views" || strings.HasPrefix(key, "jira.list_views.") {
 			views, setErr := config.SetJiraListViewsJSON(cfg.JiraListViews, key, value)
 			if setErr != nil {
 				return usageErr("%v", setErr)
@@ -254,6 +262,9 @@ func runSetLocal(cmd *cobra.Command, key, value string, hasKV bool, into, conflu
 		return usageErr("config set --local needs a render key and value, e.g. `config set --local render.jira.profile full`")
 	}
 	if key == "jira.list_views" || strings.HasPrefix(key, "jira.list_views.") {
+		return usageErr("%s is global-only; omit --local", key)
+	}
+	if key == "safety.read_only" {
 		return usageErr("%s is global-only; omit --local", key)
 	}
 	if key == "render.confluence.jira_macros" {
@@ -359,8 +370,8 @@ func nonDefaultProvenance(prov config.Provenance) map[string]string {
 
 func configShowText(out configShowResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "confluence_url: %s\njira_url: %s\nupdate_base_url: %s\n",
-		out.ConfluenceURL, out.JiraURL, out.UpdateBaseURL)
+	fmt.Fprintf(&b, "read_only: %t\nconfluence_url: %s\njira_url: %s\nupdate_base_url: %s\n",
+		out.ReadOnly, out.ConfluenceURL, out.JiraURL, out.UpdateBaseURL)
 	fmt.Fprintf(&b, "render_jira_profile: %s\nrender_confluence_profile: %s\n",
 		out.Render.Jira.Profile, out.Render.Confluence.Profile)
 	viewNames := make([]string, 0, len(out.JiraListViews))
@@ -391,6 +402,7 @@ func configShowText(out configShowResult) string {
 }
 
 type configShowResult struct {
+	ReadOnly           bool                           `json:"read_only"`
 	ConfluenceURL      string                         `json:"confluence_url,omitempty"`
 	JiraURL            string                         `json:"jira_url,omitempty"`
 	UpdateBaseURL      string                         `json:"update_base_url,omitempty"`
