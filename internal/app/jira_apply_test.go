@@ -240,6 +240,9 @@ func TestJiraApply_RejectsUnsupportedDocumentMarkersBeforeWrite(t *testing.T) {
 		{name: "unversioned", edit: func(md string) string {
 			return strings.Replace(md, jiraIssueDocumentMarker, "<!-- atl:document jira-issue -->", 1)
 		}, want: "jira render"},
+		{name: "v1", edit: func(md string) string {
+			return strings.Replace(md, jiraIssueDocumentMarker, jiraIssueDocumentMarkerV1, 1)
+		}, want: "legacy document format"},
 		{name: "future", edit: func(md string) string {
 			return strings.Replace(md, jiraIssueDocumentMarker, "<!-- atl:document jira-issue v99 -->", 1)
 		}, want: "update atl"},

@@ -128,6 +128,8 @@ and hierarchy position within one snapshot.
 When the folder is unknown, call `structure folders` once, then reuse its stable
 `folder_id` in `view --folder-id`. Use `--folder-path` only when an exact human
 path is known and labels are complete; it fails on missing or duplicate paths.
+Path matching ignores case and repeated whitespace; names containing `/` must
+use folder id/row selection. Completeness is scoped to the emitted subtree.
 `--folder-row` is snapshot-local. Keep `--root` only for explicitly fuzzy work.
 Selected Markdown uses relative numeric Depth with separate Key/Summary cells;
 JSON keeps absolute depth and adds `relative_depth`.

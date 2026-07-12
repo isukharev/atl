@@ -226,6 +226,7 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 	if err != nil {
 		return nil, err
 	}
+	forestRowCount := len(rows)
 	folderLabels, labelsComplete, warnings := s.structureFolderLabelsChecked(ctx, id, rows)
 	var selection *StructureSelection
 	if selectorCount(opts.StructureFolderSelector) > 0 {
@@ -260,6 +261,24 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 	for _, issue := range issues {
 		issuesByID[issue.ID] = issue
 	}
+	if !rootResolved {
+		valueText := map[int64]string{}
+		for _, row := range rows {
+			rowValues := structureSnapshotValues(row, attributes, issuesByID, folderLabels)
+			b, _ := json.Marshal(rowValues)
+			valueText[row.RowID] = string(b)
+		}
+		rows = FilterStructureRows(rows, root, valueText)
+		if len(rows) == 0 {
+			return nil, fmt.Errorf("%w: structure root %q was not found", domain.ErrUsage, root)
+		}
+	}
+	// Completeness describes the emitted selection. Folder labels outside a
+	// selected subtree must not make that subtree look partial. Exact path
+	// selection already required a complete full-forest label projection.
+	if len(rows) < forestRowCount && strings.TrimSpace(opts.FolderPath) == "" {
+		folderLabels, labelsComplete, warnings = s.structureFolderLabelsChecked(ctx, id, rows)
+	}
 	result := &StructureSnapshot{
 		SchemaVersion: 1,
 		Structure: StructureSnapshotMetadata{
@@ -276,19 +295,6 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 		InaccessibleRows: []int64{},
 		Selection:        selection,
 		Warnings:         warnings,
-	}
-
-	if !rootResolved {
-		valueText := map[int64]string{}
-		for _, row := range rows {
-			rowValues := structureSnapshotValues(row, attributes, issuesByID, folderLabels)
-			b, _ := json.Marshal(rowValues)
-			valueText[row.RowID] = string(b)
-		}
-		rows = FilterStructureRows(rows, root, valueText)
-		if len(rows) == 0 {
-			return nil, fmt.Errorf("%w: structure root %q was not found", domain.ErrUsage, root)
-		}
 	}
 	for _, row := range rows {
 		selected := structureSnapshotValues(row, attributes, issuesByID, folderLabels)

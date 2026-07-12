@@ -47,6 +47,8 @@ func snapshotText(value any) string {
 			}
 		}
 		return strings.Join(parts, ", ")
+	case []string:
+		return strings.Join(v, ", ")
 	case map[string]any:
 		for _, key := range []string{"displayName", "name", "value", "key", "label", "text", "id"} {
 			if text := snapshotText(v[key]); text != "" {

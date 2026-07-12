@@ -109,6 +109,10 @@ patterns over introducing cross-layer shortcuts.
   commit, in lockstep with the CLI version — never in a feature PR.
 - Security-boundary tests should prove the guarantee fails when the control is
   removed, not because of incidental parse or fixture failures.
+- Any change to bytes emitted inside a durable derived view requires an explicit
+  document-format marker review. If existing pristine views would reconstruct
+  differently, bump the marker, add render migration and apply diagnostics, and
+  test current, legacy, unversioned, and future-marker behavior.
 - Keep PRs small; commit subjects use `<type>: <summary>`.
 
 ## GitHub tracking

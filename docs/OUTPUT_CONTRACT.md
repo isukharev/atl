@@ -337,9 +337,11 @@ marks a clean file.
 shape as `conf apply` for Description, plus pending-field details:
 `{ "path", "wiki_path", "pending_path"?, "dry_run", "rebased"?, "report": {...},
 "fields"?: [{"id","pending","report"}], "wrote", "warning"? }`. It is **local only** (no network). Each
-accepted view begins with `<!-- atl:document jira-issue v1 -->`; a missing or
-unversioned marker exits `8` before any write and requires an offline
-`jira render` or fresh pull before editing. A future/unknown version requires a
+accepted view begins with `<!-- atl:document jira-issue v2 -->`; a v1, missing,
+or unversioned marker exits `8` before any write and requires an offline
+`jira render` or fresh pull before editing. V1 identifies the former generated
+bullet form of Subtasks/Epic Children and is intentionally not reconstructed as
+v2 during apply. A future/unknown version requires a
 newer binary and must not be rendered or downgraded by the current one. A
 directory render preflights every existing view before rewriting any sibling,
 so one future marker cannot produce a half-migrated batch. Since render rewrites the
@@ -768,7 +770,7 @@ issues/backlog`, and `sprint issues`) share one app-layer contract:
     "id": "10001",
     "position": 0,
     "values": {"summary": "First", "status": "Open"},
-    "context": {"board": {"rank": 0, "column": "To Do", "in_board": true, "in_backlog": false}}
+    "context": {"board": {"column": "To Do", "in_board": true, "in_backlog": false}}
   }],
   "page": {"count": 1, "complete": true, "truncated": false, "next_cursor": null}
 }
@@ -782,6 +784,9 @@ identity, Jira field ids, and source-specific names such as `board.column` or
 `sprint.id`. Unknown/foreign context columns fail with usage. `-o text` renders
 the same rows as one safe Markdown table (or `_None._`); `-o id` prints keys.
 The page cursor is `null` at exhaustion and resumable only when non-null.
+For board pages, top-level `position` is the zero-based position within the
+returned page; ordering is backend rank, but ATL does not expose that index as
+a durable Jira rank value.
 
 `jira issue children <EPIC-KEY>` returns `source.kind:"epic"`, records the
 parent key and resolved Epic Link field under `selection`, and namespaces
@@ -932,6 +937,10 @@ and return not-found or check-failed on absence/ambiguity. Results include
 `selection`; selected rows retain absolute `depth` and `parent_row_id` and add
 `relative_depth` beginning at zero. `--folder-id` is the durable agent path;
 `--folder-row` is snapshot-local and path selection requires complete labels.
+Path comparison is case-insensitive and collapses whitespace in every segment;
+folder names containing a literal `/` require id/row selection. `complete`
+describes the emitted subtree: unrelated missing labels elsewhere in the forest
+do not make an id/row/root-selected view partial.
 
 `atl jira structure values <ID> --rows ... --fields ...` preserves the backend
 value matrix under `responses` and `raw`; if the backend reports permission

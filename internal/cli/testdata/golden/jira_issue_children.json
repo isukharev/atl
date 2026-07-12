@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "source": {
+    "kind": "epic",
+    "id": "ENG-1"
+  },
+  "selection": {
+    "epic_field": "customfield_10010",
+    "parent": "ENG-1"
+  },
+  "projection": {
+    "columns": [
+      "key",
+      "summary",
+      "status",
+      "issuetype",
+      "assignee"
+    ],
+    "fields": [
+      "summary",
+      "status",
+      "issuetype",
+      "assignee"
+    ],
+    "ordering": "key-order"
+  },
+  "rows": [
+    {
+      "key": "ENG-2",
+      "id": "10002",
+      "position": 0,
+      "values": {
+        "assignee": "Owner",
+        "issuetype": "Story",
+        "status": "Open",
+        "summary": "Child"
+      },
+      "context": {
+        "epic": {
+          "parent": "ENG-1",
+          "relation": "epic-child"
+        }
+      }
+    }
+  ],
+  "page": {
+    "count": 1,
+    "complete": true,
+    "truncated": false,
+    "next_cursor": null
+  }
+}

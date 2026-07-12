@@ -100,6 +100,10 @@ func jiraStructureCmd() *cobra.Command {
 		Short: "Parse the latest Structure forest into rows",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			selector, err := structureFolderSelector(cmd, rowsFolderID, rowsFolderRow, rowsFolderPath)
+			if err != nil {
+				return err
+			}
 			id, err := atoi64Arg("structure id", args[0])
 			if err != nil {
 				return err
@@ -111,7 +115,7 @@ func jiraStructureCmd() *cobra.Command {
 			res, err := svc.StructureRowsWithOptions(cmd.Context(), id, app.StructureRowsOpts{
 				Root:                    rowsRoot,
 				RootFields:              splitFields(rowsRootFields),
-				StructureFolderSelector: app.StructureFolderSelector{FolderID: rowsFolderID, FolderRow: rowsFolderRow, FolderPath: rowsFolderPath},
+				StructureFolderSelector: selector,
 			})
 			if err != nil {
 				return err
@@ -196,6 +200,10 @@ func jiraStructureCmd() *cobra.Command {
 		Short: "Read a normalized agent-facing Structure snapshot",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			selector, err := structureFolderSelector(cmd, viewFolderID, viewFolderRow, viewFolderPath)
+			if err != nil {
+				return err
+			}
 			id, err := atoi64Arg("structure id", args[0])
 			if err != nil {
 				return err
@@ -208,7 +216,7 @@ func jiraStructureCmd() *cobra.Command {
 				Root:                    viewRoot,
 				Attributes:              splitFields(viewFields),
 				BatchSize:               viewBatchSize,
-				StructureFolderSelector: app.StructureFolderSelector{FolderID: viewFolderID, FolderRow: viewFolderRow, FolderPath: viewFolderPath},
+				StructureFolderSelector: selector,
 			})
 			if err != nil {
 				return err
@@ -235,6 +243,10 @@ func jiraStructureCmd() *cobra.Command {
 		Short: "Fetch Jira issue snapshots referenced by Structure rows",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			selector, err := structureFolderSelector(cmd, pullFolderID, pullFolderRow, pullFolderPath)
+			if err != nil {
+				return err
+			}
 			id, err := atoi64Arg("structure id", args[0])
 			if err != nil {
 				return err
@@ -250,7 +262,7 @@ func jiraStructureCmd() *cobra.Command {
 				BatchSize:               pullBatchSize,
 				Limit:                   pullLimit,
 				Out:                     pullOut,
-				StructureFolderSelector: app.StructureFolderSelector{FolderID: pullFolderID, FolderRow: pullFolderRow, FolderPath: pullFolderPath},
+				StructureFolderSelector: selector,
 			})
 			if err != nil {
 				return err
@@ -277,6 +289,10 @@ func jiraStructureCmd() *cobra.Command {
 		Short: "Write a normalized offline Structure snapshot",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			selector, err := structureFolderSelector(cmd, exportFolderID, exportFolderRow, exportFolderPath)
+			if err != nil {
+				return err
+			}
 			id, err := atoi64Arg("structure id", args[0])
 			if err != nil {
 				return err
@@ -292,7 +308,7 @@ func jiraStructureCmd() *cobra.Command {
 				Format:                  exportFormat,
 				Out:                     exportOut,
 				RawCSV:                  exportRawCSV,
-				StructureFolderSelector: app.StructureFolderSelector{FolderID: exportFolderID, FolderRow: exportFolderRow, FolderPath: exportFolderPath},
+				StructureFolderSelector: selector,
 			})
 			if err != nil {
 				return err
@@ -318,6 +334,13 @@ func addStructureFolderSelectorFlags(cmd *cobra.Command, folderID *string, folde
 	cmd.Flags().StringVar(folderID, "folder-id", "", "exact stable stored-folder item id")
 	cmd.Flags().Int64Var(folderRow, "folder-row", 0, "exact stored-folder row id in the current forest snapshot")
 	cmd.Flags().StringVar(folderPath, "folder-path", "", "exact slash-separated stored-folder path")
+}
+
+func structureFolderSelector(cmd *cobra.Command, folderID string, folderRow int64, folderPath string) (app.StructureFolderSelector, error) {
+	if cmd.Flags().Changed("folder-row") && folderRow <= 0 {
+		return app.StructureFolderSelector{}, usageErr("--folder-row must be positive")
+	}
+	return app.StructureFolderSelector{FolderID: folderID, FolderRow: folderRow, FolderPath: folderPath}, nil
 }
 
 func structureRowLines(rows []domain.StructureRow) string {

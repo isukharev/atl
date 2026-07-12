@@ -21,7 +21,10 @@ import (
 	"github.com/isukharev/atl/internal/wikimd"
 )
 
-const jiraIssueDocumentMarker = "<!-- atl:document jira-issue v1 -->"
+const (
+	jiraIssueDocumentMarkerV1 = "<!-- atl:document jira-issue v1 -->"
+	jiraIssueDocumentMarker   = "<!-- atl:document jira-issue v2 -->"
+)
 
 func (s *JiraService) Issue(ctx context.Context, key string, fields []string) (*domain.Issue, error) {
 	return s.tr.GetIssue(ctx, key, fields)

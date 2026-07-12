@@ -2185,8 +2185,10 @@ next: run `jira push PROJ-1.wiki` to publish
 ```
 
 The first line is the versioned format marker
-`<!-- atl:document jira-issue v1 -->`; missing or unversioned markers fail
-closed and require `jira render` (or a fresh pull) before editing. A future or
+`<!-- atl:document jira-issue v2 -->`; v1, missing, or unversioned markers fail
+closed and require `jira render` (or a fresh pull) before editing. V1 used the
+former generated bullet form for Subtasks/Epic Children, so apply never guesses
+that an old generated region was a user edit. A future or
 unknown version requires updating `atl`; never render/downgrade it with the
 older binary. Directory render checks all selected markers before rewriting the
 first view. Because
@@ -2529,7 +2531,10 @@ occurrence), `--folder-path` (exact normalized slash-separated path), or legacy
 fuzzy `--root`. Exact selectors verify a stored folder, never fall back to the
 first substring match, and fail closed on absence/ambiguity. JSON preserves
 absolute `depth`/`parent_row_id`, adds `relative_depth`, and returns a
-`selection` object. Selected Markdown starts at depth zero.
+`selection` object. Selected Markdown starts at depth zero. Path matching is
+case-insensitive and collapses whitespace per segment; use folder id/row when a
+folder name contains `/`. Completeness is scoped to emitted rows, so missing
+labels in an unrelated branch do not mark a selected subtree partial.
 
 `rows` parses Structure's forest formula into a stable row list. `--root`
 matches the first row by row id, item id/type/semantic, or by selected Structure

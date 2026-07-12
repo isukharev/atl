@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "structure": {
+    "id": 123,
+    "name": "Plan"
+  },
+  "forest_version": {
+    "signature": 55,
+    "version": 7
+  },
+  "folders": [
+    {
+      "folder_id": "f-root",
+      "row_id": 100,
+      "name": "Plans",
+      "path": [
+        "Plans"
+      ],
+      "depth": 0,
+      "stats": {
+        "descendant_rows": 4,
+        "issue_rows": 3,
+        "unique_issues": 2,
+        "subfolders": 1,
+        "max_relative_depth": 2
+      }
+    },
+    {
+      "folder_id": "f-child",
+      "row_id": 102,
+      "name": "Quarter",
+      "path": [
+        "Plans",
+        "Quarter"
+      ],
+      "depth": 1,
+      "parent_folder_id": "f-root",
+      "stats": {
+        "descendant_rows": 2,
+        "issue_rows": 2,
+        "unique_issues": 2,
+        "subfolders": 0,
+        "max_relative_depth": 1
+      }
+    }
+  ],
+  "complete": true,
+  "warnings": []
+}

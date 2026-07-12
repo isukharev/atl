@@ -47,7 +47,7 @@ type IssueList struct {
 var defaultIssueListColumns = []string{"key", "summary", "status", "assignee"}
 
 var issueListContextColumns = map[string]bool{
-	"board.rank": true, "board.column": true, "board.column_index": true, "board.column_mapped": true,
+	"board.column": true, "board.column_index": true, "board.column_mapped": true,
 	"board.in_board": true, "board.in_backlog": true, "sprint.id": true,
 	"structure.row_id": true, "structure.depth": true, "structure.relative_depth": true, "structure.path": true,
 	"epic.parent": true, "epic.relation": true,
@@ -160,6 +160,9 @@ func IssueListMarkdown(list *IssueList, embedded bool) string {
 		fmt.Fprintf(&b, "> Source: %s", list.Source.Kind)
 		if list.Source.ID != "" {
 			fmt.Fprintf(&b, " `%s`", list.Source.ID)
+		}
+		if list.Source.Name != "" {
+			fmt.Fprintf(&b, " — %s", markdownSingleLine(list.Source.Name))
 		}
 		fmt.Fprintf(&b, "; ordering: %s; complete: %t; rows: %d.\n\n", strings.ReplaceAll(list.Projection.Ordering, "-", " "), list.Page.Complete, list.Page.Count)
 		if list.Page.Truncated {

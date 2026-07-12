@@ -326,6 +326,32 @@ func TestJiraRenderRefusesFutureViewBeforeAnySiblingRewrite(t *testing.T) {
 	}
 }
 
+func TestJiraRenderMigratesV1ViewToV2(t *testing.T) {
+	root := t.TempDir()
+	m := mirror.New(root)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "PROJ")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteSnapshot(t, filepath.Join(dir, "PROJ-42.json"), richIssue())
+	svc := NewJiraRenderer(&config.Config{})
+	if _, err := svc.Render(root, config.RenderService{}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "PROJ-42.md")
+	v1 := strings.Replace(mustReadFile(t, path), jiraIssueDocumentMarker, jiraIssueDocumentMarkerV1, 1)
+	mustWriteFile(t, path, v1)
+	if _, err := svc.Render(path, config.RenderService{}); err != nil {
+		t.Fatalf("migrate v1: %v", err)
+	}
+	if got := mustReadFile(t, path); !strings.HasPrefix(got, jiraIssueDocumentMarker+"\n") {
+		t.Fatalf("marker was not migrated: %q", strings.SplitN(got, "\n", 2)[0])
+	}
+}
+
 func TestJiraRenderSupportsSymlinkedTrustRoot(t *testing.T) {
 	physical := t.TempDir()
 	m := mirror.New(physical)
