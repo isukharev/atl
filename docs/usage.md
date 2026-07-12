@@ -2126,12 +2126,31 @@ Flags:
 
 ### `atl jira issue history`
 
-Show an issue's changelog (who changed what, when), via the DC-universal
-`?expand=changelog` form.
+Show an issue's changelog (who changed what, when) with explicit completeness
+and source metadata. `atl` prefers the paginated Data Center changelog endpoint;
+older instances fall back to `?expand=changelog`. An embedded result is marked
+complete only when Jira returns paging metadata proving that every advertised
+entry is present.
 
 ```bash
-atl jira issue history PROJ-1   # {key, history:[{id,author,created,items:[{field,from,to}]}]}
+atl jira issue history PROJ-1
+atl jira issue history PROJ-1 --field "Delivery Notes" --since 2026-04-01
+atl jira issue history PROJ-1 --field status --until 2026-06-30T23:59:59Z
 ```
+
+Repeatable `--field` accepts an exact id or case-insensitive display name and
+fails closed on ambiguous names. `--since` and `--until` accept `YYYY-MM-DD`,
+RFC3339, or Jira datetime values. Date boundaries are inclusive: an `--until`
+date includes that entire UTC calendar day. Jira's compatible changelog APIs do
+not provide these filters, so `atl` first reads the qualified snapshot and then
+filters locally; `fetched` and `total` describe the pre-filter read, while
+`count` describes matching history entries.
+
+JSON includes `complete`, `source`, optional `partial_reason`, field ids beside
+display names, and `last_changes` for selected fields within the requested time
+window. Treat `complete:false` as incomplete evidence rather than absence of a
+change. `-o text` renders a completeness line followed by an escaped Markdown
+table.
 
 ### `atl jira issue labels`
 

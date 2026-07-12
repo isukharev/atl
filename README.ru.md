@@ -345,6 +345,7 @@ atl conf comment add  --id 123456 --from-file comment.csf
 atl jira issue get  PROJ-1
 atl jira issue fields PROJ-1 # compact non-empty поля с именами по умолчанию
 atl jira issue fields PROJ-1 --field "Delivery Notes"
+atl jira issue history PROJ-1 --field "Delivery Notes" --since 2026-04-01
 atl jira issue view PROJ-1 -o text   # настроенный Markdown без записи файлов
 atl jira issue search --jql 'project = PROJ AND status = "In Progress"' --columns key,summary,status,assignee
 atl jira issue search --jql 'project = PROJ' --view full

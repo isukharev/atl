@@ -11,6 +11,9 @@ Jira rejects unknown field ids, status names, and link types — discover the va
   default. Start here when the evidence-bearing custom fields are unknown;
   repeat `--field "Exact Name"` to narrow. Use `--raw` only when the compact
   projection is insufficient and private transport/user data is acceptable.
+- `atl jira issue history <KEY> --field "Exact Name"` → complete/partial
+  provenance plus the selected field's `last_changes`. Time flags are local
+  post-read filters; never interpret `complete:false` as absence of evidence.
 - `atl jira field-options --project PROJ --type Bug --field priority` → `{ "options": [ ... ] }`
   the allowed values for a field in that project/issue-type context.
 - `atl jira transitions --key PROJ-1` → `{ "transitions": [ {id, name, to} ] }`. Pass the

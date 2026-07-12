@@ -11,27 +11,31 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 )
 
-// Changelog uses the DC-universal ?expand=changelog form (the paginated
-// /changelog sub-resource is Cloud/DC-9+ only) and maps histories to entries.
-func TestChangelogExpandsAndMaps(t *testing.T) {
+// Older DC servers fall back from the paginated sub-resource to the embedded
+// expansion and retain its explicit completeness metadata.
+func TestChangelogFallsBackToExpansionAndMaps(t *testing.T) {
 	var gotPath, gotExpand, gotFields string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/changelog") {
+			http.NotFound(w, r)
+			return
+		}
 		gotPath, gotExpand, gotFields = r.URL.Path, r.URL.Query().Get("expand"), r.URL.Query().Get("fields")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
 			"key":"PROJ-1",
-			"changelog":{"histories":[
+			"changelog":{"startAt":0,"maxResults":20,"total":1,"histories":[
 				{"id":"10100","author":{"displayName":"Alice","name":"alice"},"created":"2026-01-01T10:00:00.000+0000",
-				 "items":[{"field":"status","fromString":"To Do","toString":"In Progress"},
+				 "items":[{"field":"Status","fieldId":"status","fromString":"To Do","toString":"In Progress"},
 				          {"field":"assignee","fromString":"","toString":"alice"}]}
 			]}}`))
 	}))
 	defer srv.Close()
 
 	j := newTestJira(srv)
-	entries, err := j.Changelog(context.Background(), "PROJ-1")
+	snapshot, err := j.CompleteChangelog(context.Background(), "PROJ-1")
 	if err != nil {
-		t.Fatalf("Changelog: %v", err)
+		t.Fatalf("CompleteChangelog: %v", err)
 	}
 	if gotPath != "/rest/api/2/issue/PROJ-1" {
 		t.Errorf("path = %q, want /rest/api/2/issue/PROJ-1", gotPath)
@@ -42,15 +46,73 @@ func TestChangelogExpandsAndMaps(t *testing.T) {
 	if gotFields != "summary" {
 		t.Errorf("fields = %q, want summary (payload-size optimization)", gotFields)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("got %d entries, want 1", len(entries))
+	if !snapshot.Complete || snapshot.Source != "embedded" || snapshot.Total != 1 || len(snapshot.Entries) != 1 {
+		t.Fatalf("snapshot = %+v", snapshot)
 	}
-	e := entries[0]
+	e := snapshot.Entries[0]
 	if e.ID != "10100" || e.Author != "Alice" || len(e.Items) != 2 {
 		t.Fatalf("entry mismatch: %+v", e)
 	}
-	if e.Items[0].Field != "status" || e.Items[0].From != "To Do" || e.Items[0].To != "In Progress" {
+	if e.Items[0].Field != "Status" || e.Items[0].FieldID != "status" || e.Items[0].From != "To Do" || e.Items[0].To != "In Progress" {
 		t.Errorf("item[0] mismatch: %+v", e.Items[0])
+	}
+}
+
+func TestCompleteChangelogPaginates(t *testing.T) {
+	var starts []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		starts = append(starts, r.URL.Query().Get("startAt"))
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("startAt") == "0" {
+			_, _ = w.Write([]byte(`{"startAt":0,"maxResults":1,"total":2,"values":[{"id":"1","created":"2026-01-01","items":[]}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"startAt":1,"maxResults":1,"total":2,"values":[{"id":"2","created":"2026-01-02","items":[]}]}`))
+	}))
+	defer srv.Close()
+
+	snapshot, err := newTestJira(srv).CompleteChangelog(context.Background(), "PROJ-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.Complete || snapshot.Source != "paginated" || len(snapshot.Entries) != 2 || strings.Join(starts, ",") != "0,1" {
+		t.Fatalf("snapshot=%+v starts=%v", snapshot, starts)
+	}
+}
+
+func TestCompleteChangelogMarksNoProgressPartial(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"startAt":0,"maxResults":100,"total":2,"values":[]}`))
+	}))
+	defer srv.Close()
+
+	snapshot, err := newTestJira(srv).CompleteChangelog(context.Background(), "PROJ-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Complete || snapshot.PartialReason == "" {
+		t.Fatalf("snapshot=%+v", snapshot)
+	}
+}
+
+func TestCompleteChangelogEmbeddedWithoutPagingMetadataIsPartial(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/changelog") {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"changelog":{"histories":[{"id":"1","created":"2026-01-01","items":[]}]}}`))
+	}))
+	defer srv.Close()
+
+	snapshot, err := newTestJira(srv).CompleteChangelog(context.Background(), "PROJ-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Complete || snapshot.Total != 1 || snapshot.PartialReason == "" {
+		t.Fatalf("snapshot=%+v", snapshot)
 	}
 }
 
