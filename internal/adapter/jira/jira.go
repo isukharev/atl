@@ -6,6 +6,7 @@ package jira
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -33,6 +34,7 @@ func New(base, token, version string) *Jira {
 }
 
 var _ domain.Tracker = (*Jira)(nil)
+var _ domain.CompleteChangelogReader = (*Jira)(nil)
 var _ domain.Verifier = (*Jira)(nil)
 
 const defaultFields = "summary,description,status,issuetype,project,assignee,reporter,labels,issuelinks,comment,attachment"
@@ -419,36 +421,138 @@ func (j *Jira) DeleteLink(ctx context.Context, linkID string) error {
 	return j.c.SendJSON(ctx, "DELETE", "/rest/api/2/issueLink/"+url.PathEscape(linkID), nil, nil)
 }
 
-// Changelog returns an issue's history. It uses the DC-universal
-// `?expand=changelog` form (the paginated /changelog sub-resource is only
-// available on Cloud and Jira DC 9+), keeping older Data Center servers working.
+type jiraChangelogItem struct {
+	Field      string `json:"field"`
+	FieldID    string `json:"fieldId"`
+	FromString string `json:"fromString"`
+	ToString   string `json:"toString"`
+}
+
+type jiraChangelogHistory struct {
+	ID      string              `json:"id"`
+	Author  map[string]any      `json:"author"`
+	Created string              `json:"created"`
+	Items   []jiraChangelogItem `json:"items"`
+}
+
+type jiraChangelogPage struct {
+	StartAt    int                    `json:"startAt"`
+	MaxResults int                    `json:"maxResults"`
+	Total      *int                   `json:"total"`
+	Values     []jiraChangelogHistory `json:"values"`
+	Histories  []jiraChangelogHistory `json:"histories"`
+}
+
+// Changelog retains the original Tracker contract for callers that only need
+// entries. New analysis workflows use CompleteChangelog for provenance.
 func (j *Jira) Changelog(ctx context.Context, key string) ([]domain.ChangelogEntry, error) {
+	snapshot, err := j.CompleteChangelog(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	return snapshot.Entries, nil
+}
+
+// CompleteChangelog prefers the paginated Data Center endpoint. Older servers
+// fall back to the issue expansion, which is labeled incomplete unless its
+// paging metadata proves every advertised entry is present.
+func (j *Jira) CompleteChangelog(ctx context.Context, key string) (*domain.ChangelogSnapshot, error) {
+	const pageSize = 100
+	startAt := 0
+	advertisedTotal := -1
+	entries := []domain.ChangelogEntry{}
+	for pageNumber := 0; pageNumber < 1000; pageNumber++ {
+		var page jiraChangelogPage
+		path := fmt.Sprintf("/rest/api/2/issue/%s/changelog?startAt=%d&maxResults=%d", url.PathEscape(key), startAt, pageSize)
+		if err := j.c.GetJSON(ctx, path, &page); err != nil {
+			if startAt == 0 && unsupportedChangelogEndpoint(err) {
+				return j.embeddedChangelog(ctx, key)
+			}
+			return nil, err
+		}
+		raw := page.Values
+		if len(raw) == 0 {
+			raw = page.Histories
+		}
+		if startAt == 0 && page.Total == nil && len(raw) == 0 {
+			return j.embeddedChangelog(ctx, key)
+		}
+		if page.Total != nil {
+			advertisedTotal = *page.Total
+		}
+		if page.StartAt != startAt {
+			total := len(entries)
+			if page.Total != nil {
+				total = *page.Total
+			}
+			return &domain.ChangelogSnapshot{Entries: entries, Total: total, Source: "paginated", PartialReason: "Jira changelog pagination returned a non-contiguous page"}, nil
+		}
+		entries = append(entries, mapChangelogHistories(raw)...)
+		next := page.StartAt + len(raw)
+		if page.Total != nil && next == *page.Total {
+			return &domain.ChangelogSnapshot{Entries: entries, Total: *page.Total, Complete: true, Source: "paginated"}, nil
+		}
+		if page.Total != nil && next > *page.Total {
+			return &domain.ChangelogSnapshot{Entries: entries, Total: *page.Total, Source: "paginated", PartialReason: "Jira changelog returned more entries than advertised"}, nil
+		}
+		if len(raw) == 0 || next <= startAt {
+			total := len(entries)
+			if page.Total != nil {
+				total = *page.Total
+			}
+			return &domain.ChangelogSnapshot{Entries: entries, Total: total, Source: "paginated", PartialReason: "Jira changelog pagination made no forward progress"}, nil
+		}
+		startAt = next
+	}
+	total := len(entries)
+	if advertisedTotal >= 0 {
+		total = advertisedTotal
+	}
+	return &domain.ChangelogSnapshot{Entries: entries, Total: total, Source: "paginated", PartialReason: "Jira changelog exceeded the 1000-page safety cap"}, nil
+}
+
+func unsupportedChangelogEndpoint(err error) bool {
+	if errors.Is(err, domain.ErrNotFound) {
+		return true
+	}
+	var apiErr *httpx.APIError
+	return errors.As(err, &apiErr) && apiErr.Status == 405
+}
+
+func (j *Jira) embeddedChangelog(ctx context.Context, key string) (*domain.ChangelogSnapshot, error) {
 	var d struct {
-		Changelog struct {
-			Histories []struct {
-				ID      string         `json:"id"`
-				Author  map[string]any `json:"author"`
-				Created string         `json:"created"`
-				Items   []struct {
-					Field      string `json:"field"`
-					FromString string `json:"fromString"`
-					ToString   string `json:"toString"`
-				} `json:"items"`
-			} `json:"histories"`
-		} `json:"changelog"`
+		Changelog jiraChangelogPage `json:"changelog"`
 	}
 	if err := j.c.GetJSON(ctx, "/rest/api/2/issue/"+url.PathEscape(key)+"?expand=changelog&fields=summary", &d); err != nil {
 		return nil, err
 	}
-	out := make([]domain.ChangelogEntry, 0, len(d.Changelog.Histories))
-	for _, h := range d.Changelog.Histories {
+	entries := mapChangelogHistories(d.Changelog.Histories)
+	total := len(entries)
+	complete := false
+	if d.Changelog.Total != nil {
+		total = *d.Changelog.Total
+		complete = d.Changelog.StartAt == 0 && len(entries) == total
+	}
+	reason := "embedded changelog did not report paging metadata"
+	if d.Changelog.Total != nil && total > len(entries) {
+		reason = "embedded changelog contains only part of the advertised history"
+	}
+	if complete {
+		reason = ""
+	}
+	return &domain.ChangelogSnapshot{Entries: entries, Total: total, Complete: complete, Source: "embedded", PartialReason: reason}, nil
+}
+
+func mapChangelogHistories(histories []jiraChangelogHistory) []domain.ChangelogEntry {
+	out := make([]domain.ChangelogEntry, 0, len(histories))
+	for _, h := range histories {
 		e := domain.ChangelogEntry{ID: h.ID, Author: nestedDisplay(h.Author), Created: h.Created}
 		for _, it := range h.Items {
-			e.Items = append(e.Items, domain.ChangelogItem{Field: it.Field, From: it.FromString, To: it.ToString})
+			e.Items = append(e.Items, domain.ChangelogItem{Field: it.Field, FieldID: it.FieldID, From: it.FromString, To: it.ToString})
 		}
 		out = append(out, e)
 	}
-	return out, nil
+	return out
 }
 
 // LinkEpic sets the Epic Link field (DC classic) on an issue.

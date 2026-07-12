@@ -1,0 +1,42 @@
+{
+  "key": "ENG-1",
+  "complete": true,
+  "source": "paginated",
+  "total": 2,
+  "fetched": 2,
+  "count": 1,
+  "filters": {
+    "fields": [
+      {
+        "id": "customfield_10001",
+        "name": "Delivery Notes",
+        "custom": true,
+        "schema": "string"
+      }
+    ],
+    "since": "2026-04-01"
+  },
+  "history": [
+    {
+      "id": "101",
+      "author": "",
+      "created": "2026-04-01T12:00:00.000+0000",
+      "items": [
+        {
+          "field": "Delivery Notes",
+          "field_id": "customfield_10001",
+          "to": "current"
+        }
+      ]
+    }
+  ],
+  "last_changes": [
+    {
+      "field_id": "customfield_10001",
+      "field": "Delivery Notes",
+      "created": "2026-04-01T12:00:00.000+0000",
+      "history_id": "101",
+      "to": "current"
+    }
+  ]
+}

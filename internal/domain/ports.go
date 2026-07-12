@@ -128,9 +128,28 @@ type ChangelogEntry struct {
 // ChangelogItem is a single field change inside a ChangelogEntry. From/To are
 // the human-readable values (Jira's fromString/toString).
 type ChangelogItem struct {
-	Field string `json:"field"`
-	From  string `json:"from,omitempty"`
-	To    string `json:"to,omitempty"`
+	Field   string `json:"field"`
+	FieldID string `json:"field_id,omitempty"`
+	From    string `json:"from,omitempty"`
+	To      string `json:"to,omitempty"`
+}
+
+// ChangelogSnapshot qualifies a changelog read. Complete is true only when the
+// adapter consumed every page advertised by Jira. Older Data Center instances
+// may expose only an embedded expansion whose completeness cannot be proven.
+type ChangelogSnapshot struct {
+	Entries       []ChangelogEntry `json:"history"`
+	Total         int              `json:"total"`
+	Complete      bool             `json:"complete"`
+	Source        string           `json:"source"`
+	PartialReason string           `json:"partial_reason,omitempty"`
+}
+
+// CompleteChangelogReader is an optional tracker capability. Keeping it
+// separate lets non-Jira adapters and existing test doubles retain the small
+// Tracker port while Jira can expose pagination/completeness metadata.
+type CompleteChangelogReader interface {
+	CompleteChangelog(ctx context.Context, key string) (*ChangelogSnapshot, error)
 }
 
 // Tracker is the port for an issue tracker (Jira today; Linear/GitLab later).

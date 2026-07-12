@@ -51,31 +51,58 @@ func TestJiraIssueLabels_WiresUpdateAndGuards(t *testing.T) {
 
 func TestJiraIssueHistory_EmitsChangelog(t *testing.T) {
 	js := newJiraServer(t)
-	js.route(http.MethodGet, "/rest/api/2/issue/", http.StatusOK,
-		`{"key":"ENG-1","changelog":{"histories":[{"id":"100","author":{"displayName":"Jane"},"created":"2026-06-01","items":[{"field":"status","fromString":"Open","toString":"Done"}]}]}}`)
+	js.route(http.MethodGet, "/rest/api/2/issue/ENG-1/changelog", http.StatusOK,
+		`{"startAt":0,"maxResults":100,"total":1,"values":[{"id":"100","author":{"displayName":"Jane"},"created":"2026-06-01","items":[{"field":"Status","fieldId":"status","fromString":"Open","toString":"Done"}]}]}`)
 
 	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "history", "ENG-1")
 	if code != exitOK {
 		t.Fatalf("history: exit %d, want 0 (stdout=%q)", code, out)
 	}
 	var res struct {
-		History []domain.ChangelogEntry `json:"history"`
+		Complete bool                    `json:"complete"`
+		Source   string                  `json:"source"`
+		History  []domain.ChangelogEntry `json:"history"`
 	}
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("decode history: %v\n%s", err, out)
 	}
-	if len(res.History) != 1 || res.History[0].Author != "Jane" || len(res.History[0].Items) != 1 || res.History[0].Items[0].To != "Done" {
+	if !res.Complete || res.Source != "paginated" || len(res.History) != 1 || res.History[0].Author != "Jane" || len(res.History[0].Items) != 1 || res.History[0].Items[0].FieldID != "status" || res.History[0].Items[0].To != "Done" {
 		t.Fatalf("history = %+v, want one Jane status→Done entry", res.History)
 	}
-	// The DC-universal expand=changelog form is used (not the Cloud /changelog).
+	// A capable DC backend uses the complete paginated sub-resource.
 	var saw bool
 	for _, r := range js.requests() {
-		if strings.Contains(r.query, "expand=changelog") {
+		if r.path == "/rest/api/2/issue/ENG-1/changelog" && strings.Contains(r.query, "startAt=0") {
 			saw = true
 		}
 	}
 	if !saw {
-		t.Errorf("expected ?expand=changelog on the wire, got %+v", js.requests())
+		t.Errorf("expected paginated changelog on the wire, got %+v", js.requests())
+	}
+}
+
+func TestJiraIssueHistory_FiltersByFieldNameAndTime(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/field", http.StatusOK,
+		`[{"id":"customfield_10001","name":"Delivery Notes","custom":true,"schema":{"type":"string"}}]`)
+	js.route(http.MethodGet, "/rest/api/2/issue/ENG-1/changelog", http.StatusOK,
+		`{"startAt":0,"maxResults":100,"total":2,"values":[`+
+			`{"id":"100","created":"2026-03-31T23:59:59.000+0000","items":[{"field":"Delivery Notes","fieldId":"customfield_10001","toString":"old"}]},`+
+			`{"id":"101","created":"2026-04-01T12:00:00.000+0000","items":[{"field":"Delivery Notes","fieldId":"customfield_10001","toString":"current"},{"field":"Status","fieldId":"status","toString":"Done"}]}`+
+			`]}`)
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "history", "ENG-1", "--field", "Delivery Notes", "--since", "2026-04-01")
+	if code != exitOK {
+		t.Fatalf("history: exit %d output=%s", code, out)
+	}
+	if strings.Contains(out, `"old"`) || strings.Contains(out, `"field": "Status"`) || !strings.Contains(out, `"history_id": "101"`) || !strings.Contains(out, `"to": "current"`) {
+		t.Fatalf("filtered output=%s", out)
+	}
+	assertGolden(t, "jira_issue_history_filtered.json", []byte(out))
+
+	text, code := runCLI(t, jiraEnv(js.srv), "-o", "text", "jira", "issue", "history", "ENG-1", "--field", "Delivery Notes", "--since", "2026-04-01")
+	if code != exitOK || !strings.Contains(text, "Complete: true") || !strings.Contains(text, "| Created | Author | Field | From | To |") {
+		t.Fatalf("text exit=%d output=%s", code, text)
 	}
 }
 

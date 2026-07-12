@@ -445,6 +445,8 @@ func jiraIssueCmd() *cobra.Command {
 	assign.Flags().BoolVar(&assignMe, "me", false, "assign the issue to the authenticated user")
 	assign.Flags().BoolVar(&assignNone, "none", false, "remove the assignee")
 
+	var historyFields []string
+	var historySince, historyUntil string
 	history := &cobra.Command{
 		Use:   "history <KEY>",
 		Short: "Show an issue's changelog (who changed what, when)",
@@ -454,22 +456,18 @@ func jiraIssueCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			entries, err := svc.History(cmd.Context(), args[0])
+			result, err := svc.HistoryFiltered(cmd.Context(), args[0], app.JiraHistoryOpts{
+				Fields: historyFields, Since: historySince, Until: historyUntil,
+			})
 			if err != nil {
 				return err
 			}
-			return emit(cmd, map[string]any{"key": args[0], "history": entries}, func() string {
-				var b strings.Builder
-				for _, e := range entries {
-					fmt.Fprintf(&b, "%s\t%s\n", e.Created, e.Author)
-					for _, it := range e.Items {
-						fmt.Fprintf(&b, "  %s: %s → %s\n", it.Field, it.From, it.To)
-					}
-				}
-				return strings.TrimRight(b.String(), "\n")
-			})
+			return emit(cmd, result, func() string { return app.JiraHistoryMarkdown(result) })
 		},
 	}
+	history.Flags().StringArrayVar(&historyFields, "field", nil, "exact field id or display name to include (repeatable)")
+	history.Flags().StringVar(&historySince, "since", "", "include changes at/after date or timestamp")
+	history.Flags().StringVar(&historyUntil, "until", "", "include changes through date or timestamp")
 
 	comment := jiraCommentCmd()
 	link := jiraLinkCmd()

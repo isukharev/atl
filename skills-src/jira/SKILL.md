@@ -59,6 +59,10 @@ fields <KEY>`. Its default non-empty compact projection is the safe discovery
 surface; select exact names/ids with repeated `--field`. Do not begin with
 `*all` or `--raw`, which can carry large private user/transport objects.
 
+For time-sensitive evidence, use `atl jira issue history <KEY> --field "Exact
+Name" --since YYYY-MM-DD`. Check `complete` before drawing negative conclusions
+and use `last_changes`, not list position, for a selected field's latest update.
+
 ### 1. Find issues
 ```bash
 atl jira issue search --jql '<JQL>' --limit 50

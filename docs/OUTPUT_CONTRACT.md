@@ -849,6 +849,18 @@ catalog. Render selectors are stored as resolved ids in view state, so offline
 render/apply does not depend on a later metadata lookup. Existing technical ids
 remain valid without an extra field-catalog request.
 
+`atl jira issue history <KEY>` emits
+`{key,complete,source,total,fetched,count,partial_reason?,filters,history,
+last_changes?}`. Each history item preserves both `field` and `field_id` when
+Jira supplies them. `complete:true` means every entry advertised by the chosen
+backend representation was consumed; `complete:false` always carries a reason
+and must not be interpreted as proof that an omitted change did not happen.
+`source` is `paginated`, `embedded`, or `legacy`. Repeatable exact `--field`
+selectors and inclusive `--since`/`--until` boundaries are applied locally
+after the qualified read. `last_changes` reports the newest matching change per
+selected resolved field within those boundaries. `-o text` is a status line and
+a structurally escaped Markdown table.
+
 List-oriented Jira reads (`issue search`, `issue children`, `board
 issues/backlog`, and `sprint issues`) share one app-layer contract:
 
