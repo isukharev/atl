@@ -756,8 +756,16 @@ stopped a JQL result while Jira advertised more rows. Each issue qualifies
 `description`, `comments`, and every requested `field.<id>` with `complete`,
 input-value `count`, optional `text_truncated`, and a bounded warning. Comments
 come from the complete paginated comment endpoint; a recoverable comment-source
-failure may fall back to embedded comments only with `complete:false`. All
-narrative values use the same 128 KiB per-value evidence cap as `epic digest`.
+failure may retain embedded comments but marks that source and the issue
+incomplete.
+
+`--fields` selectors are resolved once through the shared Jira field catalog:
+technical ids remain direct, while exact case-insensitive display names map to
+technical ids before selection and extraction. Field source keys always contain
+the resolved technical id. A JQL selection performs one complete paginated
+comment listing per issue; callers should use a narrow query and explicit limit
+when budgeting backend requests.
+All narrative values use the same 128 KiB per-value evidence cap as `epic digest`.
 Missing requested fields and clipped values remain incomplete. `-o text` starts
 with completeness/selection status, then emits the shared escaped Markdown
 table and bounded warnings. An empty `refs` array is evidence of absence only

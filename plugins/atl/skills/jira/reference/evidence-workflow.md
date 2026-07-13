@@ -43,8 +43,11 @@ atl --read-only jira issue refs PROJ-2 --fields 'Delivery Notes'
 ```
 
 For `issue refs`, require top-level, selection, and per-issue `complete:true`
-before treating an empty list as evidence that no artifact link exists. Inspect
-the named description/comment/field source and `text_truncated` when incomplete.
+before treating an empty result as absence. Display names are resolved to
+technical ids before the issue read. A JQL selection also performs one complete
+paginated comment listing per issue, so keep the query narrow and set an
+explicit `--limit`. Inspect the named description/comment/field source and
+`text_truncated` when incomplete.
 For history, `complete:false` means absence is unproven. Use `last_changes` for
 the selected field; do not infer recency from array position. Exit 8 on an
 unsupported matching timestamp means recency is unknowable, not that no change

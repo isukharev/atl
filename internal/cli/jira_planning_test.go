@@ -165,6 +165,35 @@ func TestJiraIssueRefsCLIForKeyAndJQL(t *testing.T) {
 	}
 }
 
+func TestJiraIssueRefsCLIResolvesDisplayName(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/field", http.StatusOK, `[
+		{"id":"customfield_10001","name":"Delivery Notes","custom":true}
+	]`)
+	js.route(http.MethodGet, "/rest/api/2/issue/", http.StatusOK, `{
+		"key":"PROJ-1",
+		"fields":{
+			"summary":"First",
+			"issuetype":{"name":"Story"},
+			"customfield_10001":"Spec https://docs.example.com/field"
+		}
+	}`)
+	js.route(http.MethodGet, "/rest/api/2/issue/PROJ-1/comment", http.StatusOK, `{
+		"startAt":0,
+		"total":0,
+		"comments":[]
+	}`)
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "refs", "PROJ-1", "--fields", "Delivery Notes")
+	if code != exitOK || !strings.Contains(out, `"field.customfield_10001"`) || !strings.Contains(out, `https://docs.example.com/field`) {
+		t.Fatalf("issue refs display name: exit=%d output=%q", code, out)
+	}
+	requests := js.requests()
+	if len(requests) != 3 || requests[0].path != "/rest/api/2/field" || !strings.Contains(requests[1].query, "customfield_10001") || strings.Contains(requests[1].query, "Delivery") {
+		t.Fatalf("requests = %+v", requests)
+	}
+}
+
 func TestJiraIssueTreeCLI(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/api/2/search", http.StatusOK, `{

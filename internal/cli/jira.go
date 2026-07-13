@@ -546,7 +546,7 @@ func jiraIssueCmd() *cobra.Command {
 		},
 	}
 	refs.Flags().StringVar(&refsJQL, "jql", "", "JQL selecting issues (alternative to KEY)")
-	refs.Flags().StringVar(&refsFields, "fields", "", "extra comma-separated fields to fetch before extracting refs")
+	refs.Flags().StringVar(&refsFields, "fields", "", "extra comma-separated field ids or exact display names to extract refs from")
 	refs.Flags().IntVar(&refsLimit, "limit", 100, "max issues for --jql (0 = all)")
 
 	var treeJQL, treeEpicField, treeFields string
