@@ -26,6 +26,29 @@ type duplicateExportTracker struct{ domain.Tracker }
 
 type failingSecondPageExportTracker struct{ domain.Tracker }
 
+type orderedExportTracker struct{ domain.Tracker }
+
+func (orderedExportTracker) Search(_ context.Context, jql string, _ []string, _ int, cursor string) ([]domain.Issue, string, error) {
+	issue := func(id, key string) domain.Issue {
+		return domain.Issue{ID: id, Key: key, Fields: map[string]any{"summary": key}}
+	}
+	switch jql {
+	case `key in ("PROJ-3","proj-1","PROJ-4")`, `key in ("PROJ-3","PROJ-1","PROJ-4")`:
+		if cursor == "" {
+			return []domain.Issue{issue("4", "PROJ-4"), issue("1", "PROJ-1")}, "next", nil
+		}
+		return []domain.Issue{issue("3", "PROJ-3")}, "", nil
+	case `key in ("PROJ-404","PROJ-2")`:
+		return []domain.Issue{issue("2", "PROJ-2")}, "", nil
+	case "id in (0002,1)":
+		return []domain.Issue{issue("1", "PROJ-1"), issue("2", "PROJ-2")}, "", nil
+	case "project=PROJ ORDER BY rank":
+		return []domain.Issue{issue("2", "PROJ-2"), issue("1", "PROJ-1")}, "", nil
+	default:
+		return nil, "", fmt.Errorf("unexpected JQL %q", jql)
+	}
+}
+
 func (failingSecondPageExportTracker) Search(_ context.Context, _ string, _ []string, _ int, cursor string) ([]domain.Issue, string, error) {
 	if cursor != "" {
 		return nil, "", errors.New("later page failed")
@@ -114,6 +137,9 @@ func TestJiraExportWritesJSONLAndSanitizedManifest(t *testing.T) {
 	}
 	if manifest.Count != 1 || manifest.Format != "jsonl" || manifest.JQL != "project = PROJ" {
 		t.Fatalf("manifest = %+v, want count/format/jql", manifest)
+	}
+	if manifest.RowOrder != "backend" || manifest.MissingIdentityBehavior != "" {
+		t.Fatalf("manifest ordering = %+v, want backend JQL order", manifest)
 	}
 }
 
@@ -241,6 +267,138 @@ func TestJiraStreamingExportDeduplicatesIdentityAcrossQueries(t *testing.T) {
 	if err != nil || len(queries) != 1 || strings.Contains(queries[0], "proj-1") {
 		t.Fatalf("case-overlap queries=%v error=%v", queries, err)
 	}
+}
+
+func TestJiraExplicitKeyExportPreservesSelectorOrderAcrossFormatsAndBatches(t *testing.T) {
+	want := "PROJ-3,PROJ-1,PROJ-4,PROJ-2"
+	for _, format := range []string{"jsonl", "json", "csv"} {
+		t.Run(format, func(t *testing.T) {
+			var out bytes.Buffer
+			_, err := (&JiraService{tr: orderedExportTracker{}}).Export(context.Background(), JiraExportOpts{
+				Keys:      []string{"PROJ-3,proj-1,PROJ-3,PROJ-4,PROJ-404,PROJ-2"},
+				BatchSize: 3,
+				Out:       "-",
+				Format:    format,
+				Limit:     0,
+				Writer:    &out,
+			})
+			if err != nil {
+				t.Fatalf("Export: %v", err)
+			}
+			if got := exportedKeys(t, format, out.Bytes()); strings.Join(got, ",") != want {
+				t.Fatalf("keys=%v, want %s\n%s", got, want, out.String())
+			}
+		})
+	}
+}
+
+func TestJiraExplicitIDExportUsesNumericFirstOccurrenceOrder(t *testing.T) {
+	var out bytes.Buffer
+	_, err := (&JiraService{tr: orderedExportTracker{}}).Export(context.Background(), JiraExportOpts{
+		IDs: []string{"0002,2,1"}, Out: "-", Format: "json", Writer: &out,
+	})
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	var snapshots []JiraIssueSnapshot
+	if err := json.Unmarshal(out.Bytes(), &snapshots); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshots) != 2 || snapshots[0].ID != "2" || snapshots[1].ID != "1" {
+		t.Fatalf("snapshots=%+v, want ids 2,1", snapshots)
+	}
+}
+
+func TestJiraJQLExportRetainsBackendOrder(t *testing.T) {
+	var out bytes.Buffer
+	_, err := (&JiraService{tr: orderedExportTracker{}}).Export(context.Background(), JiraExportOpts{
+		JQL: "project=PROJ ORDER BY rank", Out: "-", Format: "json", Writer: &out,
+	})
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	if got := exportedKeys(t, "json", out.Bytes()); strings.Join(got, ",") != "PROJ-2,PROJ-1" {
+		t.Fatalf("keys=%v, want backend order", got)
+	}
+}
+
+func TestJiraExplicitExportManifestDeclaresOrderingAndMissingBehavior(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "issues.jsonl")
+	res, err := (&JiraService{tr: orderedExportTracker{}}).Export(context.Background(), JiraExportOpts{
+		Keys: []string{"PROJ-3,PROJ-1,PROJ-4,PROJ-404,PROJ-2"}, BatchSize: 3, Out: out, Format: "jsonl",
+	})
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	if res.Manifest.RowOrder != "selector" || res.Manifest.MissingIdentityBehavior != "omit" || res.Count != 4 {
+		t.Fatalf("manifest=%+v", res.Manifest)
+	}
+	artifact, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := exportedKeys(t, "jsonl", artifact); strings.Join(got, ",") != "PROJ-3,PROJ-1,PROJ-4,PROJ-2" {
+		t.Fatalf("file keys=%v", got)
+	}
+	data, err := os.ReadFile(res.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"row_order": "selector"`) || !strings.Contains(string(data), `"missing_identity_behavior": "omit"`) {
+		t.Fatalf("manifest file does not declare ordering behavior:\n%s", data)
+	}
+}
+
+func TestJiraExplicitExportBoundsReorderBatchBytes(t *testing.T) {
+	plan, err := planJiraExport(JiraExportOpts{Keys: []string{"PROJ-3"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracker := partialTracker{issues: []domain.Issue{{
+		ID: "3", Key: "PROJ-3", Fields: map[string]any{"summary": strings.Repeat("x", 200)},
+	}}}
+	yielded := false
+	_, err = (&JiraService{}).forEachExplicitExportIssue(context.Background(), plan, nil, 0, jiraRowExportMaxIdentities, 100, tracker.Search, func(JiraIssueSnapshot) error {
+		yielded = true
+		return nil
+	})
+	if !errors.Is(err, domain.ErrUsage) || yielded {
+		t.Fatalf("error=%v yielded=%t, want pre-yield byte-cap refusal", err, yielded)
+	}
+}
+
+func exportedKeys(t *testing.T, format string, data []byte) []string {
+	t.Helper()
+	var keys []string
+	switch format {
+	case "json":
+		var snapshots []JiraIssueSnapshot
+		if err := json.Unmarshal(data, &snapshots); err != nil {
+			t.Fatal(err)
+		}
+		for _, snapshot := range snapshots {
+			keys = append(keys, snapshot.Key)
+		}
+	case "jsonl":
+		for lineNo, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+			var snapshot JiraIssueSnapshot
+			if err := json.Unmarshal([]byte(line), &snapshot); err != nil {
+				t.Fatalf("line %d: %v", lineNo+1, err)
+			}
+			keys = append(keys, snapshot.Key)
+		}
+	case "csv":
+		records, err := csv.NewReader(bytes.NewReader(data)).ReadAll()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, record := range records[1:] {
+			keys = append(keys, record[0])
+		}
+	default:
+		t.Fatalf("unsupported format %q", format)
+	}
+	return keys
 }
 
 func TestJiraStreamingExportBoundsIdentityIndex(t *testing.T) {

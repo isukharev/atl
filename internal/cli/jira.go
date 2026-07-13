@@ -1398,8 +1398,8 @@ func jiraExportCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&jql, "jql", "", "JQL selecting issues")
-	cmd.Flags().StringVar(&ids, "ids", "", "comma-separated numeric issue ids; generates batched `id in (...)` JQL")
-	cmd.Flags().StringVar(&keys, "keys", "", "comma-separated issue keys; generates batched `key in (...)` JQL")
+	cmd.Flags().StringVar(&ids, "ids", "", "comma-separated numeric issue ids; emits found rows in first-occurrence order")
+	cmd.Flags().StringVar(&keys, "keys", "", "comma-separated issue keys; emits found rows in first-occurrence order")
 	cmd.Flags().IntVar(&batchSize, "batch-size", 100, "max ids/keys per generated JQL batch")
 	cmd.Flags().StringVar(&out, "out", "", "artifact path, or - for artifact-only stdout (no manifest)")
 	cmd.Flags().StringVar(&format, "format", "jsonl", "export format: jsonl, json, or csv")

@@ -128,7 +128,8 @@ versioned plan apply; guarded file-backed custom-field preview/apply; labels;
 complete/guarded watcher list/add/remove;
 users, planning reports, and compact exports.
 `jira export` manifests hash configured backend identity but retain
-selectors/fields verbatim and may still be private. Boards/sprints use the Jira Software Agile API. Structure
+selectors/fields verbatim and may still be private. Explicit key/id exports preserve de-duplicated
+selector order and omit missing identities; JQL exports retain backend order. Boards/sprints use the Jira Software Agile API. Structure
 commands read metadata, forests, rows, values, issue snapshots, and offline
 exports, with `--root` subtree selection where supported. Breaking command
 groups are `comment add|list|delete` and `link add|list|delete`; transitions can

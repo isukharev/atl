@@ -2677,8 +2677,8 @@ Flags:
 | flag | description |
 |---|---|
 | `--jql` | JQL query; pass exactly one of `--jql`, `--ids`, or `--keys` |
-| `--ids` | comma-separated numeric issue ids; generates batched `id in (...)` JQL |
-| `--keys` | comma-separated issue keys; generates batched `key in (...)` JQL |
+| `--ids` | comma-separated numeric issue ids; generated batches emit found rows in de-duplicated first-occurrence order |
+| `--keys` | comma-separated issue keys; generated batches emit found rows in case-insensitive first-occurrence order |
 | `--batch-size` | max ids/keys per generated JQL batch (default 100) |
 | `--out` | artifact path (writes `<out>.manifest.json`), or `-` for artifact-only stdout with no files/manifest |
 | `--format` | `jsonl`, `json`, or `csv` (default `jsonl`) |
@@ -2694,6 +2694,16 @@ apostrophe prefix. The manifest records `csv_raw: true` when the unsafe raw mode
 is explicitly selected. Exact cross-page deduplication uses a bounded identity
 index and refuses a single export above 250,000 unique issues; split larger
 selections into multiple exports.
+
+For explicit `--keys` and `--ids`, every format and destination preserves the
+caller's de-duplicated first-occurrence order across generated batches, even
+when Jira returns pages in another order. Missing or inaccessible identities
+produce no placeholder row; the surrounding found rows keep their requested
+relative order, and `--limit` counts only emitted rows. File manifests declare
+`row_order: selector` and `missing_identity_behavior: omit`. A user-authored
+`--jql` is never reordered (`row_order: backend`). Explicit selections are
+buffered only one configured batch at a time, with a 64 MiB reorder-buffer cap
+that asks the caller to reduce `--batch-size`; JQL JSONL/CSV stays streaming.
 
 With `--out -`, stdout contains **only** the artifact: one object per line for
 JSONL, a JSON array for `--format json`, or CSV bytes. No manifest, command

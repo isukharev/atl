@@ -51,19 +51,21 @@ type JiraExportResult struct {
 // JiraExportManifest captures enough non-secret provenance to reproduce an
 // export without writing backend hostnames or tokens to disk.
 type JiraExportManifest struct {
-	CreatedAt  string   `json:"created_at"`
-	Command    string   `json:"command"`
-	Format     string   `json:"format"`
-	JQL        string   `json:"jql"`
-	QueryMode  string   `json:"query_mode"`
-	Queries    []string `json:"queries,omitempty"`
-	BatchSize  int      `json:"batch_size,omitempty"`
-	Fields     []string `json:"fields,omitempty"`
-	Limit      int      `json:"limit"`
-	Count      int      `json:"count"`
-	ATLVersion string   `json:"atl_version,omitempty"`
-	CSVRaw     bool     `json:"csv_raw,omitempty"`
-	Backend    struct {
+	CreatedAt               string   `json:"created_at"`
+	Command                 string   `json:"command"`
+	Format                  string   `json:"format"`
+	JQL                     string   `json:"jql"`
+	QueryMode               string   `json:"query_mode"`
+	Queries                 []string `json:"queries,omitempty"`
+	BatchSize               int      `json:"batch_size,omitempty"`
+	RowOrder                string   `json:"row_order"`
+	MissingIdentityBehavior string   `json:"missing_identity_behavior,omitempty"`
+	Fields                  []string `json:"fields,omitempty"`
+	Limit                   int      `json:"limit"`
+	Count                   int      `json:"count"`
+	ATLVersion              string   `json:"atl_version,omitempty"`
+	CSVRaw                  bool     `json:"csv_raw,omitempty"`
+	Backend                 struct {
 		Service string `json:"service"`
 		URLHash string `json:"url_hash,omitempty"`
 	} `json:"backend"`
@@ -72,14 +74,19 @@ type JiraExportManifest struct {
 const jiraAggregateExportMaxIssues = 10000
 const jiraAggregateExportMaxBytes int64 = 64 << 20
 const jiraRowExportMaxIdentities = 250000
+const jiraExplicitExportBatchMaxBytes int64 = 64 << 20
 
 // Export writes a compact Jira export and a backend-identity-hashed provenance
 // manifest. Query selectors remain present verbatim for reproducibility.
 func (s *JiraService) Export(ctx context.Context, opts JiraExportOpts) (*JiraExportResult, error) {
-	queries, queryMode, err := exportQueries(opts)
+	plan, err := planJiraExport(opts)
 	if err != nil {
 		return nil, err
 	}
+	if plan.selectorCount() > jiraRowExportMaxIdentities {
+		return nil, fmt.Errorf("%w: explicit export exceeds the %d-issue identity safety cap; use a smaller selection or split it", domain.ErrUsage, jiraRowExportMaxIdentities)
+	}
+	queries, queryMode := plan.Queries, plan.QueryMode
 	format := strings.ToLower(strings.TrimSpace(opts.Format))
 	if format == "" {
 		format = "jsonl"
@@ -116,7 +123,7 @@ func (s *JiraService) Export(ctx context.Context, opts JiraExportOpts) (*JiraExp
 		if opts.Limit > 0 && opts.Limit < collectLimit {
 			collectLimit = opts.Limit
 		}
-		issues, collectErr := s.collectAggregateExportIssues(ctx, queries, opts.Fields, collectLimit, jiraAggregateExportMaxBytes)
+		issues, collectErr := s.collectAggregateExportIssuesForPlan(ctx, plan, opts.Fields, collectLimit, jiraAggregateExportMaxBytes)
 		if collectErr != nil {
 			return nil, collectErr
 		}
@@ -143,7 +150,7 @@ func (s *JiraService) Export(ctx context.Context, opts JiraExportOpts) (*JiraExp
 	} else {
 		writeStream := func(dst io.Writer) error {
 			var streamErr error
-			count, streamErr = s.streamJiraExport(ctx, dst, format, queries, opts.Fields, opts.Limit, opts.RawCSV)
+			count, streamErr = s.streamJiraExport(ctx, dst, format, plan, opts.Fields, opts.Limit, opts.RawCSV)
 			return streamErr
 		}
 		var writeErr error
@@ -180,9 +187,13 @@ func (s *JiraService) Export(ctx context.Context, opts JiraExportOpts) (*JiraExp
 }
 
 func (s *JiraService) collectAggregateExportIssues(ctx context.Context, queries, fields []string, limit int, maxBytes int64) ([]JiraIssueSnapshot, error) {
+	return s.collectAggregateExportIssuesForPlan(ctx, jiraExportPlan{Queries: queries, QueryMode: "jql"}, fields, limit, maxBytes)
+}
+
+func (s *JiraService) collectAggregateExportIssuesForPlan(ctx context.Context, plan jiraExportPlan, fields []string, limit int, maxBytes int64) ([]JiraIssueSnapshot, error) {
 	var out []JiraIssueSnapshot
 	var encodedBytes int64
-	_, err := s.forEachExportIssue(ctx, queries, fields, limit, func(snapshot JiraIssueSnapshot) error {
+	_, err := s.forEachExportIssuePlan(ctx, plan, fields, limit, jiraRowExportMaxIdentities, func(snapshot JiraIssueSnapshot) error {
 		encoded, err := json.Marshal(snapshot)
 		if err != nil {
 			return err
@@ -197,7 +208,7 @@ func (s *JiraService) collectAggregateExportIssues(ctx context.Context, queries,
 	return out, err
 }
 
-func (s *JiraService) streamJiraExport(ctx context.Context, dst io.Writer, format string, queries, fields []string, limit int, rawCSV bool) (int, error) {
+func (s *JiraService) streamJiraExport(ctx context.Context, dst io.Writer, format string, plan jiraExportPlan, fields []string, limit int, rawCSV bool) (int, error) {
 	var encode func(JiraIssueSnapshot) error
 	var csvWriter *csv.Writer
 	switch format {
@@ -222,7 +233,7 @@ func (s *JiraService) streamJiraExport(ctx context.Context, dst io.Writer, forma
 	default:
 		return 0, fmt.Errorf("%w: unsupported streaming export format %q", domain.ErrUsage, format)
 	}
-	count, err := s.forEachExportIssue(ctx, queries, fields, limit, encode)
+	count, err := s.forEachExportIssuePlan(ctx, plan, fields, limit, jiraRowExportMaxIdentities, encode)
 	if csvWriter != nil {
 		csvWriter.Flush()
 		if err == nil {
@@ -241,6 +252,107 @@ func (s *JiraService) forEachExportIssueWithIdentityCap(ctx context.Context, que
 }
 
 type jiraIssueSearch func(context.Context, string, []string, int, string) ([]domain.Issue, string, error)
+
+type jiraExportSelector struct {
+	Value    string
+	Identity string
+}
+
+type jiraExportPlan struct {
+	Queries   []string
+	QueryMode string
+	Batches   [][]jiraExportSelector
+}
+
+func (p jiraExportPlan) selectorCount() int {
+	count := 0
+	for _, batch := range p.Batches {
+		count += len(batch)
+	}
+	return count
+}
+
+func (s *JiraService) forEachExportIssuePlan(ctx context.Context, plan jiraExportPlan, fields []string, limit, identityCap int, yield func(JiraIssueSnapshot) error) (int, error) {
+	if plan.QueryMode == "jql" {
+		return s.forEachExportIssueWithSearch(ctx, plan.Queries, fields, limit, identityCap, s.tr.Search, yield)
+	}
+	return s.forEachExplicitExportIssue(ctx, plan, fields, limit, identityCap, jiraExplicitExportBatchMaxBytes, s.tr.Search, yield)
+}
+
+func (s *JiraService) forEachExplicitExportIssue(ctx context.Context, plan jiraExportPlan, fields []string, limit, identityCap int, batchByteCap int64, search jiraIssueSearch, yield func(JiraIssueSnapshot) error) (int, error) {
+	if plan.QueryMode != "keys" && plan.QueryMode != "ids" {
+		return 0, fmt.Errorf("%w: unsupported explicit export query mode %q", domain.ErrCheckFailed, plan.QueryMode)
+	}
+	if len(plan.Queries) != len(plan.Batches) {
+		return 0, fmt.Errorf("%w: explicit export query/batch count mismatch", domain.ErrCheckFailed)
+	}
+	if plan.selectorCount() > identityCap {
+		return 0, fmt.Errorf("%w: explicit export exceeds the %d-issue identity safety cap; use a smaller selection or split it", domain.ErrUsage, identityCap)
+	}
+
+	count := 0
+	searchFields := exportFields(fields)
+	for batchIndex, jql := range plan.Queries {
+		if limit > 0 && count >= limit {
+			break
+		}
+		batch := plan.Batches[batchIndex]
+		requested := make(map[string]bool, len(batch))
+		for _, selector := range batch {
+			requested[selector.Identity] = true
+		}
+		found := make(map[string]JiraIssueSnapshot, len(batch))
+		var foundBytes int64
+		cursor := ""
+		for {
+			issues, next, err := search(ctx, jql, searchFields, 100, cursor)
+			if err != nil {
+				return count, err
+			}
+			for _, issue := range issues {
+				identity := explicitIssueIdentity(plan.QueryMode, issue)
+				if !requested[identity] {
+					continue
+				}
+				if _, exists := found[identity]; exists {
+					continue
+				}
+				issueFields := issue.Fields
+				if issueFields == nil {
+					issueFields = map[string]any{}
+				}
+				snapshot := JiraIssueSnapshot{Key: issue.Key, ID: issue.ID, Fields: issueFields}
+				encoded, err := json.Marshal(snapshot)
+				if err != nil {
+					return count, err
+				}
+				if foundBytes+int64(len(encoded)) > batchByteCap {
+					return count, fmt.Errorf("%w: ordered explicit export batch exceeds %d bytes; reduce --batch-size", domain.ErrUsage, batchByteCap)
+				}
+				foundBytes += int64(len(encoded))
+				found[identity] = snapshot
+			}
+			if next == "" || len(issues) == 0 {
+				break
+			}
+			cursor = next
+		}
+		for _, selector := range batch {
+			snapshot, ok := found[selector.Identity]
+			if !ok {
+				continue
+			}
+			if err := yield(snapshot); err != nil {
+				return count, err
+			}
+			count++
+			if limit > 0 && count >= limit {
+				return count, nil
+			}
+		}
+	}
+	return count, nil
+}
 
 func (s *JiraService) forEachExportIssueWithSearch(ctx context.Context, queries []string, fields []string, limit, identityCap int, search jiraIssueSearch, yield func(JiraIssueSnapshot) error) (int, error) {
 	count := 0
@@ -306,6 +418,14 @@ func (s *JiraService) collectStructureIssues(ctx context.Context, queries []stri
 }
 
 func exportQueries(opts JiraExportOpts) ([]string, string, error) {
+	plan, err := planJiraExport(opts)
+	if err != nil {
+		return nil, "", err
+	}
+	return plan.Queries, plan.QueryMode, nil
+}
+
+func planJiraExport(opts JiraExportOpts) (jiraExportPlan, error) {
 	hasJQL := strings.TrimSpace(opts.JQL) != ""
 	hasIDs := len(opts.IDs) > 0
 	hasKeys := len(opts.Keys) > 0
@@ -316,10 +436,10 @@ func exportQueries(opts JiraExportOpts) ([]string, string, error) {
 		}
 	}
 	if modes != 1 {
-		return nil, "", fmt.Errorf("%w: pass exactly one of --jql, --ids, or --keys", domain.ErrUsage)
+		return jiraExportPlan{}, fmt.Errorf("%w: pass exactly one of --jql, --ids, or --keys", domain.ErrUsage)
 	}
 	if hasJQL {
-		return []string{opts.JQL}, "jql", nil
+		return jiraExportPlan{Queries: []string{opts.JQL}, QueryMode: "jql"}, nil
 	}
 	batchSize := opts.BatchSize
 	if batchSize <= 0 {
@@ -328,20 +448,59 @@ func exportQueries(opts JiraExportOpts) ([]string, string, error) {
 	if hasIDs {
 		ids := cleanList(opts.IDs)
 		if len(ids) == 0 {
-			return nil, "", fmt.Errorf("%w: --ids is empty", domain.ErrUsage)
+			return jiraExportPlan{}, fmt.Errorf("%w: --ids is empty", domain.ErrUsage)
 		}
+		var selectors []jiraExportSelector
+		seen := map[string]bool{}
 		for _, id := range ids {
-			if _, err := strconv.ParseInt(id, 10, 64); err != nil {
-				return nil, "", fmt.Errorf("%w: --ids must contain numeric issue ids, got %q", domain.ErrUsage, id)
+			parsed, err := strconv.ParseInt(id, 10, 64)
+			if err != nil {
+				return jiraExportPlan{}, fmt.Errorf("%w: --ids must contain numeric issue ids, got %q", domain.ErrUsage, id)
+			}
+			identity := strconv.FormatInt(parsed, 10)
+			if !seen[identity] {
+				seen[identity] = true
+				selectors = append(selectors, jiraExportSelector{Value: id, Identity: identity})
 			}
 		}
-		return batchedJQL("id", ids, batchSize, false), "ids", nil
+		return explicitExportPlan("ids", "id", selectors, batchSize, false), nil
 	}
 	keys := cleanList(opts.Keys)
 	if len(keys) == 0 {
-		return nil, "", fmt.Errorf("%w: --keys is empty", domain.ErrUsage)
+		return jiraExportPlan{}, fmt.Errorf("%w: --keys is empty", domain.ErrUsage)
 	}
-	return batchedJQL("key", keys, batchSize, true), "keys", nil
+	selectors := make([]jiraExportSelector, len(keys))
+	for i, key := range keys {
+		selectors[i] = jiraExportSelector{Value: key, Identity: strings.ToUpper(key)}
+	}
+	return explicitExportPlan("keys", "key", selectors, batchSize, true), nil
+}
+
+func explicitExportPlan(mode, field string, selectors []jiraExportSelector, batchSize int, quote bool) jiraExportPlan {
+	values := make([]string, len(selectors))
+	for i, selector := range selectors {
+		values[i] = selector.Value
+	}
+	plan := jiraExportPlan{Queries: batchedJQL(field, values, batchSize, quote), QueryMode: mode}
+	for start := 0; start < len(selectors); start += batchSize {
+		end := start + batchSize
+		if end > len(selectors) {
+			end = len(selectors)
+		}
+		plan.Batches = append(plan.Batches, selectors[start:end])
+	}
+	return plan
+}
+
+func explicitIssueIdentity(mode string, issue domain.Issue) string {
+	if mode == "keys" {
+		return strings.ToUpper(strings.TrimSpace(issue.Key))
+	}
+	id, err := strconv.ParseInt(strings.TrimSpace(issue.ID), 10, 64)
+	if err != nil {
+		return ""
+	}
+	return strconv.FormatInt(id, 10)
 }
 
 func cleanList(values []string) []string {
@@ -416,6 +575,10 @@ func (s *JiraService) exportManifest(opts JiraExportOpts, format, queryMode stri
 	}
 	if queryMode != "jql" {
 		m.Queries = queries
+		m.RowOrder = "selector"
+		m.MissingIdentityBehavior = "omit"
+	} else {
+		m.RowOrder = "backend"
 	}
 	m.Backend.Service = "jira"
 	if s.baseURL != "" {
