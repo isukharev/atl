@@ -502,7 +502,11 @@ wins.
 
 See [self-update.md](self-update.md) for the full description.
 
-`version.Version` is injected via `-ldflags` at build time (default `"dev"`).
+`version.Version`, `version.Commit`, and `version.BuildState` are injected via
+`-ldflags` by supported Makefile/release builds. `version.Current` falls back to
+Go compiler VCS settings for unstamped builds and normalizes unavailable
+provenance to `unknown`; no build timestamp is embedded. The commit/state are
+diagnostic only and do not participate in update trust.
 `version.DefaultUpdateURL` bakes the GitHub Releases download base into the
 binary.
 

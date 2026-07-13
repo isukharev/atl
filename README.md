@@ -473,6 +473,12 @@ go build ./...
 go test  ./...
 ```
 
+Supported `make build`/`make install`/release builds stamp the full source
+commit and whether the checkout was `clean` or `dirty`. Inspect that identity
+with `atl version`; direct, unstamped builds fall back to Go VCS metadata and
+use `unknown` when provenance is unavailable. No build timestamp is embedded,
+so identical inputs remain reproducible.
+
 The codebase follows a **hexagonal (ports & adapters)** architecture:
 
 | Package | Role |

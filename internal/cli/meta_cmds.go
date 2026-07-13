@@ -23,9 +23,9 @@ import (
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Print the atl version",
+		Short: "Print the atl version and build provenance",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return emit(cmd, map[string]string{"version": version.Version},
+			return emit(cmd, version.Current(),
 				func() string { return version.Version })
 		},
 	}

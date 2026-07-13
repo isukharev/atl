@@ -17,7 +17,9 @@
 MODULE   := github.com/isukharev/atl
 REPO     := isukharev/atl
 VERSION  := $(shell cat VERSION 2>/dev/null || echo dev)
-LDFLAGS  := -s -w -X $(MODULE)/internal/version.Version=$(VERSION)
+BUILD_COMMIT ?= $(shell git rev-parse --verify HEAD 2>/dev/null || echo unknown)
+BUILD_STATE  ?= $(shell if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then test -z "$$(git status --porcelain --untracked-files=normal)" && echo clean || echo dirty; else echo unknown; fi)
+LDFLAGS  := -s -w -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/internal/version.Commit=$(BUILD_COMMIT) -X $(MODULE)/internal/version.BuildState=$(BUILD_STATE)
 GOFLAGS  := -trimpath
 
 # Platforms published to GitHub Releases. Keep in sync with the release workflow.

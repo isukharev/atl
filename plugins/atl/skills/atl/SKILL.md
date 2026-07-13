@@ -155,8 +155,11 @@ PAT).
 The plugin and the `atl` binary version together: each release ships both under one number, the
 binary self-updates within ~6h of a release, and the plugin updates when its version changes. If a
 command **documented by these skills** fails as `unknown command`/`unknown flag` (exit 2), don't
-improvise a workaround — suspect skew: run `atl version` and compare with the installed plugin's
-version. An older binary catches up on its next run (self-update applies on the following
+improvise a workaround — suspect skew: run `atl version` and compare its `version` with the installed
+plugin's version. Also retain the full `commit` and `build_state` in diagnostics; in a source
+checkout, a different commit or `dirty` build can explain behavior that the release version alone
+cannot. `unknown` provenance is valid for an unstamped build and is not proof of tampering. An older
+binary catches up on its next run (self-update applies on the following
 invocation); an older plugin updates with `codex plugin update atl`. Re-check the exact syntax
 with `--help` before retrying.
 

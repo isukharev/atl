@@ -53,6 +53,17 @@ include `read_only_policy`, `transport_error`, and `api_error` without changing
 their exit code. A missing command registration invariant is
 `internal_error`/`report_bug` (still exit 8), not a user check failure.
 
+### Binary identity
+
+`atl version` returns the stable object
+`{version,commit,build_state}`. `commit` is a full source revision or
+`"unknown"`; `build_state` is `"clean"`, `"dirty"`, or `"unknown"`.
+Supported Makefile and release builds stamp both values, while an ordinary Go
+build may use compiler VCS metadata. The object has no build timestamp and is
+informational only: it is not an input to self-update or signature trust.
+`atl version -o text` remains the bare version, and `atl --version` retains its
+existing one-line Cobra form.
+
 ---
 
 ## Sentinel → exit-code matrix
