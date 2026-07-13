@@ -18,26 +18,20 @@ Recent beta work established the contracts the next wave builds on:
 - compact Jira field/history/reference/digest workflows, transient batch
   exports, Structure/board reads, and bounded Confluence page sections;
 - Jira attachments/watchers and Confluence labels with review-bound mutation
-  flows.
+  flows;
+- guarded Jira worklog list/add and native Confluence blogpost creation for
+  routine delivery updates;
+- a complete multi-page Confluence review/sync chain: deterministic native
+  semantic diff, hash-bound plan/apply, and selector-bound incremental refresh
+  with explicit completeness and resume evidence.
 
 ## Now
 
-Work selected for the current development sequence:
+The previous daily-operation and Confluence review/sync sequence is shipped.
+Current work keeps packaging and trust ready for the next stable release:
 
-1. Complete daily Atlassian coverage:
-   - Jira worklog list/add ([#81](https://github.com/isukharev/atl/issues/81));
-   - native Confluence blogpost creation
-     ([#259](https://github.com/isukharev/atl/issues/259)).
-2. Make multi-page Confluence work reviewable and efficient:
-   - deterministic semantic mirror diff
-     ([#344](https://github.com/isukharev/atl/issues/344));
-   - review-bound multi-page plan/apply
-     ([#345](https://github.com/isukharev/atl/issues/345));
-   - complete incremental mirror refresh
-     ([#346](https://github.com/isukharev/atl/issues/346)).
-3. Keep packaging and trust ready for the next stable release:
-   - consolidate zero-egress/security documentation;
-   - make package-managed update behavior explicit and reproducible.
+- consolidate zero-egress/security documentation;
+- make package-managed update behavior explicit and reproducible.
 
 ## Next
 
