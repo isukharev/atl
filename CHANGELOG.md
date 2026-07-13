@@ -56,6 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Native Confluence blog-post creation.** `conf blog create` sends a closed
+  `blogpost` storage payload from validated CSF or strict Markdown, keeps page
+  creation unambiguous, verifies the expanded identity/version/body response,
+  and marks an unverifiable success as non-replayable unknown state.
+
 - **Guarded Jira Data Center worklogs.** `jira issue worklog list` consumes the
   complete paginated history into compact non-PII JSON or a Markdown table;
   `add` normalizes h/m/s durations, previews a review-bound payload, sends one

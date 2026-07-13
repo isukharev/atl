@@ -55,6 +55,13 @@ type DocStore interface {
 	DeleteAttachment(ctx context.Context, attachmentID string) error
 }
 
+// BlogPostCreator is an optional Confluence-specific content capability.
+// Keeping it outside DocStore avoids teaching generic document backends that a
+// blog post is a page subtype or exposing an arbitrary caller-controlled type.
+type BlogPostCreator interface {
+	CreateBlogPost(ctx context.Context, space, title string, body []byte) (*Resource, error)
+}
+
 // ContentLabel is one Confluence content-label record. Name and Prefix are
 // kept exactly as returned by the backend; callers must not infer that an
 // omitted/unknown prefix is global.

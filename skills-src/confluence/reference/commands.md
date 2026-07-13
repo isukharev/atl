@@ -135,6 +135,7 @@ identifier per line.
 | `conf page title set <ID>` | Guarded title preview/apply | `--from-file`, `--apply`, expected gates |
 | `conf page move <ID>` | Guarded move preview/apply | `--parent`, `--apply`, expected gates |
 | `conf page create|copy|delete` | Page lifecycle | command-specific title/space/parent/file flags |
+| `conf blog create` | Create one native blog post | `--space`, `--title`, one body source; `-o text/id` |
 | `conf pull` | Mirror pages | selector, `--assets`, `--comments`, `--jira-view`, `--jira-macros`, `--into`, render flags |
 | `conf render` | Regenerate Markdown offline | path, render flags, `--into` |
 | `conf status` | Dirty/drift state | path, `--remote` |

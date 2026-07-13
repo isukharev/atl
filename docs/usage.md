@@ -40,7 +40,7 @@ echo '<p>Hello</p>' | atl conf page create --space DOCS --title "New page" \
 ```
 
 The defaults follow one rule: commands whose body is **required** default
-`--from-file` to `-` (stdin) — `conf page create`, `conf comment add`,
+`--from-file` to `-` (stdin) — `conf page create`, `conf blog create`, `conf comment add`,
 `jira issue comment add`; commands whose body is **optional** default to no
 body — `jira issue create`, `jira issue update`, and the worklog comment on
 `jira issue worklog add`. When stdin is an
@@ -1554,6 +1554,33 @@ Flags:
 | `--parent` | parent page id |
 | `--from-file` | CSF body file or `-` for stdin (default stdin) |
 | `--from-md` | markdown body file or `-` for stdin; converted to CSF, fail-closed (exit 8) |
+
+### `atl conf blog create`
+
+Create native Confluence `blogpost` content with a required space, title, and
+non-empty body. This is a dedicated command: it cannot be confused with page
+creation and does not accept a page parent.
+
+```bash
+atl conf blog create --space DOCS --title "Weekly update" --from-md update.md
+atl conf blog create --space DOCS --title "Release notes" --from-file release.csf
+```
+
+Raw CSF is sent byte-for-byte after validation. `--from-md` uses the same strict
+whole-document subset as `conf page create`; unsupported or empty Markdown is
+exit 8 before credentials/network, while malformed or empty CSF is exit 2
+before the POST. The flags are mutually exclusive and `--from-file -` remains
+the stdin default.
+
+The adapter closes the request to `type:blogpost`, storage representation, and
+the selected space; no `ancestors` field is sent. It requests an expanded write
+response and requires a non-empty id, exact type/space/title, positive version,
+and an explicitly present storage body. JSON output is
+`{id,type,title,space,version,body_present,url}`; `-o text` is one compact record
+and `-o id` prints the new content id. A successful but unverifiable response is
+exit 8 and may mean the post already exists. Transport, timeout, throttling, and
+server failures after dispatch are classified the same way; never retry any of
+these ambiguous outcomes automatically.
 
 ### `atl conf page move`
 

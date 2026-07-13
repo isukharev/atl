@@ -74,7 +74,7 @@ func confService() (*app.ConfluenceService, error) {
 func newConfCmd() *cobra.Command {
 	c := &cobra.Command{Use: "conf", Short: "Confluence: mirror, read, validate, push (native storage format)"}
 	c.AddCommand(
-		confSearchCmd(), confSpaceCmd(), confPageCmd(),
+		confSearchCmd(), confSpaceCmd(), confPageCmd(), confBlogCmd(),
 		confPullCmd(), confRenderCmd(), confStatusCmd(), confValidateCmd(), confEditCmd(), confApplyCmd(), confPushCmd(), confTableCmd(), confCommentCmd(),
 		confAttachmentCmd(), confMeCmd(),
 	)

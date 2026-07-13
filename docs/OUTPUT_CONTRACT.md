@@ -274,6 +274,17 @@ The sibling Confluence `.meta.json` persists `ancestors` and `updated` when the
 backend supplied them. `restricted` is present as a JSON boolean only when the
 pull explicitly selected that descriptor; a narrower later pull removes it.
 
+`atl conf blog create` emits
+`{id,type,title,space,version,body_present,url}`. Success requires the expanded
+POST response to prove a non-empty identity, exact `blogpost` type/space/title,
+positive version, and present storage body. `-o text` is one compact
+tab-separated record; `-o id` emits only the content id. Invalid/empty CSF and
+unsupported/empty Markdown fail before the network. A successful POST with an
+incomplete or mismatched response is exit 8 and explicitly an unknown creation
+outcome; transport, timeout, throttling, and server failures after dispatch are
+unknown for the same reason. None may be automatically replayed. Definitive 4xx
+sentinels retain their normal exit mapping.
+
 `atl conf page title set <ID>` is dry-run by default and emits
 `{id,mode,status,current_title,title,title_bytes,title_sha256,current_version,
 expected_version,final_version?,proposal_hash,reconciled?}`. Apply requires the

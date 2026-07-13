@@ -1,6 +1,6 @@
 ---
 name: confluence
-description: Pull, read, edit, validate, and push Confluence pages with the atl CLI in their native storage format (CSF). USE WHEN the user wants to read, search, summarize, edit, update, create, publish, copy, move, open, or delete a Confluence or wiki page; work with page metadata, comments, tables, attachments, space trees, or .csf/storage-format content.
+description: Pull, read, edit, validate, and push Confluence pages with the atl CLI in their native storage format (CSF). USE WHEN the user wants to read, search, summarize, edit, update, create, publish, copy, move, open, or delete a Confluence page or native blog post; work with page metadata, comments, tables, attachments, space trees, or .csf/storage-format content.
 ---
 
 # Confluence pages with `atl`
@@ -178,6 +178,12 @@ Use this order so each later operation sees fresh identity/version state:
 Read [metadata-comments.md](reference/metadata-comments.md) before title, move,
 create/copy/delete, metadata/history, or comment writes.
 
+For a new native blog entry use `conf blog create`, never overload
+`conf page create`. Prefer `--from-md` for the supported subset or a private,
+validated CSF file otherwise. It is one non-idempotent POST: an exit-8
+unverifiable response may already have created the post and must not be replayed
+automatically.
+
 ## Push and concurrency safety
 
 On exit 5, remote version moved: re-pull and reconcile. Never auto-`--force`;
@@ -214,6 +220,6 @@ native-body projection as clean.
 - Validate, review dry-runs, and push the exact bytes reviewed.
 - Never edit `.meta.json`, `.atl` state, generated metadata, or comment sidecars.
 - Never auto-force, auto-replay an `unknown` write, or retry a non-idempotent
-  comment/upload without reconciliation.
+  blog create/comment/upload without reconciliation.
 - Tool friction that costs real turns should be offered through the `atl`
   skill's consent-gated feedback flow, with public details sanitized.
