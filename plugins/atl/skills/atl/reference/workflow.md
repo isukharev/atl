@@ -56,6 +56,10 @@ Make `push` the single deliberate, human-reviewed checkpoint:
    reconcile, or `--force` (last-writer-wins). **Never auto-`--force`.**
 
 Push the bytes you reviewed — don't regenerate the body between the dry-run and the push.
+For a recurring large Confluence mirror, use `conf pull --incremental` with a
+stable CQL/space selector. Bootstrap once with reviewed `--since` plus the IANA
+timezone configured for that Confluence user, then reuse the exact selector/root. Only `complete:true` advances its inclusive
+minute watermark; exit 8 is resume-safe and absence never proves deletion.
 For several Confluence pages, replace directory push with `conf plan create`,
 then `conf plan apply` preview, then exact hash + `--confirm APPLY`. A plan is a
 private review artifact; any blocked/stale entry means zero initial PUTs, and an

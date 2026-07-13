@@ -209,15 +209,19 @@ func (s *ConfluenceService) Validate(body []byte) []csf.Problem {
 // for the markdown view profile; a zero value leaves the effective settings
 // (local + global config) untouched.
 type PullOpts struct {
-	ID       string
-	CQL      string
-	Space    string
-	Depth    int
-	Assets   bool
-	Comments bool
-	Into     string
-	Render   config.RenderService
-	JiraView string
+	ID          string
+	CQL         string
+	Space       string
+	Depth       int
+	Assets      bool
+	Comments    bool
+	Into        string
+	Render      config.RenderService
+	JiraView    string
+	Incremental bool
+	Since       string
+	TimeZone    string
+	MaxPages    int
 }
 
 // PulledPage is one mirrored page.
@@ -235,8 +239,9 @@ type PulledPage struct {
 
 // PullResult is the pull summary.
 type PullResult struct {
-	Root  string       `json:"root"`
-	Pages []PulledPage `json:"pages"`
+	Root        string                 `json:"root"`
+	Pages       []PulledPage           `json:"pages"`
+	Incremental *IncrementalPullResult `json:"incremental,omitempty"`
 	// Truncated is true when a --cql selection hit the silent pagination cap, so
 	// some matching pages were NOT mirrored. TruncatedAt is the cap that was hit
 	// (the number of ids collected). Both are omitted from JSON in the common,
@@ -275,14 +280,37 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 	if err := m.EnsureScaffold(); err != nil {
 		return nil, err
 	}
-	ids, truncated, err := s.resolveIDs(ctx, o)
-	if err != nil {
-		return nil, err
+	var incremental *confluenceIncrementalSelection
+	var ids []string
+	var truncated bool
+	if o.Incremental {
+		if o.ID != "" {
+			return nil, fmt.Errorf("%w: --incremental cannot be used with --id", domain.ErrUsage)
+		}
+		incremental, err = s.prepareIncrementalPull(ctx, m, o)
+		if err != nil {
+			return nil, err
+		}
+		ids = incremental.ids
+		if err := preflightIncrementalOverwrite(m, ids); err != nil {
+			return nil, err
+		}
+	} else {
+		if o.Since != "" || o.TimeZone != "" || o.MaxPages != 0 {
+			return nil, fmt.Errorf("%w: --since, --time-zone and --max-pages require --incremental", domain.ErrUsage)
+		}
+		ids, truncated, err = s.resolveIDs(ctx, o)
+		if err != nil {
+			return nil, err
+		}
 	}
 	// Resolve the effective render settings for THIS mirror root (local config
 	// lives under it). Default/minimal keep the body-only view byte-identical to
 	// today; only `full` (or an explicit include) adds metadata/comments.
 	res := &PullResult{Root: root, Warnings: warns}
+	if incremental != nil {
+		res.Incremental = incremental.result
+	}
 	if truncated {
 		res.Truncated = true
 		res.TruncatedAt = len(ids)
@@ -392,6 +420,15 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 	}
 	if err := batch.Flush(); err != nil {
 		return res, err
+	}
+	if incremental != nil {
+		if res.CommentsTruncated {
+			return res, fmt.Errorf("%w: incremental comments were truncated; watermark unchanged", domain.ErrCheckFailed)
+		}
+		if err := m.SaveIncrementalWatermark(incremental.next); err != nil {
+			return res, err
+		}
+		res.Incremental.WatermarkAdvanced = incremental.changed
 	}
 	return res, nil
 }

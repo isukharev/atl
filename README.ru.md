@@ -233,6 +233,13 @@ atl conf pull \
   --cql 'space=DOCS and title~"Acme"' \
   --assets \
   --into mirror
+
+# Повторное обновление большой выборки без загрузки неизменившихся страниц.
+# Первый запуск требует нижнюю границу и настроенную timezone пользователя Confluence.
+atl conf pull --incremental --cql 'space=DOCS and type=page' \
+  --since '2026-07-01 00:00' --time-zone Europe/Berlin --into mirror
+# Последующие запуски используют watermark; --since и --time-zone не нужны.
+atl conf pull --incremental --cql 'space=DOCS and type=page' --into mirror
 ```
 
 ### 2. Изучить зеркало
@@ -248,7 +255,8 @@ mirror/
       acme-adr.comments.md      # производное представление для чтения (при --comments)
       acme-adr.assets/*.png     # рендеры draw.io + изображения страницы (при --assets)
       child-page/…              # дерево папок воспроизводит иерархию страниц
-  .atl/                         # sidecar: последние синхронизированные версии/хэши + база
+  .atl/                         # sidecar: синхронизированное состояние + база
+    incremental.json            # watermarks завершённых обновлений по выборкам
   .gitignore
 ```
 

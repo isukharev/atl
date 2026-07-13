@@ -1,0 +1,25 @@
+{
+  "root": "<ROOT>",
+  "pages": [
+    {
+      "id": "100",
+      "title": "Alpha",
+      "path": "ENG/alpha/alpha.csf",
+      "version": 3,
+      "assets": 0
+    }
+  ],
+  "incremental": {
+    "selector_sha256": "<SHA256>",
+    "watermark_source": "explicit",
+    "query_since": "2026-07-13 12:00",
+    "time_zone": "UTC",
+    "complete": true,
+    "matched": 1,
+    "selected": 1,
+    "boundary_skipped": 0,
+    "next_since": "2026-07-13 12:34",
+    "boundary_count": 1,
+    "watermark_advanced": true
+  }
+}
