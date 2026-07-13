@@ -131,7 +131,7 @@ that exact page/root once, then reapply the reviewed patch.
 atl conf status <root> --remote
 ATL_READ_ONLY=1 atl conf diff <page.csf|DIR>       # offline native semantic diff
 ATL_READ_ONLY=1 atl conf plan create <file|DIR> --out <private.json>
-env -u ATL_READ_ONLY atl conf plan apply <private.json> # complete GET-only preview
+ATL_READ_ONLY=1 atl conf plan preview <private.json> # complete GET-only preview
 atl conf validate <page.csf>
 ```
 
@@ -159,7 +159,8 @@ identifier per line.
 | `conf status` | Dirty/drift state | path, `--remote` |
 | `conf diff` | Offline baseline → candidate semantics | file/dir, `--into`; JSON for evidence |
 | `conf plan create` | Freeze a private deterministic batch | file/dir, `--into`, required `--out` |
-| `conf plan apply` | Complete preview / exact gated execution | plan; `--expected-proposal-hash`, `--confirm APPLY` |
+| `conf plan preview` | Complete read-only local/remote preflight | plan; works under `ATL_READ_ONLY` |
+| `conf plan apply` | Exact gated execution after preview | plan; required `--expected-proposal-hash`, `--confirm APPLY` |
 | `conf apply` | Merge Markdown to CSF | page md, `--dry-run`, `--allow-fragment-loss`, `--into` |
 | `conf edit` | Tolerant local byte splice | `--old/--new`, file variants, `--all`, `--dry-run` |
 | `conf validate` | Validate CSF | file |

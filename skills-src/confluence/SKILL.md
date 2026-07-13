@@ -170,7 +170,7 @@ For multiple edited pages, freeze scope instead of directory-pushing directly:
 ```bash
 export ATL_READ_ONLY=1
 atl conf plan create <page.csf|DIR> --out <private-plan.json>
-env -u ATL_READ_ONLY atl conf plan apply <private-plan.json>  # GET-only preview
+atl conf plan preview <private-plan.json>  # complete GET-only preview under ATL_READ_ONLY
 # after explicit approval of the exact hash:
 env -u ATL_READ_ONLY atl conf plan apply <private-plan.json> \
   --expected-proposal-hash <reviewed-hash> --confirm APPLY
@@ -180,6 +180,8 @@ Keep the `0600` plan private: it omits body prose but contains page titles and
 local paths. Preview must show every entry as `would_apply` or
 `already_satisfied` before execution. Never alter/re-hash a plan, invent
 entries, replay `unknown`, or replace the exact hash/confirmation gates.
+Choose a new output path for every plan; creation never overwrites an existing
+review artifact.
 
 Untouched blocks and table styling keep their exact CSF bytes. Opaque markers
 (`⟦…⟧`, Jira/page links, mentions) retain identity; do not edit marker text.

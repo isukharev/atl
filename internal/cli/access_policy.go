@@ -130,6 +130,7 @@ conf page title set
 conf page view
 conf plan apply
 conf plan create
+conf plan preview
 conf pull
 conf push
 conf render

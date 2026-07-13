@@ -60,7 +60,8 @@ stable CQL/space selector. Bootstrap once with reviewed `--since` plus the IANA
 timezone configured for that Confluence user, then reuse the exact selector/root. Only `complete:true` advances its inclusive
 minute watermark; exit 8 is resume-safe and absence never proves deletion.
 For several Confluence pages, replace directory push with `conf plan create`,
-then `conf plan apply` preview, then exact hash + `--confirm APPLY`. A plan is a
+then read-only `conf plan preview`, then gated `conf plan apply` with the exact
+hash + `--confirm APPLY`. A plan is a
 private review artifact; any blocked/stale entry means zero initial PUTs, and an
 `unknown` partial outcome must never be replayed automatically.
 

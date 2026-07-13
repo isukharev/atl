@@ -1156,7 +1156,7 @@ Flags:
 | `[file.csf\|DIR]` | page or subtree; omitted uses the configured mirror root |
 | `--into` | explicit mirror root (otherwise nearest `.atl`) |
 
-### `atl conf plan create` / `atl conf plan apply`
+### `atl conf plan create` / `atl conf plan preview` / `atl conf plan apply`
 
 Use a durable plan when several native page updates must be reviewed as one
 closed set. Plan creation is offline and accepts the same page/subtree target as
@@ -1177,15 +1177,15 @@ copied into the plan. Added, removed, malformed, missing-baseline, unreadable,
 or relocated pages make creation fail before the artifact is written.
 Do not reformat or convert the line endings of a plan: apply requires the exact
 canonical bytes as well as the embedded and externally reviewed hashes.
+`--out` must name a new file: atl never replaces an existing reviewed artifact.
 
 Plan files contain page titles and local workspace paths. Keep them private; do
 not commit or publish them even though body prose is omitted.
 
-Preview after leaving an intentionally exported global read-only environment
-(mutation-capable commands are blocked as a whole by `ATL_READ_ONLY`):
+Preview without leaving the intentionally exported global read-only environment:
 
 ```bash
-env -u ATL_READ_ONLY atl conf plan apply .atl-private/docs-plan.json
+atl conf plan preview .atl-private/docs-plan.json
 ```
 
 Preview revalidates the complete local plan, then GETs every remote page before
@@ -1212,19 +1212,22 @@ recognized and their mirror state is refreshed, while any other state is
 blocked. There is no force mode, remote delete, create, move, or automatic
 merge in v1.
 
+`conf plan apply` is execution-only: omitting either the exact external hash or
+`--confirm APPLY` exits 2 before config, plan loading, or network access.
+
 Create flags:
 
 | flag | description |
 |---|---|
 | `[file.csf\|DIR]` | one page or subtree; omitted uses the configured mirror |
 | `--into` | explicit mirror root |
-| `--out` | required durable plan path; stdout is intentionally unsupported |
+| `--out` | required new durable plan path; stdout and replacement are unsupported |
 
 Apply flags:
 
 | flag | description |
 |---|---|
-| `--confirm APPLY` | enter the write path; omitted is preview |
+| `--confirm APPLY` | required exact confirmation for execution |
 | `--expected-proposal-hash` | exact reviewed hash; required for execution |
 
 ### `atl conf validate`
