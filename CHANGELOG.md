@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `jira issue fields --metadata-only` provides a value-free, low-token field
+  inventory with closed coarse value types, compatible `--include-empty`
+  semantics, and a dedicated Markdown table; it conflicts with `--raw` before
+  config/network access.
+
 - `jira issue refs` now qualifies key/JQL selection and every description,
   requested-field, and complete-comment source; selected fields actually
   participate in extraction, partial/clipped evidence stays explicit, and

@@ -64,6 +64,33 @@ func TestJiraIssueFieldsIncludeEmptyAndRawAreExplicit(t *testing.T) {
 	}
 }
 
+func TestJiraIssueFieldsMetadataOnlyGoldenAndText(t *testing.T) {
+	server, _ := jiraIssueFieldsServer(t)
+	out, code := runCLI(t, jiraEnv(server), "jira", "issue", "fields", "PROJ-1", "--metadata-only")
+	if code != exitOK || strings.Contains(out, `"value":`) || strings.Contains(out, "Current delivery evidence") || strings.Contains(out, "private@example.test") {
+		t.Fatalf("metadata fields exit=%d out=%s", code, out)
+	}
+	assertGolden(t, "jira_issue_fields_metadata.json", []byte(out))
+
+	text, code := runCLI(t, jiraEnv(server), "-o", "text", "jira", "issue", "fields", "PROJ-1", "--field", "Delivery Notes", "--metadata-only")
+	if code != exitOK || !strings.Contains(text, "| Field | ID | Schema | Value type | Empty |") || !strings.Contains(text, "| Delivery Notes | customfield_1 | string | string | false |") || strings.Contains(text, "Current delivery evidence") {
+		t.Fatalf("metadata text exit=%d out=%s", code, text)
+	}
+}
+
+func TestJiraIssueFieldsMetadataOnlyIncludeEmptyAndRawConflict(t *testing.T) {
+	server, issueReads := jiraIssueFieldsServer(t)
+	out, code := runCLI(t, jiraEnv(server), "jira", "issue", "fields", "PROJ-1", "--metadata-only", "--include-empty")
+	if code != exitOK || !strings.Contains(out, `"name": "Empty"`) || !strings.Contains(out, `"value_type": "null"`) || strings.Contains(out, `"value":`) {
+		t.Fatalf("metadata include-empty exit=%d out=%s", code, out)
+	}
+	readsBefore := *issueReads
+	out, code = runCLI(t, jiraEnv(server), "jira", "issue", "fields", "PROJ-1", "--metadata-only", "--raw")
+	if code != exitUsage || out != "" || *issueReads != readsBefore {
+		t.Fatalf("metadata/raw conflict exit=%d reads=%d->%d out=%q", code, readsBefore, *issueReads, out)
+	}
+}
+
 func TestJiraIssueFieldsAmbiguousNameFailsBeforeIssueRead(t *testing.T) {
 	issueReads := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {

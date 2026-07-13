@@ -67,8 +67,9 @@ then apply with the exact proposal hash. Never replay `unknown`; if
 
 ## The canonical loop
 
-Start unfamiliar analysis with compact non-empty `jira issue fields`, not
-standard fields or `*all`. Then choose the shortest evidence path: selected
+Start unfamiliar analysis with value-free non-empty
+`jira issue fields --metadata-only`, not standard fields or `*all`; then read
+only promising exact fields in compact mode. Choose the shortest evidence path: selected
 qualified history/refs for one issue, transient export for several keys, or one
 `jira epic digest` for a known epic/period. Inspect every completeness field,
 stop when evidence is sufficient, and expand only a known Confluence heading.
