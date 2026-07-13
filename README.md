@@ -281,6 +281,7 @@ atl conf validate mirror/DOCS/acme-adr/acme-adr.csf
 
 # Inspect native baseline → candidate changes offline (JSON by default)
 ATL_READ_ONLY=1 atl conf diff mirror/DOCS/acme-adr/acme-adr.csf -o text
+# baseline_mismatch means tracked sync evidence is corrupt: preserve edits and re-pull
 
 # Dry-run to see what the remote write will do
 atl conf push mirror/DOCS/acme-adr/acme-adr.csf --dry-run

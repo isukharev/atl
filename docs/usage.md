@@ -1132,7 +1132,10 @@ ATL_READ_ONLY=1 atl conf diff mirror/DOCS/ -o text
 
 JSON uses `schema_version: 1` and reports a stable path-ordered `pages` array.
 Each page state is one of `unchanged`, `added`, `removed`, `modified`,
-`malformed`, `missing_baseline`, or `unreadable`. Modified pages include:
+`malformed`, `missing_baseline`, `baseline_mismatch`, or `unreadable`. Root and
+target are canonical absolute identities, so relative roots and contained
+symlink aliases cannot split one mirror into duplicate path namespaces.
+Modified pages include:
 
 - semantic block changes using canonical DOM fingerprints (attribute order and
   equivalent entity spelling do not create semantic changes);
@@ -1144,7 +1147,10 @@ Each page state is one of `unchanged`, `added`, `removed`, `modified`,
 feature projections remained equivalent. `complete:false` means at least one
 comparison lacked a usable baseline or a body was malformed/unreadable. Missing
 pre-upgrade baselines are never guessed: re-pull to establish one, preserving
-any local edits first. Directory scans fail closed on corrupt metadata,
+any local edits first. `baseline_mismatch` specifically means the pristine base
+bytes no longer match the tracked sync hash; preserve local candidates and
+repair/re-pull the mirror rather than treating it as an unreadable page.
+Directory scans fail closed on corrupt metadata,
 descendant symlinks, or unreadable entries instead of silently omitting pages.
 The Markdown projection is a compact summary table; use JSON when an agent needs
 block hashes, feature deltas, or validation details.
@@ -1173,8 +1179,9 @@ bytes, and a proposal hash over the complete artifact. It includes only
 entry declares page content type and binds the content id, title, space, mirror-relative path, expected
 version, exact baseline/candidate SHA-256, validation warnings, semantic block
 and feature consequences, and byte-window evidence. Native CSF bodies are not
-copied into the plan. Added, removed, malformed, missing-baseline, unreadable,
-or relocated pages make creation fail before the artifact is written.
+copied into the plan. Added, removed, malformed, missing-baseline,
+baseline-mismatch, unreadable, or relocated pages make creation fail before the
+artifact is written.
 Do not reformat or convert the line endings of a plan: apply requires the exact
 canonical bytes as well as the embedded and externally reviewed hashes.
 `--out` must name a new file: atl never replaces an existing reviewed artifact.

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `conf diff` now canonicalizes mirror/target identities before containment and
+  reports tracked pristine-hash corruption as `baseline_mismatch` instead of
+  conflating it with unreadable files; valid v1 plan bytes remain unchanged.
+
 - The status-report and knowledge-search skills now choose compact evidence by
   scope, qualify incomplete sources, prefer bounded Confluence sections and
   targeted Jira fields, and mark every read-only shell block for an executable

@@ -164,6 +164,8 @@ the merge/loss report before writing CSF. After apply, require `wrote:true` and
 than forcing conversion. Use `conf diff` JSON to inspect block/feature hashes
 without a network call, then review `removed_fragments` and `remote_drifted` in
 push dry-run and push the exact bytes reviewed.
+Treat `baseline_mismatch` as corrupted sync evidence: preserve the candidate
+and reconcile/re-pull before planning or pushing.
 
 For multiple edited pages, freeze scope instead of directory-pushing directly:
 

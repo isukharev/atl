@@ -30,5 +30,11 @@ func TestConfDiffIsOfflineAndSupportsMarkdown(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("json exit=%d output=%q", code, jsonOut)
 	}
-	assertGolden(t, "conf_diff.json", []byte(strings.ReplaceAll(jsonOut, root, "<ROOT>")))
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalized := strings.ReplaceAll(jsonOut, canonicalRoot, "<ROOT>")
+	normalized = strings.ReplaceAll(normalized, root, "<ROOT>")
+	assertGolden(t, "conf_diff.json", []byte(normalized))
 }

@@ -30,14 +30,15 @@ type ConfluenceDiffResult struct {
 }
 
 type ConfluenceDiffSummary struct {
-	Total           int `json:"total"`
-	Unchanged       int `json:"unchanged"`
-	Added           int `json:"added"`
-	Removed         int `json:"removed"`
-	Modified        int `json:"modified"`
-	Malformed       int `json:"malformed"`
-	MissingBaseline int `json:"missing_baseline"`
-	Unreadable      int `json:"unreadable"`
+	Total            int `json:"total"`
+	Unchanged        int `json:"unchanged"`
+	Added            int `json:"added"`
+	Removed          int `json:"removed"`
+	Modified         int `json:"modified"`
+	Malformed        int `json:"malformed"`
+	MissingBaseline  int `json:"missing_baseline"`
+	BaselineMismatch int `json:"baseline_mismatch,omitempty"`
+	Unreadable       int `json:"unreadable"`
 }
 
 type ConfluencePageDiff struct {
@@ -95,12 +96,9 @@ type confluenceDiffTarget struct {
 // DiffConfluenceMirror compares one page or a directory subtree without config,
 // credentials, or backend access.
 func DiffConfluenceMirror(target, into string) (*ConfluenceDiffResult, error) {
-	if target == "" {
-		target = mirrorRootDefaultForApp(into)
-	}
-	root := into
-	if root == "" {
-		root = mirrorRootOf(target)
+	root, target, err := canonicalConfluenceDiffPaths(target, into)
+	if err != nil {
+		return nil, err
 	}
 	m := mirror.New(root)
 	targets, err := confluenceDiffTargets(m, target)
@@ -120,7 +118,7 @@ func DiffConfluenceMirror(target, into string) (*ConfluenceDiffResult, error) {
 			worst = moreSevereErr(worst, pageErr)
 		}
 		res.Summary.add(page.State)
-		if page.State == "missing_baseline" || page.State == "malformed" {
+		if page.State == "missing_baseline" || page.State == "baseline_mismatch" || page.State == "malformed" {
 			res.Complete = false
 		}
 	}
@@ -149,6 +147,8 @@ func (s *ConfluenceDiffSummary) add(state string) {
 		s.Malformed++
 	case "missing_baseline":
 		s.MissingBaseline++
+	case "baseline_mismatch":
+		s.BaselineMismatch++
 	case "unreadable":
 		s.Unreadable++
 	}
@@ -287,7 +287,7 @@ func confluenceDiffPage(m *mirror.Mirror, target confluenceDiffTarget) (Confluen
 		return page, nil
 	}
 	if mirror.Hash(base) != target.state.Hash {
-		page.State = "unreadable"
+		page.State = "baseline_mismatch"
 		return page, fmt.Errorf("%w: diff baseline hash for %s does not match tracked mirror state", domain.ErrCheckFailed, page.ID)
 	}
 	if candidate == nil {
@@ -538,10 +538,75 @@ func confluenceFeatureDeltas(base, candidate *csf.Node) []ConfluenceFeatureDelta
 
 func hashHex(body []byte) string { sum := sha256.Sum256(body); return hex.EncodeToString(sum[:]) }
 
+func canonicalConfluenceDiffPaths(target, into string) (root, canonicalTarget string, err error) {
+	if target == "" {
+		target = mirrorRootDefaultForApp(into)
+	}
+	root = into
+	if root == "" {
+		root = mirrorRootOf(target)
+	}
+	root, err = evalSymlinksAbsolute(root)
+	if err != nil {
+		return "", "", localConfluenceTargetError("diff root", root, err)
+	}
+	canonicalTarget, err = evalSymlinksAllowMissing(target)
+	if err != nil {
+		return "", "", localConfluenceTargetError("diff", target, err)
+	}
+	if !within(root, canonicalTarget) {
+		return "", "", fmt.Errorf("%w: diff target %q is outside mirror root %q", domain.ErrUsage, canonicalTarget, root)
+	}
+	return root, canonicalTarget, nil
+}
+
+func evalSymlinksAbsolute(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(resolved)
+}
+
+func evalSymlinksAllowMissing(path string) (string, error) {
+	probe, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	var missing []string
+	for {
+		resolved, resolveErr := filepath.EvalSymlinks(probe)
+		if resolveErr == nil {
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !os.IsNotExist(resolveErr) {
+			return "", resolveErr
+		}
+		if info, lstatErr := os.Lstat(probe); lstatErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("dangling symlink %q", probe)
+		} else if lstatErr != nil && !os.IsNotExist(lstatErr) {
+			return "", lstatErr
+		}
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			return "", resolveErr
+		}
+		missing = append(missing, filepath.Base(probe))
+		probe = parent
+	}
+}
+
 // ConfluenceDiffMarkdown is the compact human projection of Diff.
 func ConfluenceDiffMarkdown(result *ConfluenceDiffResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Confluence mirror diff\n\nComplete: **%t** · total %d · modified %d · added %d · removed %d · malformed %d · missing baseline %d · unreadable %d\n\n", result.Complete, result.Summary.Total, result.Summary.Modified, result.Summary.Added, result.Summary.Removed, result.Summary.Malformed, result.Summary.MissingBaseline, result.Summary.Unreadable)
+	fmt.Fprintf(&b, "# Confluence mirror diff\n\nComplete: **%t** · total %d · modified %d · added %d · removed %d · malformed %d · missing baseline %d · baseline mismatch %d · unreadable %d\n\n", result.Complete, result.Summary.Total, result.Summary.Modified, result.Summary.Added, result.Summary.Removed, result.Summary.Malformed, result.Summary.MissingBaseline, result.Summary.BaselineMismatch, result.Summary.Unreadable)
 	rows := make([][]string, 0, len(result.Pages))
 	for _, page := range result.Pages {
 		label := page.Title
