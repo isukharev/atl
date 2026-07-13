@@ -388,6 +388,39 @@ func TestWriteFileWithinReplacesFinalSymlink(t *testing.T) {
 	}
 }
 
+func TestWriteFileExclusiveWithinNeverReplacesExistingTarget(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "private", "plan.json")
+	if err := MkdirAllWithin(root, filepath.Dir(target), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileExclusiveWithin(root, target, []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileExclusiveWithin(root, target, []byte("second"), 0o600); !os.IsExist(err) {
+		t.Fatalf("second write error = %v, want existence refusal", err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "first" {
+		t.Fatalf("target = %q, err=%v", data, err)
+	}
+}
+
+func TestWriteFileExclusiveWithinRejectsDescendantSymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	link := filepath.Join(root, "private")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if err := WriteFileExclusiveWithin(root, filepath.Join(link, "plan.json"), []byte("secret"), 0o600); err == nil {
+		t.Fatal("exclusive write followed a descendant symlink")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "plan.json")); !os.IsNotExist(err) {
+		t.Fatalf("outside target exists: %v", err)
+	}
+}
+
 func TestStatWithinRefusesIntermediateSymlinkEscape(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

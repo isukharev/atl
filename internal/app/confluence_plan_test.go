@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -143,6 +144,42 @@ func TestCreateConfluencePlanRejectsUnsupportedMirrorState(t *testing.T) {
 	}
 }
 
+func TestCreateConfluencePlanRefusesExistingOutput(t *testing.T) {
+	root, _, _, _, _ := createPlanFixture(t, 1)
+	out := filepath.Join(t.TempDir(), "reviewed.json")
+	if err := os.WriteFile(out, []byte("keep reviewed bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := CreateConfluencePlan(root, root, out)
+	if !errors.Is(err, domain.ErrCheckFailed) || result != nil {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	data, readErr := os.ReadFile(out)
+	if readErr != nil || string(data) != "keep reviewed bytes" {
+		t.Fatalf("output=%q err=%v", data, readErr)
+	}
+}
+
+func TestLoadConfluencePlanClassifiesMissingPlanAndRoot(t *testing.T) {
+	if _, err := loadConfluencePlan(filepath.Join(t.TempDir(), "missing.json")); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("missing plan error = %v", err)
+	}
+	root, path, plan, _, _ := createPlanFixture(t, 1)
+	missingRoot := filepath.Join(filepath.Dir(root), "missing-root")
+	plan.Root, plan.Target = missingRoot, missingRoot
+	plan.ProposalHash = confluencePlanHash(plan)
+	data, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadConfluencePlan(path); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("missing root error = %v", err)
+	}
+}
+
 func TestLoadConfluencePlanRejectsTampering(t *testing.T) {
 	_, path, _, _, _ := createPlanFixture(t, 1)
 	data, err := os.ReadFile(path)
@@ -177,7 +214,7 @@ func TestConfluencePlanPreviewAndApplySuccess(t *testing.T) {
 	root, path, plan, oldBodies, newBodies := createPlanFixture(t, 2)
 	store := &confluencePlanStore{pages: planRemotePages(plan, oldBodies, 3), candidates: newBodies}
 	svc := &ConfluenceService{store: store, cfg: &config.Config{}}
-	preview, err := svc.ApplyConfluencePlan(context.Background(), path, ConfluencePlanApplyOpts{})
+	preview, err := svc.PreviewConfluencePlan(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,8 +244,33 @@ func TestConfluencePlanStaleBatchDoesNoWrites(t *testing.T) {
 	store := &confluencePlanStore{pages: pages, candidates: newBodies}
 	svc := &ConfluenceService{store: store, cfg: &config.Config{}}
 	result, err := svc.ApplyConfluencePlan(context.Background(), path, ConfluencePlanApplyOpts{Confirm: "APPLY", ExpectedProposalHash: plan.ProposalHash})
-	if err == nil || result == nil || result.Status != "blocked" || len(store.updateCalls) != 0 {
+	if err == nil || result == nil || result.Status != "blocked" || result.Entries[1].Failure != "remote-version-drift" || len(store.updateCalls) != 0 {
 		t.Fatalf("result=%+v err=%v calls=%v", result, err, store.updateCalls)
+	}
+}
+
+func TestConfluencePlanApplyRequiresExecutionGates(t *testing.T) {
+	_, path, _, _, _ := createPlanFixture(t, 1)
+	svc := &ConfluenceService{store: &confluencePlanStore{}}
+	for _, opts := range []ConfluencePlanApplyOpts{{}, {Confirm: "YES"}, {Confirm: "APPLY"}, {ExpectedProposalHash: strings.Repeat("a", 64)}} {
+		result, err := svc.ApplyConfluencePlan(context.Background(), path, opts)
+		if !errors.Is(err, domain.ErrUsage) || result != nil {
+			t.Fatalf("opts=%+v result=%+v err=%v", opts, result, err)
+		}
+	}
+}
+
+func TestConfluencePlanLockFailureIsBlockedAndIncomplete(t *testing.T) {
+	root, path, plan, oldBodies, newBodies := createPlanFixture(t, 1)
+	lock, err := lockConfluenceMutations(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lock.Unlock() }()
+	svc := &ConfluenceService{store: &confluencePlanStore{pages: planRemotePages(plan, oldBodies, 3), candidates: newBodies}}
+	result, err := svc.PreviewConfluencePlan(context.Background(), path)
+	if !errors.Is(err, domain.ErrCheckFailed) || result == nil || result.Status != "blocked" || result.Complete || len(result.Entries) != 1 || result.Entries[0].Status != "not_checked" {
+		t.Fatalf("result=%+v err=%v", result, err)
 	}
 }
 
@@ -276,7 +338,7 @@ func TestConfluencePlanLocalDriftPrecedesNetwork(t *testing.T) {
 	}
 	store := &confluencePlanStore{pages: planRemotePages(plan, oldBodies, 3), candidates: newBodies}
 	svc := &ConfluenceService{store: store, cfg: &config.Config{}}
-	result, err := svc.ApplyConfluencePlan(context.Background(), path, ConfluencePlanApplyOpts{})
+	result, err := svc.PreviewConfluencePlan(context.Background(), path)
 	if err == nil || result == nil || result.Status != "blocked" || len(store.getCalls) != 0 || len(store.updateCalls) != 0 {
 		t.Fatalf("result=%+v err=%v gets=%v updates=%v", result, err, store.getCalls, store.updateCalls)
 	}

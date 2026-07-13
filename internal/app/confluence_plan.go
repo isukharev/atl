@@ -69,6 +69,11 @@ func CreateConfluencePlan(target, into, out string) (*ConfluencePlanCreateResult
 	if strings.TrimSpace(out) == "" || out == "-" {
 		return nil, fmt.Errorf("%w: --out must be a durable file path", domain.ErrUsage)
 	}
+	if _, err := os.Lstat(out); err == nil {
+		return nil, fmt.Errorf("%w: Confluence plan output %q already exists; choose a new review artifact path", domain.ErrCheckFailed, out)
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("%w: inspect Confluence plan output %q: %v", domain.ErrCheckFailed, out, err)
+	}
 	root, canonicalTarget, err := canonicalConfluencePlanPaths(target, into)
 	if err != nil {
 		return nil, err
@@ -144,7 +149,10 @@ func CreateConfluencePlan(target, into, out string) (*ConfluencePlanCreateResult
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	if err := safepath.WriteFileWithin(dir, out, data, 0o600); err != nil {
+	if err := safepath.WriteFileExclusiveWithin(dir, out, data, 0o600); err != nil {
+		if os.IsExist(err) {
+			return nil, fmt.Errorf("%w: Confluence plan output %q appeared during creation; no file was replaced", domain.ErrCheckFailed, out)
+		}
 		return nil, err
 	}
 	return &ConfluencePlanCreateResult{Path: out, Schema: plan.Schema, ProposalHash: plan.ProposalHash, OperationCount: len(plan.Entries), Summary: plan.Summary}, nil
@@ -262,37 +270,37 @@ type preparedConfluencePlanEntry struct {
 	refresh    RenderSettings
 }
 
-// ApplyConfluencePlan previews by default. `Confirm=APPLY` plus the exact
-// proposal hash enters the write path. Local and remote state for the complete
-// plan is checked before the first PUT; exact prior success is resume-safe.
+// PreviewConfluencePlan performs the complete local and remote preflight without
+// entering the write path.
+func (s *ConfluenceService) PreviewConfluencePlan(ctx context.Context, planPath string) (*ConfluencePlanApplyResult, error) {
+	return s.runConfluencePlan(ctx, planPath, false, "")
+}
+
+// ApplyConfluencePlan requires Confirm=APPLY plus the exact proposal hash.
+// Local and remote state for the complete plan is checked before the first PUT;
+// exact prior success is resume-safe.
 func (s *ConfluenceService) ApplyConfluencePlan(ctx context.Context, planPath string, opts ConfluencePlanApplyOpts) (*ConfluencePlanApplyResult, error) {
-	apply := opts.Confirm != ""
-	if apply && opts.Confirm != "APPLY" {
+	if opts.Confirm != "APPLY" {
 		return nil, fmt.Errorf("%w: --confirm must be exactly APPLY", domain.ErrUsage)
 	}
-	if apply && opts.ExpectedProposalHash == "" {
+	if opts.ExpectedProposalHash == "" {
 		return nil, fmt.Errorf("%w: --expected-proposal-hash is required with --confirm APPLY", domain.ErrUsage)
 	}
-	if !apply && opts.ExpectedProposalHash != "" {
-		return nil, fmt.Errorf("%w: --expected-proposal-hash requires --confirm APPLY", domain.ErrUsage)
-	}
+	return s.runConfluencePlan(ctx, planPath, true, opts.ExpectedProposalHash)
+}
+
+func (s *ConfluenceService) runConfluencePlan(ctx context.Context, planPath string, apply bool, expectedProposalHash string) (*ConfluencePlanApplyResult, error) {
 	plan, err := loadConfluencePlan(planPath)
 	if err != nil {
 		return nil, err
 	}
-	if apply && opts.ExpectedProposalHash != plan.ProposalHash {
+	if apply && expectedProposalHash != plan.ProposalHash {
 		return nil, fmt.Errorf("%w: reviewed proposal hash does not match plan", domain.ErrCheckFailed)
 	}
 	result := &ConfluencePlanApplyResult{Schema: plan.Schema, ProposalHash: plan.ProposalHash, Root: plan.Root, Target: plan.Target, Mode: "preview", Status: "would_apply", Complete: true, Entries: []ConfluencePlanApplyEntry{}}
 	if apply {
 		result.Mode = "apply"
 	}
-	lock, err := lockConfluenceMutations(plan.Root, false)
-	if err != nil {
-		return result, err
-	}
-	defer func() { _ = lock.Unlock() }()
-	m := mirror.New(plan.Root)
 	for _, entry := range plan.Entries {
 		result.Entries = append(result.Entries, ConfluencePlanApplyEntry{
 			ID: entry.ID, Type: entry.Type, Title: entry.Title, Space: entry.Space, Path: entry.Path,
@@ -300,6 +308,14 @@ func (s *ConfluenceService) ApplyConfluencePlan(ctx context.Context, planPath st
 			Blocks: entry.Blocks, Features: entry.Features, ByteEvidence: entry.ByteEvidence, Status: "not_checked",
 		})
 	}
+	lock, err := lockConfluenceMutations(plan.Root, false)
+	if err != nil {
+		result.Status = "blocked"
+		result.Complete = false
+		return result, err
+	}
+	defer func() { _ = lock.Unlock() }()
+	m := mirror.New(plan.Root)
 	prepared, err := s.prepareConfluencePlanLocal(m, plan)
 	if err != nil {
 		result.Complete = false
@@ -330,10 +346,20 @@ func (s *ConfluenceService) ApplyConfluencePlan(ctx context.Context, planPath st
 			outcome.Status = "already_satisfied"
 			outcome.FinalVersion = remote.Version
 		default:
-			outcome.Status, outcome.Failure = "stale", "remote-drift"
+			outcome.Status = "stale"
+			switch {
+			case !confluencePlanRemoteIdentity(remote, item.plan):
+				outcome.Failure = "remote-identity-drift"
+			case item.localDone && remote.Version == item.plan.ExpectedVersion && mirror.Hash(remote.Body) == item.plan.BaselineSHA256:
+				outcome.Failure = "local-ahead-of-remote"
+			case remote.Version != item.plan.ExpectedVersion && remote.Version != item.plan.ExpectedVersion+1:
+				outcome.Failure = "remote-version-drift"
+			default:
+				outcome.Failure = "remote-content-drift"
+			}
 			result.Complete = false
 			result.Status = "blocked"
-			return result, fmt.Errorf("%w: remote page %s no longer matches the planned baseline or exact applied state", domain.ErrCheckFailed, item.plan.ID)
+			return result, fmt.Errorf("%w: page %s plan binding failed: %s", domain.ErrCheckFailed, item.plan.ID, outcome.Failure)
 		}
 	}
 	if len(prepared) == 0 {
@@ -463,13 +489,13 @@ func (s *ConfluenceService) prepareConfluencePlanLocal(m *mirror.Mirror, plan *C
 func loadConfluencePlan(path string) (*ConfluencePlan, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, confluencePlanPathError("plan", path, err)
 	}
 	defer f.Close()
 	limited := io.LimitReader(f, confluencePlanMaxBytes+1)
 	data, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: read Confluence plan %q: %v", domain.ErrCheckFailed, path, err)
 	}
 	if len(data) > confluencePlanMaxBytes {
 		return nil, fmt.Errorf("%w: Confluence plan exceeds %d bytes", domain.ErrUsage, confluencePlanMaxBytes)
@@ -502,11 +528,11 @@ func loadConfluencePlan(path string) (*ConfluencePlan, error) {
 	}
 	root, err := filepath.EvalSymlinks(plan.Root)
 	if err != nil {
-		return nil, err
+		return nil, confluencePlanPathError("plan root", plan.Root, err)
 	}
 	root, err = filepath.Abs(root)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: canonicalize Confluence plan root %q: %v", domain.ErrCheckFailed, plan.Root, err)
 	}
 	if root != plan.Root {
 		return nil, fmt.Errorf("%w: Confluence plan root identity changed", domain.ErrCheckFailed)
@@ -536,6 +562,13 @@ func loadConfluencePlan(path string) (*ConfluencePlan, error) {
 		seenID[entry.ID], seenPath[entry.Path], previous = true, true, entry.Path
 	}
 	return &plan, nil
+}
+
+func confluencePlanPathError(kind, path string, err error) error {
+	if os.IsNotExist(err) {
+		return fmt.Errorf("%w: Confluence %s %q does not exist", domain.ErrNotFound, kind, path)
+	}
+	return fmt.Errorf("%w: inspect Confluence %s %q: %v", domain.ErrCheckFailed, kind, path, err)
 }
 
 func ensureJSONEOF(dec *json.Decoder) error {

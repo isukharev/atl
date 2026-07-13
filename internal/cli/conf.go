@@ -873,20 +873,37 @@ func confPlanCmd() *cobra.Command {
 	create.Flags().StringVar(&createInto, "into", "", "mirror root (defaults to nearest .atl, or configured mirror when no target is given)")
 	create.Flags().StringVar(&createOut, "out", "", "durable private plan file (required)")
 
+	preview := &cobra.Command{
+		Use:   "preview <plan.json>",
+		Short: "Run the complete read-only local and remote plan preflight",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			result, previewErr := svc.PreviewConfluencePlan(cmd.Context(), args[0])
+			if result != nil {
+				emitErr := emit(cmd, result, func() string { return app.ConfluencePlanApplyMarkdown(result) })
+				if previewErr == nil {
+					return emitErr
+				}
+			}
+			return previewErr
+		},
+	}
+
 	var confirm, expectedHash string
 	apply := &cobra.Command{
 		Use:   "apply <plan.json>",
-		Short: "Preview a plan, or execute it with exact review gates",
+		Short: "Execute a reviewed plan with exact hash and confirmation gates",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if confirm != "" && confirm != "APPLY" {
+			if confirm != "APPLY" {
 				return usageErr("--confirm must be exactly APPLY")
 			}
-			if confirm == "APPLY" && expectedHash == "" {
+			if expectedHash == "" {
 				return usageErr("--expected-proposal-hash is required with --confirm APPLY")
-			}
-			if confirm == "" && expectedHash != "" {
-				return usageErr("--expected-proposal-hash requires --confirm APPLY")
 			}
 			svc, err := confService()
 			if err != nil {
@@ -902,9 +919,9 @@ func confPlanCmd() *cobra.Command {
 			return applyErr
 		},
 	}
-	apply.Flags().StringVar(&confirm, "confirm", "", "execute only when exactly APPLY; omitted is preview")
+	apply.Flags().StringVar(&confirm, "confirm", "", "execute only when exactly APPLY (required)")
 	apply.Flags().StringVar(&expectedHash, "expected-proposal-hash", "", "exact proposal hash printed by reviewed preview")
-	group.AddCommand(create, apply)
+	group.AddCommand(create, preview, apply)
 	return group
 }
 

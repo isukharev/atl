@@ -295,7 +295,7 @@ atl conf status mirror --remote
 
 # Для нескольких страниц: зафиксируйте набор, сделайте preview и примените точный план.
 atl conf plan create mirror/DOCS/ --out .atl-private/docs-plan.json
-atl conf plan apply .atl-private/docs-plan.json
+ATL_READ_ONLY=1 atl conf plan preview .atl-private/docs-plan.json
 atl conf plan apply .atl-private/docs-plan.json \
   --expected-proposal-hash <HASH-ИЗ-PREVIEW> --confirm APPLY
 ```
@@ -349,7 +349,7 @@ atl conf comment add  --id 123456 --from-file comment.csf
 | Защита | Поведение |
 |--------|-----------|
 | `atl conf validate` | Блокирует при невалидном XML (с указанием строки/колонки); предупреждает о структурных проблемах |
-| `atl conf plan create/apply` | Фиксирует набор страниц; полный preflight, точный hash + подтверждение, без force/replay |
+| `atl conf plan create/preview/apply` | Фиксирует набор страниц; полный read-only preview, точный hash + подтверждение, без force/replay |
 | `atl conf push --dry-run` | Показывает все последствия без записи |
 | Version gate | `push` завершается с кодом **5**, если удалённая версия опередила последнюю синхронизацию |
 | `--force` | Обходит version gate; безопасное восстановление — re-pull + reapply |

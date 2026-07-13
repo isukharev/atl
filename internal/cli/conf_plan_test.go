@@ -74,7 +74,7 @@ func TestConfPlanPreviewGoldenAndGETOnly(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	stdout, code := runCLI(t, confEnv(srv), "conf", "plan", "apply", path)
+	stdout, code := runCLI(t, confEnv(srv), "--read-only", "conf", "plan", "preview", path)
 	if code != exitOK || gets != 1 || puts != 0 {
 		t.Fatalf("exit=%d gets=%d puts=%d out=%q", code, gets, puts, stdout)
 	}
@@ -86,6 +86,9 @@ func TestConfPlanPreviewGoldenAndGETOnly(t *testing.T) {
 }
 
 func TestConfPlanApplyFlagsFailBeforeConfig(t *testing.T) {
+	if _, code := runCLI(t, nil, "conf", "plan", "apply", "missing.json"); code != exitUsage {
+		t.Fatalf("missing gates exit=%d", code)
+	}
 	if _, code := runCLI(t, nil, "conf", "plan", "apply", "missing.json", "--confirm", "YES"); code != exitUsage {
 		t.Fatalf("wrong confirm exit=%d", code)
 	}
@@ -95,7 +98,17 @@ func TestConfPlanApplyFlagsFailBeforeConfig(t *testing.T) {
 }
 
 func TestConfPlanApplyIsBlockedByGlobalReadOnlyBeforePlanOrConfig(t *testing.T) {
-	if _, code := runCLI(t, map[string]string{"ATL_READ_ONLY": "1"}, "conf", "plan", "apply", "missing.json"); code != exitCheckFailed {
+	if _, code := runCLI(t, map[string]string{"ATL_READ_ONLY": "1"}, "conf", "plan", "apply", "missing.json", "--confirm", "APPLY", "--expected-proposal-hash", strings.Repeat("a", 64)); code != exitCheckFailed {
 		t.Fatalf("read-only exit=%d", code)
+	}
+}
+
+func TestConfPlanPreviewMissingPlanIsNotFoundUnderReadOnly(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	env := confEnv(srv)
+	env["ATL_READ_ONLY"] = "1"
+	if _, code := runCLI(t, env, "conf", "plan", "preview", filepath.Join(t.TempDir(), "missing.json")); code != exitNotFound {
+		t.Fatalf("preview missing plan exit=%d, want %d", code, exitNotFound)
 	}
 }

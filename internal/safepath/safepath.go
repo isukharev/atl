@@ -196,6 +196,59 @@ func WriteFileWithin(root, target string, data []byte, perm os.FileMode) error {
 	return err
 }
 
+// WriteFileExclusiveWithin creates target beneath root without replacing an
+// existing path. It uses one held root/parent identity, refuses descendant
+// symlinks, fsyncs a fresh temporary inode, then atomically links that inode at
+// the final name. Readers therefore cannot observe a partial target.
+func WriteFileExclusiveWithin(root, target string, data []byte, perm os.FileMode) error {
+	rel, err := relativeToRoot(root, target)
+	if err != nil {
+		return err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = r.Close() }()
+	if err := rejectSymlinkComponents(r, filepath.Dir(rel)); err != nil {
+		return err
+	}
+	parent := r
+	closeParent := false
+	dir, base := filepath.Dir(rel), filepath.Base(rel)
+	if dir != "." {
+		parent, err = r.OpenRoot(dir)
+		if err != nil {
+			return err
+		}
+		closeParent = true
+	}
+	if closeParent {
+		defer func() { _ = parent.Close() }()
+	}
+	f, tempName, err := createRootTemp(parent, perm)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = parent.Remove(tempName) }()
+	if _, err := io.Copy(f, bytes.NewReader(data)); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Chmod(perm); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return parent.Link(tempName, base)
+}
+
 // RenameWithin atomically renames oldTarget to newTarget beneath one trust
 // root, refusing descendant symlinks in either parent path.
 func RenameWithin(root, oldTarget, newTarget string) error {
