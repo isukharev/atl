@@ -52,6 +52,7 @@ auth logout
 conf apply
 conf attachment delete
 conf attachment upload
+conf blog create
 conf comment add
 conf edit
 conf page copy
@@ -103,6 +104,7 @@ conf attachment delete
 conf attachment get
 conf attachment list
 conf attachment upload
+conf blog create
 conf comment add
 conf comment list
 conf edit

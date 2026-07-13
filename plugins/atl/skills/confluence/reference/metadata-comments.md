@@ -63,6 +63,16 @@ Exit 8 names the first unconvertible block and creates nothing. Use a validated
 CSF file via `--from-file` for constructs outside the subset. Markdown and CSF
 inputs are mutually exclusive.
 
+Create a native blog post through the dedicated content-type-safe command:
+
+```bash
+atl conf blog create --space <KEY> --title '<title>' --from-md body.md
+```
+
+There is no page parent. The body must be non-empty. Raw CSF is preserved;
+Markdown uses the same fail-closed subset as page creation. Treat an
+unverifiable response as `unknown` and never replay the POST automatically.
+
 ## Comments: validate, deduplicate, reconcile
 
 Comments are non-idempotent POSTs. Prepare the CSF body in an owner-only private

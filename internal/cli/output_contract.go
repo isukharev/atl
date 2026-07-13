@@ -26,6 +26,7 @@ completion zsh
 conf apply
 conf attachment get
 conf attachment list
+conf blog create
 conf comment list
 conf edit
 conf me

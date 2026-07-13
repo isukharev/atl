@@ -313,6 +313,7 @@ atl conf table extract --id 123456 --table 2 --format csv --raw-csv # небез
 atl conf table extract --id 123456 --format xlsx --out tables.xlsx
 atl conf page create  --space DOCS --parent 123456 --title "My Page" --from-file body.csf
 atl conf page create  --space DOCS --title "From markdown" --from-md body.md
+atl conf blog create  --space DOCS --title "Еженедельный отчёт" --from-md update.md
 # Guarded-перенос: сначала preview, затем apply с полученными source-state gates
 atl conf page move    123456 --parent 654321
 atl conf page delete  --id 123456
