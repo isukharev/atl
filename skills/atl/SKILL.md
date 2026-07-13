@@ -56,8 +56,8 @@ version gate.
    projection when only a few values are needed — include Jira `attachment` when you need the
    presence/names of files, but avoid a bare `issue get` because it drags the whole comment thread
    into context.
-2. **`push` is the one deliberate checkpoint.** The safe loop is: pull fresh → edit → validate →
-   review a dry-run diff → push under the version gate. On a conflict, a human decides whether to
+2. **`push` is the one deliberate checkpoint.** The Confluence safe loop is: pull fresh → edit → validate →
+   inspect offline semantics with `conf diff` → review `conf push --dry-run` against current remote state → push under the version gate. On a conflict, a human decides whether to
    re-pull or force — never auto-force.
 
 For every agent-created Bash block that must not mutate Jira, Confluence,

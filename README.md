@@ -271,7 +271,10 @@ $EDITOR mirror/DOCS/acme-adr/acme-adr.csf
 # Validate before pushing (blocks on malformed XML, warns on sanity issues)
 atl conf validate mirror/DOCS/acme-adr/acme-adr.csf
 
-# Dry-run to see what push will do
+# Inspect native baseline → candidate changes offline (JSON by default)
+ATL_READ_ONLY=1 atl conf diff mirror/DOCS/acme-adr/acme-adr.csf -o text
+
+# Dry-run to see what the remote write will do
 atl conf push mirror/DOCS/acme-adr/acme-adr.csf --dry-run
 
 # Push (exits 5 if the remote has drifted; re-pull + reapply to recover)

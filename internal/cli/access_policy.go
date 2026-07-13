@@ -107,6 +107,7 @@ conf attachment upload
 conf blog create
 conf comment add
 conf comment list
+conf diff
 conf edit
 conf me
 conf page copy

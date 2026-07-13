@@ -75,7 +75,7 @@ func newConfCmd() *cobra.Command {
 	c := &cobra.Command{Use: "conf", Short: "Confluence: mirror, read, validate, push (native storage format)"}
 	c.AddCommand(
 		confSearchCmd(), confSpaceCmd(), confPageCmd(), confBlogCmd(),
-		confPullCmd(), confRenderCmd(), confStatusCmd(), confValidateCmd(), confEditCmd(), confApplyCmd(), confPushCmd(), confTableCmd(), confCommentCmd(),
+		confPullCmd(), confRenderCmd(), confStatusCmd(), confDiffCmd(), confValidateCmd(), confEditCmd(), confApplyCmd(), confPushCmd(), confTableCmd(), confCommentCmd(),
 		confAttachmentCmd(), confMeCmd(),
 	)
 	return c
@@ -798,6 +798,33 @@ func confStatusCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&remote, "remote", false, "also check remote drift (one request per page)")
+	return cmd
+}
+
+func confDiffCmd() *cobra.Command {
+	var into string
+	cmd := &cobra.Command{
+		Use:   "diff [file.csf|DIR]",
+		Short: "Compare native mirror bodies with their last-synced baselines (offline)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target := ""
+			if len(args) == 1 {
+				target = args[0]
+			} else if into == "" {
+				into = mirrorRootDefault("mirror")
+			}
+			result, diffErr := app.DiffConfluenceMirror(target, into)
+			if result != nil {
+				emitErr := emit(cmd, result, func() string { return app.ConfluenceDiffMarkdown(result) })
+				if diffErr == nil {
+					return emitErr
+				}
+			}
+			return diffErr
+		},
+	}
+	cmd.Flags().StringVar(&into, "into", "", "mirror root (defaults to nearest .atl, or configured mirror when no target is given)")
 	return cmd
 }
 

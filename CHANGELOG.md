@@ -56,6 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Offline semantic Confluence mirror diff.** `conf diff` compares exact
+  last-synced and candidate CSF bytes for one page or subtree, classifies every
+  page state, reports canonical block and safe feature deltas plus byte-window
+  hashes, and fails closed on incomplete mirror evidence without backend access.
+
 - **Native Confluence blog-post creation.** `conf blog create` sends a closed
   `blogpost` storage payload from validated CSF or strict Markdown, keeps page
   creation unambiguous, verifies the expanded identity/version/body response,
