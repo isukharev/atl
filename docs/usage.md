@@ -42,7 +42,8 @@ echo '<p>Hello</p>' | atl conf page create --space DOCS --title "New page" \
 The defaults follow one rule: commands whose body is **required** default
 `--from-file` to `-` (stdin) — `conf page create`, `conf comment add`,
 `jira issue comment add`; commands whose body is **optional** default to no
-body — `jira issue create`, `jira issue update`. When stdin is an
+body — `jira issue create`, `jira issue update`, and the worklog comment on
+`jira issue worklog add`. When stdin is an
 interactive terminal (nothing piped), reading a body from it is refused with
 a usage error (exit 2) instead of hanging forever waiting for input.
 
@@ -2311,6 +2312,43 @@ Jira DC's raw JSON-string body and DELETE uses an encoded `username` query.
 Each write is sent once and followed by a verification GET. Verified state is
 `applied`; ambiguous/partial state is `unknown` with a non-zero exit and must
 not be replayed automatically.
+
+### `atl jira issue worklog list|add`
+
+Read the complete Jira Data Center worklog history or add one reviewed time
+entry without changing the remaining estimate:
+
+```bash
+atl jira issue worklog list PROJ-1 -o text
+atl jira issue worklog add PROJ-1 --time 1h30m \
+  --started 2026-07-13T09:00:00Z --from-file worklog.txt
+atl jira issue worklog add PROJ-1 --time 1h30m \
+  --started 2026-07-13T09:00:00Z --from-file worklog.txt --apply \
+  --expected-proposal-hash <hash-from-preview>
+```
+
+`list` consumes every page advertised by Jira and fails with exit 8 on missing,
+changing, or structurally inconsistent pagination; it never returns an
+unmarked prefix. JSON authors are a compact projection (`name`, `key`, display
+name, active) without email, avatar, self URL, or timezone. `-o text` is an
+escaped Markdown table; `-o id` prints worklog ids.
+
+`add` accepts positive integer `h`, `m`, and `s` segments (`1h30m`, `90m`,
+`45s`). Days and weeks are rejected because their conversion depends on Jira
+instance settings. `--started`, when present, must be RFC3339 with an explicit
+timezone. The optional comment comes from either `--comment` or a bounded
+`--from-file FILE|-`; prefer the file form because inline text is visible in
+the process list.
+
+The default is a read-only preview that normalizes the duration and start time,
+shows the compact current identity and payload, and binds them with a proposal
+hash. `--apply` requires that exact hash, re-reads a complete baseline, and
+sends one POST with `adjustEstimate=leave`. A timeout/transport/5xx result is
+never retried: atl performs one complete reconciliation read and reports
+`applied` only when an explicit `--started` value and exactly one new matching
+entry prove the result. Without that timestamp, an ambiguous response remains
+`unknown` even if a similar entry appears, because Jira chose its start time.
+Every `unknown` exit is non-zero and agents must not replay it automatically.
 
 ### `atl jira issue check`
 

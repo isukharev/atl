@@ -49,6 +49,19 @@ atl jira issue get PROJ-123 --fields summary,description   # drift check only â€
 atl jira issue update PROJ-123 --from-file PROJ-123.description.wiki
 ```
 
+**Time tracking, when the user asks for it, is a reviewed write.** Preview the
+normalized entry first, then apply the exact reviewed proposal once:
+
+```bash
+atl jira issue worklog add PROJ-123 --time 1h30m --from-file /tmp/worklog.txt
+atl jira issue worklog add PROJ-123 --time 1h30m --from-file /tmp/worklog.txt \
+  --apply --expected-proposal-hash <hash-from-preview>
+```
+
+The remaining estimate is unchanged. If apply returns `unknown`, do not retry:
+read `jira issue worklog list PROJ-123` and ask the user if the result remains
+ambiguous.
+
 **Blocked?** Say so where it's visible:
 
 ```bash
