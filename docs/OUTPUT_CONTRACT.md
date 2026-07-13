@@ -345,13 +345,18 @@ lose unrelated entries.
 `schema_version:1`. Its top-level contract is
 `{schema_version,root,target,complete,summary,pages}`. Pages are sorted by path
 and carry `{id?,title?,path,state,baseline,candidate,semantic_changed?,byte_only?,blocks?,features?,byte_evidence?}`.
-The closed `state` set is `unchanged|added|removed|modified|malformed|missing_baseline|unreadable`.
+`root` and `target` are canonical absolute path identities. The closed `state`
+set is `unchanged|added|removed|modified|malformed|missing_baseline|
+baseline_mismatch|unreadable`; the summary includes optional
+`baseline_mismatch` when non-zero without changing valid v1 plan bytes.
 The two sides expose only presence, byte length, SHA-256, validity, and
 validation diagnostics; block changes expose kind/index/fingerprints rather
 than page text. Byte evidence identifies the exact common prefix/suffix and
 hashes each changed window. `complete:false` means semantic comparison was not
 fully available for at least one page. A scan never treats unreadable or corrupt
-mirror state as an empty/clean subtree.
+mirror state as an empty/clean subtree. `baseline_mismatch` distinguishes a
+pristine base whose bytes disagree with its tracked sync hash from filesystem
+unreadability.
 
 `conf plan create` writes a private `atl.confluence.plan/v1` artifact with
 `{schema,root,target,summary,entries,proposal_hash}`. Entries are strictly

@@ -101,6 +101,66 @@ func TestConfluenceDiffRejectsTargetOutsideExplicitRoot(t *testing.T) {
 	}
 }
 
+func TestConfluenceDiffCanonicalizesRelativeRootAndAbsoluteTarget(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "mirror")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := writeDiffPage(t, root, "106", "absolute", `<p>old</p>`)
+	if err := os.WriteFile(path, []byte(`<p>new</p>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(parent)
+	result, err := DiffConfluenceMirror(path, "mirror")
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalRoot, rootErr := evalSymlinksAbsolute(root)
+	canonicalPath, pathErr := evalSymlinksAbsolute(path)
+	if rootErr != nil || pathErr != nil {
+		t.Fatalf("canonical paths: root=%v path=%v", rootErr, pathErr)
+	}
+	if result.Root != canonicalRoot || result.Target != canonicalPath || result.Summary.Modified != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestConfluenceDiffRejectsInRootSymlinkAliasWithoutDuplicates(t *testing.T) {
+	root := t.TempDir()
+	path := writeDiffPage(t, root, "107", "aliased", `<p>old</p>`)
+	if err := os.WriteFile(path, []byte(`<p>new</p>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(filepath.Join(root, "DOC"), alias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	result, err := DiffConfluenceMirror(alias, root)
+	if err == nil || result != nil {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
+func TestConfluenceDiffRejectsEscapingAndDanglingSymlinks(t *testing.T) {
+	root := t.TempDir()
+	if err := mirror.New(root).EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	for name, destination := range map[string]string{"outside": outside, "dangling": filepath.Join(outside, "missing")} {
+		t.Run(name, func(t *testing.T) {
+			alias := filepath.Join(root, name)
+			if err := os.Symlink(destination, alias); err != nil {
+				t.Skipf("symlink unavailable: %v", err)
+			}
+			if result, err := DiffConfluenceMirror(alias, root); err == nil || result != nil {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+		})
+	}
+}
+
 func TestConfluenceDiffReportsRemovedMalformedAndMissingBaseline(t *testing.T) {
 	root := t.TempDir()
 	removed := writeDiffPage(t, root, "201", "removed", `<p>old</p>`)
@@ -130,6 +190,21 @@ func TestConfluenceDiffReportsRemovedMalformedAndMissingBaseline(t *testing.T) {
 	_ = missing
 }
 
+func TestConfluenceDiffAcceptsMissingTrackedPageTarget(t *testing.T) {
+	root := t.TempDir()
+	path := writeDiffPage(t, root, "204", "removed-target", `<p>old</p>`)
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	result, err := DiffConfluenceMirror(path, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Pages) != 1 || result.Pages[0].State != "removed" || result.Summary.Removed != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
 func TestConfluenceDiffReturnsStructuredUnreadableEntry(t *testing.T) {
 	root := t.TempDir()
 	path := writeDiffPage(t, root, "301", "broken", `<p>old</p>`)
@@ -150,7 +225,7 @@ func TestConfluenceDiffRejectsCorruptBaselineHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := DiffConfluenceMirror(path, root)
-	if err == nil || result == nil || result.Complete || result.Summary.Unreadable != 1 || result.Pages[0].State != "unreadable" {
+	if err == nil || result == nil || result.Complete || result.Summary.BaselineMismatch != 1 || result.Summary.Unreadable != 0 || result.Pages[0].State != "baseline_mismatch" {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 }

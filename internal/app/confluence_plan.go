@@ -195,21 +195,13 @@ func canonicalConfluencePlanPaths(target, into string) (root, canonicalTarget st
 	if root == "" {
 		root = mirrorRootOf(target)
 	}
-	root, err = filepath.EvalSymlinks(root)
+	root, err = evalSymlinksAbsolute(root)
 	if err != nil {
 		return "", "", localConfluenceTargetError("plan", root, err)
 	}
-	root, err = filepath.Abs(root)
-	if err != nil {
-		return "", "", err
-	}
-	canonicalTarget, err = filepath.EvalSymlinks(target)
+	canonicalTarget, err = evalSymlinksAbsolute(target)
 	if err != nil {
 		return "", "", localConfluenceTargetError("plan", target, err)
-	}
-	canonicalTarget, err = filepath.Abs(canonicalTarget)
-	if err != nil {
-		return "", "", err
 	}
 	if !within(root, canonicalTarget) {
 		return "", "", fmt.Errorf("%w: plan target %q is outside mirror root %q", domain.ErrUsage, canonicalTarget, root)
@@ -540,7 +532,7 @@ func loadConfluencePlan(path string) (*ConfluencePlan, error) {
 	if !filepath.IsAbs(plan.Target) || !within(plan.Root, plan.Target) {
 		return nil, fmt.Errorf("%w: Confluence plan target is outside its root", domain.ErrUsage)
 	}
-	if plan.Summary.Total < 0 || plan.Summary.Unchanged < 0 || plan.Summary.Added != 0 || plan.Summary.Removed != 0 || plan.Summary.Malformed != 0 || plan.Summary.MissingBaseline != 0 || plan.Summary.Unreadable != 0 || plan.Summary.Modified != len(plan.Entries) || plan.Summary.Total != plan.Summary.Unchanged+plan.Summary.Modified {
+	if plan.Summary.Total < 0 || plan.Summary.Unchanged < 0 || plan.Summary.Added != 0 || plan.Summary.Removed != 0 || plan.Summary.Malformed != 0 || plan.Summary.MissingBaseline != 0 || plan.Summary.BaselineMismatch != 0 || plan.Summary.Unreadable != 0 || plan.Summary.Modified != len(plan.Entries) || plan.Summary.Total != plan.Summary.Unchanged+plan.Summary.Modified {
 		return nil, fmt.Errorf("%w: Confluence plan summary does not match its supported entry set", domain.ErrUsage)
 	}
 	seenID, seenPath := map[string]bool{}, map[string]bool{}

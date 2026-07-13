@@ -109,6 +109,9 @@ func TestCreateConfluencePlanIsDeterministicPrivateAndBound(t *testing.T) {
 	if !bytes.Equal(a, b) || result.ProposalHash != plan.ProposalHash || len(plan.Entries) != 2 {
 		t.Fatalf("non-deterministic plan: result=%+v plan=%+v", result, plan)
 	}
+	if bytes.Contains(a, []byte(`"baseline_mismatch"`)) {
+		t.Fatalf("valid v1 plan bytes gained an optional diff-only field: %s", a)
+	}
 	info, err := os.Stat(first)
 	if err != nil {
 		t.Fatal(err)

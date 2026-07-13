@@ -942,5 +942,5 @@ func MirrorRootOf(target string) (string, bool) {
 
 func within(dir, path string) bool {
 	rel, err := filepath.Rel(dir, path)
-	return err == nil && !strings.HasPrefix(rel, "..")
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
