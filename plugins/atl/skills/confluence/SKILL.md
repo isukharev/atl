@@ -101,7 +101,7 @@ incremental selection instead of broad pulls:
 ```bash
 export ATL_READ_ONLY=1
 atl conf pull --incremental --cql '<stable CQL without ORDER BY>' \
-  --since '<YYYY-MM-DD HH:MM>' --time-zone '<configured IANA zone>' --into <absolute-root>
+  --since '<YYYY-MM-DD HH:MM>' --time-zone '<IANA zone defining that wall time>' --into <absolute-root>
 # next runs: identical selector/root, omit --since and --time-zone
 atl conf pull --incremental --cql '<same stable CQL>' --into <absolute-root>
 ```
@@ -110,12 +110,15 @@ Treat `complete:true` and a persisted watermark as one claim. Exit 8, a local
 edit, inaccessible page, cap, or partial pagination means the watermark did not
 move; fix the named cause and rerun the same command. Never infer deletion from
 an absent delta, change the selector while expecting the old watermark, or add
-your own `ORDER BY`. The inclusive minute boundary intentionally rechecks
+your own `ORDER BY`. Atl queries with a 48-hour safety overlap and discards
+pre-watermark hits locally, so a different backend CQL zone causes extra reads,
+not omissions. The inclusive absolute minute boundary intentionally rechecks
 same-minute identities and skips only recorded id/version pairs. Atl requires
 two identical complete metadata passes, so budget two search-page GET passes
-plus one body GET per selected page. Never guess the timezone: CQL uses the
-current user's configured zone (server default), while version timestamps are
-absolute; bootstrap with the matching IANA name.
+plus one body GET per selected page. Use an IANA zone that expresses the
+reviewed `--since` wall time; avoid DST folds/gaps. The backend CQL zone is not
+provable through the documented REST identity/server-info resources and need
+not be guessed.
 
 Read [commands.md](reference/commands.md) for search/pull selectors, caps,
 render profiles, output layout, status, bulk commands, and the full inventory.

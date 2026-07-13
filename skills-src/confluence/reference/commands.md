@@ -26,7 +26,7 @@ Use transient `page view` only for one-off readonly work. For a mirror:
 atl conf pull --id <id> --assets --comments --jira-view default --into <root>
 # alternatives: --cql '<CQL>' or --space <KEY> [--depth N]
 
-# recurring large mirror: first run needs local minute + configured IANA zone
+# recurring large mirror: first run needs an unambiguous wall minute + its IANA zone
 atl conf pull --incremental --cql '<stable CQL without ORDER BY>' \
   --since '<YYYY-MM-DD HH:MM>' --time-zone '<IANA zone>' --into <root>
 # later: exact same selector/root, no --since/--time-zone
@@ -49,9 +49,10 @@ complete.
 
 Incremental pull instead exhausts pagination up to its explicit `--max-pages`
 safety cap (default 10000); hitting the cap or any partial response is exit 8
-and cannot advance the private selector watermark. Its `--since` and matching
-IANA `--time-zone` represent the Confluence user's configured CQL minute and
-are needed only for a new selector.
+and cannot advance the private selector watermark. `--since` and `--time-zone`
+define a reviewed absolute bootstrap boundary and are needed only for a new
+selector. Atl starts CQL 48 hours earlier and filters older hits locally, so a
+different configured CQL zone only adds reads. DST folds/gaps are rejected.
 Equal-minute updates are safe because exact boundary id/version pairs, not the
 timestamp alone, are recorded. Absence never proves deletion.
 

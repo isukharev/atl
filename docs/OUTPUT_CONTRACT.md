@@ -517,11 +517,14 @@ With `--incremental`, the same result additionally carries `incremental`:
 {
   "selector_sha256": "<sha256>",
   "watermark_source": "explicit",
-  "query_since": "2026-07-01 00:00",
+  "watermark_since": "2026-07-01 00:00",
+  "query_since": "2026-06-29 00:00",
   "time_zone": "Europe/Berlin",
+  "safety_overlap_hours": 48,
   "complete": true,
   "matched": 3,
   "selected": 2,
+  "overlap_skipped": 0,
   "boundary_skipped": 1,
   "next_since": "2026-07-01 09:42",
   "boundary_count": 2,
@@ -529,10 +532,14 @@ With `--incremental`, the same result additionally carries `incremental`:
 }
 ```
 
-`watermark_source` is `explicit|recorded`; `time_zone` is the persisted IANA
-zone matching Confluence's configured CQL timezone. `matched` is the unique complete
-search set; `selected` excludes exact id/version pairs already recorded at the
-inclusive lower minute. `complete:true` is emitted only after terminal
+`watermark_source` is `explicit|recorded`; `time_zone` defines the persisted
+wall-clock display of the absolute watermark. It does not claim to identify
+Confluence's configured CQL zone. `query_since` is deliberately 48 hours before
+`watermark_since`; `overlap_skipped` counts older hits removed locally. This
+over-fetch makes a timezone mismatch conservative rather than lossy. `matched`
+is the unique complete search set; `selected` excludes overlap hits and exact
+id/version pairs already recorded at the inclusive absolute lower minute.
+`complete:true` is emitted only after terminal
 pagination evidence and two identical metadata passes. `watermark_advanced` describes whether the successful run
 changed or first persisted the watermark. The private `0600`
 `.atl/incremental.json` is versioned, service/selector-hash keyed, and written

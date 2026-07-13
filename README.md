@@ -233,7 +233,8 @@ atl conf pull \
   --into mirror
 
 # Repeat a large selector without re-fetching unchanged pages. The first run
-# needs a reviewed lower boundary and the Confluence user's configured timezone.
+# needs a reviewed lower boundary and the IANA zone that defines that wall time.
+# A 48-hour safety overlap prevents a different backend CQL zone from omitting pages.
 atl conf pull --incremental --cql 'space=DOCS and type=page' \
   --since '2026-07-01 00:00' --time-zone Europe/Berlin --into mirror
 # Later runs reuse both selector-bound values; omit --since and --time-zone.

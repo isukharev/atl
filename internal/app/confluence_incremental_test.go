@@ -93,11 +93,11 @@ func TestIncrementalPullPaginatesPersistsAndSkipsKnownBoundary(t *testing.T) {
 	if len(res.Pages) != 2 || res.Incremental == nil || !res.Incremental.Complete || !res.Incremental.WatermarkAdvanced || res.Incremental.NextSince != "2026-07-13 12:00" {
 		t.Fatalf("result=%+v", res)
 	}
-	if len(store.queries) != 4 || !strings.Contains(store.queries[0], `lastmodified >= "2026-07-13 11:59" order by lastmodified asc`) {
+	if len(store.queries) != 4 || !strings.Contains(store.queries[0], `lastmodified >= "2026-07-11 11:59" order by lastmodified asc`) {
 		t.Fatalf("queries=%v", store.queries)
 	}
 	w, ok, err := mirror.New(root).IncrementalWatermark(confluenceIncrementalService, res.Incremental.SelectorSHA256)
-	if err != nil || !ok || w.BoundaryVersions["10"] != 2 || w.BoundaryVersions["20"] != 4 {
+	if err != nil || !ok || w.Protocol != confluenceIncrementalProtocol || w.Boundary != "2026-07-13T12:00:00Z" || w.BoundaryVersions["10"] != 2 || w.BoundaryVersions["20"] != 4 {
 		t.Fatalf("watermark=%+v ok=%v err=%v", w, ok, err)
 	}
 
@@ -124,6 +124,123 @@ func TestIncrementalPullPaginatesPersistsAndSkipsKnownBoundary(t *testing.T) {
 	}
 	if len(res.Pages) != 1 || res.Pages[0].ID != "30" || res.Incremental.BoundarySkipped != 2 {
 		t.Fatalf("equal-minute new identity result=%+v", res)
+	}
+}
+
+func TestIncrementalOverlapCannotMoveQueryAfterBoundaryAcrossExtremeZones(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		watermark  string
+		configured string
+	}{
+		{name: "caller-ahead", watermark: "Pacific/Kiritimati", configured: "Etc/GMT+12"},
+		{name: "caller-behind", watermark: "Etc/GMT+12", configured: "Pacific/Kiritimati"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			watermarkZone, err := time.LoadLocation(tc.watermark)
+			if err != nil {
+				t.Fatal(err)
+			}
+			configuredZone, err := time.LoadLocation(tc.configured)
+			if err != nil {
+				t.Fatal(err)
+			}
+			boundary, err := parseUnambiguousCQLMinute("2026-07-13 12:00", watermarkZone)
+			if err != nil {
+				t.Fatal(err)
+			}
+			queryLiteral := cqlMinute(boundary.Add(-confluenceIncrementalOverlap), watermarkZone)
+			backendInstant, err := time.ParseInLocation("2006-01-02 15:04", queryLiteral, configuredZone)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if backendInstant.After(boundary) {
+				t.Fatalf("query %q in %s starts at %s after boundary %s", queryLiteral, tc.configured, backendInstant, boundary)
+			}
+		})
+	}
+}
+
+func TestIncrementalPullFiltersSafetyOverlapLocally(t *testing.T) {
+	root := t.TempDir()
+	oldPage, oldHit := incrementalPage("10", 1, "2026-07-13T11:00:00Z")
+	newPage, newHit := incrementalPage("20", 1, "2026-07-13T12:01:00Z")
+	store := &incrementalPullStore{
+		pullStore:   &pullStore{pages: map[string]*domain.Resource{"10": oldPage, "20": newPage}},
+		searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{oldHit, newHit}, Complete: true}},
+	}
+	res, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13 12:00", TimeZone: "UTC"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Pages) != 1 || res.Pages[0].ID != "20" || res.Incremental.OverlapSkipped != 1 || res.Incremental.Matched != 2 || res.Incremental.Selected != 1 {
+		t.Fatalf("result=%+v", res)
+	}
+	if store.getCalls != 1 {
+		t.Fatalf("body calls=%d", store.getCalls)
+	}
+}
+
+func TestIncrementalBootstrapRejectsDSTGapAndFold(t *testing.T) {
+	location, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"2026-03-08 02:30", "2026-11-01 01:30"} {
+		if _, err := parseUnambiguousCQLMinute(value, location); !errors.Is(err, domain.ErrUsage) {
+			t.Fatalf("value=%q err=%v", value, err)
+		}
+	}
+	if _, err := parseUnambiguousCQLMinute("2026-11-01 03:30", location); err != nil {
+		t.Fatalf("unambiguous minute: %v", err)
+	}
+}
+
+func TestIncrementalRecordedAbsoluteBoundarySurvivesDSTFold(t *testing.T) {
+	root := t.TempDir()
+	firstPage, firstHit := incrementalPage("10", 1, "2026-11-01T01:30:00-04:00")
+	secondPage, secondHit := incrementalPage("20", 1, "2026-11-01T01:30:00-05:00")
+	store := &incrementalPullStore{
+		pullStore:   &pullStore{pages: map[string]*domain.Resource{"10": firstPage, "20": secondPage}},
+		searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{firstHit, secondHit}, Complete: true}},
+	}
+	svc := &ConfluenceService{store: store}
+	opts := PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-11-01 00:30", TimeZone: "America/New_York"}
+	res, err := svc.Pull(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Incremental.NextSince != "2026-11-01 01:30" || len(res.Pages) != 2 {
+		t.Fatalf("first result=%+v", res)
+	}
+	w, ok, err := mirror.New(root).IncrementalWatermark(confluenceIncrementalService, res.Incremental.SelectorSHA256)
+	if err != nil || !ok || w.Boundary != "2026-11-01T01:30:00-05:00" {
+		t.Fatalf("watermark=%+v ok=%v err=%v", w, ok, err)
+	}
+	opts.Since = ""
+	opts.TimeZone = ""
+	res, err = svc.Pull(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Pages) != 0 || res.Incremental.OverlapSkipped != 1 || res.Incremental.BoundarySkipped != 1 {
+		t.Fatalf("rerun=%+v", res)
+	}
+}
+
+func TestIncrementalPullRejectsLegacyUnprovenWatermark(t *testing.T) {
+	root := t.TempDir()
+	selector := "type=page"
+	if err := mirror.New(root).SaveIncrementalWatermark(mirror.IncrementalWatermark{
+		Service: confluenceIncrementalService, SelectorSHA256: selectorHash(selector), Selector: selector,
+		Since: "2026-07-13 12:00", TimeZone: "UTC", BoundaryVersions: map[string]int{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store := &incrementalPullStore{pullStore: &pullStore{}}
+	_, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: selector, Into: root, Incremental: true})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "fail-safe absolute-boundary protocol") || len(store.queries) != 0 {
+		t.Fatalf("err=%v queries=%v", err, store.queries)
 	}
 }
 
