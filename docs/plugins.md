@@ -29,7 +29,11 @@ file with that header, stop and edit the `skills-src/` original instead.
 3. Commit **all three trees in the same PR**.
 
 CI runs `make check-plugins` (regenerate + `git status --porcelain` over the
-outputs), so a stale or hand-edited output tree fails the build.
+outputs), so a stale or hand-edited output tree fails the build. The same target
+runs `check-skill-safety`: a shell fence preceded by
+`<!-- atl:read-only-shell -->` must begin with the inherited
+`export ATL_READ_ONLY=1` guard. Designated read-only workflow skills also have
+minimum marker coverage, so deleting all markers cannot make the check pass.
 
 ## Placeholders
 
