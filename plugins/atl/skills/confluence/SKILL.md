@@ -12,6 +12,20 @@ default.
 Durable document markers may use LF or CRLF; atl normalizes only that marker
 line and never treats whole-document newline conversion as content-neutral.
 
+For every agent-created multi-command Bash block intended only to read
+Confluence, make this export its first statement:
+
+```bash
+export ATL_READ_ONLY=1
+atl conf ...
+atl conf ...
+```
+
+All later `atl` calls and child processes in that shell inherit it unless it is
+explicitly overridden. `ATL_READ_ONLY=1 atl conf ...` protects only that single
+process; do not use that one-command prefix to guard a script containing more
+calls.
+
 ## Preflight once per session
 
 ```bash
@@ -22,8 +36,8 @@ atl config show
 If `atl` or `confluence_url`/auth is missing, run `$setup` and stop.
 Exit 7 also means setup is incomplete.
 
-When `ATL_READ_ONLY=1`, global `--read-only`, or config read-only policy is
-active, keep to search/get/view/pull/render/status/validate/export operations.
+With this export, global `--read-only`, or config read-only policy active, keep
+to search/get/view/pull/render/status/validate/export operations.
 Exit 8 with `policy:"read_only"` is a human-decision boundary; do not disable
 the policy to apply/push/create/move/delete content.
 For other failures, route on stable JSON `kind` and numeric `code`; present

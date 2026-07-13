@@ -18,8 +18,20 @@ per line, suitable for piping into `xargs` or scripts. `-o text` gives a human-r
 `--verbose` (or `ATL_VERBOSE=1`) traces every HTTP request/response to stderr; the bearer token is
 never written to the trace.
 
-When `ATL_READ_ONLY=1`, global `--read-only`, or config read-only policy is
-active, use search/get/view/pull/status/export only. A JSON refusal with
+For every agent-created multi-command Bash block intended only to read Jira,
+make this export its first statement:
+
+```bash
+export ATL_READ_ONLY=1
+atl jira ...
+atl jira ...
+```
+
+All later `atl` calls and child processes in that shell inherit it unless it is
+explicitly overridden. `ATL_READ_ONLY=1 atl jira ...` protects only that single
+process; do not use that one-command prefix to guard a script containing more
+calls. With this export, global `--read-only`, or config read-only policy active,
+use search/get/view/pull/status/export only. A JSON refusal with
 `policy:"read_only"` and exit 8 requires human approval to change the policy;
 never disable it just to finish a requested Jira write.
 For other failures, use JSON `kind`/`remediation` instead of parsing `error`;
