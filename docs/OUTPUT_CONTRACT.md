@@ -353,6 +353,30 @@ hashes each changed window. `complete:false` means semantic comparison was not
 fully available for at least one page. A scan never treats unreadable or corrupt
 mirror state as an empty/clean subtree.
 
+`conf plan create` writes a private `atl.confluence.plan/v1` artifact with
+`{schema,root,target,summary,entries,proposal_hash}`. Entries are strictly
+path-ordered `update` records bound to `{id,type,title,space,path,expected_version,
+baseline_sha256,candidate_sha256,problems?,blocks?,features?,byte_evidence?}`.
+Unknown fields/schemas, duplicate or non-canonical paths, invalid hashes,
+inconsistent summaries, and trailing JSON are rejected. The proposal hash is
+computed with its own field empty and covers every other byte-semantic field.
+The file must also remain byte-identical to atl's canonical indented JSON plus
+final newline; reformatting or line-ending conversion is a dirty-plan refusal.
+
+`conf plan apply` emits
+`{schema,proposal_hash,root,target,mode,status,complete,entries}`. Each entry
+repeats the review-critical identity, baseline/candidate hashes, and safe
+block/feature/byte consequences from the plan before adding its outcome. Mode is `preview|apply`;
+top-level status is `would_apply|already_satisfied|blocked|partial|applied`.
+Per-entry status is `not_checked|would_apply|already_satisfied|stale|blocked|
+not_attempted|applied|failed|unknown`, with expected/final version,
+`reconciled`, warning, and coarse failure fields when applicable. Preview and
+apply perform the same complete local and remote preflight. `blocked` before
+execution means zero PUTs. `partial` is non-zero; `unknown` is non-replayable.
+Execution requires both `--confirm APPLY` and an exact external
+`--expected-proposal-hash`. Exact already-applied remote/local state is the only
+resume path accepted in addition to the original baseline state.
+
 When a Confluence re-pull computes a different path for an already tracked page
 id, relocation is fail-closed. The old native body must match its synced hash,
 the old Markdown must exactly match its recorded pristine view, metadata must

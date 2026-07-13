@@ -1,0 +1,16 @@
+{
+  "path": "<PATH>",
+  "schema": "atl.confluence.plan/v1",
+  "proposal_hash": "<SHA256>",
+  "operation_count": 1,
+  "summary": {
+    "total": 1,
+    "unchanged": 0,
+    "added": 0,
+    "removed": 0,
+    "modified": 1,
+    "malformed": 0,
+    "missing_baseline": 0,
+    "unreadable": 0
+  }
+}

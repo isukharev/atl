@@ -1117,6 +1117,77 @@ Flags:
 | `[file.csf\|DIR]` | page or subtree; omitted uses the configured mirror root |
 | `--into` | explicit mirror root (otherwise nearest `.atl`) |
 
+### `atl conf plan create` / `atl conf plan apply`
+
+Use a durable plan when several native page updates must be reviewed as one
+closed set. Plan creation is offline and accepts the same page/subtree target as
+`conf diff`:
+
+```bash
+export ATL_READ_ONLY=1
+atl conf plan create mirror/DOCS/ --out .atl-private/docs-plan.json
+```
+
+The output file has mode `0600`, schema `atl.confluence.plan/v1`, deterministic
+bytes, and a proposal hash over the complete artifact. It includes only
+`update` entries for modified, canonical, valid, baseline-backed pages. Every
+entry declares page content type and binds the content id, title, space, mirror-relative path, expected
+version, exact baseline/candidate SHA-256, validation warnings, semantic block
+and feature consequences, and byte-window evidence. Native CSF bodies are not
+copied into the plan. Added, removed, malformed, missing-baseline, unreadable,
+or relocated pages make creation fail before the artifact is written.
+Do not reformat or convert the line endings of a plan: apply requires the exact
+canonical bytes as well as the embedded and externally reviewed hashes.
+
+Plan files contain page titles and local workspace paths. Keep them private; do
+not commit or publish them even though body prose is omitted.
+
+Preview after leaving an intentionally exported global read-only environment
+(mutation-capable commands are blocked as a whole by `ATL_READ_ONLY`):
+
+```bash
+env -u ATL_READ_ONLY atl conf plan apply .atl-private/docs-plan.json
+```
+
+Preview revalidates the complete local plan, then GETs every remote page before
+any write. Each entry becomes `would_apply`, `already_satisfied`, `stale`,
+`blocked`, or `not_checked`. If any local/remote binding changed, the batch is
+blocked with zero PUTs.
+
+After reviewing the exact proposal hash and obtaining approval:
+
+```bash
+env -u ATL_READ_ONLY atl conf plan apply .atl-private/docs-plan.json \
+  --expected-proposal-hash <64-hex-hash> \
+  --confirm APPLY
+```
+
+Apply repeats the complete preflight, then sends one version-gated PUT per
+pending entry. Every response is reconciled with a native GET. Exact
+`expected_version+1` candidate state is `applied` (and may be marked
+`reconciled`); a prior exact success is `already_satisfied` and is never
+replayed. A failed or unknown outcome stops the remaining writes, marks them
+`not_attempted`, returns non-zero, and must not be automatically replayed.
+Rerunning the same plan is safe after inspection: exact applied entries are
+recognized and their mirror state is refreshed, while any other state is
+blocked. There is no force mode, remote delete, create, move, or automatic
+merge in v1.
+
+Create flags:
+
+| flag | description |
+|---|---|
+| `[file.csf\|DIR]` | one page or subtree; omitted uses the configured mirror |
+| `--into` | explicit mirror root |
+| `--out` | required durable plan path; stdout is intentionally unsupported |
+
+Apply flags:
+
+| flag | description |
+|---|---|
+| `--confirm APPLY` | enter the write path; omitted is preview |
+| `--expected-proposal-hash` | exact reviewed hash; required for execution |
+
 ### `atl conf validate`
 
 Validate a `.csf` file for XML well-formedness and common sanity issues.

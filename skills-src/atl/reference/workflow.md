@@ -55,6 +55,10 @@ Make `push` the single deliberate, human-reviewed checkpoint:
    reconcile, or `--force` (last-writer-wins). **Never auto-`--force`.**
 
 Push the bytes you reviewed — don't regenerate the body between the dry-run and the push.
+For several Confluence pages, replace directory push with `conf plan create`,
+then `conf plan apply` preview, then exact hash + `--confirm APPLY`. A plan is a
+private review artifact; any blocked/stale entry means zero initial PUTs, and an
+`unknown` partial outcome must never be replayed automatically.
 
 Jira note: Jira issue updates have **no version gate** (last-writer-wins). Run `jira issue get`
 immediately before an `update` to avoid blindly overwriting someone else's change. The mirror

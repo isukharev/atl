@@ -75,7 +75,7 @@ func newConfCmd() *cobra.Command {
 	c := &cobra.Command{Use: "conf", Short: "Confluence: mirror, read, validate, push (native storage format)"}
 	c.AddCommand(
 		confSearchCmd(), confSpaceCmd(), confPageCmd(), confBlogCmd(),
-		confPullCmd(), confRenderCmd(), confStatusCmd(), confDiffCmd(), confValidateCmd(), confEditCmd(), confApplyCmd(), confPushCmd(), confTableCmd(), confCommentCmd(),
+		confPullCmd(), confRenderCmd(), confStatusCmd(), confDiffCmd(), confPlanCmd(), confValidateCmd(), confEditCmd(), confApplyCmd(), confPushCmd(), confTableCmd(), confCommentCmd(),
 		confAttachmentCmd(), confMeCmd(),
 	)
 	return c
@@ -826,6 +826,65 @@ func confDiffCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&into, "into", "", "mirror root (defaults to nearest .atl, or configured mirror when no target is given)")
 	return cmd
+}
+
+func confPlanCmd() *cobra.Command {
+	group := &cobra.Command{Use: "plan", Short: "Create and execute review-bound multi-page write plans"}
+	var createInto, createOut string
+	create := &cobra.Command{
+		Use:   "create [file.csf|DIR]",
+		Short: "Build a deterministic native update plan (offline)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target := ""
+			if len(args) == 1 {
+				target = args[0]
+			} else if createInto == "" {
+				createInto = mirrorRootDefault("mirror")
+			}
+			result, err := app.CreateConfluencePlan(target, createInto, createOut)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, result, func() string { return app.ConfluencePlanCreateMarkdown(result) })
+		},
+	}
+	create.Flags().StringVar(&createInto, "into", "", "mirror root (defaults to nearest .atl, or configured mirror when no target is given)")
+	create.Flags().StringVar(&createOut, "out", "", "durable private plan file (required)")
+
+	var confirm, expectedHash string
+	apply := &cobra.Command{
+		Use:   "apply <plan.json>",
+		Short: "Preview a plan, or execute it with exact review gates",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if confirm != "" && confirm != "APPLY" {
+				return usageErr("--confirm must be exactly APPLY")
+			}
+			if confirm == "APPLY" && expectedHash == "" {
+				return usageErr("--expected-proposal-hash is required with --confirm APPLY")
+			}
+			if confirm == "" && expectedHash != "" {
+				return usageErr("--expected-proposal-hash requires --confirm APPLY")
+			}
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			result, applyErr := svc.ApplyConfluencePlan(cmd.Context(), args[0], app.ConfluencePlanApplyOpts{Confirm: confirm, ExpectedProposalHash: expectedHash})
+			if result != nil {
+				emitErr := emit(cmd, result, func() string { return app.ConfluencePlanApplyMarkdown(result) })
+				if applyErr == nil {
+					return emitErr
+				}
+			}
+			return applyErr
+		},
+	}
+	apply.Flags().StringVar(&confirm, "confirm", "", "execute only when exactly APPLY; omitted is preview")
+	apply.Flags().StringVar(&expectedHash, "expected-proposal-hash", "", "exact proposal hash printed by reviewed preview")
+	group.AddCommand(create, apply)
+	return group
 }
 
 func confValidateCmd() *cobra.Command {

@@ -56,6 +56,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Review-bound multi-page Confluence plans.** `conf plan create` freezes an
+  offline semantic diff into a deterministic private v1 artifact; `conf plan
+  apply` previews the complete remote preflight and writes only after exact
+  proposal-hash plus `APPLY` confirmation, with version gates, reconciliation,
+  resume-safe already-applied detection, and non-replayable unknown outcomes.
+
 - **Offline semantic Confluence mirror diff.** `conf diff` compares exact
   last-synced and candidate CSF bytes for one page or subtree, classifies every
   page state, reports canonical block and safe feature deltas plus byte-window

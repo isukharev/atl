@@ -177,6 +177,22 @@ func (m *Mirror) ViewStateOf(id string) (ViewState, bool, error) {
 	return vs, ok, nil
 }
 
+// ViewStatesOf reads one sidecar snapshot and returns the requested recorded
+// view states. Missing ids are omitted from the result.
+func (m *Mirror) ViewStatesOf(ids []string) (map[string]ViewState, error) {
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]ViewState, len(ids))
+	for _, id := range ids {
+		if state, ok := sc.Views[id]; ok {
+			out[id] = state
+		}
+	}
+	return out, nil
+}
+
 // SaveViewStates merges a batch of view states into the sidecar in one
 // load-modify-save (for the render commands, which rewrite many .md views but
 // touch no sync state). Existing entries for other ids are preserved.

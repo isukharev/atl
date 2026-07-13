@@ -461,6 +461,28 @@ func (m *Mirror) LoadCSF(csfPath string) (*LocalCSF, []byte, error) {
 	return loadCSFWith(m.Root, sc, csfPath)
 }
 
+// LoadCSFMany loads an exact caller-selected set against one sidecar snapshot.
+// It preserves input order and fails on the first unreadable entry. Batch
+// preflights use it to avoid repeatedly decoding a large shared state.json
+// while still inspecting no file outside their reviewed set.
+func (m *Mirror) LoadCSFMany(paths []string) ([]*LocalCSF, [][]byte, error) {
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return nil, nil, err
+	}
+	locals := make([]*LocalCSF, 0, len(paths))
+	bodies := make([][]byte, 0, len(paths))
+	for _, path := range paths {
+		local, body, err := loadCSFWith(m.Root, sc, path)
+		if err != nil {
+			return nil, nil, fmt.Errorf("load mirror page %s: %w", path, err)
+		}
+		locals = append(locals, local)
+		bodies = append(bodies, body)
+	}
+	return locals, bodies, nil
+}
+
 // loadCSFWith is LoadCSF against an already-loaded sidecar, so ListCSF can
 // load the sidecar once instead of once per file.
 func loadCSFWith(root string, sc sidecarFile, csfPath string) (*LocalCSF, []byte, error) {

@@ -1,0 +1,40 @@
+{
+  "schema": "atl.confluence.plan/v1",
+  "proposal_hash": "<SHA256>",
+  "root": "<PATH>",
+  "target": "<PATH>",
+  "mode": "preview",
+  "status": "would_apply",
+  "complete": true,
+  "entries": [
+    {
+      "id": "100",
+      "type": "page",
+      "title": "Example",
+      "space": "DOC",
+      "path": "DOC/example/example.csf",
+      "status": "would_apply",
+      "expected_version": 3,
+      "baseline_sha256": "<SHA256>",
+      "candidate_sha256": "<SHA256>",
+      "blocks": [
+        {
+          "change": "modified",
+          "kind": "p",
+          "baseline_index": 0,
+          "candidate_index": 0,
+          "baseline_sha256": "<SHA256>",
+          "candidate_sha256": "<SHA256>"
+        }
+      ],
+      "byte_evidence": {
+        "common_prefix_bytes": 3,
+        "common_suffix_bytes": 4,
+        "baseline_changed_bytes": 3,
+        "candidate_changed_bytes": 3,
+        "baseline_changed_sha256": "<SHA256>",
+        "candidate_changed_sha256": "<SHA256>"
+      }
+    }
+  ]
+}

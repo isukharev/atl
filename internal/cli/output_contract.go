@@ -45,6 +45,8 @@ conf page resolve
 conf page section
 conf page title set
 conf page view
+conf plan apply
+conf plan create
 conf pull
 conf push
 conf render

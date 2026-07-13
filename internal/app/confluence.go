@@ -752,6 +752,17 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 		item.Warning = "pushed but local refresh returned a partial body projection; local files were preserved (re-pull recommended)"
 		return item, nil
 	}
+	item.Warning = appendWarning(item.Warning, s.refreshConfluenceMirror(ctx, m, lc, path, page, refreshRS, "pushed"))
+	return item, nil
+}
+
+// refreshConfluenceMirror records one already-verified remote page through the
+// same native/view/sidecar path used after push. Remote mutation has already
+// succeeded, so failures are returned as warnings for the caller to surface;
+// WriteView atomically advances the native/base/sync set, while a later
+// render-view-state failure remains an explicit re-pull warning.
+func (s *ConfluenceService) refreshConfluenceMirror(ctx context.Context, m *mirror.Mirror, lc *mirror.LocalCSF, path string, page *domain.Resource, refreshRS RenderSettings, verb string) string {
+	var warning string
 	dir := filepath.Dir(path)
 	slug := strings.TrimSuffix(filepath.Base(path), ".csf")
 	refs := []domain.Ref{}
@@ -770,13 +781,11 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 			sidecarPath := confluenceJiraMacroPath(dir, slug)
 			if _, statErr := safepath.StatWithin(m.Root, sidecarPath); statErr == nil {
 				if removeErr := writeConfluenceJiraMacroSidecar(m.Root, dir, slug, nil); removeErr != nil {
-					item.Warning = appendWarning(item.Warning, "pushed but obsolete Jira macro view state could not be retired; local files were preserved: "+removeErr.Error())
-					return item, nil
+					return appendWarning(warning, verb+" but obsolete Jira macro view state could not be retired; local files were preserved: "+removeErr.Error())
 				}
-				item.Warning = appendWarning(item.Warning, "pushed; Jira query results were retired because the native macro set changed")
+				warning = appendWarning(warning, verb+"; Jira query results were retired because the native macro set changed")
 			} else if !os.IsNotExist(statErr) {
-				item.Warning = appendWarning(item.Warning, "pushed but Jira macro view state could not be inspected; local files were preserved: "+statErr.Error())
-				return item, nil
+				return appendWarning(warning, verb+" but Jira macro view state could not be inspected; local files were preserved: "+statErr.Error())
 			}
 		}
 		var sidecarErr error
@@ -784,26 +793,24 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 		if sidecarErr != nil {
 			if errors.Is(sidecarErr, errStaleConfluenceJiraMacroSidecar) {
 				if removeErr := writeConfluenceJiraMacroSidecar(m.Root, dir, slug, nil); removeErr != nil {
-					item.Warning = appendWarning(item.Warning, "pushed but obsolete Jira macro view state could not be retired; local files were preserved (remove only the generated .jira-macros.json sidecar, then run `conf pull`): "+removeErr.Error())
-					return item, nil
+					return appendWarning(warning, verb+" but obsolete Jira macro view state could not be retired; local files were preserved (remove only the generated .jira-macros.json sidecar, then run `conf pull`): "+removeErr.Error())
 				}
 				mdOpts = confMDViewOpts(refreshRS, page, readCommentsSidecar(m.Root, dir, slug))
-				item.Warning = appendWarning(item.Warning, "pushed; Jira query results were retired because the native macro set changed — re-pull to resolve current macros")
+				warning = appendWarning(warning, verb+"; Jira query results were retired because the native macro set changed — re-pull to resolve current macros")
 			} else {
-				item.Warning = appendWarning(item.Warning, "pushed but Jira macro view state could not be reproduced; local files were preserved (remove only the generated .jira-macros.json sidecar, then run `conf pull`): "+sidecarErr.Error())
-				return item, nil
+				return appendWarning(warning, verb+" but Jira macro view state could not be reproduced; local files were preserved (remove only the generated .jira-macros.json sidecar, then run `conf pull`): "+sidecarErr.Error())
 			}
 		}
 	}
 	if werr := m.WriteView(dir, slug, page, refs, mdOpts); werr != nil {
-		item.Warning = appendWarning(item.Warning, "pushed but local refresh failed (re-pull recommended): "+werr.Error())
+		warning = appendWarning(warning, verb+" but local refresh failed (re-pull recommended): "+werr.Error())
 	} else if verr := m.SaveViewStates(map[string]mirror.ViewState{lc.Meta.ID: viewStateOf(refreshRS)}); verr != nil {
 		// Recording the view state is best-effort, like the refresh itself: the
 		// push already succeeded, so a sidecar-record failure is a warning, not a
 		// failed push.
-		item.Warning = appendWarning(item.Warning, "pushed but view state could not be recorded (re-pull recommended): "+verr.Error())
+		warning = appendWarning(warning, verb+" but view state could not be recorded (re-pull recommended): "+verr.Error())
 	}
-	return item, nil
+	return warning
 }
 
 func (s *ConfluenceService) pushTargets(m *mirror.Mirror, target string) ([]string, error) {
