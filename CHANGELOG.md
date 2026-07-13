@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The public roadmap now distinguishes shipped agent/safety foundations from
+  the concrete worklog, blogpost, semantic-diff, plan/apply, and incremental
+  Confluence sequence selected for the current development wave.
+
 - `jira export --keys/--ids` now emits every format in de-duplicated
   first-occurrence selector order across backend pages and generated batches;
   missing identities are explicitly omitted, while JQL order is unchanged and

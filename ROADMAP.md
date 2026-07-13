@@ -6,40 +6,53 @@ what is being explored, and what is explicitly out of scope.
 Roadmap items are not release commitments. Priorities can change based on
 feedback, Data Center migration pressure, and safety findings.
 
+## Shipped foundation
+
+Recent beta work established the contracts the next wave builds on:
+
+- process-wide read-only policy with pre-network mutation refusal;
+- stable JSON error `kind` and remediation, explicit text/id projections, and
+  named Jira list views;
+- guarded Jira and Confluence writes, versioned derived views, contained mirror
+  I/O, complete pagination signals, and build/update provenance;
+- compact Jira field/history/reference/digest workflows, transient batch
+  exports, Structure/board reads, and bounded Confluence page sections;
+- Jira attachments/watchers and Confluence labels with review-bound mutation
+  flows.
+
 ## Now
 
-Work planned for the next release cycle.
+Work selected for the current development sequence:
 
-- Agent and human ergonomics:
-  - richer error envelopes with stable `kind` and remediation text;
-  - TTY-aware output defaults while keeping JSON stable for scripts;
-  - field projection for smaller machine-readable outputs.
-- Read-only safety:
-  - global CLI read-only policy for agent sessions and CI;
-  - write commands fail before network access when read-only policy is active.
-- Early MCP distribution:
-  - read-only `atl mcp serve` surface for search/get/pull/status;
-  - MCP responses return paths to local mirror files, not page bodies.
-- Table-stakes Jira and Confluence coverage:
-  - Jira worklogs, assign/watchers, and attachment upload/download;
-  - Confluence label management and blogpost creation.
-- Packaging and trust:
-  - clearer zero-egress/security model documentation;
-  - release and package management improvements.
+1. Complete daily Atlassian coverage:
+   - Jira worklog list/add ([#81](https://github.com/isukharev/atl/issues/81));
+   - native Confluence blogpost creation
+     ([#259](https://github.com/isukharev/atl/issues/259)).
+2. Make multi-page Confluence work reviewable and efficient:
+   - deterministic semantic mirror diff
+     ([#344](https://github.com/isukharev/atl/issues/344));
+   - review-bound multi-page plan/apply
+     ([#345](https://github.com/isukharev/atl/issues/345));
+   - complete incremental mirror refresh
+     ([#346](https://github.com/isukharev/atl/issues/346)).
+3. Keep packaging and trust ready for the next stable release:
+   - consolidate zero-egress/security documentation;
+   - make package-managed update behavior explicit and reproducible.
 
 ## Next
 
-Work likely to follow once the "Now" items are stable.
+Work likely to follow once the current sequence is stable.
 
-- Sync at scale:
-  - first-class bulk `conf push <dir>` workflow;
-  - unbounded space pull and removal of quiet CQL caps;
-  - incremental pull by change watermark;
-  - concurrency and rate-limit controls.
-- Safety and review:
-  - semantic `conf diff`;
-  - fragment inventory/check commands;
-  - machine-readable `conf plan` / deterministic apply.
+- Read-only MCP distribution:
+  - `atl mcp serve` for the stable search/view/digest/pull/status surfaces;
+  - responses return typed summaries and local mirror paths rather than moving
+    full private bodies unnecessarily;
+  - all tools inherit the process-wide read-only policy.
+- Sync at scale after incremental correctness:
+  - unbounded full-space pull and explicit resume contracts;
+  - bounded concurrency and rate-limit controls;
+  - standalone fragment inventory/check commands when diff/plan evidence shows
+    that a separate surface is useful.
 - Migration readiness:
   - `conf validate --cloud-compat` to detect content that may lose fidelity
     during Cloud/ADF migration.
@@ -53,6 +66,9 @@ Important directions that need more validation or depend on earlier safety work.
 
 - Write-capable MCP tools that respect the global read-only policy and version
   gate.
+- TTY-aware output defaults and a universal JSON field-projection language.
+  Existing explicit projections, named views, and standard JSON tooling remain
+  preferable until concrete gaps justify a broader contract.
 - Draw.io source workflows and macro insertion helpers.
 - Public CSF parser/validator library.
 - Archive/export workflows for full-fidelity Data Center backups and migration
