@@ -118,7 +118,8 @@ rich-text sections with explicit pending state) and opt-in `epic_children` views
 compact non-empty named issue-field inspection; qualified, filterable issue
 history with explicit completeness and last-field-change metadata;
 transient multi-key export to artifact-only stdout; deterministic epic evidence
-digest with per-source completeness; check/attachments/refs/tree. For a report
+digest and standalone refs with per-source completeness;
+check/attachments/refs/tree. For a report
 or quarter review, route through the Jira skill's one-hop
 `reference/evidence-workflow.md` and stop once sufficient complete evidence is
 available;

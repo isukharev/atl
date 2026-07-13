@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -70,18 +71,46 @@ type JiraIssueRefsOpts struct {
 
 // JiraIssueRefsResult is a deterministic list of artifact refs per issue.
 type JiraIssueRefsResult struct {
-	Key    string          `json:"key,omitempty"`
-	JQL    string          `json:"jql,omitempty"`
-	Count  int             `json:"count"`
-	Issues []JiraIssueRefs `json:"issues"`
+	Key       string                 `json:"key,omitempty"`
+	JQL       string                 `json:"jql,omitempty"`
+	Count     int                    `json:"count"`
+	Complete  bool                   `json:"complete"`
+	Truncated bool                   `json:"truncated,omitempty"`
+	Selection JiraIssueRefsSelection `json:"selection"`
+	Warnings  []string               `json:"warnings,omitempty"`
+	Issues    []JiraIssueRefs        `json:"issues"`
+}
+
+// JiraIssueRefsSelection qualifies the key/JQL selection independently from
+// per-issue narrative sources. Count is the number of issues actually emitted.
+type JiraIssueRefsSelection struct {
+	Mode      string `json:"mode"`
+	Count     int    `json:"count"`
+	Limit     int    `json:"limit,omitempty"`
+	Complete  bool   `json:"complete"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Warning   string `json:"warning,omitempty"`
+}
+
+// JiraIssueRefsSource qualifies one class of text used for reference
+// extraction. Count is the number of values inspected, not the number of refs.
+type JiraIssueRefsSource struct {
+	Complete      bool   `json:"complete"`
+	Count         int    `json:"count"`
+	TextTruncated bool   `json:"text_truncated,omitempty"`
+	Warning       string `json:"warning,omitempty"`
 }
 
 // JiraIssueRefs is the refs found in one issue.
 type JiraIssueRefs struct {
-	Key     string        `json:"key"`
-	Summary string        `json:"summary,omitempty"`
-	Type    string        `json:"type,omitempty"`
-	Refs    []PlanningRef `json:"refs"`
+	Key       string                         `json:"key"`
+	Summary   string                         `json:"summary,omitempty"`
+	Type      string                         `json:"type,omitempty"`
+	Complete  bool                           `json:"complete"`
+	Truncated bool                           `json:"truncated,omitempty"`
+	Sources   map[string]JiraIssueRefsSource `json:"sources"`
+	Warnings  []string                       `json:"warnings,omitempty"`
+	Refs      []PlanningRef                  `json:"refs"`
 }
 
 // JiraIssueTreeOpts controls normalized epic tree extraction.
@@ -163,32 +192,203 @@ func (s *JiraService) IssueRefs(ctx context.Context, opts JiraIssueRefsOpts) (*J
 	if (key == "") == (jql == "") {
 		return nil, fmt.Errorf("%w: pass exactly one of issue key or --jql", domain.ErrUsage)
 	}
+	if opts.Limit < 0 {
+		return nil, fmt.Errorf("%w: --limit must be >= 0", domain.ErrUsage)
+	}
 	fields := mergeFields([]string{"summary", "description", "issuetype", "comment"}, opts.Fields)
 	var issues []domain.Issue
+	selection := JiraIssueRefsSelection{Mode: "key", Complete: true, Count: 1}
 	if key != "" {
 		issue, err := s.tr.GetIssue(ctx, key, fields)
 		if err != nil {
 			return nil, err
 		}
+		if issue == nil {
+			return nil, fmt.Errorf("%w: Jira returned no issue snapshot for %s", domain.ErrCheckFailed, key)
+		}
 		issues = append(issues, *issue)
 	} else {
-		found, err := s.collectPlanningIssues(ctx, jql, fields, opts.Limit)
+		found, qualified, err := s.collectIssueRefsSelection(ctx, jql, fields, opts.Limit)
 		if err != nil {
 			return nil, err
 		}
 		issues = found
+		selection = qualified
 	}
 	rows := make([]JiraIssueRefs, 0, len(issues))
 	for _, issue := range issues {
-		rows = append(rows, JiraIssueRefs{
-			Key:     issue.Key,
-			Summary: issue.Summary,
-			Type:    issue.Type,
-			Refs:    ExtractPlanningRefs(issueText(issue)),
-		})
+		row, err := s.issueRefsForIssue(ctx, issue, opts.Fields)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Key < rows[j].Key })
-	return &JiraIssueRefsResult{Key: key, JQL: jql, Count: len(rows), Issues: rows}, nil
+	result := &JiraIssueRefsResult{
+		Key: key, JQL: jql, Count: len(rows), Complete: selection.Complete,
+		Truncated: selection.Truncated, Selection: selection, Issues: rows,
+	}
+	if selection.Warning != "" {
+		result.Warnings = append(result.Warnings, selection.Warning)
+	}
+	incompleteIssues := 0
+	for _, row := range rows {
+		if !row.Complete {
+			result.Complete = false
+			incompleteIssues++
+		}
+		result.Truncated = result.Truncated || row.Truncated
+	}
+	if incompleteIssues > 0 {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("%d issue reference source set(s) incomplete", incompleteIssues))
+	}
+	return result, nil
+}
+
+func (s *JiraService) collectIssueRefsSelection(ctx context.Context, jql string, fields []string, limit int) ([]domain.Issue, JiraIssueRefsSelection, error) {
+	selection := JiraIssueRefsSelection{Mode: "jql", Limit: limit, Complete: true}
+	var out []domain.Issue
+	cursor := ""
+	for len(out) < limit || limit == 0 {
+		pageLimit := 100
+		if limit > 0 && limit-len(out) < pageLimit {
+			pageLimit = limit - len(out)
+		}
+		issues, next, err := s.tr.Search(ctx, jql, fields, pageLimit, cursor)
+		if err != nil {
+			return nil, selection, err
+		}
+		remaining := len(issues)
+		if limit > 0 && remaining > limit-len(out) {
+			remaining = limit - len(out)
+		}
+		out = append(out, issues[:remaining]...)
+		if limit > 0 && len(out) >= limit {
+			selection.Count = len(out)
+			selection.Truncated = next != "" || remaining < len(issues)
+			selection.Complete = !selection.Truncated
+			if selection.Truncated {
+				selection.Warning = "issue selection stopped at the configured limit"
+			}
+			return out, selection, nil
+		}
+		if next == "" {
+			break
+		}
+		if len(issues) == 0 {
+			selection.Complete = false
+			selection.Warning = "issue selection pagination made no forward progress"
+			break
+		}
+		if next == cursor {
+			selection.Complete = false
+			selection.Warning = "issue selection pagination repeated its cursor"
+			break
+		}
+		cursor = next
+	}
+	selection.Count = len(out)
+	return out, selection, nil
+}
+
+func (s *JiraService) issueRefsForIssue(ctx context.Context, issue domain.Issue, extraFields []string) (JiraIssueRefs, error) {
+	row := JiraIssueRefs{
+		Key: issue.Key, Summary: issue.Summary, Type: issue.Type, Complete: true,
+		Sources: map[string]JiraIssueRefsSource{}, Refs: []PlanningRef{},
+	}
+	refs := map[string]PlanningRef{}
+	addText := func(sourceName, text string, count int, complete bool, warning string) {
+		bounded, truncated := digestBoundedText(text)
+		for _, ref := range ExtractPlanningRefs(bounded) {
+			refs[ref.URL] = ref
+		}
+		if truncated {
+			complete = false
+			warning = joinDigestWarnings(warning, "source text cap reached")
+		}
+		row.Sources[sourceName] = JiraIssueRefsSource{
+			Complete: complete, Count: count, TextTruncated: truncated, Warning: warning,
+		}
+	}
+
+	addText("description", issue.Body, boolCount(issue.Body != ""), true, "")
+	for _, field := range issueRefExtraFields(extraFields) {
+		value, present := issue.Fields[field]
+		if !present {
+			addText("field."+field, "", 0, false, "requested field absent from issue snapshot")
+			continue
+		}
+		text := renderFieldValue(value)
+		addText("field."+field, text, boolCount(text != ""), true, "")
+	}
+
+	comments, err := s.tr.ListComments(ctx, issue.Key)
+	commentComplete := true
+	commentWarning := ""
+	if err != nil {
+		if !recoverableIssueRefsSourceError(err) {
+			return JiraIssueRefs{}, err
+		}
+		comments = issue.Comments
+		commentComplete = false
+		commentWarning = "complete comment collection unavailable; embedded comments may be partial"
+	}
+	commentTruncated := false
+	for _, comment := range comments {
+		bounded, truncated := digestBoundedText(comment.Body)
+		commentTruncated = commentTruncated || truncated
+		for _, ref := range ExtractPlanningRefs(bounded) {
+			refs[ref.URL] = ref
+		}
+	}
+	if commentTruncated {
+		commentComplete = false
+		commentWarning = joinDigestWarnings(commentWarning, "source text cap reached")
+	}
+	row.Sources["comments"] = JiraIssueRefsSource{
+		Complete: commentComplete, Count: len(comments), TextTruncated: commentTruncated, Warning: commentWarning,
+	}
+
+	for _, sourceName := range sortedIssueRefSourceNames(row.Sources) {
+		source := row.Sources[sourceName]
+		if !source.Complete {
+			row.Complete = false
+			row.Warnings = append(row.Warnings, "source "+sourceName+": "+source.Warning)
+		}
+		row.Truncated = row.Truncated || source.TextTruncated
+	}
+	for _, ref := range refs {
+		row.Refs = append(row.Refs, ref)
+	}
+	sort.Slice(row.Refs, func(i, j int) bool { return row.Refs[i].URL < row.Refs[j].URL })
+	return row, nil
+}
+
+func issueRefExtraFields(fields []string) []string {
+	seen := map[string]bool{"description": true, "comment": true}
+	var out []string
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" || seen[field] {
+			continue
+		}
+		seen[field] = true
+		out = append(out, field)
+	}
+	return out
+}
+
+func sortedIssueRefSourceNames(sources map[string]JiraIssueRefsSource) []string {
+	names := make([]string, 0, len(sources))
+	for name := range sources {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func recoverableIssueRefsSourceError(err error) bool {
+	return errors.Is(err, domain.ErrForbidden) || errors.Is(err, domain.ErrNotFound) || errors.Is(err, domain.ErrCheckFailed)
 }
 
 // IssueTree groups a JQL selection into epics, external epics, and orphans.

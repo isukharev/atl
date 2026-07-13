@@ -2320,7 +2320,8 @@ atl jira issue check PROJ-1 --require assignee,fixVersions [--warn priority]
 
 Extract artifact references from one issue or from a JQL selection. This reuses
 the same deterministic classifier as `jira planning report`: links are classified
-as `doc`, `design`, `jira`, `chat`, or generic `link`.
+as `doc`, `design`, `jira`, `chat`, or generic `link`. The result qualifies the
+selection and every contributing description, custom field, and comment source.
 
 ```bash
 atl jira issue refs PROJ-1
@@ -2330,7 +2331,18 @@ atl jira issue refs --jql "project=PROJ" -o text
 
 Pass exactly one of positional `KEY` or `--jql` (else exit 2). `--fields` can add
 extra fields to fetch before extraction; description and comments are always
-included.
+included. Requested field values now participate in extraction rather than only
+widening the Jira projection.
+
+For JQL, `selection.complete:false` and `selection.truncated:true` mean
+`--limit` stopped before backend exhaustion. Every issue exposes `complete`,
+optional `truncated`, `sources`, and bounded warnings. Comments are fetched from
+their complete paginated endpoint; a recoverable failure may retain embedded
+partial comments but must mark the issue incomplete. Description, each selected
+field, and each comment body are capped at 128 KiB per value and expose
+`text_truncated` when clipped. Treat empty refs as evidence of absence only when
+the top-level and per-issue `complete` values are true. `-o text` renders the
+same qualification followed by an escaped Markdown table.
 
 ### `atl jira issue tree`
 

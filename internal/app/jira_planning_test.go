@@ -126,7 +126,7 @@ func TestIssueRefsSupportsKeyAndJQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IssueRefs key: %v", err)
 	}
-	if one.Count != 1 || one.Issues[0].Key != "PROJ-2" || len(one.Issues[0].Refs) != 2 {
+	if one.Count != 1 || !one.Complete || !one.Selection.Complete || !one.Issues[0].Complete || one.Issues[0].Key != "PROJ-2" || len(one.Issues[0].Refs) != 2 {
 		t.Fatalf("one refs = %+v, want two refs for PROJ-2", one)
 	}
 
@@ -134,8 +134,142 @@ func TestIssueRefsSupportsKeyAndJQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IssueRefs jql: %v", err)
 	}
-	if all.Count != 2 || all.Issues[0].Key != "PROJ-1" || all.Issues[1].Key != "PROJ-2" {
+	if all.Count != 2 || !all.Complete || all.Issues[0].Key != "PROJ-1" || all.Issues[1].Key != "PROJ-2" {
 		t.Fatalf("all refs = %+v, want sorted issue rows", all.Issues)
+	}
+}
+
+type qualifiedRefsTracker struct {
+	domain.Tracker
+	issues      []domain.Issue
+	pages       map[string][]domain.Issue
+	next        map[string]string
+	comments    map[string][]domain.Comment
+	commentErrs map[string]error
+}
+
+func (t qualifiedRefsTracker) GetIssue(_ context.Context, key string, _ []string) (*domain.Issue, error) {
+	for i := range t.issues {
+		if t.issues[i].Key == key {
+			issue := t.issues[i]
+			return &issue, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (t qualifiedRefsTracker) Search(_ context.Context, _ string, _ []string, _ int, cursor string) ([]domain.Issue, string, error) {
+	if t.pages != nil {
+		return append([]domain.Issue(nil), t.pages[cursor]...), t.next[cursor], nil
+	}
+	return append([]domain.Issue(nil), t.issues...), "", nil
+}
+
+func (t qualifiedRefsTracker) ListComments(_ context.Context, key string) ([]domain.Comment, error) {
+	if err := t.commentErrs[key]; err != nil {
+		return nil, err
+	}
+	if comments, ok := t.comments[key]; ok {
+		return append([]domain.Comment(nil), comments...), nil
+	}
+	for _, issue := range t.issues {
+		if issue.Key == key {
+			return append([]domain.Comment(nil), issue.Comments...), nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+func TestIssueRefsExtractsQualifiedDescriptionFieldsAndComments(t *testing.T) {
+	tracker := qualifiedRefsTracker{
+		issues: []domain.Issue{{
+			Key: "PROJ-1", Body: "description https://docs.example.com/description",
+			Fields: map[string]any{"customfield_10001": "field https://docs.example.com/field"},
+		}},
+		comments: map[string][]domain.Comment{"PROJ-1": {{Body: "comment https://docs.example.com/comment"}}},
+	}
+	result, err := (&JiraService{tr: tracker}).IssueRefs(context.Background(), JiraIssueRefsOpts{
+		Key: "PROJ-1", Fields: []string{"customfield_10001"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := result.Issues[0]
+	if !result.Complete || !issue.Complete || len(issue.Refs) != 3 || len(issue.Sources) != 3 {
+		t.Fatalf("result=%+v issue=%+v", result, issue)
+	}
+	for _, source := range []string{"description", "field.customfield_10001", "comments"} {
+		if !issue.Sources[source].Complete {
+			t.Fatalf("source %s = %+v", source, issue.Sources[source])
+		}
+	}
+}
+
+func TestIssueRefsJQLLimitQualifiesSelectionTruncation(t *testing.T) {
+	tracker := qualifiedRefsTracker{
+		issues: []domain.Issue{{Key: "PROJ-1"}},
+		pages:  map[string][]domain.Issue{"": {{Key: "PROJ-1"}}}, next: map[string]string{"": "1"},
+		comments: map[string][]domain.Comment{"PROJ-1": {}},
+	}
+	result, err := (&JiraService{tr: tracker}).IssueRefs(context.Background(), JiraIssueRefsOpts{JQL: "project = PROJ", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Complete || !result.Truncated || result.Selection.Complete || !result.Selection.Truncated || len(result.Warnings) == 0 {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestIssueRefsExactLimitAtBackendExhaustionIsComplete(t *testing.T) {
+	tracker := qualifiedRefsTracker{
+		issues: []domain.Issue{{Key: "PROJ-1"}},
+		pages:  map[string][]domain.Issue{"": {{Key: "PROJ-1"}}}, next: map[string]string{"": ""},
+		comments: map[string][]domain.Comment{"PROJ-1": {}},
+	}
+	result, err := (&JiraService{tr: tracker}).IssueRefs(context.Background(), JiraIssueRefsOpts{JQL: "project = PROJ", Limit: 1})
+	if err != nil || !result.Complete || result.Truncated || !result.Selection.Complete {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
+func TestIssueRefsMarksRecoverableCommentAndFieldTruncationPartial(t *testing.T) {
+	tracker := qualifiedRefsTracker{
+		issues: []domain.Issue{{
+			Key: "PROJ-1", Comments: []domain.Comment{{Body: "embedded https://docs.example.com/comment"}},
+			Fields: map[string]any{"customfield_10001": strings.Repeat("x", jiraDigestTextCap) + " https://docs.example.com/clipped"},
+		}},
+		commentErrs: map[string]error{"PROJ-1": domain.ErrCheckFailed},
+	}
+	result, err := (&JiraService{tr: tracker}).IssueRefs(context.Background(), JiraIssueRefsOpts{
+		Key: "PROJ-1", Fields: []string{"customfield_10001"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := result.Issues[0]
+	if result.Complete || !result.Truncated || issue.Complete || !issue.Truncated || issue.Sources["comments"].Complete || !issue.Sources["field.customfield_10001"].TextTruncated {
+		t.Fatalf("result=%+v issue=%+v", result, issue)
+	}
+	if len(issue.Refs) != 1 || issue.Refs[0].URL != "https://docs.example.com/comment" {
+		t.Fatalf("refs=%+v", issue.Refs)
+	}
+}
+
+func TestIssueRefsDoesNotHideTransportCommentFailure(t *testing.T) {
+	transportErr := errors.New("transport failed")
+	tracker := qualifiedRefsTracker{
+		issues: []domain.Issue{{Key: "PROJ-1"}}, commentErrs: map[string]error{"PROJ-1": transportErr},
+	}
+	_, err := (&JiraService{tr: tracker}).IssueRefs(context.Background(), JiraIssueRefsOpts{Key: "PROJ-1"})
+	if !errors.Is(err, transportErr) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestIssueRefsRejectsNegativeLimit(t *testing.T) {
+	_, err := (&JiraService{}).IssueRefs(context.Background(), JiraIssueRefsOpts{JQL: "project = PROJ", Limit: -1})
+	if !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("err=%v", err)
 	}
 }
 

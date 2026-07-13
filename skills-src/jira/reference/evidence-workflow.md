@@ -40,9 +40,13 @@ atl --read-only jira issue history PROJ-2 \
 atl --read-only jira issue refs PROJ-2 --fields 'Delivery Notes'
 ```
 
-`complete:false` means absence is unproven. Use `last_changes` for the selected
-field; do not infer recency from array position. Exit 8 on an unsupported
-matching timestamp means recency is unknowable, not that no change exists.
+For `issue refs`, require top-level, selection, and per-issue `complete:true`
+before treating an empty list as evidence that no artifact link exists. Inspect
+the named description/comment/field source and `text_truncated` when incomplete.
+For history, `complete:false` means absence is unproven. Use `last_changes` for
+the selected field; do not infer recency from array position. Exit 8 on an
+unsupported matching timestamp means recency is unknowable, not that no change
+exists.
 
 ## Batch without shell loops
 

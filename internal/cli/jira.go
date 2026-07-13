@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -518,8 +519,11 @@ func jiraIssueCmd() *cobra.Command {
 	var refsLimit int
 	refs := &cobra.Command{
 		Use:   "refs [KEY]",
-		Short: "Extract artifact references from one issue or a JQL selection",
-		Args:  cobra.MaximumNArgs(1),
+		Short: "Extract provenance-qualified artifact references",
+		Long: "Extract deterministic artifact references from one issue or a JQL selection. " +
+			"Selection, description, requested fields, and comments carry explicit completeness; " +
+			"an empty refs list proves absence only when complete is true.",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := ""
 			if len(args) == 1 {
@@ -707,10 +711,40 @@ func jiraIssueAttachmentCmd() *cobra.Command {
 
 func issueRefsText(res *app.JiraIssueRefsResult) string {
 	var b strings.Builder
+	fmt.Fprintf(&b, "Complete: %t\nSelection: %s, %d issue(s), complete=%t", res.Complete, res.Selection.Mode, res.Selection.Count, res.Selection.Complete)
+	if res.Selection.Truncated {
+		b.WriteString(", truncated=true")
+	}
+	b.WriteString("\n\n")
+	rows := [][]string{}
 	for _, issue := range res.Issues {
-		fmt.Fprintf(&b, "%s\t%s\n", issue.Key, issue.Summary)
-		for _, ref := range issue.Refs {
-			fmt.Fprintf(&b, "  - %s\t%s\n", ref.Kind, ref.URL)
+		if len(issue.Refs) == 0 {
+			rows = append(rows, []string{issue.Key, issue.Summary, strconv.FormatBool(issue.Complete), "", ""})
+		} else {
+			for _, ref := range issue.Refs {
+				rows = append(rows, []string{issue.Key, issue.Summary, strconv.FormatBool(issue.Complete), ref.Kind, ref.URL})
+			}
+		}
+	}
+	b.WriteString(app.MarkdownTable([]string{"Key", "Summary", "Complete", "Kind", "URL"}, rows))
+	wroteWarnings := false
+	if len(res.Warnings) > 0 {
+		b.WriteString("\nWarnings:\n")
+		wroteWarnings = true
+		for _, warning := range res.Warnings {
+			fmt.Fprintf(&b, "- %s\n", warning)
+		}
+	}
+	for _, issue := range res.Issues {
+		if len(issue.Warnings) == 0 {
+			continue
+		}
+		if !wroteWarnings {
+			b.WriteString("\nWarnings:\n")
+			wroteWarnings = true
+		}
+		for _, warning := range issue.Warnings {
+			fmt.Fprintf(&b, "- %s: %s\n", issue.Key, warning)
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")

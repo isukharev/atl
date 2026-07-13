@@ -63,7 +63,6 @@ func TestJiraQualityReportAliasCLI(t *testing.T) {
 		"maxResults":50,
 		"total":1
 	}`)
-
 	out, code := runCLI(t, jiraEnv(js.srv), "jira", "quality-report", "--jql", "project=PROJ")
 	if code != exitOK {
 		t.Fatalf("quality-report alias: exit %d, want 0 (stdout=%q)", code, out)
@@ -112,16 +111,23 @@ func TestJiraIssueRefsCLIForKeyAndJQL(t *testing.T) {
 			"comment":{"comments":[{"body":"Design https://figma.com/file/abc"}]}
 		}
 	}`)
+	js.route(http.MethodGet, "/rest/api/2/issue/PROJ-1/comment", http.StatusOK, `{
+		"startAt":0,
+		"total":1,
+		"comments":[{"body":"Design https://figma.com/file/abc"}]
+	}`)
 
 	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "refs", "PROJ-1")
 	if code != exitOK {
 		t.Fatalf("issue refs key: exit %d, want 0 (stdout=%q)", code, out)
 	}
 	var one struct {
-		Count  int `json:"count"`
-		Issues []struct {
-			Key  string `json:"key"`
-			Refs []struct {
+		Count    int  `json:"count"`
+		Complete bool `json:"complete"`
+		Issues   []struct {
+			Key      string `json:"key"`
+			Complete bool   `json:"complete"`
+			Refs     []struct {
 				Kind string `json:"kind"`
 				URL  string `json:"url"`
 			} `json:"refs"`
@@ -130,7 +136,7 @@ func TestJiraIssueRefsCLIForKeyAndJQL(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &one); err != nil {
 		t.Fatalf("decode refs: %v\n%s", err, out)
 	}
-	if one.Count != 1 || one.Issues[0].Key != "PROJ-1" || len(one.Issues[0].Refs) != 2 {
+	if one.Count != 1 || !one.Complete || !one.Issues[0].Complete || one.Issues[0].Key != "PROJ-1" || len(one.Issues[0].Refs) != 2 {
 		t.Fatalf("refs = %+v, want two refs for PROJ-1", one)
 	}
 
@@ -141,12 +147,21 @@ func TestJiraIssueRefsCLIForKeyAndJQL(t *testing.T) {
 		"maxResults":50,
 		"total":1
 	}`)
+	js.route(http.MethodGet, "/rest/api/2/issue/PROJ-2/comment", http.StatusOK, `{
+		"startAt":0,
+		"total":0,
+		"comments":[]
+	}`)
 	out, code = runCLI(t, jiraEnv(js.srv), "jira", "issue", "refs", "--jql", "project=PROJ")
 	if code != exitOK {
 		t.Fatalf("issue refs jql: exit %d, want 0 (stdout=%q)", code, out)
 	}
 	if !strings.Contains(out, `"key": "PROJ-2"`) || !strings.Contains(js.requests()[0].query, "project%3DPROJ") {
 		t.Fatalf("refs jql output/query = %q / %+v, want PROJ-2 and encoded JQL", out, js.requests())
+	}
+	out, code = runCLI(t, jiraEnv(js.srv), "jira", "issue", "refs", "--jql", "project=PROJ", "-o", "text")
+	if code != exitOK || !strings.Contains(out, "Complete: true") || !strings.Contains(out, "| Key | Summary | Complete | Kind | URL |") {
+		t.Fatalf("refs text exit=%d output=%q", code, out)
 	}
 }
 

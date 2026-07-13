@@ -618,17 +618,29 @@ apostrophe-prefixed by default; `--raw-csv` requires `--csv` and disables that
 protection for trusted non-spreadsheet consumers.
 
 `atl jira issue refs <KEY>` and `atl jira issue refs --jql ...` return
-deterministic artifact references per issue:
+deterministic, provenance-qualified artifact references per issue:
 
 ```json
 {
   "jql": "project=PROJ",
   "count": 1,
+  "complete": true,
+  "selection": {
+    "mode": "jql",
+    "count": 1,
+    "limit": 100,
+    "complete": true
+  },
   "issues": [
     {
       "key": "PROJ-1",
       "summary": "Implement capability",
       "type": "Story",
+      "complete": true,
+      "sources": {
+        "comments": {"complete": true, "count": 2},
+        "description": {"complete": true, "count": 1}
+      },
       "refs": [
         {
           "url": "https://docs.example.com/spec",
@@ -639,6 +651,19 @@ deterministic artifact references per issue:
   ]
 }
 ```
+
+The top-level `complete` combines JQL/key selection completeness with every
+issue's contributing sources. `selection.truncated:true` means `--limit`
+stopped a JQL result while Jira advertised more rows. Each issue qualifies
+`description`, `comments`, and every requested `field.<id>` with `complete`,
+input-value `count`, optional `text_truncated`, and a bounded warning. Comments
+come from the complete paginated comment endpoint; a recoverable comment-source
+failure may fall back to embedded comments only with `complete:false`. All
+narrative values use the same 128 KiB per-value evidence cap as `epic digest`.
+Missing requested fields and clipped values remain incomplete. `-o text` starts
+with completeness/selection status, then emits the shared escaped Markdown
+table and bounded warnings. An empty `refs` array is evidence of absence only
+when both result and issue completeness are true.
 
 `atl jira issue attachment list <KEY>` returns the issue key plus the attachment
 metadata Jira exposes. `-o id` prints attachment ids one per line:

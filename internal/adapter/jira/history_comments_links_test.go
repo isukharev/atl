@@ -296,6 +296,19 @@ func TestListCommentsFailsClosedOnEmptyIncompletePage(t *testing.T) {
 	}
 }
 
+func TestListCommentsFailsClosedWhenTotalIsMissing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"startAt":0,"comments":[]}`))
+	}))
+	defer srv.Close()
+
+	comments, err := newTestJira(srv).ListComments(context.Background(), "PROJ-1")
+	if !errors.Is(err, domain.ErrCheckFailed) || comments != nil {
+		t.Fatalf("comments=%+v error=%v, want nil and ErrCheckFailed", comments, err)
+	}
+}
+
 func TestListCommentsFailsClosedOnUnexpectedOffset(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
