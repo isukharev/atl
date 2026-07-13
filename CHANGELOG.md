@@ -56,6 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Guarded Jira Data Center worklogs.** `jira issue worklog list` consumes the
+  complete paginated history into compact non-PII JSON or a Markdown table;
+  `add` normalizes h/m/s durations, previews a review-bound payload, sends one
+  estimate-preserving POST, and reconciles ambiguous outcomes without replay.
+
 - `jira epic digest` now composes identity, configurable status/DoD fields,
   qualified history, paginated child distributions, comments, blockers, refs,
   explainable staleness, and optional bounded Confluence sections into one

@@ -880,6 +880,27 @@ then verifies membership. Status is `would_apply`, `already_satisfied`,
 `blocked`, `failed`, `applied`, or `unknown`; unknown is non-zero and must not
 be automatically replayed. Incomplete membership refuses every mutation.
 
+`atl jira issue worklog list <KEY>` emits
+`{key,worklogs:[{id,issue_id?,author:{name?,key?,display_name?,active},comment?,
+started,created?,updated?,time_spent?,time_spent_seconds}],total,complete}`.
+The adapter consumes every advertised page and rejects missing/changing totals,
+offset anomalies, empty incomplete pages, and missing/duplicate worklog ids.
+Authors are a closed compact projection: email, avatars, self URL, and timezone
+are never present. `-o text` is an escaped Markdown table and `-o id` emits one
+worklog id per line.
+
+`atl jira issue worklog add <KEY>` is dry-run by default and emits
+`{key,mode,status,time_spent,time_spent_seconds,comment?,started?,author,
+current_count,proposal_hash,created?,complete,reconciled?}`. The proposal hash
+binds schema version, issue key, normalized seconds/comment/start time, and the
+current compact author identity. Apply requires the reviewed hash after a fresh
+complete baseline, sends exactly one non-retried POST with
+`adjustEstimate=leave`, and returns `applied`, `blocked`, `failed`, or
+`unknown`. After an ambiguous response, only one exact newly observed match can
+prove `applied`, and that proof requires an explicit review-bound `--started`
+timestamp. Every other outcome is non-zero `unknown` and must not be
+automatically replayed.
+
 `atl jira issue fields <KEY>` emits
 `{key,mode,non_empty_only,count,omitted_empty?,fields:[{id,name,custom,
 schema?,empty?,value_type?,value?,truncated?,original_bytes?}]}`. Default mode is `compact`

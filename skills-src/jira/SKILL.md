@@ -1,6 +1,6 @@
 ---
 name: jira
-description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/edit/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, assign, transition, comment on, link, delete, check fields of, or report on a Jira issue, ticket, bug, story, epic, or task; extract artifact references; build an epic tree; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; list or download issue attachments/images; work with agile boards and sprints; or read Tempo Structure metadata, forest rows, values, and issue exports.
+description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/edit/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, assign, transition, comment on, link, delete, check fields of, log or inspect work, or report on a Jira issue, ticket, bug, story, epic, or task; extract artifact references; build an epic tree; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; list or download issue attachments/images; work with agile boards and sprints; or read Tempo Structure metadata, forest rows, values, and issue exports.
 ---
 
 # Jira issues with `atl`
@@ -63,6 +63,15 @@ For watcher membership, use `jira issue watchers list|add|remove`. Mutations
 preview by default: review the resolved DC username and complete current list,
 then apply with the exact proposal hash. Never replay `unknown`; if
 `complete:false`, stop because Jira did not disclose every identity.
+
+For time tracking, use `jira issue worklog list|add`. List is complete or fails
+closed. Add previews by default; prefer `--from-file` for a comment, review the
+normalized duration/start/author and proposal hash, then use `--apply` with that
+exact hash only when the user authorized logging time. The POST is sent once
+with the estimate unchanged. Prefer an explicit `--started`: without it an
+ambiguous response cannot be positively reconciled. An `unknown` result is not
+proof of failure: never replay it automatically; inspect the complete list or
+ask the user.
 
 ## The canonical loop
 

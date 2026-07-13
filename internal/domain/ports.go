@@ -251,6 +251,53 @@ type IssueWatcherStore interface {
 	RemoveIssueWatcher(ctx context.Context, key, username string) error
 }
 
+// IssueWorklogAuthor is the compact Jira Data Center identity exposed with a
+// worklog. Email addresses, avatar URLs, self URLs, and time zones are
+// deliberately absent from this projection.
+type IssueWorklogAuthor struct {
+	Name        string `json:"name,omitempty"`
+	Key         string `json:"key,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	Active      bool   `json:"active"`
+}
+
+// IssueWorklog is one Jira issue worklog in a compact, non-PII-heavy form.
+type IssueWorklog struct {
+	ID               string             `json:"id"`
+	IssueID          string             `json:"issue_id,omitempty"`
+	Author           IssueWorklogAuthor `json:"author"`
+	Comment          string             `json:"comment,omitempty"`
+	Started          string             `json:"started"`
+	Created          string             `json:"created,omitempty"`
+	Updated          string             `json:"updated,omitempty"`
+	TimeSpent        string             `json:"time_spent,omitempty"`
+	TimeSpentSeconds int64              `json:"time_spent_seconds"`
+}
+
+// IssueWorklogList is complete only after every page advertised by Jira has
+// been consumed. Adapters fail closed rather than returning a partial prefix.
+type IssueWorklogList struct {
+	Worklogs []IssueWorklog `json:"worklogs"`
+	Total    int            `json:"total"`
+	Complete bool           `json:"complete"`
+}
+
+// IssueWorklogCreate is the already-normalized request accepted by the Jira
+// adapter. Started is empty when Jira should choose the current time.
+type IssueWorklogCreate struct {
+	TimeSpentSeconds int64
+	Comment          string
+	Started          string
+}
+
+// IssueWorklogStore is an optional Jira capability. Add sends exactly one POST
+// with adjustEstimate=leave; ambiguous outcomes are reconciled by the app layer
+// through a fresh complete ListIssueWorklogs call and are never replayed.
+type IssueWorklogStore interface {
+	ListIssueWorklogs(ctx context.Context, key string) (*IssueWorklogList, error)
+	AddIssueWorklog(ctx context.Context, key string, input IssueWorklogCreate) (*IssueWorklog, error)
+}
+
 // Board is an agile board (scrum/kanban) on Jira Software. ProjectKey is the
 // board's location project when the backend reports one (board listings do;
 // the single-board fetch may not).

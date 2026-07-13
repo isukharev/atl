@@ -356,6 +356,7 @@ atl jira issue view PROJ-1 -o text   # настроенный Markdown без з
 atl jira issue search --jql 'project = PROJ AND status = "In Progress"' --columns key,summary,status,assignee
 atl jira issue search --jql 'project = PROJ' --view full
 atl jira issue children PROJ-100 --columns key,summary,status,assignee
+atl jira issue worklog list PROJ-1 -o text
 atl jira issue attachment list PROJ-1
 atl jira issue attachment get PROJ-1 --id spec.xlsx --into ./attachments
 
@@ -374,6 +375,8 @@ atl jira issue attachment upload PROJ-1 --file ./spec.xlsx
 atl jira issue assign PROJ-1 --me
 atl jira issue watchers list PROJ-1
 atl jira issue watchers add PROJ-1 --me # dry-run; apply с proposal hash из preview
+atl jira issue worklog add PROJ-1 --time 1h30m --from-file worklog.txt # dry-run
+# Примените ровно просмотренный worklog один раз с --apply и полученным proposal hash
 atl jira issue comment add PROJ-1 --from-md note.md
 atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
 atl jira issue field set PROJ-1 --from-md customfield_10001=notes.md --allow-fields customfield_10001   # dry-run

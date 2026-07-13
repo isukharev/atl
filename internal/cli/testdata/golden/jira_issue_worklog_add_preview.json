@@ -1,0 +1,18 @@
+{
+  "key": "PROJ-1",
+  "mode": "dry-run",
+  "status": "would_apply",
+  "time_spent": "1h 30m",
+  "time_spent_seconds": 5400,
+  "comment": "implemented",
+  "started": "2026-07-01T10:00:00.000+0000",
+  "author": {
+    "name": "alice",
+    "key": "user-1",
+    "display_name": "Alice",
+    "active": true
+  },
+  "current_count": 1,
+  "proposal_hash": "b2912ec7f35c05867dac1ef735e2d5cca8412be8a997831f242e2eac14ae446e",
+  "complete": true
+}

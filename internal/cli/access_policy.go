@@ -81,6 +81,7 @@ jira issue transition
 jira issue update
 jira issue watchers add
 jira issue watchers remove
+jira issue worklog add
 jira push
 jira sprint add
 jira sprint remove
@@ -184,6 +185,8 @@ jira issue view
 jira issue watchers add
 jira issue watchers list
 jira issue watchers remove
+jira issue worklog add
+jira issue worklog list
 jira link-types
 jira me
 jira planning report
