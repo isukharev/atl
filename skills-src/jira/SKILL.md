@@ -68,7 +68,10 @@ For time tracking, use `jira issue worklog list|add`. List is complete or fails
 closed. Add previews by default; prefer `--from-file` for a comment, review the
 normalized duration/start/author and proposal hash, then use `--apply` with that
 exact hash only when the user authorized logging time. The POST is sent once
-with the estimate unchanged. Prefer an explicit `--started`: without it an
+with the estimate unchanged. Confirm that `baseline_sha256` is unchanged too:
+the proposal binds the complete sorted worklog-id baseline, so an intervening
+entry blocks apply and an ambiguous committed write cannot reuse the old hash.
+Prefer an explicit `--started`: without it an
 ambiguous response cannot be positively reconciled. An `unknown` result is not
 proof of failure: never replay it automatically; inspect the complete list or
 ask the user.

@@ -1744,6 +1744,12 @@ exit 8 and may mean the post already exists. Transport, timeout, throttling, and
 server failures after dispatch are classified the same way; never retry any of
 these ambiguous outcomes automatically.
 
+The documented Data Center create-content response does not define a
+case-folding, whitespace, or Unicode-normalization equivalence for `title` or
+`space.key`. Atl therefore keeps exact comparison after trimming only the
+caller input. A differently normalized success response remains `unknown`;
+this conservative result is preferable to claiming the wrong created identity.
+
 ### `atl conf page move`
 
 Preview a page reparenting operation by default:
@@ -2531,7 +2537,11 @@ the process list.
 
 The default is a read-only preview that normalizes the duration and start time,
 shows the compact current identity and payload, and binds them with a proposal
-hash. `--apply` requires that exact hash, re-reads a complete baseline, and
+hash. The result also exposes `baseline_sha256`, a value-free digest of the
+complete sorted worklog-id set. Proposal schema v2 binds that digest, so any
+intervening add (including a committed write behind an ambiguous response)
+changes the reviewed hash and blocks before POST. `--apply` requires the exact
+proposal hash, re-reads a complete baseline, and
 sends one POST with `adjustEstimate=leave`. A timeout/transport/5xx result is
 never retried: atl performs one complete reconciliation read and reports
 `applied` only when an explicit `--started` value and exactly one new matching

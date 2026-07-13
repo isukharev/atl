@@ -35,7 +35,9 @@ func TestCreateBlogPostRequiresVerifiedNativeResponse(t *testing.T) {
 		nil,
 		{Type: "blogpost", Title: "Release notes", SpaceKey: "DOC", Version: 1, BodyPresent: true},
 		{ID: "900", Type: "page", Title: "Release notes", SpaceKey: "DOC", Version: 1, BodyPresent: true},
+		{ID: "900", Type: "blogpost", Title: "release notes", SpaceKey: "DOC", Version: 1, BodyPresent: true},
 		{ID: "900", Type: "blogpost", Title: "Other", SpaceKey: "DOC", Version: 1, BodyPresent: true},
+		{ID: "900", Type: "blogpost", Title: "Release notes", SpaceKey: "doc", Version: 1, BodyPresent: true},
 		{ID: "900", Type: "blogpost", Title: "Release notes", SpaceKey: "OTHER", Version: 1, BodyPresent: true},
 		{ID: "900", Type: "blogpost", Title: "Release notes", SpaceKey: "DOC", BodyPresent: true},
 		{ID: "900", Type: "blogpost", Title: "Release notes", SpaceKey: "DOC", Version: 1},
@@ -46,6 +48,12 @@ func TestCreateBlogPostRequiresVerifiedNativeResponse(t *testing.T) {
 		if !errors.Is(err, domain.ErrCheckFailed) || store.calls != 1 {
 			t.Errorf("case %d response=%+v calls=%d err=%v", i, response, store.calls, err)
 		}
+	}
+	normalized := &blogPostStoreStub{created: &domain.Resource{
+		ID: "900", Type: "blogpost", Title: "Cafe\u0301", SpaceKey: "DOC", Version: 1, BodyPresent: true,
+	}}
+	if _, err := (&ConfluenceService{store: normalized}).CreateBlogPost(context.Background(), "DOC", "Café", []byte("<p>body</p>")); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("Unicode-normalized response err=%v", err)
 	}
 }
 

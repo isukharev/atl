@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Guarded Jira worklog adds now bind proposal schema v2 to a value-free digest
+  of the complete sorted worklog-id baseline, so intervening or ambiguously
+  committed entries invalidate the reviewed hash before another POST; native
+  blog creation keeps exact identity proof where Data Center documents no safe
+  normalization equivalence.
+
 - Incremental Confluence refresh now binds watermarks to absolute minutes,
   queries with a 48-hour timezone-safety overlap, filters replay locally, and
   rejects DST-ambiguous bootstraps and older unproven watermark state instead
