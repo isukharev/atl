@@ -13,6 +13,7 @@
     "active": true
   },
   "current_count": 1,
-  "proposal_hash": "b2912ec7f35c05867dac1ef735e2d5cca8412be8a997831f242e2eac14ae446e",
+  "baseline_sha256": "1899433a4358737e0c622f1eec8e6d6d8c091ec4c2aff41debc770dc56de3404",
+  "proposal_hash": "6e818daeb525ff138e5a3367cf6992e83d805d5266e21c0c006c764a7196f6ff",
   "complete": true
 }

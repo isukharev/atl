@@ -996,12 +996,15 @@ worklog id per line.
 
 `atl jira issue worklog add <KEY>` is dry-run by default and emits
 `{key,mode,status,time_spent,time_spent_seconds,comment?,started?,author,
-current_count,proposal_hash,created?,complete,reconciled?}`. The proposal hash
-binds schema version, issue key, normalized seconds/comment/start time, and the
-current compact author identity. Apply requires the reviewed hash after a fresh
-complete baseline, sends exactly one non-retried POST with
+current_count,baseline_sha256,proposal_hash,created?,complete,reconciled?}`.
+`baseline_sha256` is a deterministic digest of the complete sorted worklog-id
+set; it exposes no comment or author value. The schema-v2 proposal hash binds
+that baseline digest together with the issue key, normalized
+seconds/comment/start time, and current compact author identity. Apply requires
+the reviewed hash after a fresh complete baseline, sends exactly one non-retried POST with
 `adjustEstimate=leave`, and returns `applied`, `blocked`, `failed`, or
-`unknown`. After an ambiguous response, only one exact newly observed match can
+`unknown`. An intervening worklog changes both hashes and blocks before POST.
+After an ambiguous response, only one exact newly observed match can
 prove `applied`, and that proof requires an explicit review-bound `--started`
 timestamp. Every other outcome is non-zero `unknown` and must not be
 automatically replayed.

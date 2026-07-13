@@ -44,6 +44,7 @@ type JiraWorklogAddResult struct {
 	Started          string                    `json:"started,omitempty"`
 	Author           domain.IssueWorklogAuthor `json:"author"`
 	CurrentCount     int                       `json:"current_count"`
+	BaselineSHA256   string                    `json:"baseline_sha256"`
 	ProposalHash     string                    `json:"proposal_hash"`
 	Created          *domain.IssueWorklog      `json:"created,omitempty"`
 	Complete         bool                      `json:"complete"`
@@ -124,7 +125,11 @@ func (s *JiraService) AddWorklogGuarded(ctx context.Context, key string, opts Ji
 	if current == nil || !current.Complete || current.Total != len(current.Worklogs) {
 		return nil, fmt.Errorf("%w: Jira returned an incomplete worklog baseline; refusing a non-idempotent add", domain.ErrCheckFailed)
 	}
-	proposalHash := jiraWorklogProposalHash(key, seconds, comment, started, author)
+	baselineSHA256, err := jiraWorklogBaselineHash(current.Worklogs)
+	if err != nil {
+		return nil, err
+	}
+	proposalHash := jiraWorklogProposalHash(key, seconds, comment, started, author, baselineSHA256)
 	mode := "dry-run"
 	if opts.Apply {
 		mode = "apply"
@@ -132,7 +137,7 @@ func (s *JiraService) AddWorklogGuarded(ctx context.Context, key string, opts Ji
 	result := &JiraWorklogAddResult{
 		Key: key, Mode: mode, Status: "would_apply", TimeSpent: display,
 		TimeSpentSeconds: seconds, Comment: comment, Started: started, Author: author,
-		CurrentCount: current.Total, ProposalHash: proposalHash, Complete: true,
+		CurrentCount: current.Total, BaselineSHA256: baselineSHA256, ProposalHash: proposalHash, Complete: true,
 	}
 	if opts.Apply && strings.TrimSpace(opts.ExpectedProposalHash) != proposalHash {
 		result.Status = "blocked"
@@ -314,16 +319,37 @@ func sortedIssueWorklogs(worklogs []domain.IssueWorklog) []domain.IssueWorklog {
 	return out
 }
 
-func jiraWorklogProposalHash(key string, seconds int64, comment, started string, author domain.IssueWorklogAuthor) string {
+func jiraWorklogBaselineHash(worklogs []domain.IssueWorklog) (string, error) {
+	ids := make([]string, 0, len(worklogs))
+	seen := make(map[string]bool, len(worklogs))
+	for _, worklog := range worklogs {
+		id := strings.TrimSpace(worklog.ID)
+		if id == "" || id != worklog.ID || seen[id] {
+			return "", fmt.Errorf("%w: Jira returned a worklog baseline with a missing or duplicate identity", domain.ErrCheckFailed)
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
 	canonical, _ := json.Marshal(struct {
-		SchemaVersion int    `json:"schema_version"`
-		Key           string `json:"key"`
-		Seconds       int64  `json:"seconds"`
-		Comment       string `json:"comment"`
-		Started       string `json:"started"`
-		AuthorName    string `json:"author_name"`
-		AuthorKey     string `json:"author_key"`
-	}{1, key, seconds, comment, started, author.Name, author.Key})
+		SchemaVersion int      `json:"schema_version"`
+		IDs           []string `json:"ids"`
+	}{1, ids})
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func jiraWorklogProposalHash(key string, seconds int64, comment, started string, author domain.IssueWorklogAuthor, baselineSHA256 string) string {
+	canonical, _ := json.Marshal(struct {
+		SchemaVersion  int    `json:"schema_version"`
+		Key            string `json:"key"`
+		Seconds        int64  `json:"seconds"`
+		Comment        string `json:"comment"`
+		Started        string `json:"started"`
+		AuthorName     string `json:"author_name"`
+		AuthorKey      string `json:"author_key"`
+		BaselineSHA256 string `json:"baseline_sha256"`
+	}{2, key, seconds, comment, started, author.Name, author.Key, baselineSHA256})
 	sum := sha256.Sum256(canonical)
 	return hex.EncodeToString(sum[:])
 }
@@ -375,10 +401,10 @@ func JiraWorklogAddMarkdown(result *JiraWorklogAddResult) string {
 		createdID = result.Created.ID
 	}
 	return MarkdownTable(
-		[]string{"Status", "Issue", "Time", "Started", "Author", "Proposal Hash", "Worklog ID"},
+		[]string{"Status", "Issue", "Time", "Started", "Author", "Baseline SHA256", "Proposal Hash", "Worklog ID"},
 		[][]string{{
 			result.Status, result.Key, result.TimeSpent, renderTemporalField(result.Started, "datetime"),
-			jiraWorklogAuthorLabel(result.Author), result.ProposalHash, createdID,
+			jiraWorklogAuthorLabel(result.Author), result.BaselineSHA256, result.ProposalHash, createdID,
 		}},
 	)
 }

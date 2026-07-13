@@ -69,6 +69,11 @@ Create a native blog post through the dedicated content-type-safe command:
 atl conf blog create --space <KEY> --title '<title>' --from-md body.md
 ```
 
+Creation requires exact returned type, space key, title, positive version, and
+body presence. Data Center does not document a safe case/Unicode/whitespace
+equivalence for those identity fields, so a normalized response is `unknown`.
+Do not replay an ambiguous create; inspect the target space or ask the user.
+
 There is no page parent. The body must be non-empty. Raw CSF is preserved;
 Markdown uses the same fail-closed subset as page creation. Treat an
 unverifiable response as `unknown` and never replay the POST automatically.

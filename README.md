@@ -331,6 +331,7 @@ atl conf table extract --id 123456 --format xlsx --out tables.xlsx
 atl conf page create  --space DOCS --parent 123456 --title "My Page" --from-file body.csf
 atl conf page create  --space DOCS --title "From markdown" --from-md body.md
 atl conf blog create  --space DOCS --title "Weekly update" --from-md update.md
+# An unverifiable or identity-normalized create result is unknown; never replay it.
 # Guarded move: preview first, then apply with the emitted source-state gates
 atl conf page move    123456 --parent 654321
 atl conf page delete  --id 123456
@@ -395,7 +396,7 @@ atl jira issue assign PROJ-1 --me
 atl jira issue watchers list PROJ-1
 atl jira issue watchers add PROJ-1 --me # dry-run; apply with emitted proposal hash
 atl jira issue worklog add PROJ-1 --time 1h30m --from-file worklog.txt # dry-run
-# Apply the exact reviewed worklog once with --apply and its emitted proposal hash
+# Review baseline_sha256; apply once with the emitted baseline-bound proposal hash
 atl jira issue comment add PROJ-1 --from-md note.md
 atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
 atl jira issue field set PROJ-1 --from-md customfield_10001=notes.md --allow-fields customfield_10001   # dry-run

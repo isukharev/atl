@@ -229,7 +229,9 @@ For a new native blog entry use `conf blog create`, never overload
 `conf page create`. Prefer `--from-md` for the supported subset or a private,
 validated CSF file otherwise. It is one non-idempotent POST: an exit-8
 unverifiable response may already have created the post and must not be replayed
-automatically.
+automatically. Returned type, space key, title, version, and body presence are
+exact identity evidence; Data Center documents no safe case/Unicode/whitespace
+normalization to accept instead.
 
 ## Push and concurrency safety
 
