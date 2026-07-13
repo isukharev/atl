@@ -7,6 +7,7 @@
 #   make vet              go vet
 #   make gen-plugins      regenerate skills/ and plugins/atl/skills/ from skills-src/
 #   make check-plugins    verify the generated plugin trees are current
+#   make check-skill-safety validate designated read-only skill shell blocks
 #   make check-context7-docs validate the public Context7 parsing/snippet boundary
 #   make live-smoke       run opt-in live CLI smoke checks
 #   make dist             cross-compile release binaries into ./dist
@@ -73,10 +74,14 @@ gen-plugins:
 	go run ./scripts/gen-plugins
 
 .PHONY: check-plugins
-check-plugins: gen-plugins
+check-plugins: gen-plugins check-skill-safety
 	@test -z "$$(git status --porcelain -- skills plugins/atl/skills)" || { \
 		git status --porcelain -- skills plugins/atl/skills; \
 		echo "generated plugin trees are stale or hand-edited: edit skills-src/, run 'make gen-plugins', commit all three trees"; exit 1; }
+
+.PHONY: check-skill-safety
+check-skill-safety:
+	go run ./scripts/check-skill-safety
 
 .PHONY: check-context7-docs
 check-context7-docs:

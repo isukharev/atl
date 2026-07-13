@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The status-report and knowledge-search skills now choose compact evidence by
+  scope, qualify incomplete sources, prefer bounded Confluence sections and
+  targeted Jira fields, and mark every read-only shell block for an executable
+  inherited-guard check.
+
 - Confluence batch plans now use a dedicated read-only `conf plan preview` and
   an execution-only `conf plan apply`; plan creation never replaces an existing
   review artifact, local path errors use stable sentinels, and blocked/drift
