@@ -282,6 +282,12 @@ atl conf push mirror/DOCS/acme-adr/acme-adr.csf
 
 # Check sync status
 atl conf status mirror --remote
+
+# For several edited pages: freeze the exact reviewed set, preview, then apply.
+atl conf plan create mirror/DOCS/ --out .atl-private/docs-plan.json
+atl conf plan apply .atl-private/docs-plan.json
+atl conf plan apply .atl-private/docs-plan.json \
+  --expected-proposal-hash <HASH-FROM-PREVIEW> --confirm APPLY
 ```
 
 ### Other Confluence commands
@@ -333,6 +339,7 @@ never silently discarded.
 | Safeguard | Behaviour |
 |-----------|-----------|
 | `atl conf validate` | Blocks on malformed XML (reports line/col); warns on structural issues |
+| `atl conf plan create/apply` | Freezes a multi-page set; complete preflight, exact hash + confirmation, no force/replay |
 | `atl conf push --dry-run` | Reports all consequences without writing anything |
 | Version gate | `push` exits **5** when the remote version has advanced since the last pull |
 | `--force` | Overrides the version gate; the safe recovery path is re-pull + reapply |
