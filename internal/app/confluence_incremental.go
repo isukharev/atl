@@ -20,7 +20,11 @@ import (
 	"github.com/isukharev/atl/internal/safepath"
 )
 
-const confluenceIncrementalService = "confluence"
+const (
+	confluenceIncrementalService  = "confluence"
+	confluenceIncrementalProtocol = "absolute-overlap-v1"
+	confluenceIncrementalOverlap  = 48 * time.Hour
+)
 
 var cqlOrderByRE = regexp.MustCompile(`(?i)\border\s+by\b`)
 
@@ -51,17 +55,20 @@ func hasUnquotedCQLOrderBy(value string) bool {
 }
 
 type IncrementalPullResult struct {
-	SelectorSHA256    string `json:"selector_sha256"`
-	WatermarkSource   string `json:"watermark_source"`
-	QuerySince        string `json:"query_since"`
-	TimeZone          string `json:"time_zone"`
-	Complete          bool   `json:"complete"`
-	Matched           int    `json:"matched"`
-	Selected          int    `json:"selected"`
-	BoundarySkipped   int    `json:"boundary_skipped"`
-	NextSince         string `json:"next_since"`
-	BoundaryCount     int    `json:"boundary_count"`
-	WatermarkAdvanced bool   `json:"watermark_advanced"`
+	SelectorSHA256     string `json:"selector_sha256"`
+	WatermarkSource    string `json:"watermark_source"`
+	WatermarkSince     string `json:"watermark_since"`
+	QuerySince         string `json:"query_since"`
+	TimeZone           string `json:"time_zone"`
+	SafetyOverlapHours int    `json:"safety_overlap_hours"`
+	Complete           bool   `json:"complete"`
+	Matched            int    `json:"matched"`
+	Selected           int    `json:"selected"`
+	OverlapSkipped     int    `json:"overlap_skipped"`
+	BoundarySkipped    int    `json:"boundary_skipped"`
+	NextSince          string `json:"next_since"`
+	BoundaryCount      int    `json:"boundary_count"`
+	WatermarkAdvanced  bool   `json:"watermark_advanced"`
 }
 
 type confluenceIncrementalSelection struct {
@@ -102,6 +109,23 @@ func validateCQLMinute(value string) error {
 	return nil
 }
 
+func parseUnambiguousCQLMinute(value string, location *time.Location) (time.Time, error) {
+	parsed, err := time.ParseInLocation("2006-01-02 15:04", value, location)
+	if err != nil || parsed.In(location).Format("2006-01-02 15:04") != value {
+		return time.Time{}, fmt.Errorf("%w: --since %q is not a real minute in IANA timezone %q", domain.ErrUsage, value, location.String())
+	}
+	matches := 0
+	for candidate := parsed.Add(-26 * time.Hour); !candidate.After(parsed.Add(26 * time.Hour)); candidate = candidate.Add(time.Minute) {
+		if candidate.In(location).Format("2006-01-02 15:04") == value {
+			matches++
+		}
+	}
+	if matches != 1 {
+		return time.Time{}, fmt.Errorf("%w: --since %q is ambiguous in IANA timezone %q; choose an unambiguous minute or use UTC", domain.ErrUsage, value, location.String())
+	}
+	return parsed, nil
+}
+
 func parseConfluenceUpdated(value string) (time.Time, error) {
 	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05.000-0700", "2006-01-02T15:04:05-0700"} {
 		if parsed, err := time.Parse(layout, value); err == nil {
@@ -126,17 +150,23 @@ func (s *ConfluenceService) prepareIncrementalPull(ctx context.Context, m *mirro
 		return nil, err
 	}
 	source := "recorded"
+	var boundary time.Time
 	if !found {
 		if strings.TrimSpace(o.Since) == "" || strings.TrimSpace(o.TimeZone) == "" {
-			return nil, fmt.Errorf("%w: first incremental pull for this selector requires --since 'YYYY-MM-DD HH:MM' and --time-zone <IANA> matching the Confluence user's configured timezone", domain.ErrUsage)
+			return nil, fmt.Errorf("%w: first incremental pull for this selector requires --since 'YYYY-MM-DD HH:MM' and --time-zone <IANA> defining that reviewed wall minute", domain.ErrUsage)
 		}
 		if err := validateCQLMinute(strings.TrimSpace(o.Since)); err != nil {
 			return nil, err
 		}
-		if _, err := time.LoadLocation(strings.TrimSpace(o.TimeZone)); err != nil {
+		location, err := time.LoadLocation(strings.TrimSpace(o.TimeZone))
+		if err != nil {
 			return nil, fmt.Errorf("%w: invalid IANA --time-zone %q", domain.ErrUsage, strings.TrimSpace(o.TimeZone))
 		}
-		previous = mirror.IncrementalWatermark{Service: confluenceIncrementalService, SelectorSHA256: hash, Selector: selector, Since: strings.TrimSpace(o.Since), TimeZone: strings.TrimSpace(o.TimeZone), BoundaryVersions: map[string]int{}}
+		boundary, err = parseUnambiguousCQLMinute(strings.TrimSpace(o.Since), location)
+		if err != nil {
+			return nil, err
+		}
+		previous = mirror.IncrementalWatermark{Service: confluenceIncrementalService, SelectorSHA256: hash, Selector: selector, Since: strings.TrimSpace(o.Since), TimeZone: strings.TrimSpace(o.TimeZone), Protocol: confluenceIncrementalProtocol, Boundary: boundary.Format(time.RFC3339), BoundaryVersions: map[string]int{}}
 		source = "explicit"
 	} else {
 		if previous.Service != confluenceIncrementalService || previous.SelectorSHA256 != hash || previous.Selector != selector {
@@ -151,6 +181,13 @@ func (s *ConfluenceService) prepareIncrementalPull(ctx context.Context, m *mirro
 		if _, err := time.LoadLocation(previous.TimeZone); err != nil {
 			return nil, fmt.Errorf("%w: recorded incremental watermark has invalid IANA timezone %q", domain.ErrCheckFailed, previous.TimeZone)
 		}
+		if previous.Protocol != confluenceIncrementalProtocol || previous.Boundary == "" {
+			return nil, fmt.Errorf("%w: recorded incremental watermark predates the fail-safe absolute-boundary protocol; preserve this mirror and bootstrap the selector in a new mirror root", domain.ErrCheckFailed)
+		}
+		boundary, err = time.Parse(time.RFC3339, previous.Boundary)
+		if err != nil || !boundary.Equal(boundary.Truncate(time.Minute)) {
+			return nil, fmt.Errorf("%w: recorded incremental watermark has an invalid absolute boundary", domain.ErrCheckFailed)
+		}
 		for id, version := range previous.BoundaryVersions {
 			if strings.TrimSpace(id) == "" || version < 0 {
 				return nil, fmt.Errorf("%w: recorded incremental watermark has an invalid boundary identity", domain.ErrCheckFailed)
@@ -164,11 +201,15 @@ func (s *ConfluenceService) prepareIncrementalPull(ctx context.Context, m *mirro
 		}
 	}
 	location, _ := time.LoadLocation(previous.TimeZone)
+	if cqlMinute(boundary, location) != previous.Since {
+		return nil, fmt.Errorf("%w: recorded incremental wall and absolute boundaries disagree", domain.ErrCheckFailed)
+	}
 	searcher, ok := s.store.(domain.CompletePageSearcher)
 	if !ok {
 		return nil, fmt.Errorf("%w: backend cannot qualify search completeness for incremental pull", domain.ErrCheckFailed)
 	}
-	query := fmt.Sprintf(`(%s) and type = page and lastmodified >= "%s" order by lastmodified asc`, selector, previous.Since)
+	querySince := cqlMinute(boundary.Add(-confluenceIncrementalOverlap), location)
+	query := fmt.Sprintf(`(%s) and type = page and lastmodified >= "%s" order by lastmodified asc`, selector, querySince)
 	maxPages := o.MaxPages
 	if maxPages <= 0 {
 		maxPages = 10000
@@ -199,25 +240,33 @@ func (s *ConfluenceService) prepareIncrementalPull(ctx context.Context, m *mirro
 	next := previous
 	next.BoundaryVersions = map[string]int{}
 	ids := make([]string, 0, len(hits))
-	skipped := 0
+	boundarySkipped := 0
+	overlapSkipped := 0
 	var maxTime time.Time
 	for _, hit := range hits {
 		updated, _ := parseConfluenceUpdated(hit.Updated)
+		hitBoundary := updated.Truncate(time.Minute)
+		if hitBoundary.Before(boundary) {
+			overlapSkipped++
+			continue
+		}
 		if maxTime.IsZero() || updated.After(maxTime) {
 			maxTime = updated
 		}
-		if cqlMinute(updated, location) == previous.Since && previous.BoundaryVersions[hit.ID] >= hit.Version {
-			skipped++
+		if hitBoundary.Equal(boundary) && previous.BoundaryVersions[hit.ID] >= hit.Version {
+			boundarySkipped++
 			continue
 		}
 		ids = append(ids, hit.ID)
 	}
 	if !maxTime.IsZero() {
-		next.Since = cqlMinute(maxTime, location)
+		nextBoundary := maxTime.Truncate(time.Minute)
+		next.Since = cqlMinute(nextBoundary, location)
+		next.Boundary = nextBoundary.Format(time.RFC3339)
 		next.Observed = maxTime.Format(time.RFC3339Nano)
 		for _, hit := range hits {
 			updated, _ := parseConfluenceUpdated(hit.Updated)
-			if cqlMinute(updated, location) == next.Since {
+			if updated.Truncate(time.Minute).Equal(nextBoundary) {
 				next.BoundaryVersions[hit.ID] = hit.Version
 			}
 		}
@@ -225,12 +274,12 @@ func (s *ConfluenceService) prepareIncrementalPull(ctx context.Context, m *mirro
 		next.BoundaryVersions = previous.BoundaryVersions
 	}
 	result := &IncrementalPullResult{
-		SelectorSHA256: hash, WatermarkSource: source, QuerySince: previous.Since, TimeZone: previous.TimeZone,
-		Complete: true, Matched: len(hits), Selected: len(ids), BoundarySkipped: skipped,
+		SelectorSHA256: hash, WatermarkSource: source, WatermarkSince: previous.Since, QuerySince: querySince, TimeZone: previous.TimeZone,
+		SafetyOverlapHours: int(confluenceIncrementalOverlap / time.Hour), Complete: true, Matched: len(hits), Selected: len(ids), OverlapSkipped: overlapSkipped, BoundarySkipped: boundarySkipped,
 		NextSince: next.Since, BoundaryCount: len(next.BoundaryVersions),
 		WatermarkAdvanced: false,
 	}
-	changed := !found || previous.Since != next.Since || !reflect.DeepEqual(previous.BoundaryVersions, next.BoundaryVersions)
+	changed := !found || previous.Since != next.Since || previous.Boundary != next.Boundary || !reflect.DeepEqual(previous.BoundaryVersions, next.BoundaryVersions)
 	return &confluenceIncrementalSelection{ids: ids, next: next, changed: changed, result: result}, nil
 }
 

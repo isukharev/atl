@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Incremental Confluence refresh now binds watermarks to absolute minutes,
+  queries with a 48-hour timezone-safety overlap, filters replay locally, and
+  rejects DST-ambiguous bootstraps and older unproven watermark state instead
+  of trusting a caller-supplied zone as backend evidence.
+
 - `conf diff` now canonicalizes mirror/target identities before containment and
   reports tracked pristine-hash corruption as `baseline_mismatch` instead of
   conflating it with unreadable files; valid v1 plan bytes remain unchanged.
@@ -77,7 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Complete incremental Confluence mirror refresh.** `conf pull --incremental`
   exhausts a stable CQL/space delta, records inclusive minute-boundary
-  id/version evidence in an explicitly bound IANA CQL timezone, preflights local native and Markdown edits before any
+  id/version evidence against an absolute boundary, preflights local native and Markdown edits before any
   overwrite, and atomically advances a private selector watermark only after a
   complete successful local commit. Caps, malformed pagination, interruptions,
   and comment truncation remain explicit and resume-safe without inferring

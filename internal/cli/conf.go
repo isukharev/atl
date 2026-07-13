@@ -605,7 +605,7 @@ func confPullCmd() *cobra.Command {
 				fmt.Fprintf(&b, "mirror: %s (%d pages)\n", res.Root, len(res.Pages))
 				if res.Incremental != nil {
 					inc := res.Incremental
-					fmt.Fprintf(&b, "incremental: complete=%t source=%s since=%s time_zone=%s next=%s matched=%d selected=%d boundary_skipped=%d watermark_advanced=%t\n", inc.Complete, inc.WatermarkSource, inc.QuerySince, inc.TimeZone, inc.NextSince, inc.Matched, inc.Selected, inc.BoundarySkipped, inc.WatermarkAdvanced)
+					fmt.Fprintf(&b, "incremental: complete=%t source=%s watermark_since=%s query_since=%s time_zone=%s safety_overlap_hours=%d next=%s matched=%d selected=%d overlap_skipped=%d boundary_skipped=%d watermark_advanced=%t\n", inc.Complete, inc.WatermarkSource, inc.WatermarkSince, inc.QuerySince, inc.TimeZone, inc.SafetyOverlapHours, inc.NextSince, inc.Matched, inc.Selected, inc.OverlapSkipped, inc.BoundarySkipped, inc.WatermarkAdvanced)
 				}
 				for _, p := range res.Pages {
 					if o.Comments && p.Comments != nil {
@@ -627,8 +627,8 @@ func confPullCmd() *cobra.Command {
 	cmd.Flags().StringVar(&o.Into, "into", mirrorRootDefault("mirror"), "mirror root dir (default: $ATL_MIRROR_ROOT or \"mirror\")")
 	cmd.Flags().StringVar(&o.JiraView, "jira-view", "", "named Jira list view for JQL macros (default: default; macro columns win)")
 	cmd.Flags().BoolVar(&o.Incremental, "incremental", false, "pull a complete changed-page delta using a selector-bound watermark")
-	cmd.Flags().StringVar(&o.Since, "since", "", "first-run lower boundary in Confluence server time (YYYY-MM-DD HH:MM)")
-	cmd.Flags().StringVar(&o.TimeZone, "time-zone", "", "first-run IANA timezone matching the Confluence user's configured timezone")
+	cmd.Flags().StringVar(&o.Since, "since", "", "first-run lower boundary as an unambiguous local minute (YYYY-MM-DD HH:MM)")
+	cmd.Flags().StringVar(&o.TimeZone, "time-zone", "", "IANA timezone defining the first-run local minute (backend mismatch is covered by safe overlap)")
 	cmd.Flags().IntVar(&o.MaxPages, "max-pages", 0, "explicit incremental selection cap (default 10000; watermark never advances when exceeded)")
 	rf.register(cmd)
 	rf.registerConfluenceJiraMacros(cmd)

@@ -19,14 +19,17 @@ const (
 )
 
 // IncrementalWatermark is a backend-neutral, selector-bound lower boundary.
-// BoundaryVersions makes an inclusive, coarse timestamp cursor efficient while
-// still admitting a new version or a previously unseen identity at that time.
+// Protocol and Boundary let a backend bind the display-oriented Since value to
+// an absolute instant. BoundaryVersions makes an inclusive, coarse timestamp
+// cursor efficient while still admitting a new version or unseen identity.
 type IncrementalWatermark struct {
 	Service          string         `json:"service"`
 	SelectorSHA256   string         `json:"selector_sha256"`
 	Selector         string         `json:"selector"`
 	Since            string         `json:"since"`
 	TimeZone         string         `json:"time_zone,omitempty"`
+	Protocol         string         `json:"protocol,omitempty"`
+	Boundary         string         `json:"boundary,omitempty"`
 	Observed         string         `json:"observed,omitempty"`
 	BoundaryVersions map[string]int `json:"boundary_versions,omitempty"`
 }
