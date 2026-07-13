@@ -47,10 +47,12 @@ Make `push` the single deliberate, human-reviewed checkpoint:
    drop to the native substrate (`.csf` / `.wiki`) only for what the md view can't express. One-shot
    Jira field edits still go through commands — see those skills.
 3. **Validate** (Confluence `conf validate`) — block on any `error`-severity problem.
-4. **Review a dry-run diff** (`conf push --dry-run`) — confirm the changes and any
-   added/removed fragments and drift before writing.
-5. **Push** under the version gate.
-6. **On conflict** (Confluence exit `5`), surface it and let a human decide: re-pull and
+4. **Review offline semantics** (`conf diff <file>`) — use JSON for block/feature
+   fingerprints and `-o text` for a compact human summary. This never contacts the backend.
+5. **Review a write dry-run** (`conf push --dry-run`) — confirm the consequences,
+   remote drift, and any added/removed fragments.
+6. **Push** under the version gate.
+7. **On conflict** (Confluence exit `5`), surface it and let a human decide: re-pull and
    reconcile, or `--force` (last-writer-wins). **Never auto-`--force`.**
 
 Push the bytes you reviewed — don't regenerate the body between the dry-run and the push.

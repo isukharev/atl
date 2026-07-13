@@ -507,11 +507,31 @@ func (m *Mirror) ListCSF() ([]*LocalCSF, error) {
 	if err != nil {
 		return nil, err
 	}
+	paths, err := m.ListCSFPaths()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*LocalCSF, 0, len(paths))
+	for _, path := range paths {
+		lc, _, loadErr := loadCSFWith(m.Root, sc, path)
+		if loadErr != nil {
+			return nil, fmt.Errorf("load mirror page %s: %w", path, loadErr)
+		}
+		out = append(out, lc)
+	}
+	return out, nil
+}
+
+// ListCSFPaths securely inventories native Confluence substrate paths without
+// reading their metadata. Integrity-sensitive batch analysis can then classify
+// a corrupt page explicitly while still failing closed on traversal errors or
+// descendant symlinks. Paths are sorted and `.atl` is never visited.
+func (m *Mirror) ListCSFPaths() ([]string, error) {
 	walkRoot, err := filepath.EvalSymlinks(m.Root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve mirror root %s: %w", m.Root, err)
 	}
-	var out []*LocalCSF
+	var out []string
 	err = filepath.Walk(walkRoot, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return fmt.Errorf("walk mirror at %s: %w", p, err)
@@ -530,15 +550,11 @@ func (m *Mirror) ListCSF() ([]*LocalCSF, error) {
 			if mapErr != nil {
 				return mapErr
 			}
-			lc, _, loadErr := loadCSFWith(m.Root, sc, logicalPath)
-			if loadErr != nil {
-				return fmt.Errorf("load mirror page %s: %w", logicalPath, loadErr)
-			}
-			out = append(out, lc)
+			out = append(out, logicalPath)
 		}
 		return nil
 	})
-	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	sort.Strings(out)
 	return out, err
 }
 

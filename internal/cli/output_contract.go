@@ -28,6 +28,7 @@ conf attachment get
 conf attachment list
 conf blog create
 conf comment list
+conf diff
 conf edit
 conf me
 conf page get

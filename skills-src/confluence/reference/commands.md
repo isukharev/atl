@@ -114,6 +114,7 @@ that exact page/root once, then reapply the reviewed patch.
 
 ```bash
 atl conf status <root> --remote
+ATL_READ_ONLY=1 atl conf diff <page.csf|DIR>       # offline native semantic diff
 atl conf validate <page.csf>
 ```
 
@@ -139,6 +140,7 @@ identifier per line.
 | `conf pull` | Mirror pages | selector, `--assets`, `--comments`, `--jira-view`, `--jira-macros`, `--into`, render flags |
 | `conf render` | Regenerate Markdown offline | path, render flags, `--into` |
 | `conf status` | Dirty/drift state | path, `--remote` |
+| `conf diff` | Offline baseline → candidate semantics | file/dir, `--into`; JSON for evidence |
 | `conf apply` | Merge Markdown to CSF | page md, `--dry-run`, `--allow-fragment-loss`, `--into` |
 | `conf edit` | Tolerant local byte splice | `--old/--new`, file variants, `--all`, `--dry-run` |
 | `conf validate` | Validate CSF | file |

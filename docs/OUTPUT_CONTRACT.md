@@ -341,6 +341,18 @@ sidecar patches under the shared `.atl/state.lock`; cross-service state
 contention is retried for a brief fixed window, then fails closed and cannot
 lose unrelated entries.
 
+`atl conf diff [file.csf|DIR]` is an offline, lock-free comparison with
+`schema_version:1`. Its top-level contract is
+`{schema_version,root,target,complete,summary,pages}`. Pages are sorted by path
+and carry `{id?,title?,path,state,baseline,candidate,semantic_changed?,byte_only?,blocks?,features?,byte_evidence?}`.
+The closed `state` set is `unchanged|added|removed|modified|malformed|missing_baseline|unreadable`.
+The two sides expose only presence, byte length, SHA-256, validity, and
+validation diagnostics; block changes expose kind/index/fingerprints rather
+than page text. Byte evidence identifies the exact common prefix/suffix and
+hashes each changed window. `complete:false` means semantic comparison was not
+fully available for at least one page. A scan never treats unreadable or corrupt
+mirror state as an empty/clean subtree.
+
 When a Confluence re-pull computes a different path for an already tracked page
 id, relocation is fail-closed. The old native body must match its synced hash,
 the old Markdown must exactly match its recorded pristine view, metadata must

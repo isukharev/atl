@@ -273,7 +273,10 @@ $EDITOR mirror/DOCS/acme-adr/acme-adr.csf
 # Валидация перед публикацией (блокирует при невалидном XML, предупреждает о проблемах)
 atl conf validate mirror/DOCS/acme-adr/acme-adr.csf
 
-# Dry-run — посмотрите, что сделает push
+# Офлайн-проверка изменений native baseline → candidate (по умолчанию JSON)
+ATL_READ_ONLY=1 atl conf diff mirror/DOCS/acme-adr/acme-adr.csf -o text
+
+# Dry-run — посмотрите, что сделает удалённая запись
 atl conf push mirror/DOCS/acme-adr/acme-adr.csf --dry-run
 
 # Публикация (выходит с кодом 5 при расхождении версий; для восстановления: re-pull + reapply)

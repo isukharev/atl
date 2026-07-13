@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "root": "<ROOT>",
+  "target": "<ROOT>",
+  "complete": true,
+  "summary": {
+    "total": 1,
+    "unchanged": 0,
+    "added": 0,
+    "removed": 0,
+    "modified": 1,
+    "malformed": 0,
+    "missing_baseline": 0,
+    "unreadable": 0
+  },
+  "pages": [
+    {
+      "id": "100",
+      "title": "Example",
+      "path": "<ROOT>/DOC/example/example.csf",
+      "state": "modified",
+      "semantic_changed": true,
+      "baseline": {
+        "present": true,
+        "bytes": 10,
+        "sha256": "d9cf2422b35b8f3dafe9ae7f7eff7b7349630701989600b60be0d426d1d86ea3",
+        "valid": true
+      },
+      "candidate": {
+        "present": true,
+        "bytes": 10,
+        "sha256": "0e930c34fc8ed8f6adfab6ca883e2f133e79c1ba057017c6b996955a5105ef0a",
+        "valid": true
+      },
+      "blocks": [
+        {
+          "change": "modified",
+          "kind": "p",
+          "baseline_index": 0,
+          "candidate_index": 0,
+          "baseline_sha256": "681347baf94c722b39a07f6a7233d5190f73b09115a018390d1afd29470b605b",
+          "candidate_sha256": "8ee1bd9888e19498dcc6351a34c2caf6eeea77f8d9d24455cea2fd9bc5312a08"
+        }
+      ],
+      "byte_evidence": {
+        "common_prefix_bytes": 3,
+        "common_suffix_bytes": 4,
+        "baseline_changed_bytes": 3,
+        "candidate_changed_bytes": 3,
+        "baseline_changed_sha256": "cba06b5736faf67e54b07b561eae94395e774c517a7d910a54369e1263ccfbd4",
+        "candidate_changed_sha256": "11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437"
+      }
+    }
+  ]
+}

@@ -131,6 +131,7 @@ make apply refuse until push or re-pull.
 atl conf apply <page.md> --dry-run
 atl conf apply <page.md>
 atl conf validate <page.csf>
+ATL_READ_ONLY=1 atl conf diff <page.csf>    # offline semantic + byte evidence
 atl conf push --dry-run <page.csf>
 atl conf push <page.csf>
 ```
@@ -138,8 +139,9 @@ atl conf push <page.csf>
 For large body edits or any table merge, the apply dry-run is mandatory: review
 the merge/loss report before writing CSF. After apply, require `wrote:true` and
 `csf_ok:true`. Exit 8 means nothing was written; follow the named refusal rather
-than forcing conversion. Review `removed_fragments` and `remote_drifted` in push
-dry-run, then push the exact bytes reviewed.
+than forcing conversion. Use `conf diff` JSON to inspect block/feature hashes
+without a network call, then review `removed_fragments` and `remote_drifted` in
+push dry-run and push the exact bytes reviewed.
 
 Untouched blocks and table styling keep their exact CSF bytes. Opaque markers
 (`⟦…⟧`, Jira/page links, mentions) retain identity; do not edit marker text.

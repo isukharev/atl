@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -231,6 +232,46 @@ func (m *Mirror) baseBodyExt(id, ext string) ([]byte, bool) {
 // BaseBody returns the pristine last-synced Confluence `.csf` body for an id.
 func (m *Mirror) BaseBody(id string) ([]byte, bool) {
 	return m.baseBodyExt(id, ".csf")
+}
+
+// ReadBaseBody reads the pristine last-synced Confluence body while preserving
+// the distinction between a missing pre-upgrade baseline and an unreadable
+// baseline. BaseBody intentionally keeps its historical best-effort contract;
+// integrity-sensitive offline analysis should use this method instead.
+func (m *Mirror) ReadBaseBody(id string) ([]byte, bool, error) {
+	dir := filepath.Join(m.Root, ".atl", "base")
+	target := filepath.Join(dir, safepath.Segment(id)+".csf")
+	if !safepath.Within(dir, target) {
+		return nil, false, fmt.Errorf("refusing unsafe base path for id %q", id)
+	}
+	b, err := safepath.ReadFileWithin(m.Root, target)
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return b, true, nil
+}
+
+// SyncStates returns a copy of every recorded resource state. Consumers must
+// filter by substrate extension because Jira and Confluence may share a mirror.
+func (m *Mirror) SyncStates() ([]SyncState, error) {
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SyncState, 0, len(sc.Pages))
+	for _, state := range sc.Pages {
+		out = append(out, state)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Path != out[j].Path {
+			return out[i].Path < out[j].Path
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
 }
 
 // BaseBodyExt returns the pristine last-synced body for an id under a

@@ -85,7 +85,7 @@ usage error (`2`) — fix the input rather than re-running setup.
 
 | variable | effect |
 |---|---|
-| `ATL_MIRROR_ROOT` | default mirror root for `conf pull`, `conf status`, and `jira pull` (so a workspace fixes one location without re-passing `--into`; an explicit `--into` still overrides it) |
+| `ATL_MIRROR_ROOT` | default mirror root for `conf pull`, `conf status`, `conf diff`, and `jira pull` (so a workspace fixes one location without re-passing `--into`; an explicit `--into` still overrides it) |
 
 Mirror writes are contained beneath the selected root even when a checkout
 contains descendant symlinks. Mirror listings used by `status` and directory
@@ -1079,6 +1079,43 @@ Flags:
 |---|---|
 | `[DIR]` | mirror root directory (default `mirror`) |
 | `--remote` | also check remote for drift (one API call per page) |
+
+### `atl conf diff`
+
+Compare the exact last-synced native `.csf` baseline with one current page or
+every tracked page in a subtree. The command is offline, makes no backend
+requests, and never converts the write substrate through Markdown.
+
+```bash
+ATL_READ_ONLY=1 atl conf diff mirror/DOCS/guide/guide.csf
+ATL_READ_ONLY=1 atl conf diff mirror/DOCS/ -o text
+```
+
+JSON uses `schema_version: 1` and reports a stable path-ordered `pages` array.
+Each page state is one of `unchanged`, `added`, `removed`, `modified`,
+`malformed`, `missing_baseline`, or `unreadable`. Modified pages include:
+
+- semantic block changes using canonical DOM fingerprints (attribute order and
+  equivalent entity spelling do not create semantic changes);
+- aggregate macro and opaque-fragment count deltas without copying page text;
+- exact SHA-256/byte-count evidence for the changed byte window;
+- candidate and baseline validation consequences.
+
+`byte_only:true` means native bytes changed while the understood block and
+feature projections remained equivalent. `complete:false` means at least one
+comparison lacked a usable baseline or a body was malformed/unreadable. Missing
+pre-upgrade baselines are never guessed: re-pull to establish one, preserving
+any local edits first. Directory scans fail closed on corrupt metadata,
+descendant symlinks, or unreadable entries instead of silently omitting pages.
+The Markdown projection is a compact summary table; use JSON when an agent needs
+block hashes, feature deltas, or validation details.
+
+Flags:
+
+| flag | description |
+|---|---|
+| `[file.csf\|DIR]` | page or subtree; omitted uses the configured mirror root |
+| `--into` | explicit mirror root (otherwise nearest `.atl`) |
 
 ### `atl conf validate`
 
