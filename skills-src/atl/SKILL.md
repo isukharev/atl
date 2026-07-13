@@ -59,9 +59,21 @@ version gate.
    review a dry-run diff → push under the version gate. On a conflict, a human decides whether to
    re-pull or force — never auto-force.
 
-For a session that must not mutate Jira, Confluence, auth/config, or profile
-state, set `ATL_READ_ONLY=1` for the whole agent process (or pass global
-`--read-only` on every call). Do not remove or override it inside the workflow.
+For every agent-created Bash block that must not mutate Jira, Confluence,
+auth/config, or profile state, make this export its first statement:
+
+```bash
+export ATL_READ_ONLY=1
+atl ...
+atl ...
+```
+
+Every later `atl` call and child process in that shell inherits the guard unless
+it is explicitly overridden. A prefix such as `ATL_READ_ONLY=1 atl ...` protects
+only that one process, so never use the one-command form for a multi-command
+read-only workflow. Do not remove or override the exported guard inside the
+workflow. Passing global `--read-only` on every call remains a more repetitive
+alternative.
 Exit 8 with `policy:"read_only"` is a deliberate safety refusal, not a retry;
 ask the human before changing the launcher/config policy. Pulls, views, status,
 validation, and exports remain available.

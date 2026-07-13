@@ -11,6 +11,11 @@ engineering manager or tech lead what needs attention. Strictly read-only —
 never create, update, transition, assign, or comment from this recipe; offer
 writes as follow-ups only. Command details live in the `jira` skill.
 
+Make `export ATL_READ_ONLY=1` the first statement of every Bash block in this
+recipe so every later `atl` call and child process inherits the guard. A prefix
+on one `atl` command does not protect later commands in the block. Never
+override the export in this workflow.
+
 **Preflight:** `atl` must be installed and configured. If `command -v atl` fails
 or a command exits `7` ("not configured"), run `$setup` and stop.
 

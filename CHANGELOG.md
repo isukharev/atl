@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Agent skills now require multi-command read-only Bash blocks to export
+  `ATL_READ_ONLY=1` before the first `atl` call and warn that a one-command
+  environment prefix does not protect later calls in the script.
+
 - Jira evidence reads now fail closed when a selected field's latest change has
   an unsupported timestamp, propagate every clipped narrative source into refs
   completeness, use a total issue-link order, keep observed plugin fields under
