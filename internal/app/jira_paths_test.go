@@ -52,6 +52,15 @@ func (t partialTracker) GetIssue(_ context.Context, key string, _ []string) (*do
 	return nil, domain.ErrNotFound
 }
 
+func (t partialTracker) ListComments(_ context.Context, key string) ([]domain.Comment, error) {
+	for i := range t.issues {
+		if t.issues[i].Key == key {
+			return append([]domain.Comment(nil), t.issues[i].Comments...), nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
 // A hostile Jira attachment filename must not let `jira images` escape the
 // output directory.
 func TestJiraImagesRejectsTraversalFilename(t *testing.T) {

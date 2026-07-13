@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `jira issue refs` now qualifies key/JQL selection and every description,
+  requested-field, and complete-comment source; selected fields actually
+  participate in extraction, partial/clipped evidence stays explicit, and
+  `-o text` is an escaped Markdown table with completeness status.
+
 - Agent skills now require multi-command read-only Bash blocks to export
   `ATL_READ_ONLY=1` before the first `atl` call and warn that a one-command
   environment prefix does not protect later calls in the script.

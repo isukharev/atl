@@ -351,8 +351,8 @@ func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, 
 	out := []domain.Comment{}
 	for page := 0; page < commentPageGuard; page++ {
 		var resp struct {
-			StartAt  int `json:"startAt"`
-			Total    int `json:"total"`
+			StartAt  int  `json:"startAt"`
+			Total    *int `json:"total"`
 			Comments []struct {
 				ID      string         `json:"id"`
 				Author  map[string]any `json:"author"`
@@ -366,35 +366,40 @@ func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, 
 		if err := j.c.GetJSON(ctx, "/rest/api/2/issue/"+url.PathEscape(key)+"/comment?"+q.Encode(), &resp); err != nil {
 			return nil, err
 		}
+		if resp.Total == nil {
+			return nil, fmt.Errorf("%w: Jira comment listing for %s omitted total at offset %d",
+				domain.ErrCheckFailed, key, startAt)
+		}
+		total := *resp.Total
 		if resp.StartAt != startAt {
 			return nil, fmt.Errorf("%w: Jira comment listing for %s returned offset %d while %d was requested",
 				domain.ErrCheckFailed, key, resp.StartAt, startAt)
 		}
 		if expectedTotal < 0 {
-			expectedTotal = resp.Total
-		} else if resp.Total != expectedTotal {
+			expectedTotal = total
+		} else if total != expectedTotal {
 			return nil, fmt.Errorf("%w: Jira comment listing for %s changed total from %d to %d while paging",
-				domain.ErrCheckFailed, key, expectedTotal, resp.Total)
+				domain.ErrCheckFailed, key, expectedTotal, total)
 		}
 		for _, c := range resp.Comments {
 			out = append(out, domain.Comment{ID: c.ID, Author: nestedDisplay(c.Author), Created: c.Created, Body: c.Body})
 		}
 		next := resp.StartAt + len(resp.Comments)
-		if next > resp.Total {
+		if next > total {
 			return nil, fmt.Errorf("%w: Jira comment listing for %s returned inconsistent pagination (%d comments through offset %d, total %d)",
-				domain.ErrCheckFailed, key, len(resp.Comments), next, resp.Total)
+				domain.ErrCheckFailed, key, len(resp.Comments), next, total)
 		}
-		if len(resp.Comments) == 0 && next < resp.Total {
+		if len(resp.Comments) == 0 && next < total {
 			return nil, fmt.Errorf("%w: Jira comment listing for %s made no progress at offset %d with %d comments remaining",
-				domain.ErrCheckFailed, key, next, resp.Total-next)
+				domain.ErrCheckFailed, key, next, total-next)
 		}
 		startAt = next
-		if startAt >= resp.Total {
+		if startAt >= total {
 			return out, nil
 		}
 		if page == commentPageGuard-1 {
 			return nil, fmt.Errorf("%w: Jira comment listing for %s remains incomplete after %d pages (%d of %d comments fetched)",
-				domain.ErrCheckFailed, key, commentPageGuard, startAt, resp.Total)
+				domain.ErrCheckFailed, key, commentPageGuard, startAt, total)
 		}
 	}
 	panic("unreachable")

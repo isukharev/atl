@@ -28,7 +28,7 @@ Load this reference only when exact command or flag lookup is useful.
 | `jira issue watchers list <KEY>` | Read watcher membership | inspect `complete` |
 | `jira issue watchers add\|remove <KEY>` | Guarded watcher preview/apply | exactly one of `--username`, `--me`; `--apply`, `--expected-proposal-hash` |
 | `jira issue history <KEY>` | Qualified changelog; repeat `--field`, filter with `--since`/`--until`; inspect `complete` and `last_changes` | — |
-| `jira issue refs [KEY]` | Extract artifact references | `--jql`, `--fields`, `--limit` |
+| `jira issue refs [KEY]` | Extract provenance-qualified artifact references | `--jql`, `--fields`, `--limit` |
 | `jira issue tree` | Build read-only epic-to-child grouping | `--jql`, `--epic-field`, `--fields`, `--limit` |
 | `jira issue comment add <KEY>` | Add a comment | `--from-md`, `--from-file` |
 | `jira issue comment list <KEY>` | List comments | — |
