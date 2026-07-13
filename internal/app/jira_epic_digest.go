@@ -47,9 +47,11 @@ type JiraDigestPeriod struct {
 }
 
 type JiraDigestSource struct {
-	Complete bool   `json:"complete"`
-	Count    int    `json:"count"`
-	Warning  string `json:"warning,omitempty"`
+	Complete       bool   `json:"complete"`
+	Count          int    `json:"count"`
+	CountTruncated bool   `json:"count_truncated,omitempty"`
+	TextTruncated  bool   `json:"text_truncated,omitempty"`
+	Warning        string `json:"warning,omitempty"`
 }
 
 type JiraDigestIdentity struct {
@@ -215,14 +217,14 @@ func (s *JiraService) EpicDigest(ctx context.Context, key string, opts JiraEpicD
 			}
 			if includeSet["history"] {
 				limit := digestLimit(opts.HistoryLimit, jiraDigestHistoryCap)
-				var truncated bool
-				result.History, truncated = tailHistory(historyResult.History, limit)
-				complete := historyResult.Complete && !truncated
-				warning := historyResult.PartialReason
-				if truncated {
-					warning = "digest history cap reached"
+				var truncation digestTruncation
+				result.History, truncation = tailHistory(historyResult.History, limit)
+				complete := historyResult.Complete && !truncation.any()
+				warning := joinDigestWarnings(historyResult.PartialReason, truncation.warning("history"))
+				result.Sources["history"] = JiraDigestSource{
+					Complete: complete, Count: len(result.History), CountTruncated: truncation.Count,
+					TextTruncated: truncation.Text, Warning: warning,
 				}
-				result.Sources["history"] = JiraDigestSource{Complete: complete, Count: len(result.History), Warning: warning}
 			}
 		}
 	}
@@ -244,19 +246,22 @@ func (s *JiraService) EpicDigest(ctx context.Context, key string, opts JiraEpicD
 		} else {
 			comments, timeIncomplete := filterDigestComments(comments, period)
 			limit := digestLimit(opts.CommentLimit, jiraDigestCommentsCap)
-			var truncated bool
-			result.Comments, truncated = tailComments(comments, limit)
-			warning := digestCapWarning(truncated, "digest comment/text cap reached")
+			var truncation digestTruncation
+			result.Comments, truncation = tailComments(comments, limit)
+			warning := truncation.warning("comment")
 			if timeIncomplete {
-				warning = "comments with unsupported timestamps omitted"
+				warning = joinDigestWarnings(warning, "comments with unsupported timestamps omitted")
 			}
-			result.Sources["comments"] = JiraDigestSource{Complete: !truncated && !timeIncomplete, Count: len(result.Comments), Warning: warning}
+			result.Sources["comments"] = JiraDigestSource{
+				Complete: !truncation.any() && !timeIncomplete, Count: len(result.Comments),
+				CountTruncated: truncation.Count, TextTruncated: truncation.Text, Warning: warning,
+			}
 		}
 	}
 	if includeSet["links"] {
 		result.Links = append([]domain.IssueLink(nil), issue.Links...)
 		sort.Slice(result.Links, func(i, j int) bool {
-			return result.Links[i].Key+result.Links[i].Type < result.Links[j].Key+result.Links[j].Type
+			return jiraDigestLinkLess(result.Links[i], result.Links[j])
 		})
 		for _, link := range result.Links {
 			if strings.Contains(strings.ToLower(link.Type+" "+link.TypeName), "block") {
@@ -278,8 +283,13 @@ func (s *JiraService) EpicDigest(ctx context.Context, key string, opts JiraEpicD
 			evidence.WriteString("\n" + comment.Body)
 		}
 		result.Refs = ExtractPlanningRefs(evidence.String())
-		complete := result.Sources["identity"].Complete && (!includeSet["comments"] || result.Sources["comments"].Complete)
-		result.Sources["refs"] = JiraDigestSource{Complete: complete, Count: len(result.Refs), Warning: digestCapWarning(!complete, "reference source text incomplete")}
+		incomplete := digestIncompleteRefSources(result, includeSet)
+		complete := len(incomplete) == 0
+		warning := ""
+		if !complete {
+			warning = "reference source text incomplete: " + strings.Join(incomplete, ", ")
+		}
+		result.Sources["refs"] = JiraDigestSource{Complete: complete, Count: len(result.Refs), Warning: warning}
 	}
 	if opts.ExpandConfluence > 0 {
 		result.expandDigestConfluence(ctx, opts)
@@ -558,41 +568,103 @@ func boolCount(v bool) int {
 	}
 	return 0
 }
-func tailHistory(v []domain.ChangelogEntry, n int) ([]domain.ChangelogEntry, bool) {
-	truncated := false
+
+type digestTruncation struct {
+	Count bool
+	Text  bool
+}
+
+func (t digestTruncation) any() bool { return t.Count || t.Text }
+
+func (t digestTruncation) warning(noun string) string {
+	parts := make([]string, 0, 2)
+	if t.Count {
+		parts = append(parts, "digest "+noun+" count cap reached")
+	}
+	if t.Text {
+		parts = append(parts, "digest "+noun+" text cap reached")
+	}
+	return strings.Join(parts, "; ")
+}
+
+func joinDigestWarnings(values ...string) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			parts = append(parts, value)
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+func tailHistory(v []domain.ChangelogEntry, n int) ([]domain.ChangelogEntry, digestTruncation) {
+	truncated := digestTruncation{}
 	if len(v) <= n {
 		v = append([]domain.ChangelogEntry(nil), v...)
 	} else {
 		v = append([]domain.ChangelogEntry(nil), v[len(v)-n:]...)
-		truncated = true
+		truncated.Count = true
 	}
 	for i := range v {
 		v[i].Items = append([]domain.ChangelogItem(nil), v[i].Items...)
 		for j := range v[i].Items {
 			var clipped bool
 			v[i].Items[j].From, clipped = digestBoundedText(v[i].Items[j].From)
-			truncated = truncated || clipped
+			truncated.Text = truncated.Text || clipped
 			v[i].Items[j].To, clipped = digestBoundedText(v[i].Items[j].To)
-			truncated = truncated || clipped
+			truncated.Text = truncated.Text || clipped
 		}
 	}
 	return v, truncated
 }
-func tailComments(v []domain.Comment, n int) ([]domain.Comment, bool) {
-	truncated := false
+func tailComments(v []domain.Comment, n int) ([]domain.Comment, digestTruncation) {
+	truncated := digestTruncation{}
 	if len(v) <= n {
 		v = append([]domain.Comment(nil), v...)
 	} else {
 		v = append([]domain.Comment(nil), v[len(v)-n:]...)
-		truncated = true
+		truncated.Count = true
 	}
 	for i := range v {
 		var clipped bool
 		v[i].Body, clipped = digestBoundedText(v[i].Body)
-		truncated = truncated || clipped
+		truncated.Text = truncated.Text || clipped
 		v[i].BodyStorage = ""
 	}
 	return v, truncated
+}
+
+func jiraDigestLinkLess(left, right domain.IssueLink) bool {
+	leftFields := [...]string{left.Key, left.Type, left.TypeName, left.Direction, left.ID}
+	rightFields := [...]string{right.Key, right.Type, right.TypeName, right.Direction, right.ID}
+	for i := range leftFields {
+		if leftFields[i] != rightFields[i] {
+			return leftFields[i] < rightFields[i]
+		}
+	}
+	return false
+}
+
+func digestIncompleteRefSources(result *JiraEpicDigestResult, includeSet map[string]bool) []string {
+	incomplete := make([]string, 0, 4)
+	if source, ok := result.Sources["identity"]; !ok || !source.Complete {
+		incomplete = append(incomplete, "identity")
+	}
+	// Status source completeness also qualifies last-change history. Refs only
+	// consume the current bounded value, so history incompleteness alone must
+	// not taint reference extraction; the explicit text flag is authoritative.
+	if result.StatusField != nil && result.StatusField.Truncated {
+		incomplete = append(incomplete, "status-field")
+	}
+	if result.DoDField != nil && result.DoDField.Truncated {
+		incomplete = append(incomplete, "dod-field")
+	}
+	if includeSet["comments"] {
+		if source, ok := result.Sources["comments"]; !ok || !source.Complete {
+			incomplete = append(incomplete, "comments")
+		}
+	}
+	return incomplete
 }
 func filterDigestComments(v []domain.Comment, period JiraDigestPeriod) ([]domain.Comment, bool) {
 	if period.Since == "" {

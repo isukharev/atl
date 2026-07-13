@@ -84,7 +84,7 @@ func ResolveJiraFieldSelectors(defs []domain.FieldDef, selectors []string) ([]do
 				ids = append(ids, candidate.ID)
 			}
 			sort.Strings(ids)
-			return nil, fmt.Errorf("%w: Jira field name %q is ambiguous; use one of ids: %s", domain.ErrCheckFailed, selector, strings.Join(ids, ", "))
+			return nil, fmt.Errorf("%w: Jira field selector %q is ambiguous; use one of ids: %s", domain.ErrCheckFailed, selector, strings.Join(ids, ", "))
 		}
 		if !seen[candidates[0].ID] {
 			seen[candidates[0].ID] = true
@@ -186,7 +186,11 @@ func (s *JiraService) IssueFields(ctx context.Context, key string, opts JiraIssu
 			}
 		}
 		if opts.IncludeEmpty {
-			selected = append([]domain.FieldDef(nil), defs...)
+			// IncludeEmpty is monotonic: it adds catalog-declared empty fields to
+			// every field actually returned by the issue. A plugin/private field
+			// can be populated yet absent from /field; asking for more must not
+			// make that observed evidence disappear.
+			selected = append(selected, defs...)
 		}
 	}
 	sort.SliceStable(selected, func(i, j int) bool {

@@ -123,10 +123,104 @@ func TestJiraEpicDigestCapsOptionalEvidenceExplicitly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Sources["comments"].Complete || result.Sources["children"].Complete || len(result.Comments) != 1 || len(result.Children.List.Rows) != 1 {
+	if result.Sources["comments"].Complete || !result.Sources["comments"].CountTruncated || result.Sources["children"].Complete || len(result.Comments) != 1 || len(result.Children.List.Rows) != 1 {
 		t.Fatalf("sources=%+v", result.Sources)
 	}
 	if !strings.Contains(JiraEpicDigestMarkdown(result), "Children by status") {
 		t.Fatal("text digest omitted children")
+	}
+}
+
+func TestJiraEpicDigestRefsInheritNarrativeFieldTruncation(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		fieldID    string
+		fieldName  string
+		status     bool
+		wantSource string
+	}{
+		{name: "status field", fieldID: "customfield_10002", fieldName: "Delivery Notes", status: true, wantSource: "status-field"},
+		{name: "DoD field", fieldID: "customfield_10003", fieldName: "Definition of Done", wantSource: "dod-field"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service, tracker := digestFixture()
+			tracker.issue.Body = "description without references"
+			tracker.issue.Fields[tc.fieldID] = strings.Repeat("x", jiraDigestTextCap) + " https://docs.example.test/after-cap"
+			opts := JiraEpicDigestOpts{Include: []string{"identity,refs"}}
+			if tc.status {
+				opts.Include = []string{"identity,status-field,refs"}
+				opts.StatusField = tc.fieldName
+			} else {
+				opts.DoDField = tc.fieldName
+			}
+			result, err := service.EpicDigest(context.Background(), "PROJ-1", opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			refs := result.Sources["refs"]
+			if refs.Complete || !strings.Contains(refs.Warning, tc.wantSource) || len(result.Refs) != 0 {
+				t.Fatalf("refs=%+v extracted=%+v", refs, result.Refs)
+			}
+		})
+	}
+}
+
+func TestJiraEpicDigestRefsDoNotInheritUnrelatedStatusHistoryPartiality(t *testing.T) {
+	service, tracker := digestFixture()
+	tracker.issue.Body = "description without references"
+	tracker.history.Complete = false
+	tracker.history.PartialReason = "history paging metadata unavailable"
+	result, err := service.EpicDigest(context.Background(), "PROJ-1", JiraEpicDigestOpts{
+		Include: []string{"identity,status-field,refs"}, StatusField: "Delivery Notes",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Sources["status-field"].Complete || !result.Sources["refs"].Complete {
+		t.Fatalf("sources=%+v", result.Sources)
+	}
+}
+
+func TestJiraEpicDigestLinkSortUsesTotalTupleOrder(t *testing.T) {
+	service, tracker := digestFixture()
+	tracker.issue.Links = []domain.IssueLink{
+		{ID: "2", Key: "AB-12", Type: "x", Direction: "outward"},
+		{ID: "1", Key: "AB-1", Type: "2x", Direction: "outward"},
+	}
+	result, err := service.EpicDigest(context.Background(), "PROJ-1", JiraEpicDigestOpts{Include: []string{"identity,links"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Links) != 2 || result.Links[0].ID != "1" || result.Links[1].ID != "2" {
+		t.Fatalf("links=%+v", result.Links)
+	}
+}
+
+func TestTailHistoryDistinguishesCountAndTextTruncation(t *testing.T) {
+	entries := []domain.ChangelogEntry{
+		{ID: "old", Items: []domain.ChangelogItem{{To: "old"}}},
+		{ID: "new", Items: []domain.ChangelogItem{{To: strings.Repeat("x", jiraDigestTextCap+1)}}},
+	}
+	result, truncation := tailHistory(entries, 1)
+	if len(result) != 1 || !truncation.Count || !truncation.Text {
+		t.Fatalf("result=%+v truncation=%+v", result, truncation)
+	}
+	if got := truncation.warning("history"); !strings.Contains(got, "count cap") || !strings.Contains(got, "text cap") {
+		t.Fatalf("warning=%q", got)
+	}
+}
+
+func TestJiraEpicDigestPublishesHistoryTruncationKinds(t *testing.T) {
+	service, tracker := digestFixture()
+	tracker.history.Entries = append(tracker.history.Entries,
+		domain.ChangelogEntry{ID: "new", Created: "2026-04-02", Items: []domain.ChangelogItem{{Field: "Notes", To: strings.Repeat("x", jiraDigestTextCap+1)}}})
+	tracker.history.Total = len(tracker.history.Entries)
+	result, err := service.EpicDigest(context.Background(), "PROJ-1", JiraEpicDigestOpts{Include: []string{"identity,history"}, HistoryLimit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := result.Sources["history"]
+	if source.Complete || !source.CountTruncated || !source.TextTruncated || !strings.Contains(source.Warning, "count cap") || !strings.Contains(source.Warning, "text cap") {
+		t.Fatalf("source=%+v", source)
 	}
 }

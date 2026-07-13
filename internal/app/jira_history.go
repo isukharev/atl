@@ -116,14 +116,15 @@ func (s *JiraService) HistoryFiltered(ctx context.Context, key string, opts Jira
 			}
 			filtered.Items = append(filtered.Items, item)
 			if len(defs) > 0 {
+				if parseErr != nil {
+					return nil, fmt.Errorf("%w: Jira changelog entry %s has unsupported timestamp %q; cannot determine latest change for field %s", domain.ErrCheckFailed, entry.ID, entry.Created, def.ID)
+				}
 				identity := def.ID
 				candidate := JiraFieldLastChange{FieldID: def.ID, Field: def.Name, Created: entry.Created, HistoryID: entry.ID, From: item.From, To: item.To}
 				previous, exists := latestTime[identity]
-				if !exists || parseErr != nil || created.After(previous) || created.Equal(previous) {
+				if !exists || created.After(previous) || created.Equal(previous) {
 					latest[identity] = candidate
-					if parseErr == nil {
-						latestTime[identity] = created
-					}
+					latestTime[identity] = created
 				}
 			}
 		}

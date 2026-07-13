@@ -65,6 +65,34 @@ func TestHistoryFilteredFailsClosedOnUnparseableServerTimeWhenFiltering(t *testi
 	}
 }
 
+func TestHistorySelectedLatestChangeFailsClosedOnUnparseableServerTime(t *testing.T) {
+	tracker := &historyTracker{
+		defs: []domain.FieldDef{{ID: "customfield_10001", Name: "Delivery Notes"}},
+		snapshot: &domain.ChangelogSnapshot{Complete: true, Entries: []domain.ChangelogEntry{
+			{ID: "valid", Created: "2026-04-01", Items: []domain.ChangelogItem{{FieldID: "customfield_10001", Field: "Delivery Notes", To: "first"}}},
+			{ID: "invalid", Created: "not-a-time", Items: []domain.ChangelogItem{{FieldID: "customfield_10001", Field: "Delivery Notes", To: "unknown"}}},
+		}},
+	}
+	_, err := (&JiraService{tr: tracker}).HistoryFiltered(context.Background(), "PROJ-1", JiraHistoryOpts{Fields: []string{"Delivery Notes"}})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "cannot determine latest change") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestHistorySelectedLatestChangeIgnoresBadTimeOnUnrelatedField(t *testing.T) {
+	tracker := &historyTracker{
+		defs: []domain.FieldDef{{ID: "customfield_10001", Name: "Delivery Notes"}},
+		snapshot: &domain.ChangelogSnapshot{Complete: true, Entries: []domain.ChangelogEntry{
+			{ID: "valid", Created: "2026-04-01", Items: []domain.ChangelogItem{{FieldID: "customfield_10001", Field: "Delivery Notes", To: "first"}}},
+			{ID: "unrelated", Created: "not-a-time", Items: []domain.ChangelogItem{{FieldID: "status", Field: "Status", To: "Done"}}},
+		}},
+	}
+	result, err := (&JiraService{tr: tracker}).HistoryFiltered(context.Background(), "PROJ-1", JiraHistoryOpts{Fields: []string{"Delivery Notes"}})
+	if err != nil || len(result.LastChanges) != 1 || result.LastChanges[0].HistoryID != "valid" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
 func TestJiraHistoryMarkdownEscapesTableValues(t *testing.T) {
 	text := JiraHistoryMarkdown(&JiraHistoryResult{Complete: false, Source: "embedded", Total: 2, Fetched: 1, Count: 1, PartialReason: "clipped", History: []domain.ChangelogEntry{{Created: "2026-01-01", Author: "A|B", Items: []domain.ChangelogItem{{Field: "Notes", From: "one\ntwo", To: "done"}}}}})
 	if text == "" || !containsAll(text, "Complete: false", "A\\|B", "one two", "partial: clipped") {

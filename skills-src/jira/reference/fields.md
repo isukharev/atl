@@ -13,6 +13,8 @@ Jira rejects unknown field ids, status names, and link types — discover the va
 - `atl jira issue history <KEY> --field "Exact Name"` → complete/partial
   provenance plus the selected field's `last_changes`. Time flags are local
   post-read filters; never interpret `complete:false` as absence of evidence.
+  An unsupported timestamp on a matching selected change fails closed because
+  `last_changes` cannot be ordered safely.
 - `atl jira field-options --project PROJ --type Bug --field priority` → `{ "options": [ ... ] }`
   the allowed values for a field in that project/issue-type context.
 - `atl jira transitions --key PROJ-1` → `{ "transitions": [ {id, name, to} ] }`. Pass the
