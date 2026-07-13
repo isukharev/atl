@@ -87,7 +87,7 @@ Choose the narrowest path instead of calling every read command:
 
 | Question shape | Efficient path |
 |---|---|
-| unfamiliar single issue | compact non-empty fields → selected history/refs |
+| unfamiliar single issue | metadata-only fields → exact compact field reads → selected history/refs |
 | epic/quarter with known field names | one epic digest |
 | epic/quarter with unknown field names | compact fields → one epic digest |
 | several known keys | transient batch export → per-key exceptions only |
@@ -96,7 +96,8 @@ Choose the narrowest path instead of calling every read command:
 For a first analysis of an unfamiliar epic:
 
 ```sh
-atl --read-only jira issue fields PROJ-42
+atl --read-only jira issue fields PROJ-42 --metadata-only
+atl --read-only jira issue fields PROJ-42 --field 'Delivery Notes'
 
 atl --read-only jira epic digest PROJ-42 \
   --quarter 2026-Q2 \
@@ -104,8 +105,8 @@ atl --read-only jira epic digest PROJ-42 \
   --dod-field 'Definition of Done'
 ```
 
-The first command omits empty fields and compacts users/options/unknown objects.
-Choose an exact field name or stable id; do not begin with `*all` or raw values.
+The first command omits empty fields and all values. Choose an exact field name
+or stable id, then read only that compact value; do not begin with `*all` or raw values.
 The digest joins the current epic, dated field changes, paginated children,
 comments, blockers, refs, and explainable staleness. It deliberately does not
 write management prose. Inspect every `sources.<name>.complete`; an incomplete

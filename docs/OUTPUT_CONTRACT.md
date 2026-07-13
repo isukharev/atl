@@ -861,7 +861,7 @@ be automatically replayed. Incomplete membership refuses every mutation.
 
 `atl jira issue fields <KEY>` emits
 `{key,mode,non_empty_only,count,omitted_empty?,fields:[{id,name,custom,
-schema?,empty?,value,truncated?,original_bytes?}]}`. Default mode is `compact`
+schema?,empty?,value_type?,value?,truncated?,original_bytes?}]}`. Default mode is `compact`
 and omits empty fields. Exact repeatable `--field` selectors accept ids or
 case-insensitive display names; ambiguous names fail before the issue read.
 Compact user values omit email/avatar/self data, known options/named values use
@@ -870,7 +870,12 @@ Explicit `--include-empty` returns the union of catalog fields and fields
 actually observed on the issue, so a populated plugin/private field absent from
 the catalog cannot disappear. Explicit `--raw` switches mode
 to `raw`, preserves unprojected private values, and writes a privacy warning to
-stderr. `-o text` is a structurally escaped Markdown table.
+stderr. Explicit `--metadata-only` switches mode to `metadata`, omits `value`
+entirely, and emits only the closed coarse `value_type` alongside field
+identity/schema/emptiness. It preserves non-empty and `--include-empty`
+semantics, including observed plugin fields absent from the catalog, and
+conflicts with `--raw` before config/network access. Its `-o text` table has no
+value column; compact/raw keep their existing escaped Markdown table.
 
 Online Jira get/pull/view field selectors resolve exact names through the same
 catalog. Render selectors are stored as resolved ids in view state, so offline

@@ -13,12 +13,14 @@ import (
 
 type jiraFieldInspectTracker struct {
 	domain.Tracker
-	defs      []domain.FieldDef
-	issue     *domain.Issue
-	requested []string
+	defs       []domain.FieldDef
+	issue      *domain.Issue
+	requested  []string
+	fieldReads int
 }
 
 func (t *jiraFieldInspectTracker) Fields(context.Context) ([]domain.FieldDef, error) {
+	t.fieldReads++
 	return append([]domain.FieldDef(nil), t.defs...), nil
 }
 
@@ -110,6 +112,58 @@ func TestJiraIssueFieldsIncludeEmptyUnionsCatalogAndObservedFields(t *testing.T)
 	}
 	if len(found) != 2 || !found["summary"].Empty || found["pluginfield_1"].Empty {
 		t.Fatalf("fields=%+v", result.Fields)
+	}
+}
+
+func TestJiraIssueFieldsMetadataOnlyOmitsAllValuesAndKeepsTypes(t *testing.T) {
+	tracker := &jiraFieldInspectTracker{
+		defs: []domain.FieldDef{
+			{ID: "summary", Name: "Summary", Schema: "string"},
+			{ID: "assignee", Name: "Assignee", Schema: "user"},
+			{ID: "labels", Name: "Labels", Schema: "array"},
+			{ID: "customfield_1", Name: "Empty", Schema: "string", Custom: true},
+		},
+		issue: &domain.Issue{Key: "PROJ-1", Fields: map[string]any{
+			"summary": "private narrative", "assignee": map[string]any{"emailAddress": "private@example.test"},
+			"labels": []any{"secret-label"}, "customfield_1": nil,
+			"pluginfield_1": "plugin-private-value",
+		}},
+	}
+	result, err := (&JiraService{tr: tracker}).IssueFields(context.Background(), "PROJ-1", JiraIssueFieldsOpts{
+		MetadataOnly: true, IncludeEmpty: true,
+	})
+	if err != nil || result.Mode != "metadata" || result.Count != 5 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(encoded)
+	for _, forbidden := range []string{`"value":`, "private narrative", "private@example.test", "secret-label", "plugin-private-value"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("metadata output leaked %q: %s", forbidden, text)
+		}
+	}
+	for _, want := range []string{`"value_type":"string"`, `"value_type":"object"`, `"value_type":"list"`, `"value_type":"null"`, `"id":"pluginfield_1"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("metadata output missing %q: %s", want, text)
+		}
+	}
+}
+
+func TestJiraIssueFieldsMetadataOnlyConflictsWithRawBeforeTrackerRead(t *testing.T) {
+	tracker := &jiraFieldInspectTracker{}
+	_, err := (&JiraService{tr: tracker}).IssueFields(context.Background(), "PROJ-1", JiraIssueFieldsOpts{MetadataOnly: true, Raw: true})
+	if !errors.Is(err, domain.ErrUsage) || tracker.fieldReads != 0 {
+		t.Fatalf("err=%v fieldReads=%d", err, tracker.fieldReads)
+	}
+}
+
+func TestJiraIssueFieldRecordPreservesExplicitNullOutsideMetadataMode(t *testing.T) {
+	encoded, err := json.Marshal(JiraIssueFieldRecord{ID: "customfield_1", Name: "Empty", Empty: true, Value: nil})
+	if err != nil || !strings.Contains(string(encoded), `"value":null`) {
+		t.Fatalf("encoded=%s err=%v", encoded, err)
 	}
 }
 

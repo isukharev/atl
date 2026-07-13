@@ -115,7 +115,7 @@ convenience filters (no `--cql` needed), `.md` view renders internal links as `[
 
 **Jira additions:** typed `render.jira.field_views` (including opt-in editable
 rich-text sections with explicit pending state) and opt-in `epic_children` views;
-compact non-empty named issue-field inspection; qualified, filterable issue
+value-free metadata and compact named issue-field inspection; qualified, filterable issue
 history with explicit completeness and last-field-change metadata;
 transient multi-key export to artifact-only stdout; deterministic epic evidence
 digest and standalone refs with per-source completeness;

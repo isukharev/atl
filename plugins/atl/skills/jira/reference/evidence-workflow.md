@@ -10,16 +10,17 @@ step mechanically.
 
 | Situation | First command | Expand only when needed |
 |---|---|---|
-| One unfamiliar issue | `jira issue fields <KEY>` | selected history, refs, then a linked page section |
+| One unfamiliar issue | `jira issue fields <KEY> --metadata-only` | exact compact fields, selected history/refs, then a linked page section |
 | One epic and known evidence-field names | `jira epic digest <KEY> --quarter ...` | bounded Confluence section expansion |
-| One epic but unknown custom fields | `jira issue fields <KEY>` | one digest after choosing exact names/ids |
+| One epic but unknown custom fields | `jira issue fields <KEY> --metadata-only` | exact compact fields, then one digest after choosing names/ids |
 | Several known keys | `jira export --keys ... --out -` | per-key history/digest only for exceptions |
 | Broad discovery | `jira issue search --columns ...` | batch export for selected keys |
 
 ## First-use epic flow
 
 ```sh
-atl --read-only jira issue fields PROJ-1
+atl --read-only jira issue fields PROJ-1 --metadata-only
+atl --read-only jira issue fields PROJ-1 --field 'Delivery Notes'
 
 atl --read-only jira epic digest PROJ-1 \
   --quarter 2026-Q2 \
@@ -27,8 +28,8 @@ atl --read-only jira epic digest PROJ-1 \
   --dod-field 'Definition of Done'
 ```
 
-The first command is compact and omits empty fields by default. Choose an exact
-unambiguous field name or stable id from it. The digest joins identity,
+The first command omits values and empty fields. Choose an exact unambiguous
+field name or stable id, then read only that compact value. The digest joins identity,
 children, comments, history, links/blockers, and refs; it does not write a
 management narrative. Inspect every `sources.<name>.complete` and the dated
 `staleness.reasons` before drawing a conclusion.

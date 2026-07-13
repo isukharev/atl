@@ -6,10 +6,11 @@ Jira rejects unknown field ids, status names, and link types — discover the va
 
 - `atl jira fields` → `{ "fields": [ {id, name, custom} ] }`. Custom fields look like
   `customfield_10001`; exact ids and unambiguous display names are both valid selectors.
-- `atl jira issue fields <KEY>` → compact named records for non-empty fields by
-  default. Start here when the evidence-bearing custom fields are unknown;
-  repeat `--field "Exact Name"` to narrow. Use `--raw` only when the compact
-  projection is insufficient and private transport/user data is acceptable.
+- `atl jira issue fields <KEY> --metadata-only` → value-free named records for
+  non-empty fields. Start here when evidence-bearing custom fields are unknown;
+  then repeat `--field "Exact Name"` without metadata-only for only the selected
+  compact values. Use `--raw` only when compact projection is insufficient and
+  private transport/user data is acceptable. Metadata-only conflicts with raw.
 - `atl jira issue history <KEY> --field "Exact Name"` → complete/partial
   provenance plus the selected field's `last_changes`. Time flags are local
   post-read filters; never interpret `complete:false` as absence of evidence.

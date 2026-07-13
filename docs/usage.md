@@ -1704,6 +1704,7 @@ Inspect the fields actually carrying evidence on one issue:
 
 ```bash
 atl jira issue fields PROJ-1
+atl jira issue fields PROJ-1 --metadata-only
 atl jira issue fields PROJ-1 --field "Delivery Notes" --field Impact
 atl jira issue fields PROJ-1 --include-empty
 atl jira issue fields PROJ-1 --field assignee --raw
@@ -1716,6 +1717,15 @@ objects omit email, avatars, `self` URLs, and unrelated transport properties.
 Unknown structured objects are represented by their non-empty key names rather
 than recursively exposing arbitrary private data. Strings, arrays, and nesting
 have explicit caps; a clipped record sets `truncated` and `original_bytes`.
+
+`--metadata-only` is the lowest-token discovery projection. It preserves the
+same non-empty/default or `--include-empty` selection, sets `mode:"metadata"`,
+and emits only `id`, `name`, `custom`, optional schema, optional `empty`, and a
+closed `value_type` (`string`, `number`, `boolean`, `list`, `object`, `null`, or
+`unknown`). The `value` key is absent, not redacted or set to null, so no field
+content can leak into JSON or the metadata Markdown table. Use the inventory to
+choose one or two exact `--field` selectors, then read those values in compact
+mode. `--metadata-only --raw` is rejected before config or network access.
 
 `--include-empty` adds missing/null/empty catalog fields while retaining every
 field observed on the issue, including populated plugin/private fields omitted

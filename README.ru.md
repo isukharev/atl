@@ -344,6 +344,7 @@ atl conf comment add  --id 123456 --from-file comment.csf
 # Чтение
 atl jira issue get  PROJ-1
 atl jira issue fields PROJ-1 # compact non-empty поля с именами по умолчанию
+atl jira issue fields PROJ-1 --metadata-only # компактный каталог без значений
 atl jira issue fields PROJ-1 --field "Delivery Notes"
 atl jira issue history PROJ-1 --field "Delivery Notes" --since 2026-04-01
 atl jira export --keys PROJ-1,PROJ-2 --fields "Delivery Notes" --out - | jq -s '.'

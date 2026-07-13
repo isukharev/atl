@@ -22,6 +22,7 @@ type JiraIssueFieldsOpts struct {
 	Selectors    []string
 	IncludeEmpty bool
 	Raw          bool
+	MetadataOnly bool
 }
 
 type JiraIssueFieldRecord struct {
@@ -30,9 +31,35 @@ type JiraIssueFieldRecord struct {
 	Custom        bool   `json:"custom"`
 	Schema        string `json:"schema,omitempty"`
 	Empty         bool   `json:"empty,omitempty"`
-	Value         any    `json:"value"`
+	ValueType     string `json:"value_type,omitempty"`
+	Value         any    `json:"-"`
 	Truncated     bool   `json:"truncated,omitempty"`
 	OriginalBytes int    `json:"original_bytes,omitempty"`
+	MetadataOnly  bool   `json:"-"`
+}
+
+// MarshalJSON omits value entirely in metadata mode while preserving the
+// existing explicit `"value":null` contract for compact/raw empty fields.
+func (r JiraIssueFieldRecord) MarshalJSON() ([]byte, error) {
+	type wireRecord struct {
+		ID            string `json:"id"`
+		Name          string `json:"name"`
+		Custom        bool   `json:"custom"`
+		Schema        string `json:"schema,omitempty"`
+		Empty         bool   `json:"empty,omitempty"`
+		ValueType     string `json:"value_type,omitempty"`
+		Value         *any   `json:"value,omitempty"`
+		Truncated     bool   `json:"truncated,omitempty"`
+		OriginalBytes int    `json:"original_bytes,omitempty"`
+	}
+	var value *any
+	if !r.MetadataOnly {
+		value = &r.Value
+	}
+	return json.Marshal(wireRecord{
+		ID: r.ID, Name: r.Name, Custom: r.Custom, Schema: r.Schema, Empty: r.Empty,
+		ValueType: r.ValueType, Value: value, Truncated: r.Truncated, OriginalBytes: r.OriginalBytes,
+	})
 }
 
 type JiraIssueFieldsResult struct {
@@ -152,6 +179,9 @@ func (s *JiraService) IssueFields(ctx context.Context, key string, opts JiraIssu
 	if key == "" {
 		return nil, fmt.Errorf("%w: issue key is required", domain.ErrUsage)
 	}
+	if opts.Raw && opts.MetadataOnly {
+		return nil, fmt.Errorf("%w: --metadata-only conflicts with --raw", domain.ErrUsage)
+	}
 	defs, err := s.tr.Fields(ctx)
 	if err != nil {
 		return nil, err
@@ -203,6 +233,8 @@ func (s *JiraService) IssueFields(ctx context.Context, key string, opts JiraIssu
 	mode := "compact"
 	if opts.Raw {
 		mode = "raw"
+	} else if opts.MetadataOnly {
+		mode = "metadata"
 	}
 	result := &JiraIssueFieldsResult{Key: issue.Key, Mode: mode, NonEmptyOnly: !opts.IncludeEmpty, Fields: []JiraIssueFieldRecord{}}
 	seen := map[string]bool{}
@@ -217,8 +249,13 @@ func (s *JiraService) IssueFields(ctx context.Context, key string, opts JiraIssu
 			result.OmittedEmpty++
 			continue
 		}
-		record := JiraIssueFieldRecord{ID: def.ID, Name: def.Name, Custom: def.Custom, Schema: def.Schema, Empty: empty, Value: value}
-		if !opts.Raw {
+		record := JiraIssueFieldRecord{
+			ID: def.ID, Name: def.Name, Custom: def.Custom, Schema: def.Schema,
+			Empty: empty, Value: value, MetadataOnly: opts.MetadataOnly,
+		}
+		if opts.MetadataOnly {
+			record.ValueType = jiraFieldValueType(value)
+		} else if !opts.Raw {
 			compact, truncated := compactJiraFieldValue(value, 0)
 			record.Value = compact
 			record.Truncated = truncated
@@ -232,6 +269,25 @@ func (s *JiraService) IssueFields(ctx context.Context, key string, opts JiraIssu
 	}
 	result.Count = len(result.Fields)
 	return result, nil
+}
+
+func jiraFieldValueType(value any) string {
+	switch value.(type) {
+	case nil:
+		return "null"
+	case string:
+		return "string"
+	case bool:
+		return "boolean"
+	case json.Number, float64, float32, int, int32, int64, uint, uint32, uint64:
+		return "number"
+	case []any, []string:
+		return "list"
+	case map[string]any:
+		return "object"
+	default:
+		return "unknown"
+	}
 }
 
 func fieldDefIDs(defs []domain.FieldDef) []string {
@@ -413,6 +469,12 @@ func JiraIssueFieldsMarkdown(result *JiraIssueFieldsResult) string {
 		return ""
 	}
 	rows := make([][]string, 0, len(result.Fields))
+	if result.Mode == "metadata" {
+		for _, field := range result.Fields {
+			rows = append(rows, []string{field.Name, field.ID, field.Schema, field.ValueType, fmt.Sprint(field.Empty)})
+		}
+		return MarkdownTable([]string{"Field", "ID", "Schema", "Value type", "Empty"}, rows)
+	}
 	for _, field := range result.Fields {
 		value := ""
 		if field.Empty {

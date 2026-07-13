@@ -1,0 +1,30 @@
+{
+  "key": "PROJ-1",
+  "mode": "metadata",
+  "non_empty_only": true,
+  "count": 3,
+  "omitted_empty": 1,
+  "fields": [
+    {
+      "id": "assignee",
+      "name": "Assignee",
+      "custom": false,
+      "schema": "user",
+      "value_type": "object"
+    },
+    {
+      "id": "customfield_1",
+      "name": "Delivery Notes",
+      "custom": true,
+      "schema": "string",
+      "value_type": "string"
+    },
+    {
+      "id": "summary",
+      "name": "Summary",
+      "custom": false,
+      "schema": "string",
+      "value_type": "string"
+    }
+  ]
+}
