@@ -924,6 +924,13 @@ atl conf pull --cql "label=public and space=DOCS" --assets
 
 # also bring page comments into the mirror
 atl conf pull --id 12345678 --comments
+
+# complete changed-page delta; bootstrap with configured user timezone
+atl conf pull --incremental --cql 'space=DOCS and type=page' \
+  --since '2026-07-01 00:00' --time-zone Europe/Berlin --into my-mirror
+
+# later runs reuse the watermark bound to this exact selector
+atl conf pull --incremental --cql 'space=DOCS and type=page' --into my-mirror
 ```
 
 Flags:
@@ -936,6 +943,10 @@ Flags:
 | `--depth` | depth limit when using `--space` (0 = unlimited) |
 | `--assets` | download draw.io PNG renders and inline images |
 | `--comments` | mirror page comments to `<slug>.comments.json` (+ `.comments.md`) sidecars |
+| `--incremental` | exhaustively select changes since a persisted selector watermark; requires `--cql` or `--space` |
+| `--since` | first-run lower boundary as `YYYY-MM-DD HH:MM` in the configured Confluence user timezone |
+| `--time-zone` | first-run IANA name (for example `Europe/Berlin`) matching that configured user timezone |
+| `--max-pages` | explicit incremental result cap (default 10000); exceeding it fails without moving the watermark |
 | `--jira-view` | named `jira_list_views` projection for Jira JQL macros whose macro configuration does not specify columns |
 | `--jira-macros` | `auto` (default) or `off`; `off` keeps placeholders and performs no Jira credential read/search |
 | `--into` | mirror root directory (default `mirror`) |
@@ -944,6 +955,33 @@ Flags:
 | `--render-exclude` | comma-separated sections to remove from the profile |
 
 At most one of `--id`, `--cql`, `--space` may be given.
+
+Incremental mode is deliberately inclusive at its lower minute. Confluence CQL
+documents `lastmodified` only to minute precision and interprets it in the
+current user's configured timezone (server timezone by default). Data Center's
+documented REST identity/server-info resources do not expose that preference,
+so the bootstrap requires an explicit IANA `--time-zone` and persists it with
+the selector. Atl converts absolute `version.when` values into that zone before
+advancing the next CQL minute. It records every page id/version at the
+completed boundary. A repeat skips only those exact pairs: a new page or newer
+version in the same minute is still fetched. Results are paged until the
+backend proves exhaustion, then the metadata pass is repeated and its
+`(id,version,updated)` set must match before any body is fetched. Only
+`type=page` hits are admitted. A repeated cursor, unreachable advertised total,
+explicit cap, or malformed timestamp exits `8` and leaves the watermark
+unchanged. `ORDER BY` in user CQL is rejected because atl appends
+`lastmodified asc`; there is no dependency on an undocumented id tie-breaker.
+
+Before the first page body fetch/write, the entire selected local set is
+preflighted. Native CSF edits, unapplied Markdown edits, partial page artifacts,
+or corrupt state block the batch. A network/permission failure may leave pages
+already mirrored through the ordinary atomic path, but never advances
+`.atl/incremental.json`; rerunning replays the same inclusive range safely.
+Empty deltas still commit a valid first watermark. Absence from a delta is
+never interpreted as deletion or permission loss. Requests are serial in this
+release; the stability check intentionally doubles search-page GETs but not
+body GETs. Normal GET rate-limit handling applies and no unbounded concurrency
+is introduced. `--comments` truncation also prevents watermark advancement.
 
 The `--render-*` flags override the configured profile for this run; the pull
 result JSON is unchanged by the profile (they affect only the `.md` view).
@@ -995,6 +1033,7 @@ mirror/
           diagram.png
   .atl/
     state.json                 ← last-synced version + hash
+    incremental.json           ← completed selector-bound lower boundaries (0600)
     base/
       12345678.csf             ← pristine copy for diff
 ```

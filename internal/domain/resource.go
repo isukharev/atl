@@ -58,9 +58,20 @@ type PageRef struct {
 	Title   string `json:"title"`
 	Space   string `json:"space"`
 	Version int    `json:"version"`
+	Updated string `json:"updated,omitempty"`
 	Parent  string `json:"parent,omitempty"`
 	Excerpt string `json:"excerpt,omitempty"`
 	URL     string `json:"url,omitempty"`
+}
+
+// PageSearchPage is a completeness-qualified page of backend search results.
+// Complete is meaningful only when Next is empty: false means the backend
+// advertised more matches but supplied no safe continuation cursor.
+type PageSearchPage struct {
+	Results       []PageRef
+	Next          string
+	Complete      bool
+	PartialReason string
 }
 
 // PageMeta is the non-body metadata of a Confluence page.

@@ -571,6 +571,19 @@ func confPullCmd() *cobra.Command {
 			if set > 1 {
 				return usageErr("--id, --cql and --space are mutually exclusive")
 			}
+			if o.Incremental {
+				if o.ID != "" || (o.CQL == "" && o.Space == "") {
+					return usageErr("--incremental requires --cql or --space and cannot use --id")
+				}
+				if o.MaxPages < 0 {
+					return usageErr("--max-pages must be >= 0")
+				}
+				if (o.Since == "") != (o.TimeZone == "") {
+					return usageErr("--since and --time-zone must be supplied together for an incremental bootstrap")
+				}
+			} else if o.Since != "" || o.TimeZone != "" || cmd.Flags().Changed("max-pages") {
+				return usageErr("--since, --time-zone and --max-pages require --incremental")
+			}
 			override, err := rf.override()
 			if err != nil {
 				return err
@@ -590,6 +603,10 @@ func confPullCmd() *cobra.Command {
 			return emit(cmd, res, func() string {
 				var b strings.Builder
 				fmt.Fprintf(&b, "mirror: %s (%d pages)\n", res.Root, len(res.Pages))
+				if res.Incremental != nil {
+					inc := res.Incremental
+					fmt.Fprintf(&b, "incremental: complete=%t source=%s since=%s time_zone=%s next=%s matched=%d selected=%d boundary_skipped=%d watermark_advanced=%t\n", inc.Complete, inc.WatermarkSource, inc.QuerySince, inc.TimeZone, inc.NextSince, inc.Matched, inc.Selected, inc.BoundarySkipped, inc.WatermarkAdvanced)
+				}
 				for _, p := range res.Pages {
 					if o.Comments && p.Comments != nil {
 						fmt.Fprintf(&b, "  %s  v%d  %s  [assets:%d comments:%d]\n", p.ID, p.Version, p.Path, p.Assets, *p.Comments)
@@ -609,6 +626,10 @@ func confPullCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&o.Comments, "comments", false, "mirror page comments into <slug>.comments.json/.md sidecars")
 	cmd.Flags().StringVar(&o.Into, "into", mirrorRootDefault("mirror"), "mirror root dir (default: $ATL_MIRROR_ROOT or \"mirror\")")
 	cmd.Flags().StringVar(&o.JiraView, "jira-view", "", "named Jira list view for JQL macros (default: default; macro columns win)")
+	cmd.Flags().BoolVar(&o.Incremental, "incremental", false, "pull a complete changed-page delta using a selector-bound watermark")
+	cmd.Flags().StringVar(&o.Since, "since", "", "first-run lower boundary in Confluence server time (YYYY-MM-DD HH:MM)")
+	cmd.Flags().StringVar(&o.TimeZone, "time-zone", "", "first-run IANA timezone matching the Confluence user's configured timezone")
+	cmd.Flags().IntVar(&o.MaxPages, "max-pages", 0, "explicit incremental selection cap (default 10000; watermark never advances when exceeded)")
 	rf.register(cmd)
 	rf.registerConfluenceJiraMacros(cmd)
 	return cmd

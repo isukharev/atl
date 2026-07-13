@@ -1313,7 +1313,7 @@ func TestResolveUserBothEmptyNoError(t *testing.T) {
 func TestSearchTitleAndExcerptStripped(t *testing.T) {
 	const body = `{
 		"results": [
-			{"content": {"id": "1", "title": "Structured", "space": {"key": "DOC"}, "version": {"number": 2}}, "title": "<b>Search</b> Title", "excerpt": "an <b>important</b> hit", "url": "/pages/1"},
+			{"content": {"id": "1", "title": "Structured", "space": {"key": "DOC"}, "version": {"number": 2, "when": "2026-07-13T12:00:00Z"}}, "title": "<b>Search</b> Title", "excerpt": "an <b>important</b> hit", "url": "/pages/1"},
 			{"content": {"id": "2"}, "title": "<b>Fallback</b>", "excerpt": "", "url": ""}
 		],
 		"size": 2,
@@ -1345,11 +1345,31 @@ func TestSearchTitleAndExcerptStripped(t *testing.T) {
 	if out[0].URL != "https://wiki.example/pages/1" {
 		t.Errorf("out[0].URL = %q", out[0].URL)
 	}
+	if out[0].Updated != "2026-07-13T12:00:00Z" {
+		t.Errorf("out[0].Updated = %q", out[0].Updated)
+	}
 	if out[1].Title != "Fallback" {
 		t.Errorf("out[1].Title = %q, want stripped search title fallback", out[1].Title)
 	}
 	if out[1].URL != "" {
 		t.Errorf("out[1].URL = %q, want empty when result.url empty", out[1].URL)
+	}
+}
+
+func TestSearchCompleteRejectsUnreachableAdvertisedResults(t *testing.T) {
+	const body = `{"results":[{"content":{"id":"1","version":{"number":1,"when":"2026-07-13T12:00:00Z"}}}],"size":1,"totalCount":3,"_links":{}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+	page, err := cf.SearchComplete(context.Background(), "type=page", 25, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Complete || page.Next != "" || !strings.Contains(page.PartialReason, "3 total") {
+		t.Fatalf("page=%+v", page)
 	}
 }
 

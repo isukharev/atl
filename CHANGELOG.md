@@ -56,6 +56,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Complete incremental Confluence mirror refresh.** `conf pull --incremental`
+  exhausts a stable CQL/space delta, records inclusive minute-boundary
+  id/version evidence in an explicitly bound IANA CQL timezone, preflights local native and Markdown edits before any
+  overwrite, and atomically advances a private selector watermark only after a
+  complete successful local commit. Caps, malformed pagination, interruptions,
+  and comment truncation remain explicit and resume-safe without inferring
+  deletion.
+
 - **Review-bound multi-page Confluence plans.** `conf plan create` freezes an
   offline semantic diff into a deterministic private v1 artifact; `conf plan
   apply` previews the complete remote preflight and writes only after exact

@@ -28,9 +28,17 @@ func parseCursor(cursor string) (int, error) {
 // is the start offset; the returned cursor is the next start, or "" when
 // exhausted.
 func (cf *Confluence) Search(ctx context.Context, query string, limit int, cursor string) ([]domain.PageRef, string, error) {
+	page, err := cf.SearchComplete(ctx, query, limit, cursor)
+	return page.Results, page.Next, err
+}
+
+// SearchComplete preserves the backend's total/next evidence so completeness-
+// sensitive callers can fail closed instead of treating a malformed terminal
+// page as exhaustion. Search keeps its historical lightweight contract above.
+func (cf *Confluence) SearchComplete(ctx context.Context, query string, limit int, cursor string) (domain.PageSearchPage, error) {
 	start, err := parseCursor(cursor)
 	if err != nil {
-		return nil, "", err
+		return domain.PageSearchPage{}, err
 	}
 	if limit <= 0 || limit > 100 {
 		limit = 25
@@ -47,20 +55,21 @@ func (cf *Confluence) Search(ctx context.Context, query string, limit int, curso
 			Excerpt string  `json:"excerpt"`
 			URL     string  `json:"url"`
 		} `json:"results"`
-		Size  int `json:"size"`
-		Links struct {
+		Size       int  `json:"size"`
+		TotalCount *int `json:"totalCount"`
+		Links      struct {
 			Next string `json:"next"`
 			Base string `json:"base"`
 		} `json:"_links"`
 	}
 	if err := cf.c.GetJSON(ctx, "/rest/api/search?"+q.Encode(), &resp); err != nil {
-		return nil, "", err
+		return domain.PageSearchPage{}, err
 	}
 	out := make([]domain.PageRef, 0, len(resp.Results))
 	for _, r := range resp.Results {
 		pr := domain.PageRef{
 			ID: r.Content.ID, Title: firstNonEmpty(r.Content.Title, stripHTML(r.Title)),
-			Space: r.Content.Space.Key, Version: r.Content.Version.Number,
+			Space: r.Content.Space.Key, Version: r.Content.Version.Number, Updated: r.Content.Version.When,
 			Excerpt: stripHTML(r.Excerpt),
 		}
 		if r.URL != "" {
@@ -77,7 +86,15 @@ func (cf *Confluence) Search(ctx context.Context, query string, limit int, curso
 		// never stalls at the same offset.
 		next = strconv.Itoa(start + len(resp.Results))
 	}
-	return out, next, nil
+	page := domain.PageSearchPage{Results: out, Next: next, Complete: next == ""}
+	if resp.Links.Next != "" && len(resp.Results) == 0 {
+		page.Complete = false
+		page.PartialReason = "backend returned an empty page with a next link"
+	} else if next == "" && resp.TotalCount != nil && start+len(resp.Results) < *resp.TotalCount {
+		page.Complete = false
+		page.PartialReason = fmt.Sprintf("backend reported %d total matches but only %d were reachable", *resp.TotalCount, start+len(resp.Results))
+	}
+	return page, nil
 }
 
 // treePageCap bounds how many pages Tree collects in one call, so a huge space

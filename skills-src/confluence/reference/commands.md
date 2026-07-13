@@ -25,6 +25,12 @@ Use transient `page view` only for one-off readonly work. For a mirror:
 ```bash
 atl conf pull --id <id> --assets --comments --jira-view default --into <root>
 # alternatives: --cql '<CQL>' or --space <KEY> [--depth N]
+
+# recurring large mirror: first run needs local minute + configured IANA zone
+atl conf pull --incremental --cql '<stable CQL without ORDER BY>' \
+  --since '<YYYY-MM-DD HH:MM>' --time-zone '<IANA zone>' --into <root>
+# later: exact same selector/root, no --since/--time-zone
+atl conf pull --incremental --cql '<same CQL>' --into <root>
 ```
 
 Read-only page selectors accept stable ids, same-origin canonical/viewpage/REST
@@ -37,9 +43,17 @@ case/whitespace normalization, includes descendant headings, and requires
 `--occurrence N` for duplicates. Check `complete`; `--max-bytes` truncates only
 at whole rendered blocks and a truncated section is not complete evidence.
 
-`--cql` caps at 1000 pages; `--space` and tree cap at 2000. A capped result has
+Ordinary `--cql` caps at 1000 pages; `--space` and tree cap at 2000. A capped result has
 `truncated:true` and a stderr warning. Narrow the selection; never treat it as
 complete.
+
+Incremental pull instead exhausts pagination up to its explicit `--max-pages`
+safety cap (default 10000); hitting the cap or any partial response is exit 8
+and cannot advance the private selector watermark. Its `--since` and matching
+IANA `--time-zone` represent the Confluence user's configured CQL minute and
+are needed only for a new selector.
+Equal-minute updates are safe because exact boundary id/version pairs, not the
+timestamp alone, are recorded. Absence never proves deletion.
 
 ## Mirror layout
 
@@ -139,7 +153,7 @@ identifier per line.
 | `conf page move <ID>` | Guarded move preview/apply | `--parent`, `--apply`, expected gates |
 | `conf page create|copy|delete` | Page lifecycle | command-specific title/space/parent/file flags |
 | `conf blog create` | Create one native blog post | `--space`, `--title`, one body source; `-o text/id` |
-| `conf pull` | Mirror pages | selector, `--assets`, `--comments`, `--jira-view`, `--jira-macros`, `--into`, render flags |
+| `conf pull` | Mirror pages | selector; complete delta via `--incremental`, first-run `--since` + `--time-zone`, `--max-pages`; assets/comments/Jira macros/render flags |
 | `conf render` | Regenerate Markdown offline | path, render flags, `--into` |
 | `conf status` | Dirty/drift state | path, `--remote` |
 | `conf diff` | Offline baseline → candidate semantics | file/dir, `--into`; JSON for evidence |

@@ -498,6 +498,36 @@ found none, distinguishable from "not fetched"):
 }
 ```
 
+With `--incremental`, the same result additionally carries `incremental`:
+
+```json
+{
+  "selector_sha256": "<sha256>",
+  "watermark_source": "explicit",
+  "query_since": "2026-07-01 00:00",
+  "time_zone": "Europe/Berlin",
+  "complete": true,
+  "matched": 3,
+  "selected": 2,
+  "boundary_skipped": 1,
+  "next_since": "2026-07-01 09:42",
+  "boundary_count": 2,
+  "watermark_advanced": true
+}
+```
+
+`watermark_source` is `explicit|recorded`; `time_zone` is the persisted IANA
+zone matching Confluence's configured CQL timezone. `matched` is the unique complete
+search set; `selected` excludes exact id/version pairs already recorded at the
+inclusive lower minute. `complete:true` is emitted only after terminal
+pagination evidence and two identical metadata passes. `watermark_advanced` describes whether the successful run
+changed or first persisted the watermark. The private `0600`
+`.atl/incremental.json` is versioned, service/selector-hash keyed, and written
+atomically only after every selected local page commit succeeds. A cap,
+pagination anomaly, local dirty/drift refusal, permission/network failure, or
+requested-comment truncation leaves it unchanged. No missing result implies a
+remote deletion.
+
 With `--comments`, two sidecar files are written next to the page:
 `<slug>.comments.json` (a `[{id, author, created, body, body_storage?}]` array, pretty-printed
 with a trailing newline) and `<slug>.comments.md` (a derived read view). The

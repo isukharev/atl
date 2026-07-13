@@ -55,6 +55,12 @@ type DocStore interface {
 	DeleteAttachment(ctx context.Context, attachmentID string) error
 }
 
+// CompletePageSearcher is an optional capability for workflows that must not
+// mistake a malformed/partial terminal search response for exhaustion.
+type CompletePageSearcher interface {
+	SearchComplete(ctx context.Context, query string, limit int, cursor string) (PageSearchPage, error)
+}
+
 // BlogPostCreator is an optional Confluence-specific content capability.
 // Keeping it outside DocStore avoids teaching generic document backends that a
 // blog post is a page subtype or exposing an arbitrary caller-controlled type.
