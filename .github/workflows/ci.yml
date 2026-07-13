@@ -31,7 +31,12 @@ jobs:
           go-version-file: go.mod
           check-latest: true
       - name: Build
-        run: go build ./...
+        run: make build
+      - name: Verify stamped build provenance
+        run: |
+          ./atl version > "$RUNNER_TEMP/atl-version.json"
+          grep -F "\"commit\": \"$(git rev-parse HEAD)\"" "$RUNNER_TEMP/atl-version.json"
+          grep -F '"build_state": "clean"' "$RUNNER_TEMP/atl-version.json"
       - name: Vet
         run: go vet ./...
       # -race needs cgo (ThreadSanitizer is a C runtime); the runners ship a C

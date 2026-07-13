@@ -30,7 +30,11 @@ human repair the owner-only file. Do not attempt online reads or mutations.
 command -v atl && atl version
 ```
 
-If `atl` is found, report the version and skip to step 3. Otherwise continue.
+If `atl` is found, report `version`, the full `commit`, and `build_state`, then
+skip to step 3. `clean` identifies a supported build from an unchanged source
+checkout; `dirty` means local source changes were present; `unknown` is valid
+for an unstamped build whose Go VCS metadata is unavailable. These are
+diagnostics, not signature or update-trust evidence. Otherwise continue.
 
 ## 2. Install the binary
 

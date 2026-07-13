@@ -115,8 +115,11 @@ jobs:
       - name: Pin VERSION to the tag
         run: echo "${GITHUB_REF_NAME#v}" > VERSION
 
+      - name: Assert release checkout is clean
+        run: test -z "$(git status --porcelain --untracked-files=normal)"
+
       - name: Cross-compile release binaries
-        run: make dist
+        run: make dist BUILD_COMMIT="$GITHUB_SHA" BUILD_STATE=clean
 
       - name: Generate manifest
         run: make manifest

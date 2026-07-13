@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `atl version` now reports deterministic build provenance (`commit` plus
+  `clean`/`dirty`/`unknown`) in JSON while preserving both text-version forms;
+  supported builds and releases stamp it without timestamps, and CI verifies
+  clean source identity.
+
 - `jira issue fields --metadata-only` provides a value-free, low-token field
   inventory with closed coarse value types, compatible `--include-empty`
   semantics, and a dedicated Markdown table; it conflicts with `--raw` before

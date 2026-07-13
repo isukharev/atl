@@ -3033,12 +3033,31 @@ Flags:
 
 ## `atl version`
 
-Print the current binary version.
+Print the current binary version and informational build provenance. JSON is
+the default:
+
+```json
+{
+  "version": "0.3.0",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "build_state": "clean"
+}
+```
+
+`commit` is the full source revision when known. `build_state` is one of
+`clean`, `dirty`, or `unknown`; it describes tracked and non-ignored untracked
+workspace changes for supported Makefile builds. Direct Go builds use compiler
+VCS metadata when available. These fields are diagnostic only: self-update and
+signature verification do not trust them. Builds intentionally contain no
+timestamp.
 
 ```
 atl version
 atl version -o text
 ```
+
+Text output remains the bare version for script compatibility. Root
+`atl --version` also keeps its existing `atl version <version>` form.
 
 ---
 

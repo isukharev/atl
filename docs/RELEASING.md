@@ -253,5 +253,11 @@ curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh 
 atl version
 ```
 
+The JSON must report the release tag's full commit and `"build_state":
+"clean"`. The workflow passes `GITHUB_SHA` explicitly after asserting that the
+release checkout has no tracked or non-ignored untracked changes. Build
+provenance is informational and timestamp-free; signed checksums and
+attestations remain the release trust boundary.
+
 Clients on a prior signed version will pick up the update automatically within
 the 6h check window (unless `ATL_NO_UPDATE=1`).
