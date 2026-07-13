@@ -42,7 +42,8 @@ atl --read-only jira issue refs PROJ-2 --fields 'Delivery Notes'
 ```
 
 `complete:false` means absence is unproven. Use `last_changes` for the selected
-field; do not infer recency from array position.
+field; do not infer recency from array position. Exit 8 on an unsupported
+matching timestamp means recency is unknowable, not that no change exists.
 
 ## Batch without shell loops
 
@@ -74,8 +75,11 @@ atl --read-only jira epic digest PROJ-1 --quarter 2026-Q2 \
   --expand-confluence 1 --confluence-heading 'Metrics'
 ```
 
-Honor section and source completeness. Do not fetch a whole long page merely
-to regex-slice Markdown, and never guess a page title from an opaque short URL.
+Honor section and source completeness. `refs.complete` also becomes false when
+a contributing status/DoD/comment/description value was clipped; inspect
+`count_truncated` and `text_truncated` before treating absence as evidence. Do
+not fetch a whole long page merely to regex-slice Markdown, and never guess a
+page title from an opaque short URL.
 
 ## Context and privacy discipline
 

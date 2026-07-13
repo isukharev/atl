@@ -841,7 +841,9 @@ and omits empty fields. Exact repeatable `--field` selectors accept ids or
 case-insensitive display names; ambiguous names fail before the issue read.
 Compact user values omit email/avatar/self data, known options/named values use
 closed projections, and unknown objects expose only bounded non-empty key names.
-Explicit `--include-empty` expands the catalog. Explicit `--raw` switches mode
+Explicit `--include-empty` returns the union of catalog fields and fields
+actually observed on the issue, so a populated plugin/private field absent from
+the catalog cannot disappear. Explicit `--raw` switches mode
 to `raw`, preserves unprojected private values, and writes a privacy warning to
 stderr. `-o text` is a structurally escaped Markdown table.
 
@@ -859,8 +861,11 @@ and must not be interpreted as proof that an omitted change did not happen.
 `source` is `paginated`, `embedded`, or `legacy`. Repeatable exact `--field`
 selectors and inclusive `--since`/`--until` boundaries are applied locally
 after the qualified read. `last_changes` reports the newest matching change per
-selected resolved field within those boundaries. `-o text` is a status line and
-a structurally escaped Markdown table.
+selected resolved field within those boundaries. When a selected matching
+change carries an unsupported server timestamp, latest-change ordering is
+unknowable and the command fails closed with exit 8 instead of emitting
+misleading metadata. `-o text` is a status line and a structurally escaped
+Markdown table.
 
 `atl jira export ... --out -` is an artifact stdout mode, not a command-result
 mode. JSONL emits one `JiraIssueSnapshot` per line, aggregate JSON emits a bare
@@ -907,13 +912,17 @@ is created.
 `{schema_version,period,includes,sources,epic,status_field?,dod_field?,children?,
 comments?,links?,blockers?,history?,refs?,confluence?,staleness,warnings?}`.
 `sources` qualifies each attempted component with `complete`, returned `count`,
-and optional bounded `warning`; optional-source failure is never encoded as an
-empty complete result. `children.list` is the common IssueList contract.
+optional `count_truncated`/`text_truncated`, and a bounded `warning`;
+optional-source failure is never encoded as an empty complete result. Reference
+completeness includes description, selected status/DoD fields, and comments
+whenever those values contribute source text. `children.list` is the common
+IssueList contract.
 `staleness` contains `evaluated`, `stale`, selected status-field timestamp,
 latest newer evidence timestamp, child/comment counts, and deterministic
 reasons. It is evidence, not a score. Quarter/date boundaries are inclusive.
 Component count/text/request caps and bounded Confluence `page section` results
-remain explicit. `-o text` renders source completeness, selected status text,
+remain explicit. Links use a total `(key,type,type_name,direction,id)` order.
+`-o text` renders source completeness, selected status text,
 and child distribution without inventing narrative conclusions.
 
 List-oriented Jira reads (`issue search`, `issue children`, `board

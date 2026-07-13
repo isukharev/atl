@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Jira evidence reads now fail closed when a selected field's latest change has
+  an unsupported timestamp, propagate every clipped narrative source into refs
+  completeness, use a total issue-link order, keep observed plugin fields under
+  `--include-empty`, and distinguish count from text truncation.
+
 - Jira/Confluence/ATL skills now route status and quarter analysis through one
   evidence-first decision flow, and CI pins its first-use epic path to a
   read-only request/context budget with explicit source completeness.

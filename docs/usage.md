@@ -1717,7 +1717,9 @@ Unknown structured objects are represented by their non-empty key names rather
 than recursively exposing arbitrary private data. Strings, arrays, and nesting
 have explicit caps; a clipped record sets `truncated` and `original_bytes`.
 
-`--include-empty` adds missing/null/empty catalog fields. `--raw` returns the
+`--include-empty` adds missing/null/empty catalog fields while retaining every
+field observed on the issue, including populated plugin/private fields omitted
+from Jira's field catalog. `--raw` returns the
 unprojected Jira values, may include private contact and transport data, and
 writes a warning to stderr. Exact `--field` selectors accept ids or names;
 duplicates after resolution are collapsed, while ambiguous names fail before
@@ -2212,8 +2214,9 @@ filters locally; `fetched` and `total` describe the pre-filter read, while
 JSON includes `complete`, `source`, optional `partial_reason`, field ids beside
 display names, and `last_changes` for selected fields within the requested time
 window. Treat `complete:false` as incomplete evidence rather than absence of a
-change. `-o text` renders a completeness line followed by an escaped Markdown
-table.
+change. If a matching selected change has an unsupported server timestamp, atl
+returns exit 8 because it cannot order `last_changes` safely. `-o text` renders
+a completeness line followed by an escaped Markdown table.
 
 ### `atl jira epic digest`
 
@@ -2250,11 +2253,14 @@ Staleness is explainable evidence: the selected status-field change time,
 latest newer evidence time, newer child/comment counts, and textual reasons —
 not an opaque score or generated conclusion.
 
-Every component declares `complete`, `count`, and an optional bounded warning.
+Every component declares `complete`, `count`, optional machine-readable
+`count_truncated`/`text_truncated`, and a bounded warning.
 Defaults/caps are 1000 children, 50 comments, 500 history entries, 128 KiB per
 large text value, and 10 Confluence expansions. A source failure remains visible
-and does not become proof of absence. Confluence expansion additionally requires
-an exact heading; it scans at most 50 refs, accepts only the safe same-origin
+and does not become proof of absence. `refs.complete` includes the completeness
+of every contributing description, selected status/DoD field, and comment
+source. Links have a canonical total order. Confluence expansion additionally
+requires an exact heading; it scans at most 50 refs, accepts only the safe same-origin
 references supported by `conf page resolve`, and reuses bounded `page section`.
 `-o text` is a compact evidence overview, not a management summary.
 

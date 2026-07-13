@@ -93,6 +93,33 @@ func TestJiraIssueFieldsSelectorsIncludeEmptyAndRaw(t *testing.T) {
 	}
 }
 
+func TestJiraIssueFieldsIncludeEmptyUnionsCatalogAndObservedFields(t *testing.T) {
+	tracker := &jiraFieldInspectTracker{
+		defs: []domain.FieldDef{{ID: "summary", Name: "Summary", Schema: "string"}},
+		issue: &domain.Issue{Key: "PROJ-1", Fields: map[string]any{
+			"summary": nil, "pluginfield_1": "populated but absent from field catalog",
+		}},
+	}
+	result, err := (&JiraService{tr: tracker}).IssueFields(context.Background(), "PROJ-1", JiraIssueFieldsOpts{IncludeEmpty: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]JiraIssueFieldRecord{}
+	for _, field := range result.Fields {
+		found[field.ID] = field
+	}
+	if len(found) != 2 || !found["summary"].Empty || found["pluginfield_1"].Empty {
+		t.Fatalf("fields=%+v", result.Fields)
+	}
+}
+
+func TestResolveJiraFieldSelectorsCallsIDCollisionsSelectors(t *testing.T) {
+	_, err := ResolveJiraFieldSelectors([]domain.FieldDef{{ID: "Status"}, {ID: "status"}}, []string{"STATUS"})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "field selector") || strings.Contains(err.Error(), "field name") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestCompactJiraFieldValueBoundsStringsArraysAndDepth(t *testing.T) {
 	value := []any{strings.Repeat("x", jiraCompactFieldStringCap+10)}
 	for range jiraCompactFieldArrayCap {
