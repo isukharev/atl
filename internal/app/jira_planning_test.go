@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -146,9 +147,22 @@ type qualifiedRefsTracker struct {
 	next        map[string]string
 	comments    map[string][]domain.Comment
 	commentErrs map[string]error
+	fieldDefs   []domain.FieldDef
+	fieldCalls  *int
+	requested   *[][]string
 }
 
-func (t qualifiedRefsTracker) GetIssue(_ context.Context, key string, _ []string) (*domain.Issue, error) {
+func (t qualifiedRefsTracker) Fields(context.Context) ([]domain.FieldDef, error) {
+	if t.fieldCalls != nil {
+		(*t.fieldCalls)++
+	}
+	return append([]domain.FieldDef(nil), t.fieldDefs...), nil
+}
+
+func (t qualifiedRefsTracker) GetIssue(_ context.Context, key string, fields []string) (*domain.Issue, error) {
+	if t.requested != nil {
+		*t.requested = append(*t.requested, append([]string(nil), fields...))
+	}
 	for i := range t.issues {
 		if t.issues[i].Key == key {
 			issue := t.issues[i]
@@ -158,7 +172,10 @@ func (t qualifiedRefsTracker) GetIssue(_ context.Context, key string, _ []string
 	return nil, domain.ErrNotFound
 }
 
-func (t qualifiedRefsTracker) Search(_ context.Context, _ string, _ []string, _ int, cursor string) ([]domain.Issue, string, error) {
+func (t qualifiedRefsTracker) Search(_ context.Context, _ string, fields []string, _ int, cursor string) ([]domain.Issue, string, error) {
+	if t.requested != nil {
+		*t.requested = append(*t.requested, append([]string(nil), fields...))
+	}
 	if t.pages != nil {
 		return append([]domain.Issue(nil), t.pages[cursor]...), t.next[cursor], nil
 	}
@@ -202,6 +219,68 @@ func TestIssueRefsExtractsQualifiedDescriptionFieldsAndComments(t *testing.T) {
 		if !issue.Sources[source].Complete {
 			t.Fatalf("source %s = %+v", source, issue.Sources[source])
 		}
+	}
+}
+
+func TestIssueRefsResolvesDisplayNameBeforeFetchAndExtraction(t *testing.T) {
+	var fieldCalls int
+	var requested [][]string
+	tracker := qualifiedRefsTracker{
+		issues: []domain.Issue{{
+			Key:    "PROJ-1",
+			Fields: map[string]any{"customfield_10001": "field https://docs.example.com/field"},
+		}},
+		comments:   map[string][]domain.Comment{"PROJ-1": {}},
+		fieldDefs:  []domain.FieldDef{{ID: "customfield_10001", Name: "Delivery Notes", Custom: true}},
+		fieldCalls: &fieldCalls,
+		requested:  &requested,
+	}
+	result, err := (&JiraService{tr: tracker}).IssueRefs(context.Background(), JiraIssueRefsOpts{
+		Key: "PROJ-1", Fields: []string{"Delivery Notes"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fieldCalls != 1 || len(requested) != 1 || !slices.Contains(requested[0], "customfield_10001") || slices.Contains(requested[0], "Delivery Notes") {
+		t.Fatalf("fieldCalls=%d requested=%v", fieldCalls, requested)
+	}
+	issue := result.Issues[0]
+	if !result.Complete || len(issue.Refs) != 1 || !issue.Sources["field.customfield_10001"].Complete {
+		t.Fatalf("result=%+v issue=%+v", result, issue)
+	}
+}
+
+func TestIssueRefsTechnicalIDSkipsCatalog(t *testing.T) {
+	var fieldCalls int
+	tracker := qualifiedRefsTracker{
+		issues:   []domain.Issue{{Key: "PROJ-1", Fields: map[string]any{"customfield_10001": "https://docs.example.com/field"}}},
+		comments: map[string][]domain.Comment{"PROJ-1": {}}, fieldCalls: &fieldCalls,
+	}
+	if _, err := (&JiraService{tr: tracker}).IssueRefs(context.Background(), JiraIssueRefsOpts{Key: "PROJ-1", Fields: []string{"customfield_10001"}}); err != nil {
+		t.Fatal(err)
+	}
+	if fieldCalls != 0 {
+		t.Fatalf("field catalog calls = %d, want 0", fieldCalls)
+	}
+}
+
+func TestIssueRefsRejectsUnknownAndAmbiguousDisplayNames(t *testing.T) {
+	tests := []struct {
+		name string
+		defs []domain.FieldDef
+		want error
+	}{
+		{name: "unknown", defs: []domain.FieldDef{{ID: "customfield_1", Name: "Other"}}, want: domain.ErrNotFound},
+		{name: "ambiguous", defs: []domain.FieldDef{{ID: "customfield_1", Name: "Delivery Notes"}, {ID: "customfield_2", Name: "delivery notes"}}, want: domain.ErrCheckFailed},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tracker := qualifiedRefsTracker{fieldDefs: test.defs}
+			_, err := (&JiraService{tr: tracker}).IssueRefs(context.Background(), JiraIssueRefsOpts{Key: "PROJ-1", Fields: []string{"Delivery Notes"}})
+			if !errors.Is(err, test.want) {
+				t.Fatalf("error = %v, want %v", err, test.want)
+			}
+		})
 	}
 }
 

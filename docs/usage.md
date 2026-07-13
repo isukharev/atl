@@ -2547,14 +2547,16 @@ selection and every contributing description, custom field, and comment source.
 
 ```bash
 atl jira issue refs PROJ-1
+atl jira issue refs PROJ-1 --fields 'Delivery Notes,Design URL'
 atl jira issue refs --jql "project=PROJ" --limit 100
 atl jira issue refs --jql "project=PROJ" -o text
 ```
 
-Pass exactly one of positional `KEY` or `--jql` (else exit 2). `--fields` can add
-extra fields to fetch before extraction; description and comments are always
-included. Requested field values now participate in extraction rather than only
-widening the Jira projection.
+Pass exactly one of positional `KEY` or `--jql` (else exit 2). `--fields` accepts
+technical ids or exact case-insensitive display names and adds those fields to
+reference extraction; unknown names exit 4 and ambiguous names exit 8 before
+the issue read. Output source identities use the resolved technical ids.
+Description and comments are always included.
 
 For JQL, `selection.complete:false` and `selection.truncated:true` mean
 `--limit` stopped before backend exhaustion. Every issue exposes `complete`,
@@ -2565,6 +2567,11 @@ field, and each comment body are capped at 128 KiB per value and expose
 `text_truncated` when clipped. Treat empty refs as evidence of absence only when
 the top-level and per-issue `complete` values are true. `-o text` renders the
 same qualification followed by an escaped Markdown table.
+
+Complete comment qualification costs one paginated comment listing per selected
+issue in addition to the issue selection. Keep JQL narrow and use an explicit
+`--limit`; atl intentionally does not trade this completeness proof for hidden
+parallelism or embedded-comment prefixes.
 
 ### `atl jira issue tree`
 

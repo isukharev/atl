@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `jira issue refs --fields` now resolves exact display names through the shared
+  field catalog before fetching or extracting references, while technical ids
+  remain direct; JQL documentation now makes its complete per-issue comment
+  request cost explicit.
+
 - The public roadmap now records the completed worklog, blogpost, semantic-diff,
   plan/apply, and incremental Confluence sequence as shipped, leaving only
   genuinely open packaging/trust work under `Now`.

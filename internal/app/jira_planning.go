@@ -195,7 +195,12 @@ func (s *JiraService) IssueRefs(ctx context.Context, opts JiraIssueRefsOpts) (*J
 	if opts.Limit < 0 {
 		return nil, fmt.Errorf("%w: --limit must be >= 0", domain.ErrUsage)
 	}
-	fields := mergeFields([]string{"summary", "description", "issuetype", "comment"}, opts.Fields)
+	resolvedFields, err := s.resolveJiraFieldSelectors(ctx, opts.Fields)
+	if err != nil {
+		return nil, err
+	}
+	extraFieldIDs := fieldDefIDs(resolvedFields)
+	fields := mergeFields([]string{"summary", "description", "issuetype", "comment"}, extraFieldIDs)
 	var issues []domain.Issue
 	selection := JiraIssueRefsSelection{Mode: "key", Complete: true, Count: 1}
 	if key != "" {
@@ -217,7 +222,7 @@ func (s *JiraService) IssueRefs(ctx context.Context, opts JiraIssueRefsOpts) (*J
 	}
 	rows := make([]JiraIssueRefs, 0, len(issues))
 	for _, issue := range issues {
-		row, err := s.issueRefsForIssue(ctx, issue, opts.Fields)
+		row, err := s.issueRefsForIssue(ctx, issue, extraFieldIDs)
 		if err != nil {
 			return nil, err
 		}
