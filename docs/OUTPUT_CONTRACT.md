@@ -543,8 +543,11 @@ summaries reject controls, redact network locations, and are length-capped.
 
 `atl jira export --jql ... --out FILE --format jsonl|json|csv` writes one compact artifact and a
 sidecar manifest at `FILE.manifest.json`. `--ids` and `--keys` can be used instead of `--jql` to
-generate batched `id in (...)` / `key in (...)` queries. Stdout remains the normal `emit()` JSON
-summary:
+generate batched `id in (...)` / `key in (...)` queries. Explicit selectors are
+de-duplicated by first occurrence and found issues are emitted in that order
+across pages and batches. Missing/inaccessible identities are omitted without
+disturbing the relative order of found rows. User JQL retains backend order.
+Stdout remains the normal `emit()` JSON summary:
 
 ```json
 {
@@ -570,6 +573,7 @@ backend URL hash only:
   "command": "atl jira export",
   "format": "jsonl",
   "query_mode": "jql",
+  "row_order": "backend",
   "jql": "project=PROJ",
   "count": 1,
   "backend": {
@@ -578,6 +582,12 @@ backend URL hash only:
   }
 }
 ```
+
+For `query_mode: keys|ids`, the manifest instead carries `row_order:
+"selector"` and `missing_identity_behavior: "omit"`. Ordering is identical in
+JSONL, aggregate JSON, and CSV, for files and artifact-only stdout. Explicit
+selection buffering is bounded to one generated batch and 64 MiB of encoded
+issue data; the global 250,000 identity safety cap remains in force.
 
 The backend hostname and PAT are never written to the manifest.
 

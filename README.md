@@ -345,6 +345,7 @@ atl jira issue fields PROJ-1 # compact non-empty named fields by default
 atl jira issue fields PROJ-1 --metadata-only # lower-token field inventory, no values
 atl jira issue fields PROJ-1 --field "Delivery Notes"
 atl jira issue history PROJ-1 --field "Delivery Notes" --since 2026-04-01
+# --keys/--ids preserve de-duplicated selector order; missing identities are omitted
 atl jira export --keys PROJ-1,PROJ-2 --fields "Delivery Notes" --out - | jq -s '.'
 atl conf page resolve 'https://confluence.example.test/spaces/ENG/pages/42/Page'
 atl conf page outline 42 && atl conf page section 42 --heading 'Delivery Notes' -o text

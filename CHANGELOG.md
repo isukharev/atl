@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `jira export --keys/--ids` now emits every format in de-duplicated
+  first-occurrence selector order across backend pages and generated batches;
+  missing identities are explicitly omitted, while JQL order is unchanged and
+  manifests declare both policies.
+
 - `atl version` now reports deterministic build provenance (`commit` plus
   `clean`/`dirty`/`unknown`) in JSON while preserving both text-version forms;
   supported builds and releases stamp it without timestamps, and CI verifies

@@ -20,6 +20,15 @@ is capped at 10,000 issues/64 MiB and row streams at 250,000 identities. CSV
 neutralizes formulas unless the user explicitly approves `--raw-csv` for a
 trusted non-spreadsheet consumer.
 
+Prefer `--keys`/`--ids` when downstream position matters: all formats preserve
+the de-duplicated first-occurrence selector order across Jira pages and generated
+batches. Missing/inaccessible identities are omitted, so compare returned
+`key`/`id` values when absence matters; do not infer that output position is a
+placeholder. User-authored `--jql` remains in Jira's returned order. File
+manifests record these policies as `row_order` and
+`missing_identity_behavior`. Reordering buffers one batch up to 64 MiB; reduce
+`--batch-size` if atl refuses an unusually wide batch.
+
 Use `--out -` for transient analysis: stdout is only JSONL, a bare JSON array,
 or CSV, with no manifest/result envelope and no created files. Choose it with
 `--format` and omit `-o text`, which is not an artifact format. Display names in
