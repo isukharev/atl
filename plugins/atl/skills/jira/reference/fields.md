@@ -14,7 +14,9 @@ Jira rejects unknown field ids, status names, and link types — discover the va
   private transport/user data is acceptable. Metadata-only conflicts with raw.
 - `atl jira issue history <KEY> --field "Exact Name"` → complete/partial
   provenance plus the selected field's `last_changes`. Time flags are local
-  post-read filters; never interpret `complete:false` as absence of evidence.
+  post-read filters. Date-only values use one observed Jira current-user IANA
+  timezone lookup and expose the resolved UTC interval; explicit-offset
+  RFC3339 values need no lookup. Never interpret `complete:false` as absence of evidence.
   An unsupported timestamp on a matching selected change fails closed because
   `last_changes` cannot be ordered safely.
 - `atl jira field-options --project PROJ --type Bug --field priority` → `{ "options": [ ... ] }`

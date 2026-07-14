@@ -48,7 +48,10 @@ paginated comment listing per issue, so keep the query narrow and set an
 explicit `--limit`. Inspect the named description/comment/field source and
 `text_truncated` when incomplete.
 For history, `complete:false` means absence is unproven. Use `last_changes` for
-the selected field; do not infer recency from array position. Exit 8 on an
+the selected field; do not infer recency from array position. For date-only
+periods, retain `boundary_time_zone` and the canonical instant fields as part of
+the evidence. One current-user GET is expected per top-level history/digest
+command; a digest reuses it. Explicit-offset RFC3339 bounds skip it. Exit 8 on an
 unsupported matching timestamp means recency is unknowable, not that no change
 exists.
 

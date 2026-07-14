@@ -179,12 +179,18 @@ type CompleteChangelogReader interface {
 	CompleteChangelog(ctx context.Context, key string) (*ChangelogSnapshot, error)
 }
 
-// JiraTimeSemanticsReader is the narrow, optional metadata capability used by
-// environment diagnostics. ServerTime and CurrentUserTimeZone are separate so
-// a missing/unsupported fact does not hide the other one.
-type JiraTimeSemanticsReader interface {
-	ServerTime(ctx context.Context) (string, error)
+// JiraUserTimeZoneReader is the single current-user metadata capability needed
+// by date-only analytics. Keeping it narrower than the environment diagnostic
+// lets one period lookup avoid an unrelated server-info request.
+type JiraUserTimeZoneReader interface {
 	CurrentUserTimeZone(ctx context.Context) (string, error)
+}
+
+// JiraTimeSemanticsReader adds server clock metadata for the explicit
+// environment diagnostic.
+type JiraTimeSemanticsReader interface {
+	JiraUserTimeZoneReader
+	ServerTime(ctx context.Context) (string, error)
 }
 
 // Tracker is the port for an issue tracker (Jira today; Linear/GitLab later).

@@ -10,6 +10,7 @@ import (
 func epicDigestServer(t *testing.T) *jiraServer {
 	t.Helper()
 	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/myself", http.StatusOK, `{"timeZone":"UTC"}`)
 	js.route(http.MethodGet, "/rest/api/2/field", http.StatusOK, `[
 		{"id":"customfield_10001","name":"Epic Link","custom":true,"schema":{"type":"any"}},
 		{"id":"customfield_10002","name":"Delivery Notes","custom":true,"schema":{"type":"string"}}
@@ -56,7 +57,7 @@ func TestEvidenceFirstEpicWorkflowBudget(t *testing.T) {
 		t.Fatalf("digest exit=%d output=%s", code, digest)
 	}
 	requests := js.requests()
-	if got, wantMax := len(requests), 7; got > wantMax {
+	if got, wantMax := len(requests), 8; got > wantMax {
 		t.Fatalf("backend request budget exceeded: got=%d max=%d requests=%+v", got, wantMax, requests)
 	}
 	for _, request := range requests {

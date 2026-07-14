@@ -17,6 +17,8 @@ type digestTracker struct {
 	comments   []domain.Comment
 	history    *domain.ChangelogSnapshot
 	searchCall int
+	timeZone   string
+	timeReads  int
 }
 
 func (t *digestTracker) GetIssue(context.Context, string, []string) (*domain.Issue, error) {
@@ -31,6 +33,13 @@ func (t *digestTracker) CompleteChangelog(context.Context, string) (*domain.Chan
 }
 func (t *digestTracker) Changelog(context.Context, string) ([]domain.ChangelogEntry, error) {
 	return t.history.Entries, nil
+}
+func (t *digestTracker) CurrentUserTimeZone(context.Context) (string, error) {
+	t.timeReads++
+	if t.timeZone == "" {
+		return "UTC", nil
+	}
+	return t.timeZone, nil
 }
 func (t *digestTracker) Search(_ context.Context, _ string, _ []string, limit int, cursor string) ([]domain.Issue, string, error) {
 	t.searchCall++
@@ -102,10 +111,13 @@ func TestJiraEpicDigestJoinsDatedEvidence(t *testing.T) {
 	if len(result.Blockers) != 1 || len(result.Refs) != 1 || len(result.Confluence) != 1 || conf.calls != 1 || tracker.searchCall != 1 {
 		t.Fatalf("blockers=%v refs=%v confluence=%v calls=%d/%d", result.Blockers, result.Refs, result.Confluence, conf.calls, tracker.searchCall)
 	}
+	if tracker.timeReads != 1 || result.Period.BoundaryTimeZone != "UTC" || result.Period.SinceInstant != "2026-04-01T00:00:00Z" || result.Period.UntilExclusiveInstant != "2026-07-01T00:00:00Z" {
+		t.Fatalf("timezone reads=%d period=%+v", tracker.timeReads, result.Period)
+	}
 }
 
 func TestJiraEpicDigestValidatesPeriodAndIncludes(t *testing.T) {
-	service, _ := digestFixture()
+	service, tracker := digestFixture()
 	for _, opts := range []JiraEpicDigestOpts{
 		{Quarter: "2026-Q5"}, {Quarter: "2026-Q2", Since: "2026-01-01", Until: "2026-02-01"},
 		{Since: "2026-01-01"}, {Include: []string{"narrative"}}, {ExpandConfluence: 1}, {ChildLimit: -1},
@@ -113,6 +125,9 @@ func TestJiraEpicDigestValidatesPeriodAndIncludes(t *testing.T) {
 		if _, err := service.EpicDigest(context.Background(), "PROJ-1", opts); !errors.Is(err, domain.ErrUsage) {
 			t.Fatalf("opts=%+v err=%v", opts, err)
 		}
+	}
+	if tracker.timeReads != 0 {
+		t.Fatalf("invalid requests performed %d timezone reads", tracker.timeReads)
 	}
 }
 

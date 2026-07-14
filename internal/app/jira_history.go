@@ -10,15 +10,20 @@ import (
 )
 
 type JiraHistoryOpts struct {
-	Fields []string
-	Since  string
-	Until  string
+	Fields           []string
+	Since            string
+	Until            string
+	boundaryTimeZone string // reuse one already-observed Jira user zone inside a digest
 }
 
 type JiraHistoryFilters struct {
-	Fields []domain.FieldDef `json:"fields,omitempty"`
-	Since  string            `json:"since,omitempty"`
-	Until  string            `json:"until,omitempty"`
+	Fields                 []domain.FieldDef `json:"fields,omitempty"`
+	Since                  string            `json:"since,omitempty"`
+	Until                  string            `json:"until,omitempty"`
+	BoundaryTimeZone       string            `json:"boundary_time_zone,omitempty"`
+	BoundaryTimeZoneSource string            `json:"boundary_time_zone_source,omitempty"`
+	SinceInstant           string            `json:"since_instant,omitempty"`
+	UntilExclusiveInstant  string            `json:"until_exclusive_instant,omitempty"`
 }
 
 type JiraFieldLastChange struct {
@@ -47,6 +52,12 @@ type jiraHistoryBoundary struct {
 	time time.Time
 }
 
+type jiraHistoryBoundaries struct {
+	since    *jiraHistoryBoundary
+	until    *jiraHistoryBoundary
+	timeZone string
+}
+
 // HistoryFiltered returns a provenance-qualified changelog. Jira does not
 // support these filters on the compatible DC endpoints, so filtering happens
 // locally after the adapter has exhausted pagination or labeled its fallback.
@@ -55,17 +66,11 @@ func (s *JiraService) HistoryFiltered(ctx context.Context, key string, opts Jira
 	if key == "" {
 		return nil, fmt.Errorf("%w: issue key is required", domain.ErrUsage)
 	}
-	since, err := parseJiraHistoryBoundary(opts.Since, false)
+	boundaries, err := s.resolveJiraHistoryBoundaries(ctx, opts)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid --since: %v", domain.ErrUsage, err)
+		return nil, err
 	}
-	until, err := parseJiraHistoryBoundary(opts.Until, true)
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid --until: %v", domain.ErrUsage, err)
-	}
-	if since != nil && until != nil && !since.time.Before(until.time) {
-		return nil, fmt.Errorf("%w: --since must be earlier than --until", domain.ErrUsage)
-	}
+	since, until := boundaries.since, boundaries.until
 
 	var defs []domain.FieldDef
 	if len(opts.Fields) > 0 {
@@ -92,7 +97,11 @@ func (s *JiraService) HistoryFiltered(ctx context.Context, key string, opts Jira
 	result := &JiraHistoryResult{
 		Key: key, Complete: snapshot.Complete, Source: snapshot.Source, Total: snapshot.Total,
 		Fetched: len(snapshot.Entries), PartialReason: snapshot.PartialReason,
-		Filters: JiraHistoryFilters{Fields: defs, Since: strings.TrimSpace(opts.Since), Until: strings.TrimSpace(opts.Until)},
+		Filters: JiraHistoryFilters{
+			Fields: defs, Since: strings.TrimSpace(opts.Since), Until: strings.TrimSpace(opts.Until),
+			BoundaryTimeZone: boundaries.timeZone, BoundaryTimeZoneSource: boundaryTimeZoneSource(boundaries.timeZone),
+			SinceInstant: instantString(since), UntilExclusiveInstant: instantString(until),
+		},
 		History: []domain.ChangelogEntry{},
 	}
 	latest := map[string]JiraFieldLastChange{}
@@ -153,12 +162,96 @@ func selectedHistoryField(defs []domain.FieldDef, item domain.ChangelogItem) (do
 	return domain.FieldDef{}, false
 }
 
-func parseJiraHistoryBoundary(raw string, until bool) (*jiraHistoryBoundary, error) {
+func (s *JiraService) resolveJiraHistoryBoundaries(ctx context.Context, opts JiraHistoryOpts) (*jiraHistoryBoundaries, error) {
+	sinceRaw, untilRaw := strings.TrimSpace(opts.Since), strings.TrimSpace(opts.Until)
+	sinceDate, err := jiraBoundaryIsDate(sinceRaw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid --since: %v", domain.ErrUsage, err)
+	}
+	untilDate, err := jiraBoundaryIsDate(untilRaw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid --until: %v", domain.ErrUsage, err)
+	}
+	// Two calendar dates can be ordered before the metadata lookup. Equal dates
+	// are a valid one-day inclusive interval; only a reversed range is invalid.
+	if sinceDate && untilDate && sinceRaw > untilRaw {
+		return nil, fmt.Errorf("%w: --since must be earlier than or equal to --until", domain.ErrUsage)
+	}
+
+	location := time.UTC
+	timeZone := ""
+	if sinceDate || untilDate {
+		timeZone = strings.TrimSpace(opts.boundaryTimeZone)
+		if timeZone == "" {
+			reader, ok := s.tr.(domain.JiraUserTimeZoneReader)
+			if !ok {
+				return nil, fmt.Errorf("%w: Jira current-user timezone is required for date-only period boundaries", domain.ErrCheckFailed)
+			}
+			timeZone, err = reader.CurrentUserTimeZone(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("resolve Jira current-user timezone: %w", err)
+			}
+			timeZone = strings.TrimSpace(timeZone)
+		}
+		if timeZone == "" {
+			return nil, fmt.Errorf("%w: Jira current user did not expose a timezone required for date-only period boundaries", domain.ErrCheckFailed)
+		}
+		location, err = time.LoadLocation(timeZone)
+		if err != nil {
+			return nil, fmt.Errorf("%w: Jira current user returned invalid IANA timezone %q", domain.ErrCheckFailed, timeZone)
+		}
+		timeZone = location.String()
+	}
+
+	since, err := parseJiraHistoryBoundaryIn(sinceRaw, false, location)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid --since: %v", domain.ErrUsage, err)
+	}
+	until, err := parseJiraHistoryBoundaryIn(untilRaw, true, location)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid --until: %v", domain.ErrUsage, err)
+	}
+	if since != nil && until != nil && !since.time.Before(until.time) {
+		return nil, fmt.Errorf("%w: --since must be earlier than --until", domain.ErrUsage)
+	}
+	return &jiraHistoryBoundaries{since: since, until: until, timeZone: timeZone}, nil
+}
+
+// jiraBoundaryIsDate validates one boundary without observing backend state and
+// reports whether it needs the Jira current-user calendar timezone.
+func jiraBoundaryIsDate(raw string) (bool, error) {
+	if raw == "" {
+		return false, nil
+	}
+	if _, err := time.Parse("2006-01-02", raw); err == nil {
+		return true, nil
+	}
+	if _, err := parseJiraHistoryTime(raw); err != nil {
+		return false, fmt.Errorf("want YYYY-MM-DD, RFC3339, or Jira datetime")
+	}
+	return false, nil
+}
+
+func instantString(boundary *jiraHistoryBoundary) string {
+	if boundary == nil {
+		return ""
+	}
+	return boundary.time.UTC().Format(time.RFC3339Nano)
+}
+
+func boundaryTimeZoneSource(timeZone string) string {
+	if timeZone == "" {
+		return ""
+	}
+	return "jira_current_user"
+}
+
+func parseJiraHistoryBoundaryIn(raw string, until bool, location *time.Location) (*jiraHistoryBoundary, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, nil
 	}
-	if parsed, err := time.Parse("2006-01-02", raw); err == nil {
+	if parsed, err := time.ParseInLocation("2006-01-02", raw, location); err == nil {
 		if until {
 			return &jiraHistoryBoundary{time: parsed.AddDate(0, 0, 1)}, nil
 		}

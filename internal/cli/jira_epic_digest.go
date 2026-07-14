@@ -32,9 +32,9 @@ func jiraEpicCmd() *cobra.Command {
 			return emit(cmd, result, func() string { return app.JiraEpicDigestMarkdown(result) })
 		},
 	}
-	digest.Flags().StringVar(&opts.Quarter, "quarter", "", "calendar quarter YYYY-Q1..Q4")
-	digest.Flags().StringVar(&opts.Since, "since", "", "explicit inclusive period start (requires --until)")
-	digest.Flags().StringVar(&opts.Until, "until", "", "explicit inclusive period end (requires --since)")
+	digest.Flags().StringVar(&opts.Quarter, "quarter", "", "Jira-user calendar quarter YYYY-Q1..Q4")
+	digest.Flags().StringVar(&opts.Since, "since", "", "inclusive date (Jira user zone) or explicit timestamp; requires --until")
+	digest.Flags().StringVar(&opts.Until, "until", "", "inclusive date (Jira user zone) or explicit timestamp; requires --since")
 	digest.Flags().StringArrayVar(&opts.Include, "include", nil, "evidence source (repeat/comma: identity,status-field,children,comments,links,history,refs,confluence)")
 	digest.Flags().StringVar(&opts.StatusField, "status-field", "", "exact id or display name of the narrative status field")
 	digest.Flags().StringVar(&opts.DoDField, "dod-field", "", "exact id or display name of an additional DoD/evidence field")

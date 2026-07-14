@@ -467,8 +467,8 @@ func jiraIssueCmd() *cobra.Command {
 		},
 	}
 	history.Flags().StringArrayVar(&historyFields, "field", nil, "exact field id or display name to include (repeatable)")
-	history.Flags().StringVar(&historySince, "since", "", "include changes at/after date or timestamp")
-	history.Flags().StringVar(&historyUntil, "until", "", "include changes through date or timestamp")
+	history.Flags().StringVar(&historySince, "since", "", "include changes at/after date (Jira user zone) or explicit timestamp")
+	history.Flags().StringVar(&historyUntil, "until", "", "include changes through date (Jira user zone) or explicit timestamp")
 
 	comment := jiraCommentCmd()
 	link := jiraLinkCmd()

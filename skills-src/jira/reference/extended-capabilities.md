@@ -48,6 +48,12 @@ links/blockers, refs, and configured narrative fields. Check every source's
 does not write a subjective summary. Optional Confluence expansion requires an
 exact heading and remains same-origin/bounded.
 
+Quarter/date-only periods are calendar ranges in the observed Jira current-user
+IANA timezone. Inspect the returned zone/source and canonical UTC instants;
+digest resolves the zone once and reuses it for history. Explicit-offset
+RFC3339 bounds are already absolute and add no timezone GET. Never rewrite raw
+JQL to imitate this high-level local filtering.
+
 ## Guarded bulk links and plans
 
 Use `jira issue link suggest --csv ...` before bulk link work. Plan CSV requires
