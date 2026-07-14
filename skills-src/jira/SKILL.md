@@ -212,7 +212,9 @@ metadata GETs, no search, and is never invoked automatically.
 High-level date-only `issue history` and `epic digest` periods do observe that
 current-user timezone once per command and expose their canonical UTC interval;
 digest reuses it for nested history. Explicit-offset RFC3339 boundaries skip
-the lookup. This affects only local period filtering, never raw JQL.
+the lookup. Midnight gaps/folds include every real instant of the civil date;
+a fully skipped requested date is exit 8, never a silently shifted range. This
+affects only local period filtering, never raw JQL or backend request count.
 
 If repeated work reveals a useful Jira field id, selector, or render preference, do not edit agent
 memory silently. Offer the `onboarding` skill's consent-gated learning flow. Load only

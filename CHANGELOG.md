@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Date-only Jira analytics now derive civil-day bounds from the first and last
+  real instants in the observed user timezone, so midnight gaps/folds cannot
+  omit evidence. A fully skipped requested date fails closed; explicit-offset
+  timestamps and the single metadata lookup contract are unchanged.
+
 - Incremental Confluence preflight now proves byte-clean supported legacy
   Markdown views against their exact legacy marker, reports the migration count,
   and lets the successful pull rewrite them in the current format. Edited legacy

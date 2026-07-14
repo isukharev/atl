@@ -2471,8 +2471,12 @@ RFC3339, or Jira datetime values. Date boundaries are inclusive: an `--until`
 date includes that entire calendar day in the observed Jira current-user IANA
 timezone. Atl reads that preference once per top-level command, fails closed if
 it is missing/invalid, and reports `boundary_time_zone`, its source, plus
-canonical `since_instant` / `until_exclusive_instant`. An explicit-offset
-RFC3339 boundary is already absolute, performs no timezone metadata GET, and
+canonical `since_instant` / `until_exclusive_instant`. Midnight gaps and folds
+are resolved from the first and last real instants belonging to that civil
+date, rather than normalizing a nonexistent `00:00`; this prevents an inclusive
+end date from omitting evidence. A fully skipped requested date is exit 8. This
+resolution is local and does not add another metadata or search request. An
+explicit-offset RFC3339 boundary is already absolute, performs no timezone metadata GET, and
 leaves the boundary-zone fields absent. Jira's compatible changelog APIs do not
 provide these filters, so `atl` first reads the qualified snapshot and then
 filters locally; `fetched` and `total` describe the pre-filter read, while

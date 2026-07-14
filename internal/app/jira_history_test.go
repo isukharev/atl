@@ -79,6 +79,36 @@ func TestHistoryCalendarBoundariesFollowCurrentUserTimeZoneAndDST(t *testing.T) 
 	}
 }
 
+func TestHistoryCalendarBoundariesCoverMidnightGapsFoldsAndSkippedNextDate(t *testing.T) {
+	for _, tc := range []struct {
+		name, zone, date, since, until string
+	}{
+		{"midnight gap Havana", "America/Havana", "2026-03-08", "2026-03-08T05:00:00Z", "2026-03-09T04:00:00Z"},
+		{"midnight fold Havana", "America/Havana", "2026-11-01", "2026-11-01T04:00:00Z", "2026-11-02T05:00:00Z"},
+		{"midnight gap Santiago", "America/Santiago", "2026-09-06", "2026-09-06T04:00:00Z", "2026-09-07T03:00:00Z"},
+		{"next date skipped Apia", "Pacific/Apia", "2011-12-29", "2011-12-29T10:00:00Z", "2011-12-30T10:00:00Z"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tracker := &historyTracker{timeZone: tc.zone, snapshot: &domain.ChangelogSnapshot{Complete: true}}
+			result, err := (&JiraService{tr: tracker}).HistoryFiltered(context.Background(), "PROJ-1", JiraHistoryOpts{Since: tc.date, Until: tc.date})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tracker.timeZoneCalls != 1 || result.Filters.SinceInstant != tc.since || result.Filters.UntilExclusiveInstant != tc.until {
+				t.Fatalf("calls=%d filters=%+v", tracker.timeZoneCalls, result.Filters)
+			}
+		})
+	}
+}
+
+func TestHistoryCalendarBoundaryRejectsFullySkippedCivilDate(t *testing.T) {
+	tracker := &historyTracker{timeZone: "Pacific/Apia", snapshot: &domain.ChangelogSnapshot{Complete: true}}
+	_, err := (&JiraService{tr: tracker}).HistoryFiltered(context.Background(), "PROJ-1", JiraHistoryOpts{Since: "2011-12-30"})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "has no real instant") || tracker.timeZoneCalls != 1 {
+		t.Fatalf("calls=%d err=%v", tracker.timeZoneCalls, err)
+	}
+}
+
 func TestHistoryExplicitInstantsNeedNoUserTimeZoneRead(t *testing.T) {
 	tracker := &historyTracker{snapshot: &domain.ChangelogSnapshot{Complete: true}}
 	result, err := (&JiraService{tr: tracker}).HistoryFiltered(context.Background(), "PROJ-1", JiraHistoryOpts{
