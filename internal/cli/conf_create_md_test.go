@@ -154,16 +154,16 @@ func TestConfPageCreate_FromMDEmptyValue(t *testing.T) {
 	}
 }
 
-// TestConfPageCreate_FromMDMissingFile pins the exit for an unreadable path:
-// a bare read error, generic exit 1 (consistent with --from-file).
+// TestConfPageCreate_FromMDMissingFile pins missing local input to the shared
+// not-found sentinel before any backend request.
 func TestConfPageCreate_FromMDMissingFile(t *testing.T) {
 	cs := newConfServer(t)
 
 	_, code := runCLI(t, confEnv(cs.srv),
 		"conf", "page", "create", "--space", "ENG", "--title", "T",
 		"--from-md", filepath.Join(t.TempDir(), "nope.md"))
-	if code != exitGeneric {
-		t.Fatalf("missing --from-md file: exit %d, want %d", code, exitGeneric)
+	if code != exitNotFound {
+		t.Fatalf("missing --from-md file: exit %d, want %d", code, exitNotFound)
 	}
 	if reqs := cs.requests(); len(reqs) != 0 {
 		t.Fatalf("expected zero requests, got %d: %+v", len(reqs), reqs)

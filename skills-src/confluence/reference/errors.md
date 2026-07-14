@@ -34,9 +34,12 @@ into the new mirror. Also review every derived `.md` against its regenerated
 view so unapplied Markdown edits are preserved and deliberately reapplied.
 Only retire the corrupt root after every local edit is accounted for.
 
-Missing local targets for render/apply/push are exit 4; correct the path rather
-than changing flags. A transport error's coarse category is safe routing
-information only; `timeout` or `network` does not make a write replay-safe.
+Missing local body inputs and targets for validate/render/apply/push are exit 4;
+correct the path rather than changing flags. A target-less `conf diff` without
+a discoverable mirror names the attempted root: run `conf pull --into <root>`
+or pass the intended `--into`. A transport error's coarse category is safe
+routing information only; `timeout` or `network` does not make a write
+replay-safe.
 
 If a tool failure remains misleading or repeatedly costly, offer the `atl`
 skill's consent-gated feedback flow. Public reports must be sanitized; private

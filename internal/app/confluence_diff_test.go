@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,6 +99,22 @@ func TestConfluenceDiffRejectsTargetOutsideExplicitRoot(t *testing.T) {
 	outside := writeDiffPage(t, t.TempDir(), "104", "outside", `<p>x</p>`)
 	if result, err := DiffConfluenceMirror(outside, root); err == nil || result != nil {
 		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
+func TestConfluenceDiffMissingRootNamesRecoveryPath(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "missing-mirror")
+	result, err := DiffConfluenceMirror("", root)
+	if err == nil || result != nil {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("err=%v, want ErrNotFound", err)
+	}
+	for _, want := range []string{root, "conf pull --into", "pass --into"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("err=%q, want %q", err, want)
+		}
 	}
 }
 
