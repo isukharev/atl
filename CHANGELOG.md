@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Incremental Confluence preflight now proves byte-clean supported legacy
+  Markdown views against their exact legacy marker, reports the migration count,
+  and lets the successful pull rewrite them in the current format. Edited legacy
+  and unknown/future views remain blocked before body reads or local writes.
+
 - Date-only Jira history filters and epic quarters now use the observed current
   user's IANA timezone instead of UTC, expose their canonical UTC interval, and
   reuse one metadata lookup throughout a digest. Explicit-offset timestamps

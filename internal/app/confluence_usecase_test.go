@@ -905,8 +905,8 @@ func TestPullRelocationRejectsPartiallyRemovedOldPrimaryArtifacts(t *testing.T) 
 	}
 }
 
-func TestPullRelocationExplainsLegacyViewMigration(t *testing.T) {
-	for _, marker := range []string{"<!-- atl:document confluence-page v2 -->", "<!-- atl:document confluence-page v1 -->", "<!-- atl:document confluence-page -->"} {
+func TestPullRelocationMigratesByteCleanLegacyView(t *testing.T) {
+	for _, marker := range []string{"<!-- atl:document confluence-page v3 -->", "<!-- atl:document confluence-page v2 -->", "<!-- atl:document confluence-page v1 -->", "<!-- atl:document confluence-page -->"} {
 		t.Run(marker, func(t *testing.T) {
 			into := t.TempDir()
 			page := &domain.Resource{ID: "100", Title: "Old", SpaceKey: "SP", Version: 1, Body: []byte("<p>body</p>")}
@@ -926,9 +926,17 @@ func TestPullRelocationExplainsLegacyViewMigration(t *testing.T) {
 				t.Fatal(err)
 			}
 			page.Title, page.Version = "New", 2
-			_, err = svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
-			if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "legacy document format") || !strings.Contains(err.Error(), "conf render") {
-				t.Fatalf("legacy relocation error = %v", err)
+			res, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
+			if err != nil || len(res.Pages) != 1 {
+				t.Fatalf("legacy relocation result=%+v error=%v", res, err)
+			}
+			newMD := strings.TrimSuffix(filepath.Join(into, res.Pages[0].Path), ".csf") + ".md"
+			migrated, err := os.ReadFile(newMD)
+			if err != nil || mirror.ConfluenceDocumentMarkerLine(string(migrated)) != mirror.ConfluenceDocumentMarker {
+				t.Fatalf("migrated view marker=%q error=%v", mirror.ConfluenceDocumentMarkerLine(string(migrated)), err)
+			}
+			if _, err := os.Stat(mdPath); !os.IsNotExist(err) {
+				t.Fatalf("legacy path was not retired: %v", err)
 			}
 		})
 	}

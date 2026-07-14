@@ -33,6 +33,10 @@ atl conf pull --incremental --cql '<stable CQL without ORDER BY>' \
 atl conf pull --incremental --cql '<same CQL>' --into <root>
 ```
 
+`view_migrations` counts supported legacy `.md` views proven byte-clean during
+incremental preflight. They migrate only as the corresponding page pull
+succeeds; edited legacy and unknown/future views fail before body reads.
+
 Read-only page selectors accept stable ids, same-origin canonical/viewpage/REST
 URLs, exact display URLs, and one `/x/` redirect. Resolve once when several
 commands share a reference. Never send foreign URLs or replace exact resolution

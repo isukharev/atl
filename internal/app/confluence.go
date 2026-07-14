@@ -292,9 +292,11 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 			return nil, err
 		}
 		ids = incremental.ids
-		if err := preflightIncrementalOverwrite(m, ids); err != nil {
-			return nil, err
+		viewMigrations, preflightErr := preflightIncrementalOverwrite(m, ids)
+		if preflightErr != nil {
+			return nil, preflightErr
 		}
+		incremental.result.ViewMigrations = viewMigrations
 	} else {
 		if o.TimeZone != "" {
 			return nil, fmt.Errorf("%w: --time-zone was removed; pass an explicit offset in RFC3339 --since instead", domain.ErrUsage)
@@ -479,6 +481,19 @@ func planConfluencePageRelocation(m *mirror.Mirror, id, newRel string) (*mirror.
 			}
 		}
 		md = mirror.RenderMarkdownOpts(node, lc.Meta.Refs, opts)
+	}
+	actualMD, err := safepath.ReadFileWithin(m.Root, oldBase+".md")
+	if err != nil {
+		return nil, fmt.Errorf("%w: inspect tracked relocation Markdown %s: %v", domain.ErrCheckFailed, oldBase+".md", err)
+	}
+	migrates, matchErr := matchConfluencePristineView(actualMD, md)
+	if matchErr != nil {
+		return nil, fmt.Errorf("%w: tracked relocation page %s %v", domain.ErrCheckFailed, id, matchErr)
+	}
+	if migrates {
+		// The mirror primitive revalidates this exact legacy hash immediately
+		// before retirement. The newly published path is still rendered current.
+		md = actualMD
 	}
 	return m.PlanPageRelocation(id, newRel, md)
 }
