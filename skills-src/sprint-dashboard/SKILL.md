@@ -22,7 +22,9 @@ or a command exits `7` ("not configured"), run `{{atl.setup_cmd}}` and stop.
 
 ### 1. Resolve scope
 
+<!-- atl:read-only-shell -->
 ```sh
+export ATL_READ_ONLY=1
 atl jira board list --project KEY          # find the board id
 atl jira sprint current --board <id>       # exit 4 = no active sprint
 ```
@@ -33,7 +35,9 @@ filter rather than a board, go straight to JQL.
 
 ### 2. Fetch the data
 
+<!-- atl:read-only-shell -->
 ```sh
+export ATL_READ_ONLY=1
 atl jira sprint issues <sprintId> --columns position,key,summary,status,assignee,priority,issuetype,updated
 ```
 

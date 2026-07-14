@@ -15,8 +15,12 @@ import (
 const readOnlyShellMarker = "<!-- atl:read-only-shell -->"
 
 var requiredReadOnlySkillBlocks = map[string]int{
+	"skills-src/meeting-tasks/SKILL.md":    2,
+	"skills-src/spec-to-backlog/SKILL.md":  1,
+	"skills-src/sprint-dashboard/SKILL.md": 2,
 	"skills-src/status-report/SKILL.md":    4,
 	"skills-src/search-knowledge/SKILL.md": 5,
+	"skills-src/triage-issue/SKILL.md":     2,
 }
 
 type skillSafetyReport struct {

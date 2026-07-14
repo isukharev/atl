@@ -385,6 +385,7 @@ atl jira issue fields PROJ-1 # compact non-empty named fields by default
 atl jira issue fields PROJ-1 --metadata-only # lower-token field inventory, no values
 atl jira issue fields PROJ-1 --field "Delivery Notes"
 atl jira issue history PROJ-1 --field "Delivery Notes" --since 2026-04-01
+atl jira issue refs PROJ-1 --fields "Delivery Notes" # qualified artifact links
 # Calendar dates/quarters use one observed Jira current-user timezone lookup;
 # RFC3339 with an explicit offset stays exact and skips that lookup.
 # Midnight gaps/folds cover the whole real civil day; a skipped date fails closed.
@@ -397,6 +398,14 @@ atl jira issue view PROJ-1 -o text   # configured Markdown, no files written
 atl jira issue search --jql 'project = PROJ AND status = "In Progress"' --columns key,summary,status,assignee
 atl jira issue search --jql 'project = PROJ' --view full
 atl jira issue children PROJ-100 --columns key,summary,status,assignee
+atl jira board view 5 -o text                  # normalized Kanban/Scrum view
+atl jira sprint current --board 5              # resolve the active sprint
+atl jira structure folders 123                 # discover exact stored subtrees
+atl jira structure view 123 --folder-id 100 -o text
+atl jira planning report --jql 'project = PROJ' --limit 100
+atl jira quality-report --jql 'project = PROJ' # compatibility alias
+atl jira issue link suggest --csv links.csv     # read-only candidate analysis
+atl profile show --section render_defaults --service jira
 atl jira issue worklog list PROJ-1 -o text
 atl jira issue attachment list PROJ-1
 atl jira issue attachment get PROJ-1 --id spec.xlsx --into ./attachments
@@ -407,6 +416,7 @@ atl jira pull --jql 'project = PROJ AND status = Open' --assets
 # Choose how much the .md view shows: minimal | default | full (see docs/usage.md)
 atl jira pull --jql 'project = PROJ' --render-profile full
 atl jira render mirror-jira --render-profile default   # re-render offline, no re-pull
+atl manifest create --root mirror-jira --service jira --selector 'jql=project = PROJ'
 # Pull/render refuse unknown future .md formats; render warns for every unreadable snapshot.
 # Typed custom fields (readable metadata/date/list rendering) and identity-checked epic children
 # are configured per mirror; see docs/usage.md
@@ -466,7 +476,7 @@ atl jira field-options --project PROJ --field <field-id>
 | 5 | Version conflict (optimistic lock) |
 | 6 | Forbidden (token lacks permission) |
 | 7 | Invalid/incomplete configuration — for example a missing URL/PAT or invalid named view |
-| 8 | Check failed — `jira issue check` found empty required fields |
+| 8 | Safety/check refusal — incomplete evidence, stale/drifted state, invalid derived view, active lock, or required-field failure |
 
 `7` vs `3`: `7` means "finish setup" (no URL/token); `3` means "replace the token" (it was refused).
 JSON errors also include stable `kind` and `remediation` fields derived from

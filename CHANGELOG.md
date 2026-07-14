@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- Durable derived Markdown views now use Confluence format v4 and Jira format
+  v3. Before editing or applying an older pristine view, run `conf render` or
+  `jira render` (or pull into a fresh root). Incremental Confluence pull
+  migrates legacy views only after proving their bytes pristine. If an old view
+  contains local edits, preserve them and follow the exit-8 recovery instead of
+  rendering over them; unknown future markers are never downgraded.
+
 ### Changed
 
 - The opt-in live smoke workflow now exercises the versioned guarded-plan CSV,
@@ -270,16 +279,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refreshes Context7 without making third-party availability part of release
   success. A manual workflow provides safe refresh retries.
 
-- **Confluence durable views use document format v3.** The optional generated
-  Jira-query suffix changes readonly bytes, so v2/v1/unversioned views receive
-  explicit migration guidance and offline render upgrades known legacy views
-  while continuing to refuse future markers.
+- **Confluence durable views use document format v4.** Generated Jira-query
+  sections and display-zone state changed readonly bytes during this beta
+  cycle, so v3/v2/v1/unversioned views receive explicit migration guidance and
+  offline render upgrades known legacy views while refusing future markers.
 
-- **Jira durable views use document format v2.** The generated Subtasks and
-  Epic Children tables changed read-only bytes, so v1/unversioned views now
-  receive explicit migration guidance instead of being compared against a v2
-  pristine render. Offline `jira render` migrates known legacy views and still
-  refuses future markers.
+- **Jira durable views use document format v3.** Generated Subtasks/Epic
+  Children tables and display-zone state changed readonly bytes, so
+  v2/v1/unversioned views receive explicit migration guidance instead of being
+  compared against a current pristine render. Offline `jira render` migrates
+  known legacy views and still refuses future markers.
 
 - **Issue-list projection is now `--columns`.** During beta, list-oriented Jira
   commands replace their duplicated `--fields`/TSV surfaces with ordered

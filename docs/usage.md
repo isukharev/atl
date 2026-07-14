@@ -206,6 +206,13 @@ in the owner-only global `config.json` (under `ATL_CONFIG_DIR`, normally
 `~/.config/atl/`) or remove that key. A process environment guard must be
 removed by the process launcher.
 
+Guarded write commands intentionally do not share one confirmation spelling.
+For example, `conf push --dry-run` opts into preview, `jira push` previews by
+default and writes with `--apply`, field/title operations bind `--apply` to a
+reviewed proposal hash, and batch plans additionally require `--confirm APPLY`.
+Agents must follow each command's current `--help`/skill recipe and must not
+infer write permission from another command's flags.
+
 ### `atl config show`
 
 Print the resolved configuration (file + env overlay).
@@ -1992,7 +1999,10 @@ Flags:
 | flag | description |
 |---|---|
 | `PROJ-1` | issue key (positional, required) |
-| `--fields` | comma-separated field list to restrict the response |
+| `--field` | exact field id or display name to select (repeatable) |
+| `--metadata-only` | emit field metadata and value type without field values |
+| `--include-empty` | include empty catalog fields in addition to observed fields |
+| `--raw` | emit unprojected values (may contain private contact/transport data) |
 
 ### `atl jira issue view`
 
