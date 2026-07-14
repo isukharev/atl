@@ -546,9 +546,13 @@ func canonicalConfluenceDiffPaths(target, into string) (root, canonicalTarget st
 	if root == "" {
 		root = mirrorRootOf(target)
 	}
-	root, err = evalSymlinksAbsolute(root)
+	requestedRoot := root
+	root, err = evalSymlinksAbsolute(requestedRoot)
 	if err != nil {
-		return "", "", localConfluenceTargetError("diff root", root, err)
+		if os.IsNotExist(err) {
+			return "", "", fmt.Errorf("%w: no Confluence mirror found at %q; run conf pull --into %q or pass --into", domain.ErrNotFound, requestedRoot, requestedRoot)
+		}
+		return "", "", localConfluenceTargetError("diff root", requestedRoot, err)
 	}
 	canonicalTarget, err = evalSymlinksAllowMissing(target)
 	if err != nil {

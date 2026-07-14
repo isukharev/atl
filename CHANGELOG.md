@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Missing local Confluence body inputs now use the stable not-found sentinel,
+  and an offline diff without a discoverable mirror preserves the attempted
+  root in an actionable pull/`--into` diagnostic.
+
 - Date-only Jira analytics now derive civil-day bounds from the first and last
   real instants in the observed user timezone, so midnight gaps/folds cannot
   omit evidence. A fully skipped requested date fails closed; explicit-offset

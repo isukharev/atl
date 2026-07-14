@@ -315,7 +315,14 @@ func readBody(path string) ([]byte, error) {
 		}
 		return readBounded(os.Stdin, stdinBodyCap)
 	default:
-		return os.ReadFile(path)
+		body, err := os.ReadFile(path)
+		if err == nil {
+			return body, nil
+		}
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("%w: body file %q does not exist", domain.ErrNotFound, path)
+		}
+		return nil, fmt.Errorf("%w: read body file %q: %v", domain.ErrCheckFailed, path, err)
 	}
 }
 
