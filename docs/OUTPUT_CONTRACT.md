@@ -1096,6 +1096,11 @@ after the qualified read. A date-only boundary adds
 `filters.boundary_time_zone`, `boundary_time_zone_source:"jira_current_user"`,
 and canonical `since_instant` / `until_exclusive_instant`; atl performs one
 current-user metadata GET and uses the observed IANA calendar (including DST).
+For each requested civil date, the canonical interval spans from its first real
+instant through one second after its last real instant. This includes midnight
+gaps, folds, and historical repeated-date transitions without omitting
+evidence; an entirely skipped requested date has no truthful boundary and fails
+closed with exit 8. The local calculation adds no backend request.
 Explicit-offset boundaries add only their canonical instant fields and perform
 no timezone lookup. Missing/invalid required user timezone fails closed with
 exit 8. `last_changes` reports the newest matching change per

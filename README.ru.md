@@ -388,6 +388,7 @@ atl jira issue fields PROJ-1 --field "Delivery Notes"
 atl jira issue history PROJ-1 --field "Delivery Notes" --since 2026-04-01
 # Календарные даты/кварталы используют timezone текущего пользователя Jira;
 # RFC3339 с явным offset остаётся точным и не требует этого metadata GET.
+# Пропуски/повторы полуночи охватывают весь civil day; пропущенная дата — exit 8.
 # --keys/--ids сохраняют порядок селекторов после дедупликации; отсутствующие задачи пропускаются
 atl jira export --keys PROJ-1,PROJ-2 --fields "Delivery Notes" --out - | jq -s '.'
 atl conf page resolve 'https://confluence.example.test/spaces/ENG/pages/42/Page'

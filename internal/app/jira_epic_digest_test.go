@@ -116,6 +116,20 @@ func TestJiraEpicDigestJoinsDatedEvidence(t *testing.T) {
 	}
 }
 
+func TestJiraEpicDigestUsesCivilDayBoundsAcrossMidnightGap(t *testing.T) {
+	service, tracker := digestFixture()
+	tracker.timeZone = "America/Havana"
+	result, err := service.EpicDigest(context.Background(), "PROJ-1", JiraEpicDigestOpts{
+		Since: "2026-03-08", Until: "2026-03-08", Include: []string{"identity"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tracker.timeReads != 1 || result.Period.SinceInstant != "2026-03-08T05:00:00Z" || result.Period.UntilExclusiveInstant != "2026-03-09T04:00:00Z" {
+		t.Fatalf("timezone reads=%d period=%+v", tracker.timeReads, result.Period)
+	}
+}
+
 func TestJiraEpicDigestValidatesPeriodAndIncludes(t *testing.T) {
 	service, tracker := digestFixture()
 	for _, opts := range []JiraEpicDigestOpts{

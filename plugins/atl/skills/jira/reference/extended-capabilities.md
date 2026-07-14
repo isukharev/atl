@@ -52,7 +52,9 @@ exact heading and remains same-origin/bounded.
 Quarter/date-only periods are calendar ranges in the observed Jira current-user
 IANA timezone. Inspect the returned zone/source and canonical UTC instants;
 digest resolves the zone once and reuses it for history. Explicit-offset
-RFC3339 bounds are already absolute and add no timezone GET. Never rewrite raw
+RFC3339 bounds are already absolute and add no timezone GET. Midnight gaps and
+folds cover every real instant of the requested date; a fully skipped date is a
+fail-closed boundary error. Never rewrite raw
 JQL to imitate this high-level local filtering.
 
 ## Guarded bulk links and plans

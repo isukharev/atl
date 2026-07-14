@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -57,6 +58,8 @@ type jiraHistoryBoundaries struct {
 	until    *jiraHistoryBoundary
 	timeZone string
 }
+
+var errJiraCivilDateUnavailable = errors.New("jira civil date has no real instant")
 
 // HistoryFiltered returns a provenance-qualified changelog. Jira does not
 // support these filters on the compatible DC endpoints, so filtering happens
@@ -205,10 +208,16 @@ func (s *JiraService) resolveJiraHistoryBoundaries(ctx context.Context, opts Jir
 
 	since, err := parseJiraHistoryBoundaryIn(sinceRaw, false, location)
 	if err != nil {
+		if errors.Is(err, errJiraCivilDateUnavailable) {
+			return nil, fmt.Errorf("%w: cannot resolve --since: %v", domain.ErrCheckFailed, err)
+		}
 		return nil, fmt.Errorf("%w: invalid --since: %v", domain.ErrUsage, err)
 	}
 	until, err := parseJiraHistoryBoundaryIn(untilRaw, true, location)
 	if err != nil {
+		if errors.Is(err, errJiraCivilDateUnavailable) {
+			return nil, fmt.Errorf("%w: cannot resolve --until: %v", domain.ErrCheckFailed, err)
+		}
 		return nil, fmt.Errorf("%w: invalid --until: %v", domain.ErrUsage, err)
 	}
 	if since != nil && until != nil && !since.time.Before(until.time) {
@@ -251,11 +260,15 @@ func parseJiraHistoryBoundaryIn(raw string, until bool, location *time.Location)
 	if raw == "" {
 		return nil, nil
 	}
-	if parsed, err := time.ParseInLocation("2006-01-02", raw, location); err == nil {
-		if until {
-			return &jiraHistoryBoundary{time: parsed.AddDate(0, 0, 1)}, nil
+	if parsed, err := time.Parse("2006-01-02", raw); err == nil {
+		start, end, boundsErr := jiraCivilDateBounds(parsed, location)
+		if boundsErr != nil {
+			return nil, boundsErr
 		}
-		return &jiraHistoryBoundary{time: parsed}, nil
+		if until {
+			return &jiraHistoryBoundary{time: end}, nil
+		}
+		return &jiraHistoryBoundary{time: start}, nil
 	}
 	parsed, err := parseJiraHistoryTime(raw)
 	if err != nil {
@@ -265,6 +278,34 @@ func parseJiraHistoryBoundaryIn(raw string, until bool, location *time.Location)
 		parsed = parsed.Add(time.Nanosecond)
 	}
 	return &jiraHistoryBoundary{time: parsed}, nil
+}
+
+// jiraCivilDateBounds returns the smallest continuous UTC interval containing
+// every real instant whose localized calendar date equals date. IANA offsets
+// and transitions have whole-second precision in Go's time package, so a
+// second-granularity scan finds exact boundaries even when midnight is skipped
+// or repeated. A wide fixed window covers the IANA offset range and historical
+// date-line jumps without consulting the backend or the host timezone.
+func jiraCivilDateBounds(date time.Time, location *time.Location) (time.Time, time.Time, error) {
+	const radius = 48 * time.Hour
+	year, month, day := date.Date()
+	center := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+	var first, last time.Time
+	for candidate, limit := center.Add(-radius), center.Add(radius); !candidate.After(limit); candidate = candidate.Add(time.Second) {
+		local := candidate.In(location)
+		localYear, localMonth, localDay := local.Date()
+		if localYear != year || localMonth != month || localDay != day {
+			continue
+		}
+		if first.IsZero() {
+			first = candidate
+		}
+		last = candidate
+	}
+	if first.IsZero() {
+		return time.Time{}, time.Time{}, fmt.Errorf("%w: %s in %s", errJiraCivilDateUnavailable, date.Format("2006-01-02"), location)
+	}
+	return first, last.Add(time.Second), nil
 }
 
 func parseJiraHistoryTime(raw string) (time.Time, error) {

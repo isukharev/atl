@@ -52,7 +52,9 @@ For history, `complete:false` means absence is unproven. Use `last_changes` for
 the selected field; do not infer recency from array position. For date-only
 periods, retain `boundary_time_zone` and the canonical instant fields as part of
 the evidence. One current-user GET is expected per top-level history/digest
-command; a digest reuses it. Explicit-offset RFC3339 bounds skip it. Exit 8 on an
+command; a digest reuses it. Midnight gaps/folds are represented by the complete
+real civil-day interval, while a fully skipped date fails closed. Explicit-offset
+RFC3339 bounds skip the lookup. Exit 8 on an
 unsupported matching timestamp means recency is unknowable, not that no change
 exists.
 
