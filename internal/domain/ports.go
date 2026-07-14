@@ -61,6 +61,13 @@ type CompletePageSearcher interface {
 	SearchComplete(ctx context.Context, query string, limit int, cursor string) (PageSearchPage, error)
 }
 
+// ConfluenceTimeSemanticsReader is the narrow, optional metadata capability
+// used by environment diagnostics. It must perform only the current-user GET;
+// a user timezone is an observed preference, not proof of CQL parser semantics.
+type ConfluenceTimeSemanticsReader interface {
+	CurrentUserTimeZone(ctx context.Context) (string, error)
+}
+
 // BlogPostCreator is an optional Confluence-specific content capability.
 // Keeping it outside DocStore avoids teaching generic document backends that a
 // blog post is a page subtype or exposing an arbitrary caller-controlled type.
@@ -170,6 +177,14 @@ type ChangelogSnapshot struct {
 // Tracker port while Jira can expose pagination/completeness metadata.
 type CompleteChangelogReader interface {
 	CompleteChangelog(ctx context.Context, key string) (*ChangelogSnapshot, error)
+}
+
+// JiraTimeSemanticsReader is the narrow, optional metadata capability used by
+// environment diagnostics. ServerTime and CurrentUserTimeZone are separate so
+// a missing/unsupported fact does not hide the other one.
+type JiraTimeSemanticsReader interface {
+	ServerTime(ctx context.Context) (string, error)
+	CurrentUserTimeZone(ctx context.Context) (string, error)
 }
 
 // Tracker is the port for an issue tracker (Jira today; Linear/GitLab later).

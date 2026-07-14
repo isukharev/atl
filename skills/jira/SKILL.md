@@ -197,6 +197,19 @@ the mirror. It never changes JQL or exact snapshot timestamps. The chosen zone
 is recorded with each view so offline render/apply is independent of process
 `TZ`.
 
+For date-bound JQL, inspect the distinction once rather than reading it from a
+rendered issue:
+
+```bash
+export ATL_READ_ONLY=1
+atl environment inspect
+```
+
+Treat `jira.server_utc_offset` as only a numeric observed clock offset and
+`jira.jql_time_zone` as an explicitly labelled assumption from the observed
+current-user timezone. Raw JQL is sent unchanged. The diagnostic uses two Jira
+metadata GETs, no search, and is never invoked automatically.
+
 If repeated work reveals a useful Jira field id, selector, or render preference, do not edit agent
 memory silently. Offer the `onboarding` skill's consent-gated learning flow. Load only
 `atl profile show --section schema --service jira` or the corresponding `selectors` slice;

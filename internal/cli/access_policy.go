@@ -145,6 +145,7 @@ completion powershell
 completion zsh
 config set
 config show
+environment inspect
 help
 jira apply
 jira board backlog

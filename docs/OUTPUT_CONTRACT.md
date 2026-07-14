@@ -564,6 +564,48 @@ gating. When any page's comment listing is truncated, the result carries
 `comments_truncated: true` and the CLI writes a stderr warning; the JSON on
 stdout stays clean.
 
+### Environment time diagnostics
+
+`atl environment inspect` emits an identity- and URL-free
+`EnvironmentInspectResult`:
+
+```json
+{
+  "complete": true,
+  "display_time_zone": {"value":"UTC","evidence":"default","source":"default"},
+  "jira": {
+    "configured": true,
+    "status": "available",
+    "server_utc_offset": {"value":"+00:00","evidence":"observed","source":"jira_server_time"},
+    "user_time_zone": {"value":"Europe/Berlin","evidence":"observed","source":"jira_current_user"},
+    "jql_time_zone": {"value":"Europe/Berlin","evidence":"assumed","source":"jira_current_user_time_zone"}
+  },
+  "confluence": {
+    "configured": true,
+    "status": "partial",
+    "user_time_zone": {"evidence":"unknown","source":"confluence_current_user","reason":"field_not_returned"},
+    "cql_time_zone": {"evidence":"unknown","source":"confluence_cql","reason":"not_exposed_by_backend_metadata"}
+  },
+  "confluence_incremental": {
+    "query_literal_time_zone": {"value":"UTC","evidence":"configured","source":"incremental_protocol_v2"},
+    "backend_query_time_zone": {"evidence":"unknown","source":"confluence_cql","reason":"not_exposed_by_backend_metadata"},
+    "safety_overlap_hours": 48,
+    "exact_timestamp_filter": true,
+    "hidden_calibration_requests": false
+  }
+}
+```
+
+`evidence` is the closed set `observed|configured|default|assumed|unknown`.
+Unknown facts omit `value` and use a closed privacy-safe `reason`; raw transport
+or backend error text is never embedded. Backend `status` is
+`available|partial|unavailable|not_configured|credentials_missing|credentials_unavailable|invalid_configuration`.
+`complete` is false when a configured backend is not `available`; unconfigured
+backends remain explicit but do not make another backend incomplete. With both
+services available the command makes exactly three sequential GETs and no
+search/content request. The command is read-only-policy compatible and has JSON
+and text projections.
+
 `atl config show` emits `{ "read_only", "confluence_url"?, "jira_url"?, "update_base_url"?, "render", "jira_list_views", "jira_list_views_error"?, "render_provenance"?, "local_config_path"?, "mirror" }`. `render` is the **effective** merged render configuration (always present; `display_time_zone` defaults to deterministic `UTC`, and both `jira` and `confluence` sections carry at least `profile`, defaulting to `default`). `render_provenance` maps each dotted render key whose value is *not* the built-in default to its source (`global` or `local`) and is `omitempty` — an all-default mirror emits none, keeping the shape backward-compatible. `local_config_path` appears only when a per-mirror `.atl/config.json` is in scope from the current directory. Warnings about forbidden/unknown keys in a local file go to **stderr** as `warning:` lines; stdout stays clean. `config set` accepts `safety.read_only`, Jira list views, or a positional dotted render key (`render.display_time_zone`, `render.{jira,confluence}.{profile,include,exclude}`, plus `render.jira.custom_fields`, `render.jira.field_views`, and `render.jira.epic_field`) alongside the existing URL flags; `field_views` is a JSON descriptor array. The display zone changes only human Markdown date/datetime projections; exact JSON/native timestamps and JQL/CQL semantics are unchanged. `--local` writes the per-mirror file (render keys only — a URL flag with `--local` is a usage error, exit 2).
 
 Runtime commands validate all `jira_list_views` before network access and map

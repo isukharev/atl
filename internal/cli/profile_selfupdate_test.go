@@ -24,7 +24,7 @@ func TestProfileCommandsAlwaysSkipSelfUpdate(t *testing.T) {
 
 func TestCobraDiagnosticBuiltinsSkipSelfUpdate(t *testing.T) {
 	root := newRoot()
-	for _, args := range [][]string{{"help"}, {"completion", "bash"}} {
+	for _, args := range [][]string{{"help"}, {"completion", "bash"}, {"environment", "inspect"}} {
 		cmd, _, err := root.Find(args)
 		if err != nil {
 			t.Fatalf("find %v: %v", args, err)

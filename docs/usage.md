@@ -317,6 +317,41 @@ comma-separated list, while `field_views` and `page_fields` take JSON descriptor
 backends; it defaults to deterministic `UTC` and never changes JQL/CQL
 interpretation or exact timestamps in JSON/native snapshots.
 
+### `atl environment inspect`
+
+Use one explicit diagnostic when a workflow depends on date boundaries or when
+server, user, query, and display time appear inconsistent:
+
+```bash
+export ATL_READ_ONLY=1
+atl environment inspect
+atl environment inspect -o text
+```
+
+The command is allowed by the global read-only policy. When both backends are
+configured it performs exactly three sequential metadata reads at most: Jira
+server info, Jira current user, and Confluence current user. It never sends
+JQL/CQL, searches issues/pages, reads content, mutates state, or runs a timezone
+calibration probe. Missing credentials, unavailable endpoints, and absent
+optional fields remain explicit per-backend statuses; one backend does not hide
+the other's result.
+
+Each time fact carries `evidence`:
+
+- `observed` — returned directly by backend metadata;
+- `configured` / `default` — selected by atl configuration;
+- `assumed` — the Jira current-user timezone used as the JQL interpretation
+  model; raw JQL is still sent unchanged;
+- `unknown` — the backend did not prove a value. In particular, atl does not
+  claim that a Confluence user preference controls CQL.
+
+Only Jira's numeric server UTC offset is reported from `serverTime`; atl does
+not invent an IANA name from an offset. Output deliberately excludes backend
+URLs, user identity, email, and credentials. `complete` means all metadata
+facts exposed by every configured backend were returned; an unavailable
+optional Confluence user timezone therefore yields a useful but partial result.
+This command is user-invoked only: `conf pull --incremental` does not call it.
+
 Set a whole catalog with `jira.list_views` or one preset with
 `jira.list_views.<name>`; pass JSON objects and use `null` to remove a custom
 preset. Names match `[a-z][a-z0-9_-]{0,31}`. Built-in `default`/`full` cannot be

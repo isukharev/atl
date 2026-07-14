@@ -25,12 +25,13 @@ func runSelfUpdate(cmd *cobra.Command) {
 	selfupdate.Run(cmd.Context(), base, version.Version, config.Dir())
 }
 
-// skipSelfUpdate disables the update check for offline/trivial commands where
-// any network latency is unwelcome (version, auth, config, profile and their children).
+// skipSelfUpdate disables the update check for offline/trivial commands and for
+// the explicitly bounded environment diagnostic, where an unrelated update
+// request would violate the reviewed request inventory.
 func skipSelfUpdate(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
-		case "version", "auth", "config", "profile", "help", "completion", cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd:
+		case "version", "auth", "config", "profile", "environment", "help", "completion", cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd:
 			return true
 		}
 	}

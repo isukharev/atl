@@ -95,7 +95,18 @@ atl conf pull --id <id> --assets --into <absolute-root>
 ```
 
 For a recurring large space/CQL mirror, bootstrap and then reuse complete
-incremental selection instead of broad pulls:
+incremental selection instead of broad pulls. When date boundaries are
+material, inspect the semantics once rather than before every pull:
+
+```bash
+export ATL_READ_ONLY=1
+atl environment inspect
+```
+
+This is a bounded metadata diagnostic only: Confluence CQL timezone may remain
+honestly `unknown`, and the command never calibrates with page searches.
+Incremental correctness comes from the fixed overlap plus exact REST timestamp
+filtering.
 
 ```bash
 export ATL_READ_ONLY=1
