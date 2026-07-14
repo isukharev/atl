@@ -12,7 +12,7 @@ func TestIncrementalWatermarkRoundTripAndMode(t *testing.T) {
 	if err := m.EnsureScaffold(); err != nil {
 		t.Fatal(err)
 	}
-	want := IncrementalWatermark{Service: "confluence", SelectorSHA256: "abc", Selector: "type=page", Since: "2026-07-13 12:00", TimeZone: "UTC", BoundaryVersions: map[string]int{"10": 2}}
+	want := IncrementalWatermark{Service: "confluence", SelectorSHA256: "abc", Selector: "type=page", Since: "2026-07-13T12:00:00Z", Protocol: "absolute-overlap-v2", Boundary: "2026-07-13T12:00:00Z", BoundaryVersions: map[string]int{"10": 2}}
 	if err := m.SaveIncrementalWatermark(want); err != nil {
 		t.Fatal(err)
 	}

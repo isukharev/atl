@@ -296,8 +296,11 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 			return nil, err
 		}
 	} else {
-		if o.Since != "" || o.TimeZone != "" || o.MaxPages != 0 {
-			return nil, fmt.Errorf("%w: --since, --time-zone and --max-pages require --incremental", domain.ErrUsage)
+		if o.TimeZone != "" {
+			return nil, fmt.Errorf("%w: --time-zone was removed; pass an explicit offset in RFC3339 --since instead", domain.ErrUsage)
+		}
+		if o.Since != "" || o.MaxPages != 0 {
+			return nil, fmt.Errorf("%w: --since and --max-pages require --incremental", domain.ErrUsage)
 		}
 		ids, truncated, err = s.resolveIDs(ctx, o)
 		if err != nil {

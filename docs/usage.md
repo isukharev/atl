@@ -925,9 +925,9 @@ atl conf pull --cql "label=public and space=DOCS" --assets
 # also bring page comments into the mirror
 atl conf pull --id 12345678 --comments
 
-# complete changed-page delta; bootstrap with a reviewed local wall time
+# complete changed-page delta; bootstrap with one reviewed absolute instant
 atl conf pull --incremental --cql 'space=DOCS and type=page' \
-  --since '2026-07-01 00:00' --time-zone Europe/Berlin --into my-mirror
+  --since '2026-07-01T00:00:00+02:00' --into my-mirror
 
 # later runs reuse the watermark bound to this exact selector
 atl conf pull --incremental --cql 'space=DOCS and type=page' --into my-mirror
@@ -944,8 +944,7 @@ Flags:
 | `--assets` | download draw.io PNG renders and inline images |
 | `--comments` | mirror page comments to `<slug>.comments.json` (+ `.comments.md`) sidecars |
 | `--incremental` | exhaustively select changes since a persisted selector watermark; requires `--cql` or `--space` |
-| `--since` | first-run lower boundary as an unambiguous `YYYY-MM-DD HH:MM` wall minute |
-| `--time-zone` | IANA name (for example `Europe/Berlin`) defining that wall minute; it need not prove the backend CQL zone |
+| `--since` | first-run lower boundary as an exact RFC3339 minute with explicit `Z` or numeric offset |
 | `--max-pages` | explicit incremental result cap (default 10000); exceeding it fails without moving the watermark |
 | `--jira-view` | named `jira_list_views` projection for Jira JQL macros whose macro configuration does not specify columns |
 | `--jira-macros` | `auto` (default) or `off`; `off` keeps placeholders and performs no Jira credential read/search |
@@ -956,20 +955,21 @@ Flags:
 
 At most one of `--id`, `--cql`, `--space` may be given.
 
-Incremental mode is deliberately inclusive at its lower minute. Confluence CQL
-documents `lastmodified` only to minute precision and interprets it in the
-current user's configured timezone (server timezone by default). Data Center's
-documented REST identity/server-info resources do not expose that preference.
-The bootstrap therefore treats `--time-zone` only as the definition of the
-reviewed `--since` wall minute, rejects nonexistent or repeated DST minutes,
-and persists an absolute boundary. Every CQL read starts 48 hours before that
-boundary and locally discards older hits. Even when the configured CQL zone is
-different, the lower bound can only over-fetch rather than omit in the range of
-IANA offsets; the explicit `--max-pages` cap remains fail-closed. Atl records
+Incremental mode is deliberately inclusive at its lower minute. The first
+`--since` is an absolute RFC3339 instant, so a DST fold or the timezone of the
+machine running atl cannot change it. Atl canonicalizes the watermark to UTC.
+Confluence CQL date literals have only minute precision and carry no offset;
+the effective backend parser timezone is therefore reported as unknown rather
+than inferred through hidden calibration searches. Every CQL read renders a
+UTC-based literal 48 hours before the absolute boundary and locally discards
+older hits by their exact REST timestamps. Across the IANA offset range, a
+different backend CQL zone can only over-fetch rather than omit; the explicit
+`--max-pages` cap remains fail-closed. Atl records
 every page id/version at the completed absolute minute. A repeat skips only
 those exact pairs: a new page or newer version in the same minute is still
-fetched. Watermarks written before this absolute-overlap protocol are rejected
-with guidance to preserve the old mirror and bootstrap in a new root. Results are paged until the
+fetched. Proven `absolute-overlap-v1` watermarks migrate to canonical UTC only
+after a complete successful run; older state without a bound absolute instant
+is rejected with guidance to preserve the old mirror. Results are paged until the
 backend proves exhaustion, then the metadata pass is repeated and its
 `(id,version,updated)` set must match before any body is fetched. Only
 `type=page` hits are admitted. A repeated cursor, unreachable advertised total,

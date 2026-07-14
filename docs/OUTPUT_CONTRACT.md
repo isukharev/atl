@@ -517,25 +517,27 @@ With `--incremental`, the same result additionally carries `incremental`:
 {
   "selector_sha256": "<sha256>",
   "watermark_source": "explicit",
-  "watermark_since": "2026-07-01 00:00",
-  "query_since": "2026-06-29 00:00",
-  "time_zone": "Europe/Berlin",
+  "watermark_instant": "2026-06-30T22:00:00Z",
+  "query_literal": "2026-06-28 22:00",
+  "query_literal_basis": "UTC",
+  "backend_query_time_zone": "unknown",
   "safety_overlap_hours": 48,
   "complete": true,
   "matched": 3,
   "selected": 2,
   "overlap_skipped": 0,
   "boundary_skipped": 1,
-  "next_since": "2026-07-01 09:42",
+  "next_instant": "2026-07-01T07:42:00Z",
   "boundary_count": 2,
   "watermark_advanced": true
 }
 ```
 
-`watermark_source` is `explicit|recorded`; `time_zone` defines the persisted
-wall-clock display of the absolute watermark. It does not claim to identify
-Confluence's configured CQL zone. `query_since` is deliberately 48 hours before
-`watermark_since`; `overlap_skipped` counts older hits removed locally. This
+`watermark_source` is `explicit|recorded|migrated`. Watermark instants are
+canonical UTC RFC3339 minutes. `query_literal` is deliberately rendered from
+UTC 48 hours before `watermark_instant`; `query_literal_basis` describes that
+rendering, while `backend_query_time_zone:"unknown"` explicitly avoids claiming
+how Confluence interprets the zone-less CQL literal. `overlap_skipped` counts older hits removed locally. This
 over-fetch makes a timezone mismatch conservative rather than lossy. `matched`
 is the unique complete search set; `selected` excludes overlap hits and exact
 id/version pairs already recorded at the inclusive absolute lower minute.

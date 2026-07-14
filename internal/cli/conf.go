@@ -578,11 +578,11 @@ func confPullCmd() *cobra.Command {
 				if o.MaxPages < 0 {
 					return usageErr("--max-pages must be >= 0")
 				}
-				if (o.Since == "") != (o.TimeZone == "") {
-					return usageErr("--since and --time-zone must be supplied together for an incremental bootstrap")
+				if cmd.Flags().Changed("time-zone") {
+					return usageErr("--time-zone was removed; pass an explicit offset in RFC3339 --since instead")
 				}
-			} else if o.Since != "" || o.TimeZone != "" || cmd.Flags().Changed("max-pages") {
-				return usageErr("--since, --time-zone and --max-pages require --incremental")
+			} else if o.Since != "" || cmd.Flags().Changed("time-zone") || cmd.Flags().Changed("max-pages") {
+				return usageErr("--since and --max-pages require --incremental; --time-zone was removed")
 			}
 			override, err := rf.override()
 			if err != nil {
@@ -605,7 +605,7 @@ func confPullCmd() *cobra.Command {
 				fmt.Fprintf(&b, "mirror: %s (%d pages)\n", res.Root, len(res.Pages))
 				if res.Incremental != nil {
 					inc := res.Incremental
-					fmt.Fprintf(&b, "incremental: complete=%t source=%s watermark_since=%s query_since=%s time_zone=%s safety_overlap_hours=%d next=%s matched=%d selected=%d overlap_skipped=%d boundary_skipped=%d watermark_advanced=%t\n", inc.Complete, inc.WatermarkSource, inc.WatermarkSince, inc.QuerySince, inc.TimeZone, inc.SafetyOverlapHours, inc.NextSince, inc.Matched, inc.Selected, inc.OverlapSkipped, inc.BoundarySkipped, inc.WatermarkAdvanced)
+					fmt.Fprintf(&b, "incremental: complete=%t source=%s watermark_instant=%s query_literal=%s query_literal_basis=%s backend_query_time_zone=%s safety_overlap_hours=%d next=%s matched=%d selected=%d overlap_skipped=%d boundary_skipped=%d watermark_advanced=%t\n", inc.Complete, inc.WatermarkSource, inc.WatermarkInstant, inc.QueryLiteral, inc.QueryLiteralBasis, inc.BackendQueryTimeZone, inc.SafetyOverlapHours, inc.NextInstant, inc.Matched, inc.Selected, inc.OverlapSkipped, inc.BoundarySkipped, inc.WatermarkAdvanced)
 				}
 				for _, p := range res.Pages {
 					if o.Comments && p.Comments != nil {
@@ -627,8 +627,9 @@ func confPullCmd() *cobra.Command {
 	cmd.Flags().StringVar(&o.Into, "into", mirrorRootDefault("mirror"), "mirror root dir (default: $ATL_MIRROR_ROOT or \"mirror\")")
 	cmd.Flags().StringVar(&o.JiraView, "jira-view", "", "named Jira list view for JQL macros (default: default; macro columns win)")
 	cmd.Flags().BoolVar(&o.Incremental, "incremental", false, "pull a complete changed-page delta using a selector-bound watermark")
-	cmd.Flags().StringVar(&o.Since, "since", "", "first-run lower boundary as an unambiguous local minute (YYYY-MM-DD HH:MM)")
-	cmd.Flags().StringVar(&o.TimeZone, "time-zone", "", "IANA timezone defining the first-run local minute (backend mismatch is covered by safe overlap)")
+	cmd.Flags().StringVar(&o.Since, "since", "", "first-run lower boundary as an exact RFC3339 minute with explicit offset")
+	cmd.Flags().StringVar(&o.TimeZone, "time-zone", "", "removed: put the explicit offset in --since")
+	_ = cmd.Flags().MarkHidden("time-zone")
 	cmd.Flags().IntVar(&o.MaxPages, "max-pages", 0, "explicit incremental selection cap (default 10000; watermark never advances when exceeded)")
 	rf.register(cmd)
 	rf.registerConfluenceJiraMacros(cmd)

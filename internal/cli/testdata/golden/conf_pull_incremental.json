@@ -12,16 +12,17 @@
   "incremental": {
     "selector_sha256": "<SHA256>",
     "watermark_source": "explicit",
-    "watermark_since": "2026-07-13 12:00",
-    "query_since": "2026-07-11 12:00",
-    "time_zone": "UTC",
+    "watermark_instant": "2026-07-13T12:00:00Z",
+    "query_literal": "2026-07-11 12:00",
+    "query_literal_basis": "UTC",
+    "backend_query_time_zone": "unknown",
     "safety_overlap_hours": 48,
     "complete": true,
     "matched": 1,
     "selected": 1,
     "overlap_skipped": 0,
     "boundary_skipped": 0,
-    "next_since": "2026-07-13 12:34",
+    "next_instant": "2026-07-13T12:34:00Z",
     "boundary_count": 1,
     "watermark_advanced": true
   }
