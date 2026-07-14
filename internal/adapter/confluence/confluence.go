@@ -31,6 +31,7 @@ var _ domain.AssetResolver = (*Confluence)(nil)
 var _ domain.Verifier = (*Confluence)(nil)
 var _ domain.PageShortLinkResolver = (*Confluence)(nil)
 var _ domain.CompletePageSearcher = (*Confluence)(nil)
+var _ domain.ConfluenceTimeSemanticsReader = (*Confluence)(nil)
 
 func (cf *Confluence) ResolveShortPageLink(ctx context.Context, path string) (string, error) {
 	return cf.c.ResolveGET(ctx, path)
@@ -200,6 +201,18 @@ func (cf *Confluence) Whoami(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return u.DisplayName, nil
+}
+
+// CurrentUserTimeZone returns only the current user's observed timezone
+// preference. It is not treated as evidence of Confluence's CQL parser zone.
+func (cf *Confluence) CurrentUserTimeZone(ctx context.Context) (string, error) {
+	var u struct {
+		TimeZone string `json:"timeZone"`
+	}
+	if err := cf.c.GetJSON(ctx, "/rest/api/user/current", &u); err != nil {
+		return "", err
+	}
+	return u.TimeZone, nil
 }
 
 // History returns version records, newest first. It pages until the listing is

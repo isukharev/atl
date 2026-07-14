@@ -35,6 +35,7 @@ func New(base, token, version string) *Jira {
 
 var _ domain.Tracker = (*Jira)(nil)
 var _ domain.CompleteChangelogReader = (*Jira)(nil)
+var _ domain.JiraTimeSemanticsReader = (*Jira)(nil)
 var _ domain.Verifier = (*Jira)(nil)
 
 const defaultFields = "summary,description,status,issuetype,project,assignee,reporter,labels,issuelinks,comment,attachment"
@@ -269,6 +270,7 @@ type userDTO struct {
 	AccountID    string `json:"accountId"`
 	DisplayName  string `json:"displayName"`
 	EmailAddress string `json:"emailAddress"`
+	TimeZone     string `json:"timeZone"`
 	Active       bool   `json:"active"`
 }
 
@@ -287,6 +289,31 @@ func (j *Jira) CurrentUser(ctx context.Context) (*domain.User, error) {
 	}
 	u := mapUser(d)
 	return &u, nil
+}
+
+// ServerTime reads Jira's server clock metadata. The raw timestamp is returned
+// so app code can expose its numeric offset without pretending it is an IANA
+// timezone.
+func (j *Jira) ServerTime(ctx context.Context) (string, error) {
+	var d struct {
+		ServerTime string `json:"serverTime"`
+	}
+	if err := j.c.GetJSON(ctx, "/rest/api/2/serverInfo", &d); err != nil {
+		return "", err
+	}
+	return d.ServerTime, nil
+}
+
+// CurrentUserTimeZone returns only the timezone preference from /myself. User
+// identity fields are deliberately decoded and exposed nowhere on this path.
+func (j *Jira) CurrentUserTimeZone(ctx context.Context) (string, error) {
+	var d struct {
+		TimeZone string `json:"timeZone"`
+	}
+	if err := j.c.GetJSON(ctx, "/rest/api/2/myself", &d); err != nil {
+		return "", err
+	}
+	return d.TimeZone, nil
 }
 
 // SearchUsers finds users. DC's endpoint matches on the `username` query

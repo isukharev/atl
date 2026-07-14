@@ -45,6 +45,17 @@ type JiraService struct {
 	cfg       *config.Config
 }
 
+// EnvironmentService composes the bounded metadata readers used by
+// `environment inspect`. Setup failures are retained as closed status values so
+// one missing backend never hides diagnostics for the other one.
+type EnvironmentService struct {
+	cfg             *config.Config
+	jiraTime        domain.JiraTimeSemanticsReader
+	confluenceTime  domain.ConfluenceTimeSemanticsReader
+	jiraSetup       string
+	confluenceSetup string
+}
+
 // NewConfluence wires the Confluence adapter from config + PAT.
 func NewConfluence(cfg *config.Config, version string) (*ConfluenceService, error) {
 	if cfg.ConfluenceURL == "" {
@@ -120,4 +131,43 @@ func NewJira(cfg *config.Config, version string) (*JiraService, error) {
 // snapshots and rewrites `.md` views without any network access.
 func NewJiraRenderer(cfg *config.Config) *JiraService {
 	return &JiraService{cfg: cfg}
+}
+
+// NewEnvironment wires only metadata/current-user readers. It never performs a
+// request itself and deliberately degrades absent URLs/credentials into report
+// status instead of preventing the configured sibling backend from being read.
+func NewEnvironment(cfg *config.Config, version string) *EnvironmentService {
+	s := &EnvironmentService{cfg: cfg}
+	if cfg == nil {
+		s.jiraSetup = "not_configured"
+		s.confluenceSetup = "not_configured"
+		return s
+	}
+	if cfg.JiraURL == "" {
+		s.jiraSetup = "not_configured"
+	} else if err := config.CheckSecureURL(cfg.JiraURL); err != nil {
+		s.jiraSetup = "invalid_configuration"
+	} else if token, err := auth.Token(auth.Jira); err != nil {
+		if errors.Is(err, auth.ErrNoToken) {
+			s.jiraSetup = "credentials_missing"
+		} else {
+			s.jiraSetup = "credentials_unavailable"
+		}
+	} else {
+		s.jiraTime = jira.New(cfg.JiraURL, token, version)
+	}
+	if cfg.ConfluenceURL == "" {
+		s.confluenceSetup = "not_configured"
+	} else if err := config.CheckSecureURL(cfg.ConfluenceURL); err != nil {
+		s.confluenceSetup = "invalid_configuration"
+	} else if token, err := auth.Token(auth.Confluence); err != nil {
+		if errors.Is(err, auth.ErrNoToken) {
+			s.confluenceSetup = "credentials_missing"
+		} else {
+			s.confluenceSetup = "credentials_unavailable"
+		}
+	} else {
+		s.confluenceTime = confluence.New(cfg.ConfluenceURL, token, version)
+	}
+	return s
 }

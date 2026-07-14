@@ -1,0 +1,56 @@
+{
+  "complete": true,
+  "display_time_zone": {
+    "value": "UTC",
+    "evidence": "default",
+    "source": "default"
+  },
+  "jira": {
+    "configured": true,
+    "status": "available",
+    "server_utc_offset": {
+      "value": "+00:00",
+      "evidence": "observed",
+      "source": "jira_server_time"
+    },
+    "user_time_zone": {
+      "value": "Europe/Moscow",
+      "evidence": "observed",
+      "source": "jira_current_user"
+    },
+    "jql_time_zone": {
+      "value": "Europe/Moscow",
+      "evidence": "assumed",
+      "source": "jira_current_user_time_zone"
+    }
+  },
+  "confluence": {
+    "configured": true,
+    "status": "available",
+    "user_time_zone": {
+      "value": "Europe/Berlin",
+      "evidence": "observed",
+      "source": "confluence_current_user"
+    },
+    "cql_time_zone": {
+      "evidence": "unknown",
+      "source": "confluence_cql",
+      "reason": "not_exposed_by_backend_metadata"
+    }
+  },
+  "confluence_incremental": {
+    "query_literal_time_zone": {
+      "value": "UTC",
+      "evidence": "configured",
+      "source": "incremental_protocol_v2"
+    },
+    "backend_query_time_zone": {
+      "evidence": "unknown",
+      "source": "confluence_cql",
+      "reason": "not_exposed_by_backend_metadata"
+    },
+    "safety_overlap_hours": 48,
+    "exact_timestamp_filter": true,
+    "hidden_calibration_requests": false
+  }
+}

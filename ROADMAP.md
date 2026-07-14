@@ -23,7 +23,10 @@ Recent beta work established the contracts the next wave builds on:
   routine delivery updates;
 - a complete multi-page Confluence review/sync chain: deterministic native
   semantic diff, hash-bound plan/apply, and selector-bound incremental refresh
-  with explicit completeness and resume evidence.
+  with explicit completeness and resume evidence;
+- absolute UTC synchronization boundaries, deterministic human display zones,
+  and bounded GET-only diagnostics that qualify server/user/query time evidence
+  without hidden calibration searches.
 
 ## Now
 

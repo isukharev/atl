@@ -132,7 +132,7 @@ func newRoot() *cobra.Command {
 	root.SetFlagErrorFunc(func(_ *cobra.Command, e error) error {
 		return usageErr("%v", e)
 	})
-	root.AddCommand(newConfCmd(), newJiraCmd(), newAuthCmd(), newConfigCmd(), newProfileCmd(), newManifestCmd(), newVersionCmd())
+	root.AddCommand(newConfCmd(), newJiraCmd(), newEnvironmentCmd(), newAuthCmd(), newConfigCmd(), newProfileCmd(), newManifestCmd(), newVersionCmd())
 	// Validate the global output format, then run a best-effort self-update check
 	// (never blocks/fails the command).
 	root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {

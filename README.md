@@ -205,6 +205,11 @@ export ATL_JIRA_PAT=<PAT>
 # 3. Verify
 atl auth status
 atl config show
+
+# Optional: one explicit, bounded GET-only time-semantics diagnostic.
+# It runs no JQL/CQL/search/page read and exposes no URL or user identity.
+export ATL_READ_ONLY=1
+atl environment inspect
 ```
 
 Tokens are stored in a `0600` credentials file under `~/.config/atl` (or read from the
@@ -240,6 +245,14 @@ atl conf pull --incremental --cql 'space=DOCS and type=page' \
 # Later runs reuse the selector-bound UTC watermark; omit --since.
 atl conf pull --incremental --cql 'space=DOCS and type=page' --into mirror
 ```
+
+`atl environment inspect` is the compact way to see these concerns separately:
+Jira's observed server offset and current-user timezone, the JQL timezone
+assumption, Confluence's observed user field when available, an honest
+`unknown` CQL parser timezone, the configured/default Markdown display zone,
+and the fixed 48-hour incremental overlap. It is user-invoked only and performs
+at most three sequential metadata GETs; incremental pull never runs it or any
+calibration probe automatically.
 
 ### 2. Explore the mirror
 

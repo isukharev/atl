@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Added `atl environment inspect`, an explicit read-only diagnostic that uses
+  only bounded Jira/Confluence metadata GETs to distinguish observed server and
+  user time settings, configured display time, assumed JQL behavior, unknown
+  CQL behavior, and the fixed incremental overlap. It exposes no identity or
+  backend URL and never runs hidden calibration searches.
+
 - Markdown date/datetime projections now use one presentation-only
   `render.display_time_zone` (IANA, default `UTC`) independent of process,
   JQL, and CQL timezones. Native/JSON timestamps stay exact, recorded view

@@ -207,6 +207,11 @@ export ATL_JIRA_PAT=<PAT>
 # 3. Проверьте
 atl auth status
 atl config show
+
+# Опциональная явная GET-only диагностика временной семантики.
+# Без JQL/CQL/search/page reads, URL и данных пользователя в выводе.
+export ATL_READ_ONLY=1
+atl environment inspect
 ```
 
 Токены хранятся в файле `0600` в директории `~/.config/atl` (или берутся из
@@ -242,6 +247,13 @@ atl conf pull --incremental --cql 'space=DOCS and type=page' \
 # Последующие запуски используют UTC-watermark; --since не нужен.
 atl conf pull --incremental --cql 'space=DOCS and type=page' --into mirror
 ```
+
+`atl environment inspect` раздельно показывает наблюдаемый offset сервера Jira
+и timezone текущего пользователя, предположение для JQL, доступное поле
+пользователя Confluence, честный `unknown` для CQL parser timezone,
+настроенную/default зону Markdown и фиксированное overlap-окно 48 часов. Команда
+запускается только явно и выполняет не более трёх последовательных metadata
+GET; incremental pull не вызывает её и не делает calibration-запросов.
 
 ### 2. Изучить зеркало
 

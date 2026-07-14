@@ -56,6 +56,7 @@ conf space tree
 conf status
 conf table extract
 config show
+environment inspect
 help
 jira apply
 jira board backlog
