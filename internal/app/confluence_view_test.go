@@ -94,11 +94,11 @@ func TestConfluencePageViewTypedFieldsAreProjectedEscapedAndRendererParity(t *te
 		Body: []byte(`<p>Hello</p>`),
 	}
 	store := &recordingStore{page: page}
-	svc := &ConfluenceService{store: store, cfg: &config.Config{}}
+	svc := &ConfluenceService{store: store, cfg: &config.Config{Render: &config.RenderConfig{DisplayTimeZone: "Europe/Moscow"}}}
 	override := config.RenderService{
 		Profile: "minimal", Include: []string{SecPageFields},
 		PageFields: []config.ConfluenceFieldView{
-			{ID: "title"}, {ID: "updated", Format: "date"}, {ID: "restricted"},
+			{ID: "title"}, {ID: "updated", Format: "datetime"}, {ID: "restricted"},
 			{ID: "ancestors", Placement: "section"}, {ID: "labels"},
 		},
 	}
@@ -110,7 +110,7 @@ func TestConfluencePageViewTypedFieldsAreProjectedEscapedAndRendererParity(t *te
 		t.Fatal("configured restricted field did not request restriction projection")
 	}
 	for _, want := range []string{
-		"| Title | Roadmap &#124; &lt;img src=x&gt; |", "| Updated | 2026-06-03 |",
+		"| Title | Roadmap &#124; &lt;img src=x&gt; |", "| Updated | 2026-06-03 15:55 MSK |",
 		"| Restricted | Yes |", "| Labels | a&#42;b, x&#124;y |",
 		"<!-- atl:section page-field.ancestors readonly -->", "- Home", "- Plans",
 	} {
@@ -122,7 +122,7 @@ func TestConfluencePageViewTypedFieldsAreProjectedEscapedAndRendererParity(t *te
 		t.Fatalf("server-controlled Markdown/HTML was not escaped:\n%s", res.Markdown)
 	}
 
-	rs, warns := computeSettings("confluence", override)
+	rs, warns := computeSettingsWithDisplayTimeZone("confluence", override, "Europe/Moscow")
 	if len(warns) != 0 {
 		t.Fatalf("warnings = %v", warns)
 	}

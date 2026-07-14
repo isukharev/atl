@@ -1,4 +1,4 @@
 {
   "key": "ENG-42",
-  "markdown": "<!-- atl:document jira-issue v2 -->\n# ENG-42 — Fix the thing\n\n<!-- atl:section metadata readonly -->\n# Metadata\n\n| Field | Value |\n| --- | --- |\n| Key | ENG-42 |\n| Summary | Fix the thing |\n\n<!-- atl:section description readonly -->\n# Description\n\n## Steps\n\nDo the work.\n\n"
+  "markdown": "<!-- atl:document jira-issue v3 -->\n# ENG-42 — Fix the thing\n\n<!-- atl:section metadata readonly -->\n# Metadata\n\n| Field | Value |\n| --- | --- |\n| Key | ENG-42 |\n| Summary | Fix the thing |\n\n<!-- atl:section description readonly -->\n# Description\n\n## Steps\n\nDo the work.\n\n"
 }

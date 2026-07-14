@@ -210,13 +210,14 @@ never an error, never on stdout.
 emits `{ "root", "rendered": [ { "id", "title", "path" }, ... ] }`, one entry per
 rewritten `.md`. Both leave the `.csf`/`.wiki`/`.json` substrate and the sidecar
 `pages` sync entries untouched (they record each view's render settings,
-including typed field descriptors and the resolved epic field, in the
+including the presentation-only display timezone, typed field descriptors,
+and the resolved epic field, in the
 sidecar `views` map only, so a later `apply` can reproduce it), so `status` is
 unchanged before and after. Render-resolution warnings go to **stderr**, never
 stdout.
 
 Every Confluence derived page view begins with
-`<!-- atl:document confluence-page v3 -->` and has reserved generated
+`<!-- atl:document confluence-page v4 -->` and has reserved generated
 metadata/body/comments/Jira-query boundaries. `conf apply` rejects missing, legacy, or
 unknown versions and additions/removals/renames/reordering in the reserved marker sequence inside
 the editable body before any substrate write. Marker-looking prose already
@@ -458,11 +459,12 @@ marks a clean file.
 shape as `conf apply` for Description, plus pending-field details:
 `{ "path", "wiki_path", "pending_path"?, "dry_run", "rebased"?, "report": {...},
 "fields"?: [{"id","pending","report"}], "wrote", "warning"? }`. It is **local only** (no network). Each
-accepted view begins with `<!-- atl:document jira-issue v2 -->`; a v1, missing,
-or unversioned marker exits `8` before any write and requires an offline
+accepted view begins with `<!-- atl:document jira-issue v3 -->`; a v2, v1,
+missing, or unversioned marker exits `8` before any write and requires an offline
 `jira render` or fresh pull before editing. V1 identifies the former generated
-bullet form of Subtasks/Epic Children and is intentionally not reconstructed as
-v2 during apply. A future/unknown version requires a
+bullet form of Subtasks/Epic Children; v2 predates the recorded display-timezone
+contract. Neither legacy form is reconstructed as current during apply. A
+future/unknown version requires a
 newer binary and must not be rendered or downgraded by the current one. A
 directory render preflights every existing view before rewriting any sibling,
 so one future marker cannot produce a half-migrated batch. It repeats each
@@ -562,7 +564,7 @@ gating. When any page's comment listing is truncated, the result carries
 `comments_truncated: true` and the CLI writes a stderr warning; the JSON on
 stdout stays clean.
 
-`atl config show` emits `{ "read_only", "confluence_url"?, "jira_url"?, "update_base_url"?, "render", "jira_list_views", "jira_list_views_error"?, "render_provenance"?, "local_config_path"?, "mirror" }`. `render` is the **effective** merged render configuration (always present; both `jira` and `confluence` sections carry at least `profile`, defaulting to `default`). `render_provenance` maps each dotted render key whose value is *not* the built-in default to its source (`global` or `local`) and is `omitempty` — an all-default mirror emits none, keeping the shape backward-compatible. `local_config_path` appears only when a per-mirror `.atl/config.json` is in scope from the current directory. Warnings about forbidden/unknown keys in a local file go to **stderr** as `warning:` lines; stdout stays clean. `config set` accepts `safety.read_only`, Jira list views, or a positional dotted render key (`render.{jira,confluence}.{profile,include,exclude}`, plus `render.jira.custom_fields`, `render.jira.field_views`, and `render.jira.epic_field`) alongside the existing URL flags; `field_views` is a JSON descriptor array. `--local` writes the per-mirror file (render keys only — a URL flag with `--local` is a usage error, exit 2).
+`atl config show` emits `{ "read_only", "confluence_url"?, "jira_url"?, "update_base_url"?, "render", "jira_list_views", "jira_list_views_error"?, "render_provenance"?, "local_config_path"?, "mirror" }`. `render` is the **effective** merged render configuration (always present; `display_time_zone` defaults to deterministic `UTC`, and both `jira` and `confluence` sections carry at least `profile`, defaulting to `default`). `render_provenance` maps each dotted render key whose value is *not* the built-in default to its source (`global` or `local`) and is `omitempty` — an all-default mirror emits none, keeping the shape backward-compatible. `local_config_path` appears only when a per-mirror `.atl/config.json` is in scope from the current directory. Warnings about forbidden/unknown keys in a local file go to **stderr** as `warning:` lines; stdout stays clean. `config set` accepts `safety.read_only`, Jira list views, or a positional dotted render key (`render.display_time_zone`, `render.{jira,confluence}.{profile,include,exclude}`, plus `render.jira.custom_fields`, `render.jira.field_views`, and `render.jira.epic_field`) alongside the existing URL flags; `field_views` is a JSON descriptor array. The display zone changes only human Markdown date/datetime projections; exact JSON/native timestamps and JQL/CQL semantics are unchanged. `--local` writes the per-mirror file (render keys only — a URL flag with `--local` is a usage error, exit 2).
 
 Runtime commands validate all `jira_list_views` before network access and map
 an invalid catalog to config exit 7. Recovery is deliberately narrower:

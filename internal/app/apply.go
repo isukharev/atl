@@ -307,7 +307,7 @@ func validateConfluenceDocumentMarker(edited string) error {
 	if first == mirror.ConfluenceDocumentMarker {
 		return nil
 	}
-	if first == "<!-- atl:document confluence-page v2 -->" || first == "<!-- atl:document confluence-page v1 -->" || first == "<!-- atl:document confluence-page -->" {
+	if first == "<!-- atl:document confluence-page v3 -->" || first == "<!-- atl:document confluence-page v2 -->" || first == "<!-- atl:document confluence-page v1 -->" || first == "<!-- atl:document confluence-page -->" {
 		return fmt.Errorf("%w: this Confluence view uses a legacy document format; preserve edits outside the derived view, run `conf render` (or pull again) with this binary, then reapply them", domain.ErrCheckFailed)
 	}
 	if strings.HasPrefix(first, "<!-- atl:document confluence-page") {

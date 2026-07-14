@@ -114,6 +114,11 @@ open --id`, `conf page copy --id --title [--space] [--parent]`, `conf attachment
 {list,get,upload,delete}`, `conf me`, `conf search --space/--title/--label/--type`
 convenience filters (no `--cql` needed), `.md` view renders internal links as `[[Title]]`.
 
+**Presentation time:** `render.display_time_zone` is one IANA zone for human
+Jira/Confluence Markdown dates (default `UTC`). It is independent of JQL/CQL,
+does not alter exact JSON/native timestamps, and is recorded in view state for
+deterministic offline render/apply.
+
 **Jira additions:** typed `render.jira.field_views` (including opt-in editable
 rich-text sections with explicit pending state) and opt-in `epic_children` views;
 value-free metadata and compact named issue-field inspection; qualified, filterable issue

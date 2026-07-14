@@ -25,11 +25,12 @@ type SyncState struct {
 // ambient config. Sections is the computed enabled-section list (sorted), not
 // the profile name, so it stays valid if profile definitions evolve.
 type ViewState struct {
-	Sections     []string         `json:"sections"`
-	CustomFields []string         `json:"custom_fields,omitempty"`
-	FieldViews   []FieldViewState `json:"field_views,omitempty"`
-	PageFields   []FieldViewState `json:"page_fields,omitempty"`
-	EpicField    string           `json:"epic_field,omitempty"`
+	Sections        []string         `json:"sections"`
+	DisplayTimeZone string           `json:"display_time_zone,omitempty"`
+	CustomFields    []string         `json:"custom_fields,omitempty"`
+	FieldViews      []FieldViewState `json:"field_views,omitempty"`
+	PageFields      []FieldViewState `json:"page_fields,omitempty"`
+	EpicField       string           `json:"epic_field,omitempty"`
 }
 
 // FieldViewState is the serialized, backend-neutral shape of a configured

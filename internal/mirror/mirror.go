@@ -25,7 +25,7 @@ import (
 // silently contradicting the source of truth. Exported so apply can uphold
 // the same invariant after a merge.
 const (
-	ConfluenceDocumentMarker     = "<!-- atl:document confluence-page v3 -->"
+	ConfluenceDocumentMarker     = "<!-- atl:document confluence-page v4 -->"
 	ConfluencePageFieldsMarker   = "<!-- atl:section page-fields readonly -->"
 	ConfluenceBodyMarker         = "<!-- atl:section body editable -->"
 	ConfluenceBodyReadOnlyMarker = "<!-- atl:section body readonly -->"
@@ -272,7 +272,7 @@ func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []
 	// are pure read-view data: Hash above is over page.Body alone, so drift/push
 	// gating is unaffected.
 	if cs != nil {
-		if err := m.writeCommentSidecar(dir, slug, cs.comments); err != nil {
+		if err := m.writeCommentSidecar(dir, slug, cs.comments, mdOpts.CommentView); err != nil {
 			return "", err
 		}
 		meta.CommentsPulled = true
@@ -295,7 +295,7 @@ func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []
 // with a trailing newline like .meta.json) and <slug>.comments.md (a derived
 // human read view). The .md is purely derived from the JSON and is not part of
 // any parity contract. Neither file feeds the content hash or .atl/base/.
-func (m *Mirror) writeCommentSidecar(dir, slug string, comments []domain.Comment) error {
+func (m *Mirror) writeCommentSidecar(dir, slug string, comments, displayComments []domain.Comment) error {
 	if err := safepath.MkdirAllWithin(m.Root, dir, 0o755); err != nil {
 		return err
 	}
@@ -310,7 +310,10 @@ func (m *Mirror) writeCommentSidecar(dir, slug string, comments []domain.Comment
 	if err := safepath.WriteFileWithin(m.Root, filepath.Join(dir, slug+".comments.json"), append(jb, '\n'), 0o644); err != nil {
 		return err
 	}
-	return safepath.WriteFileWithin(m.Root, filepath.Join(dir, slug+".comments.md"), RenderCommentsMarkdown(comments), 0o644)
+	if displayComments == nil {
+		displayComments = comments
+	}
+	return safepath.WriteFileWithin(m.Root, filepath.Join(dir, slug+".comments.md"), RenderCommentsMarkdown(displayComments), 0o644)
 }
 
 // RenderCommentsMarkdown renders a complete readonly comments view. Native

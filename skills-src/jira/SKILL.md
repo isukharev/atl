@@ -190,6 +190,12 @@ atl jira render                                  # whole mirror (default root)
 atl jira render <root>/PROJECT/KEY.md --render-profile full
 ```
 
+Human Markdown dates use the shared presentation-only
+`render.display_time_zone` (IANA, default `UTC`); configure it globally or for
+the mirror. It never changes JQL or exact snapshot timestamps. The chosen zone
+is recorded with each view so offline render/apply is independent of process
+`TZ`.
+
 If repeated work reveals a useful Jira field id, selector, or render preference, do not edit agent
 memory silently. Offer the `onboarding` skill's consent-gated learning flow. Load only
 `atl profile show --section schema --service jira` or the corresponding `selectors` slice;
@@ -296,7 +302,7 @@ atl jira push --apply --force <file.wiki>            # write over a drifted remo
 atl jira push <root>/                                # a dir includes dirty .wiki and field-only pending issues
 ```
 Before editing, inspect the first line. It must be exactly
-`<!-- atl:document jira-issue v2 -->`. If it is v1, missing, or older and the view is
+`<!-- atl:document jira-issue v3 -->`. If it is v2, v1, missing, or older and the view is
 still pristine, run `jira render` against that exact file/root first. If edits
 already exist, save a reviewed patch outside the derived `.md`, render, then
 reapply the patch; render rewrites `.md`. Use the existing file's nearest

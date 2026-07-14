@@ -173,6 +173,7 @@ func preflightJiraRenderView(root, mdPath string) error {
 	first := jiraDocumentMarkerLine(string(b))
 	if strings.HasPrefix(first, "<!-- atl:document jira-issue") &&
 		first != jiraIssueDocumentMarker &&
+		first != jiraIssueDocumentMarkerV2 &&
 		first != jiraIssueDocumentMarkerV1 &&
 		first != "<!-- atl:document jira-issue -->" {
 		return fmt.Errorf("%w: existing view %s uses unsupported format marker %q; preserve it and update atl before rendering — do not downgrade it with this binary", domain.ErrCheckFailed, mdPath, first)
