@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Confluence incremental bootstrap now accepts one explicit-offset RFC3339
+  instant, canonicalizes selector watermarks to UTC, and reports the UTC query
+  literal separately from the unknown backend CQL timezone. Proven v1
+  wall-time watermarks migrate after a complete run; the removed `--time-zone`
+  flag is no longer needed, and no hidden calibration searches are introduced.
+
 - Guarded Jira worklog adds now bind proposal schema v2 to a value-free digest
   of the complete sorted worklog-id baseline, so intervening or ambiguously
   committed entries invalidate the reviewed hash before another POST; native
@@ -19,8 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Incremental Confluence refresh now binds watermarks to absolute minutes,
   queries with a 48-hour timezone-safety overlap, filters replay locally, and
-  rejects DST-ambiguous bootstraps and older unproven watermark state instead
-  of trusting a caller-supplied zone as backend evidence.
+  rejects older unproven watermark state instead of treating a display zone as
+  backend evidence.
 
 - `conf diff` now canonicalizes mirror/target identities before containment and
   reports tracked pristine-hash corruption as `baseline_mismatch` instead of

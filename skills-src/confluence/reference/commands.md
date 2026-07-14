@@ -26,10 +26,10 @@ Use transient `page view` only for one-off readonly work. For a mirror:
 atl conf pull --id <id> --assets --comments --jira-view default --into <root>
 # alternatives: --cql '<CQL>' or --space <KEY> [--depth N]
 
-# recurring large mirror: first run needs an unambiguous wall minute + its IANA zone
+# recurring large mirror: first run needs one absolute RFC3339 minute
 atl conf pull --incremental --cql '<stable CQL without ORDER BY>' \
-  --since '<YYYY-MM-DD HH:MM>' --time-zone '<IANA zone>' --into <root>
-# later: exact same selector/root, no --since/--time-zone
+  --since '<RFC3339 minute with explicit offset>' --into <root>
+# later: exact same selector/root, no --since
 atl conf pull --incremental --cql '<same CQL>' --into <root>
 ```
 
@@ -49,10 +49,11 @@ complete.
 
 Incremental pull instead exhausts pagination up to its explicit `--max-pages`
 safety cap (default 10000); hitting the cap or any partial response is exit 8
-and cannot advance the private selector watermark. `--since` and `--time-zone`
-define a reviewed absolute bootstrap boundary and are needed only for a new
-selector. Atl starts CQL 48 hours earlier and filters older hits locally, so a
-different configured CQL zone only adds reads. DST folds/gaps are rejected.
+and cannot advance the private selector watermark. `--since` defines a reviewed
+absolute bootstrap boundary and is needed only for a new selector. Atl stores
+UTC, starts the zone-less CQL literal 48 hours earlier, and filters older hits
+locally, so an unknown configured CQL zone only adds reads. No calibration
+search is performed. An explicit offset disambiguates DST folds.
 Equal-minute updates are safe because exact boundary id/version pairs, not the
 timestamp alone, are recorded. Absence never proves deletion.
 
@@ -154,7 +155,7 @@ identifier per line.
 | `conf page move <ID>` | Guarded move preview/apply | `--parent`, `--apply`, expected gates |
 | `conf page create|copy|delete` | Page lifecycle | command-specific title/space/parent/file flags |
 | `conf blog create` | Create one native blog post | `--space`, `--title`, one body source; `-o text/id` |
-| `conf pull` | Mirror pages | selector; complete delta via `--incremental`, first-run `--since` + `--time-zone`, `--max-pages`; assets/comments/Jira macros/render flags |
+| `conf pull` | Mirror pages | selector; complete delta via `--incremental`, first-run RFC3339 `--since`, `--max-pages`; assets/comments/Jira macros/render flags |
 | `conf render` | Regenerate Markdown offline | path, render flags, `--into` |
 | `conf status` | Dirty/drift state | path, `--remote` |
 | `conf diff` | Offline baseline → candidate semantics; `baseline_mismatch` is corrupt sync evidence | file/dir, `--into`; JSON for evidence |

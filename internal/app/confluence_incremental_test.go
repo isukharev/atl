@@ -59,17 +59,18 @@ func TestConfluenceIncrementalOrderByDetectionIgnoresQuotedText(t *testing.T) {
 	}
 }
 
-func TestConfluenceIncrementalFormatsBoundaryInConfiguredCQLTimeZone(t *testing.T) {
-	location, err := time.LoadLocation("Europe/Berlin")
+func TestConfluenceIncrementalCanonicalizesExplicitOffsetToUTC(t *testing.T) {
+	instant, err := parseIncrementalInstant("2026-07-13T14:34:00+02:00")
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err := parseConfluenceUpdated("2026-07-13T12:34:56Z")
-	if err != nil {
-		t.Fatal(err)
+	if got := canonicalIncrementalInstant(instant); got != "2026-07-13T12:34:00Z" {
+		t.Fatalf("canonical instant=%q", got)
 	}
-	if got := cqlMinute(updated, location); got != "2026-07-13 14:34" {
-		t.Fatalf("cql minute=%q", got)
+	for _, invalid := range []string{"2026-07-13 14:34", "2026-07-13T14:34:01+02:00", "2026-07-13T14:34:00"} {
+		if _, err := parseIncrementalInstant(invalid); !errors.Is(err, domain.ErrUsage) {
+			t.Fatalf("value=%q err=%v", invalid, err)
+		}
 	}
 }
 
@@ -85,12 +86,12 @@ func TestIncrementalPullPaginatesPersistsAndSkipsKnownBoundary(t *testing.T) {
 		},
 	}
 	svc := &ConfluenceService{store: store}
-	opts := PullOpts{CQL: `space = "DOC" and type = page`, Into: root, Incremental: true, Since: "2026-07-13 11:59", TimeZone: "UTC"}
+	opts := PullOpts{CQL: `space = "DOC" and type = page`, Into: root, Incremental: true, Since: "2026-07-13T11:59:00Z"}
 	res, err := svc.Pull(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Pages) != 2 || res.Incremental == nil || !res.Incremental.Complete || !res.Incremental.WatermarkAdvanced || res.Incremental.NextSince != "2026-07-13 12:00" {
+	if len(res.Pages) != 2 || res.Incremental == nil || !res.Incremental.Complete || !res.Incremental.WatermarkAdvanced || res.Incremental.NextInstant != "2026-07-13T12:00:00Z" {
 		t.Fatalf("result=%+v", res)
 	}
 	if len(store.queries) != 4 || !strings.Contains(store.queries[0], `lastmodified >= "2026-07-11 11:59" order by lastmodified asc`) {
@@ -104,7 +105,6 @@ func TestIncrementalPullPaginatesPersistsAndSkipsKnownBoundary(t *testing.T) {
 	store.queries = nil
 	store.getCalls = 0
 	opts.Since = ""
-	opts.TimeZone = ""
 	res, err = svc.Pull(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
@@ -127,37 +127,21 @@ func TestIncrementalPullPaginatesPersistsAndSkipsKnownBoundary(t *testing.T) {
 	}
 }
 
-func TestIncrementalOverlapCannotMoveQueryAfterBoundaryAcrossExtremeZones(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		watermark  string
-		configured string
-	}{
-		{name: "caller-ahead", watermark: "Pacific/Kiritimati", configured: "Etc/GMT+12"},
-		{name: "caller-behind", watermark: "Etc/GMT+12", configured: "Pacific/Kiritimati"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			watermarkZone, err := time.LoadLocation(tc.watermark)
-			if err != nil {
-				t.Fatal(err)
-			}
-			configuredZone, err := time.LoadLocation(tc.configured)
-			if err != nil {
-				t.Fatal(err)
-			}
-			boundary, err := parseUnambiguousCQLMinute("2026-07-13 12:00", watermarkZone)
-			if err != nil {
-				t.Fatal(err)
-			}
-			queryLiteral := cqlMinute(boundary.Add(-confluenceIncrementalOverlap), watermarkZone)
-			backendInstant, err := time.ParseInLocation("2006-01-02 15:04", queryLiteral, configuredZone)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if backendInstant.After(boundary) {
-				t.Fatalf("query %q in %s starts at %s after boundary %s", queryLiteral, tc.configured, backendInstant, boundary)
-			}
-		})
+func TestIncrementalUTCQueryLiteralCannotMoveAfterBoundaryAcrossExtremeBackendZones(t *testing.T) {
+	boundary := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	queryLiteral := cqlMinute(boundary.Add(-confluenceIncrementalOverlap), time.UTC)
+	for _, zone := range []string{"Pacific/Kiritimati", "Etc/GMT+12"} {
+		configuredZone, err := time.LoadLocation(zone)
+		if err != nil {
+			t.Fatal(err)
+		}
+		backendInstant, err := time.ParseInLocation("2006-01-02 15:04", queryLiteral, configuredZone)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if backendInstant.After(boundary) {
+			t.Fatalf("query %q in %s starts at %s after boundary %s", queryLiteral, zone, backendInstant, boundary)
+		}
 	}
 }
 
@@ -169,7 +153,7 @@ func TestIncrementalPullFiltersSafetyOverlapLocally(t *testing.T) {
 		pullStore:   &pullStore{pages: map[string]*domain.Resource{"10": oldPage, "20": newPage}},
 		searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{oldHit, newHit}, Complete: true}},
 	}
-	res, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13 12:00", TimeZone: "UTC"})
+	res, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T12:00:00Z"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,18 +165,17 @@ func TestIncrementalPullFiltersSafetyOverlapLocally(t *testing.T) {
 	}
 }
 
-func TestIncrementalBootstrapRejectsDSTGapAndFold(t *testing.T) {
-	location, err := time.LoadLocation("America/New_York")
+func TestIncrementalBootstrapExplicitOffsetDisambiguatesDSTFold(t *testing.T) {
+	first, err := parseIncrementalInstant("2026-11-01T01:30:00-04:00")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, value := range []string{"2026-03-08 02:30", "2026-11-01 01:30"} {
-		if _, err := parseUnambiguousCQLMinute(value, location); !errors.Is(err, domain.ErrUsage) {
-			t.Fatalf("value=%q err=%v", value, err)
-		}
+	second, err := parseIncrementalInstant("2026-11-01T01:30:00-05:00")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := parseUnambiguousCQLMinute("2026-11-01 03:30", location); err != nil {
-		t.Fatalf("unambiguous minute: %v", err)
+	if !second.Equal(first.Add(time.Hour)) {
+		t.Fatalf("first=%s second=%s", first, second)
 	}
 }
 
@@ -205,20 +188,19 @@ func TestIncrementalRecordedAbsoluteBoundarySurvivesDSTFold(t *testing.T) {
 		searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{firstHit, secondHit}, Complete: true}},
 	}
 	svc := &ConfluenceService{store: store}
-	opts := PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-11-01 00:30", TimeZone: "America/New_York"}
+	opts := PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-11-01T04:30:00Z"}
 	res, err := svc.Pull(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Incremental.NextSince != "2026-11-01 01:30" || len(res.Pages) != 2 {
+	if res.Incremental.NextInstant != "2026-11-01T06:30:00Z" || len(res.Pages) != 2 {
 		t.Fatalf("first result=%+v", res)
 	}
 	w, ok, err := mirror.New(root).IncrementalWatermark(confluenceIncrementalService, res.Incremental.SelectorSHA256)
-	if err != nil || !ok || w.Boundary != "2026-11-01T01:30:00-05:00" {
+	if err != nil || !ok || w.Boundary != "2026-11-01T06:30:00Z" {
 		t.Fatalf("watermark=%+v ok=%v err=%v", w, ok, err)
 	}
 	opts.Since = ""
-	opts.TimeZone = ""
 	res, err = svc.Pull(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
@@ -244,6 +226,33 @@ func TestIncrementalPullRejectsLegacyUnprovenWatermark(t *testing.T) {
 	}
 }
 
+func TestIncrementalPullMigratesProvenV1WatermarkToCanonicalUTC(t *testing.T) {
+	root := t.TempDir()
+	selector := "type=page"
+	if err := mirror.New(root).SaveIncrementalWatermark(mirror.IncrementalWatermark{
+		Service: confluenceIncrementalService, SelectorSHA256: selectorHash(selector), Selector: selector,
+		Since: "2026-07-13 12:00", TimeZone: "Europe/Berlin", Protocol: legacyIncrementalProtocol,
+		Boundary: "2026-07-13T10:00:00Z", BoundaryVersions: map[string]int{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store := &incrementalPullStore{pullStore: &pullStore{}, searchPages: map[string]domain.PageSearchPage{"": {Complete: true}}}
+	res, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: selector, Into: root, Incremental: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Incremental.WatermarkSource != "migrated" || res.Incremental.WatermarkInstant != "2026-07-13T10:00:00Z" || !res.Incremental.WatermarkAdvanced {
+		t.Fatalf("result=%+v", res.Incremental)
+	}
+	if len(store.queries) != 2 || !strings.Contains(store.queries[0], `lastmodified >= "2026-07-11 10:00"`) {
+		t.Fatalf("queries=%v", store.queries)
+	}
+	w, ok, err := mirror.New(root).IncrementalWatermark(confluenceIncrementalService, selectorHash(selector))
+	if err != nil || !ok || w.Protocol != confluenceIncrementalProtocol || w.Since != "2026-07-13T10:00:00Z" || w.TimeZone != "" || w.Boundary != w.Since {
+		t.Fatalf("watermark=%+v ok=%v err=%v", w, ok, err)
+	}
+}
+
 func TestIncrementalPullRejectsPartialSelectionWithoutWatermark(t *testing.T) {
 	root := t.TempDir()
 	_, hit := incrementalPage("10", 1, "2026-07-13T12:00:00Z")
@@ -252,7 +261,7 @@ func TestIncrementalPullRejectsPartialSelectionWithoutWatermark(t *testing.T) {
 		searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{hit}, Complete: false, PartialReason: "missing continuation"}},
 	}
 	svc := &ConfluenceService{store: store}
-	_, err := svc.Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13 11:00", TimeZone: "UTC"})
+	_, err := svc.Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"})
 	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "watermark unchanged") {
 		t.Fatalf("err=%v", err)
 	}
@@ -272,7 +281,7 @@ func TestIncrementalPullRejectsSelectionThatMovesBetweenPasses(t *testing.T) {
 			{Results: []domain.PageRef{h1, h2}, Complete: true},
 		},
 	}
-	_, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13 11:00", TimeZone: "UTC"})
+	_, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"})
 	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "changed during pagination") || store.getCalls != 0 {
 		t.Fatalf("err=%v getCalls=%d", err, store.getCalls)
 	}
@@ -297,7 +306,7 @@ func TestIncrementalPullRejectsDirtyTargetBeforeRemoteReads(t *testing.T) {
 		pullStore:   &pullStore{pages: map[string]*domain.Resource{"10": newPage}},
 		searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{hit}, Complete: true}},
 	}
-	_, err = (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13 11:00", TimeZone: "UTC"})
+	_, err = (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"})
 	if !errors.Is(err, domain.ErrCheckFailed) || store.getCalls != 0 {
 		t.Fatalf("err=%v getCalls=%d", err, store.getCalls)
 	}
@@ -327,7 +336,7 @@ func TestIncrementalPullRejectsUnappliedMarkdownBeforeRemoteReads(t *testing.T) 
 		pullStore:   &pullStore{pages: map[string]*domain.Resource{"10": newPage}},
 		searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{hit}, Complete: true}},
 	}
-	_, err = (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13 11:00", TimeZone: "UTC"})
+	_, err = (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"})
 	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "unapplied Markdown") || store.getCalls != 0 {
 		t.Fatalf("err=%v getCalls=%d", err, store.getCalls)
 	}
@@ -342,7 +351,7 @@ func TestIncrementalPullInterruptedRunKeepsOldBoundaryAndResumes(t *testing.T) {
 		searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{h1, h2}, Complete: true}},
 	}
 	svc := &ConfluenceService{store: store}
-	opts := PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13 11:00", TimeZone: "UTC"}
+	opts := PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"}
 	if _, err := svc.Pull(context.Background(), opts); !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("err=%v", err)
 	}
@@ -366,7 +375,7 @@ func TestIncrementalPullExplicitCapFailsClosed(t *testing.T) {
 	_, h1 := incrementalPage("10", 1, "2026-07-13T12:00:00Z")
 	_, h2 := incrementalPage("20", 1, "2026-07-13T12:01:00Z")
 	store := &incrementalPullStore{pullStore: &pullStore{}, searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{h1, h2}, Complete: true}}}
-	_, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13 11:00", TimeZone: "UTC", MaxPages: 1})
+	_, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z", MaxPages: 1})
 	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "--max-pages=1") {
 		t.Fatalf("err=%v", err)
 	}

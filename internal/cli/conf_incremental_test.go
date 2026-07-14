@@ -37,7 +37,7 @@ func TestConfPullIncrementalGoldenAndReadOnly(t *testing.T) {
 	srv, requests := incrementalConfServer(t)
 	defer srv.Close()
 	root := t.TempDir()
-	out, code := runCLI(t, confEnv(srv), "--read-only", "conf", "pull", "--incremental", "--cql", "space=ENG and type=page", "--since", "2026-07-13 12:00", "--time-zone", "UTC", "--into", root)
+	out, code := runCLI(t, confEnv(srv), "--read-only", "conf", "pull", "--incremental", "--cql", "space=ENG and type=page", "--since", "2026-07-13T12:00:00Z", "--into", root)
 	if code != exitOK {
 		t.Fatalf("exit=%d out=%q", code, out)
 	}
@@ -53,7 +53,7 @@ func TestConfPullIncrementalTextGolden(t *testing.T) {
 	srv, _ := incrementalConfServer(t)
 	defer srv.Close()
 	root := t.TempDir()
-	out, code := runCLI(t, confEnv(srv), "conf", "pull", "--incremental", "--space", "ENG", "--since", "2026-07-13 12:00", "--time-zone", "UTC", "--into", root, "-o", "text")
+	out, code := runCLI(t, confEnv(srv), "conf", "pull", "--incremental", "--space", "ENG", "--since", "2026-07-13T12:00:00Z", "--into", root, "-o", "text")
 	if code != exitOK {
 		t.Fatalf("exit=%d out=%q", code, out)
 	}
@@ -64,10 +64,9 @@ func TestConfPullIncrementalFlagsFailBeforeConfig(t *testing.T) {
 	for _, args := range [][]string{
 		{"conf", "pull", "--incremental", "--id", "100"},
 		{"conf", "pull", "--incremental"},
-		{"conf", "pull", "--cql", "type=page", "--since", "2026-07-13 12:00"},
+		{"conf", "pull", "--cql", "type=page", "--since", "2026-07-13T12:00:00Z"},
 		{"conf", "pull", "--cql", "type=page", "--time-zone", "UTC"},
 		{"conf", "pull", "--incremental", "--cql", "type=page", "--max-pages", "-1"},
-		{"conf", "pull", "--incremental", "--cql", "type=page", "--since", "2026-07-13 12:00"},
 		{"conf", "pull", "--incremental", "--cql", "type=page", "--time-zone", "UTC"},
 	} {
 		if _, code := runCLI(t, nil, args...); code != exitUsage {

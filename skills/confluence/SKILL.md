@@ -101,8 +101,8 @@ incremental selection instead of broad pulls:
 ```bash
 export ATL_READ_ONLY=1
 atl conf pull --incremental --cql '<stable CQL without ORDER BY>' \
-  --since '<YYYY-MM-DD HH:MM>' --time-zone '<IANA zone defining that wall time>' --into <absolute-root>
-# next runs: identical selector/root, omit --since and --time-zone
+  --since '<RFC3339 minute with explicit offset>' --into <absolute-root>
+# next runs: identical selector/root, omit --since
 atl conf pull --incremental --cql '<same stable CQL>' --into <absolute-root>
 ```
 
@@ -115,8 +115,10 @@ pre-watermark hits locally, so a different backend CQL zone causes extra reads,
 not omissions. The inclusive absolute minute boundary intentionally rechecks
 same-minute identities and skips only recorded id/version pairs. Atl requires
 two identical complete metadata passes, so budget two search-page GET passes
-plus one body GET per selected page. Use an IANA zone that expresses the
-reviewed `--since` wall time; avoid DST folds/gaps. The backend CQL zone is not
+plus one body GET per selected page. The explicit offset makes DST folds
+unambiguous and atl stores UTC. The backend CQL zone remains unknown and is not
+probed; `query_literal_basis:UTC` describes only how the broad literal was
+rendered, not how the backend interpreted it. That interpretation is not
 provable through the documented REST identity/server-info resources and need
 not be guessed.
 
