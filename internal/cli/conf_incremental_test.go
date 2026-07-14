@@ -66,6 +66,7 @@ func TestConfPullIncrementalFlagsFailBeforeConfig(t *testing.T) {
 		{"conf", "pull", "--incremental"},
 		{"conf", "pull", "--cql", "type=page", "--since", "2026-07-13T12:00:00Z"},
 		{"conf", "pull", "--cql", "type=page", "--time-zone", "UTC"},
+		{"conf", "pull", "--incremental", "--cql", "type=page", "--time-zone", ""},
 		{"conf", "pull", "--incremental", "--cql", "type=page", "--max-pages", "-1"},
 		{"conf", "pull", "--incremental", "--cql", "type=page", "--time-zone", "UTC"},
 	} {

@@ -578,10 +578,10 @@ func confPullCmd() *cobra.Command {
 				if o.MaxPages < 0 {
 					return usageErr("--max-pages must be >= 0")
 				}
-				if o.TimeZone != "" {
+				if cmd.Flags().Changed("time-zone") {
 					return usageErr("--time-zone was removed; pass an explicit offset in RFC3339 --since instead")
 				}
-			} else if o.Since != "" || o.TimeZone != "" || cmd.Flags().Changed("max-pages") {
+			} else if o.Since != "" || cmd.Flags().Changed("time-zone") || cmd.Flags().Changed("max-pages") {
 				return usageErr("--since and --max-pages require --incremental; --time-zone was removed")
 			}
 			override, err := rf.override()

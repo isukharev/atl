@@ -74,6 +74,25 @@ func TestConfluenceIncrementalCanonicalizesExplicitOffsetToUTC(t *testing.T) {
 	}
 }
 
+func TestConfluenceIncrementalQueryIsIndependentOfProcessTimeZone(t *testing.T) {
+	var queries []string
+	for _, zone := range []string{"Pacific/Kiritimati", "Etc/GMT+12"} {
+		t.Setenv("TZ", zone)
+		root := t.TempDir()
+		store := &incrementalPullStore{pullStore: &pullStore{}, searchPages: map[string]domain.PageSearchPage{"": {Complete: true}}}
+		_, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{
+			CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T12:00:00+03:00",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		queries = append(queries, store.queries...)
+	}
+	if len(queries) != 4 || queries[0] != queries[2] || !strings.Contains(queries[0], `lastmodified >= "2026-07-11 09:00"`) {
+		t.Fatalf("queries=%v", queries)
+	}
+}
+
 func TestIncrementalPullPaginatesPersistsAndSkipsKnownBoundary(t *testing.T) {
 	root := t.TempDir()
 	p1, h1 := incrementalPage("10", 2, "2026-07-13T12:00:10Z")
