@@ -19,12 +19,16 @@ or a command exits `7` ("not configured"), run `$setup` and stop.
 
 ### 1. Fetch the spec
 
+<!-- atl:read-only-shell -->
 ```sh
+export ATL_READ_ONLY=1
 atl conf page view <id> -o text
+# Or, for a long/multi-section spec:
+atl conf pull --id <id> --into <dir> # long/multi-section spec; then read .md
 ```
 
-Long or multi-section specs: mirror instead —
-`atl conf pull --id <id> --into <dir>` and read the generated `.md`.
+For a long or multi-section spec, use the second command and read the generated
+`.md`.
 Ask for the target Jira project key if not given, and confirm the instance's
 issue types before planning (a failed `issue create` names the valid types;
 many instances lack "Story").

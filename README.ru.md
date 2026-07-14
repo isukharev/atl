@@ -386,6 +386,7 @@ atl jira issue fields PROJ-1 # compact non-empty поля с именами по
 atl jira issue fields PROJ-1 --metadata-only # компактный каталог без значений
 atl jira issue fields PROJ-1 --field "Delivery Notes"
 atl jira issue history PROJ-1 --field "Delivery Notes" --since 2026-04-01
+atl jira issue refs PROJ-1 --fields "Delivery Notes" # ссылки с признаком полноты
 # Календарные даты/кварталы используют timezone текущего пользователя Jira;
 # RFC3339 с явным offset остаётся точным и не требует этого metadata GET.
 # Пропуски/повторы полуночи охватывают весь civil day; пропущенная дата — exit 8.
@@ -398,6 +399,14 @@ atl jira issue view PROJ-1 -o text   # настроенный Markdown без з
 atl jira issue search --jql 'project = PROJ AND status = "In Progress"' --columns key,summary,status,assignee
 atl jira issue search --jql 'project = PROJ' --view full
 atl jira issue children PROJ-100 --columns key,summary,status,assignee
+atl jira board view 5 -o text                  # нормализованный вид Kanban/Scrum
+atl jira sprint current --board 5              # активный спринт
+atl jira structure folders 123                 # точные сохранённые поддеревья
+atl jira structure view 123 --folder-id 100 -o text
+atl jira planning report --jql 'project = PROJ' --limit 100
+atl jira quality-report --jql 'project = PROJ' # compatibility alias
+atl jira issue link suggest --csv links.csv     # read-only анализ кандидатов
+atl profile show --section render_defaults --service jira
 atl jira issue worklog list PROJ-1 -o text
 atl jira issue attachment list PROJ-1
 atl jira issue attachment get PROJ-1 --id spec.xlsx --into ./attachments
@@ -408,6 +417,7 @@ atl jira pull --jql 'project = PROJ AND status = Open' --assets
 # Выберите объём .md-представления: minimal | default | full (см. docs/usage.md)
 atl jira pull --jql 'project = PROJ' --render-profile full
 atl jira render mirror-jira --render-profile default   # перерендер офлайн, без повторного pull
+atl manifest create --root mirror-jira --service jira --selector 'jql=project = PROJ'
 # Pull/render не затирают будущие форматы .md; render предупреждает о каждом нечитаемом snapshot.
 # Типизированные custom fields (читаемые metadata/date/list) и проверяемые задачи эпика
 # настраиваются для зеркала; см. docs/usage.md
@@ -467,7 +477,7 @@ atl jira field-options --project PROJ --field <field-id>
 | 5 | Конфликт версий (оптимистичная блокировка) |
 | 6 | Доступ запрещён (у токена нет прав) |
 | 7 | Некорректная/неполная конфигурация — например, нет URL/PAT или ошибочен named view |
-| 8 | Проверка не пройдена — `jira issue check` нашёл пустые обязательные поля |
+| 8 | Защитный отказ — неполные данные, stale/drift, неверный derived view, активный lock или пустое обязательное поле |
 
 `7` против `3`: `7` означает «завершите настройку» (нет URL/токена); `3` — «замените токен» (он был
 отклонён). JSON-ошибки также содержат стабильные `kind` и `remediation`,

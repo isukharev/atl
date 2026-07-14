@@ -17,9 +17,14 @@ or a command exits `7` ("not configured"), run `/atl:setup` and stop.
 
 ### 1. Get the notes
 
-Pasted text as-is; a Confluence page via
-`atl conf page view <id> -o text`, or find it first:
-`atl conf search --cql 'title ~ "<meeting title>"' --limit 5`.
+Pasted text as-is, or use a guarded Confluence read:
+
+<!-- atl:read-only-shell -->
+```sh
+export ATL_READ_ONLY=1
+atl conf search --cql 'title ~ "<meeting title>"' --limit 5 # when id is unknown
+atl conf page view <id> -o text
+```
 
 ### 2. Extract action items
 
@@ -35,7 +40,9 @@ back.
 
 ### 3. Resolve assignees (Server/DC uses usernames)
 
+<!-- atl:read-only-shell -->
 ```sh
+export ATL_READ_ONLY=1
 atl jira user search 'Alex Doe'
 ```
 

@@ -22,7 +22,9 @@ query variants from specific to broad.
 
 ### 2. Search for duplicates (parallel, one message)
 
+<!-- atl:read-only-shell -->
 ```sh
+export ATL_READ_ONLY=1
 atl jira issue search --jql 'project = KEY AND text ~ "NullPointerException PaymentProcessor" AND type = Bug ORDER BY created DESC' --limit 10
 atl jira issue search --jql 'project = KEY AND summary ~ "timeout checkout" ORDER BY updated DESC' --limit 10
 ```
@@ -38,7 +40,15 @@ Useful refinements:
 
 ### 3. Classify and present — no writes yet
 
-Compare promising hits with `atl jira issue get KEY-123`, then tell the user
+Compare promising hits before proposing any write:
+
+<!-- atl:read-only-shell -->
+```sh
+export ATL_READ_ONLY=1
+atl jira issue get KEY-123
+```
+
+Then tell the user
 which case this is and what you propose:
 
 - **Duplicate (open)** → offer to add a comment with the new occurrence and any

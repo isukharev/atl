@@ -13,7 +13,7 @@
 | Exit 8: non-canonical page path | The same page id is tracked at another path after relocation | Use the reported canonical path; preserve/reconcile local bytes, never push the stale copy or bypass with `--force` |
 | Exit 8: relocation ownership marker | Reserved `<slug>.relocated.json` is invalid, changed, or owned by another page | Preserve it and both page paths; never edit/delete the marker or recursively clean the directory |
 | Exit 8: partial relocation source | Only some old `.csf`/`.md`/`.meta.json` artifacts remain | Preserve them; restore the complete old page or remove all three primary files, then re-pull. Never edit `state.json` to bypass proof |
-| Exit 8: legacy relocation view | The old path still has a v1 or unversioned derived view, whose bytes cannot be compared to v2 | Preserve edits, run `conf render` at the old path, then re-pull |
+| Exit 8: legacy relocation view | The old path has a legacy/unversioned derived view whose bytes cannot safely be classified against current v4 | Preserve edits, run `conf render` at the old path, then re-pull |
 | Exit 8 on `create --from-md` | Block outside Markdown subset | Use validated CSF `--from-file` |
 | `unknown` guarded write | Verification could not prove outcome | Inspect/re-read; never auto-replay |
 | Search says query required | No CQL/filter | Supply CQL or `--space/--title/--label/--type` |

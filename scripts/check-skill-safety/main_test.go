@@ -18,7 +18,7 @@ func TestRepositoryReadOnlySkillBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Files < 2 || report.Blocks < 9 {
+	if report.Files < 6 || report.Blocks < 16 {
 		t.Fatalf("unexpectedly sparse safety coverage: %+v", report)
 	}
 }
