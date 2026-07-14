@@ -129,6 +129,7 @@ func TestConfRenderPreflightsWholeBatchBeforeSiblingRewrite(t *testing.T) {
 
 func TestConfRenderMigratesKnownLegacyViewMarkers(t *testing.T) {
 	for _, marker := range []string{
+		"<!-- atl:document confluence-page v3 -->",
 		"<!-- atl:document confluence-page v2 -->",
 		"<!-- atl:document confluence-page v1 -->",
 		"<!-- atl:document confluence-page -->",

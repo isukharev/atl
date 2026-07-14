@@ -61,6 +61,9 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := ValidateRenderConfig(c.Render); err != nil {
+		return nil, fmt.Errorf("%w: render: %v", domain.ErrConfig, err)
+	}
 	views, err := NormalizeJiraListViews(c.JiraListViews)
 	if err != nil {
 		return nil, fmt.Errorf("%w: jira_list_views: %v", domain.ErrConfig, err)
@@ -101,6 +104,9 @@ func LoadForEdit() (*Config, error) {
 func Save(c *Config) error {
 	if err := os.MkdirAll(Dir(), 0o700); err != nil {
 		return err
+	}
+	if err := ValidateRenderConfig(c.Render); err != nil {
+		return fmt.Errorf("%w: render: %v", domain.ErrConfig, err)
 	}
 	views, err := NormalizeJiraListViews(c.JiraListViews)
 	if err != nil {

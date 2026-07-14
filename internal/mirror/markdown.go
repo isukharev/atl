@@ -147,10 +147,11 @@ func markdownFence(content string) string {
 // layer assembles these from the page metadata and, for Comments, the
 // `<slug>.comments.json` sidecar (absent → nil → the section is skipped).
 type MDViewOpts struct {
-	PageFields []PageField
-	Comments   []domain.Comment
-	JiraMacros []JiraMacroView
-	ReadOnly   bool
+	PageFields  []PageField
+	Comments    []domain.Comment
+	CommentView []domain.Comment
+	JiraMacros  []JiraMacroView
+	ReadOnly    bool
 }
 
 // PageField is one already-resolved, read-only Confluence metadata value. The

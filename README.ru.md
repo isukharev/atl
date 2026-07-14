@@ -321,10 +321,11 @@ atl conf page title set 123456 --from-file title.txt
 atl conf page labels list 123456
 atl conf page labels add 123456 reviewed-label # dry-run; apply с proposal hash из preview
 # Типизированные read-only метаданные страницы (см. docs/usage.md)
+atl config set render.display_time_zone Europe/Moscow # только Markdown; JSON/native timestamp остаются точными
 atl config set render.confluence.include page_fields
 atl config set render.confluence.page_fields '[{"id":"title"},{"id":"updated","format":"date"}]'
 atl config set render.confluence.jira_macros off # default auto; отключить JQL со страниц глобально
-# View v3 разделяет # Metadata / # Content / Jira-запросы / # Comments; нативное
+# View v4 разделяет # Metadata / # Content / Jira-запросы / # Comments; нативное
 # форматирование комментариев и target ссылок на страницы сохраняются.
 atl conf table extract --id 123456 --format json
 atl conf table extract --id 123456 --table 2 --format csv # формулы нейтрализуются по умолчанию

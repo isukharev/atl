@@ -22,6 +22,14 @@ func TestConfigSetRenderGlobal(t *testing.T) {
 	if !strings.Contains(string(b), `"profile": "full"`) {
 		t.Errorf("global config missing render key:\n%s", b)
 	}
+	out, code = runCLI(t, map[string]string{"ATL_CONFIG_DIR": cfgDir}, "config", "set", "render.display_time_zone", "Europe/Moscow")
+	if code != exitOK {
+		t.Fatalf("config set display timezone: exit %d (out=%q)", code, out)
+	}
+	b, err = os.ReadFile(filepath.Join(cfgDir, "config.json"))
+	if err != nil || !strings.Contains(string(b), `"display_time_zone": "Europe/Moscow"`) {
+		t.Fatalf("global config missing display timezone: %s err=%v", b, err)
+	}
 }
 
 func TestConfigListViewsExposeBuiltinsAndAddNamedPreset(t *testing.T) {

@@ -134,7 +134,7 @@ func TestConfigShowIncludesMirrorHints(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("config show text: exit %d, want 0 (stdout=%q)", code, text)
 	}
-	if !strings.Contains(text, "mirror_recommended_root: ~/.atl/<workspace>/") || !strings.Contains(text, "mirror_active_root: /home/me/.atl/work") {
+	if !strings.Contains(text, "render_display_time_zone: UTC") || !strings.Contains(text, "mirror_recommended_root: ~/.atl/<workspace>/") || !strings.Contains(text, "mirror_active_root: /home/me/.atl/work") {
 		t.Errorf("text output missing mirror hints:\n%s", text)
 	}
 }

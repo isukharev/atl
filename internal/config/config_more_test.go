@@ -28,6 +28,19 @@ func clearConfigEnv(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidGlobalDisplayTimeZone(t *testing.T) {
+	clearConfigEnv(t)
+	dir := t.TempDir()
+	t.Setenv("ATL_CONFIG_DIR", dir)
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"render":{"display_time_zone":"Mars/Olympus"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load()
+	if !errors.Is(err, domain.ErrConfig) || !strings.Contains(err.Error(), "display timezone") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestDirPrecedence(t *testing.T) {
 	t.Run("ATL_CONFIG_DIR wins", func(t *testing.T) {
 		clearConfigEnv(t)

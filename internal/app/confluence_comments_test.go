@@ -90,7 +90,7 @@ func TestPullCommentsMirrorsSidecars(t *testing.T) {
 	}
 
 	// .comments.md is the derived read view.
-	wantMD := "# Comments\n\n## Comment by Alice (2026-01-01T00:00:00.000Z)\n\n**first**\n\n- nested item\n\n## Comment by Bob (2026-01-02T00:00:00.000Z)\n\nsecond\n\n"
+	wantMD := "# Comments\n\n## Comment by Alice (2026-01-01 00:00 UTC)\n\n**first**\n\n- nested item\n\n## Comment by Bob (2026-01-02 00:00 UTC)\n\nsecond\n\n"
 	gotMD, err := os.ReadFile(filepath.Join(dir, slug+".comments.md"))
 	if err != nil {
 		t.Fatalf("read comments.md: %v", err)
@@ -139,6 +139,17 @@ func TestPullCommentsMirrorsSidecars(t *testing.T) {
 	gotMD2, _ := os.ReadFile(filepath.Join(dir, slug+".comments.md"))
 	if !strings.Contains(string(gotMD2), "Carol") || strings.Contains(string(gotMD2), "Alice") {
 		t.Errorf("re-pull did not refresh comments.md: %q", gotMD2)
+	}
+}
+
+func TestLegacyConfluenceCommentViewKeepsSourceTimestamp(t *testing.T) {
+	comments := []domain.Comment{{Created: "2026-01-01T00:00:00.000+0300"}}
+	got := confluenceCommentsForDisplay(comments, "")
+	if len(got) != 1 || got[0].Created != comments[0].Created {
+		t.Fatalf("legacy comments=%+v", got)
+	}
+	if comments[0].Created != "2026-01-01T00:00:00.000+0300" {
+		t.Fatal("source comments were mutated")
 	}
 }
 

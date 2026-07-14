@@ -31,7 +31,7 @@ func TestLoadLocalMissingFile(t *testing.T) {
 
 func TestLoadLocalRenderOnly(t *testing.T) {
 	root := t.TempDir()
-	writeLocal(t, root, `{"render":{"jira":{"profile":"full","include":["sprint"]},"confluence":{"profile":"minimal"}}}`)
+	writeLocal(t, root, `{"render":{"display_time_zone":"Europe/Berlin","jira":{"profile":"full","include":["sprint"]},"confluence":{"profile":"minimal"}}}`)
 	lc, warns, err := LoadLocal(root)
 	if err != nil {
 		t.Fatal(err)
@@ -47,6 +47,24 @@ func TestLoadLocalRenderOnly(t *testing.T) {
 	}
 	if lc.Render.Confluence == nil || lc.Render.Confluence.Profile != "minimal" {
 		t.Errorf("confluence profile = %+v", lc.Render.Confluence)
+	}
+	if lc.Render.DisplayTimeZone != "Europe/Berlin" {
+		t.Errorf("display timezone = %q", lc.Render.DisplayTimeZone)
+	}
+}
+
+func TestLoadLocalInvalidDisplayTimeZoneIsDropped(t *testing.T) {
+	root := t.TempDir()
+	writeLocal(t, root, `{"render":{"display_time_zone":"Mars/Olympus","jira":{"profile":"full"}}}`)
+	lc, warnings, err := LoadLocal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lc == nil || lc.Render == nil || lc.Render.DisplayTimeZone != "" || lc.Render.Jira == nil {
+		t.Fatalf("local render=%+v", lc)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "display_time_zone") {
+		t.Fatalf("warnings=%v", warnings)
 	}
 }
 
@@ -151,15 +169,20 @@ func TestLoadLocalInvalidProfileDropped(t *testing.T) {
 // the keys it sets, global supplies the rest, defaults fill the remainder.
 func TestEffectiveRenderPrecedence(t *testing.T) {
 	global := &Config{Render: &RenderConfig{
+		DisplayTimeZone: "Europe/Berlin",
 		Jira: &RenderService{
 			Profile: "full", Include: []string{"sprint"}, CustomFields: []string{"customfield_1"},
 			FieldViews: []JiraFieldView{{ID: "customfield_2", Label: "Score"}}, EpicField: "customfield_3",
 		},
 	}}
 	local := &LocalConfig{Render: &RenderConfig{
-		Jira: &RenderService{Profile: "minimal"}, // overrides profile only
+		DisplayTimeZone: "Asia/Tokyo",
+		Jira:            &RenderService{Profile: "minimal"}, // overrides profile only
 	}}
 	render, prov := EffectiveRender(global, local)
+	if render.DisplayTimeZone != "Asia/Tokyo" || prov["render.display_time_zone"] != "local" {
+		t.Fatalf("display timezone=%q provenance=%q", render.DisplayTimeZone, prov["render.display_time_zone"])
+	}
 
 	if render.Jira.Profile != "minimal" {
 		t.Errorf("profile = %q, want minimal (local override)", render.Jira.Profile)
@@ -203,6 +226,9 @@ func TestEffectiveRenderNilInputs(t *testing.T) {
 	if render.Confluence == nil || render.Confluence.Profile != DefaultProfile {
 		t.Errorf("confluence default = %+v", render.Confluence)
 	}
+	if render.DisplayTimeZone != DefaultDisplayTimeZone || prov["render.display_time_zone"] != "default" {
+		t.Errorf("display timezone=%q provenance=%q", render.DisplayTimeZone, prov["render.display_time_zone"])
+	}
 	if prov["render.jira.profile"] != "default" {
 		t.Errorf("provenance = %v", prov)
 	}
@@ -237,6 +263,12 @@ func TestLoadLocalInvalidJiraMacroPolicyDropped(t *testing.T) {
 
 func TestSetRenderKey(t *testing.T) {
 	rc := &RenderConfig{}
+	if err := SetRenderKey(rc, "render.display_time_zone", "Europe/Moscow"); err != nil {
+		t.Fatal(err)
+	}
+	if rc.DisplayTimeZone != "Europe/Moscow" {
+		t.Fatalf("display timezone=%q", rc.DisplayTimeZone)
+	}
 	if err := SetRenderKey(rc, "render.jira.profile", "full"); err != nil {
 		t.Fatal(err)
 	}
@@ -339,6 +371,7 @@ func TestSetRenderKeyErrors(t *testing.T) {
 		{"render.jira.field_views", `[{"id":"x","placement":"section","format":"list","editable":true}]`, false},
 		{"render.jira.field_views", `[{"id":"description","placement":"section","format":"jira_wiki","editable":true}]`, false},
 		{"render.jira.profile", "gigantic", false}, // bad profile value
+		{"render.display_time_zone", "Mars/Olympus", false},
 	}
 	for _, c := range cases {
 		err := SetRenderKey(rc, c.key, c.val)

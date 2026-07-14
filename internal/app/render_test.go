@@ -142,7 +142,7 @@ func TestComputeSettingsFieldViewsAndEpicChildren(t *testing.T) {
 	}
 	vs := viewStateOf(rs)
 	restored := settingsFromViewState(vs)
-	if !reflect.DeepEqual(restored.FieldViews, rs.FieldViews) || restored.EpicField != rs.EpicField || !restored.On(SecEpicChildren) {
+	if !reflect.DeepEqual(restored.FieldViews, rs.FieldViews) || restored.EpicField != rs.EpicField || restored.DisplayTimeZone != config.DefaultDisplayTimeZone || !restored.On(SecEpicChildren) {
 		t.Fatalf("view state lost settings: restored=%+v original=%+v", restored, rs)
 	}
 }
@@ -216,7 +216,7 @@ func TestComputeSettingsConfluencePageFieldsRoundTrip(t *testing.T) {
 		t.Fatalf("page fields = %+v", rs.PageFields)
 	}
 	restored := settingsFromViewState(viewStateOf(rs))
-	if !reflect.DeepEqual(restored.PageFields, rs.PageFields) || !restored.On(SecPageFields) {
+	if !reflect.DeepEqual(restored.PageFields, rs.PageFields) || restored.DisplayTimeZone != config.DefaultDisplayTimeZone || !restored.On(SecPageFields) {
 		t.Fatalf("view state lost page fields: restored=%+v original=%+v", restored, rs)
 	}
 }

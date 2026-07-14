@@ -88,7 +88,9 @@ atl config show
 
 `config show` prints `confluence_url`, `jira_url`, `update_base_url`, a `mirror` hint block
 with the recommended `~/.atl/<workspace>/` root plus active `ATL_MIRROR_ROOT` when set, and the
-effective `render` block with `render_provenance` (see below). A non-https URL for a non-loopback
+effective `render` block with `render_provenance` (see below). Its shared
+`render.display_time_zone` is an IANA presentation zone (deterministic `UTC` by default); it
+changes human Markdown dates only, never JQL/CQL or exact JSON/native timestamps. A non-https URL for a non-loopback
 host is rejected at set time.
 
 **Render config layer (presentation-only).** `config set` also takes a positional dotted render key
@@ -98,6 +100,7 @@ that tunes the derived `.md` view — `render.{jira,confluence}.{profile,include
 closed read-only `page_fields` JSON descriptor array:
 
 ```bash
+atl config set render.display_time_zone Europe/Berlin # global human-readable Markdown zone
 atl config set render.jira.profile full            # global (~/.config/atl/config.json)
 atl config set --local render.confluence.profile minimal   # per-mirror <root>/.atl/config.json
 atl config set --local render.confluence.page_fields '[{"id":"title"},{"id":"updated","format":"date"}]'

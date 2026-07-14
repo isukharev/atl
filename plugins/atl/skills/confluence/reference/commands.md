@@ -88,7 +88,10 @@ typed metadata and comments when available. Per-run flags:
 --render-exclude <section>
 ```
 
-Persist with `atl config set render.confluence.*`. Re-render offline:
+Persist service fields with `atl config set render.confluence.*`. Set the shared
+human date zone with `atl config set render.display_time_zone <IANA>`; it
+defaults to `UTC`, never affects CQL/JSON/native timestamps, and is recorded in
+view state. Re-render offline:
 
 ```bash
 atl conf render <mirror-or-page.csf> --render-profile full

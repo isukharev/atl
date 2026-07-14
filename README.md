@@ -319,10 +319,11 @@ atl conf page title set 123456 --from-file title.txt
 atl conf page labels list 123456
 atl conf page labels add 123456 reviewed-label # dry-run; apply with emitted proposal hash
 # Typed read-only page metadata (closed field ids; see docs/usage.md)
+atl config set render.display_time_zone Europe/Berlin # Markdown only; JSON/native timestamps stay exact
 atl config set render.confluence.include page_fields
 atl config set render.confluence.page_fields '[{"id":"title"},{"id":"updated","format":"date"}]'
 atl config set render.confluence.jira_macros off # default auto; disable page-provided JQL globally
-# View v3 separates # Metadata / # Content / generated Jira queries / # Comments; native
+# View v4 separates # Metadata / # Content / generated Jira queries / # Comments; native
 # comment formatting and page-link target identity remain readable.
 atl conf table extract --id 123456 --format json
 atl conf table extract --id 123456 --table 2 --format csv

@@ -203,12 +203,42 @@ func TestConfiguredTemporalAndScalarListFormats(t *testing.T) {
 	got := string(renderIssueMarkdown(is, nil, rs))
 	for _, want := range []string{
 		`| Release date | 2026-01-02 |`,
-		`| Release at | 2026-01-02 23:30 +03:00 |`,
+		`| Release at | 2026-01-02 20:30 UTC |`,
 		"| Raw bad date | not-a-date |",
 		"# Owners\n\n- single",
 	} {
 		mustContain(t, got, want)
 	}
+	moscow, warns := computeSettingsWithDisplayTimeZone("jira", config.RenderService{
+		Profile: "full",
+		FieldViews: []config.JiraFieldView{
+			{ID: "customfield_datetime", Label: "Release at", Format: "datetime"},
+		},
+	}, "Europe/Moscow")
+	if len(warns) != 0 {
+		t.Fatal(warns)
+	}
+	mustContain(t, string(renderIssueMarkdown(is, nil, moscow)), `| Release at | 2026-01-02 23:30 MSK |`)
+}
+
+func TestJiraDisplayTimeZoneIsIndependentOfProcessTZAndCanShiftDate(t *testing.T) {
+	fields := richFields()
+	fields["customfield_date"] = "2026-01-02T00:30:00.000+0300"
+	is := jiramap.Issue("1001", "PROJ-42", fields)
+	svc := config.RenderService{Profile: "full", FieldViews: []config.JiraFieldView{{ID: "customfield_date", Label: "UTC date", Format: "date"}}}
+	rs, warns := computeSettingsWithDisplayTimeZone("jira", svc, "UTC")
+	if len(warns) != 0 {
+		t.Fatal(warns)
+	}
+	var outputs []string
+	for _, processTZ := range []string{"Pacific/Kiritimati", "Etc/GMT+12"} {
+		t.Setenv("TZ", processTZ)
+		outputs = append(outputs, string(renderIssueMarkdown(is, nil, rs)))
+	}
+	if outputs[0] != outputs[1] {
+		t.Fatal("render changed with process TZ")
+	}
+	mustContain(t, outputs[0], `| UTC date | 2026-01-01 |`)
 }
 
 func TestJiraMetadataTableEscapesStructuralValues(t *testing.T) {
@@ -355,7 +385,7 @@ func TestJiraRenderRechecksViewAfterBatchPreflight(t *testing.T) {
 	}
 }
 
-func TestJiraRenderMigratesV1ViewToV2(t *testing.T) {
+func TestJiraRenderMigratesKnownLegacyViewsToV3(t *testing.T) {
 	root := t.TempDir()
 	m := mirror.New(root)
 	if err := m.EnsureScaffold(); err != nil {
@@ -371,13 +401,15 @@ func TestJiraRenderMigratesV1ViewToV2(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "PROJ-42.md")
-	v1 := strings.Replace(mustReadFile(t, path), jiraIssueDocumentMarker, jiraIssueDocumentMarkerV1, 1)
-	mustWriteFile(t, path, v1)
-	if _, err := svc.Render(path, config.RenderService{}); err != nil {
-		t.Fatalf("migrate v1: %v", err)
-	}
-	if got := mustReadFile(t, path); !strings.HasPrefix(got, jiraIssueDocumentMarker+"\n") {
-		t.Fatalf("marker was not migrated: %q", strings.SplitN(got, "\n", 2)[0])
+	for _, legacyMarker := range []string{jiraIssueDocumentMarkerV2, jiraIssueDocumentMarkerV1} {
+		legacy := strings.Replace(mustReadFile(t, path), jiraIssueDocumentMarker, legacyMarker, 1)
+		mustWriteFile(t, path, legacy)
+		if _, err := svc.Render(path, config.RenderService{}); err != nil {
+			t.Fatalf("migrate %s: %v", legacyMarker, err)
+		}
+		if got := mustReadFile(t, path); !strings.HasPrefix(got, jiraIssueDocumentMarker+"\n") {
+			t.Fatalf("marker was not migrated: %q", strings.SplitN(got, "\n", 2)[0])
+		}
 	}
 }
 

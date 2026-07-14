@@ -224,6 +224,7 @@ JSON output:
   "jira_url": "https://jira.example.com",
   "update_base_url": "",
   "render": {
+    "display_time_zone": "UTC",
     "jira": { "profile": "default" },
     "confluence": { "profile": "minimal" }
   },
@@ -282,6 +283,7 @@ atl config set --jira-url https://jira.example.com
 atl config set --update-url https://releases.example.com/atl
 
 # Render (presentation-only) keys — global or per-mirror (--local):
+atl config set render.display_time_zone Europe/Berlin
 atl config set render.jira.profile full
 atl config set --local render.confluence.profile minimal
 atl config set --local render.confluence.page_fields '[{"id":"title"},{"id":"updated","format":"date"}]'
@@ -302,7 +304,8 @@ Flags:
 | `--local` | write the per-mirror `<root>/.atl/config.json` (render keys only) |
 | `--into ROOT` | mirror root for `--local` (defaults to the nearest `.atl` walking up from cwd) |
 
-**Render keys** (`render.{jira,confluence}.{profile,include,exclude}`, plus
+**Render keys** (`render.display_time_zone`,
+`render.{jira,confluence}.{profile,include,exclude}`, plus
 `render.jira.custom_fields`, `render.jira.field_views`, and
 `render.jira.epic_field`, plus `render.confluence.page_fields` and
 `render.confluence.jira_macros`) tune the derived `.md` view. The macro policy
@@ -310,6 +313,9 @@ is global-only (or an explicit per-run flag); mirror-local config cannot enable
 authenticated Jira reads. `profile` is one of
 `minimal`, `default`, `full`; `include`/`exclude`/`custom_fields` take a
 comma-separated list, while `field_views` and `page_fields` take JSON descriptor arrays.
+`render.display_time_zone` is an IANA presentation zone shared by both
+backends; it defaults to deterministic `UTC` and never changes JQL/CQL
+interpretation or exact timestamps in JSON/native snapshots.
 
 Set a whole catalog with `jira.list_views` or one preset with
 `jira.list_views.<name>`; pass JSON objects and use `null` to remove a custom
@@ -572,7 +578,7 @@ contain. Supported body edits become real only after `conf apply` / `jira
 apply`; generated metadata sections remain read-only, and pull/render may
 replace the view. Profiles never affect substrate hashes or dirty/drift state.
 
-Confluence views begin with `<!-- atl:document confluence-page v3 -->` and use
+Confluence views begin with `<!-- atl:document confluence-page v4 -->` and use
 reserved metadata/body/comments/Jira-query boundaries. Before editing an older or
 unmarked view, render the exact file/root again. Since render replaces `.md`,
 preserve existing edits as a private reviewed patch and reapply them afterward.
@@ -598,6 +604,14 @@ and ignored, never an error.
 `--render-include` / `--render-exclude` flags **>** local `.atl/config.json`
 **>** global config **>** built-in `default`. `include` adds sections to the
 profile base; `exclude` removes them.
+
+`render.display_time_zone` follows local mirror config > global config > the
+built-in `UTC` default. It affects only human `date`/`datetime` projections and
+comment headings in derived Markdown. Date-only values stay calendar dates;
+timestamp values are converted before formatting (for example
+`2026-06-03 15:55 MSK`). The original API strings remain unchanged in
+`.json`, `.meta.json`, and comment JSON sidecars. The process `TZ` environment
+is never consulted, keeping offline render byte-stable across machines.
 
 Confluence `page_fields` is a closed, read-only descriptor list. Configure it
 globally or in a mirror-local render config:
@@ -684,7 +698,7 @@ resolved id is recorded for byte-stable offline render/apply. Each descriptor is
   `datetime`; `jira_wiki` requires section placement and uses the same guarded
   wiki→Markdown renderer as Description. Valid `date` values normalize to
   `YYYY-MM-DD`; valid `datetime` values use a compact, minute-precision form
-  such as `2026-06-03 12:55 UTC` or `2026-06-03 15:55 +03:00`. Unexpected
+  such as `2026-06-03 12:55 UTC` or `2026-06-03 15:55 MSK`. Unexpected
   server values remain visible verbatim.
   A scalar with section `list` format becomes one bullet rather than an empty
   section.
@@ -767,8 +781,9 @@ The target is a mirror directory, a `.md`, or the substrate file (`.wiki` for
 Jira, `.csf` for Confluence); the mirror root is found by walking up to the
 `.atl` marker. Only `.md` files are rewritten — the `.csf`/`.wiki`/`.json`
 substrate and the `pages` sync entries are never touched, so `jira status` /
-`conf status` stay clean across a re-render. Each rendered view's settings are
-recorded in `.atl/state.json` (the `views` map) so a later `apply` can reproduce
+`conf status` stay clean across a re-render. Each rendered view's settings,
+including `display_time_zone`, are recorded in `.atl/state.json` (the `views`
+map) so a later `apply` can reproduce
 it. A Confluence `.csf` that fails to parse yields the same markdown-unavailable
 stub as `pull`.
 
@@ -1368,8 +1383,9 @@ atl conf apply guide.md --allow-fragment-loss  # intentional macro/mention remov
 | `--allow-fragment-loss` | proceed when the edit drops opaque fragments |
 | `--into` | mirror root (defaults to nearest `.atl`) |
 
-The first line must be `<!-- atl:document confluence-page v3 -->`. Apply rejects
-missing/legacy/unknown versions and additions, removals, renames, or reordering of reserved
+The first line must be `<!-- atl:document confluence-page v4 -->`. V3 predates
+the recorded display-timezone contract. Apply rejects missing/legacy/unknown
+versions and additions, removals, renames, or reordering of reserved
 `<!-- atl:... -->` marker text in the editable body before writing. Marker prose
 that already came from native page content is allowed when left unchanged.
 Re-render pristine unmarked old views before
@@ -2803,10 +2819,11 @@ next: run `jira push PROJ-1.wiki` to publish
 ```
 
 The first line is the versioned format marker
-`<!-- atl:document jira-issue v2 -->`; v1, missing, or unversioned markers fail
+`<!-- atl:document jira-issue v3 -->`; v2, v1, missing, or unversioned markers fail
 closed and require `jira render` (or a fresh pull) before editing. V1 used the
-former generated bullet form for Subtasks/Epic Children, so apply never guesses
-that an old generated region was a user edit. A future or
+former generated bullet form for Subtasks/Epic Children; v2 predates the
+recorded display-timezone contract. Apply never guesses that an old generated
+region was a user edit. A future or
 unknown version requires updating `atl`; never render/downgrade it with the
 older binary. Directory render checks all selected markers before rewriting the
 first view. Because

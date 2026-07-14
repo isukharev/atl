@@ -412,7 +412,7 @@ func validateJiraIssueDocumentMarker(edited string) error {
 	if first == jiraIssueDocumentMarker {
 		return nil
 	}
-	if first == jiraIssueDocumentMarkerV1 || first == "<!-- atl:document jira-issue -->" {
+	if first == jiraIssueDocumentMarkerV2 || first == jiraIssueDocumentMarkerV1 || first == "<!-- atl:document jira-issue -->" {
 		return fmt.Errorf("%w: this Jira view uses a legacy document format; preserve edits outside the derived view, run `jira render` (or pull again) with this binary, then reapply them", domain.ErrCheckFailed)
 	}
 	if strings.HasPrefix(first, "<!-- atl:document jira-issue") {

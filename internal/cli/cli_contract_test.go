@@ -190,7 +190,7 @@ func TestConfPageViewTextWritesNothing(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("conf page view text: exit %d, want %d (stdout=%q)", code, exitOK, out)
 	}
-	want := "<!-- atl:document confluence-page v3 -->\n<!-- atl:section body readonly -->\n# Content\n\nHello\n"
+	want := "<!-- atl:document confluence-page v4 -->\n<!-- atl:section body readonly -->\n# Content\n\nHello\n"
 	if out != want {
 		t.Fatalf("text output differs from exact rendered Markdown:\n got=%q\nwant=%q", out, want)
 	}

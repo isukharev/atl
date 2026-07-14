@@ -23,7 +23,8 @@ import (
 
 const (
 	jiraIssueDocumentMarkerV1 = "<!-- atl:document jira-issue v1 -->"
-	jiraIssueDocumentMarker   = "<!-- atl:document jira-issue v2 -->"
+	jiraIssueDocumentMarkerV2 = "<!-- atl:document jira-issue v2 -->"
+	jiraIssueDocumentMarker   = "<!-- atl:document jira-issue v3 -->"
 )
 
 func (s *JiraService) Issue(ctx context.Context, key string, fields []string) (*domain.Issue, error) {
@@ -892,9 +893,9 @@ func renderIssueMarkdownLayout(is *domain.Issue, assets []JiraIssueAsset, relate
 	addMetadataField(&metadata, rs, SecAssignee, "Assignee", is.Assignee)
 	addMetadataField(&metadata, rs, SecReporter, "Reporter", is.Reporter)
 	addMetadataField(&metadata, rs, SecResolution, "Resolution", nestedNameField(is.Fields, "resolution"))
-	addMetadataField(&metadata, rs, SecDuedate, "Due date", renderTemporalField(strField(is.Fields, "duedate"), "date"))
-	addMetadataField(&metadata, rs, SecCreated, "Created", renderTemporalField(strField(is.Fields, "created"), "datetime"))
-	addMetadataField(&metadata, rs, SecUpdated, "Updated", renderTemporalField(strField(is.Fields, "updated"), "datetime"))
+	addMetadataField(&metadata, rs, SecDuedate, "Due date", renderTemporalFieldIn(strField(is.Fields, "duedate"), "date", rs.DisplayTimeZone))
+	addMetadataField(&metadata, rs, SecCreated, "Created", renderTemporalFieldIn(strField(is.Fields, "created"), "datetime", rs.DisplayTimeZone))
+	addMetadataField(&metadata, rs, SecUpdated, "Updated", renderTemporalFieldIn(strField(is.Fields, "updated"), "datetime", rs.DisplayTimeZone))
 	if rs.On(SecLabels) && len(is.Labels) > 0 {
 		metadata = append(metadata, jiraMetadataEntry{Label: "Labels", Value: strings.Join(is.Labels, ", ")})
 	}
@@ -922,7 +923,7 @@ func renderIssueMarkdownLayout(is *domain.Issue, assets []JiraIssueAsset, relate
 				}
 				continue
 			}
-			metadata = append(metadata, jiraMetadataEntry{Label: fv.Label, Value: renderFieldValueForFormat(v, fv.Format)})
+			metadata = append(metadata, jiraMetadataEntry{Label: fv.Label, Value: renderFieldValueForFormatIn(v, fv.Format, rs.DisplayTimeZone)})
 		}
 		for _, id := range rs.CustomFields {
 			if viewIDs[id] {
@@ -968,7 +969,7 @@ func renderIssueMarkdownLayout(is *domain.Issue, assets []JiraIssueAsset, relate
 			}
 			writeJiraSectionHeading(&b, jiraFieldSectionID(fv.ID), fv.Label, canEdit)
 			start := b.Len()
-			b.WriteString(renderFieldSection(v, fv.Format))
+			b.WriteString(renderFieldSectionIn(v, fv.Format, rs.DisplayTimeZone))
 			if canEdit {
 				fieldRegions = append(fieldRegions, jiraEditableFieldRegion{FieldID: fv.ID, Start: start, End: b.Len(), BaseWiki: baseWiki})
 			}
@@ -1028,7 +1029,7 @@ func renderIssueMarkdownLayout(is *domain.Issue, assets []JiraIssueAsset, relate
 			body := guardRender(jiraCommentStub, func() string {
 				return wikimd.Render(c.Body, wikimd.Options{Images: images, HeadingOffset: 1})
 			})
-			fmt.Fprintf(&b, "**%s** (%s):\n\n%s\n\n", c.Author, renderTemporalField(c.Created, "datetime"), body)
+			fmt.Fprintf(&b, "**%s** (%s):\n\n%s\n\n", c.Author, renderTemporalFieldIn(c.Created, "datetime", rs.DisplayTimeZone), body)
 		}
 	}
 	suffix = b.String()
@@ -1186,10 +1187,10 @@ func renderFieldValue(v any) string {
 	}
 }
 
-func renderFieldValueForFormat(v any, format string) string {
+func renderFieldValueForFormatIn(v any, format, displayTimeZone string) string {
 	switch format {
 	case "date", "datetime":
-		return renderTemporalField(v, format)
+		return renderTemporalFieldIn(v, format, displayTimeZone)
 	case "list":
 		if arr, ok := v.([]any); ok {
 			parts := make([]string, 0, len(arr))
@@ -1205,9 +1206,24 @@ func renderFieldValueForFormat(v any, format string) string {
 }
 
 func renderTemporalField(v any, format string) string {
+	return renderTemporalFieldIn(v, format, "")
+}
+
+func renderTemporalFieldIn(v any, format, displayTimeZone string) string {
 	raw := renderFieldValue(v)
 	if raw == "" {
 		return ""
+	}
+	var displayLocation *time.Location
+	if displayTimeZone != "" {
+		var err error
+		displayLocation, err = time.LoadLocation(displayTimeZone)
+		if err != nil {
+			// ViewState is local state and can outlive the config that created it.
+			// An invalid recorded zone must not invent a partially converted time;
+			// fall back to the legacy source-offset representation instead.
+			displayTimeZone = ""
+		}
 	}
 	layouts := []string{
 		time.RFC3339Nano,
@@ -1220,11 +1236,17 @@ func renderTemporalField(v any, format string) string {
 		if err != nil {
 			continue
 		}
+		if layout == "2006-01-02" {
+			return parsed.Format("2006-01-02")
+		}
+		if displayLocation != nil {
+			parsed = parsed.In(displayLocation)
+		}
 		if format == "date" {
 			return parsed.Format("2006-01-02")
 		}
-		if layout == "2006-01-02" {
-			return parsed.Format("2006-01-02")
+		if displayTimeZone != "" {
+			return parsed.Format("2006-01-02 15:04 MST")
 		}
 		_, offset := parsed.Zone()
 		zone := "UTC"
@@ -1245,6 +1267,10 @@ func renderTemporalField(v any, format string) string {
 // wiki is explicitly opt-in; every other format is a compact scalar/list view
 // and never mutates the raw snapshot value.
 func renderFieldSection(v any, format string) string {
+	return renderFieldSectionIn(v, format, "")
+}
+
+func renderFieldSectionIn(v any, format, displayTimeZone string) string {
 	if format == "jira_wiki" {
 		return guardRender("<!-- atl: configured Jira field could not be rendered -->", func() string {
 			return wikimd.Render(renderFieldValue(v), wikimd.Options{HeadingOffset: 1})
@@ -1263,7 +1289,7 @@ func renderFieldSection(v any, format string) string {
 		}
 		return strings.TrimRight(b.String(), "\n")
 	}
-	return renderFieldValueForFormat(v, format)
+	return renderFieldValueForFormatIn(v, format, displayTimeZone)
 }
 
 func isFieldList(v any) bool {

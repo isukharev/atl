@@ -28,7 +28,7 @@ func confMDViewOpts(rs RenderSettings, page *domain.Resource, comments []domain.
 			views = defaultConfluencePageFields()
 		}
 		for _, view := range views {
-			values := confluencePageFieldValues(page, view)
+			values := confluencePageFieldValues(page, view, rs.DisplayTimeZone)
 			if len(values) == 0 && !view.ShowEmpty {
 				continue
 			}
@@ -38,8 +38,12 @@ func confMDViewOpts(rs RenderSettings, page *domain.Resource, comments []domain.
 			})
 		}
 	}
-	if rs.On(SecComments) && len(comments) > 0 {
-		opts.Comments = comments
+	displayComments := confluenceCommentsForDisplay(comments, rs.DisplayTimeZone)
+	if len(displayComments) > 0 {
+		opts.CommentView = displayComments
+	}
+	if rs.On(SecComments) && len(displayComments) > 0 {
+		opts.Comments = displayComments
 	}
 	return opts
 }
@@ -54,7 +58,7 @@ func defaultConfluencePageFields() []config.ConfluenceFieldView {
 	return out
 }
 
-func confluencePageFieldValues(page *domain.Resource, view config.ConfluenceFieldView) []string {
+func confluencePageFieldValues(page *domain.Resource, view config.ConfluenceFieldView, displayTimeZone string) []string {
 	var values []string
 	switch view.ID {
 	case "title":
@@ -84,7 +88,7 @@ func confluencePageFieldValues(page *domain.Resource, view config.ConfluenceFiel
 	case "updated":
 		rendered := page.Updated
 		if view.Format == "date" || view.Format == "datetime" {
-			rendered = renderTemporalField(page.Updated, view.Format)
+			rendered = renderTemporalFieldIn(page.Updated, view.Format, displayTimeZone)
 		}
 		if rendered != "" {
 			values = []string{rendered}
@@ -94,6 +98,23 @@ func confluencePageFieldValues(page *domain.Resource, view config.ConfluenceFiel
 		return []string{strings.Join(values, ", ")}
 	}
 	return values
+}
+
+func confluenceCommentsForDisplay(comments []domain.Comment, displayTimeZone string) []domain.Comment {
+	if len(comments) == 0 {
+		return nil
+	}
+	out := append([]domain.Comment(nil), comments...)
+	// A missing value comes only from a legacy recorded ViewState. Preserve its
+	// pre-display-timezone comment bytes so apply/incremental preflight can
+	// reproduce the old pristine view until an explicit render/pull migrates it.
+	if displayTimeZone == "" {
+		return out
+	}
+	for i := range out {
+		out[i].Created = renderTemporalFieldIn(out[i].Created, "datetime", displayTimeZone)
+	}
+	return out
 }
 
 func scalarPageField(value string) []string {
@@ -289,6 +310,7 @@ func preflightConfluenceRenderView(root, mdPath string) error {
 	first := mirror.ConfluenceDocumentMarkerLine(string(b))
 	if strings.HasPrefix(first, "<!-- atl:document confluence-page") &&
 		first != mirror.ConfluenceDocumentMarker &&
+		first != "<!-- atl:document confluence-page v3 -->" &&
 		first != "<!-- atl:document confluence-page v2 -->" &&
 		first != "<!-- atl:document confluence-page v1 -->" &&
 		first != "<!-- atl:document confluence-page -->" {

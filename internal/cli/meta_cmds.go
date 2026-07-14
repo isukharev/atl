@@ -383,8 +383,8 @@ func configShowText(out configShowResult) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "read_only: %t\nconfluence_url: %s\njira_url: %s\nupdate_base_url: %s\n",
 		out.ReadOnly, out.ConfluenceURL, out.JiraURL, out.UpdateBaseURL)
-	fmt.Fprintf(&b, "render_jira_profile: %s\nrender_confluence_profile: %s\n",
-		out.Render.Jira.Profile, out.Render.Confluence.Profile)
+	fmt.Fprintf(&b, "render_display_time_zone: %s\nrender_jira_profile: %s\nrender_confluence_profile: %s\n",
+		out.Render.DisplayTimeZone, out.Render.Jira.Profile, out.Render.Confluence.Profile)
 	viewNames := make([]string, 0, len(out.JiraListViews))
 	for name := range out.JiraListViews {
 		viewNames = append(viewNames, name)

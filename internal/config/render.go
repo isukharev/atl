@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+	_ "time/tzdata"
 
 	"github.com/isukharev/atl/internal/safepath"
 )
@@ -61,8 +63,9 @@ type ConfluenceFieldView struct {
 // an empty object, so a config file without render keys stays byte-stable when
 // re-saved.
 type RenderConfig struct {
-	Jira       *RenderService `json:"jira,omitempty"`
-	Confluence *RenderService `json:"confluence,omitempty"`
+	DisplayTimeZone string         `json:"display_time_zone,omitempty"`
+	Jira            *RenderService `json:"jira,omitempty"`
+	Confluence      *RenderService `json:"confluence,omitempty"`
 }
 
 // LocalConfig is the sanitized view of a per-mirror <root>/.atl/config.json. It
@@ -80,6 +83,11 @@ type Provenance map[string]string
 // DefaultProfile is the built-in render profile when none is configured.
 const DefaultProfile = "default"
 
+// DefaultDisplayTimeZone makes offline rendering deterministic across laptops,
+// containers, and CI. It is presentation-only and never defines JQL/CQL
+// semantics.
+const DefaultDisplayTimeZone = "UTC"
+
 // validProfiles is the closed set of render profile names (empty means default).
 var validProfiles = map[string]bool{"minimal": true, "default": true, "full": true}
 
@@ -90,6 +98,29 @@ func ValidJiraMacroMode(mode string) bool { return mode == "" || mode == "auto" 
 // ValidProfile reports whether p is an accepted render profile. Empty is valid
 // (it falls back to the default profile).
 func ValidProfile(p string) bool { return p == "" || validProfiles[p] }
+
+// NormalizeDisplayTimeZone validates one IANA presentation timezone. Empty
+// means the stable built-in UTC default.
+func NormalizeDisplayTimeZone(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return DefaultDisplayTimeZone, nil
+	}
+	location, err := time.LoadLocation(value)
+	if err != nil {
+		return "", fmt.Errorf("invalid IANA display timezone %q", value)
+	}
+	return location.String(), nil
+}
+
+// ValidateRenderConfig checks global render values that must fail closed.
+func ValidateRenderConfig(rc *RenderConfig) error {
+	if rc == nil || strings.TrimSpace(rc.DisplayTimeZone) == "" {
+		return nil
+	}
+	_, err := NormalizeDisplayTimeZone(rc.DisplayTimeZone)
+	return err
+}
 
 // localConfigPath returns the per-mirror config path under a mirror root.
 func localConfigPath(root string) string {
@@ -159,9 +190,18 @@ func parseLocalRender(raw json.RawMessage, path string) (*RenderConfig, []string
 		return nil, []string{fmt.Sprintf("ignoring render section in local config %s: %v", path, err)}
 	}
 	var warnings []string
+	if rc.DisplayTimeZone != "" {
+		normalized, err := NormalizeDisplayTimeZone(rc.DisplayTimeZone)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("ignoring render.display_time_zone=%q in local config %s: %v", rc.DisplayTimeZone, path, err))
+			rc.DisplayTimeZone = ""
+		} else {
+			rc.DisplayTimeZone = normalized
+		}
+	}
 	rc.Jira, warnings = sanitizeService(rc.Jira, "render.jira", path, warnings)
 	rc.Confluence, warnings = sanitizeService(rc.Confluence, "render.confluence", path, warnings)
-	if rc.Jira == nil && rc.Confluence == nil {
+	if rc.DisplayTimeZone == "" && rc.Jira == nil && rc.Confluence == nil {
 		return nil, warnings
 	}
 	return &rc, warnings
@@ -239,9 +279,21 @@ func EffectiveRender(global *Config, local *LocalConfig) (RenderConfig, Provenan
 	if local != nil {
 		localRender = local.Render
 	}
+	displayTimeZone := DefaultDisplayTimeZone
+	prov["render.display_time_zone"] = "default"
+	if globalRender != nil && globalRender.DisplayTimeZone != "" {
+		if normalized, err := NormalizeDisplayTimeZone(globalRender.DisplayTimeZone); err == nil {
+			displayTimeZone = normalized
+			prov["render.display_time_zone"] = "global"
+		}
+	}
+	if localRender != nil && localRender.DisplayTimeZone != "" {
+		displayTimeZone = localRender.DisplayTimeZone
+		prov["render.display_time_zone"] = "local"
+	}
 	jira := mergeService("render.jira", serviceOf(globalRender, true), serviceOf(localRender, true), prov, true)
 	conf := mergeService("render.confluence", serviceOf(globalRender, false), serviceOf(localRender, false), prov, false)
-	return RenderConfig{Jira: jira, Confluence: conf}, prov
+	return RenderConfig{DisplayTimeZone: displayTimeZone, Jira: jira, Confluence: conf}, prov
 }
 
 func serviceOf(rc *RenderConfig, jira bool) *RenderService {
@@ -330,6 +382,7 @@ var renderFields = map[string]bool{
 // messages.
 func ValidRenderKeys() []string {
 	return []string{
+		"render.display_time_zone",
 		"render.jira.profile", "render.jira.include", "render.jira.exclude", "render.jira.custom_fields", "render.jira.field_views", "render.jira.epic_field",
 		"render.confluence.profile", "render.confluence.include", "render.confluence.exclude",
 		"render.confluence.page_fields",
@@ -345,6 +398,14 @@ var ErrNotRenderKey = errors.New("not a render key")
 // comma-separated value. It returns ErrNotRenderKey for a non-render key and a
 // descriptive error for an unknown/misused key or an invalid profile value.
 func SetRenderKey(rc *RenderConfig, key, value string) error {
+	if key == "render.display_time_zone" {
+		normalized, err := NormalizeDisplayTimeZone(value)
+		if err != nil {
+			return err
+		}
+		rc.DisplayTimeZone = normalized
+		return nil
+	}
 	parts := strings.Split(key, ".")
 	if len(parts) == 0 || parts[0] != "render" {
 		return ErrNotRenderKey

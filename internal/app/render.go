@@ -83,6 +83,7 @@ var jiraDefaultSections = []string{
 // upstream, so a renderer never touches config.
 type RenderSettings struct {
 	Sections         map[string]bool
+	DisplayTimeZone  string
 	CustomFields     []string
 	FieldViews       []config.JiraFieldView
 	PageFields       []config.ConfluenceFieldView
@@ -145,6 +146,10 @@ func profileBase(backend, profile string) map[string]bool {
 // reported as warnings and skipped — never an error, so a stale config key
 // degrades gracefully.
 func computeSettings(backend string, svc config.RenderService) (RenderSettings, []string) {
+	return computeSettingsWithDisplayTimeZone(backend, svc, config.DefaultDisplayTimeZone)
+}
+
+func computeSettingsWithDisplayTimeZone(backend string, svc config.RenderService, displayTimeZone string) (RenderSettings, []string) {
 	valid := validSectionSet(backend)
 	sections := profileBase(backend, svc.Profile)
 	var warns []string
@@ -200,7 +205,7 @@ func computeSettings(backend string, svc config.RenderService) (RenderSettings, 
 			expandJiraMacros = false
 			warns = append(warns, fmt.Sprintf("render: invalid confluence jira_macros policy %q; disabling authenticated Jira macro reads (want auto|off)", svc.JiraMacros))
 		}
-		return RenderSettings{Sections: sections, PageFields: views, ExpandJiraMacros: expandJiraMacros}, warns
+		return RenderSettings{Sections: sections, DisplayTimeZone: displayTimeZone, PageFields: views, ExpandJiraMacros: expandJiraMacros}, warns
 	}
 	views := make([]config.JiraFieldView, 0, len(svc.FieldViews))
 	if len(svc.PageFields) > 0 {
@@ -237,7 +242,7 @@ func computeSettings(backend string, svc config.RenderService) (RenderSettings, 
 		}
 		cf = append(cf, field)
 	}
-	return RenderSettings{Sections: sections, CustomFields: cf, FieldViews: views, EpicField: strings.TrimSpace(svc.EpicField)}, warns
+	return RenderSettings{Sections: sections, DisplayTimeZone: displayTimeZone, CustomFields: cf, FieldViews: views, EpicField: strings.TrimSpace(svc.EpicField)}, warns
 }
 
 func unknownSectionWarn(backend, verb, name string) string {
@@ -265,7 +270,7 @@ func ResolveRender(global *config.Config, root string, override config.RenderSer
 	eff, _ := config.EffectiveRender(global, local)
 	svc := serviceForBackend(eff, backend)
 	merged := applyRenderOverride(svc, override)
-	settings, cw := computeSettings(backend, merged)
+	settings, cw := computeSettingsWithDisplayTimeZone(backend, merged, eff.DisplayTimeZone)
 	warns = append(warns, cw...)
 	return settings, warns
 }
@@ -347,7 +352,7 @@ func viewStateOf(rs RenderSettings) mirror.ViewState {
 			ID: fv.ID, Label: fv.Label, Placement: fv.Placement, Format: fv.Format, ShowEmpty: fv.ShowEmpty,
 		})
 	}
-	return mirror.ViewState{Sections: sections, CustomFields: cf, FieldViews: fields, PageFields: pageFields, EpicField: rs.EpicField}
+	return mirror.ViewState{Sections: sections, DisplayTimeZone: rs.DisplayTimeZone, CustomFields: cf, FieldViews: fields, PageFields: pageFields, EpicField: rs.EpicField}
 }
 
 // settingsFromViewState is the inverse of viewStateOf: it rebuilds RenderSettings
@@ -378,7 +383,7 @@ func settingsFromViewState(vs mirror.ViewState) RenderSettings {
 			ID: fv.ID, Label: fv.Label, Placement: fv.Placement, Format: fv.Format, ShowEmpty: fv.ShowEmpty,
 		})
 	}
-	return RenderSettings{Sections: sections, CustomFields: cf, FieldViews: fields, PageFields: pageFields, EpicField: vs.EpicField}
+	return RenderSettings{Sections: sections, DisplayTimeZone: vs.DisplayTimeZone, CustomFields: cf, FieldViews: fields, PageFields: pageFields, EpicField: vs.EpicField}
 }
 
 // renderOverrideSet reports whether a per-run render override carries any
