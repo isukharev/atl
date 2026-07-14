@@ -98,7 +98,10 @@ PY
   jq -e '.planned_count == 1 and (.candidates | type == "array") and (.count | type == "number")' "$tmp/link-suggest.json" >/dev/null
   ok "jira link suggest"
 
-  printf 'op,source,target,type,rationale\nlink,%s,%s,Relates,live smoke dry-run candidate\n' "$first_key" "$first_key" > "$tmp/apply-plan.csv"
+  "$ATL_BIN" jira issue get "$first_key" --fields updated > "$tmp/issue-updated.json"
+  expected_updated="$(jq -er '.fields.updated | strings | select(length > 0)' "$tmp/issue-updated.json")"
+  printf 'version,op,source,target,type,rationale,expected_updated\n1,link,%s,%s,Relates,live smoke dry-run candidate,%s\n' \
+    "$first_key" "$first_key" "$expected_updated" > "$tmp/apply-plan.csv"
   "$ATL_BIN" jira issue plan apply --csv "$tmp/apply-plan.csv" > "$tmp/plan-apply.json"
   jq -e '.mode == "dry-run" and .count == 1 and .results[0].status != "applied"' "$tmp/plan-apply.json" >/dev/null
   ok "jira plan apply dry-run"
@@ -163,7 +166,7 @@ if [[ -n "${ATL_TEST_JIRA_STRUCTURE_ID:-}" ]]; then
   "$ATL_BIN" jira structure values "$ATL_TEST_JIRA_STRUCTURE_ID" --rows "$row_ids" --fields "$structure_fields" > "$tmp/structure-values.json"
   jq -e '.responses != null or .raw != null' "$tmp/structure-values.json" >/dev/null
   structure_pull_args=(jira structure pull-issues "$ATL_TEST_JIRA_STRUCTURE_ID" --fields "$structure_fields" --limit "${ATL_LIVE_SMOKE_LIMIT:-5}")
-  structure_export_args=(jira structure export "$ATL_TEST_JIRA_STRUCTURE_ID" --fields "$structure_fields" --limit "${ATL_LIVE_SMOKE_LIMIT:-5}" --format json --out "$tmp/structure-export.json")
+  structure_export_args=(jira structure export "$ATL_TEST_JIRA_STRUCTURE_ID" --fields "$structure_fields" --format json --out "$tmp/structure-export.json")
   if [[ -n "${ATL_TEST_JIRA_STRUCTURE_ROOT:-}" ]]; then
     structure_pull_args+=(--root "$ATL_TEST_JIRA_STRUCTURE_ROOT" --root-fields "$structure_fields")
     structure_export_args+=(--root "$ATL_TEST_JIRA_STRUCTURE_ROOT" --root-fields "$structure_fields")
@@ -199,7 +202,7 @@ table_lines = [line for line in md.splitlines() if "|" in line]
 if len(table_lines) < 2 or not any("|" in line and "---" in line for line in table_lines):
     raise SystemExit("markdown table missing")
 
-plain_md = re.sub(r"\u27e6/?color[^\u27e7]*\u27e7", "", md)
+plain_md = re.sub(r'<span style="color: [^"]+">(.*?)</span>', r"\1", md, flags=re.I | re.S)
 plain_md = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", plain_md)
 plain_md = re.sub(r"\s+", " ", plain_md)
 
@@ -214,8 +217,10 @@ hrefs = re.findall(r"<a\b[^>]*\bhref=[\"']([^\"']+)[\"']", csf, re.I)
 if hrefs and not any(href in md for href in hrefs):
     raise SystemExit("table link URL missing from markdown")
 
-if re.search(r"<span\b[^>]*\bstyle=[\"'][^\"']*color\s*:", csf, re.I) and "\u27e6color:" not in md:
-    raise SystemExit("color marker missing from markdown")
+if re.search(r"<span\b[^>]*\bstyle=[\"'][^\"']*color\s*:", csf, re.I) and not re.search(
+    r'<span style="color: [^"]+">.*?</span>', md, re.I | re.S
+):
+    raise SystemExit("protected color span missing from markdown")
 PY
   ok "confluence table"
 
