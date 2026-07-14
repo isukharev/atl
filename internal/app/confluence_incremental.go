@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -71,6 +72,7 @@ type IncrementalPullResult struct {
 	NextInstant          string `json:"next_instant"`
 	BoundaryCount        int    `json:"boundary_count"`
 	WatermarkAdvanced    bool   `json:"watermark_advanced"`
+	ViewMigrations       int    `json:"view_migrations,omitempty"`
 }
 
 type confluenceIncrementalSelection struct {
@@ -355,10 +357,10 @@ func sameIncrementalHitSet(a, b map[string]domain.PageRef) bool {
 
 // preflightIncrementalOverwrite rejects both native edits and unapplied edits
 // to the derived Markdown view before the first remote body read or local write.
-func preflightIncrementalOverwrite(m *mirror.Mirror, ids []string) error {
+func preflightIncrementalOverwrite(m *mirror.Mirror, ids []string) (int, error) {
 	states, err := m.SyncStates()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	byID := map[string]mirror.SyncState{}
 	for _, state := range states {
@@ -366,6 +368,7 @@ func preflightIncrementalOverwrite(m *mirror.Mirror, ids []string) error {
 			byID[state.ID] = state
 		}
 	}
+	migrations := 0
 	for _, id := range ids {
 		state, ok := byID[id]
 		if !ok {
@@ -378,36 +381,36 @@ func preflightIncrementalOverwrite(m *mirror.Mirror, ids []string) error {
 			if _, readErr := safepath.ReadFileWithin(m.Root, path); readErr == nil {
 				present++
 			} else if !os.IsNotExist(readErr) {
-				return fmt.Errorf("%w: inspect incremental target %s: %v", domain.ErrCheckFailed, path, readErr)
+				return 0, fmt.Errorf("%w: inspect incremental target %s: %v", domain.ErrCheckFailed, path, readErr)
 			}
 		}
 		if present == 0 {
 			continue
 		}
 		if present != len(primary) {
-			return fmt.Errorf("%w: tracked incremental target for page %s is only partially present; preserve or restore its .csf/.md/.meta.json files", domain.ErrCheckFailed, id)
+			return 0, fmt.Errorf("%w: tracked incremental target for page %s is only partially present; preserve or restore its .csf/.md/.meta.json files", domain.ErrCheckFailed, id)
 		}
 		lc, _, err := m.LoadCSF(csfPath)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if lc.Dirty {
-			return fmt.Errorf("%w: page %s has local native edits; apply/push or preserve them before incremental pull", domain.ErrCheckFailed, id)
+			return 0, fmt.Errorf("%w: page %s has local native edits; apply/push or preserve them before incremental pull", domain.ErrCheckFailed, id)
 		}
 		if lc.Meta.Hash != state.Hash || lc.Meta.Version != state.Version {
-			return fmt.Errorf("%w: page %s metadata diverges from its tracked version/hash; preserve and reconcile it before incremental pull", domain.ErrCheckFailed, id)
+			return 0, fmt.Errorf("%w: page %s metadata diverges from its tracked version/hash; preserve and reconcile it before incremental pull", domain.ErrCheckFailed, id)
 		}
 		base, ok := m.BaseBody(id)
 		if !ok {
-			return fmt.Errorf("%w: page %s has no pristine base; re-pull it explicitly before incremental refresh", domain.ErrCheckFailed, id)
+			return 0, fmt.Errorf("%w: page %s has no pristine base; re-pull it explicitly before incremental refresh", domain.ErrCheckFailed, id)
 		}
 		node, parseErr := csf.Parse(base)
 		if parseErr != nil {
-			return fmt.Errorf("%w: page %s pristine CSF cannot reproduce its Markdown view; preserve local files and re-pull the page explicitly", domain.ErrCheckFailed, id)
+			return 0, fmt.Errorf("%w: page %s pristine CSF cannot reproduce its Markdown view; preserve local files and re-pull the page explicitly", domain.ErrCheckFailed, id)
 		}
 		view, hasView, err := m.ViewStateOf(id)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		opts := mirror.MDViewOpts{}
 		if hasView {
@@ -415,16 +418,64 @@ func preflightIncrementalOverwrite(m *mirror.Mirror, ids []string) error {
 			slug := strings.TrimSuffix(filepath.Base(csfPath), ".csf")
 			opts, err = confMDViewOptsFromSidecars(settingsFromViewState(view), confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug), m.Root, dir, slug, id, node)
 			if err != nil {
-				return fmt.Errorf("%w: cannot reproduce page %s derived view: %v", domain.ErrCheckFailed, id, err)
+				return 0, fmt.Errorf("%w: cannot reproduce page %s derived view: %v", domain.ErrCheckFailed, id, err)
 			}
 		}
 		actual, err := safepath.ReadFileWithin(m.Root, primary[1])
 		if err != nil {
-			return err
+			return 0, err
 		}
-		if mirror.Hash(actual) != mirror.Hash(mirror.RenderMarkdownOpts(node, lc.Meta.Refs, opts)) {
-			return fmt.Errorf("%w: page %s has unapplied Markdown edits; apply or preserve them before incremental pull", domain.ErrCheckFailed, id)
+		migrates, matchErr := matchConfluencePristineView(actual, mirror.RenderMarkdownOpts(node, lc.Meta.Refs, opts))
+		if matchErr != nil {
+			return 0, fmt.Errorf("%w: page %s %v", domain.ErrCheckFailed, id, matchErr)
+		}
+		if migrates {
+			migrations++
 		}
 	}
-	return nil
+	return migrations, nil
+}
+
+// matchConfluencePristineView proves whether an existing derived view is either
+// current or a byte-clean supported legacy format. Legacy views
+// are accepted only when replacing the current first-line marker with their
+// exact marker makes every byte match; this never guesses across renderer
+// changes. The successful pull then writes and records the current format.
+func matchConfluencePristineView(actual, current []byte) (bool, error) {
+	if bytes.Equal(actual, current) {
+		return false, nil
+	}
+	marker := mirror.ConfluenceDocumentMarkerLine(string(actual))
+	if marker == mirror.ConfluenceDocumentMarker {
+		return false, fmt.Errorf("has unapplied Markdown edits; apply or preserve them before replacing this derived view")
+	}
+	if isSupportedLegacyConfluenceMarker(marker) {
+		currentMarker := []byte(mirror.ConfluenceDocumentMarker)
+		if !bytes.HasPrefix(current, currentMarker) {
+			return false, fmt.Errorf("current pristine renderer omitted its document marker")
+		}
+		legacy := make([]byte, 0, len(current)-len(currentMarker)+len(marker))
+		legacy = append(legacy, marker...)
+		legacy = append(legacy, current[len(currentMarker):]...)
+		if bytes.Equal(actual, legacy) {
+			return true, nil
+		}
+		return false, fmt.Errorf("uses supported legacy Markdown format %q but differs from its pristine reconstruction; preserve and reconcile edits before migrating or replacing this derived view", marker)
+	}
+	if strings.HasPrefix(marker, "<!-- atl:document confluence-page") {
+		return false, fmt.Errorf("uses unsupported Markdown format %q; preserve it and update atl before replacing this derived view — do not downgrade it with this binary", marker)
+	}
+	return false, fmt.Errorf("has unapplied Markdown edits or an unrecognized document marker; apply or preserve them before replacing this derived view")
+}
+
+func isSupportedLegacyConfluenceMarker(marker string) bool {
+	switch marker {
+	case "<!-- atl:document confluence-page v3 -->",
+		"<!-- atl:document confluence-page v2 -->",
+		"<!-- atl:document confluence-page v1 -->",
+		"<!-- atl:document confluence-page -->":
+		return true
+	default:
+		return false
+	}
 }

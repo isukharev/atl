@@ -133,6 +133,12 @@ rendered, not how the backend interpreted it. That interpretation is not
 provable through the documented REST identity/server-info resources and need
 not be guessed.
 
+On an upgrade, inspect `view_migrations`: incremental preflight accepts an older
+supported `.md` only when its entire reconstructed legacy view is byte-clean,
+then the successful page pull writes the current format. A legacy-specific exit
+8 means preserve/reconcile real edits before `conf render`; an unknown/future
+marker must be handled by updating atl, never by downgrading the view.
+
 Read [commands.md](reference/commands.md) for search/pull selectors, caps,
 render profiles, output layout, status, bulk commands, and the full inventory.
 

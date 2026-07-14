@@ -1029,7 +1029,12 @@ unchanged. `ORDER BY` in user CQL is rejected because atl appends
 
 Before the first page body fetch/write, the entire selected local set is
 preflighted. Native CSF edits, unapplied Markdown edits, partial page artifacts,
-or corrupt state block the batch. A network/permission failure may leave pages
+or corrupt state block the batch. A supported legacy `.md` is accepted only if
+replacing the current document marker with its exact legacy marker reproduces
+every byte; `view_migrations` counts those proven views, and each is rewritten
+to the current format only when its page pull succeeds. A changed legacy view
+gets a legacy-specific reconciliation error, while an unknown/future marker is
+never downgraded. A network/permission failure may leave pages
 already mirrored through the ordinary atomic path, but never advances
 `.atl/incremental.json`; rerunning replays the same inclusive range safely.
 Empty deltas still commit a valid first watermark. Absence from a delta is

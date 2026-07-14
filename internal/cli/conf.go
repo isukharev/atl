@@ -605,7 +605,7 @@ func confPullCmd() *cobra.Command {
 				fmt.Fprintf(&b, "mirror: %s (%d pages)\n", res.Root, len(res.Pages))
 				if res.Incremental != nil {
 					inc := res.Incremental
-					fmt.Fprintf(&b, "incremental: complete=%t source=%s watermark_instant=%s query_literal=%s query_literal_basis=%s backend_query_time_zone=%s safety_overlap_hours=%d next=%s matched=%d selected=%d overlap_skipped=%d boundary_skipped=%d watermark_advanced=%t\n", inc.Complete, inc.WatermarkSource, inc.WatermarkInstant, inc.QueryLiteral, inc.QueryLiteralBasis, inc.BackendQueryTimeZone, inc.SafetyOverlapHours, inc.NextInstant, inc.Matched, inc.Selected, inc.OverlapSkipped, inc.BoundarySkipped, inc.WatermarkAdvanced)
+					fmt.Fprintf(&b, "incremental: complete=%t source=%s watermark_instant=%s query_literal=%s query_literal_basis=%s backend_query_time_zone=%s safety_overlap_hours=%d next=%s matched=%d selected=%d overlap_skipped=%d boundary_skipped=%d view_migrations=%d watermark_advanced=%t\n", inc.Complete, inc.WatermarkSource, inc.WatermarkInstant, inc.QueryLiteral, inc.QueryLiteralBasis, inc.BackendQueryTimeZone, inc.SafetyOverlapHours, inc.NextInstant, inc.Matched, inc.Selected, inc.OverlapSkipped, inc.BoundarySkipped, inc.ViewMigrations, inc.WatermarkAdvanced)
 				}
 				for _, p := range res.Pages {
 					if o.Comments && p.Comments != nil {

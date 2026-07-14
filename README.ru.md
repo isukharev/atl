@@ -248,6 +248,10 @@ atl conf pull --incremental --cql 'space=DOCS and type=page' \
 atl conf pull --incremental --cql 'space=DOCS and type=page' --into mirror
 ```
 
+Incremental preflight автоматически мигрирует старый поддерживаемый `.md` только
+при точном совпадении его байтов с pristine legacy-видом. Изменённые и неизвестные
+форматы блокируются до чтения body страниц.
+
 `atl environment inspect` раздельно показывает наблюдаемый offset сервера Jira
 и timezone текущего пользователя, предположение для JQL, доступное поле
 пользователя Confluence, честный `unknown` для CQL parser timezone,

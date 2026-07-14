@@ -529,6 +529,7 @@ With `--incremental`, the same result additionally carries `incremental`:
   "selected": 2,
   "overlap_skipped": 0,
   "boundary_skipped": 1,
+  "view_migrations": 1,
   "next_instant": "2026-07-01T07:42:00Z",
   "boundary_count": 2,
   "watermark_advanced": true
@@ -543,6 +544,11 @@ how Confluence interprets the zone-less CQL literal. `overlap_skipped` counts ol
 over-fetch makes a timezone mismatch conservative rather than lossy. `matched`
 is the unique complete search set; `selected` excludes overlap hits and exact
 id/version pairs already recorded at the inclusive absolute lower minute.
+`view_migrations` is omitted when zero and otherwise counts selected supported
+legacy Markdown views whose complete bytes matched an exact pristine
+reconstruction. Those views are rewritten in the current format only as their
+page pull succeeds. Edited legacy views and unknown/future markers fail the
+whole preflight before body GETs or local writes.
 `complete:true` is emitted only after terminal
 pagination evidence and two identical metadata passes. `watermark_advanced` describes whether the successful run
 changed or first persisted the watermark. The private `0600`

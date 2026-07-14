@@ -246,6 +246,10 @@ atl conf pull --incremental --cql 'space=DOCS and type=page' \
 atl conf pull --incremental --cql 'space=DOCS and type=page' --into mirror
 ```
 
+Incremental preflight automatically migrates a supported legacy `.md` view only
+when its bytes exactly match the reconstructed pristine legacy format; edited or
+unknown-format views remain blocked before page-body reads.
+
 `atl environment inspect` is the compact way to see these concerns separately:
 Jira's observed server offset and current-user timezone, the JQL timezone
 assumption, Confluence's observed user field when available, an honest
