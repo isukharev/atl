@@ -83,6 +83,7 @@ func TestJiraIssueHistory_EmitsChangelog(t *testing.T) {
 
 func TestJiraIssueHistory_FiltersByFieldNameAndTime(t *testing.T) {
 	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/myself", http.StatusOK, `{"timeZone":"UTC"}`)
 	js.route(http.MethodGet, "/rest/api/2/field", http.StatusOK,
 		`[{"id":"customfield_10001","name":"Delivery Notes","custom":true,"schema":{"type":"string"}}]`)
 	js.route(http.MethodGet, "/rest/api/2/issue/ENG-1/changelog", http.StatusOK,

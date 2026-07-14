@@ -14,7 +14,10 @@
         "schema": "string"
       }
     ],
-    "since": "2026-04-01"
+    "since": "2026-04-01",
+    "boundary_time_zone": "UTC",
+    "boundary_time_zone_source": "jira_current_user",
+    "since_instant": "2026-04-01T00:00:00Z"
   },
   "history": [
     {

@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Date-only Jira history filters and epic quarters now use the observed current
+  user's IANA timezone instead of UTC, expose their canonical UTC interval, and
+  reuse one metadata lookup throughout a digest. Explicit-offset timestamps
+  remain exact and require no timezone lookup; raw JQL is unchanged.
+
 - Added `atl environment inspect`, an explicit read-only diagnostic that uses
   only bounded Jira/Confluence metadata GETs to distinguish observed server and
   user time settings, configured display time, assumed JQL behavior, unknown

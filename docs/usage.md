@@ -2463,10 +2463,15 @@ atl jira issue history PROJ-1 --field status --until 2026-06-30T23:59:59Z
 Repeatable `--field` accepts an exact id or case-insensitive display name and
 fails closed on ambiguous names. `--since` and `--until` accept `YYYY-MM-DD`,
 RFC3339, or Jira datetime values. Date boundaries are inclusive: an `--until`
-date includes that entire UTC calendar day. Jira's compatible changelog APIs do
-not provide these filters, so `atl` first reads the qualified snapshot and then
+date includes that entire calendar day in the observed Jira current-user IANA
+timezone. Atl reads that preference once per top-level command, fails closed if
+it is missing/invalid, and reports `boundary_time_zone`, its source, plus
+canonical `since_instant` / `until_exclusive_instant`. An explicit-offset
+RFC3339 boundary is already absolute, performs no timezone metadata GET, and
+leaves the boundary-zone fields absent. Jira's compatible changelog APIs do not
+provide these filters, so `atl` first reads the qualified snapshot and then
 filters locally; `fetched` and `total` describe the pre-filter read, while
-`count` describes matching history entries.
+`count` describes matching history entries. Raw JQL is never rewritten.
 
 JSON includes `complete`, `source`, optional `partial_reason`, field ids beside
 display names, and `last_changes` for selected fields within the requested time
@@ -2493,8 +2498,12 @@ atl jira epic digest PROJ-1 --quarter 2026-Q2 --status-field customfield_10002 \
   --expand-confluence 2 --confluence-heading 'Metrics'
 ```
 
-`--quarter YYYY-Q1..Q4` maps to inclusive UTC calendar dates and conflicts with
-explicit `--since/--until`, which must be supplied together. The default include
+`--quarter YYYY-Q1..Q4` maps to inclusive calendar dates in the observed Jira
+current-user timezone and conflicts with explicit `--since/--until`, which must
+be supplied together. The resolved period includes the IANA zone/source and
+canonical UTC instants. Digest reuses that single lookup for nested history;
+it does not fetch the preference twice. Explicit-offset RFC3339 bounds need no
+lookup. The default include
 set is `identity,status-field,children,comments,links,history,refs`; repeat
 `--include` or pass a comma list to narrow it. Identity is always present.
 Status/DoD/Epic Link selectors accept exact ids or display names and never guess

@@ -11,9 +11,11 @@ import (
 
 type historyTracker struct {
 	domain.Tracker
-	snapshot *domain.ChangelogSnapshot
-	defs     []domain.FieldDef
-	err      error
+	snapshot      *domain.ChangelogSnapshot
+	defs          []domain.FieldDef
+	err           error
+	timeZone      string
+	timeZoneCalls int
 }
 
 func (t *historyTracker) CompleteChangelog(context.Context, string) (*domain.ChangelogSnapshot, error) {
@@ -21,6 +23,14 @@ func (t *historyTracker) CompleteChangelog(context.Context, string) (*domain.Cha
 }
 
 func (t *historyTracker) Fields(context.Context) ([]domain.FieldDef, error) { return t.defs, t.err }
+
+func (t *historyTracker) CurrentUserTimeZone(context.Context) (string, error) {
+	t.timeZoneCalls++
+	if t.timeZone == "" {
+		return "UTC", t.err
+	}
+	return t.timeZone, t.err
+}
 
 func TestHistoryFilteredByResolvedFieldAndInclusiveDates(t *testing.T) {
 	tracker := &historyTracker{
@@ -42,6 +52,68 @@ func TestHistoryFilteredByResolvedFieldAndInclusiveDates(t *testing.T) {
 	}
 	if len(result.LastChanges) != 1 || result.LastChanges[0].HistoryID != "2" || result.LastChanges[0].To != "second" {
 		t.Fatalf("last_changes=%+v", result.LastChanges)
+	}
+	if tracker.timeZoneCalls != 1 || result.Filters.BoundaryTimeZone != "UTC" || result.Filters.SinceInstant != "2026-04-01T00:00:00Z" || result.Filters.UntilExclusiveInstant != "2026-05-01T00:00:00Z" {
+		t.Fatalf("timezone calls=%d filters=%+v", tracker.timeZoneCalls, result.Filters)
+	}
+}
+
+func TestHistoryCalendarBoundariesFollowCurrentUserTimeZoneAndDST(t *testing.T) {
+	tracker := &historyTracker{
+		timeZone: "America/New_York",
+		snapshot: &domain.ChangelogSnapshot{Complete: true, Source: "paginated", Total: 3, Entries: []domain.ChangelogEntry{
+			{ID: "before", Created: "2026-03-08T04:59:59Z", Items: []domain.ChangelogItem{{Field: "Status"}}},
+			{ID: "start", Created: "2026-03-08T05:00:00Z", Items: []domain.ChangelogItem{{Field: "Status"}}},
+			{ID: "end", Created: "2026-03-09T03:59:59Z", Items: []domain.ChangelogItem{{Field: "Status"}}},
+		}},
+	}
+	result, err := (&JiraService{tr: tracker}).HistoryFiltered(context.Background(), "PROJ-1", JiraHistoryOpts{Since: "2026-03-08", Until: "2026-03-08"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.History) != 2 || result.History[0].ID != "start" || result.History[1].ID != "end" {
+		t.Fatalf("history=%+v", result.History)
+	}
+	if result.Filters.SinceInstant != "2026-03-08T05:00:00Z" || result.Filters.UntilExclusiveInstant != "2026-03-09T04:00:00Z" {
+		t.Fatalf("filters=%+v", result.Filters)
+	}
+}
+
+func TestHistoryExplicitInstantsNeedNoUserTimeZoneRead(t *testing.T) {
+	tracker := &historyTracker{snapshot: &domain.ChangelogSnapshot{Complete: true}}
+	result, err := (&JiraService{tr: tracker}).HistoryFiltered(context.Background(), "PROJ-1", JiraHistoryOpts{
+		Since: "2026-04-01T00:00:00+03:00", Until: "2026-04-02T00:00:00+03:00",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tracker.timeZoneCalls != 0 || result.Filters.BoundaryTimeZone != "" || result.Filters.SinceInstant != "2026-03-31T21:00:00Z" || result.Filters.UntilExclusiveInstant != "2026-04-01T21:00:00.000000001Z" {
+		t.Fatalf("calls=%d filters=%+v", tracker.timeZoneCalls, result.Filters)
+	}
+}
+
+func TestHistoryCalendarBoundariesRejectInvalidUserTimeZone(t *testing.T) {
+	tracker := &historyTracker{timeZone: "Mars/Olympus", snapshot: &domain.ChangelogSnapshot{Complete: true}}
+	_, err := (&JiraService{tr: tracker}).HistoryFiltered(context.Background(), "PROJ-1", JiraHistoryOpts{Since: "2026-04-01"})
+	if !errors.Is(err, domain.ErrCheckFailed) || tracker.timeZoneCalls != 1 {
+		t.Fatalf("calls=%d err=%v", tracker.timeZoneCalls, err)
+	}
+}
+
+func TestHistoryObservesChangedUserTimeZoneOnNextCommand(t *testing.T) {
+	tracker := &historyTracker{timeZone: "UTC", snapshot: &domain.ChangelogSnapshot{Complete: true}}
+	service := &JiraService{tr: tracker}
+	first, err := service.HistoryFiltered(context.Background(), "PROJ-1", JiraHistoryOpts{Since: "2026-04-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracker.timeZone = "Europe/Moscow"
+	second, err := service.HistoryFiltered(context.Background(), "PROJ-1", JiraHistoryOpts{Since: "2026-04-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tracker.timeZoneCalls != 2 || first.Filters.SinceInstant != "2026-04-01T00:00:00Z" || second.Filters.SinceInstant != "2026-03-31T21:00:00Z" {
+		t.Fatalf("calls=%d first=%+v second=%+v", tracker.timeZoneCalls, first.Filters, second.Filters)
 	}
 }
 

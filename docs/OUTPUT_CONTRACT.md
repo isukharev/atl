@@ -1086,12 +1086,23 @@ backend representation was consumed; `complete:false` always carries a reason
 and must not be interpreted as proof that an omitted change did not happen.
 `source` is `paginated`, `embedded`, or `legacy`. Repeatable exact `--field`
 selectors and inclusive `--since`/`--until` boundaries are applied locally
-after the qualified read. `last_changes` reports the newest matching change per
+after the qualified read. A date-only boundary adds
+`filters.boundary_time_zone`, `boundary_time_zone_source:"jira_current_user"`,
+and canonical `since_instant` / `until_exclusive_instant`; atl performs one
+current-user metadata GET and uses the observed IANA calendar (including DST).
+Explicit-offset boundaries add only their canonical instant fields and perform
+no timezone lookup. Missing/invalid required user timezone fails closed with
+exit 8. `last_changes` reports the newest matching change per
 selected resolved field within those boundaries. When a selected matching
 change carries an unsupported server timestamp, latest-change ordering is
 unknowable and the command fails closed with exit 8 instead of emitting
 misleading metadata. `-o text` is a status line and a structurally escaped
 Markdown table.
+
+`jira epic digest` exposes the same fields under `period`. A quarter is resolved
+once in the Jira current-user calendar and the resulting zone is passed into
+the nested history filter, so a digest adds at most one current-user GET rather
+than one per evidence source. Raw user JQL is not changed by either workflow.
 
 `atl jira export ... --out -` is an artifact stdout mode, not a command-result
 mode. JSONL emits one `JiraIssueSnapshot` per line, aggregate JSON emits a bare

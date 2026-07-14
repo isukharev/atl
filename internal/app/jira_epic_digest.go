@@ -41,9 +41,15 @@ type JiraEpicDigestOpts struct {
 }
 
 type JiraDigestPeriod struct {
-	Quarter string `json:"quarter,omitempty"`
-	Since   string `json:"since,omitempty"`
-	Until   string `json:"until,omitempty"`
+	Quarter                string `json:"quarter,omitempty"`
+	Since                  string `json:"since,omitempty"`
+	Until                  string `json:"until,omitempty"`
+	BoundaryTimeZone       string `json:"boundary_time_zone,omitempty"`
+	BoundaryTimeZoneSource string `json:"boundary_time_zone_source,omitempty"`
+	SinceInstant           string `json:"since_instant,omitempty"`
+	UntilExclusiveInstant  string `json:"until_exclusive_instant,omitempty"`
+	sinceTime              time.Time
+	untilTime              time.Time
 }
 
 type JiraDigestSource struct {
@@ -118,10 +124,6 @@ func (s *JiraService) EpicDigest(ctx context.Context, key string, opts JiraEpicD
 	if key == "" {
 		return nil, fmt.Errorf("%w: epic key is required", domain.ErrUsage)
 	}
-	period, err := jiraDigestPeriod(opts)
-	if err != nil {
-		return nil, err
-	}
 	includes, includeSet, err := jiraDigestIncludes(opts.Include)
 	if err != nil {
 		return nil, err
@@ -142,6 +144,10 @@ func (s *JiraService) EpicDigest(ctx context.Context, key string, opts JiraEpicD
 		includeSet["confluence"] = true
 		includeSet["refs"] = true
 		includes = sortedDigestIncludes(includeSet)
+	}
+	period, err := s.jiraDigestPeriod(ctx, opts)
+	if err != nil {
+		return nil, err
 	}
 	defs := []domain.FieldDef{}
 	var statusDef, dodDef *domain.FieldDef
@@ -193,7 +199,7 @@ func (s *JiraService) EpicDigest(ctx context.Context, key string, opts JiraEpicD
 
 	var historyResult *JiraHistoryResult
 	if includeSet["history"] || result.StatusField != nil {
-		historyResult, err = s.HistoryFiltered(ctx, key, JiraHistoryOpts{Since: period.Since, Until: period.Until})
+		historyResult, err = s.HistoryFiltered(ctx, key, JiraHistoryOpts{Since: period.Since, Until: period.Until, boundaryTimeZone: period.BoundaryTimeZone})
 		if err != nil {
 			result.Sources["history"] = JiraDigestSource{Complete: false, Warning: "history unavailable"}
 			result.Warnings = append(result.Warnings, "history unavailable")
@@ -299,7 +305,7 @@ func (s *JiraService) EpicDigest(ctx context.Context, key string, opts JiraEpicD
 	return result, nil
 }
 
-func jiraDigestPeriod(opts JiraEpicDigestOpts) (JiraDigestPeriod, error) {
+func (s *JiraService) jiraDigestPeriod(ctx context.Context, opts JiraEpicDigestOpts) (JiraDigestPeriod, error) {
 	quarter := strings.TrimSpace(opts.Quarter)
 	since, until := strings.TrimSpace(opts.Since), strings.TrimSpace(opts.Until)
 	if quarter != "" && (since != "" || until != "") {
@@ -315,16 +321,21 @@ func jiraDigestPeriod(opts JiraEpicDigestOpts) (JiraDigestPeriod, error) {
 		}
 		start := time.Date(year, time.Month((q-1)*3+1), 1, 0, 0, 0, 0, time.UTC)
 		end := start.AddDate(0, 3, -1)
-		return JiraDigestPeriod{Quarter: quarter, Since: start.Format("2006-01-02"), Until: end.Format("2006-01-02")}, nil
+		since, until = start.Format("2006-01-02"), end.Format("2006-01-02")
 	}
-	if since != "" {
-		start, err1 := parseJiraHistoryBoundary(since, false)
-		end, err2 := parseJiraHistoryBoundary(until, true)
-		if err1 != nil || err2 != nil || !start.time.Before(end.time) {
-			return JiraDigestPeriod{}, fmt.Errorf("%w: invalid digest date range", domain.ErrUsage)
-		}
+	if since == "" {
+		return JiraDigestPeriod{}, nil
 	}
-	return JiraDigestPeriod{Since: since, Until: until}, nil
+	boundaries, err := s.resolveJiraHistoryBoundaries(ctx, JiraHistoryOpts{Since: since, Until: until})
+	if err != nil {
+		return JiraDigestPeriod{}, err
+	}
+	return JiraDigestPeriod{
+		Quarter: quarter, Since: since, Until: until, BoundaryTimeZone: boundaries.timeZone,
+		BoundaryTimeZoneSource: boundaryTimeZoneSource(boundaries.timeZone),
+		SinceInstant:           instantString(boundaries.since), UntilExclusiveInstant: instantString(boundaries.until),
+		sinceTime: boundaries.since.time, untilTime: boundaries.until.time,
+	}, nil
 }
 
 func jiraDigestIncludes(raw []string) ([]string, map[string]bool, error) {
@@ -688,9 +699,7 @@ func inDigestPeriod(t time.Time, p JiraDigestPeriod) bool {
 	if p.Since == "" {
 		return true
 	}
-	start, _ := parseJiraHistoryBoundary(p.Since, false)
-	end, _ := parseJiraHistoryBoundary(p.Until, true)
-	return !t.Before(start.time) && t.Before(end.time)
+	return !t.Before(p.sinceTime) && t.Before(p.untilTime)
 }
 
 func JiraEpicDigestMarkdown(r *JiraEpicDigestResult) string {

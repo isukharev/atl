@@ -209,6 +209,11 @@ Treat `jira.server_utc_offset` as only a numeric observed clock offset and
 current-user timezone. Raw JQL is sent unchanged. The diagnostic uses two Jira
 metadata GETs, no search, and is never invoked automatically.
 
+High-level date-only `issue history` and `epic digest` periods do observe that
+current-user timezone once per command and expose their canonical UTC interval;
+digest reuses it for nested history. Explicit-offset RFC3339 boundaries skip
+the lookup. This affects only local period filtering, never raw JQL.
+
 If repeated work reveals a useful Jira field id, selector, or render preference, do not edit agent
 memory silently. Offer the `onboarding` skill's consent-gated learning flow. Load only
 `atl profile show --section schema --service jira` or the corresponding `selectors` slice;
