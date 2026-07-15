@@ -35,6 +35,8 @@ Current work keeps packaging and trust ready for the next stable release:
 
 - consolidate zero-egress/security documentation;
 - make package-managed update behavior explicit and reproducible.
+- measure common agent workflows with deterministic budgets, synthetic
+  model-in-loop comparisons, and privacy-safe supervised compatibility checks.
 
 ## Next
 

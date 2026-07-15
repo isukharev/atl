@@ -21,13 +21,18 @@ func TestMockBackendRecordsMethodsWithoutExposingPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = response.Body.Close()
+	response, err = http.Get(backend.Environment()["ATL_JIRA_URL"] + "/rest/api/2/field")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
 	response, err = http.Post(backend.Environment()["ATL_CONFLUENCE_URL"]+"/rest/api/content", "application/json", strings.NewReader(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = response.Body.Close()
-	methods, unexpected := backend.Summary()
-	if methods["GET"] != 1 || methods["POST"] != 1 || unexpected != 1 {
-		t.Fatalf("methods=%v unexpected=%d", methods, unexpected)
+	methods, unexpected, duplicates := backend.Summary()
+	if methods["GET"] != 2 || methods["POST"] != 1 || unexpected != 1 || duplicates != 1 {
+		t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
 	}
 }

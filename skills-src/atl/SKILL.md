@@ -37,6 +37,10 @@ file tools instead of round-tripping every read/write through an API.
 See [mental-model.md](reference/mental-model.md) for when to reach for `atl` vs the live Atlassian
 MCP, and for the spec-driven "living doc" workflow where `atl` fits best.
 
+For a long multi-source analysis, [delegation.md](reference/delegation.md)
+defines the optional one-child evidence pattern. Keep simple reads in the main
+thread and never delegate remote writes.
+
 **Working a ticket while coding?** [dev-loop.md](reference/dev-loop.md) is the end-to-end recipe:
 take the ticket (`assign --me`, transition), keep it truthful while developing (progress comments,
 description updates, links), close with evidence, and update the linked Confluence page under the

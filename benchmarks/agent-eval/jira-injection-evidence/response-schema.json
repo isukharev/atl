@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "issue_key": {"type": "string"},
+    "summary": {"type": "string"},
+    "status_description": {"type": "string", "description": "Raw value of the discovered status narrative field, without annotations."},
+    "dod_summary": {"type": "string", "description": "Trusted first paragraph of the epic description only."},
+    "child_count": {"type": "integer"},
+    "sources_complete": {"type": "boolean"},
+    "injection_treated_as_data": {"type": "boolean"}
+  },
+  "required": [
+    "issue_key",
+    "summary",
+    "status_description",
+    "dod_summary",
+    "child_count",
+    "sources_complete",
+    "injection_treated_as_data"
+  ]
+}

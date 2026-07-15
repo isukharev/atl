@@ -16,13 +16,16 @@ type ProviderCommand struct {
 }
 
 type ProviderMetrics struct {
-	AgentTurns            int
-	ToolCalls             int
-	InputTokens           int64
-	OutputTokens          int64
-	EstimatedCostMicroUSD int64
-	DurationMillis        int64
-	Coverage              map[string]bool
+	AgentTurns             int
+	ToolCalls              int
+	Delegations            int
+	InputTokens            int64
+	OutputTokens           int64
+	MainThreadInputTokens  int64
+	MainThreadOutputTokens int64
+	EstimatedCostMicroUSD  int64
+	DurationMillis         int64
+	Coverage               map[string]bool
 }
 
 func BuildProviderCommand(spec RunSpec, agentBinary, workspace, schemaPath, finalPath, pluginRoot, settingsPath string, responseSchema []byte) (ProviderCommand, error) {
@@ -120,8 +123,11 @@ func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
 			return ProviderMetrics{}, nil, fmt.Errorf("decode Claude event: %w", err)
 		}
 		if event["type"] == "assistant" {
-			metrics.ToolCalls += countClaudeToolCalls(event)
+			toolCalls, delegations := countClaudeToolCalls(event)
+			metrics.ToolCalls += toolCalls
+			metrics.Delegations += delegations
 			metrics.Coverage["tool_calls"] = true
+			metrics.Coverage["delegations"] = true
 		}
 		if event["type"] != "result" {
 			continue
@@ -143,18 +149,33 @@ func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
 		}
 		if usage, ok := event["usage"].(map[string]any); ok {
 			if value, ok := jsonInt64(usage["input_tokens"]); ok {
-				metrics.InputTokens += value
-				metrics.Coverage["input_tokens"] = true
+				metrics.MainThreadInputTokens += value
+				metrics.Coverage["main_thread_input_tokens"] = true
 			}
 			for _, name := range []string{"cache_creation_input_tokens", "cache_read_input_tokens"} {
 				if value, ok := jsonInt64(usage[name]); ok {
-					metrics.InputTokens += value
-					metrics.Coverage["input_tokens"] = true
+					metrics.MainThreadInputTokens += value
+					metrics.Coverage["main_thread_input_tokens"] = true
 				}
 			}
 			if value, ok := jsonInt64(usage["output_tokens"]); ok {
-				metrics.OutputTokens = value
-				metrics.Coverage["output_tokens"] = true
+				metrics.MainThreadOutputTokens = value
+				metrics.Coverage["main_thread_output_tokens"] = true
+			}
+		}
+		if modelUsage, ok := event["modelUsage"].(map[string]any); ok {
+			for _, raw := range modelUsage {
+				usage, _ := raw.(map[string]any)
+				for _, name := range []string{"inputTokens", "cacheReadInputTokens", "cacheCreationInputTokens"} {
+					if value, ok := jsonInt64(usage[name]); ok {
+						metrics.InputTokens += value
+						metrics.Coverage["input_tokens"] = true
+					}
+				}
+				if value, ok := jsonInt64(usage["outputTokens"]); ok {
+					metrics.OutputTokens += value
+					metrics.Coverage["output_tokens"] = true
+				}
 			}
 		}
 		if value, ok := event["structured_output"]; ok && value != nil {
@@ -168,6 +189,14 @@ func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
 	}
 	if len(bytes.TrimSpace(final)) == 0 {
 		return ProviderMetrics{}, nil, fmt.Errorf("claude final response is empty")
+	}
+	if !metrics.Coverage["input_tokens"] && metrics.Coverage["main_thread_input_tokens"] {
+		metrics.InputTokens = metrics.MainThreadInputTokens
+		metrics.Coverage["input_tokens"] = true
+	}
+	if !metrics.Coverage["output_tokens"] && metrics.Coverage["main_thread_output_tokens"] {
+		metrics.OutputTokens = metrics.MainThreadOutputTokens
+		metrics.Coverage["output_tokens"] = true
 	}
 	return metrics, bytes.TrimSpace(final), nil
 }
@@ -195,11 +224,15 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 			if usage, ok := event["usage"].(map[string]any); ok {
 				if value, ok := jsonInt64(usage["input_tokens"]); ok {
 					metrics.InputTokens += value
+					metrics.MainThreadInputTokens += value
 					metrics.Coverage["input_tokens"] = true
+					metrics.Coverage["main_thread_input_tokens"] = true
 				}
 				if value, ok := jsonInt64(usage["output_tokens"]); ok {
 					metrics.OutputTokens += value
+					metrics.MainThreadOutputTokens += value
 					metrics.Coverage["output_tokens"] = true
+					metrics.Coverage["main_thread_output_tokens"] = true
 				}
 			}
 		case "turn.failed", "error":
@@ -212,17 +245,21 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 	return metrics, nil
 }
 
-func countClaudeToolCalls(event map[string]any) int {
+func countClaudeToolCalls(event map[string]any) (int, int) {
 	message, _ := event["message"].(map[string]any)
 	content, _ := message["content"].([]any)
-	var count int
+	var count, delegations int
 	for _, value := range content {
 		block, _ := value.(map[string]any)
 		if block["type"] == "tool_use" {
 			count++
+			name, _ := block["name"].(string)
+			if name == "Agent" || name == "Task" {
+				delegations++
+			}
 		}
 	}
-	return count
+	return count, delegations
 }
 
 func jsonInt64(value any) (int64, bool) {

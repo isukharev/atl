@@ -43,6 +43,7 @@ func TestRunHeadlessWithFakeCodexUsesPrivateWrapperAndSyntheticMetrics(t *testin
 		MaxAgentTurns: 2, MaxToolCalls: 2, MaxATLInvocations: 2,
 		MaxBackendRequests: 0, MaxRemoteWrites: 0, MaxOutputBytes: 4096,
 		MaxInputTokens: 1000, MaxOutputTokens: 1000,
+		MaxMainThreadInputTokens: 1000, MaxMainThreadOutputTokens: 1000,
 		MaxEstimatedCostMicroUSD: 10_000_000, MaxDurationMillis: 30_000,
 		AllowedHTTPMethods: []string{"GET"},
 	}

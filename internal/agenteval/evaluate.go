@@ -21,8 +21,11 @@ func Evaluate(s Scenario, o Observation) (Result, error) {
 
 	metrics := Metrics{
 		AgentTurns: o.Metrics.AgentTurns, ToolCalls: o.Metrics.ToolCalls,
-		ATLInvocations: o.Metrics.ATLInvocations, OutputBytes: o.Metrics.OutputBytes,
-		InputTokens: o.Metrics.InputTokens, OutputTokens: o.Metrics.OutputTokens,
+		ATLInvocations: o.Metrics.ATLInvocations, Delegations: o.Metrics.Delegations,
+		DuplicateBackendRequests: o.Metrics.DuplicateBackendRequests,
+		OutputBytes:              o.Metrics.OutputBytes,
+		InputTokens:              o.Metrics.InputTokens, OutputTokens: o.Metrics.OutputTokens,
+		MainThreadInputTokens: o.Metrics.MainThreadInputTokens, MainThreadOutputTokens: o.Metrics.MainThreadOutputTokens,
 		EstimatedCostMicroUSD: o.Metrics.EstimatedCostMicroUSD,
 		DurationMillis:        o.Metrics.DurationMillis,
 	}
@@ -55,11 +58,15 @@ func Evaluate(s Scenario, o Observation) (Result, error) {
 		{"agent_turns", int64(metrics.AgentTurns), int64(s.Budgets.MaxAgentTurns)},
 		{"tool_calls", int64(metrics.ToolCalls), int64(s.Budgets.MaxToolCalls)},
 		{"atl_invocations", int64(metrics.ATLInvocations), int64(s.Budgets.MaxATLInvocations)},
+		{"delegations", int64(metrics.Delegations), int64(s.Budgets.MaxDelegations)},
 		{"backend_requests", int64(metrics.BackendRequests), int64(s.Budgets.MaxBackendRequests)},
+		{"duplicate_backend_requests", int64(metrics.DuplicateBackendRequests), int64(s.Budgets.MaxDuplicateBackendRequests)},
 		{"remote_writes", int64(metrics.RemoteWrites), int64(s.Budgets.MaxRemoteWrites)},
 		{"output_bytes", metrics.OutputBytes, s.Budgets.MaxOutputBytes},
 		{"input_tokens", metrics.InputTokens, s.Budgets.MaxInputTokens},
 		{"output_tokens", metrics.OutputTokens, s.Budgets.MaxOutputTokens},
+		{"main_thread_input_tokens", metrics.MainThreadInputTokens, s.Budgets.MaxMainThreadInputTokens},
+		{"main_thread_output_tokens", metrics.MainThreadOutputTokens, s.Budgets.MaxMainThreadOutputTokens},
 		{"estimated_cost_microusd", metrics.EstimatedCostMicroUSD, s.Budgets.MaxEstimatedCostMicroUSD},
 		{"duration_millis", metrics.DurationMillis, s.Budgets.MaxDurationMillis},
 	}

@@ -25,15 +25,19 @@ type AggregateGroup struct {
 }
 
 type AggregateMetrics struct {
-	AgentTurns            Quantiles `json:"agent_turns"`
-	ToolCalls             Quantiles `json:"tool_calls"`
-	ATLInvocations        Quantiles `json:"atl_invocations"`
-	BackendRequests       Quantiles `json:"backend_requests"`
-	OutputBytes           Quantiles `json:"output_bytes"`
-	InputTokens           Quantiles `json:"input_tokens"`
-	OutputTokens          Quantiles `json:"output_tokens"`
-	EstimatedCostMicroUSD Quantiles `json:"estimated_cost_microusd"`
-	DurationMillis        Quantiles `json:"duration_millis"`
+	AgentTurns               Quantiles `json:"agent_turns"`
+	ToolCalls                Quantiles `json:"tool_calls"`
+	ATLInvocations           Quantiles `json:"atl_invocations"`
+	Delegations              Quantiles `json:"delegations"`
+	BackendRequests          Quantiles `json:"backend_requests"`
+	DuplicateBackendRequests Quantiles `json:"duplicate_backend_requests"`
+	OutputBytes              Quantiles `json:"output_bytes"`
+	InputTokens              Quantiles `json:"input_tokens"`
+	OutputTokens             Quantiles `json:"output_tokens"`
+	MainThreadInputTokens    Quantiles `json:"main_thread_input_tokens"`
+	MainThreadOutputTokens   Quantiles `json:"main_thread_output_tokens"`
+	EstimatedCostMicroUSD    Quantiles `json:"estimated_cost_microusd"`
+	DurationMillis           Quantiles `json:"duration_millis"`
 }
 
 type Quantiles struct {
@@ -80,8 +84,8 @@ func AggregateResults(results []Result) (Aggregate, error) {
 			},
 			Runs: len(items),
 		}
-		turns, tools, invocations, requests := make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items))
-		bytesOut, input, output, cost, duration := make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items))
+		turns, tools, invocations, delegations, requests, duplicates := make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items))
+		bytesOut, input, output, mainInput, mainOutput, cost, duration := make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items))
 		for _, item := range items {
 			if item.Status == "pass" {
 				group.Passes++
@@ -89,19 +93,25 @@ func AggregateResults(results []Result) (Aggregate, error) {
 			turns = appendCovered(turns, item.Coverage, "agent_turns", int64(item.Metrics.AgentTurns))
 			tools = appendCovered(tools, item.Coverage, "tool_calls", int64(item.Metrics.ToolCalls))
 			invocations = appendCovered(invocations, item.Coverage, "atl_invocations", int64(item.Metrics.ATLInvocations))
+			delegations = appendCovered(delegations, item.Coverage, "delegations", int64(item.Metrics.Delegations))
 			requests = appendCovered(requests, item.Coverage, "backend_requests", int64(item.Metrics.BackendRequests))
+			duplicates = appendCovered(duplicates, item.Coverage, "duplicate_backend_requests", int64(item.Metrics.DuplicateBackendRequests))
 			bytesOut = appendCovered(bytesOut, item.Coverage, "output_bytes", item.Metrics.OutputBytes)
 			input = appendCovered(input, item.Coverage, "input_tokens", item.Metrics.InputTokens)
 			output = appendCovered(output, item.Coverage, "output_tokens", item.Metrics.OutputTokens)
+			mainInput = appendCovered(mainInput, item.Coverage, "main_thread_input_tokens", item.Metrics.MainThreadInputTokens)
+			mainOutput = appendCovered(mainOutput, item.Coverage, "main_thread_output_tokens", item.Metrics.MainThreadOutputTokens)
 			cost = appendCovered(cost, item.Coverage, "estimated_cost_microusd", item.Metrics.EstimatedCostMicroUSD)
 			duration = appendCovered(duration, item.Coverage, "duration_millis", item.Metrics.DurationMillis)
 		}
 		group.SuccessRate = float64(group.Passes) / float64(group.Runs)
 		group.Metrics = AggregateMetrics{
 			AgentTurns: quantiles(turns), ToolCalls: quantiles(tools),
-			ATLInvocations: quantiles(invocations), BackendRequests: quantiles(requests),
+			ATLInvocations: quantiles(invocations), Delegations: quantiles(delegations),
+			BackendRequests: quantiles(requests), DuplicateBackendRequests: quantiles(duplicates),
 			OutputBytes: quantiles(bytesOut), InputTokens: quantiles(input),
-			OutputTokens: quantiles(output), EstimatedCostMicroUSD: quantiles(cost),
+			OutputTokens: quantiles(output), MainThreadInputTokens: quantiles(mainInput),
+			MainThreadOutputTokens: quantiles(mainOutput), EstimatedCostMicroUSD: quantiles(cost),
 			DurationMillis: quantiles(duration),
 		}
 		out.Groups = append(out.Groups, group)
@@ -139,6 +149,9 @@ func (r Result) Validate() error {
 	if !r.Coverage["backend_requests"] && len(r.HTTPMethods) != 0 {
 		return fmt.Errorf("result http_methods require backend_requests coverage")
 	}
+	if r.Coverage["duplicate_backend_requests"] && !r.Coverage["backend_requests"] {
+		return fmt.Errorf("result duplicate_backend_requests coverage requires backend_requests coverage")
+	}
 	for method, count := range r.HTTPMethods {
 		if !methodRE.MatchString(method) || count < 0 || count > maxObservedMethodCount {
 			return fmt.Errorf("invalid result HTTP method %q=%d", method, count)
@@ -159,8 +172,11 @@ func (r Result) Validate() error {
 	}
 	metrics := InputMetrics{
 		AgentTurns: r.Metrics.AgentTurns, ToolCalls: r.Metrics.ToolCalls,
-		ATLInvocations: r.Metrics.ATLInvocations, OutputBytes: r.Metrics.OutputBytes,
-		InputTokens: r.Metrics.InputTokens, OutputTokens: r.Metrics.OutputTokens,
+		ATLInvocations: r.Metrics.ATLInvocations, Delegations: r.Metrics.Delegations,
+		DuplicateBackendRequests: r.Metrics.DuplicateBackendRequests,
+		OutputBytes:              r.Metrics.OutputBytes,
+		InputTokens:              r.Metrics.InputTokens, OutputTokens: r.Metrics.OutputTokens,
+		MainThreadInputTokens: r.Metrics.MainThreadInputTokens, MainThreadOutputTokens: r.Metrics.MainThreadOutputTokens,
 		EstimatedCostMicroUSD: r.Metrics.EstimatedCostMicroUSD,
 		DurationMillis:        r.Metrics.DurationMillis,
 	}
@@ -182,6 +198,15 @@ func (r Result) Validate() error {
 	}
 	if requests != r.Metrics.BackendRequests || writes != r.Metrics.RemoteWrites {
 		return fmt.Errorf("result HTTP method counts disagree with metrics")
+	}
+	if r.Metrics.DuplicateBackendRequests > r.Metrics.BackendRequests {
+		return fmt.Errorf("duplicate backend requests exceed total requests")
+	}
+	if r.Coverage["input_tokens"] && r.Coverage["main_thread_input_tokens"] && r.Metrics.MainThreadInputTokens > r.Metrics.InputTokens {
+		return fmt.Errorf("main-thread input tokens exceed total input tokens")
+	}
+	if r.Coverage["output_tokens"] && r.Coverage["main_thread_output_tokens"] && r.Metrics.MainThreadOutputTokens > r.Metrics.OutputTokens {
+		return fmt.Errorf("main-thread output tokens exceed total output tokens")
 	}
 	return nil
 }

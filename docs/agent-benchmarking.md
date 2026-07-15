@@ -100,11 +100,15 @@ read-only contract looks like:
     "max_agent_turns": 0,
     "max_tool_calls": 0,
     "max_atl_invocations": 2,
+    "max_delegations": 0,
     "max_backend_requests": 8,
+    "max_duplicate_backend_requests": 0,
     "max_remote_writes": 0,
     "max_output_bytes": 8192,
     "max_input_tokens": 0,
     "max_output_tokens": 0,
+    "max_main_thread_input_tokens": 0,
+    "max_main_thread_output_tokens": 0,
     "max_estimated_cost_microusd": 0,
     "max_duration_millis": 0,
     "allowed_http_methods": ["GET"]
@@ -161,6 +165,10 @@ go build -o /tmp/agent-eval ./scripts/agent-eval
   --dry-run
 ```
 
+Every run-spec check is a gate, including variant-only checks that are not in
+the shared scenario oracle. This lets a single-agent and delegated run share
+one correctness contract while separately requiring zero or one delegation.
+
 The runner creates a fresh private workspace per repetition. Claude Code loads
 the repository plugin explicitly and receives an `atl`-only Bash allow-rule plus
 a `PreToolUse` guard. The guard accepts one command per Bash call, optionally
@@ -182,7 +190,18 @@ the `PreToolUse` guard is therefore the authoritative command boundary rather
 than a PATH assumption. The hook allowlist and `ATL_READ_ONLY=1` remain
 independent: the hook limits which CLI reads the model may request, while the
 CLI policy rejects every mutating command even if a prefix were configured too
-broadly.
+broadly. Delegated variants also place `Agent` behind the hook: atomic private
+slots enforce the scenario limit before the child starts, and a scenario may
+permit at most three children. The public comparison uses one child, which also
+prevents a second delegation level.
+
+Guard records contain only `allow` or `deny`, never the proposed command or
+child prompt. A denied attempt fails the safety oracle and cancels the provider
+process promptly instead of spending the remaining run budget. Duplicate backend reads
+are counted by exact method plus request target and are reported separately
+from total requests. Claude `Read` is limited by the same hook to the generated
+workspace and shipped skill tree; symlink-resolved paths outside those roots are
+denied, so untrusted content cannot redirect it to ambient host files.
 
 Raw provider JSONL, stderr, final structured output, invocation records, and
 per-run results are mode `0600`; directories are mode `0700`. A destination
@@ -227,9 +246,19 @@ the read-only boundary, and returns qualified evidence rather than a raw
 transcript. Use at most three children and one delegation level in the default
 suite.
 
-Track total tokens and cost across all threads, main-thread context bytes,
-duplicate backend requests, wall time, and evidence lost during summarization.
-Do not delegate simple one-object reads or parallel remote writes.
+Track provider-reported total tokens and cost, delegation/tool counts, duplicate
+backend requests, wall time, and evidence lost during summarization. Claude's
+current result exposes main-thread `usage` separately from cross-model
+`modelUsage`; the runner records both `main_thread_*_tokens` and total
+`*_tokens`. If a provider omits either view, its coverage remains false instead
+of being inferred.
+
+Delegate only when a task has an independently bounded evidence-gathering
+stage whose compact result reduces pressure on the main context, such as a
+large multi-source report. Do not delegate a simple one-object read, any remote
+write, a task whose child would need the entire parent transcript, or work where
+the parent cannot verify completeness. The parent owns the final answer and
+must consume qualified evidence rather than a raw child transcript.
 
 ## Supervised live read-only check
 
