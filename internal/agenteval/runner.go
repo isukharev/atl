@@ -91,7 +91,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 	}
 	invocationSpec := loaded.spec
 	invocationSpec.MaxEstimatedCostMicroUSD = perRepetitionCostCap(loaded.spec)
-	previewCommand, err := BuildProviderCommand(invocationSpec, filepath.Base(options.AgentBinary), "<workspace>", "<response-schema>", "<final-response>", pluginPreviewPath(options.PluginRoot), loaded.responseSchema)
+	previewCommand, err := BuildProviderCommand(invocationSpec, filepath.Base(options.AgentBinary), "<workspace>", "<response-schema>", "<final-response>", pluginPreviewPath(options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, "<guard-settings>"), loaded.responseSchema)
 	if err != nil {
 		return RunOutput{}, err
 	}
@@ -106,6 +106,9 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 	}
 	if options.DryRun {
 		return RunOutput{Preview: preview, Results: []Result{}}, nil
+	}
+	if loaded.spec.Provider == "codex" {
+		return RunOutput{}, fmt.Errorf("codex model execution is disabled until atl uses an isolated typed tool or external container; validate or dry-run the spec instead")
 	}
 
 	agentVersion, err := commandVersion(ctx, options.AgentBinary)
@@ -340,12 +343,24 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	finalPath := filepath.Join(runDir, "final.json")
 	transcriptPath := filepath.Join(runDir, "transcript.jsonl")
 	stderrPath := filepath.Join(runDir, "agent.stderr")
-	counterPath := filepath.Join(runDir, "atl-invocations.jsonl")
+	evalDir := filepath.Join(workspace, ".atl-eval")
+	if err := mkdirPrivate(evalDir); err != nil {
+		return Result{}, err
+	}
+	counterPath := filepath.Join(evalDir, "atl-invocations.jsonl")
 	wrapperDir := filepath.Join(runDir, "bin")
 	if err := mkdirPrivate(wrapperDir); err != nil {
 		return Result{}, err
 	}
 	if err := copyExecutable(options.WrapperExecutable, filepath.Join(wrapperDir, wrapperName())); err != nil {
+		return Result{}, err
+	}
+	guardPath := filepath.Join(wrapperDir, guardName())
+	if err := copyExecutable(options.WrapperExecutable, guardPath); err != nil {
+		return Result{}, err
+	}
+	settingsPath := filepath.Join(runDir, "claude-settings.json")
+	if err := writeClaudeGuardSettings(settingsPath, guardPath); err != nil {
 		return Result{}, err
 	}
 	backend, err := StartMockBackend(loaded.fixture)
@@ -354,7 +369,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	defer backend.Close()
 
-	commandPlan, err := BuildProviderCommand(loaded.spec, options.AgentBinary, workspace, responseSchemaPath, finalPath, claudePluginPath(loaded.spec.Provider, options.PluginRoot), loaded.responseSchema)
+	commandPlan, err := BuildProviderCommand(loaded.spec, options.AgentBinary, workspace, responseSchemaPath, finalPath, claudePluginPath(loaded.spec.Provider, options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, settingsPath), loaded.responseSchema)
 	if err != nil {
 		return Result{}, err
 	}
@@ -381,10 +396,12 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	environment := safeAgentEnvironment(os.Environ())
 	environment["ATL_READ_ONLY"] = "1"
 	environment["ATL_NO_UPDATE"] = "1"
-	environment["ATL_CONFIG_DIR"] = filepath.Join(runDir, "atl-config")
-	environment["ATL_MIRROR_ROOT"] = filepath.Join(runDir, "mirror")
+	environment["ATL_CONFIG_DIR"] = filepath.Join(evalDir, "atl-config")
+	environment["ATL_MIRROR_ROOT"] = filepath.Join(evalDir, "mirror")
 	environment["ATL_EVAL_REAL_BINARY"] = options.ATLBinary
 	environment["ATL_EVAL_COUNTER"] = counterPath
+	allowedCommands, _ := json.Marshal(loaded.spec.AllowedATLCommands)
+	environment["ATL_EVAL_ALLOWED_COMMANDS"] = string(allowedCommands)
 	environment["PATH"] = wrapperDir
 	for name, value := range backend.Environment() {
 		environment[name] = value
@@ -759,9 +776,41 @@ func wrapperName() string {
 	}
 	return "atl"
 }
+func guardName() string {
+	if filepath.Ext(os.Args[0]) == ".exe" {
+		return "atl-eval-guard.exe"
+	}
+	return "atl-eval-guard"
+}
+func writeClaudeGuardSettings(path, guardPath string) error {
+	settings := map[string]any{
+		"hooks": map[string]any{
+			"PreToolUse": []any{map[string]any{
+				"matcher": "Bash",
+				"hooks": []any{map[string]any{
+					"type": "command", "command": shellSingleQuote(guardPath), "timeout": 5,
+				}},
+			}},
+		},
+	}
+	data, err := json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	return writePrivateFile(path, append(data, '\n'))
+}
+func shellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
 func claudePluginPath(provider, root string) string {
 	if provider == "claude-code" {
 		return root
+	}
+	return ""
+}
+func claudeGuardSettingsPath(provider, path string) string {
+	if provider == "claude-code" {
+		return path
 	}
 	return ""
 }

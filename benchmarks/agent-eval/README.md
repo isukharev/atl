@@ -33,11 +33,18 @@ subscription pricing. Review that estimate when pinning a new baseline model.
 
 Claude Code receives the repository plugin through `--plugin-dir`. Codex gets
 the same generated skills copied into the isolated workspace's
-`.agents/skills/` directory. Codex currently relies on its read-only sandbox;
-Claude additionally receives a Bash allow-rule limited to `atl` commands.
-The synthetic subprocess `PATH` contains only the `atl` accounting proxy, so
-ordinary shell calls to unrelated binaries fail instead of bypassing the
-measured tool surface.
+`.agents/skills/` directory for command review, but actual Codex model execution
+is fail-closed: its read-only OS sandbox cannot safely reach the host-side mock,
+while granting broader network/filesystem access would violate this runner's
+trust boundary. Codex specs support validation and `--dry-run` only until a
+typed tool or external container supplies the missing isolation. Claude Code is
+the supported model-in-loop provider and receives both a Bash allow-rule and a
+`PreToolUse` guard limited to the run spec's `allowed_atl_commands`. The guard
+permits one reviewed `atl` command per Bash call and rejects shell operators,
+substitution, redirection, multiline scripts, and unrelated executables.
+The runner requests a proxy-only subprocess `PATH`, but does not trust PATH as a
+security boundary: the `PreToolUse` hook denies unrelated binaries before Bash,
+and every accepted `atl` invocation still crosses the accounting proxy.
 
 Raw transcripts, stderr, final structured output, invocation counters, and
 per-run results stay in the private output root with restrictive permissions.
@@ -47,3 +54,7 @@ The runner is intended for provider subscription authentication already stored
 by the provider CLI. It does not forward API-key or unrelated credential
 environment variables into the agent process. Use deterministic evaluation or
 a separately reviewed runner before introducing API-key authentication.
+
+Do not use this runner for injected corporate content. Prompt-injection model
+runs require a separately reviewed synthetic Claude case; Codex requires the
+stronger typed-tool/container boundary above.

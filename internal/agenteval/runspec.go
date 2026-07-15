@@ -33,6 +33,7 @@ type RunSpec struct {
 	MaxEstimatedCostMicroUSD int64      `json:"max_estimated_cost_microusd"`
 	Pricing                  Pricing    `json:"pricing"`
 	AllowedTools             []string   `json:"allowed_tools"`
+	AllowedATLCommands       []string   `json:"allowed_atl_commands"`
 	Checks                   []RunCheck `json:"checks"`
 }
 
@@ -121,6 +122,19 @@ func (s RunSpec) Validate() error {
 			return fmt.Errorf("duplicate allowed tool %q", tool)
 		}
 		seenTools[tool] = struct{}{}
+	}
+	if len(s.AllowedATLCommands) == 0 || len(s.AllowedATLCommands) > 32 {
+		return fmt.Errorf("allowed_atl_commands must contain 1..32 entries")
+	}
+	seenCommands := map[string]struct{}{}
+	for _, command := range s.AllowedATLCommands {
+		if command != strings.TrimSpace(command) || !strings.HasPrefix(command, "atl ") || len(command) > 256 || strings.ContainsAny(command, "\r\n;&|`><") || strings.Contains(command, "$(") {
+			return fmt.Errorf("invalid allowed atl command prefix")
+		}
+		if _, ok := seenCommands[command]; ok {
+			return fmt.Errorf("duplicate allowed atl command prefix %q", command)
+		}
+		seenCommands[command] = struct{}{}
 	}
 	if len(s.Checks) == 0 || len(s.Checks) > maxContractListEntries {
 		return fmt.Errorf("checks must contain 1..%d entries", maxContractListEntries)

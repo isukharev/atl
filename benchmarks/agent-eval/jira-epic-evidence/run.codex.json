@@ -17,6 +17,12 @@
     "output_microusd_per_million_tokens": 50000000
   },
   "allowed_tools": ["Bash(atl *)"],
+  "allowed_atl_commands": [
+    "atl config show",
+    "atl jira fields",
+    "atl jira issue fields",
+    "atl jira epic digest"
+  ],
   "checks": [
     {"name": "atl_succeeded", "kind": "atl_all_succeeded"},
     {"name": "child_count_correct", "kind": "json_equals", "pointer": "/child_count", "expected": 1},

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -54,13 +55,14 @@ func TestRunHeadlessWithFakeCodexUsesPrivateWrapperAndSyntheticMetrics(t *testin
 	writeTestFile(t, filepath.Join(caseDir, "prompt.md"), "Use atl and return the requested JSON.\n", 0o600)
 	writeTestFile(t, filepath.Join(caseDir, "response.json"), `{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}`, 0o600)
 	spec := RunSpec{
-		SchemaVersion: 1, ScenarioFile: "scenario.json", Provider: "codex",
-		Variant: "baseline", Model: "gpt-test-1", PromptFile: "prompt.md",
+		SchemaVersion: 1, ScenarioFile: "scenario.json", Provider: "claude-code",
+		Variant: "baseline", Model: "claude-test-1", PromptFile: "prompt.md",
 		ResponseSchemaFile: "response.json", WorkspaceTemplate: "workspace",
 		FixtureFile: "fixture.json", Repetitions: 1, TimeoutSeconds: 30,
 		MaxEstimatedCostMicroUSD: 10_000_000,
-		Pricing:                  Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000},
-		AllowedTools:             []string{"Bash(atl *)"},
+		Pricing:                  Pricing{},
+		AllowedTools:             []string{"Bash(atl *)", "Skill"},
+		AllowedATLCommands:       []string{"atl version"},
 		Checks: []RunCheck{
 			{Name: "answer_correct", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`"ok"`)},
 			{Name: "atl_succeeded", Kind: "atl_all_succeeded"},
@@ -136,7 +138,7 @@ exit 2
 	if result.Metrics.ATLInvocations != 1 || result.Metrics.BackendRequests != 0 || result.Metrics.EstimatedCostMicroUSD != 140 {
 		t.Fatalf("metrics=%+v", result.Metrics)
 	}
-	transcript := filepath.Join(outputRoot, scenario.ID, "codex", "baseline", "run-01", "transcript.jsonl")
+	transcript := filepath.Join(outputRoot, scenario.ID, "claude-code", "baseline", "run-01", "transcript.jsonl")
 	info, err := os.Stat(transcript)
 	if err != nil || info.Mode().Perm() != 0o600 {
 		if err != nil {
@@ -145,21 +147,18 @@ exit 2
 		t.Fatalf("transcript mode=%v", info.Mode())
 	}
 
-	spec.Provider = "claude-code"
-	spec.Model = "claude-test-1"
-	spec.Pricing = Pricing{}
-	spec.AllowedTools = []string{"Bash(atl *)", "Skill"}
+	spec.Provider = "codex"
+	spec.Model = "gpt-test-1"
+	spec.Pricing = Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000}
+	spec.AllowedTools = []string{"Bash(atl *)"}
 	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
-	output, err = RunHeadless(context.Background(), RunOptions{
+	_, err = RunHeadless(context.Background(), RunOptions{
 		SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,
 		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
 		PluginRoot: pluginRoot, WrapperExecutable: wrapper,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(output.Results) != 1 || output.Results[0].Status != "pass" || output.Results[0].Runtime.Provider != "claude-code" {
-		t.Fatalf("claude output=%+v", output)
+	if err == nil || !strings.Contains(err.Error(), "codex model execution is disabled") {
+		t.Fatalf("codex error=%v", err)
 	}
 }
 
