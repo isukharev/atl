@@ -31,6 +31,7 @@ type MockBackend struct {
 
 	mu         sync.Mutex
 	methods    map[string]int
+	routeHits  map[string]int
 	unexpected int
 	routes     map[string]MockRoute
 	fixture    MockFixture
@@ -86,7 +87,7 @@ func StartMockBackend(fixture MockFixture) (*MockBackend, error) {
 	if err := fixture.Validate(); err != nil {
 		return nil, err
 	}
-	backend := &MockBackend{methods: map[string]int{}, routes: map[string]MockRoute{}, fixture: fixture}
+	backend := &MockBackend{methods: map[string]int{}, routeHits: map[string]int{}, routes: map[string]MockRoute{}, fixture: fixture}
 	for _, route := range fixture.Routes {
 		backend.routes[route.Method+" "+route.Path] = route
 	}
@@ -110,20 +111,29 @@ func (b *MockBackend) Environment() map[string]string {
 	}
 }
 
-func (b *MockBackend) Summary() (map[string]int, int) {
+func (b *MockBackend) Summary() (map[string]int, int, int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	methods := make(map[string]int, len(b.methods))
 	for method, count := range b.methods {
 		methods[method] = count
 	}
-	return methods, b.unexpected
+	var duplicates int
+	for _, count := range b.routeHits {
+		if count > 1 {
+			duplicates += count - 1
+		}
+	}
+	return methods, b.unexpected, duplicates
 }
 
 func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
 	b.mu.Lock()
 	b.methods[r.Method]++
-	route, ok := b.routes[r.Method+" "+r.URL.Path]
+	routeKey := r.Method + " " + r.URL.Path
+	requestKey := r.Method + " " + r.URL.RequestURI()
+	b.routeHits[requestKey]++
+	route, ok := b.routes[routeKey]
 	if !ok {
 		b.unexpected++
 	}

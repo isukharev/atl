@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -55,6 +56,10 @@ type atlProxyRecord struct {
 	StdoutBytes int64 `json:"stdout_bytes"`
 	StderrBytes int64 `json:"stderr_bytes"`
 	ExitCode    int   `json:"exit_code"`
+}
+
+type guardDecisionRecord struct {
+	Decision string `json:"decision"`
 }
 
 func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
@@ -348,6 +353,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		return Result{}, err
 	}
 	counterPath := filepath.Join(evalDir, "atl-invocations.jsonl")
+	guardCounterPath := filepath.Join(evalDir, "guard-decisions.jsonl")
 	wrapperDir := filepath.Join(runDir, "bin")
 	if err := mkdirPrivate(wrapperDir); err != nil {
 		return Result{}, err
@@ -400,20 +406,55 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	environment["ATL_MIRROR_ROOT"] = filepath.Join(evalDir, "mirror")
 	environment["ATL_EVAL_REAL_BINARY"] = options.ATLBinary
 	environment["ATL_EVAL_COUNTER"] = counterPath
+	environment["ATL_EVAL_GUARD_COUNTER"] = guardCounterPath
+	environment["ATL_EVAL_MAX_DELEGATIONS"] = fmt.Sprintf("%d", loaded.scenario.Budgets.MaxDelegations)
 	allowedCommands, _ := json.Marshal(loaded.spec.AllowedATLCommands)
 	environment["ATL_EVAL_ALLOWED_COMMANDS"] = string(allowedCommands)
+	allowedReadRoots, _ := json.Marshal([]string{filepath.Join(options.PluginRoot, "skills"), workspace})
+	environment["ATL_EVAL_ALLOWED_READ_ROOTS"] = string(allowedReadRoots)
 	environment["PATH"] = wrapperDir
 	for name, value := range backend.Environment() {
 		environment[name] = value
 	}
 	command.Env = flattenEnvironment(environment)
 	started := time.Now()
+	var guardAborted atomic.Bool
+	guardStop := make(chan struct{})
+	var guardDone chan struct{}
+	if requiresCleanGuard(loaded.spec.Checks) {
+		guardDone = make(chan struct{})
+		go func() {
+			defer close(guardDone)
+			ticker := time.NewTicker(250 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-guardStop:
+					return
+				case <-ticker.C:
+					denials, countErr := countGuardDenials(guardCounterPath)
+					if countErr == nil && denials > 0 {
+						guardAborted.Store(true)
+						cancel()
+						return
+					}
+				}
+			}
+		}()
+	}
 	runErr := command.Run()
+	close(guardStop)
+	if guardDone != nil {
+		<-guardDone
+	}
 	duration := time.Since(started).Milliseconds()
 	closeTranscriptErr := transcript.Close()
 	closeStderrErr := stderr.Close()
 	if ctx.Err() == context.DeadlineExceeded {
 		return Result{}, fmt.Errorf("agent exceeded %d second timeout", loaded.spec.TimeoutSeconds)
+	}
+	if guardAborted.Load() {
+		return Result{}, fmt.Errorf("agent attempted a command rejected by the benchmark guard")
 	}
 	if runErr != nil {
 		return Result{}, fmt.Errorf("agent process failed: %w", runErr)
@@ -440,7 +481,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if err != nil {
 		return Result{}, err
 	}
-	methods, unexpected := backend.Summary()
+	methods, unexpected, duplicateRequests := backend.Summary()
 	if loaded.spec.Provider == "claude-code" {
 		if err := writePrivateFile(finalPath, append(append([]byte(nil), final...), '\n')); err != nil {
 			return Result{}, err
@@ -454,7 +495,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			failedATL++
 		}
 	}
-	checks, err := evaluateRunChecks(loaded.spec.Checks, final, len(proxyRecords), failedATL, unexpected)
+	guardDenials, err := countGuardDenials(guardCounterPath)
+	if err != nil {
+		return Result{}, err
+	}
+	checks, err := evaluateRunChecks(loaded.spec.Checks, final, len(proxyRecords), failedATL, unexpected, providerMetrics.Delegations, guardDenials)
 	if err != nil {
 		return Result{}, err
 	}
@@ -474,14 +519,17 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	providerMetrics.Coverage["atl_invocations"] = true
 	providerMetrics.Coverage["backend_requests"] = true
+	providerMetrics.Coverage["duplicate_backend_requests"] = true
 	providerMetrics.Coverage["output_bytes"] = true
 	observation := Observation{
 		SchemaVersion: ObservationSchemaVersion, ScenarioID: loaded.scenario.ID,
 		Variant: loaded.spec.Variant, Runtime: runtime,
 		Metrics: InputMetrics{
 			AgentTurns: providerMetrics.AgentTurns, ToolCalls: providerMetrics.ToolCalls,
-			ATLInvocations: len(proxyRecords), OutputBytes: outputBytes,
+			ATLInvocations: len(proxyRecords), Delegations: providerMetrics.Delegations,
+			DuplicateBackendRequests: duplicateRequests, OutputBytes: outputBytes,
 			InputTokens: providerMetrics.InputTokens, OutputTokens: providerMetrics.OutputTokens,
+			MainThreadInputTokens: providerMetrics.MainThreadInputTokens, MainThreadOutputTokens: providerMetrics.MainThreadOutputTokens,
 			EstimatedCostMicroUSD: providerMetrics.EstimatedCostMicroUSD,
 			DurationMillis:        providerMetrics.DurationMillis,
 		},
@@ -491,6 +539,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if err != nil {
 		return Result{}, err
 	}
+	addRunCheckViolations(&result, loaded.spec.Checks, loaded.scenario.RequiredChecks)
 	if result.Coverage["estimated_cost_microusd"] && result.Metrics.EstimatedCostMicroUSD > loaded.spec.MaxEstimatedCostMicroUSD {
 		result.Status = "fail"
 		result.Violations = append(result.Violations, Violation{
@@ -504,6 +553,12 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			return result.Violations[i].Subject < result.Violations[j].Subject
 		})
 	}
+	sort.Slice(result.Violations, func(i, j int) bool {
+		if result.Violations[i].Code != result.Violations[j].Code {
+			return result.Violations[i].Code < result.Violations[j].Code
+		}
+		return result.Violations[i].Subject < result.Violations[j].Subject
+	})
 	resultPath := filepath.Join(runDir, "result.json")
 	encoded, _ := json.MarshalIndent(result, "", "  ")
 	encoded = append(encoded, '\n')
@@ -511,6 +566,32 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		return Result{}, err
 	}
 	return result, nil
+}
+
+func requiresCleanGuard(checks []RunCheck) bool {
+	for _, check := range checks {
+		if check.Kind == "guard_no_denials" {
+			return true
+		}
+	}
+	return false
+}
+
+func addRunCheckViolations(result *Result, checks []RunCheck, scenarioRequired []string) {
+	required := make(map[string]struct{}, len(scenarioRequired))
+	for _, name := range scenarioRequired {
+		required[name] = struct{}{}
+	}
+	for _, check := range checks {
+		if result.Checks[check.Name] {
+			continue
+		}
+		if _, exists := required[check.Name]; exists {
+			continue
+		}
+		result.Status = "fail"
+		result.Violations = append(result.Violations, Violation{Code: "run_check_failed", Subject: check.Name, Limit: 1})
+	}
 }
 
 // resolveProviderLaunch keeps the model-visible PATH restricted even when a
@@ -569,6 +650,34 @@ func readProxyRecords(path string) ([]atlProxyRecord, error) {
 		records = append(records, record)
 	}
 	return records, nil
+}
+
+func countGuardDenials(path string) (int, error) {
+	data, err := readBoundedFile(path, 1<<20)
+	if os.IsNotExist(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var denials int
+	for _, line := range bytes.Split(data, []byte{'\n'}) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var record guardDecisionRecord
+		if err := json.Unmarshal(line, &record); err != nil {
+			return 0, fmt.Errorf("decode guard decision record: %w", err)
+		}
+		switch record.Decision {
+		case "allow":
+		case "deny":
+			denials++
+		default:
+			return 0, fmt.Errorf("invalid guard decision %q", record.Decision)
+		}
+	}
+	return denials, nil
 }
 
 func estimateCost(inputTokens, outputTokens int64, pricing Pricing) (int64, error) {
@@ -785,12 +894,26 @@ func guardName() string {
 func writeClaudeGuardSettings(path, guardPath string) error {
 	settings := map[string]any{
 		"hooks": map[string]any{
-			"PreToolUse": []any{map[string]any{
-				"matcher": "Bash",
-				"hooks": []any{map[string]any{
-					"type": "command", "command": shellSingleQuote(guardPath), "timeout": 5,
-				}},
-			}},
+			"PreToolUse": []any{
+				map[string]any{
+					"matcher": "Bash",
+					"hooks": []any{map[string]any{
+						"type": "command", "command": shellSingleQuote(guardPath), "timeout": 5,
+					}},
+				},
+				map[string]any{
+					"matcher": "Agent",
+					"hooks": []any{map[string]any{
+						"type": "command", "command": shellSingleQuote(guardPath), "timeout": 5,
+					}},
+				},
+				map[string]any{
+					"matcher": "Read",
+					"hooks": []any{map[string]any{
+						"type": "command", "command": shellSingleQuote(guardPath), "timeout": 5,
+					}},
+				},
+			},
 		},
 	}
 	data, err := json.Marshal(settings)

@@ -79,3 +79,27 @@ func TestAggregateResultsDoesNotTreatUnavailableMetricAsZero(t *testing.T) {
 		t.Fatalf("output bytes=%+v", metric)
 	}
 }
+
+func TestAggregateResultsSeparatesMainThreadAndTotalTokens(t *testing.T) {
+	scenario := validScenario()
+	scenario.RequiredMetrics = append(scenario.RequiredMetrics, "input_tokens", "main_thread_input_tokens")
+	scenario.Budgets.MaxInputTokens = 500
+	scenario.Budgets.MaxMainThreadInputTokens = 200
+	observation := validObservation()
+	observation.Metrics.InputTokens = 400
+	observation.Metrics.MainThreadInputTokens = 100
+	observation.Coverage["input_tokens"] = true
+	observation.Coverage["main_thread_input_tokens"] = true
+	result, err := Evaluate(scenario, observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err := AggregateResults([]Result{result})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metrics := aggregate.Groups[0].Metrics
+	if metrics.InputTokens.P50 != 400 || metrics.MainThreadInputTokens.P50 != 100 {
+		t.Fatalf("metrics=%+v", metrics)
+	}
+}

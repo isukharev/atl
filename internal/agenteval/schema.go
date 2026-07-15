@@ -28,8 +28,10 @@ var (
 
 var metricNames = map[string]struct{}{
 	"agent_turns": {}, "tool_calls": {}, "atl_invocations": {},
-	"backend_requests": {}, "output_bytes": {}, "input_tokens": {},
-	"output_tokens": {}, "estimated_cost_microusd": {}, "duration_millis": {},
+	"delegations": {}, "backend_requests": {}, "duplicate_backend_requests": {},
+	"output_bytes": {}, "input_tokens": {}, "output_tokens": {},
+	"main_thread_input_tokens": {}, "main_thread_output_tokens": {},
+	"estimated_cost_microusd": {}, "duration_millis": {},
 }
 
 // Scenario is provider-neutral: the same task and budgets can be evaluated by
@@ -49,17 +51,21 @@ type Scenario struct {
 // Budgets are hard upper bounds. Zero means zero, not unlimited, so every
 // potentially expensive or mutating dimension remains explicit.
 type Budgets struct {
-	MaxAgentTurns            int      `json:"max_agent_turns"`
-	MaxToolCalls             int      `json:"max_tool_calls"`
-	MaxATLInvocations        int      `json:"max_atl_invocations"`
-	MaxBackendRequests       int      `json:"max_backend_requests"`
-	MaxRemoteWrites          int      `json:"max_remote_writes"`
-	MaxOutputBytes           int64    `json:"max_output_bytes"`
-	MaxInputTokens           int64    `json:"max_input_tokens"`
-	MaxOutputTokens          int64    `json:"max_output_tokens"`
-	MaxEstimatedCostMicroUSD int64    `json:"max_estimated_cost_microusd"`
-	MaxDurationMillis        int64    `json:"max_duration_millis"`
-	AllowedHTTPMethods       []string `json:"allowed_http_methods"`
+	MaxAgentTurns               int      `json:"max_agent_turns"`
+	MaxToolCalls                int      `json:"max_tool_calls"`
+	MaxATLInvocations           int      `json:"max_atl_invocations"`
+	MaxDelegations              int      `json:"max_delegations"`
+	MaxBackendRequests          int      `json:"max_backend_requests"`
+	MaxDuplicateBackendRequests int      `json:"max_duplicate_backend_requests"`
+	MaxRemoteWrites             int      `json:"max_remote_writes"`
+	MaxOutputBytes              int64    `json:"max_output_bytes"`
+	MaxInputTokens              int64    `json:"max_input_tokens"`
+	MaxOutputTokens             int64    `json:"max_output_tokens"`
+	MaxMainThreadInputTokens    int64    `json:"max_main_thread_input_tokens"`
+	MaxMainThreadOutputTokens   int64    `json:"max_main_thread_output_tokens"`
+	MaxEstimatedCostMicroUSD    int64    `json:"max_estimated_cost_microusd"`
+	MaxDurationMillis           int64    `json:"max_duration_millis"`
+	AllowedHTTPMethods          []string `json:"allowed_http_methods"`
 }
 
 // Runtime identifies the tested system without retaining task content.
@@ -88,29 +94,37 @@ type Observation struct {
 }
 
 type InputMetrics struct {
-	AgentTurns            int   `json:"agent_turns"`
-	ToolCalls             int   `json:"tool_calls"`
-	ATLInvocations        int   `json:"atl_invocations"`
-	OutputBytes           int64 `json:"output_bytes"`
-	InputTokens           int64 `json:"input_tokens"`
-	OutputTokens          int64 `json:"output_tokens"`
-	EstimatedCostMicroUSD int64 `json:"estimated_cost_microusd"`
-	DurationMillis        int64 `json:"duration_millis"`
+	AgentTurns               int   `json:"agent_turns"`
+	ToolCalls                int   `json:"tool_calls"`
+	ATLInvocations           int   `json:"atl_invocations"`
+	Delegations              int   `json:"delegations"`
+	DuplicateBackendRequests int   `json:"duplicate_backend_requests"`
+	OutputBytes              int64 `json:"output_bytes"`
+	InputTokens              int64 `json:"input_tokens"`
+	OutputTokens             int64 `json:"output_tokens"`
+	MainThreadInputTokens    int64 `json:"main_thread_input_tokens"`
+	MainThreadOutputTokens   int64 `json:"main_thread_output_tokens"`
+	EstimatedCostMicroUSD    int64 `json:"estimated_cost_microusd"`
+	DurationMillis           int64 `json:"duration_millis"`
 }
 
 // Metrics is normalized by Evaluate. Backend request and write counts are
 // derived from HTTPMethods rather than trusted from a runner.
 type Metrics struct {
-	AgentTurns            int   `json:"agent_turns"`
-	ToolCalls             int   `json:"tool_calls"`
-	ATLInvocations        int   `json:"atl_invocations"`
-	BackendRequests       int   `json:"backend_requests"`
-	RemoteWrites          int   `json:"remote_writes"`
-	OutputBytes           int64 `json:"output_bytes"`
-	InputTokens           int64 `json:"input_tokens"`
-	OutputTokens          int64 `json:"output_tokens"`
-	EstimatedCostMicroUSD int64 `json:"estimated_cost_microusd"`
-	DurationMillis        int64 `json:"duration_millis"`
+	AgentTurns               int   `json:"agent_turns"`
+	ToolCalls                int   `json:"tool_calls"`
+	ATLInvocations           int   `json:"atl_invocations"`
+	Delegations              int   `json:"delegations"`
+	BackendRequests          int   `json:"backend_requests"`
+	DuplicateBackendRequests int   `json:"duplicate_backend_requests"`
+	RemoteWrites             int   `json:"remote_writes"`
+	OutputBytes              int64 `json:"output_bytes"`
+	InputTokens              int64 `json:"input_tokens"`
+	OutputTokens             int64 `json:"output_tokens"`
+	MainThreadInputTokens    int64 `json:"main_thread_input_tokens"`
+	MainThreadOutputTokens   int64 `json:"main_thread_output_tokens"`
+	EstimatedCostMicroUSD    int64 `json:"estimated_cost_microusd"`
+	DurationMillis           int64 `json:"duration_millis"`
 }
 
 // Violation is structured so public aggregate reports do not need to retain a
@@ -168,21 +182,28 @@ func (s Scenario) Validate() error {
 
 func (b Budgets) validate() error {
 	values := map[string]int64{
-		"max_agent_turns":             int64(b.MaxAgentTurns),
-		"max_tool_calls":              int64(b.MaxToolCalls),
-		"max_atl_invocations":         int64(b.MaxATLInvocations),
-		"max_backend_requests":        int64(b.MaxBackendRequests),
-		"max_remote_writes":           int64(b.MaxRemoteWrites),
-		"max_output_bytes":            b.MaxOutputBytes,
-		"max_input_tokens":            b.MaxInputTokens,
-		"max_output_tokens":           b.MaxOutputTokens,
-		"max_estimated_cost_microusd": b.MaxEstimatedCostMicroUSD,
-		"max_duration_millis":         b.MaxDurationMillis,
+		"max_agent_turns":                int64(b.MaxAgentTurns),
+		"max_tool_calls":                 int64(b.MaxToolCalls),
+		"max_atl_invocations":            int64(b.MaxATLInvocations),
+		"max_delegations":                int64(b.MaxDelegations),
+		"max_backend_requests":           int64(b.MaxBackendRequests),
+		"max_duplicate_backend_requests": int64(b.MaxDuplicateBackendRequests),
+		"max_remote_writes":              int64(b.MaxRemoteWrites),
+		"max_output_bytes":               b.MaxOutputBytes,
+		"max_input_tokens":               b.MaxInputTokens,
+		"max_output_tokens":              b.MaxOutputTokens,
+		"max_main_thread_input_tokens":   b.MaxMainThreadInputTokens,
+		"max_main_thread_output_tokens":  b.MaxMainThreadOutputTokens,
+		"max_estimated_cost_microusd":    b.MaxEstimatedCostMicroUSD,
+		"max_duration_millis":            b.MaxDurationMillis,
 	}
 	for name, value := range values {
 		if value < 0 {
 			return fmt.Errorf("%s must be non-negative", name)
 		}
+	}
+	if b.MaxDelegations > 3 {
+		return fmt.Errorf("max_delegations must not exceed 3")
 	}
 	if len(b.AllowedHTTPMethods) > maxContractListEntries {
 		return fmt.Errorf("allowed_http_methods exceeds %d entries", maxContractListEntries)
@@ -227,10 +248,24 @@ func (o Observation) Validate() error {
 	if !o.Coverage["backend_requests"] && len(o.HTTPMethods) != 0 {
 		return fmt.Errorf("http_methods require backend_requests coverage")
 	}
+	if o.Coverage["duplicate_backend_requests"] && !o.Coverage["backend_requests"] {
+		return fmt.Errorf("duplicate_backend_requests coverage requires backend_requests coverage")
+	}
+	var backendRequests int
 	for method, count := range o.HTTPMethods {
 		if !methodRE.MatchString(method) || count < 0 || count > maxObservedMethodCount {
 			return fmt.Errorf("invalid HTTP method observation %q=%d", method, count)
 		}
+		backendRequests += count
+	}
+	if o.Metrics.DuplicateBackendRequests > backendRequests {
+		return fmt.Errorf("duplicate backend requests exceed total requests")
+	}
+	if o.Coverage["input_tokens"] && o.Coverage["main_thread_input_tokens"] && o.Metrics.MainThreadInputTokens > o.Metrics.InputTokens {
+		return fmt.Errorf("main-thread input tokens exceed total input tokens")
+	}
+	if o.Coverage["output_tokens"] && o.Coverage["main_thread_output_tokens"] && o.Metrics.MainThreadOutputTokens > o.Metrics.OutputTokens {
+		return fmt.Errorf("main-thread output tokens exceed total output tokens")
 	}
 	for check := range o.Checks {
 		if !identifierRE.MatchString(check) {
@@ -267,8 +302,10 @@ func (r Runtime) validate() error {
 func (m InputMetrics) validate() error {
 	values := map[string]int64{
 		"agent_turns": int64(m.AgentTurns), "tool_calls": int64(m.ToolCalls),
-		"atl_invocations": int64(m.ATLInvocations), "output_bytes": m.OutputBytes,
+		"atl_invocations": int64(m.ATLInvocations), "delegations": int64(m.Delegations),
+		"duplicate_backend_requests": int64(m.DuplicateBackendRequests), "output_bytes": m.OutputBytes,
 		"input_tokens": m.InputTokens, "output_tokens": m.OutputTokens,
+		"main_thread_input_tokens": m.MainThreadInputTokens, "main_thread_output_tokens": m.MainThreadOutputTokens,
 		"estimated_cost_microusd": m.EstimatedCostMicroUSD, "duration_millis": m.DurationMillis,
 	}
 	for name, value := range values {
@@ -322,8 +359,10 @@ func validateMetricList(name string, values []string) error {
 func validateUnobservedMetrics(metrics InputMetrics, coverage map[string]bool) error {
 	values := map[string]int64{
 		"agent_turns": int64(metrics.AgentTurns), "tool_calls": int64(metrics.ToolCalls),
-		"atl_invocations": int64(metrics.ATLInvocations), "output_bytes": metrics.OutputBytes,
+		"atl_invocations": int64(metrics.ATLInvocations), "delegations": int64(metrics.Delegations),
+		"duplicate_backend_requests": int64(metrics.DuplicateBackendRequests), "output_bytes": metrics.OutputBytes,
 		"input_tokens": metrics.InputTokens, "output_tokens": metrics.OutputTokens,
+		"main_thread_input_tokens": metrics.MainThreadInputTokens, "main_thread_output_tokens": metrics.MainThreadOutputTokens,
 		"estimated_cost_microusd": metrics.EstimatedCostMicroUSD,
 		"duration_millis":         metrics.DurationMillis,
 	}

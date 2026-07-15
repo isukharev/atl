@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mode-0600 transcript storage. The first public synthetic case measures custom
   field discovery followed by qualified epic evidence.
 
+- Added a synthetic Jira prompt-injection benchmark with directly comparable
+  single-agent and one-subagent variants, mandatory per-variant oracles,
+  separate main-thread and total token metrics, delegation and
+  duplicate-request metrics, an atomic three-child hard cap, and decision-only
+  guard accounting that retains neither commands nor child prompts. Guarded
+  model runs now cancel after the first denied action to bound failed-test cost.
+
 - Added a versioned, provider-neutral Agent Eval v2 contract with strict
   scenario/observation/result validation, privacy-safe trajectory metrics,
   deterministic Jira and Confluence workflow budgets, and a maintainer tool for

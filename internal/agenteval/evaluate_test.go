@@ -114,3 +114,22 @@ func TestEvaluateRejectsMismatchedScenario(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+func TestScenarioCapsDelegationAtThreeChildren(t *testing.T) {
+	scenario := validScenario()
+	scenario.Budgets.MaxDelegations = 4
+	if err := scenario.Validate(); err == nil || !strings.Contains(err.Error(), "must not exceed 3") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestObservationRejectsMainThreadTokensAboveTotal(t *testing.T) {
+	observation := validObservation()
+	observation.Coverage["input_tokens"] = true
+	observation.Coverage["main_thread_input_tokens"] = true
+	observation.Metrics.InputTokens = 10
+	observation.Metrics.MainThreadInputTokens = 11
+	if err := observation.Validate(); err == nil || !strings.Contains(err.Error(), "exceed total") {
+		t.Fatalf("err=%v", err)
+	}
+}

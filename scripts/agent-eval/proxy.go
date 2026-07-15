@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -16,10 +18,15 @@ type proxyRecord struct {
 	ExitCode    int   `json:"exit_code"`
 }
 
+type guardRecord struct {
+	Decision string `json:"decision"`
+}
+
 type claudeHookInput struct {
 	ToolName  string `json:"tool_name"`
 	ToolInput struct {
-		Command string `json:"command"`
+		Command  string `json:"command"`
+		FilePath string `json:"file_path"`
 	} `json:"tool_input"`
 }
 
@@ -30,20 +37,52 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 		return 2
 	}
 	var hook claudeHookInput
-	if err := json.Unmarshal(data, &hook); err != nil || hook.ToolName != "Bash" {
+	if err := json.Unmarshal(data, &hook); err != nil || (hook.ToolName != "Bash" && hook.ToolName != "Agent" && hook.ToolName != "Read") {
 		fmt.Fprintln(errorOutput, "atl evaluation guard rejected malformed hook input")
 		return 2
 	}
-	var allowed []string
-	if err := json.Unmarshal([]byte(os.Getenv("ATL_EVAL_ALLOWED_COMMANDS")), &allowed); err != nil || len(allowed) == 0 {
-		fmt.Fprintln(errorOutput, "atl evaluation guard has no command policy")
-		return 2
-	}
 	decision := "deny"
-	reason := "benchmark Bash is limited to one reviewed atl command"
-	if allowedGuardCommand(hook.ToolInput.Command, allowed) {
-		decision = "allow"
-		reason = "command matches the reviewed benchmark allowlist"
+	var reason string
+	switch hook.ToolName {
+	case "Bash":
+		var allowed []string
+		if err := json.Unmarshal([]byte(os.Getenv("ATL_EVAL_ALLOWED_COMMANDS")), &allowed); err != nil || len(allowed) == 0 {
+			fmt.Fprintln(errorOutput, "atl evaluation guard has no command policy")
+			return 2
+		}
+		reason = "benchmark Bash is limited to one reviewed atl command"
+		if allowedGuardCommand(hook.ToolInput.Command, allowed) {
+			decision = "allow"
+			reason = "command matches the reviewed benchmark allowlist"
+		}
+	case "Agent":
+		allowed, err := reserveDelegationSlot(os.Getenv("ATL_EVAL_GUARD_COUNTER"), os.Getenv("ATL_EVAL_MAX_DELEGATIONS"))
+		if err != nil {
+			fmt.Fprintln(errorOutput, "atl evaluation guard could not enforce the delegation limit")
+			return 2
+		}
+		if allowed {
+			decision = "allow"
+			reason = "delegation is within the reviewed benchmark limit"
+		} else {
+			reason = "benchmark delegation limit reached"
+		}
+	case "Read":
+		allowed, err := allowedReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
+		if err != nil {
+			fmt.Fprintln(errorOutput, "atl evaluation guard could not enforce the read limit")
+			return 2
+		}
+		if allowed {
+			decision = "allow"
+			reason = "read target is within a reviewed benchmark root"
+		} else {
+			reason = "read target is outside reviewed benchmark roots"
+		}
+	}
+	if err := appendGuardRecord(os.Getenv("ATL_EVAL_GUARD_COUNTER"), guardRecord{Decision: decision}); err != nil {
+		fmt.Fprintln(errorOutput, "atl evaluation guard could not record its decision")
+		return 2
 	}
 	response := map[string]any{
 		"hookSpecificOutput": map[string]any{
@@ -58,6 +97,78 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 	return 0
 }
 
+func allowedReadPath(path, rawRoots string) (bool, error) {
+	if path == "" {
+		return false, nil
+	}
+	var roots []string
+	if err := json.Unmarshal([]byte(rawRoots), &roots); err != nil || len(roots) == 0 {
+		return false, fmt.Errorf("invalid read policy")
+	}
+	target, err := filepath.Abs(path)
+	if err != nil {
+		return false, err
+	}
+	target, err = filepath.EvalSymlinks(target)
+	if err != nil {
+		return false, nil
+	}
+	for _, root := range roots {
+		root, err = filepath.Abs(root)
+		if err != nil {
+			return false, err
+		}
+		root, err = filepath.EvalSymlinks(root)
+		if err != nil {
+			return false, err
+		}
+		relative, err := filepath.Rel(root, target)
+		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func reserveDelegationSlot(counterPath, rawLimit string) (bool, error) {
+	limit, err := strconv.Atoi(rawLimit)
+	if err != nil || limit < 0 || limit > 3 || counterPath == "" {
+		return false, fmt.Errorf("invalid delegation policy")
+	}
+	for slot := 1; slot <= limit; slot++ {
+		path := filepath.Join(filepath.Dir(counterPath), fmt.Sprintf("delegation-slot-%d", slot))
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			return true, file.Close()
+		}
+		if !os.IsExist(err) {
+			return false, err
+		}
+	}
+	return false, nil
+}
+
+func appendGuardRecord(path string, record guardRecord) error {
+	if path == "" {
+		return fmt.Errorf("guard counter is not configured")
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	_, writeErr := file.Write(data)
+	closeErr := file.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	return closeErr
+}
+
 func allowedGuardCommand(command string, prefixes []string) bool {
 	command = strings.TrimSpace(command)
 	for _, export := range []string{"export ATL_READ_ONLY=1;", "export ATL_READ_ONLY=1\n"} {
@@ -70,6 +181,12 @@ func allowedGuardCommand(command string, prefixes []string) bool {
 		return true
 	}
 	if strings.ContainsAny(command, "\r\n;&|`><") || strings.Contains(command, "$(") {
+		return false
+	}
+	if strings.HasPrefix(command, "atl --read-only ") {
+		command = "atl " + strings.TrimPrefix(command, "atl --read-only ")
+	}
+	if !strings.HasPrefix(command, "atl ") {
 		return false
 	}
 	for _, prefix := range prefixes {

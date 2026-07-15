@@ -61,8 +61,10 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 		{Name: "present", Kind: "json_present", Pointer: "/nested"},
 		{Name: "used", Kind: "atl_invocations_min", Minimum: 2},
 		{Name: "routes", Kind: "mock_no_unexpected"},
+		{Name: "delegated", Kind: "delegations_min", Minimum: 1},
+		{Name: "guarded", Kind: "guard_no_denials"},
 	}
-	result, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 2, 0, 0)
+	result, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 2, 0, 0, 1, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,5 +72,23 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 		if !passed {
 			t.Errorf("check %s failed", name)
 		}
+	}
+}
+
+func TestRunSpecificChecksAreMandatory(t *testing.T) {
+	result := Result{Status: "pass", Checks: map[string]bool{"shared": false, "variant": false}}
+	checks := []RunCheck{{Name: "shared"}, {Name: "variant"}}
+	addRunCheckViolations(&result, checks, []string{"shared"})
+	if result.Status != "fail" || len(result.Violations) != 1 || result.Violations[0].Subject != "variant" {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestCleanGuardRequirementIsDetected(t *testing.T) {
+	if requiresCleanGuard([]RunCheck{{Kind: "json_present"}}) {
+		t.Fatal("unrelated oracle enabled guard cancellation")
+	}
+	if !requiresCleanGuard([]RunCheck{{Kind: "guard_no_denials"}}) {
+		t.Fatal("guard oracle did not enable cancellation")
 	}
 }

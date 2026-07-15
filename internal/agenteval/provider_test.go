@@ -33,14 +33,14 @@ func TestBuildProviderCommandsAreEphemeralAndReadOnly(t *testing.T) {
 
 func TestParseProviderOutputs(t *testing.T) {
 	claude := strings.Join([]string{
-		`{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}`,
-		`{"type":"result","num_turns":2,"duration_ms":123,"total_cost_usd":0.25,"usage":{"input_tokens":100,"cache_read_input_tokens":20,"output_tokens":30},"structured_output":{"answer":"ok"}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent"}]}}`,
+		`{"type":"result","num_turns":2,"duration_ms":123,"total_cost_usd":0.25,"usage":{"input_tokens":100,"cache_read_input_tokens":20,"output_tokens":30},"modelUsage":{"parent":{"inputTokens":5,"cacheReadInputTokens":40,"cacheCreationInputTokens":10,"outputTokens":7},"child":{"inputTokens":3,"cacheReadInputTokens":20,"cacheCreationInputTokens":2,"outputTokens":11}},"structured_output":{"answer":"ok"}}`,
 	}, "\n")
 	metrics, final, err := ParseProviderOutput("claude-code", []byte(claude), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.AgentTurns != 2 || metrics.ToolCalls != 1 || metrics.InputTokens != 120 || metrics.OutputTokens != 30 || metrics.EstimatedCostMicroUSD != 250_000 || string(final) != `{"answer":"ok"}` {
+	if metrics.AgentTurns != 2 || metrics.ToolCalls != 1 || metrics.Delegations != 1 || !metrics.Coverage["delegations"] || metrics.MainThreadInputTokens != 120 || metrics.MainThreadOutputTokens != 30 || metrics.InputTokens != 80 || metrics.OutputTokens != 18 || metrics.EstimatedCostMicroUSD != 250_000 || string(final) != `{"answer":"ok"}` {
 		t.Fatalf("metrics=%+v final=%s", metrics, final)
 	}
 	codex := strings.Join([]string{
@@ -51,7 +51,7 @@ func TestParseProviderOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.AgentTurns != 1 || metrics.ToolCalls != 1 || metrics.InputTokens != 100 || metrics.OutputTokens != 30 || string(final) != `{"answer":"ok"}` {
+	if metrics.AgentTurns != 1 || metrics.ToolCalls != 1 || metrics.InputTokens != 100 || metrics.MainThreadInputTokens != 100 || metrics.OutputTokens != 30 || metrics.MainThreadOutputTokens != 30 || string(final) != `{"answer":"ok"}` {
 		t.Fatalf("metrics=%+v final=%s", metrics, final)
 	}
 }

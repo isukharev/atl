@@ -169,6 +169,18 @@ func (s RunSpec) Validate() error {
 			if check.Minimum != 0 || check.Pointer != "" || len(check.Expected) != 0 {
 				return fmt.Errorf("mock_no_unexpected check %q is invalid", check.Name)
 			}
+		case "delegations_min":
+			if check.Minimum < 1 || check.Pointer != "" || len(check.Expected) != 0 {
+				return fmt.Errorf("delegations_min check %q is invalid", check.Name)
+			}
+		case "guard_no_denials":
+			if check.Minimum != 0 || check.Pointer != "" || len(check.Expected) != 0 {
+				return fmt.Errorf("guard_no_denials check %q is invalid", check.Name)
+			}
+		case "delegations_none":
+			if check.Minimum != 0 || check.Pointer != "" || len(check.Expected) != 0 {
+				return fmt.Errorf("delegations_none check %q is invalid", check.Name)
+			}
 		default:
 			return fmt.Errorf("unsupported run check kind %q", check.Kind)
 		}
@@ -201,7 +213,7 @@ func escapesBase(path string) bool {
 	return clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
 
-func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedATL, unexpectedRequests int) (map[string]bool, error) {
+func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedATL, unexpectedRequests, delegations, guardDenials int) (map[string]bool, error) {
 	var document any
 	if err := json.Unmarshal(final, &document); err != nil {
 		return nil, fmt.Errorf("decode structured final response: %w", err)
@@ -215,6 +227,12 @@ func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedAT
 			results[check.Name] = failedATL == 0
 		case "mock_no_unexpected":
 			results[check.Name] = unexpectedRequests == 0
+		case "delegations_min":
+			results[check.Name] = delegations >= check.Minimum
+		case "guard_no_denials":
+			results[check.Name] = guardDenials == 0
+		case "delegations_none":
+			results[check.Name] = delegations == 0
 		case "json_present":
 			_, ok := resolveJSONPointer(document, check.Pointer)
 			results[check.Name] = ok
