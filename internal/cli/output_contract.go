@@ -9,7 +9,10 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 )
 
-const textOutputAnnotation = "atl.output.text"
+const (
+	textOutputAnnotation = "atl.output.text"
+	idOutputAnnotation   = "atl.output.id"
+)
 
 // textOutputCommandPaths is the reviewed inventory of executable commands that
 // intentionally support -o text. Commands absent from this set are JSON/id
@@ -19,6 +22,7 @@ const textOutputAnnotation = "atl.output.text"
 var textOutputCommandPaths = stringSetFromLines(`
 auth login
 auth status
+capabilities
 completion bash
 completion fish
 completion powershell
@@ -131,6 +135,46 @@ profile suggestion review
 version
 `)
 
+// idOutputCommandPaths is the reviewed inventory of executable commands that
+// intentionally support -o id. Keep this separate from emitID call sites: the
+// annotation is the preflight and capability-discovery contract, while emitID
+// remains the final renderer. Unsupported id output is rejected before config,
+// stdin, or network access just like unsupported text output.
+var idOutputCommandPaths = stringSetFromLines(`
+capabilities
+conf attachment list
+conf blog create
+conf page copy
+conf page list
+conf page resolve
+conf search
+jira board backlog
+jira board config
+jira board get
+jira board issues
+jira board list
+jira board view
+jira issue attachment list
+jira issue children
+jira issue comment list
+jira issue create
+jira issue link list
+jira issue search
+jira issue worklog list
+jira me
+jira sprint current
+jira sprint get
+jira sprint issues
+jira sprint list
+jira structure folders
+jira structure get
+jira structure pull-issues
+jira structure rows
+jira structure view
+jira user get
+jira user search
+`)
+
 func classifyTextOutput(cmd *cobra.Command, path string) {
 	if cmd.Annotations == nil {
 		cmd.Annotations = map[string]string{}
@@ -142,12 +186,28 @@ func classifyTextOutput(cmd *cobra.Command, path string) {
 	}
 }
 
-func enforceOutputContract(cmd *cobra.Command) error {
-	if outputFormat != "text" {
-		return nil
+func classifyIDOutput(cmd *cobra.Command, path string) {
+	if cmd.Annotations == nil {
+		cmd.Annotations = map[string]string{}
 	}
-	if cmd.Annotations[textOutputAnnotation] != "supported" {
-		return usageErr("-o text is not supported for %q; use -o json", strings.TrimPrefix(cmd.CommandPath(), "atl "))
+	if idOutputCommandPaths[path] {
+		cmd.Annotations[idOutputAnnotation] = "supported"
+	} else {
+		cmd.Annotations[idOutputAnnotation] = "unsupported"
+	}
+}
+
+func enforceOutputContract(cmd *cobra.Command) error {
+	path := strings.TrimPrefix(cmd.CommandPath(), "atl ")
+	switch outputFormat {
+	case "text":
+		if cmd.Annotations[textOutputAnnotation] != "supported" {
+			return usageErr("-o text is not supported for %q; use -o json", path)
+		}
+	case "id":
+		if cmd.Annotations[idOutputAnnotation] != "supported" {
+			return usageErr("-o id is not supported for %q; use -o json", path)
+		}
 	}
 	return nil
 }

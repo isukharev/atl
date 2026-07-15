@@ -9,6 +9,14 @@ description: Pull, read, edit, validate, and push Confluence pages with the atl 
 Use configured Markdown for reading and ordinary body edits. Keep native
 Confluence Storage Format (CSF) as the write substrate. `atl` prints JSON by
 default.
+
+For an unfamiliar Confluence goal, begin with `atl capabilities --task
+confluence/evidence`; choose `confluence/edit` instead for an editing goal, then
+load only the returned Confluence reference. The exact offline route is ordered
+from discovery/staging through bounded reading or review-bound write steps. It
+does not grant write authority: mutating entries remain blocked by
+`ATL_READ_ONLY=1` and require the normal human approval and proposal/version
+gates.
 Durable document markers may use LF or CRLF; atl normalizes only that marker
 line and never treats whole-document newline conversion as content-neutral.
 

@@ -20,10 +20,70 @@ it. Text support is an explicit per-command contract: an unsupported request
 returns a usage error (exit 2) before config, stdin, or network access and never
 falls back to JSON.
 
+`-o id` is also an explicit per-command contract. It prints only primary
+identifiers, one per line. Unsupported id output now fails at the same root
+preflight, before config, stdin, self-update, or network access.
+
 ```
 atl conf search --cql "space=DOCS" -o text
 atl jira issue view PROJ-1 -o text
 ```
+
+### Offline agent capability catalog
+
+`atl capabilities` maps a closed exact task class to a small ordered command
+route. It loads no config or credentials, makes no network request, and skips
+self-update, so agents can use it before broad help/skill discovery:
+
+```bash
+atl capabilities --task jira/evidence
+atl capabilities --task confluence/edit -o text
+atl capabilities --task jira/portfolio -o id
+atl capabilities --id confluence.page.section
+```
+
+Supported task classes are `jira/evidence`, `jira/portfolio`, `jira/edit`,
+`confluence/evidence`, and `confluence/edit`. Exact `--service` and `--access
+read-only|mutating` filters can narrow the result. An unknown task or capability
+id exits 4; an invalid service/access value exits 2. No fuzzy classification is
+performed.
+
+JSON uses schema version 1:
+
+```json
+{
+  "schema_version": 1,
+  "routing": {
+    "match": "exact",
+    "reference_load": "invoke capability.skill, then open capability.reference relative to that skill; do not search the filesystem",
+    "stop": "stop expanding the route when sufficient complete evidence is available"
+  },
+  "selection": {"task": "jira/evidence", "count": 4},
+  "capabilities": [{
+    "id": "jira.epic.digest",
+    "task_class": "jira/evidence",
+    "service": "jira",
+    "role": "primary",
+    "priority": 20,
+    "summary": "Collect bounded multi-source evidence for one epic and period",
+    "command": "jira epic digest",
+    "access": "read-only",
+    "output_modes": ["json", "text"],
+    "evidence": "qualified",
+    "completeness": "per-source",
+    "skill": "jira",
+    "reference": "reference/evidence-workflow.md"
+  }]
+}
+```
+
+`access` is derived from the CLI's reviewed process-wide policy inventory:
+`mutating` commands are refused by `ATL_READ_ONLY=1`; `read-only` means no
+remote mutation (some reads such as `pull` intentionally write local mirror
+artifacts). `output_modes` is derived from the same command-tree preflight used
+at execution. CI verifies that every catalog command exists and these facts do
+not drift. The catalog describes safe routing only; it never grants approval to
+execute a mutating entry.
 
 ### Body input (`--from-file`)
 

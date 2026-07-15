@@ -167,6 +167,18 @@ Core skills:
   suggestions, never silent mutations, stale schema facts are revalidated explicitly, and saved
   render/mirror preferences are synchronized to runtime only after separate approval.
 
+For an unfamiliar task, agents can avoid broad help/reference loading with the
+versioned offline router:
+
+```sh
+atl capabilities --task jira/evidence
+atl capabilities --task confluence/edit -o text
+```
+
+It returns only a small ordered set of real command paths plus their access,
+output, completeness, and focused skill-reference contracts. It loads no
+config/credentials and makes no network request.
+
 On top of those references, the plugin ships workflow recipes — end-to-end processes with
 built-in approval gates before anything is created:
 

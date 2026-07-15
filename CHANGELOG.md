@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `atl capabilities`, a versioned offline catalog that maps five exact
+  Jira/Confluence agent task classes to small ordered command routes with
+  stable capability ids, real access/output annotations, evidence/completeness
+  semantics, and one-hop skill references. Unsupported `-o id` requests now
+  fail in the root preflight before config, stdin, self-update, or network
+  access, matching the existing explicit text-output contract.
+
 - Added safe opt-in Claude Code and Codex headless evaluation runners with
   strict run specs, exact runtime/skill identity, structured oracles, a
   deterministic loopback backend, explicit metric coverage, read-only `atl`

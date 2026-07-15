@@ -13,7 +13,7 @@ It is derived from `internal/cli/root.go` (`codeFor`, `emit`, `emitID`, `writeEr
 |---|---|---|
 | **json** | `-o json` (default) | Indented, HTML-unescaped JSON; one object per command |
 | **text** | `-o text` | Human-readable text for commands with an explicit text projection; unsupported commands return exit 2 before config, stdin, or network access and never emit JSON |
-| **id** | `-o id` | Primary identifier(s) one per line (issue keys, page IDs, attachment IDs) — for safe piping into `xargs`. Only commands that register an id projection support this; others return exit 2 |
+| **id** | `-o id` | Primary identifier(s) one per line (issue keys, page IDs, attachment IDs) — for safe piping into `xargs`. Only commands that register an id projection support this; others return exit 2 before config, stdin, self-update, or network access |
 
 Shell completion for the three values is registered on the root flag.
 
@@ -34,6 +34,23 @@ Shell completion for the three values is registered on the root flag.
 - With `-o id`: calls `idsFn()` and prints each returned string on its own line. No JSON envelope.
 - With `-o json` or supported `-o text`: delegates to `emit` (same rules as above).
 - Commands that have no meaningful identifier set `ids = nil`; `emitID` then returns exit 2 for `-o id`.
+
+The reviewed text/id inventories annotate the command tree before execution.
+They are also the source of truth for `atl capabilities`; the catalog cannot
+advertise an output mode that the root preflight would refuse.
+
+### Capability catalog
+
+`atl capabilities` is an offline, deterministic routing contract. JSON is
+`{schema_version:1,routing:{match,reference_load,stop},selection:{task?,service?,access?,id?,count},capabilities:[...]}`.
+Each capability contains stable `id`, exact `task_class`, `service`, ordered
+`role`/`priority`, `summary`, command path without the `atl` prefix, derived
+`access`, derived `output_modes`, `evidence`, `completeness`, and a one-hop
+`skill`/`reference` route. `-o text` is a Markdown table and `-o id` emits only
+capability ids. The command reads neither config nor credentials and performs
+no self-update or backend request. `routing.reference_load` tells an agent to
+invoke the named skill first and resolve the reference relative to it; a
+filesystem search is deliberately outside the route.
 
 ### Error output
 
