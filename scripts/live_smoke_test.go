@@ -18,6 +18,9 @@ func TestLiveSmokeUsesCurrentGuardedAndRenderContracts(t *testing.T) {
 		".fields.updated",
 		"protected color span missing from markdown",
 		`<span style="color:`,
+		"ATL_TEST_JIRA_STRUCTURE_FOLDER_ROW",
+		`structure_export_args+=(--folder-row`,
+		`.structure.id != null`,
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("live smoke is missing current contract %q", want)
@@ -25,6 +28,11 @@ func TestLiveSmokeUsesCurrentGuardedAndRenderContracts(t *testing.T) {
 	}
 	if regexp.MustCompile(`structure_export_args=.*--limit`).MatchString(script) {
 		t.Fatal("Structure export still uses removed --limit flag")
+	}
+	for _, line := range strings.Split(script, "\n") {
+		if strings.Contains(line, "structure_export_args") && strings.Contains(line, "--root-fields") {
+			t.Fatal("Structure export still uses unsupported --root-fields flag")
+		}
 	}
 	if strings.Contains(script, `\u27e6color:`) {
 		t.Fatal("live smoke still expects legacy color markers")

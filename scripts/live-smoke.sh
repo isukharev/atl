@@ -148,13 +148,25 @@ fi
 
 if [[ -n "${ATL_TEST_JIRA_STRUCTURE_ID:-}" ]]; then
   structure_fields="${ATL_TEST_JIRA_STRUCTURE_FIELDS:-key,summary,status}"
+  structure_root="${ATL_TEST_JIRA_STRUCTURE_ROOT:-}"
+  structure_folder_row="${ATL_TEST_JIRA_STRUCTURE_FOLDER_ROW:-}"
+  if [[ -n "$structure_root" && -n "$structure_folder_row" ]]; then
+    echo "set only one of ATL_TEST_JIRA_STRUCTURE_ROOT or ATL_TEST_JIRA_STRUCTURE_FOLDER_ROW" >&2
+    exit 1
+  fi
+  if [[ -n "$structure_folder_row" && ! "$structure_folder_row" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ATL_TEST_JIRA_STRUCTURE_FOLDER_ROW must be a positive integer" >&2
+    exit 1
+  fi
   "$ATL_BIN" jira structure get "$ATL_TEST_JIRA_STRUCTURE_ID" > "$tmp/structure.json"
   jq -e '.id != null and .name != null' "$tmp/structure.json" >/dev/null
   "$ATL_BIN" jira structure forest "$ATL_TEST_JIRA_STRUCTURE_ID" > "$tmp/structure-forest.json"
   jq -e '.formula != null and (.formula | length > 0)' "$tmp/structure-forest.json" >/dev/null
   structure_rows_args=(jira structure rows "$ATL_TEST_JIRA_STRUCTURE_ID")
-  if [[ -n "${ATL_TEST_JIRA_STRUCTURE_ROOT:-}" ]]; then
-    structure_rows_args+=(--root "$ATL_TEST_JIRA_STRUCTURE_ROOT" --root-fields "$structure_fields")
+  if [[ -n "$structure_folder_row" ]]; then
+    structure_rows_args+=(--folder-row "$structure_folder_row")
+  elif [[ -n "$structure_root" ]]; then
+    structure_rows_args+=(--root "$structure_root" --root-fields "$structure_fields")
   fi
   "$ATL_BIN" "${structure_rows_args[@]}" > "$tmp/structure-rows.json"
   jq -e '.rows | length > 0' "$tmp/structure-rows.json" >/dev/null
@@ -167,15 +179,18 @@ if [[ -n "${ATL_TEST_JIRA_STRUCTURE_ID:-}" ]]; then
   jq -e '.responses != null or .raw != null' "$tmp/structure-values.json" >/dev/null
   structure_pull_args=(jira structure pull-issues "$ATL_TEST_JIRA_STRUCTURE_ID" --fields "$structure_fields" --limit "${ATL_LIVE_SMOKE_LIMIT:-5}")
   structure_export_args=(jira structure export "$ATL_TEST_JIRA_STRUCTURE_ID" --fields "$structure_fields" --format json --out "$tmp/structure-export.json")
-  if [[ -n "${ATL_TEST_JIRA_STRUCTURE_ROOT:-}" ]]; then
-    structure_pull_args+=(--root "$ATL_TEST_JIRA_STRUCTURE_ROOT" --root-fields "$structure_fields")
-    structure_export_args+=(--root "$ATL_TEST_JIRA_STRUCTURE_ROOT" --root-fields "$structure_fields")
+  if [[ -n "$structure_folder_row" ]]; then
+    structure_pull_args+=(--folder-row "$structure_folder_row")
+    structure_export_args+=(--folder-row "$structure_folder_row")
+  elif [[ -n "$structure_root" ]]; then
+    structure_pull_args+=(--root "$structure_root" --root-fields "$structure_fields")
+    structure_export_args+=(--root "$structure_root")
   fi
   "$ATL_BIN" "${structure_pull_args[@]}" > "$tmp/structure-issues.json"
   jq -e '(.issue_ids | type == "array") and (.issues | type == "array") and (.count | type == "number")' "$tmp/structure-issues.json" >/dev/null
   "$ATL_BIN" "${structure_export_args[@]}" > "$tmp/structure-export-result.json"
   jq -e '.path != null and .row_count > 0 and .issue_count >= 0' "$tmp/structure-export-result.json" >/dev/null
-  jq -e '.structure_id != null and (.rows | type == "array") and (.issues | type == "array")' "$tmp/structure-export.json" >/dev/null
+  jq -e '.schema_version >= 1 and .structure.id != null and (.rows | type == "array") and (.projection | type == "object") and (.complete | type == "boolean")' "$tmp/structure-export.json" >/dev/null
   ok "jira structure"
 else
   skip "jira structure (ATL_TEST_JIRA_STRUCTURE_ID unset)"

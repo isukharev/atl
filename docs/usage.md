@@ -3372,7 +3372,7 @@ the default:
 
 ```json
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "commit": "0123456789abcdef0123456789abcdef01234567",
   "build_state": "clean"
 }
