@@ -85,6 +85,11 @@ offline, exact, and ordered; it does not authorize a write.
 `access:"mutating"` means the eventual command remains blocked by
 `ATL_READ_ONLY=1` and still needs the command-specific review/approval gates.
 
+For a quarter/department plan backed by a board or Structure, load
+[portfolio-evidence.md](reference/portfolio-evidence.md). It keeps one complete
+membership snapshot authoritative, narrows per-epic digests to missing evidence
+sources, and expands only bounded linked Confluence sections.
+
 Start unfamiliar analysis with value-free non-empty
 `jira issue fields --metadata-only`, not standard fields or `*all`; then read
 only promising exact fields in compact mode. Choose the shortest evidence path: selected

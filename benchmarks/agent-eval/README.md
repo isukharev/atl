@@ -83,6 +83,27 @@ extra catalog invocation is offline and creates no backend request. The shared
 should use observed turns/tool calls rather than treating the ceiling as a
 performance target.
 
+`jira-quarter-portfolio` models the longer PM workflow: discover custom fields
+once, freeze one complete board snapshot, qualify three epics with narrow
+history-only digests, and read three bounded Confluence Results sections. Its
+single-agent and one-subagent variants share the same fixture/oracle and exact
+GET-only route:
+
+```sh
+/tmp/agent-eval run \
+  --spec benchmarks/agent-eval/jira-quarter-portfolio/run.single.claude.json \
+  --output-root "$ATL_AGENT_EVAL_OUTPUT" --repository-root . \
+  --agent-binary "$(command -v claude)" --atl-binary "$PWD/atl" \
+  --plugin-root . --repetitions 1
+```
+
+The first reviewed pair kept backend work identical (nine ATL calls, fifteen
+GETs, two duplicate request targets, zero writes). One child reduced reported
+main-thread input by about 90%, while total input rose about 4%, estimated cost
+about 12%, and duration about 25%. Treat these one-run values as a directional
+baseline, not a statistically stable performance claim: delegation is useful
+to protect an already-long parent context, not for one epic or one section.
+
 The runner is intended for provider subscription authentication already stored
 by the provider CLI. It does not forward API-key or unrelated credential
 environment variables into the agent process. Use deterministic evaluation or

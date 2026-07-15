@@ -21,6 +21,14 @@ conflict resolution, or any task whose result cannot be verified by the
 parent. If the child would repeat the parent's backend reads or needs all of the
 parent's context, keep the work in the main thread.
 
+The shipped synthetic portfolio benchmark gives the practical boundary: keep
+one epic or one page section in the parent, but consider one child for a whole
+independent quarter slice containing several epics plus linked sections. In the
+measured three-epic case, the child reused the same nine ATL calls and fifteen
+GETs as the single-agent route while substantially reducing main-thread
+context; it was not faster or cheaper. Delegation protects a long parent
+session, not backend/request cost.
+
 Example child task:
 
 ```text
