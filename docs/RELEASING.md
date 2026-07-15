@@ -184,8 +184,9 @@ Then in the GitHub UI, double-check:
 #   .claude-plugin/plugin.json          ("version": "X.Y.Z")
 #   plugins/atl/.codex-plugin/plugin.json
 # Then, from main:
-git tag v0.3.0
-git push origin v0.3.0
+TAG="v$(cat VERSION)"
+git tag "$TAG"
+git push origin "$TAG"
 ```
 
 The plugin-manifest bump is not cosmetic: the manifest `version` is the update
