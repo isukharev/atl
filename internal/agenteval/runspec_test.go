@@ -13,8 +13,9 @@ func validRunSpec() RunSpec {
 		PromptFile: "prompt.md", ResponseSchemaFile: "response.json",
 		WorkspaceTemplate: "workspace", FixtureFile: "fixture.json",
 		Repetitions: 3, TimeoutSeconds: 300, MaxEstimatedCostMicroUSD: 10_000_000,
-		Pricing:      Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000},
-		AllowedTools: []string{"Bash(atl *)"},
+		Pricing:            Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000},
+		AllowedTools:       []string{"Bash(atl *)"},
+		AllowedATLCommands: []string{"atl jira issue fields", "atl jira epic digest"},
 		Checks: []RunCheck{
 			{Name: "answer_correct", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`"ok"`)},
 			{Name: "used_atl", Kind: "atl_invocations_min", Minimum: 1},

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 )
 
@@ -13,6 +14,70 @@ type proxyRecord struct {
 	StdoutBytes int64 `json:"stdout_bytes"`
 	StderrBytes int64 `json:"stderr_bytes"`
 	ExitCode    int   `json:"exit_code"`
+}
+
+type claudeHookInput struct {
+	ToolName  string `json:"tool_name"`
+	ToolInput struct {
+		Command string `json:"command"`
+	} `json:"tool_input"`
+}
+
+func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
+	data, err := io.ReadAll(io.LimitReader(input, (1<<20)+1))
+	if err != nil || len(data) > 1<<20 {
+		fmt.Fprintln(errorOutput, "atl evaluation guard rejected oversized hook input")
+		return 2
+	}
+	var hook claudeHookInput
+	if err := json.Unmarshal(data, &hook); err != nil || hook.ToolName != "Bash" {
+		fmt.Fprintln(errorOutput, "atl evaluation guard rejected malformed hook input")
+		return 2
+	}
+	var allowed []string
+	if err := json.Unmarshal([]byte(os.Getenv("ATL_EVAL_ALLOWED_COMMANDS")), &allowed); err != nil || len(allowed) == 0 {
+		fmt.Fprintln(errorOutput, "atl evaluation guard has no command policy")
+		return 2
+	}
+	decision := "deny"
+	reason := "benchmark Bash is limited to one reviewed atl command"
+	if allowedGuardCommand(hook.ToolInput.Command, allowed) {
+		decision = "allow"
+		reason = "command matches the reviewed benchmark allowlist"
+	}
+	response := map[string]any{
+		"hookSpecificOutput": map[string]any{
+			"hookEventName": "PreToolUse", "permissionDecision": decision,
+			"permissionDecisionReason": reason,
+		},
+	}
+	if err := json.NewEncoder(output).Encode(response); err != nil {
+		fmt.Fprintln(errorOutput, "atl evaluation guard could not encode its decision")
+		return 2
+	}
+	return 0
+}
+
+func allowedGuardCommand(command string, prefixes []string) bool {
+	command = strings.TrimSpace(command)
+	for _, export := range []string{"export ATL_READ_ONLY=1;", "export ATL_READ_ONLY=1\n"} {
+		if strings.HasPrefix(command, export) {
+			command = strings.TrimSpace(strings.TrimPrefix(command, export))
+			break
+		}
+	}
+	if command == "command -v atl" {
+		return true
+	}
+	if strings.ContainsAny(command, "\r\n;&|`><") || strings.Contains(command, "$(") {
+		return false
+	}
+	for _, prefix := range prefixes {
+		if command == prefix || strings.HasPrefix(command, prefix+" ") {
+			return true
+		}
+	}
+	return false
 }
 
 func runATLProxy(args []string) int {

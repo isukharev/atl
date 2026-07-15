@@ -24,6 +24,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   evaluation plus p50/p90 aggregation. The contracts retain no prompts, command
   arguments, backend paths, URLs, or response bodies.
 
+### Fixed
+
+- Fixed headless evaluation to reject real Codex model execution instead of
+  starting a run whose OS sandbox cannot safely reach the host-side synthetic
+  fixture. Codex run specs and dry-runs remain available; real execution waits
+  for an isolated typed tool or external container. Claude Code remains the
+  supported model-in-loop provider.
+
+- Fixed Claude Code evaluation tool isolation with a `PreToolUse` command guard
+  bound to strict per-run `allowed_atl_commands`; non-`atl` binaries, shell
+  operators, substitutions, redirections, and multiline scripts are denied
+  before Bash, independently of the global `ATL_READ_ONLY=1` write barrier.
+
 ## [0.4.0] - 2026-07-15
 
 ### Upgrade notes

@@ -15,7 +15,11 @@ import (
 )
 
 func main() {
-	if filepath.Base(os.Args[0]) == "atl" || filepath.Base(os.Args[0]) == "atl.exe" {
+	base := filepath.Base(os.Args[0])
+	if base == "atl-eval-guard" || base == "atl-eval-guard.exe" {
+		os.Exit(runClaudeBashGuard(os.Stdin, os.Stdout, os.Stderr))
+	}
+	if base == "atl" || base == "atl.exe" {
 		os.Exit(runATLProxy(os.Args[1:]))
 	}
 	if err := run(os.Args[1:]); err != nil {

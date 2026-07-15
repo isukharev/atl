@@ -143,9 +143,9 @@ must not report an empty method map as measured zero traffic.
 ## Headless synthetic runner
 
 Committed run specs bind one scenario to an exact provider/model, prompt,
-structured response schema, deterministic mock fixture, oracle checks,
-repetitions, timeout, and a whole-run USD-equivalent cap. Review the provider
-command without contacting a model:
+structured response schema, deterministic mock fixture, oracle checks, reviewed
+`allowed_atl_commands` prefixes, repetitions, timeout, and a whole-run
+USD-equivalent cap. Review the provider command without contacting a model:
 
 ```sh
 make build
@@ -162,18 +162,27 @@ go build -o /tmp/agent-eval ./scripts/agent-eval
 ```
 
 The runner creates a fresh private workspace per repetition. Claude Code loads
-the repository plugin explicitly and receives an `atl`-only Bash allow-rule.
-Codex gets the same generated skills in `.agents/skills` and runs with an
-ephemeral session, ignored user config, and read-only filesystem sandbox;
-Claude loads project settings only. Both inherit
+the repository plugin explicitly and receives an `atl`-only Bash allow-rule plus
+a `PreToolUse` guard. The guard accepts one command per Bash call, optionally
+preceded by the exact `export ATL_READ_ONLY=1`, and only when it matches a
+run-spec `allowed_atl_commands` prefix. Shell operators, substitutions,
+redirections, multiline scripts, and unrelated binaries are denied before Bash.
+Codex gets the same generated skills in `.agents/skills` for a reviewable
+ephemeral read-only command preview, but real Codex model execution is disabled:
+its OS sandbox cannot safely reach the host-side mock, and widening network plus
+filesystem access would violate the runner's trust boundary. Codex specs can be
+validated and dry-run until an isolated typed tool or external container is
+available. Claude loads project settings only. Supported model runs inherit
 `ATL_READ_ONLY=1`, `ATL_NO_UPDATE=1`, synthetic loopback backend URLs/tokens,
 and an `atl` proxy that counts invocations and stdout bytes without retaining
-command arguments in the result contract. The synthetic subprocess `PATH`
-contains only that proxy, reducing accidental use of `curl`, `jq`, or unrelated
-shell helpers; absolute executable paths remain a provider limitation and are
-one reason live model runs are not enabled. Codex tool subprocesses additionally
-receive an explicit environment allowlist, so ambient API keys and tokens are
-not inherited by model-generated shell commands.
+command arguments in the result contract. Proxy counters, config, and mirror
+state are writable only below the private run workspace. The runner requests a
+proxy-only subprocess `PATH`, but provider shells may expose system helpers;
+the `PreToolUse` guard is therefore the authoritative command boundary rather
+than a PATH assumption. The hook allowlist and `ATL_READ_ONLY=1` remain
+independent: the hook limits which CLI reads the model may request, while the
+CLI policy rejects every mutating command even if a prefix were configured too
+broadly.
 
 Raw provider JSONL, stderr, final structured output, invocation records, and
 per-run results are mode `0600`; directories are mode `0700`. A destination
@@ -186,10 +195,10 @@ the measured total exhausts it. `--repetitions 1` may reduce, but never increase
 the reviewed repetition count.
 
 Codex currently has no runner-level shell command allowlist equivalent to
-Claude's `--allowed-tools`. Therefore the headless Codex path is restricted to
-synthetic credentials/backends. Corporate model-in-the-loop runs remain
-disabled until the agent can access the backend through an isolated typed tool
-surface; supervised corporate checks below stay agentless and read-only.
+Claude's `--allowed-tools`. Prompt-injection and corporate model-in-the-loop
+runs remain disabled until the agent can access the backend through a stronger
+container or isolated typed tool surface; supervised corporate checks below
+stay agentless and read-only.
 
 ## Deterministic contract budgets
 

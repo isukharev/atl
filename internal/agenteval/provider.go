@@ -25,7 +25,7 @@ type ProviderMetrics struct {
 	Coverage              map[string]bool
 }
 
-func BuildProviderCommand(spec RunSpec, agentBinary, workspace, schemaPath, finalPath, pluginRoot string, responseSchema []byte) (ProviderCommand, error) {
+func BuildProviderCommand(spec RunSpec, agentBinary, workspace, schemaPath, finalPath, pluginRoot, settingsPath string, responseSchema []byte) (ProviderCommand, error) {
 	if err := spec.Validate(); err != nil {
 		return ProviderCommand{}, err
 	}
@@ -49,6 +49,9 @@ func BuildProviderCommand(spec RunSpec, agentBinary, workspace, schemaPath, fina
 		}
 		if pluginRoot != "" {
 			args = append(args, "--plugin-dir", pluginRoot)
+		}
+		if settingsPath != "" {
+			args = append(args, "--settings", settingsPath)
 		}
 		return ProviderCommand{Path: agentBinary, Args: args}, nil
 	case "codex":

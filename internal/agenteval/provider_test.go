@@ -7,7 +7,7 @@ import (
 
 func TestBuildProviderCommandsAreEphemeralAndReadOnly(t *testing.T) {
 	spec := validRunSpec()
-	codex, err := BuildProviderCommand(spec, "codex", "/workspace", "/schema", "/final", "", []byte(`{"type":"object"}`))
+	codex, err := BuildProviderCommand(spec, "codex", "/workspace", "/schema", "/final", "", "", []byte(`{"type":"object"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,12 +19,12 @@ func TestBuildProviderCommandsAreEphemeralAndReadOnly(t *testing.T) {
 	}
 	spec.Provider = "claude-code"
 	spec.Pricing = Pricing{}
-	claude, err := BuildProviderCommand(spec, "claude", "/workspace", "/schema", "/final", "/plugin", []byte(`{"type":"object"}`))
+	claude, err := BuildProviderCommand(spec, "claude", "/workspace", "/schema", "/final", "/plugin", "/settings", []byte(`{"type":"object"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	joined = strings.Join(claude.Args, " ")
-	for _, value := range []string{"--no-session-persistence", "--permission-mode dontAsk", "--setting-sources project", "--max-budget-usd 10.000000", "--tools Bash", "--allowed-tools Bash(atl *)", "--plugin-dir /plugin"} {
+	for _, value := range []string{"--no-session-persistence", "--permission-mode dontAsk", "--setting-sources project", "--max-budget-usd 10.000000", "--tools Bash", "--allowed-tools Bash(atl *)", "--plugin-dir /plugin", "--settings /settings"} {
 		if !strings.Contains(joined, value) {
 			t.Errorf("Claude command misses %q: %s", value, joined)
 		}
