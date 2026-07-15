@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added a versioned, provider-neutral Agent Eval v2 contract with strict
+  scenario/observation/result validation, privacy-safe trajectory metrics,
+  deterministic Jira and Confluence workflow budgets, and a maintainer tool for
+  evaluation plus p50/p90 aggregation. The contracts retain no prompts, command
+  arguments, backend paths, URLs, or response bodies.
+
 ## [0.4.0] - 2026-07-15
 
 ### Upgrade notes

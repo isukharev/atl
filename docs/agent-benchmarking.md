@@ -22,11 +22,11 @@ tasks.
 
 ## Method
 
-- **Real headless runs.** Each data point is a fresh, non-interactive agent
-  session (`claude -p`, fixed model) given the same task prompt and a working
-  directory containing the fixture. No mocking, no replay: the agent really
-  reads files, really runs `atl`, really burns turns on whatever friction
-  exists.
+- **Real headless runs.** Each data point is a fresh, non-interactive Claude
+  Code or Codex session given the same task prompt and fixture. Record the exact
+  model, agent CLI version, `atl` version, plugin version, and skill digest;
+  moving aliases are not reproducible model identifiers. No replay is used:
+  the agent really reads files and runs `atl`.
 - **Deterministic oracles.** Every task has a programmatic pass/fail check on
   the produced artifact (the resulting CSF bytes for edit tasks, the JSON
   answer for read tasks). No human judging, no LLM judging.
@@ -60,16 +60,83 @@ A targeted re-measure of only the affected task class, spliced into the
 previous results, is fine — and much cheaper than a full sweep. State
 explicitly which cells were re-run.
 
-## Why not CI
+## Evaluation layers
 
-Deliberately manual: runs cost real money, need live API keys, and are
-nondeterministic run-to-run (hence medians). The value is in before/after
-comparisons around a specific change, not in a continuously green badge.
+The evaluation stack has distinct safety and cost properties:
 
-Deterministic **contract budgets** are different and do belong in CI. They do
-not score an LLM; they pin the tool surface that the measured agent relies on.
+1. **Static CI gates** validate skill examples, access classification, scenario
+   schemas, output contracts, and context budgets without a model or backend.
+2. **Deterministic workflows** execute real `atl` commands against synthetic
+   Jira/Confluence servers and enforce method, request, byte, completeness, and
+   mutation budgets.
+3. **Synthetic model runs** let Claude Code or Codex choose commands against a
+   deterministic local backend. Deterministic oracles score the final result
+   and trajectory; no LLM judge is required.
+4. **Supervised live runs** are local, read-only compatibility checks against a
+   configured private backend. They never run in public CI and publish only
+   aggregate measurements.
+
+Model-in-the-loop runs remain manual or opt-in because they cost resources and
+are nondeterministic. Static and deterministic contract gates belong in CI.
+
+## Versioned evaluation contract
+
+Scenario files describe task class, capabilities, required oracle checks, and
+hard budgets. Zero is a real zero rather than an unbounded sentinel. This makes
+remote writes, model turns, and cost explicit in every scenario. A synthetic
+read-only contract looks like:
+
+```json
+{
+  "schema_version": 1,
+  "id": "jira.epic-evidence",
+  "task_class": "jira/evidence",
+  "description": "Discover fields and collect bounded epic evidence.",
+  "data_class": "synthetic",
+  "required_capabilities": ["jira.issue.fields", "jira.epic.digest"],
+  "required_checks": ["answer_correct", "sources_complete"],
+  "budgets": {
+    "max_agent_turns": 0,
+    "max_tool_calls": 0,
+    "max_atl_invocations": 2,
+    "max_backend_requests": 8,
+    "max_remote_writes": 0,
+    "max_output_bytes": 8192,
+    "max_input_tokens": 0,
+    "max_output_tokens": 0,
+    "max_estimated_cost_microusd": 0,
+    "max_duration_millis": 0,
+    "allowed_http_methods": ["GET"]
+  }
+}
+```
+
+Observations and results contain aggregate trajectory data only. The contract
+has no fields for prompts, commands, HTTP paths, backend URLs, or response
+bodies. Validate the committed scenarios and deterministic workflows with:
+
+```sh
+make agent-eval-contract
+```
+
+The maintainer tool can validate scenario files, evaluate one aggregate
+observation, and combine comparable result files into p50/p90 groups:
+
+```sh
+go run ./scripts/agent-eval validate internal/cli/testdata/agent-eval/*.json
+go run ./scripts/agent-eval evaluate scenario.json observation.json >result.json
+go run ./scripts/agent-eval aggregate runs/*.result.json >aggregate.json
+```
+
+Aggregation separates providers, exact models, agent versions, variants,
+`atl` versions, plugin versions, and skill digests. Compare baseline and
+candidate within one such runtime group; do not compare raw turns or dollar
+estimates across providers.
+
+## Deterministic contract budgets
+
 `TestEvidenceFirstEpicWorkflowBudget` runs the first-use epic workflow against a
-synthetic backend and fails if it exceeds seven read-only requests, 8 KiB of
+synthetic backend and fails if it exceeds eight read-only requests, 8 KiB of
 combined JSON context, or omits explicit completeness for any default source:
 
 ```sh
@@ -79,10 +146,29 @@ go test ./internal/cli -run TestEvidenceFirstEpicWorkflowBudget -v
 The budget is intentionally an upper bound: fewer calls/bytes are improvements,
 while added evidence must justify changing the bound in review.
 
+The same contract now covers Jira Kanban inspection and Confluence
+outline-to-section ambiguity recovery. Add a scenario whenever an agent-facing
+workflow gains a new command, changes its expected trajectory, or needs a
+regression budget.
+
+## Subagent experiments
+
+Delegation is a measured variant, not a default assumption. Compare a single
+agent, a generic read-only child, specialized children, and bounded parallel
+children on the same scenario. A child receives one independent task, inherits
+the read-only boundary, and returns qualified evidence rather than a raw
+transcript. Use at most three children and one delegation level in the default
+suite.
+
+Track total tokens and cost across all threads, main-thread context bytes,
+duplicate backend requests, wall time, and evidence lost during summarization.
+Do not delegate simple one-object reads or parallel remote writes.
+
 ## Supervised live read-only check
 
-Use a configured private epic only to confirm backend compatibility. Keep all
-outputs outside the repository and publish only aggregate counts:
+Use configured private fixtures only to confirm backend compatibility. Keep all
+outputs in a gitignored local directory with restrictive permissions and
+publish only aggregate counts:
 
 ```sh
 umask 077
@@ -104,11 +190,21 @@ can be observed safely, and source completeness. Do not enable verbose tracing
 for the benchmark or copy the private files into issues/PRs. Remove the private
 temporary directory after review.
 
+Corporate runs must export `ATL_READ_ONLY=1` for the entire runner process and
+use concurrency one. A separate backend read-only credential is preferred but
+not required; the CLI policy and a scenario command allowlist remain mandatory.
+Write-path evaluation belongs on the synthetic backend or an explicitly
+disposable, separately authorized fixture.
+
 ## Public/private boundary
 
-The fixtures are real page content and are **private**; the harness and raw
-transcripts live outside this repository. What gets published is aggregates
-only: success rates, median turns/cost/duration, totals, and generic class
-labels ("table-heavy page", "configured fixture"). Published tables should
-name the variant, the cell count, and what changed between variants — enough
-to interpret the numbers without the private context.
+Real page and issue content is **private**. Store raw transcripts in a
+maintainer-selected Git-ignored root with mode `0600`; a runner must refuse a
+transcript root that Git does not ignore. Private scenario mappings stay in the
+same untracked boundary, while public scenarios use placeholders.
+
+What gets published is aggregates only: success rates, p50/p90
+turns/cost/duration, totals, and generic class labels ("table-heavy page",
+"configured fixture"). Published tables should name the variant, repetitions,
+exact runtime identity, and what changed between variants. Before publishing,
+scan the aggregate diff with the repository private-marker patterns.

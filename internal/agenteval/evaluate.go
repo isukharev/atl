@@ -1,0 +1,94 @@
+package agenteval
+
+import (
+	"fmt"
+	"sort"
+)
+
+// Evaluate applies a scenario's deterministic gates to an aggregate
+// observation. Invalid contracts are rejected separately from a valid failing
+// run so automation cannot confuse malformed input with a measured regression.
+func Evaluate(s Scenario, o Observation) (Result, error) {
+	if err := s.Validate(); err != nil {
+		return Result{}, fmt.Errorf("scenario: %w", err)
+	}
+	if err := o.Validate(); err != nil {
+		return Result{}, fmt.Errorf("observation: %w", err)
+	}
+	if o.ScenarioID != s.ID {
+		return Result{}, fmt.Errorf("observation scenario_id %q does not match %q", o.ScenarioID, s.ID)
+	}
+
+	metrics := Metrics{
+		AgentTurns: o.Metrics.AgentTurns, ToolCalls: o.Metrics.ToolCalls,
+		ATLInvocations: o.Metrics.ATLInvocations, OutputBytes: o.Metrics.OutputBytes,
+		InputTokens: o.Metrics.InputTokens, OutputTokens: o.Metrics.OutputTokens,
+		EstimatedCostMicroUSD: o.Metrics.EstimatedCostMicroUSD,
+		DurationMillis:        o.Metrics.DurationMillis,
+	}
+	allowed := make(map[string]struct{}, len(s.Budgets.AllowedHTTPMethods))
+	for _, method := range s.Budgets.AllowedHTTPMethods {
+		allowed[method] = struct{}{}
+	}
+	violations := make([]Violation, 0)
+	methods := sortedStringMap(o.HTTPMethods)
+	for method, count := range methods {
+		metrics.BackendRequests += count
+		if method != "GET" && method != "HEAD" && method != "OPTIONS" {
+			metrics.RemoteWrites += count
+		}
+		if count > 0 {
+			if _, ok := allowed[method]; !ok {
+				violations = append(violations, Violation{Code: "http_method_not_allowed", Subject: method, Observed: int64(count)})
+			}
+		}
+	}
+
+	limits := []struct {
+		name     string
+		observed int64
+		limit    int64
+	}{
+		{"agent_turns", int64(metrics.AgentTurns), int64(s.Budgets.MaxAgentTurns)},
+		{"tool_calls", int64(metrics.ToolCalls), int64(s.Budgets.MaxToolCalls)},
+		{"atl_invocations", int64(metrics.ATLInvocations), int64(s.Budgets.MaxATLInvocations)},
+		{"backend_requests", int64(metrics.BackendRequests), int64(s.Budgets.MaxBackendRequests)},
+		{"remote_writes", int64(metrics.RemoteWrites), int64(s.Budgets.MaxRemoteWrites)},
+		{"output_bytes", metrics.OutputBytes, s.Budgets.MaxOutputBytes},
+		{"input_tokens", metrics.InputTokens, s.Budgets.MaxInputTokens},
+		{"output_tokens", metrics.OutputTokens, s.Budgets.MaxOutputTokens},
+		{"estimated_cost_microusd", metrics.EstimatedCostMicroUSD, s.Budgets.MaxEstimatedCostMicroUSD},
+		{"duration_millis", metrics.DurationMillis, s.Budgets.MaxDurationMillis},
+	}
+	for _, item := range limits {
+		if item.observed > item.limit {
+			violations = append(violations, Violation{Code: "budget_exceeded", Subject: item.name, Observed: item.observed, Limit: item.limit})
+		}
+	}
+
+	checks := sortedBoolMap(o.Checks)
+	for _, name := range s.RequiredChecks {
+		if passed, ok := checks[name]; !ok || !passed {
+			violations = append(violations, Violation{Code: "required_check_failed", Subject: name, Limit: 1})
+		}
+	}
+	sort.Slice(violations, func(i, j int) bool {
+		if violations[i].Code != violations[j].Code {
+			return violations[i].Code < violations[j].Code
+		}
+		return violations[i].Subject < violations[j].Subject
+	})
+	status := "pass"
+	if len(violations) > 0 {
+		status = "fail"
+	}
+	warnings := append([]string(nil), o.Warnings...)
+	sort.Strings(warnings)
+	return Result{
+		SchemaVersion: ResultSchemaVersion,
+		ScenarioID:    s.ID, TaskClass: s.TaskClass, DataClass: s.DataClass, Variant: o.Variant,
+		Runtime: o.Runtime, Status: status, Metrics: metrics,
+		HTTPMethods: methods, Checks: checks, Violations: violations,
+		Warnings: warnings,
+	}, nil
+}

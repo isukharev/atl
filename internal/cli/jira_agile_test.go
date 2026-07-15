@@ -97,6 +97,13 @@ func TestJiraBoardConfigAndKanbanViewNeverCallSprintOrBacklog(t *testing.T) {
 			t.Fatalf("Kanban view called incompatible endpoint: %+v", request)
 		}
 	}
+	evaluateAgentWorkflow(t, "jira-kanban-view.v1.json", deterministicObservation(
+		"jira.kanban-view", 2, int64(len(configOut)+len(viewOut)), js.requests(),
+		map[string]bool{
+			"columns_mapped":        strings.Contains(viewOut, "| To Do |") && strings.Contains(viewOut, "| Unmapped |"),
+			"kanban_endpoints_safe": true,
+		},
+	))
 }
 
 func TestJiraBoardKanbanBacklogRefusesBeforeBacklogEndpoint(t *testing.T) {

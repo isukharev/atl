@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "jira.epic-evidence",
+  "task_class": "jira/evidence",
+  "description": "Discover non-empty fields and collect bounded, qualified epic evidence.",
+  "data_class": "synthetic",
+  "required_capabilities": [
+    "jira.issue.fields",
+    "jira.epic.digest"
+  ],
+  "required_checks": [
+    "answer_correct",
+    "sources_complete"
+  ],
+  "budgets": {
+    "max_agent_turns": 0,
+    "max_tool_calls": 0,
+    "max_atl_invocations": 2,
+    "max_backend_requests": 8,
+    "max_remote_writes": 0,
+    "max_output_bytes": 8192,
+    "max_input_tokens": 0,
+    "max_output_tokens": 0,
+    "max_estimated_cost_microusd": 0,
+    "max_duration_millis": 0,
+    "allowed_http_methods": [
+      "GET"
+    ]
+  }
+}
