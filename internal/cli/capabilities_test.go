@@ -115,11 +115,18 @@ func TestAgentEvalScenariosUseCatalogCapabilitiesForTheirTask(t *testing.T) {
 }
 
 func TestCapabilitiesCommandIsOfflineAndSupportsAllOutputModes(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	defer srv.Close()
 	cfgDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(`{"read_only":`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	env := map[string]string{"ATL_CONFIG_DIR": cfgDir}
+	env := map[string]string{
+		"ATL_CONFIG_DIR": cfgDir,
+		"ATL_JIRA_URL":   srv.URL, "ATL_JIRA_PAT": "test-pat",
+		"ATL_CONFLUENCE_URL": srv.URL, "ATL_CONFLUENCE_PAT": "test-pat",
+	}
 
 	out, code := runCLI(t, env, "capabilities", "--task", "jira/evidence")
 	if code != exitOK {
@@ -141,6 +148,9 @@ func TestCapabilitiesCommandIsOfflineAndSupportsAllOutputModes(t *testing.T) {
 	out, code = runCLI(t, env, "capabilities", "--task", "jira/edit", "--access", "mutating", "-o", "id")
 	if code != exitOK || out != "jira.issue.field.set\njira.issue.plan.apply\n" {
 		t.Fatalf("id exit=%d output=%q", code, out)
+	}
+	if requests != 0 {
+		t.Fatalf("offline catalog made %d backend requests", requests)
 	}
 }
 
