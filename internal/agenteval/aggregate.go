@@ -37,8 +37,9 @@ type AggregateMetrics struct {
 }
 
 type Quantiles struct {
-	P50 int64 `json:"p50"`
-	P90 int64 `json:"p90"`
+	ObservedRuns int   `json:"observed_runs"`
+	P50          int64 `json:"p50"`
+	P90          int64 `json:"p90"`
 }
 
 type aggregateKey struct {
@@ -85,15 +86,15 @@ func AggregateResults(results []Result) (Aggregate, error) {
 			if item.Status == "pass" {
 				group.Passes++
 			}
-			turns = append(turns, int64(item.Metrics.AgentTurns))
-			tools = append(tools, int64(item.Metrics.ToolCalls))
-			invocations = append(invocations, int64(item.Metrics.ATLInvocations))
-			requests = append(requests, int64(item.Metrics.BackendRequests))
-			bytesOut = append(bytesOut, item.Metrics.OutputBytes)
-			input = append(input, item.Metrics.InputTokens)
-			output = append(output, item.Metrics.OutputTokens)
-			cost = append(cost, item.Metrics.EstimatedCostMicroUSD)
-			duration = append(duration, item.Metrics.DurationMillis)
+			turns = appendCovered(turns, item.Coverage, "agent_turns", int64(item.Metrics.AgentTurns))
+			tools = appendCovered(tools, item.Coverage, "tool_calls", int64(item.Metrics.ToolCalls))
+			invocations = appendCovered(invocations, item.Coverage, "atl_invocations", int64(item.Metrics.ATLInvocations))
+			requests = appendCovered(requests, item.Coverage, "backend_requests", int64(item.Metrics.BackendRequests))
+			bytesOut = appendCovered(bytesOut, item.Coverage, "output_bytes", item.Metrics.OutputBytes)
+			input = appendCovered(input, item.Coverage, "input_tokens", item.Metrics.InputTokens)
+			output = appendCovered(output, item.Coverage, "output_tokens", item.Metrics.OutputTokens)
+			cost = appendCovered(cost, item.Coverage, "estimated_cost_microusd", item.Metrics.EstimatedCostMicroUSD)
+			duration = appendCovered(duration, item.Coverage, "duration_millis", item.Metrics.DurationMillis)
 		}
 		group.SuccessRate = float64(group.Passes) / float64(group.Runs)
 		group.Metrics = AggregateMetrics{
@@ -127,8 +128,16 @@ func (r Result) Validate() error {
 	if (r.Status == "pass") != (len(r.Violations) == 0) {
 		return fmt.Errorf("result status and violations disagree")
 	}
-	if len(r.HTTPMethods) > maxContractListEntries || len(r.Checks) > maxContractListEntries || len(r.Violations) > maxContractListEntries || len(r.Warnings) > maxContractListEntries {
+	if len(r.Coverage) > len(metricNames) || len(r.HTTPMethods) > maxContractListEntries || len(r.Checks) > maxContractListEntries || len(r.Violations) > maxContractListEntries || len(r.Warnings) > maxContractListEntries {
 		return fmt.Errorf("result exceeds %d entries in a bounded collection", maxContractListEntries)
+	}
+	for name := range r.Coverage {
+		if _, ok := metricNames[name]; !ok {
+			return fmt.Errorf("unknown covered metric %q", name)
+		}
+	}
+	if !r.Coverage["backend_requests"] && len(r.HTTPMethods) != 0 {
+		return fmt.Errorf("result http_methods require backend_requests coverage")
 	}
 	for method, count := range r.HTTPMethods {
 		if !methodRE.MatchString(method) || count < 0 || count > maxObservedMethodCount {
@@ -158,6 +167,12 @@ func (r Result) Validate() error {
 	if err := metrics.validate(); err != nil || r.Metrics.BackendRequests < 0 || r.Metrics.RemoteWrites < 0 {
 		return fmt.Errorf("invalid result metrics")
 	}
+	if err := validateUnobservedMetrics(metrics, r.Coverage); err != nil {
+		return err
+	}
+	if !r.Coverage["backend_requests"] && (r.Metrics.BackendRequests != 0 || r.Metrics.RemoteWrites != 0) {
+		return fmt.Errorf("unobserved backend metrics must be zero")
+	}
 	var requests, writes int
 	for method, count := range r.HTTPMethods {
 		requests += count
@@ -174,7 +189,14 @@ func (r Result) Validate() error {
 func quantiles(values []int64) Quantiles {
 	sorted := append([]int64(nil), values...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-	return Quantiles{P50: nearestRank(sorted, 50), P90: nearestRank(sorted, 90)}
+	return Quantiles{ObservedRuns: len(sorted), P50: nearestRank(sorted, 50), P90: nearestRank(sorted, 90)}
+}
+
+func appendCovered(values []int64, coverage map[string]bool, metric string, value int64) []int64 {
+	if coverage[metric] {
+		return append(values, value)
+	}
+	return values
 }
 
 func nearestRank(sorted []int64, percentile int) int64 {

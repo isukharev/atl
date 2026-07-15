@@ -26,6 +26,12 @@ var (
 	methodRE     = regexp.MustCompile(`^[A-Z][A-Z0-9-]{0,31}$`)
 )
 
+var metricNames = map[string]struct{}{
+	"agent_turns": {}, "tool_calls": {}, "atl_invocations": {},
+	"backend_requests": {}, "output_bytes": {}, "input_tokens": {},
+	"output_tokens": {}, "estimated_cost_microusd": {}, "duration_millis": {},
+}
+
 // Scenario is provider-neutral: the same task and budgets can be evaluated by
 // deterministic workflows, Claude Code, Codex, or a future runner.
 type Scenario struct {
@@ -36,6 +42,7 @@ type Scenario struct {
 	DataClass            string   `json:"data_class"`
 	RequiredCapabilities []string `json:"required_capabilities"`
 	RequiredChecks       []string `json:"required_checks"`
+	RequiredMetrics      []string `json:"required_metrics"`
 	Budgets              Budgets  `json:"budgets"`
 }
 
@@ -74,6 +81,7 @@ type Observation struct {
 	Variant       string          `json:"variant"`
 	Runtime       Runtime         `json:"runtime"`
 	Metrics       InputMetrics    `json:"metrics"`
+	Coverage      map[string]bool `json:"coverage"`
 	HTTPMethods   map[string]int  `json:"http_methods"`
 	Checks        map[string]bool `json:"checks"`
 	Warnings      []string        `json:"warnings,omitempty"`
@@ -123,6 +131,7 @@ type Result struct {
 	Runtime       Runtime         `json:"runtime"`
 	Status        string          `json:"status"`
 	Metrics       Metrics         `json:"metrics"`
+	Coverage      map[string]bool `json:"coverage"`
 	HTTPMethods   map[string]int  `json:"http_methods"`
 	Checks        map[string]bool `json:"checks"`
 	Violations    []Violation     `json:"violations"`
@@ -149,6 +158,9 @@ func (s Scenario) Validate() error {
 		return err
 	}
 	if err := validateIdentifierList("required_checks", s.RequiredChecks, true); err != nil {
+		return err
+	}
+	if err := validateMetricList("required_metrics", s.RequiredMetrics); err != nil {
 		return err
 	}
 	return s.Budgets.validate()
@@ -204,8 +216,16 @@ func (o Observation) Validate() error {
 	if err := o.Metrics.validate(); err != nil {
 		return err
 	}
-	if len(o.HTTPMethods) > maxContractListEntries || len(o.Checks) > maxContractListEntries || len(o.Warnings) > maxContractListEntries {
+	if len(o.Coverage) > len(metricNames) || len(o.HTTPMethods) > maxContractListEntries || len(o.Checks) > maxContractListEntries || len(o.Warnings) > maxContractListEntries {
 		return fmt.Errorf("observation exceeds %d entries in a bounded collection", maxContractListEntries)
+	}
+	for name := range o.Coverage {
+		if _, ok := metricNames[name]; !ok {
+			return fmt.Errorf("unknown covered metric %q", name)
+		}
+	}
+	if !o.Coverage["backend_requests"] && len(o.HTTPMethods) != 0 {
+		return fmt.Errorf("http_methods require backend_requests coverage")
 	}
 	for method, count := range o.HTTPMethods {
 		if !methodRE.MatchString(method) || count < 0 || count > maxObservedMethodCount {
@@ -217,7 +237,10 @@ func (o Observation) Validate() error {
 			return fmt.Errorf("invalid check name %q", check)
 		}
 	}
-	return validateIdentifierList("warnings", o.Warnings, false)
+	if err := validateIdentifierList("warnings", o.Warnings, false); err != nil {
+		return err
+	}
+	return validateUnobservedMetrics(o.Metrics, o.Coverage)
 }
 
 func (r Runtime) validate() error {
@@ -272,6 +295,42 @@ func validateIdentifierList(name string, values []string, requireOne bool) error
 			return fmt.Errorf("duplicate %s entry %q", name, value)
 		}
 		seen[value] = struct{}{}
+	}
+	return nil
+}
+
+func validateMetricList(name string, values []string) error {
+	if len(values) == 0 {
+		return fmt.Errorf("%s must contain at least one entry", name)
+	}
+	if len(values) > len(metricNames) {
+		return fmt.Errorf("%s exceeds %d entries", name, len(metricNames))
+	}
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		if _, ok := metricNames[value]; !ok {
+			return fmt.Errorf("unknown %s entry %q", name, value)
+		}
+		if _, ok := seen[value]; ok {
+			return fmt.Errorf("duplicate %s entry %q", name, value)
+		}
+		seen[value] = struct{}{}
+	}
+	return nil
+}
+
+func validateUnobservedMetrics(metrics InputMetrics, coverage map[string]bool) error {
+	values := map[string]int64{
+		"agent_turns": int64(metrics.AgentTurns), "tool_calls": int64(metrics.ToolCalls),
+		"atl_invocations": int64(metrics.ATLInvocations), "output_bytes": metrics.OutputBytes,
+		"input_tokens": metrics.InputTokens, "output_tokens": metrics.OutputTokens,
+		"estimated_cost_microusd": metrics.EstimatedCostMicroUSD,
+		"duration_millis":         metrics.DurationMillis,
+	}
+	for name, value := range values {
+		if !coverage[name] && value != 0 {
+			return fmt.Errorf("unobserved metric %s must be zero", name)
+		}
 	}
 	return nil
 }

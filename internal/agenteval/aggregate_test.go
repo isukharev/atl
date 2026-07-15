@@ -7,6 +7,7 @@ func TestAggregateResultsGroupsComparableRunsAndUsesNearestRank(t *testing.T) {
 	for index, turns := range []int{2, 3, 4, 5, 20} {
 		observation := validObservation()
 		observation.Metrics.AgentTurns = turns
+		observation.Coverage["agent_turns"] = true
 		scenario := validScenario()
 		scenario.Budgets.MaxAgentTurns = 20
 		result, err := Evaluate(scenario, observation)
@@ -52,5 +53,29 @@ func TestAggregateResultsSeparatesRuntimeAndVariant(t *testing.T) {
 	}
 	if len(aggregate.Groups) != 2 || aggregate.Groups[0].Variant != "baseline" || aggregate.Groups[1].Variant != "candidate" {
 		t.Fatalf("groups=%+v", aggregate.Groups)
+	}
+}
+
+func TestAggregateResultsDoesNotTreatUnavailableMetricAsZero(t *testing.T) {
+	first, err := Evaluate(validScenario(), validObservation())
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenario := validScenario()
+	scenario.RequiredMetrics = []string{"atl_invocations", "backend_requests"}
+	observation := validObservation()
+	delete(observation.Coverage, "output_bytes")
+	observation.Metrics.OutputBytes = 0
+	second, err := Evaluate(scenario, observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err := AggregateResults([]Result{first, second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metric := aggregate.Groups[0].Metrics.OutputBytes
+	if metric.ObservedRuns != 1 || metric.P50 != first.Metrics.OutputBytes {
+		t.Fatalf("output bytes=%+v", metric)
 	}
 }

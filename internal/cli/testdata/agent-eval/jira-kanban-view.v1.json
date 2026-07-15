@@ -12,6 +12,11 @@
     "columns_mapped",
     "kanban_endpoints_safe"
   ],
+  "required_metrics": [
+    "atl_invocations",
+    "backend_requests",
+    "output_bytes"
+  ],
   "budgets": {
     "max_agent_turns": 0,
     "max_tool_calls": 0,

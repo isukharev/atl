@@ -40,7 +40,10 @@ func deterministicObservation(scenarioID string, atlInvocations int, outputBytes
 		Variant:       "contract",
 		Runtime:       agenteval.Runtime{Provider: "deterministic", ATLVersion: "test-build"},
 		Metrics:       agenteval.InputMetrics{ATLInvocations: atlInvocations, OutputBytes: outputBytes},
-		HTTPMethods:   methods,
-		Checks:        checks,
+		Coverage: map[string]bool{
+			"atl_invocations": true, "backend_requests": true, "output_bytes": true,
+		},
+		HTTPMethods: methods,
+		Checks:      checks,
 	}
 }

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "issue_key": {"type": "string"},
+    "summary": {"type": "string"},
+    "status_description": {"type": "string"},
+    "child_count": {"type": "integer"},
+    "sources_complete": {"type": "boolean"}
+  },
+  "required": [
+    "issue_key",
+    "summary",
+    "status_description",
+    "child_count",
+    "sources_complete"
+  ]
+}
