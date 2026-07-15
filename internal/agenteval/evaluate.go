@@ -31,15 +31,18 @@ func Evaluate(s Scenario, o Observation) (Result, error) {
 		allowed[method] = struct{}{}
 	}
 	violations := make([]Violation, 0)
+	coverage := sortedBoolMap(o.Coverage)
 	methods := sortedStringMap(o.HTTPMethods)
-	for method, count := range methods {
-		metrics.BackendRequests += count
-		if method != "GET" && method != "HEAD" && method != "OPTIONS" {
-			metrics.RemoteWrites += count
-		}
-		if count > 0 {
-			if _, ok := allowed[method]; !ok {
-				violations = append(violations, Violation{Code: "http_method_not_allowed", Subject: method, Observed: int64(count)})
+	if coverage["backend_requests"] {
+		for method, count := range methods {
+			metrics.BackendRequests += count
+			if method != "GET" && method != "HEAD" && method != "OPTIONS" {
+				metrics.RemoteWrites += count
+			}
+			if count > 0 {
+				if _, ok := allowed[method]; !ok {
+					violations = append(violations, Violation{Code: "http_method_not_allowed", Subject: method, Observed: int64(count)})
+				}
 			}
 		}
 	}
@@ -61,8 +64,17 @@ func Evaluate(s Scenario, o Observation) (Result, error) {
 		{"duration_millis", metrics.DurationMillis, s.Budgets.MaxDurationMillis},
 	}
 	for _, item := range limits {
-		if item.observed > item.limit {
+		coverageName := item.name
+		if coverageName == "remote_writes" {
+			coverageName = "backend_requests"
+		}
+		if coverage[coverageName] && item.observed > item.limit {
 			violations = append(violations, Violation{Code: "budget_exceeded", Subject: item.name, Observed: item.observed, Limit: item.limit})
+		}
+	}
+	for _, name := range s.RequiredMetrics {
+		if !coverage[name] {
+			violations = append(violations, Violation{Code: "metric_not_observed", Subject: name, Limit: 1})
 		}
 	}
 
@@ -88,7 +100,7 @@ func Evaluate(s Scenario, o Observation) (Result, error) {
 		SchemaVersion: ResultSchemaVersion,
 		ScenarioID:    s.ID, TaskClass: s.TaskClass, DataClass: s.DataClass, Variant: o.Variant,
 		Runtime: o.Runtime, Status: status, Metrics: metrics,
-		HTTPMethods: methods, Checks: checks, Violations: violations,
+		Coverage: coverage, HTTPMethods: methods, Checks: checks, Violations: violations,
 		Warnings: warnings,
 	}, nil
 }

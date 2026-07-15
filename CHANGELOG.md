@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added safe opt-in Claude Code and Codex headless evaluation runners with
+  strict run specs, exact runtime/skill identity, structured oracles, a
+  deterministic loopback backend, explicit metric coverage, read-only `atl`
+  proxy accounting, a $10 maximum reviewed run-spec cap, and Git-ignored
+  mode-0600 transcript storage. The first public synthetic case measures custom
+  field discovery followed by qualified epic evidence.
+
 - Added a versioned, provider-neutral Agent Eval v2 contract with strict
   scenario/observation/result validation, privacy-safe trajectory metrics,
   deterministic Jira and Confluence workflow budgets, and a maintainer tool for

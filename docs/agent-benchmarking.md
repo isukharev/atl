@@ -95,6 +95,7 @@ read-only contract looks like:
   "data_class": "synthetic",
   "required_capabilities": ["jira.issue.fields", "jira.epic.digest"],
   "required_checks": ["answer_correct", "sources_complete"],
+  "required_metrics": ["atl_invocations", "backend_requests", "output_bytes"],
   "budgets": {
     "max_agent_turns": 0,
     "max_tool_calls": 0,
@@ -132,6 +133,63 @@ Aggregation separates providers, exact models, agent versions, variants,
 `atl` versions, plugin versions, and skill digests. Compare baseline and
 candidate within one such runtime group; do not compare raw turns or dollar
 estimates across providers.
+
+Every observation also carries per-metric `coverage`. An observed zero is
+different from an unavailable metric: a required metric without coverage fails
+with `metric_not_observed`, while aggregation reports `observed_runs` before
+p50/p90. In particular, a live run that cannot safely count backend methods
+must not report an empty method map as measured zero traffic.
+
+## Headless synthetic runner
+
+Committed run specs bind one scenario to an exact provider/model, prompt,
+structured response schema, deterministic mock fixture, oracle checks,
+repetitions, timeout, and a whole-run USD-equivalent cap. Review the provider
+command without contacting a model:
+
+```sh
+make build
+go build -o /tmp/agent-eval ./scripts/agent-eval
+
+/tmp/agent-eval run \
+  --spec benchmarks/agent-eval/jira-epic-evidence/run.codex.json \
+  --output-root "$ATL_AGENT_EVAL_OUTPUT" \
+  --repository-root . \
+  --agent-binary "$(command -v codex)" \
+  --atl-binary "$PWD/atl" \
+  --plugin-root . \
+  --dry-run
+```
+
+The runner creates a fresh private workspace per repetition. Claude Code loads
+the repository plugin explicitly and receives an `atl`-only Bash allow-rule.
+Codex gets the same generated skills in `.agents/skills` and runs with an
+ephemeral session, ignored user config, and read-only filesystem sandbox;
+Claude loads project settings only. Both inherit
+`ATL_READ_ONLY=1`, `ATL_NO_UPDATE=1`, synthetic loopback backend URLs/tokens,
+and an `atl` proxy that counts invocations and stdout bytes without retaining
+command arguments in the result contract. The synthetic subprocess `PATH`
+contains only that proxy, reducing accidental use of `curl`, `jq`, or unrelated
+shell helpers; absolute executable paths remain a provider limitation and are
+one reason live model runs are not enabled. Codex tool subprocesses additionally
+receive an explicit environment allowlist, so ambient API keys and tokens are
+not inherited by model-generated shell commands.
+
+Raw provider JSONL, stderr, final structured output, invocation records, and
+per-run results are mode `0600`; directories are mode `0700`. A destination
+inside the repository is rejected unless `git check-ignore` proves it ignored.
+Prompts/workspaces cannot escape the run-spec directory through `..` or
+symlinks. The public synthetic case defaults to three repetitions and a maximum
+USD-equivalent cost of $10 for the complete run spec. The runner divides that
+cap across repetitions for the provider invocation and stops remaining runs if
+the measured total exhausts it. `--repetitions 1` may reduce, but never increase,
+the reviewed repetition count.
+
+Codex currently has no runner-level shell command allowlist equivalent to
+Claude's `--allowed-tools`. Therefore the headless Codex path is restricted to
+synthetic credentials/backends. Corporate model-in-the-loop runs remain
+disabled until the agent can access the backend through an isolated typed tool
+surface; supervised corporate checks below stay agentless and read-only.
 
 ## Deterministic contract budgets
 
@@ -195,6 +253,11 @@ use concurrency one. A separate backend read-only credential is preferred but
 not required; the CLI policy and a scenario command allowlist remain mandatory.
 Write-path evaluation belongs on the synthetic backend or an explicitly
 disposable, separately authorized fixture.
+
+Headless model runs use provider subscription authentication already stored by
+the provider CLI. The runner deliberately drops API-key and unrelated
+credential environment variables instead of exposing the caller's ambient
+secrets to the agent process.
 
 ## Public/private boundary
 

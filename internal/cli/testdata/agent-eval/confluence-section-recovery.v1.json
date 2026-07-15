@@ -13,6 +13,11 @@
     "outline_present",
     "selected_section_correct"
   ],
+  "required_metrics": [
+    "atl_invocations",
+    "backend_requests",
+    "output_bytes"
+  ],
   "budgets": {
     "max_agent_turns": 0,
     "max_tool_calls": 0,

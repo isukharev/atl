@@ -91,7 +91,8 @@ check-context7-docs:
 .PHONY: agent-eval-contract
 agent-eval-contract:
 	go test ./internal/agenteval ./scripts/agent-eval
-	go run ./scripts/agent-eval validate internal/cli/testdata/agent-eval/*.json >/dev/null
+	go run ./scripts/agent-eval validate internal/cli/testdata/agent-eval/*.json benchmarks/agent-eval/*/scenario.v1.json >/dev/null
+	go run ./scripts/agent-eval validate-run benchmarks/agent-eval/*/run.*.json >/dev/null
 	go test ./internal/cli -count=1
 
 .PHONY: tidy
