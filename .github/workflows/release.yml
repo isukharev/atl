@@ -58,6 +58,9 @@ jobs:
       # First-release bootstrap is intentionally tag-bound and must be removed
       # after that release. An empty/transient release listing otherwise fails.
       TRUST_BOOTSTRAP_TAG: ${{ vars.ATL_RELEASE_TRUST_BOOTSTRAP_TAG }}
+      # Emergency reset for an intentionally broken built-in update chain. It
+      # must name exactly one tag and must be removed after that release.
+      TRUST_RESET_TAG: ${{ vars.ATL_RELEASE_TRUST_RESET_TAG }}
       # Empty when the cross-repo tap token is not configured; gates the optional
       # Homebrew-tap auto-bump below. (secrets.* can't be used in a job-level `if`,
       # so it is surfaced as an env var and checked at step level.)
@@ -108,9 +111,18 @@ jobs:
           else
             cp internal/selfupdate/pubkey.go "$trusted_source"
           fi
+          if [ -n "$TRUST_RESET_TAG" ] && [ "$TRUST_RESET_TAG" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::ATL_RELEASE_TRUST_RESET_TAG must be unset or exactly $GITHUB_REF_NAME; remove a stale reset before releasing"
+            exit 1
+          fi
+          if [ -n "$TRUST_RESET_TAG" ]; then
+            set -- --allow-trust-reset
+          else
+            set --
+          fi
           go run ./scripts/check-release-key \
             --trusted-source "$trusted_source" \
-            --current-source internal/selfupdate/pubkey.go
+            --current-source internal/selfupdate/pubkey.go "$@"
 
       - name: Pin VERSION to the tag
         run: echo "${GITHUB_REF_NAME#v}" > VERSION

@@ -55,6 +55,29 @@ so a malformed bridge key cannot strand the next release. Thus the bridge must
 still use the old secret; after that bridge becomes the highest stable version,
 the next release may use the new secret it embedded.
 
+If the old private key is deliberately abandoned or unrecoverable, a maintainer
+may start a new trust chain with one explicit tag-bound reset. This is not a
+bridge: older binaries cannot self-update across it and must use Homebrew, the
+installer, or a manual download. Set the protected variable only for the exact
+reset release:
+
+```bash
+gh variable set ATL_RELEASE_TRUST_RESET_TAG --env release --body vX.Y.Z
+```
+
+The workflow still selects the highest stable predecessor, requires increasing
+semver, parses both public keys, requires them to differ, and derives the current
+public key from `ATL_RELEASE_PRIVATE_KEY`. A wrong key or a reset variable naming
+any other tag fails before build. After publishing and verifying the reset
+release, remove the variable so future releases return to normal continuity:
+
+```bash
+gh variable delete ATL_RELEASE_TRUST_RESET_TAG --env release
+```
+
+Homebrew remains independently pinned to the release asset SHA-256; the trust
+reset affects only `atl`'s built-in manifest-signature path.
+
 An empty release listing fails closed because an API outage must not look like a
 new repository. For the genuine first release only, set a protected `release`
 environment variable to that exact tag, publish, then remove it immediately:

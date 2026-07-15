@@ -145,5 +145,15 @@ If the old private key is no longer retrievable but is still present as a CI
 secret, it can still sign the bridge release; do not shadow it with the new
 environment secret until that release has been published and verified.
 
+When the old key is intentionally abandoned or unavailable even as a CI secret,
+the protected release environment supports a one-release emergency reset via
+`ATL_RELEASE_TRUST_RESET_TAG=<exact-tag>`. Reset mode requires the configured
+private key to match the public key in the source being released and requires
+that key to differ from the latest stable client's key. A stale or differently
+tagged reset is refused. This deliberately prevents older binaries from using
+built-in self-update across the boundary; package-manager, installer, and manual
+updates remain available and the next release resumes normal continuity from
+the reset release. Remove the variable immediately after verification.
+
 Never commit the private key. `.gitignore` blocks common key filenames as a
 backstop, but treat that as a safety net, not a control.

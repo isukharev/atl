@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Release signing now supports an explicit, protected, exact-tag trust reset
+  when the prior private key is intentionally abandoned. Reset mode still
+  proves ownership of the current source key, rejects equal/stale declarations,
+  and documents that pre-reset clients must upgrade through Homebrew, the
+  installer, or a manual download before normal self-update continuity resumes.
+
 - The opt-in live smoke workflow now exercises the versioned guarded-plan CSV,
   current Structure export flags, and protected Confluence color spans instead
   of failing on three retired contracts.

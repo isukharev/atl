@@ -160,6 +160,15 @@ tag-bound first-release bootstrap variable explicitly names the current tag;
 then compare against the source being released. A missing/mismatched key or
 missing/empty detached signature must stop publication.
 
+An intentional trust reset is the only exception to predecessor-key matching.
+The protected `ATL_RELEASE_TRUST_RESET_TAG` variable must equal the current tag;
+then CI requires the signing secret to own the *current* source key and requires
+the predecessor/current keys to differ. A stale variable, unnecessary reset, or
+wrong secret stops publication. Pre-reset binaries cannot verify that manifest,
+so users must cross the boundary through Homebrew, `install.sh`, or a manual
+download. After the reset release, deleting the variable restores the normal
+predecessor-key check against the new chain.
+
 An example signing step (using the `openssl` CLI or an equivalent Go tool):
 
 ```bash
