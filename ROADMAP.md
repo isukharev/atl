@@ -26,7 +26,10 @@ Recent beta work established the contracts the next wave builds on:
   with explicit completeness and resume evidence;
 - absolute UTC synchronization boundaries, deterministic human display zones,
   and bounded GET-only diagnostics that qualify server/user/query time evidence
-  without hidden calibration searches.
+  without hidden calibration searches;
+- a versioned offline capability catalog that maps exact agent task classes to
+  bounded command/reference routes and derives access/output facts from the
+  executable CLI contract.
 
 ## Now
 

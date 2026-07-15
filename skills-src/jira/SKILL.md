@@ -78,6 +78,13 @@ ask the user.
 
 ## The canonical loop
 
+For an unfamiliar Jira goal, begin with `atl capabilities --task
+jira/evidence`; choose `jira/portfolio` or `jira/edit` instead when that is the
+actual task class. Load only the returned Jira reference. The catalog is
+offline, exact, and ordered; it does not authorize a write.
+`access:"mutating"` means the eventual command remains blocked by
+`ATL_READ_ONLY=1` and still needs the command-specific review/approval gates.
+
 Start unfamiliar analysis with value-free non-empty
 `jira issue fields --metadata-only`, not standard fields or `*all`; then read
 only promising exact fields in compact mode. Choose the shortest evidence path: selected

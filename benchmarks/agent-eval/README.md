@@ -74,6 +74,15 @@ Raw transcripts, stderr, final structured output, invocation counters, and
 per-run results stay in the private output root with restrictive permissions.
 Only privacy-reviewed aggregate result contracts may be published.
 
+`jira-epic-evidence/run.catalog.claude.json` keeps the original evidence task
+and oracle but asks the model to begin with `atl capabilities --task
+jira/evidence`. Compare it with `run.claude.json` to measure whether exact
+catalog routing reduces broad reference/help exploration and parent turns. The
+extra catalog invocation is offline and creates no backend request. The shared
+12-turn safety ceiling accommodates that explicit routing step; comparisons
+should use observed turns/tool calls rather than treating the ceiling as a
+performance target.
+
 The runner is intended for provider subscription authentication already stored
 by the provider CLI. It does not forward API-key or unrelated credential
 environment variables into the agent process. Use deterministic evaluation or

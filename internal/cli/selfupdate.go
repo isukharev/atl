@@ -31,7 +31,7 @@ func runSelfUpdate(cmd *cobra.Command) {
 func skipSelfUpdate(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
-		case "version", "auth", "config", "profile", "environment", "help", "completion", cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd:
+		case "version", "capabilities", "auth", "config", "profile", "environment", "help", "completion", cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd:
 			return true
 		}
 	}

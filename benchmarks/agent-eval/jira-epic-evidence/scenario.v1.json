@@ -34,7 +34,7 @@
     "duration_millis"
   ],
   "budgets": {
-    "max_agent_turns": 8,
+    "max_agent_turns": 12,
     "max_tool_calls": 12,
     "max_atl_invocations": 6,
     "max_delegations": 0,

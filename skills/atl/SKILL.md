@@ -28,6 +28,22 @@ This skill orients you. For the actual command flows, use the focused skills:
 
 If `atl` is not installed (`command -v atl` fails), tell the user to run `/atl:setup` first.
 
+For an unfamiliar Jira/Confluence task, query the exact offline route before
+loading broad command references:
+
+```bash
+atl capabilities --task jira/evidence
+```
+
+The closed task classes are `jira/evidence`, `jira/portfolio`, `jira/edit`,
+`confluence/evidence`, and `confluence/edit`. The result is a small ordered set
+of stable capability ids with the real command path, backend access class,
+supported output modes, evidence/completeness semantics, and one focused skill
+reference. Load only the named focused skill/reference, then stop expanding the
+route once sufficient complete evidence is available. Use exact filters only;
+an unknown task/id is a loud not-found result, not a prompt for fuzzy guessing.
+`capabilities` is local/offline and works without valid config or credentials.
+
 ## Mental model
 
 Mirrored Atlassian content becomes local files you operate on like code: the bytes are the
@@ -120,6 +136,8 @@ Recent additions expand both surfaces — check the focused skills for full flag
 - `--verbose` / `ATL_VERBOSE=1` — trace every HTTP request/response to stderr (token never logged).
 - Shell completion for fixed-value flags (e.g. `--output`, `--format`, `--status`) is registered.
   Help and completion remain usable while global read-only policy is active.
+- `capabilities --task <exact-class>` — offline bounded task routing; JSON by
+  default, Markdown with `-o text`, or stable capability ids with `-o id`.
 
 **Confluence additions:** typed read-only `render.confluence.page_fields` shared
 by mirror and transient views; the `render.confluence.jira_macros=auto|off`

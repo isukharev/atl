@@ -100,6 +100,7 @@ var knownCommandPaths = stringSetFromLines(`
 auth login
 auth logout
 auth status
+capabilities
 conf apply
 conf attachment delete
 conf attachment get
@@ -253,6 +254,7 @@ func classifyCommandTree(root *cobra.Command) {
 				cmd.Annotations = map[string]string{}
 			}
 			classifyTextOutput(cmd, path)
+			classifyIDOutput(cmd, path)
 			switch {
 			case !knownCommandPaths[path]:
 				cmd.Annotations[accessAnnotation] = "unclassified"
