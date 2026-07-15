@@ -193,6 +193,28 @@ func TestResolveProviderLaunchUsesAbsoluteEnvInterpreter(t *testing.T) {
 	}
 }
 
+func TestCanonicalizeRunOptionsResolvesRelativeDirectories(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	options, err := canonicalizeRunOptions(RunOptions{
+		RepositoryRoot: ".", PluginRoot: ".", AgentBinary: executable,
+		ATLBinary: executable, WrapperExecutable: executable,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, path := range map[string]string{
+		"repository": options.RepositoryRoot, "plugin": options.PluginRoot,
+		"agent": options.AgentBinary, "atl": options.ATLBinary, "wrapper": options.WrapperExecutable,
+	} {
+		if !filepath.IsAbs(path) {
+			t.Errorf("%s path is relative: %q", name, path)
+		}
+	}
+}
+
 func TestSafeAgentEnvironmentDropsUnrelatedCredentials(t *testing.T) {
 	environment := safeAgentEnvironment([]string{
 		"HOME=/home/test", "HTTPS_PROXY=http://proxy.invalid", "GH_TOKEN=secret",

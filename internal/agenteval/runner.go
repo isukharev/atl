@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -59,6 +60,11 @@ type atlProxyRecord struct {
 func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 	if options.OutputRoot == "" || options.RepositoryRoot == "" || options.AgentBinary == "" || options.ATLBinary == "" || options.PluginRoot == "" || options.WrapperExecutable == "" {
 		return RunOutput{}, fmt.Errorf("run options require output, repository, agent, atl, plugin, and wrapper paths")
+	}
+	var err error
+	options, err = canonicalizeRunOptions(options)
+	if err != nil {
+		return RunOutput{}, err
 	}
 	loaded, err := loadRunInputs(options)
 	if err != nil {
@@ -139,6 +145,69 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 		}
 	}
 	return RunOutput{Preview: preview, Results: results, EstimatedCostMicroUSDTotal: totalCost, BudgetExhausted: budgetExhausted}, nil
+}
+
+func canonicalizeRunOptions(options RunOptions) (RunOptions, error) {
+	canonicalDirectory := func(name, path string) (string, error) {
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return "", err
+		}
+		resolved, err := filepath.EvalSymlinks(absolute)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", name, err)
+		}
+		info, err := os.Stat(resolved)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", name, err)
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf("%s is not a directory", name)
+		}
+		return resolved, nil
+	}
+	canonicalExecutable := func(name, path string) (string, error) {
+		if !filepath.IsAbs(path) {
+			resolved, err := exec.LookPath(path)
+			if err != nil {
+				return "", fmt.Errorf("%s: %w", name, err)
+			}
+			path = resolved
+		}
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return "", err
+		}
+		resolved, err := filepath.EvalSymlinks(absolute)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", name, err)
+		}
+		info, err := os.Stat(resolved)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", name, err)
+		}
+		if !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode()&0o111 == 0) {
+			return "", fmt.Errorf("%s is not an executable regular file", name)
+		}
+		return resolved, nil
+	}
+	var err error
+	if options.RepositoryRoot, err = canonicalDirectory("repository root", options.RepositoryRoot); err != nil {
+		return RunOptions{}, err
+	}
+	if options.PluginRoot, err = canonicalDirectory("plugin root", options.PluginRoot); err != nil {
+		return RunOptions{}, err
+	}
+	if options.AgentBinary, err = canonicalExecutable("agent binary", options.AgentBinary); err != nil {
+		return RunOptions{}, err
+	}
+	if options.ATLBinary, err = canonicalExecutable("atl binary", options.ATLBinary); err != nil {
+		return RunOptions{}, err
+	}
+	if options.WrapperExecutable, err = canonicalExecutable("evaluation wrapper", options.WrapperExecutable); err != nil {
+		return RunOptions{}, err
+	}
+	return options, nil
 }
 
 func perRepetitionCostCap(spec RunSpec) int64 {
