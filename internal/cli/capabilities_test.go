@@ -49,7 +49,7 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 		ids  []string
 	}{
 		{"jira/evidence", []string{"jira.issue.fields", "jira.epic.digest", "jira.issue.refs", "jira.issue.history"}},
-		{"jira/portfolio", []string{"jira.board.list", "jira.board.view", "jira.structure.folders", "jira.structure.view", "jira.planning.report"}},
+		{"jira/portfolio", []string{"jira.board.list", "jira.board.view", "jira.structure.folders", "jira.structure.view", "jira.portfolio.epic.digest", "jira.portfolio.confluence.section"}},
 		{"jira/edit", []string{"jira.issue.fields.edit", "jira.issue.field.set", "jira.issue.plan.apply"}},
 		{"confluence/evidence", []string{"confluence.page.resolve", "confluence.page.outline", "confluence.page.section", "confluence.page.view"}},
 		{"confluence/edit", []string{"confluence.pull", "confluence.diff", "confluence.plan.create", "confluence.plan.preview", "confluence.plan.apply"}},
@@ -68,7 +68,7 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 			if !reflect.DeepEqual(ids, tt.ids) {
 				t.Fatalf("ids=%v want=%v", ids, tt.ids)
 			}
-			if len(ids) > 5 {
+			if len(ids) > 6 {
 				t.Fatalf("route expanded beyond bounded catalog contract: %v", ids)
 			}
 		})

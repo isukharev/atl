@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/jira/rest/api/2/myself",
+      "status": 200,
+      "body": {"timeZone": "UTC"}
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/api/2/field",
+      "status": 200,
+      "body": [
+        {"id": "customfield_11001", "name": "Epic Link", "custom": true, "schema": {"type": "any"}},
+        {"id": "customfield_11002", "name": "Quarter Outcome", "custom": true, "schema": {"type": "string"}},
+        {"id": "customfield_11003", "name": "Evidence Page", "custom": true, "schema": {"type": "string"}}
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/agile/1.0/board/5/configuration",
+      "status": 200,
+      "body": {
+        "id": 5,
+        "name": "Quarter Portfolio",
+        "type": "kanban",
+        "filter": {"id": "42"},
+        "columnConfig": {
+          "constraintType": "issueCount",
+          "columns": [
+            {"name": "In Progress", "statuses": [{"id": "20"}]},
+            {"name": "Blocked", "statuses": [{"id": "30"}]},
+            {"name": "Done", "statuses": [{"id": "10"}]}
+          ]
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/agile/1.0/board/5/issue",
+      "status": 200,
+      "body": {
+        "startAt": 0,
+        "maxResults": 50,
+        "total": 8,
+        "issues": [
+          {"id": "11010", "key": "PROJ-10", "fields": {"summary": "Release pilot", "status": {"id": "10", "name": "Done"}, "issuetype": {"name": "Epic"}, "updated": "2026-06-30T10:00:00.000+0000", "customfield_11001": null, "customfield_11002": "Released to pilot", "customfield_11003": "/wiki/pages/viewpage.action?pageId=9001"}},
+          {"id": "11011", "key": "PROJ-11", "fields": {"summary": "Ship service", "status": {"id": "10", "name": "Done"}, "issuetype": {"name": "Story"}, "updated": "2026-06-20T10:00:00.000+0000", "customfield_11001": "PROJ-10", "customfield_11002": null, "customfield_11003": null}},
+          {"id": "11012", "key": "PROJ-12", "fields": {"summary": "Validate adoption", "status": {"id": "10", "name": "Done"}, "issuetype": {"name": "Task"}, "updated": "2026-06-25T10:00:00.000+0000", "customfield_11001": "PROJ-10", "customfield_11002": null, "customfield_11003": null}},
+          {"id": "11020", "key": "PROJ-20", "fields": {"summary": "Integrate dependency", "status": {"id": "20", "name": "In Progress"}, "issuetype": {"name": "Epic"}, "updated": "2026-06-21T10:00:00.000+0000", "customfield_11001": null, "customfield_11002": "At risk: dependency contract", "customfield_11003": "/wiki/pages/viewpage.action?pageId=9002"}},
+          {"id": "11021", "key": "PROJ-21", "fields": {"summary": "Define contract", "status": {"id": "10", "name": "Done"}, "issuetype": {"name": "Story"}, "updated": "2026-05-10T10:00:00.000+0000", "customfield_11001": "PROJ-20", "customfield_11002": null, "customfield_11003": null}},
+          {"id": "11022", "key": "PROJ-22", "fields": {"summary": "Complete integration", "status": {"id": "20", "name": "In Progress"}, "issuetype": {"name": "Story"}, "updated": "2026-06-20T10:00:00.000+0000", "customfield_11001": "PROJ-20", "customfield_11002": null, "customfield_11003": null}},
+          {"id": "11030", "key": "PROJ-30", "fields": {"summary": "Obtain approval", "status": {"id": "30", "name": "Blocked"}, "issuetype": {"name": "Epic"}, "updated": "2026-06-28T10:00:00.000+0000", "customfield_11001": null, "customfield_11002": "Blocked: approval pending", "customfield_11003": "/wiki/pages/viewpage.action?pageId=9003"}},
+          {"id": "11031", "key": "PROJ-31", "fields": {"summary": "Review controls", "status": {"id": "30", "name": "Blocked"}, "issuetype": {"name": "Task"}, "updated": "2026-06-27T10:00:00.000+0000", "customfield_11001": "PROJ-30", "customfield_11002": null, "customfield_11003": null}}
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/api/2/issue/PROJ-10",
+      "status": 200,
+      "body": {"id": "11010", "key": "PROJ-10", "fields": {"summary": "Release pilot", "status": {"name": "Done"}, "resolution": {"name": "Done"}, "issuetype": {"name": "Epic"}, "description": "Release the pilot and validate adoption.", "updated": "2026-06-30T10:00:00.000+0000", "customfield_11002": "Released to pilot", "issuelinks": []}}
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/api/2/issue/PROJ-20",
+      "status": 200,
+      "body": {"id": "11020", "key": "PROJ-20", "fields": {"summary": "Integrate dependency", "status": {"name": "In Progress"}, "issuetype": {"name": "Epic"}, "description": "Complete the dependency integration.", "updated": "2026-06-21T10:00:00.000+0000", "customfield_11002": "At risk: dependency contract", "issuelinks": []}}
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/api/2/issue/PROJ-30",
+      "status": 200,
+      "body": {"id": "11030", "key": "PROJ-30", "fields": {"summary": "Obtain approval", "status": {"name": "Blocked"}, "issuetype": {"name": "Epic"}, "description": "Obtain the required approval.", "updated": "2026-06-28T10:00:00.000+0000", "customfield_11002": "Blocked: approval pending", "issuelinks": []}}
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/api/2/issue/PROJ-10/changelog",
+      "status": 200,
+      "body": {"startAt": 0, "maxResults": 100, "total": 1, "values": [{"id": "history-10", "created": "2026-06-29T10:00:00.000+0000", "items": [{"field": "Quarter Outcome", "fieldId": "customfield_11002", "toString": "Released to pilot"}]}]}
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/api/2/issue/PROJ-20/changelog",
+      "status": 200,
+      "body": {"startAt": 0, "maxResults": 100, "total": 1, "values": [{"id": "history-20", "created": "2026-05-15T10:00:00.000+0000", "items": [{"field": "Quarter Outcome", "fieldId": "customfield_11002", "toString": "At risk: dependency contract"}]}]}
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/api/2/issue/PROJ-30/changelog",
+      "status": 200,
+      "body": {"startAt": 0, "maxResults": 100, "total": 1, "values": [{"id": "history-30", "created": "2026-06-28T09:00:00.000+0000", "items": [{"field": "Quarter Outcome", "fieldId": "customfield_11002", "toString": "Blocked: approval pending"}]}]}
+    },
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/content/9001",
+      "status": 200,
+      "body": {"id": "9001", "type": "page", "title": "Pilot evidence", "space": {"key": "ENG"}, "version": {"number": 4}, "body": {"storage": {"representation": "storage", "value": "<h1>Results</h1><p>Pilot adoption reached 42 percent.</p><h1>Appendix</h1><p>Internal notes.</p>"}}}
+    },
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/content/9002",
+      "status": 200,
+      "body": {"id": "9002", "type": "page", "title": "Dependency evidence", "space": {"key": "ENG"}, "version": {"number": 2}, "body": {"storage": {"representation": "storage", "value": "<h1>Results</h1><p>Dependency contract review is scheduled for July.</p><h1>Appendix</h1><p>Internal notes.</p>"}}}
+    },
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/content/9003",
+      "status": 200,
+      "body": {"id": "9003", "type": "page", "title": "Approval evidence", "space": {"key": "ENG"}, "version": {"number": 7}, "body": {"storage": {"representation": "storage", "value": "<h1>Results</h1><p>Approval remains pending.</p><h1>Appendix</h1><p>Internal notes.</p>"}}}
+    }
+  ]
+}

@@ -153,6 +153,38 @@ repository or transcript. Avoid verbose tracing unless diagnosing a failure;
 do not publish queries, page URLs, bodies, or user records. Read-only analysis
 does not authorize comments, transitions, edits, or mirror replacement.
 
+## Analyze a quarter portfolio without repeated joins
+
+For a team plan already curated as a Jira board or Structure, use that source
+as the membership snapshot. Do not replace it with several broad JQL queries or
+run a default epic digest that re-fetches children already present there.
+
+```bash
+export ATL_READ_ONLY=1
+atl capabilities --task jira/portfolio
+atl jira fields -o text
+atl jira board view 5 --scope board \
+  --columns key,summary,status,issuetype,updated,customfield_10001,customfield_10002
+atl jira epic digest PROJ-42 --quarter 2026-Q2 \
+  --include identity,status-field,history \
+  --status-field customfield_10002
+atl conf page section '<same-origin-page-url>' --heading Results --max-bytes 32768
+```
+
+Require the board/Structure snapshot, every selected digest source, and every
+section to report complete. Reuse the snapshot for epic membership, child
+status counts, and child update times; compare those times with the narrative
+field's `last_change` rather than inventing a freshness threshold. Discover
+display names once, then reuse technical field ids so each epic does not fetch
+the field catalog again.
+
+Keep one epic or one section in the main thread. For a genuinely independent
+slice of several epics plus linked sections, one read-only child may return a
+compact qualified schema to protect a long parent context. Give it exact source
+ids, period, field ids, headings, and command families; forbid delegation and
+writes. The parent must verify source completeness and own the final synthesis.
+Do not create one child per epic.
+
 ## Reuse named list projections
 
 Built-in `default` and `full` projections are present in effective config.

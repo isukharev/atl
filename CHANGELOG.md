@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a synthetic quarterly portfolio benchmark and focused Jira skill route
+  that reuse one complete board/Structure membership snapshot, qualify only
+  missing per-epic evidence, and expand bounded Confluence sections. Comparable
+  single-agent and one-child variants measure when delegation protects parent
+  context without increasing backend reads; an executable contract pins the
+  optimal fifteen-GET, zero-write route.
+
 - Added `atl capabilities`, a versioned offline catalog that maps five exact
   Jira/Confluence agent task classes to small ordered command routes with
   stable capability ids, real access/output annotations, evidence/completeness
