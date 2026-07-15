@@ -3,7 +3,7 @@
   "scenario_file": "scenario.v1.json",
   "provider": "codex",
   "variant": "v0.4-skill",
-  "model": "gpt-5.6",
+  "model": "gpt-5.6-sol",
   "reasoning": "medium",
   "prompt_file": "prompt.md",
   "response_schema_file": "response-schema.json",
