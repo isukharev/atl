@@ -56,18 +56,6 @@ func TestEvidenceFirstEpicWorkflowBudget(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("digest exit=%d output=%s", code, digest)
 	}
-	requests := js.requests()
-	if got, wantMax := len(requests), 8; got > wantMax {
-		t.Fatalf("backend request budget exceeded: got=%d max=%d requests=%+v", got, wantMax, requests)
-	}
-	for _, request := range requests {
-		if request.method != http.MethodGet {
-			t.Fatalf("evidence workflow issued a write: %+v", request)
-		}
-	}
-	if got, wantMax := len(fields)+len(digest), 8<<10; got > wantMax {
-		t.Fatalf("context budget exceeded: got=%d max=%d", got, wantMax)
-	}
 	var decoded struct {
 		Sources map[string]struct {
 			Complete bool `json:"complete"`
@@ -76,12 +64,20 @@ func TestEvidenceFirstEpicWorkflowBudget(t *testing.T) {
 	if err := json.Unmarshal([]byte(digest), &decoded); err != nil {
 		t.Fatal(err)
 	}
+	sourcesComplete := true
 	for _, source := range []string{"identity", "status-field", "children", "comments", "links", "history", "refs"} {
 		value, ok := decoded.Sources[source]
 		if !ok || !value.Complete {
-			t.Fatalf("source %q missing/incomplete: %+v", source, decoded.Sources)
+			sourcesComplete = false
 		}
 	}
+	evaluateAgentWorkflow(t, "jira-epic-evidence.v1.json", deterministicObservation(
+		"jira.epic-evidence", 2, int64(len(fields)+len(digest)), js.requests(),
+		map[string]bool{
+			"answer_correct":   strings.Contains(digest, `"key": "PROJ-1"`),
+			"sources_complete": sourcesComplete,
+		},
+	))
 }
 
 func TestJiraEpicDigestTextIsEvidenceNotNarrative(t *testing.T) {

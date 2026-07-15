@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "jira.kanban-view",
+  "task_class": "jira/planning",
+  "description": "Inspect board configuration and render a bounded Kanban view without incompatible endpoints.",
+  "data_class": "synthetic",
+  "required_capabilities": [
+    "jira.board.config",
+    "jira.board.view"
+  ],
+  "required_checks": [
+    "columns_mapped",
+    "kanban_endpoints_safe"
+  ],
+  "budgets": {
+    "max_agent_turns": 0,
+    "max_tool_calls": 0,
+    "max_atl_invocations": 2,
+    "max_backend_requests": 3,
+    "max_remote_writes": 0,
+    "max_output_bytes": 8192,
+    "max_input_tokens": 0,
+    "max_output_tokens": 0,
+    "max_estimated_cost_microusd": 0,
+    "max_duration_millis": 0,
+    "allowed_http_methods": [
+      "GET"
+    ]
+  }
+}

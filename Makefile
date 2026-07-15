@@ -9,6 +9,7 @@
 #   make check-plugins    verify the generated plugin trees are current
 #   make check-skill-safety validate designated read-only skill shell blocks
 #   make check-context7-docs validate the public Context7 parsing/snippet boundary
+#   make agent-eval-contract run deterministic agent workflow contracts
 #   make live-smoke       run opt-in live CLI smoke checks
 #   make dist             cross-compile release binaries into ./dist
 #   make manifest         generate dist/manifest.json from ./dist binaries
@@ -86,6 +87,12 @@ check-skill-safety:
 .PHONY: check-context7-docs
 check-context7-docs:
 	go run ./scripts/check-context7-docs
+
+.PHONY: agent-eval-contract
+agent-eval-contract:
+	go test ./internal/agenteval ./scripts/agent-eval
+	go run ./scripts/agent-eval validate internal/cli/testdata/agent-eval/*.json >/dev/null
+	go test ./internal/cli -count=1
 
 .PHONY: tidy
 tidy:

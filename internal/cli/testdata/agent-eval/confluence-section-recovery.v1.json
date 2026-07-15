@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "confluence.section-recovery",
+  "task_class": "confluence/evidence",
+  "description": "Inspect an outline, fail closed on an ambiguous heading, and select one bounded occurrence.",
+  "data_class": "synthetic",
+  "required_capabilities": [
+    "confluence.page.outline",
+    "confluence.page.section"
+  ],
+  "required_checks": [
+    "ambiguity_fail_closed",
+    "outline_present",
+    "selected_section_correct"
+  ],
+  "budgets": {
+    "max_agent_turns": 0,
+    "max_tool_calls": 0,
+    "max_atl_invocations": 3,
+    "max_backend_requests": 3,
+    "max_remote_writes": 0,
+    "max_output_bytes": 4096,
+    "max_input_tokens": 0,
+    "max_output_tokens": 0,
+    "max_estimated_cost_microusd": 0,
+    "max_duration_millis": 0,
+    "allowed_http_methods": [
+      "GET"
+    ]
+  }
+}
