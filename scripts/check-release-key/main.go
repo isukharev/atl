@@ -23,6 +23,7 @@ const trustedKeyConstant = "trustedPublicKeyB64"
 func main() {
 	trustedSource := flag.String("trusted-source", "", "pubkey.go from the highest published stable release")
 	currentSource := flag.String("current-source", "", "pubkey.go from the release being built")
+	allowTrustReset := flag.Bool("allow-trust-reset", false, "intentionally start a new trust chain by matching the current source key")
 	flag.Parse()
 	if strings.TrimSpace(*trustedSource) == "" {
 		fail("--trusted-source is required")
@@ -38,13 +39,17 @@ func main() {
 	if err != nil {
 		fail("read current client source: " + err.Error())
 	}
-	if err := checkReleaseKey(os.Getenv("ATL_RELEASE_PRIVATE_KEY"), source, current); err != nil {
+	if err := checkReleaseKey(os.Getenv("ATL_RELEASE_PRIVATE_KEY"), source, current, *allowTrustReset); err != nil {
 		fail(err.Error())
+	}
+	if *allowTrustReset {
+		fmt.Fprintln(os.Stderr, "release signing key matches the current source key; explicit trust reset accepted")
+		return
 	}
 	fmt.Fprintln(os.Stderr, "release signing key matches the highest published stable client's trust key")
 }
 
-func checkReleaseKey(privateB64 string, trustedSource, currentSource []byte) error {
+func checkReleaseKey(privateB64 string, trustedSource, currentSource []byte, allowTrustReset bool) error {
 	privateRaw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(privateB64))
 	if err != nil {
 		return fmt.Errorf("decode ATL_RELEASE_PRIVATE_KEY: %w", err)
@@ -61,10 +66,20 @@ func checkReleaseKey(privateB64 string, trustedSource, currentSource []byte) err
 	if err != nil {
 		return err
 	}
-	if _, err := publicKeyFromSource("current", currentSource); err != nil {
+	currentRaw, err := publicKeyFromSource("current", currentSource)
+	if err != nil {
 		return err
 	}
 	derived := canonical[ed25519.SeedSize:]
+	if allowTrustReset {
+		if subtle.ConstantTimeCompare(trustedRaw, currentRaw) == 1 {
+			return fmt.Errorf("trust reset is unnecessary because published and current clients trust the same key")
+		}
+		if subtle.ConstantTimeCompare(derived, currentRaw) != 1 {
+			return fmt.Errorf("trust-reset signing key does not match the current source trust key")
+		}
+		return nil
+	}
 	if subtle.ConstantTimeCompare(derived, trustedRaw) != 1 {
 		return fmt.Errorf("release signing key does not match the highest published stable client's trust key; configure the trusted key (a rotation bridge must still be signed by the old key)")
 	}

@@ -23,7 +23,7 @@ func trustedSource(public ed25519.PublicKey) []byte {
 func TestCheckReleaseKeyAcceptsMatchingCanonicalKey(t *testing.T) {
 	private := testPrivate(1)
 	source := trustedSource(private.Public().(ed25519.PublicKey))
-	err := checkReleaseKey(base64.StdEncoding.EncodeToString(private), source, source)
+	err := checkReleaseKey(base64.StdEncoding.EncodeToString(private), source, source, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestCheckReleaseKeyAcceptsValidRotatedCurrentKey(t *testing.T) {
 	private := testPrivate(1)
 	trusted := trustedSource(private.Public().(ed25519.PublicKey))
 	current := trustedSource(testPrivate(2).Public().(ed25519.PublicKey))
-	if err := checkReleaseKey(base64.StdEncoding.EncodeToString(private), trusted, current); err != nil {
+	if err := checkReleaseKey(base64.StdEncoding.EncodeToString(private), trusted, current, false); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -41,7 +41,7 @@ func TestCheckReleaseKeyAcceptsValidRotatedCurrentKey(t *testing.T) {
 func TestCheckReleaseKeyRejectsMismatch(t *testing.T) {
 	private := testPrivate(1)
 	other := testPrivate(2)
-	err := checkReleaseKey(base64.StdEncoding.EncodeToString(private), trustedSource(other.Public().(ed25519.PublicKey)), trustedSource(private.Public().(ed25519.PublicKey)))
+	err := checkReleaseKey(base64.StdEncoding.EncodeToString(private), trustedSource(other.Public().(ed25519.PublicKey)), trustedSource(private.Public().(ed25519.PublicKey)), false)
 	if err == nil || !strings.Contains(err.Error(), "rotation bridge") {
 		t.Fatalf("error=%v, want rotation-bridge mismatch", err)
 	}
@@ -51,7 +51,7 @@ func TestCheckReleaseKeyRejectsNonCanonicalPrivateKey(t *testing.T) {
 	private := testPrivate(1)
 	private[len(private)-1] ^= 1
 	source := trustedSource(testPrivate(1).Public().(ed25519.PublicKey))
-	err := checkReleaseKey(base64.StdEncoding.EncodeToString(private), source, source)
+	err := checkReleaseKey(base64.StdEncoding.EncodeToString(private), source, source, false)
 	if err == nil || !strings.Contains(err.Error(), "not a canonical") {
 		t.Fatalf("error=%v, want canonical-key refusal", err)
 	}
@@ -71,7 +71,7 @@ func TestCheckReleaseKeyRejectsMalformedInputs(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := checkReleaseKey(tc.private, tc.source, trustedSource(private.Public().(ed25519.PublicKey))); err == nil {
+			if err := checkReleaseKey(tc.private, tc.source, trustedSource(private.Public().(ed25519.PublicKey)), false); err == nil {
 				t.Fatal("expected refusal")
 			}
 		})
@@ -87,9 +87,49 @@ func TestCheckReleaseKeyRejectsMalformedCurrentSource(t *testing.T) {
 		"size":    []byte("package selfupdate\nconst trustedPublicKeyB64 = \"c2hvcnQ=\""),
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := checkReleaseKey(base64.StdEncoding.EncodeToString(private), trusted, current)
+			err := checkReleaseKey(base64.StdEncoding.EncodeToString(private), trusted, current, false)
 			if err == nil || !strings.Contains(err.Error(), "current client") && !strings.Contains(err.Error(), "current trustedPublicKeyB64") {
 				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
+
+func TestCheckReleaseKeyAcceptsExplicitTrustResetToCurrentKey(t *testing.T) {
+	oldPrivate := testPrivate(1)
+	newPrivate := testPrivate(2)
+	err := checkReleaseKey(
+		base64.StdEncoding.EncodeToString(newPrivate),
+		trustedSource(oldPrivate.Public().(ed25519.PublicKey)),
+		trustedSource(newPrivate.Public().(ed25519.PublicKey)),
+		true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCheckReleaseKeyRejectsUnsafeTrustReset(t *testing.T) {
+	oldPrivate := testPrivate(1)
+	newPrivate := testPrivate(2)
+	thirdPrivate := testPrivate(3)
+	for name, tc := range map[string]struct {
+		private ed25519.PrivateKey
+		current []byte
+		want    string
+	}{
+		"same published and current key":  {private: oldPrivate, current: trustedSource(oldPrivate.Public().(ed25519.PublicKey)), want: "unnecessary"},
+		"secret does not own current key": {private: thirdPrivate, current: trustedSource(newPrivate.Public().(ed25519.PublicKey)), want: "does not match"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := checkReleaseKey(
+				base64.StdEncoding.EncodeToString(tc.private),
+				trustedSource(oldPrivate.Public().(ed25519.PublicKey)),
+				tc.current,
+				true,
+			)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error=%v, want %q", err, tc.want)
 			}
 		})
 	}

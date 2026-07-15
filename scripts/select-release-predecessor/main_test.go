@@ -26,6 +26,7 @@ func TestReleaseWorkflowPinsFailClosedChainControls(t *testing.T) {
 	for _, required := range []string{
 		"gh api --paginate --slurp", "./scripts/select-release-predecessor",
 		"--bootstrap-tag \"$TRUST_BOOTSTRAP_TAG\"", "--current-source internal/selfupdate/pubkey.go",
+		"ATL_RELEASE_TRUST_RESET_TAG", "--allow-trust-reset", "remove a stale reset before releasing",
 		"test -s dist/manifest.json.sig", "dist/manifest.json dist/manifest.json.sig",
 	} {
 		if !strings.Contains(content, required) {
