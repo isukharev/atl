@@ -420,8 +420,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	started := time.Now()
 	var guardAborted atomic.Bool
 	guardStop := make(chan struct{})
+	var guardDone chan struct{}
 	if requiresCleanGuard(loaded.spec.Checks) {
+		guardDone = make(chan struct{})
 		go func() {
+			defer close(guardDone)
 			ticker := time.NewTicker(250 * time.Millisecond)
 			defer ticker.Stop()
 			for {
@@ -441,6 +444,9 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	runErr := command.Run()
 	close(guardStop)
+	if guardDone != nil {
+		<-guardDone
+	}
 	duration := time.Since(started).Milliseconds()
 	closeTranscriptErr := transcript.Close()
 	closeStderrErr := stderr.Close()
