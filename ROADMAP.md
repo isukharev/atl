@@ -32,7 +32,7 @@ Recent beta work established the contracts the next wave builds on:
 - a versioned offline capability catalog that maps exact agent task classes to
   bounded command/reference routes and derives access/output facts from the
   executable CLI contract;
-- a typed remote-read-only MCP stdio server with seven bounded evidence tools,
+- a typed remote-read-only MCP stdio server with nine bounded evidence tools,
   stable error classes, plugin distribution, and a synthetic Codex route that
   proves the same fifteen-GET quarterly portfolio result with zero writes;
 - a same-runtime Claude Code CLI/MCP portfolio comparison whose three-run MCP
@@ -41,9 +41,10 @@ Recent beta work established the contracts the next wave builds on:
 - synthetic Confluence agent-evaluation cells for duplicate-heading/rich-page
   evidence and multi-page decision synthesis, including hostile-content guards,
   deterministic route budgets, qualitative rubrics, and bounded delegation.
-- a topic-first cross-service discovery cell for the primary CLI and shipped
-  knowledge-search skill, with qualified Jira/Confluence candidate pages and a
-  six-GET bounded-expansion oracle that can justify (or reject) future MCP search.
+- a topic-first cross-service discovery cell for the primary CLI, shipped
+  knowledge-search skill, and paired typed-MCP route, with qualified
+  Jira/Confluence candidate pages, a six-GET deterministic oracle, and a
+  reviewed five-GET MCP baseline that justified bounded Confluence search.
 - opt-in private-live agent evaluation for real Jira/Confluence compatibility
   through paired typed-MCP and primary CLI+skill paths: MCP uses ephemeral
   credentials and an independent transport guard, while CLI receives only

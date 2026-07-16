@@ -171,6 +171,13 @@ exit 2
 		}
 		t.Fatalf("transcript mode=%v", info.Mode())
 	}
+	cliSettings, err := os.ReadFile(filepath.Join(outputRoot, scenario.ID, "claude-code", "baseline", "run-01", "claude-settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(cliSettings, []byte("enabledMcpjsonServers")) {
+		t.Fatalf("CLI run unexpectedly approves MCP servers: %s", cliSettings)
+	}
 
 	spec.Variant = "typed-mcp"
 	spec.ToolTransport = "mcp"
@@ -206,9 +213,10 @@ exit 2
 	}
 	var mcpConfig struct {
 		Servers map[string]struct {
-			Command string            `json:"command"`
-			Args    []string          `json:"args"`
-			Env     map[string]string `json:"env"`
+			Command    string            `json:"command"`
+			Args       []string          `json:"args"`
+			Env        map[string]string `json:"env"`
+			AlwaysLoad bool              `json:"alwaysLoad"`
 		} `json:"mcpServers"`
 	}
 	mcpConfigData, err := os.ReadFile(mcpConfigPath)
@@ -218,8 +226,24 @@ exit 2
 	server := mcpConfig.Servers["atl"]
 	configuredATL, configuredErr := filepath.EvalSymlinks(server.Command)
 	wantATL, wantErr := filepath.EvalSymlinks(fakeATL)
-	if configuredErr != nil || wantErr != nil || configuredATL != wantATL || len(server.Args) != 2 || server.Args[0] != "mcp" || server.Args[1] != "serve" || server.Env["ATL_READ_ONLY"] != "1" || server.Env["ATL_JIRA_PAT"] != "synthetic-jira-token" {
+	if configuredErr != nil || wantErr != nil || configuredATL != wantATL || len(server.Args) != 2 || server.Args[0] != "mcp" || server.Args[1] != "serve" || server.Env["ATL_READ_ONLY"] != "1" || server.Env["ATL_JIRA_PAT"] != "synthetic-jira-token" || !server.AlwaysLoad {
 		t.Fatalf("MCP config is not bound to the reviewed child: %+v", server)
+	}
+	settingsData, err := os.ReadFile(filepath.Join(outputRoot, scenario.ID, "claude-code", "typed-mcp", "run-01", "claude-settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings struct {
+		Enabled     []string `json:"enabledMcpjsonServers"`
+		Permissions struct {
+			Allow []string `json:"allow"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal(settingsData, &settings); err != nil || len(settings.Enabled) != 1 || settings.Enabled[0] != "atl" || len(settings.Permissions.Allow) != 1 || settings.Permissions.Allow[0] != "mcp__atl__jira_fields" {
+		t.Fatalf("MCP approval settings=%s err=%v", settingsData, err)
+	}
+	if bytes.Contains(settingsData, []byte(`"matcher"`)) {
+		t.Fatalf("MCP guard must omit matcher to cover every non-MCP tool: %s", settingsData)
 	}
 
 	spec.Provider = "codex"

@@ -451,7 +451,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		}
 	}
 	settingsPath := filepath.Join(runDir, "claude-settings.json")
-	if err := writeClaudeGuardSettings(settingsPath, guardPath); err != nil {
+	var reviewedMCPTools []string
+	if loaded.spec.Provider == "claude-code" && loaded.spec.ToolTransport == "mcp" {
+		reviewedMCPTools = claudeMCPToolNames(loaded.spec.AllowedMCPTools)
+	}
+	if err := writeClaudeGuardSettings(settingsPath, guardPath, reviewedMCPTools); err != nil {
 		return Result{}, err
 	}
 	atlConfigDir := filepath.Join(evalDir, "atl-config")
@@ -619,6 +623,8 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	environment["ATL_EVAL_MAX_DELEGATIONS"] = fmt.Sprintf("%d", loaded.scenario.Budgets.MaxDelegations)
 	allowedCommands, _ := json.Marshal(loaded.spec.AllowedATLCommands)
 	environment["ATL_EVAL_ALLOWED_COMMANDS"] = string(allowedCommands)
+	allowedMCPTools, _ := json.Marshal(claudeMCPToolNames(loaded.spec.AllowedMCPTools))
+	environment["ATL_EVAL_ALLOWED_MCP_TOOLS"] = string(allowedMCPTools)
 	allowedReadRoots, _ := json.Marshal([]string{filepath.Join(options.PluginRoot, "skills"), workspace})
 	environment["ATL_EVAL_ALLOWED_READ_ROOTS"] = string(allowedReadRoots)
 	environment["PATH"] = wrapperDir
@@ -1316,20 +1322,39 @@ func confinementProbeName() string {
 	}
 	return "atl-eval-confinement-probe"
 }
-func writeClaudeGuardSettings(path, guardPath string) error {
+func writeClaudeGuardSettings(path, guardPath string, reviewedMCPTools []string) error {
 	hooks := make([]any, 0, 6)
-	for _, matcher := range []string{"Bash", "Agent", "Read", "Edit", "Write", "apply_patch"} {
-		hooks = append(hooks, map[string]any{
-			"matcher": matcher,
+	matchers := []string{"Bash", "Agent", "Read", "Edit", "Write", "apply_patch"}
+	if len(reviewedMCPTools) > 0 {
+		// An omitted matcher applies the hook to every tool. This is required
+		// because some built-ins (for example Skill and ToolSearch) do not cross
+		// the ordinary permission prompt that dontAsk can reject.
+		matchers = []string{""}
+	}
+	for _, matcher := range matchers {
+		hook := map[string]any{
 			"hooks": []any{map[string]any{
 				"type": "command", "command": shellSingleQuote(guardPath), "timeout": 5,
 			}},
-		})
+		}
+		if matcher != "" {
+			hook["matcher"] = matcher
+		}
+		hooks = append(hooks, hook)
 	}
 	settings := map[string]any{
 		"hooks": map[string]any{
 			"PreToolUse": hooks,
 		},
+	}
+	if len(reviewedMCPTools) > 0 {
+		// Headless dontAsk sessions cannot approve project-like MCP configs
+		// interactively. Approve only the single generated server name and grant
+		// only the run spec's exact dynamic tool names. Passing the same names to
+		// Claude's --tools/--allowed-tools CLI filters hides dynamic MCP tools in
+		// current releases before discovery completes.
+		settings["enabledMcpjsonServers"] = []string{"atl"}
+		settings["permissions"] = map[string]any{"allow": reviewedMCPTools}
 	}
 	data, err := json.Marshal(settings)
 	if err != nil {
@@ -1344,6 +1369,10 @@ func writeClaudeMCPConfig(path, atlBinary string, environment map[string]string)
 			"atl": map[string]any{
 				"type": "stdio", "command": atlBinary,
 				"args": []string{"mcp", "serve"}, "env": environment,
+				// Current Claude Code starts ordinary servers asynchronously. The
+				// benchmark needs the reviewed tools in the first prompt, so make
+				// readiness a bounded startup precondition rather than a model race.
+				"alwaysLoad": true,
 			},
 		},
 	}

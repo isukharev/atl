@@ -86,7 +86,7 @@ func TestBuildClaudeMCPCommandDisablesBuiltinsAndUsesQualifiedAllowlist(t *testi
 	}
 	tools, toolsOK := providerArgument(command.Args, "--tools")
 	allowed, allowedOK := providerArgument(command.Args, "--allowed-tools")
-	if !toolsOK || tools != "" || !allowedOK || allowed != "mcp__atl__jira_fields,mcp__atl__jira_epic_digest" {
+	if toolsOK || allowedOK {
 		t.Errorf("Claude MCP tool boundary tools=%q allowed=%q: %s", tools, allowed, joined)
 	}
 }
@@ -231,13 +231,15 @@ func TestClaudeClientSideMissingToolIsNotCountedAsATLInvocation(t *testing.T) {
 		`{"type":"user","tool_use_result":"Error: No such tool available: mcp__atl__jira_fields","message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","is_error":true,"content":"synthetic client error"}]}}`,
 		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-2","name":"mcp__atl__jira_fields"}]}}`,
 		`{"type":"user","tool_use_result":{"isError":true},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-2","is_error":true,"content":"server error"}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-3","name":"mcp__atl__jira_fields"}]}}`,
+		`{"type":"user","tool_use_result":"Error: {\"kind\":\"not_found\",\"remediation\":\"verify_identifier_or_access\",\"message\":\"not found\"}","message":{"content":[{"type":"tool_result","tool_use_id":"mcp-3","is_error":true,"content":"classified server error"}]}}`,
 		`{"type":"result","num_turns":1,"duration_ms":1,"total_cost_usd":0,"usage":{"input_tokens":1,"output_tokens":1},"structured_output":{"answer":"ok"}}`,
 	}, "\n")
 	metrics, _, err := ParseProviderOutput("claude-code", []byte(transcript), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.ToolCalls != 2 || metrics.MCPToolCalls != 1 || metrics.FailedMCPToolCalls != 1 || metrics.MCPToolOutputBytes != int64(len("server error")) {
+	if metrics.ToolCalls != 3 || metrics.MCPToolCalls != 2 || metrics.FailedMCPToolCalls != 2 || metrics.MCPToolOutputBytes != int64(len("server error")+len("classified server error")) {
 		t.Fatalf("metrics=%+v", metrics)
 	}
 }

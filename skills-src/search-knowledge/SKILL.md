@@ -17,6 +17,15 @@ or a command exits `7` ("not configured"), run `{{atl.setup_cmd}}` and stop.
 
 ## Workflow
 
+When the plugin exposes typed `atl` MCP tools, use the equivalent transient
+route without shell: call `confluence_search` and `jira_issue_search` once,
+freeze only complete candidate pages, then use `jira_issue_field_get` plus
+`confluence_page_outline` and `confluence_page_section` for the selected
+evidence. Reuse a numeric Confluence result id directly. Do not mix MCP and CLI
+reads merely to repeat already complete evidence; fall back to the CLI workflow
+below when MCP is unavailable or the task needs an operation outside its
+read-only surface.
+
 ### 1. Extract search terms
 
 Keep the core nouns, prepare one narrow and one broad variant, and carry any

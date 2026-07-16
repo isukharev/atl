@@ -17,7 +17,7 @@ var mcpCapabilityFamilies = map[string]string{
 	"jira_fields": "jira.fields", "jira_issue_search": "jira.issue.search",
 	"jira_issue_field_get": "jira.issue.field", "jira_epic_digest": "jira.epic.digest", "jira_board_view": "jira.board.view",
 	"confluence_page_resolve": "confluence.page.resolve", "confluence_page_outline": "confluence.page.outline",
-	"confluence_page_section": "confluence.page.section",
+	"confluence_page_section": "confluence.page.section", "confluence_search": "confluence.search",
 }
 
 var allowedCapabilityFamilies = map[string]struct{}{

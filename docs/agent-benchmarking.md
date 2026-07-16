@@ -246,11 +246,12 @@ run-spec `allowed_atl_commands` prefix. Shell operators, substitutions,
 redirections, multiline scripts, and unrelated binaries are denied before Bash.
 Codex gets the same generated skills in `.agents/skills` for a reviewable
 ephemeral read-only command preview. Both providers support MCP transport.
-Claude receives a generated mode-0600 config under `--strict-mcp-config`, no
-shell/file/delegation tools, and only qualified `mcp__atl__...` names. Its synthetic
-backend environment is attached to the MCP child and omitted from the provider
+Claude receives a generated mode-0600 config under `--strict-mcp-config`; every
+model tool crosses a global guard that grants only qualified reviewed
+`mcp__atl__...` names plus required structured output. Its synthetic backend
+environment is attached to the MCP child and omitted from the provider
 environment. Codex starts the same exact reviewed `atl mcp serve` binary,
-enables only `allowed_mcp_tools`, disables web search, removes atl credentials
+grants only `allowed_mcp_tools`, disables web search, removes atl credentials
 from the model shell environment, and denies shell/file/patch/delegation tools
 through `PreToolUse`. Codex benchmark runs set `project_doc_max_bytes=0` so
 ambient global/repository `AGENTS.md` files cannot change the reviewed task;
@@ -313,24 +314,36 @@ removes atl credentials from their shell environment. Prompt-injection against
 the committed synthetic fixture is supported. Private-live runs use the stricter
 contract below; they never reuse a synthetic run spec implicitly.
 
-Claude may emit a client-side `No such tool available` while its explicit MCP
-server is still becoming visible. The runner counts that as a model tool call,
-so its context/turn cost remains observable, but not as an `atl` invocation
+For Claude MCP runs, the runner approves only its generated `atl` server, makes
+startup readiness a bounded precondition, and grants the run spec's exact
+qualified tool names through private settings. It does not pass dynamic MCP
+names through `--tools` or `--allowed-tools`: current Claude Code applies those
+CLI filters before dynamic discovery and can hide an otherwise connected
+server's catalog. One matcher-less `PreToolUse` guard covers every model tool:
+only exact reviewed MCP names and required structured output are allowed, so
+permission-free built-ins cannot become a fallback. A client-side missing-tool
+attempt still counts as a model tool call but not as an `atl` invocation
 because no protocol request reached the server. An object-shaped MCP response,
-including an error response, is counted as an invocation; server errors fail
-the `atl_all_succeeded` oracle.
+including an error response, is
+counted as an invocation; server errors fail the `atl_all_succeeded` oracle.
 
 ### Topic-first cross-service discovery
 
 The `cross-service-topic-discovery` synthetic cell covers the common workflow
 that begins without stable identities. It holds one topic constant while the
-CLI + shipped `search-knowledge` skill searches Jira and Confluence once,
-qualifies both candidate pages, rejects distractors, and reads one exact Jira
-field plus one outline-selected Confluence section.
+CLI + shipped `search-knowledge` skill or typed-MCP route searches Jira and
+Confluence once, qualifies both candidate pages, rejects distractors, and reads
+one exact Jira field plus one outline-selected Confluence section.
 
 ```sh
 /tmp/agent-eval run \
   --spec benchmarks/agent-eval/cross-service-topic-discovery/run.cli.claude.json \
+  --output-root "$ATL_AGENT_EVAL_OUTPUT" --repository-root . \
+  --agent-binary "$(command -v claude)" --atl-binary "$PWD/atl" \
+  --plugin-root . --repetitions 1
+
+/tmp/agent-eval run \
+  --spec benchmarks/agent-eval/cross-service-topic-discovery/run.mcp.claude.json \
   --output-root "$ATL_AGENT_EVAL_OUTPUT" --repository-root . \
   --agent-binary "$(command -v claude)" --atl-binary "$PWD/atl" \
   --plugin-root . --repetitions 1
@@ -340,8 +353,13 @@ The deterministic route is exactly six GETs with one duplicate target caused
 by outline then section rendering of the selected page. Full-page reads,
 mirror writes, repeated searches, distractor expansion, remote writes, and
 delegation fall outside the reviewed route or budgets. Use this baseline before
-adding remote search tools: a new MCP surface should preserve the same oracle
-and demonstrate a material trajectory/context improvement.
+adding remote search tools. The first reviewed typed-MCP baseline preserved the
+oracle and passed all 18 gates with five typed calls, five GETs, one duplicate
+target, zero writes, and a 10,000-bps qualitative score. The lower GET count is
+valid because the model reused the system `description` id directly; using a
+display name may consume the sixth allowed request. Treat this one run as
+directional evidence for the bounded tool contract, not a stable speed or cost
+claim.
 
 ## Deterministic contract budgets
 
@@ -489,7 +507,7 @@ A private run spec differs from a synthetic spec in these fields:
 Its private scenario must use `data_class:"private-local"`, exactly one
 repetition, zero delegations and writes, positive invocation/request limits,
 and an explicit `allowed_http_methods` containing only `GET`/`HEAD`. Start with
-the smallest MCP tool set and response schema that can answer the user task.
+the smallest MCP execution allowlist and response schema that can answer the user task.
 Expected private facts may live in the ignored run spec; never copy them into a
 public fixture or PR.
 

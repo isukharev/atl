@@ -52,7 +52,7 @@ For other failures, route on stable JSON `kind` and numeric `code`; present
 `remediation` as guidance and do not infer actions from backend prose.
 
 If the plugin exposes the typed `atl` MCP surface, prefer
-`confluence_page_resolve`, `confluence_page_outline`, and
+`confluence_search`, `confluence_page_resolve`, `confluence_page_outline`, and
 `confluence_page_section` for transient bounded reads. They cannot write or
 create mirror artifacts. Use this CLI skill for durable pull/mirror work,
 attachments, tables, diff/plan/status, operations absent from MCP, and every
