@@ -575,10 +575,9 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		}()
 	}
 	runErr := command.Run()
+	var gatewayCloseErr error
 	if liveGateway != nil {
-		if err := liveGateway.Close(context.Background()); err != nil {
-			return Result{}, fmt.Errorf("close private-live gateway: %w", err)
-		}
+		gatewayCloseErr = liveGateway.Close(context.Background())
 	}
 	close(guardStop)
 	if guardDone != nil {
@@ -587,6 +586,9 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	duration := time.Since(started).Milliseconds()
 	closeTranscriptErr := transcript.Close()
 	closeStderrErr := stderr.Close()
+	if gatewayCloseErr != nil {
+		return Result{}, fmt.Errorf("close private-live gateway: %w", gatewayCloseErr)
+	}
 	if ctx.Err() == context.DeadlineExceeded {
 		return Result{}, fmt.Errorf("agent exceeded %d second timeout", loaded.spec.TimeoutSeconds)
 	}
