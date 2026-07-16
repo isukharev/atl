@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -32,7 +33,7 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"confluence_page_outline", "confluence_page_resolve", "confluence_page_section",
+		"confluence_page_outline", "confluence_page_resolve", "confluence_page_section", "confluence_search",
 		"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_search",
 	}
 	got := make([]string, 0, len(listed.Tools))
@@ -54,14 +55,51 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		if tool.Name == "jira_epic_digest" && !schemaRequired(input, "include") {
 			t.Errorf("tool %s must require an explicit include: %#v", tool.Name, tool.InputSchema)
 		}
+		if tool.Name == "confluence_search" && !schemaRequired(input, "cql") {
+			t.Errorf("tool %s must require explicit cql: %#v", tool.Name, tool.InputSchema)
+		}
 		if tool.OutputSchema == nil {
 			t.Errorf("tool %s has no output schema", tool.Name)
+		}
+		if path, ok := booleanPropertySchema(tool.OutputSchema, "outputSchema"); ok {
+			t.Errorf("tool %s exposes client-incompatible boolean property schema at %s", tool.Name, path)
 		}
 	}
 	sort.Strings(got)
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("tools=%v want=%v", got, want)
 	}
+}
+
+func booleanPropertySchema(value any, path string) (string, bool) {
+	switch current := value.(type) {
+	case map[string]any:
+		if properties, ok := current["properties"].(map[string]any); ok {
+			for name, property := range properties {
+				if _, ok := property.(bool); ok {
+					return path + ".properties." + name, true
+				}
+				if found, ok := booleanPropertySchema(property, path+".properties."+name); ok {
+					return found, true
+				}
+			}
+		}
+		for keyword, child := range current {
+			if keyword == "properties" {
+				continue
+			}
+			if found, ok := booleanPropertySchema(child, path+"."+keyword); ok {
+				return found, true
+			}
+		}
+	case []any:
+		for index, child := range current {
+			if found, ok := booleanPropertySchema(child, fmt.Sprintf("%s[%d]", path, index)); ok {
+				return found, true
+			}
+		}
+	}
+	return "", false
 }
 
 func schemaRequired(schema map[string]any, name string) bool {
@@ -181,6 +219,63 @@ func TestSyntheticClippedDigestExpandsOnlyExactField(t *testing.T) {
 	}
 }
 
+func TestSyntheticTopicDiscoveryThroughMCPUsesExactGETOnlyRoute(t *testing.T) {
+	fixtureFile, err := os.Open(filepath.Join("..", "..", "benchmarks", "agent-eval", "cross-service-topic-discovery", "fixture.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+	closeErr := fixtureFile.Close()
+	if decodeErr != nil || closeErr != nil {
+		t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
+	}
+	backend, err := agenteval.StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	for name, value := range backend.Environment() {
+		t.Setenv(name, value)
+	}
+	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+	t.Setenv("ATL_READ_ONLY", "1")
+	t.Setenv("ATL_NO_UPDATE", "1")
+
+	client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
+	defer closeSessions()
+	conf := callToolOK(t, client, "confluence_search", map[string]any{"cql": `siteSearch ~ "Orchid retry worker"`, "limit": 10})
+	confContent, ok := conf.StructuredContent.(map[string]any)
+	if !ok || confContent["complete"] != true || confContent["count"] != float64(3) {
+		t.Fatalf("confluence search=%#v", conf.StructuredContent)
+	}
+	jira := callToolOK(t, client, "jira_issue_search", map[string]any{
+		"jql":     `text ~ "Orchid retry worker" ORDER BY updated DESC`,
+		"columns": []string{"key", "summary", "status", "updated"}, "limit": 10,
+	})
+	jiraContent, ok := jira.StructuredContent.(map[string]any)
+	page, pageOK := jiraContent["page"].(map[string]any)
+	if !ok || !pageOK || page["complete"] != true {
+		t.Fatalf("jira search=%#v", jira.StructuredContent)
+	}
+	callToolOK(t, client, "confluence_page_outline", map[string]any{"reference": "8101"})
+	section := callToolOK(t, client, "confluence_page_section", map[string]any{"reference": "8101", "heading": "Decision"})
+	sectionContent, ok := section.StructuredContent.(map[string]any)
+	markdown, _ := sectionContent["markdown"].(string)
+	if !ok || sectionContent["complete"] != true || !strings.Contains(markdown, "25 percent") {
+		t.Fatalf("section=%#v", section.StructuredContent)
+	}
+	field := callToolOK(t, client, "jira_issue_field_get", map[string]any{"key": "OPS-42", "field": "Description"})
+	fieldContent, ok := field.StructuredContent.(map[string]any)
+	value, _ := fieldContent["value"].(string)
+	if !ok || fieldContent["complete"] != true || !strings.Contains(value, "Capacity test pending") {
+		t.Fatalf("field=%#v", field.StructuredContent)
+	}
+	methods, unexpected, duplicates := backend.Summary()
+	if methods["GET"] != 6 || len(methods) != 1 || unexpected != 0 || duplicates != 1 {
+		t.Fatalf("requests=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+	}
+}
+
 func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	j := &recordingJiraReader{}
 	c := &recordingConfluenceReader{}
@@ -210,6 +305,7 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	callToolOK(t, client, "jira_board_view", map[string]any{
 		"board_id": 7, "scope": "backlog", "columns": []string{"key"}, "view": "compact", "jql": "labels=x",
 	})
+	callToolOK(t, client, "confluence_search", map[string]any{"cql": "space=DOCS", "cursor": "25"})
 	callToolOK(t, client, "confluence_page_resolve", map[string]any{"reference": "/x/Abc"})
 	callToolOK(t, client, "confluence_page_outline", map[string]any{"reference": "42"})
 	callToolOK(t, client, "confluence_page_section", map[string]any{
@@ -233,6 +329,9 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	}
 	if c.resolveReference != "/x/Abc" || c.outlineReference != "42" || c.sectionReference != "42" || c.sectionOpts.Heading != "Results" || c.sectionOpts.Occurrence != 2 || c.sectionOpts.MaxBytes != 32<<10 {
 		t.Fatalf("confluence=%+v", c)
+	}
+	if c.searchCQL != "space=DOCS" || c.searchLimit != 25 || c.searchCursor != "25" {
+		t.Fatalf("confluence search cql=%q limit=%d cursor=%q", c.searchCQL, c.searchLimit, c.searchCursor)
 	}
 }
 
@@ -294,6 +393,7 @@ func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{}}},
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{"confluence"}}},
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{"identity"}, "projection": "brief"}},
+		{name: "confluence_search", args: map[string]any{"cql": "space=DOCS", "limit": 101}},
 		{name: "confluence_page_section", args: map[string]any{"reference": "1", "heading": "Results", "max_bytes": 1048577}},
 	}
 	for _, test := range tests {
@@ -439,8 +539,15 @@ func (r *recordingJiraReader) BoardSnapshot(_ context.Context, id int, opts app.
 }
 
 type recordingConfluenceReader struct {
+	searchCQL, searchCursor                              string
+	searchLimit                                          int
 	resolveReference, outlineReference, sectionReference string
 	sectionOpts                                          app.ConfluencePageSectionOpts
+}
+
+func (r *recordingConfluenceReader) SearchQualified(_ context.Context, cql string, limit int, cursor string) (*app.ConfluenceSearchResult, error) {
+	r.searchCQL, r.searchLimit, r.searchCursor = cql, limit, cursor
+	return &app.ConfluenceSearchResult{SchemaVersion: 1, Results: []domain.PageRef{}, Complete: true}, nil
 }
 
 func (r *recordingConfluenceReader) ResolvePageReference(_ context.Context, reference string) (*app.ConfluencePageResolution, error) {

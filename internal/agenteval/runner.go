@@ -451,7 +451,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		}
 	}
 	settingsPath := filepath.Join(runDir, "claude-settings.json")
-	if err := writeClaudeGuardSettings(settingsPath, guardPath); err != nil {
+	var reviewedMCPTools []string
+	if loaded.spec.Provider == "claude-code" && loaded.spec.ToolTransport == "mcp" {
+		reviewedMCPTools = claudeMCPToolNames(loaded.spec.AllowedMCPTools)
+	}
+	if err := writeClaudeGuardSettings(settingsPath, guardPath, reviewedMCPTools); err != nil {
 		return Result{}, err
 	}
 	atlConfigDir := filepath.Join(evalDir, "atl-config")
@@ -1316,7 +1320,7 @@ func confinementProbeName() string {
 	}
 	return "atl-eval-confinement-probe"
 }
-func writeClaudeGuardSettings(path, guardPath string) error {
+func writeClaudeGuardSettings(path, guardPath string, reviewedMCPTools []string) error {
 	hooks := make([]any, 0, 6)
 	for _, matcher := range []string{"Bash", "Agent", "Read", "Edit", "Write", "apply_patch"} {
 		hooks = append(hooks, map[string]any{
@@ -1331,6 +1335,15 @@ func writeClaudeGuardSettings(path, guardPath string) error {
 			"PreToolUse": hooks,
 		},
 	}
+	if len(reviewedMCPTools) > 0 {
+		// Headless dontAsk sessions cannot approve project-like MCP configs
+		// interactively. Approve only the single generated server name and grant
+		// only the run spec's exact dynamic tool names. Passing the same names to
+		// Claude's --tools/--allowed-tools CLI filters hides dynamic MCP tools in
+		// current releases before discovery completes.
+		settings["enabledMcpjsonServers"] = []string{"atl"}
+		settings["permissions"] = map[string]any{"allow": reviewedMCPTools}
+	}
 	data, err := json.Marshal(settings)
 	if err != nil {
 		return err
@@ -1344,6 +1357,10 @@ func writeClaudeMCPConfig(path, atlBinary string, environment map[string]string)
 			"atl": map[string]any{
 				"type": "stdio", "command": atlBinary,
 				"args": []string{"mcp", "serve"}, "env": environment,
+				// Current Claude Code starts ordinary servers asynchronously. The
+				// benchmark needs the reviewed tools in the first prompt, so make
+				// readiness a bounded startup precondition rather than a model race.
+				"alwaysLoad": true,
 			},
 		},
 	}

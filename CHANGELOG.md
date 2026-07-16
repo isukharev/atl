@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added typed MCP `confluence_search` for explicit bounded CQL discovery with
+  the same qualified schema-v1 completeness contract as `conf search`. The
+  paired topic-first benchmark passes the existing cross-service oracle with
+  five typed calls, five GETs, one expected duplicate target, and zero writes.
+  MCP output schemas now use client-compatible object schemas for unrestricted
+  properties so one dynamic value cannot hide the full tool catalog. The
+  Claude benchmark harness approves only its generated `atl` server, waits for
+  readiness, and grants the run spec's exact dynamic tool names through private
+  settings rather than CLI filters that can suppress MCP discovery.
+
 - Added a synthetic topic-first Jira + Confluence discovery benchmark for the
   primary CLI and shipped `search-knowledge` skill. It qualifies both search
   pages, rejects distractors and hostile content, expands only one exact Jira

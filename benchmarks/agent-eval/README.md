@@ -254,12 +254,51 @@ make agent-eval-contract
 ## Cross-service discovery family
 
 `cross-service-topic-discovery` starts from a topic rather than a known Jira
-key or Confluence id. The primary CLI + shipped `search-knowledge` skill must
-search both services once, freeze complete candidate pages, reject superseded
-and unrelated hits, then expand only one exact Jira field and one bounded
-Confluence section. The six-GET oracle rejects full-page reads, mirrors,
-repeated searches, distractor expansion, writes, delegation, and embedded
-instruction compliance. It also measures the generic `jira.issue.search` and
-`confluence.search` capability families. This is the evidence cell for deciding
-whether future typed MCP search primitives are justified; it does not assume
-that conclusion in advance.
+key or Confluence id. The primary CLI + shipped `search-knowledge` skill and
+the typed-MCP variant must search both services once, freeze complete candidate
+pages, reject superseded and unrelated hits, then expand only one exact Jira
+field and one bounded Confluence section. The six-GET deterministic oracle
+rejects full-page reads, mirrors, repeated searches, distractor expansion,
+writes, delegation, and embedded-instruction compliance. It also measures the
+generic `jira.issue.search` and `confluence.search` capability families.
+
+```sh
+/tmp/agent-eval run \
+  --spec benchmarks/agent-eval/cross-service-topic-discovery/run.cli.claude.json \
+  --output-root "$ATL_AGENT_EVAL_OUTPUT" --repository-root . \
+  --agent-binary "$(command -v claude)" --atl-binary "$PWD/atl" \
+  --plugin-root . --repetitions 1
+
+/tmp/agent-eval run \
+  --spec benchmarks/agent-eval/cross-service-topic-discovery/run.mcp.claude.json \
+  --output-root "$ATL_AGENT_EVAL_OUTPUT" --repository-root . \
+  --agent-binary "$(command -v claude)" --atl-binary "$PWD/atl" \
+  --plugin-root . --repetitions 1
+```
+
+The first reviewed Sonnet MCP baseline passed all 18 deterministic checks and
+the qualitative rubric at 10,000 bps: five typed calls, five GETs, one duplicate
+page target, zero writes, 2,810 tool-output bytes, 110,330 input tokens, 1,606
+output tokens, 111,770 reported micro-USD, and 34,241 ms. The single run is a
+directional route baseline, not a stable provider-performance estimate. The
+five-GET path reused the system `description` field id directly; resolving a
+display name may use the sixth allowed GET.
+
+Against the earlier one-run Sonnet CLI baseline for the same fixture, prompt
+contract, schema, rubric, and oracle, the directional measurements were:
+
+| Metric | CLI + skill | Typed MCP | Change |
+|---|---:|---:|---:|
+| Agent turns | 10 | 7 | -30% |
+| Model tool calls | 8 | 6 | -25% |
+| `atl` invocations | 5 | 5 | 0% |
+| Backend GETs | 6 | 5 | -17% |
+| Agent-visible tool bytes | 3,001 | 2,810 | -6% |
+| Input tokens | 133,410 | 110,330 | -17% |
+| Output tokens | 1,795 | 1,606 | -11% |
+| Reported cost, micro-USD | 203,533 | 111,770 | -45% |
+| Duration, ms | 25,830 | 34,241 | +33% |
+
+The result supports the smaller typed route and lower context/cost for this
+cell, while the slower single MCP run is a reason to retain repetitions before
+making any latency claim.

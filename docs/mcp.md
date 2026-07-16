@@ -20,6 +20,7 @@ The v1 surface is an explicit allowlist:
 | `jira_issue_field_get` | Expand one exact compact field with issue/update provenance | default 16 KiB, maximum 128 KiB encoded value |
 | `jira_epic_digest` | Aggregate selected qualified epic evidence | `projection:compact` bounds synthesis context |
 | `jira_board_view` | Freeze one board/backlog membership snapshot | default 200, maximum 1000 rows per scope |
+| `confluence_search` | Search one qualified bounded CQL candidate page | default 25, maximum 100 rows |
 | `confluence_page_resolve` | Resolve an id or same-origin URL/path | exact resolution only |
 | `confluence_page_outline` | Inspect headings before reading content | one page |
 | `confluence_page_section` | Read one exact Markdown section | default 32 KiB, maximum 1 MiB |
@@ -36,6 +37,12 @@ digest with `projection:"full"`.
 definitions. Treat an empty match as evidence of absence only when
 `complete:true`; a successful tool call or non-empty match is not itself a
 completeness signal.
+
+`confluence_search` requires explicit CQL and returns the same qualified
+schema-v1 page as `conf search`: `query`, bounded candidate metadata, `count`,
+`complete`, `truncated`, optional `partial_reason`, and `next_cursor`. Search
+results omit page bodies. Reuse a returned numeric id directly with
+`confluence_page_outline` and `confluence_page_section`.
 
 Every tool advertises `readOnlyHint:true`, `idempotentHint:true`,
 `destructiveHint:false`, and `openWorldHint:false`. The server instructions tell
@@ -98,6 +105,7 @@ enabled_tools = [
   "jira_issue_field_get",
   "jira_epic_digest",
   "jira_board_view",
+  "confluence_search",
   "confluence_page_resolve",
   "confluence_page_outline",
   "confluence_page_section",
@@ -139,6 +147,13 @@ task, not a universal provider claim. Do not interpret the MCP annotations as
 proof that arbitrary backend content is trustworthy; they describe tool
 behavior only.
 
+A second committed cell starts from an unknown topic and compares the primary
+CLI + `search-knowledge` route with typed MCP. The first reviewed MCP baseline
+passed the same 18 correctness/safety checks with five typed calls, five GETs,
+one expected duplicate page target, zero writes, and a 10,000-bps qualitative
+review. It is evidence for the bounded `confluence_search` addition, not a
+claim that every search workflow should use MCP.
+
 ## Protocol and operations
 
 `atl mcp serve` is a long-running stdio process. Stdout is reserved for MCP
@@ -150,6 +165,11 @@ to work when the other service is absent.
 Cancellation propagates from the MCP client into the application request. HTTP
 auth scoping, redirect/downgrade checks, retry policy, pagination completeness,
 and stable error classes are shared with CLI reads.
+
+Tool output schemas retain their inferred contracts while spelling an
+unrestricted property as the object schema `{}` instead of boolean `true`.
+The forms are JSON-Schema-equivalent, but the object form keeps the complete
+tool catalog usable in clients that reject boolean property schemas.
 
 The first surface intentionally excludes write tools, raw REST, arbitrary
 files, full-page bodies by default, pull/status, and Structure. Those remain CLI

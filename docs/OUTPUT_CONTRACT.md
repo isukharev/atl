@@ -66,12 +66,18 @@ filesystem search is deliberately outside the route.
 
 `atl mcp serve` is a separate stdio protocol transport, so global CLI output
 flags and process exit envelopes do not apply to individual tool calls. Each of
-the eight registered tools has inferred input/output JSON Schema and returns
+the nine registered tools has inferred input/output JSON Schema and returns
 typed `structuredContent`; compatible clients may also expose the SDK's text
 projection. Tool failures set the MCP error result and contain a JSON text
 object with stable `kind`, `remediation`, and diagnostic `message` fields.
 For transport/API failures, `message` is deliberately coarse and omits backend
 paths, query values, and response bodies.
+
+`confluence_search` returns the same qualified schema-v1 search envelope as
+the CLI, including top-level `complete`, `truncated`, optional
+`partial_reason`, and `next_cursor`; candidate page bodies are not included.
+Unrestricted output properties use the JSON-Schema object form `{}` rather
+than the equivalent boolean `true` for broad MCP-client compatibility.
 
 The stable classes come from the same transport-neutral classifier used by CLI
 JSON. Clients must branch on `kind`, not parse `message`. Stdout from the server

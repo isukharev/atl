@@ -313,24 +313,33 @@ removes atl credentials from their shell environment. Prompt-injection against
 the committed synthetic fixture is supported. Private-live runs use the stricter
 contract below; they never reuse a synthetic run spec implicitly.
 
-Claude may emit a client-side `No such tool available` while its explicit MCP
-server is still becoming visible. The runner counts that as a model tool call,
-so its context/turn cost remains observable, but not as an `atl` invocation
-because no protocol request reached the server. An object-shaped MCP response,
-including an error response, is counted as an invocation; server errors fail
-the `atl_all_succeeded` oracle.
+For Claude MCP runs, the runner approves only its generated `atl` server, makes
+startup readiness a bounded precondition, and grants the run spec's exact
+qualified tool names through private settings. It does not pass dynamic MCP
+names through `--tools` or `--allowed-tools`: current Claude Code applies those
+CLI filters before dynamic discovery and can hide an otherwise connected
+server's catalog. A client-side missing-tool attempt still counts as a model
+tool call but not as an `atl` invocation because no protocol request reached
+the server. An object-shaped MCP response, including an error response, is
+counted as an invocation; server errors fail the `atl_all_succeeded` oracle.
 
 ### Topic-first cross-service discovery
 
 The `cross-service-topic-discovery` synthetic cell covers the common workflow
 that begins without stable identities. It holds one topic constant while the
-CLI + shipped `search-knowledge` skill searches Jira and Confluence once,
-qualifies both candidate pages, rejects distractors, and reads one exact Jira
-field plus one outline-selected Confluence section.
+CLI + shipped `search-knowledge` skill or typed-MCP route searches Jira and
+Confluence once, qualifies both candidate pages, rejects distractors, and reads
+one exact Jira field plus one outline-selected Confluence section.
 
 ```sh
 /tmp/agent-eval run \
   --spec benchmarks/agent-eval/cross-service-topic-discovery/run.cli.claude.json \
+  --output-root "$ATL_AGENT_EVAL_OUTPUT" --repository-root . \
+  --agent-binary "$(command -v claude)" --atl-binary "$PWD/atl" \
+  --plugin-root . --repetitions 1
+
+/tmp/agent-eval run \
+  --spec benchmarks/agent-eval/cross-service-topic-discovery/run.mcp.claude.json \
   --output-root "$ATL_AGENT_EVAL_OUTPUT" --repository-root . \
   --agent-binary "$(command -v claude)" --atl-binary "$PWD/atl" \
   --plugin-root . --repetitions 1
@@ -340,8 +349,13 @@ The deterministic route is exactly six GETs with one duplicate target caused
 by outline then section rendering of the selected page. Full-page reads,
 mirror writes, repeated searches, distractor expansion, remote writes, and
 delegation fall outside the reviewed route or budgets. Use this baseline before
-adding remote search tools: a new MCP surface should preserve the same oracle
-and demonstrate a material trajectory/context improvement.
+adding remote search tools. The first reviewed typed-MCP baseline preserved the
+oracle and passed all 18 gates with five typed calls, five GETs, one duplicate
+target, zero writes, and a 10,000-bps qualitative score. The lower GET count is
+valid because the model reused the system `description` id directly; using a
+display name may consume the sixth allowed request. Treat this one run as
+directional evidence for the bounded tool contract, not a stable speed or cost
+claim.
 
 ## Deterministic contract budgets
 
