@@ -71,6 +71,7 @@ type RunCheck struct {
 	Pointer  string          `json:"pointer,omitempty"`
 	Expected json.RawMessage `json:"expected,omitempty"`
 	Minimum  int             `json:"minimum,omitempty"`
+	Maximum  int             `json:"maximum,omitempty"`
 }
 
 func DecodeRunSpec(r io.Reader) (RunSpec, error) {
@@ -252,6 +253,9 @@ func (s RunSpec) Validate() error {
 			return fmt.Errorf("duplicate run check %q", check.Name)
 		}
 		seenChecks[check.Name] = struct{}{}
+		if check.Kind != "atl_invocations_max" && check.Maximum != 0 {
+			return fmt.Errorf("run check %q does not accept maximum", check.Name)
+		}
 		switch check.Kind {
 		case "json_equals":
 			if check.Pointer == "" || !json.Valid(check.Expected) {
@@ -264,6 +268,10 @@ func (s RunSpec) Validate() error {
 		case "atl_invocations_min":
 			if check.Minimum < 1 || check.Pointer != "" || len(check.Expected) != 0 {
 				return fmt.Errorf("atl_invocations_min check %q is invalid", check.Name)
+			}
+		case "atl_invocations_max":
+			if check.Maximum < 1 || check.Minimum != 0 || check.Pointer != "" || len(check.Expected) != 0 {
+				return fmt.Errorf("atl_invocations_max check %q is invalid", check.Name)
 			}
 		case "atl_all_succeeded":
 			if check.Minimum != 0 || check.Pointer != "" || len(check.Expected) != 0 {
@@ -382,6 +390,8 @@ func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedAT
 		switch check.Kind {
 		case "atl_invocations_min":
 			results[check.Name] = atlInvocations >= check.Minimum
+		case "atl_invocations_max":
+			results[check.Name] = atlInvocations <= check.Maximum
 		case "atl_all_succeeded":
 			results[check.Name] = failedATL == 0
 		case "mock_no_unexpected":

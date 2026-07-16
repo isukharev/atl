@@ -11,7 +11,7 @@ step mechanically.
 | Situation | First command | Expand only when needed |
 |---|---|---|
 | One unfamiliar issue | `jira issue fields <KEY> --metadata-only` | exact compact fields, selected history/refs, then a linked page section |
-| One epic and known evidence-field names | `jira epic digest <KEY> --quarter ...` | bounded Confluence section expansion |
+| One epic and known evidence-field names | `jira epic digest <KEY>` plus only a task-supplied period | bounded Confluence section expansion |
 | One epic but unknown custom fields | `jira issue fields <KEY> --metadata-only` | exact compact fields, then one digest after choosing names/ids |
 | Several known keys | `jira export --keys ... --out -` | per-key history/digest only for exceptions |
 | Broad discovery | `jira issue search --columns ...` | batch export for selected keys |
@@ -20,19 +20,23 @@ step mechanically.
 
 ```sh
 atl --read-only jira issue fields PROJ-1 --metadata-only
-atl --read-only jira issue fields PROJ-1 --field 'Delivery Notes'
 
 atl --read-only jira epic digest PROJ-1 \
-  --quarter 2026-Q2 \
   --status-field 'Delivery Notes' \
   --dod-field 'Definition of Done'
 ```
 
 The first command omits values and empty fields. Choose an exact unambiguous
-field name or stable id, then read only that compact value. The digest joins identity,
-children, comments, history, links/blockers, and refs; it does not write a
-management narrative. Inspect every `sources.<name>.complete` and the dated
-`staleness.reasons` before drawing a conclusion.
+field name or stable id, then pass it directly to one digest; do not fetch the
+same value separately first. The capability route and this reference are the
+command contract, so do not probe `--help`. Add `--quarter`, `--since`, or
+`--until` only when the task supplies that period (or a separately reviewed
+workflow default); otherwise omit time flags rather than guessing the current
+quarter. The digest joins identity, children, comments, history,
+links/blockers, and refs; it does not write a management narrative. Inspect
+every `sources.<name>.complete` and the dated `staleness.reasons` before drawing
+a conclusion. When the required sources are complete and sufficient, stop:
+do not rerun the digest with `-o text`, a broader period, or alternate defaults.
 
 If a non-epic issue needs a time-qualified field check, avoid a digest:
 
@@ -87,6 +91,9 @@ atl --read-only jira epic digest PROJ-1 --quarter 2026-Q2 \
   --status-field 'Delivery Notes' \
   --expand-confluence 1 --confluence-heading 'Metrics'
 ```
+
+The quarter in this expansion example is task-supplied. It is not a default to
+infer for an undated request.
 
 Honor section and source completeness. `refs.complete` also becomes false when
 a contributing status/DoD/comment/description value was clipped; inspect

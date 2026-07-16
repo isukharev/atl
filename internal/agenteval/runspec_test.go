@@ -213,6 +213,7 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 		{Name: "equals", Kind: "json_equals", Pointer: "/nested/value", Expected: json.RawMessage(`7`)},
 		{Name: "present", Kind: "json_present", Pointer: "/nested"},
 		{Name: "used", Kind: "atl_invocations_min", Minimum: 2},
+		{Name: "bounded", Kind: "atl_invocations_max", Maximum: 2},
 		{Name: "routes", Kind: "mock_no_unexpected"},
 		{Name: "delegated", Kind: "delegations_min", Minimum: 1},
 		{Name: "guarded", Kind: "guard_no_denials"},
