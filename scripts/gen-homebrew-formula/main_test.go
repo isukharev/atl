@@ -37,7 +37,8 @@ func TestRenderFormulaAllPlatforms(t *testing.T) {
 		`sha256 "aaaa"`,
 		`url "https://github.com/isukharev/atl/releases/download/v1.2.3/atl-linux-amd64"`,
 		`sha256 "dddd"`,
-		`bin.install Dir["atl-*"].first => "atl"`,
+		`libexec.install Dir["atl-*"].first => "atl"`,
+		`(bin/"atl").write_env_script libexec/"atl", ATL_NO_UPDATE: "1"`,
 		`shell_output("#{bin}/atl version")`,
 	}
 	for _, w := range wants {
@@ -45,9 +46,37 @@ func TestRenderFormulaAllPlatforms(t *testing.T) {
 			t.Errorf("formula missing %q\n---\n%s", w, out)
 		}
 	}
+	if strings.Contains(out, `bin.install Dir["atl-*"].first`) {
+		t.Error("formula must not expose the self-updating binary directly from bin")
+	}
 	// macOS block must precede the Linux block (deterministic ordering).
 	if strings.Index(out, "on_macos") > strings.Index(out, "on_linux") {
 		t.Error("on_macos should be emitted before on_linux")
+	}
+}
+
+// Package-managed installs must have exactly one update owner. The executable
+// lives in libexec and the public launcher disables atl's signed self-update;
+// removing either line would make the Cellar and atl compete over the same
+// installed file.
+func TestRenderFormulaDelegatesUpdatesToHomebrew(t *testing.T) {
+	out, err := renderFormula("1.2.3", "isukharev/atl", allBuilds())
+	if err != nil {
+		t.Fatal(err)
+	}
+	install := `libexec.install Dir["atl-*"].first => "atl"`
+	wrapper := `(bin/"atl").write_env_script libexec/"atl", ATL_NO_UPDATE: "1"`
+	if strings.Count(out, install) != 1 {
+		t.Fatalf("formula install boundary count = %d, want 1\n---\n%s", strings.Count(out, install), out)
+	}
+	if strings.Count(out, wrapper) != 1 {
+		t.Fatalf("formula update wrapper count = %d, want 1\n---\n%s", strings.Count(out, wrapper), out)
+	}
+	if strings.Index(out, install) > strings.Index(out, wrapper) {
+		t.Error("formula must install the private executable before creating its launcher")
+	}
+	if strings.Contains(out, `bin.install Dir["atl-*"].first`) {
+		t.Error("formula must not install the self-updating executable directly into bin")
 	}
 }
 

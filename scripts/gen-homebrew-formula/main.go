@@ -148,7 +148,8 @@ func renderFormula(version, repo string, builds []build) (string, error) {
 	}
 
 	fmt.Fprintf(&b, "\n  def install\n")
-	fmt.Fprintf(&b, "    bin.install Dir[\"atl-*\"].first => \"atl\"\n")
+	fmt.Fprintf(&b, "    libexec.install Dir[\"atl-*\"].first => \"atl\"\n")
+	fmt.Fprintf(&b, "    (bin/\"atl\").write_env_script libexec/\"atl\", ATL_NO_UPDATE: \"1\"\n")
 	fmt.Fprintf(&b, "  end\n")
 	fmt.Fprintf(&b, "\n  test do\n")
 	fmt.Fprintf(&b, "    assert_match version.to_s, shell_output(\"#{bin}/atl version\")\n")

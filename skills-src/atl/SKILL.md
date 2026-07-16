@@ -138,6 +138,11 @@ Recent additions expand both surfaces — check the focused skills for full flag
 
 **Global flags (all commands):**
 - `--read-only` / `ATL_READ_ONLY=1` — fail closed on every mutating command before credentials/body/network access.
+- `ATL_NO_UPDATE=1` — disable only the signed release check; it does not block
+  Jira/Confluence reads. Homebrew launchers set it automatically and update
+  through `brew upgrade atl`. For a true air gap, combine it with offline
+  commands and an external network policy; `docs/network-egress.md` is the
+  complete destination inventory.
 - `-o id` — print just the primary identifier(s) one per line (issue keys, page IDs) for safe piping into `xargs` or scripts. Not all commands support it; those that don't return an error.
 - `--verbose` / `ATL_VERBOSE=1` — trace every HTTP request/response to stderr (token never logged).
 - Shell completion for fixed-value flags (e.g. `--output`, `--format`, `--status`) is registered.

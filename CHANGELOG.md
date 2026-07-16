@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a consolidated network-egress and air-gap contract covering the signed
+  release check, Jira/Confluence REST, asset and macro expansion, MCP reads,
+  independent read-only/update guards, and externally enforced zero-egress
+  operation.
+
 - Added explicit resumable `conf pull --complete` for historical CQL/space
   mirrors beyond the ordinary selector caps. Two identical exhaustive metadata
   passes and a full local overwrite preflight precede body reads; a private
@@ -65,6 +70,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deterministic Jira and Confluence workflow budgets, and a maintainer tool for
   evaluation plus p50/p90 aggregation. The contracts retain no prompts, command
   arguments, backend paths, URLs, or response bodies.
+
+### Changed
+
+- Homebrew formulas now install `atl` behind a generated environment wrapper
+  with `ATL_NO_UPDATE=1`, leaving `brew upgrade atl` as the single update owner
+  for package-managed installations. Direct release and installer binaries
+  retain signed self-update.
 
 ### Fixed
 

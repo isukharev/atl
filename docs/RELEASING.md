@@ -243,6 +243,12 @@ platform's release-asset URL pinned to its SHA-256, published as a release asset
 and consumed by the tap repository `isukharev/homebrew-tap` (`Formula/atl.rb`),
 which backs `brew install isukharev/tap/atl`.
 
+The formula keeps the real binary under `libexec` and generates a `bin/atl`
+wrapper with `ATL_NO_UPDATE=1`. This is an ownership boundary: Homebrew installs
+must advance through `brew upgrade atl`, while direct release/install-script
+copies retain signed self-update. The generator test pins the wrapper so a
+future formula change cannot silently restore two competing updaters.
+
 **Auto-bump (recommended).** When the `HOMEBREW_TAP_TOKEN` secret is set, the
 release workflow's *Bump Homebrew tap* step pushes the new `atl.rb` into the tap
 automatically, so `brew upgrade atl` works with no manual step. The step is gated
@@ -283,5 +289,6 @@ release checkout has no tracked or non-ignored untracked changes. Build
 provenance is informational and timestamp-free; signed checksums and
 attestations remain the release trust boundary.
 
-Clients on a prior signed version will pick up the update automatically within
-the 6h check window (unless `ATL_NO_UPDATE=1`).
+Directly installed clients on a prior signed version will pick up the update
+automatically within the 6h check window (unless `ATL_NO_UPDATE=1`). Homebrew
+clients update through the tap and `brew upgrade atl`.
