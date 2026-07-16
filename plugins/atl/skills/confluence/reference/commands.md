@@ -27,6 +27,9 @@ Use transient `page view` only for one-off readonly work. For a mirror:
 atl conf pull --id <id> --assets --comments --jira-view default --into <root>
 # alternatives: --cql '<CQL>' or --space <KEY> [--depth N]
 
+# complete historical bootstrap beyond ordinary caps; repeat exactly to resume
+atl conf pull --complete --cql '<stable CQL without ORDER BY>' --into <root>
+
 # recurring large mirror: first run needs one absolute RFC3339 minute
 atl conf pull --incremental --cql '<stable CQL without ORDER BY>' \
   --since '<RFC3339 minute with explicit offset>' --into <root>
@@ -49,8 +52,21 @@ case/whitespace normalization, includes descendant headings, and requires
 at whole rendered blocks and a truncated section is not complete evidence.
 
 Ordinary `--cql` caps at 1000 pages; `--space` and tree cap at 2000. A capped result has
-`truncated:true` and a stderr warning. Narrow the selection; never treat it as
-complete.
+`truncated:true` and a stderr warning. Narrow the selection, or use explicit
+`--complete` when the task needs a full historical mirror; never treat a capped
+result as complete.
+
+Complete pull performs two exhaustive, completeness-qualified metadata passes
+and requires the same canonical unique-id set before body reads. It stores a
+mode-0600 exact-id checkpoint under `.atl/complete-pulls/`, binds
+assets/comments/render/Jira-view options, and resumes the durable remaining
+prefix on the exact same command. Page downloads are serial. A graceful failure
+checkpoints every committed page; a hard crash may replay at most the current
+25-page batch, never skip it. `--max-pages 0` means no configured cap in this
+mode, subject to local state-size/identity safety guards. `ORDER BY`, `--depth`,
+partial pagination, selection drift, duplicate ids, and local edits fail
+closed. `--restart-complete` is the explicit reviewed replacement path; absence
+from a snapshot never proves deletion.
 
 Incremental pull instead exhausts pagination up to its explicit `--max-pages`
 safety cap (default 10000); hitting the cap or any partial response is exit 8

@@ -83,21 +83,28 @@ type confluenceIncrementalSelection struct {
 }
 
 func confluenceSelector(o PullOpts) (string, error) {
+	return confluenceSelectorForMode(o, "incremental")
+}
+
+func confluenceSelectorForMode(o PullOpts, mode string) (string, error) {
 	switch {
 	case strings.TrimSpace(o.CQL) != "":
 		selector := strings.TrimSpace(o.CQL)
 		if hasUnquotedCQLOrderBy(selector) {
-			return "", fmt.Errorf("%w: incremental --cql must not contain ORDER BY; atl appends a stable lastmodified order", domain.ErrUsage)
+			if mode == "incremental" {
+				return "", fmt.Errorf("%w: incremental --cql must not contain ORDER BY; atl appends a stable lastmodified order", domain.ErrUsage)
+			}
+			return "", fmt.Errorf("%w: %s --cql must not contain ORDER BY; atl qualifies and canonicalizes the complete selector independently", domain.ErrUsage, mode)
 		}
 		return selector, nil
 	case strings.TrimSpace(o.Space) != "":
 		if o.Depth != 0 {
-			return "", fmt.Errorf("%w: incremental --space does not support --depth", domain.ErrUsage)
+			return "", fmt.Errorf("%w: %s --space does not support --depth", domain.ErrUsage, mode)
 		}
 		space := strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(o.Space), `\`, `\\`), `"`, `\"`)
 		return `space = "` + space + `" and type = page`, nil
 	default:
-		return "", fmt.Errorf("%w: incremental pull needs --cql or --space", domain.ErrUsage)
+		return "", fmt.Errorf("%w: %s pull needs --cql or --space", domain.ErrUsage, mode)
 	}
 }
 
@@ -358,6 +365,10 @@ func sameIncrementalHitSet(a, b map[string]domain.PageRef) bool {
 // preflightIncrementalOverwrite rejects both native edits and unapplied edits
 // to the derived Markdown view before the first remote body read or local write.
 func preflightIncrementalOverwrite(m *mirror.Mirror, ids []string) (int, error) {
+	return preflightConfluenceOverwrite(m, ids)
+}
+
+func preflightConfluenceOverwrite(m *mirror.Mirror, ids []string) (int, error) {
 	states, err := m.SyncStates()
 	if err != nil {
 		return 0, err

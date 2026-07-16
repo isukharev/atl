@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added explicit resumable `conf pull --complete` for historical CQL/space
+  mirrors beyond the ordinary selector caps. Two identical exhaustive metadata
+  passes and a full local overwrite preflight precede body reads; a private
+  option-bound exact-id checkpoint resumes the durable remaining prefix, while
+  pagination anomalies, selection drift, local edits, and comment truncation
+  fail closed without skipping pages.
+
 - Added guarded Claude Code MCP benchmark execution with a private strict MCP
   config, no shell/file/delegation tools, exact qualified tool allowlisting, and
   server-result accounting. A same-runtime three-run portfolio pair preserved

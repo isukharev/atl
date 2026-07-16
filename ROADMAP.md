@@ -24,6 +24,8 @@ Recent beta work established the contracts the next wave builds on:
 - a complete multi-page Confluence review/sync chain: deterministic native
   semantic diff, hash-bound plan/apply, and selector-bound incremental refresh
   with explicit completeness and resume evidence;
+- explicit historical Confluence selector pulls beyond the ordinary caps, with
+  two-pass membership qualification and private exact-prefix resume state;
 - absolute UTC synchronization boundaries, deterministic human display zones,
   and bounded GET-only diagnostics that qualify server/user/query time evidence
   without hidden calibration searches;
@@ -39,15 +41,14 @@ Recent beta work established the contracts the next wave builds on:
 
 ## Now
 
-The previous daily-operation and Confluence review/sync sequence is shipped.
-Current work keeps packaging and trust ready for the next stable release:
+The daily-operation, Confluence review/sync, and first agent-evaluation sequence
+is shipped. Current work keeps packaging and scale ready for the next stable
+release:
 
 - consolidate zero-egress/security documentation;
 - make package-managed update behavior explicit and reproducible;
-- measure common agent workflows with deterministic budgets, synthetic
-  model-in-loop comparisons, and privacy-safe supervised compatibility checks;
-- compare single-thread and bounded-delegation quarter/portfolio evidence
-  workflows while holding correctness and backend request routes constant.
+- stabilize complete historical mirror bootstraps before adding bounded
+  concurrency or rate-limit scheduling.
 
 ## Next
 
@@ -57,7 +58,6 @@ Work likely to follow once the current sequence is stable.
   app-level tool; Structure, mirror writes, pull/status, and full page bodies
   remain CLI-only for now.
 - Sync at scale after incremental correctness:
-  - unbounded full-space pull and explicit resume contracts;
   - bounded concurrency and rate-limit controls;
   - standalone fragment inventory/check commands when diff/plan evidence shows
     that a separate surface is useful.

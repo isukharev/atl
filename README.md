@@ -259,6 +259,10 @@ atl conf pull \
   --assets \
   --into mirror
 
+# Historical bootstrap beyond the ordinary selector caps. Selection is
+# verified twice before body reads; repeat the exact command to resume.
+atl conf pull --complete --cql 'space=DOCS and type=page' --into mirror
+
 # Repeat a large selector without re-fetching unchanged pages. The first run
 # needs one reviewed absolute instant. A 48-hour safety overlap prevents an
 # unknown backend CQL timezone from omitting pages; no calibration search runs.
@@ -295,6 +299,7 @@ mirror/
       child-page/…              # folder tree mirrors the page hierarchy
   .atl/                         # sidecar: last-synced state + pristine base
     incremental.json            # selector-bound completed refresh watermarks
+    complete-pulls/*.json       # private resumable exact-id snapshots
   .gitignore
 ```
 
@@ -307,7 +312,7 @@ rg "decision" mirror/
 ### 3. Edit, validate & push
 
 ```sh
-# Easiest: ensure the v3 document marker, edit the markdown view, then merge it into .csf.
+# Easiest: ensure the v4 document marker, edit the markdown view, then merge it into .csf.
 # Untouched blocks keep their exact bytes; unconvertible edits fail closed.
 $EDITOR mirror/DOCS/acme-adr/acme-adr.md
 atl conf apply mirror/DOCS/acme-adr/acme-adr.md --dry-run
@@ -521,7 +526,7 @@ handling the `--cql` page cap), see [docs/usage.md → Scripting & CI](docs/usag
 | Exit **3** on every call | The PAT was refused (expired/revoked, or it belongs to a different instance) — create a fresh token and re-`auth login`. |
 | "refusing to send the PAT over http…" | The backend URL is non-https on a non-loopback host. Use `https`, or `export ATL_ALLOW_INSECURE=1` for an internal http instance you trust. |
 | Exit **5** on push | The remote page moved since your last pull (expected) — re-pull, reapply your edit, and push again; `--force` only after a human decides. |
-| A `--cql` pull seems to miss pages | It caps at 1000 (`"truncated": true` + a stderr `warning:`). Narrow the CQL or pull by `--space`. |
+| A `--cql` pull seems to miss pages | Ordinary mode caps at 1000 (`"truncated": true` + a stderr `warning:`). Narrow the CQL, or use explicit resumable `--complete` when a full historical mirror is required. |
 | Direct REST debugging needs a PAT | Keep the token out of argv/logs; use env vars and feed curl headers via stdin (see `docs/usage.md`). |
 | Structure API says the forest spec/body is missing | Check that the request body is sent exactly as a file or stdin payload; avoid shell expansions that turn it into an empty body. |
 | Cloud (`*.atlassian.net`) won't authenticate | Not supported — `atl` uses Server/Data Center bearer PATs, not Cloud API tokens. |

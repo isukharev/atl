@@ -1,0 +1,22 @@
+{
+  "root": "<ROOT>",
+  "pages": [
+    {
+      "id": "100",
+      "title": "Alpha",
+      "path": "ENG/alpha/alpha.csf",
+      "version": 3,
+      "assets": 0
+    }
+  ],
+  "complete_pull": {
+    "selector_sha256": "<SHA256>",
+    "selection_sha256": "<SHA256>",
+    "source": "new",
+    "complete": true,
+    "total": 1,
+    "completed": 1,
+    "remaining": 0,
+    "checkpoint_active": false
+  }
+}
