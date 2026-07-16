@@ -124,6 +124,7 @@ func TestPrivateLiveGuardAllowsOnlyConfinedSkillReaders(t *testing.T) {
 	roots, _ := json.Marshal([]string{root})
 	for _, command := range []string{
 		"cat " + first,
+		"cat " + first + " " + second,
 		"sed -n '1,240p' " + first,
 		"sed -n '1,240p' " + first + " && sed -n '1,260p' " + second,
 		"sed -n '1,240p' " + first + "\nsed -n '1,260p' " + second,
@@ -271,8 +272,35 @@ func TestPrivateSkillReaderCannotEscapeRoots(t *testing.T) {
 	}
 	output.Reset()
 	errorOutput.Reset()
+	if code := runSkillReader("cat", []string{inside, outside}, &output, &errorOutput); code == 0 || output.Len() != 0 {
+		t.Fatalf("mixed read code=%d output=%q", code, output.String())
+	}
+	output.Reset()
+	errorOutput.Reset()
+	if code := runSkillReader("cat", []string{inside, inside}, &output, &errorOutput); code != 0 || output.String() != "one\ntwo\nthree\none\ntwo\nthree\n" {
+		t.Fatalf("multi read code=%d output=%q stderr=%s", code, output.String(), errorOutput.String())
+	}
+	output.Reset()
+	errorOutput.Reset()
 	if code := runSkillReader("wc", []string{"-l", inside}, &output, &errorOutput); code != 0 || !strings.HasPrefix(output.String(), "3 ") {
 		t.Fatalf("wc code=%d output=%q stderr=%s", code, output.String(), errorOutput.String())
+	}
+}
+
+func TestPrivateSkillCatAppliesCombinedByteCap(t *testing.T) {
+	root := t.TempDir()
+	first, second := filepath.Join(root, "one.md"), filepath.Join(root, "two.md")
+	if err := os.WriteFile(first, bytes.Repeat([]byte{'a'}, 600<<10), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, bytes.Repeat([]byte{'b'}, 600<<10), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	roots, _ := json.Marshal([]string{root})
+	t.Setenv("ATL_EVAL_ALLOWED_READ_ROOTS", string(roots))
+	var output, errorOutput bytes.Buffer
+	if code := runSkillReader("cat", []string{first, second}, &output, &errorOutput); code == 0 || output.Len() != 0 {
+		t.Fatalf("code=%d bytes=%d", code, output.Len())
 	}
 }
 

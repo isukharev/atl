@@ -160,6 +160,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Private agent-eval skill reads now allow a bounded multi-file `cat` after
+  validating every path against the confined roots and applying one combined
+  1 MiB cap, avoiding safe onboarding aborts without broadening shell access.
+
 - Fixed agent-evaluation previews to show the provider command rather than a
   symlink target version, and distinguished Claude client-side MCP resolution
   misses from actual `atl` invocations while retaining their model tool-call
