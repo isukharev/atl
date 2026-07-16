@@ -169,21 +169,22 @@ Every run-spec check is a gate, including variant-only checks that are not in
 the shared scenario oracle. This lets a single-agent and delegated run share
 one correctness contract while separately requiring zero or one delegation.
 
-The runner creates a fresh private workspace per repetition. Claude Code loads
-the repository plugin explicitly and receives an `atl`-only Bash allow-rule plus
-a `PreToolUse` guard. The guard accepts one command per Bash call, optionally
+The runner creates a fresh private workspace per repetition. Claude Code CLI
+runs load the repository plugin explicitly and receive an `atl`-only Bash
+allow-rule plus a `PreToolUse` guard. The guard accepts one command per Bash call, optionally
 preceded by the exact `export ATL_READ_ONLY=1`, and only when it matches a
 run-spec `allowed_atl_commands` prefix. Shell operators, substitutions,
 redirections, multiline scripts, and unrelated binaries are denied before Bash.
 Codex gets the same generated skills in `.agents/skills` for a reviewable
-ephemeral read-only command preview. CLI-transport Codex specs remain
-validate/dry-run only because its OS sandbox cannot safely reach the host-side
-mock. Real Codex runs require `tool_transport:"mcp"`: the runner starts the
-exact reviewed `atl mcp serve` binary, enables only `allowed_mcp_tools`, disables
-web search, removes atl credentials from the model shell environment, and
-denies shell/file/patch/delegation tools through `PreToolUse`. The fixture
-credentials are synthetic and reach the MCP child through named environment
-forwarding. Claude loads project settings only. Supported model runs inherit
+ephemeral read-only command preview. Both providers support MCP transport.
+Claude receives a generated mode-0600 config under `--strict-mcp-config`, no
+shell/file/delegation tools, and only qualified `mcp__atl__...` names. Its synthetic
+backend environment is attached to the MCP child and omitted from the provider
+environment. Codex starts the same exact reviewed `atl mcp serve` binary,
+enables only `allowed_mcp_tools`, disables web search, removes atl credentials
+from the model shell environment, and denies shell/file/patch/delegation tools
+through `PreToolUse`. CLI-transport Codex specs remain validate/dry-run only
+because its OS sandbox cannot safely reach the host-side mock. Supported model runs inherit
 `ATL_READ_ONLY=1`, `ATL_NO_UPDATE=1`, and synthetic loopback backend URLs/tokens.
 CLI runs use an `atl` proxy that counts invocations and stdout bytes without retaining
 command arguments; MCP runs count completed typed calls/failures and result bytes
@@ -223,6 +224,13 @@ removes atl credentials from their shell environment. Prompt-injection against
 the committed synthetic fixture is supported. Corporate model-in-the-loop runs
 remain disabled; supervised corporate checks below stay agentless and
 read-only.
+
+Claude may emit a client-side `No such tool available` while its explicit MCP
+server is still becoming visible. The runner counts that as a model tool call,
+so its context/turn cost remains observable, but not as an `atl` invocation
+because no protocol request reached the server. An object-shaped MCP response,
+including an error response, is counted as an invocation; server errors fail
+the `atl_all_succeeded` oracle.
 
 ## Deterministic contract budgets
 

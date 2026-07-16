@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestRunHeadlessWithFakeCodexUsesPrivateWrapperAndSyntheticMetrics(t *testing.T) {
+func TestRunHeadlessWithFakeProvidersUsesPrivateWrapperAndSyntheticMetrics(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake executable scripts are Unix-only")
 	}
@@ -89,6 +89,22 @@ if [ "$1" = "--version" ]; then
   exit 0
 fi
 if [ "$1" = "-p" ]; then
+  mcp=0
+  for arg in "$@"; do
+    if [ "$arg" = "--mcp-config" ]; then
+      mcp=1
+    fi
+  done
+  if [ "$mcp" = "1" ]; then
+    if [ -n "$ATL_JIRA_PAT" ] || [ -n "$ATL_CONFLUENCE_PAT" ]; then
+      echo synthetic backend credentials leaked into the provider environment >&2
+      exit 33
+    fi
+    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}'
+    printf '%s\n' '{"type":"user","tool_use_result":{"content":[{"type":"text","text":"synthetic"}]},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","is_error":false,"content":"{\"fields\":[]}"}]}}'
+    printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":0.00014,"usage":{"input_tokens":100,"output_tokens":20},"structured_output":{"answer":"ok"}}'
+    exit 0
+  fi
   atl version >/dev/null
   printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}'
   printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":0.00014,"usage":{"input_tokens":100,"output_tokens":20},"structured_output":{"answer":"ok"}}'
@@ -133,6 +149,9 @@ exit 2
 	if len(output.Results) != 1 || output.Results[0].Status != "pass" {
 		t.Fatalf("output=%+v", output)
 	}
+	if output.Preview.Command.Path != "claude" {
+		t.Fatalf("preview command path=%q", output.Preview.Command.Path)
+	}
 	result := output.Results[0]
 	if result.Metrics.ATLInvocations != 1 || result.Metrics.BackendRequests != 0 || result.Metrics.EstimatedCostMicroUSD != 140 {
 		t.Fatalf("metrics=%+v", result.Metrics)
@@ -146,9 +165,56 @@ exit 2
 		t.Fatalf("transcript mode=%v", info.Mode())
 	}
 
-	spec.Provider = "codex"
-	spec.Model = "gpt-test-1"
+	spec.Variant = "typed-mcp"
 	spec.ToolTransport = "mcp"
+	spec.AllowedTools = nil
+	spec.AllowedATLCommands = nil
+	spec.AllowedMCPTools = []string{"jira_fields"}
+	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
+	output, err = RunHeadless(context.Background(), RunOptions{
+		SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,
+		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
+		PluginRoot: pluginRoot, WrapperExecutable: wrapper,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(output.Results) != 1 || output.Results[0].Status != "pass" {
+		t.Fatalf("claude MCP output=%+v", output)
+	}
+	result = output.Results[0]
+	if result.Metrics.ATLInvocations != 1 || result.Metrics.ToolCalls != 1 || result.Metrics.EstimatedCostMicroUSD != 140 {
+		t.Fatalf("claude MCP metrics=%+v", result.Metrics)
+	}
+	mcpConfigPath := filepath.Join(outputRoot, scenario.ID, "claude-code", "typed-mcp", "run-01", "claude-mcp.json")
+	mcpConfigInfo, err := os.Stat(mcpConfigPath)
+	if err != nil || mcpConfigInfo.Mode().Perm() != 0o600 {
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Fatalf("MCP config mode=%v", mcpConfigInfo.Mode())
+	}
+	var mcpConfig struct {
+		Servers map[string]struct {
+			Command string            `json:"command"`
+			Args    []string          `json:"args"`
+			Env     map[string]string `json:"env"`
+		} `json:"mcpServers"`
+	}
+	mcpConfigData, err := os.ReadFile(mcpConfigPath)
+	if err != nil || json.Unmarshal(mcpConfigData, &mcpConfig) != nil {
+		t.Fatalf("read MCP config: %v", err)
+	}
+	server := mcpConfig.Servers["atl"]
+	configuredATL, configuredErr := filepath.EvalSymlinks(server.Command)
+	wantATL, wantErr := filepath.EvalSymlinks(fakeATL)
+	if configuredErr != nil || wantErr != nil || configuredATL != wantATL || len(server.Args) != 2 || server.Args[0] != "mcp" || server.Args[1] != "serve" || server.Env["ATL_READ_ONLY"] != "1" || server.Env["ATL_JIRA_PAT"] != "synthetic-jira-token" {
+		t.Fatalf("MCP config is not bound to the reviewed child: %+v", server)
+	}
+
+	spec.Provider = "codex"
+	spec.Variant = "typed-mcp-codex"
+	spec.Model = "gpt-test-1"
 	spec.Pricing = Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000}
 	spec.AllowedTools = nil
 	spec.AllowedATLCommands = nil

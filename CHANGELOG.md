@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added guarded Claude Code MCP benchmark execution with a private strict MCP
+  config, no shell/file/delegation tools, exact qualified tool allowlisting, and
+  server-result accounting. A same-runtime three-run portfolio pair preserved
+  3/3 correctness and the fifteen-GET, zero-write route while reducing median
+  input tokens by 77%, reported cost by 41%, and duration by 50% versus CLI.
+
 - Added `atl mcp serve`, a typed stdio server with seven explicit bounded
   Jira/Confluence evidence tools and no mutation, shell, raw REST, arbitrary
   filesystem, or mirror-write surface. Claude Code and Codex plugins bundle the
@@ -54,6 +60,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arguments, backend paths, URLs, or response bodies.
 
 ### Fixed
+
+- Fixed agent-evaluation previews to show the provider command rather than a
+  symlink target version, and distinguished Claude client-side MCP resolution
+  misses from actual `atl` invocations while retaining their model tool-call
+  cost. Server-returned MCP errors still fail the success oracle.
 
 - Raised the source and CI baseline to Go 1.26.5 and the official MCP Go SDK
   to v1.4.1 so the new server does not ship with the reachable standard-library

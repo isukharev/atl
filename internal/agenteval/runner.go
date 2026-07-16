@@ -96,7 +96,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 	}
 	invocationSpec := loaded.spec
 	invocationSpec.MaxEstimatedCostMicroUSD = perRepetitionCostCap(loaded.spec)
-	previewCommand, err := BuildProviderCommand(invocationSpec, filepath.Base(options.AgentBinary), "<atl-binary>", "<guard>", "<workspace>", "<response-schema>", "<final-response>", pluginPreviewPath(options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, "<guard-settings>"), loaded.responseSchema)
+	previewCommand, err := BuildProviderCommand(invocationSpec, providerPreviewBinary(loaded.spec.Provider), "<atl-binary>", "<guard>", "<workspace>", "<response-schema>", "<final-response>", pluginPreviewPath(options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, "<guard-settings>"), claudeMCPConfigPath(loaded.spec, "<mcp-config>"), loaded.responseSchema)
 	if err != nil {
 		return RunOutput{}, err
 	}
@@ -374,8 +374,23 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		return Result{}, err
 	}
 	defer backend.Close()
+	mcpConfigPath := claudeMCPConfigPath(loaded.spec, filepath.Join(runDir, "claude-mcp.json"))
+	if mcpConfigPath != "" {
+		mcpEnvironment := map[string]string{
+			"ATL_READ_ONLY":   "1",
+			"ATL_NO_UPDATE":   "1",
+			"ATL_CONFIG_DIR":  filepath.Join(evalDir, "atl-config"),
+			"ATL_MIRROR_ROOT": filepath.Join(evalDir, "mirror"),
+		}
+		for name, value := range backend.Environment() {
+			mcpEnvironment[name] = value
+		}
+		if err := writeClaudeMCPConfig(mcpConfigPath, options.ATLBinary, mcpEnvironment); err != nil {
+			return Result{}, err
+		}
+	}
 
-	commandPlan, err := BuildProviderCommand(loaded.spec, options.AgentBinary, options.ATLBinary, guardPath, workspace, responseSchemaPath, finalPath, claudePluginPath(loaded.spec.Provider, options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, settingsPath), loaded.responseSchema)
+	commandPlan, err := BuildProviderCommand(loaded.spec, options.AgentBinary, options.ATLBinary, guardPath, workspace, responseSchemaPath, finalPath, claudePluginPath(loaded.spec.Provider, options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, settingsPath), mcpConfigPath, loaded.responseSchema)
 	if err != nil {
 		return Result{}, err
 	}
@@ -416,8 +431,10 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	allowedReadRoots, _ := json.Marshal([]string{filepath.Join(options.PluginRoot, "skills"), workspace})
 	environment["ATL_EVAL_ALLOWED_READ_ROOTS"] = string(allowedReadRoots)
 	environment["PATH"] = wrapperDir
-	for name, value := range backend.Environment() {
-		environment[name] = value
+	if loaded.spec.Provider != "claude-code" || loaded.spec.ToolTransport != "mcp" {
+		for name, value := range backend.Environment() {
+			environment[name] = value
+		}
 	}
 	command.Env = flattenEnvironment(environment)
 	started := time.Now()
@@ -898,31 +915,37 @@ func guardName() string {
 	return "atl-eval-guard"
 }
 func writeClaudeGuardSettings(path, guardPath string) error {
+	hooks := make([]any, 0, 6)
+	for _, matcher := range []string{"Bash", "Agent", "Read", "Edit", "Write", "apply_patch"} {
+		hooks = append(hooks, map[string]any{
+			"matcher": matcher,
+			"hooks": []any{map[string]any{
+				"type": "command", "command": shellSingleQuote(guardPath), "timeout": 5,
+			}},
+		})
+	}
 	settings := map[string]any{
 		"hooks": map[string]any{
-			"PreToolUse": []any{
-				map[string]any{
-					"matcher": "Bash",
-					"hooks": []any{map[string]any{
-						"type": "command", "command": shellSingleQuote(guardPath), "timeout": 5,
-					}},
-				},
-				map[string]any{
-					"matcher": "Agent",
-					"hooks": []any{map[string]any{
-						"type": "command", "command": shellSingleQuote(guardPath), "timeout": 5,
-					}},
-				},
-				map[string]any{
-					"matcher": "Read",
-					"hooks": []any{map[string]any{
-						"type": "command", "command": shellSingleQuote(guardPath), "timeout": 5,
-					}},
-				},
-			},
+			"PreToolUse": hooks,
 		},
 	}
 	data, err := json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	return writePrivateFile(path, append(data, '\n'))
+}
+
+func writeClaudeMCPConfig(path, atlBinary string, environment map[string]string) error {
+	config := map[string]any{
+		"mcpServers": map[string]any{
+			"atl": map[string]any{
+				"type": "stdio", "command": atlBinary,
+				"args": []string{"mcp", "serve"}, "env": environment,
+			},
+		},
+	}
+	data, err := json.Marshal(config)
 	if err != nil {
 		return err
 	}
@@ -943,9 +966,21 @@ func claudeGuardSettingsPath(provider, path string) string {
 	}
 	return ""
 }
+func claudeMCPConfigPath(spec RunSpec, path string) string {
+	if spec.Provider == "claude-code" && spec.ToolTransport == "mcp" {
+		return path
+	}
+	return ""
+}
 func pluginPreviewPath(root string) string {
 	if root == "" {
 		return ""
 	}
 	return "<plugin-root>"
+}
+func providerPreviewBinary(provider string) string {
+	if provider == "claude-code" {
+		return "claude"
+	}
+	return provider
 }
