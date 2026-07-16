@@ -458,7 +458,9 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 			writeJSONTestFile(t, specPath, spec)
 			output, err := RunHeadless(context.Background(), RunOptions{SpecPath: specPath, OutputRoot: filepath.Join(tempRepository, "private", "runs"), RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: atlBinary, PluginRoot: pluginRoot, WrapperExecutable: wrapper, LiveConfigDir: liveConfig})
 			if err != nil {
-				t.Fatal(err)
+				runDir := filepath.Join(tempRepository, "private", "runs", scenario.ID, provider, spec.Variant, "run-01")
+				stderr, _ := os.ReadFile(filepath.Join(runDir, "agent.stderr"))
+				t.Fatalf("%v; agent stderr=%s", err, stderr)
 			}
 			if len(output.Results) != 1 || output.Results[0].Status != "pass" || output.Results[0].Metrics.BackendRequests != 1 || output.Results[0].Metrics.RemoteWrites != 0 || output.Results[0].HTTPMethods["GET"] != 1 {
 				t.Fatalf("output=%+v", output)

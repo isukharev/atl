@@ -90,11 +90,19 @@ outside the repository and use `backend_mode:"private-live"` with
 delegations, private filesystem modes, and either typed MCP under the
 GET/HEAD-only transport guard or exact-argv CLI execution through the local
 credential gateway. CLI cases additionally bind route and response-byte
-budgets; source backend credentials never enter the provider process.
+budgets; source backend credentials never enter the provider process. Both
+providers use loopback ingress; Codex disables its managed network proxy so the
+hook-guarded `atl` subprocess can reach the parent gateway directly.
 
 See [the private-live procedure](../../docs/agent-benchmarking.md#private-live-model-in-the-loop-check)
 for the reviewed JSON contract and commands. Public comparisons may contain
 only privacy-reviewed aggregate counts and generic task-class labels.
+Before treating two live results as a transport comparison, run
+`agent-eval validate-pair PRIVATE_CLI_SPEC PRIVATE_MCP_SPEC`. The validator
+requires identical task/evaluation inputs and one spec for each transport; it
+does not print the private scenario id. Run each case once, assess both answers
+with the same rubric/reviewer contract, and keep every raw run/review artifact
+under the private output root.
 
 Each run spec also binds a public `rubric.v1.json`. After deterministic checks
 pass, use `agent-eval review-template` and `agent-eval assess` as documented in

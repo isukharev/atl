@@ -36,7 +36,8 @@ calls.
 ## Preflight once per session
 
 ```bash
-command -v atl >/dev/null || echo 'NOT INSTALLED → run {{atl.setup_cmd}}'
+export ATL_READ_ONLY=1
+command -v atl
 atl config show
 ```
 

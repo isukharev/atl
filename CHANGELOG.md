@@ -11,13 +11,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a private-run pair validator and supervised comparison workflow for
+  CLI+skill versus typed MCP. `agent-eval validate-pair` requires the same
+  private case directory, provider/model, scenario, prompt, response schema,
+  qualitative rubric, workspace, checks, timeout, pricing and cost cap before
+  either run can be treated as comparable, while its success output omits the
+  private scenario identity.
+  Private CLI runs also permit the same path-confined `cat`/`sed`/`wc` skill
+  reads as private MCP runs, while arbitrary shell commands and out-of-root
+  reads remain denied. A small newline-only block may establish the inherited
+  read-only guard, check `atl`, and invoke several commands; every invocation
+  still passes independently through the exact argv and count policy.
+- Simplified the Confluence skill preflight to inherit `ATL_READ_ONLY=1` and
+  avoid compound shell control syntax before `command -v atl` and
+  `atl config show`.
+
 - Added end-to-end private-live CLI+skill evaluation for Claude Code and Codex.
   The parent runner now replaces source backend URLs and PATs with disposable
   loopback gateway capabilities, keeps policy/audit/config state outside
   model-readable roots, and fails on any hook, shim, route, method, response,
   or audit denial. Claude loads no ambient setting sources; Codex uses an
   approval-free workspace sandbox with web search disabled and subprocess
-  networking constrained by its built-in policy to the exact loopback host.
+  networking enabled only for the hook-guarded subprocess path; the exact argv
+  shim and loopback gateway remain the egress boundary.
 
 - Added a schema-validated exact-argument policy for private-live CLI+skill
   benchmarks. Each reviewed command family pins its command path, positional

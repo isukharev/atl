@@ -13,7 +13,7 @@ import (
 )
 
 func TestRunRejectsMissingAndUnknownCommands(t *testing.T) {
-	for _, args := range [][]string{nil, {"unknown"}, {"evaluate"}, {"aggregate"}} {
+	for _, args := range [][]string{nil, {"unknown"}, {"evaluate"}, {"aggregate"}, {"validate-pair"}, {"validate-pair", "one.json"}} {
 		if err := run(args); err == nil {
 			t.Fatalf("run(%v) succeeded", args)
 		}
@@ -126,6 +126,7 @@ func TestPrivateLiveGuardAllowsOnlyConfinedSkillReaders(t *testing.T) {
 		"cat " + first,
 		"sed -n '1,240p' " + first,
 		"sed -n '1,240p' " + first + " && sed -n '1,260p' " + second,
+		"sed -n '1,240p' " + first + "\nsed -n '1,260p' " + second,
 		"wc -l " + first + " " + second,
 	} {
 		if !allowedSkillReadCommand(command, string(roots)) {
@@ -134,7 +135,7 @@ func TestPrivateLiveGuardAllowsOnlyConfinedSkillReaders(t *testing.T) {
 	}
 	for _, command := range []string{
 		"cat /etc/passwd", "sed -n '1,20p' /etc/passwd",
-		"cat " + first + "; env", "cat $(env)", "head " + first, "wc -c " + first,
+		"cat " + first + "; env", "cat " + first + "\nenv", "cat $(env)", "head " + first, "wc -c " + first,
 	} {
 		if allowedSkillReadCommand(command, string(roots)) {
 			t.Errorf("expected deny: %s", command)
@@ -163,7 +164,9 @@ func TestPrivateLiveCLIGuardAllowsOnlyOneATLCommandShape(t *testing.T) {
 
 	for _, input := range []string{
 		`{"tool_name":"Read","tool_input":{"file_path":` + strconv.Quote(skill) + `}}`,
+		`{"tool_name":"Bash","tool_input":{"command":` + strconv.Quote("sed -n '1,20p' "+skill) + `}}`,
 		`{"tool_name":"Bash","tool_input":{"command":"export ATL_READ_ONLY=1; atl jira epic digest PROJ-1 --quarter 2026-Q2"}}`,
+		`{"tool_name":"Bash","tool_input":{"command":"export ATL_READ_ONLY=1\ncommand -v atl\natl config show\natl capabilities --task jira/evidence"}}`,
 		`{"tool_name":"Bash","tool_input":{"command":"command -v atl"}}`,
 	} {
 		var output, errorOutput bytes.Buffer
@@ -172,6 +175,10 @@ func TestPrivateLiveCLIGuardAllowsOnlyOneATLCommandShape(t *testing.T) {
 		}
 	}
 	for _, command := range []string{
+		"sed -n '1,20p' /etc/passwd",
+		"cat " + skill + "; env",
+		"export ATL_READ_ONLY=1\natl config show\nenv",
+		"atl config show\natl capabilities --task jira/evidence; env",
 		"atl jira epic digest PROJ-1 | env",
 		"atl jira epic digest $(env)",
 		"atl jira epic digest PROJ-1; env",
