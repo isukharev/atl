@@ -240,8 +240,11 @@ mirror contains a semantic edit, a byte-only edit, an unchanged page, and
 corrupt baseline evidence. The model can run only one `conf diff` and cannot
 read raw mirror files. The expected exit-8 result is not waived:
 `atl_failures_equals` requires exactly one failed invocation while answer
-oracles require all four classifications and a blocked publish decision. Any
-retry, backend request, write, delegation, or guard denial fails the run.
+oracles require all four classifications and a blocked publish decision.
+`skill_invocations_min` also proves that the installed Confluence skill was
+actually loaded; prompt wording and a recorded plugin digest alone are not
+enough. Any retry, backend request, write, delegation, missing skill load, or
+guard denial fails the run.
 
 Validate or preview the new cells without invoking a model:
 
@@ -273,12 +276,22 @@ make agent-eval-contract
   --plugin-root . --repetitions 1
 ```
 
-The current same-runtime reviewed Sonnet pair passed every deterministic check
-and both qualitative rubrics at 10,000 bps with one `conf diff`, zero backend
-requests, and zero writes. Compact text reduced agent-visible tool output from
-4,712 to 545 bytes and input tokens from 50,854 to 27,040 in these single runs.
-The pair is directional; use the committed three-repetition specs before
-drawing performance conclusions.
+The current controlled Sonnet pair passed 3/3 runs and all 13 deterministic
+checks for both projections, with one loaded skill, one `conf diff`, zero
+backend requests, and zero writes. Reviewed representative answers scored
+10,000 bps. Compact text reduced observed agent-visible tool output from
+4,556 to 545 bytes in this controlled output root. The JSON count varies
+slightly with canonical run-path length; compact text uses root-relative paths.
+Median input tokens were 45,252 for JSON and 43,605 for text; both variants used
+five turns and three model tool calls. Token, cost, and duration differences are
+directional provider observations, not projection guarantees.
+
+The same forced-skill compact-text cell also compared the previous
+343-line/17,256-byte Confluence skill with the routed
+120-line/6,226-byte body. Both passed 3/3 with identical turn/tool/atl counts;
+median input tokens fell from 49,364 to 43,605 (-11.7%). The benchmark requires
+the `Skill` event specifically because an earlier one-run projection comparison
+allowed the text run to skip skill loading and therefore overstated its effect.
 
 ## Cross-service discovery family
 

@@ -3,9 +3,9 @@
   "additionalProperties": false,
   "properties": {
     "complete": {"type": "boolean"},
-    "semantic_changes": {"type": "array", "items": {"type": "string"}},
-    "byte_only_changes": {"type": "array", "items": {"type": "string"}},
-    "unchanged": {"type": "array", "items": {"type": "string"}},
+    "semantic_changes": {"type": "array", "items": {"type": "string", "enum": ["Rollout plan"]}},
+    "byte_only_changes": {"type": "array", "items": {"type": "string", "enum": ["Policy formatting"]}},
+    "unchanged": {"type": "array", "items": {"type": "string", "enum": ["Stable runbook"]}},
     "blocked": {
       "type": "array",
       "items": {

@@ -335,6 +335,13 @@ invocation violates the scenario's exact budgets. The durable-mirror cell uses
 this contract for a `conf diff` that emits qualified JSON and then returns exit
 8 on corrupt baseline evidence.
 
+When a CLI+skill experiment is intended to measure shipped skill guidance, add
+`skill_invocations_min` rather than trusting prompt wording or an installed
+plugin digest alone. The Claude provider counts exact `Skill` tool events; the
+check fails if the model completes the task without loading the skill. This is
+an execution oracle only: skill invocations are not added to the public result
+metrics, and providers without an equivalent event cannot satisfy the check.
+
 ### Offline durable mirror review
 
 The `confluence-mirror-review` cell copies a fully synthetic durable mirror into
@@ -348,35 +355,52 @@ atl conf diff mirror --into mirror
 ```
 
 The deterministic test pins all four classifications and proves that the mock
-backend receives zero requests. The model oracle additionally requires exactly
-one invocation, exactly one expected fail-closed result, no delegation or guard
-denial, `complete:false`, and a blocked publish decision with safe baseline
-recovery. This exercises the important distinction between “the tool failed to
-produce evidence” and “the tool produced evidence that deliberately blocks the
+backend receives zero requests. The model oracle additionally requires the
+installed Confluence skill to be loaded, exactly one atl invocation, exactly
+one expected fail-closed result, no delegation or guard denial,
+`complete:false`, and a blocked publish decision with safe baseline recovery.
+This exercises the important distinction between “the tool failed to produce
+evidence” and “the tool produced evidence that deliberately blocks the
 workflow.”
 
-A current same-runtime one-run comparison held the fixture, model, agent
-version, skill digest, answer schema, rubric, deterministic oracles, and safety
-budgets constant. The reviewed prompts differ only in the exact output flag and
-the instructions needed to interpret that projection. Both runs passed all 12
-checks, scored 10,000 bps, used one fail-closed `conf diff`, and made zero
-backend requests/writes:
+A controlled three-repetition Sonnet comparison held the fixture, model, agent
+version, compact skill digest, answer schema, rubric, deterministic oracles,
+and safety budgets constant. The prompts differ only in the exact output flag
+and projection interpretation. Both variants passed 3/3 runs and all 13 checks,
+loaded the skill, used one fail-closed `conf diff`, made zero backend
+requests/writes, and scored 10,000 bps in reviewed representative answers.
+Medians were:
 
 | Metric | Full JSON | Compact text | Change |
 |---|---:|---:|---:|
-| Agent turns | 5 | 3 | -40% |
-| Model tool calls | 3 | 2 | -33% |
+| Agent turns | 5 | 5 | 0% |
+| Model tool calls | 3 | 3 | 0% |
 | `atl` invocations | 1 | 1 | 0% |
-| Agent-visible tool bytes | 4,712 | 545 | -88% |
-| Input tokens | 50,854 | 27,040 | -47% |
-| Output tokens | 716 | 602 | -16% |
-| Reported cost, micro-USD | 102,970 | 58,321 | -43% |
-| Duration, ms | 17,644 | 15,494 | -12% |
+| Agent-visible tool bytes | 4,556 | 545 | -88% |
+| Input tokens | 45,252 | 43,605 | -4% |
+| Output tokens | 775 | 551 | -29% |
+| Reported cost, micro-USD | 85,870 | 72,643 | -15% |
+| Duration, ms | 21,771 | 17,395 | -20% |
 
 This supports `-o text` as the first-pass directory review surface while JSON
-remains the drill-down contract. It is still a directional single-run result;
-use the committed three-repetition specs before treating model cost, turns, or
-latency as stable.
+remains the drill-down contract. Text bytes are stable because paths are
+root-relative; the JSON count includes canonical run paths and therefore varies
+slightly with the private output-root length. Token, cost, and duration medians
+remain directional provider observations. An earlier one-run table did not
+require the `Skill` tool and incorrectly attributed differences in skill loading
+to the projection; it has been replaced by this skill-enforced comparison.
+
+The Confluence skill itself was then compared on the same compact-text prompt,
+schema, runner, CLI binary, provider, and three-repetition oracle. The previous
+343-line/17,256-byte always-loaded body and the routed
+120-line/6,226-byte body both passed 3/3 runs with five turns, three model tools,
+one atl invocation, zero backend traffic, and zero writes. Median input tokens
+fell from 49,364 to 43,605 (-11.7%). Observed median output tokens were 522 and
+551, reported cost was 90,319 and 72,643 micro-USD, and duration was 18,333 and
+17,395 ms; these model-dependent values are directional rather than
+deterministic. The two new one-hop references keep the complete routed
+instruction set at 265 lines/12,859 bytes; agents load only the selected
+workflow after the compact safety and routing core.
 
 ### Topic-first cross-service discovery
 

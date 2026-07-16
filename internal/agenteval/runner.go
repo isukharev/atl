@@ -749,7 +749,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	atlInvocations := len(proxyRecords) + providerMetrics.MCPToolCalls
 	failedATL += providerMetrics.FailedMCPToolCalls
-	checks, err := evaluateRunChecks(loaded.spec.Checks, final, atlInvocations, failedATL, unexpected, providerMetrics.Delegations, guardDenials, httpMethodsObserved)
+	checks, err := evaluateRunChecks(loaded.spec.Checks, final, atlInvocations, failedATL, unexpected, providerMetrics.SkillToolCalls, providerMetrics.Delegations, guardDenials, httpMethodsObserved)
 	if err != nil {
 		return Result{}, err
 	}

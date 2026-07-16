@@ -44,7 +44,9 @@ Recent beta work established the contracts the next wave builds on:
 - an offline durable-mirror review cell that distinguishes semantic, byte-only,
   unchanged, and corrupt-baseline states through one `conf diff`, proves zero
   backend traffic, scores safe fail-closed recovery separately from tool
-  success, and measures a lossless compact text route against full JSON.
+  success, and measures a lossless compact text route against full JSON; its
+  skill-enforced oracle also validated a one-hop Confluence skill split that
+  reduces always-loaded instructions while preserving the reviewed workflow.
 - a topic-first cross-service discovery cell for the primary CLI, shipped
   knowledge-search skill, and paired typed-MCP route, with qualified
   Jira/Confluence candidate pages, a six-GET deterministic oracle, and a
