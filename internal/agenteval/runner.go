@@ -56,9 +56,11 @@ type RunOutput struct {
 }
 
 type atlProxyRecord struct {
-	StdoutBytes int64 `json:"stdout_bytes"`
-	StderrBytes int64 `json:"stderr_bytes"`
-	ExitCode    int   `json:"exit_code"`
+	CommandFamily string `json:"command_family,omitempty"`
+	Denied        bool   `json:"denied,omitempty"`
+	StdoutBytes   int64  `json:"stdout_bytes"`
+	StderrBytes   int64  `json:"stderr_bytes"`
+	ExitCode      int    `json:"exit_code"`
 }
 
 type guardDecisionRecord struct {
@@ -132,11 +134,10 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 	if options.DryRun {
 		return RunOutput{Preview: preview, Results: []Result{}}, nil
 	}
-	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive && loaded.spec.ToolTransport == "cli" {
-		return RunOutput{}, fmt.Errorf("private-live cli model execution requires credential-gateway provider isolation; validation and dry-run are available")
-	}
 	if loaded.spec.Provider == "codex" && loaded.spec.ToolTransport != "mcp" {
-		return RunOutput{}, fmt.Errorf("codex model execution requires tool_transport=mcp; cli transport remains validate/dry-run only")
+		if loaded.spec.EffectiveBackendMode() != BackendModePrivateLive {
+			return RunOutput{}, fmt.Errorf("codex synthetic model execution requires tool_transport=mcp; cli transport remains validate/dry-run only")
+		}
 	}
 
 	agentVersion, err := commandVersion(ctx, options.AgentBinary)
@@ -378,6 +379,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		return Result{}, err
 	}
 	workspace := filepath.Join(runDir, "workspace")
+	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
+		if err := validatePrivateWorkspaceTemplate(loaded.workspace); err != nil {
+			return Result{}, err
+		}
+	}
 	if err := copyWorkspace(loaded.workspace, workspace); err != nil {
 		return Result{}, err
 	}
@@ -393,7 +399,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	finalPath := filepath.Join(runDir, "final.json")
 	transcriptPath := filepath.Join(runDir, "transcript.jsonl")
 	stderrPath := filepath.Join(runDir, "agent.stderr")
-	evalDir := filepath.Join(workspace, ".atl-eval")
+	evalDir := filepath.Join(runDir, ".atl-eval")
 	if err := mkdirPrivate(evalDir); err != nil {
 		return Result{}, err
 	}
@@ -423,8 +429,10 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	atlConfigDir := filepath.Join(evalDir, "atl-config")
 	httpGuardPath := ""
+	cliPolicyPath := ""
 	backendEnvironment := map[string]string{}
 	var backend *MockBackend
+	var liveGateway *LiveGateway
 	var err error
 	if loaded.spec.EffectiveBackendMode() == BackendModeSynthetic {
 		if loaded.fixture == nil {
@@ -446,11 +454,28 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			return Result{}, err
 		}
 		defer func() { _ = os.RemoveAll(atlConfigDir) }()
-		if err := copyLiveConfig(options.LiveConfigDir, atlConfigDir); err != nil {
-			return Result{}, err
+		if loaded.spec.ToolTransport == "cli" {
+			cliPolicyPath = filepath.Join(evalDir, "cli-policy.json")
+			policyData, err := EncodeCLICommandPolicy(CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: loaded.spec.AllowedCLICommands})
+			if err != nil {
+				return Result{}, err
+			}
+			if err := writePrivateFile(cliPolicyPath, policyData); err != nil {
+				return Result{}, err
+			}
+			httpGuardPath = filepath.Join(evalDir, "gateway-audit.jsonl")
+			liveGateway, err = startPrivateCLIGateway(options.LiveConfigDir, atlConfigDir, httpGuardPath, loaded.spec, loaded.scenario)
+			if err != nil {
+				return Result{}, err
+			}
+			defer func() { _ = liveGateway.Close(context.Background()) }()
+		} else {
+			if err := copyLiveConfig(options.LiveConfigDir, atlConfigDir); err != nil {
+				return Result{}, err
+			}
+			httpGuardPath = filepath.Join(evalDir, "http-methods.jsonl")
+			backendEnvironment["ATL_EVAL_HTTP_GUARD_FILE"] = httpGuardPath
 		}
-		httpGuardPath = filepath.Join(evalDir, "http-methods.jsonl")
-		backendEnvironment["ATL_EVAL_HTTP_GUARD_FILE"] = httpGuardPath
 	}
 	mcpConfigPath := claudeMCPConfigPath(loaded.spec, filepath.Join(runDir, "claude-mcp.json"))
 	if mcpConfigPath != "" {
@@ -500,6 +525,12 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	environment["ATL_EVAL_REAL_BINARY"] = options.ATLBinary
 	environment["ATL_EVAL_COUNTER"] = counterPath
 	environment["ATL_EVAL_GUARD_COUNTER"] = guardCounterPath
+	if cliPolicyPath != "" {
+		environment["ATL_EVAL_CLI_POLICY_FILE"] = cliPolicyPath
+		environment["ATL_EVAL_GUARD_MODE"] = "private-cli"
+		environment["NO_PROXY"] = "127.0.0.1,localhost"
+		environment["no_proxy"] = "127.0.0.1,localhost"
+	}
 	if loaded.spec.ToolTransport == "mcp" {
 		environment["ATL_EVAL_GUARD_MODE"] = "mcp-only"
 		if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
@@ -544,6 +575,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		}()
 	}
 	runErr := command.Run()
+	if liveGateway != nil {
+		if err := liveGateway.Close(context.Background()); err != nil {
+			return Result{}, fmt.Errorf("close private-live gateway: %w", err)
+		}
+	}
 	close(guardStop)
 	if guardDone != nil {
 		<-guardDone
@@ -589,6 +625,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if backend != nil {
 		methods, unexpected, duplicateRequests = backend.Summary()
 		httpMethodsObserved = true
+	} else if liveGateway != nil {
+		methods, duplicateRequests, httpMethodsObserved, err = readLiveGatewayRecords(httpGuardPath)
+		if err != nil {
+			return Result{}, err
+		}
 	} else {
 		methods, duplicateRequests, httpMethodsObserved, err = readLiveHTTPRecords(httpGuardPath)
 		if err != nil {
@@ -828,6 +869,78 @@ func readLiveHTTPRecords(path string) (map[string]int, int, bool, error) {
 		records++
 	}
 	if records == 0 {
+		return methods, 0, false, nil
+	}
+	duplicates := 0
+	for _, count := range identities {
+		if count > 1 {
+			duplicates += count - 1
+		}
+	}
+	return methods, duplicates, true, nil
+}
+
+func readLiveGatewayRecords(path string) (map[string]int, int, bool, error) {
+	data, err := readBoundedFile(path, maxLiveGatewayAuditBytes)
+	if os.IsNotExist(err) {
+		return map[string]int{}, 0, false, nil
+	}
+	if err != nil {
+		return nil, 0, false, err
+	}
+	methods := map[string]int{}
+	identities := map[string]int{}
+	forwarded := map[string]int{}
+	completed := map[string]int{}
+	var allowed int
+	var sequence int64
+	for _, line := range bytes.Split(data, []byte{'\n'}) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var record LiveGatewayAuditRecord
+		decoder := json.NewDecoder(bytes.NewReader(line))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&record); err != nil || decoder.Decode(new(any)) != io.EOF {
+			return nil, 0, false, fmt.Errorf("decode private-live gateway audit")
+		}
+		sequence++
+		if record.Sequence != sequence || (record.Service != "jira" && record.Service != "confluence") || (record.Method != "GET" && record.Method != "HEAD") || len(record.RequestHMAC) != 64 {
+			return nil, 0, false, fmt.Errorf("invalid private-live gateway audit record")
+		}
+		if _, err := hex.DecodeString(record.RequestHMAC); err != nil {
+			return nil, 0, false, fmt.Errorf("invalid private-live gateway audit identity")
+		}
+		identity := record.Service + "\x00" + record.Method + "\x00" + record.RequestHMAC
+		switch record.Phase + ":" + record.Decision {
+		case "preflight:forward":
+			if record.Route == "" || record.Reason != "" || record.StatusClass != "" || record.ResponseBytes != 0 {
+				return nil, 0, false, fmt.Errorf("invalid private-live gateway forward record")
+			}
+			forwarded[identity]++
+		case "complete:allow":
+			if record.Route == "" || record.Reason != "" || len(record.StatusClass) != 3 || record.StatusClass[1:] != "xx" || record.ResponseBytes < 0 {
+				return nil, 0, false, fmt.Errorf("invalid private-live gateway completion record")
+			}
+			completed[identity]++
+			identities[record.RequestHMAC]++
+			methods[record.Method]++
+			allowed++
+		case "preflight:deny", "complete:deny":
+			return nil, 0, false, fmt.Errorf("private-live gateway denied a request")
+		default:
+			return nil, 0, false, fmt.Errorf("invalid private-live gateway audit decision")
+		}
+	}
+	if len(forwarded) != len(completed) {
+		return nil, 0, false, fmt.Errorf("private-live gateway audit is incomplete")
+	}
+	for identity, count := range forwarded {
+		if completed[identity] != count {
+			return nil, 0, false, fmt.Errorf("private-live gateway audit is incomplete")
+		}
+	}
+	if allowed == 0 {
 		return methods, 0, false, nil
 	}
 	duplicates := 0

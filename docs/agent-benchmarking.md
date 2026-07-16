@@ -382,7 +382,8 @@ secrets to the agent process.
 
 Use this mode only when the maintainer has approved sending the selected real
 Jira/Confluence evidence to the configured model provider. The provider will
-receive the prompt, MCP responses selected by the model, and the final answer.
+receive the prompt, MCP responses or CLI output selected by the model, and the
+final answer.
 It does not receive a general shell, filesystem reader, raw REST client, mirror
 writer, or mutation tool. Codex may use runner-provided `cat`, `sed -n`, and
 `wc -l` shims solely for installed skill/workspace files; both the hook and the
@@ -392,6 +393,10 @@ Keep the complete case in a private directory outside the repository. A run is
 rejected when its spec is tracked by Git, when the transcript root is not
 ignored, or when the source atl config directory is inside the repository.
 The config directory and its `config.json`/`credentials.json` must be owner-only.
+Private workspace templates may contain reviewed evidence files, but not
+provider control surfaces such as `AGENTS.md`, `CLAUDE.md`, `.mcp.json`,
+`.agents/`, `.claude/`, or `.codex/`; the runner installs the shipped skills and
+its own hooks/configuration after validating that boundary.
 
 A private run spec differs from a synthetic spec in these fields:
 
@@ -471,11 +476,15 @@ go build -o /tmp/agent-eval ./scripts/agent-eval
   --live-config-dir "$HOME/.config/atl-private"
 ```
 
-The runner copies only `config.json` and `credentials.json` into an ephemeral
-owner-only directory used by the MCP child and removes that copy after the
-session. The model-facing process has no general native tool capable of reading
-it, and the confined skill readers cannot resolve paths outside the generated
-workspace/public skill roots.
+For MCP, the runner copies only `config.json` and `credentials.json` into an
+ephemeral owner-only directory used by the MCP child and removes that copy
+after the session. The model-facing process has no general native tool capable
+of reading it, and the confined skill readers cannot resolve paths outside the
+generated workspace/public skill roots. CLI runs do not copy source
+credentials at all: the parent reads them, starts the gateway, and writes a
+separate child config containing only loopback URLs and disposable ingress
+capabilities.
+
 `ATL_READ_ONLY=1` blocks mutations at the CLI policy, the MCP inventory contains
 only explicit read tools, and an independent HTTP transport guard rejects every
 method except GET/HEAD before network I/O. That guard records only method plus a
@@ -499,7 +508,7 @@ independent invocation cap:
 ```json
 {
   "tool_transport": "cli",
-  "allowed_tools": ["Bash(atl *)", "Read"],
+  "allowed_tools": ["Bash(atl *)", "Read", "Skill"],
   "allowed_atl_commands": [],
   "allowed_cli_commands": [
     {
@@ -514,6 +523,13 @@ independent invocation cap:
       "max_invocations": 1
     }
   ],
+  "allowed_gateway_routes": {
+    "jira": [
+      {"name": "jira_api", "path_prefix": "/rest/api/2"}
+    ]
+  },
+  "gateway_max_response_bytes": 1048576,
+  "gateway_max_total_response_bytes": 4194304,
   "allowed_mcp_tools": []
 }
 ```
@@ -528,10 +544,24 @@ process starts, so concurrent or failed invocations cannot exceed the reviewed
 cap. Metrics retain the generic rule name, exit status, and byte counts, never
 the private arguments.
 
-At this stage such specs can be validated and previewed with `--dry-run`.
-Private-live CLI model execution intentionally fails closed until the
-credential gateway is wired into provider-specific environment isolation. MCP
-private-live execution remains the supported end-to-end path meanwhile.
+The route policy is evaluated after ingress authentication and before any
+upstream request. Only GET/HEAD without a body are accepted; the upstream
+origin is pinned, redirects are rejected, and per-response plus total byte
+budgets are enforced. Any gateway denial or an incomplete forward/completion
+audit pair fails the run.
+
+Claude Code receives only the reviewed `Bash(atl *)`, confined `Read`, and
+shipped `Skill` surfaces and loads no ambient setting sources. Codex runs
+model-generated commands in `workspace-write` with approvals and web search
+disabled; command networking is enabled only together with the built-in
+network proxy and an exact `127.0.0.1` destination rule. Its subprocess
+environment excludes source URLs/PATs and ambient proxy variables. The
+provider process itself keeps its normal subscription-authenticated model
+connection; these restrictions apply to commands spawned by the model.
+
+Run `--dry-run` first, inspect the provider plan and local private spec, then
+remove that flag for the single supervised execution. Use the same task,
+response schema, rubric, and evidence scope for a paired typed-MCP run.
 
 ## Public/private boundary
 

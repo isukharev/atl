@@ -90,6 +90,61 @@ func TestBuildClaudeMCPCommandDisablesBuiltinsAndUsesQualifiedAllowlist(t *testi
 	}
 }
 
+func TestBuildPrivateCLIProviderCommandsEnforceHooksAndLoopbackNetwork(t *testing.T) {
+	for _, provider := range []string{"claude-code", "codex"} {
+		t.Run(provider, func(t *testing.T) {
+			spec := validRunSpec()
+			spec.BackendMode = BackendModePrivateLive
+			spec.FixtureFile = ""
+			spec.Repetitions = 1
+			spec.Provider = provider
+			spec.ToolTransport = "cli"
+			spec.AllowedTools = []string{"Bash(atl *)", "Read", "Skill"}
+			spec.AllowedATLCommands = nil
+			spec.AllowedCLICommands = validCLICommandPolicy().Rules
+			spec.AllowedGatewayRoutes = map[string][]LiveGatewayRoute{"jira": {{Name: "jira_api", PathPrefix: "/rest/api/2"}}}
+			spec.GatewayMaxResponseBytes = 1 << 20
+			spec.GatewayMaxTotalBytes = 2 << 20
+			if provider == "claude-code" {
+				spec.Pricing = Pricing{}
+			}
+			command, err := BuildProviderCommand(spec, provider, "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "/plugin", "/settings", "", []byte(`{"type":"object"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			joined := strings.Join(command.Args, " ")
+			if provider == "claude-code" {
+				for _, value := range []string{"--permission-mode dontAsk", "--tools Bash,Read,Skill", "--allowed-tools Bash(atl *),Read,Skill", "--settings /settings"} {
+					if !strings.Contains(joined, value) {
+						t.Errorf("Claude private CLI command misses %q: %s", value, joined)
+					}
+				}
+				if sources, ok := providerArgument(command.Args, "--setting-sources"); !ok || sources != "" {
+					t.Errorf("Claude private CLI loaded ambient setting sources %q: %s", sources, joined)
+				}
+				return
+			}
+			for _, value := range []string{
+				"--sandbox workspace-write", "--ignore-rules", "--dangerously-bypass-hook-trust",
+				`approval_policy="never"`, `web_search="disabled"`,
+				`sandbox_workspace_write.network_access=true`, `features.network_proxy.enabled=true`,
+				`features.network_proxy.domains={"127.0.0.1"="allow"}`,
+				`features.network_proxy.allow_upstream_proxy=false`, "hooks.PreToolUse=", "/opt/guard",
+				`"ATL_EVAL_CLI_POLICY_FILE"`, `"ATL_EVAL_GUARD_MODE"`,
+			} {
+				if !strings.Contains(joined, value) {
+					t.Errorf("Codex private CLI command misses %q: %s", value, joined)
+				}
+			}
+			for _, forbidden := range []string{`"ATL_JIRA_PAT"`, `"ATL_CONFLUENCE_PAT"`, `"ATL_JIRA_URL"`, `"ATL_CONFLUENCE_URL"`} {
+				if strings.Contains(joined, forbidden) {
+					t.Errorf("Codex subprocess environment includes %s: %s", forbidden, joined)
+				}
+			}
+		})
+	}
+}
+
 func providerArgument(args []string, name string) (string, bool) {
 	for i := 0; i+1 < len(args); i++ {
 		if args[i] == name {

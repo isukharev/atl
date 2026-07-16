@@ -18,6 +18,7 @@ import (
 
 type proxyRecord struct {
 	CommandFamily string `json:"command_family,omitempty"`
+	Denied        bool   `json:"denied,omitempty"`
 	StdoutBytes   int64  `json:"stdout_bytes"`
 	StderrBytes   int64  `json:"stderr_bytes"`
 	ExitCode      int    `json:"exit_code"`
@@ -430,36 +431,30 @@ func safePrivateCLICommandShape(command string) bool {
 }
 
 func runATLProxy(args []string) int {
+	counterPath := os.Getenv("ATL_EVAL_COUNTER")
 	if os.Getenv("ATL_READ_ONLY") != "1" {
-		fmt.Fprintln(os.Stderr, "atl evaluation proxy requires ATL_READ_ONLY=1")
-		return 2
+		return rejectATLProxy(counterPath, "atl evaluation proxy requires ATL_READ_ONLY=1")
 	}
 	realBinary := os.Getenv("ATL_EVAL_REAL_BINARY")
-	counterPath := os.Getenv("ATL_EVAL_COUNTER")
 	if realBinary == "" || counterPath == "" {
-		fmt.Fprintln(os.Stderr, "atl evaluation proxy is not configured")
-		return 2
+		return rejectATLProxy(counterPath, "atl evaluation proxy is not configured")
 	}
 	commandFamily := ""
 	if policyPath := os.Getenv("ATL_EVAL_CLI_POLICY_FILE"); policyPath != "" {
 		policy, err := agenteval.LoadCLICommandPolicy(policyPath)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "atl evaluation proxy rejected its command policy")
-			return 2
+			return rejectATLProxy(counterPath, "atl evaluation proxy rejected its command policy")
 		}
 		match, err := policy.Match(args)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "atl evaluation proxy rejected command arguments")
-			return 2
+			return rejectATLProxy(counterPath, "atl evaluation proxy rejected command arguments")
 		}
 		allowed, err := reserveCLIInvocation(counterPath, match.Name, match.MaxInvocations)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "atl evaluation proxy could not enforce its invocation budget")
-			return 2
+			return rejectATLProxy(counterPath, "atl evaluation proxy could not enforce its invocation budget")
 		}
 		if !allowed {
-			fmt.Fprintln(os.Stderr, "atl evaluation proxy rejected an exhausted command budget")
-			return 2
+			return rejectATLProxy(counterPath, "atl evaluation proxy rejected an exhausted command budget")
 		}
 		commandFamily = match.Name
 	}
@@ -467,17 +462,14 @@ func runATLProxy(args []string) int {
 	command.Stdin = os.Stdin
 	stdout, err := command.StdoutPipe()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
+		return failATLProxy(counterPath, "atl evaluation proxy could not attach stdout")
 	}
 	stderr, err := command.StderrPipe()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
+		return failATLProxy(counterPath, "atl evaluation proxy could not attach stderr")
 	}
 	if err := command.Start(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
+		return failATLProxy(counterPath, "atl evaluation proxy could not start atl")
 	}
 	var stdoutBytes, stderrBytes int64
 	var copyWG sync.WaitGroup
@@ -505,6 +497,22 @@ func runATLProxy(args []string) int {
 		return 1
 	}
 	return exitCode
+}
+
+func rejectATLProxy(counterPath, message string) int {
+	fmt.Fprintln(os.Stderr, message)
+	if counterPath != "" {
+		_ = appendProxyRecord(counterPath, proxyRecord{Denied: true, ExitCode: 2})
+	}
+	return 2
+}
+
+func failATLProxy(counterPath, message string) int {
+	fmt.Fprintln(os.Stderr, message)
+	if counterPath != "" {
+		_ = appendProxyRecord(counterPath, proxyRecord{Denied: true, ExitCode: 1})
+	}
+	return 1
 }
 
 func reserveCLIInvocation(counterPath, ruleName string, limit int) (bool, error) {
