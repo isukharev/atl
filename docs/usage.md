@@ -1381,8 +1381,12 @@ bytes no longer match the tracked sync hash; preserve local candidates and
 repair/re-pull the mirror rather than treating it as an unreadable page.
 Directory scans fail closed on corrupt metadata,
 descendant symlinks, or unreadable entries instead of silently omitting pages.
-The Markdown projection is a compact summary table; use JSON when an agent needs
-block hashes, feature deltas, or validation details.
+The Markdown projection is a compact review table. Its paths are relative to
+the mirror root, `Review` is the closed `semantic|byte-only|none|n/a`
+classification, and `Deltas` counts understood block plus feature changes. Use
+`-o text` first for directory triage; use JSON when an agent needs canonical
+absolute evidence paths, block hashes, feature deltas, byte windows, or
+validation details.
 
 Flags:
 

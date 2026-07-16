@@ -265,12 +265,20 @@ make agent-eval-contract
   --output-root "$ATL_AGENT_EVAL_OUTPUT" --repository-root . \
   --agent-binary "$(command -v claude)" --atl-binary "$PWD/atl" \
   --plugin-root . --repetitions 1
+
+/tmp/agent-eval run \
+  --spec benchmarks/agent-eval/confluence-mirror-review/run.text.claude.json \
+  --output-root "$ATL_AGENT_EVAL_OUTPUT" --repository-root . \
+  --agent-binary "$(command -v claude)" --atl-binary "$PWD/atl" \
+  --plugin-root . --repetitions 1
 ```
 
-The first reviewed Sonnet mirror run passed every deterministic check and the
-qualitative rubric at 10,000 bps with one `conf diff`, zero backend requests,
-and zero writes. It is a directional route baseline; use the committed
-three-repetition spec before drawing performance conclusions.
+The current same-runtime reviewed Sonnet pair passed every deterministic check
+and both qualitative rubrics at 10,000 bps with one `conf diff`, zero backend
+requests, and zero writes. Compact text reduced agent-visible tool output from
+4,712 to 545 bytes and input tokens from 50,854 to 27,040 in these single runs.
+The pair is directional; use the committed three-repetition specs before
+drawing performance conclusions.
 
 ## Cross-service discovery family
 

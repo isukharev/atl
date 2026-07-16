@@ -201,6 +201,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `conf diff -o text` is now a lossless compact review projection: paths are
+  mirror-root-relative and every row explicitly classifies review evidence as
+  `semantic`, `byte-only`, `none`, or `n/a` alongside its delta count. Full JSON
+  remains unchanged for canonical paths, hashes, byte windows, validation, and
+  block/feature drill-down. A same-runtime synthetic model comparison preserved
+  every correctness/safety oracle while reducing tool output from 4,712 to 545
+  bytes in the directional one-run pair.
+
 - `conf search` now returns a versioned qualified page envelope with explicit
   `complete`, `truncated`, `partial_reason`, count, exact query, and nullable
   continuation cursor. Its text projection is a Markdown candidate table, and

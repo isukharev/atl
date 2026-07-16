@@ -399,6 +399,12 @@ and carry `{id?,title?,path,state,baseline,candidate,semantic_changed?,byte_only
 set is `unchanged|added|removed|modified|malformed|missing_baseline|
 baseline_mismatch|unreadable`; the summary includes optional
 `baseline_mismatch` when non-zero without changing valid v1 plan bytes.
+The `-o text` projection keeps the same complete/summary qualification and a
+path-ordered Markdown table with `State`, `Page`, mirror-root-relative `Path`,
+`Review`, and `Deltas`. `Review` is `semantic` for understood content/feature
+changes, `byte-only` for native-byte-only differences, `none` for unchanged
+pages, and `n/a` for states that cannot be compared semantically. `Deltas` is
+the number of block plus feature deltas; it is not a substitute for `Review`.
 The two sides expose only presence, byte length, SHA-256, validity, and
 validation diagnostics; block changes expose kind/index/fingerprints rather
 than page text. Byte evidence identifies the exact common prefix/suffix and

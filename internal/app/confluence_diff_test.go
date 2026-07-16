@@ -253,3 +253,28 @@ func TestConfluenceDiffMarkdownEscapesTableCells(t *testing.T) {
 		t.Fatalf("markdown = %q, want %q", md, want)
 	}
 }
+
+func TestConfluenceDiffMarkdownIsCompactExplicitReview(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "mirror")
+	result := &ConfluenceDiffResult{Root: root, Complete: false, Pages: []ConfluencePageDiff{
+		{State: "modified", Title: "Content edit", Path: filepath.Join(root, "DOC", "content.csf"), SemanticChanged: true, Blocks: []ConfluenceBlockChange{{Kind: "p"}}},
+		{State: "modified", Title: "Native format", Path: filepath.Join(root, "DOC", "format.csf"), ByteOnly: true},
+		{State: "unchanged", Title: "Stable", Path: filepath.Join(root, "DOC", "stable.csf")},
+		{State: "baseline_mismatch", Title: "Blocked", Path: filepath.Join(root, "DOC", "blocked.csf")},
+	}}
+	md := ConfluenceDiffMarkdown(result)
+	for _, want := range []string{
+		"| State | Page | Path (relative to root) | Review | Deltas |",
+		"| modified | Content edit | DOC/content.csf | semantic | 1 |",
+		"| modified | Native format | DOC/format.csf | byte-only | 0 |",
+		"| unchanged | Stable | DOC/stable.csf | none | 0 |",
+		"| baseline_mismatch | Blocked | DOC/blocked.csf | n/a | 0 |",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("markdown = %q, want %q", md, want)
+		}
+	}
+	if strings.Contains(md, root+string(filepath.Separator)) {
+		t.Fatalf("markdown retained absolute mirror root: %q", md)
+	}
+}

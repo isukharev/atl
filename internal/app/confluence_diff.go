@@ -620,8 +620,32 @@ func ConfluenceDiffMarkdown(result *ConfluenceDiffResult) string {
 		if label == "" {
 			label = "unknown"
 		}
-		rows = append(rows, []string{page.State, label, page.Path, fmt.Sprint(len(page.Blocks) + len(page.Features))})
+		rows = append(rows, []string{page.State, label, confluenceDiffMarkdownPath(result.Root, page.Path), confluenceDiffReviewKind(page), fmt.Sprint(len(page.Blocks) + len(page.Features))})
 	}
-	b.WriteString(MarkdownTable([]string{"State", "Page", "Path", "Changes"}, rows))
+	b.WriteString(MarkdownTable([]string{"State", "Page", "Path (relative to root)", "Review", "Deltas"}, rows))
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func confluenceDiffMarkdownPath(root, path string) string {
+	if root == "" || path == "" {
+		return filepath.ToSlash(path)
+	}
+	relative, err := filepath.Rel(root, path)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(relative)
+}
+
+func confluenceDiffReviewKind(page ConfluencePageDiff) string {
+	switch {
+	case page.State == "modified" && page.SemanticChanged:
+		return "semantic"
+	case page.State == "modified" && page.ByteOnly:
+		return "byte-only"
+	case page.State == "unchanged":
+		return "none"
+	default:
+		return "n/a"
+	}
 }

@@ -355,12 +355,28 @@ recovery. This exercises the important distinction between “the tool failed to
 produce evidence” and “the tool produced evidence that deliberately blocks the
 workflow.”
 
-The first reviewed one-run Sonnet baseline passed all 12 deterministic checks
-and scored 10,000 bps under the hash-bound qualitative rubric: five agent turns,
-three model tool calls, one `conf diff`, zero backend requests/writes, 4,652
-tool-output bytes, 50,626 input tokens, 739 output tokens, 102,585 reported
-micro-USD, and 20,455 ms. Treat this as a directional route baseline; the
-committed spec still requires three repetitions for a stable comparison.
+A current same-runtime one-run comparison held the fixture, model, agent
+version, skill digest, answer schema, rubric, deterministic oracles, and safety
+budgets constant. The reviewed prompts differ only in the exact output flag and
+the instructions needed to interpret that projection. Both runs passed all 12
+checks, scored 10,000 bps, used one fail-closed `conf diff`, and made zero
+backend requests/writes:
+
+| Metric | Full JSON | Compact text | Change |
+|---|---:|---:|---:|
+| Agent turns | 5 | 3 | -40% |
+| Model tool calls | 3 | 2 | -33% |
+| `atl` invocations | 1 | 1 | 0% |
+| Agent-visible tool bytes | 4,712 | 545 | -88% |
+| Input tokens | 50,854 | 27,040 | -47% |
+| Output tokens | 716 | 602 | -16% |
+| Reported cost, micro-USD | 102,970 | 58,321 | -43% |
+| Duration, ms | 17,644 | 15,494 | -12% |
+
+This supports `-o text` as the first-pass directory review surface while JSON
+remains the drill-down contract. It is still a directional single-run result;
+use the committed three-repetition specs before treating model cost, turns, or
+latency as stable.
 
 ### Topic-first cross-service discovery
 
