@@ -257,7 +257,15 @@ because its OS sandbox cannot safely reach the host-side mock. Supported model r
 `ATL_READ_ONLY=1`, `ATL_NO_UPDATE=1`, and synthetic loopback backend URLs/tokens.
 CLI runs use an `atl` proxy that counts invocations and stdout bytes without retaining
 command arguments; MCP runs count completed typed calls/failures and result bytes
-from the provider event stream. Proxy counters, config, and mirror
+from the provider event stream. Both paths additionally emit the same fixed
+generic capability families (for example `jira.epic.digest` and
+`confluence.page.section`) with invocation/success/failure/output-byte counts.
+Arguments, selectors, URLs, ids, and response excerpts are never retained.
+An unknown CLI route, MCP tool, denied proxy record, or unsupported provider
+shape makes `coverage.capability_families=false` and suppresses the entire
+per-family result instead of publishing a misleading partial attribution.
+Provider token totals remain run-level because neither event protocol safely
+attributes tokens to individual tool results. Proxy counters, config, and mirror
 state are writable only below the private run workspace. The runner requests a
 proxy-only subprocess `PATH`, but provider shells may expose system helpers;
 the `PreToolUse` guard is therefore the authoritative command boundary rather
@@ -631,6 +639,8 @@ receives the private final answer as untrusted data and no tools. Compare:
 - agent turns, tool/atl calls and denials;
 - total and main-thread input/output tokens plus estimated cost;
 - backend GET/HEAD requests, duplicates and returned/output bytes;
+- privacy-safe per-family invocation/failure/output-byte attribution when
+  `coverage.capability_families` is true;
 - duration under the same provider/model/reasoning/runtime identity.
 
 Raw transcripts, answers, review rationales, route labels and per-run files stay

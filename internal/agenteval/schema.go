@@ -12,8 +12,8 @@ import (
 
 const (
 	ScenarioSchemaVersion    = 1
-	ObservationSchemaVersion = 1
-	ResultSchemaVersion      = 2
+	ObservationSchemaVersion = 2
+	ResultSchemaVersion      = 3
 )
 
 const (
@@ -32,6 +32,7 @@ var metricNames = map[string]struct{}{
 	"output_bytes": {}, "input_tokens": {}, "output_tokens": {},
 	"main_thread_input_tokens": {}, "main_thread_output_tokens": {},
 	"estimated_cost_microusd": {}, "duration_millis": {},
+	"capability_families": {},
 }
 
 // Scenario is provider-neutral: the same task and budgets can be evaluated by
@@ -82,15 +83,16 @@ type Runtime struct {
 // Observation is the minimal aggregate trace accepted from a runner. HTTP
 // paths, tool arguments, prompts, and output bodies are deliberately absent.
 type Observation struct {
-	SchemaVersion int             `json:"schema_version"`
-	ScenarioID    string          `json:"scenario_id"`
-	Variant       string          `json:"variant"`
-	Runtime       Runtime         `json:"runtime"`
-	Metrics       InputMetrics    `json:"metrics"`
-	Coverage      map[string]bool `json:"coverage"`
-	HTTPMethods   map[string]int  `json:"http_methods"`
-	Checks        map[string]bool `json:"checks"`
-	Warnings      []string        `json:"warnings,omitempty"`
+	SchemaVersion      int                      `json:"schema_version"`
+	ScenarioID         string                   `json:"scenario_id"`
+	Variant            string                   `json:"variant"`
+	Runtime            Runtime                  `json:"runtime"`
+	Metrics            InputMetrics             `json:"metrics"`
+	Coverage           map[string]bool          `json:"coverage"`
+	HTTPMethods        map[string]int           `json:"http_methods"`
+	Checks             map[string]bool          `json:"checks"`
+	Warnings           []string                 `json:"warnings,omitempty"`
+	CapabilityFamilies []CapabilityFamilyMetric `json:"capability_families,omitempty"`
 }
 
 type InputMetrics struct {
@@ -137,20 +139,21 @@ type Violation struct {
 }
 
 type Result struct {
-	SchemaVersion int                    `json:"schema_version"`
-	ScenarioID    string                 `json:"scenario_id"`
-	TaskClass     string                 `json:"task_class"`
-	DataClass     string                 `json:"data_class"`
-	Variant       string                 `json:"variant"`
-	Runtime       Runtime                `json:"runtime"`
-	Status        string                 `json:"status"`
-	Metrics       Metrics                `json:"metrics"`
-	Coverage      map[string]bool        `json:"coverage"`
-	HTTPMethods   map[string]int         `json:"http_methods"`
-	Checks        map[string]bool        `json:"checks"`
-	Violations    []Violation            `json:"violations"`
-	Warnings      []string               `json:"warnings,omitempty"`
-	Qualitative   *QualitativeAssessment `json:"qualitative,omitempty"`
+	SchemaVersion      int                      `json:"schema_version"`
+	ScenarioID         string                   `json:"scenario_id"`
+	TaskClass          string                   `json:"task_class"`
+	DataClass          string                   `json:"data_class"`
+	Variant            string                   `json:"variant"`
+	Runtime            Runtime                  `json:"runtime"`
+	Status             string                   `json:"status"`
+	Metrics            Metrics                  `json:"metrics"`
+	Coverage           map[string]bool          `json:"coverage"`
+	HTTPMethods        map[string]int           `json:"http_methods"`
+	Checks             map[string]bool          `json:"checks"`
+	Violations         []Violation              `json:"violations"`
+	Warnings           []string                 `json:"warnings,omitempty"`
+	Qualitative        *QualitativeAssessment   `json:"qualitative,omitempty"`
+	CapabilityFamilies []CapabilityFamilyMetric `json:"capability_families,omitempty"`
 }
 
 func (s Scenario) Validate() error {
@@ -251,6 +254,12 @@ func (o Observation) Validate() error {
 	}
 	if o.Coverage["duplicate_backend_requests"] && !o.Coverage["backend_requests"] {
 		return fmt.Errorf("duplicate_backend_requests coverage requires backend_requests coverage")
+	}
+	if !o.Coverage["capability_families"] && len(o.CapabilityFamilies) != 0 {
+		return fmt.Errorf("capability families require coverage")
+	}
+	if _, err := normalizeCapabilityFamilies(o.CapabilityFamilies); err != nil {
+		return err
 	}
 	var backendRequests int
 	for method, count := range o.HTTPMethods {

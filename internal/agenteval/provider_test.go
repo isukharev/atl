@@ -1,6 +1,7 @@
 package agenteval
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -162,20 +163,20 @@ func TestParseProviderOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.AgentTurns != 2 || metrics.ToolCalls != 2 || metrics.Delegations != 1 || metrics.MCPToolCalls != 1 || metrics.FailedMCPToolCalls != 0 || metrics.MCPToolOutputBytes != 7 || !metrics.Coverage["delegations"] || metrics.MainThreadInputTokens != 120 || metrics.MainThreadOutputTokens != 30 || metrics.InputTokens != 80 || metrics.OutputTokens != 18 || metrics.EstimatedCostMicroUSD != 250_000 || string(final) != `{"answer":"ok"}` {
+	if metrics.AgentTurns != 2 || metrics.ToolCalls != 2 || metrics.Delegations != 1 || metrics.MCPToolCalls != 1 || metrics.FailedMCPToolCalls != 0 || metrics.MCPToolOutputBytes != 7 || !metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 1 || metrics.CapabilityFamilies[0].Family != "jira.fields" || metrics.CapabilityFamilies[0].OutputBytes != 7 || !metrics.Coverage["delegations"] || metrics.MainThreadInputTokens != 120 || metrics.MainThreadOutputTokens != 30 || metrics.InputTokens != 80 || metrics.OutputTokens != 18 || metrics.EstimatedCostMicroUSD != 250_000 || string(final) != `{"answer":"ok"}` {
 		t.Fatalf("metrics=%+v final=%s", metrics, final)
 	}
 	codex := strings.Join([]string{
 		`{"type":"item.completed","item":{"type":"error","message":"reviewed invocation warning"}}`,
 		`{"type":"item.completed","item":{"type":"command_execution"}}`,
-		`{"type":"item.completed","item":{"type":"mcp_tool_call","status":"completed","result":{"fields":[]}}}`,
+		`{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}`,
 		`{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":25,"output_tokens":30}}`,
 	}, "\n")
 	metrics, final, err = ParseProviderOutput("codex", []byte(codex), []byte(`{"answer":"ok"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.AgentTurns != 1 || metrics.ToolCalls != 2 || metrics.MCPToolCalls != 1 || metrics.MCPToolOutputBytes == 0 || metrics.InputTokens != 100 || metrics.MainThreadInputTokens != 100 || metrics.OutputTokens != 30 || metrics.MainThreadOutputTokens != 30 || string(final) != `{"answer":"ok"}` {
+	if metrics.AgentTurns != 1 || metrics.ToolCalls != 2 || metrics.MCPToolCalls != 1 || metrics.MCPToolOutputBytes == 0 || !metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 1 || metrics.CapabilityFamilies[0].Family != "jira.fields" || metrics.InputTokens != 100 || metrics.MainThreadInputTokens != 100 || metrics.OutputTokens != 30 || metrics.MainThreadOutputTokens != 30 || string(final) != `{"answer":"ok"}` {
 		t.Fatalf("metrics=%+v final=%s", metrics, final)
 	}
 }
@@ -205,5 +206,23 @@ func TestClaudeUnknownMCPResultShapeFailsClosed(t *testing.T) {
 	}, "\n")
 	if _, _, err := ParseProviderOutput("claude-code", []byte(transcript), nil); err == nil || !strings.Contains(err.Error(), "unsupported client-side shape") {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestUnknownMCPToolSuppressesCapabilityAttribution(t *testing.T) {
+	transcript := strings.Join([]string{
+		`{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"synthetic_sensitive_lookup","status":"completed","result":{"value":"SYNTHETIC-SENSITIVE-123"}}}`,
+		`{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}`,
+	}, "\n")
+	metrics, _, err := ParseProviderOutput("codex", []byte(transcript), []byte(`{"answer":"ok"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 0 || metrics.MCPToolCalls != 1 {
+		t.Fatalf("metrics=%+v", metrics)
+	}
+	encoded, _ := json.Marshal(metrics.CapabilityFamilies)
+	if strings.Contains(string(encoded), "SYNTHETIC-SENSITIVE") {
+		t.Fatalf("leaked attribution: %s", encoded)
 	}
 }

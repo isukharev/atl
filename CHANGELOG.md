@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Agent-eval result schema v3 and aggregate schema v2 now attribute
+  invocation/success/failure/output bytes to fixed privacy-safe CLI/MCP
+  capability families. Unknown provider events suppress attribution through an
+  explicit coverage signal; arguments and response content are never retained.
+
 - `jira epic digest --projection compact` and the typed MCP equivalent now
   preserve qualified evidence while bounding agent context with deterministic
   summaries and explicit omitted/clipped paths.

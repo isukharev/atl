@@ -243,7 +243,7 @@ func TestATLProxyEnforcesExactPrivateCLIArgumentsAndBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(record, []byte(`"command_family":"jira_digest"`)) || bytes.Count(record, []byte(`"denied":true`)) != 2 || bytes.Contains(record, []byte("PROJ-1")) || bytes.Contains(record, []byte("2026-Q2")) {
+	if !bytes.Contains(record, []byte(`"command_family":"jira.epic.digest"`)) || bytes.Count(record, []byte(`"denied":true`)) != 2 || bytes.Contains(record, []byte("PROJ-1")) || bytes.Contains(record, []byte("2026-Q2")) {
 		t.Fatalf("unsafe or incomplete counter record: %s", record)
 	}
 }

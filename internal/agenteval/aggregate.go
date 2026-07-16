@@ -5,7 +5,7 @@ import (
 	"sort"
 )
 
-const AggregateSchemaVersion = 1
+const AggregateSchemaVersion = 2
 
 type Aggregate struct {
 	SchemaVersion int              `json:"schema_version"`
@@ -13,16 +13,25 @@ type Aggregate struct {
 }
 
 type AggregateGroup struct {
-	ScenarioID  string                `json:"scenario_id"`
-	TaskClass   string                `json:"task_class"`
-	DataClass   string                `json:"data_class"`
-	Variant     string                `json:"variant"`
-	Runtime     Runtime               `json:"runtime"`
-	Runs        int                   `json:"runs"`
-	Passes      int                   `json:"passes"`
-	SuccessRate float64               `json:"success_rate"`
-	Metrics     AggregateMetrics      `json:"metrics"`
-	Qualitative *AggregateQualitative `json:"qualitative,omitempty"`
+	ScenarioID         string                      `json:"scenario_id"`
+	TaskClass          string                      `json:"task_class"`
+	DataClass          string                      `json:"data_class"`
+	Variant            string                      `json:"variant"`
+	Runtime            Runtime                     `json:"runtime"`
+	Runs               int                         `json:"runs"`
+	Passes             int                         `json:"passes"`
+	SuccessRate        float64                     `json:"success_rate"`
+	Metrics            AggregateMetrics            `json:"metrics"`
+	Qualitative        *AggregateQualitative       `json:"qualitative,omitempty"`
+	CapabilityFamilies []AggregateCapabilityFamily `json:"capability_families,omitempty"`
+}
+
+type AggregateCapabilityFamily struct {
+	Family      string    `json:"family"`
+	Invocations Quantiles `json:"invocations"`
+	Successes   Quantiles `json:"successes"`
+	Failures    Quantiles `json:"failures"`
+	OutputBytes Quantiles `json:"output_bytes"`
 }
 
 type AggregateQualitative struct {
@@ -131,6 +140,41 @@ func AggregateResults(results []Result) (Aggregate, error) {
 			MainThreadOutputTokens: quantiles(mainOutput), EstimatedCostMicroUSD: quantiles(cost),
 			DurationMillis: quantiles(duration),
 		}
+		familyNames := map[string]struct{}{}
+		coveredRuns := 0
+		for _, item := range items {
+			if item.Coverage["capability_families"] {
+				coveredRuns++
+				for _, family := range item.CapabilityFamilies {
+					familyNames[family.Family] = struct{}{}
+				}
+			}
+		}
+		names := make([]string, 0, len(familyNames))
+		for name := range familyNames {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			invocations, successes, failures, bytesOut := make([]int64, 0, coveredRuns), make([]int64, 0, coveredRuns), make([]int64, 0, coveredRuns), make([]int64, 0, coveredRuns)
+			for _, item := range items {
+				if !item.Coverage["capability_families"] {
+					continue
+				}
+				value := CapabilityFamilyMetric{}
+				for _, family := range item.CapabilityFamilies {
+					if family.Family == name {
+						value = family
+						break
+					}
+				}
+				invocations = append(invocations, int64(value.Invocations))
+				successes = append(successes, int64(value.Successes))
+				failures = append(failures, int64(value.Failures))
+				bytesOut = append(bytesOut, value.OutputBytes)
+			}
+			group.CapabilityFamilies = append(group.CapabilityFamilies, AggregateCapabilityFamily{Family: name, Invocations: quantiles(invocations), Successes: quantiles(successes), Failures: quantiles(failures), OutputBytes: quantiles(bytesOut)})
+		}
 		if key.ReviewerKind != "" {
 			scores := make([]int64, 0, len(items))
 			passes := 0
@@ -199,6 +243,12 @@ func (r Result) Validate() error {
 	}
 	if r.Coverage["duplicate_backend_requests"] && !r.Coverage["backend_requests"] {
 		return fmt.Errorf("result duplicate_backend_requests coverage requires backend_requests coverage")
+	}
+	if !r.Coverage["capability_families"] && len(r.CapabilityFamilies) != 0 {
+		return fmt.Errorf("result capability families require coverage")
+	}
+	if _, err := normalizeCapabilityFamilies(r.CapabilityFamilies); err != nil {
+		return err
 	}
 	for method, count := range r.HTTPMethods {
 		if !methodRE.MatchString(method) || count < 0 || count > maxObservedMethodCount {
