@@ -488,6 +488,51 @@ outside the scenario allowlist fails the run. Do not relax those gates to make
 a private backend pass; reproduce compatibility failures outside the model run
 with the supervised agentless recipe first.
 
+### Reviewed CLI command policy
+
+The primary skill-to-Bash-to-CLI path has a stricter private-live run-spec
+contract than synthetic CLI benchmarks. It never accepts the legacy
+`allowed_atl_commands` prefix list. Instead, every allowed invocation declares
+the complete command path, exact positional values, exact flag values, and an
+independent invocation cap:
+
+```json
+{
+  "tool_transport": "cli",
+  "allowed_tools": ["Bash(atl *)", "Read"],
+  "allowed_atl_commands": [],
+  "allowed_cli_commands": [
+    {
+      "name": "jira_digest",
+      "command": ["jira", "epic", "digest"],
+      "positionals": [{"values": ["PROJ-1"]}],
+      "flags": [
+        {"name": "--quarter", "values": ["2026-Q2"], "required": true},
+        {"name": "--status-field", "values": ["Delivery Notes"]},
+        {"name": "-o", "values": ["json", "text"]}
+      ],
+      "max_invocations": 1
+    }
+  ],
+  "allowed_mcp_tools": []
+}
+```
+
+Flag order may vary, but unknown, repeated, missing-required, joined
+`--flag=value`, changed-target, extra-positional, and shell-separator forms are
+rejected. The hook admits only a single safe `atl ...` command shape or a read
+inside the generated workspace/public skill roots. The shim then loads an
+owner-only policy file outside those roots and matches the actual argv before
+starting the real binary. It reserves the command-family budget before the
+process starts, so concurrent or failed invocations cannot exceed the reviewed
+cap. Metrics retain the generic rule name, exit status, and byte counts, never
+the private arguments.
+
+At this stage such specs can be validated and previewed with `--dry-run`.
+Private-live CLI model execution intentionally fails closed until the
+credential gateway is wired into provider-specific environment isolation. MCP
+private-live execution remains the supported end-to-end path meanwhile.
+
 ## Public/private boundary
 
 Real page and issue content is **private**. Store raw transcripts in a

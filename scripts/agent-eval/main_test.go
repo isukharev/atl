@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/agenteval"
 )
 
 func TestRunRejectsMissingAndUnknownCommands(t *testing.T) {
@@ -145,6 +147,97 @@ func TestPrivateLiveGuardAllowsOnlyConfinedSkillReaders(t *testing.T) {
 	var output, errorOutput bytes.Buffer
 	if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 || !strings.Contains(output.String(), `"permissionDecision":"allow"`) {
 		t.Fatalf("code=%d output=%s stderr=%s", code, output.String(), errorOutput.String())
+	}
+}
+
+func TestPrivateLiveCLIGuardAllowsOnlyOneATLCommandShape(t *testing.T) {
+	root := t.TempDir()
+	skill := filepath.Join(root, "SKILL.md")
+	if err := os.WriteFile(skill, []byte("reviewed skill\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	roots, _ := json.Marshal([]string{root})
+	t.Setenv("ATL_EVAL_GUARD_MODE", "private-cli")
+	t.Setenv("ATL_EVAL_ALLOWED_READ_ROOTS", string(roots))
+	t.Setenv("ATL_EVAL_GUARD_COUNTER", filepath.Join(t.TempDir(), "guard.jsonl"))
+
+	for _, input := range []string{
+		`{"tool_name":"Read","tool_input":{"file_path":` + strconv.Quote(skill) + `}}`,
+		`{"tool_name":"Bash","tool_input":{"command":"export ATL_READ_ONLY=1; atl jira epic digest PROJ-1 --quarter 2026-Q2"}}`,
+		`{"tool_name":"Bash","tool_input":{"command":"command -v atl"}}`,
+	} {
+		var output, errorOutput bytes.Buffer
+		if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 || !strings.Contains(output.String(), `"permissionDecision":"allow"`) {
+			t.Fatalf("code=%d output=%s stderr=%s", code, output.String(), errorOutput.String())
+		}
+	}
+	for _, command := range []string{
+		"atl jira epic digest PROJ-1 | env",
+		"atl jira epic digest $(env)",
+		"atl jira epic digest PROJ-1; env",
+		"env ATL_READ_ONLY=1 atl jira epic digest PROJ-1",
+		"/tmp/atl jira epic digest PROJ-1",
+	} {
+		input := `{"tool_name":"Bash","tool_input":{"command":` + strconv.Quote(command) + `}}`
+		var output, errorOutput bytes.Buffer
+		if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
+			t.Fatalf("command=%q code=%d output=%s stderr=%s", command, code, output.String(), errorOutput.String())
+		}
+	}
+}
+
+func TestATLProxyEnforcesExactPrivateCLIArgumentsAndBudget(t *testing.T) {
+	directory := t.TempDir()
+	realBinary := filepath.Join(directory, "real-atl")
+	executions := filepath.Join(directory, "executions")
+	if err := os.WriteFile(realBinary, []byte("#!/bin/sh\nprintf 'executed\\n' >>\"$ATL_EVAL_TEST_EXECUTIONS\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	policy := agenteval.CLICommandPolicy{
+		SchemaVersion: agenteval.CLICommandPolicySchemaVersion,
+		Rules: []agenteval.CLICommandRule{{
+			Name: "jira_digest", Command: []string{"jira", "epic", "digest"},
+			Positionals:    []agenteval.CLIArgumentRule{{Values: []string{"PROJ-1"}}},
+			Flags:          []agenteval.CLIFlagRule{{Name: "--quarter", Values: []string{"2026-Q2"}, Required: true}},
+			MaxInvocations: 1,
+		}},
+	}
+	data, err := agenteval.EncodeCLICommandPolicy(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyPath := filepath.Join(directory, "policy.json")
+	if err := os.WriteFile(policyPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	counter := filepath.Join(directory, "counter.jsonl")
+	t.Setenv("ATL_READ_ONLY", "1")
+	t.Setenv("ATL_EVAL_REAL_BINARY", realBinary)
+	t.Setenv("ATL_EVAL_COUNTER", counter)
+	t.Setenv("ATL_EVAL_CLI_POLICY_FILE", policyPath)
+	t.Setenv("ATL_EVAL_TEST_EXECUTIONS", executions)
+	allowed := []string{"jira", "epic", "digest", "PROJ-1", "--quarter", "2026-Q2"}
+	if code := runATLProxy(allowed); code != 0 {
+		t.Fatalf("first invocation code=%d", code)
+	}
+	if code := runATLProxy(allowed); code == 0 {
+		t.Fatal("exhausted invocation budget passed")
+	}
+	changed := append([]string(nil), allowed...)
+	changed[3] = "PROJ-2"
+	if code := runATLProxy(changed); code == 0 {
+		t.Fatal("changed target passed")
+	}
+	executed, err := os.ReadFile(executions)
+	if err != nil || string(executed) != "executed\n" {
+		t.Fatalf("executions=%q err=%v", executed, err)
+	}
+	record, err := os.ReadFile(counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(record, []byte(`"command_family":"jira_digest"`)) || bytes.Contains(record, []byte("PROJ-1")) || bytes.Contains(record, []byte("2026-Q2")) {
+		t.Fatalf("unsafe or incomplete counter record: %s", record)
 	}
 }
 
