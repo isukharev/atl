@@ -214,13 +214,14 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 		{Name: "present", Kind: "json_present", Pointer: "/nested"},
 		{Name: "used", Kind: "atl_invocations_min", Minimum: 2},
 		{Name: "used_skill", Kind: "skill_invocations_min", Minimum: 1},
+		{Name: "used_jira_skill", Kind: "skill_invocations_min", Minimum: 1, Expected: json.RawMessage(`"atl:jira"`)},
 		{Name: "bounded", Kind: "atl_invocations_max", Maximum: 2},
 		{Name: "expected_fail_closed", Kind: "atl_failures_equals", Expected: json.RawMessage(`1`)},
 		{Name: "routes", Kind: "mock_no_unexpected"},
 		{Name: "delegated", Kind: "delegations_min", Minimum: 1},
 		{Name: "guarded", Kind: "guard_no_denials"},
 	}
-	result, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 2, 1, 0, 1, 1, 0, true)
+	result, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 2, 1, 0, 1, map[string]int{"atl:jira": 1}, 1, 0, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +230,7 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 			t.Errorf("check %s failed", name)
 		}
 	}
-	over, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 3, 0, 0, 0, 1, 0, true)
+	over, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 3, 0, 0, 1, map[string]int{"atl:confluence": 1}, 1, 0, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,8 +240,11 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 	if over["expected_fail_closed"] {
 		t.Fatal("atl_failures_equals accepted the wrong failure count")
 	}
-	if over["used_skill"] {
-		t.Fatal("skill_invocations_min accepted a run without Skill")
+	if !over["used_skill"] {
+		t.Fatal("skill_invocations_min rejected an unqualified Skill invocation")
+	}
+	if over["used_jira_skill"] {
+		t.Fatal("skill_invocations_min accepted the wrong named skill")
 	}
 }
 
@@ -272,7 +276,7 @@ func TestRunSpecValidatesSkillInvocationMinimum(t *testing.T) {
 	valid.Provider = "claude-code"
 	valid.Pricing = Pricing{}
 	valid.AllowedTools = []string{"Bash(atl *)", "Skill"}
-	valid.Checks = append(valid.Checks, RunCheck{Name: "skill", Kind: "skill_invocations_min", Minimum: 1})
+	valid.Checks = append(valid.Checks, RunCheck{Name: "skill", Kind: "skill_invocations_min", Minimum: 1, Expected: json.RawMessage(`"atl:jira"`)})
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("valid skill invocation minimum: %v", err)
 	}
@@ -281,6 +285,7 @@ func TestRunSpecValidatesSkillInvocationMinimum(t *testing.T) {
 		{Name: "skill", Kind: "skill_invocations_min"},
 		{Name: "skill", Kind: "skill_invocations_min", Minimum: 1, Pointer: "/answer"},
 		{Name: "skill", Kind: "skill_invocations_min", Minimum: 1, Expected: json.RawMessage(`1`)},
+		{Name: "skill", Kind: "skill_invocations_min", Minimum: 1, Expected: json.RawMessage(`""`)},
 	} {
 		spec := validRunSpec()
 		spec.Checks = append(spec.Checks, check)

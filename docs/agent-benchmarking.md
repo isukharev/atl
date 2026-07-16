@@ -238,6 +238,42 @@ Every run-spec check is a gate, including variant-only checks that are not in
 the shared scenario oracle. This lets a single-agent and delegated run share
 one correctness contract while separately requiring zero or one delegation.
 
+### Jira skill routing comparison
+
+The `jira-epic-evidence` CLI variant now requires the exact `atl:jira` skill,
+then confines the model to one metadata-only issue-field discovery and one
+compact digest. `skill_invocations_min` accepts an optional JSON-string
+`expected` target; an unrelated installed skill no longer satisfies a targeted
+experiment.
+
+A controlled Sonnet comparison used the same synthetic task, prompt, response
+schema, CLI binary, runner, model, and final 11-check safety/correctness spec.
+Three independent attempts with the previous 513-line/33,384-byte skill all
+loaded `atl:jira` but immediately proposed a shell pipe/redirection or invalid
+argument shape; the guard stopped each before an atl invocation. The routed
+140-line/8,014-byte core plus its direct evidence reference passed 3/3. Every
+candidate run used exactly five model tools (Skill, one reference read, two
+Bash calls, structured output), two atl invocations, nine synthetic GETs, zero
+writes, and no guard denial; all required sources were complete. A reviewed
+representative answer scored 10,000 bps.
+
+The final strict baseline intentionally has no token/cost median because it
+fails before producing a result; do not fabricate one from aborted sessions.
+An earlier diagnostic three-run old-skill sample, before `guard_clean` was made
+an explicit result check, failed 0/3 and reported a 225,587-token median versus
+84,808 for the final candidate (-62%). That number is directional failure-path
+evidence, not a pure context-size effect. Deterministic size changed as follows:
+
+| Instruction surface | Previous | Routed | Change |
+|---|---:|---:|---:|
+| Always-loaded Jira skill | 513 lines / 33,384 bytes | 140 / 8,014 | -76% bytes |
+| Core plus two new direct runbooks | 513 lines / 33,384 bytes | 320 / 16,334 | -51% bytes |
+
+The candidate medians were seven turns, five tools, 84,808 input tokens, 855
+output tokens, 111,697 reported micro-USD, and 26,625 ms. Treat provider token,
+cost, and duration values as directional; the pass/guard/oracle and file-size
+results are the stable claims.
+
 The runner creates a fresh private workspace per repetition. Claude Code CLI
 runs load the repository plugin explicitly and receive an `atl`-only Bash
 allow-rule plus a `PreToolUse` guard. The guard accepts one command per Bash call, optionally
@@ -337,10 +373,12 @@ this contract for a `conf diff` that emits qualified JSON and then returns exit
 
 When a CLI+skill experiment is intended to measure shipped skill guidance, add
 `skill_invocations_min` rather than trusting prompt wording or an installed
-plugin digest alone. The Claude provider counts exact `Skill` tool events; the
-check fails if the model completes the task without loading the skill. This is
-an execution oracle only: skill invocations are not added to the public result
-metrics, and providers without an equivalent event cannot satisfy the check.
+plugin digest alone. The Claude provider counts exact `Skill` tool events; set
+optional `expected` to a JSON string such as `"atl:jira"` when the experiment
+must load one specific skill. The check fails if the model omits it or loads a
+different skill. This is an execution oracle only: skill invocations are not
+added to the public result metrics, and providers without an equivalent event
+cannot satisfy the check.
 
 ### Offline durable mirror review
 

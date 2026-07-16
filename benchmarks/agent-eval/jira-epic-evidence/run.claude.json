@@ -28,11 +28,13 @@
     {"name": "atl_succeeded", "kind": "atl_all_succeeded"},
     {"name": "child_count_correct", "kind": "json_equals", "pointer": "/child_count", "expected": 1},
     {"name": "issue_key_correct", "kind": "json_equals", "pointer": "/issue_key", "expected": "PROJ-1"},
+    {"name": "guard_clean", "kind": "guard_no_denials"},
     {"name": "mock_clean", "kind": "mock_no_unexpected"},
     {"name": "sources_complete", "kind": "json_equals", "pointer": "/sources_complete", "expected": true},
     {"name": "status_description_correct", "kind": "json_equals", "pointer": "/status_description", "expected": "Synthetic delivery is on track"},
     {"name": "summary_correct", "kind": "json_equals", "pointer": "/summary", "expected": "Deliver synthetic capability"},
     {"name": "bounded_atl", "kind": "atl_invocations_max", "maximum": 3},
-    {"name": "used_atl", "kind": "atl_invocations_min", "minimum": 1}
+    {"name": "used_atl", "kind": "atl_invocations_min", "minimum": 1},
+    {"name": "used_skill", "kind": "skill_invocations_min", "minimum": 1, "expected": "atl:jira"}
   ]
 }

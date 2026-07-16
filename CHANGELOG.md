@@ -201,6 +201,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Reduced the always-loaded Jira skill from 513 lines/33,384 bytes to a
+  140-line/8,014-byte safety and routing core. Durable mirror and guarded-write
+  details now live in two direct one-hop runbooks; the complete core plus those
+  runbooks is also 51% smaller than the previous monolith. The primary
+  epic-evidence route now requires the exact evidence reference before the
+  first Jira command and uses simple inherited-read-only Bash calls without
+  pipes, redirects, variables, or guessed flags.
+
 - Reduced the always-loaded Confluence skill from 343 lines/17,256 bytes to a
   120-line/6,226-byte safety and routing core. Durable sync and Markdown review
   workflows now live in direct one-hop references, while the full routed
@@ -228,6 +236,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retain signed self-update.
 
 ### Fixed
+
+- `skill_invocations_min` can now bind an exact Claude skill name such as
+  `atl:jira` or `atl:confluence`, so loading an unrelated installed skill cannot
+  satisfy a CLI+skill experiment. The routed Jira evidence candidate passed
+  3/3 runs and all 11 checks with two qualified reads and no guard denial;
+  three strict attempts with the previous skill were stopped by the guard.
 
 - Agent-eval run specs can now require an observed Claude `Skill` tool event
   with `skill_invocations_min`. The durable-mirror JSON/text comparison uses

@@ -27,6 +27,7 @@ type ProviderMetrics struct {
 	AgentTurns               int
 	ToolCalls                int
 	SkillToolCalls           int
+	SkillToolCallsByName     map[string]int
 	Delegations              int
 	InputTokens              int64
 	OutputTokens             int64
@@ -258,7 +259,7 @@ func ParseProviderOutput(provider string, transcript, finalFile []byte) (Provide
 }
 
 func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
-	metrics := ProviderMetrics{Coverage: map[string]bool{}, CapabilityFamilyCoverage: true}
+	metrics := ProviderMetrics{Coverage: map[string]bool{}, CapabilityFamilyCoverage: true, SkillToolCallsByName: map[string]int{}}
 	mcpToolUseIDs := map[string]string{}
 	families := map[string]CapabilityFamilyMetric{}
 	var final []byte
@@ -270,11 +271,14 @@ func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
 			return ProviderMetrics{}, nil, fmt.Errorf("decode Claude event: %w", err)
 		}
 		if event["type"] == "assistant" {
-			toolCalls, skillCalls, delegations, mcpIDs := countClaudeToolCalls(event)
-			metrics.ToolCalls += toolCalls
-			metrics.SkillToolCalls += skillCalls
-			metrics.Delegations += delegations
-			for id, family := range mcpIDs {
+			counts := countClaudeToolCalls(event)
+			metrics.ToolCalls += counts.Total
+			metrics.SkillToolCalls += counts.Skill
+			metrics.Delegations += counts.Delegations
+			for name, count := range counts.SkillNames {
+				metrics.SkillToolCallsByName[name] += count
+			}
+			for id, family := range counts.MCPIDs {
 				mcpToolUseIDs[id] = family
 			}
 			metrics.Coverage["tool_calls"] = true
@@ -449,31 +453,43 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 	return metrics, nil
 }
 
-func countClaudeToolCalls(event map[string]any) (int, int, int, map[string]string) {
+type claudeToolCallCounts struct {
+	Total       int
+	Skill       int
+	Delegations int
+	SkillNames  map[string]int
+	MCPIDs      map[string]string
+}
+
+func countClaudeToolCalls(event map[string]any) claudeToolCallCounts {
 	message, _ := event["message"].(map[string]any)
 	content, _ := message["content"].([]any)
-	var count, skillCalls, delegations int
-	mcpIDs := map[string]string{}
+	counts := claudeToolCallCounts{SkillNames: map[string]int{}, MCPIDs: map[string]string{}}
 	for _, value := range content {
 		block, _ := value.(map[string]any)
 		if block["type"] == "tool_use" {
-			count++
+			counts.Total++
 			name, _ := block["name"].(string)
 			if name == "Skill" {
-				skillCalls++
+				counts.Skill++
+				input, _ := block["input"].(map[string]any)
+				skillName, _ := input["skill"].(string)
+				if skillNameRE.MatchString(skillName) {
+					counts.SkillNames[skillName]++
+				}
 			}
 			if name == "Agent" || name == "Task" {
-				delegations++
+				counts.Delegations++
 			}
 			if strings.HasPrefix(name, "mcp__atl__") {
 				if id, _ := block["id"].(string); id != "" {
 					family, _ := CapabilityFamilyForMCP(strings.TrimPrefix(name, "mcp__atl__"))
-					mcpIDs[id] = family
+					counts.MCPIDs[id] = family
 				}
 			}
 		}
 	}
-	return count, skillCalls, delegations, mcpIDs
+	return counts
 }
 
 func countClaudeMCPResults(event map[string]any, mcpToolUseIDs map[string]string) (int, int, int64, []CapabilityFamilyMetric, bool, error) {

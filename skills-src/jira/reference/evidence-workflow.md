@@ -18,12 +18,20 @@ step mechanically.
 ## First-use epic flow
 
 ```sh
-atl --read-only jira issue fields PROJ-1 --metadata-only
+export ATL_READ_ONLY=1
+atl jira issue fields PROJ-1 --metadata-only
+```
 
-atl --read-only jira epic digest PROJ-1 \
-  --status-field 'Delivery Notes' \
-  --dod-field 'Definition of Done' \
-  --projection compact
+For this first-use flow, read the structured result directly and choose one
+exact unambiguous field name/id. Do not pipe it through shell/Python, redirect
+stderr, assign a shell variable, probe `--help`, or combine discovery and
+digest in one command. Then run exactly one digest in a new guarded block. Keep
+each Bash call to the newline-separated export and one plain `atl` command; do
+not use `&&`, a pipe, or shell line continuations:
+
+```sh
+export ATL_READ_ONLY=1
+atl jira epic digest PROJ-1 --status-field 'Delivery Notes' --dod-field 'Definition of Done' --projection compact
 ```
 
 The first command omits values and empty fields. Choose an exact unambiguous
@@ -40,7 +48,8 @@ a conclusion. In compact output also inspect `projection.omitted` and
 is clipped, expand only that exact field:
 
 ```sh
-atl --read-only jira issue field get PROJ-1 \
+export ATL_READ_ONLY=1
+atl jira issue field get PROJ-1 \
   --field 'Delivery Notes' --max-bytes 16384
 ```
 
@@ -52,9 +61,10 @@ do not rerun the digest with `-o text`, a broader period, or alternate defaults.
 If a non-epic issue needs a time-qualified field check, avoid a digest:
 
 ```sh
-atl --read-only jira issue history PROJ-2 \
+export ATL_READ_ONLY=1
+atl jira issue history PROJ-2 \
   --field 'Delivery Notes' --since 2026-04-01 --until 2026-06-30
-atl --read-only jira issue refs PROJ-2 --fields 'Delivery Notes'
+atl jira issue refs PROJ-2 --fields 'Delivery Notes'
 ```
 
 For `issue refs`, require top-level, selection, and per-issue `complete:true`
@@ -76,7 +86,8 @@ exists.
 ## Batch without shell loops
 
 ```sh
-atl --read-only jira export \
+export ATL_READ_ONLY=1
+atl jira export \
   --keys PROJ-1,PROJ-2,PROJ-3 \
   --fields 'Delivery Notes,Impact' \
   --format json --out - |
@@ -93,12 +104,13 @@ Prefer outline then one exact section. A digest can do the same for a bounded
 number of safe references when the heading is already known.
 
 ```sh
-atl --read-only conf page resolve '<same-origin-page-or-short-url>'
-atl --read-only conf page outline '<same-origin-page-or-short-url>'
-atl --read-only conf page section '<same-origin-page-or-short-url>' \
+export ATL_READ_ONLY=1
+atl conf page resolve '<same-origin-page-or-short-url>'
+atl conf page outline '<same-origin-page-or-short-url>'
+atl conf page section '<same-origin-page-or-short-url>' \
   --heading 'Metrics' --max-bytes 65536 -o text
 
-atl --read-only jira epic digest PROJ-1 --quarter 2026-Q2 \
+atl jira epic digest PROJ-1 --quarter 2026-Q2 \
   --status-field 'Delivery Notes' \
   --expand-confluence 1 --confluence-heading 'Metrics' --projection compact
 ```
