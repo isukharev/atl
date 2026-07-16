@@ -126,7 +126,7 @@ while [ "$#" -gt 0 ]; do
   fi
   shift
 done
-printf '%s\n' '{"type":"item.completed","item":{"type":"mcp_tool_call","status":"completed","result":{"fields":[]}}}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
 printf '%s\n' '{"answer":"ok"}' >"$final"
 `, 0o700)
@@ -192,6 +192,9 @@ exit 2
 	result = output.Results[0]
 	if result.Metrics.ATLInvocations != 1 || result.Metrics.ToolCalls != 1 || result.Metrics.EstimatedCostMicroUSD != 140 {
 		t.Fatalf("claude MCP metrics=%+v", result.Metrics)
+	}
+	if !result.Coverage["capability_families"] || len(result.CapabilityFamilies) != 1 || result.CapabilityFamilies[0].Family != "jira.fields" {
+		t.Fatalf("families=%+v coverage=%+v", result.CapabilityFamilies, result.Coverage)
 	}
 	mcpConfigPath := filepath.Join(outputRoot, scenario.ID, "claude-code", "typed-mcp", "run-01", "claude-mcp.json")
 	mcpConfigInfo, err := os.Stat(mcpConfigPath)
@@ -319,7 +322,7 @@ while [ "$#" -gt 0 ]; do
   if [ "$1" = "--output-last-message" ]; then final="$2"; shift 2; continue; fi
   shift
 done
-printf '%s\n' '{"type":"item.completed","item":{"type":"mcp_tool_call","status":"completed","result":{"fields":[]}}}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
 printf '%s\n' '{"answer":"ok"}' >"$final"
 `, 0o700)

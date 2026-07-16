@@ -80,6 +80,14 @@ Raw transcripts, stderr, final structured output, invocation counters, and
 per-run results stay in the private output root with restrictive permissions.
 Only privacy-reviewed aggregate result contracts may be published.
 
+Result schema v3 and aggregate schema v2 expose `capability_families` using a
+closed generic vocabulary shared by CLI and MCP. Each entry contains only
+invocations, successes, failures, and output bytes. Treat the section as
+available only when `coverage.capability_families` is true; unknown events
+suppress attribution rather than leaking or guessing a route. Token metrics
+remain run-level because current provider streams do not assign token usage to
+individual tools.
+
 ## Private-live suite
 
 Real Jira/Confluence model runs are supported, but their scenario, prompt,

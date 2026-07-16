@@ -103,11 +103,16 @@ func Evaluate(s Scenario, o Observation) (Result, error) {
 	}
 	warnings := append([]string(nil), o.Warnings...)
 	sort.Strings(warnings)
+	families, err := normalizeCapabilityFamilies(o.CapabilityFamilies)
+	if err != nil {
+		return Result{}, fmt.Errorf("observation: %w", err)
+	}
 	return Result{
 		SchemaVersion: ResultSchemaVersion,
 		ScenarioID:    s.ID, TaskClass: s.TaskClass, DataClass: s.DataClass, Variant: o.Variant,
 		Runtime: o.Runtime, Status: status, Metrics: metrics,
 		Coverage: coverage, HTTPMethods: methods, Checks: checks, Violations: violations,
-		Warnings: warnings,
+		Warnings:           warnings,
+		CapabilityFamilies: families,
 	}, nil
 }

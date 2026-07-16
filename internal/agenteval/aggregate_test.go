@@ -103,3 +103,30 @@ func TestAggregateResultsSeparatesMainThreadAndTotalTokens(t *testing.T) {
 		t.Fatalf("metrics=%+v", metrics)
 	}
 }
+
+func TestAggregateResultsAttributesCapabilityFamiliesOnlyAcrossCoveredRuns(t *testing.T) {
+	scenario := validScenario()
+	first := validObservation()
+	first.Coverage["capability_families"] = true
+	first.CapabilityFamilies = []CapabilityFamilyMetric{{Family: "jira.fields", Invocations: 1, Successes: 1, OutputBytes: 100}}
+	second := validObservation()
+	second.Coverage["capability_families"] = true
+	second.CapabilityFamilies = []CapabilityFamilyMetric{{Family: "jira.epic.digest", Invocations: 1, Failures: 1, OutputBytes: 200}}
+	third := validObservation()
+	results := make([]Result, 0, 3)
+	for _, observation := range []Observation{first, second, third} {
+		result, err := Evaluate(scenario, observation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		results = append(results, result)
+	}
+	aggregate, err := AggregateResults(results)
+	if err != nil {
+		t.Fatal(err)
+	}
+	families := aggregate.Groups[0].CapabilityFamilies
+	if len(families) != 2 || families[0].Family != "jira.epic.digest" || families[0].Invocations.ObservedRuns != 2 || families[0].Failures.P90 != 1 || families[1].Family != "jira.fields" || families[1].OutputBytes.P90 != 100 {
+		t.Fatalf("families=%+v", families)
+	}
+}

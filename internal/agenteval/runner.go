@@ -662,10 +662,29 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		return Result{}, err
 	}
 	var outputBytes int64
+	familyValues := map[string]CapabilityFamilyMetric{}
+	familyCoverage := true
 	for _, record := range proxyRecords {
 		outputBytes += record.StdoutBytes
+		if record.Denied || record.CommandFamily == "" {
+			familyCoverage = false
+			continue
+		}
+		mergeCapabilityFamily(familyValues, record.CommandFamily, record.ExitCode != 0, record.StdoutBytes)
 	}
 	outputBytes += providerMetrics.MCPToolOutputBytes
+	for _, value := range providerMetrics.CapabilityFamilies {
+		existing := familyValues[value.Family]
+		existing.Family = value.Family
+		existing.Invocations += value.Invocations
+		existing.Successes += value.Successes
+		existing.Failures += value.Failures
+		existing.OutputBytes += value.OutputBytes
+		familyValues[value.Family] = existing
+	}
+	if providerMetrics.MCPToolCalls > 0 && !providerMetrics.CapabilityFamilyCoverage {
+		familyCoverage = false
+	}
 	providerMetrics.DurationMillis = duration
 	providerMetrics.Coverage["duration_millis"] = true
 	if !providerMetrics.Coverage["estimated_cost_microusd"] && providerMetrics.Coverage["input_tokens"] && providerMetrics.Coverage["output_tokens"] {
@@ -680,6 +699,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	providerMetrics.Coverage["backend_requests"] = httpMethodsObserved
 	providerMetrics.Coverage["duplicate_backend_requests"] = httpMethodsObserved
 	providerMetrics.Coverage["output_bytes"] = true
+	providerMetrics.Coverage["capability_families"] = familyCoverage
+	capabilityFamilies := capabilityFamilySlice(familyValues)
+	if !familyCoverage {
+		capabilityFamilies = nil
+	}
 	observation := Observation{
 		SchemaVersion: ObservationSchemaVersion, ScenarioID: loaded.scenario.ID,
 		Variant: loaded.spec.Variant, Runtime: runtime,
@@ -693,6 +717,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			DurationMillis:        providerMetrics.DurationMillis,
 		},
 		Coverage: providerMetrics.Coverage, HTTPMethods: methods, Checks: checks,
+		CapabilityFamilies: capabilityFamilies,
 	}
 	result, err := Evaluate(loaded.scenario, observation)
 	if err != nil {

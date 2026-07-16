@@ -454,7 +454,7 @@ func runATLProxy(args []string) int {
 	if realBinary == "" || counterPath == "" {
 		return rejectATLProxy(counterPath, "atl evaluation proxy is not configured")
 	}
-	commandFamily := ""
+	commandFamily, _ := agenteval.CapabilityFamilyForCLI(args)
 	if policyPath := os.Getenv("ATL_EVAL_CLI_POLICY_FILE"); policyPath != "" {
 		policy, err := agenteval.LoadCLICommandPolicy(policyPath)
 		if err != nil {
@@ -471,7 +471,6 @@ func runATLProxy(args []string) int {
 		if !allowed {
 			return rejectATLProxy(counterPath, "atl evaluation proxy rejected an exhausted command budget")
 		}
-		commandFamily = match.Name
 	}
 	command := exec.Command(realBinary, args...)
 	command.Stdin = os.Stdin
