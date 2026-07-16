@@ -104,6 +104,9 @@ func (p CLICommandPolicy) Match(args []string) (CLICommandMatch, error) {
 	if err := p.Validate(); err != nil {
 		return CLICommandMatch{}, err
 	}
+	if len(args) > 0 && args[0] == "--read-only" {
+		args = args[1:]
+	}
 	var matches []CLICommandRule
 	for _, rule := range p.Rules {
 		if matchCLICommandRule(rule, args) {

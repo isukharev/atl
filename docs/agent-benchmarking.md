@@ -536,7 +536,9 @@ independent invocation cap:
 
 Flag order may vary, but unknown, repeated, missing-required, joined
 `--flag=value`, changed-target, extra-positional, and shell-separator forms are
-rejected. The hook admits only a single safe `atl ...` command shape or a read
+rejected. A single leading global `--read-only` is accepted because it can only
+strengthen the already mandatory process policy; no other global flag is
+implicit. The hook admits only a single safe `atl ...` command shape or a read
 inside the generated workspace/public skill roots. The shim then loads an
 owner-only policy file outside those roots and matches the actual argv before
 starting the real binary. It reserves the command-family budget before the
