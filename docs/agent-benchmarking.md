@@ -605,7 +605,9 @@ permission-profile support, inaccessible broker paths, unsafe file modes, or an
 unavailable broker therefore fail before model or backend access. Codex 0.138.0
 or later is required for custom permission profiles. Every platform must pass
 the same runtime probe; there is no fallback that enables broad command
-networking.
+networking. Linux and macOS use the same file-broker contract; on macOS the
+Seatbelt-backed profile must pass the loopback-denial and broker-readiness
+probe or the run aborts before the model starts.
 
 The provider process keeps its normal subscription-authenticated model
 connection. The custom network policy applies only to commands spawned by the
