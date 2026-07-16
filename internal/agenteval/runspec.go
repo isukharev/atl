@@ -277,6 +277,10 @@ func (s RunSpec) Validate() error {
 			if check.Minimum != 0 || check.Pointer != "" || len(check.Expected) != 0 {
 				return fmt.Errorf("atl_all_succeeded check %q is invalid", check.Name)
 			}
+		case "atl_failures_equals":
+			if _, ok := expectedATLFailureCount(check.Expected); check.Minimum != 0 || check.Pointer != "" || !ok {
+				return fmt.Errorf("atl_failures_equals check %q requires a non-negative integer expected value", check.Name)
+			}
 		case "mock_no_unexpected":
 			if check.Minimum != 0 || check.Pointer != "" || len(check.Expected) != 0 {
 				return fmt.Errorf("mock_no_unexpected check %q is invalid", check.Name)
@@ -394,6 +398,9 @@ func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedAT
 			results[check.Name] = atlInvocations <= check.Maximum
 		case "atl_all_succeeded":
 			results[check.Name] = failedATL == 0
+		case "atl_failures_equals":
+			expected, _ := expectedATLFailureCount(check.Expected)
+			results[check.Name] = failedATL == expected
 		case "mock_no_unexpected":
 			results[check.Name] = unexpectedRequests == 0
 		case "delegations_min":
@@ -423,6 +430,17 @@ func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedAT
 		}
 	}
 	return results, nil
+}
+
+func expectedATLFailureCount(raw json.RawMessage) (int, bool) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return 0, false
+	}
+	var expected int
+	if err := json.Unmarshal(raw, &expected); err != nil || expected < 0 {
+		return 0, false
+	}
+	return expected, true
 }
 
 func resolveJSONPointer(document any, pointer string) (any, bool) {

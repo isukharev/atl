@@ -214,11 +214,12 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 		{Name: "present", Kind: "json_present", Pointer: "/nested"},
 		{Name: "used", Kind: "atl_invocations_min", Minimum: 2},
 		{Name: "bounded", Kind: "atl_invocations_max", Maximum: 2},
+		{Name: "expected_fail_closed", Kind: "atl_failures_equals", Expected: json.RawMessage(`1`)},
 		{Name: "routes", Kind: "mock_no_unexpected"},
 		{Name: "delegated", Kind: "delegations_min", Minimum: 1},
 		{Name: "guarded", Kind: "guard_no_denials"},
 	}
-	result, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 2, 0, 0, 1, 0, true)
+	result, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 2, 1, 0, 1, 0, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,6 +234,32 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 	}
 	if over["bounded"] {
 		t.Fatal("atl_invocations_max accepted an over-budget run")
+	}
+	if over["expected_fail_closed"] {
+		t.Fatal("atl_failures_equals accepted the wrong failure count")
+	}
+}
+
+func TestRunSpecValidatesExpectedATLFailureCount(t *testing.T) {
+	for name, expected := range map[string]json.RawMessage{
+		"missing":  nil,
+		"null":     json.RawMessage(`null`),
+		"negative": json.RawMessage(`-1`),
+		"fraction": json.RawMessage(`1.5`),
+		"string":   json.RawMessage(`"1"`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := validRunSpec()
+			spec.Checks = append(spec.Checks, RunCheck{Name: "expected_failure", Kind: "atl_failures_equals", Expected: expected})
+			if err := spec.Validate(); err == nil {
+				t.Fatal("invalid expected ATL failure count passed")
+			}
+		})
+	}
+	spec := validRunSpec()
+	spec.Checks = append(spec.Checks, RunCheck{Name: "expected_failure", Kind: "atl_failures_equals", Expected: json.RawMessage(`1`)})
+	if err := spec.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }
 

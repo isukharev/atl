@@ -41,6 +41,10 @@ Recent beta work established the contracts the next wave builds on:
 - synthetic Confluence agent-evaluation cells for duplicate-heading/rich-page
   evidence and multi-page decision synthesis, including hostile-content guards,
   deterministic route budgets, qualitative rubrics, and bounded delegation.
+- an offline durable-mirror review cell that distinguishes semantic, byte-only,
+  unchanged, and corrupt-baseline states through one `conf diff`, proves zero
+  backend traffic, and scores safe fail-closed recovery separately from tool
+  success.
 - a topic-first cross-service discovery cell for the primary CLI, shipped
   knowledge-search skill, and paired typed-MCP route, with qualified
   Jira/Confluence candidate pages, a six-GET deterministic oracle, and a

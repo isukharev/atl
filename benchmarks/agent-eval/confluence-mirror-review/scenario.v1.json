@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "confluence.synthetic-mirror-review",
+  "task_class": "confluence/edit",
+  "description": "Review a durable Confluence mirror offline and distinguish semantic edits, byte-only edits, unchanged content, and corrupt baseline evidence.",
+  "data_class": "synthetic",
+  "required_capabilities": ["confluence.diff"],
+  "required_checks": ["blocked_correct", "byte_only_correct", "complete_correct", "expected_fail_closed", "guard_clean", "mock_clean", "no_delegation", "publish_gate_correct", "semantic_correct", "unchanged_correct", "used_atl", "used_atl_once"],
+  "required_metrics": ["agent_turns", "tool_calls", "atl_invocations", "delegations", "backend_requests", "duplicate_backend_requests", "output_bytes", "input_tokens", "output_tokens", "main_thread_input_tokens", "main_thread_output_tokens", "estimated_cost_microusd", "duration_millis", "capability_families"],
+  "budgets": {
+    "max_agent_turns": 8,
+    "max_tool_calls": 5,
+    "max_atl_invocations": 1,
+    "max_delegations": 0,
+    "max_backend_requests": 0,
+    "max_duplicate_backend_requests": 0,
+    "max_remote_writes": 0,
+    "max_output_bytes": 32768,
+    "max_input_tokens": 180000,
+    "max_output_tokens": 8000,
+    "max_main_thread_input_tokens": 180000,
+    "max_main_thread_output_tokens": 8000,
+    "max_estimated_cost_microusd": 10000000,
+    "max_duration_millis": 300000,
+    "allowed_http_methods": []
+  }
+}
