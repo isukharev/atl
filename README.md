@@ -340,6 +340,8 @@ atl conf validate mirror/DOCS/acme-adr/acme-adr.csf
 
 # Inspect native baseline → candidate changes offline (JSON by default)
 ATL_READ_ONLY=1 atl conf diff mirror/DOCS/acme-adr/acme-adr.csf -o text
+# Text uses root-relative paths and explicit semantic/byte-only/none review labels;
+# use default JSON only when block/hash/validation evidence is needed.
 # baseline_mismatch means tracked sync evidence is corrupt: preserve edits and re-pull
 
 # Dry-run to see what the remote write will do

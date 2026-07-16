@@ -1,0 +1,33 @@
+{
+  "schema_version": 2,
+  "scenario_file": "scenario.v1.json",
+  "provider": "claude-code",
+  "variant": "cli-skill-text",
+  "model": "claude-fable-5",
+  "reasoning": "medium",
+  "prompt_file": "prompt.text.md",
+  "response_schema_file": "response-schema.json",
+  "qualitative_rubric_file": "rubric.v1.json",
+  "workspace_template": "workspace",
+  "fixture_file": "fixture.json",
+  "repetitions": 3,
+  "timeout_seconds": 300,
+  "max_estimated_cost_microusd": 10000000,
+  "pricing": {"input_microusd_per_million_tokens": 0, "output_microusd_per_million_tokens": 0},
+  "allowed_tools": ["Bash(atl *)", "Skill"],
+  "allowed_atl_commands": ["atl conf diff"],
+  "checks": [
+    {"name": "blocked_correct", "kind": "json_equals", "pointer": "/blocked", "expected": [{"action": "preserve-and-repair-baseline", "page": "Baseline drift", "state": "baseline_mismatch"}]},
+    {"name": "byte_only_correct", "kind": "json_equals", "pointer": "/byte_only_changes", "expected": ["Policy formatting"]},
+    {"name": "complete_correct", "kind": "json_equals", "pointer": "/complete", "expected": false},
+    {"name": "expected_fail_closed", "kind": "atl_failures_equals", "expected": 1},
+    {"name": "guard_clean", "kind": "guard_no_denials"},
+    {"name": "mock_clean", "kind": "mock_no_unexpected"},
+    {"name": "no_delegation", "kind": "delegations_none"},
+    {"name": "publish_gate_correct", "kind": "json_equals", "pointer": "/publish_ready", "expected": false},
+    {"name": "semantic_correct", "kind": "json_equals", "pointer": "/semantic_changes", "expected": ["Rollout plan"]},
+    {"name": "unchanged_correct", "kind": "json_equals", "pointer": "/unchanged", "expected": ["Stable runbook"]},
+    {"name": "used_atl", "kind": "atl_invocations_min", "minimum": 1},
+    {"name": "used_atl_once", "kind": "atl_invocations_max", "maximum": 1}
+  ]
+}

@@ -343,6 +343,8 @@ atl conf validate mirror/DOCS/acme-adr/acme-adr.csf
 
 # Офлайн-проверка изменений native baseline → candidate (по умолчанию JSON)
 ATL_READ_ONLY=1 atl conf diff mirror/DOCS/acme-adr/acme-adr.csf -o text
+# Text использует пути относительно корня и явные метки semantic/byte-only/none;
+# JSON нужен для детальных block/hash/validation evidence.
 # baseline_mismatch означает повреждение sync-evidence: сохраните правки и сделайте re-pull
 
 # Dry-run — посмотрите, что сделает удалённая запись

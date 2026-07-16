@@ -70,6 +70,23 @@ func TestSyntheticConfluenceMirrorReviewIsExactAndOffline(t *testing.T) {
 	if len(want) != 0 {
 		t.Fatalf("missing page classifications: %+v", want)
 	}
+	textOut, textCode := runCLI(t, backend.Environment(), "--read-only", "conf", "diff", root, "--into", root, "-o", "text")
+	if textCode != exitCheckFailed {
+		t.Fatalf("text exit=%d output=%s", textCode, textOut)
+	}
+	for _, want := range []string{
+		"| baseline_mismatch | Baseline drift | OPS/baseline-drift.csf | n/a | 0 |",
+		"| modified | Policy formatting | OPS/policy-format.csf | byte-only | 0 |",
+		"| modified | Rollout plan | OPS/rollout-plan.csf | semantic | 1 |",
+		"| unchanged | Stable runbook | OPS/stable-runbook.csf | none | 0 |",
+	} {
+		if !strings.Contains(textOut, want) {
+			t.Fatalf("text output=%s, want row=%s", textOut, want)
+		}
+	}
+	if strings.Contains(textOut, root) {
+		t.Fatalf("text output retained absolute mirror root: %s", textOut)
+	}
 	methods, unexpected, duplicates := backend.Summary()
 	if len(methods) != 0 || unexpected != 0 || duplicates != 0 {
 		t.Fatalf("offline diff made backend requests: methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
