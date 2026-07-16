@@ -227,6 +227,13 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 			t.Errorf("check %s failed", name)
 		}
 	}
+	over, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 3, 0, 0, 1, 0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if over["bounded"] {
+		t.Fatal("atl_invocations_max accepted an over-budget run")
+	}
 }
 
 func TestRunSpecificChecksAreMandatory(t *testing.T) {
