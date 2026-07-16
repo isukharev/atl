@@ -73,7 +73,10 @@ version gate.
 ## Two habits that matter most
 
 1. **Search first, read narrow, edit precise.** Don't bulk-dump everything and grep it. Use
-   `conf search` / `jira issue search` (CQL/JQL) to find the few relevant items. For a one-off read
+   `conf search` / `jira issue search` (CQL/JQL) to find the few relevant items.
+   Require Confluence top-level `complete:true` and Jira `page.complete:true`
+   before absence claims. Reuse a numeric Confluence search-result id directly
+   for outline/section; resolve only URLs or unknown references. For a one-off read
    use `conf page view <ID> -o text` or `jira issue view <KEY> -o text` (configured Markdown, no
    mirror artifacts); `pull` only what needs
    editing or repeatable offline access,

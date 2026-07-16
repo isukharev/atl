@@ -111,19 +111,26 @@ func confSearchCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			hits, next, err := svc.Search(cmd.Context(), cql, limit, cursor)
+			result, err := svc.SearchQualified(cmd.Context(), cql, limit, cursor)
 			if err != nil {
 				return err
 			}
-			return emitID(cmd, map[string]any{"results": hits, "next_cursor": next}, func() string {
+			return emitID(cmd, result, func() string {
 				var b strings.Builder
-				for _, h := range hits {
-					fmt.Fprintf(&b, "%s\tv%d\t%s\t%s\n", h.ID, h.Version, h.Space, h.Title)
+				fmt.Fprintf(&b, "> CQL search; complete: %t; rows: %d.\n", result.Complete, result.Count)
+				if result.Truncated {
+					b.WriteString("> **Truncated:** continue with `next_cursor`; absence claims are not supported.\n")
 				}
+				rows := make([][]string, len(result.Results))
+				for i, h := range result.Results {
+					rows[i] = []string{h.ID, fmt.Sprintf("v%d", h.Version), h.Space, h.Title, h.Excerpt}
+				}
+				b.WriteString("\n")
+				b.WriteString(app.MarkdownTable([]string{"ID", "Version", "Space", "Title", "Excerpt"}, rows))
 				return strings.TrimRight(b.String(), "\n")
 			}, func() []string {
-				ids := make([]string, len(hits))
-				for i, h := range hits {
+				ids := make([]string, len(result.Results))
+				for i, h := range result.Results {
 					ids[i] = h.ID
 				}
 				return ids

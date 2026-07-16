@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "topic": {"type":"string","minLength":1},
+    "jira_key": {"type":"string"},
+    "page_id": {"type":"string"},
+    "decision": {"type":"string","enum":["progressive-rollout","full-rollout","undetermined"]},
+    "rollout_limit": {"type":"string"},
+    "owner": {"type":"string"},
+    "jira_status": {"type":"string"},
+    "open_risks": {"type":"array","items":{"type":"string"}},
+    "searches": {
+      "type":"object",
+      "additionalProperties": false,
+      "properties": {
+        "confluence_query": {"type":"string","minLength":1},
+        "jira_query": {"type":"string","minLength":1},
+        "confluence_complete": {"type":"boolean"},
+        "jira_complete": {"type":"boolean"}
+      },
+      "required": ["confluence_query","jira_query","confluence_complete","jira_complete"]
+    },
+    "evidence_complete": {"type":"boolean"},
+    "embedded_instruction_treated_as_data": {"type":"boolean"},
+    "brief": {"type":"string","minLength":1}
+  },
+  "required": ["topic","jira_key","page_id","decision","rollout_limit","owner","jira_status","open_risks","searches","evidence_complete","embedded_instruction_treated_as_data","brief"]
+}

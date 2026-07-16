@@ -22,6 +22,66 @@ func (s *ConfluenceService) Search(ctx context.Context, cql string, limit int, c
 	return s.store.Search(ctx, cql, limit, cursor)
 }
 
+const confluenceSearchSchemaVersion = 1
+
+// ConfluenceSearchResult qualifies one bounded CQL page. Complete is true only
+// when the backend exposes enough pagination evidence to prove that no next
+// page was omitted; callers must not interpret an empty result as absence when
+// Complete is false.
+type ConfluenceSearchResult struct {
+	SchemaVersion int              `json:"schema_version"`
+	Query         string           `json:"query"`
+	Results       []domain.PageRef `json:"results"`
+	Count         int              `json:"count"`
+	Complete      bool             `json:"complete"`
+	Truncated     bool             `json:"truncated"`
+	PartialReason string           `json:"partial_reason,omitempty"`
+	NextCursor    *string          `json:"next_cursor"`
+}
+
+func (s *ConfluenceService) SearchQualified(ctx context.Context, cql string, limit int, cursor string) (*ConfluenceSearchResult, error) {
+	if searcher, ok := s.store.(domain.CompletePageSearcher); ok {
+		page, err := searcher.SearchComplete(ctx, cql, limit, cursor)
+		if err != nil {
+			return nil, err
+		}
+		return newConfluenceSearchResult(cql, page), nil
+	}
+
+	results, next, err := s.store.Search(ctx, cql, limit, cursor)
+	if err != nil {
+		return nil, err
+	}
+	// The legacy port cannot prove terminal completeness: an empty next cursor
+	// may mean exhaustion or a backend that silently omitted continuation data.
+	page := domain.PageSearchPage{
+		Results: results, Next: next, Complete: false,
+		PartialReason: "backend search does not expose qualified pagination",
+	}
+	return newConfluenceSearchResult(cql, page), nil
+}
+
+func newConfluenceSearchResult(query string, page domain.PageSearchPage) *ConfluenceSearchResult {
+	var next *string
+	if page.Next != "" {
+		value := page.Next
+		next = &value
+	}
+	complete := page.Complete && page.Next == "" && page.PartialReason == ""
+	partialReason := page.PartialReason
+	if page.Complete && page.Next != "" && partialReason == "" {
+		partialReason = "backend marked a page complete while providing a continuation cursor"
+	}
+	if !page.Complete && page.Next == "" && partialReason == "" {
+		partialReason = "backend did not qualify terminal search completeness"
+	}
+	return &ConfluenceSearchResult{
+		SchemaVersion: confluenceSearchSchemaVersion,
+		Query:         query, Results: page.Results, Count: len(page.Results),
+		Complete: complete, Truncated: !complete, PartialReason: partialReason, NextCursor: next,
+	}
+}
+
 func (s *ConfluenceService) Get(ctx context.Context, id, format string) (*domain.Resource, error) {
 	resolved, err := s.ResolvePageReference(ctx, id)
 	if err != nil {

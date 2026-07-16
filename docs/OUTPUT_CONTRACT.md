@@ -39,6 +39,16 @@ The reviewed text/id inventories annotate the command tree before execution.
 They are also the source of truth for `atl capabilities`; the catalog cannot
 advertise an output mode that the root preflight would refuse.
 
+### Qualified Confluence search page
+
+`atl conf search` returns
+`{schema_version:1,query,results,count,complete,truncated,partial_reason?,next_cursor}`.
+`complete:true` requires a qualified terminal backend page: no continuation
+cursor and no pagination anomaly. Legacy/unqualified stores remain
+`complete:false`, even with an empty cursor. `-o text` carries the same signal
+above a Markdown candidate table; `-o id` remains page ids only. Agents must
+continue a cursor or disclose partial search before making an absence claim.
+
 ### Capability catalog
 
 `atl capabilities` is an offline, deterministic routing contract. JSON is

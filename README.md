@@ -362,6 +362,8 @@ atl conf plan apply .atl-private/docs-plan.json \
 
 ```sh
 atl conf search --cql 'space=DOCS and label="adr"'
+# JSON qualifies this bounded result with complete/truncated/partial_reason;
+# -o text is a Markdown candidate table with the same completeness signal.
 atl conf space tree --space DOCS
 # Page ids come from atl conf pull output (meta.json → "id" field) or the page URL.
 atl conf page view 123456 -o text   # configured Markdown, no mirror artifacts

@@ -19,6 +19,11 @@ atl conf page view <id-or-same-origin-url> --jira-macros off -o text # untrusted
 
 Do not combine `--cql` with convenience filters. Search requires CQL or at
 least one of `--space/--title/--label/--type`; paginate with `--cursor`.
+Require top-level `complete:true` before treating missing pages as evidence of
+absence; otherwise continue `next_cursor` or report the partial search. A
+numeric id returned here is already stable, so pass it directly to
+`page outline`/`page section` and reserve `page resolve` for URLs or unknown
+references.
 
 Use transient `page view` only for one-off readonly work. For a mirror:
 
@@ -169,7 +174,7 @@ identifier per line.
 
 | Command | Purpose | Key flags |
 |---|---|---|
-| `conf search` | Find pages | `--cql` or convenience filters, `--limit`, `--cursor` |
+| `conf search` | Find a qualified bounded page (`complete`/`truncated`) | `--cql` or convenience filters, `--limit`, `--cursor` |
 | `conf space tree` | Space hierarchy | `--space`, `--depth` |
 | `conf page resolve|outline|section|list|get|view|meta|history|open` | Reference resolution and page reads | outline before long reads; section uses exact heading/occurrence/byte cap; view supports `--jira-view`, `--jira-macros` |
 | `conf page labels list <ID>` | Complete page-label read | no write; inspect `complete` |

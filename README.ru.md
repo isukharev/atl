@@ -365,6 +365,8 @@ atl conf plan apply .atl-private/docs-plan.json \
 
 ```sh
 atl conf search --cql 'space=DOCS and label="adr"'
+# JSON квалифицирует выборку через complete/truncated/partial_reason;
+# -o text даёт Markdown-таблицу кандидатов с тем же сигналом полноты.
 atl conf space tree --space DOCS
 # Идентификаторы страниц берутся из вывода atl conf pull (meta.json → поле "id") или URL страницы.
 atl conf page view 123456 -o text   # настроенный Markdown без артефактов mirror
