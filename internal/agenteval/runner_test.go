@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 )
 
@@ -104,8 +103,7 @@ while [ "$#" -gt 0 ]; do
   fi
   shift
 done
-atl version >/dev/null
-printf '%s\n' '{"type":"item.completed","item":{"type":"command_execution"}}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"mcp_tool_call","status":"completed","result":{"fields":[]}}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
 printf '%s\n' '{"answer":"ok"}' >"$final"
 `, 0o700)
@@ -150,16 +148,26 @@ exit 2
 
 	spec.Provider = "codex"
 	spec.Model = "gpt-test-1"
+	spec.ToolTransport = "mcp"
 	spec.Pricing = Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000}
-	spec.AllowedTools = []string{"Bash(atl *)"}
+	spec.AllowedTools = nil
+	spec.AllowedATLCommands = nil
+	spec.AllowedMCPTools = []string{"jira_fields"}
 	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
-	_, err = RunHeadless(context.Background(), RunOptions{
+	output, err = RunHeadless(context.Background(), RunOptions{
 		SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,
 		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
 		PluginRoot: pluginRoot, WrapperExecutable: wrapper,
 	})
-	if err == nil || !strings.Contains(err.Error(), "codex model execution is disabled") {
-		t.Fatalf("codex error=%v", err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(output.Results) != 1 || output.Results[0].Status != "pass" {
+		t.Fatalf("codex output=%+v", output)
+	}
+	result = output.Results[0]
+	if result.Metrics.ATLInvocations != 1 || result.Metrics.ToolCalls != 1 || result.Metrics.EstimatedCostMicroUSD != 140 {
+		t.Fatalf("codex metrics=%+v", result.Metrics)
 	}
 }
 

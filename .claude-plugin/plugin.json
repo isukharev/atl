@@ -17,5 +17,6 @@
     "cli",
     "mirror",
     "docs-as-code"
-  ]
+  ],
+  "mcpServers": "./.mcp.json"
 }

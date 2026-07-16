@@ -40,6 +40,31 @@ func TestRunSpecFailsClosedOnCostPathsAndOracle(t *testing.T) {
 	}
 }
 
+func TestRunSpecSeparatesCLIAndMCPAllowlists(t *testing.T) {
+	mcpSpec := validRunSpec()
+	mcpSpec.ToolTransport = "mcp"
+	mcpSpec.AllowedTools = nil
+	mcpSpec.AllowedATLCommands = nil
+	mcpSpec.AllowedMCPTools = []string{"jira_fields", "jira_epic_digest"}
+	if err := mcpSpec.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*RunSpec){
+		"shell_tools":   func(spec *RunSpec) { spec.AllowedTools = []string{"Bash"} },
+		"cli_commands":  func(spec *RunSpec) { spec.AllowedATLCommands = []string{"atl jira fields"} },
+		"missing_mcp":   func(spec *RunSpec) { spec.AllowedMCPTools = nil },
+		"duplicate_mcp": func(spec *RunSpec) { spec.AllowedMCPTools = []string{"jira_fields", "jira_fields"} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := mcpSpec
+			mutate(&spec)
+			if err := spec.Validate(); err == nil {
+				t.Fatal("invalid MCP run spec passed")
+			}
+		})
+	}
+}
+
 func TestRunSpecRequiresScenarioOracleAndCostBoundary(t *testing.T) {
 	scenario := validScenario()
 	scenario.RequiredChecks = []string{"answer_correct", "used_atl"}

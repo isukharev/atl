@@ -29,7 +29,7 @@ For CLI changes, run focused tests first (`go test ./internal/app
 are opt-in through `.env.integration` and `ATL_INTEGRATION=1`; keep backend URLs,
 PATs, and live fixture values out of the repo. Use `make integration` for
 app-level live checks and `make live-smoke` for CLI-level fixture checks when
-relevant. Requires Go 1.26+.
+relevant. Requires Go 1.26.5+.
 
 ## Architecture invariants
 

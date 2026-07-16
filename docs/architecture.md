@@ -14,8 +14,8 @@ See also: [../README.md](../README.md) · [usage.md](usage.md) ·
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  transport layer  (internal/cli)                         │
-│  cobra commands — parse flags, call use-cases, emit JSON │
+│  transport layer  (internal/cli, internal/mcpserver)     │
+│  cobra commands or typed MCP tools call shared use-cases │
 └───────────────────────┬──────────────────────────────────┘
                         │ calls
 ┌───────────────────────▼──────────────────────────────────┐
@@ -44,6 +44,7 @@ cross-cutting (no import of adapters or CLI):
   internal/fragment — opaque-fragment extraction + resolution
   internal/jiramap  — pure Jira snapshot → domain mapping
   internal/mirror   — on-disk layout + dirty/drift detection
+  internal/diagnostic — stable transport-neutral error classes
   internal/selfupdate, internal/version
 ```
 
@@ -510,6 +511,19 @@ diagnostic only and do not participate in update trust.
 `version.DefaultUpdateURL` bakes the GitHub Releases download base into the
 binary.
 
+### `internal/mcpserver`
+
+The stdio MCP transport registers a closed remote-read-only tool inventory and
+calls `JiraService`/`ConfluenceService` methods directly. It never shells back
+into Cobra. Production dependencies are lazy per service/tool call so a missing
+Jira configuration does not suppress Confluence tools, and vice versa. The
+server shares `internal/diagnostic` classifications with CLI errors while MCP
+and CLI retain their transport-specific envelopes.
+
+The explicit registration list is the security boundary. There is no generic
+command dispatcher, raw REST tool, mutation, arbitrary filesystem access, or
+mirror-writing tool. See [mcp.md](mcp.md) for the public inventory and bounds.
+
 ---
 
 ## Extension points
@@ -519,5 +533,5 @@ binary.
 | New document backend (Notion, GitHub Wiki) | Implement `domain.DocStore` in a new `internal/adapter/<name>` package; add a `New<Name>` wiring function in `internal/app/wire.go`. |
 | New issue tracker (Linear, GitLab Issues) | Implement `domain.Tracker` in a new adapter package; wire analogously. |
 | New opaque fragment type (Mermaid, PlantUML) | Add a case in `fragment.Extract`'s `Walk` callback; add a `Resolve` handler in the `AssetResolver` adapter if the fragment renders to a file. |
-| Server/MCP tier | Add a transport layer that calls `app.ConfluenceService` / `app.JiraService`; the use-cases are already transport-agnostic. |
+| New MCP evidence tool | Add an explicit typed wrapper around an existing read-only app use-case, define hard context bounds, annotate it accurately, and extend the exact inventory/security tests. Do not expose CLI dispatch or raw REST. |
 | OS-keychain auth backend | Replace `loadStore`/`saveStore` in `internal/auth` with a keychain call; `Token` / `Login` / `Logout` signatures stay the same. |

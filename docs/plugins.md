@@ -14,10 +14,13 @@ skills-src/                 ← SOURCE OF TRUTH: edit here, and only here
 skills/                     ← GENERATED: the Claude Code plugin (openai.yaml omitted)
 plugins/atl/skills/         ← GENERATED: the Codex plugin (openai.yaml included)
 
+.mcp.json                   ← shared local read-only MCP server definition
+plugins/atl/.mcp.json       ← generated copy for the Codex plugin
+
 scripts/gen-plugins/        the generator (Go; unit-tested)
 ```
 
-Both output trees are committed — the Claude Code marketplace serves `skills/`
+Both output trees and the Codex MCP copy are committed — the Claude Code marketplace serves `skills/`
 straight from the repo, so they cannot be gitignored. Every generated `.md`
 carries a header comment naming its source file; if you find yourself editing a
 file with that header, stop and edit the `skills-src/` original instead.
@@ -25,8 +28,10 @@ file with that header, stop and edit the `skills-src/` original instead.
 ## The edit loop
 
 1. Edit files under `skills-src/`.
-2. `make gen-plugins` — regenerates both output trees wholesale.
-3. Commit **all three trees in the same PR**.
+2. `make gen-plugins` — regenerates both output trees wholesale and refreshes
+   the Codex `.mcp.json` copy.
+3. Commit **all three trees in the same PR**. When MCP config changes, commit
+   root `.mcp.json`, the generated Codex copy, and both manifest references too.
 
 CI runs `make check-plugins` (regenerate + `git status --porcelain` over the
 outputs), so a stale or hand-edited output tree fails the build. The same target

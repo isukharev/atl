@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `atl mcp serve`, a typed stdio server with seven explicit bounded
+  Jira/Confluence evidence tools and no mutation, shell, raw REST, arbitrary
+  filesystem, or mirror-write surface. Claude Code and Codex plugins bundle the
+  server definition; stable error classes, cancellation, tool annotations, and
+  exact inventory tests share the existing application safety contracts. A
+  synthetic Codex quarterly-portfolio run reproduces the pinned fifteen-GET,
+  zero-write result through an exact four-tool allowlist.
+
 - Added a synthetic quarterly portfolio benchmark and focused Jira skill route
   that reuse one complete board/Structure membership snapshot, qualify only
   missing per-epic evidence, and expand bounded Confluence sections. Comparable
@@ -47,11 +55,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Fixed headless evaluation to reject real Codex model execution instead of
-  starting a run whose OS sandbox cannot safely reach the host-side synthetic
-  fixture. Codex run specs and dry-runs remain available; real execution waits
-  for an isolated typed tool or external container. Claude Code remains the
-  supported model-in-loop provider.
+- Raised the source and CI baseline to Go 1.26.5 and the official MCP Go SDK
+  to v1.4.1 so the new server does not ship with the reachable standard-library
+  or SDK vulnerabilities detected by the release vulnerability gate.
+
+- Fixed headless evaluation to reject Codex CLI-transport model execution whose
+  OS sandbox cannot safely reach the host-side synthetic fixture. Real Codex
+  execution is now accepted only through the required typed MCP server, exact
+  tool allowlist, scrubbed shell environment, and non-MCP tool guard; legacy
+  CLI specs remain validate/dry-run only.
 
 - Fixed Claude Code evaluation tool isolation with a `PreToolUse` command guard
   bound to strict per-run `allowed_atl_commands`; non-`atl` binaries, shell

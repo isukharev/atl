@@ -176,6 +176,13 @@ recurring workflow, approved field/schema facts, render defaults, and common sel
 that interview or inspect sample content unless they opt in; technical setup remains complete
 without it.
 
+The installed Claude Code/Codex plugin also bundles `atl mcp serve`, a typed
+remote-read-only evidence surface. It uses the same configured host-scoped
+credentials, never copies them into plugin files, and becomes available after
+starting a new agent session with `atl` on `PATH`. Its absence does not make CLI
+setup incomplete; use the CLI fallback and report a plugin/binary version skew
+instead of inventing raw REST calls.
+
 ## Version skew
 
 Plugin and binary release under one version number. If a command documented by the skills is

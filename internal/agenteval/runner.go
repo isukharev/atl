@@ -96,7 +96,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 	}
 	invocationSpec := loaded.spec
 	invocationSpec.MaxEstimatedCostMicroUSD = perRepetitionCostCap(loaded.spec)
-	previewCommand, err := BuildProviderCommand(invocationSpec, filepath.Base(options.AgentBinary), "<workspace>", "<response-schema>", "<final-response>", pluginPreviewPath(options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, "<guard-settings>"), loaded.responseSchema)
+	previewCommand, err := BuildProviderCommand(invocationSpec, filepath.Base(options.AgentBinary), "<atl-binary>", "<guard>", "<workspace>", "<response-schema>", "<final-response>", pluginPreviewPath(options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, "<guard-settings>"), loaded.responseSchema)
 	if err != nil {
 		return RunOutput{}, err
 	}
@@ -112,8 +112,8 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 	if options.DryRun {
 		return RunOutput{Preview: preview, Results: []Result{}}, nil
 	}
-	if loaded.spec.Provider == "codex" {
-		return RunOutput{}, fmt.Errorf("codex model execution is disabled until atl uses an isolated typed tool or external container; validate or dry-run the spec instead")
+	if loaded.spec.Provider == "codex" && loaded.spec.ToolTransport != "mcp" {
+		return RunOutput{}, fmt.Errorf("codex model execution requires tool_transport=mcp; cli transport remains validate/dry-run only")
 	}
 
 	agentVersion, err := commandVersion(ctx, options.AgentBinary)
@@ -375,7 +375,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	defer backend.Close()
 
-	commandPlan, err := BuildProviderCommand(loaded.spec, options.AgentBinary, workspace, responseSchemaPath, finalPath, claudePluginPath(loaded.spec.Provider, options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, settingsPath), loaded.responseSchema)
+	commandPlan, err := BuildProviderCommand(loaded.spec, options.AgentBinary, options.ATLBinary, guardPath, workspace, responseSchemaPath, finalPath, claudePluginPath(loaded.spec.Provider, options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, settingsPath), loaded.responseSchema)
 	if err != nil {
 		return Result{}, err
 	}
@@ -407,6 +407,9 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	environment["ATL_EVAL_REAL_BINARY"] = options.ATLBinary
 	environment["ATL_EVAL_COUNTER"] = counterPath
 	environment["ATL_EVAL_GUARD_COUNTER"] = guardCounterPath
+	if loaded.spec.ToolTransport == "mcp" {
+		environment["ATL_EVAL_GUARD_MODE"] = "mcp-only"
+	}
 	environment["ATL_EVAL_MAX_DELEGATIONS"] = fmt.Sprintf("%d", loaded.scenario.Budgets.MaxDelegations)
 	allowedCommands, _ := json.Marshal(loaded.spec.AllowedATLCommands)
 	environment["ATL_EVAL_ALLOWED_COMMANDS"] = string(allowedCommands)
@@ -499,7 +502,9 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if err != nil {
 		return Result{}, err
 	}
-	checks, err := evaluateRunChecks(loaded.spec.Checks, final, len(proxyRecords), failedATL, unexpected, providerMetrics.Delegations, guardDenials)
+	atlInvocations := len(proxyRecords) + providerMetrics.MCPToolCalls
+	failedATL += providerMetrics.FailedMCPToolCalls
+	checks, err := evaluateRunChecks(loaded.spec.Checks, final, atlInvocations, failedATL, unexpected, providerMetrics.Delegations, guardDenials)
 	if err != nil {
 		return Result{}, err
 	}
@@ -507,6 +512,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	for _, record := range proxyRecords {
 		outputBytes += record.StdoutBytes
 	}
+	outputBytes += providerMetrics.MCPToolOutputBytes
 	providerMetrics.DurationMillis = duration
 	providerMetrics.Coverage["duration_millis"] = true
 	if !providerMetrics.Coverage["estimated_cost_microusd"] && providerMetrics.Coverage["input_tokens"] && providerMetrics.Coverage["output_tokens"] {
@@ -526,7 +532,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		Variant: loaded.spec.Variant, Runtime: runtime,
 		Metrics: InputMetrics{
 			AgentTurns: providerMetrics.AgentTurns, ToolCalls: providerMetrics.ToolCalls,
-			ATLInvocations: len(proxyRecords), Delegations: providerMetrics.Delegations,
+			ATLInvocations: atlInvocations, Delegations: providerMetrics.Delegations,
 			DuplicateBackendRequests: duplicateRequests, OutputBytes: outputBytes,
 			InputTokens: providerMetrics.InputTokens, OutputTokens: providerMetrics.OutputTokens,
 			MainThreadInputTokens: providerMetrics.MainThreadInputTokens, MainThreadOutputTokens: providerMetrics.MainThreadOutputTokens,

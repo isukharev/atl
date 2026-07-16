@@ -52,6 +52,22 @@ no self-update or backend request. `routing.reference_load` tells an agent to
 invoke the named skill first and resolve the reference relative to it; a
 filesystem search is deliberately outside the route.
 
+### MCP tool results
+
+`atl mcp serve` is a separate stdio protocol transport, so global CLI output
+flags and process exit envelopes do not apply to individual tool calls. Each of
+the seven registered tools has inferred input/output JSON Schema and returns
+typed `structuredContent`; compatible clients may also expose the SDK's text
+projection. Tool failures set the MCP error result and contain a JSON text
+object with stable `kind`, `remediation`, and diagnostic `message` fields.
+For transport/API failures, `message` is deliberately coarse and omits backend
+paths, query values, and response bodies.
+
+The stable classes come from the same transport-neutral classifier used by CLI
+JSON. Clients must branch on `kind`, not parse `message`. Stdout from the server
+process is reserved for MCP protocol frames; operational failures are returned
+through the protocol rather than mixed into successful tool content.
+
 ### Error output
 
 On failure `atl` writes to **stderr**, never stdout, so a piped JSON result on stdout is never

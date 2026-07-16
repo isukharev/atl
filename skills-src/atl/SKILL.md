@@ -43,6 +43,13 @@ route once sufficient complete evidence is available. Use exact filters only;
 an unknown task/id is a loud not-found result, not a prompt for fuzzy guessing.
 `capabilities` is local/offline and works without valid config or credentials.
 
+When the installed plugin exposes `atl` MCP tools, prefer them for transient,
+bounded evidence reads: typed arguments remove shell construction and the
+server registers no mutation or filesystem tool. Load
+[mcp.md](reference/mcp.md) for its exact seven-tool route and CLI fallback
+boundary. Continue using the CLI for durable mirrors, Structure, exports,
+diff/plan/status, attachments, and every guarded write.
+
 ## Mental model
 
 Mirrored Atlassian content becomes local files you operate on like code: the bytes are the
@@ -50,8 +57,8 @@ substrate, edits are diffed and pushed deliberately, and concurrent remote chang
 version gate. This is what makes `atl` "AI-native" — the agent works the content with its normal
 file tools instead of round-tripping every read/write through an API.
 
-See [mental-model.md](reference/mental-model.md) for when to reach for `atl` vs the live Atlassian
-MCP, and for the spec-driven "living doc" workflow where `atl` fits best.
+See [mental-model.md](reference/mental-model.md) for when to reach for transient typed reads vs
+durable atl CLI mirrors, and for the spec-driven "living doc" workflow where `atl` fits best.
 
 For a long multi-source analysis, [delegation.md](reference/delegation.md)
 defines the optional one-child evidence pattern. Keep simple reads in the main

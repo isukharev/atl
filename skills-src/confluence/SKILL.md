@@ -50,6 +50,13 @@ the policy to apply/push/create/move/delete content.
 For other failures, route on stable JSON `kind` and numeric `code`; present
 `remediation` as guidance and do not infer actions from backend prose.
 
+If the plugin exposes the typed `atl` MCP surface, prefer
+`confluence_page_resolve`, `confluence_page_outline`, and
+`confluence_page_section` for transient bounded reads. They cannot write or
+create mirror artifacts. Use this CLI skill for durable pull/mirror work,
+attachments, tables, diff/plan/status, operations absent from MCP, and every
+guarded mutation. The `atl` skill's `reference/mcp.md` defines the boundary.
+
 Resolve the mirror root before a mirror command. An explicit `--into` wins;
 otherwise `ATL_MIRROR_ROOT` or nearest `.atl` root applies, with `mirror` as the
 built-in fallback. If the user supplies an existing mirror file, its nearest

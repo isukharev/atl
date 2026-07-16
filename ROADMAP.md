@@ -29,7 +29,10 @@ Recent beta work established the contracts the next wave builds on:
   without hidden calibration searches;
 - a versioned offline capability catalog that maps exact agent task classes to
   bounded command/reference routes and derives access/output facts from the
-  executable CLI contract.
+  executable CLI contract;
+- a typed remote-read-only MCP stdio server with seven bounded evidence tools,
+  stable error classes, plugin distribution, and a synthetic Codex route that
+  proves the same fifteen-GET quarterly portfolio result with zero writes.
 
 ## Now
 
@@ -47,11 +50,9 @@ Current work keeps packaging and trust ready for the next stable release:
 
 Work likely to follow once the current sequence is stable.
 
-- Read-only MCP distribution:
-  - `atl mcp serve` for the stable search/view/digest/pull/status surfaces;
-  - responses return typed summaries and local mirror paths rather than moving
-    full private bodies unnecessarily;
-  - all tools inherit the process-wide read-only policy.
+- Extend read-only MCP only when benchmark evidence justifies another bounded
+  app-level tool; Structure, mirror writes, pull/status, and full page bodies
+  remain CLI-only for now.
 - Sync at scale after incremental correctness:
   - unbounded full-space pull and explicit resume contracts;
   - bounded concurrency and rate-limit controls;

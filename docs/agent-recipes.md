@@ -159,6 +159,12 @@ For a team plan already curated as a Jira board or Structure, use that source
 as the membership snapshot. Do not replace it with several broad JQL queries or
 run a default epic digest that re-fetches children already present there.
 
+When the plugin-provided MCP tools are available, the transient board path is
+`jira_fields` → one `jira_board_view` → narrow `jira_epic_digest` calls → exact
+`confluence_page_section` calls. This removes shell construction and cannot
+write or persist content. Structure and durable artifacts still require the CLI
+route below.
+
 ```bash
 export ATL_READ_ONLY=1
 atl capabilities --task jira/portfolio
