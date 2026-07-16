@@ -19,21 +19,65 @@ type JiraFieldCatalogOpts struct {
 }
 
 type JiraFieldCatalogResult struct {
-	Fields []domain.FieldDef `json:"fields"`
+	SchemaVersion int               `json:"schema_version"`
+	Source        string            `json:"source"`
+	Complete      bool              `json:"complete"`
+	PartialReason string            `json:"partial_reason,omitempty"`
+	Total         int               `json:"total"`
+	Count         int               `json:"count"`
+	Fields        []domain.FieldDef `json:"fields"`
 }
 
 // FieldCatalog lists and filters field definitions in the application layer so
 // CLI and MCP transports share one exact selection contract.
 func (s *JiraService) FieldCatalog(ctx context.Context, opts JiraFieldCatalogOpts) (*JiraFieldCatalogResult, error) {
-	fields, err := s.Fields(ctx)
+	snapshot := domain.FieldCatalogSnapshot{Complete: false, PartialReason: "tracker does not expose field-catalog completeness"}
+	source := "legacy"
+	var err error
+	if qualified, ok := s.tr.(domain.QualifiedFieldCatalogReader); ok {
+		snapshot, err = qualified.ReadFieldCatalog(ctx)
+		source = "jira-field-catalog"
+	} else {
+		snapshot.Fields, err = s.Fields(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}
-	fields, err = FilterFieldDefs(fields, opts)
+	if err := validateFieldCatalogSnapshot(snapshot); err != nil {
+		return nil, err
+	}
+	total := len(snapshot.Fields)
+	fields, err := FilterFieldDefs(snapshot.Fields, opts)
 	if err != nil {
 		return nil, err
 	}
-	return &JiraFieldCatalogResult{Fields: fields}, nil
+	return &JiraFieldCatalogResult{
+		SchemaVersion: 1, Source: source, Complete: snapshot.Complete,
+		PartialReason: snapshot.PartialReason, Total: total, Count: len(fields), Fields: fields,
+	}, nil
+}
+
+func validateFieldCatalogSnapshot(snapshot domain.FieldCatalogSnapshot) error {
+	if snapshot.Complete && strings.TrimSpace(snapshot.PartialReason) != "" {
+		return fmt.Errorf("%w: complete Jira field catalog has a partial reason", domain.ErrCheckFailed)
+	}
+	if snapshot.Complete && len(snapshot.Fields) == 0 {
+		return fmt.Errorf("%w: complete Jira field catalog is empty", domain.ErrCheckFailed)
+	}
+	if !snapshot.Complete && strings.TrimSpace(snapshot.PartialReason) == "" {
+		return fmt.Errorf("%w: partial Jira field catalog has no reason", domain.ErrCheckFailed)
+	}
+	seen := make(map[string]struct{}, len(snapshot.Fields))
+	for _, field := range snapshot.Fields {
+		if strings.TrimSpace(field.ID) == "" {
+			return fmt.Errorf("%w: Jira field catalog contains an empty field id", domain.ErrCheckFailed)
+		}
+		if _, exists := seen[field.ID]; exists {
+			return fmt.Errorf("%w: Jira field catalog contains duplicate field id %q", domain.ErrCheckFailed, field.ID)
+		}
+		seen[field.ID] = struct{}{}
+	}
+	return nil
 }
 
 func FilterFieldDefs(fields []domain.FieldDef, opts JiraFieldCatalogOpts) ([]domain.FieldDef, error) {

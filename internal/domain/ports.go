@@ -255,6 +255,14 @@ type LenientIssueSearcher interface {
 	SearchLenient(ctx context.Context, jql string, fields []string, limit int, cursor string) ([]Issue, string, error)
 }
 
+// QualifiedFieldCatalogReader is the optional Jira capability used when a
+// caller must distinguish an atomic complete field catalog from an
+// unqualified legacy list. Tracker.Fields remains the compatibility surface
+// for workflows that only need definitions.
+type QualifiedFieldCatalogReader interface {
+	ReadFieldCatalog(ctx context.Context) (FieldCatalogSnapshot, error)
+}
+
 // IssueWatcher is one Jira Data Center watcher identity. Name is the mutable
 // DC username; Key is retained for display/diagnostics but is not sent to the
 // watcher endpoints.
@@ -485,6 +493,14 @@ type FieldDef struct {
 	Name   string `json:"name"`
 	Custom bool   `json:"custom"`
 	Schema string `json:"schema,omitempty"`
+}
+
+// FieldCatalogSnapshot qualifies the source list before application filters
+// are applied. A false Complete value must carry a non-empty PartialReason.
+type FieldCatalogSnapshot struct {
+	Fields        []FieldDef
+	Complete      bool
+	PartialReason string
 }
 
 // TransitionDef is an available workflow transition.

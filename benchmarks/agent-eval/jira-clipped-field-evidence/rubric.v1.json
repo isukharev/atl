@@ -13,14 +13,14 @@
     },
     {
       "id": "qualification",
-      "description": "Completeness reflects both the digest source and exact expansion.",
+      "description": "Completeness reflects the explicit field-catalog signal, digest source, and exact expansion.",
       "maximum": 4,
       "minimum": 3,
       "weight": 25
     },
     {
       "id": "task_completeness",
-      "description": "The requested issue, decision, and completeness are all returned.",
+      "description": "The requested issue, decision, catalog qualification, and evidence completeness are all returned.",
       "maximum": 4,
       "minimum": 3,
       "weight": 20

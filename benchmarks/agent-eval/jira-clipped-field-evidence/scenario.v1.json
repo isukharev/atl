@@ -2,7 +2,7 @@
   "schema_version": 1,
   "id": "jira.synthetic-clipped-field-evidence",
   "task_class": "jira/evidence",
-  "description": "Expand one required narrative clipped by a compact epic digest without repeating the broad digest.",
+  "description": "Require a qualified field catalog, then expand one required narrative clipped by a compact epic digest without repeating the broad digest.",
   "data_class": "synthetic",
   "required_capabilities": [
     "jira.issue.fields",
@@ -11,6 +11,7 @@
   ],
   "required_checks": [
     "atl_succeeded",
+    "catalog_complete",
     "decision_correct",
     "evidence_complete",
     "issue_key_correct",

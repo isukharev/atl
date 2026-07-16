@@ -26,7 +26,8 @@ the user's requested grouping rather than treating rank as delivery priority.
 
 Resolve unfamiliar display names once with `jira fields` or metadata-only
 `jira issue fields`, then reuse technical ids for the rest of the run. Do not
-repeat the catalog lookup per epic.
+repeat the catalog lookup per epic. Require the field catalog's own
+`complete:true` before treating an unmatched name as absent.
 
 ## 2. Reuse the snapshot before expanding
 

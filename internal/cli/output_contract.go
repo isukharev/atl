@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -256,9 +257,13 @@ func commentsText(comments []domain.Comment) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func jiraFieldsText(fields []domain.FieldDef) string {
+func jiraFieldsText(result *app.JiraFieldCatalogResult) string {
 	var b strings.Builder
-	for _, field := range fields {
+	fmt.Fprintf(&b, "complete=%t\tsource=%s\tcount=%d\ttotal=%d\n", result.Complete, textCell(result.Source), result.Count, result.Total)
+	if result.PartialReason != "" {
+		fmt.Fprintf(&b, "partial_reason=%s\n", textCell(result.PartialReason))
+	}
+	for _, field := range result.Fields {
 		fmt.Fprintf(&b, "%s\t%s\tcustom=%t", textCell(field.ID), textCell(field.Name), field.Custom)
 		if field.Schema != "" {
 			fmt.Fprintf(&b, "\tschema=%s", textCell(field.Schema))

@@ -11,6 +11,7 @@ url	https://example.invalid/pages/42
 99	Alex (2026-07-12):
 Looks good.
 [jira-fields]
+complete=true	source=jira-field-catalog	count=2	total=2
 summary	Summary	custom=false
 customfield_10001	Delivery Notes	custom=true	schema=string
 [jira-options]
