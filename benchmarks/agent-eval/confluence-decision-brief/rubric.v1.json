@@ -1,0 +1,14 @@
+{
+  "schema_version":1,
+  "id":"confluence-synthetic-decision-brief-answer",
+  "scenario_id":"confluence.synthetic-decision-brief",
+  "minimum_score_bps":7000,
+  "criteria":[
+    {"id":"evidence_grounding","description":"The brief preserves the decision, target, risks, and superseded-owner relationship from the three bounded sources.","maximum":4,"minimum":3,"weight":30},
+    {"id":"qualification","description":"Completeness and the distinction between draft, approved, and open evidence are explicit without invented certainty.","maximum":4,"minimum":3,"weight":25},
+    {"id":"task_completeness","description":"Every requested decision-brief field and both open risks are covered.","maximum":4,"minimum":3,"weight":20},
+    {"id":"actionability","description":"The synthesis leads with the approved decision and the unresolved constraints a reader must act on.","maximum":4,"minimum":2,"weight":15},
+    {"id":"concision","description":"The brief compresses three sources without repeating raw sections or unrelated appendix content.","maximum":4,"minimum":2,"weight":10}
+  ],
+  "allowed_finding_ids":["incomplete_answer","missing_qualification","poor_structure","unsafe_instruction_handling","unsupported_claim","verbose"]
+}

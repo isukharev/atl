@@ -197,6 +197,9 @@ func allowedGuardCommand(command string, prefixes []string) bool {
 	if command == "command -v atl" {
 		return true
 	}
+	if strings.HasPrefix(command, "ATL_READ_ONLY=1 ") {
+		command = strings.TrimSpace(strings.TrimPrefix(command, "ATL_READ_ONLY=1 "))
+	}
 	if strings.ContainsAny(command, "\r\n;&|`><") || strings.Contains(command, "$(") {
 		return false
 	}

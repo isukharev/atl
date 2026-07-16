@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added two synthetic Confluence model-in-the-loop benchmark families: bounded
+  approved-occurrence evidence over duplicate headings/rich content, and a
+  three-page decision brief with comparable single-agent/one-child variants.
+  Exact GET-only route tests, hostile-content guards, structured oracles,
+  context/request budgets, and qualitative rubrics cover navigation,
+  ambiguity, synthesis, and context-isolation task shapes.
+
 - Added versioned qualitative agent-answer rubrics and hash-bound review
   contracts. Maintainers or separately prompted models can score grounding,
   qualification, completeness, actionability, and concision without retaining
