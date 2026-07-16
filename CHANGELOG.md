@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added the evaluation-only credential gateway foundation for upcoming
+  private-live CLI+skill benchmarks. The loopback reverse gateway keeps real
+  Jira/Confluence PATs in the parent process, gives child CLIs disposable
+  ingress capabilities, pins upstream origins, rejects unsafe methods, bodies,
+  routes and redirects before they can escape, enforces request/concurrency/
+  response budgets, and writes only HMAC-identified privacy-safe audit events.
+
 - Added an explicit private-live model-in-the-loop benchmark mode for real
   configured Jira/Confluence backends. Live cases must remain Git-ignored,
   execute exactly once through typed read-only MCP, expose no general native

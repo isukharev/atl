@@ -45,6 +45,10 @@ Recent beta work established the contracts the next wave builds on:
   constrained to one typed-MCP run with ephemeral credentials, only confined
   skill readers outside MCP, and an independent GET/HEAD transport guard; only
   reviewed aggregates cross the private/public boundary.
+- an evaluation-only loopback credential gateway for the next CLI+skill live
+  benchmark layer: upstream PATs stay outside model/CLI children, origins and
+  read routes are pinned, budgets fail closed, and request identities are
+  retained only as per-run HMACs.
 - explicit package-update ownership: Homebrew launchers delegate exclusively to
   `brew upgrade atl`, while a consolidated egress contract separates read-only,
   update-disable, backend traffic, and externally enforced air-gap controls.
