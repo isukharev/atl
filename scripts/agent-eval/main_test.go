@@ -3,11 +3,15 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/isukharev/atl/internal/agenteval"
 )
@@ -246,6 +250,132 @@ func TestATLProxyEnforcesExactPrivateCLIArgumentsAndBudget(t *testing.T) {
 	}
 	if !bytes.Contains(record, []byte(`"command_family":"jira.epic.digest"`)) || bytes.Count(record, []byte(`"denied":true`)) != 2 || bytes.Contains(record, []byte("PROJ-1")) || bytes.Contains(record, []byte("2026-Q2")) {
 		t.Fatalf("unsafe or incomplete counter record: %s", record)
+	}
+}
+
+func TestATLProxyDoesNotStartATLWhenCommandBrokerIsMissing(t *testing.T) {
+	directory := t.TempDir()
+	realBinary := filepath.Join(directory, "real-atl")
+	executions := filepath.Join(directory, "executions")
+	if err := os.WriteFile(realBinary, []byte("#!/bin/sh\nprintf 'executed\\n' >>\"$ATL_EVAL_TEST_EXECUTIONS\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	policyData, err := agenteval.EncodeCLICommandPolicy(agenteval.CLICommandPolicy{
+		SchemaVersion: agenteval.CLICommandPolicySchemaVersion,
+		Rules:         []agenteval.CLICommandRule{{Name: "jira_fields", Command: []string{"jira", "fields"}, MaxInvocations: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyPath := filepath.Join(directory, "policy.json")
+	if err := os.WriteFile(policyPath, policyData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ATL_READ_ONLY", "1")
+	t.Setenv("ATL_EVAL_REAL_BINARY", realBinary)
+	t.Setenv("ATL_EVAL_COUNTER", filepath.Join(directory, "counter.jsonl"))
+	t.Setenv("ATL_EVAL_CLI_POLICY_FILE", policyPath)
+	t.Setenv("ATL_EVAL_COMMAND_BROKER_FILE", filepath.Join(directory, "missing.json"))
+	t.Setenv("ATL_EVAL_TEST_EXECUTIONS", executions)
+	if code := runATLProxy([]string{"jira", "fields"}); code == 0 {
+		t.Fatal("missing command broker passed")
+	}
+	if _, err := os.Stat(executions); !os.IsNotExist(err) {
+		t.Fatalf("real atl started before confinement: %v", err)
+	}
+}
+
+func TestATLProxyUsesParentCommandBrokerWithoutRealBinaryInEnvironment(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable scripts are Unix-only")
+	}
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	requests := filepath.Join(directory, "requests")
+	responses := filepath.Join(directory, "responses")
+	for _, path := range []string{requests, responses} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	realBinary := filepath.Join(directory, "real-atl")
+	if err := os.WriteFile(realBinary, []byte("#!/bin/sh\nprintf 'brokered output\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	policy := agenteval.CLICommandPolicy{
+		SchemaVersion: agenteval.CLICommandPolicySchemaVersion,
+		Rules:         []agenteval.CLICommandRule{{Name: "jira_fields", Command: []string{"jira", "fields"}, MaxInvocations: 1}},
+	}
+	policyData, err := agenteval.EncodeCLICommandPolicy(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyPath := filepath.Join(directory, "policy.json")
+	if err := os.WriteFile(policyPath, policyData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(directory, "broker.json")
+	broker, err := agenteval.StartCommandBroker(agenteval.CommandBrokerConfig{
+		RequestDirectory: requests, ResponseDirectory: responses, ManifestPath: manifest,
+		RealBinary: realBinary, Policy: policy, MaxStdoutBytes: 4096, MaxStderrBytes: 4096, CommandTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = broker.Close() })
+	counter := filepath.Join(requests, "counter.jsonl")
+	t.Setenv("ATL_READ_ONLY", "1")
+	t.Setenv("ATL_EVAL_REAL_BINARY", "")
+	t.Setenv("ATL_EVAL_COUNTER", counter)
+	t.Setenv("ATL_EVAL_CLI_POLICY_FILE", policyPath)
+	t.Setenv("ATL_EVAL_COMMAND_BROKER_FILE", manifest)
+	var output bytes.Buffer
+	previous := os.Stdout
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = writeEnd
+	code := runATLProxy([]string{"jira", "fields"})
+	_ = writeEnd.Close()
+	os.Stdout = previous
+	_, _ = io.Copy(&output, readEnd)
+	_ = readEnd.Close()
+	if code != 0 || output.String() != "brokered output\n" {
+		t.Fatalf("code=%d output=%q", code, output.String())
+	}
+	record, err := os.ReadFile(counter)
+	if err != nil || !bytes.Contains(record, []byte(`"command_family":"jira.fields"`)) || bytes.Contains(record, []byte("brokered output")) {
+		t.Fatalf("record=%s err=%v", record, err)
+	}
+}
+
+func TestCommandBrokerProbeRequiresReadyParentBroker(t *testing.T) {
+	directory := t.TempDir()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	t.Setenv("ATL_EVAL_FORBIDDEN_NETWORK_ADDRESS", listener.Addr().String())
+	t.Setenv("ATL_EVAL_COMMAND_BROKER_FILE", filepath.Join(directory, "missing.json"))
+	if code := runCommandBrokerProbe(io.Discard); code == 0 {
+		t.Fatal("missing broker passed readiness probe")
+	}
+}
+
+func TestCommandBrokerProbeRejectsAvailableCommandNetwork(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	t.Setenv("ATL_EVAL_FORBIDDEN_NETWORK_ADDRESS", listener.Addr().String())
+	t.Setenv("ATL_EVAL_COMMAND_BROKER_FILE", filepath.Join(t.TempDir(), "unused.json"))
+	if code := runCommandBrokerProbe(io.Discard); code == 0 {
+		t.Fatal("probe passed while direct command networking was available")
 	}
 }
 

@@ -51,8 +51,12 @@ built-in capability-tool set, and qualified `mcp__atl__...` allow-rules;
 fixture credentials exist only in the child config, not the provider environment.
 Codex disables web search, removes atl credentials from the model shell
 environment, and uses a reviewed `PreToolUse` hook to deny shell, file, patch,
-and delegation tools. CLI-transport Codex specs remain validate/dry-run only
-because its read-only OS sandbox cannot safely reach the host-side mock.
+and delegation tools. It also disables ambient `AGENTS.md` discovery so
+machine-local instructions cannot change a comparable run; reviewed prompts
+and copied shipped skills remain available. Synthetic CLI-transport Codex specs remain
+validate/dry-run only because its read-only OS sandbox cannot safely reach the
+host-side mock; private-live Codex CLI specs use the separately documented
+zero-network command broker confinement.
 
 `jira-injection-evidence` holds the task and correctness oracle constant across
 `single-agent` and `one-subagent` variants. Jira description text contains a
@@ -106,9 +110,14 @@ outside the repository and use `backend_mode:"private-live"` with
 delegations, private filesystem modes, and either typed MCP under the
 GET/HEAD-only transport guard or exact-argv CLI execution through the local
 credential gateway. CLI cases additionally bind route and response-byte
-budgets; source backend credentials never enter the provider process. Both
-providers use loopback ingress; Codex disables its managed network proxy so the
-hook-guarded `atl` subprocess can reach the parent gateway directly.
+budgets; source backend credentials never enter the provider process. Claude
+Code uses loopback ingress. Codex keeps command networking disabled, grants
+write access only to an owner-only broker request directory, and receives
+results through a separate read-only response directory. A parent-side broker
+revalidates exact argv and invocation budgets before running `atl` against the
+disposable gateway. A pre-model probe verifies that direct loopback networking
+is blocked and the broker is ready; gateway method/route/byte controls remain
+independent mandatory layers.
 
 See [the private-live procedure](../../docs/agent-benchmarking.md#private-live-model-in-the-loop-check)
 for the reviewed JSON contract and commands. Public comparisons may contain

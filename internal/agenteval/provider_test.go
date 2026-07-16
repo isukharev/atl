@@ -9,19 +9,19 @@ import (
 
 func TestBuildProviderCommandsAreEphemeralAndReadOnly(t *testing.T) {
 	spec := validRunSpec()
-	codex, err := BuildProviderCommand(spec, "codex", "/atl", "/guard", "/workspace", "/schema", "/final", "", "", "", []byte(`{"type":"object"}`))
+	codex, err := BuildProviderCommand(spec, "codex", "/atl", "/guard", "/workspace", "/schema", "/final", "", "", "", ProviderConfinement{}, []byte(`{"type":"object"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	joined := strings.Join(codex.Args, " ")
-	for _, value := range []string{"exec", "--ephemeral", "--ignore-user-config", "--sandbox read-only", "--output-schema /schema", "--output-last-message /final", `shell_environment_policy.inherit="all"`, "shell_environment_policy.include_only="} {
+	for _, value := range []string{"exec", "--ephemeral", "--ignore-user-config", "--sandbox read-only", "--output-schema /schema", "--output-last-message /final", `project_doc_max_bytes=0`, `shell_environment_policy.inherit="all"`, "shell_environment_policy.include_only="} {
 		if !strings.Contains(joined, value) {
 			t.Errorf("Codex command misses %q: %s", value, joined)
 		}
 	}
 	spec.Provider = "claude-code"
 	spec.Pricing = Pricing{}
-	claude, err := BuildProviderCommand(spec, "claude", "/atl", "/guard", "/workspace", "/schema", "/final", "/plugin", "/settings", "", []byte(`{"type":"object"}`))
+	claude, err := BuildProviderCommand(spec, "claude", "/atl", "/guard", "/workspace", "/schema", "/final", "/plugin", "/settings", "", ProviderConfinement{}, []byte(`{"type":"object"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestBuildCodexMCPCommandIsCredentialIsolatedAndHookGuarded(t *testing.T) {
 	spec.AllowedTools = nil
 	spec.AllowedATLCommands = nil
 	spec.AllowedMCPTools = []string{"jira_fields", "jira_epic_digest", "confluence_page_section"}
-	command, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", []byte(`{"type":"object"}`))
+	command, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", ProviderConfinement{}, []byte(`{"type":"object"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestBuildClaudeMCPCommandDisablesBuiltinsAndUsesQualifiedAllowlist(t *testi
 	spec.AllowedTools = nil
 	spec.AllowedATLCommands = nil
 	spec.AllowedMCPTools = []string{"jira_fields", "jira_epic_digest"}
-	command, err := BuildProviderCommand(spec, "claude", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "/plugin", "/settings", "/mcp.json", []byte(`{"type":"object"}`))
+	command, err := BuildProviderCommand(spec, "claude", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "/plugin", "/settings", "/mcp.json", ProviderConfinement{}, []byte(`{"type":"object"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestBuildClaudeMCPCommandDisablesBuiltinsAndUsesQualifiedAllowlist(t *testi
 	}
 }
 
-func TestBuildPrivateCLIProviderCommandsEnforceHooksAndGatewayNetwork(t *testing.T) {
+func TestBuildPrivateCLIProviderCommandsEnforceHooksAndCodexCommandBroker(t *testing.T) {
 	for _, provider := range []string{"claude-code", "codex"} {
 		t.Run(provider, func(t *testing.T) {
 			spec := validRunSpec()
@@ -109,7 +109,12 @@ func TestBuildPrivateCLIProviderCommandsEnforceHooksAndGatewayNetwork(t *testing
 			if provider == "claude-code" {
 				spec.Pricing = Pricing{}
 			}
-			command, err := BuildProviderCommand(spec, provider, "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "/plugin", "/settings", "", []byte(`{"type":"object"}`))
+			confinement := ProviderConfinement{}
+			if provider == "codex" {
+				confinement.RequestDirectory = "/private/requests"
+				confinement.ResponseDirectory = "/private/responses"
+			}
+			command, err := BuildProviderCommand(spec, provider, "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "/plugin", "/settings", "", confinement, []byte(`{"type":"object"}`))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -126,10 +131,12 @@ func TestBuildPrivateCLIProviderCommandsEnforceHooksAndGatewayNetwork(t *testing
 				return
 			}
 			for _, value := range []string{
-				"--sandbox workspace-write", "--ignore-rules", "--dangerously-bypass-hook-trust",
+				"--ignore-rules", "--dangerously-bypass-hook-trust",
 				`approval_policy="never"`, `web_search="disabled"`,
-				`sandbox_workspace_write.network_access=true`, `features.network_proxy.enabled=false`,
+				`default_permissions="atl_agent_eval"`, `permissions.atl_agent_eval.extends=":workspace"`,
+				`permissions.atl_agent_eval.filesystem={"/private/requests"="write","/private/responses"="read"}`,
 				"hooks.PreToolUse=", "/opt/guard", `"ATL_EVAL_CLI_POLICY_FILE"`, `"ATL_EVAL_GUARD_MODE"`,
+				`"ATL_EVAL_COMMAND_BROKER_FILE"`, `project_doc_max_bytes=0`,
 			} {
 				if !strings.Contains(joined, value) {
 					t.Errorf("Codex private CLI command misses %q: %s", value, joined)
@@ -140,7 +147,44 @@ func TestBuildPrivateCLIProviderCommandsEnforceHooksAndGatewayNetwork(t *testing
 					t.Errorf("Codex subprocess environment includes %s: %s", forbidden, joined)
 				}
 			}
+			for _, forbidden := range []string{"--sandbox workspace-write", `sandbox_workspace_write.network_access=true`, `features.network_proxy.enabled=false`, `network.enabled=true`, `unix_sockets=`, `dangerously_allow_all_unix_sockets=true`, `"*"="allow"`} {
+				if strings.Contains(joined, forbidden) {
+					t.Errorf("Codex private CLI command weakens confinement with %q: %s", forbidden, joined)
+				}
+			}
 		})
+	}
+}
+
+func TestBuildCodexConfinementProbeUsesTheSameExactFilesystemPolicy(t *testing.T) {
+	confinement := ProviderConfinement{RequestDirectory: "/private/requests", ResponseDirectory: "/private/responses"}
+	command, err := BuildCodexConfinementProbeCommand("codex", "/workspace", "/probe", confinement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(command.Args, " ")
+	for _, value := range []string{
+		"sandbox -P atl_agent_eval", `permissions.atl_agent_eval.extends=":workspace"`,
+		`permissions.atl_agent_eval.filesystem={"/private/requests"="write","/private/responses"="read"}`,
+		"-C /workspace /probe",
+	} {
+		if !strings.Contains(joined, value) {
+			t.Errorf("probe command misses %q: %s", value, joined)
+		}
+	}
+	for _, forbidden := range []string{"default_permissions=", `"*"="allow"`, "dangerously_", "network_access=true", "network.enabled", "unix_sockets"} {
+		if strings.Contains(joined, forbidden) {
+			t.Errorf("probe command weakens confinement with %q: %s", forbidden, joined)
+		}
+	}
+	for _, invalid := range []ProviderConfinement{
+		{},
+		{RequestDirectory: "relative", ResponseDirectory: "/private/responses"},
+		{RequestDirectory: "/private/same", ResponseDirectory: "/private/same"},
+	} {
+		if _, err := BuildCodexConfinementProbeCommand("codex", "/workspace", "/probe", invalid); err == nil {
+			t.Fatalf("unsafe broker directories passed: %+v", invalid)
+		}
 	}
 }
 

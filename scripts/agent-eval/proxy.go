@@ -481,7 +481,8 @@ func runATLProxy(args []string) int {
 		return rejectATLProxy(counterPath, "atl evaluation proxy requires ATL_READ_ONLY=1")
 	}
 	realBinary := os.Getenv("ATL_EVAL_REAL_BINARY")
-	if realBinary == "" || counterPath == "" {
+	brokerPath := os.Getenv("ATL_EVAL_COMMAND_BROKER_FILE")
+	if counterPath == "" || realBinary == "" && brokerPath == "" {
 		return rejectATLProxy(counterPath, "atl evaluation proxy is not configured")
 	}
 	commandFamily, _ := agenteval.CapabilityFamilyForCLI(args)
@@ -501,6 +502,28 @@ func runATLProxy(args []string) int {
 		if !allowed {
 			return rejectATLProxy(counterPath, "atl evaluation proxy rejected an exhausted command budget")
 		}
+	}
+	if brokerPath != "" {
+		response, err := agenteval.CallCommandBroker(brokerPath, args, false)
+		if err != nil {
+			return failATLProxy(counterPath, "atl evaluation proxy could not reach its confined command broker")
+		}
+		if response.Status == "rejected" {
+			return rejectATLProxy(counterPath, "atl evaluation proxy command broker rejected the invocation")
+		}
+		if response.Status != "executed" {
+			return failATLProxy(counterPath, "atl evaluation proxy command broker failed the invocation")
+		}
+		stdoutBytes, stdoutErr := os.Stdout.Write(response.Stdout)
+		stderrBytes, stderrErr := os.Stderr.Write(response.Stderr)
+		if stdoutErr != nil || stderrErr != nil {
+			return failATLProxy(counterPath, "atl evaluation proxy could not emit brokered output")
+		}
+		if err := appendProxyRecord(counterPath, proxyRecord{CommandFamily: commandFamily, StdoutBytes: int64(stdoutBytes), StderrBytes: int64(stderrBytes), ExitCode: response.ExitCode}); err != nil {
+			fmt.Fprintln(os.Stderr, "record atl evaluation metric:", err)
+			return 1
+		}
+		return response.ExitCode
 	}
 	command := exec.Command(realBinary, args...)
 	command.Stdin = os.Stdin

@@ -420,8 +420,19 @@ func TestPrivateLiveCLIProvidersUseGatewayWithoutSourceCredentials(t *testing.T)
 	fakeAgent := filepath.Join(tempRepository, "fake-agent")
 	writeTestFile(t, fakeAgent, `#!/bin/sh
 if [ "$1" = "--version" ]; then echo fake-agent-1; exit 0; fi
+if [ "$1" = "sandbox" ]; then
+  for last do :; done
+  ATL_EVAL_FORBIDDEN_NETWORK_ADDRESS=127.0.0.1:9 "$last"
+  exit $?
+fi
 if [ -z "$ATL_EVAL_CLI_POLICY_FILE" ] || [ "$ATL_EVAL_GUARD_MODE" != "private-cli" ]; then exit 31; fi
-if [ -n "$ATL_JIRA_PAT" ] || /bin/grep -q 'upstream-secret' "$ATL_CONFIG_DIR/credentials.json"; then exit 32; fi
+if [ -n "$ATL_JIRA_PAT" ]; then exit 32; fi
+if [ "$1" = "-p" ]; then
+  case "$ATL_CONFIG_DIR" in */atl-agent-eval-live-config-*) ;; *) exit 34;; esac
+  if /bin/grep -q 'upstream-secret' "$ATL_CONFIG_DIR/credentials.json"; then exit 35; fi
+else
+  if [ -n "$ATL_CONFIG_DIR" ] || [ -n "$ATL_EVAL_REAL_BINARY" ] || [ -z "$ATL_EVAL_COMMAND_BROKER_FILE" ]; then exit 36; fi
+fi
 atl jira fields >/dev/null || exit 33
 if [ "$1" = "-p" ]; then
   printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}'
@@ -475,6 +486,22 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 			}
 			if _, err := os.Stat(filepath.Join(runDir, "workspace", ".atl-eval")); !os.IsNotExist(err) {
 				t.Fatalf("model-readable telemetry exists: %v", err)
+			}
+			if provider == "codex" {
+				for _, directory := range []string{"command-broker-requests", "command-broker-responses"} {
+					entries, err := os.ReadDir(filepath.Join(runDir, ".atl-eval", directory))
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, entry := range entries {
+						if strings.HasPrefix(entry.Name(), "request-") || strings.HasPrefix(entry.Name(), "processing-") || strings.HasPrefix(entry.Name(), "response-") {
+							t.Fatalf("transient broker payload survived: %s", entry.Name())
+						}
+					}
+				}
+				if _, err := os.Stat(filepath.Join(runDir, ".atl-eval", "command-broker.json")); !os.IsNotExist(err) {
+					t.Fatalf("command broker manifest survived: %v", err)
+				}
 			}
 			if err := filepath.WalkDir(runDir, func(path string, entry os.DirEntry, walkErr error) error {
 				if walkErr != nil || entry.IsDir() {

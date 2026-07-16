@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"math"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,7 +117,12 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 	}
 	invocationSpec := loaded.spec
 	invocationSpec.MaxEstimatedCostMicroUSD = perRepetitionCostCap(loaded.spec)
-	previewCommand, err := BuildProviderCommand(invocationSpec, providerPreviewBinary(loaded.spec.Provider), "<atl-binary>", "<guard>", "<workspace>", "<response-schema>", "<final-response>", pluginPreviewPath(options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, "<guard-settings>"), claudeMCPConfigPath(loaded.spec, "<mcp-config>"), loaded.responseSchema)
+	previewConfinement := ProviderConfinement{}
+	if loaded.spec.Provider == "codex" && loaded.spec.EffectiveBackendMode() == BackendModePrivateLive && loaded.spec.ToolTransport == "cli" {
+		previewConfinement.RequestDirectory = "/private/requests"
+		previewConfinement.ResponseDirectory = "/private/responses"
+	}
+	previewCommand, err := BuildProviderCommand(invocationSpec, providerPreviewBinary(loaded.spec.Provider), "<atl-binary>", "<guard>", "<workspace>", "<response-schema>", "<final-response>", pluginPreviewPath(options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, "<guard-settings>"), claudeMCPConfigPath(loaded.spec, "<mcp-config>"), previewConfinement, loaded.responseSchema)
 	if err != nil {
 		return RunOutput{}, err
 	}
@@ -416,6 +422,27 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if err := copyExecutable(options.WrapperExecutable, guardPath); err != nil {
 		return Result{}, err
 	}
+	codexPrivateCLI := loaded.spec.Provider == "codex" && loaded.spec.EffectiveBackendMode() == BackendModePrivateLive && loaded.spec.ToolTransport == "cli"
+	brokerRequestDirectory := ""
+	brokerResponseDirectory := ""
+	if codexPrivateCLI {
+		brokerRequestDirectory = filepath.Join(evalDir, "command-broker-requests")
+		brokerResponseDirectory = filepath.Join(evalDir, "command-broker-responses")
+		if err := mkdirPrivate(brokerRequestDirectory); err != nil {
+			return Result{}, err
+		}
+		if err := mkdirPrivate(brokerResponseDirectory); err != nil {
+			return Result{}, err
+		}
+		counterPath = filepath.Join(brokerRequestDirectory, "atl-invocations.jsonl")
+	}
+	probeExecutablePath := ""
+	if codexPrivateCLI {
+		probeExecutablePath = filepath.Join(wrapperDir, confinementProbeName())
+		if err := copyExecutable(options.WrapperExecutable, probeExecutablePath); err != nil {
+			return Result{}, err
+		}
+	}
 	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
 		for _, reader := range []string{"cat", "sed", "wc"} {
 			if err := copyExecutable(options.WrapperExecutable, filepath.Join(wrapperDir, reader)); err != nil {
@@ -431,9 +458,16 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	httpGuardPath := ""
 	cliPolicyPath := ""
 	backendEnvironment := map[string]string{}
+	providerConfinement := ProviderConfinement{}
+	brokerManifestPath := ""
 	var backend *MockBackend
 	var liveGateway *LiveGateway
+	var commandBroker *CommandBroker
 	var err error
+	if codexPrivateCLI {
+		providerConfinement.RequestDirectory = brokerRequestDirectory
+		providerConfinement.ResponseDirectory = brokerResponseDirectory
+	}
 	if loaded.spec.EffectiveBackendMode() == BackendModeSynthetic {
 		if loaded.fixture == nil {
 			return Result{}, fmt.Errorf("synthetic run has no fixture")
@@ -456,7 +490,8 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		defer func() { _ = os.RemoveAll(atlConfigDir) }()
 		if loaded.spec.ToolTransport == "cli" {
 			cliPolicyPath = filepath.Join(evalDir, "cli-policy.json")
-			policyData, err := EncodeCLICommandPolicy(CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: loaded.spec.AllowedCLICommands})
+			cliPolicy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: loaded.spec.AllowedCLICommands}
+			policyData, err := EncodeCLICommandPolicy(cliPolicy)
 			if err != nil {
 				return Result{}, err
 			}
@@ -469,6 +504,38 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 				return Result{}, err
 			}
 			defer func() { _ = liveGateway.Close(context.Background()) }()
+			if codexPrivateCLI {
+				brokerManifestPath = filepath.Join(evalDir, "command-broker.json")
+				brokerTimeout := time.Duration(loaded.spec.TimeoutSeconds) * time.Second
+				if brokerTimeout > 2*time.Minute {
+					brokerTimeout = 2 * time.Minute
+				}
+				brokerEnvironment := map[string]string{
+					"ATL_READ_ONLY": "1", "ATL_NO_UPDATE": "1",
+					"ATL_CONFIG_DIR": atlConfigDir, "ATL_MIRROR_ROOT": filepath.Join(evalDir, "mirror"),
+					"NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost",
+				}
+				for _, name := range []string{"LANG", "LC_ALL", "TERM", "TZ"} {
+					if value := os.Getenv(name); value != "" {
+						brokerEnvironment[name] = value
+					}
+				}
+				maxStdout := loaded.scenario.Budgets.MaxOutputBytes
+				if maxStdout > 4<<20 {
+					maxStdout = 4 << 20
+				}
+				commandBroker, err = StartCommandBroker(CommandBrokerConfig{
+					RequestDirectory: brokerRequestDirectory, ResponseDirectory: brokerResponseDirectory,
+					ManifestPath: brokerManifestPath,
+					RealBinary:   options.ATLBinary, Policy: cliPolicy,
+					Environment:    flattenEnvironment(brokerEnvironment),
+					MaxStdoutBytes: maxStdout, MaxStderrBytes: 64 << 10, CommandTimeout: brokerTimeout,
+				})
+				if err != nil {
+					return Result{}, err
+				}
+				defer func() { _ = commandBroker.Close() }()
+			}
 		} else {
 			if err := copyLiveConfig(options.LiveConfigDir, atlConfigDir); err != nil {
 				return Result{}, err
@@ -493,9 +560,14 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		}
 	}
 
-	commandPlan, err := BuildProviderCommand(loaded.spec, options.AgentBinary, options.ATLBinary, guardPath, workspace, responseSchemaPath, finalPath, claudePluginPath(loaded.spec.Provider, options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, settingsPath), mcpConfigPath, loaded.responseSchema)
+	commandPlan, err := BuildProviderCommand(loaded.spec, options.AgentBinary, options.ATLBinary, guardPath, workspace, responseSchemaPath, finalPath, claudePluginPath(loaded.spec.Provider, options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, settingsPath), mcpConfigPath, providerConfinement, loaded.responseSchema)
 	if err != nil {
 		return Result{}, err
+	}
+	if codexPrivateCLI {
+		if err := runCodexConfinementPreflight(parent, options.AgentBinary, workspace, probeExecutablePath, brokerManifestPath, providerConfinement); err != nil {
+			return Result{}, err
+		}
 	}
 	commandPlan, err = resolveProviderLaunch(commandPlan)
 	if err != nil {
@@ -527,6 +599,13 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	environment["ATL_EVAL_GUARD_COUNTER"] = guardCounterPath
 	if cliPolicyPath != "" {
 		environment["ATL_EVAL_CLI_POLICY_FILE"] = cliPolicyPath
+		if brokerManifestPath != "" {
+			environment["ATL_EVAL_COMMAND_BROKER_FILE"] = brokerManifestPath
+			delete(environment, "ATL_NO_UPDATE")
+			delete(environment, "ATL_CONFIG_DIR")
+			delete(environment, "ATL_MIRROR_ROOT")
+			delete(environment, "ATL_EVAL_REAL_BINARY")
+		}
 		environment["ATL_EVAL_GUARD_MODE"] = "private-cli"
 		environment["NO_PROXY"] = "127.0.0.1,localhost"
 		environment["no_proxy"] = "127.0.0.1,localhost"
@@ -575,6 +654,10 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		}()
 	}
 	runErr := command.Run()
+	var brokerCloseErr error
+	if commandBroker != nil {
+		brokerCloseErr = commandBroker.Close()
+	}
 	var gatewayCloseErr error
 	if liveGateway != nil {
 		gatewayCloseErr = liveGateway.Close(context.Background())
@@ -588,6 +671,9 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	closeStderrErr := stderr.Close()
 	if gatewayCloseErr != nil {
 		return Result{}, fmt.Errorf("close private-live gateway: %w", gatewayCloseErr)
+	}
+	if brokerCloseErr != nil {
+		return Result{}, fmt.Errorf("close private-live command broker: %w", brokerCloseErr)
 	}
 	if ctx.Err() == context.DeadlineExceeded {
 		return Result{}, fmt.Errorf("agent exceeded %d second timeout", loaded.spec.TimeoutSeconds)
@@ -812,6 +898,39 @@ func resolveProviderLaunch(plan ProviderCommand) (ProviderCommand, error) {
 	args = append(args, plan.Path)
 	args = append(args, plan.Args...)
 	return ProviderCommand{Path: interpreter, Args: args}, nil
+}
+
+func runCodexConfinementPreflight(parent context.Context, agentBinary, workspace, probeExecutable, brokerManifestPath string, confinement ProviderConfinement) error {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return fmt.Errorf("prepare codex private-live confinement preflight")
+	}
+	defer func() { _ = listener.Close() }()
+	plan, err := BuildCodexConfinementProbeCommand(agentBinary, workspace, probeExecutable, confinement)
+	if err != nil {
+		return fmt.Errorf("prepare codex private-live confinement preflight")
+	}
+	plan, err = resolveProviderLaunch(plan)
+	if err != nil {
+		return fmt.Errorf("prepare codex private-live confinement preflight")
+	}
+	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, plan.Path, plan.Args...)
+	command.Dir = workspace
+	command.Stdout = io.Discard
+	command.Stderr = io.Discard
+	environment := safeAgentEnvironment(os.Environ())
+	if pathValue := os.Getenv("PATH"); pathValue != "" {
+		environment["PATH"] = pathValue
+	}
+	environment["ATL_EVAL_COMMAND_BROKER_FILE"] = brokerManifestPath
+	environment["ATL_EVAL_FORBIDDEN_NETWORK_ADDRESS"] = listener.Addr().String()
+	command.Env = flattenEnvironment(environment)
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("codex private-live confinement preflight failed before model and backend access")
+	}
+	return nil
 }
 
 func readProxyRecords(path string) ([]atlProxyRecord, error) {
@@ -1189,6 +1308,13 @@ func guardName() string {
 		return "atl-eval-guard.exe"
 	}
 	return "atl-eval-guard"
+}
+
+func confinementProbeName() string {
+	if filepath.Ext(os.Args[0]) == ".exe" {
+		return "atl-eval-confinement-probe.exe"
+	}
+	return "atl-eval-confinement-probe"
 }
 func writeClaudeGuardSettings(path, guardPath string) error {
 	hooks := make([]any, 0, 6)
