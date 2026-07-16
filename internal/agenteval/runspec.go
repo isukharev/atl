@@ -21,27 +21,28 @@ var mcpToolNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 // RunSpec is intentionally separate from Scenario: scenarios define comparable
 // budgets, while run specs define one provider invocation and may remain local.
 type RunSpec struct {
-	SchemaVersion            int        `json:"schema_version"`
-	BackendMode              string     `json:"backend_mode,omitempty"`
-	ScenarioFile             string     `json:"scenario_file"`
-	Provider                 string     `json:"provider"`
-	Variant                  string     `json:"variant"`
-	Model                    string     `json:"model"`
-	Reasoning                string     `json:"reasoning,omitempty"`
-	PromptFile               string     `json:"prompt_file"`
-	ResponseSchemaFile       string     `json:"response_schema_file"`
-	QualitativeRubricFile    string     `json:"qualitative_rubric_file"`
-	WorkspaceTemplate        string     `json:"workspace_template"`
-	FixtureFile              string     `json:"fixture_file"`
-	Repetitions              int        `json:"repetitions"`
-	TimeoutSeconds           int        `json:"timeout_seconds"`
-	MaxEstimatedCostMicroUSD int64      `json:"max_estimated_cost_microusd"`
-	Pricing                  Pricing    `json:"pricing"`
-	ToolTransport            string     `json:"tool_transport,omitempty"`
-	AllowedTools             []string   `json:"allowed_tools"`
-	AllowedATLCommands       []string   `json:"allowed_atl_commands"`
-	AllowedMCPTools          []string   `json:"allowed_mcp_tools,omitempty"`
-	Checks                   []RunCheck `json:"checks"`
+	SchemaVersion            int              `json:"schema_version"`
+	BackendMode              string           `json:"backend_mode,omitempty"`
+	ScenarioFile             string           `json:"scenario_file"`
+	Provider                 string           `json:"provider"`
+	Variant                  string           `json:"variant"`
+	Model                    string           `json:"model"`
+	Reasoning                string           `json:"reasoning,omitempty"`
+	PromptFile               string           `json:"prompt_file"`
+	ResponseSchemaFile       string           `json:"response_schema_file"`
+	QualitativeRubricFile    string           `json:"qualitative_rubric_file"`
+	WorkspaceTemplate        string           `json:"workspace_template"`
+	FixtureFile              string           `json:"fixture_file"`
+	Repetitions              int              `json:"repetitions"`
+	TimeoutSeconds           int              `json:"timeout_seconds"`
+	MaxEstimatedCostMicroUSD int64            `json:"max_estimated_cost_microusd"`
+	Pricing                  Pricing          `json:"pricing"`
+	ToolTransport            string           `json:"tool_transport,omitempty"`
+	AllowedTools             []string         `json:"allowed_tools"`
+	AllowedATLCommands       []string         `json:"allowed_atl_commands"`
+	AllowedCLICommands       []CLICommandRule `json:"allowed_cli_commands,omitempty"`
+	AllowedMCPTools          []string         `json:"allowed_mcp_tools,omitempty"`
+	Checks                   []RunCheck       `json:"checks"`
 }
 
 const (
@@ -127,11 +128,8 @@ func (s RunSpec) Validate() error {
 		if s.Repetitions != 1 {
 			return fmt.Errorf("private-live runs require exactly one repetition")
 		}
-		if s.ToolTransport != "mcp" {
-			return fmt.Errorf("private-live runs require tool_transport=mcp")
-		}
-		if len(s.AllowedTools) != 0 || len(s.AllowedATLCommands) != 0 {
-			return fmt.Errorf("private-live runs cannot expose model-native shell or file tools")
+		if s.ToolTransport != "mcp" && s.ToolTransport != "cli" {
+			return fmt.Errorf("private-live runs require an explicit cli or mcp tool_transport")
 		}
 	default:
 		return fmt.Errorf("backend_mode must be synthetic or private-live")
@@ -174,11 +172,26 @@ func (s RunSpec) Validate() error {
 		}
 		seenTools[tool] = struct{}{}
 	}
-	if transport == "cli" && (len(s.AllowedATLCommands) == 0 || len(s.AllowedATLCommands) > 32) {
-		return fmt.Errorf("allowed_atl_commands must contain 1..32 entries for cli transport")
+	if transport == "cli" {
+		switch s.EffectiveBackendMode() {
+		case BackendModeSynthetic:
+			if len(s.AllowedATLCommands) == 0 || len(s.AllowedATLCommands) > 32 {
+				return fmt.Errorf("allowed_atl_commands must contain 1..32 entries for synthetic cli transport")
+			}
+			if len(s.AllowedCLICommands) != 0 {
+				return fmt.Errorf("allowed_cli_commands must be empty for synthetic cli transport")
+			}
+		case BackendModePrivateLive:
+			if len(s.AllowedATLCommands) != 0 {
+				return fmt.Errorf("private-live cli transport forbids prefix-based allowed_atl_commands")
+			}
+			if err := (CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: s.AllowedCLICommands}).Validate(); err != nil {
+				return fmt.Errorf("allowed_cli_commands: %w", err)
+			}
+		}
 	}
-	if transport == "mcp" && len(s.AllowedATLCommands) != 0 {
-		return fmt.Errorf("allowed_atl_commands must be empty for mcp transport")
+	if transport == "mcp" && (len(s.AllowedATLCommands) != 0 || len(s.AllowedCLICommands) != 0) {
+		return fmt.Errorf("CLI command allowlists must be empty for mcp transport")
 	}
 	seenCommands := map[string]struct{}{}
 	for _, command := range s.AllowedATLCommands {

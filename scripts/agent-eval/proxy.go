@@ -12,12 +12,15 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/isukharev/atl/internal/agenteval"
 )
 
 type proxyRecord struct {
-	StdoutBytes int64 `json:"stdout_bytes"`
-	StderrBytes int64 `json:"stderr_bytes"`
-	ExitCode    int   `json:"exit_code"`
+	CommandFamily string `json:"command_family,omitempty"`
+	StdoutBytes   int64  `json:"stdout_bytes"`
+	StderrBytes   int64  `json:"stderr_bytes"`
+	ExitCode      int    `json:"exit_code"`
 }
 
 type guardRecord struct {
@@ -31,6 +34,8 @@ type claudeHookInput struct {
 		FilePath string `json:"file_path"`
 	} `json:"tool_input"`
 }
+
+var cliRuleNameRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 
 func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 	data, err := io.ReadAll(io.LimitReader(input, (1<<20)+1))
@@ -67,6 +72,27 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 			if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS")) {
 				decision = "allow"
 				reason = "command contains only confined skill-reader invocations"
+			}
+		}
+		return writeGuardDecision(output, errorOutput, decision, reason)
+	}
+	if guardMode == "private-cli" {
+		reason = "private-live CLI allows only confined reads and one reviewed atl invocation"
+		switch hook.ToolName {
+		case "Read":
+			allowed, err := allowedReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
+			if err != nil {
+				fmt.Fprintln(errorOutput, "atl evaluation guard could not enforce the read limit")
+				return 2
+			}
+			if allowed {
+				decision = "allow"
+				reason = "read target is within a reviewed benchmark root"
+			}
+		case "Bash":
+			if safePrivateCLICommandShape(hook.ToolInput.Command) {
+				decision = "allow"
+				reason = "command shape delegates exact argument enforcement to the atl evaluation shim"
 			}
 		}
 		return writeGuardDecision(output, errorOutput, decision, reason)
@@ -387,6 +413,22 @@ func allowedGuardCommand(command string, prefixes []string) bool {
 	return false
 }
 
+func safePrivateCLICommandShape(command string) bool {
+	command = strings.TrimSpace(command)
+	if command == "command -v atl" {
+		return true
+	}
+	if strings.HasPrefix(command, "export ATL_READ_ONLY=1;") {
+		command = strings.TrimSpace(strings.TrimPrefix(command, "export ATL_READ_ONLY=1;"))
+	} else if strings.HasPrefix(command, "ATL_READ_ONLY=1 ") {
+		command = strings.TrimSpace(strings.TrimPrefix(command, "ATL_READ_ONLY=1 "))
+	}
+	if !strings.HasPrefix(command, "atl ") {
+		return false
+	}
+	return !strings.ContainsAny(command, "\r\n\x00;&|`><$(){}[]*?!~#")
+}
+
 func runATLProxy(args []string) int {
 	if os.Getenv("ATL_READ_ONLY") != "1" {
 		fmt.Fprintln(os.Stderr, "atl evaluation proxy requires ATL_READ_ONLY=1")
@@ -397,6 +439,29 @@ func runATLProxy(args []string) int {
 	if realBinary == "" || counterPath == "" {
 		fmt.Fprintln(os.Stderr, "atl evaluation proxy is not configured")
 		return 2
+	}
+	commandFamily := ""
+	if policyPath := os.Getenv("ATL_EVAL_CLI_POLICY_FILE"); policyPath != "" {
+		policy, err := agenteval.LoadCLICommandPolicy(policyPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "atl evaluation proxy rejected its command policy")
+			return 2
+		}
+		match, err := policy.Match(args)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "atl evaluation proxy rejected command arguments")
+			return 2
+		}
+		allowed, err := reserveCLIInvocation(counterPath, match.Name, match.MaxInvocations)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "atl evaluation proxy could not enforce its invocation budget")
+			return 2
+		}
+		if !allowed {
+			fmt.Fprintln(os.Stderr, "atl evaluation proxy rejected an exhausted command budget")
+			return 2
+		}
+		commandFamily = match.Name
 	}
 	command := exec.Command(realBinary, args...)
 	command.Stdin = os.Stdin
@@ -435,11 +500,28 @@ func runATLProxy(args []string) int {
 			exitCode = 1
 		}
 	}
-	if err := appendProxyRecord(counterPath, proxyRecord{StdoutBytes: stdoutBytes, StderrBytes: stderrBytes, ExitCode: exitCode}); err != nil {
+	if err := appendProxyRecord(counterPath, proxyRecord{CommandFamily: commandFamily, StdoutBytes: stdoutBytes, StderrBytes: stderrBytes, ExitCode: exitCode}); err != nil {
 		fmt.Fprintln(os.Stderr, "record atl evaluation metric:", err)
 		return 1
 	}
 	return exitCode
+}
+
+func reserveCLIInvocation(counterPath, ruleName string, limit int) (bool, error) {
+	if counterPath == "" || !cliRuleNameRE.MatchString(ruleName) || limit < 1 || limit > 100 {
+		return false, fmt.Errorf("invalid cli invocation policy")
+	}
+	for slot := 1; slot <= limit; slot++ {
+		path := filepath.Join(filepath.Dir(counterPath), fmt.Sprintf("cli-slot-%s-%d", ruleName, slot))
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			return true, file.Close()
+		}
+		if !os.IsExist(err) {
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 func appendProxyRecord(path string, record proxyRecord) error {

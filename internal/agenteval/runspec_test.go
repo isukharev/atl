@@ -105,7 +105,7 @@ func TestPrivateLiveRunSpecFailsClosed(t *testing.T) {
 	for name, mutate := range map[string]func(*RunSpec, *Scenario){
 		"fixture":     func(s *RunSpec, _ *Scenario) { s.FixtureFile = "fixture.json" },
 		"repetitions": func(s *RunSpec, _ *Scenario) { s.Repetitions = 2 },
-		"cli transport": func(s *RunSpec, _ *Scenario) {
+		"prefix cli policy": func(s *RunSpec, _ *Scenario) {
 			s.ToolTransport = "cli"
 			s.AllowedTools = []string{"Bash(atl *)"}
 			s.AllowedATLCommands = []string{"atl jira fields"}
@@ -126,6 +126,55 @@ func TestPrivateLiveRunSpecFailsClosed(t *testing.T) {
 			mutate(&candidate, &candidateScenario)
 			if candidate.Validate() == nil && candidate.ValidateAgainstScenario(candidateScenario) == nil {
 				t.Fatal("unsafe private-live spec passed")
+			}
+		})
+	}
+}
+
+func TestPrivateLiveCLIRunSpecRequiresStructuredArgumentPolicy(t *testing.T) {
+	scenario := validScenario()
+	scenario.DataClass = "private-local"
+	scenario.RequiredChecks = []string{"answer_correct", "used_atl", "http_observed", "guard_clean", "no_delegation", "atl_succeeded"}
+	scenario.Budgets.MaxRemoteWrites = 0
+	scenario.Budgets.MaxDelegations = 0
+	scenario.Budgets.MaxEstimatedCostMicroUSD = 10_000_000
+	scenario.Budgets.AllowedHTTPMethods = []string{"GET", "HEAD"}
+	spec := validRunSpec()
+	spec.BackendMode = BackendModePrivateLive
+	spec.FixtureFile = ""
+	spec.Repetitions = 1
+	spec.ToolTransport = "cli"
+	spec.AllowedTools = []string{"Bash(atl *)", "Read"}
+	spec.AllowedATLCommands = nil
+	spec.AllowedCLICommands = validCLICommandPolicy().Rules
+	spec.MaxEstimatedCostMicroUSD = scenario.Budgets.MaxEstimatedCostMicroUSD
+	spec.Checks = append(spec.Checks,
+		RunCheck{Name: "http_observed", Kind: "http_methods_observed"},
+		RunCheck{Name: "guard_clean", Kind: "guard_no_denials"},
+		RunCheck{Name: "no_delegation", Kind: "delegations_none"},
+		RunCheck{Name: "atl_succeeded", Kind: "atl_all_succeeded"},
+	)
+	if err := spec.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := spec.ValidateAgainstScenario(scenario); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, mutate := range map[string]func(*RunSpec){
+		"missing policy": func(s *RunSpec) { s.AllowedCLICommands = nil },
+		"legacy prefix":  func(s *RunSpec) { s.AllowedATLCommands = []string{"atl jira epic digest"} },
+		"mcp tool":       func(s *RunSpec) { s.AllowedMCPTools = []string{"jira_epic_digest"} },
+		"bad target":     func(s *RunSpec) { s.AllowedCLICommands[0].Positionals[0].Values[0] = "PROJ-1\nnext" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := spec
+			candidate.AllowedCLICommands = append([]CLICommandRule(nil), spec.AllowedCLICommands...)
+			candidate.AllowedCLICommands[0].Positionals = append([]CLIArgumentRule(nil), spec.AllowedCLICommands[0].Positionals...)
+			candidate.AllowedCLICommands[0].Positionals[0].Values = append([]string(nil), spec.AllowedCLICommands[0].Positionals[0].Values...)
+			mutate(&candidate)
+			if err := candidate.Validate(); err == nil {
+				t.Fatal("unsafe private-live CLI spec passed")
 			}
 		})
 	}

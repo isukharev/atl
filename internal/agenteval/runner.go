@@ -132,6 +132,9 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 	if options.DryRun {
 		return RunOutput{Preview: preview, Results: []Result{}}, nil
 	}
+	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive && loaded.spec.ToolTransport == "cli" {
+		return RunOutput{}, fmt.Errorf("private-live cli model execution requires credential-gateway provider isolation; validation and dry-run are available")
+	}
 	if loaded.spec.Provider == "codex" && loaded.spec.ToolTransport != "mcp" {
 		return RunOutput{}, fmt.Errorf("codex model execution requires tool_transport=mcp; cli transport remains validate/dry-run only")
 	}

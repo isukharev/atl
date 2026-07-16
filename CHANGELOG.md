@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a schema-validated exact-argument policy for private-live CLI+skill
+  benchmarks. Each reviewed command family pins its command path, positional
+  values, flags, and invocation budget; the evaluation shim rechecks the
+  process argv independently, reserves budget slots atomically, and records
+  only a generic command-family label and byte/exit metrics. Prefix-based
+  command allowlists remain synthetic-only. Private-live CLI model execution
+  remains dry-run-only until provider credentials are isolated behind the
+  evaluation gateway.
+
 - Added the evaluation-only credential gateway foundation for upcoming
   private-live CLI+skill benchmarks. The loopback reverse gateway keeps real
   Jira/Confluence PATs in the parent process, gives child CLIs disposable
