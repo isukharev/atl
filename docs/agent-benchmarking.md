@@ -272,7 +272,14 @@ the `PreToolUse` guard is therefore the authoritative command boundary rather
 than a PATH assumption. The hook allowlist and `ATL_READ_ONLY=1` remain
 independent: the hook limits which CLI reads the model may request, while the
 CLI policy rejects every mutating command even if a prefix were configured too
-broadly. Delegated variants also place `Agent` behind the hook: atomic private
+broadly.
+
+Confined skill readers accept `cat` over 1..16 reviewed files, bounded `sed`
+ranges, and `wc -l`. Multi-file `cat` validates every canonical path before
+writing anything and applies one combined 1 MiB cap; it does not enable options,
+globs, substitutions, or arbitrary shell syntax.
+
+Delegated variants also place `Agent` behind the hook: atomic private
 slots enforce the scenario limit before the child starts, and a scenario may
 permit at most three children. The public comparison uses one child, which also
 prevents a second delegation level.

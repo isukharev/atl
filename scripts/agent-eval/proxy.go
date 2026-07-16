@@ -157,7 +157,7 @@ func allowedSkillReadCommand(command, rawRoots string) bool {
 		fields := strings.Fields(strings.TrimSpace(part))
 		var targets []string
 		switch {
-		case len(fields) == 2 && fields[0] == "cat":
+		case len(fields) >= 2 && len(fields) <= 17 && fields[0] == "cat":
 			targets = fields[1:]
 		case len(fields) == 4 && fields[0] == "sed" && fields[1] == "-n" && validSedRange(fields[2]):
 			targets = fields[3:]
@@ -193,14 +193,10 @@ func validSedRange(value string) bool {
 
 func runSkillReader(name string, args []string, output, errorOutput io.Writer) int {
 	var target string
-	start, end := 1, 10_000
+	var start, end int
 	switch name {
 	case "cat":
-		if len(args) != 1 {
-			fmt.Fprintln(errorOutput, "private benchmark cat accepts exactly one file")
-			return 2
-		}
-		target = args[0]
+		return runSkillCat(args, output, errorOutput)
 	case "sed":
 		if len(args) != 3 || args[0] != "-n" || !validSedRange(args[1]) {
 			fmt.Fprintln(errorOutput, "private benchmark sed accepts only -n START,ENDp FILE")
@@ -250,6 +246,40 @@ func runSkillReader(name string, args []string, output, errorOutput io.Writer) i
 	}
 	if _, err := output.Write(data); err != nil {
 		fmt.Fprintln(errorOutput, "private benchmark reader could not write output")
+		return 1
+	}
+	return 0
+}
+
+func runSkillCat(paths []string, output, errorOutput io.Writer) int {
+	if len(paths) < 1 || len(paths) > 16 {
+		fmt.Fprintln(errorOutput, "private benchmark cat accepts 1..16 files")
+		return 2
+	}
+	for _, path := range paths {
+		allowed, err := allowedReadPath(path, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
+		if err != nil || !allowed {
+			fmt.Fprintln(errorOutput, "private benchmark reader denied path")
+			return 2
+		}
+	}
+	var combined bytes.Buffer
+	for _, path := range paths {
+		file, err := os.Open(path)
+		if err != nil {
+			fmt.Fprintln(errorOutput, "private benchmark reader could not open file")
+			return 1
+		}
+		remaining := int64((1 << 20) + 1 - combined.Len())
+		data, readErr := io.ReadAll(io.LimitReader(file, remaining))
+		closeErr := file.Close()
+		if readErr != nil || closeErr != nil || combined.Len()+len(data) > 1<<20 {
+			fmt.Fprintln(errorOutput, "private benchmark reader rejected files")
+			return 1
+		}
+		_, _ = combined.Write(data)
+	}
+	if _, err := output.Write(combined.Bytes()); err != nil {
 		return 1
 	}
 	return 0
