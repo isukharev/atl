@@ -1272,6 +1272,15 @@ remain explicit. Links use a total `(key,type,type_name,direction,id)` order.
 `-o text` renders source completeness, selected status text,
 and child distribution without inventing narrative conclusions.
 
+With `--projection compact`, the same schema additionally contains
+`projection:{name:"compact",omitted:[],clipped:[]}` and summary objects for
+comments, links, history, and refs. Raw collection members named in `omitted`
+are absent; children retain aggregate counts but omit `children.list`.
+`clipped` describes projection-level context reduction, independently of the
+source-level `complete` and `*_truncated` signals. Consumers must inspect both:
+projection clipping is not evidence-source truncation, and neither can be
+interpreted as proof of absence. The default `full` JSON remains unchanged.
+
 List-oriented Jira reads (`issue search`, `issue children`, `board
 issues/backlog`, and `sprint issues`) share one app-layer contract:
 

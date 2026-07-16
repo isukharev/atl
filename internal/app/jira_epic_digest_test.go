@@ -1,13 +1,86 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/isukharev/atl/internal/domain"
 )
+
+func TestProjectJiraEpicDigestCompactIsBoundedAndQualified(t *testing.T) {
+	large := strings.Repeat("x", jiraDigestTextCap)
+	result := &JiraEpicDigestResult{
+		SchemaVersion: 1,
+		Includes:      []string{"identity", "children", "comments", "links", "history", "refs"},
+		Sources: map[string]JiraDigestSource{
+			"identity": {Complete: true, Count: 1}, "children": {Complete: false, Count: 1000, CountTruncated: true, Warning: "digest child cap reached"},
+			"comments": {Complete: true, Count: 50}, "links": {Complete: true, Count: 1000}, "history": {Complete: true, Count: 500}, "refs": {Complete: true, Count: 1000},
+		},
+		Epic:        JiraDigestIdentity{Key: "PROJ-1", Summary: large, Description: large},
+		StatusField: &JiraDigestFieldEvidence{ID: "customfield_1", Name: "Narrative", Value: large},
+		DoDField:    &JiraDigestFieldEvidence{ID: "customfield_2", Name: "Definition", Value: large},
+		Children:    &JiraDigestChildren{List: &IssueList{Rows: make([]IssueListRow, 1000)}, ByStatus: map[string]int{"Done": 900, "Open": 100}},
+		Staleness:   JiraDigestStaleness{Reasons: []string{}}, Warnings: []string{},
+	}
+	result.Children.ByStatus = map[string]int{}
+	for i := 0; i < 100; i++ {
+		result.Children.ByStatus[fmt.Sprintf("%03d-%s", i, large)] = i
+	}
+	for i := 0; i < 50; i++ {
+		result.Comments = append(result.Comments, domain.Comment{ID: fmt.Sprint(i), Body: large})
+	}
+	for i := 0; i < 1000; i++ {
+		result.Links = append(result.Links, domain.IssueLink{ID: fmt.Sprint(i), Key: fmt.Sprintf("PROJ-%d", i), Type: "relates to"})
+		result.Refs = append(result.Refs, PlanningRef{Kind: fmt.Sprintf("%04d-%s", i, large), URL: "https://example.test/" + large})
+	}
+	for i := 0; i < 500; i++ {
+		result.History = append(result.History, domain.ChangelogEntry{ID: fmt.Sprint(i), Items: []domain.ChangelogItem{{Field: "Notes", From: large, To: large}}})
+	}
+	for i := 0; i < 10; i++ {
+		result.Confluence = append(result.Confluence, JiraDigestConfluenceEvidence{URL: "https://example.test/" + large, Section: &ConfluencePageSectionResult{ID: large, PageTitle: large, Space: large, Heading: large, Path: []string{large, large, large, large, large, large, large, large, large, large, large}, Markdown: large}})
+	}
+
+	compact, err := ProjectJiraEpicDigest(result, "compact")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(compact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) > 64<<10 {
+		t.Fatalf("compact digest is %d bytes, want <= 65536", len(encoded))
+	}
+	if compact.Projection == nil || compact.Projection.Name != "compact" || !slices.Contains(compact.Projection.Omitted, "children.list") || !slices.Contains(compact.Projection.Clipped, "status_field.value") {
+		t.Fatalf("projection=%+v", compact.Projection)
+	}
+	if compact.Sources["children"].Complete || !compact.Sources["children"].CountTruncated || compact.Children.List != nil || compact.CommentSummary.Count != 50 || len(compact.CommentSummary.Recent) != 3 || compact.LinkSummary.Count != 1000 || compact.HistorySummary.Count != 500 || compact.RefSummary.Count != 1000 {
+		t.Fatalf("compact=%+v", compact)
+	}
+	if result.Children.List == nil || len(result.Comments) != 50 {
+		t.Fatal("projection mutated full digest")
+	}
+	again, err := ProjectJiraEpicDigest(result, "compact")
+	if err != nil {
+		t.Fatal(err)
+	}
+	againJSON, _ := json.Marshal(again)
+	if !bytes.Equal(encoded, againJSON) {
+		t.Fatal("compact projection is not deterministic")
+	}
+}
+
+func TestProjectJiraEpicDigestRejectsUnknownProjection(t *testing.T) {
+	if _, err := ProjectJiraEpicDigest(&JiraEpicDigestResult{}, "brief"); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("err=%v", err)
+	}
+}
 
 type digestTracker struct {
 	domain.Tracker

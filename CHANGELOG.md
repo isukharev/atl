@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `jira epic digest --projection compact` and the typed MCP equivalent now
+  preserve qualified evidence while bounding agent context with deterministic
+  summaries and explicit omitted/clipped paths.
+
 - Added an `atl_invocations_max` model-run check and applied it to the synthetic
   Jira epic-evidence cells. The Jira skill now routes metadata discovery
   directly into one digest, forbids help probes and guessed periods, and makes

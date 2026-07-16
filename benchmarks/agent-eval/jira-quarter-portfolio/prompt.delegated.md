@@ -12,7 +12,7 @@ jira/portfolio, invoke the named Jira skill, and read only its
 portfolio-evidence reference. Discover custom field ids once with jira fields.
 Fetch one complete board view containing key, summary, status, issue type,
 updated, epic link, quarter outcome, and evidence page. Reuse it for membership
-and child counts. For each epic use only a quarter digest with includes
+and child counts. For each epic use only a compact quarter digest with includes
 identity,status-field,history and the technical outcome field id. Read only the
 Results section of each linked Confluence page. Use one command per Bash call.
 

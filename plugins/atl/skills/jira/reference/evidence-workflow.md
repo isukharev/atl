@@ -23,7 +23,8 @@ atl --read-only jira issue fields PROJ-1 --metadata-only
 
 atl --read-only jira epic digest PROJ-1 \
   --status-field 'Delivery Notes' \
-  --dod-field 'Definition of Done'
+  --dod-field 'Definition of Done' \
+  --projection compact
 ```
 
 The first command omits values and empty fields. Choose an exact unambiguous
@@ -35,7 +36,9 @@ workflow default); otherwise omit time flags rather than guessing the current
 quarter. The digest joins identity, children, comments, history,
 links/blockers, and refs; it does not write a management narrative. Inspect
 every `sources.<name>.complete` and the dated `staleness.reasons` before drawing
-a conclusion. When the required sources are complete and sufficient, stop:
+a conclusion. In compact output also inspect `projection.omitted` and
+`projection.clipped`; expand to `--projection full` only when a named omitted
+detail is required for the answer. When the required sources are complete and sufficient, stop:
 do not rerun the digest with `-o text`, a broader period, or alternate defaults.
 
 If a non-epic issue needs a time-qualified field check, avoid a digest:
@@ -89,7 +92,7 @@ atl --read-only conf page section '<same-origin-page-or-short-url>' \
 
 atl --read-only jira epic digest PROJ-1 --quarter 2026-Q2 \
   --status-field 'Delivery Notes' \
-  --expand-confluence 1 --confluence-heading 'Metrics'
+  --expand-confluence 1 --confluence-heading 'Metrics' --projection compact
 ```
 
 The quarter in this expansion example is task-supplied. It is not a default to

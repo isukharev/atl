@@ -79,7 +79,7 @@ type JiraDigestFieldEvidence struct {
 }
 
 type JiraDigestChildren struct {
-	List            *IssueList     `json:"list"`
+	List            *IssueList     `json:"list,omitempty"`
 	ByStatus        map[string]int `json:"by_status"`
 	UpdatedInPeriod int            `json:"updated_in_period"`
 	LatestUpdated   string         `json:"latest_updated,omitempty"`
@@ -101,22 +101,27 @@ type JiraDigestConfluenceEvidence struct {
 }
 
 type JiraEpicDigestResult struct {
-	SchemaVersion int                            `json:"schema_version"`
-	Period        JiraDigestPeriod               `json:"period"`
-	Includes      []string                       `json:"includes"`
-	Sources       map[string]JiraDigestSource    `json:"sources"`
-	Epic          JiraDigestIdentity             `json:"epic"`
-	StatusField   *JiraDigestFieldEvidence       `json:"status_field,omitempty"`
-	DoDField      *JiraDigestFieldEvidence       `json:"dod_field,omitempty"`
-	Children      *JiraDigestChildren            `json:"children,omitempty"`
-	Comments      []domain.Comment               `json:"comments,omitempty"`
-	Links         []domain.IssueLink             `json:"links,omitempty"`
-	Blockers      []domain.IssueLink             `json:"blockers,omitempty"`
-	History       []domain.ChangelogEntry        `json:"history,omitempty"`
-	Refs          []PlanningRef                  `json:"refs,omitempty"`
-	Confluence    []JiraDigestConfluenceEvidence `json:"confluence,omitempty"`
-	Staleness     JiraDigestStaleness            `json:"staleness"`
-	Warnings      []string                       `json:"warnings,omitempty"`
+	SchemaVersion  int                            `json:"schema_version"`
+	Period         JiraDigestPeriod               `json:"period"`
+	Includes       []string                       `json:"includes"`
+	Sources        map[string]JiraDigestSource    `json:"sources"`
+	Epic           JiraDigestIdentity             `json:"epic"`
+	StatusField    *JiraDigestFieldEvidence       `json:"status_field,omitempty"`
+	DoDField       *JiraDigestFieldEvidence       `json:"dod_field,omitempty"`
+	Children       *JiraDigestChildren            `json:"children,omitempty"`
+	Comments       []domain.Comment               `json:"comments,omitempty"`
+	Links          []domain.IssueLink             `json:"links,omitempty"`
+	Blockers       []domain.IssueLink             `json:"blockers,omitempty"`
+	History        []domain.ChangelogEntry        `json:"history,omitempty"`
+	Refs           []PlanningRef                  `json:"refs,omitempty"`
+	Confluence     []JiraDigestConfluenceEvidence `json:"confluence,omitempty"`
+	Staleness      JiraDigestStaleness            `json:"staleness"`
+	Warnings       []string                       `json:"warnings,omitempty"`
+	Projection     *JiraDigestProjection          `json:"projection,omitempty"`
+	CommentSummary *JiraDigestCommentSummary      `json:"comment_summary,omitempty"`
+	LinkSummary    *JiraDigestLinkSummary         `json:"link_summary,omitempty"`
+	HistorySummary *JiraDigestHistorySummary      `json:"history_summary,omitempty"`
+	RefSummary     *JiraDigestRefSummary          `json:"ref_summary,omitempty"`
 }
 
 func (s *JiraService) EpicDigest(ctx context.Context, key string, opts JiraEpicDigestOpts) (*JiraEpicDigestResult, error) {
