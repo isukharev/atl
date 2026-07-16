@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "issue_key": {
+      "type": "string"
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "proceed",
+        "unknown"
+      ]
+    },
+    "evidence_complete": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "issue_key",
+    "decision",
+    "evidence_complete"
+  ]
+}

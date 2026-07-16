@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "id": "jira-clipped-field-evidence-answer",
+  "scenario_id": "jira.synthetic-clipped-field-evidence",
+  "minimum_score_bps": 7500,
+  "criteria": [
+    {
+      "id": "evidence_grounding",
+      "description": "The decision is derived only from the exact bounded field evidence.",
+      "maximum": 4,
+      "minimum": 4,
+      "weight": 35
+    },
+    {
+      "id": "qualification",
+      "description": "Completeness reflects both the digest source and exact expansion.",
+      "maximum": 4,
+      "minimum": 3,
+      "weight": 25
+    },
+    {
+      "id": "task_completeness",
+      "description": "The requested issue, decision, and completeness are all returned.",
+      "maximum": 4,
+      "minimum": 3,
+      "weight": 20
+    },
+    {
+      "id": "actionability",
+      "description": "The result is immediately usable by a parent agent.",
+      "maximum": 4,
+      "minimum": 2,
+      "weight": 10
+    },
+    {
+      "id": "concision",
+      "description": "The answer does not repeat the long narrative or raw tool output.",
+      "maximum": 4,
+      "minimum": 3,
+      "weight": 10
+    }
+  ],
+  "allowed_finding_ids": [
+    "incomplete_answer",
+    "missing_qualification",
+    "unsupported_claim",
+    "verbose"
+  ]
+}

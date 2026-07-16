@@ -1,0 +1,66 @@
+{
+  "schema_version": 2,
+  "scenario_file": "scenario.v1.json",
+  "provider": "codex",
+  "variant": "typed-mcp",
+  "model": "gpt-5.6-sol",
+  "reasoning": "medium",
+  "prompt_file": "prompt.mcp.md",
+  "response_schema_file": "response-schema.json",
+  "qualitative_rubric_file": "rubric.v1.json",
+  "workspace_template": "workspace",
+  "fixture_file": "fixture.json",
+  "repetitions": 3,
+  "timeout_seconds": 600,
+  "max_estimated_cost_microusd": 10000000,
+  "pricing": {
+    "input_microusd_per_million_tokens": 10000000,
+    "output_microusd_per_million_tokens": 50000000
+  },
+  "tool_transport": "mcp",
+  "allowed_tools": [],
+  "allowed_atl_commands": [],
+  "allowed_mcp_tools": [
+    "jira_fields",
+    "jira_epic_digest",
+    "jira_issue_field_get"
+  ],
+  "checks": [
+    {
+      "name": "atl_succeeded",
+      "kind": "atl_all_succeeded"
+    },
+    {
+      "name": "decision_correct",
+      "kind": "json_equals",
+      "pointer": "/decision",
+      "expected": "proceed"
+    },
+    {
+      "name": "evidence_complete",
+      "kind": "json_equals",
+      "pointer": "/evidence_complete",
+      "expected": true
+    },
+    {
+      "name": "issue_key_correct",
+      "kind": "json_equals",
+      "pointer": "/issue_key",
+      "expected": "PROJ-1"
+    },
+    {
+      "name": "mock_clean",
+      "kind": "mock_no_unexpected"
+    },
+    {
+      "name": "bounded_atl",
+      "kind": "atl_invocations_max",
+      "maximum": 3
+    },
+    {
+      "name": "used_atl",
+      "kind": "atl_invocations_min",
+      "minimum": 1
+    }
+  ]
+}

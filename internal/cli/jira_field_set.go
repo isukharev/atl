@@ -16,7 +16,7 @@ import (
 )
 
 func jiraIssueFieldCmd() *cobra.Command {
-	group := &cobra.Command{Use: "field", Short: "Guarded custom-field operations"}
+	group := &cobra.Command{Use: "field", Short: "Exact field evidence and guarded custom-field operations"}
 	var rawSpecs, mdSpecs []string
 	var allowFields, expectedUpdated, expectedProposalHash string
 	var apply bool
@@ -54,7 +54,7 @@ func jiraIssueFieldCmd() *cobra.Command {
 	set.Flags().StringVar(&expectedUpdated, "expected-updated", "", "reviewed Jira updated value (required with --apply; dry-run captures it)")
 	set.Flags().StringVar(&expectedProposalHash, "expected-proposal-hash", "", "reviewed aggregate proposal hash (required with --apply; dry-run captures it)")
 	set.Flags().BoolVar(&apply, "apply", false, "perform the guarded write (default: dry-run)")
-	group.AddCommand(set)
+	group.AddCommand(jiraIssueFieldGetCmd(), set)
 	return group
 }
 

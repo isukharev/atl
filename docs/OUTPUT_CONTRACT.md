@@ -56,7 +56,7 @@ filesystem search is deliberately outside the route.
 
 `atl mcp serve` is a separate stdio protocol transport, so global CLI output
 flags and process exit envelopes do not apply to individual tool calls. Each of
-the seven registered tools has inferred input/output JSON Schema and returns
+the eight registered tools has inferred input/output JSON Schema and returns
 typed `structuredContent`; compatible clients may also expose the SDK's text
 projection. Tool failures set the MCP error result and contain a JSON text
 object with stable `kind`, `remediation`, and diagnostic `message` fields.
@@ -1177,6 +1177,33 @@ identity/schema/emptiness. It preserves non-empty and `--include-empty`
 semantics, including observed plugin fields absent from the catalog, and
 conflicts with `--raw` before config/network access. Its `-o text` table has no
 value column; compact/raw keep their existing escaped Markdown table.
+
+`atl jira issue field get <KEY> --field <ID-or-name>` emits one qualified,
+bounded expansion:
+
+```json
+{
+  "schema_version": 1,
+  "issue": {"id": "10001", "key": "PROJ-1", "updated": "2026-07-01T10:00:00.000+0000"},
+  "field": {"id": "customfield_10002", "name": "Delivery Notes", "custom": true, "schema": "string", "present": true, "empty": false, "value_type": "string"},
+  "projection": "compact",
+  "max_value_bytes": 16384,
+  "original_value_bytes": 24,
+  "emitted_value_bytes": 24,
+  "complete": true,
+  "truncated": false,
+  "value": "Current delivery status"
+}
+```
+
+The command resolves exactly one field and reads it together with Jira
+`updated`; a technical id does not require a catalog request and uses the id as
+its fallback display name. Missing update provenance, ambiguous names, and malformed
+values fail closed. `complete` qualifies the compact projection; properties
+deliberately excluded by that projection (email, avatar, self URL, and other
+transport noise) are outside the contract. The encoded compact `value` is at
+most `max_value_bytes` (default 16 KiB, hard range 256 bytes..128 KiB).
+`-o text` emits a one-row escaped Markdown table with issue/update/field/value.
 
 Online Jira get/pull/view field selectors resolve exact names through the same
 catalog. Render selectors are stored as resolved ids in view state, so offline

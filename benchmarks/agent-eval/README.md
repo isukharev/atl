@@ -80,6 +80,14 @@ Raw transcripts, stderr, final structured output, invocation counters, and
 per-run results stay in the private output root with restrictive permissions.
 Only privacy-reviewed aggregate result contracts may be published.
 
+`jira-clipped-field-evidence` pins a compact digest whose required decision
+marker lies beyond the digest projection boundary. Its typed-MCP route permits
+one catalog lookup, one compact digest, and one exact bounded field expansion;
+the three-invocation budget makes a repeated full digest unnecessary and
+over-budget. The deterministic MCP test additionally verifies the exact
+five-GET, zero-write trajectory and that the expansion alone recovers the
+marker.
+
 Result schema v3 and aggregate schema v2 expose `capability_families` using a
 closed generic vocabulary shared by CLI and MCP. Each entry contains only
 invocations, successes, failures, and output bytes. Treat the section as

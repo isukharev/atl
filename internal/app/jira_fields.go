@@ -322,6 +322,10 @@ func jiraFieldValueEmpty(value any) bool {
 }
 
 func compactJiraFieldValue(value any, depth int) (any, bool) {
+	return compactJiraFieldValueWithLimits(value, depth, jiraCompactFieldStringCap, jiraCompactFieldArrayCap)
+}
+
+func compactJiraFieldValueWithLimits(value any, depth, stringCap, arrayCap int) (any, bool) {
 	if depth >= jiraCompactFieldDepthCap {
 		return map[string]any{"kind": "nested", "present": true}, true
 	}
@@ -329,10 +333,10 @@ func compactJiraFieldValue(value any, depth int) (any, bool) {
 	case nil, bool, json.Number, float64:
 		return value, false
 	case string:
-		if len(value) <= jiraCompactFieldStringCap {
+		if len(value) <= stringCap {
 			return value, false
 		}
-		end := jiraCompactFieldStringCap
+		end := stringCap
 		for end > 0 && !utf8.ValidString(value[:end]) {
 			end--
 		}
@@ -340,13 +344,13 @@ func compactJiraFieldValue(value any, depth int) (any, bool) {
 	case []any:
 		limit := len(value)
 		truncated := false
-		if limit > jiraCompactFieldArrayCap {
-			limit = jiraCompactFieldArrayCap
+		if limit > arrayCap {
+			limit = arrayCap
 			truncated = true
 		}
 		out := make([]any, 0, limit)
 		for _, item := range value[:limit] {
-			compact, childTruncated := compactJiraFieldValue(item, depth+1)
+			compact, childTruncated := compactJiraFieldValueWithLimits(item, depth+1, stringCap, arrayCap)
 			out = append(out, compact)
 			truncated = truncated || childTruncated
 		}
@@ -354,25 +358,25 @@ func compactJiraFieldValue(value any, depth int) (any, bool) {
 	case map[string]any:
 		if _, userLike := value["displayName"]; userLike || value["emailAddress"] != nil || value["avatarUrls"] != nil {
 			out := map[string]any{"kind": "user"}
-			copyCompactScalar(out, "name", value["name"])
-			copyCompactScalar(out, "key", value["key"])
-			copyCompactScalar(out, "display_name", value["displayName"])
+			copyCompactScalarBounded(out, "name", value["name"], stringCap)
+			copyCompactScalarBounded(out, "key", value["key"], stringCap)
+			copyCompactScalarBounded(out, "display_name", value["displayName"], stringCap)
 			copyCompactScalar(out, "active", value["active"])
 			return out, false
 		}
 		if option, ok := value["value"]; ok {
 			out := map[string]any{"kind": "option"}
-			compact, truncated := compactJiraFieldValue(option, depth+1)
+			compact, truncated := compactJiraFieldValueWithLimits(option, depth+1, stringCap, arrayCap)
 			out["value"] = compact
-			copyCompactScalar(out, "id", value["id"])
+			copyCompactScalarBounded(out, "id", value["id"], stringCap)
 			return out, truncated
 		}
 		if name, ok := value["name"]; ok {
 			out := map[string]any{"kind": "named"}
-			compact, truncated := compactJiraFieldValue(name, depth+1)
+			compact, truncated := compactJiraFieldValueWithLimits(name, depth+1, stringCap, arrayCap)
 			out["name"] = compact
-			copyCompactScalar(out, "key", value["key"])
-			copyCompactScalar(out, "id", value["id"])
+			copyCompactScalarBounded(out, "key", value["key"], stringCap)
+			copyCompactScalarBounded(out, "id", value["id"], stringCap)
 			copyCompactScalar(out, "released", value["released"])
 			copyCompactScalar(out, "archived", value["archived"])
 			return out, truncated
@@ -394,6 +398,17 @@ func compactJiraFieldValue(value any, depth int) (any, bool) {
 	default:
 		return fmt.Sprint(value), false
 	}
+}
+
+func copyCompactScalarBounded(dst map[string]any, key string, value any, stringCap int) {
+	if text, ok := value.(string); ok && len(text) > stringCap {
+		end := stringCap
+		for end > 0 && !utf8.ValidString(text[:end]) {
+			end--
+		}
+		value = text[:end]
+	}
+	copyCompactScalar(dst, key, value)
 }
 
 func copyCompactScalar(dst map[string]any, key string, value any) {

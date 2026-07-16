@@ -53,7 +53,7 @@ Help и shell completion остаются доступны в read-only режи
   и [SECURITY.md](SECURITY.md).
 - **Удобен для скриптов** — JSON в stdout, логи и ошибки в stderr, без интерактивных
   запросов, чёткие коды выхода.
-- **Типизированный read-only MCP** — `atl mcp serve` предоставляет агентам семь
+- **Типизированный read-only MCP** — `atl mcp serve` предоставляет агентам восемь
   ограниченных Jira/Confluence evidence-tools без записи, shell, raw REST и произвольных файлов.
 - **Один статический бинарник** — `CGO_ENABLED=0`, запускается везде, где работает Go 1.26.
 
@@ -428,6 +428,7 @@ atl jira issue get  PROJ-1
 atl jira issue fields PROJ-1 # compact non-empty поля с именами по умолчанию
 atl jira issue fields PROJ-1 --metadata-only # компактный каталог без значений
 atl jira issue fields PROJ-1 --field "Delivery Notes"
+atl jira issue field get PROJ-1 --field "Delivery Notes" --max-bytes 16384 # точечное bounded-чтение
 atl jira issue history PROJ-1 --field "Delivery Notes" --since 2026-04-01
 atl jira issue refs PROJ-1 --fields "Delivery Notes" # ссылки с признаком полноты
 # Календарные даты/кварталы используют timezone текущего пользователя Jira;

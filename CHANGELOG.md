@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `jira issue field get` and typed MCP `jira_issue_field_get` for one
+  exact display-name/id expansion with issue/update provenance, compact
+  PII-safe values, a 16 KiB default/128 KiB hard byte bound, and explicit
+  completeness. Agent routes now expand required `projection.clipped` digest
+  narratives through this narrow read instead of repeating a full digest.
+
 - Agent-eval result schema v3 and aggregate schema v2 now attribute
   invocation/success/failure/output bytes to fixed privacy-safe CLI/MCP
   capability families. Unknown provider events suppress attribution through an
