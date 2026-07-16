@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	RunSpecSchemaVersion = 1
+	RunSpecSchemaVersion = 2
 	maxRunSpecBytes      = 1 << 20
 	maxRunCostMicroUSD   = 10_000_000
 )
@@ -29,6 +29,7 @@ type RunSpec struct {
 	Reasoning                string     `json:"reasoning,omitempty"`
 	PromptFile               string     `json:"prompt_file"`
 	ResponseSchemaFile       string     `json:"response_schema_file"`
+	QualitativeRubricFile    string     `json:"qualitative_rubric_file"`
 	WorkspaceTemplate        string     `json:"workspace_template"`
 	FixtureFile              string     `json:"fixture_file"`
 	Repetitions              int        `json:"repetitions"`
@@ -93,8 +94,9 @@ func (s RunSpec) Validate() error {
 	}
 	for name, value := range map[string]string{
 		"scenario_file": s.ScenarioFile, "prompt_file": s.PromptFile,
-		"response_schema_file": s.ResponseSchemaFile,
-		"workspace_template":   s.WorkspaceTemplate, "fixture_file": s.FixtureFile,
+		"response_schema_file":    s.ResponseSchemaFile,
+		"qualitative_rubric_file": s.QualitativeRubricFile,
+		"workspace_template":      s.WorkspaceTemplate, "fixture_file": s.FixtureFile,
 	} {
 		if value == "" || filepath.IsAbs(value) || escapesBase(value) {
 			return fmt.Errorf("%s must be a relative contained path", name)

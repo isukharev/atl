@@ -54,10 +54,12 @@ func TestRunHeadlessWithFakeProvidersUsesPrivateWrapperAndSyntheticMetrics(t *te
 	writeJSONTestFile(t, filepath.Join(caseDir, "fixture.json"), fixture)
 	writeTestFile(t, filepath.Join(caseDir, "prompt.md"), "Use atl and return the requested JSON.\n", 0o600)
 	writeTestFile(t, filepath.Join(caseDir, "response.json"), `{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}`, 0o600)
+	rubric := Rubric{SchemaVersion: 1, ID: "synthetic-answer", ScenarioID: scenario.ID, MinimumScoreBPS: 6000, Criteria: []RubricCriterion{{ID: "usefulness", Description: "The answer is useful.", Maximum: 4, Minimum: 2, Weight: 1}}, AllowedFindingIDs: []string{"unclear"}}
+	writeJSONTestFile(t, filepath.Join(caseDir, "rubric.json"), rubric)
 	spec := RunSpec{
-		SchemaVersion: 1, ScenarioFile: "scenario.json", Provider: "claude-code",
+		SchemaVersion: RunSpecSchemaVersion, ScenarioFile: "scenario.json", Provider: "claude-code",
 		Variant: "baseline", Model: "claude-test-1", PromptFile: "prompt.md",
-		ResponseSchemaFile: "response.json", WorkspaceTemplate: "workspace",
+		ResponseSchemaFile: "response.json", QualitativeRubricFile: "rubric.json", WorkspaceTemplate: "workspace",
 		FixtureFile: "fixture.json", Repetitions: 1, TimeoutSeconds: 30,
 		MaxEstimatedCostMicroUSD: 10_000_000,
 		Pricing:                  Pricing{},

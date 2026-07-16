@@ -13,7 +13,7 @@ import (
 const (
 	ScenarioSchemaVersion    = 1
 	ObservationSchemaVersion = 1
-	ResultSchemaVersion      = 1
+	ResultSchemaVersion      = 2
 )
 
 const (
@@ -137,19 +137,20 @@ type Violation struct {
 }
 
 type Result struct {
-	SchemaVersion int             `json:"schema_version"`
-	ScenarioID    string          `json:"scenario_id"`
-	TaskClass     string          `json:"task_class"`
-	DataClass     string          `json:"data_class"`
-	Variant       string          `json:"variant"`
-	Runtime       Runtime         `json:"runtime"`
-	Status        string          `json:"status"`
-	Metrics       Metrics         `json:"metrics"`
-	Coverage      map[string]bool `json:"coverage"`
-	HTTPMethods   map[string]int  `json:"http_methods"`
-	Checks        map[string]bool `json:"checks"`
-	Violations    []Violation     `json:"violations"`
-	Warnings      []string        `json:"warnings,omitempty"`
+	SchemaVersion int                    `json:"schema_version"`
+	ScenarioID    string                 `json:"scenario_id"`
+	TaskClass     string                 `json:"task_class"`
+	DataClass     string                 `json:"data_class"`
+	Variant       string                 `json:"variant"`
+	Runtime       Runtime                `json:"runtime"`
+	Status        string                 `json:"status"`
+	Metrics       Metrics                `json:"metrics"`
+	Coverage      map[string]bool        `json:"coverage"`
+	HTTPMethods   map[string]int         `json:"http_methods"`
+	Checks        map[string]bool        `json:"checks"`
+	Violations    []Violation            `json:"violations"`
+	Warnings      []string               `json:"warnings,omitempty"`
+	Qualitative   *QualitativeAssessment `json:"qualitative,omitempty"`
 }
 
 func (s Scenario) Validate() error {

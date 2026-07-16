@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -30,7 +31,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | evaluate scenario observation | aggregate results | run options")
+		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | evaluate scenario observation | review-template options | assess options | aggregate results | run options")
 	}
 	switch args[0] {
 	case "validate":
@@ -106,6 +107,81 @@ func run(args []string) error {
 			return err
 		}
 		return writeJSON(aggregate)
+	case "review-template":
+		flags := flag.NewFlagSet("review-template", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		var rubricPath, resultPath, finalPath, reviewerKind, reviewerModel string
+		flags.StringVar(&rubricPath, "rubric", "", "qualitative rubric")
+		flags.StringVar(&resultPath, "result", "", "deterministic result")
+		flags.StringVar(&finalPath, "final", "", "private final response")
+		flags.StringVar(&reviewerKind, "reviewer", "", "human, codex, or claude-code")
+		flags.StringVar(&reviewerModel, "model", "", "exact reviewer model")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 || rubricPath == "" || resultPath == "" || finalPath == "" || reviewerKind == "" {
+			return fmt.Errorf("review-template requires --rubric, --result, --final, and --reviewer")
+		}
+		rubric, err := readRubric(rubricPath)
+		if err != nil {
+			return err
+		}
+		result, resultBytes, err := readResultBytes(resultPath)
+		if err != nil {
+			return err
+		}
+		finalBytes, err := readPrivateFinal(finalPath)
+		if err != nil {
+			return err
+		}
+		review, err := agenteval.NewReviewTemplate(result, resultBytes, finalBytes, rubric, agenteval.Reviewer{Kind: reviewerKind, Model: reviewerModel})
+		if err != nil {
+			return err
+		}
+		return writeJSON(review)
+	case "assess":
+		flags := flag.NewFlagSet("assess", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		var rubricPath, resultPath, finalPath, reviewPath string
+		flags.StringVar(&rubricPath, "rubric", "", "qualitative rubric")
+		flags.StringVar(&resultPath, "result", "", "deterministic result")
+		flags.StringVar(&finalPath, "final", "", "private final response")
+		flags.StringVar(&reviewPath, "review", "", "private completed review")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 || rubricPath == "" || resultPath == "" || finalPath == "" || reviewPath == "" {
+			return fmt.Errorf("assess requires --rubric, --result, --final, and --review")
+		}
+		rubric, err := readRubric(rubricPath)
+		if err != nil {
+			return err
+		}
+		result, resultBytes, err := readResultBytes(resultPath)
+		if err != nil {
+			return err
+		}
+		finalBytes, err := readPrivateFinal(finalPath)
+		if err != nil {
+			return err
+		}
+		reviewFile, err := os.Open(reviewPath)
+		if err != nil {
+			return err
+		}
+		review, reviewErr := agenteval.DecodeReview(reviewFile)
+		closeErr := reviewFile.Close()
+		if reviewErr != nil {
+			return reviewErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		assessed, err := agenteval.AssessQualitative(result, resultBytes, finalBytes, rubric, review)
+		if err != nil {
+			return err
+		}
+		return writeJSON(assessed)
 	case "run":
 		flags := flag.NewFlagSet("run", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
@@ -138,6 +214,38 @@ func run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func readRubric(path string) (agenteval.Rubric, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return agenteval.Rubric{}, err
+	}
+	defer file.Close()
+	return agenteval.DecodeRubric(file)
+}
+
+func readResultBytes(path string) (agenteval.Result, []byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return agenteval.Result{}, nil, err
+	}
+	result, err := agenteval.DecodeResult(bytes.NewReader(data))
+	if err != nil {
+		return agenteval.Result{}, nil, err
+	}
+	return result, data, nil
+}
+
+func readPrivateFinal(path string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > 16<<20 {
+		return nil, fmt.Errorf("final response exceeds 16777216 bytes")
+	}
+	return os.ReadFile(path)
 }
 
 func readScenario(path string) (agenteval.Scenario, error) {

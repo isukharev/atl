@@ -13,15 +13,24 @@ type Aggregate struct {
 }
 
 type AggregateGroup struct {
-	ScenarioID  string           `json:"scenario_id"`
-	TaskClass   string           `json:"task_class"`
-	DataClass   string           `json:"data_class"`
-	Variant     string           `json:"variant"`
-	Runtime     Runtime          `json:"runtime"`
-	Runs        int              `json:"runs"`
-	Passes      int              `json:"passes"`
-	SuccessRate float64          `json:"success_rate"`
-	Metrics     AggregateMetrics `json:"metrics"`
+	ScenarioID  string                `json:"scenario_id"`
+	TaskClass   string                `json:"task_class"`
+	DataClass   string                `json:"data_class"`
+	Variant     string                `json:"variant"`
+	Runtime     Runtime               `json:"runtime"`
+	Runs        int                   `json:"runs"`
+	Passes      int                   `json:"passes"`
+	SuccessRate float64               `json:"success_rate"`
+	Metrics     AggregateMetrics      `json:"metrics"`
+	Qualitative *AggregateQualitative `json:"qualitative,omitempty"`
+}
+
+type AggregateQualitative struct {
+	RubricID     string    `json:"rubric_id"`
+	RubricSHA256 string    `json:"rubric_sha256"`
+	Reviewer     Reviewer  `json:"reviewer"`
+	Passes       int       `json:"passes"`
+	ScoreBPS     Quantiles `json:"score_bps"`
 }
 
 type AggregateMetrics struct {
@@ -50,6 +59,8 @@ type aggregateKey struct {
 	ScenarioID, TaskClass, DataClass, Variant            string
 	Provider, AgentVersion, Model, Reasoning, ATLVersion string
 	PluginVersion, SkillDigest                           string
+	ReviewerKind, ReviewerModel                          string
+	RubricID, RubricSHA256                               string
 }
 
 func AggregateResults(results []Result) (Aggregate, error) {
@@ -64,6 +75,12 @@ func AggregateResults(results []Result) (Aggregate, error) {
 			Model: result.Runtime.Model, Reasoning: result.Runtime.Reasoning,
 			ATLVersion: result.Runtime.ATLVersion, PluginVersion: result.Runtime.PluginVersion,
 			SkillDigest: result.Runtime.SkillDigest,
+		}
+		if result.Qualitative != nil {
+			key.ReviewerKind = result.Qualitative.Reviewer.Kind
+			key.ReviewerModel = result.Qualitative.Reviewer.Model
+			key.RubricID = result.Qualitative.RubricID
+			key.RubricSHA256 = result.Qualitative.RubricSHA256
 		}
 		groups[key] = append(groups[key], result)
 	}
@@ -114,6 +131,20 @@ func AggregateResults(results []Result) (Aggregate, error) {
 			MainThreadOutputTokens: quantiles(mainOutput), EstimatedCostMicroUSD: quantiles(cost),
 			DurationMillis: quantiles(duration),
 		}
+		if key.ReviewerKind != "" {
+			scores := make([]int64, 0, len(items))
+			passes := 0
+			for _, item := range items {
+				if item.Qualitative == nil {
+					continue
+				}
+				scores = append(scores, int64(item.Qualitative.ScoreBPS))
+				if item.Qualitative.Status == "pass" {
+					passes++
+				}
+			}
+			group.Qualitative = &AggregateQualitative{RubricID: key.RubricID, RubricSHA256: key.RubricSHA256, Reviewer: Reviewer{Kind: key.ReviewerKind, Model: key.ReviewerModel}, Passes: passes, ScoreBPS: quantiles(scores)}
+		}
 		out.Groups = append(out.Groups, group)
 	}
 	return out, nil
@@ -131,6 +162,23 @@ func (r Result) Validate() error {
 	}
 	if err := r.Runtime.validate(); err != nil {
 		return err
+	}
+	if r.Qualitative != nil {
+		if err := r.Qualitative.validate(r.ScenarioID); err != nil {
+			return err
+		}
+		if r.Qualitative.Status == "fail" && r.Status != "fail" {
+			return fmt.Errorf("failed qualitative assessment requires failed result")
+		}
+		found := false
+		for _, violation := range r.Violations {
+			if violation.Code == "qualitative_review_failed" && violation.Subject == r.Qualitative.RubricID {
+				found = true
+			}
+		}
+		if found != (r.Qualitative.Status == "fail") {
+			return fmt.Errorf("qualitative status and violation disagree")
+		}
 	}
 	if r.Status != "pass" && r.Status != "fail" {
 		return fmt.Errorf("result status must be pass or fail")
@@ -236,5 +284,5 @@ func nearestRank(sorted []int64, percentile int) int64 {
 }
 
 func aggregateKeyString(key aggregateKey) string {
-	return key.ScenarioID + "\x00" + key.TaskClass + "\x00" + key.DataClass + "\x00" + key.Variant + "\x00" + key.Provider + "\x00" + key.AgentVersion + "\x00" + key.Model + "\x00" + key.Reasoning + "\x00" + key.ATLVersion + "\x00" + key.PluginVersion + "\x00" + key.SkillDigest
+	return key.ScenarioID + "\x00" + key.TaskClass + "\x00" + key.DataClass + "\x00" + key.Variant + "\x00" + key.Provider + "\x00" + key.AgentVersion + "\x00" + key.Model + "\x00" + key.Reasoning + "\x00" + key.ATLVersion + "\x00" + key.PluginVersion + "\x00" + key.SkillDigest + "\x00" + key.RubricID + "\x00" + key.RubricSHA256 + "\x00" + key.ReviewerKind + "\x00" + key.ReviewerModel
 }
