@@ -1,7 +1,7 @@
 # Guarded Jira Writeback Design
 
 Status: implemented for `atl jira issue plan apply` CSV schema version 1 and
-single-issue `atl jira issue field set` file-backed updates.
+single-issue `atl jira issue field preview` / `field set` file-backed updates.
 
 ## Goals
 
@@ -19,10 +19,12 @@ The guarded executor supports reviewed operations such as:
 It does not approve unallowlisted custom-field mutation, workflow transitions,
 or silent bulk writes.
 
-For a large value on one issue, `jira issue field set` is the direct guarded
-path: bodies are referenced as `FIELD=PATH`, not carried in argv; preview is the
-default; every field must be custom and present in `--allow-fields`; apply
-requires the previewed `expected_updated` and aggregate `proposal_hash`. The
+For a large value on one issue, `jira issue field preview` is the direct
+GET-only review path: bodies are referenced as `FIELD=PATH`, not carried in
+argv; every field must be custom and present in `--allow-fields`. It works
+without removing an inherited read-only policy. The approved
+`jira issue field set --apply` requires the previewed `expected_updated` and
+aggregate `proposal_hash`. The
 timestamp binds remote state; the hash binds field ids, source kinds, types, and
 normalized values. Raw top-level JSON objects/arrays remain structured,
 Markdown becomes a Jira-wiki string, and all fields are sent in one request.

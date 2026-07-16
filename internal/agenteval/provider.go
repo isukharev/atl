@@ -98,7 +98,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 		}
 		return ProviderCommand{Path: agentBinary, Args: args}, nil
 	case "codex":
-		includeOnly := `["PATH","ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_JIRA_URL","ATL_CONFLUENCE_URL","ATL_JIRA_PAT","ATL_CONFLUENCE_PAT","ATL_ALLOW_INSECURE","ATL_EVAL_REAL_BINARY","ATL_EVAL_COUNTER"]`
+		includeOnly := `["PATH","ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_JIRA_URL","ATL_CONFLUENCE_URL","ATL_JIRA_PAT","ATL_CONFLUENCE_PAT","ATL_ALLOW_INSECURE","ATL_EVAL_REAL_BINARY","ATL_EVAL_COUNTER","ATL_EVAL_ALLOWED_COMMANDS"]`
 		sandboxMode := "read-only"
 		if spec.ToolTransport == "mcp" {
 			includeOnly = `["PATH","LANG","LC_ALL","TERM"]`

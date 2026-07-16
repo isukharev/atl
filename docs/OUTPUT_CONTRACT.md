@@ -1131,8 +1131,11 @@ rows for the same source issue, preventing one successful write from making a
 later row self-stale. Failed-row messages use safe reason categories rather than
 raw transport errors, so backend URLs are not copied into the stdout audit.
 
-`atl jira issue field set <KEY>` is a separate single-issue guarded flow. It is
-dry-run by default and returns:
+`atl jira issue field preview <KEY>` and the dry-run form of
+`atl jira issue field set <KEY>` share one deterministic single-issue proposal
+result. The dedicated preview command is GET-only and available under the
+process-wide read-only policy; `field set` is classified as mutating regardless
+of flags. The result is:
 
 ```json
 {
@@ -1166,8 +1169,8 @@ definitive 4xx rejection, proposals already visible are `already_satisfied`
 are `failed`. An ambiguous transport/timeout/5xx outcome is `applied` when the
 proposals are visible and remains `unknown` otherwise (an
 immediate old read cannot prove an in-flight write will not commit). Successful
-reconciliation reads carry `"reconciled": true`. A stale
-apply still emits the `blocked` result and exits 8. Apply requires both
+reconciliation reads carry `"reconciled": true`. A stale apply still emits the
+`blocked` result and exits 8. Only `field set --apply` can write, and it requires both
 `--expected-updated` and `--expected-proposal-hash`. The latter binds sorted
 field ids, sources, normalized types, and values; a changed local input fails
 before backend metadata/read/write calls. All proposed fields are sent in one

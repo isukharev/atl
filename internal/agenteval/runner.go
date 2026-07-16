@@ -594,13 +594,18 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	command.Stdout = transcript
 	command.Stderr = stderr
 	environment := safeAgentEnvironment(os.Environ())
-	environment["ATL_READ_ONLY"] = "1"
+	if !loaded.spec.AllowSyntheticWrites {
+		environment["ATL_READ_ONLY"] = "1"
+	}
 	environment["ATL_NO_UPDATE"] = "1"
 	environment["ATL_CONFIG_DIR"] = atlConfigDir
 	environment["ATL_MIRROR_ROOT"] = filepath.Join(evalDir, "mirror")
 	environment["ATL_EVAL_REAL_BINARY"] = options.ATLBinary
 	environment["ATL_EVAL_COUNTER"] = counterPath
 	environment["ATL_EVAL_GUARD_COUNTER"] = guardCounterPath
+	if loaded.spec.AllowSyntheticWrites {
+		environment["ATL_EVAL_ALLOW_SYNTHETIC_WRITES"] = "1"
+	}
 	if cliPolicyPath != "" {
 		environment["ATL_EVAL_CLI_POLICY_FILE"] = cliPolicyPath
 		if brokerManifestPath != "" {
@@ -749,7 +754,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	atlInvocations := len(proxyRecords) + providerMetrics.MCPToolCalls
 	failedATL += providerMetrics.FailedMCPToolCalls
-	checks, err := evaluateRunChecks(loaded.spec.Checks, final, atlInvocations, failedATL, unexpected, providerMetrics.SkillToolCalls, providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, guardDenials, httpMethodsObserved)
+	checks, err := evaluateRunChecks(loaded.spec.Checks, final, atlInvocations, failedATL, unexpected, providerMetrics.SkillToolCalls, providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, guardDenials, methods, httpMethodsObserved)
 	if err != nil {
 		return Result{}, err
 	}

@@ -48,6 +48,7 @@ type RunSpec struct {
 	AllowedGatewayRoutes     map[string][]LiveGatewayRoute `json:"allowed_gateway_routes,omitempty"`
 	GatewayMaxResponseBytes  int64                         `json:"gateway_max_response_bytes,omitempty"`
 	GatewayMaxTotalBytes     int64                         `json:"gateway_max_total_response_bytes,omitempty"`
+	AllowSyntheticWrites     bool                          `json:"allow_synthetic_writes,omitempty"`
 	Checks                   []RunCheck                    `json:"checks"`
 }
 
@@ -129,6 +130,9 @@ func (s RunSpec) Validate() error {
 			return fmt.Errorf("fixture_file must be a relative contained path for synthetic runs")
 		}
 	case BackendModePrivateLive:
+		if s.AllowSyntheticWrites {
+			return fmt.Errorf("allow_synthetic_writes is valid only for synthetic runs")
+		}
 		if s.FixtureFile != "" {
 			return fmt.Errorf("fixture_file must be empty for private-live runs")
 		}
@@ -162,6 +166,9 @@ func (s RunSpec) Validate() error {
 	}
 	if transport != "cli" && transport != "mcp" {
 		return fmt.Errorf("tool_transport must be cli or mcp")
+	}
+	if s.AllowSyntheticWrites && (transport != "cli" || s.Provider != "claude-code") {
+		return fmt.Errorf("allow_synthetic_writes requires Claude Code cli transport")
 	}
 	if transport == "cli" && (len(s.AllowedTools) == 0 || len(s.AllowedTools) > 32) {
 		return fmt.Errorf("allowed_tools must contain 1..32 entries for cli transport")
@@ -310,6 +317,10 @@ func (s RunSpec) Validate() error {
 			if check.Minimum != 0 || check.Pointer != "" || len(check.Expected) != 0 {
 				return fmt.Errorf("http_methods_observed check %q is invalid", check.Name)
 			}
+		case "http_methods_equal":
+			if _, ok := expectedHTTPMethods(check.Expected); check.Minimum != 0 || check.Maximum != 0 || check.Pointer != "" || !ok {
+				return fmt.Errorf("http_methods_equal check %q requires a bounded method-count object", check.Name)
+			}
 		default:
 			return fmt.Errorf("unsupported run check kind %q", check.Kind)
 		}
@@ -375,6 +386,36 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 			}
 		}
 	}
+	if s.AllowSyntheticWrites {
+		if scenario.DataClass != "synthetic" || scenario.Budgets.MaxRemoteWrites < 1 {
+			return fmt.Errorf("allow_synthetic_writes requires a synthetic scenario with a positive remote-write budget")
+		}
+		requiredKinds := map[string]bool{
+			"guard_no_denials":   false,
+			"http_methods_equal": false,
+			"mock_no_unexpected": false,
+		}
+		for _, check := range s.Checks {
+			if _, ok := requiredKinds[check.Kind]; ok {
+				requiredKinds[check.Kind] = true
+			}
+		}
+		for kind, present := range requiredKinds {
+			if !present {
+				return fmt.Errorf("allow_synthetic_writes requires a %s check", kind)
+			}
+		}
+		mutatingMethod := false
+		for _, method := range scenario.Budgets.AllowedHTTPMethods {
+			if method != "GET" && method != "HEAD" && method != "OPTIONS" {
+				mutatingMethod = true
+				break
+			}
+		}
+		if !mutatingMethod {
+			return fmt.Errorf("allow_synthetic_writes requires an explicit mutating HTTP method")
+		}
+	}
 	perRunCap := (s.MaxEstimatedCostMicroUSD + int64(s.Repetitions) - 1) / int64(s.Repetitions)
 	if perRunCap > scenario.Budgets.MaxEstimatedCostMicroUSD {
 		return fmt.Errorf("per-repetition run cost cap exceeds scenario budget")
@@ -396,7 +437,7 @@ func escapesBase(path string) bool {
 	return clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
 
-func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedATL, unexpectedRequests, skillInvocations int, skillInvocationsByName map[string]int, delegations, guardDenials int, httpMethodsObserved bool) (map[string]bool, error) {
+func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedATL, unexpectedRequests, skillInvocations int, skillInvocationsByName map[string]int, delegations, guardDenials int, httpMethods map[string]int, httpMethodsObserved bool) (map[string]bool, error) {
 	var document any
 	if err := json.Unmarshal(final, &document); err != nil {
 		return nil, fmt.Errorf("decode structured final response: %w", err)
@@ -430,6 +471,9 @@ func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedAT
 			results[check.Name] = delegations == 0
 		case "http_methods_observed":
 			results[check.Name] = httpMethodsObserved
+		case "http_methods_equal":
+			expected, _ := expectedHTTPMethods(check.Expected)
+			results[check.Name] = httpMethodsObserved && equalHTTPMethods(httpMethods, expected)
 		case "json_present":
 			_, ok := resolveJSONPointer(document, check.Pointer)
 			results[check.Name] = ok
@@ -449,6 +493,35 @@ func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedAT
 		}
 	}
 	return results, nil
+}
+
+func expectedHTTPMethods(raw json.RawMessage) (map[string]int, bool) {
+	if len(raw) == 0 {
+		return nil, false
+	}
+	var methods map[string]int
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	if err := decoder.Decode(&methods); err != nil || decoder.Decode(new(any)) != io.EOF || methods == nil || len(methods) > 16 {
+		return nil, false
+	}
+	for method, count := range methods {
+		if !methodRE.MatchString(method) || count < 1 || count > maxObservedMethodCount {
+			return nil, false
+		}
+	}
+	return methods, true
+}
+
+func equalHTTPMethods(left, right map[string]int) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for method, count := range left {
+		if right[method] != count {
+			return false
+		}
+	}
+	return true
 }
 
 func skillInvocationTarget(raw json.RawMessage) (string, bool) {

@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a GET-only `jira issue field preview` surface that preserves inherited
+  `ATL_READ_ONLY=1` while producing the exact timestamp- and proposal-hash-bound
+  artifact consumed by `field set --apply`. The capability catalog and Jira
+  skill now route field edits through preview before removing the policy for
+  one reviewed write.
+- Added a synthetic model-in-the-loop Jira field-mutation benchmark covering
+  preview without approval, one exact reviewed apply, and ambiguous-outcome
+  reconciliation without replay. Write-enabled synthetic runs require
+  loopback-only backends, reviewed command prefixes, an explicit write/method
+  budget, exact HTTP method counts, clean guard/mock oracles, and fixtures can
+  verify the semantic JSON request body.
+
 - Added an offline durable Confluence mirror-review benchmark covering semantic,
   byte-only, unchanged, and baseline-mismatch states. Its deterministic route
   proves zero backend requests, while the model runner requires one exact

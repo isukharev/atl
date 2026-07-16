@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/jira/rest/api/2/field",
+      "status": 200,
+      "body": [{"id":"customfield_12000","name":"Delivery Narrative","custom":true,"schema":{"type":"string"}}]
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/api/2/issue/PROJ-1",
+      "status": 200,
+      "body": {"id":"12001","key":"PROJ-1","fields":{"updated":"2026-07-15T09:30:00.000+0000","customfield_12000":"Previous synthetic narrative."}}
+    },
+    {
+      "method": "PUT",
+      "path": "/jira/rest/api/2/issue/PROJ-1",
+      "request_body": {"fields":{"customfield_12000":"Synthetic approved narrative.\n"}},
+      "status": 500,
+      "body": {"errorMessages":["synthetic ambiguous response"]}
+    }
+  ]
+}
