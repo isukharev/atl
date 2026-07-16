@@ -86,6 +86,7 @@ type Client struct {
 	hc         *http.Client
 	dl         *http.Client // streaming downloads: no whole-request timeout
 	ver        string       // CLI version, for User-Agent
+	scheduler  *Scheduler
 	// noVersionGate: this backend has no optimistic version gate, so an HTTP
 	// 409 is a generic conflict (locked issue, workflow veto), NOT
 	// ErrVersionConflict — exit 5 would point the caller at a re-pull/--force
@@ -101,6 +102,12 @@ func (c *Client) SetNoVersionGate() { c.noVersionGate = true }
 
 // New builds a client for a backend base URL with a bearer PAT.
 func New(base, token, version string) *Client {
+	return NewWithScheduler(base, token, version, nil)
+}
+
+// NewWithScheduler builds a client whose every transport attempt shares the
+// supplied command-scoped concurrency/rate policy.
+func NewWithScheduler(base, token, version string, scheduler *Scheduler) *Client {
 	base = strings.TrimRight(base, "/")
 	host := ""
 	scheme := ""
@@ -137,12 +144,14 @@ func New(base, token, version string) *Client {
 		baseScheme: scheme,
 		token:      token,
 		ver:        version,
+		scheduler:  scheduler,
 		hc: &http.Client{
+			Transport:     scheduleTransport(http.DefaultTransport, scheduler),
 			Timeout:       defaultTimeout,
 			CheckRedirect: checkRedirect,
 		},
 		dl: &http.Client{
-			Transport:     dlTransport,
+			Transport:     scheduleTransport(dlTransport, scheduler),
 			CheckRedirect: checkRedirect,
 		},
 	}
@@ -412,6 +421,13 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 			continue // network error → retry
 		}
 		tracef("← %d %s\n", resp.StatusCode, req.URL.Path)
+		retryable := replaySafe(method) &&
+			(resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500)
+		retryDelay := time.Duration(0)
+		if retryable {
+			retryDelay = retryAfter(resp)
+			c.scheduler.deferFor(retryDelay)
+		}
 		data, err := readBody(resp.Body, maxBytes)
 		resp.Body.Close()
 		if err != nil {
@@ -427,12 +443,10 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 		apiErr := &APIError{Status: resp.StatusCode, Method: method, Path: path, Body: string(data), kind: kind}
 		// A response does not prove that a write was uncommitted. Only replay-safe
 		// reads retry generically; write endpoints must reconcile explicitly.
-		retryable := replaySafe(method) &&
-			(resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500)
 		if retryable {
 			lastErr = apiErr
-			if ra := retryAfter(resp); ra > 0 {
-				if !sleep(ctx, ra) {
+			if retryDelay > 0 {
+				if !sleep(ctx, retryDelay) {
 					return nil, ctx.Err()
 				}
 				skipBackoff = true // already waited per Retry-After; no double sleep
@@ -653,6 +667,12 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return newIdleReader(resp.Body, downloadIdleTimeout, cancel), nil
 		}
+		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
+		retryDelay := time.Duration(0)
+		if retryable {
+			retryDelay = retryAfter(resp)
+			c.scheduler.deferFor(retryDelay)
+		}
 		data, rerr := readBody(resp.Body, jsonBodyCap)
 		resp.Body.Close()
 		cancel()
@@ -664,11 +684,10 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 			kind = nil
 		}
 		apiErr := &APIError{Status: resp.StatusCode, Method: http.MethodGet, Path: path, Body: string(data), kind: kind}
-		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
 		if retryable {
 			lastErr = apiErr
-			if ra := retryAfter(resp); ra > 0 {
-				if !sleep(ctx, ra) {
+			if retryDelay > 0 {
+				if !sleep(ctx, retryDelay) {
 					return nil, ctx.Err()
 				}
 				skipBackoff = true

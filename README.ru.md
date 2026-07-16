@@ -270,6 +270,11 @@ atl conf pull \
 # проверяется дважды до body GET; для продолжения повторите точную команду.
 atl conf pull --complete --cql 'space=DOCS and type=page' --into mirror
 
+# Опциональные проверенные лимиты нагрузки: запись/checkpoint остаются
+# последовательными, а все Confluence/Jira запросы делят темп 8 стартов/с.
+atl conf pull --complete --cql 'space=DOCS and type=page' \
+  --page-prefetch 4 --requests-per-second 8 --into mirror
+
 # Повторное обновление большой выборки без загрузки неизменившихся страниц.
 # Первый запуск требует одну абсолютную границу с явным смещением. Безопасное
 # окно 48 часов не даёт неизвестной CQL-зоне бэкенда пропустить страницы.
@@ -289,6 +294,12 @@ Incremental preflight автоматически мигрирует старый
 настроенную/default зону Markdown и фиксированное overlap-окно 48 часов. Команда
 запускается только явно и выполняет не более трёх последовательных metadata
 GET; incremental pull не вызывает её и не делает calibration-запросов.
+
+По умолчанию большие pull остаются последовательными. `--page-prefetch` (1–8)
+явно задаёт ограниченное окно чтения native body; `--requests-per-second`
+применяется общим scheduler ко всем фактическим Confluence и опциональным Jira
+macro-запросам и общему `Retry-After`. Path claim, assets/sidecars, запись в
+зеркало и checkpoint всегда выполняются последовательно в каноническом порядке.
 
 ### 2. Изучить зеркало
 

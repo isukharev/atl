@@ -1,3 +1,4 @@
 mirror: <ROOT> (1 pages)
 complete-pull: complete=true source=new total=1 completed=1 remaining=0 checkpoint_active=false selector_sha256=<SHA256> selection_sha256=<SHA256> view_migrations=0
+scheduling: page_prefetch=1 max_in_flight=1 requests_per_second=0
   100  v3  ENG/alpha/alpha.csf  [assets:0]

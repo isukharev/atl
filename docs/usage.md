@@ -1065,6 +1065,11 @@ atl conf pull --cql "label=public and space=DOCS" --assets
 # interrupted run resumes its exact private selector snapshot automatically
 atl conf pull --complete --cql 'space=DOCS and type=page' --into my-mirror
 
+# Opt in only after reviewing backend capacity: overlap at most four native
+# page-body reads while pacing every Confluence/Jira attempt to eight starts/s.
+atl conf pull --complete --cql 'space=DOCS and type=page' \
+  --page-prefetch 4 --requests-per-second 8 --into my-mirror
+
 # also bring page comments into the mirror
 atl conf pull --id 12345678 --comments
 
@@ -1091,6 +1096,8 @@ Flags:
 | `--incremental` | exhaustively select changes since a persisted selector watermark; requires `--cql` or `--space` |
 | `--since` | first-run lower boundary as an exact RFC3339 minute with explicit `Z` or numeric offset |
 | `--max-pages` | selection cap: incremental defaults to 10000; complete mode uses `0` as no configured cap (the local one-million-identity / 64 MiB checkpoint guards still apply) |
+| `--page-prefetch` | ordered native-page-body read window for incremental/complete mode (`1` default, max `8`); mirror writes/checkpoints remain serial |
+| `--requests-per-second` | shared request-start pace across Confluence plus optional Jira-macro traffic (`0` default means no proactive delay; max `1000`) |
 | `--jira-view` | named `jira_list_views` projection for Jira JQL macros whose macro configuration does not specify columns |
 | `--jira-macros` | `auto` (default) or `off`; `off` keeps placeholders and performs no Jira credential read/search |
 | `--into` | mirror root directory (default `mirror`) |
@@ -1125,11 +1132,15 @@ Before body reads, native/Markdown local edits and partial/corrupt tracked
 artifacts block the exact remaining set. Progress is committed after each
 25-page batch and on a graceful failure. A hard process crash can therefore
 re-fetch at most the uncheckpointed tail, but never skip it. Page downloads
-remain serial. This mode intentionally costs two metadata search passes plus
-one body GET per selected page; it runs only when explicitly requested and
-performs no background or calibration queries. Requested comment truncation
-does not advance past that page. Completion removes the checkpoint; neither a
-snapshot nor its absence is evidence of remote deletion.
+are serial by default. `--page-prefetch N` may overlap up to `N` native body
+GETs and can therefore read a bounded tail beyond the first page that later
+fails; only the canonical sequential consumer claims paths, resolves/writes
+assets and sidecars, performs relocation, or advances a checkpoint. This mode
+intentionally costs two metadata search passes plus one body GET per selected
+page; it runs only when explicitly requested and performs no background or
+calibration queries. Requested comment truncation does not advance past that
+page. Completion removes the checkpoint; neither a snapshot nor its absence is
+evidence of remote deletion.
 
 Incremental mode is deliberately inclusive at its lower minute. The first
 `--since` is an absolute RFC3339 instant, so a DST fold or the timezone of the
@@ -1165,9 +1176,21 @@ already mirrored through the ordinary atomic path, but never advances
 `.atl/incremental.json`; rerunning replays the same inclusive range safely.
 Empty deltas still commit a valid first watermark. Absence from a delta is
 never interpreted as deletion or permission loss. Requests are serial in this
-release; the stability check intentionally doubles search-page GETs but not
-body GETs. Normal GET rate-limit handling applies and no unbounded concurrency
-is introduced. `--comments` truncation also prevents watermark advancement.
+mode by default; the stability check intentionally doubles search-page GETs
+but not body GETs. Opt-in prefetch has the same sequential write/watermark
+boundary as complete mode. `--comments` truncation also prevents watermark
+advancement.
+
+Both large modes expose a `scheduling` result with `page_prefetch`,
+`max_in_flight`, and `requests_per_second`. The command-scoped scheduler is
+shared by Confluence and optional Jira-macro clients and wraps each actual
+transport hop, including retries, redirects, comments, and streamed assets. It
+holds an in-flight permit until the response body reaches EOF or closes, paces
+request starts, and publishes a bounded server `Retry-After` cooldown to all
+clients. Existing requests may finish, but no newly admitted attempt bypasses
+that cooldown. Defaults are `1/1/0`, so installing this feature does not
+increase backend load. The limits are proactive safety bounds, not an adaptive
+throughput promise.
 
 The `--render-*` flags override the configured profile for this run; the pull
 result JSON is unchanged by the profile (they affect only the `.md` view).

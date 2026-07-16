@@ -222,10 +222,12 @@ type PullOpts struct {
 	Complete    bool
 	// RestartComplete explicitly replaces an unfinished complete-pull snapshot
 	// after a fresh two-pass selection and local overwrite preflight succeed.
-	RestartComplete bool
-	Since           string
-	TimeZone        string
-	MaxPages        int
+	RestartComplete   bool
+	Since             string
+	TimeZone          string
+	MaxPages          int
+	PagePrefetch      int
+	RequestsPerSecond int
 }
 
 // PulledPage is one mirrored page.
@@ -260,11 +262,34 @@ type PullResult struct {
 	// Warnings carries advisory render-resolution messages (unknown section names,
 	// malformed local config). Not serialized (the pull JSON shape is unchanged by
 	// profiles); the CLI prints it on stderr.
-	Warnings []string `json:"-"`
+	Warnings   []string        `json:"-"`
+	Scheduling *PullScheduling `json:"scheduling,omitempty"`
+}
+
+// PullScheduling reports the exact opt-in load policy. PagePrefetch overlaps
+// native body GETs only; MaxInFlight and RequestsPerSecond cover every HTTP
+// attempt made through the shared Confluence/Jira scheduler.
+type PullScheduling struct {
+	PagePrefetch      int `json:"page_prefetch"`
+	MaxInFlight       int `json:"max_in_flight"`
+	RequestsPerSecond int `json:"requests_per_second"`
 }
 
 // Pull mirrors pages selected by id/cql/space into Into.
 func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullResult, retErr error) {
+	if o.PagePrefetch < 0 || o.PagePrefetch > 8 {
+		return nil, fmt.Errorf("%w: --page-prefetch must be between 1 and 8", domain.ErrUsage)
+	}
+	if o.RequestsPerSecond < 0 || o.RequestsPerSecond > 1000 {
+		return nil, fmt.Errorf("%w: --requests-per-second must be between 0 and 1000", domain.ErrUsage)
+	}
+	if !o.Incremental && !o.Complete && (o.PagePrefetch > 1 || o.RequestsPerSecond > 0) {
+		return nil, fmt.Errorf("%w: request scheduling requires --incremental or --complete", domain.ErrUsage)
+	}
+	if (o.PagePrefetch > 1 || o.RequestsPerSecond > 0) &&
+		(s.requestMaxInFlight != o.PagePrefetch || s.requestsPerSecond != o.RequestsPerSecond) {
+		return nil, fmt.Errorf("%w: pull request schedule was not installed in the service transport", domain.ErrCheckFailed)
+	}
 	root := o.Into
 	if root == "" {
 		root = "mirror"
@@ -340,6 +365,17 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 	// lives under it). Default/minimal keep the body-only view byte-identical to
 	// today; only `full` (or an explicit include) adds metadata/comments.
 	res := &PullResult{Root: root, Warnings: warns}
+	if o.Incremental || o.Complete {
+		prefetch := o.PagePrefetch
+		if prefetch == 0 {
+			prefetch = 1
+		}
+		maxInFlight := s.requestMaxInFlight
+		if maxInFlight == 0 {
+			maxInFlight = 1
+		}
+		res.Scheduling = &PullScheduling{PagePrefetch: prefetch, MaxInFlight: maxInFlight, RequestsPerSecond: s.requestsPerSecond}
+	}
 	if incremental != nil {
 		res.Incremental = incremental.result
 	}
@@ -384,8 +420,18 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 		}()
 	}
 	macroOptOutWarned := false
+	var prefetch *orderedPagePrefetch
+	if o.PagePrefetch > 1 {
+		prefetch = newOrderedPagePrefetch(ctx, s.store, ids, o.PagePrefetch, confluenceNeedsRestrictions(rs))
+		defer prefetch.close()
+	}
 	for _, id := range ids {
-		page, err := s.store.GetPage(ctx, id, domain.PullOpts{Format: "csf", IncludeRestrictions: confluenceNeedsRestrictions(rs)})
+		var page *domain.Resource
+		if prefetch != nil {
+			page, err = prefetch.nextPage(id)
+		} else {
+			page, err = s.store.GetPage(ctx, id, domain.PullOpts{Format: "csf", IncludeRestrictions: confluenceNeedsRestrictions(rs)})
+		}
 		if err != nil {
 			return res, fmt.Errorf("pull %s: %w", id, err)
 		}

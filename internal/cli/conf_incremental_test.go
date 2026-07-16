@@ -111,6 +111,11 @@ func TestConfPullIncrementalFlagsFailBeforeConfig(t *testing.T) {
 		{"conf", "pull", "--complete", "--cql", "type=page", "--max-pages", "-1"},
 		{"conf", "pull", "--complete", "--cql", "type=page", "--since", "2026-07-13T12:00:00Z"},
 		{"conf", "pull", "--complete", "--space", "ENG", "--depth", "2"},
+		{"conf", "pull", "--cql", "type=page", "--page-prefetch", "2"},
+		{"conf", "pull", "--complete", "--cql", "type=page", "--page-prefetch", "0"},
+		{"conf", "pull", "--complete", "--cql", "type=page", "--page-prefetch", "9"},
+		{"conf", "pull", "--complete", "--cql", "type=page", "--requests-per-second", "-1"},
+		{"conf", "pull", "--complete", "--cql", "type=page", "--requests-per-second", "1001"},
 	} {
 		if _, code := runCLI(t, nil, args...); code != exitUsage {
 			t.Fatalf("args=%v exit=%d", args, code)

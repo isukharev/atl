@@ -23,7 +23,13 @@ type Confluence struct {
 
 // New builds a Confluence adapter for base URL with a PAT.
 func New(base, token, version string) *Confluence {
-	return &Confluence{c: httpx.New(base, token, version), base: strings.TrimRight(base, "/")}
+	return NewWithScheduler(base, token, version, nil)
+}
+
+// NewWithScheduler shares a command-scoped request scheduler with every
+// Confluence transport path, including comments and streamed assets.
+func NewWithScheduler(base, token, version string, scheduler *httpx.Scheduler) *Confluence {
+	return &Confluence{c: httpx.NewWithScheduler(base, token, version, scheduler), base: strings.TrimRight(base, "/")}
 }
 
 var _ domain.DocStore = (*Confluence)(nil)

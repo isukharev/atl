@@ -120,11 +120,22 @@ atl conf pull --complete --cql '<same stable CQL>' --into <absolute-root>
 ```
 
 Complete mode performs two exhaustive metadata passes before body reads, then
-one serial body GET per page. Budget that load deliberately. It stores a
+one serial body GET per page by default. Budget that load deliberately. It stores a
 private exact-id checkpoint and resumes only its remaining prefix; do not infer
 deletion from the snapshot. Option drift is exit 8. Use
 `--restart-complete` only after preserving local edits and explicitly deciding
 to replace the unfinished snapshot.
+
+Only after reviewing backend capacity, an agent may opt into
+`--page-prefetch 2..8` and optionally `--requests-per-second N`. Prefer the
+smallest useful window/rate. These load controls do not change mirror bytes and
+may be reduced when resuming a throttled run; content/render options remain
+snapshot-bound. Prefetch can read at most its bounded tail past a later failure, but path claims,
+assets/sidecars, mirror writes, and checkpoints remain serial/canonical. The
+rate/in-flight scheduler covers every Confluence request and optional Jira
+macro request, including retries/redirects, and shares `Retry-After`; do not
+add shell-level parallelism around it. Default `1`/`0` adds no concurrency or
+proactive pacing.
 
 For recurring changes after the historical bootstrap, reuse complete
 incremental selection. When date boundaries are material, inspect the

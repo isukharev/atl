@@ -13,6 +13,7 @@ import (
 	"github.com/isukharev/atl/internal/auth"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/httpx"
 )
 
 // ConfluenceService bundles the Confluence use-cases over a DocStore + mirror.
@@ -30,7 +31,9 @@ type ConfluenceService struct {
 	jiraReadFactory func() (domain.Tracker, string)
 	jiraReadOnce    sync.Once
 	// jiraReadReason is deliberately coarse and URL-free for render warnings.
-	jiraReadReason string
+	jiraReadReason     string
+	requestMaxInFlight int
+	requestsPerSecond  int
 }
 
 // JiraService bundles the Jira use-cases over a Tracker. agile and structure are
@@ -58,6 +61,16 @@ type EnvironmentService struct {
 
 // NewConfluence wires the Confluence adapter from config + PAT.
 func NewConfluence(cfg *config.Config, version string) (*ConfluenceService, error) {
+	return NewConfluenceScheduled(cfg, version, 0, 0)
+}
+
+// NewConfluenceScheduled wires one request scheduler through Confluence and
+// optional Jira-macro reads. maxInFlight=0 preserves the ordinary unscheduled
+// constructor used by every command except explicitly bounded pull workflows.
+func NewConfluenceScheduled(cfg *config.Config, version string, maxInFlight, requestsPerSecond int) (*ConfluenceService, error) {
+	if maxInFlight == 0 && requestsPerSecond != 0 {
+		return nil, fmt.Errorf("%w: request pacing requires a positive in-flight bound", domain.ErrUsage)
+	}
 	if cfg.ConfluenceURL == "" {
 		return nil, fmt.Errorf("%w: Confluence URL not set — run `atl config set --confluence-url https://confluence.example.com` (or export ATL_CONFLUENCE_URL); see `atl auth status`", domain.ErrConfig)
 	}
@@ -76,13 +89,23 @@ func NewConfluence(cfg *config.Config, version string) (*ConfluenceService, erro
 		}
 		return nil, err
 	}
-	cf := confluence.New(cfg.ConfluenceURL, tok, version)
-	service := &ConfluenceService{store: cf, users: cf.ResolveUser, assets: cf, baseURL: cfg.ConfluenceURL, verifier: cf, cfg: cfg}
-	service.jiraReadFactory = func() (domain.Tracker, string) { return optionalJiraRead(cfg, version) }
+	var scheduler *httpx.Scheduler
+	if maxInFlight != 0 {
+		scheduler, err = httpx.NewScheduler(maxInFlight, requestsPerSecond)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid request schedule: %v", domain.ErrUsage, err)
+		}
+	}
+	cf := confluence.NewWithScheduler(cfg.ConfluenceURL, tok, version, scheduler)
+	service := &ConfluenceService{
+		store: cf, users: cf.ResolveUser, assets: cf, baseURL: cfg.ConfluenceURL, verifier: cf, cfg: cfg,
+		requestMaxInFlight: maxInFlight, requestsPerSecond: requestsPerSecond,
+	}
+	service.jiraReadFactory = func() (domain.Tracker, string) { return optionalJiraReadScheduled(cfg, version, scheduler) }
 	return service, nil
 }
 
-func optionalJiraRead(cfg *config.Config, version string) (domain.Tracker, string) {
+func optionalJiraReadScheduled(cfg *config.Config, version string, scheduler *httpx.Scheduler) (domain.Tracker, string) {
 	if cfg == nil || cfg.JiraURL == "" {
 		return nil, "Jira URL is not configured"
 	}
@@ -93,7 +116,7 @@ func optionalJiraRead(cfg *config.Config, version string) (domain.Tracker, strin
 	if err != nil {
 		return nil, "Jira credentials are not configured"
 	}
-	return jira.New(cfg.JiraURL, token, version), ""
+	return jira.NewWithScheduler(cfg.JiraURL, token, version, scheduler), ""
 }
 
 // NewConfluenceRenderer builds a ConfluenceService for the offline `conf render`

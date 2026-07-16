@@ -569,6 +569,26 @@ With `--incremental`, the same result additionally carries `incremental`:
 }
 ```
 
+Incremental and complete pulls also carry the exact command-scoped scheduling
+policy (defaults shown):
+
+```json
+{
+  "scheduling": {
+    "page_prefetch": 1,
+    "max_in_flight": 1,
+    "requests_per_second": 0
+  }
+}
+```
+
+`page_prefetch` overlaps native body reads only. Every mirror/path/asset
+side-effect and checkpoint stays in canonical serial order. `max_in_flight`
+and `requests_per_second` cover every actual Confluence and optional Jira-macro
+transport hop, including retries, redirects, comments, and streamed assets.
+Server `Retry-After` extends one shared cooldown. Zero rate means no proactive
+pacing, not zero requests.
+
 `watermark_source` is `explicit|recorded|migrated`. Watermark instants are
 canonical UTC RFC3339 minutes. `query_literal` is deliberately rendered from
 UTC 48 hours before `watermark_instant`; `query_literal_basis` describes that
@@ -610,6 +630,11 @@ earlier invocation:
     "completed": 3,
     "remaining": 0,
     "checkpoint_active": false
+  },
+  "scheduling": {
+    "page_prefetch": 1,
+    "max_in_flight": 1,
+    "requests_per_second": 0
   }
 }
 ```
