@@ -46,7 +46,15 @@ func PreparePrivateOutputRoot(root, repositoryRoot string) (string, error) {
 }
 
 func requirePrivateLiveInputs(specPath, liveConfigDir, repositoryRoot string) error {
-	specPath, err := filepath.Abs(specPath)
+	repositoryRoot, err := filepath.Abs(repositoryRoot)
+	if err != nil {
+		return err
+	}
+	repositoryRoot, err = filepath.EvalSymlinks(repositoryRoot)
+	if err != nil {
+		return fmt.Errorf("private-live repository root: %w", err)
+	}
+	specPath, err = filepath.Abs(specPath)
 	if err != nil {
 		return err
 	}
@@ -64,18 +72,26 @@ func requirePrivateLiveInputs(specPath, liveConfigDir, repositoryRoot string) er
 			return fmt.Errorf("private-live spec and its referenced inputs must be outside Git or Git-ignored")
 		}
 	}
-	configInside, err := pathWithin(repositoryRoot, liveConfigDir)
+	canonicalConfigDir, err := filepath.Abs(liveConfigDir)
+	if err != nil {
+		return err
+	}
+	canonicalConfigDir, err = filepath.EvalSymlinks(canonicalConfigDir)
+	if err != nil {
+		return fmt.Errorf("private-live config directory: %w", err)
+	}
+	configInside, err := pathWithin(repositoryRoot, canonicalConfigDir)
 	if err != nil {
 		return err
 	}
 	if configInside {
 		return fmt.Errorf("private-live config directory must be outside the repository")
 	}
-	if err := requireOwnerOnly("private-live config directory", liveConfigDir, true); err != nil {
+	if err := requireOwnerOnly("private-live config directory", canonicalConfigDir, true); err != nil {
 		return err
 	}
 	for _, name := range []string{"config.json", "credentials.json"} {
-		path := filepath.Join(liveConfigDir, name)
+		path := filepath.Join(canonicalConfigDir, name)
 		if err := requireOwnerOnly("private-live "+name, path, false); err != nil {
 			return err
 		}

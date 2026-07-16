@@ -87,6 +87,13 @@ func TestPrivateLiveInputsRequireIgnoredSpecAndExternalOwnerOnlyConfig(t *testin
 	if err := requirePrivateLiveInputs(trackedSpec, config, repository); err == nil {
 		t.Fatal("tracked private-live spec passed")
 	}
+	repositoryAlias := filepath.Join(t.TempDir(), "repository-alias")
+	if err := os.Symlink(repository, repositoryAlias); err != nil {
+		t.Fatal(err)
+	}
+	if err := requirePrivateLiveInputs(trackedSpec, config, repositoryAlias); err == nil {
+		t.Fatal("tracked private-live spec passed through a repository symlink")
+	}
 	if err := requirePrivateLiveInputs(privateSpec, privateDir, repository); err == nil {
 		t.Fatal("repository-contained live config passed")
 	}
