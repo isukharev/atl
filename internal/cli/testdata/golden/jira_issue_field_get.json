@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "issue": {
+    "id": "10001",
+    "key": "PROJ-1",
+    "updated": "2026-07-01T10:00:00.000+0000"
+  },
+  "field": {
+    "id": "customfield_1",
+    "name": "Delivery Notes",
+    "custom": true,
+    "schema": "string",
+    "present": true,
+    "empty": false,
+    "value_type": "string"
+  },
+  "projection": "compact",
+  "max_value_bytes": 4096,
+  "original_value_bytes": 27,
+  "emitted_value_bytes": 27,
+  "complete": true,
+  "truncated": false,
+  "value": "Current delivery evidence"
+}

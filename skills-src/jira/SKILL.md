@@ -99,11 +99,13 @@ sources, and expands only bounded linked Confluence sections.
 
 Start unfamiliar analysis with value-free non-empty
 `jira issue fields --metadata-only`, not standard fields or `*all`; then read
-only promising exact fields in compact mode. Choose the shortest evidence path: selected
+only promising exact fields through bounded `jira issue field get`. Choose the shortest evidence path: selected
 qualified history/refs for one issue, transient export for several keys, or one
 `jira epic digest --projection compact` for a known epic/period. Inspect every completeness field,
 stop when evidence is sufficient, and expand only a known Confluence heading.
-The capability route is the command contract: do not probe `--help`, guess a
+If compact output names a required narrative in `projection.clipped`, expand
+only that field with `jira issue field get`; never repeat the whole digest in
+full. The capability route is the command contract: do not probe `--help`, guess a
 quarter for an undated task, read a status field separately before a digest
 that already selects it, or rerun a successful complete digest in another
 output mode.

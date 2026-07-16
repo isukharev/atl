@@ -94,7 +94,7 @@ Run the typed remote-read-only agent tool surface over MCP stdio:
 atl mcp serve
 ```
 
-The process registers seven explicit Jira/Confluence evidence tools and no
+The process registers eight explicit Jira/Confluence evidence tools and no
 mutation, shell, arbitrary-file, mirror-write, or raw-REST tool. Stdout is
 reserved for protocol frames, startup skips self-update, and tool errors expose
 the same stable `kind`/`remediation` classes as CLI JSON. Install through the
@@ -2146,6 +2146,33 @@ Flags:
 | `--include-empty` | include empty catalog fields in addition to observed fields |
 | `--raw` | emit unprojected values (may contain private contact/transport data) |
 
+### `atl jira issue field get`
+
+Expand exactly one required field without repeating a broad issue or epic
+snapshot:
+
+```bash
+atl jira issue field get PROJ-1 --field "Delivery Notes"
+atl jira issue field get PROJ-1 --field customfield_10002 --max-bytes 32768 -o text
+```
+
+`--field` accepts one exact technical id or unambiguous case-insensitive display
+name. A technical id goes directly to the issue read; a display name first uses
+the field catalog and fails closed on ambiguity. Atl then requests only that
+field plus `updated` in one issue GET. JSON reports schema version, issue id/key/update
+provenance, field id/name/schema/presence/type, `projection:"compact"`, the
+reviewed byte limit, original/emitted encoded value sizes, and
+`complete`/`truncated`. The default value cap is 16 KiB; accepted values are
+256 bytes through 128 KiB.
+
+The value uses the same closed compact projection as `jira issue fields`:
+users omit email/avatar/self data, options and named Jira objects retain only
+compact identity, and arbitrary transport objects never expand recursively.
+The cap applies to the JSON-encoded compact value, so `emitted_value_bytes`
+never exceeds `max_value_bytes`. Use this command when a compact digest names a
+required field in `projection.clipped`; do not rerun the whole digest with the
+full projection.
+
 ### `atl jira issue view`
 
 Fetch one issue and render the same configured Markdown projection used by
@@ -2687,8 +2714,9 @@ counts, count/text truncation, warnings, staleness, status/DoD evidence and
 small deterministic samples/summaries, while omitting raw child rows and raw
 collections. `projection.omitted` names removed paths and
 `projection.clipped` names values clipped by the tighter projection budget.
-Use the default `full` projection only when one of those named details is
-actually required. Compact JSON is bounded to 64 KiB by regression fixtures at
+Expand a required clipped narrative with `jira issue field get`; do not repeat
+the broad digest in `full`. Use another source-specific bounded command when a
+different omitted collection detail is actually required. Compact JSON is bounded to 64 KiB by regression fixtures at
 the command's existing source caps; it does not turn incomplete evidence into
 complete evidence.
 

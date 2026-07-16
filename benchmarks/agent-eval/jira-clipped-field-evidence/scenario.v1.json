@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "id": "jira.synthetic-clipped-field-evidence",
+  "task_class": "jira/evidence",
+  "description": "Expand one required narrative clipped by a compact epic digest without repeating the broad digest.",
+  "data_class": "synthetic",
+  "required_capabilities": [
+    "jira.issue.fields",
+    "jira.epic.digest",
+    "jira.issue.field.get"
+  ],
+  "required_checks": [
+    "atl_succeeded",
+    "decision_correct",
+    "evidence_complete",
+    "issue_key_correct",
+    "mock_clean",
+    "bounded_atl",
+    "used_atl"
+  ],
+  "required_metrics": [
+    "agent_turns",
+    "tool_calls",
+    "atl_invocations",
+    "delegations",
+    "backend_requests",
+    "duplicate_backend_requests",
+    "output_bytes",
+    "input_tokens",
+    "output_tokens",
+    "main_thread_input_tokens",
+    "main_thread_output_tokens",
+    "estimated_cost_microusd",
+    "duration_millis"
+  ],
+  "budgets": {
+    "max_agent_turns": 10,
+    "max_tool_calls": 10,
+    "max_atl_invocations": 3,
+    "max_delegations": 0,
+    "max_backend_requests": 8,
+    "max_duplicate_backend_requests": 3,
+    "max_remote_writes": 0,
+    "max_output_bytes": 32768,
+    "max_input_tokens": 400000,
+    "max_output_tokens": 12000,
+    "max_main_thread_input_tokens": 400000,
+    "max_main_thread_output_tokens": 12000,
+    "max_estimated_cost_microusd": 10000000,
+    "max_duration_millis": 600000,
+    "allowed_http_methods": [
+      "GET"
+    ]
+  }
+}

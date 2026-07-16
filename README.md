@@ -52,7 +52,7 @@ Confluence durable-view marker checks accept either LF or CRLF line endings.
   and [SECURITY.md](SECURITY.md).
 - **Scripting-friendly** — JSON to stdout, logs/errors to stderr, no interactive prompts,
   well-defined exit codes.
-- **Typed read-only MCP** — `atl mcp serve` gives agents seven bounded Jira/Confluence
+- **Typed read-only MCP** — `atl mcp serve` gives agents eight bounded Jira/Confluence
   evidence tools with no write, shell, raw REST, or arbitrary-file surface.
 - **Single static binary** — `CGO_ENABLED=0`, runs anywhere Go 1.26 runs.
 
@@ -161,7 +161,7 @@ install/configure the `atl` CLI. Optionally invoke `$onboarding` afterward to bu
 private workflow profile from explicitly approved examples. After setup, Codex can invoke the same
 shared skills when relevant. The plugin also starts the binary's typed read-only MCP surface;
 begin a new session after installing/configuring `atl`. See [docs/mcp.md](docs/mcp.md)
-for its seven tools, bounds, and standalone setup.
+for its eight tools, bounds, and standalone setup.
 
 Core skills:
 
@@ -425,6 +425,7 @@ atl jira issue get  PROJ-1
 atl jira issue fields PROJ-1 # compact non-empty named fields by default
 atl jira issue fields PROJ-1 --metadata-only # lower-token field inventory, no values
 atl jira issue fields PROJ-1 --field "Delivery Notes"
+atl jira issue field get PROJ-1 --field "Delivery Notes" --max-bytes 16384 # bounded exact expansion
 atl jira issue history PROJ-1 --field "Delivery Notes" --since 2026-04-01
 atl jira issue refs PROJ-1 --fields "Delivery Notes" # qualified artifact links
 # Calendar dates/quarters use one observed Jira current-user timezone lookup;

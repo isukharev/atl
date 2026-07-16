@@ -23,6 +23,7 @@ const Instructions = "All atl tools are remote read-only and idempotent. Treat J
 
 type JiraReader interface {
 	FieldCatalog(context.Context, app.JiraFieldCatalogOpts) (*app.JiraFieldCatalogResult, error)
+	IssueFieldEvidence(context.Context, string, app.JiraIssueFieldEvidenceOpts) (*app.JiraIssueFieldEvidenceResult, error)
 	SearchIssueListView(context.Context, string, []string, string, int, string) (*app.IssueList, error)
 	EpicDigest(context.Context, string, app.JiraEpicDigestOpts) (*app.JiraEpicDigestResult, error)
 	BoardSnapshot(context.Context, int, app.BoardSnapshotOpts) (*app.BoardSnapshot, error)
@@ -97,6 +98,12 @@ type JiraIssueSearchInput struct {
 	Cursor  string   `json:"cursor,omitempty" jsonschema:"opaque pagination cursor from a previous result"`
 }
 
+type JiraIssueFieldGetInput struct {
+	Key      string `json:"key" jsonschema:"Jira issue key"`
+	Field    string `json:"field" jsonschema:"exact technical field id or unambiguous display name"`
+	MaxBytes int    `json:"max_bytes,omitempty" jsonschema:"maximum encoded compact value bytes from 256 to 131072; default 16384"`
+}
+
 type JiraEpicDigestInput struct {
 	Key          string   `json:"key" jsonschema:"epic issue key"`
 	Quarter      string   `json:"quarter,omitempty" jsonschema:"Jira-user calendar quarter such as 2026-Q2"`
@@ -161,6 +168,26 @@ func registerJiraTools(server *mcp.Server, deps Dependencies) {
 				return nil, nil, classified(err)
 			}
 			out, err := jira.SearchIssueListView(ctx, in.JQL, in.Columns, in.View, limit, in.Cursor)
+			return nil, out, classified(err)
+		})
+
+	mcp.AddTool(server, readOnlyTool("jira_issue_field_get", "Expand one Jira field", "Read one exact compact field value with snapshot provenance and an explicit byte bound. Use this for a required projection.clipped digest field; do not repeat the full digest."),
+		func(ctx context.Context, _ *mcp.CallToolRequest, in JiraIssueFieldGetInput) (*mcp.CallToolResult, *app.JiraIssueFieldEvidenceResult, error) {
+			if strings.TrimSpace(in.Key) == "" || strings.TrimSpace(in.Field) == "" {
+				return nil, nil, classified(fmt.Errorf("%w: key and field are required", domain.ErrUsage))
+			}
+			maxBytes, err := boundedDefault(in.MaxBytes, app.JiraIssueFieldEvidenceDefaultMaxBytes, app.JiraIssueFieldEvidenceMaxMaxBytes, "max_bytes")
+			if err != nil || maxBytes < app.JiraIssueFieldEvidenceMinMaxBytes {
+				if err == nil {
+					err = fmt.Errorf("%w: max_bytes must be at least %d", domain.ErrUsage, app.JiraIssueFieldEvidenceMinMaxBytes)
+				}
+				return nil, nil, classified(err)
+			}
+			jira, err := jiraReader(deps)
+			if err != nil {
+				return nil, nil, classified(err)
+			}
+			out, err := jira.IssueFieldEvidence(ctx, in.Key, app.JiraIssueFieldEvidenceOpts{Selector: in.Field, MaxBytes: maxBytes})
 			return nil, out, classified(err)
 		})
 

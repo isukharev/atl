@@ -24,19 +24,46 @@ func jiraIssueFieldsServer(t *testing.T) (*httptest.Server, *int) {
             ]`)
 		case "/rest/api/2/issue/PROJ-1":
 			issueReads++
-			if got := request.URL.Query().Get("fields"); got != "*all" && got != "customfield_1" && got != "assignee" {
-				t.Fatalf("fields query=%q", got)
+			requested := request.URL.Query().Get("fields")
+			if requested != "*all" && requested != "customfield_1" && requested != "assignee" && requested != "customfield_1,updated" {
+				t.Fatalf("fields query=%q", requested)
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"id": "10001", "key": "PROJ-1", "fields": map[string]any{
+			fields := map[string]any{
 				"summary": "Plan", "assignee": map[string]any{"name": "alice", "displayName": "Alice", "emailAddress": "private@example.test", "avatarUrls": map[string]string{"48x48": "https://example.test/avatar"}, "active": true},
 				"customfield_1": "Current delivery evidence", "customfield_2": nil,
-			}})
+			}
+			if requested == "customfield_1,updated" {
+				fields["updated"] = "2026-07-01T10:00:00.000+0000"
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "10001", "key": "PROJ-1", "fields": fields})
 		default:
 			t.Fatalf("path=%s", request.URL.Path)
 		}
 	}))
 	t.Cleanup(server.Close)
 	return server, &issueReads
+}
+
+func TestJiraIssueFieldGetGoldenAndText(t *testing.T) {
+	server, _ := jiraIssueFieldsServer(t)
+	out, code := runCLI(t, jiraEnv(server), "jira", "issue", "field", "get", "PROJ-1", "--field", "Delivery Notes", "--max-bytes", "4096")
+	if code != exitOK || strings.Contains(out, "private@example.test") {
+		t.Fatalf("field get exit=%d out=%s", code, out)
+	}
+	assertGolden(t, "jira_issue_field_get.json", []byte(out))
+
+	text, code := runCLI(t, jiraEnv(server), "-o", "text", "jira", "issue", "field", "get", "PROJ-1", "--field", "Delivery Notes")
+	if code != exitOK || !strings.Contains(text, "| Issue | Updated | Field | ID | Value |") || !strings.Contains(text, "Current delivery evidence") {
+		t.Fatalf("field get text exit=%d out=%s", code, text)
+	}
+}
+
+func TestJiraIssueFieldGetRejectsInvalidBoundBeforeNetwork(t *testing.T) {
+	server, issueReads := jiraIssueFieldsServer(t)
+	out, code := runCLI(t, jiraEnv(server), "jira", "issue", "field", "get", "PROJ-1", "--field", "Delivery Notes", "--max-bytes", "128")
+	if code != exitUsage || out != "" || *issueReads != 0 {
+		t.Fatalf("field get invalid bound exit=%d reads=%d out=%q", code, *issueReads, out)
+	}
 }
 
 func TestJiraIssueFieldsDefaultsToCompactNonEmptyGolden(t *testing.T) {

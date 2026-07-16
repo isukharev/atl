@@ -9,7 +9,7 @@ step mechanically.
 
 | Situation | First command | Expand only when needed |
 |---|---|---|
-| One unfamiliar issue | `jira issue fields <KEY> --metadata-only` | exact compact fields, selected history/refs, then a linked page section |
+| One unfamiliar issue | `jira issue fields <KEY> --metadata-only` | exact bounded field get, selected history/refs, then a linked page section |
 | One epic and known evidence-field names | `jira epic digest <KEY>` plus only a task-supplied period | bounded Confluence section expansion |
 | One epic but unknown custom fields | `jira issue fields <KEY> --metadata-only` | exact compact fields, then one digest after choosing names/ids |
 | Several known keys | `jira export --keys ... --out -` | per-key history/digest only for exceptions |
@@ -36,8 +36,17 @@ quarter. The digest joins identity, children, comments, history,
 links/blockers, and refs; it does not write a management narrative. Inspect
 every `sources.<name>.complete` and the dated `staleness.reasons` before drawing
 a conclusion. In compact output also inspect `projection.omitted` and
-`projection.clipped`; expand to `--projection full` only when a named omitted
-detail is required for the answer. When the required sources are complete and sufficient, stop:
+`projection.clipped`. If a required `status_field.value` or `dod_field.value`
+is clipped, expand only that exact field:
+
+```sh
+atl --read-only jira issue field get PROJ-1 \
+  --field 'Delivery Notes' --max-bytes 16384
+```
+
+Do not rerun the whole digest with `--projection full`; use another bounded
+source-specific command only when a different named omitted detail is required.
+When the required sources are complete and sufficient, stop:
 do not rerun the digest with `-o text`, a broader period, or alternate defaults.
 
 If a non-epic issue needs a time-qualified field check, avoid a digest:

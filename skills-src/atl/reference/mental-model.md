@@ -18,7 +18,7 @@ treat all three routes as complementary:
 
 - Use the atl CLI/mirror for durable files, Structure, export, offline
   diff/plan, attachments, scripts, and every guarded write.
-- Use atl MCP for one real-time bounded read when its seven typed tools cover the
+- Use atl MCP for one real-time bounded read when its eight typed tools cover the
   task and content must not be persisted to disk.
 - Use an independently configured Atlassian/Rovo MCP when its OAuth scope or a
   capability absent from atl is specifically required.

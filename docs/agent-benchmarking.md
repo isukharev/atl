@@ -71,7 +71,7 @@ when the oracle, rubric, runtime, and changed variable are compatible.
 
 | User-task shape | Representative risk | Deterministic coverage | Model-in-loop coverage |
 |---|---|---|---|
-| Single-object evidence | Broad reads, missed custom fields, unqualified absence | Jira epic evidence | Jira epic evidence |
+| Single-object evidence | Broad reads, missed custom fields, unqualified absence | Jira epic evidence and exact clipped-field expansion | Jira epic evidence and clipped-field typed MCP |
 | Bounded page evidence | Full-page context inflation, lost table meaning | Confluence section recovery and approved-occurrence route | Confluence page evidence via CLI and typed MCP |
 | Ambiguity recovery | Duplicate headings or identities silently select the wrong source | Confluence duplicate-heading refusal/recovery | Confluence page evidence |
 | Portfolio snapshot | Repeated JQL/joins replace a curated membership source | Jira board/Structure route | Jira quarterly portfolio |

@@ -6,7 +6,7 @@ Confluence, local mirrors, auth, or config.
 
 The exact tools are:
 
-- `jira_fields`, `jira_issue_search`, `jira_epic_digest`, `jira_board_view`;
+- `jira_fields`, `jira_issue_search`, `jira_issue_field_get`, `jira_epic_digest`, `jira_board_view`;
 - `confluence_page_resolve`, `confluence_page_outline`,
   `confluence_page_section`.
 

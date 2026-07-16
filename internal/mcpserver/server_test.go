@@ -33,7 +33,7 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 	}
 	want := []string{
 		"confluence_page_outline", "confluence_page_resolve", "confluence_page_section",
-		"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_search",
+		"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_search",
 	}
 	got := make([]string, 0, len(listed.Tools))
 	for _, tool := range listed.Tools {
@@ -123,6 +123,55 @@ func TestSyntheticPortfolioThroughMCPUsesExactGETOnlyRoute(t *testing.T) {
 	}
 }
 
+func TestSyntheticClippedDigestExpandsOnlyExactField(t *testing.T) {
+	fixtureFile, err := os.Open(filepath.Join("..", "..", "benchmarks", "agent-eval", "jira-clipped-field-evidence", "fixture.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+	closeErr := fixtureFile.Close()
+	if decodeErr != nil || closeErr != nil {
+		t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
+	}
+	backend, err := agenteval.StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	for name, value := range backend.Environment() {
+		t.Setenv(name, value)
+	}
+	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+	t.Setenv("ATL_READ_ONLY", "1")
+	t.Setenv("ATL_NO_UPDATE", "1")
+
+	client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
+	defer closeSessions()
+	digest := callToolOK(t, client, "jira_epic_digest", map[string]any{
+		"key": "PROJ-1", "include": []string{"identity", "status-field"},
+		"status_field": "Delivery Notes", "projection": "compact",
+	})
+	digestContent, ok := digest.StructuredContent.(map[string]any)
+	projection, projectionOK := digestContent["projection"].(map[string]any)
+	clipped, clippedOK := projection["clipped"].([]any)
+	if !ok || !projectionOK || !clippedOK || len(clipped) != 1 || clipped[0] != "status_field.value" {
+		t.Fatalf("compact digest projection=%#v", projection)
+	}
+
+	field := callToolOK(t, client, "jira_issue_field_get", map[string]any{
+		"key": "PROJ-1", "field": "Delivery Notes", "max_bytes": 8192,
+	})
+	fieldContent, ok := field.StructuredContent.(map[string]any)
+	value, _ := fieldContent["value"].(string)
+	if !ok || fieldContent["complete"] != true || !strings.Contains(value, "DECISION=proceed") || len(value) <= 3<<10 {
+		t.Fatalf("field expansion complete=%v value-bytes=%d", fieldContent["complete"], len(value))
+	}
+	methods, unexpected, duplicates := backend.Summary()
+	if methods["GET"] != 5 || len(methods) != 1 || unexpected != 0 || duplicates != 1 {
+		t.Fatalf("requests=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+	}
+}
+
 func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	j := &recordingJiraReader{}
 	c := &recordingConfluenceReader{}
@@ -135,6 +184,9 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	callToolOK(t, client, "jira_fields", map[string]any{"name_like": "Outcome", "custom": custom})
 	callToolOK(t, client, "jira_issue_search", map[string]any{
 		"jql": "project=PROJ", "columns": []string{"key", "status"}, "view": "compact", "cursor": "next",
+	})
+	callToolOK(t, client, "jira_issue_field_get", map[string]any{
+		"key": "PROJ-1", "field": "Delivery Notes", "max_bytes": 4096,
 	})
 	digest := callToolOK(t, client, "jira_epic_digest", map[string]any{
 		"key": "PROJ-1", "quarter": "2026-Q2", "include": []string{"identity", "history"},
@@ -160,6 +212,9 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	}
 	if j.searchJQL != "project=PROJ" || j.searchLimit != 50 || j.searchCursor != "next" || j.searchView != "compact" || strings.Join(j.searchColumns, ",") != "key,status" {
 		t.Fatalf("search jql=%q columns=%v view=%q limit=%d cursor=%q", j.searchJQL, j.searchColumns, j.searchView, j.searchLimit, j.searchCursor)
+	}
+	if j.fieldEvidenceKey != "PROJ-1" || j.fieldEvidenceOpts.Selector != "Delivery Notes" || j.fieldEvidenceOpts.MaxBytes != 4096 {
+		t.Fatalf("field evidence key=%q opts=%+v", j.fieldEvidenceKey, j.fieldEvidenceOpts)
 	}
 	if j.digestKey != "PROJ-1" || j.digestOpts.Quarter != "2026-Q2" || j.digestOpts.StatusField != "customfield_1" || j.digestOpts.DoDField != "customfield_2" || j.digestOpts.EpicField != "customfield_3" || j.digestOpts.ChildLimit != 1000 || j.digestOpts.CommentLimit != 50 || j.digestOpts.HistoryLimit != 500 {
 		t.Fatalf("digest key=%q opts=%+v", j.digestKey, j.digestOpts)
@@ -224,6 +279,7 @@ func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 		args map[string]any
 	}{
 		{name: "jira_issue_search", args: map[string]any{"jql": "project=PROJ", "limit": 1001}},
+		{name: "jira_issue_field_get", args: map[string]any{"key": "PROJ-1", "field": "Delivery Notes", "max_bytes": 128}},
 		{name: "jira_board_view", args: map[string]any{"board_id": 1, "limit": 1001}},
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{"comments"}, "comment_limit": 51}},
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{}}},
@@ -330,6 +386,8 @@ type cancellingJiraReader struct {
 
 type recordingJiraReader struct {
 	fieldOpts                           app.JiraFieldCatalogOpts
+	fieldEvidenceKey                    string
+	fieldEvidenceOpts                   app.JiraIssueFieldEvidenceOpts
 	searchJQL, searchView, searchCursor string
 	searchColumns                       []string
 	searchLimit                         int
@@ -337,6 +395,15 @@ type recordingJiraReader struct {
 	digestOpts                          app.JiraEpicDigestOpts
 	boardID                             int
 	boardOpts                           app.BoardSnapshotOpts
+}
+
+func (r *recordingJiraReader) IssueFieldEvidence(_ context.Context, key string, opts app.JiraIssueFieldEvidenceOpts) (*app.JiraIssueFieldEvidenceResult, error) {
+	r.fieldEvidenceKey, r.fieldEvidenceOpts = key, opts
+	return &app.JiraIssueFieldEvidenceResult{
+		SchemaVersion: 1, Issue: app.JiraIssueFieldEvidenceIssue{Key: key, Updated: "2026-01-01T00:00:00Z"},
+		Field:      app.JiraIssueFieldEvidenceField{ID: "customfield_1", Name: "Delivery Notes", Present: true, ValueType: "string"},
+		Projection: "compact", MaxValueBytes: opts.MaxBytes, OriginalValueBytes: 7, EmittedValueBytes: 7, Complete: true, Value: "value",
+	}, nil
 }
 
 func (r *recordingJiraReader) FieldCatalog(_ context.Context, opts app.JiraFieldCatalogOpts) (*app.JiraFieldCatalogResult, error) {
@@ -387,6 +454,10 @@ func (r *cancellingJiraReader) FieldCatalog(ctx context.Context, _ app.JiraField
 	<-ctx.Done()
 	close(r.canceled)
 	return nil, ctx.Err()
+}
+
+func (*cancellingJiraReader) IssueFieldEvidence(context.Context, string, app.JiraIssueFieldEvidenceOpts) (*app.JiraIssueFieldEvidenceResult, error) {
+	panic("unexpected call")
 }
 
 func (*cancellingJiraReader) SearchIssueListView(context.Context, string, []string, string, int, string) (*app.IssueList, error) {
