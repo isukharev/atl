@@ -246,11 +246,12 @@ run-spec `allowed_atl_commands` prefix. Shell operators, substitutions,
 redirections, multiline scripts, and unrelated binaries are denied before Bash.
 Codex gets the same generated skills in `.agents/skills` for a reviewable
 ephemeral read-only command preview. Both providers support MCP transport.
-Claude receives a generated mode-0600 config under `--strict-mcp-config`, no
-shell/file/delegation tools, and only qualified `mcp__atl__...` names. Its synthetic
-backend environment is attached to the MCP child and omitted from the provider
+Claude receives a generated mode-0600 config under `--strict-mcp-config`; every
+model tool crosses a global guard that grants only qualified reviewed
+`mcp__atl__...` names plus required structured output. Its synthetic backend
+environment is attached to the MCP child and omitted from the provider
 environment. Codex starts the same exact reviewed `atl mcp serve` binary,
-enables only `allowed_mcp_tools`, disables web search, removes atl credentials
+grants only `allowed_mcp_tools`, disables web search, removes atl credentials
 from the model shell environment, and denies shell/file/patch/delegation tools
 through `PreToolUse`. Codex benchmark runs set `project_doc_max_bytes=0` so
 ambient global/repository `AGENTS.md` files cannot change the reviewed task;
@@ -318,9 +319,12 @@ startup readiness a bounded precondition, and grants the run spec's exact
 qualified tool names through private settings. It does not pass dynamic MCP
 names through `--tools` or `--allowed-tools`: current Claude Code applies those
 CLI filters before dynamic discovery and can hide an otherwise connected
-server's catalog. A client-side missing-tool attempt still counts as a model
-tool call but not as an `atl` invocation because no protocol request reached
-the server. An object-shaped MCP response, including an error response, is
+server's catalog. One matcher-less `PreToolUse` guard covers every model tool:
+only exact reviewed MCP names and required structured output are allowed, so
+permission-free built-ins cannot become a fallback. A client-side missing-tool
+attempt still counts as a model tool call but not as an `atl` invocation
+because no protocol request reached the server. An object-shaped MCP response,
+including an error response, is
 counted as an invocation; server errors fail the `atl_all_succeeded` oracle.
 
 ### Topic-first cross-service discovery
@@ -503,7 +507,7 @@ A private run spec differs from a synthetic spec in these fields:
 Its private scenario must use `data_class:"private-local"`, exactly one
 repetition, zero delegations and writes, positive invocation/request limits,
 and an explicit `allowed_http_methods` containing only `GET`/`HEAD`. Start with
-the smallest MCP tool set and response schema that can answer the user task.
+the smallest MCP execution allowlist and response schema that can answer the user task.
 Expected private facts may live in the ignored run spec; never copy them into a
 public fixture or PR.
 

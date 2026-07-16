@@ -19,7 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   properties so one dynamic value cannot hide the full tool catalog. The
   Claude benchmark harness approves only its generated `atl` server, waits for
   readiness, and grants the run spec's exact dynamic tool names through private
-  settings rather than CLI filters that can suppress MCP discovery.
+  settings rather than CLI filters that can suppress MCP discovery. A global
+  pre-tool guard denies every built-in fallback, including permission-free
+  skill/tool-search calls.
 
 - Added a synthetic topic-first Jira + Confluence discovery benchmark for the
   primary CLI and shipped `search-knowledge` skill. It qualifies both search

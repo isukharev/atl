@@ -492,15 +492,18 @@ func countClaudeMCPResults(event map[string]any, mcpToolUseIDs map[string]string
 		// Claude emits this exact string class when its client cannot resolve a
 		// requested tool while an MCP server is still starting. The attempt is
 		// already a model tool call, but it never reached atl. Actual MCP
-		// responses, including server errors, carry an object here. Unknown
-		// shapes fail closed so a provider change cannot silently undercount.
+		// responses carry an object; current Claude releases may wrap a
+		// classified server error as "Error: {<atl envelope>}". Unknown shapes
+		// fail closed so a provider change cannot silently undercount.
 		switch result := event["tool_use_result"].(type) {
 		case map[string]any:
 		case string:
 			if strings.HasPrefix(result, "Error: No such tool available:") {
 				continue
 			}
-			return 0, 0, 0, nil, false, fmt.Errorf("claude MCP result has an unsupported client-side shape")
+			if !isClaudeMCPServerError(result) {
+				return 0, 0, 0, nil, false, fmt.Errorf("claude MCP result has an unsupported client-side shape")
+			}
 		default:
 			return 0, 0, 0, nil, false, fmt.Errorf("claude MCP result is missing its provider envelope")
 		}
@@ -528,6 +531,17 @@ func countClaudeMCPResults(event map[string]any, mcpToolUseIDs map[string]string
 		}
 	}
 	return calls, failed, outputBytes, capabilityFamilySlice(families), complete, nil
+}
+
+func isClaudeMCPServerError(value string) bool {
+	raw := strings.TrimPrefix(value, "Error: ")
+	if raw == value {
+		return false
+	}
+	var envelope struct {
+		Kind string `json:"kind"`
+	}
+	return json.Unmarshal([]byte(raw), &envelope) == nil && envelope.Kind != ""
 }
 
 func jsonInt64(value any) (int64, bool) {

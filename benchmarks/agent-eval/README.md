@@ -45,9 +45,11 @@ same hook confines Claude `Read` to the synthetic workspace and shipped skill
 tree after symlink resolution.
 
 Both providers support `tool_transport:"mcp"` run specs. The runner starts the
-exact built `atl mcp serve` binary and exposes only `allowed_mcp_tools`.
-Claude receives a private explicit config under `--strict-mcp-config`, an empty
-built-in capability-tool set, and qualified `mcp__atl__...` allow-rules;
+exact built `atl mcp serve` binary and grants execution only to
+`allowed_mcp_tools`. Claude receives a private explicit config under
+`--strict-mcp-config`, exact qualified `mcp__atl__...` permission rules, and a
+global pre-tool guard that allows only those reviewed MCP names plus required
+structured output; every built-in fallback is denied.
 fixture credentials exist only in the child config, not the provider environment.
 Codex disables web search, removes atl credentials from the model shell
 environment, and uses a reviewed `PreToolUse` hook to deny shell, file, patch,
@@ -278,8 +280,8 @@ generic `jira.issue.search` and `confluence.search` capability families.
 
 The first reviewed Sonnet MCP baseline passed all 18 deterministic checks and
 the qualitative rubric at 10,000 bps: five typed calls, five GETs, one duplicate
-page target, zero writes, 2,810 tool-output bytes, 110,330 input tokens, 1,606
-output tokens, 111,770 reported micro-USD, and 34,241 ms. The single run is a
+page target, zero writes, 2,889 tool-output bytes, 110,499 input tokens, 1,632
+output tokens, 112,457 reported micro-USD, and 31,074 ms. The single run is a
 directional route baseline, not a stable provider-performance estimate. The
 five-GET path reused the system `description` field id directly; resolving a
 display name may use the sixth allowed GET.
@@ -293,11 +295,11 @@ contract, schema, rubric, and oracle, the directional measurements were:
 | Model tool calls | 8 | 6 | -25% |
 | `atl` invocations | 5 | 5 | 0% |
 | Backend GETs | 6 | 5 | -17% |
-| Agent-visible tool bytes | 3,001 | 2,810 | -6% |
-| Input tokens | 133,410 | 110,330 | -17% |
-| Output tokens | 1,795 | 1,606 | -11% |
-| Reported cost, micro-USD | 203,533 | 111,770 | -45% |
-| Duration, ms | 25,830 | 34,241 | +33% |
+| Agent-visible tool bytes | 3,001 | 2,889 | -4% |
+| Input tokens | 133,410 | 110,499 | -17% |
+| Output tokens | 1,795 | 1,632 | -9% |
+| Reported cost, micro-USD | 203,533 | 112,457 | -45% |
+| Duration, ms | 25,830 | 31,074 | +20% |
 
 The result supports the smaller typed route and lower context/cost for this
 cell, while the slower single MCP run is a reason to retain repetitions before

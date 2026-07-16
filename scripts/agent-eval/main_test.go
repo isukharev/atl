@@ -85,27 +85,66 @@ func TestClaudeBashGuardEmitsPreToolDecision(t *testing.T) {
 
 func TestToolGuardBlocksEveryNonMCPToolInMCPMode(t *testing.T) {
 	t.Setenv("ATL_EVAL_GUARD_MODE", "mcp-only")
-	t.Setenv("ATL_EVAL_ALLOWED_COMMANDS", `["atl jira fields"]`)
+	t.Setenv("ATL_EVAL_ALLOWED_MCP_TOOLS", `["mcp__atl__jira_fields"]`)
 	counter := t.TempDir() + "/guard.jsonl"
 	t.Setenv("ATL_EVAL_GUARD_COUNTER", counter)
-	for _, input := range []string{
-		`{"tool_name":"Bash","tool_input":{"command":"atl jira fields"}}`,
-		`{"tool_name":"apply_patch","tool_input":{"patch":"synthetic"}}`,
-	} {
+	tests := []struct {
+		input, decision string
+	}{
+		{`{"tool_name":"mcp__atl__jira_fields","tool_input":{}}`, "allow"},
+		{`{"tool_name":"StructuredOutput","tool_input":{}}`, "allow"},
+		{`{"tool_name":"mcp__atl__jira_issue_search","tool_input":{}}`, "deny"},
+		{`{"tool_name":"Skill","tool_input":{"skill":"atl:jira"}}`, "deny"},
+		{`{"tool_name":"ToolSearch","tool_input":{"query":"atl"}}`, "deny"},
+		{`{"tool_name":"Bash","tool_input":{"command":"atl jira fields"}}`, "deny"},
+		{`{"tool_name":"apply_patch","tool_input":{"patch":"synthetic"}}`, "deny"},
+	}
+	for _, test := range tests {
 		var output, errorOutput bytes.Buffer
-		if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 {
+		if code := runClaudeBashGuard(strings.NewReader(test.input), &output, &errorOutput); code != 0 {
 			t.Fatalf("code=%d stderr=%s", code, errorOutput.String())
 		}
-		if !strings.Contains(output.String(), `"permissionDecision":"deny"`) || !strings.Contains(output.String(), "typed-MCP") {
-			t.Fatalf("output=%s", output.String())
+		if !strings.Contains(output.String(), `"permissionDecision":"`+test.decision+`"`) {
+			t.Fatalf("input=%s output=%s", test.input, output.String())
 		}
 	}
 	data, err := os.ReadFile(counter)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "{\"decision\":\"deny\"}\n{\"decision\":\"deny\"}\n" {
-		t.Fatalf("counter=%q", data)
+	var records []guardRecord
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var record guardRecord
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatal(err)
+		}
+		records = append(records, record)
+	}
+	if len(records) != len(tests) {
+		t.Fatalf("records=%v", records)
+	}
+	for index, test := range tests {
+		if records[index].Decision != test.decision {
+			t.Fatalf("record %d=%q want=%q", index, records[index].Decision, test.decision)
+		}
+	}
+}
+
+func TestToolGuardRejectsMalformedToolNames(t *testing.T) {
+	t.Setenv("ATL_EVAL_GUARD_MODE", "mcp-only")
+	t.Setenv("ATL_EVAL_GUARD_COUNTER", filepath.Join(t.TempDir(), "guard.jsonl"))
+	for _, input := range []string{
+		`{"tool_name":"","tool_input":{}}`,
+		`{"tool_name":"mcp__atl__tool\nInjected","tool_input":{}}`,
+	} {
+		var output, errorOutput bytes.Buffer
+		if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 {
+			if !strings.Contains(errorOutput.String(), "malformed") {
+				t.Fatalf("code=%d stderr=%s", code, errorOutput.String())
+			}
+		} else {
+			t.Fatalf("malformed input allowed: %s", input)
+		}
 	}
 }
 

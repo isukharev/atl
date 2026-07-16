@@ -242,6 +242,9 @@ exit 2
 	if err := json.Unmarshal(settingsData, &settings); err != nil || len(settings.Enabled) != 1 || settings.Enabled[0] != "atl" || len(settings.Permissions.Allow) != 1 || settings.Permissions.Allow[0] != "mcp__atl__jira_fields" {
 		t.Fatalf("MCP approval settings=%s err=%v", settingsData, err)
 	}
+	if bytes.Contains(settingsData, []byte(`"matcher"`)) {
+		t.Fatalf("MCP guard must omit matcher to cover every non-MCP tool: %s", settingsData)
+	}
 
 	spec.Provider = "codex"
 	spec.Variant = "typed-mcp-codex"

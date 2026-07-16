@@ -45,7 +45,7 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 		return 2
 	}
 	var hook claudeHookInput
-	if err := json.Unmarshal(data, &hook); err != nil || !knownGuardTool(hook.ToolName) {
+	if err := json.Unmarshal(data, &hook); err != nil || !validGuardToolName(hook.ToolName) {
 		fmt.Fprintln(errorOutput, "atl evaluation guard rejected malformed hook input")
 		return 2
 	}
@@ -54,11 +54,18 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 	guardMode := os.Getenv("ATL_EVAL_GUARD_MODE")
 	if guardMode == "mcp-only" {
 		reason = "typed-MCP benchmark blocks every non-MCP model tool"
+		if hook.ToolName == "StructuredOutput" || allowedMCPGuardTool(hook.ToolName, os.Getenv("ATL_EVAL_ALLOWED_MCP_TOOLS")) {
+			decision = "allow"
+			reason = "tool is required structured output or an exact reviewed MCP tool"
+		}
 		return writeGuardDecision(output, errorOutput, decision, reason)
 	}
 	if guardMode == "mcp-with-skill-read" {
 		reason = "private-live MCP allows only confined reads of reviewed skill files"
 		switch hook.ToolName {
+		case "StructuredOutput":
+			decision = "allow"
+			reason = "structured output is required by the reviewed response schema"
 		case "Read":
 			allowed, err := allowedReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
 			if err != nil {
@@ -73,6 +80,11 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 			if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS")) {
 				decision = "allow"
 				reason = "command contains only confined skill-reader invocations"
+			}
+		default:
+			if allowedMCPGuardTool(hook.ToolName, os.Getenv("ATL_EVAL_ALLOWED_MCP_TOOLS")) {
+				decision = "allow"
+				reason = "tool is an exact reviewed MCP tool"
 			}
 		}
 		return writeGuardDecision(output, errorOutput, decision, reason)
@@ -318,13 +330,23 @@ func runSkillLineCount(paths []string, output, errorOutput io.Writer) int {
 	return 0
 }
 
-func knownGuardTool(name string) bool {
-	switch name {
-	case "Bash", "Agent", "Read", "apply_patch", "Edit", "Write":
-		return true
-	default:
+var guardToolNameRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.:-]{0,255}$`)
+
+func validGuardToolName(name string) bool {
+	return guardToolNameRE.MatchString(name)
+}
+
+func allowedMCPGuardTool(name, rawAllowed string) bool {
+	var allowed []string
+	if json.Unmarshal([]byte(rawAllowed), &allowed) != nil {
 		return false
 	}
+	for _, candidate := range allowed {
+		if name == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func writeGuardDecision(output, errorOutput io.Writer, decision, reason string) int {
