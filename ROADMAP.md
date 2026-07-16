@@ -38,6 +38,9 @@ Recent beta work established the contracts the next wave builds on:
 - a same-runtime Claude Code CLI/MCP portfolio comparison whose three-run MCP
   median preserves correctness and backend traffic while materially reducing
   turns, context, cost, and duration.
+- synthetic Confluence agent-evaluation cells for duplicate-heading/rich-page
+  evidence and multi-page decision synthesis, including hostile-content guards,
+  deterministic route budgets, qualitative rubrics, and bounded delegation.
 - explicit package-update ownership: Homebrew launchers delegate exclusively to
   `brew upgrade atl`, while a consolidated egress contract separates read-only,
   update-disable, backend traffic, and externally enforced air-gap controls.

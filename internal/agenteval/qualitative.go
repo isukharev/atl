@@ -259,7 +259,7 @@ func AssessQualitative(result Result, resultBytes, finalBytes []byte, rubric Rub
 	for _, finding := range rubric.AllowedFindingIDs {
 		allowedFindings[finding] = struct{}{}
 	}
-	findings := append([]string(nil), review.FindingIDs...)
+	findings := append([]string{}, review.FindingIDs...)
 	for _, finding := range findings {
 		if _, ok := allowedFindings[finding]; !ok {
 			return Result{}, fmt.Errorf("review finding %q is not allowed by rubric", finding)

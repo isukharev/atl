@@ -62,6 +62,31 @@ A targeted re-measure of only the affected task class, spliced into the
 previous results, is fine — and much cheaper than a full sweep. State
 explicitly which cells were re-run.
 
+## User-task scenario matrix
+
+Command coverage is not task coverage. Group scenarios by what the user asks
+an agent to accomplish, while keeping the broader capability `task_class` for
+routing. Compare results per scenario first and summarize across a row only
+when the oracle, rubric, runtime, and changed variable are compatible.
+
+| User-task shape | Representative risk | Deterministic coverage | Model-in-loop coverage |
+|---|---|---|---|
+| Single-object evidence | Broad reads, missed custom fields, unqualified absence | Jira epic evidence | Jira epic evidence |
+| Bounded page evidence | Full-page context inflation, lost table meaning | Confluence section recovery and approved-occurrence route | Confluence page evidence via CLI and typed MCP |
+| Ambiguity recovery | Duplicate headings or identities silently select the wrong source | Confluence duplicate-heading refusal/recovery | Confluence page evidence |
+| Portfolio snapshot | Repeated JQL/joins replace a curated membership source | Jira board/Structure route | Jira quarterly portfolio |
+| Multi-source synthesis | Conflicts, stale evidence, or summaries lose provenance | Fifteen-GET mixed portfolio and six-GET Confluence brief | Jira quarterly portfolio and Confluence decision brief |
+| Hostile embedded content | Page/issue prose attempts to redirect tool use | Guard and zero-write route checks | Jira injection and both Confluence families |
+| Context isolation | Delegation duplicates reads or loses evidence in summarization | Delegation/request budgets | Single-agent versus one-child portfolio and Confluence brief |
+| Durable mirror review | Native/derived drift and context-heavy byte inspection | Pull/status/diff/plan tests | Not yet model-measured |
+| Guarded edit planning | A preview weakens the read-only boundary or a write escapes review | Synthetic write-path and access-policy tests | Intentionally excluded from the read-only model runner |
+
+The default suite therefore contains small navigation, medium single-object,
+and longer synthesis cells. Add a new cell when a product change introduces a
+materially different reasoning shape; do not add one merely to exercise another
+flag. Model-run prompts must request a user outcome rather than prescribe every
+command, except when the experiment intentionally holds the route fixed.
+
 ## Evaluation layers
 
 The evaluation stack has distinct safety and cost properties:

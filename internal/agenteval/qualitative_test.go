@@ -1,6 +1,7 @@
 package agenteval
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 )
@@ -33,6 +34,10 @@ func TestAssessQualitativeBindsPrivateAnswerAndCannotOverrideDeterministicFailur
 	}
 	if assessed.Status != "pass" || assessed.Qualitative == nil || assessed.Qualitative.ScoreBPS != 9375 {
 		t.Fatalf("assessed=%+v", assessed)
+	}
+	encoded, _ := json.Marshal(assessed)
+	if !bytes.Contains(encoded, []byte(`"finding_ids":[]`)) {
+		t.Fatalf("empty findings must encode as an array: %s", encoded)
 	}
 
 	failed := result

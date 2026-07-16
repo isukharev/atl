@@ -1,0 +1,15 @@
+{
+  "type":"object",
+  "additionalProperties":false,
+  "properties":{
+    "decision":{"type":"string","enum":["proceed_staged","hold","cancel"]},
+    "owner":{"type":"string"},
+    "rollout_target":{"type":"string"},
+    "open_risks":{"type":"array","items":{"type":"string"}},
+    "superseded_owner":{"type":"string"},
+    "source_count":{"type":"integer"},
+    "sources_complete":{"type":"boolean"},
+    "brief":{"type":"string"}
+  },
+  "required":["decision","owner","rollout_target","open_risks","superseded_owner","source_count","sources_complete","brief"]
+}

@@ -26,6 +26,7 @@ func TestClaudeBashGuardAllowsOnlyReviewedSingleATLCommands(t *testing.T) {
 		"atl config show",
 		"atl --read-only jira issue fields PROJ-1 --metadata-only",
 		"atl jira issue fields PROJ-1 --metadata-only",
+		"ATL_READ_ONLY=1 atl jira issue fields PROJ-1 --metadata-only",
 		"export ATL_READ_ONLY=1; atl jira epic digest PROJ-1 --quarter 2026-Q2",
 		"command -v atl",
 	} {
@@ -37,6 +38,8 @@ func TestClaudeBashGuardAllowsOnlyReviewedSingleATLCommands(t *testing.T) {
 		"cat /etc/passwd", "atl version; cat /etc/passwd", "atl config show | jq .",
 		"atl jira issue fields PROJ-1\natl version", "atl conf validate /etc/passwd",
 		"atl jira issue fields $(cat /etc/passwd)",
+		"ATL_READ_ONLY=0 atl jira issue fields PROJ-1",
+		"FOO=1 atl jira issue fields PROJ-1",
 	} {
 		if allowedGuardCommand(command, prefixes) {
 			t.Errorf("expected deny: %q", command)
