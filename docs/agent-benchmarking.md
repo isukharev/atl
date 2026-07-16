@@ -320,6 +320,29 @@ because no protocol request reached the server. An object-shaped MCP response,
 including an error response, is counted as an invocation; server errors fail
 the `atl_all_succeeded` oracle.
 
+### Topic-first cross-service discovery
+
+The `cross-service-topic-discovery` synthetic cell covers the common workflow
+that begins without stable identities. It holds one topic constant while the
+CLI + shipped `search-knowledge` skill searches Jira and Confluence once,
+qualifies both candidate pages, rejects distractors, and reads one exact Jira
+field plus one outline-selected Confluence section.
+
+```sh
+/tmp/agent-eval run \
+  --spec benchmarks/agent-eval/cross-service-topic-discovery/run.cli.claude.json \
+  --output-root "$ATL_AGENT_EVAL_OUTPUT" --repository-root . \
+  --agent-binary "$(command -v claude)" --atl-binary "$PWD/atl" \
+  --plugin-root . --repetitions 1
+```
+
+The deterministic route is exactly six GETs with one duplicate target caused
+by outline then section rendering of the selected page. Full-page reads,
+mirror writes, repeated searches, distractor expansion, remote writes, and
+delegation fall outside the reviewed route or budgets. Use this baseline before
+adding remote search tools: a new MCP surface should preserve the same oracle
+and demonstrate a material trajectory/context improvement.
+
 ## Deterministic contract budgets
 
 `TestEvidenceFirstEpicWorkflowBudget` runs the first-use epic workflow against a

@@ -41,6 +41,9 @@ Recent beta work established the contracts the next wave builds on:
 - synthetic Confluence agent-evaluation cells for duplicate-heading/rich-page
   evidence and multi-page decision synthesis, including hostile-content guards,
   deterministic route budgets, qualitative rubrics, and bounded delegation.
+- a topic-first cross-service discovery cell for the primary CLI and shipped
+  knowledge-search skill, with qualified Jira/Confluence candidate pages and a
+  six-GET bounded-expansion oracle that can justify (or reject) future MCP search.
 - opt-in private-live agent evaluation for real Jira/Confluence compatibility
   through paired typed-MCP and primary CLI+skill paths: MCP uses ephemeral
   credentials and an independent transport guard, while CLI receives only

@@ -250,3 +250,16 @@ make agent-eval-contract
   --agent-binary "$(command -v claude)" --atl-binary "$PWD/atl" \
   --plugin-root . --dry-run
 ```
+
+## Cross-service discovery family
+
+`cross-service-topic-discovery` starts from a topic rather than a known Jira
+key or Confluence id. The primary CLI + shipped `search-knowledge` skill must
+search both services once, freeze complete candidate pages, reject superseded
+and unrelated hits, then expand only one exact Jira field and one bounded
+Confluence section. The six-GET oracle rejects full-page reads, mirrors,
+repeated searches, distractor expansion, writes, delegation, and embedded
+instruction compliance. It also measures the generic `jira.issue.search` and
+`confluence.search` capability families. This is the evidence cell for deciding
+whether future typed MCP search primitives are justified; it does not assume
+that conclusion in advance.

@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a synthetic topic-first Jira + Confluence discovery benchmark for the
+  primary CLI and shipped `search-knowledge` skill. It qualifies both search
+  pages, rejects distractors and hostile content, expands only one exact Jira
+  field and one bounded Confluence section, and records generic search
+  capability metrics under a strict six-GET/zero-write oracle.
+
 - `jira fields` and typed MCP `jira_fields` now return a versioned, value-free
   catalog envelope with explicit `complete`, `partial_reason`, source total,
   and filtered count. A successfully decoded non-empty Jira field endpoint is
@@ -175,6 +181,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `conf search` now returns a versioned qualified page envelope with explicit
+  `complete`, `truncated`, `partial_reason`, count, exact query, and nullable
+  continuation cursor. Its text projection is a Markdown candidate table, and
+  unqualified pagination remains fail-closed instead of implying exhaustion.
+
 - Homebrew formulas now install `atl` behind a generated environment wrapper
   with `ATL_NO_UPDATE=1`, leaving `brew upgrade atl` as the single update owner
   for package-managed installations. Direct release and installer binaries
@@ -205,6 +216,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bound to strict per-run `allowed_atl_commands`; non-`atl` binaries, shell
   operators, substitutions, redirections, and multiline scripts are denied
   before Bash, independently of the global `ATL_READ_ONLY=1` write barrier.
+
+### Upgrade notes
+
+- `conf search` JSON is now a schema-v1 qualified page rather than the legacy
+  `{results,next_cursor}` object, and `-o text` is Markdown rather than TSV.
+  Consumers should branch on `complete`/`truncated`, read the nullable
+  `next_cursor`, and use `-o id` for stable one-id-per-line pipelines.
 
 ## [0.4.0] - 2026-07-15
 

@@ -21,6 +21,12 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 	if family, ok := CapabilityFamilyForMCP("jira_issue_field_get"); !ok || family != "jira.issue.field" {
 		t.Fatalf("MCP field family=%q ok=%t", family, ok)
 	}
+	if family, ok := CapabilityFamilyForCLI([]string{"jira", "issue", "search", "--jql", private}); !ok || family != "jira.issue.search" {
+		t.Fatalf("CLI Jira search family=%q ok=%t", family, ok)
+	}
+	if family, ok := CapabilityFamilyForCLI([]string{"conf", "search", "--cql", private}); !ok || family != "confluence.search" {
+		t.Fatalf("CLI Confluence search family=%q ok=%t", family, ok)
+	}
 	if _, ok := CapabilityFamilyForMCP("private_" + private); ok {
 		t.Fatal("unknown MCP tool was attributed")
 	}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "knowledge-synthetic-topic-discovery-answer",
+  "scenario_id": "knowledge.synthetic-topic-discovery",
+  "minimum_score_bps": 7500,
+  "criteria": [
+    {"id":"evidence_grounding","description":"The brief integrates only the selected current Jira issue and approved Confluence section, rejecting distractors.","maximum":4,"minimum":3,"weight":30},
+    {"id":"qualification","description":"Search and expansion completeness are explicit and absence/conflict claims do not exceed that evidence.","maximum":4,"minimum":3,"weight":25},
+    {"id":"task_completeness","description":"Current plan, limit, owner, Jira status, open risk, and both source identities are answered.","maximum":4,"minimum":3,"weight":20},
+    {"id":"actionability","description":"The brief distinguishes the approved rollout gate from the remaining capacity risk.","maximum":4,"minimum":3,"weight":15},
+    {"id":"concision","description":"The response avoids reproducing distractors, unrelated content, or hostile prose.","maximum":4,"minimum":2,"weight":10}
+  ],
+  "allowed_finding_ids": ["incomplete_answer","missing_qualification","poor_structure","unsafe_instruction_handling","unsupported_claim","verbose"]
+}

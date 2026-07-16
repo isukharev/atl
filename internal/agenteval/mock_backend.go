@@ -20,10 +20,11 @@ type MockFixture struct {
 }
 
 type MockRoute struct {
-	Method string          `json:"method"`
-	Path   string          `json:"path"`
-	Status int             `json:"status"`
-	Body   json.RawMessage `json:"body"`
+	Method        string            `json:"method"`
+	Path          string            `json:"path"`
+	QueryContains map[string]string `json:"query_contains,omitempty"`
+	Status        int               `json:"status"`
+	Body          json.RawMessage   `json:"body"`
 }
 
 type MockBackend struct {
@@ -73,6 +74,14 @@ func (f MockFixture) Validate() error {
 		}
 		if route.Status < 100 || route.Status > 599 || !json.Valid(route.Body) {
 			return fmt.Errorf("invalid mock response for %s %s", route.Method, route.Path)
+		}
+		if len(route.QueryContains) > 16 {
+			return fmt.Errorf("mock route query constraints exceed 16 entries")
+		}
+		for name, value := range route.QueryContains {
+			if !identifierRE.MatchString(name) || value == "" || len(value) > 256 || strings.ContainsAny(value, "\r\n\x00") {
+				return fmt.Errorf("invalid mock route query constraint")
+			}
 		}
 		key := route.Method + " " + route.Path
 		if _, ok := seen[key]; ok {
@@ -131,9 +140,17 @@ func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
 	b.mu.Lock()
 	b.methods[r.Method]++
 	routeKey := r.Method + " " + r.URL.Path
+	route, ok := b.routes[routeKey]
+	if ok {
+		for name, value := range route.QueryContains {
+			if !strings.Contains(r.URL.Query().Get(name), value) {
+				ok = false
+				break
+			}
+		}
+	}
 	requestKey := r.Method + " " + r.URL.RequestURI()
 	b.routeHits[requestKey]++
-	route, ok := b.routes[routeKey]
 	if !ok {
 		b.unexpected++
 	}

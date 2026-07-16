@@ -34,20 +34,24 @@ atl jira issue search --jql 'text ~ "billing retry queue" ORDER BY updated DESC'
 
 CQL fallbacks: `text ~ "..."`, then `title ~ "..."`. Scope with `space = KEY`
 or `project = KEY` when known. Retry one prepared variant after an empty result,
-then report the exact searches rather than implying full coverage.
+then report the exact searches rather than implying full coverage. Freeze the
+first useful result pages before expanding anything: require Jira
+`page.complete:true` and Confluence top-level `complete:true`, or continue from
+`next_cursor` / report the partial search instead of claiming absence.
 
 ### 3. Read bounded Confluence evidence
 
-For the 2–4 best page hits, resolve an id/URL, inspect the outline, then read
-only the relevant section. Use a full page only when no heading isolates the
-answer.
+For the 2–4 best page hits, inspect the outline, then read only the relevant
+section. A numeric id emitted by `conf search` is already a stable exact
+reference; pass it directly to `outline`/`section`. Use `resolve` only for a URL,
+short link, or user-supplied reference whose stable id is still unknown. Use a
+full page only when no heading isolates the answer.
 
 <!-- atl:read-only-shell -->
 ```sh
 export ATL_READ_ONLY=1
-atl conf page resolve '<id-or-url>'
-atl conf page outline '<id-or-url>' -o text
-atl conf page section '<id-or-url>' --heading 'Retries' --max-bytes 32768 -o text
+atl conf page outline '<search-result-id>' -o text
+atl conf page section '<search-result-id>' --heading 'Retries' --max-bytes 32768 -o text
 ```
 
 Require `complete:true`. A duplicate heading needs explicit `--occurrence`;

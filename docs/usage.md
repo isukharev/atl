@@ -1005,9 +1005,29 @@ atl auth logout --service confluence
 
 ### `atl conf search`
 
-Search pages by raw CQL or convenience filters. Returns `id`, `title`, `space`,
-`version`, `excerpt`. Pass either `--cql` or at least one convenience filter;
-the two modes cannot be combined.
+Search pages by raw CQL or convenience filters. JSON is a versioned bounded-page
+envelope with the exact `query`, `results`, `count`, `complete`, `truncated`,
+optional `partial_reason`, and nullable `next_cursor`. Each result carries
+`id`, `title`, `space`, `version`, and `excerpt`. Pass either `--cql` or at
+least one convenience filter; the two modes cannot be combined.
+
+`complete:true` is emitted only when qualified backend pagination proves the
+page terminal. If `truncated:true`, continue with `--cursor` when present and
+do not treat missing hits as evidence of absence. `-o text` renders the same
+qualification followed by a Markdown candidate table; `-o id` emits only page
+ids.
+
+```json
+{
+  "schema_version": 1,
+  "query": "space=DOCS and title~\"API\"",
+  "results": [],
+  "count": 0,
+  "complete": true,
+  "truncated": false,
+  "next_cursor": null
+}
+```
 
 ```
 atl conf search --cql "space=DOCS and title~\"API\"" --limit 10
