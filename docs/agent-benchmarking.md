@@ -252,8 +252,13 @@ backend environment is attached to the MCP child and omitted from the provider
 environment. Codex starts the same exact reviewed `atl mcp serve` binary,
 enables only `allowed_mcp_tools`, disables web search, removes atl credentials
 from the model shell environment, and denies shell/file/patch/delegation tools
-through `PreToolUse`. CLI-transport Codex specs remain validate/dry-run only
-because its OS sandbox cannot safely reach the host-side mock. Supported model runs inherit
+through `PreToolUse`. Codex benchmark runs set `project_doc_max_bytes=0` so
+ambient global/repository `AGENTS.md` files cannot change the reviewed task;
+the copied prompt and generated shipped skills remain the explicit instruction
+sources. Synthetic CLI-transport Codex specs remain
+validate/dry-run only because its OS sandbox cannot safely reach the host-side
+mock; private-live Codex CLI specs use the reviewed zero-network command broker
+below. Supported model runs inherit
 `ATL_READ_ONLY=1`, `ATL_NO_UPDATE=1`, and synthetic loopback backend URLs/tokens.
 CLI runs use an `atl` proxy that counts invocations and stdout bytes without retaining
 command arguments; MCP runs count completed typed calls/failures and result bytes
@@ -498,8 +503,10 @@ after the session. The model-facing process has no general native tool capable
 of reading it, and the confined skill readers cannot resolve paths outside the
 generated workspace/public skill roots. CLI runs do not copy source
 credentials at all: the parent reads them, starts the gateway, and writes a
-separate child config containing only loopback URLs and disposable ingress
-capabilities.
+separate child config containing only disposable ingress capabilities. Claude
+Code uses parent-loopback ingress. For Codex, the child config and gateway stay
+parent-side behind a command broker; the model receives neither the upstream
+origin/PAT nor the disposable gateway credential.
 
 `ATL_READ_ONLY=1` blocks mutations at the CLI policy, the MCP inventory contains
 only explicit read tools, and an independent HTTP transport guard rejects every
@@ -571,17 +578,42 @@ budgets are enforced. Any gateway denial or an incomplete forward/completion
 audit pair fails the run.
 
 Claude Code receives only the reviewed `Bash(atl *)`, confined `Read`, and
-shipped `Skill` surfaces and loads no ambient setting sources. Codex runs
-model-generated commands in `workspace-write` with approvals and web search
-disabled; command networking is enabled only together with the built-in
-workspace network permission. The managed network proxy is disabled because
-its isolated loopback cannot reach the parent gateway; instead the hook permits
-only confined readers and syntactically safe `atl` blocks, the shim enforces
-exact argv/counts, and the loopback gateway is the only backend credential and
-route boundary. Its subprocess
-environment excludes source URLs/PATs and ambient proxy variables. The
-provider process itself keeps its normal subscription-authenticated model
-connection; these restrictions apply to commands spawned by the model.
+shipped `Skill` surfaces and loads no ambient setting sources. Codex uses a
+dedicated permission profile extending workspace access without enabling
+command networking. Its filesystem policy grants write access only to an
+owner-only request directory and read access to a separate owner-only response
+directory. The model sandbox cannot reach the disposable loopback gateway,
+source backend, public Internet, or private network directly.
+
+After the hook and exact-argv shim accept a command, the shim writes a bounded,
+authenticated request. The parent-side broker atomically moves that request out
+of the writable directory, independently revalidates the exact argv policy and
+invocation budget, and runs the real `atl` binary with only the disposable
+child config. It returns bounded stdout, stderr, and exit status through the
+read-only response directory. Requests are removed before execution; responses
+and the manifest are removed during delivery or run cleanup. Arguments and
+command output are not retained in benchmark results or gateway audit records.
+Gateway bearer authentication, GET/HEAD and route allowlists, response budgets,
+and privacy-safe audit checks still apply after the provider boundary.
+
+Before the model starts, the runner invokes Codex's sandbox command with the
+same filesystem policy. The probe must fail to connect to a live parent-side
+loopback sentinel and must then complete a broker readiness request. The
+readiness request is handled locally, consumes no invocation budget, and cannot
+cause an upstream request. Unexpected command networking, missing
+permission-profile support, inaccessible broker paths, unsafe file modes, or an
+unavailable broker therefore fail before model or backend access. Codex 0.138.0
+or later is required for custom permission profiles. Every platform must pass
+the same runtime probe; there is no fallback that enables broad command
+networking. Linux and macOS use the same file-broker contract; on macOS the
+Seatbelt-backed profile must pass the loopback-denial and broker-readiness
+probe or the run aborts before the model starts.
+
+The provider process keeps its normal subscription-authenticated model
+connection. The custom network policy applies only to commands spawned by the
+model, whose environment excludes source URLs/PATs and ambient proxy variables.
+Ambient global/repository `AGENTS.md` instructions are disabled for the run;
+only the reviewed prompt and copied shipped skills define the task workflow.
 
 Run `--dry-run` first, inspect the provider plan and local private spec, then
 remove that flag for the single supervised execution. Use the same task,

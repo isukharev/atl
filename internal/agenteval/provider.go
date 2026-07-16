@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -14,6 +15,13 @@ type ProviderCommand struct {
 	Path string   `json:"path"`
 	Args []string `json:"args"`
 }
+
+type ProviderConfinement struct {
+	RequestDirectory  string
+	ResponseDirectory string
+}
+
+const codexAgentEvalPermissionProfile = "atl_agent_eval"
 
 type ProviderMetrics struct {
 	AgentTurns               int
@@ -33,7 +41,7 @@ type ProviderMetrics struct {
 	Coverage                 map[string]bool
 }
 
-func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, workspace, schemaPath, finalPath, pluginRoot, settingsPath, mcpConfigPath string, responseSchema []byte) (ProviderCommand, error) {
+func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, workspace, schemaPath, finalPath, pluginRoot, settingsPath, mcpConfigPath string, confinement ProviderConfinement, responseSchema []byte) (ProviderCommand, error) {
 	if err := spec.Validate(); err != nil {
 		return ProviderCommand{}, err
 	}
@@ -86,16 +94,24 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 		}
 		if spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli" {
 			sandboxMode = "workspace-write"
-			includeOnly = `["PATH","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_EVAL_REAL_BINARY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","NO_PROXY","no_proxy"]`
+			includeOnly = `["PATH","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS"]`
 		}
 		args := []string{
 			"exec", "--json", "--ephemeral", "--strict-config",
 			"--ignore-user-config", "--skip-git-repo-check",
-			"--model", spec.Model, "--sandbox", sandboxMode, "-C", workspace,
-			"--output-schema", schemaPath, "--output-last-message", finalPath,
-			"-c", `shell_environment_policy.inherit="all"`,
-			"-c", `shell_environment_policy.include_only=` + includeOnly,
+			"--model", spec.Model,
 		}
+		privateCLI := spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli"
+		if !privateCLI {
+			args = append(args, "--sandbox", sandboxMode)
+		}
+		args = append(args,
+			"-C", workspace,
+			"--output-schema", schemaPath, "--output-last-message", finalPath,
+			"-c", `project_doc_max_bytes=0`,
+			"-c", `shell_environment_policy.inherit="all"`,
+			"-c", `shell_environment_policy.include_only=`+includeOnly,
+		)
 		if spec.ToolTransport == "mcp" {
 			if atlBinary == "" || guardPath == "" {
 				return ProviderCommand{}, fmt.Errorf("codex mcp transport requires atl and guard executables")
@@ -116,14 +132,17 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 			if guardPath == "" {
 				return ProviderCommand{}, fmt.Errorf("codex private-live cli transport requires a guard executable")
 			}
+			confinementArgs, err := codexConfinementConfigArgs(confinement, true)
+			if err != nil {
+				return ProviderCommand{}, err
+			}
 			args = append(args,
 				"--ignore-rules", "--dangerously-bypass-hook-trust",
 				"-c", `approval_policy="never"`,
 				"-c", `web_search="disabled"`,
-				"-c", `sandbox_workspace_write.network_access=true`,
-				"-c", `features.network_proxy.enabled=false`,
 				"-c", codexDenyNonMCPHook(guardPath),
 			)
+			args = append(args, confinementArgs...)
 		}
 		if spec.Reasoning != "" {
 			args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(spec.Reasoning))
@@ -133,6 +152,43 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 	default:
 		return ProviderCommand{}, fmt.Errorf("unsupported provider %q", spec.Provider)
 	}
+}
+
+func BuildCodexConfinementProbeCommand(agentBinary, workspace, probeExecutable string, confinement ProviderConfinement) (ProviderCommand, error) {
+	if agentBinary == "" || workspace == "" || probeExecutable == "" {
+		return ProviderCommand{}, fmt.Errorf("codex confinement probe requires agent, workspace, and probe executable")
+	}
+	configArgs, err := codexConfinementConfigArgs(confinement, false)
+	if err != nil {
+		return ProviderCommand{}, err
+	}
+	args := []string{"sandbox", "-P", codexAgentEvalPermissionProfile}
+	args = append(args, configArgs...)
+	args = append(args, "-C", workspace, probeExecutable)
+	return ProviderCommand{Path: agentBinary, Args: args}, nil
+}
+
+func codexConfinementConfigArgs(confinement ProviderConfinement, selectAsDefault bool) ([]string, error) {
+	if !validConfinementDirectory(confinement.RequestDirectory) || !validConfinementDirectory(confinement.ResponseDirectory) || confinement.RequestDirectory == confinement.ResponseDirectory {
+		return nil, fmt.Errorf("codex private-live cli confinement has invalid broker directories")
+	}
+	profile := "permissions." + codexAgentEvalPermissionProfile
+	settings := []string{
+		profile + `.extends=":workspace"`,
+		profile + `.filesystem={` + strconv.Quote(confinement.RequestDirectory) + `="write",` + strconv.Quote(confinement.ResponseDirectory) + `="read"}`,
+	}
+	if selectAsDefault {
+		settings = append([]string{`default_permissions="` + codexAgentEvalPermissionProfile + `"`}, settings...)
+	}
+	args := make([]string, 0, len(settings)*2)
+	for _, setting := range settings {
+		args = append(args, "-c", setting)
+	}
+	return args, nil
+}
+
+func validConfinementDirectory(path string) bool {
+	return filepath.IsAbs(path) && filepath.Clean(path) == path && !strings.ContainsRune(path, '\x00')
 }
 
 func quotedStringList(values []string) string {

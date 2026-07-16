@@ -48,12 +48,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added end-to-end private-live CLI+skill evaluation for Claude Code and Codex.
   The parent runner now replaces source backend URLs and PATs with disposable
-  loopback gateway capabilities, keeps policy/audit/config state outside
+  gateway capabilities, keeps policy/audit/config state outside
   model-readable roots, and fails on any hook, shim, route, method, response,
-  or audit denial. Claude loads no ambient setting sources; Codex uses an
-  approval-free workspace sandbox with web search disabled and subprocess
-  networking enabled only for the hook-guarded subprocess path; the exact argv
-  shim and loopback gateway remain the egress boundary.
+  or audit denial. Claude loads no ambient setting sources and uses loopback
+  ingress. Codex now keeps command networking entirely disabled and grants its
+  sandbox write access only to an owner-only request directory. The exact-argv
+  shim submits transient authenticated requests to a parent-side broker, which
+  independently rechecks argv and invocation budgets before running `atl`
+  against the disposable credential gateway. Broker responses live in a
+  separate read-only directory. A pre-model probe verifies that even loopback
+  command networking is blocked and that the broker is ready. Source
+  credentials remain parent-only, while
+  gateway auth, GET/HEAD, route, response-budget, and audit gates remain
+  independently mandatory. Codex benchmark runs also disable ambient
+  `AGENTS.md` discovery so machine-local instructions cannot redirect a
+  reviewed CLI invocation; the explicit prompt and copied shipped skills remain
+  the only task workflow sources.
 
 - Added a schema-validated exact-argument policy for private-live CLI+skill
   benchmarks. Each reviewed command family pins its command path, positional

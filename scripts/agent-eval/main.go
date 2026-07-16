@@ -20,6 +20,9 @@ func main() {
 	if base == "atl-eval-guard" || base == "atl-eval-guard.exe" {
 		os.Exit(runClaudeBashGuard(os.Stdin, os.Stdout, os.Stderr))
 	}
+	if base == "atl-eval-confinement-probe" || base == "atl-eval-confinement-probe.exe" {
+		os.Exit(runCommandBrokerProbe(os.Stderr))
+	}
 	if base == "atl" || base == "atl.exe" {
 		os.Exit(runATLProxy(os.Args[1:]))
 	}
