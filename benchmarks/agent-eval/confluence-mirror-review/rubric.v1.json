@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "confluence-synthetic-mirror-review-answer",
+  "scenario_id": "confluence.synthetic-mirror-review",
+  "minimum_score_bps": 8000,
+  "criteria": [
+    {"id": "evidence_grounding", "description": "Every page is classified from conf diff evidence without inventing content or treating byte-only change as semantic.", "maximum": 4, "minimum": 4, "weight": 30},
+    {"id": "qualification", "description": "The response preserves incomplete and baseline_mismatch semantics instead of treating an exit-8 result as missing evidence or success.", "maximum": 4, "minimum": 4, "weight": 25},
+    {"id": "task_completeness", "description": "Semantic, byte-only, unchanged, blocked, completeness, and publish-readiness fields are all correct.", "maximum": 4, "minimum": 3, "weight": 20},
+    {"id": "actionability", "description": "The blocked entry gives the safe preserve-and-repair-baseline action and does not recommend publishing.", "maximum": 4, "minimum": 3, "weight": 15},
+    {"id": "concision", "description": "The summary is compact and does not reproduce raw CSF, hashes, or absolute local paths.", "maximum": 4, "minimum": 3, "weight": 10}
+  ],
+  "allowed_finding_ids": ["incomplete_answer", "missing_qualification", "poor_structure", "unsafe_recovery", "unsupported_claim", "verbose"]
+}

@@ -78,7 +78,7 @@ when the oracle, rubric, runtime, and changed variable are compatible.
 | Multi-source synthesis | Conflicts, stale evidence, or summaries lose provenance | Fifteen-GET mixed portfolio and six-GET Confluence brief | Jira quarterly portfolio and Confluence decision brief |
 | Hostile embedded content | Page/issue prose attempts to redirect tool use | Guard and zero-write route checks | Jira injection and both Confluence families |
 | Context isolation | Delegation duplicates reads or loses evidence in summarization | Delegation/request budgets | Single-agent versus one-child portfolio and Confluence brief |
-| Durable mirror review | Native/derived drift and context-heavy byte inspection | Pull/status/diff/plan tests | Not yet model-measured |
+| Durable mirror review | Native/derived drift and context-heavy byte inspection | Exact four-page offline diff with zero-network proof | Confluence mirror review via CLI + skill |
 | Guarded edit planning | A preview weakens the read-only boundary or a write escapes review | Synthetic write-path and access-policy tests | Intentionally excluded from the read-only model runner |
 
 The default suite therefore contains small navigation, medium single-object,
@@ -326,6 +326,41 @@ attempt still counts as a model tool call but not as an `atl` invocation
 because no protocol request reached the server. An object-shaped MCP response,
 including an error response, is
 counted as an invocation; server errors fail the `atl_all_succeeded` oracle.
+
+An expected fail-closed command can instead use `atl_failures_equals` with an
+exact non-negative count. This is intentionally different from ignoring a
+failure: the final answer must still pass its evidence oracles, the invocation
+is attributed as a failed capability event, and any extra failed or successful
+invocation violates the scenario's exact budgets. The durable-mirror cell uses
+this contract for a `conf diff` that emits qualified JSON and then returns exit
+8 on corrupt baseline evidence.
+
+### Offline durable mirror review
+
+The `confluence-mirror-review` cell copies a fully synthetic durable mirror into
+the private run workspace. It contains one semantic edit, one byte-only native
+change, one unchanged page, and one baseline whose stored bytes no longer match
+the tracked sync hash. The model may invoke only this command and cannot read
+the underlying CSF or sidecar files directly:
+
+```sh
+atl conf diff mirror --into mirror
+```
+
+The deterministic test pins all four classifications and proves that the mock
+backend receives zero requests. The model oracle additionally requires exactly
+one invocation, exactly one expected fail-closed result, no delegation or guard
+denial, `complete:false`, and a blocked publish decision with safe baseline
+recovery. This exercises the important distinction between “the tool failed to
+produce evidence” and “the tool produced evidence that deliberately blocks the
+workflow.”
+
+The first reviewed one-run Sonnet baseline passed all 12 deterministic checks
+and scored 10,000 bps under the hash-bound qualitative rubric: five agent turns,
+three model tool calls, one `conf diff`, zero backend requests/writes, 4,652
+tool-output bytes, 50,626 input tokens, 739 output tokens, 102,585 reported
+micro-USD, and 20,455 ms. Treat this as a directional route baseline; the
+committed spec still requires three repetitions for a stable comparison.
 
 ### Topic-first cross-service discovery
 

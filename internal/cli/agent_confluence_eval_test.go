@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/isukharev/atl/internal/agenteval"
+	"github.com/isukharev/atl/internal/app"
 )
 
 func startAgentEvalFixture(t *testing.T, scenario string) *agenteval.MockBackend {
@@ -27,6 +29,51 @@ func startAgentEvalFixture(t *testing.T, scenario string) *agenteval.MockBackend
 	}
 	t.Cleanup(backend.Close)
 	return backend
+}
+
+func TestSyntheticConfluenceMirrorReviewIsExactAndOffline(t *testing.T) {
+	backend := startAgentEvalFixture(t, "confluence-mirror-review")
+	source := filepath.Join("..", "..", "benchmarks", "agent-eval", "confluence-mirror-review", "workspace", "mirror")
+	root := filepath.Join(t.TempDir(), "mirror")
+	if err := os.CopyFS(root, os.DirFS(source)); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := runCLI(t, backend.Environment(), "--read-only", "conf", "diff", root, "--into", root)
+	if code != exitCheckFailed {
+		t.Fatalf("exit=%d output=%s", code, out)
+	}
+	var result app.ConfluenceDiffResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Complete || result.Summary.Total != 4 || result.Summary.Modified != 2 || result.Summary.Unchanged != 1 || result.Summary.BaselineMismatch != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	want := map[string]struct {
+		state    string
+		semantic bool
+		byteOnly bool
+	}{
+		"Baseline drift":    {state: "baseline_mismatch"},
+		"Policy formatting": {state: "modified", byteOnly: true},
+		"Rollout plan":      {state: "modified", semantic: true},
+		"Stable runbook":    {state: "unchanged"},
+	}
+	for _, page := range result.Pages {
+		expected, ok := want[page.Title]
+		if !ok || page.State != expected.state || page.SemanticChanged != expected.semantic || page.ByteOnly != expected.byteOnly {
+			t.Fatalf("unexpected page classification: %+v", page)
+		}
+		delete(want, page.Title)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing page classifications: %+v", want)
+	}
+	methods, unexpected, duplicates := backend.Summary()
+	if len(methods) != 0 || unexpected != 0 || duplicates != 0 {
+		t.Fatalf("offline diff made backend requests: methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+	}
 }
 
 func TestSyntheticConfluencePageEvidenceRouteIsBoundedAndSelectsApprovedOccurrence(t *testing.T) {

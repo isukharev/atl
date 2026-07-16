@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/wiki/unused",
+      "status": 200,
+      "body": {"unused": true}
+    }
+  ]
+}

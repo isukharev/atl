@@ -232,6 +232,12 @@ without a network call, then review `removed_fragments` and `remote_drifted` in
 push dry-run and push the exact bytes reviewed.
 Treat `baseline_mismatch` as corrupted sync evidence: preserve the candidate
 and reconcile/re-pull before planning or pushing.
+For a directory review, classify each JSON entry explicitly: `modified` with
+`semantic_changed:true` needs content review, `modified` with `byte_only:true`
+is a native-byte change without a rendered semantic delta, and `unchanged`
+needs no action. `conf diff` may emit this useful evidence and still exit 8 when
+any entry is `baseline_mismatch`; do not retry or discard the JSON, and do not
+publish until that baseline is repaired.
 
 For multiple edited pages, freeze scope instead of directory-pushing directly:
 

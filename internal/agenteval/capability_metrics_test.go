@@ -30,6 +30,9 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 	if family, ok := CapabilityFamilyForMCP("confluence_search"); !ok || family != "confluence.search" {
 		t.Fatalf("MCP Confluence search family=%q ok=%t", family, ok)
 	}
+	if family, ok := CapabilityFamilyForCLI([]string{"conf", "diff", private, "--into", "mirror"}); !ok || family != "confluence.diff" {
+		t.Fatalf("CLI Confluence diff family=%q ok=%t", family, ok)
+	}
 	if _, ok := CapabilityFamilyForMCP("private_" + private); ok {
 		t.Fatal("unknown MCP tool was attributed")
 	}

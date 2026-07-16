@@ -235,6 +235,14 @@ six-GET bounded-section route, structured oracle, and qualitative rubric. The
 child variant exists to measure parent-context protection, not to assume that
 delegation is faster.
 
+`confluence-mirror-review` is the offline durable-state cell. Its synthetic
+mirror contains a semantic edit, a byte-only edit, an unchanged page, and
+corrupt baseline evidence. The model can run only one `conf diff` and cannot
+read raw mirror files. The expected exit-8 result is not waived:
+`atl_failures_equals` requires exactly one failed invocation while answer
+oracles require all four classifications and a blocked publish decision. Any
+retry, backend request, write, delegation, or guard denial fails the run.
+
 Validate or preview the new cells without invoking a model:
 
 ```sh
@@ -251,7 +259,18 @@ make agent-eval-contract
   --output-root "$ATL_AGENT_EVAL_OUTPUT" --repository-root . \
   --agent-binary "$(command -v claude)" --atl-binary "$PWD/atl" \
   --plugin-root . --dry-run
+
+/tmp/agent-eval run \
+  --spec benchmarks/agent-eval/confluence-mirror-review/run.cli.claude.json \
+  --output-root "$ATL_AGENT_EVAL_OUTPUT" --repository-root . \
+  --agent-binary "$(command -v claude)" --atl-binary "$PWD/atl" \
+  --plugin-root . --repetitions 1
 ```
+
+The first reviewed Sonnet mirror run passed every deterministic check and the
+qualitative rubric at 10,000 bps with one `conf diff`, zero backend requests,
+and zero writes. It is a directional route baseline; use the committed
+three-repetition spec before drawing performance conclusions.
 
 ## Cross-service discovery family
 

@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added an offline durable Confluence mirror-review benchmark covering semantic,
+  byte-only, unchanged, and baseline-mismatch states. Its deterministic route
+  proves zero backend requests, while the model runner requires one exact
+  `conf diff`, one expected fail-closed result, a blocked publish decision, and
+  safe baseline recovery. Agent-eval capability metrics now attribute the
+  privacy-safe `confluence.diff` family, and run specs can assert an exact
+  failed-ATL invocation count without weakening other safety or answer oracles.
+
 - Added typed MCP `confluence_search` for explicit bounded CQL discovery with
   the same qualified schema-v1 completeness contract as `conf search`. The
   paired topic-first benchmark passes the existing cross-service oracle with
