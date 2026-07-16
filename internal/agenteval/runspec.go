@@ -122,9 +122,6 @@ func (s RunSpec) Validate() error {
 	if transport != "cli" && transport != "mcp" {
 		return fmt.Errorf("tool_transport must be cli or mcp")
 	}
-	if transport == "mcp" && s.Provider != "codex" {
-		return fmt.Errorf("mcp tool_transport is currently supported only for codex")
-	}
 	if transport == "cli" && (len(s.AllowedTools) == 0 || len(s.AllowedTools) > 32) {
 		return fmt.Errorf("allowed_tools must contain 1..32 entries for cli transport")
 	}

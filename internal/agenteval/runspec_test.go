@@ -49,6 +49,13 @@ func TestRunSpecSeparatesCLIAndMCPAllowlists(t *testing.T) {
 	if err := mcpSpec.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	claudeSpec := mcpSpec
+	claudeSpec.Provider = "claude-code"
+	claudeSpec.Model = "claude-test-1"
+	claudeSpec.Pricing = Pricing{}
+	if err := claudeSpec.Validate(); err != nil {
+		t.Fatalf("Claude MCP run spec: %v", err)
+	}
 	for name, mutate := range map[string]func(*RunSpec){
 		"shell_tools":   func(spec *RunSpec) { spec.AllowedTools = []string{"Bash"} },
 		"cli_commands":  func(spec *RunSpec) { spec.AllowedATLCommands = []string{"atl jira fields"} },

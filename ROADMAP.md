@@ -32,7 +32,10 @@ Recent beta work established the contracts the next wave builds on:
   executable CLI contract;
 - a typed remote-read-only MCP stdio server with seven bounded evidence tools,
   stable error classes, plugin distribution, and a synthetic Codex route that
-  proves the same fifteen-GET quarterly portfolio result with zero writes.
+  proves the same fifteen-GET quarterly portfolio result with zero writes;
+- a same-runtime Claude Code CLI/MCP portfolio comparison whose three-run MCP
+  median preserves correctness and backend traffic while materially reducing
+  turns, context, cost, and duration.
 
 ## Now
 

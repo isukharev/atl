@@ -1,13 +1,14 @@
 package agenteval
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
 
 func TestBuildProviderCommandsAreEphemeralAndReadOnly(t *testing.T) {
 	spec := validRunSpec()
-	codex, err := BuildProviderCommand(spec, "codex", "/atl", "/guard", "/workspace", "/schema", "/final", "", "", []byte(`{"type":"object"}`))
+	codex, err := BuildProviderCommand(spec, "codex", "/atl", "/guard", "/workspace", "/schema", "/final", "", "", "", []byte(`{"type":"object"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +20,7 @@ func TestBuildProviderCommandsAreEphemeralAndReadOnly(t *testing.T) {
 	}
 	spec.Provider = "claude-code"
 	spec.Pricing = Pricing{}
-	claude, err := BuildProviderCommand(spec, "claude", "/atl", "/guard", "/workspace", "/schema", "/final", "/plugin", "/settings", []byte(`{"type":"object"}`))
+	claude, err := BuildProviderCommand(spec, "claude", "/atl", "/guard", "/workspace", "/schema", "/final", "/plugin", "/settings", "", []byte(`{"type":"object"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +38,7 @@ func TestBuildCodexMCPCommandIsCredentialIsolatedAndHookGuarded(t *testing.T) {
 	spec.AllowedTools = nil
 	spec.AllowedATLCommands = nil
 	spec.AllowedMCPTools = []string{"jira_fields", "jira_epic_digest", "confluence_page_section"}
-	command, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", []byte(`{"type":"object"}`))
+	command, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", []byte(`{"type":"object"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,16 +61,54 @@ func TestBuildCodexMCPCommandIsCredentialIsolatedAndHookGuarded(t *testing.T) {
 	}
 }
 
+func TestBuildClaudeMCPCommandDisablesBuiltinsAndUsesQualifiedAllowlist(t *testing.T) {
+	spec := validRunSpec()
+	spec.Provider = "claude-code"
+	spec.Pricing = Pricing{}
+	spec.ToolTransport = "mcp"
+	spec.AllowedTools = nil
+	spec.AllowedATLCommands = nil
+	spec.AllowedMCPTools = []string{"jira_fields", "jira_epic_digest"}
+	command, err := BuildProviderCommand(spec, "claude", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "/plugin", "/settings", "/mcp.json", []byte(`{"type":"object"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(command.Args, " ")
+	for _, value := range []string{"--mcp-config /mcp.json", "--plugin-dir /plugin", "--settings /settings"} {
+		if !strings.Contains(joined, value) {
+			t.Errorf("Claude MCP command misses %q: %s", value, joined)
+		}
+	}
+	if !slices.Contains(command.Args, "--strict-mcp-config") {
+		t.Errorf("Claude MCP command is not strict: %s", joined)
+	}
+	tools, toolsOK := providerArgument(command.Args, "--tools")
+	allowed, allowedOK := providerArgument(command.Args, "--allowed-tools")
+	if !toolsOK || tools != "" || !allowedOK || allowed != "mcp__atl__jira_fields,mcp__atl__jira_epic_digest" {
+		t.Errorf("Claude MCP tool boundary tools=%q allowed=%q: %s", tools, allowed, joined)
+	}
+}
+
+func providerArgument(args []string, name string) (string, bool) {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == name {
+			return args[i+1], true
+		}
+	}
+	return "", false
+}
+
 func TestParseProviderOutputs(t *testing.T) {
 	claude := strings.Join([]string{
-		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent"}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"agent-1","name":"Agent"},{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}`,
+		`{"type":"user","tool_use_result":{"content":[{"type":"text","text":"synthetic"}]},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","is_error":false,"content":"{\"x\":1}"}]}}`,
 		`{"type":"result","num_turns":2,"duration_ms":123,"total_cost_usd":0.25,"usage":{"input_tokens":100,"cache_read_input_tokens":20,"output_tokens":30},"modelUsage":{"parent":{"inputTokens":5,"cacheReadInputTokens":40,"cacheCreationInputTokens":10,"outputTokens":7},"child":{"inputTokens":3,"cacheReadInputTokens":20,"cacheCreationInputTokens":2,"outputTokens":11}},"structured_output":{"answer":"ok"}}`,
 	}, "\n")
 	metrics, final, err := ParseProviderOutput("claude-code", []byte(claude), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.AgentTurns != 2 || metrics.ToolCalls != 1 || metrics.Delegations != 1 || !metrics.Coverage["delegations"] || metrics.MainThreadInputTokens != 120 || metrics.MainThreadOutputTokens != 30 || metrics.InputTokens != 80 || metrics.OutputTokens != 18 || metrics.EstimatedCostMicroUSD != 250_000 || string(final) != `{"answer":"ok"}` {
+	if metrics.AgentTurns != 2 || metrics.ToolCalls != 2 || metrics.Delegations != 1 || metrics.MCPToolCalls != 1 || metrics.FailedMCPToolCalls != 0 || metrics.MCPToolOutputBytes != 7 || !metrics.Coverage["delegations"] || metrics.MainThreadInputTokens != 120 || metrics.MainThreadOutputTokens != 30 || metrics.InputTokens != 80 || metrics.OutputTokens != 18 || metrics.EstimatedCostMicroUSD != 250_000 || string(final) != `{"answer":"ok"}` {
 		t.Fatalf("metrics=%+v final=%s", metrics, final)
 	}
 	codex := strings.Join([]string{
@@ -84,5 +123,33 @@ func TestParseProviderOutputs(t *testing.T) {
 	}
 	if metrics.AgentTurns != 1 || metrics.ToolCalls != 2 || metrics.MCPToolCalls != 1 || metrics.MCPToolOutputBytes == 0 || metrics.InputTokens != 100 || metrics.MainThreadInputTokens != 100 || metrics.OutputTokens != 30 || metrics.MainThreadOutputTokens != 30 || string(final) != `{"answer":"ok"}` {
 		t.Fatalf("metrics=%+v final=%s", metrics, final)
+	}
+}
+
+func TestClaudeClientSideMissingToolIsNotCountedAsATLInvocation(t *testing.T) {
+	transcript := strings.Join([]string{
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}`,
+		`{"type":"user","tool_use_result":"Error: No such tool available: mcp__atl__jira_fields","message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","is_error":true,"content":"synthetic client error"}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-2","name":"mcp__atl__jira_fields"}]}}`,
+		`{"type":"user","tool_use_result":{"isError":true},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-2","is_error":true,"content":"server error"}]}}`,
+		`{"type":"result","num_turns":1,"duration_ms":1,"total_cost_usd":0,"usage":{"input_tokens":1,"output_tokens":1},"structured_output":{"answer":"ok"}}`,
+	}, "\n")
+	metrics, _, err := ParseProviderOutput("claude-code", []byte(transcript), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.ToolCalls != 2 || metrics.MCPToolCalls != 1 || metrics.FailedMCPToolCalls != 1 || metrics.MCPToolOutputBytes != int64(len("server error")) {
+		t.Fatalf("metrics=%+v", metrics)
+	}
+}
+
+func TestClaudeUnknownMCPResultShapeFailsClosed(t *testing.T) {
+	transcript := strings.Join([]string{
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}`,
+		`{"type":"user","tool_use_result":"unexpected provider value","message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","content":"synthetic"}]}}`,
+		`{"type":"result","structured_output":{"answer":"ok"}}`,
+	}, "\n")
+	if _, _, err := ParseProviderOutput("claude-code", []byte(transcript), nil); err == nil || !strings.Contains(err.Error(), "unsupported client-side shape") {
+		t.Fatalf("err=%v", err)
 	}
 }

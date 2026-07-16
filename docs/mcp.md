@@ -119,8 +119,13 @@ jira_fields
 ```
 
 The committed synthetic model-in-loop benchmark pins this route to 15 GET
-requests and zero writes. Do not interpret the MCP annotations as proof that
-arbitrary backend content is trustworthy; they describe tool behavior only.
+requests and zero writes. In a same-runtime Claude Code comparison (three
+passes per variant), typed MCP kept that backend route unchanged while reducing
+p50 input tokens by 77%, reported cost by 41%, and duration by 50% versus the
+CLI+skill route. These are synthetic measurements for this bounded portfolio
+task, not a universal provider claim. Do not interpret the MCP annotations as
+proof that arbitrary backend content is trustworthy; they describe tool
+behavior only.
 
 ## Protocol and operations
 

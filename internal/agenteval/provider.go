@@ -31,7 +31,7 @@ type ProviderMetrics struct {
 	Coverage               map[string]bool
 }
 
-func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, workspace, schemaPath, finalPath, pluginRoot, settingsPath string, responseSchema []byte) (ProviderCommand, error) {
+func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, workspace, schemaPath, finalPath, pluginRoot, settingsPath, mcpConfigPath string, responseSchema []byte) (ProviderCommand, error) {
 	if err := spec.Validate(); err != nil {
 		return ProviderCommand{}, err
 	}
@@ -40,15 +40,27 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 		if !json.Valid(responseSchema) {
 			return ProviderCommand{}, fmt.Errorf("response schema is not valid JSON")
 		}
+		toolNames := claudeToolNames(spec.AllowedTools)
+		allowedTools := spec.AllowedTools
+		if spec.ToolTransport == "mcp" {
+			if atlBinary == "" || guardPath == "" || mcpConfigPath == "" {
+				return ProviderCommand{}, fmt.Errorf("claude mcp transport requires atl, guard, and MCP config paths")
+			}
+			toolNames = nil
+			allowedTools = claudeMCPToolNames(spec.AllowedMCPTools)
+		}
 		args := []string{
 			"-p", "--output-format", "stream-json", "--verbose",
 			"--no-session-persistence", "--model", spec.Model,
 			"--max-budget-usd", formatMicroUSD(spec.MaxEstimatedCostMicroUSD),
 			"--permission-mode", "dontAsk", "--strict-mcp-config", "--no-chrome",
 			"--setting-sources", "project",
-			"--tools", strings.Join(claudeToolNames(spec.AllowedTools), ","),
-			"--allowed-tools", strings.Join(spec.AllowedTools, ","),
+			"--tools", strings.Join(toolNames, ","),
+			"--allowed-tools", strings.Join(allowedTools, ","),
 			"--json-schema", string(responseSchema),
+		}
+		if spec.ToolTransport == "mcp" {
+			args = append(args, "--mcp-config", mcpConfigPath)
 		}
 		if spec.Reasoning != "" {
 			args = append(args, "--effort", spec.Reasoning)
@@ -107,6 +119,14 @@ func quotedStringList(values []string) string {
 	return "[" + strings.Join(quoted, ",") + "]"
 }
 
+func claudeMCPToolNames(values []string) []string {
+	qualified := make([]string, len(values))
+	for i, value := range values {
+		qualified[i] = "mcp__atl__" + value
+	}
+	return qualified
+}
+
 func codexDenyNonMCPHook(guardPath string) string {
 	return `hooks.PreToolUse=[{matcher="^(Bash|apply_patch|Edit|Write|Read|Agent)$",hooks=[{type="command",command=` + strconv.Quote(guardPath) + `,timeout=5}]}]`
 }
@@ -149,6 +169,7 @@ func ParseProviderOutput(provider string, transcript, finalFile []byte) (Provide
 
 func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
 	metrics := ProviderMetrics{Coverage: map[string]bool{}}
+	mcpToolUseIDs := map[string]struct{}{}
 	var final []byte
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 64<<10), 4<<20)
@@ -158,11 +179,23 @@ func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
 			return ProviderMetrics{}, nil, fmt.Errorf("decode Claude event: %w", err)
 		}
 		if event["type"] == "assistant" {
-			toolCalls, delegations := countClaudeToolCalls(event)
+			toolCalls, delegations, mcpIDs := countClaudeToolCalls(event)
 			metrics.ToolCalls += toolCalls
 			metrics.Delegations += delegations
+			for _, id := range mcpIDs {
+				mcpToolUseIDs[id] = struct{}{}
+			}
 			metrics.Coverage["tool_calls"] = true
 			metrics.Coverage["delegations"] = true
+		}
+		if event["type"] == "user" {
+			calls, failed, outputBytes, err := countClaudeMCPResults(event, mcpToolUseIDs)
+			if err != nil {
+				return ProviderMetrics{}, nil, err
+			}
+			metrics.MCPToolCalls += calls
+			metrics.FailedMCPToolCalls += failed
+			metrics.MCPToolOutputBytes += outputBytes
 		}
 		if event["type"] != "result" {
 			continue
@@ -294,10 +327,11 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 	return metrics, nil
 }
 
-func countClaudeToolCalls(event map[string]any) (int, int) {
+func countClaudeToolCalls(event map[string]any) (int, int, []string) {
 	message, _ := event["message"].(map[string]any)
 	content, _ := message["content"].([]any)
 	var count, delegations int
+	var mcpIDs []string
 	for _, value := range content {
 		block, _ := value.(map[string]any)
 		if block["type"] == "tool_use" {
@@ -306,9 +340,61 @@ func countClaudeToolCalls(event map[string]any) (int, int) {
 			if name == "Agent" || name == "Task" {
 				delegations++
 			}
+			if strings.HasPrefix(name, "mcp__atl__") {
+				if id, _ := block["id"].(string); id != "" {
+					mcpIDs = append(mcpIDs, id)
+				}
+			}
 		}
 	}
-	return count, delegations
+	return count, delegations, mcpIDs
+}
+
+func countClaudeMCPResults(event map[string]any, mcpToolUseIDs map[string]struct{}) (int, int, int64, error) {
+	message, _ := event["message"].(map[string]any)
+	content, _ := message["content"].([]any)
+	var calls int
+	var failed int
+	var outputBytes int64
+	for _, value := range content {
+		block, _ := value.(map[string]any)
+		if block["type"] != "tool_result" {
+			continue
+		}
+		id, _ := block["tool_use_id"].(string)
+		if _, ok := mcpToolUseIDs[id]; !ok {
+			continue
+		}
+		// Claude emits this exact string class when its client cannot resolve a
+		// requested tool while an MCP server is still starting. The attempt is
+		// already a model tool call, but it never reached atl. Actual MCP
+		// responses, including server errors, carry an object here. Unknown
+		// shapes fail closed so a provider change cannot silently undercount.
+		switch result := event["tool_use_result"].(type) {
+		case map[string]any:
+		case string:
+			if strings.HasPrefix(result, "Error: No such tool available:") {
+				continue
+			}
+			return 0, 0, 0, fmt.Errorf("claude MCP result has an unsupported client-side shape")
+		default:
+			return 0, 0, 0, fmt.Errorf("claude MCP result is missing its provider envelope")
+		}
+		calls++
+		if isError, _ := block["is_error"].(bool); isError {
+			failed++
+		}
+		switch result := block["content"].(type) {
+		case string:
+			outputBytes += int64(len(result))
+		case nil:
+		default:
+			if encoded, err := json.Marshal(result); err == nil {
+				outputBytes += int64(len(encoded))
+			}
+		}
+	}
+	return calls, failed, outputBytes, nil
 }
 
 func jsonInt64(value any) (int64, bool) {
