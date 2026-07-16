@@ -119,9 +119,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 				"-c", `approval_policy="never"`,
 				"-c", `web_search="disabled"`,
 				"-c", `sandbox_workspace_write.network_access=true`,
-				"-c", `features.network_proxy.enabled=true`,
-				"-c", `features.network_proxy.domains={"127.0.0.1"="allow"}`,
-				"-c", `features.network_proxy.allow_upstream_proxy=false`,
+				"-c", `features.network_proxy.enabled=false`,
 				"-c", codexDenyNonMCPHook(guardPath),
 			)
 		}

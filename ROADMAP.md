@@ -47,6 +47,10 @@ Recent beta work established the contracts the next wave builds on:
   disposable loopback gateway capabilities under exact argv, route, response,
   and provider-sandbox budgets; only reviewed aggregates cross the
   private/public boundary.
+- a fail-closed private pair preflight and supervised comparison procedure that
+  hold task/oracle/model inputs constant across CLI and MCP, retain raw answers
+  locally, and compare deterministic, qualitative, context, request, byte,
+  latency, duplicate, and denial evidence without publishing private identity.
 - explicit package-update ownership: Homebrew launchers delegate exclusively to
   `brew upgrade atl`, while a consolidated egress contract separates read-only,
   update-disable, backend traffic, and externally enforced air-gap controls.

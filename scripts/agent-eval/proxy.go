@@ -78,7 +78,7 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 		return writeGuardDecision(output, errorOutput, decision, reason)
 	}
 	if guardMode == "private-cli" {
-		reason = "private-live CLI allows only confined reads and one reviewed atl invocation"
+		reason = "private-live CLI allows only confined skill reads and reviewed atl invocations"
 		switch hook.ToolName {
 		case "Read":
 			allowed, err := allowedReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
@@ -91,7 +91,10 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 				reason = "read target is within a reviewed benchmark root"
 			}
 		case "Bash":
-			if safePrivateCLICommandShape(hook.ToolInput.Command) {
+			if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS")) {
+				decision = "allow"
+				reason = "command contains only confined skill-reader invocations"
+			} else if safePrivateCLICommandShape(hook.ToolInput.Command) {
 				decision = "allow"
 				reason = "command shape delegates exact argument enforcement to the atl evaluation shim"
 			}
@@ -142,9 +145,10 @@ var sedLineRangeRE = regexp.MustCompile(`^(\d+)(?:,(\d+))?p$`)
 
 func allowedSkillReadCommand(command, rawRoots string) bool {
 	command = strings.TrimSpace(command)
-	if command == "" || strings.ContainsAny(command, "\r\n|`><$()") {
+	if command == "" || strings.ContainsAny(command, "\r|`><$()") {
 		return false
 	}
+	command = strings.ReplaceAll(command, "\n", ";")
 	parts := strings.Split(strings.ReplaceAll(command, "&&", ";"), ";")
 	if len(parts) > 8 {
 		return false
@@ -416,18 +420,29 @@ func allowedGuardCommand(command string, prefixes []string) bool {
 
 func safePrivateCLICommandShape(command string) bool {
 	command = strings.TrimSpace(command)
-	if command == "command -v atl" {
-		return true
+	if command == "" || strings.Contains(command, "\r") {
+		return false
 	}
 	if strings.HasPrefix(command, "export ATL_READ_ONLY=1;") {
 		command = strings.TrimSpace(strings.TrimPrefix(command, "export ATL_READ_ONLY=1;"))
 	} else if strings.HasPrefix(command, "ATL_READ_ONLY=1 ") {
 		command = strings.TrimSpace(strings.TrimPrefix(command, "ATL_READ_ONLY=1 "))
 	}
-	if !strings.HasPrefix(command, "atl ") {
+	lines := strings.Split(command, "\n")
+	if len(lines) == 0 || len(lines) > 16 {
 		return false
 	}
-	return !strings.ContainsAny(command, "\r\n\x00;&|`><$(){}[]*?!~#")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		switch {
+		case line == "export ATL_READ_ONLY=1":
+		case line == "command -v atl":
+		case strings.HasPrefix(line, "atl ") && !strings.ContainsAny(line, "\x00;&|`><$(){}[]*?!~#"):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func runATLProxy(args []string) int {

@@ -538,8 +538,10 @@ Flag order may vary, but unknown, repeated, missing-required, joined
 `--flag=value`, changed-target, extra-positional, and shell-separator forms are
 rejected. A single leading global `--read-only` is accepted because it can only
 strengthen the already mandatory process policy; no other global flag is
-implicit. The hook admits only a single safe `atl ...` command shape or a read
-inside the generated workspace/public skill roots. The shim then loads an
+implicit. The hook admits path-confined `cat`/`sed`/`wc` skill reads and a small
+newline-only block containing `export ATL_READ_ONLY=1`, `command -v atl`, and
+safe `atl ...` command shapes. Shell operators, substitution, redirection, and
+arbitrary commands remain denied. The shim then loads an
 owner-only policy file outside those roots and matches the actual argv before
 starting the real binary. It reserves the command-family budget before the
 process starts, so concurrent or failed invocations cannot exceed the reviewed
@@ -556,7 +558,11 @@ Claude Code receives only the reviewed `Bash(atl *)`, confined `Read`, and
 shipped `Skill` surfaces and loads no ambient setting sources. Codex runs
 model-generated commands in `workspace-write` with approvals and web search
 disabled; command networking is enabled only together with the built-in
-network proxy and an exact `127.0.0.1` destination rule. Its subprocess
+workspace network permission. The managed network proxy is disabled because
+its isolated loopback cannot reach the parent gateway; instead the hook permits
+only confined readers and syntactically safe `atl` blocks, the shim enforces
+exact argv/counts, and the loopback gateway is the only backend credential and
+route boundary. Its subprocess
 environment excludes source URLs/PATs and ambient proxy variables. The
 provider process itself keeps its normal subscription-authenticated model
 connection; these restrictions apply to commands spawned by the model.
@@ -564,6 +570,73 @@ connection; these restrictions apply to commands spawned by the model.
 Run `--dry-run` first, inspect the provider plan and local private spec, then
 remove that flag for the single supervised execution. Use the same task,
 response schema, rubric, and evidence scope for a paired typed-MCP run.
+
+### Paired CLI and MCP comparison
+
+A transport comparison is valid only when the task and evaluation contract are
+identical. Keep both specs in one private case directory and use a
+transport-neutral prompt: say “use the available atl interface”, not “call this
+MCP tool” or “run this shell command”. Variants should identify only the
+surface, for example `cli-skill` and `typed-mcp`.
+
+Preflight the pair before either model invocation:
+
+```sh
+/tmp/agent-eval validate-pair \
+  "$ATL_PRIVATE_EVAL_CASE/run.cli.codex.json" \
+  "$ATL_PRIVATE_EVAL_CASE/run.mcp.codex.json"
+```
+
+The validator requires one private CLI and one private MCP spec from the same
+directory. Provider, model, reasoning, scenario, prompt bytes, response schema,
+rubric, workspace, run checks, repetitions, timeout, pricing and cost cap must
+match. It intentionally ignores transport-specific tool, command, route and
+gateway policies. Success reports only the provider and generic `cli`/`mcp`
+transports, not the private scenario identity.
+
+Then dry-run both, inspect both plans, and perform exactly one supervised run
+of each with the same built atl/plugin commit:
+
+```sh
+for spec in run.cli.codex.json run.mcp.codex.json; do
+  /tmp/agent-eval run \
+    --spec "$ATL_PRIVATE_EVAL_CASE/$spec" \
+    --output-root /tmp/atl-private-live-runs \
+    --repository-root . \
+    --agent-binary "$(command -v codex)" \
+    --atl-binary "$PWD/atl" \
+    --plugin-root . \
+    --live-config-dir "$HOME/.config/atl-private" \
+    --dry-run
+done
+```
+
+Remove `--dry-run` only after both previews and source config permissions pass.
+Do not run transports concurrently: sequential execution keeps backend load
+bounded and makes duplicate/request comparisons interpretable. Abort on a
+hook/gateway denial, a non-GET/HEAD observation, or an incomplete audit. A
+failed deterministic oracle, shim denial, or declared budget violation makes
+the pair non-passing, but the other pre-approved transport may still run once
+to localize the regression; never relax either side after seeing a result.
+
+For every result with a valid structured final answer, create a review template
+from the same rubric and use
+the same human or separately prompted model reviewer identity. The reviewer
+receives the private final answer as untrusted data and no tools. Compare:
+
+- deterministic status and every required check;
+- qualitative score and finding classes;
+- source completeness/warnings in the structured answer;
+- agent turns, tool/atl calls and denials;
+- total and main-thread input/output tokens plus estimated cost;
+- backend GET/HEAD requests, duplicates and returned/output bytes;
+- duration under the same provider/model/reasoning/runtime identity.
+
+Raw transcripts, answers, review rationales, route labels and per-run files stay
+private. A public result may state only generic task class, exact public runtime
+versions/commit, transport names and privacy-reviewed aggregate numbers. One
+supervised live pair is compatibility evidence, not a statistically stable
+model-quality benchmark; use repeated synthetic cells for that purpose.
 
 ## Public/private boundary
 

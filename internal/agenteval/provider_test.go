@@ -90,7 +90,7 @@ func TestBuildClaudeMCPCommandDisablesBuiltinsAndUsesQualifiedAllowlist(t *testi
 	}
 }
 
-func TestBuildPrivateCLIProviderCommandsEnforceHooksAndLoopbackNetwork(t *testing.T) {
+func TestBuildPrivateCLIProviderCommandsEnforceHooksAndGatewayNetwork(t *testing.T) {
 	for _, provider := range []string{"claude-code", "codex"} {
 		t.Run(provider, func(t *testing.T) {
 			spec := validRunSpec()
@@ -127,10 +127,8 @@ func TestBuildPrivateCLIProviderCommandsEnforceHooksAndLoopbackNetwork(t *testin
 			for _, value := range []string{
 				"--sandbox workspace-write", "--ignore-rules", "--dangerously-bypass-hook-trust",
 				`approval_policy="never"`, `web_search="disabled"`,
-				`sandbox_workspace_write.network_access=true`, `features.network_proxy.enabled=true`,
-				`features.network_proxy.domains={"127.0.0.1"="allow"}`,
-				`features.network_proxy.allow_upstream_proxy=false`, "hooks.PreToolUse=", "/opt/guard",
-				`"ATL_EVAL_CLI_POLICY_FILE"`, `"ATL_EVAL_GUARD_MODE"`,
+				`sandbox_workspace_write.network_access=true`, `features.network_proxy.enabled=false`,
+				"hooks.PreToolUse=", "/opt/guard", `"ATL_EVAL_CLI_POLICY_FILE"`, `"ATL_EVAL_GUARD_MODE"`,
 			} {
 				if !strings.Contains(joined, value) {
 					t.Errorf("Codex private CLI command misses %q: %s", value, joined)
