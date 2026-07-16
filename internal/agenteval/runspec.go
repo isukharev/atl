@@ -16,7 +16,10 @@ const (
 	maxRunCostMicroUSD   = 10_000_000
 )
 
-var mcpToolNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
+var (
+	mcpToolNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
+	skillNameRE   = regexp.MustCompile(`^[a-z0-9][a-z0-9:._-]{0,127}$`)
+)
 
 // RunSpec is intentionally separate from Scenario: scenarios define comparable
 // budgets, while run specs define one provider invocation and may remain local.
@@ -271,7 +274,7 @@ func (s RunSpec) Validate() error {
 				return fmt.Errorf("atl_invocations_min check %q is invalid", check.Name)
 			}
 		case "skill_invocations_min":
-			if check.Minimum < 1 || check.Pointer != "" || len(check.Expected) != 0 {
+			if _, ok := skillInvocationTarget(check.Expected); check.Minimum < 1 || check.Pointer != "" || !ok {
 				return fmt.Errorf("skill_invocations_min check %q is invalid", check.Name)
 			}
 			requiresSkillInvocation = true
@@ -393,7 +396,7 @@ func escapesBase(path string) bool {
 	return clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
 
-func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedATL, unexpectedRequests, skillInvocations, delegations, guardDenials int, httpMethodsObserved bool) (map[string]bool, error) {
+func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedATL, unexpectedRequests, skillInvocations int, skillInvocationsByName map[string]int, delegations, guardDenials int, httpMethodsObserved bool) (map[string]bool, error) {
 	var document any
 	if err := json.Unmarshal(final, &document); err != nil {
 		return nil, fmt.Errorf("decode structured final response: %w", err)
@@ -404,7 +407,12 @@ func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedAT
 		case "atl_invocations_min":
 			results[check.Name] = atlInvocations >= check.Minimum
 		case "skill_invocations_min":
-			results[check.Name] = skillInvocations >= check.Minimum
+			target, _ := skillInvocationTarget(check.Expected)
+			observed := skillInvocations
+			if target != "" {
+				observed = skillInvocationsByName[target]
+			}
+			results[check.Name] = observed >= check.Minimum
 		case "atl_invocations_max":
 			results[check.Name] = atlInvocations <= check.Maximum
 		case "atl_all_succeeded":
@@ -441,6 +449,17 @@ func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedAT
 		}
 	}
 	return results, nil
+}
+
+func skillInvocationTarget(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 {
+		return "", true
+	}
+	var target string
+	if err := json.Unmarshal(raw, &target); err != nil || !skillNameRE.MatchString(target) {
+		return "", false
+	}
+	return target, true
 }
 
 func expectedATLFailureCount(raw json.RawMessage) (int, bool) {

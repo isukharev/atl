@@ -153,6 +153,24 @@ therefore a benchmark failure even when the final answer is correct.
 Comparisons should use observed turns/tool calls rather than treating the
 ceiling as a performance target.
 
+The primary CLI variant also requires an exact observed `atl:jira` Skill event.
+This is stronger than recording a plugin digest: loading another installed
+skill does not satisfy its targeted `skill_invocations_min` check. In a
+controlled Sonnet comparison, three independent attempts with the previous
+513-line/33,384-byte Jira skill were all stopped by the command guard after the
+skill directed or failed to prevent pipes, redirects, or invalid argument
+shapes. The routed 140-line/8,014-byte core plus one direct evidence reference
+passed 3/3 and all 11 checks with five model tools, exactly two atl reads, nine
+GETs, complete sources, zero writes, and zero guard denials. A representative
+answer scored 10,000 bps.
+
+The strict old attempts abort before result accounting, so they have no valid
+token/cost median. A separate pre-guard-oracle diagnostic old-skill sample
+failed 0/3 and reported 225,587 median input tokens versus 84,808 for the final
+candidate; treat that -62% as directional failure-path evidence. The
+deterministic claim is the 76% reduction in always-loaded skill bytes and 51%
+reduction in the complete core-plus-two-new-runbooks surface.
+
 `jira-quarter-portfolio` models the longer PM workflow: discover custom fields
 once, freeze one complete board snapshot, qualify three epics with narrow
 history-only digests, and read three bounded Confluence Results sections. Its

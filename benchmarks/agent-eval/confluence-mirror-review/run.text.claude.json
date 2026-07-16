@@ -29,6 +29,6 @@
     {"name": "unchanged_correct", "kind": "json_equals", "pointer": "/unchanged", "expected": ["Stable runbook"]},
     {"name": "used_atl", "kind": "atl_invocations_min", "minimum": 1},
     {"name": "used_atl_once", "kind": "atl_invocations_max", "maximum": 1},
-    {"name": "used_skill", "kind": "skill_invocations_min", "minimum": 1}
+    {"name": "used_skill", "kind": "skill_invocations_min", "minimum": 1, "expected": "atl:confluence"}
   ]
 }

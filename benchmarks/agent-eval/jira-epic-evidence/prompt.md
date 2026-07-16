@@ -1,5 +1,5 @@
-Use the installed `atl` skill and the available synthetic Jira backend to
-investigate epic `PROJ-1` for quarter `2026-Q2`.
+First invoke the installed `atl:jira` skill. Then use the available synthetic
+Jira backend to investigate epic `PROJ-1` for quarter `2026-Q2`.
 
 The status narrative is stored in an unfamiliar custom field. Discover it
 once through `atl`; do not assume a technical field id. Then run exactly one

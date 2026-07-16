@@ -199,7 +199,7 @@ func providerArgument(args []string, name string) (string, bool) {
 
 func TestParseProviderOutputs(t *testing.T) {
 	claude := strings.Join([]string{
-		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"skill-1","name":"Skill"},{"type":"tool_use","id":"agent-1","name":"Agent"},{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"skill-1","name":"Skill","input":{"skill":"atl:jira"}},{"type":"tool_use","id":"agent-1","name":"Agent"},{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}`,
 		`{"type":"user","tool_use_result":{"content":[{"type":"text","text":"synthetic"}]},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","is_error":false,"content":"{\"x\":1}"}]}}`,
 		`{"type":"result","num_turns":2,"duration_ms":123,"total_cost_usd":0.25,"usage":{"input_tokens":100,"cache_read_input_tokens":20,"output_tokens":30},"modelUsage":{"parent":{"inputTokens":5,"cacheReadInputTokens":40,"cacheCreationInputTokens":10,"outputTokens":7},"child":{"inputTokens":3,"cacheReadInputTokens":20,"cacheCreationInputTokens":2,"outputTokens":11}},"structured_output":{"answer":"ok"}}`,
 	}, "\n")
@@ -207,7 +207,7 @@ func TestParseProviderOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.AgentTurns != 2 || metrics.ToolCalls != 3 || metrics.SkillToolCalls != 1 || metrics.Delegations != 1 || metrics.MCPToolCalls != 1 || metrics.FailedMCPToolCalls != 0 || metrics.MCPToolOutputBytes != 7 || !metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 1 || metrics.CapabilityFamilies[0].Family != "jira.fields" || metrics.CapabilityFamilies[0].OutputBytes != 7 || !metrics.Coverage["delegations"] || metrics.MainThreadInputTokens != 120 || metrics.MainThreadOutputTokens != 30 || metrics.InputTokens != 80 || metrics.OutputTokens != 18 || metrics.EstimatedCostMicroUSD != 250_000 || string(final) != `{"answer":"ok"}` {
+	if metrics.AgentTurns != 2 || metrics.ToolCalls != 3 || metrics.SkillToolCalls != 1 || metrics.SkillToolCallsByName["atl:jira"] != 1 || metrics.Delegations != 1 || metrics.MCPToolCalls != 1 || metrics.FailedMCPToolCalls != 0 || metrics.MCPToolOutputBytes != 7 || !metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 1 || metrics.CapabilityFamilies[0].Family != "jira.fields" || metrics.CapabilityFamilies[0].OutputBytes != 7 || !metrics.Coverage["delegations"] || metrics.MainThreadInputTokens != 120 || metrics.MainThreadOutputTokens != 30 || metrics.InputTokens != 80 || metrics.OutputTokens != 18 || metrics.EstimatedCostMicroUSD != 250_000 || string(final) != `{"answer":"ok"}` {
 		t.Fatalf("metrics=%+v final=%s", metrics, final)
 	}
 	codex := strings.Join([]string{
