@@ -39,7 +39,7 @@ tasks.
 - **Medians over repetitions.** ≥3 repetitions per cell; single runs swing
   ±50% on cost. Report medians for turns/cost/duration, sums for totals, and
   success as n/N.
-- **Task classes.** Fixtures are real pages spanning the shapes that stress
+- **Task classes.** Fixtures model realistic pages spanning the shapes that stress
   different code paths: text-heavy, macro-heavy, and table-heavy bodies, with
   both edit and read tasks. Per-class breakdowns matter more than the overall
   median — regressions hide in classes.
@@ -100,9 +100,11 @@ The evaluation stack has distinct safety and cost properties:
    deterministic local backend. Deterministic oracles score the final result
    and trajectory; an optional maintainer/model rubric scores answer quality
    separately.
-4. **Supervised live runs** are local, read-only compatibility checks against a
-   configured private backend. They never run in public CI and publish only
-   aggregate measurements.
+4. **Supervised live runs** are local, agentless read-only compatibility checks
+   against a configured private backend.
+5. **Private-live model runs** let Claude Code or Codex solve a reviewed task
+   against that backend through typed read-only MCP only. They are explicit,
+   single-run, local experiments and publish only privacy-reviewed aggregates.
 
 Model-in-the-loop runs remain manual or opt-in because they cost resources and
 are nondeterministic. Static and deterministic contract gates belong in CI.
@@ -288,9 +290,8 @@ the reviewed repetition count.
 Codex's native tools are not treated as an allowlist surface equivalent to
 Claude's `--allowed-tools`; MCP mode denies them through the reviewed hook and
 removes atl credentials from their shell environment. Prompt-injection against
-the committed synthetic fixture is supported. Corporate model-in-the-loop runs
-remain disabled; supervised corporate checks below stay agentless and
-read-only.
+the committed synthetic fixture is supported. Private-live runs use the stricter
+contract below; they never reuse a synthetic run spec implicitly.
 
 Claude may emit a client-side `No such tool available` while its explicit MCP
 server is still becoming visible. The runner counts that as a model tool call,
@@ -376,6 +377,116 @@ Headless model runs use provider subscription authentication already stored by
 the provider CLI. The runner deliberately drops API-key and unrelated
 credential environment variables instead of exposing the caller's ambient
 secrets to the agent process.
+
+## Private-live model-in-the-loop check
+
+Use this mode only when the maintainer has approved sending the selected real
+Jira/Confluence evidence to the configured model provider. The provider will
+receive the prompt, MCP responses selected by the model, and the final answer.
+It does not receive a general shell, filesystem reader, raw REST client, mirror
+writer, or mutation tool. Codex may use runner-provided `cat`, `sed -n`, and
+`wc -l` shims solely for installed skill/workspace files; both the hook and the
+shim independently resolve every path inside the reviewed roots.
+
+Keep the complete case in a private directory outside the repository. A run is
+rejected when its spec is tracked by Git, when the transcript root is not
+ignored, or when the source atl config directory is inside the repository.
+The config directory and its `config.json`/`credentials.json` must be owner-only.
+
+A private run spec differs from a synthetic spec in these fields:
+
+```json
+{
+  "schema_version": 2,
+  "backend_mode": "private-live",
+  "scenario_file": "scenario.v1.json",
+  "provider": "codex",
+  "variant": "typed-mcp",
+  "model": "gpt-5.6-sol",
+  "reasoning": "medium",
+  "prompt_file": "prompt.md",
+  "response_schema_file": "response-schema.json",
+  "qualitative_rubric_file": "rubric.v1.json",
+  "workspace_template": "workspace",
+  "fixture_file": "",
+  "repetitions": 1,
+  "timeout_seconds": 600,
+  "max_estimated_cost_microusd": 10000000,
+  "pricing": {
+    "input_microusd_per_million_tokens": 10000000,
+    "output_microusd_per_million_tokens": 50000000
+  },
+  "tool_transport": "mcp",
+  "allowed_tools": [],
+  "allowed_atl_commands": [],
+  "allowed_mcp_tools": [
+    "jira_fields",
+    "jira_epic_digest",
+    "confluence_page_resolve",
+    "confluence_page_outline",
+    "confluence_page_section"
+  ],
+  "checks": [
+    {"name":"atl_succeeded","kind":"atl_all_succeeded"},
+    {"name":"guard_clean","kind":"guard_no_denials"},
+    {"name":"http_observed","kind":"http_methods_observed"},
+    {"name":"no_delegation","kind":"delegations_none"},
+    {"name":"used_atl","kind":"atl_invocations_min","minimum":1},
+    {"name":"complete","kind":"json_equals","pointer":"/complete","expected":true}
+  ]
+}
+```
+
+Its private scenario must use `data_class:"private-local"`, exactly one
+repetition, zero delegations and writes, positive invocation/request limits,
+and an explicit `allowed_http_methods` containing only `GET`/`HEAD`. Start with
+the smallest MCP tool set and response schema that can answer the user task.
+Expected private facts may live in the ignored run spec; never copy them into a
+public fixture or PR.
+
+Review without invoking the model or backend, then run once:
+
+```sh
+umask 077
+make build
+go build -o /tmp/agent-eval ./scripts/agent-eval
+
+/tmp/agent-eval run \
+  --spec "$ATL_PRIVATE_EVAL_CASE/run.codex.json" \
+  --output-root /tmp/atl-private-live-runs \
+  --repository-root . \
+  --agent-binary "$(command -v codex)" \
+  --atl-binary "$PWD/atl" \
+  --plugin-root . \
+  --live-config-dir "$HOME/.config/atl-private" \
+  --dry-run
+
+/tmp/agent-eval run \
+  --spec "$ATL_PRIVATE_EVAL_CASE/run.codex.json" \
+  --output-root /tmp/atl-private-live-runs \
+  --repository-root . \
+  --agent-binary "$(command -v codex)" \
+  --atl-binary "$PWD/atl" \
+  --plugin-root . \
+  --live-config-dir "$HOME/.config/atl-private"
+```
+
+The runner copies only `config.json` and `credentials.json` into an ephemeral
+owner-only directory used by the MCP child and removes that copy after the
+session. The model-facing process has no general native tool capable of reading
+it, and the confined skill readers cannot resolve paths outside the generated
+workspace/public skill roots.
+`ATL_READ_ONLY=1` blocks mutations at the CLI policy, the MCP inventory contains
+only explicit read tools, and an independent HTTP transport guard rejects every
+method except GET/HEAD before network I/O. That guard records only method plus a
+SHA-256 request identity, allowing exact request and duplicate-read counts
+without retaining URLs, JQL/CQL, ids, headers, or bodies.
+
+One repetition and concurrency one are mandatory. A failed or denied MCP call,
+missing HTTP audit, attempted native tool, unobserved required metric, or method
+outside the scenario allowlist fails the run. Do not relax those gates to make
+a private backend pass; reproduce compatibility failures outside the model run
+with the supervised agentless recipe first.
 
 ## Public/private boundary
 

@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -43,8 +45,30 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 	}
 	decision := "deny"
 	var reason string
-	if os.Getenv("ATL_EVAL_GUARD_MODE") == "mcp-only" {
+	guardMode := os.Getenv("ATL_EVAL_GUARD_MODE")
+	if guardMode == "mcp-only" {
 		reason = "typed-MCP benchmark blocks every non-MCP model tool"
+		return writeGuardDecision(output, errorOutput, decision, reason)
+	}
+	if guardMode == "mcp-with-skill-read" {
+		reason = "private-live MCP allows only confined reads of reviewed skill files"
+		switch hook.ToolName {
+		case "Read":
+			allowed, err := allowedReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
+			if err != nil {
+				fmt.Fprintln(errorOutput, "atl evaluation guard could not enforce the read limit")
+				return 2
+			}
+			if allowed {
+				decision = "allow"
+				reason = "read target is within a reviewed benchmark root"
+			}
+		case "Bash":
+			if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS")) {
+				decision = "allow"
+				reason = "command contains only confined skill-reader invocations"
+			}
+		}
 		return writeGuardDecision(output, errorOutput, decision, reason)
 	}
 	switch hook.ToolName {
@@ -85,6 +109,152 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 		}
 	}
 	return writeGuardDecision(output, errorOutput, decision, reason)
+}
+
+var sedLineRangeRE = regexp.MustCompile(`^(\d+)(?:,(\d+))?p$`)
+
+func allowedSkillReadCommand(command, rawRoots string) bool {
+	command = strings.TrimSpace(command)
+	if command == "" || strings.ContainsAny(command, "\r\n|`><$()") {
+		return false
+	}
+	parts := strings.Split(strings.ReplaceAll(command, "&&", ";"), ";")
+	if len(parts) > 8 {
+		return false
+	}
+	for _, part := range parts {
+		fields := strings.Fields(strings.TrimSpace(part))
+		var targets []string
+		switch {
+		case len(fields) == 2 && fields[0] == "cat":
+			targets = fields[1:]
+		case len(fields) == 4 && fields[0] == "sed" && fields[1] == "-n" && validSedRange(fields[2]):
+			targets = fields[3:]
+		case len(fields) >= 3 && len(fields) <= 18 && fields[0] == "wc" && fields[1] == "-l":
+			targets = fields[2:]
+		default:
+			return false
+		}
+		for _, target := range targets {
+			target = strings.Trim(target, `'"`)
+			allowed, err := allowedReadPath(target, rawRoots)
+			if err != nil || !allowed {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func validSedRange(value string) bool {
+	value = strings.Trim(value, `'"`)
+	match := sedLineRangeRE.FindStringSubmatch(value)
+	if match == nil {
+		return false
+	}
+	start, _ := strconv.Atoi(match[1])
+	end := start
+	if match[2] != "" {
+		end, _ = strconv.Atoi(match[2])
+	}
+	return start >= 1 && end >= start && end <= 10_000
+}
+
+func runSkillReader(name string, args []string, output, errorOutput io.Writer) int {
+	var target string
+	start, end := 1, 10_000
+	switch name {
+	case "cat":
+		if len(args) != 1 {
+			fmt.Fprintln(errorOutput, "private benchmark cat accepts exactly one file")
+			return 2
+		}
+		target = args[0]
+	case "sed":
+		if len(args) != 3 || args[0] != "-n" || !validSedRange(args[1]) {
+			fmt.Fprintln(errorOutput, "private benchmark sed accepts only -n START,ENDp FILE")
+			return 2
+		}
+		match := sedLineRangeRE.FindStringSubmatch(strings.Trim(args[1], `'"`))
+		start, _ = strconv.Atoi(match[1])
+		end = start
+		if match[2] != "" {
+			end, _ = strconv.Atoi(match[2])
+		}
+		target = args[2]
+	case "wc":
+		if len(args) < 2 || len(args) > 17 || args[0] != "-l" {
+			fmt.Fprintln(errorOutput, "private benchmark wc accepts only -l FILE...")
+			return 2
+		}
+		return runSkillLineCount(args[1:], output, errorOutput)
+	default:
+		return 2
+	}
+	allowed, err := allowedReadPath(target, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
+	if err != nil || !allowed {
+		fmt.Fprintln(errorOutput, "private benchmark reader denied path")
+		return 2
+	}
+	file, err := os.Open(target)
+	if err != nil {
+		fmt.Fprintln(errorOutput, "private benchmark reader could not open file")
+		return 1
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, (1<<20)+1))
+	closeErr := file.Close()
+	if readErr != nil || closeErr != nil || len(data) > 1<<20 {
+		fmt.Fprintln(errorOutput, "private benchmark reader rejected file")
+		return 1
+	}
+	if name == "sed" {
+		lines := bytes.SplitAfter(data, []byte{'\n'})
+		if start > len(lines) {
+			return 0
+		}
+		if end > len(lines) {
+			end = len(lines)
+		}
+		data = bytes.Join(lines[start-1:end], nil)
+	}
+	if _, err := output.Write(data); err != nil {
+		fmt.Fprintln(errorOutput, "private benchmark reader could not write output")
+		return 1
+	}
+	return 0
+}
+
+func runSkillLineCount(paths []string, output, errorOutput io.Writer) int {
+	total := 0
+	for _, path := range paths {
+		allowed, err := allowedReadPath(path, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
+		if err != nil || !allowed {
+			fmt.Fprintln(errorOutput, "private benchmark reader denied path")
+			return 2
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			fmt.Fprintln(errorOutput, "private benchmark reader could not open file")
+			return 1
+		}
+		data, readErr := io.ReadAll(io.LimitReader(file, (1<<20)+1))
+		closeErr := file.Close()
+		if readErr != nil || closeErr != nil || len(data) > 1<<20 {
+			fmt.Fprintln(errorOutput, "private benchmark reader rejected file")
+			return 1
+		}
+		count := bytes.Count(data, []byte{'\n'})
+		total += count
+		if _, err := fmt.Fprintf(output, "%d %s\n", count, path); err != nil {
+			return 1
+		}
+	}
+	if len(paths) > 1 {
+		if _, err := fmt.Fprintf(output, "%d total\n", total); err != nil {
+			return 1
+		}
+	}
+	return 0
 }
 
 func knownGuardTool(name string) bool {

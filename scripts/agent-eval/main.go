@@ -23,6 +23,9 @@ func main() {
 	if base == "atl" || base == "atl.exe" {
 		os.Exit(runATLProxy(os.Args[1:]))
 	}
+	if base == "cat" || base == "sed" || base == "wc" {
+		os.Exit(runSkillReader(base, os.Args[1:], os.Stdout, os.Stderr))
+	}
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "agent-eval:", err)
 		os.Exit(1)
@@ -192,6 +195,7 @@ func run(args []string) error {
 		flags.StringVar(&options.AgentBinary, "agent-binary", "", "Claude Code or Codex executable")
 		flags.StringVar(&options.ATLBinary, "atl-binary", "", "atl executable")
 		flags.StringVar(&options.PluginRoot, "plugin-root", ".", "atl plugin root")
+		flags.StringVar(&options.LiveConfigDir, "live-config-dir", "", "private atl config directory for a private-live run")
 		flags.StringVar(&options.ModelOverride, "model", "", "exact model override")
 		flags.IntVar(&options.RepetitionsOverride, "repetitions", 0, "reduce the run repetition count")
 		flags.BoolVar(&options.DryRun, "dry-run", false, "validate and preview without invoking a model")

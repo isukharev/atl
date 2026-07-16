@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -99,6 +100,79 @@ func TestToolGuardBlocksEveryNonMCPToolInMCPMode(t *testing.T) {
 	}
 	if string(data) != "{\"decision\":\"deny\"}\n{\"decision\":\"deny\"}\n" {
 		t.Fatalf("counter=%q", data)
+	}
+}
+
+func TestPrivateLiveGuardAllowsOnlyConfinedSkillReaders(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "jira", "SKILL.md")
+	second := filepath.Join(root, "confluence", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(first), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(second), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(first, []byte("jira\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("confluence\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	roots, _ := json.Marshal([]string{root})
+	for _, command := range []string{
+		"cat " + first,
+		"sed -n '1,240p' " + first,
+		"sed -n '1,240p' " + first + " && sed -n '1,260p' " + second,
+		"wc -l " + first + " " + second,
+	} {
+		if !allowedSkillReadCommand(command, string(roots)) {
+			t.Errorf("expected allow: %s", command)
+		}
+	}
+	for _, command := range []string{
+		"cat /etc/passwd", "sed -n '1,20p' /etc/passwd",
+		"cat " + first + "; env", "cat $(env)", "head " + first, "wc -c " + first,
+	} {
+		if allowedSkillReadCommand(command, string(roots)) {
+			t.Errorf("expected deny: %s", command)
+		}
+	}
+	t.Setenv("ATL_EVAL_GUARD_MODE", "mcp-with-skill-read")
+	t.Setenv("ATL_EVAL_ALLOWED_READ_ROOTS", string(roots))
+	t.Setenv("ATL_EVAL_GUARD_COUNTER", filepath.Join(t.TempDir(), "guard.jsonl"))
+	input := `{"tool_name":"Bash","tool_input":{"command":` + strconv.Quote("sed -n '1,240p' "+first) + `}}`
+	var output, errorOutput bytes.Buffer
+	if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 || !strings.Contains(output.String(), `"permissionDecision":"allow"`) {
+		t.Fatalf("code=%d output=%s stderr=%s", code, output.String(), errorOutput.String())
+	}
+}
+
+func TestPrivateSkillReaderCannotEscapeRoots(t *testing.T) {
+	root := t.TempDir()
+	inside := filepath.Join(root, "SKILL.md")
+	outside := filepath.Join(t.TempDir(), "credentials.json")
+	if err := os.WriteFile(inside, []byte("one\ntwo\nthree\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, []byte("secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	roots, _ := json.Marshal([]string{root})
+	t.Setenv("ATL_EVAL_ALLOWED_READ_ROOTS", string(roots))
+	var output, errorOutput bytes.Buffer
+	if code := runSkillReader("sed", []string{"-n", "2,3p", inside}, &output, &errorOutput); code != 0 || output.String() != "two\nthree\n" {
+		t.Fatalf("code=%d output=%q stderr=%s", code, output.String(), errorOutput.String())
+	}
+	output.Reset()
+	errorOutput.Reset()
+	if code := runSkillReader("cat", []string{outside}, &output, &errorOutput); code == 0 || output.Len() != 0 {
+		t.Fatalf("outside read code=%d output=%q", code, output.String())
+	}
+	output.Reset()
+	errorOutput.Reset()
+	if code := runSkillReader("wc", []string{"-l", inside}, &output, &errorOutput); code != 0 || !strings.HasPrefix(output.String(), "3 ") {
+		t.Fatalf("wc code=%d output=%q stderr=%s", code, output.String(), errorOutput.String())
 	}
 }
 

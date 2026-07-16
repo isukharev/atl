@@ -73,6 +73,64 @@ func TestRunSpecSeparatesCLIAndMCPAllowlists(t *testing.T) {
 	}
 }
 
+func TestPrivateLiveRunSpecFailsClosed(t *testing.T) {
+	scenario := validScenario()
+	scenario.DataClass = "private-local"
+	scenario.RequiredChecks = []string{"answer_correct", "used_atl", "http_observed", "guard_clean", "no_delegation", "atl_succeeded"}
+	scenario.Budgets.MaxRemoteWrites = 0
+	scenario.Budgets.MaxDelegations = 0
+	scenario.Budgets.MaxEstimatedCostMicroUSD = 10_000_000
+	scenario.Budgets.AllowedHTTPMethods = []string{"GET", "HEAD"}
+	spec := validRunSpec()
+	spec.BackendMode = BackendModePrivateLive
+	spec.FixtureFile = ""
+	spec.Repetitions = 1
+	spec.ToolTransport = "mcp"
+	spec.AllowedTools = nil
+	spec.AllowedATLCommands = nil
+	spec.AllowedMCPTools = []string{"jira_epic_digest"}
+	spec.MaxEstimatedCostMicroUSD = scenario.Budgets.MaxEstimatedCostMicroUSD
+	spec.Checks = append(spec.Checks,
+		RunCheck{Name: "http_observed", Kind: "http_methods_observed"},
+		RunCheck{Name: "guard_clean", Kind: "guard_no_denials"},
+		RunCheck{Name: "no_delegation", Kind: "delegations_none"},
+		RunCheck{Name: "atl_succeeded", Kind: "atl_all_succeeded"},
+	)
+	if err := spec.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := spec.ValidateAgainstScenario(scenario); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*RunSpec, *Scenario){
+		"fixture":     func(s *RunSpec, _ *Scenario) { s.FixtureFile = "fixture.json" },
+		"repetitions": func(s *RunSpec, _ *Scenario) { s.Repetitions = 2 },
+		"cli transport": func(s *RunSpec, _ *Scenario) {
+			s.ToolTransport = "cli"
+			s.AllowedTools = []string{"Bash(atl *)"}
+			s.AllowedATLCommands = []string{"atl jira fields"}
+			s.AllowedMCPTools = nil
+		},
+		"public data":  func(_ *RunSpec, sc *Scenario) { sc.DataClass = "synthetic" },
+		"write budget": func(_ *RunSpec, sc *Scenario) { sc.Budgets.MaxRemoteWrites = 1 },
+		"write method": func(_ *RunSpec, sc *Scenario) { sc.Budgets.AllowedHTTPMethods = []string{"GET", "POST"} },
+		"delegation":   func(_ *RunSpec, sc *Scenario) { sc.Budgets.MaxDelegations = 1 },
+		"mock oracle": func(s *RunSpec, _ *Scenario) {
+			s.Checks = append(s.Checks, RunCheck{Name: "mock", Kind: "mock_no_unexpected"})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := spec
+			candidate.Checks = append([]RunCheck(nil), spec.Checks...)
+			candidateScenario := scenario
+			mutate(&candidate, &candidateScenario)
+			if candidate.Validate() == nil && candidate.ValidateAgainstScenario(candidateScenario) == nil {
+				t.Fatal("unsafe private-live spec passed")
+			}
+		})
+	}
+}
+
 func TestRunSpecRequiresScenarioOracleAndCostBoundary(t *testing.T) {
 	scenario := validScenario()
 	scenario.RequiredChecks = []string{"answer_correct", "used_atl"}
@@ -97,7 +155,7 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 		{Name: "delegated", Kind: "delegations_min", Minimum: 1},
 		{Name: "guarded", Kind: "guard_no_denials"},
 	}
-	result, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 2, 0, 0, 1, 0)
+	result, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 2, 0, 0, 1, 0, true)
 	if err != nil {
 		t.Fatal(err)
 	}

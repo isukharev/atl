@@ -1,4 +1,6 @@
-# Synthetic agent evaluations
+# Agent evaluations
+
+## Public synthetic suite
 
 These cases exercise the shipped `atl` skills and binary against a deterministic
 local Jira/Confluence HTTP fixture. They use generic data, never a maintainer's
@@ -77,6 +79,19 @@ three-repetition budget:
 Raw transcripts, stderr, final structured output, invocation counters, and
 per-run results stay in the private output root with restrictive permissions.
 Only privacy-reviewed aggregate result contracts may be published.
+
+## Private-live suite
+
+Real Jira/Confluence model runs are supported, but their scenario, prompt,
+expected facts, transcripts, answers, reviews, and backend configuration do not
+belong in this directory. Keep them in a maintainer-selected private directory
+outside the repository and use `backend_mode:"private-live"` with
+`--live-config-dir`. The runner requires one typed-MCP repetition, zero writes
+and delegations, a GET/HEAD-only transport guard, and private filesystem modes.
+
+See [the private-live procedure](../../docs/agent-benchmarking.md#private-live-model-in-the-loop-check)
+for the reviewed JSON contract and commands. Public comparisons may contain
+only privacy-reviewed aggregate counts and generic task-class labels.
 
 Each run spec also binds a public `rubric.v1.json`. After deterministic checks
 pass, use `agent-eval review-template` and `agent-eval assess` as documented in

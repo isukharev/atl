@@ -596,6 +596,7 @@ The codebase follows a **hexagonal (ports & adapters)** architecture:
 Further reading: [docs/architecture.md](docs/architecture.md) · [docs/usage.md](docs/usage.md) ·
 [agent recipes](docs/agent-recipes.md) · [docs/self-update.md](docs/self-update.md) ·
 [network egress](docs/network-egress.md) ·
+[agent benchmarking](docs/agent-benchmarking.md) ·
 [Context7 integration](docs/context7.md)
 
 Context7 library `/isukharev/atl` follows the latest published release through

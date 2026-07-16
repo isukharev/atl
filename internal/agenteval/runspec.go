@@ -22,6 +22,7 @@ var mcpToolNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 // budgets, while run specs define one provider invocation and may remain local.
 type RunSpec struct {
 	SchemaVersion            int        `json:"schema_version"`
+	BackendMode              string     `json:"backend_mode,omitempty"`
 	ScenarioFile             string     `json:"scenario_file"`
 	Provider                 string     `json:"provider"`
 	Variant                  string     `json:"variant"`
@@ -41,6 +42,18 @@ type RunSpec struct {
 	AllowedATLCommands       []string   `json:"allowed_atl_commands"`
 	AllowedMCPTools          []string   `json:"allowed_mcp_tools,omitempty"`
 	Checks                   []RunCheck `json:"checks"`
+}
+
+const (
+	BackendModeSynthetic   = "synthetic"
+	BackendModePrivateLive = "private-live"
+)
+
+func (s RunSpec) EffectiveBackendMode() string {
+	if s.BackendMode == "" {
+		return BackendModeSynthetic
+	}
+	return s.BackendMode
 }
 
 type Pricing struct {
@@ -96,11 +109,32 @@ func (s RunSpec) Validate() error {
 		"scenario_file": s.ScenarioFile, "prompt_file": s.PromptFile,
 		"response_schema_file":    s.ResponseSchemaFile,
 		"qualitative_rubric_file": s.QualitativeRubricFile,
-		"workspace_template":      s.WorkspaceTemplate, "fixture_file": s.FixtureFile,
+		"workspace_template":      s.WorkspaceTemplate,
 	} {
 		if value == "" || filepath.IsAbs(value) || escapesBase(value) {
 			return fmt.Errorf("%s must be a relative contained path", name)
 		}
+	}
+	switch s.EffectiveBackendMode() {
+	case BackendModeSynthetic:
+		if s.FixtureFile == "" || filepath.IsAbs(s.FixtureFile) || escapesBase(s.FixtureFile) {
+			return fmt.Errorf("fixture_file must be a relative contained path for synthetic runs")
+		}
+	case BackendModePrivateLive:
+		if s.FixtureFile != "" {
+			return fmt.Errorf("fixture_file must be empty for private-live runs")
+		}
+		if s.Repetitions != 1 {
+			return fmt.Errorf("private-live runs require exactly one repetition")
+		}
+		if s.ToolTransport != "mcp" {
+			return fmt.Errorf("private-live runs require tool_transport=mcp")
+		}
+		if len(s.AllowedTools) != 0 || len(s.AllowedATLCommands) != 0 {
+			return fmt.Errorf("private-live runs cannot expose model-native shell or file tools")
+		}
+	default:
+		return fmt.Errorf("backend_mode must be synthetic or private-live")
 	}
 	if s.Repetitions < 1 || s.Repetitions > 20 {
 		return fmt.Errorf("repetitions must be in 1..20")
@@ -217,6 +251,10 @@ func (s RunSpec) Validate() error {
 			if check.Minimum != 0 || check.Pointer != "" || len(check.Expected) != 0 {
 				return fmt.Errorf("delegations_none check %q is invalid", check.Name)
 			}
+		case "http_methods_observed":
+			if check.Minimum != 0 || check.Pointer != "" || len(check.Expected) != 0 {
+				return fmt.Errorf("http_methods_observed check %q is invalid", check.Name)
+			}
 		default:
 			return fmt.Errorf("unsupported run check kind %q", check.Kind)
 		}
@@ -227,6 +265,48 @@ func (s RunSpec) Validate() error {
 func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 	if err := scenario.Validate(); err != nil {
 		return err
+	}
+	if s.EffectiveBackendMode() == BackendModePrivateLive {
+		if scenario.DataClass != "private-local" {
+			return fmt.Errorf("private-live runs require scenario data_class=private-local")
+		}
+		if scenario.Budgets.MaxRemoteWrites != 0 {
+			return fmt.Errorf("private-live runs require max_remote_writes=0")
+		}
+		if scenario.Budgets.MaxDelegations != 0 {
+			return fmt.Errorf("private-live runs do not allow delegation")
+		}
+		if scenario.Budgets.MaxBackendRequests < 1 || scenario.Budgets.MaxATLInvocations < 1 {
+			return fmt.Errorf("private-live runs require positive backend and atl invocation budgets")
+		}
+		if len(scenario.Budgets.AllowedHTTPMethods) == 0 {
+			return fmt.Errorf("private-live runs require an explicit GET/HEAD method allowlist")
+		}
+		for _, method := range scenario.Budgets.AllowedHTTPMethods {
+			if method != "GET" && method != "HEAD" {
+				return fmt.Errorf("private-live allowed_http_methods may contain only GET and HEAD")
+			}
+		}
+		requiredKinds := map[string]bool{
+			"atl_all_succeeded":     false,
+			"atl_invocations_min":   false,
+			"http_methods_observed": false,
+			"guard_no_denials":      false,
+			"delegations_none":      false,
+		}
+		for _, check := range s.Checks {
+			if check.Kind == "mock_no_unexpected" {
+				return fmt.Errorf("private-live runs cannot use mock_no_unexpected")
+			}
+			if _, ok := requiredKinds[check.Kind]; ok {
+				requiredKinds[check.Kind] = true
+			}
+		}
+		for kind, present := range requiredKinds {
+			if !present {
+				return fmt.Errorf("private-live runs require a %s check", kind)
+			}
+		}
 	}
 	perRunCap := (s.MaxEstimatedCostMicroUSD + int64(s.Repetitions) - 1) / int64(s.Repetitions)
 	if perRunCap > scenario.Budgets.MaxEstimatedCostMicroUSD {
@@ -249,7 +329,7 @@ func escapesBase(path string) bool {
 	return clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
 
-func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedATL, unexpectedRequests, delegations, guardDenials int) (map[string]bool, error) {
+func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedATL, unexpectedRequests, delegations, guardDenials int, httpMethodsObserved bool) (map[string]bool, error) {
 	var document any
 	if err := json.Unmarshal(final, &document); err != nil {
 		return nil, fmt.Errorf("decode structured final response: %w", err)
@@ -269,6 +349,8 @@ func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedAT
 			results[check.Name] = guardDenials == 0
 		case "delegations_none":
 			results[check.Name] = delegations == 0
+		case "http_methods_observed":
+			results[check.Name] = httpMethodsObserved
 		case "json_present":
 			_, ok := resolveJSONPointer(document, check.Pointer)
 			results[check.Name] = ok
