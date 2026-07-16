@@ -245,6 +245,7 @@ func (s RunSpec) Validate() error {
 		return fmt.Errorf("checks must contain 1..%d entries", maxContractListEntries)
 	}
 	seenChecks := map[string]struct{}{}
+	requiresSkillInvocation := false
 	for _, check := range s.Checks {
 		if !identifierRE.MatchString(check.Name) {
 			return fmt.Errorf("invalid run check name %q", check.Name)
@@ -269,6 +270,11 @@ func (s RunSpec) Validate() error {
 			if check.Minimum < 1 || check.Pointer != "" || len(check.Expected) != 0 {
 				return fmt.Errorf("atl_invocations_min check %q is invalid", check.Name)
 			}
+		case "skill_invocations_min":
+			if check.Minimum < 1 || check.Pointer != "" || len(check.Expected) != 0 {
+				return fmt.Errorf("skill_invocations_min check %q is invalid", check.Name)
+			}
+			requiresSkillInvocation = true
 		case "atl_invocations_max":
 			if check.Maximum < 1 || check.Minimum != 0 || check.Pointer != "" || len(check.Expected) != 0 {
 				return fmt.Errorf("atl_invocations_max check %q is invalid", check.Name)
@@ -304,6 +310,9 @@ func (s RunSpec) Validate() error {
 		default:
 			return fmt.Errorf("unsupported run check kind %q", check.Kind)
 		}
+	}
+	if requiresSkillInvocation && (s.Provider != "claude-code" || transport != "cli" || !containsRunString(s.AllowedTools, "Skill")) {
+		return fmt.Errorf("skill_invocations_min requires Claude Code CLI transport with Skill allowed")
 	}
 	return nil
 }
@@ -384,7 +393,7 @@ func escapesBase(path string) bool {
 	return clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
 
-func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedATL, unexpectedRequests, delegations, guardDenials int, httpMethodsObserved bool) (map[string]bool, error) {
+func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedATL, unexpectedRequests, skillInvocations, delegations, guardDenials int, httpMethodsObserved bool) (map[string]bool, error) {
 	var document any
 	if err := json.Unmarshal(final, &document); err != nil {
 		return nil, fmt.Errorf("decode structured final response: %w", err)
@@ -394,6 +403,8 @@ func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedAT
 		switch check.Kind {
 		case "atl_invocations_min":
 			results[check.Name] = atlInvocations >= check.Minimum
+		case "skill_invocations_min":
+			results[check.Name] = skillInvocations >= check.Minimum
 		case "atl_invocations_max":
 			results[check.Name] = atlInvocations <= check.Maximum
 		case "atl_all_succeeded":

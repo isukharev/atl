@@ -26,6 +26,7 @@ const codexAgentEvalPermissionProfile = "atl_agent_eval"
 type ProviderMetrics struct {
 	AgentTurns               int
 	ToolCalls                int
+	SkillToolCalls           int
 	Delegations              int
 	InputTokens              int64
 	OutputTokens             int64
@@ -269,8 +270,9 @@ func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
 			return ProviderMetrics{}, nil, fmt.Errorf("decode Claude event: %w", err)
 		}
 		if event["type"] == "assistant" {
-			toolCalls, delegations, mcpIDs := countClaudeToolCalls(event)
+			toolCalls, skillCalls, delegations, mcpIDs := countClaudeToolCalls(event)
 			metrics.ToolCalls += toolCalls
+			metrics.SkillToolCalls += skillCalls
 			metrics.Delegations += delegations
 			for id, family := range mcpIDs {
 				mcpToolUseIDs[id] = family
@@ -447,16 +449,19 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 	return metrics, nil
 }
 
-func countClaudeToolCalls(event map[string]any) (int, int, map[string]string) {
+func countClaudeToolCalls(event map[string]any) (int, int, int, map[string]string) {
 	message, _ := event["message"].(map[string]any)
 	content, _ := message["content"].([]any)
-	var count, delegations int
+	var count, skillCalls, delegations int
 	mcpIDs := map[string]string{}
 	for _, value := range content {
 		block, _ := value.(map[string]any)
 		if block["type"] == "tool_use" {
 			count++
 			name, _ := block["name"].(string)
+			if name == "Skill" {
+				skillCalls++
+			}
 			if name == "Agent" || name == "Task" {
 				delegations++
 			}
@@ -468,7 +473,7 @@ func countClaudeToolCalls(event map[string]any) (int, int, map[string]string) {
 			}
 		}
 	}
-	return count, delegations, mcpIDs
+	return count, skillCalls, delegations, mcpIDs
 }
 
 func countClaudeMCPResults(event map[string]any, mcpToolUseIDs map[string]string) (int, int, int64, []CapabilityFamilyMetric, bool, error) {

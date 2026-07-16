@@ -201,13 +201,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Reduced the always-loaded Confluence skill from 343 lines/17,256 bytes to a
+  120-line/6,226-byte safety and routing core. Durable sync and Markdown review
+  workflows now live in direct one-hop references, while the full routed
+  instruction set is also smaller. A controlled three-run forced-skill
+  benchmark preserved every correctness and safety oracle and reduced median
+  input tokens by 11.7% on the compact mirror-review task.
+
 - `conf diff -o text` is now a lossless compact review projection: paths are
   mirror-root-relative and every row explicitly classifies review evidence as
   `semantic`, `byte-only`, `none`, or `n/a` alongside its delta count. Full JSON
   remains unchanged for canonical paths, hashes, byte windows, validation, and
-  block/feature drill-down. A same-runtime synthetic model comparison preserved
-  every correctness/safety oracle while reducing tool output from 4,712 to 545
-  bytes in the directional one-run pair.
+  block/feature drill-down. A controlled skill-enforced three-run comparison
+  preserved every correctness/safety oracle with equal turn and tool counts
+  while reducing observed tool output from 4,556 to 545 bytes in the controlled
+  run root. JSON includes canonical paths; compact text is root-relative.
 
 - `conf search` now returns a versioned qualified page envelope with explicit
   `complete`, `truncated`, `partial_reason`, count, exact query, and nullable
@@ -220,6 +228,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retain signed self-update.
 
 ### Fixed
+
+- Agent-eval run specs can now require an observed Claude `Skill` tool event
+  with `skill_invocations_min`. The durable-mirror JSON/text comparison uses
+  that oracle and exact-title response enums, correcting an earlier one-run
+  comparison that allowed one variant to skip the installed skill.
 
 - Private agent-eval skill reads now allow a bounded multi-file `cat` after
   validating every path against the confined roots and applying one combined
