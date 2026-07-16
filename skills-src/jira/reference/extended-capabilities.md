@@ -38,14 +38,16 @@ a streamed prefix after non-zero exit.
 
 ```bash
 atl jira epic digest PROJ-1 --quarter 2026-Q2 \
-  --status-field 'Delivery Notes' --dod-field 'Definition of Done'
+  --status-field 'Delivery Notes' --dod-field 'Definition of Done' \
+  --projection compact
 ```
 
 Use this before assembling a quarterly result from separate calls. It composes
 the common IssueList children contract, qualified history, bounded comments,
 links/blockers, refs, and configured narrative fields. Check every source's
 `complete` flag and the dated reasons under `staleness`; the CLI deliberately
-does not write a subjective summary. Optional Confluence expansion requires an
+does not write a subjective summary. Compact output names every omitted or
+clipped path; use full only for one specifically required raw detail. Optional Confluence expansion requires an
 exact heading and remains same-origin/bounded.
 
 Quarter/date-only periods are calendar ranges in the observed Jira current-user

@@ -40,7 +40,7 @@ typical quarter qualification is:
 ```bash
 atl jira epic digest PROJ-1 --quarter 2026-Q2 \
   --include identity,status-field,history \
-  --status-field customfield_10002
+  --status-field customfield_10002 --projection compact
 ```
 
 Technical field ids avoid a repeated field-catalog request. Require every

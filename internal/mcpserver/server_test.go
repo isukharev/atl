@@ -105,7 +105,7 @@ func TestSyntheticPortfolioThroughMCPUsesExactGETOnlyRoute(t *testing.T) {
 	})
 	for _, key := range []string{"PROJ-10", "PROJ-20", "PROJ-30"} {
 		callToolOK(t, client, "jira_epic_digest", map[string]any{
-			"key": key, "quarter": "2026-Q2", "include": []string{"identity", "status-field", "history"}, "status_field": "customfield_11002",
+			"key": key, "quarter": "2026-Q2", "include": []string{"identity", "status-field", "history"}, "status_field": "customfield_11002", "projection": "compact",
 		})
 	}
 	for _, pageID := range []string{"9001", "9002", "9003"} {
@@ -136,10 +136,16 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	callToolOK(t, client, "jira_issue_search", map[string]any{
 		"jql": "project=PROJ", "columns": []string{"key", "status"}, "view": "compact", "cursor": "next",
 	})
-	callToolOK(t, client, "jira_epic_digest", map[string]any{
+	digest := callToolOK(t, client, "jira_epic_digest", map[string]any{
 		"key": "PROJ-1", "quarter": "2026-Q2", "include": []string{"identity", "history"},
 		"status_field": "customfield_1", "dod_field": "customfield_2", "epic_field": "customfield_3",
+		"projection": "compact",
 	})
+	digestContent, ok := digest.StructuredContent.(map[string]any)
+	projection, projectionOK := digestContent["projection"].(map[string]any)
+	if !ok || !projectionOK || projection["name"] != "compact" {
+		t.Fatalf("digest content=%#v", digest.StructuredContent)
+	}
 	callToolOK(t, client, "jira_board_view", map[string]any{
 		"board_id": 7, "scope": "backlog", "columns": []string{"key"}, "view": "compact", "jql": "labels=x",
 	})
@@ -222,6 +228,7 @@ func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{"comments"}, "comment_limit": 51}},
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{}}},
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{"confluence"}}},
+		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{"identity"}, "projection": "brief"}},
 		{name: "confluence_page_section", args: map[string]any{"reference": "1", "heading": "Results", "max_bytes": 1048577}},
 	}
 	for _, test := range tests {

@@ -13,7 +13,7 @@ only these atl command families, one command per Bash call:
 - atl config show
 - atl jira issue fields PROJ-1 --metadata-only
 - atl jira issue fields PROJ-1 --field <discovered display name>
-- atl jira epic digest PROJ-1 --quarter 2026-Q2 --status-field <discovered display name>
+- atl jira epic digest PROJ-1 --quarter 2026-Q2 --status-field <discovered display name> --projection compact
 Do not use issue get, issue search, shell composition, or any write. Discover
 the status narrative display name from metadata before using it. Return the
 raw status value, trusted first description paragraph, summary, child count,

@@ -2652,7 +2652,8 @@ Confluence evidence, see the evidence-first recipe in
 
 ```bash
 atl jira epic digest PROJ-1 --quarter 2026-Q2 \
-  --status-field 'Delivery Notes' --dod-field 'Definition of Done'
+  --status-field 'Delivery Notes' --dod-field 'Definition of Done' \
+  --projection compact
 atl jira epic digest PROJ-1 --since 2026-04-01 --until 2026-06-30 \
   --epic-field customfield_10001 --include identity,children,comments,history,refs
 atl jira epic digest PROJ-1 --quarter 2026-Q2 --status-field customfield_10002 \
@@ -2679,6 +2680,17 @@ remain visible while `updated_in_period` and staleness apply the period boundary
 Staleness is explainable evidence: the selected status-field change time,
 latest newer evidence time, newer child/comment counts, and textual reasons —
 not an opaque score or generated conclusion.
+
+`--projection compact` keeps the same qualified evidence read and returns an
+app-layer bounded projection for agent synthesis. It preserves `sources`,
+counts, count/text truncation, warnings, staleness, status/DoD evidence and
+small deterministic samples/summaries, while omitting raw child rows and raw
+collections. `projection.omitted` names removed paths and
+`projection.clipped` names values clipped by the tighter projection budget.
+Use the default `full` projection only when one of those named details is
+actually required. Compact JSON is bounded to 64 KiB by regression fixtures at
+the command's existing source caps; it does not turn incomplete evidence into
+complete evidence.
 
 Every component declares `complete`, `count`, optional machine-readable
 `count_truncated`/`text_truncated`, and a bounded warning.

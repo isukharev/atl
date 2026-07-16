@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "period": {
+    "quarter": "2026-Q2",
+    "since": "2026-04-01",
+    "until": "2026-06-30",
+    "boundary_time_zone": "UTC",
+    "boundary_time_zone_source": "jira_current_user",
+    "since_instant": "2026-04-01T00:00:00Z",
+    "until_exclusive_instant": "2026-07-01T00:00:00Z"
+  },
+  "includes": [
+    "children",
+    "comments",
+    "history",
+    "identity",
+    "links",
+    "refs",
+    "status-field"
+  ],
+  "sources": {
+    "children": {
+      "complete": true,
+      "count": 1
+    },
+    "comments": {
+      "complete": true,
+      "count": 1
+    },
+    "history": {
+      "complete": true,
+      "count": 1
+    },
+    "identity": {
+      "complete": true,
+      "count": 1
+    },
+    "links": {
+      "complete": true,
+      "count": 1
+    },
+    "refs": {
+      "complete": true,
+      "count": 0
+    },
+    "status-field": {
+      "complete": true,
+      "count": 1
+    }
+  },
+  "epic": {
+    "key": "PROJ-1",
+    "summary": "Deliver capability",
+    "status": "In Progress",
+    "type": "Epic",
+    "updated": "2026-04-06T00:00:00.000+0000",
+    "description": "Definition"
+  },
+  "status_field": {
+    "id": "customfield_10002",
+    "name": "Delivery Notes",
+    "value": "On track",
+    "last_change": {
+      "field_id": "customfield_10002",
+      "field": "Delivery Notes",
+      "created": "2026-04-01T00:00:00.000+0000",
+      "history_id": "h1",
+      "to": "On track"
+    }
+  },
+  "children": {
+    "by_status": {
+      "Done": 1
+    },
+    "updated_in_period": 1,
+    "latest_updated": "2026-04-03T00:00:00.000+0000"
+  },
+  "staleness": {
+    "evaluated": true,
+    "stale": true,
+    "status_field_updated": "2026-04-01T00:00:00.000+0000",
+    "latest_evidence_at": "2026-04-05T00:00:00.000+0000",
+    "newer_child_updates": 1,
+    "newer_comments": 1,
+    "reasons": [
+      "1 child update(s) are newer than the status field",
+      "1 comment(s) are newer than the status field"
+    ]
+  },
+  "projection": {
+    "name": "compact",
+    "omitted": [
+      "blockers",
+      "children.list",
+      "comments",
+      "history",
+      "links"
+    ],
+    "clipped": []
+  },
+  "comment_summary": {
+    "count": 1,
+    "recent": [
+      {
+        "id": "c1",
+        "created": "2026-04-05T00:00:00.000+0000",
+        "body": "Evidence"
+      }
+    ]
+  },
+  "link_summary": {
+    "count": 1,
+    "by_type": {
+      "Blocks": 1
+    },
+    "blockers": [
+      {
+        "id": "1",
+        "type": "is blocked by",
+        "type_name": "Blocks",
+        "direction": "inward",
+        "key": "PROJ-9"
+      }
+    ]
+  },
+  "history_summary": {
+    "count": 1,
+    "recent": [
+      {
+        "id": "h1",
+        "created": "2026-04-01T00:00:00.000+0000",
+        "items": [
+          {
+            "field": "Delivery Notes",
+            "field_id": "customfield_10002",
+            "to": "On track"
+          }
+        ]
+      }
+    ]
+  },
+  "ref_summary": {
+    "count": 0,
+    "by_kind": {},
+    "items": []
+  }
+}

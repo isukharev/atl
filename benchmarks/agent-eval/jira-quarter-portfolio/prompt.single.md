@@ -9,7 +9,7 @@ skill, and read only its portfolio-evidence reference. Follow that route:
   evidence page, issue type, status, and updated time;
 - use that snapshot for epic membership and child status/update counts;
 - for each epic, request only `identity,status-field,history` through a quarter
-  digest, using the discovered technical outcome-field id;
+  digest with `--projection compact`, using the discovered technical outcome-field id;
 - read only the `Results` section of each linked evidence page.
 
 Do not use default digest includes to fetch children/comments already covered

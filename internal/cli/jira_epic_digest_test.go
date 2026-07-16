@@ -41,6 +41,21 @@ func TestJiraEpicDigestGolden(t *testing.T) {
 	assertGolden(t, "jira_epic_digest.json", []byte(out))
 }
 
+func TestJiraEpicDigestCompactGolden(t *testing.T) {
+	js := epicDigestServer(t)
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "epic", "digest", "PROJ-1", "--quarter", "2026-Q2", "--status-field", "Delivery Notes", "--epic-field", "customfield_10001", "--projection", "compact")
+	if code != exitOK {
+		t.Fatalf("digest exit=%d output=%s", code, out)
+	}
+	assertGolden(t, "jira_epic_digest_compact.json", []byte(out))
+}
+
+func TestJiraEpicDigestRejectsProjectionBeforeConfig(t *testing.T) {
+	if out, code := runCLI(t, nil, "jira", "epic", "digest", "PROJ-1", "--projection", "brief"); code != exitUsage {
+		t.Fatalf("exit=%d output=%s", code, out)
+	}
+}
+
 // TestEvidenceFirstEpicWorkflowBudget is a deterministic agent-contract
 // benchmark, not a wall-clock microbenchmark. It pins the first-use workflow
 // (discover non-empty fields, then request the aggregate digest) to a bounded
@@ -52,7 +67,7 @@ func TestEvidenceFirstEpicWorkflowBudget(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("fields exit=%d output=%s", code, fields)
 	}
-	digest, code := runCLI(t, env, "--read-only", "jira", "epic", "digest", "PROJ-1", "--quarter", "2026-Q2", "--status-field", "Delivery Notes", "--epic-field", "customfield_10001")
+	digest, code := runCLI(t, env, "--read-only", "jira", "epic", "digest", "PROJ-1", "--quarter", "2026-Q2", "--status-field", "Delivery Notes", "--epic-field", "customfield_10001", "--projection", "compact")
 	if code != exitOK {
 		t.Fatalf("digest exit=%d output=%s", code, digest)
 	}

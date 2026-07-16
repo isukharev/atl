@@ -109,6 +109,7 @@ type JiraEpicDigestInput struct {
 	ChildLimit   int      `json:"child_limit,omitempty" jsonschema:"maximum child rows; default and maximum 1000"`
 	CommentLimit int      `json:"comment_limit,omitempty" jsonschema:"maximum newest comments; default and maximum 50"`
 	HistoryLimit int      `json:"history_limit,omitempty" jsonschema:"maximum newest matching history entries; default and maximum 500"`
+	Projection   string   `json:"projection,omitempty" jsonschema:"output projection: full or compact; compact is recommended for synthesis"`
 }
 
 type JiraBoardViewInput struct {
@@ -165,6 +166,9 @@ func registerJiraTools(server *mcp.Server, deps Dependencies) {
 
 	mcp.AddTool(server, readOnlyTool("jira_epic_digest", "Read qualified epic evidence", "Aggregate selected dated evidence sources. Omit sources already present in a portfolio snapshot."),
 		func(ctx context.Context, _ *mcp.CallToolRequest, in JiraEpicDigestInput) (*mcp.CallToolResult, *app.JiraEpicDigestResult, error) {
+			if _, err := app.ProjectJiraEpicDigest(nil, in.Projection); err != nil {
+				return nil, nil, classified(err)
+			}
 			if len(in.Include) == 0 {
 				return nil, nil, classified(fmt.Errorf("%w: include must select at least one evidence source", domain.ErrUsage))
 			}
@@ -194,6 +198,9 @@ func registerJiraTools(server *mcp.Server, deps Dependencies) {
 				StatusField: in.StatusField, DoDField: in.DoDField, EpicField: in.EpicField,
 				ChildLimit: childLimit, CommentLimit: commentLimit, HistoryLimit: historyLimit,
 			})
+			if err == nil {
+				out, err = app.ProjectJiraEpicDigest(out, in.Projection)
+			}
 			return nil, out, classified(err)
 		})
 

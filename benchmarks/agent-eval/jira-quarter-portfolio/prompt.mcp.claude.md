@@ -18,7 +18,7 @@ this bounded route:
 - use that snapshot for epic membership and child status/update counts;
 - for each epic, call `mcp__atl__jira_epic_digest` with only
   `identity,status-field,history`, quarter `2026-Q2`, and the discovered
-  technical outcome-field id;
+  technical outcome-field id; set `projection` to `compact`;
 - read only the `Results` section of each linked evidence page with
   `mcp__atl__confluence_page_section`.
 

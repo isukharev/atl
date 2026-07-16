@@ -17,7 +17,7 @@ The v1 surface is an explicit allowlist:
 |---|---|---|
 | `jira_fields` | Discover field ids without issue values | metadata only |
 | `jira_issue_search` | Read one compact IssueList page | default 50, maximum 1000 rows |
-| `jira_epic_digest` | Aggregate selected qualified epic evidence | bounded children, comments, and history |
+| `jira_epic_digest` | Aggregate selected qualified epic evidence | `projection:compact` bounds synthesis context |
 | `jira_board_view` | Freeze one board/backlog membership snapshot | default 200, maximum 1000 rows per scope |
 | `confluence_page_resolve` | Resolve an id or same-origin URL/path | exact resolution only |
 | `confluence_page_outline` | Inspect headings before reading content | one page |
@@ -25,6 +25,9 @@ The v1 surface is an explicit allowlist:
 
 `jira_epic_digest` requires an explicit non-empty `include`; unlike the CLI it
 never interprets omission as permission to fetch every default evidence source.
+Set `projection:"compact"` for normal synthesis. The typed result preserves
+source completeness and exposes every omitted/clipped path; request `full`
+only when one named raw detail is necessary.
 
 Every tool advertises `readOnlyHint:true`, `idempotentHint:true`,
 `destructiveHint:false`, and `openWorldHint:false`. The server instructions tell
