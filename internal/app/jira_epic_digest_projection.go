@@ -256,14 +256,27 @@ func compactDigestRefs(out *JiraEpicDigestResult, p *JiraDigestProjection) {
 		return
 	}
 	summary := &JiraDigestRefSummary{Count: out.Sources["refs"].Count, ByKind: map[string]int{}, Items: []PlanningRef{}}
+	allKinds := map[string]int{}
 	for i, ref := range out.Refs {
-		summary.ByKind[compactDigestString(ref.Kind, jiraDigestCompactValueBytes, "ref_summary.by_kind", p)]++
+		allKinds[ref.Kind]++
 		if i >= jiraDigestCompactRefs {
 			continue
 		}
 		ref.Kind = compactDigestString(ref.Kind, jiraDigestCompactValueBytes, "ref_summary.items.kind", p)
 		ref.URL = compactDigestString(ref.URL, jiraDigestCompactURLBytes, "ref_summary.items.url", p)
 		summary.Items = append(summary.Items, ref)
+	}
+	kinds := make([]string, 0, len(allKinds))
+	for kind := range allKinds {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	for i, kind := range kinds {
+		if i >= jiraDigestCompactStatuses {
+			p.Omitted = append(p.Omitted, "ref_summary.by_kind[remaining]")
+			break
+		}
+		summary.ByKind[compactDigestString(kind, jiraDigestCompactValueBytes, "ref_summary.by_kind", p)] += allKinds[kind]
 	}
 	if len(out.Refs) > jiraDigestCompactRefs {
 		p.Omitted = append(p.Omitted, "ref_summary.items[remaining]")

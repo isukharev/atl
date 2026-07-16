@@ -37,7 +37,7 @@ func TestProjectJiraEpicDigestCompactIsBoundedAndQualified(t *testing.T) {
 	}
 	for i := 0; i < 1000; i++ {
 		result.Links = append(result.Links, domain.IssueLink{ID: fmt.Sprint(i), Key: fmt.Sprintf("PROJ-%d", i), Type: "relates to"})
-		result.Refs = append(result.Refs, PlanningRef{Kind: "url", URL: "https://example.test/" + large})
+		result.Refs = append(result.Refs, PlanningRef{Kind: fmt.Sprintf("%04d-%s", i, large), URL: "https://example.test/" + large})
 	}
 	for i := 0; i < 500; i++ {
 		result.History = append(result.History, domain.ChangelogEntry{ID: fmt.Sprint(i), Items: []domain.ChangelogItem{{Field: "Notes", From: large, To: large}}})
