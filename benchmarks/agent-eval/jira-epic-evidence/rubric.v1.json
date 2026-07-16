@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "jira-epic-evidence-answer",
+  "scenario_id": "jira.synthetic-epic-evidence",
+  "minimum_score_bps": 7000,
+  "criteria": [
+    {"id":"evidence_grounding","description":"Claims are traceable to the structured evidence and do not add unsupported conclusions.","maximum":4,"minimum":3,"weight":30},
+    {"id":"qualification","description":"Completeness, staleness, and uncertainty are stated where they affect interpretation.","maximum":4,"minimum":3,"weight":25},
+    {"id":"task_completeness","description":"The response answers every requested part without replacing facts with generic advice.","maximum":4,"minimum":3,"weight":20},
+    {"id":"actionability","description":"The organization makes the result easy for a user or parent agent to consume.","maximum":4,"minimum":2,"weight":15},
+    {"id":"concision","description":"The response is compact and avoids repeating raw tool output or irrelevant details.","maximum":4,"minimum":2,"weight":10}
+  ],
+  "allowed_finding_ids": ["incomplete_answer","missing_qualification","poor_structure","unsupported_claim","verbose"]
+}

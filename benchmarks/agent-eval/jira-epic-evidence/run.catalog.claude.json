@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "scenario_file": "scenario.v1.json",
   "provider": "claude-code",
   "variant": "capability-catalog",
@@ -7,6 +7,7 @@
   "reasoning": "medium",
   "prompt_file": "prompt.catalog.md",
   "response_schema_file": "response-schema.json",
+  "qualitative_rubric_file": "rubric.v1.json",
   "workspace_template": "workspace",
   "fixture_file": "fixture.json",
   "repetitions": 3,

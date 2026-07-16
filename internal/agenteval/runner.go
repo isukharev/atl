@@ -43,6 +43,7 @@ type RunPreview struct {
 	MaxEstimatedCostMicroUSDPerRun int64           `json:"max_estimated_cost_microusd_per_run"`
 	Command                        ProviderCommand `json:"command"`
 	OutputRoot                     string          `json:"output_root"`
+	QualitativeRubricID            string          `json:"qualitative_rubric_id"`
 }
 
 type RunOutput struct {
@@ -108,6 +109,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 		MaxEstimatedCostMicroUSDPerRun: invocationSpec.MaxEstimatedCostMicroUSD,
 		Command:                        previewCommand,
 		OutputRoot:                     "<private-output-root>",
+		QualitativeRubricID:            loaded.rubric.ID,
 	}
 	if options.DryRun {
 		return RunOutput{Preview: preview, Results: []Result{}}, nil
@@ -228,6 +230,7 @@ type loadedRun struct {
 	fixture        MockFixture
 	prompt         []byte
 	responseSchema []byte
+	rubric         Rubric
 	workspace      string
 	specDir        string
 }
@@ -312,11 +315,23 @@ func loadRunInputs(options RunOptions) (loadedRun, error) {
 	if err != nil || !json.Valid(responseSchema) {
 		return loadedRun{}, fmt.Errorf("response schema is invalid")
 	}
+	rubricFile, err := openRelative(spec.QualitativeRubricFile)
+	if err != nil {
+		return loadedRun{}, err
+	}
+	rubric, rubricErr := DecodeRubric(rubricFile)
+	_ = rubricFile.Close()
+	if rubricErr != nil {
+		return loadedRun{}, rubricErr
+	}
+	if rubric.ScenarioID != scenario.ID {
+		return loadedRun{}, fmt.Errorf("qualitative rubric scenario_id %q does not match %q", rubric.ScenarioID, scenario.ID)
+	}
 	workspace, err := resolveRelative(spec.WorkspaceTemplate)
 	if err != nil {
 		return loadedRun{}, err
 	}
-	return loadedRun{spec: spec, scenario: scenario, fixture: fixture, prompt: prompt, responseSchema: responseSchema, workspace: workspace, specDir: specDir}, nil
+	return loadedRun{spec: spec, scenario: scenario, fixture: fixture, prompt: prompt, responseSchema: responseSchema, rubric: rubric, workspace: workspace, specDir: specDir}, nil
 }
 
 func ValidateRunSpecFile(path string) (RunSpec, Scenario, error) {

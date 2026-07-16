@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added versioned qualitative agent-answer rubrics and hash-bound review
+  contracts. Maintainers or separately prompted models can score grounding,
+  qualification, completeness, actionability, and concision without retaining
+  answer text; qualitative review can lower but never override deterministic
+  correctness or safety, and aggregates separate exact reviewer identities.
+
 - Added opt-in bounded Confluence body prefetch plus one command-scoped
   transport scheduler shared across Confluence and Jira-macro traffic for
   complete/incremental pulls. Defaults remain serial; request pacing,

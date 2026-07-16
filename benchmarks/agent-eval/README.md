@@ -78,6 +78,14 @@ Raw transcripts, stderr, final structured output, invocation counters, and
 per-run results stay in the private output root with restrictive permissions.
 Only privacy-reviewed aggregate result contracts may be published.
 
+Each run spec also binds a public `rubric.v1.json`. After deterministic checks
+pass, use `agent-eval review-template` and `agent-eval assess` as documented in
+`docs/agent-benchmarking.md` to score answer grounding, qualification,
+completeness, actionability, and concision. A separately prompted model may act
+as reviewer, but it receives no tools, treats the candidate as untrusted data,
+and cannot override a strict failure. Publish only reviewed result aggregates,
+not review inputs, final answers, or rationales.
+
 `jira-epic-evidence/run.catalog.claude.json` keeps the original evidence task
 and oracle but asks the model to begin with `atl capabilities --task
 jira/evidence`. Compare it with `run.claude.json` to measure whether exact

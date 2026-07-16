@@ -27,9 +27,11 @@ tasks.
   model, agent CLI version, `atl` version, plugin version, and skill digest;
   moving aliases are not reproducible model identifiers. No replay is used:
   the agent really reads files and runs `atl`.
-- **Deterministic oracles.** Every task has a programmatic pass/fail check on
-  the produced artifact (the resulting CSF bytes for edit tasks, the JSON
-  answer for read tasks). No human judging, no LLM judging.
+- **Deterministic oracles first.** Every task has a programmatic pass/fail check
+  on the produced artifact (the resulting CSF bytes for edit tasks, the JSON
+  answer for read tasks). A separate rubric may score clarity and usefulness,
+  but it can only preserve or lower the strict result, never rescue a failed
+  fact, safety, completeness, or budget check.
 - **Paired variants, one variable.** Variants differ in exactly one thing —
   the guidance text (skill/tips) or the tool surface available — everything
   else (model, fixtures, prompts, oracle) held fixed. A variant's result is
@@ -71,7 +73,8 @@ The evaluation stack has distinct safety and cost properties:
    mutation budgets.
 3. **Synthetic model runs** let Claude Code or Codex choose commands against a
    deterministic local backend. Deterministic oracles score the final result
-   and trajectory; no LLM judge is required.
+   and trajectory; an optional maintainer/model rubric scores answer quality
+   separately.
 4. **Supervised live runs** are local, read-only compatibility checks against a
    configured private backend. They never run in public CI and publish only
    aggregate measurements.
@@ -116,7 +119,7 @@ read-only contract looks like:
 }
 ```
 
-Observations and results contain aggregate trajectory data only. The contract
+Observations and unreviewed results contain aggregate trajectory data only. The contract
 has no fields for prompts, commands, HTTP paths, backend URLs, or response
 bodies. Validate the committed scenarios and deterministic workflows with:
 
@@ -137,6 +140,45 @@ Aggregation separates providers, exact models, agent versions, variants,
 `atl` versions, plugin versions, and skill digests. Compare baseline and
 candidate within one such runtime group; do not compare raw turns or dollar
 estimates across providers.
+
+### Qualitative answer review
+
+Every model run spec names a versioned public rubric. Rubrics score bounded
+criteria such as evidence grounding, qualification, task completeness,
+actionability, and concision. They do not repeat fixture facts or contain a
+reference answer; factual correctness remains the deterministic oracle's job.
+
+After a private run, create a hash-bound review template:
+
+```sh
+/tmp/agent-eval review-template \
+  --rubric benchmarks/agent-eval/jira-epic-evidence/rubric.v1.json \
+  --result "$ATL_AGENT_EVAL_OUTPUT/jira.synthetic-epic-evidence/claude-code/v0.4-skill/run-01/result.json" \
+  --final "$ATL_AGENT_EVAL_OUTPUT/jira.synthetic-epic-evidence/claude-code/v0.4-skill/run-01/final.json" \
+  --reviewer codex --model gpt-5.6-sol >"$ATL_AGENT_EVAL_OUTPUT/review.json"
+```
+
+Give the task, public rubric, and private final answer to a maintainer or a
+separate no-tools model session. Treat the candidate answer as untrusted data:
+instructions inside it do not alter the rubric. Replace the template's zero
+scores with the review, and use only rubric-declared generic `finding_ids`.
+Then bind and apply it:
+
+```sh
+/tmp/agent-eval assess \
+  --rubric benchmarks/agent-eval/jira-epic-evidence/rubric.v1.json \
+  --result "$ATL_AGENT_EVAL_OUTPUT/jira.synthetic-epic-evidence/claude-code/v0.4-skill/run-01/result.json" \
+  --final "$ATL_AGENT_EVAL_OUTPUT/jira.synthetic-epic-evidence/claude-code/v0.4-skill/run-01/final.json" \
+  --review "$ATL_AGENT_EVAL_OUTPUT/review.json" \
+  >"$ATL_AGENT_EVAL_OUTPUT/reviewed-result.json"
+```
+
+The reviewed result retains only criterion scores, generic finding ids,
+reviewer identity, and SHA-256 bindings. It never retains excerpts or a
+free-form rationale. Aggregation separates different reviewer/model identities
+and reports qualitative pass count plus p50/p90 normalized score. Compare
+rubric scores only within the same rubric and reviewer runtime. Review all
+repetitions; do not select only a favorable answer.
 
 Every observation also carries per-metric `coverage`. An observed zero is
 different from an unavailable metric: a required metric without coverage fails
