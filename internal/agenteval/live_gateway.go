@@ -45,8 +45,8 @@ type LiveGatewayServiceConfig struct {
 }
 
 type LiveGatewayRoute struct {
-	Name       string
-	PathPrefix string
+	Name       string `json:"name"`
+	PathPrefix string `json:"path_prefix"`
 }
 
 type LiveGatewayEndpoint struct {
@@ -338,21 +338,46 @@ func validateLiveGatewayConfig(config LiveGatewayConfig) error {
 		if scheme != "https" && (scheme != "http" || !isLoopbackHost(base.Hostname())) {
 			return fmt.Errorf("live gateway upstream must use HTTPS")
 		}
-		seenRoutes := map[string]struct{}{}
-		seenPrefixes := map[string]struct{}{}
-		for _, route := range service.Routes {
-			if !identifierRE.MatchString(route.Name) || len(route.Name) > 64 || route.PathPrefix == "/" || route.PathPrefix == "" || route.PathPrefix[0] != '/' || path.Clean(route.PathPrefix) != route.PathPrefix || strings.Contains(route.PathPrefix, "//") {
-				return fmt.Errorf("live gateway route is invalid")
-			}
-			if _, exists := seenRoutes[route.Name]; exists {
-				return fmt.Errorf("live gateway route names must be unique per service")
-			}
-			if _, exists := seenPrefixes[route.PathPrefix]; exists {
-				return fmt.Errorf("live gateway route prefixes must be unique per service")
-			}
-			seenRoutes[route.Name] = struct{}{}
-			seenPrefixes[route.PathPrefix] = struct{}{}
+		if err := validateLiveGatewayRoutes(service.Routes); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+func validateLiveGatewayRoutePolicy(services map[string][]LiveGatewayRoute) error {
+	if len(services) == 0 || len(services) > 2 {
+		return fmt.Errorf("live gateway route policy requires one or two services")
+	}
+	for service, routes := range services {
+		if service != "jira" && service != "confluence" {
+			return fmt.Errorf("unsupported live gateway service")
+		}
+		if err := validateLiveGatewayRoutes(routes); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateLiveGatewayRoutes(routes []LiveGatewayRoute) error {
+	if len(routes) == 0 || len(routes) > 64 {
+		return fmt.Errorf("live gateway requires 1..64 routes per service")
+	}
+	seenRoutes := map[string]struct{}{}
+	seenPrefixes := map[string]struct{}{}
+	for _, route := range routes {
+		if !identifierRE.MatchString(route.Name) || len(route.Name) > 64 || route.PathPrefix == "/" || route.PathPrefix == "" || route.PathPrefix[0] != '/' || path.Clean(route.PathPrefix) != route.PathPrefix || strings.Contains(route.PathPrefix, "//") {
+			return fmt.Errorf("live gateway route is invalid")
+		}
+		if _, exists := seenRoutes[route.Name]; exists {
+			return fmt.Errorf("live gateway route names must be unique per service")
+		}
+		if _, exists := seenPrefixes[route.PathPrefix]; exists {
+			return fmt.Errorf("live gateway route prefixes must be unique per service")
+		}
+		seenRoutes[route.Name] = struct{}{}
+		seenPrefixes[route.PathPrefix] = struct{}{}
 	}
 	return nil
 }

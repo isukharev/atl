@@ -11,27 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added end-to-end private-live CLI+skill evaluation for Claude Code and Codex.
+  The parent runner now replaces source backend URLs and PATs with disposable
+  loopback gateway capabilities, keeps policy/audit/config state outside
+  model-readable roots, and fails on any hook, shim, route, method, response,
+  or audit denial. Claude loads no ambient setting sources; Codex uses an
+  approval-free workspace sandbox with web search disabled and subprocess
+  networking constrained by its built-in policy to the exact loopback host.
+
 - Added a schema-validated exact-argument policy for private-live CLI+skill
   benchmarks. Each reviewed command family pins its command path, positional
   values, flags, and invocation budget; the evaluation shim rechecks the
   process argv independently, reserves budget slots atomically, and records
   only a generic command-family label and byte/exit metrics. Prefix-based
   command allowlists remain synthetic-only. Private-live CLI model execution
-  remains dry-run-only until provider credentials are isolated behind the
-  evaluation gateway.
+  is executed only through the isolated evaluation gateway.
 
-- Added the evaluation-only credential gateway foundation for upcoming
-  private-live CLI+skill benchmarks. The loopback reverse gateway keeps real
+- Added the evaluation-only credential gateway used by private-live CLI+skill
+  benchmarks. The loopback reverse gateway keeps real
   Jira/Confluence PATs in the parent process, gives child CLIs disposable
   ingress capabilities, pins upstream origins, rejects unsafe methods, bodies,
   routes and redirects before they can escape, enforces request/concurrency/
   response budgets, and writes only HMAC-identified privacy-safe audit events.
 
-- Added an explicit private-live model-in-the-loop benchmark mode for real
-  configured Jira/Confluence backends. Live cases must remain Git-ignored,
-  execute exactly once through typed read-only MCP, expose no general native
-  model tools beyond path-confined skill readers, and declare zero writes plus
-  GET/HEAD-only budgets. Credentials are
+- Added the initial typed-MCP private-live model-in-the-loop path for real
+  configured Jira/Confluence backends. Live cases remain Git-ignored, execute
+  exactly once, expose no general native model tools beyond path-confined skill
+  readers, and declare zero writes plus GET/HEAD-only budgets. Credentials are
   copied into an ephemeral owner-only directory and removed after the run; an
   independent HTTP transport guard blocks non-read methods before network I/O
   while retaining only privacy-safe method and duplicate-request aggregates.

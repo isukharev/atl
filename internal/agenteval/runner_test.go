@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -347,12 +350,146 @@ exit 2
 	if bytes.Contains(encoded, []byte("private.invalid")) || bytes.Contains(encoded, []byte("private-test-token")) || bytes.Contains(encoded, []byte(liveConfig)) {
 		t.Fatalf("public-safe result leaked live configuration: %s", encoded)
 	}
-	configPathRecord, err := os.ReadFile(filepath.Join(outputRoot, scenario.ID, "codex", spec.Variant, "run-01", "workspace", ".atl-eval", "atl-invocations.jsonl.config-path"))
+	configPathRecord, err := os.ReadFile(filepath.Join(outputRoot, scenario.ID, "codex", spec.Variant, "run-01", ".atl-eval", "atl-invocations.jsonl.config-path"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(strings.TrimSpace(string(configPathRecord))); !os.IsNotExist(err) {
 		t.Fatalf("ephemeral live config was not removed: %v", err)
+	}
+}
+
+func TestPrivateLiveCLIProvidersUseGatewayWithoutSourceCredentials(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable scripts are Unix-only")
+	}
+	var upstreamRequests int
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/jira/rest/api/2/field" || request.Header.Get("Authorization") != "Bearer upstream-secret" {
+			http.Error(response, "unexpected", http.StatusBadRequest)
+			return
+		}
+		upstreamRequests++
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`[{"id":"summary","name":"Summary","custom":false,"schema":{"type":"string"}}]`))
+	}))
+	defer upstream.Close()
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tempRepository := t.TempDir()
+	if err := exec.Command("git", "-C", tempRepository, "init", "-q").Run(); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(tempRepository, ".gitignore"), "private/\n", 0o600)
+	caseDir := filepath.Join(tempRepository, "private", "cli-live")
+	if err := os.MkdirAll(filepath.Join(caseDir, "workspace"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(caseDir, "workspace", "README.md"), "Use the installed atl skill.\n", 0o600)
+	scenario := validScenario()
+	scenario.ID = "jira.private-cli"
+	scenario.DataClass = "private-local"
+	scenario.RequiredChecks = []string{"answer_correct", "atl_succeeded", "guard_clean", "http_observed", "no_delegation", "used_atl"}
+	scenario.RequiredMetrics = []string{"atl_invocations", "backend_requests", "duplicate_backend_requests", "output_bytes"}
+	scenario.Budgets = Budgets{MaxAgentTurns: 2, MaxToolCalls: 2, MaxATLInvocations: 1, MaxBackendRequests: 1, MaxRemoteWrites: 0, MaxOutputBytes: 1 << 20, MaxInputTokens: 1000, MaxOutputTokens: 1000, MaxMainThreadInputTokens: 1000, MaxMainThreadOutputTokens: 1000, MaxEstimatedCostMicroUSD: 10_000_000, MaxDurationMillis: 30_000, AllowedHTTPMethods: []string{"GET", "HEAD"}}
+	writeJSONTestFile(t, filepath.Join(caseDir, "scenario.json"), scenario)
+	writeTestFile(t, filepath.Join(caseDir, "prompt.md"), "Use atl to inspect the field catalog.\n", 0o600)
+	writeTestFile(t, filepath.Join(caseDir, "response.json"), `{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}`, 0o600)
+	rubric := Rubric{SchemaVersion: 1, ID: "private-cli-answer", ScenarioID: scenario.ID, MinimumScoreBPS: 6000, Criteria: []RubricCriterion{{ID: "usefulness", Description: "The answer is useful.", Maximum: 4, Minimum: 2, Weight: 1}}, AllowedFindingIDs: []string{"unclear"}}
+	writeJSONTestFile(t, filepath.Join(caseDir, "rubric.json"), rubric)
+	liveConfig := filepath.Join(t.TempDir(), "config")
+	if err := os.Mkdir(liveConfig, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(liveConfig, "config.json"), `{"jira_url":`+quotedJSON(t, upstream.URL+"/jira")+`}`, 0o600)
+	writeTestFile(t, filepath.Join(liveConfig, "credentials.json"), `{"jira":"upstream-secret"}`, 0o600)
+	pluginRoot := filepath.Join(tempRepository, "plugin")
+	if err := os.MkdirAll(filepath.Join(pluginRoot, ".claude-plugin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(pluginRoot, "skills", "atl"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(pluginRoot, ".claude-plugin", "plugin.json"), `{"version":"0.4.0"}`, 0o600)
+	writeTestFile(t, filepath.Join(pluginRoot, "skills", "atl", "SKILL.md"), "---\nname: atl\n---\nUse read-only atl commands.\n", 0o600)
+	fakeAgent := filepath.Join(tempRepository, "fake-agent")
+	writeTestFile(t, fakeAgent, `#!/bin/sh
+if [ "$1" = "--version" ]; then echo fake-agent-1; exit 0; fi
+if [ -z "$ATL_EVAL_CLI_POLICY_FILE" ] || [ "$ATL_EVAL_GUARD_MODE" != "private-cli" ]; then exit 31; fi
+if [ -n "$ATL_JIRA_PAT" ] || /bin/grep -q 'upstream-secret' "$ATL_CONFIG_DIR/credentials.json"; then exit 32; fi
+atl jira fields >/dev/null || exit 33
+if [ "$1" = "-p" ]; then
+  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}'
+  printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":0.00014,"usage":{"input_tokens":100,"output_tokens":20},"structured_output":{"answer":"ok"}}'
+  exit 0
+fi
+final=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--output-last-message" ]; then final="$2"; shift 2; continue; fi
+  shift
+done
+printf '%s\n' '{"type":"item.completed","item":{"type":"command_execution"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
+printf '%s\n' '{"answer":"ok"}' >"$final"
+`, 0o700)
+	wrapper := filepath.Join(tempRepository, "agent-eval")
+	buildWrapper := exec.Command("go", "build", "-o", wrapper, "./scripts/agent-eval")
+	buildWrapper.Dir = repositoryRoot
+	buildWrapper.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
+	if output, err := buildWrapper.CombinedOutput(); err != nil {
+		t.Fatalf("build wrapper: %v\n%s", err, output)
+	}
+	atlBinary := filepath.Join(tempRepository, "real-atl")
+	buildATL := exec.Command("go", "build", "-o", atlBinary, "./cmd/atl")
+	buildATL.Dir = repositoryRoot
+	buildATL.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
+	if output, err := buildATL.CombinedOutput(); err != nil {
+		t.Fatalf("build atl: %v\n%s", err, output)
+	}
+	for _, provider := range []string{"claude-code", "codex"} {
+		t.Run(provider, func(t *testing.T) {
+			spec := RunSpec{SchemaVersion: RunSpecSchemaVersion, BackendMode: BackendModePrivateLive, ScenarioFile: "scenario.json", Provider: provider, Variant: "cli-skill-" + provider, Model: "test-model", PromptFile: "prompt.md", ResponseSchemaFile: "response.json", QualitativeRubricFile: "rubric.json", WorkspaceTemplate: "workspace", Repetitions: 1, TimeoutSeconds: 30, MaxEstimatedCostMicroUSD: 10_000_000, Pricing: Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000}, ToolTransport: "cli", AllowedTools: []string{"Bash(atl *)", "Read", "Skill"}, AllowedCLICommands: []CLICommandRule{{Name: "jira_fields", Command: []string{"jira", "fields"}, MaxInvocations: 1}}, AllowedGatewayRoutes: map[string][]LiveGatewayRoute{"jira": {{Name: "jira_api", PathPrefix: "/rest/api/2"}}}, GatewayMaxResponseBytes: 1 << 20, GatewayMaxTotalBytes: 1 << 20, Checks: []RunCheck{{Name: "answer_correct", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`"ok"`)}, {Name: "atl_succeeded", Kind: "atl_all_succeeded"}, {Name: "guard_clean", Kind: "guard_no_denials"}, {Name: "http_observed", Kind: "http_methods_observed"}, {Name: "no_delegation", Kind: "delegations_none"}, {Name: "used_atl", Kind: "atl_invocations_min", Minimum: 1}}}
+			if provider == "claude-code" {
+				spec.Pricing = Pricing{}
+			}
+			specPath := filepath.Join(caseDir, "run-"+provider+".json")
+			writeJSONTestFile(t, specPath, spec)
+			output, err := RunHeadless(context.Background(), RunOptions{SpecPath: specPath, OutputRoot: filepath.Join(tempRepository, "private", "runs"), RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: atlBinary, PluginRoot: pluginRoot, WrapperExecutable: wrapper, LiveConfigDir: liveConfig})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(output.Results) != 1 || output.Results[0].Status != "pass" || output.Results[0].Metrics.BackendRequests != 1 || output.Results[0].Metrics.RemoteWrites != 0 || output.Results[0].HTTPMethods["GET"] != 1 {
+				t.Fatalf("output=%+v", output)
+			}
+			runDir := filepath.Join(tempRepository, "private", "runs", scenario.ID, provider, spec.Variant, "run-01")
+			policyData, err := os.ReadFile(filepath.Join(runDir, ".atl-eval", "cli-policy.json"))
+			if err != nil || !strings.Contains(string(policyData), `"jira_fields"`) {
+				t.Fatalf("policy err=%v data=%s", err, policyData)
+			}
+			if _, err := os.Stat(filepath.Join(runDir, "workspace", ".atl-eval")); !os.IsNotExist(err) {
+				t.Fatalf("model-readable telemetry exists: %v", err)
+			}
+			if err := filepath.WalkDir(runDir, func(path string, entry os.DirEntry, walkErr error) error {
+				if walkErr != nil || entry.IsDir() {
+					return walkErr
+				}
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				if bytes.Contains(data, []byte("upstream-secret")) || bytes.Contains(data, []byte(upstream.URL)) {
+					return fmt.Errorf("run artifact retained source backend material")
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	if upstreamRequests != 2 {
+		t.Fatalf("upstream requests=%d", upstreamRequests)
 	}
 }
 
@@ -405,6 +542,43 @@ func TestSafeAgentEnvironmentDropsUnrelatedCredentials(t *testing.T) {
 		if _, ok := environment[name]; ok {
 			t.Errorf("unexpected %s in provider environment", name)
 		}
+	}
+}
+
+func TestReadLiveGatewayRecordsRequiresCompleteAllowedPairs(t *testing.T) {
+	identity := strings.Repeat("a", 64)
+	forward := LiveGatewayAuditRecord{Sequence: 1, Phase: "preflight", Service: "jira", Route: "jira_api", Method: "GET", RequestHMAC: identity, Decision: "forward"}
+	complete := LiveGatewayAuditRecord{Sequence: 2, Phase: "complete", Service: "jira", Route: "jira_api", Method: "GET", RequestHMAC: identity, Decision: "allow", StatusClass: "2xx", ResponseBytes: 7}
+	writeRecords := func(t *testing.T, records ...LiveGatewayAuditRecord) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "audit.jsonl")
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoder := json.NewEncoder(file)
+		for _, record := range records {
+			if err := encoder.Encode(record); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := file.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	methods, duplicates, observed, err := readLiveGatewayRecords(writeRecords(t, forward, complete))
+	if err != nil || !observed || methods["GET"] != 1 || duplicates != 0 {
+		t.Fatalf("methods=%v duplicates=%d observed=%v err=%v", methods, duplicates, observed, err)
+	}
+	if _, _, _, err := readLiveGatewayRecords(writeRecords(t, forward)); err == nil || !strings.Contains(err.Error(), "incomplete") {
+		t.Fatalf("incomplete err=%v", err)
+	}
+	denied := forward
+	denied.Decision = "deny"
+	denied.Reason = "route"
+	if _, _, _, err := readLiveGatewayRecords(writeRecords(t, denied)); err == nil || !strings.Contains(err.Error(), "denied") {
+		t.Fatalf("denied err=%v", err)
 	}
 }
 

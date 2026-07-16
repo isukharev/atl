@@ -42,6 +42,10 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 		}
 		toolNames := claudeToolNames(spec.AllowedTools)
 		allowedTools := spec.AllowedTools
+		settingSources := "project"
+		if spec.EffectiveBackendMode() == BackendModePrivateLive {
+			settingSources = ""
+		}
 		if spec.ToolTransport == "mcp" {
 			if atlBinary == "" || guardPath == "" || mcpConfigPath == "" {
 				return ProviderCommand{}, fmt.Errorf("claude mcp transport requires atl, guard, and MCP config paths")
@@ -54,7 +58,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 			"--no-session-persistence", "--model", spec.Model,
 			"--max-budget-usd", formatMicroUSD(spec.MaxEstimatedCostMicroUSD),
 			"--permission-mode", "dontAsk", "--strict-mcp-config", "--no-chrome",
-			"--setting-sources", "project",
+			"--setting-sources", settingSources,
 			"--tools", strings.Join(toolNames, ","),
 			"--allowed-tools", strings.Join(allowedTools, ","),
 			"--json-schema", string(responseSchema),
@@ -74,13 +78,18 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 		return ProviderCommand{Path: agentBinary, Args: args}, nil
 	case "codex":
 		includeOnly := `["PATH","ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_JIRA_URL","ATL_CONFLUENCE_URL","ATL_JIRA_PAT","ATL_CONFLUENCE_PAT","ATL_ALLOW_INSECURE","ATL_EVAL_REAL_BINARY","ATL_EVAL_COUNTER"]`
+		sandboxMode := "read-only"
 		if spec.ToolTransport == "mcp" {
 			includeOnly = `["PATH","LANG","LC_ALL","TERM"]`
+		}
+		if spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli" {
+			sandboxMode = "workspace-write"
+			includeOnly = `["PATH","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_EVAL_REAL_BINARY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","NO_PROXY","no_proxy"]`
 		}
 		args := []string{
 			"exec", "--json", "--ephemeral", "--strict-config",
 			"--ignore-user-config", "--skip-git-repo-check",
-			"--model", spec.Model, "--sandbox", "read-only", "-C", workspace,
+			"--model", spec.Model, "--sandbox", sandboxMode, "-C", workspace,
 			"--output-schema", schemaPath, "--output-last-message", finalPath,
 			"-c", `shell_environment_policy.inherit="all"`,
 			"-c", `shell_environment_policy.include_only=` + includeOnly,
@@ -98,6 +107,21 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 				"-c", `mcp_servers.atl.enabled_tools=`+quotedStringList(spec.AllowedMCPTools),
 				"-c", `mcp_servers.atl.default_tools_approval_mode="approve"`,
 				"-c", `mcp_servers.atl.env_vars=["ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_JIRA_URL","ATL_CONFLUENCE_URL","ATL_JIRA_PAT","ATL_CONFLUENCE_PAT","ATL_ALLOW_INSECURE","ATL_EVAL_HTTP_GUARD_FILE"]`,
+				"-c", codexDenyNonMCPHook(guardPath),
+			)
+		}
+		if spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli" {
+			if guardPath == "" {
+				return ProviderCommand{}, fmt.Errorf("codex private-live cli transport requires a guard executable")
+			}
+			args = append(args,
+				"--ignore-rules", "--dangerously-bypass-hook-trust",
+				"-c", `approval_policy="never"`,
+				"-c", `web_search="disabled"`,
+				"-c", `sandbox_workspace_write.network_access=true`,
+				"-c", `features.network_proxy.enabled=true`,
+				"-c", `features.network_proxy.domains={"127.0.0.1"="allow"}`,
+				"-c", `features.network_proxy.allow_upstream_proxy=false`,
 				"-c", codexDenyNonMCPHook(guardPath),
 			)
 		}

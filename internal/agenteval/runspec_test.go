@@ -147,6 +147,11 @@ func TestPrivateLiveCLIRunSpecRequiresStructuredArgumentPolicy(t *testing.T) {
 	spec.AllowedTools = []string{"Bash(atl *)", "Read"}
 	spec.AllowedATLCommands = nil
 	spec.AllowedCLICommands = validCLICommandPolicy().Rules
+	spec.AllowedGatewayRoutes = map[string][]LiveGatewayRoute{
+		"jira": {{Name: "jira_api", PathPrefix: "/rest/api/2"}},
+	}
+	spec.GatewayMaxResponseBytes = 1 << 20
+	spec.GatewayMaxTotalBytes = 4 << 20
 	spec.MaxEstimatedCostMicroUSD = scenario.Budgets.MaxEstimatedCostMicroUSD
 	spec.Checks = append(spec.Checks,
 		RunCheck{Name: "http_observed", Kind: "http_methods_observed"},
@@ -165,13 +170,21 @@ func TestPrivateLiveCLIRunSpecRequiresStructuredArgumentPolicy(t *testing.T) {
 		"missing policy": func(s *RunSpec) { s.AllowedCLICommands = nil },
 		"legacy prefix":  func(s *RunSpec) { s.AllowedATLCommands = []string{"atl jira epic digest"} },
 		"mcp tool":       func(s *RunSpec) { s.AllowedMCPTools = []string{"jira_epic_digest"} },
+		"agent tool":     func(s *RunSpec) { s.AllowedTools = append(s.AllowedTools, "Agent") },
 		"bad target":     func(s *RunSpec) { s.AllowedCLICommands[0].Positionals[0].Values[0] = "PROJ-1\nnext" },
+		"no routes":      func(s *RunSpec) { s.AllowedGatewayRoutes = nil },
+		"root route":     func(s *RunSpec) { s.AllowedGatewayRoutes["jira"][0].PathPrefix = "/" },
+		"wide response":  func(s *RunSpec) { s.GatewayMaxResponseBytes = 65 << 20 },
+		"unbounded total": func(s *RunSpec) {
+			s.GatewayMaxTotalBytes = 0
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := spec
 			candidate.AllowedCLICommands = append([]CLICommandRule(nil), spec.AllowedCLICommands...)
 			candidate.AllowedCLICommands[0].Positionals = append([]CLIArgumentRule(nil), spec.AllowedCLICommands[0].Positionals...)
 			candidate.AllowedCLICommands[0].Positionals[0].Values = append([]string(nil), spec.AllowedCLICommands[0].Positionals[0].Values...)
+			candidate.AllowedGatewayRoutes = map[string][]LiveGatewayRoute{"jira": append([]LiveGatewayRoute(nil), spec.AllowedGatewayRoutes["jira"]...)}
 			mutate(&candidate)
 			if err := candidate.Validate(); err == nil {
 				t.Fatal("unsafe private-live CLI spec passed")

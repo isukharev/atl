@@ -86,8 +86,11 @@ Real Jira/Confluence model runs are supported, but their scenario, prompt,
 expected facts, transcripts, answers, reviews, and backend configuration do not
 belong in this directory. Keep them in a maintainer-selected private directory
 outside the repository and use `backend_mode:"private-live"` with
-`--live-config-dir`. The runner requires one typed-MCP repetition, zero writes
-and delegations, a GET/HEAD-only transport guard, and private filesystem modes.
+`--live-config-dir`. The runner requires one repetition, zero writes and
+delegations, private filesystem modes, and either typed MCP under the
+GET/HEAD-only transport guard or exact-argv CLI execution through the local
+credential gateway. CLI cases additionally bind route and response-byte
+budgets; source backend credentials never enter the provider process.
 
 See [the private-live procedure](../../docs/agent-benchmarking.md#private-live-model-in-the-loop-check)
 for the reviewed JSON contract and commands. Public comparisons may contain

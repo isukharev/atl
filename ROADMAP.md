@@ -41,14 +41,12 @@ Recent beta work established the contracts the next wave builds on:
 - synthetic Confluence agent-evaluation cells for duplicate-heading/rich-page
   evidence and multi-page decision synthesis, including hostile-content guards,
   deterministic route budgets, qualitative rubrics, and bounded delegation.
-- opt-in private-live agent evaluation for real Jira/Confluence compatibility,
-  constrained to one typed-MCP run with ephemeral credentials, only confined
-  skill readers outside MCP, and an independent GET/HEAD transport guard; only
-  reviewed aggregates cross the private/public boundary.
-- an evaluation-only loopback credential gateway for the next CLI+skill live
-  benchmark layer: upstream PATs stay outside model/CLI children, origins and
-  read routes are pinned, budgets fail closed, and request identities are
-  retained only as per-run HMACs.
+- opt-in private-live agent evaluation for real Jira/Confluence compatibility
+  through paired typed-MCP and primary CLI+skill paths: MCP uses ephemeral
+  credentials and an independent transport guard, while CLI receives only
+  disposable loopback gateway capabilities under exact argv, route, response,
+  and provider-sandbox budgets; only reviewed aggregates cross the
+  private/public boundary.
 - explicit package-update ownership: Homebrew launchers delegate exclusively to
   `brew upgrade atl`, while a consolidated egress contract separates read-only,
   update-disable, backend traffic, and externally enforced air-gap controls.

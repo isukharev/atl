@@ -256,6 +256,33 @@ func copyWorkspace(source, target string) error {
 	})
 }
 
+func validatePrivateWorkspaceTemplate(source string) error {
+	blockedRoots := map[string]struct{}{".agents": {}, ".claude": {}, ".codex": {}}
+	blockedFiles := map[string]struct{}{".mcp.json": {}, "AGENTS.md": {}, "CLAUDE.md": {}}
+	return filepath.WalkDir(source, func(path string, _ os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == source {
+			return nil
+		}
+		relative, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		parts := strings.Split(filepath.ToSlash(relative), "/")
+		if _, blocked := blockedRoots[parts[0]]; blocked {
+			return fmt.Errorf("private-live workspace contains provider control path %q", relative)
+		}
+		if len(parts) == 1 {
+			if _, blocked := blockedFiles[parts[0]]; blocked {
+				return fmt.Errorf("private-live workspace contains provider control path %q", relative)
+			}
+		}
+		return nil
+	})
+}
+
 func pathWithin(root, target string) (bool, error) {
 	relative, err := filepath.Rel(root, target)
 	if err != nil {

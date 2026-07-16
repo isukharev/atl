@@ -21,28 +21,31 @@ var mcpToolNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 // RunSpec is intentionally separate from Scenario: scenarios define comparable
 // budgets, while run specs define one provider invocation and may remain local.
 type RunSpec struct {
-	SchemaVersion            int              `json:"schema_version"`
-	BackendMode              string           `json:"backend_mode,omitempty"`
-	ScenarioFile             string           `json:"scenario_file"`
-	Provider                 string           `json:"provider"`
-	Variant                  string           `json:"variant"`
-	Model                    string           `json:"model"`
-	Reasoning                string           `json:"reasoning,omitempty"`
-	PromptFile               string           `json:"prompt_file"`
-	ResponseSchemaFile       string           `json:"response_schema_file"`
-	QualitativeRubricFile    string           `json:"qualitative_rubric_file"`
-	WorkspaceTemplate        string           `json:"workspace_template"`
-	FixtureFile              string           `json:"fixture_file"`
-	Repetitions              int              `json:"repetitions"`
-	TimeoutSeconds           int              `json:"timeout_seconds"`
-	MaxEstimatedCostMicroUSD int64            `json:"max_estimated_cost_microusd"`
-	Pricing                  Pricing          `json:"pricing"`
-	ToolTransport            string           `json:"tool_transport,omitempty"`
-	AllowedTools             []string         `json:"allowed_tools"`
-	AllowedATLCommands       []string         `json:"allowed_atl_commands"`
-	AllowedCLICommands       []CLICommandRule `json:"allowed_cli_commands,omitempty"`
-	AllowedMCPTools          []string         `json:"allowed_mcp_tools,omitempty"`
-	Checks                   []RunCheck       `json:"checks"`
+	SchemaVersion            int                           `json:"schema_version"`
+	BackendMode              string                        `json:"backend_mode,omitempty"`
+	ScenarioFile             string                        `json:"scenario_file"`
+	Provider                 string                        `json:"provider"`
+	Variant                  string                        `json:"variant"`
+	Model                    string                        `json:"model"`
+	Reasoning                string                        `json:"reasoning,omitempty"`
+	PromptFile               string                        `json:"prompt_file"`
+	ResponseSchemaFile       string                        `json:"response_schema_file"`
+	QualitativeRubricFile    string                        `json:"qualitative_rubric_file"`
+	WorkspaceTemplate        string                        `json:"workspace_template"`
+	FixtureFile              string                        `json:"fixture_file"`
+	Repetitions              int                           `json:"repetitions"`
+	TimeoutSeconds           int                           `json:"timeout_seconds"`
+	MaxEstimatedCostMicroUSD int64                         `json:"max_estimated_cost_microusd"`
+	Pricing                  Pricing                       `json:"pricing"`
+	ToolTransport            string                        `json:"tool_transport,omitempty"`
+	AllowedTools             []string                      `json:"allowed_tools"`
+	AllowedATLCommands       []string                      `json:"allowed_atl_commands"`
+	AllowedCLICommands       []CLICommandRule              `json:"allowed_cli_commands,omitempty"`
+	AllowedMCPTools          []string                      `json:"allowed_mcp_tools,omitempty"`
+	AllowedGatewayRoutes     map[string][]LiveGatewayRoute `json:"allowed_gateway_routes,omitempty"`
+	GatewayMaxResponseBytes  int64                         `json:"gateway_max_response_bytes,omitempty"`
+	GatewayMaxTotalBytes     int64                         `json:"gateway_max_total_response_bytes,omitempty"`
+	Checks                   []RunCheck                    `json:"checks"`
 }
 
 const (
@@ -188,6 +191,21 @@ func (s RunSpec) Validate() error {
 			if err := (CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: s.AllowedCLICommands}).Validate(); err != nil {
 				return fmt.Errorf("allowed_cli_commands: %w", err)
 			}
+			allowedPrivateTools := map[string]bool{"Bash(atl *)": true, "Read": true, "Skill": true}
+			for _, tool := range s.AllowedTools {
+				if !allowedPrivateTools[tool] {
+					return fmt.Errorf("private-live cli transport has unsupported allowed tool %q", tool)
+				}
+			}
+			if !containsRunString(s.AllowedTools, "Bash(atl *)") {
+				return fmt.Errorf("private-live cli transport requires Bash(atl *)")
+			}
+			if err := validateLiveGatewayRoutePolicy(s.AllowedGatewayRoutes); err != nil {
+				return fmt.Errorf("allowed_gateway_routes: %w", err)
+			}
+			if s.GatewayMaxResponseBytes < 1 || s.GatewayMaxResponseBytes > 64<<20 || s.GatewayMaxTotalBytes < s.GatewayMaxResponseBytes || s.GatewayMaxTotalBytes > 256<<20 {
+				return fmt.Errorf("private-live cli gateway response budgets are invalid")
+			}
 		}
 	}
 	if transport == "mcp" && (len(s.AllowedATLCommands) != 0 || len(s.AllowedCLICommands) != 0) {
@@ -208,6 +226,9 @@ func (s RunSpec) Validate() error {
 	}
 	if transport == "cli" && len(s.AllowedMCPTools) != 0 {
 		return fmt.Errorf("allowed_mcp_tools must be empty for cli transport")
+	}
+	if (s.EffectiveBackendMode() != BackendModePrivateLive || transport != "cli") && (len(s.AllowedGatewayRoutes) != 0 || s.GatewayMaxResponseBytes != 0 || s.GatewayMaxTotalBytes != 0) {
+		return fmt.Errorf("gateway policy is only valid for private-live cli transport")
 	}
 	seenMCPTools := map[string]struct{}{}
 	for _, tool := range s.AllowedMCPTools {
@@ -273,6 +294,15 @@ func (s RunSpec) Validate() error {
 		}
 	}
 	return nil
+}
+
+func containsRunString(values []string, candidate string) bool {
+	for _, value := range values {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {

@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -29,6 +30,31 @@ func TestPreparePrivateOutputRootRequiresIgnoreInsideRepository(t *testing.T) {
 	}
 	if _, err := PreparePrivateOutputRoot(filepath.Join(repository, "tracked"), repository); err == nil {
 		t.Fatal("non-ignored output root passed")
+	}
+}
+
+func TestPrivateWorkspaceRejectsProviderControlFiles(t *testing.T) {
+	for _, relative := range []string{"AGENTS.md", "CLAUDE.md", ".mcp.json", ".agents/skills/custom/SKILL.md", ".claude/settings.json", ".codex/config.toml"} {
+		t.Run(relative, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, filepath.FromSlash(relative))
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("unreviewed provider control"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := validatePrivateWorkspaceTemplate(root); err == nil || !strings.Contains(err.Error(), "provider control") {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "evidence.md"), []byte("reviewed evidence"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validatePrivateWorkspaceTemplate(root); err != nil {
+		t.Fatal(err)
 	}
 }
 

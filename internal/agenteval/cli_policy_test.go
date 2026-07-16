@@ -40,6 +40,9 @@ func TestCLICommandPolicyMatchesOnlyReviewedArguments(t *testing.T) {
 	if match.Name != "jira_digest" || match.MaxInvocations != 2 {
 		t.Fatalf("match=%+v", match)
 	}
+	if _, err := policy.Match([]string{"--read-only", "jira", "epic", "digest", "PROJ-1", "--quarter", "2026-Q2"}); err != nil {
+		t.Fatalf("monotonic global read-only flag: %v", err)
+	}
 
 	for name, args := range map[string][]string{
 		"changed target":   {"jira", "epic", "digest", "PROJ-2", "--quarter", "2026-Q2"},
@@ -50,6 +53,7 @@ func TestCLICommandPolicyMatchesOnlyReviewedArguments(t *testing.T) {
 		"joined flag":      {"jira", "epic", "digest", "PROJ-1", "--quarter=2026-Q2"},
 		"separator":        {"jira", "epic", "digest", "PROJ-1", "--quarter", "2026-Q2", "--"},
 		"wrong value":      {"jira", "epic", "digest", "PROJ-1", "--quarter", "2026-Q3"},
+		"duplicate global": {"--read-only", "--read-only", "jira", "epic", "digest", "PROJ-1", "--quarter", "2026-Q2"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := policy.Match(args); err == nil {
