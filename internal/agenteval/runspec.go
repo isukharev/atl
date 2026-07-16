@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -14,6 +15,8 @@ const (
 	maxRunSpecBytes      = 1 << 20
 	maxRunCostMicroUSD   = 10_000_000
 )
+
+var mcpToolNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 
 // RunSpec is intentionally separate from Scenario: scenarios define comparable
 // budgets, while run specs define one provider invocation and may remain local.
@@ -32,8 +35,10 @@ type RunSpec struct {
 	TimeoutSeconds           int        `json:"timeout_seconds"`
 	MaxEstimatedCostMicroUSD int64      `json:"max_estimated_cost_microusd"`
 	Pricing                  Pricing    `json:"pricing"`
+	ToolTransport            string     `json:"tool_transport,omitempty"`
 	AllowedTools             []string   `json:"allowed_tools"`
 	AllowedATLCommands       []string   `json:"allowed_atl_commands"`
+	AllowedMCPTools          []string   `json:"allowed_mcp_tools,omitempty"`
 	Checks                   []RunCheck `json:"checks"`
 }
 
@@ -110,8 +115,21 @@ func (s RunSpec) Validate() error {
 	if s.Provider == "codex" && (s.Pricing.InputMicroUSDPerMillionTokens == 0 || s.Pricing.OutputMicroUSDPerMillionTokens == 0) {
 		return fmt.Errorf("codex runs require explicit input and output pricing")
 	}
-	if len(s.AllowedTools) == 0 || len(s.AllowedTools) > 32 {
-		return fmt.Errorf("allowed_tools must contain 1..32 entries")
+	transport := s.ToolTransport
+	if transport == "" {
+		transport = "cli"
+	}
+	if transport != "cli" && transport != "mcp" {
+		return fmt.Errorf("tool_transport must be cli or mcp")
+	}
+	if transport == "mcp" && s.Provider != "codex" {
+		return fmt.Errorf("mcp tool_transport is currently supported only for codex")
+	}
+	if transport == "cli" && (len(s.AllowedTools) == 0 || len(s.AllowedTools) > 32) {
+		return fmt.Errorf("allowed_tools must contain 1..32 entries for cli transport")
+	}
+	if transport == "mcp" && len(s.AllowedTools) != 0 {
+		return fmt.Errorf("allowed_tools must be empty for mcp transport")
 	}
 	seenTools := map[string]struct{}{}
 	for _, tool := range s.AllowedTools {
@@ -123,8 +141,11 @@ func (s RunSpec) Validate() error {
 		}
 		seenTools[tool] = struct{}{}
 	}
-	if len(s.AllowedATLCommands) == 0 || len(s.AllowedATLCommands) > 32 {
-		return fmt.Errorf("allowed_atl_commands must contain 1..32 entries")
+	if transport == "cli" && (len(s.AllowedATLCommands) == 0 || len(s.AllowedATLCommands) > 32) {
+		return fmt.Errorf("allowed_atl_commands must contain 1..32 entries for cli transport")
+	}
+	if transport == "mcp" && len(s.AllowedATLCommands) != 0 {
+		return fmt.Errorf("allowed_atl_commands must be empty for mcp transport")
 	}
 	seenCommands := map[string]struct{}{}
 	for _, command := range s.AllowedATLCommands {
@@ -135,6 +156,22 @@ func (s RunSpec) Validate() error {
 			return fmt.Errorf("duplicate allowed atl command prefix %q", command)
 		}
 		seenCommands[command] = struct{}{}
+	}
+	if transport == "mcp" && (len(s.AllowedMCPTools) == 0 || len(s.AllowedMCPTools) > 16) {
+		return fmt.Errorf("allowed_mcp_tools must contain 1..16 entries for mcp transport")
+	}
+	if transport == "cli" && len(s.AllowedMCPTools) != 0 {
+		return fmt.Errorf("allowed_mcp_tools must be empty for cli transport")
+	}
+	seenMCPTools := map[string]struct{}{}
+	for _, tool := range s.AllowedMCPTools {
+		if tool != strings.TrimSpace(tool) || !mcpToolNameRE.MatchString(tool) || len(tool) > 128 {
+			return fmt.Errorf("invalid allowed MCP tool %q", tool)
+		}
+		if _, ok := seenMCPTools[tool]; ok {
+			return fmt.Errorf("duplicate allowed MCP tool %q", tool)
+		}
+		seenMCPTools[tool] = struct{}{}
 	}
 	if len(s.Checks) == 0 || len(s.Checks) > maxContractListEntries {
 		return fmt.Errorf("checks must contain 1..%d entries", maxContractListEntries)

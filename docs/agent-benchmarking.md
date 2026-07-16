@@ -148,7 +148,7 @@ must not report an empty method map as measured zero traffic.
 
 Committed run specs bind one scenario to an exact provider/model, prompt,
 structured response schema, deterministic mock fixture, oracle checks, reviewed
-`allowed_atl_commands` prefixes, repetitions, timeout, and a whole-run
+CLI command prefixes or typed MCP tool names, repetitions, timeout, and a whole-run
 USD-equivalent cap. Review the provider command without contacting a model:
 
 ```sh
@@ -176,14 +176,18 @@ preceded by the exact `export ATL_READ_ONLY=1`, and only when it matches a
 run-spec `allowed_atl_commands` prefix. Shell operators, substitutions,
 redirections, multiline scripts, and unrelated binaries are denied before Bash.
 Codex gets the same generated skills in `.agents/skills` for a reviewable
-ephemeral read-only command preview, but real Codex model execution is disabled:
-its OS sandbox cannot safely reach the host-side mock, and widening network plus
-filesystem access would violate the runner's trust boundary. Codex specs can be
-validated and dry-run until an isolated typed tool or external container is
-available. Claude loads project settings only. Supported model runs inherit
-`ATL_READ_ONLY=1`, `ATL_NO_UPDATE=1`, synthetic loopback backend URLs/tokens,
-and an `atl` proxy that counts invocations and stdout bytes without retaining
-command arguments in the result contract. Proxy counters, config, and mirror
+ephemeral read-only command preview. CLI-transport Codex specs remain
+validate/dry-run only because its OS sandbox cannot safely reach the host-side
+mock. Real Codex runs require `tool_transport:"mcp"`: the runner starts the
+exact reviewed `atl mcp serve` binary, enables only `allowed_mcp_tools`, disables
+web search, removes atl credentials from the model shell environment, and
+denies shell/file/patch/delegation tools through `PreToolUse`. The fixture
+credentials are synthetic and reach the MCP child through named environment
+forwarding. Claude loads project settings only. Supported model runs inherit
+`ATL_READ_ONLY=1`, `ATL_NO_UPDATE=1`, and synthetic loopback backend URLs/tokens.
+CLI runs use an `atl` proxy that counts invocations and stdout bytes without retaining
+command arguments; MCP runs count completed typed calls/failures and result bytes
+from the provider event stream. Proxy counters, config, and mirror
 state are writable only below the private run workspace. The runner requests a
 proxy-only subprocess `PATH`, but provider shells may expose system helpers;
 the `PreToolUse` guard is therefore the authoritative command boundary rather
@@ -213,11 +217,12 @@ cap across repetitions for the provider invocation and stops remaining runs if
 the measured total exhausts it. `--repetitions 1` may reduce, but never increase,
 the reviewed repetition count.
 
-Codex currently has no runner-level shell command allowlist equivalent to
-Claude's `--allowed-tools`. Prompt-injection and corporate model-in-the-loop
-runs remain disabled until the agent can access the backend through a stronger
-container or isolated typed tool surface; supervised corporate checks below
-stay agentless and read-only.
+Codex's native tools are not treated as an allowlist surface equivalent to
+Claude's `--allowed-tools`; MCP mode denies them through the reviewed hook and
+removes atl credentials from their shell environment. Prompt-injection against
+the committed synthetic fixture is supported. Corporate model-in-the-loop runs
+remain disabled; supervised corporate checks below stay agentless and
+read-only.
 
 ## Deterministic contract budgets
 

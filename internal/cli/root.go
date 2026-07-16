@@ -17,6 +17,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/isukharev/atl/internal/config"
+	"github.com/isukharev/atl/internal/diagnostic"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
 	"github.com/isukharev/atl/internal/version"
@@ -88,31 +89,7 @@ func classifyError(err error) (kind, remediation string) {
 	if _, ok := readOnlyErrorMetadata(err); ok {
 		return "read_only_policy", "request_human_approval"
 	}
-	switch {
-	case errors.Is(err, domain.ErrAuth):
-		return "authentication_failed", "reauthenticate"
-	case errors.Is(err, domain.ErrNotFound):
-		return "not_found", "verify_identifier_or_access"
-	case errors.Is(err, domain.ErrVersionConflict):
-		return "version_conflict", "refresh_and_reapply"
-	case errors.Is(err, domain.ErrForbidden):
-		return "forbidden", "request_access"
-	case errors.Is(err, domain.ErrConfig):
-		return "configuration_error", "complete_configuration"
-	case errors.Is(err, domain.ErrCheckFailed):
-		return "check_failed", "review_failed_check"
-	case errors.Is(err, domain.ErrUsage):
-		return "usage_error", "fix_request"
-	}
-	var transportErr *httpx.TransportError
-	if errors.As(err, &transportErr) {
-		return "transport_error", "inspect_network_before_retry"
-	}
-	var apiErr *httpx.APIError
-	if errors.As(err, &apiErr) {
-		return "api_error", "inspect_backend_error"
-	}
-	return "unexpected_error", "inspect_error"
+	return diagnostic.Classify(err)
 }
 
 func newRoot() *cobra.Command {
@@ -132,7 +109,7 @@ func newRoot() *cobra.Command {
 	root.SetFlagErrorFunc(func(_ *cobra.Command, e error) error {
 		return usageErr("%v", e)
 	})
-	root.AddCommand(newConfCmd(), newJiraCmd(), newCapabilitiesCmd(), newEnvironmentCmd(), newAuthCmd(), newConfigCmd(), newProfileCmd(), newManifestCmd(), newVersionCmd())
+	root.AddCommand(newConfCmd(), newJiraCmd(), newCapabilitiesCmd(), newEnvironmentCmd(), newMCPCommand(), newAuthCmd(), newConfigCmd(), newProfileCmd(), newManifestCmd(), newVersionCmd())
 	// Validate the global output format, then run a best-effort self-update check
 	// (never blocks/fails the command).
 	root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {

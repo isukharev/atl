@@ -31,15 +31,9 @@ a deliberately conservative configurable token-rate estimate for budget
 enforcement; it is benchmark accounting, not a claim about current product or
 subscription pricing. Review that estimate when pinning a new baseline model.
 
-Claude Code receives the repository plugin through `--plugin-dir`. Codex gets
-the same generated skills copied into the isolated workspace's
-`.agents/skills/` directory for command review, but actual Codex model execution
-is fail-closed: its read-only OS sandbox cannot safely reach the host-side mock,
-while granting broader network/filesystem access would violate this runner's
-trust boundary. Codex specs support validation and `--dry-run` only until a
-typed tool or external container supplies the missing isolation. Claude Code is
-the supported model-in-loop provider and receives both a Bash allow-rule and a
-`PreToolUse` guard limited to the run spec's `allowed_atl_commands`. The guard
+Claude Code receives the repository plugin through `--plugin-dir`, a Bash
+allow-rule, and a `PreToolUse` guard limited to the run spec's
+`allowed_atl_commands`. The guard
 permits one reviewed `atl` command per Bash call and rejects shell operators,
 substitution, redirection, multiline scripts, and unrelated executables.
 The runner requests a proxy-only subprocess `PATH`, but does not trust PATH as a
@@ -47,6 +41,15 @@ security boundary: the `PreToolUse` hook denies unrelated binaries before Bash,
 and every accepted `atl` invocation still crosses the accounting proxy. The
 same hook confines Claude `Read` to the synthetic workspace and shipped skill
 tree after symlink resolution.
+
+Codex model execution is enabled only for `tool_transport:"mcp"` run specs.
+The runner starts the exact built `atl mcp serve` binary, exposes only
+`allowed_mcp_tools`, disables web search, removes atl credentials from the
+model's shell environment, and uses a reviewed `PreToolUse` hook to deny shell,
+file, patch, and delegation tools. Named environment forwarding makes the
+synthetic fixture credentials available to the MCP child while excluding them
+from the model shell environment. CLI-transport Codex specs remain validate/dry-run
+only because its read-only OS sandbox cannot safely reach the host-side mock.
 
 `jira-injection-evidence` holds the task and correctness oracle constant across
 `single-agent` and `one-subagent` variants. Jira description text contains a
@@ -95,6 +98,12 @@ GET-only route:
   --output-root "$ATL_AGENT_EVAL_OUTPUT" --repository-root . \
   --agent-binary "$(command -v claude)" --atl-binary "$PWD/atl" \
   --plugin-root . --repetitions 1
+
+/tmp/agent-eval run \
+  --spec benchmarks/agent-eval/jira-quarter-portfolio/run.mcp.codex.json \
+  --output-root "$ATL_AGENT_EVAL_OUTPUT" --repository-root . \
+  --agent-binary "$(command -v codex)" --atl-binary "$PWD/atl" \
+  --plugin-root . --repetitions 1
 ```
 
 The first reviewed pair kept backend work identical (nine ATL calls, fifteen
@@ -104,11 +113,16 @@ about 12%, and duration about 25%. Treat these one-run values as a directional
 baseline, not a statistically stable performance claim: delegation is useful
 to protect an already-long parent context, not for one epic or one section.
 
+The first typed-MCP Codex run reached the same correctness oracle with eight
+MCP calls, fifteen GETs, two duplicate request targets, zero writes, and zero
+guard denials in one provider turn. It validates safety and route feasibility,
+not a speed/token comparison with Claude Code: compare performance only within
+the same provider/model and repeat enough runs for a stable baseline.
+
 The runner is intended for provider subscription authentication already stored
 by the provider CLI. It does not forward API-key or unrelated credential
 environment variables into the agent process. Use deterministic evaluation or
 a separately reviewed runner before introducing API-key authentication.
 
 Do not use this runner for injected corporate content. The committed injection
-case is synthetic and contains no private backend data. Codex requires the
-stronger typed-tool/container boundary above.
+and MCP cases are synthetic and contain no private backend data.

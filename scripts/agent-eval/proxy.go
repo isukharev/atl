@@ -37,12 +37,16 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 		return 2
 	}
 	var hook claudeHookInput
-	if err := json.Unmarshal(data, &hook); err != nil || (hook.ToolName != "Bash" && hook.ToolName != "Agent" && hook.ToolName != "Read") {
+	if err := json.Unmarshal(data, &hook); err != nil || !knownGuardTool(hook.ToolName) {
 		fmt.Fprintln(errorOutput, "atl evaluation guard rejected malformed hook input")
 		return 2
 	}
 	decision := "deny"
 	var reason string
+	if os.Getenv("ATL_EVAL_GUARD_MODE") == "mcp-only" {
+		reason = "typed-MCP benchmark blocks every non-MCP model tool"
+		return writeGuardDecision(output, errorOutput, decision, reason)
+	}
 	switch hook.ToolName {
 	case "Bash":
 		var allowed []string
@@ -80,6 +84,19 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 			reason = "read target is outside reviewed benchmark roots"
 		}
 	}
+	return writeGuardDecision(output, errorOutput, decision, reason)
+}
+
+func knownGuardTool(name string) bool {
+	switch name {
+	case "Bash", "Agent", "Read", "apply_patch", "Edit", "Write":
+		return true
+	default:
+		return false
+	}
+}
+
+func writeGuardDecision(output, errorOutput io.Writer, decision, reason string) int {
 	if err := appendGuardRecord(os.Getenv("ATL_EVAL_GUARD_COUNTER"), guardRecord{Decision: decision}); err != nil {
 		fmt.Fprintln(errorOutput, "atl evaluation guard could not record its decision")
 		return 2

@@ -222,6 +222,7 @@ jira transitions
 jira user get
 jira user search
 manifest create
+mcp serve
 profile apply
 profile guidance
 profile preview

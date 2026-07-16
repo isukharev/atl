@@ -1,7 +1,7 @@
 {
   "name": "atl",
   "version": "0.4.0",
-  "description": "Mirror, edit, validate, and push Confluence pages and Jira issues with the atl CLI",
+  "description": "Read, mirror, edit, validate, and push Confluence pages and Jira issues with atl",
   "author": {
     "name": "Ivan Sukharev",
     "url": "https://github.com/isukharev"
@@ -19,14 +19,16 @@
     "codex"
   ],
   "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "atl",
     "shortDescription": "Confluence and Jira workflows for coding agents",
-    "longDescription": "Use the atl CLI from Codex to mirror Confluence pages and Jira issues to local files, search them, edit native formats where supported, and push deliberate changes under version and safety checks.",
+    "longDescription": "Use typed read-only MCP tools for bounded evidence, or the atl CLI to mirror Confluence pages and Jira issues, edit native formats, and push deliberate changes under version and safety checks.",
     "developerName": "Ivan Sukharev",
     "category": "Productivity",
     "capabilities": [
       "Interactive",
+      "Read",
       "Write"
     ],
     "websiteURL": "https://github.com/isukharev/atl",

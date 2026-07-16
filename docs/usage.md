@@ -85,6 +85,21 @@ at execution. CI verifies that every catalog command exists and these facts do
 not drift. The catalog describes safe routing only; it never grants approval to
 execute a mutating entry.
 
+### `atl mcp serve`
+
+Run the typed remote-read-only agent tool surface over MCP stdio:
+
+```bash
+atl mcp serve
+```
+
+The process registers seven explicit Jira/Confluence evidence tools and no
+mutation, shell, arbitrary-file, mirror-write, or raw-REST tool. Stdout is
+reserved for protocol frames, startup skips self-update, and tool errors expose
+the same stable `kind`/`remediation` classes as CLI JSON. Install through the
+Claude Code/Codex plugin or see [mcp.md](mcp.md) for the exact tools, bounds,
+standalone Codex config, and CLI fallback guidance.
+
 ### Body input (`--from-file`)
 
 Commands that accept a document body (CSF or Jira wiki) read it from a file

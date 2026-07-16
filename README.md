@@ -50,6 +50,8 @@ Confluence durable-view marker checks accept either LF or CRLF line endings.
   [docs/self-update.md](docs/self-update.md) and [SECURITY.md](SECURITY.md).
 - **Scripting-friendly** — JSON to stdout, logs/errors to stderr, no interactive prompts,
   well-defined exit codes.
+- **Typed read-only MCP** — `atl mcp serve` gives agents seven bounded Jira/Confluence
+  evidence tools with no write, shell, raw REST, or arbitrary-file surface.
 - **Single static binary** — `CGO_ENABLED=0`, runs anywhere Go 1.26 runs.
 
 ---
@@ -86,7 +88,7 @@ brew install isukharev/tap/atl
 > The formula (`atl.rb`, pinned to each binary's SHA-256) is published with every release. If the
 > tap is not yet available, use the quick install or `go install` above.
 
-**Requirements:** Linux or macOS (amd64/arm64). Building from source needs Go 1.26+; the prebuilt
+**Requirements:** Linux or macOS (amd64/arm64). Building from source needs Go 1.26.5+; the prebuilt
 binary has no runtime dependencies.
 
 ---
@@ -138,7 +140,8 @@ backend URLs, and agrees on a local mirror directory. After that, Claude Code au
 shared skills listed below when relevant. Plugin versions track CLI releases — enable
 auto-update for the atl marketplace (`/plugin` → Marketplaces → Enable auto-update; off by default
 for third-party marketplaces) so each release updates the skills together with the self-updating
-binary.
+binary. The plugin also bundles the same typed read-only MCP server described
+under Codex below; restart Claude Code after the binary is configured.
 
 ### Codex
 
@@ -153,7 +156,9 @@ codex plugin add atl@atl
 Then start a new Codex session, invoke the `setup` skill from `/skills` or with `$setup`, and let it
 install/configure the `atl` CLI. Optionally invoke `$onboarding` afterward to build a reviewed,
 private workflow profile from explicitly approved examples. After setup, Codex can invoke the same
-shared skills when relevant.
+shared skills when relevant. The plugin also starts the binary's typed read-only MCP surface;
+begin a new session after installing/configuring `atl`. See [docs/mcp.md](docs/mcp.md)
+for its seven tools, bounds, and standalone setup.
 
 Core skills:
 
@@ -178,6 +183,11 @@ atl capabilities --task confluence/edit -o text
 It returns only a small ordered set of real command paths plus their access,
 output, completeness, and focused skill-reference contracts. It loads no
 config/credentials and makes no network request.
+
+For transient Jira/Confluence evidence, the installed plugins can call the same
+application services through typed MCP tools instead of constructing shell
+commands. Use the CLI for durable mirrors, Structure, exports, diff/plan, and
+all guarded writes; the MCP v1 surface is remote-read-only by construction.
 
 On top of those references, the plugin ships workflow recipes — end-to-end processes with
 built-in approval gates before anything is created:

@@ -73,11 +73,12 @@ lint:
 .PHONY: gen-plugins
 gen-plugins:
 	go run ./scripts/gen-plugins
+	cp .mcp.json plugins/atl/.mcp.json
 
 .PHONY: check-plugins
 check-plugins: gen-plugins check-skill-safety
-	@test -z "$$(git status --porcelain -- skills plugins/atl/skills)" || { \
-		git status --porcelain -- skills plugins/atl/skills; \
+	@test -z "$$(git status --porcelain -- skills plugins/atl/skills plugins/atl/.mcp.json)" || { \
+		git status --porcelain -- skills plugins/atl/skills plugins/atl/.mcp.json; \
 		echo "generated plugin trees are stale or hand-edited: edit skills-src/, run 'make gen-plugins', commit all three trees"; exit 1; }
 
 .PHONY: check-skill-safety

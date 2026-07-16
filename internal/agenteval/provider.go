@@ -25,10 +25,13 @@ type ProviderMetrics struct {
 	MainThreadOutputTokens int64
 	EstimatedCostMicroUSD  int64
 	DurationMillis         int64
+	MCPToolCalls           int
+	FailedMCPToolCalls     int
+	MCPToolOutputBytes     int64
 	Coverage               map[string]bool
 }
 
-func BuildProviderCommand(spec RunSpec, agentBinary, workspace, schemaPath, finalPath, pluginRoot, settingsPath string, responseSchema []byte) (ProviderCommand, error) {
+func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, workspace, schemaPath, finalPath, pluginRoot, settingsPath string, responseSchema []byte) (ProviderCommand, error) {
 	if err := spec.Validate(); err != nil {
 		return ProviderCommand{}, err
 	}
@@ -58,13 +61,33 @@ func BuildProviderCommand(spec RunSpec, agentBinary, workspace, schemaPath, fina
 		}
 		return ProviderCommand{Path: agentBinary, Args: args}, nil
 	case "codex":
+		includeOnly := `["PATH","ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_JIRA_URL","ATL_CONFLUENCE_URL","ATL_JIRA_PAT","ATL_CONFLUENCE_PAT","ATL_ALLOW_INSECURE","ATL_EVAL_REAL_BINARY","ATL_EVAL_COUNTER"]`
+		if spec.ToolTransport == "mcp" {
+			includeOnly = `["PATH","LANG","LC_ALL","TERM"]`
+		}
 		args := []string{
 			"exec", "--json", "--ephemeral", "--strict-config",
 			"--ignore-user-config", "--skip-git-repo-check",
 			"--model", spec.Model, "--sandbox", "read-only", "-C", workspace,
 			"--output-schema", schemaPath, "--output-last-message", finalPath,
 			"-c", `shell_environment_policy.inherit="all"`,
-			"-c", `shell_environment_policy.include_only=["PATH","ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_JIRA_URL","ATL_CONFLUENCE_URL","ATL_JIRA_PAT","ATL_CONFLUENCE_PAT","ATL_ALLOW_INSECURE","ATL_EVAL_REAL_BINARY","ATL_EVAL_COUNTER"]`,
+			"-c", `shell_environment_policy.include_only=` + includeOnly,
+		}
+		if spec.ToolTransport == "mcp" {
+			if atlBinary == "" || guardPath == "" {
+				return ProviderCommand{}, fmt.Errorf("codex mcp transport requires atl and guard executables")
+			}
+			args = append(args,
+				"--dangerously-bypass-hook-trust",
+				"-c", `web_search="disabled"`,
+				"-c", `mcp_servers.atl.command=`+strconv.Quote(atlBinary),
+				"-c", `mcp_servers.atl.args=["mcp","serve"]`,
+				"-c", `mcp_servers.atl.required=true`,
+				"-c", `mcp_servers.atl.enabled_tools=`+quotedStringList(spec.AllowedMCPTools),
+				"-c", `mcp_servers.atl.default_tools_approval_mode="approve"`,
+				"-c", `mcp_servers.atl.env_vars=["ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_JIRA_URL","ATL_CONFLUENCE_URL","ATL_JIRA_PAT","ATL_CONFLUENCE_PAT","ATL_ALLOW_INSECURE"]`,
+				"-c", codexDenyNonMCPHook(guardPath),
+			)
 		}
 		if spec.Reasoning != "" {
 			args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(spec.Reasoning))
@@ -74,6 +97,18 @@ func BuildProviderCommand(spec RunSpec, agentBinary, workspace, schemaPath, fina
 	default:
 		return ProviderCommand{}, fmt.Errorf("unsupported provider %q", spec.Provider)
 	}
+}
+
+func quotedStringList(values []string) string {
+	quoted := make([]string, len(values))
+	for i, value := range values {
+		quoted[i] = strconv.Quote(value)
+	}
+	return "[" + strings.Join(quoted, ",") + "]"
+}
+
+func codexDenyNonMCPHook(guardPath string) string {
+	return `hooks.PreToolUse=[{matcher="^(Bash|apply_patch|Edit|Write|Read|Agent)$",hooks=[{type="command",command=` + strconv.Quote(guardPath) + `,timeout=5}]}]`
 }
 
 func claudeToolNames(rules []string) []string {
@@ -202,7 +237,7 @@ func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
 }
 
 func parseCodexOutput(data []byte) (ProviderMetrics, error) {
-	metrics := ProviderMetrics{Coverage: map[string]bool{"tool_calls": true}}
+	metrics := ProviderMetrics{Coverage: map[string]bool{"tool_calls": true, "delegations": true}}
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 64<<10), 4<<20)
 	for scanner.Scan() {
@@ -214,8 +249,22 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 		case "item.completed":
 			if item, ok := event["item"].(map[string]any); ok {
 				kind, _ := item["type"].(string)
-				if kind != "agent_message" && kind != "reasoning" {
+				// Codex also emits completed diagnostic "error" items for
+				// invocation-level warnings (for example reviewed hook trust).
+				// They are neither model tool calls nor failed tool results.
+				if kind != "agent_message" && kind != "reasoning" && kind != "error" {
 					metrics.ToolCalls++
+				}
+				if kind == "mcp_tool_call" {
+					metrics.MCPToolCalls++
+					if status, _ := item["status"].(string); status == "failed" {
+						metrics.FailedMCPToolCalls++
+					}
+					if result, ok := item["result"]; ok {
+						if data, err := json.Marshal(result); err == nil {
+							metrics.MCPToolOutputBytes += int64(len(data))
+						}
+					}
 				}
 			}
 		case "turn.completed":

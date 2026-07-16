@@ -39,7 +39,7 @@ Or pass the env inline for a one-off (no file): `ATL_INTEGRATION=1 CONFLUENCE_UR
 ATL_TEST_PAGE_ID=<throwaway-page-id> go test ./... -run Integration`. Jira `field-options` coverage
 also needs `ATL_TEST_JIRA_PROJECT` + `ATL_TEST_JIRA_FIELD` (e.g. `priority`).
 
-Requires Go 1.26+. CI enforces `gofmt` and `goimports` (`local-prefixes = github.com/isukharev/atl`)
+Requires Go 1.26.5+. CI enforces `gofmt` and `goimports` (`local-prefixes = github.com/isukharev/atl`)
 and pins `golangci-lint` (v2.12.2) and `govulncheck` (v1.4.0) — match these locally to avoid lint drift.
 
 ## Architecture

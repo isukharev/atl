@@ -37,6 +37,13 @@ never disable it just to finish a requested Jira write.
 For other failures, use JSON `kind`/`remediation` instead of parsing `error`;
 never turn remediation guidance into an automatic write retry.
 
+If the plugin exposes the typed `atl` MCP surface, prefer `jira_fields`,
+`jira_issue_search`, `jira_epic_digest`, and `jira_board_view` for transient
+bounded reads. They return the same app-level evidence contracts without shell
+construction and cannot write. Use this CLI skill for Structure, mirrors,
+exports, attachments, operations absent from MCP, and all guarded mutations.
+The `atl` skill's `reference/mcp.md` defines the exact boundary.
+
 **Preflight:** `atl` must be installed and configured (Jira URL + PAT). If `command -v atl` fails or
 `atl config show` has an empty `jira_url` (or any command exits `7` = "not configured"), **run
 `$setup` and stop** instead of pushing on. The recommended mirror

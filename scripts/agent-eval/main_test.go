@@ -73,6 +73,32 @@ func TestClaudeBashGuardEmitsPreToolDecision(t *testing.T) {
 	}
 }
 
+func TestToolGuardBlocksEveryNonMCPToolInMCPMode(t *testing.T) {
+	t.Setenv("ATL_EVAL_GUARD_MODE", "mcp-only")
+	t.Setenv("ATL_EVAL_ALLOWED_COMMANDS", `["atl jira fields"]`)
+	counter := t.TempDir() + "/guard.jsonl"
+	t.Setenv("ATL_EVAL_GUARD_COUNTER", counter)
+	for _, input := range []string{
+		`{"tool_name":"Bash","tool_input":{"command":"atl jira fields"}}`,
+		`{"tool_name":"apply_patch","tool_input":{"patch":"synthetic"}}`,
+	} {
+		var output, errorOutput bytes.Buffer
+		if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 {
+			t.Fatalf("code=%d stderr=%s", code, errorOutput.String())
+		}
+		if !strings.Contains(output.String(), `"permissionDecision":"deny"`) || !strings.Contains(output.String(), "typed-MCP") {
+			t.Fatalf("output=%s", output.String())
+		}
+	}
+	data, err := os.ReadFile(counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "{\"decision\":\"deny\"}\n{\"decision\":\"deny\"}\n" {
+		t.Fatalf("counter=%q", data)
+	}
+}
+
 func TestClaudeGuardEnforcesDelegationLimitWithoutRecordingInput(t *testing.T) {
 	counter := t.TempDir() + "/guard.jsonl"
 	t.Setenv("ATL_EVAL_GUARD_COUNTER", counter)

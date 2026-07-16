@@ -11,17 +11,18 @@ version gate. Its sweet spot is work where content should be **part of the agent
 - **Diff-before-push** review and an audit trail of exactly what changed.
 - **Offline / scriptable** work: grep, edit, validate without a live connection.
 
-## `atl` vs the live Atlassian MCP
+## Durable CLI vs transient MCP
 
-If the user also has the Atlassian (Rovo) MCP server, treat the two as **complementary**, not
-competing:
+The atl plugin includes its own typed remote-read-only MCP surface for bounded
+Jira/Confluence evidence. If the user also has the Atlassian (Rovo) MCP server,
+treat all three routes as complementary:
 
-| Use `atl` (local mirror) when… | Use the live Atlassian MCP when… |
-|---|---|
-| Editing one or many pages/issues and pushing back | Doing a single, real-time read ("what's the status of PROJ-12 right now?") |
-| Grounding a large task in Atlassian content | You need the freshest possible value, no staleness window |
-| You want a reviewable diff before writing | Per-user OAuth / permission-scoped access matters |
-| Working offline or scripting a batch | One-off lookups where mirroring is overkill |
+- Use the atl CLI/mirror for durable files, Structure, export, offline
+  diff/plan, attachments, scripts, and every guarded write.
+- Use atl MCP for one real-time bounded read when its seven typed tools cover the
+  task and content must not be persisted to disk.
+- Use an independently configured Atlassian/Rovo MCP when its OAuth scope or a
+  capability absent from atl is specifically required.
 
 Rule of thumb: **`pull` right before you edit** to bound staleness; the version gate (Confluence)
 and a fresh `get` before update (Jira) make a slightly-stale mirror safe to write from.
@@ -39,6 +40,6 @@ instead keep the source of truth in Confluence/Jira. `atl` bridges that gap:
 
 ## When NOT to use `atl`
 
-- A single real-time lookup with no edit → the live MCP or a one-off `conf page view` / `jira issue
-  view` is lighter than standing up a mirror.
+- A single real-time lookup with no edit → atl MCP, another approved MCP, or a
+  one-off `conf page view` / `jira issue view` is lighter than standing up a mirror.
 - Content you must never persist to disk → don't mirror it; read it transiently.

@@ -1494,15 +1494,13 @@ func jiraMetaCmds() []*cobra.Command {
 			if err != nil {
 				return err
 			}
-			fs, err := svc.Fields(cmd.Context())
+			result, err := svc.FieldCatalog(cmd.Context(), app.JiraFieldCatalogOpts{
+				ID: fieldID, NameLike: nameLike, IDLike: idLike, Schema: schema, Custom: custom,
+			})
 			if err != nil {
 				return err
 			}
-			fs, err = filterFieldDefs(fs, fieldID, nameLike, idLike, schema, custom)
-			if err != nil {
-				return err
-			}
-			return emit(cmd, map[string]any{"fields": fs}, func() string { return jiraFieldsText(fs) })
+			return emit(cmd, result, func() string { return jiraFieldsText(result.Fields) })
 		},
 	}
 	fields.Flags().StringVar(&nameLike, "name-like", "", "case-insensitive substring filter for field name")
@@ -1572,50 +1570,6 @@ func jiraMetaCmds() []*cobra.Command {
 	}
 
 	return []*cobra.Command{fields, opts, transitions, linkTypes}
-}
-
-func filterFieldDefs(fs []domain.FieldDef, id, nameLike, idLike, schema, custom string) ([]domain.FieldDef, error) {
-	id = strings.TrimSpace(id)
-	nameLike = strings.ToLower(strings.TrimSpace(nameLike))
-	idLike = strings.ToLower(strings.TrimSpace(idLike))
-	schema = strings.TrimSpace(schema)
-	custom = strings.ToLower(strings.TrimSpace(custom))
-	var wantCustom *bool
-	if custom != "" {
-		switch custom {
-		case "true", "1", "yes":
-			v := true
-			wantCustom = &v
-		case "false", "0", "no":
-			v := false
-			wantCustom = &v
-		default:
-			return nil, usageErr("--custom must be true or false")
-		}
-	}
-	if id == "" && nameLike == "" && idLike == "" && schema == "" && wantCustom == nil {
-		return fs, nil
-	}
-	out := make([]domain.FieldDef, 0, len(fs))
-	for _, f := range fs {
-		if id != "" && f.ID != id {
-			continue
-		}
-		if idLike != "" && !strings.Contains(strings.ToLower(f.ID), idLike) {
-			continue
-		}
-		if nameLike != "" && !strings.Contains(strings.ToLower(f.Name), nameLike) {
-			continue
-		}
-		if schema != "" && f.Schema != schema {
-			continue
-		}
-		if wantCustom != nil && f.Custom != *wantCustom {
-			continue
-		}
-		out = append(out, f)
-	}
-	return out, nil
 }
 
 func orDash(s string) string {
