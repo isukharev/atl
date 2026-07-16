@@ -477,7 +477,8 @@ atl jira issue worklog add PROJ-1 --time 1h30m --from-file worklog.txt # dry-run
 # Review baseline_sha256; apply once with the emitted baseline-bound proposal hash
 atl jira issue comment add PROJ-1 --from-md note.md
 atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
-atl jira issue field set PROJ-1 --from-md customfield_10001=notes.md --allow-fields customfield_10001   # dry-run
+ATL_READ_ONLY=1 atl jira issue field preview PROJ-1 --from-md customfield_10001=notes.md --allow-fields customfield_10001
+# Review expected_updated and proposal_hash; use field set --apply only after approval.
 atl jira issue transition PROJ-1 --to Done
 # Before editing, re-render views without the current first-line version marker
 atl jira render mirror-jira

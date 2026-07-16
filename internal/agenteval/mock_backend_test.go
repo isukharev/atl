@@ -1,6 +1,7 @@
 package agenteval
 
 import (
+	"bytes"
 	"net/http"
 	"strings"
 	"testing"
@@ -61,5 +62,39 @@ func TestMockBackendQueryConstraintRejectsSemanticallyWrongSearch(t *testing.T) 
 	methods, unexpected, _ := backend.Summary()
 	if methods["GET"] != 1 || unexpected != 1 {
 		t.Fatalf("methods=%v unexpected=%d", methods, unexpected)
+	}
+}
+
+func TestMockBackendMatchesExpectedJSONRequestBody(t *testing.T) {
+	fixture := MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{{
+			Method: "PUT", Path: "/jira/rest/api/2/issue/PROJ-1", RequestBody: []byte(`{"fields":{"customfield_1":"approved"}}`),
+			Status: http.StatusNoContent, Body: []byte(`{}`),
+		}},
+	}
+	backend, err := StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	request, _ := http.NewRequest(http.MethodPut, backend.Environment()["ATL_JIRA_URL"]+"/rest/api/2/issue/PROJ-1", bytes.NewBufferString(`{"fields":{"customfield_1":"wrong"}}`))
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("wrong body status=%d", response.StatusCode)
+	}
+	request, _ = http.NewRequest(http.MethodPut, backend.Environment()["ATL_JIRA_URL"]+"/rest/api/2/issue/PROJ-1", bytes.NewBufferString(`{ "fields": { "customfield_1": "approved" } }`))
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	methods, unexpected, duplicates := backend.Summary()
+	if response.StatusCode != http.StatusNoContent || methods["PUT"] != 2 || unexpected != 1 || duplicates != 1 {
+		t.Fatalf("status=%d methods=%v unexpected=%d duplicates=%d", response.StatusCode, methods, unexpected, duplicates)
 	}
 }

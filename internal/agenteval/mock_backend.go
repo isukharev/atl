@@ -1,6 +1,7 @@
 package agenteval
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ type MockRoute struct {
 	Method        string            `json:"method"`
 	Path          string            `json:"path"`
 	QueryContains map[string]string `json:"query_contains,omitempty"`
+	RequestBody   json.RawMessage   `json:"request_body,omitempty"`
 	Status        int               `json:"status"`
 	Body          json.RawMessage   `json:"body"`
 }
@@ -74,6 +76,9 @@ func (f MockFixture) Validate() error {
 		}
 		if route.Status < 100 || route.Status > 599 || !json.Valid(route.Body) {
 			return fmt.Errorf("invalid mock response for %s %s", route.Method, route.Path)
+		}
+		if len(route.RequestBody) > 1<<20 || len(route.RequestBody) > 0 && (!json.Valid(route.RequestBody) || route.Method == http.MethodGet || route.Method == http.MethodHead) {
+			return fmt.Errorf("invalid mock request body for %s %s", route.Method, route.Path)
 		}
 		if len(route.QueryContains) > 16 {
 			return fmt.Errorf("mock route query constraints exceed 16 entries")
@@ -137,8 +142,6 @@ func (b *MockBackend) Summary() (map[string]int, int, int) {
 }
 
 func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
-	b.mu.Lock()
-	b.methods[r.Method]++
 	routeKey := r.Method + " " + r.URL.Path
 	route, ok := b.routes[routeKey]
 	if ok {
@@ -149,6 +152,14 @@ func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if ok && len(route.RequestBody) > 0 {
+		body, err := io.ReadAll(io.LimitReader(r.Body, (1<<20)+1))
+		if err != nil || len(body) > 1<<20 || !equalJSONBody(body, route.RequestBody) {
+			ok = false
+		}
+	}
+	b.mu.Lock()
+	b.methods[r.Method]++
 	requestKey := r.Method + " " + r.URL.RequestURI()
 	b.routeHits[requestKey]++
 	if !ok {
@@ -163,6 +174,20 @@ func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(route.Status)
 	_, _ = w.Write(route.Body)
+}
+
+func equalJSONBody(left, right []byte) bool {
+	var leftValue, rightValue any
+	leftDecoder := json.NewDecoder(bytes.NewReader(left))
+	leftDecoder.UseNumber()
+	rightDecoder := json.NewDecoder(bytes.NewReader(right))
+	rightDecoder.UseNumber()
+	if leftDecoder.Decode(&leftValue) != nil || leftDecoder.Decode(new(any)) != io.EOF || rightDecoder.Decode(&rightValue) != nil || rightDecoder.Decode(new(any)) != io.EOF {
+		return false
+	}
+	leftJSON, leftErr := json.Marshal(leftValue)
+	rightJSON, rightErr := json.Marshal(rightValue)
+	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
 }
 
 func validContextPath(value string) bool {

@@ -2348,16 +2348,19 @@ Flags:
 | `--from-md` | new markdown description file or `-` for stdin; converted to wiki, fail-closed (exit 8) |
 | `--field key=value` | extra field (repeatable) |
 
-### `atl jira issue field set`
+### `atl jira issue field preview` / `field set`
 
 Preview or atomically apply one or more large custom-field values from bounded
-files. The value itself never appears in argv. Preview is the default and
-fresh-reads the selected fields plus Jira `updated`; its result supplies the
-`expected_updated` and aggregate `proposal_hash` required by a later apply.
+files. The value itself never appears in argv. The dedicated `field preview`
+command is GET-only, works under `ATL_READ_ONLY=1`, and fresh-reads the selected
+fields plus Jira `updated`; its result supplies the `expected_updated` and
+aggregate `proposal_hash` required by a later `field set --apply`. `field set`
+remains mutating in the command policy even when `--apply` is omitted, so agents
+should use the dedicated preview surface until the user approves the write.
 
 ```bash
 # Markdown is converted fail-closed to a Jira-wiki string
-atl jira issue field set PROJ-1 \
+ATL_READ_ONLY=1 atl jira issue field preview PROJ-1 \
   --from-md customfield_10001=progress.md \
   --allow-fields customfield_10001
 
@@ -2368,8 +2371,8 @@ atl jira issue field set PROJ-1 \
   --expected-updated '2026-01-02T03:04:05.000+0000' \
   --expected-proposal-hash '<proposal_hash>' --apply
 
-# Raw files: valid JSON objects/arrays stay structured; everything else is an exact string
-atl jira issue field set PROJ-1 \
+# Raw preview: valid JSON objects/arrays stay structured; everything else is an exact string
+ATL_READ_ONLY=1 atl jira issue field preview PROJ-1 \
   --from-file customfield_10002=option.json \
   --from-file customfield_10003=plain.txt \
   --allow-fields customfield_10002,customfield_10003
@@ -2404,9 +2407,9 @@ Flags:
 | `--from-file FIELD=PATH` | raw value file or stdin `-` (repeatable) |
 | `--from-md FIELD=PATH` | Markdown file or stdin `-`, converted to a Jira-wiki string (repeatable) |
 | `--allow-fields IDS` | exact comma-separated custom field ids authorized for this operation (required) |
-| `--expected-updated VALUE` | reviewed Jira `updated` value; required with `--apply` |
-| `--expected-proposal-hash HASH` | reviewed aggregate proposal hash; required with `--apply` |
-| `--apply` | perform the guarded write; default is preview only |
+| `--expected-updated VALUE` | `field set` only: reviewed Jira `updated` value; required with `--apply` |
+| `--expected-proposal-hash HASH` | `field set` only: reviewed aggregate proposal hash; required with `--apply` |
+| `--apply` | `field set` only: perform the guarded write; without it `field set` also previews, but remains classified as mutating |
 
 ### `atl jira issue edit`
 

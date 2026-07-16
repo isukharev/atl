@@ -73,6 +73,28 @@ func TestJiraIssueFieldSetDryRunConvertsMarkdownAndCapturesUpdated(t *testing.T)
 	}
 }
 
+func TestJiraIssueFieldPreviewRunsUnderReadOnlyPolicy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(path, []byte("reviewed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var put map[string]any
+	putCalls := 0
+	srv := fieldSetServer(t, "fresh", &put, &putCalls)
+	t.Cleanup(srv.Close)
+	env := jiraEnv(srv)
+	env["ATL_READ_ONLY"] = "1"
+	out, code := runCLI(t, env, "jira", "issue", "field", "preview", "ENG-1",
+		"--from-file", "customfield_1="+path, "--allow-fields", "customfield_1")
+	if code != exitOK || putCalls != 0 || !strings.Contains(out, `"status": "would_apply"`) {
+		t.Fatalf("preview: exit=%d puts=%d output=%s", code, putCalls, out)
+	}
+	if _, code := runCLI(t, env, "jira", "issue", "field", "set", "ENG-1",
+		"--from-file", "customfield_1="+path, "--allow-fields", "customfield_1"); code != exitCheckFailed {
+		t.Fatalf("field set dry-run must remain classified as mutating, exit=%d", code)
+	}
+}
+
 func TestJiraIssueFieldSetApplySendsExplicitStringAndObject(t *testing.T) {
 	dir := t.TempDir()
 	textPath := filepath.Join(dir, "text.wiki")

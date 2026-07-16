@@ -10,8 +10,9 @@ reviewed command after approval.
   the exact `--old` match is its drift guard.
 - Summary or whole body: fresh narrow get, then `jira issue update` using
   `--from-md` or native `--from-file`.
-- One large custom field: guarded `jira issue field set` with files, exact
-  allowlist, updated/proposal-hash gates, then `--apply`.
+- One large custom field: GET-only `jira issue field preview` with files and an
+  exact allowlist; after review, guarded `jira issue field set` with the exact
+  updated/proposal-hash gates and `--apply`.
 - Structural body or opted-in editable rich field: durable `.md` → apply →
   push.
 - Wiki-only constructs or unsupported Markdown: direct `.wiki` edit → push.

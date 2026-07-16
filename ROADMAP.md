@@ -55,6 +55,9 @@ Recent beta work established the contracts the next wave builds on:
   Confluence: exact named-skill events distinguish real guidance from an
   installed plugin digest, while task-specific runbooks load only after the
   core safety/evidence route selects them.
+- a review-bound Jira mutation cell that keeps proposal generation under the
+  global read-only policy, permits only one exact loopback PUT after approval,
+  and proves ambiguous outcomes are reconciled without replay.
 - opt-in private-live agent evaluation for real Jira/Confluence compatibility
   through paired typed-MCP and primary CLI+skill paths: MCP uses ephemeral
   credentials and an independent transport guard, while CLI receives only

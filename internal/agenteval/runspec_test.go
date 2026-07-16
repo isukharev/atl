@@ -208,6 +208,63 @@ func TestRunSpecRequiresScenarioOracleAndCostBoundary(t *testing.T) {
 	}
 }
 
+func TestRunSpecSyntheticWritesRequireExplicitSyntheticBudget(t *testing.T) {
+	scenario := validScenario()
+	scenario.Budgets.MaxRemoteWrites = 1
+	scenario.Budgets.AllowedHTTPMethods = []string{"GET", "PUT"}
+	scenario.Budgets.MaxEstimatedCostMicroUSD = 10_000_000
+	scenario.RequiredChecks = []string{"answer_correct", "used_atl", "guard_clean", "methods", "mock_clean"}
+	spec := validRunSpec()
+	spec.Provider = "claude-code"
+	spec.Pricing = Pricing{}
+	spec.AllowSyntheticWrites = true
+	spec.Checks = append(spec.Checks,
+		RunCheck{Name: "guard_clean", Kind: "guard_no_denials"},
+		RunCheck{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":2,"PUT":1}`)},
+		RunCheck{Name: "mock_clean", Kind: "mock_no_unexpected"},
+	)
+	if err := spec.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := spec.ValidateAgainstScenario(scenario); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*RunSpec, *Scenario){
+		"private": func(s *RunSpec, _ *Scenario) {
+			s.BackendMode = BackendModePrivateLive
+			s.FixtureFile = ""
+			s.Repetitions = 1
+		},
+		"mcp": func(s *RunSpec, _ *Scenario) { s.ToolTransport = "mcp" },
+		"codex": func(s *RunSpec, _ *Scenario) {
+			s.Provider = "codex"
+			s.Pricing = Pricing{InputMicroUSDPerMillionTokens: 1, OutputMicroUSDPerMillionTokens: 1}
+		},
+		"zero budget": func(_ *RunSpec, sc *Scenario) { sc.Budgets.MaxRemoteWrites = 0 },
+		"read methods": func(_ *RunSpec, sc *Scenario) {
+			sc.Budgets.AllowedHTTPMethods = []string{"GET"}
+		},
+		"no guard oracle": func(s *RunSpec, _ *Scenario) {
+			s.Checks = s.Checks[:len(s.Checks)-3]
+		},
+		"no exact methods oracle": func(s *RunSpec, _ *Scenario) {
+			s.Checks = append(s.Checks[:len(s.Checks)-2], s.Checks[len(s.Checks)-1])
+		},
+		"no mock oracle": func(s *RunSpec, _ *Scenario) {
+			s.Checks = s.Checks[:len(s.Checks)-1]
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := spec
+			candidateScenario := scenario
+			mutate(&candidate, &candidateScenario)
+			if candidate.Validate() == nil && candidate.ValidateAgainstScenario(candidateScenario) == nil {
+				t.Fatal("unsafe synthetic write spec passed")
+			}
+		})
+	}
+}
+
 func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 	checks := []RunCheck{
 		{Name: "equals", Kind: "json_equals", Pointer: "/nested/value", Expected: json.RawMessage(`7`)},
@@ -220,8 +277,9 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 		{Name: "routes", Kind: "mock_no_unexpected"},
 		{Name: "delegated", Kind: "delegations_min", Minimum: 1},
 		{Name: "guarded", Kind: "guard_no_denials"},
+		{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":2,"PUT":1}`)},
 	}
-	result, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 2, 1, 0, 1, map[string]int{"atl:jira": 1}, 1, 0, true)
+	result, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 2, 1, 0, 1, map[string]int{"atl:jira": 1}, 1, 0, map[string]int{"GET": 2, "PUT": 1}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +288,7 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 			t.Errorf("check %s failed", name)
 		}
 	}
-	over, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 3, 0, 0, 1, map[string]int{"atl:confluence": 1}, 1, 0, true)
+	over, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 3, 0, 0, 1, map[string]int{"atl:confluence": 1}, 1, 0, map[string]int{"GET": 3}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,6 +303,24 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 	}
 	if over["used_jira_skill"] {
 		t.Fatal("skill_invocations_min accepted the wrong named skill")
+	}
+	if over["methods"] {
+		t.Fatal("http_methods_equal accepted a different method map")
+	}
+}
+
+func TestRunSpecValidatesExpectedHTTPMethods(t *testing.T) {
+	valid := validRunSpec()
+	valid.Checks = append(valid.Checks, RunCheck{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":2,"PUT":1}`)})
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []json.RawMessage{nil, json.RawMessage(`null`), json.RawMessage(`[]`), json.RawMessage(`{"get":1}`), json.RawMessage(`{"GET":0}`), json.RawMessage(`{"GET":1.5}`)} {
+		spec := validRunSpec()
+		spec.Checks = append(spec.Checks, RunCheck{Name: "methods", Kind: "http_methods_equal", Expected: expected})
+		if err := spec.Validate(); err == nil {
+			t.Fatalf("invalid method oracle passed: %s", expected)
+		}
 	}
 }
 

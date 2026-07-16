@@ -241,18 +241,20 @@ constructs. Remote drift is never an instruction to replay a write blindly.
 
 ## Set a large Jira custom field
 
-`field set` keeps large values out of argv, previews by default, and binds the
-reviewed files, issue key, and remote `updated` value to a proposal hash.
+`field preview` keeps large values out of argv, is GET-only under the inherited
+read-only policy, and binds the reviewed files, issue key, and remote `updated`
+value to a proposal hash. Use `field set` only for the exact approved apply.
 
 ```sh
 umask 077
-atl jira issue field set PROJ-42 \
+export ATL_READ_ONLY=1
+atl jira issue field preview PROJ-42 \
   --from-md customfield_10001=progress.md \
   --allow-fields customfield_10001 > proposal.json
 
 jq '{expected_updated, proposal_hash, fields}' proposal.json
 
-atl jira issue field set PROJ-42 \
+env -u ATL_READ_ONLY atl jira issue field set PROJ-42 \
   --from-md customfield_10001=progress.md \
   --allow-fields customfield_10001 \
   --expected-updated "$(jq -r '.expected_updated' proposal.json)" \

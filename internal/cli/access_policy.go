@@ -174,6 +174,7 @@ jira issue create
 jira issue delete
 jira issue edit
 jira issue field get
+jira issue field preview
 jira issue field set
 jira issue fields
 jira issue get

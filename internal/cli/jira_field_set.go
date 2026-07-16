@@ -17,15 +17,24 @@ import (
 
 func jiraIssueFieldCmd() *cobra.Command {
 	group := &cobra.Command{Use: "field", Short: "Exact field evidence and guarded custom-field operations"}
+	group.AddCommand(jiraIssueFieldGetCmd(), jiraIssueFieldMutationCmd(false), jiraIssueFieldMutationCmd(true))
+	return group
+}
+
+func jiraIssueFieldMutationCmd(applyCapable bool) *cobra.Command {
 	var rawSpecs, mdSpecs []string
 	var allowFields, expectedUpdated, expectedProposalHash string
 	var apply bool
-	set := &cobra.Command{
-		Use:   "set <KEY>",
-		Short: "Preview or apply bounded file-backed custom-field values",
+	use, short := "preview <KEY>", "Preview bounded file-backed custom-field values"
+	if applyCapable {
+		use, short = "set <KEY>", "Preview or apply bounded file-backed custom-field values"
+	}
+	command := &cobra.Command{
+		Use:   use,
+		Short: short,
 		Long: "Read custom-field values from bounded files/stdin, fresh-check Jira updated, and preview by default. " +
 			"Raw valid JSON objects/arrays stay structured; other raw input is a string. Markdown is converted to a Jira-wiki string. " +
-			"Apply requires --expected-updated and --expected-proposal-hash from a reviewed dry-run.",
+			"Use field preview under a read-only policy; field set apply requires --expected-updated and --expected-proposal-hash from that reviewed preview.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			proposals, err := jiraFieldProposals(rawSpecs, mdSpecs)
@@ -48,14 +57,15 @@ func jiraIssueFieldCmd() *cobra.Command {
 			return setErr
 		},
 	}
-	set.Flags().StringArrayVar(&rawSpecs, "from-file", nil, "FIELD=PATH raw value file (repeatable; - reads stdin; object/array JSON stays structured)")
-	set.Flags().StringArrayVar(&mdSpecs, "from-md", nil, "FIELD=PATH Markdown file (repeatable; - reads stdin; converted to a Jira-wiki string)")
-	set.Flags().StringVar(&allowFields, "allow-fields", "", "comma-separated exact custom field ids allowed by this operation (required)")
-	set.Flags().StringVar(&expectedUpdated, "expected-updated", "", "reviewed Jira updated value (required with --apply; dry-run captures it)")
-	set.Flags().StringVar(&expectedProposalHash, "expected-proposal-hash", "", "reviewed aggregate proposal hash (required with --apply; dry-run captures it)")
-	set.Flags().BoolVar(&apply, "apply", false, "perform the guarded write (default: dry-run)")
-	group.AddCommand(jiraIssueFieldGetCmd(), set)
-	return group
+	command.Flags().StringArrayVar(&rawSpecs, "from-file", nil, "FIELD=PATH raw value file (repeatable; - reads stdin; object/array JSON stays structured)")
+	command.Flags().StringArrayVar(&mdSpecs, "from-md", nil, "FIELD=PATH Markdown file (repeatable; - reads stdin; converted to a Jira-wiki string)")
+	command.Flags().StringVar(&allowFields, "allow-fields", "", "comma-separated exact custom field ids allowed by this operation (required)")
+	if applyCapable {
+		command.Flags().StringVar(&expectedUpdated, "expected-updated", "", "reviewed Jira updated value (required with --apply; preview captures it)")
+		command.Flags().StringVar(&expectedProposalHash, "expected-proposal-hash", "", "reviewed aggregate proposal hash (required with --apply; preview captures it)")
+		command.Flags().BoolVar(&apply, "apply", false, "perform the guarded write (default: dry-run)")
+	}
+	return command
 }
 
 func jiraFieldProposals(rawSpecs, mdSpecs []string) ([]app.JiraFieldProposal, error) {

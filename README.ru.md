@@ -480,7 +480,8 @@ atl jira issue worklog add PROJ-1 --time 1h30m --from-file worklog.txt # dry-run
 # Проверьте baseline_sha256 и примените один раз с привязанным к нему proposal hash
 atl jira issue comment add PROJ-1 --from-md note.md
 atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
-atl jira issue field set PROJ-1 --from-md customfield_10001=notes.md --allow-fields customfield_10001   # dry-run
+ATL_READ_ONLY=1 atl jira issue field preview PROJ-1 --from-md customfield_10001=notes.md --allow-fields customfield_10001
+# Проверьте expected_updated и proposal_hash; field set --apply — только после подтверждения.
 atl jira issue transition PROJ-1 --to Done
 # До правки перерендерьте представление без актуальной версии в первой строке
 atl jira render mirror-jira

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -499,7 +501,8 @@ func safePrivateCLICommandShape(command string) bool {
 
 func runATLProxy(args []string) int {
 	counterPath := os.Getenv("ATL_EVAL_COUNTER")
-	if os.Getenv("ATL_READ_ONLY") != "1" {
+	allowSyntheticWrites := os.Getenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES") == "1"
+	if os.Getenv("ATL_READ_ONLY") != "1" && (!allowSyntheticWrites || !syntheticBackendsAreLoopback()) {
 		return rejectATLProxy(counterPath, "atl evaluation proxy requires ATL_READ_ONLY=1")
 	}
 	realBinary := os.Getenv("ATL_EVAL_REAL_BINARY")
@@ -524,6 +527,8 @@ func runATLProxy(args []string) int {
 		if !allowed {
 			return rejectATLProxy(counterPath, "atl evaluation proxy rejected an exhausted command budget")
 		}
+	} else if !allowedATLArgs(args, os.Getenv("ATL_EVAL_ALLOWED_COMMANDS")) {
+		return rejectATLProxy(counterPath, "atl evaluation proxy rejected command arguments")
 	}
 	if brokerPath != "" {
 		response, err := agenteval.CallCommandBroker(brokerPath, args, false)
@@ -586,6 +591,37 @@ func runATLProxy(args []string) int {
 		return 1
 	}
 	return exitCode
+}
+
+func allowedATLArgs(args []string, rawAllowed string) bool {
+	var prefixes []string
+	if json.Unmarshal([]byte(rawAllowed), &prefixes) != nil || len(prefixes) == 0 {
+		return false
+	}
+	command := "atl " + strings.Join(args, " ")
+	for _, prefix := range prefixes {
+		if command == prefix || strings.HasPrefix(command, prefix+" ") {
+			return true
+		}
+	}
+	return false
+}
+
+func syntheticBackendsAreLoopback() bool {
+	for _, name := range []string{"ATL_JIRA_URL", "ATL_CONFLUENCE_URL"} {
+		parsed, err := url.Parse(os.Getenv(name))
+		if err != nil || parsed.Scheme != "http" || parsed.User != nil || parsed.Host == "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return false
+		}
+		host := parsed.Hostname()
+		if host != "localhost" {
+			address := net.ParseIP(host)
+			if address == nil || !address.IsLoopback() {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func rejectATLProxy(counterPath, message string) int {

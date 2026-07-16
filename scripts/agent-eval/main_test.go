@@ -292,6 +292,37 @@ func TestATLProxyEnforcesExactPrivateCLIArgumentsAndBudget(t *testing.T) {
 	}
 }
 
+func TestATLProxySyntheticWritesRequireLoopbackAndReviewedPrefix(t *testing.T) {
+	directory := t.TempDir()
+	realBinary := filepath.Join(directory, "real-atl")
+	executions := filepath.Join(directory, "executions")
+	if err := os.WriteFile(realBinary, []byte("#!/bin/sh\nprintf 'executed\\n' >>\"$ATL_EVAL_TEST_EXECUTIONS\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ATL_READ_ONLY", "")
+	t.Setenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES", "1")
+	t.Setenv("ATL_EVAL_REAL_BINARY", realBinary)
+	t.Setenv("ATL_EVAL_COUNTER", filepath.Join(directory, "counter.jsonl"))
+	t.Setenv("ATL_EVAL_ALLOWED_COMMANDS", `["atl jira issue field set"]`)
+	t.Setenv("ATL_EVAL_TEST_EXECUTIONS", executions)
+	t.Setenv("ATL_JIRA_URL", "http://127.0.0.1:1234/jira")
+	t.Setenv("ATL_CONFLUENCE_URL", "http://localhost:5678/wiki")
+	if code := runATLProxy([]string{"jira", "issue", "field", "set", "PROJ-1"}); code != 0 {
+		t.Fatalf("reviewed synthetic write code=%d", code)
+	}
+	if code := runATLProxy([]string{"jira", "issue", "delete", "PROJ-1"}); code == 0 {
+		t.Fatal("command outside the reviewed prefix passed")
+	}
+	t.Setenv("ATL_JIRA_URL", "https://jira.example.test")
+	if code := runATLProxy([]string{"jira", "issue", "field", "set", "PROJ-1"}); code == 0 {
+		t.Fatal("non-loopback synthetic write passed")
+	}
+	executed, err := os.ReadFile(executions)
+	if err != nil || string(executed) != "executed\n" {
+		t.Fatalf("executions=%q err=%v", executed, err)
+	}
+}
+
 func TestATLProxyDoesNotStartATLWhenCommandBrokerIsMissing(t *testing.T) {
 	directory := t.TempDir()
 	realBinary := filepath.Join(directory, "real-atl")

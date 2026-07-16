@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "issue_key": {"type": "string"},
+    "field_id": {"type": "string"},
+    "proposal_hash": {"type": "string"},
+    "expected_updated": {"type": "string"},
+    "outcome": {"enum": ["would_apply", "applied", "unknown"]},
+    "write_attempted": {"type": "boolean"},
+    "replayed": {"type": "boolean"},
+    "next_action": {"enum": ["await_approval", "complete", "reconcile_before_any_retry"]}
+  },
+  "required": [
+    "issue_key",
+    "field_id",
+    "proposal_hash",
+    "expected_updated",
+    "outcome",
+    "write_attempted",
+    "replayed",
+    "next_action"
+  ]
+}

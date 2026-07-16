@@ -22,7 +22,7 @@ var mcpCapabilityFamilies = map[string]string{
 
 var allowedCapabilityFamilies = map[string]struct{}{
 	"atl.config": {}, "atl.capabilities": {}, "jira.fields": {}, "jira.issue.fields": {},
-	"jira.issue.field": {}, "jira.issue.search": {}, "jira.epic.digest": {}, "jira.board.view": {},
+	"jira.issue.field": {}, "jira.issue.field.preview": {}, "jira.issue.field.set": {}, "jira.issue.search": {}, "jira.epic.digest": {}, "jira.board.view": {},
 	"confluence.diff": {}, "confluence.search": {}, "confluence.page.resolve": {}, "confluence.page.outline": {}, "confluence.page.section": {},
 }
 
@@ -51,6 +51,7 @@ matched:
 		family string
 	}{
 		{[]string{"config", "show"}, "atl.config"}, {[]string{"capabilities"}, "atl.capabilities"},
+		{[]string{"jira", "issue", "field", "preview"}, "jira.issue.field.preview"}, {[]string{"jira", "issue", "field", "set"}, "jira.issue.field.set"},
 		{[]string{"jira", "issue", "field", "get"}, "jira.issue.field"}, {[]string{"jira", "issue", "fields"}, "jira.issue.fields"}, {[]string{"jira", "epic", "digest"}, "jira.epic.digest"},
 		{[]string{"jira", "issue", "search"}, "jira.issue.search"}, {[]string{"jira", "board", "view"}, "jira.board.view"}, {[]string{"jira", "fields"}, "jira.fields"},
 		{[]string{"conf", "diff"}, "confluence.diff"}, {[]string{"conf", "search"}, "confluence.search"},

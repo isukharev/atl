@@ -73,12 +73,24 @@ not put a long custom-field body in `--field key=value` or shell argv; use the
 guarded file command, which previews by default:
 
 ```bash
-atl jira issue field set PROJ-1 \
+export ATL_READ_ONLY=1
+atl jira issue field preview PROJ-1 \
   --from-md customfield_10050=progress.md \
   --allow-fields customfield_10050
-# review expected_updated, proposal_hash, and normalized values, then repeat with:
-# --expected-updated '<exact value>' --expected-proposal-hash '<exact hash>' --apply
+# review expected_updated, proposal_hash, and normalized values, then apply only
+# after approval with field set and those exact gates:
+env -u ATL_READ_ONLY atl jira issue field set PROJ-1 \
+  --from-md customfield_10050=progress.md \
+  --allow-fields customfield_10050 \
+  --expected-updated '<exact value>' \
+  --expected-proposal-hash '<exact hash>' --apply
 ```
+
+`field preview` is a dedicated GET-only command and therefore remains available
+under the inherited read-only policy. `field set` is classified as mutating even
+without `--apply`; invoke it only for the exact approved apply command. A fresh
+preview is required whenever the file, issue, field allowlist, or remote state
+changes.
 
 `--from-md FIELD=PATH` always converts to a Jira-wiki **string**.
 `--from-file FIELD=PATH` keeps valid top-level JSON objects/arrays structured;
