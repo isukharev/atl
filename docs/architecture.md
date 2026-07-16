@@ -6,7 +6,8 @@ implement them; the CLI and any future server tier sit at the outermost ring
 and are interchangeable transport layers.
 
 See also: [../README.md](../README.md) · [usage.md](usage.md) ·
-[csf-and-fragments.md](csf-and-fragments.md) · [self-update.md](self-update.md)
+[csf-and-fragments.md](csf-and-fragments.md) · [self-update.md](self-update.md) ·
+[network-egress.md](network-egress.md)
 
 ---
 
@@ -503,7 +504,9 @@ wins.
 
 ### `internal/selfupdate` and `internal/version`
 
-See [self-update.md](self-update.md) for the full description.
+See [self-update.md](self-update.md) for the signed update mechanism and
+[network-egress.md](network-egress.md) for the runtime destination and air-gap
+boundary.
 
 `version.Version`, `version.Commit`, and `version.BuildState` are injected via
 `-ldflags` by supported Makefile/release builds. `version.Current` falls back to

@@ -46,8 +46,10 @@ Confluence durable-view marker checks accept either LF or CRLF line endings.
 - **Bearer PAT auth, per-request** — tokens are sent only to the configured host and never
   stored in the repo or mirror.
 - **Signed self-update** — the binary updates itself from GitHub Releases, throttled to every
-  6 hours, with SHA-256 checksum and ed25519 signature verification. See
-  [docs/self-update.md](docs/self-update.md) and [SECURITY.md](SECURITY.md).
+  6 hours, with SHA-256 checksum and ed25519 signature verification. Homebrew
+  installations delegate upgrades exclusively to `brew upgrade atl`. See
+  [docs/self-update.md](docs/self-update.md), [network egress](docs/network-egress.md),
+  and [SECURITY.md](SECURITY.md).
 - **Scripting-friendly** — JSON to stdout, logs/errors to stderr, no interactive prompts,
   well-defined exit codes.
 - **Typed read-only MCP** — `atl mcp serve` gives agents seven bounded Jira/Confluence
@@ -86,7 +88,8 @@ brew install isukharev/tap/atl
 ```
 
 > The formula (`atl.rb`, pinned to each binary's SHA-256) is published with every release. If the
-> tap is not yet available, use the quick install or `go install` above.
+> tap is not yet available, use the quick install or `go install` above. Its launcher disables
+> binary self-update so Homebrew remains the sole upgrade owner; use `brew upgrade atl`.
 
 **Requirements:** Linux or macOS (amd64/arm64). Building from source needs Go 1.26.5+; the prebuilt
 binary has no runtime dependencies.
@@ -541,8 +544,10 @@ into the binary. The update fails closed if the release is unsigned or the signa
 does not match.
 
 - Disable auto-update: `ATL_NO_UPDATE=1`
+- Homebrew installs update only through `brew upgrade atl`.
 - Dev builds never auto-update.
 - Full trust model: [docs/self-update.md](docs/self-update.md)
+- Network destinations and air-gap recipe: [docs/network-egress.md](docs/network-egress.md)
 - Vulnerability policy: [SECURITY.md](SECURITY.md)
 
 ---
@@ -579,6 +584,7 @@ The codebase follows a **hexagonal (ports & adapters)** architecture:
 
 Further reading: [docs/architecture.md](docs/architecture.md) · [docs/usage.md](docs/usage.md) ·
 [agent recipes](docs/agent-recipes.md) · [docs/self-update.md](docs/self-update.md) ·
+[network egress](docs/network-egress.md) ·
 [Context7 integration](docs/context7.md)
 
 Context7 library `/isukharev/atl` follows the latest published release through

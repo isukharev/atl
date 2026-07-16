@@ -1,21 +1,26 @@
 # Self-update
 
-`atl` can silently replace itself with a newer binary on every command run.
-The mechanism is opt-out, throttled, and signature-verified. It never blocks a
-command; every failure path is swallowed.
+Official release binaries can silently replace themselves with a newer binary
+before most command runs. The mechanism is opt-out, throttled, and
+signature-verified. It never blocks a command; every failure path is swallowed.
+The Homebrew launcher disables this path so the package manager remains the
+single owner of that installation.
 
 See also: [../README.md](../README.md) · [../SECURITY.md](../SECURITY.md) ·
-[usage.md](usage.md) · [architecture.md](architecture.md)
+[usage.md](usage.md) · [architecture.md](architecture.md) ·
+[network-egress.md](network-egress.md)
 
 ---
 
 ## How it works, step by step
 
-### 1. Triggered on every command
+### 1. Triggered before most commands
 
 `PersistentPreRun` on the cobra root command calls `runSelfUpdate` before any
 subcommand executes (`internal/cli/selfupdate.go`). The call is fire-and-forget;
-it returns before the subcommand runs regardless of outcome.
+it returns before the subcommand runs regardless of outcome. Offline routing
+and setup families (`version`, `capabilities`, `auth`, `config`, `profile`,
+`environment`, `mcp`, help, and completion) skip it by construction.
 
 ### 2. Fail-closed early exits
 
@@ -211,6 +216,13 @@ atl config set --update-url ""   # empty URL disables auto-update
 
 Alternatively, set `ATL_NO_UPDATE` in the environment where `atl` runs
 (shell profile, CI environment variables, systemd service).
+
+The Homebrew formula sets this variable in its generated launcher. Upgrade that
+installation with `brew upgrade atl`; do not invoke the private Cellar
+`libexec/atl` binary directly. Other installation methods retain signed
+self-update unless their environment disables it. See
+[network-egress.md](network-egress.md) for the broader no-network contract:
+disabling updates does not disable Jira or Confluence requests.
 
 ---
 

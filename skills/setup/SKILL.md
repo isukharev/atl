@@ -2,7 +2,7 @@
 name: setup
 description: Install the atl CLI and configure Confluence/Jira authentication, backend URLs, and the local mirror directory. Run this once (/atl:setup) before using atl.
 disable-model-invocation: true
-allowed-tools: Bash(command -v atl) Bash(atl version) Bash(brew install *) Bash(curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh) Bash(go install *) Bash(go env *) Bash(echo *) Bash(atl config show) Bash(atl config set *) Bash(atl auth status) Bash(atl auth login *) Bash(atl conf search *) Bash(atl jira fields)
+allowed-tools: Bash(command -v atl) Bash(atl version) Bash(brew install *) Bash(brew upgrade *) Bash(curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh) Bash(go install *) Bash(go env *) Bash(echo *) Bash(atl config show) Bash(atl config set *) Bash(atl auth status) Bash(atl auth login *) Bash(atl conf search *) Bash(atl jira fields)
 ---
 <!-- Generated from skills-src/setup/SKILL.md — edit the source and run 'make gen-plugins'. -->
 
@@ -45,6 +45,11 @@ Pick the method that fits the platform:
 ```bash
 brew install isukharev/tap/atl
 ```
+
+The Homebrew launcher sets `ATL_NO_UPDATE=1`: Homebrew is the only owner of
+that installation, so later upgrades use `brew upgrade atl`. Direct
+installer/release binaries retain signed self-update unless their environment
+sets `ATL_NO_UPDATE`.
 
 **Linux, or macOS without Homebrew** — prebuilt, SHA-256 verified, installs to `~/.local/bin/atl`:
 
@@ -187,7 +192,8 @@ instead of inventing raw REST calls.
 
 Plugin and binary release under one version number. If a command documented by the skills is
 rejected as unknown (exit 2), compare `atl version` with the plugin version and update the lagging
-side: the binary self-updates on its next run; the plugin via `/plugin update atl`.
+side: a direct-install binary self-updates on its next run, a Homebrew binary
+uses `brew upgrade atl`, and the plugin uses `/plugin update atl`.
 
 ## Exit codes (so you can react)
 

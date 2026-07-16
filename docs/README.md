@@ -10,6 +10,7 @@ This directory holds the deeper references:
 | [agent-recipes.md](agent-recipes.md) | **Agents / users** | Compact runnable recipes for high-frequency Jira, board, Structure, Confluence, and guarded-write workflows. |
 | [csf-and-fragments.md](csf-and-fragments.md) | Power users | Confluence Storage Format (`.csf`) and how opaque fragments (drawio, images, users, links) are extracted and resolved. |
 | [self-update.md](self-update.md) | Security-conscious users | The signed self-update trust model and how to disable it (`ATL_NO_UPDATE`). |
+| [network-egress.md](network-egress.md) | Security-conscious users / agents | Runtime egress inventory, independent read-only/update controls, and air-gapped operation. |
 | [architecture.md](architecture.md) | Contributors | Hexagonal (ports & adapters) layout, the dependency rule, and extension points (new backend, new fragment type). |
 | [github-issue-workflow.md](github-issue-workflow.md) | Maintainers / agents | GitHub Issues, parent/sub-issues, labels, and PR process for roadmap-driven AI-agent work. |
 | [agent-benchmarking.md](agent-benchmarking.md) | Maintainers | Versioned agent-evaluation contracts, deterministic workflow budgets, headless comparisons, privacy rules, and re-measurement guidance. |

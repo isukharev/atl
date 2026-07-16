@@ -23,6 +23,11 @@ Only the latest released version is supported. Fixes ship in a new release.
 
 ## Trust model
 
+The runtime destination inventory and air-gapped operation contract live in
+[docs/network-egress.md](docs/network-egress.md). `ATL_READ_ONLY=1` prevents
+mutations but not backend reads; `ATL_NO_UPDATE=1` disables the release check
+but not Jira or Confluence calls.
+
 `atl` is a single static binary that **replaces itself on disk** during
 auto-update. That makes the update channel the highest-value target: whoever can
 make a malicious binary look like a legitimate update gets code execution on
@@ -67,6 +72,10 @@ following hold:
 In every one of these cases the running command proceeds normally and no binary
 is replaced. Manual installation via the published `install.sh` always remains
 available.
+
+The generated Homebrew launcher sets `ATL_NO_UPDATE=1` so Homebrew remains the
+sole owner of package upgrades. Direct release and installer deployments retain
+the signed self-update path by default.
 
 ### Defense in depth
 

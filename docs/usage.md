@@ -6,7 +6,8 @@ edits, and pushes back under an optimistic version gate — all without storing
 credentials in the repository or the mirror.
 
 See also: [../README.md](../README.md) · [architecture.md](architecture.md) ·
-[csf-and-fragments.md](csf-and-fragments.md) · [self-update.md](self-update.md)
+[csf-and-fragments.md](csf-and-fragments.md) · [self-update.md](self-update.md) ·
+[network-egress.md](network-egress.md)
 
 ---
 
@@ -191,6 +192,11 @@ for how to store PATs on disk.
 | `ATL_UPDATE_URL` | override the distribution server base URL |
 | `ATL_NO_UPDATE` | set to any non-empty value to disable auto-update |
 | `ATL_UPDATE_DEBUG` | set to any non-empty value to print self-update diagnostics to stderr |
+
+`ATL_READ_ONLY=1` prevents writes but intentionally permits backend reads;
+`ATL_NO_UPDATE=1` disables only the release check. For the complete destination
+and trigger inventory, package-manager behavior, and air-gap recipe, see
+[network-egress.md](network-egress.md).
 
 ---
 

@@ -38,17 +38,19 @@ Recent beta work established the contracts the next wave builds on:
 - a same-runtime Claude Code CLI/MCP portfolio comparison whose three-run MCP
   median preserves correctness and backend traffic while materially reducing
   turns, context, cost, and duration.
+- explicit package-update ownership: Homebrew launchers delegate exclusively to
+  `brew upgrade atl`, while a consolidated egress contract separates read-only,
+  update-disable, backend traffic, and externally enforced air-gap controls.
 
 ## Now
 
-The daily-operation, Confluence review/sync, and first agent-evaluation sequence
-is shipped. Current work keeps packaging and scale ready for the next stable
-release:
+The daily-operation, Confluence review/sync, first agent-evaluation sequence,
+package ownership, and complete historical bootstrap are shipped. Current work
+keeps scale ready for the next stable release:
 
-- consolidate zero-egress/security documentation;
-- make package-managed update behavior explicit and reproducible;
-- stabilize complete historical mirror bootstraps before adding bounded
-  concurrency or rate-limit scheduling.
+- add bounded concurrency or rate-limit scheduling only as a complete
+  cross-request control that covers pages, comments, assets, and Jira-macro
+  expansion rather than accelerating one partial path.
 
 ## Next
 
