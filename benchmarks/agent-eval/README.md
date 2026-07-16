@@ -117,9 +117,13 @@ and oracle but asks the model to begin with `atl capabilities --task
 jira/evidence`. Compare it with `run.claude.json` to measure whether exact
 catalog routing reduces broad reference/help exploration and parent turns. The
 extra catalog invocation is offline and creates no backend request. The shared
-12-turn safety ceiling accommodates that explicit routing step; comparisons
-should use observed turns/tool calls rather than treating the ceiling as a
-performance target.
+12-turn safety ceiling accommodates that explicit routing step, while the
+variant checks cap atl calls at three without the catalog and four with it,
+including the optional configured-state preflight. A
+help probe, separate value read, guessed-period retry, or second digest is
+therefore a benchmark failure even when the final answer is correct.
+Comparisons should use observed turns/tool calls rather than treating the
+ceiling as a performance target.
 
 `jira-quarter-portfolio` models the longer PM workflow: discover custom fields
 once, freeze one complete board snapshot, qualify three epics with narrow

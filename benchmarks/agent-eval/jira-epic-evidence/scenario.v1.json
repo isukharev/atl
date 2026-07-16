@@ -36,7 +36,7 @@
   "budgets": {
     "max_agent_turns": 12,
     "max_tool_calls": 12,
-    "max_atl_invocations": 6,
+    "max_atl_invocations": 4,
     "max_delegations": 0,
     "max_backend_requests": 15,
     "max_duplicate_backend_requests": 6,

@@ -437,6 +437,7 @@ A private run spec differs from a synthetic spec in these fields:
     {"name":"http_observed","kind":"http_methods_observed"},
     {"name":"no_delegation","kind":"delegations_none"},
     {"name":"used_atl","kind":"atl_invocations_min","minimum":1},
+    {"name":"bounded_atl","kind":"atl_invocations_max","maximum":5},
     {"name":"complete","kind":"json_equals","pointer":"/complete","expected":true}
   ]
 }

@@ -213,6 +213,7 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 		{Name: "equals", Kind: "json_equals", Pointer: "/nested/value", Expected: json.RawMessage(`7`)},
 		{Name: "present", Kind: "json_present", Pointer: "/nested"},
 		{Name: "used", Kind: "atl_invocations_min", Minimum: 2},
+		{Name: "bounded", Kind: "atl_invocations_max", Maximum: 2},
 		{Name: "routes", Kind: "mock_no_unexpected"},
 		{Name: "delegated", Kind: "delegations_min", Minimum: 1},
 		{Name: "guarded", Kind: "guard_no_denials"},
@@ -225,6 +226,13 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 		if !passed {
 			t.Errorf("check %s failed", name)
 		}
+	}
+	over, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 3, 0, 0, 1, 0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if over["bounded"] {
+		t.Fatal("atl_invocations_max accepted an over-budget run")
 	}
 }
 

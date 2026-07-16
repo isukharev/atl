@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added an `atl_invocations_max` model-run check and applied it to the synthetic
+  Jira epic-evidence cells. The Jira skill now routes metadata discovery
+  directly into one digest, forbids help probes and guessed periods, and makes
+  a successful complete digest a terminal read.
+
 - Added a private-run pair validator and supervised comparison workflow for
   CLI+skill versus typed MCP. `agent-eval validate-pair` requires the same
   private case directory, provider/model, scenario, prompt, response schema,

@@ -104,6 +104,10 @@ only promising exact fields in compact mode. Choose the shortest evidence path: 
 qualified history/refs for one issue, transient export for several keys, or one
 `jira epic digest` for a known epic/period. Inspect every completeness field,
 stop when evidence is sufficient, and expand only a known Confluence heading.
+The capability route is the command contract: do not probe `--help`, guess a
+quarter for an undated task, read a status field separately before a digest
+that already selects it, or rerun a successful complete digest in another
+output mode.
 Load [evidence-workflow.md](reference/evidence-workflow.md) for the exact
 decision table, commands, partial-result rules, and private-output handling.
 

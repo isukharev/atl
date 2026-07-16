@@ -32,6 +32,7 @@
     {"name": "sources_complete", "kind": "json_equals", "pointer": "/sources_complete", "expected": true},
     {"name": "status_description_correct", "kind": "json_equals", "pointer": "/status_description", "expected": "Synthetic delivery is on track"},
     {"name": "summary_correct", "kind": "json_equals", "pointer": "/summary", "expected": "Deliver synthetic capability"},
+    {"name": "bounded_atl", "kind": "atl_invocations_max", "maximum": 3},
     {"name": "used_atl", "kind": "atl_invocations_min", "minimum": 1}
   ]
 }
