@@ -71,6 +71,14 @@ func confService() (*app.ConfluenceService, error) {
 	return app.NewConfluence(cfg, version.Version)
 }
 
+func confScheduledService(pagePrefetch, requestsPerSecond int) (*app.ConfluenceService, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return nil, err
+	}
+	return app.NewConfluenceScheduled(cfg, version.Version, pagePrefetch, requestsPerSecond)
+}
+
 func newConfCmd() *cobra.Command {
 	c := &cobra.Command{Use: "conf", Short: "Confluence: mirror, read, validate, push (native storage format)"}
 	c.AddCommand(
@@ -574,6 +582,15 @@ func confPullCmd() *cobra.Command {
 			if o.Incremental && o.Complete {
 				return usageErr("--incremental and --complete are mutually exclusive")
 			}
+			if o.PagePrefetch < 1 || o.PagePrefetch > 8 {
+				return usageErr("--page-prefetch must be between 1 and 8")
+			}
+			if o.RequestsPerSecond < 0 || o.RequestsPerSecond > 1000 {
+				return usageErr("--requests-per-second must be between 0 and 1000")
+			}
+			if !o.Incremental && !o.Complete && (cmd.Flags().Changed("page-prefetch") || cmd.Flags().Changed("requests-per-second")) {
+				return usageErr("--page-prefetch and --requests-per-second require --incremental or --complete")
+			}
 			if o.Incremental {
 				if o.ID != "" || (o.CQL == "" && o.Space == "") {
 					return usageErr("--incremental requires --cql or --space and cannot use --id")
@@ -608,7 +625,12 @@ func confPullCmd() *cobra.Command {
 				return err
 			}
 			o.Render = override
-			svc, err := confService()
+			var svc *app.ConfluenceService
+			if o.Incremental || o.Complete {
+				svc, err = confScheduledService(o.PagePrefetch, o.RequestsPerSecond)
+			} else {
+				svc, err = confService()
+			}
 			if err != nil {
 				return err
 			}
@@ -629,6 +651,9 @@ func confPullCmd() *cobra.Command {
 				if res.Complete != nil {
 					complete := res.Complete
 					fmt.Fprintf(&b, "complete-pull: complete=%t source=%s total=%d completed=%d remaining=%d checkpoint_active=%t selector_sha256=%s selection_sha256=%s view_migrations=%d\n", complete.Complete, complete.Source, complete.Total, complete.Completed, complete.Remaining, complete.CheckpointActive, complete.SelectorSHA256, complete.SelectionSHA256, complete.ViewMigrations)
+				}
+				if schedule := res.Scheduling; schedule != nil {
+					fmt.Fprintf(&b, "scheduling: page_prefetch=%d max_in_flight=%d requests_per_second=%d\n", schedule.PagePrefetch, schedule.MaxInFlight, schedule.RequestsPerSecond)
 				}
 				for _, p := range res.Pages {
 					if o.Comments && p.Comments != nil {
@@ -656,6 +681,8 @@ func confPullCmd() *cobra.Command {
 	cmd.Flags().StringVar(&o.TimeZone, "time-zone", "", "removed: put the explicit offset in --since")
 	_ = cmd.Flags().MarkHidden("time-zone")
 	cmd.Flags().IntVar(&o.MaxPages, "max-pages", 0, "selection cap (incremental default 10000; complete 0 means no configured cap)")
+	cmd.Flags().IntVar(&o.PagePrefetch, "page-prefetch", 1, "ordered native-body prefetch window for incremental/complete pulls (1-8; mirror writes remain serial)")
+	cmd.Flags().IntVar(&o.RequestsPerSecond, "requests-per-second", 0, "shared Confluence/Jira request-start rate for incremental/complete pulls (0 disables proactive pacing)")
 	rf.register(cmd)
 	rf.registerConfluenceJiraMacros(cmd)
 	return cmd

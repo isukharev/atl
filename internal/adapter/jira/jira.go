@@ -25,7 +25,13 @@ type Jira struct {
 
 // New builds a Jira adapter for base URL with a PAT.
 func New(base, token, version string) *Jira {
-	c := httpx.New(base, token, version)
+	return NewWithScheduler(base, token, version, nil)
+}
+
+// NewWithScheduler lets Confluence Jira-macro expansion share the exact same
+// command-scoped load boundary as the originating Confluence requests.
+func NewWithScheduler(base, token, version string, scheduler *httpx.Scheduler) *Jira {
+	c := httpx.NewWithScheduler(base, token, version, scheduler)
 	// Jira DC has no optimistic version gate: a 409 is a generic conflict
 	// (locked issue, closed sprint, workflow veto), never a version conflict —
 	// exit 5's re-pull/--force remediation does not apply here.

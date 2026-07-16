@@ -27,6 +27,11 @@ it writes redacted request metadata to stderr. Query values and credentials are
 not emitted. Transport errors expose only a safe reason category and a
 query-redacted URL.
 
+Large `conf pull --incremental|--complete` runs remain serial by default. Their
+opt-in `--page-prefetch` and `--requests-per-second` controls add no destination:
+one command-scoped scheduler bounds every Confluence and optional Jira-macro
+transport hop and shares a server `Retry-After` cooldown.
+
 `conf page open` asks the operating system to open a browser URL. The `atl`
 process does not fetch that page, but the browser may make its own network
 requests. Model providers, coding-agent hosts, shell commands, proxies, package

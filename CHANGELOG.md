@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added opt-in bounded Confluence body prefetch plus one command-scoped
+  transport scheduler shared across Confluence and Jira-macro traffic for
+  complete/incremental pulls. Defaults remain serial; request pacing,
+  in-flight response bounds, shared `Retry-After`, canonical output order, and
+  exact-prefix checkpointing are explicit and tested.
+
 - Added a consolidated network-egress and air-gap contract covering the signed
   release check, Jira/Confluence REST, asset and macro expansion, MCP reads,
   independent read-only/update guards, and externally enforced zero-egress

@@ -25,5 +25,10 @@
     "next_instant": "2026-07-13T12:34:00Z",
     "boundary_count": 1,
     "watermark_advanced": true
+  },
+  "scheduling": {
+    "page_prefetch": 1,
+    "max_in_flight": 1,
+    "requests_per_second": 0
   }
 }

@@ -18,5 +18,10 @@
     "completed": 1,
     "remaining": 0,
     "checkpoint_active": false
+  },
+  "scheduling": {
+    "page_prefetch": 1,
+    "max_in_flight": 1,
+    "requests_per_second": 0
   }
 }

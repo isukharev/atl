@@ -41,16 +41,17 @@ Recent beta work established the contracts the next wave builds on:
 - explicit package-update ownership: Homebrew launchers delegate exclusively to
   `brew upgrade atl`, while a consolidated egress contract separates read-only,
   update-disable, backend traffic, and externally enforced air-gap controls.
+- opt-in bounded scheduling for large Confluence pulls: native body reads may
+  prefetch in canonical order while a shared transport gate covers Confluence,
+  Jira macros, redirects, retries, comments, and streams; local writes and
+  checkpoints remain serial.
 
 ## Now
 
-The daily-operation, Confluence review/sync, first agent-evaluation sequence,
-package ownership, and complete historical bootstrap are shipped. Current work
-keeps scale ready for the next stable release:
-
-- add bounded concurrency or rate-limit scheduling only as a complete
-  cross-request control that covers pages, comments, assets, and Jira-macro
-  expansion rather than accelerating one partial path.
+The daily-operation, Confluence review/sync and bounded scheduling,
+first agent-evaluation sequence, package ownership, and complete historical
+bootstrap are shipped. Current work selects the next evidence-backed agent or
+migration gap rather than adding unmeasured breadth.
 
 ## Next
 

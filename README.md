@@ -266,6 +266,11 @@ atl conf pull \
 # verified twice before body reads; repeat the exact command to resume.
 atl conf pull --complete --cql 'space=DOCS and type=page' --into mirror
 
+# Optional reviewed load bounds: writes/checkpoints stay serial, while native
+# body reads prefetch in order and all Confluence/Jira attempts share 8 starts/s.
+atl conf pull --complete --cql 'space=DOCS and type=page' \
+  --page-prefetch 4 --requests-per-second 8 --into mirror
+
 # Repeat a large selector without re-fetching unchanged pages. The first run
 # needs one reviewed absolute instant. A 48-hour safety overlap prevents an
 # unknown backend CQL timezone from omitting pages; no calibration search runs.
@@ -286,6 +291,12 @@ assumption, Confluence's observed user field when available, an honest
 and the fixed 48-hour incremental overlap. It is user-invoked only and performs
 at most three sequential metadata GETs; incremental pull never runs it or any
 calibration probe automatically.
+
+Large pulls remain serial by default. `--page-prefetch` (1–8) is an explicit,
+bounded native-body read window; `--requests-per-second` paces every actual
+Confluence and optional Jira-macro request through the same scheduler and
+shares server `Retry-After`. Path claims, assets/sidecars, mirror writes, and
+checkpoints are always committed sequentially in canonical order.
 
 ### 2. Explore the mirror
 
