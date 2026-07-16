@@ -110,9 +110,26 @@ atl conf pull --id <id> --assets --into <absolute-root>
 # add --comments only when comment context is needed
 ```
 
-For a recurring large space/CQL mirror, bootstrap and then reuse complete
-incremental selection instead of broad pulls. When date boundaries are
-material, inspect the semantics once rather than before every pull:
+For a complete historical mirror beyond the ordinary caps, use the explicit
+resumable bootstrap before relying on incremental deltas:
+
+```bash
+export ATL_READ_ONLY=1
+atl conf pull --complete --cql '<stable CQL without ORDER BY>' --into <absolute-root>
+# interrupted run: repeat the exact command; do not add flags or change render config
+atl conf pull --complete --cql '<same stable CQL>' --into <absolute-root>
+```
+
+Complete mode performs two exhaustive metadata passes before body reads, then
+one serial body GET per page. Budget that load deliberately. It stores a
+private exact-id checkpoint and resumes only its remaining prefix; do not infer
+deletion from the snapshot. Option drift is exit 8. Use
+`--restart-complete` only after preserving local edits and explicitly deciding
+to replace the unfinished snapshot.
+
+For recurring changes after the historical bootstrap, reuse complete
+incremental selection. When date boundaries are material, inspect the
+semantics once rather than before every pull:
 
 ```bash
 export ATL_READ_ONLY=1

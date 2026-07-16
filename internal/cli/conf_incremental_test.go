@@ -60,6 +60,40 @@ func TestConfPullIncrementalTextGolden(t *testing.T) {
 	assertGolden(t, "conf_pull_incremental.txt", normalizeIncrementalCLI(out, root))
 }
 
+func TestConfPullCompleteGoldenAndReadOnly(t *testing.T) {
+	srv, requests := incrementalConfServer(t)
+	defer srv.Close()
+	root := t.TempDir()
+	out, code := runCLI(t, confEnv(srv), "--read-only", "conf", "pull", "--complete", "--cql", "space=ENG and type=page", "--into", root)
+	if code != exitOK {
+		t.Fatalf("exit=%d out=%q", code, out)
+	}
+	assertGolden(t, "conf_pull_complete.json", normalizeIncrementalCLI(out, root))
+	searches := 0
+	for _, request := range *requests {
+		if !strings.HasPrefix(request, http.MethodGet+" ") {
+			t.Fatalf("complete pull made non-GET request: %s", request)
+		}
+		if strings.Contains(request, "/rest/api/search?") {
+			searches++
+		}
+	}
+	if searches != 2 {
+		t.Fatalf("complete pull search requests=%d want=2; all=%v", searches, *requests)
+	}
+}
+
+func TestConfPullCompleteTextGolden(t *testing.T) {
+	srv, _ := incrementalConfServer(t)
+	defer srv.Close()
+	root := t.TempDir()
+	out, code := runCLI(t, confEnv(srv), "conf", "pull", "--complete", "--space", "ENG", "--into", root, "-o", "text")
+	if code != exitOK {
+		t.Fatalf("exit=%d out=%q", code, out)
+	}
+	assertGolden(t, "conf_pull_complete.txt", normalizeIncrementalCLI(out, root))
+}
+
 func TestConfPullIncrementalFlagsFailBeforeConfig(t *testing.T) {
 	for _, args := range [][]string{
 		{"conf", "pull", "--incremental", "--id", "100"},
@@ -69,6 +103,14 @@ func TestConfPullIncrementalFlagsFailBeforeConfig(t *testing.T) {
 		{"conf", "pull", "--incremental", "--cql", "type=page", "--time-zone", ""},
 		{"conf", "pull", "--incremental", "--cql", "type=page", "--max-pages", "-1"},
 		{"conf", "pull", "--incremental", "--cql", "type=page", "--time-zone", "UTC"},
+		{"conf", "pull", "--incremental", "--space", "ENG", "--depth", "2"},
+		{"conf", "pull", "--complete", "--id", "100"},
+		{"conf", "pull", "--complete"},
+		{"conf", "pull", "--complete", "--incremental", "--cql", "type=page"},
+		{"conf", "pull", "--restart-complete", "--cql", "type=page"},
+		{"conf", "pull", "--complete", "--cql", "type=page", "--max-pages", "-1"},
+		{"conf", "pull", "--complete", "--cql", "type=page", "--since", "2026-07-13T12:00:00Z"},
+		{"conf", "pull", "--complete", "--space", "ENG", "--depth", "2"},
 	} {
 		if _, code := runCLI(t, nil, args...); code != exitUsage {
 			t.Fatalf("args=%v exit=%d", args, code)

@@ -238,10 +238,11 @@ Notes for scripts:
   deterministic `remediation` to **stderr** (use `-o text` for a plain
   `error: <msg>` line). Branch on `kind`/exit code; remediation is guidance for
   the agent to present, never permission to retry or mutate automatically.
-- **`--cql` pull caps at 1000 pages; `--space` at 2000.** When either cap is
+- **Ordinary `--cql` pull caps at 1000 pages; `--space` at 2000.** When either cap is
   hit the result carries `"truncated": true` / `"truncated_at": N` and a
   `warning:` line is printed to stderr — the rest is not mirrored. Narrow the
-  selection to get everything.
+  selection, or use explicit resumable `--complete` for a full historical
+  selector.
 - **`--from-file -` (stdin) is bounded at 64 MiB**; larger input is rejected
   with a usage error (exit 2) — pass a file path for bigger bodies.
 - **Direct REST fallback:** when you must call an uncovered Server/Data Center
@@ -1054,6 +1055,10 @@ atl conf pull --space DOCS --into my-mirror
 # pages matching a CQL query
 atl conf pull --cql "label=public and space=DOCS" --assets
 
+# complete historical bootstrap beyond the ordinary 1000/2000 caps; an
+# interrupted run resumes its exact private selector snapshot automatically
+atl conf pull --complete --cql 'space=DOCS and type=page' --into my-mirror
+
 # also bring page comments into the mirror
 atl conf pull --id 12345678 --comments
 
@@ -1075,9 +1080,11 @@ Flags:
 | `--depth` | depth limit when using `--space` (0 = unlimited) |
 | `--assets` | download draw.io PNG renders and inline images |
 | `--comments` | mirror page comments to `<slug>.comments.json` (+ `.comments.md`) sidecars |
+| `--complete` | build and consume an exact resumable two-pass selector snapshot; requires `--cql` or `--space` and does not support `--depth` |
+| `--restart-complete` | explicitly replace an unfinished complete snapshot after a fresh stable selection and local preflight |
 | `--incremental` | exhaustively select changes since a persisted selector watermark; requires `--cql` or `--space` |
 | `--since` | first-run lower boundary as an exact RFC3339 minute with explicit `Z` or numeric offset |
-| `--max-pages` | explicit incremental result cap (default 10000); exceeding it fails without moving the watermark |
+| `--max-pages` | selection cap: incremental defaults to 10000; complete mode uses `0` as no configured cap (the local one-million-identity / 64 MiB checkpoint guards still apply) |
 | `--jira-view` | named `jira_list_views` projection for Jira JQL macros whose macro configuration does not specify columns |
 | `--jira-macros` | `auto` (default) or `off`; `off` keeps placeholders and performs no Jira credential read/search |
 | `--into` | mirror root directory (default `mirror`) |
@@ -1086,6 +1093,37 @@ Flags:
 | `--render-exclude` | comma-separated sections to remove from the profile |
 
 At most one of `--id`, `--cql`, `--space` may be given.
+
+Complete mode is the explicit historical bootstrap for a selector larger than
+the ordinary CQL/space caps. It exhausts qualified search pagination twice,
+requires the same unique page-id set in both passes, canonicalizes that set
+locally, and only then starts page-body GETs. Missing/duplicate identities,
+repeated cursors, unreachable advertised results, selection drift, or an
+explicit cap fail with exit `8` before any body request or new checkpoint.
+User CQL containing `ORDER BY` is rejected; atl does not depend on an
+undocumented id-order guarantee from the backend.
+
+The exact identity snapshot and its durable prefix live in a private,
+schema-versioned, mode-0600 pair under `.atl/complete-pulls/`: an immutable
+`<selector-sha256>.json` id manifest plus a small
+`<selector-sha256>.progress.json`. They contain ids, hashes, and the next index,
+never credentials, backend URLs, titles, or page bodies. Progress updates do
+not rewrite the large manifest. Repeating the same command resumes the
+remaining prefix without repeating completed body GETs. Assets,
+comments, effective render settings, and the resolved Jira-macro list view are
+hash-bound; option drift fails closed. `--restart-complete` replaces an old
+snapshot only after a fresh two-pass selection and local overwrite preflight
+succeed, so a failed restart leaves the previous resume point intact.
+
+Before body reads, native/Markdown local edits and partial/corrupt tracked
+artifacts block the exact remaining set. Progress is committed after each
+25-page batch and on a graceful failure. A hard process crash can therefore
+re-fetch at most the uncheckpointed tail, but never skip it. Page downloads
+remain serial. This mode intentionally costs two metadata search passes plus
+one body GET per selected page; it runs only when explicitly requested and
+performs no background or calibration queries. Requested comment truncation
+does not advance past that page. Completion removes the checkpoint; neither a
+snapshot nor its absence is evidence of remote deletion.
 
 Incremental mode is deliberately inclusive at its lower minute. The first
 `--since` is an absolute RFC3339 instant, so a DST fold or the timezone of the

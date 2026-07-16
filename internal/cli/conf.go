@@ -571,9 +571,15 @@ func confPullCmd() *cobra.Command {
 			if set > 1 {
 				return usageErr("--id, --cql and --space are mutually exclusive")
 			}
+			if o.Incremental && o.Complete {
+				return usageErr("--incremental and --complete are mutually exclusive")
+			}
 			if o.Incremental {
 				if o.ID != "" || (o.CQL == "" && o.Space == "") {
 					return usageErr("--incremental requires --cql or --space and cannot use --id")
+				}
+				if o.Space != "" && o.Depth != 0 {
+					return usageErr("--incremental --space does not support --depth")
 				}
 				if o.MaxPages < 0 {
 					return usageErr("--max-pages must be >= 0")
@@ -581,8 +587,21 @@ func confPullCmd() *cobra.Command {
 				if cmd.Flags().Changed("time-zone") {
 					return usageErr("--time-zone was removed; pass an explicit offset in RFC3339 --since instead")
 				}
-			} else if o.Since != "" || cmd.Flags().Changed("time-zone") || cmd.Flags().Changed("max-pages") {
-				return usageErr("--since and --max-pages require --incremental; --time-zone was removed")
+			} else if o.Complete {
+				if o.ID != "" || (o.CQL == "" && o.Space == "") {
+					return usageErr("--complete requires --cql or --space and cannot use --id")
+				}
+				if o.Space != "" && o.Depth != 0 {
+					return usageErr("--complete --space does not support --depth")
+				}
+				if o.MaxPages < 0 {
+					return usageErr("--max-pages must be >= 0")
+				}
+				if o.Since != "" || cmd.Flags().Changed("time-zone") {
+					return usageErr("--since and --time-zone cannot be used with --complete")
+				}
+			} else if o.Since != "" || o.RestartComplete || cmd.Flags().Changed("time-zone") || cmd.Flags().Changed("max-pages") {
+				return usageErr("--since and --max-pages require --incremental or --complete; --restart-complete requires --complete; --time-zone was removed")
 			}
 			override, err := rf.override()
 			if err != nil {
@@ -607,6 +626,10 @@ func confPullCmd() *cobra.Command {
 					inc := res.Incremental
 					fmt.Fprintf(&b, "incremental: complete=%t source=%s watermark_instant=%s query_literal=%s query_literal_basis=%s backend_query_time_zone=%s safety_overlap_hours=%d next=%s matched=%d selected=%d overlap_skipped=%d boundary_skipped=%d view_migrations=%d watermark_advanced=%t\n", inc.Complete, inc.WatermarkSource, inc.WatermarkInstant, inc.QueryLiteral, inc.QueryLiteralBasis, inc.BackendQueryTimeZone, inc.SafetyOverlapHours, inc.NextInstant, inc.Matched, inc.Selected, inc.OverlapSkipped, inc.BoundarySkipped, inc.ViewMigrations, inc.WatermarkAdvanced)
 				}
+				if res.Complete != nil {
+					complete := res.Complete
+					fmt.Fprintf(&b, "complete-pull: complete=%t source=%s total=%d completed=%d remaining=%d checkpoint_active=%t selector_sha256=%s selection_sha256=%s view_migrations=%d\n", complete.Complete, complete.Source, complete.Total, complete.Completed, complete.Remaining, complete.CheckpointActive, complete.SelectorSHA256, complete.SelectionSHA256, complete.ViewMigrations)
+				}
 				for _, p := range res.Pages {
 					if o.Comments && p.Comments != nil {
 						fmt.Fprintf(&b, "  %s  v%d  %s  [assets:%d comments:%d]\n", p.ID, p.Version, p.Path, p.Assets, *p.Comments)
@@ -627,10 +650,12 @@ func confPullCmd() *cobra.Command {
 	cmd.Flags().StringVar(&o.Into, "into", mirrorRootDefault("mirror"), "mirror root dir (default: $ATL_MIRROR_ROOT or \"mirror\")")
 	cmd.Flags().StringVar(&o.JiraView, "jira-view", "", "named Jira list view for JQL macros (default: default; macro columns win)")
 	cmd.Flags().BoolVar(&o.Incremental, "incremental", false, "pull a complete changed-page delta using a selector-bound watermark")
+	cmd.Flags().BoolVar(&o.Complete, "complete", false, "exhaust and resume one exact two-pass selector snapshot (no ordinary 1000/2000 cap)")
+	cmd.Flags().BoolVar(&o.RestartComplete, "restart-complete", false, "replace an unfinished complete-pull snapshot after fresh selection and local preflight")
 	cmd.Flags().StringVar(&o.Since, "since", "", "first-run lower boundary as an exact RFC3339 minute with explicit offset")
 	cmd.Flags().StringVar(&o.TimeZone, "time-zone", "", "removed: put the explicit offset in --since")
 	_ = cmd.Flags().MarkHidden("time-zone")
-	cmd.Flags().IntVar(&o.MaxPages, "max-pages", 0, "explicit incremental selection cap (default 10000; watermark never advances when exceeded)")
+	cmd.Flags().IntVar(&o.MaxPages, "max-pages", 0, "selection cap (incremental default 10000; complete 0 means no configured cap)")
 	rf.register(cmd)
 	rf.registerConfluenceJiraMacros(cmd)
 	return cmd

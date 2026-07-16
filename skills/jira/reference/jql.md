@@ -12,8 +12,9 @@
   `<KEY>.md`, and `<KEY>.json` per issue — use it once you know which issues you'll work with.
   The `.wiki` is the native substrate; `.md` is a derived staging view whose supported body edits
   require `jira apply`. Default `--limit 100`; **`--limit 0`
-  means all** (unbounded — unlike Confluence's `conf pull --cql`, which caps at 1000 and reports
-  `"truncated": true` plus a stderr warning when the cap is hit).
+  means all**. Ordinary Confluence `conf pull --cql` instead caps at 1000 and
+  reports `"truncated": true` plus a stderr warning; its explicit
+  `--complete` mode is the resumable historical-selector path.
 
 ## Common JQL patterns
 

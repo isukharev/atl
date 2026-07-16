@@ -219,9 +219,13 @@ type PullOpts struct {
 	Render      config.RenderService
 	JiraView    string
 	Incremental bool
-	Since       string
-	TimeZone    string
-	MaxPages    int
+	Complete    bool
+	// RestartComplete explicitly replaces an unfinished complete-pull snapshot
+	// after a fresh two-pass selection and local overwrite preflight succeed.
+	RestartComplete bool
+	Since           string
+	TimeZone        string
+	MaxPages        int
 }
 
 // PulledPage is one mirrored page.
@@ -242,6 +246,7 @@ type PullResult struct {
 	Root        string                 `json:"root"`
 	Pages       []PulledPage           `json:"pages"`
 	Incremental *IncrementalPullResult `json:"incremental,omitempty"`
+	Complete    *CompletePullResult    `json:"complete_pull,omitempty"`
 	// Truncated is true when a --cql selection hit the silent pagination cap, so
 	// some matching pages were NOT mirrored. TruncatedAt is the cap that was hit
 	// (the number of ids collected). Both are omitted from JSON in the common,
@@ -259,7 +264,7 @@ type PullResult struct {
 }
 
 // Pull mirrors pages selected by id/cql/space into Into.
-func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, error) {
+func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullResult, retErr error) {
 	root := o.Into
 	if root == "" {
 		root = "mirror"
@@ -281,8 +286,15 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 		return nil, err
 	}
 	var incremental *confluenceIncrementalSelection
+	var complete *confluenceCompleteSelection
 	var ids []string
 	var truncated bool
+	if o.Incremental && o.Complete {
+		return nil, fmt.Errorf("%w: --incremental and --complete are mutually exclusive", domain.ErrUsage)
+	}
+	if o.RestartComplete && !o.Complete {
+		return nil, fmt.Errorf("%w: --restart-complete requires --complete", domain.ErrUsage)
+	}
 	if o.Incremental {
 		if o.ID != "" {
 			return nil, fmt.Errorf("%w: --incremental cannot be used with --id", domain.ErrUsage)
@@ -297,6 +309,21 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 			return nil, preflightErr
 		}
 		incremental.result.ViewMigrations = viewMigrations
+	} else if o.Complete {
+		if o.ID != "" {
+			return nil, fmt.Errorf("%w: --complete cannot be used with --id", domain.ErrUsage)
+		}
+		if o.MaxPages < 0 {
+			return nil, fmt.Errorf("%w: --max-pages must be >= 0", domain.ErrUsage)
+		}
+		if o.Since != "" || o.TimeZone != "" {
+			return nil, fmt.Errorf("%w: --since and --time-zone cannot be used with --complete", domain.ErrUsage)
+		}
+		complete, err = s.prepareCompletePull(ctx, m, o, rs)
+		if err != nil {
+			return nil, err
+		}
+		ids = complete.checkpoint.IDs[complete.nextIndex:]
 	} else {
 		if o.TimeZone != "" {
 			return nil, fmt.Errorf("%w: --time-zone was removed; pass an explicit offset in RFC3339 --since instead", domain.ErrUsage)
@@ -316,6 +343,9 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 	if incremental != nil {
 		res.Incremental = incremental.result
 	}
+	if complete != nil {
+		res.Complete = complete.result
+	}
 	if truncated {
 		res.Truncated = true
 		res.TruncatedAt = len(ids)
@@ -329,6 +359,30 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 		return nil, err
 	}
 	defer func() { _ = batch.Flush() }()
+	completeFinished := false
+	completeRetireStarted := false
+	if complete != nil {
+		// Graceful failures durably record every page whose mirror sidecar commit
+		// succeeds. A hard process crash may replay at most the small batch since
+		// the last checkpoint, but can never skip an uncommitted page.
+		defer func() {
+			if completeFinished {
+				return
+			}
+			if completeRetireStarted {
+				retErr = fmt.Errorf("%w; complete-pull completion cleanup was interrupted — rerun the exact command to reconcile private resume state", retErr)
+				return
+			}
+			if err := batch.Flush(); err != nil {
+				retErr = errors.Join(retErr, fmt.Errorf("save complete-pull mirror progress: %w", err))
+			} else if complete.nextIndex > complete.savedIndex {
+				if err := complete.save(m); err != nil {
+					retErr = errors.Join(retErr, fmt.Errorf("save complete-pull checkpoint: %w", err))
+				}
+			}
+			retErr = fmt.Errorf("%w; complete-pull checkpoint is at %d/%d — rerun the exact command to resume", retErr, complete.savedIndex, complete.result.Total)
+		}()
+	}
 	macroOptOutWarned := false
 	for _, id := range ids {
 		page, err := s.store.GetPage(ctx, id, domain.PullOpts{Format: "csf", IncludeRestrictions: confluenceNeedsRestrictions(rs)})
@@ -422,6 +476,20 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 			pp.Comments = &n
 		}
 		res.Pages = append(res.Pages, pp)
+		if complete != nil {
+			if commentsTruncated {
+				return res, fmt.Errorf("%w: complete-pull comments for page %s were truncated; checkpoint remains before this page", domain.ErrCheckFailed, id)
+			}
+			complete.advance()
+			if complete.shouldCheckpoint() {
+				if err := batch.Flush(); err != nil {
+					return res, err
+				}
+				if err := complete.save(m); err != nil {
+					return res, err
+				}
+			}
+		}
 	}
 	if err := batch.Flush(); err != nil {
 		return res, err
@@ -434,6 +502,21 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (*PullResult, 
 			return res, err
 		}
 		res.Incremental.WatermarkAdvanced = incremental.changed
+	}
+	if complete != nil {
+		if complete.nextIndex != len(complete.checkpoint.IDs) {
+			return res, fmt.Errorf("%w: complete-pull progress ended before the exact selection was consumed", domain.ErrCheckFailed)
+		}
+		if err := complete.save(m); err != nil {
+			return res, err
+		}
+		completeRetireStarted = true
+		if err := m.RemoveCompletePullCheckpoint(complete.checkpoint.SelectorSHA256); err != nil {
+			return res, err
+		}
+		complete.result.Complete = true
+		complete.result.CheckpointActive = false
+		completeFinished = true
 	}
 	return res, nil
 }

@@ -356,7 +356,9 @@ Notable behaviors:
 
 - `Pull` resolves page IDs from `--id` / `--cql` / `--space`, fetches each
   page in CSF format, runs `fragment.Extract` + `fragment.Resolve`, and calls
-  `mirror.Write`. Up to 1 000 pages via CQL, 2 000 via space tree.
+  `mirror.Write`. Ordinary mode caps CQL at 1 000 and space tree at 2 000;
+  explicit complete mode qualifies an exhaustive selector twice and consumes
+  a private resumable exact-id checkpoint.
 - `Push` validates CSF (`csf.HasErrors` → refuse), computes a fragment diff
   against the pristine base, then calls `store.UpdatePage` under the version
   gate; on success it re-fetches and refreshes the mirror entry.

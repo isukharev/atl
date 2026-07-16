@@ -55,10 +55,15 @@ Make `push` the single deliberate, human-reviewed checkpoint:
    reconcile, or `--force` (last-writer-wins). **Never auto-`--force`.**
 
 Push the bytes you reviewed — don't regenerate the body between the dry-run and the push.
-For a recurring large Confluence mirror, use `conf pull --incremental` with a
-stable CQL/space selector. Bootstrap once with a reviewed RFC3339 `--since`
-instant carrying an explicit offset, then reuse the exact selector/root. Only `complete:true` advances its inclusive
-minute watermark; exit 8 is resume-safe and absence never proves deletion.
+For a large Confluence mirror that needs historical completeness, first run
+`conf pull --complete` with a stable CQL/space selector and repeat the exact
+command to resume an interruption. It costs two search passes before serial
+body GETs and keeps its exact private checkpoint under `.atl`; option drift is
+fail-closed. Then use `conf pull --incremental` for recurring changes.
+Bootstrap incremental mode once with a reviewed RFC3339 `--since` instant
+carrying an explicit offset, then reuse the exact selector/root. Only
+`complete:true` advances its inclusive minute watermark; exit 8 is resume-safe
+and absence never proves deletion.
 For several Confluence pages, replace directory push with `conf plan create`,
 then read-only `conf plan preview`, then gated `conf plan apply` with the exact
 hash + `--confirm APPLY`. A plan is a

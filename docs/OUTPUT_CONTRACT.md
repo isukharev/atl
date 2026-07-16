@@ -591,6 +591,47 @@ pagination anomaly, local dirty/drift refusal, permission/network failure, or
 requested-comment truncation leaves it unchanged. No missing result implies a
 remote deletion.
 
+With `--complete`, `pages[]` contains only pages fetched during this invocation,
+while `complete_pull.completed` includes a durable prefix resumed from an
+earlier invocation:
+
+```json
+{
+  "root": "mirror",
+  "pages": [
+    {"id":"300","title":"Gamma","path":"DOCS/gamma/gamma.csf","version":2,"assets":0}
+  ],
+  "complete_pull": {
+    "selector_sha256": "<sha256>",
+    "selection_sha256": "<sha256>",
+    "source": "resumed",
+    "complete": true,
+    "total": 3,
+    "completed": 3,
+    "remaining": 0,
+    "checkpoint_active": false
+  }
+}
+```
+
+`source` is `new|resumed|restarted`. A successful result always has
+`complete:true`, `remaining:0`, and `checkpoint_active:false`; failures are
+reported through the normal error envelope and retain the private resume
+checkpoint. Before the first body GET for a new/restarted snapshot, two
+complete metadata passes must produce the same unique id set and the remaining
+local artifacts must pass overwrite preflight. Under the mode-0600
+`.atl/complete-pulls/` state, immutable `<selector-sha256>.json` stores only
+schema/service hashes and canonical ids; a small
+`<selector-sha256>.progress.json` stores the matching hashes and `next_index`.
+Neither contains credentials, URL, title, or body, and progress writes do not
+rewrite the large manifest. Pull-affecting options are hash-bound. Graceful
+failures flush mirror state before advancing `next_index`; a hard crash may
+replay the current 25-page batch but cannot skip an uncommitted page. Both are removed
+only after every selected page and the final mirror sidecar are durable.
+`view_migrations` is present only when supported pristine legacy views were
+recognized during preflight. No missing page or retired checkpoint proves a
+remote deletion.
+
 With `--comments`, two sidecar files are written next to the page:
 `<slug>.comments.json` (a `[{id, author, created, body, body_storage?}]` array, pretty-printed
 with a trailing newline) and `<slug>.comments.md` (a derived read view). The
