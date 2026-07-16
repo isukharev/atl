@@ -556,13 +556,17 @@ func TestJiraFields_Emit(t *testing.T) {
 		t.Fatalf("jira fields: exit %d, want 0 (stdout=%q)", code, out)
 	}
 	var res struct {
-		Fields []domain.FieldDef `json:"fields"`
+		SchemaVersion int               `json:"schema_version"`
+		Complete      bool              `json:"complete"`
+		Total         int               `json:"total"`
+		Count         int               `json:"count"`
+		Fields        []domain.FieldDef `json:"fields"`
 	}
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("decode fields: %v\n%s", err, out)
 	}
-	if len(res.Fields) != 2 || res.Fields[0].ID != "summary" || res.Fields[1].Name != "Epic Link" {
-		t.Errorf("fields = %+v, want summary + Epic Link", res.Fields)
+	if res.SchemaVersion != 1 || !res.Complete || res.Total != 2 || res.Count != 2 || len(res.Fields) != 2 || res.Fields[0].ID != "summary" || res.Fields[1].Name != "Epic Link" {
+		t.Errorf("result = %+v, want complete summary + Epic Link", res)
 	}
 }
 
@@ -576,12 +580,15 @@ func TestJiraFields_Filters(t *testing.T) {
 		t.Fatalf("jira fields --name-like: exit %d, want 0 (stdout=%q)", code, out)
 	}
 	var byName struct {
-		Fields []domain.FieldDef `json:"fields"`
+		Complete bool              `json:"complete"`
+		Total    int               `json:"total"`
+		Count    int               `json:"count"`
+		Fields   []domain.FieldDef `json:"fields"`
 	}
 	if err := json.Unmarshal([]byte(out), &byName); err != nil {
 		t.Fatalf("decode fields: %v\n%s", err, out)
 	}
-	if len(byName.Fields) != 1 || byName.Fields[0].ID != "customfield_1" {
+	if !byName.Complete || byName.Total != 3 || byName.Count != 1 || len(byName.Fields) != 1 || byName.Fields[0].ID != "customfield_1" {
 		t.Fatalf("name-like fields = %+v, want only customfield_1", byName.Fields)
 	}
 

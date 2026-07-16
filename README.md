@@ -481,7 +481,7 @@ atl jira render mirror-jira
 atl jira apply mirror-jira/PROJ/PROJ-1.md --dry-run
 
 # Metadata
-atl jira fields
+atl jira fields # value-free catalog with explicit complete/total/count
 atl jira transitions --key PROJ-1
 atl jira link-types
 atl jira field-options --project PROJ --field <field-id>

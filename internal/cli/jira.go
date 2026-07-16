@@ -1488,7 +1488,7 @@ func jiraMetaCmds() []*cobra.Command {
 	var nameLike, fieldID, idLike, schema, custom string
 	fields := &cobra.Command{
 		Use:   "fields",
-		Short: "List Jira fields (id/name/custom)",
+		Short: "List qualified Jira fields without values",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			svc, err := jiraService()
 			if err != nil {
@@ -1500,7 +1500,7 @@ func jiraMetaCmds() []*cobra.Command {
 			if err != nil {
 				return err
 			}
-			return emit(cmd, result, func() string { return jiraFieldsText(result.Fields) })
+			return emit(cmd, result, func() string { return jiraFieldsText(result) })
 		},
 	}
 	fields.Flags().StringVar(&nameLike, "name-like", "", "case-insensitive substring filter for field name")

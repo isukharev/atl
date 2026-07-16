@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `jira fields` and typed MCP `jira_fields` now return a versioned, value-free
+  catalog envelope with explicit `complete`, `partial_reason`, source total,
+  and filtered count. A successfully decoded non-empty Jira field endpoint is
+  complete; empty or legacy/unqualified sources remain fail-closed. The compact
+  text projection exposes the same qualification before field records.
+
 - Added `jira issue field get` and typed MCP `jira_issue_field_get` for one
   exact display-name/id expansion with issue/update provenance, compact
   PII-safe values, a 16 KiB default/128 KiB hard byte bound, and explicit

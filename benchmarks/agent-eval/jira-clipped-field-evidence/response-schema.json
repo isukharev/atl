@@ -14,11 +14,15 @@
     },
     "evidence_complete": {
       "type": "boolean"
+    },
+    "catalog_complete": {
+      "type": "boolean"
     }
   },
   "required": [
     "issue_key",
     "decision",
-    "evidence_complete"
+    "evidence_complete",
+    "catalog_complete"
   ]
 }

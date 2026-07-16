@@ -98,7 +98,11 @@ func TestSyntheticPortfolioThroughMCPUsesExactGETOnlyRoute(t *testing.T) {
 
 	client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
 	defer closeSessions()
-	callToolOK(t, client, "jira_fields", map[string]any{})
+	fields := callToolOK(t, client, "jira_fields", map[string]any{})
+	fieldContent, ok := fields.StructuredContent.(map[string]any)
+	if !ok || fieldContent["schema_version"] != float64(1) || fieldContent["complete"] != true {
+		t.Fatalf("field catalog=%#v", fields.StructuredContent)
+	}
 	callToolOK(t, client, "jira_board_view", map[string]any{
 		"board_id": 5, "scope": "board", "limit": 50,
 		"columns": []string{"key", "summary", "status", "issuetype", "updated", "customfield_11001", "customfield_11002", "customfield_11003"},
@@ -147,9 +151,14 @@ func TestSyntheticClippedDigestExpandsOnlyExactField(t *testing.T) {
 
 	client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
 	defer closeSessions()
+	catalog := callToolOK(t, client, "jira_fields", map[string]any{"name_like": "Delivery Notes"})
+	catalogContent, ok := catalog.StructuredContent.(map[string]any)
+	if !ok || catalogContent["complete"] != true || catalogContent["count"] != float64(1) {
+		t.Fatalf("field catalog=%#v", catalog.StructuredContent)
+	}
 	digest := callToolOK(t, client, "jira_epic_digest", map[string]any{
 		"key": "PROJ-1", "include": []string{"identity", "status-field"},
-		"status_field": "Delivery Notes", "projection": "compact",
+		"status_field": "customfield_10001", "projection": "compact",
 	})
 	digestContent, ok := digest.StructuredContent.(map[string]any)
 	projection, projectionOK := digestContent["projection"].(map[string]any)
@@ -159,7 +168,7 @@ func TestSyntheticClippedDigestExpandsOnlyExactField(t *testing.T) {
 	}
 
 	field := callToolOK(t, client, "jira_issue_field_get", map[string]any{
-		"key": "PROJ-1", "field": "Delivery Notes", "max_bytes": 8192,
+		"key": "PROJ-1", "field": "customfield_10001", "max_bytes": 8192,
 	})
 	fieldContent, ok := field.StructuredContent.(map[string]any)
 	value, _ := fieldContent["value"].(string)
@@ -167,7 +176,7 @@ func TestSyntheticClippedDigestExpandsOnlyExactField(t *testing.T) {
 		t.Fatalf("field expansion complete=%v value-bytes=%d", fieldContent["complete"], len(value))
 	}
 	methods, unexpected, duplicates := backend.Summary()
-	if methods["GET"] != 5 || len(methods) != 1 || unexpected != 0 || duplicates != 1 {
+	if methods["GET"] != 4 || len(methods) != 1 || unexpected != 0 || duplicates != 0 {
 		t.Fatalf("requests=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
 	}
 }
@@ -408,7 +417,7 @@ func (r *recordingJiraReader) IssueFieldEvidence(_ context.Context, key string, 
 
 func (r *recordingJiraReader) FieldCatalog(_ context.Context, opts app.JiraFieldCatalogOpts) (*app.JiraFieldCatalogResult, error) {
 	r.fieldOpts = opts
-	return &app.JiraFieldCatalogResult{Fields: []domain.FieldDef{}}, nil
+	return &app.JiraFieldCatalogResult{SchemaVersion: 1, Source: "test", Complete: true, Fields: []domain.FieldDef{}}, nil
 }
 
 func (r *recordingJiraReader) SearchIssueListView(_ context.Context, jql string, columns []string, view string, limit int, cursor string) (*app.IssueList, error) {

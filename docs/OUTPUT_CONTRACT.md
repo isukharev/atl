@@ -886,6 +886,37 @@ and includes `csv_path` in the JSON result. Formula-leading cells are
 apostrophe-prefixed by default; `--raw-csv` requires `--csv` and disables that
 protection for trusted non-spreadsheet consumers.
 
+`atl jira fields` and typed MCP `jira_fields` share one value-free catalog
+contract:
+
+```json
+{
+  "schema_version": 1,
+  "source": "jira-field-catalog",
+  "complete": true,
+  "total": 2,
+  "count": 1,
+  "fields": [
+    {
+      "id": "customfield_10001",
+      "name": "Delivery Notes",
+      "custom": true,
+      "schema": "string"
+    }
+  ]
+}
+```
+
+`total` describes the source snapshot before client-side filters; `count`
+describes the emitted match set. Filtering never upgrades or downgrades source
+completeness. Jira's `/rest/api/2/field` response is atomic and non-paginated,
+so a successfully decoded non-empty response is `complete:true`. An empty or
+legacy/unqualified source is `complete:false` with `partial_reason`; malformed
+ids, duplicates, and contradictory qualification fail with exit 8. Field
+values are never part of this contract. The text projection begins with
+`complete`, `source`, `count`, and `total`, followed by compact tab-separated
+field records.
+
 `atl jira issue refs <KEY>` and `atl jira issue refs --jql ...` return
 deterministic, provenance-qualified artifact references per issue:
 

@@ -40,7 +40,8 @@ never turn remediation guidance into an automatic write retry.
 If the plugin exposes the typed `atl` MCP surface, prefer `jira_fields`,
 `jira_issue_search`, `jira_epic_digest`, and `jira_board_view` for transient
 bounded reads. They return the same app-level evidence contracts without shell
-construction and cannot write. Use this CLI skill for Structure, mirrors,
+construction and cannot write. Require `jira_fields.complete:true` before
+treating an unmatched field selector as absent. Use this CLI skill for Structure, mirrors,
 exports, attachments, operations absent from MCP, and all guarded mutations.
 The `atl` skill's `reference/mcp.md` defines the exact boundary.
 
@@ -417,7 +418,7 @@ small, surgical change; use this path when you've hand-authored most of the `.wi
 
 ### 5. Discover valid values before writing
 ```bash
-atl jira fields                                              # {fields:[{id,name,custom}]}; -o text for compact records
+atl jira fields                                              # qualified value-free catalog; require complete:true
 atl jira fields --name-like Epic
 atl jira fields --id customfield_10001
 atl jira fields --custom true --schema string --id-like customfield

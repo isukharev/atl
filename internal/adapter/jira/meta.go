@@ -13,6 +13,14 @@ import (
 
 // Fields lists all Jira fields (system + custom).
 func (j *Jira) Fields(ctx context.Context) ([]domain.FieldDef, error) {
+	snapshot, err := j.ReadFieldCatalog(ctx)
+	return snapshot.Fields, err
+}
+
+// ReadFieldCatalog qualifies Jira's atomic, non-paginated field endpoint.
+// An empty successful response is returned as partial rather than silently
+// proving that the instance has no fields.
+func (j *Jira) ReadFieldCatalog(ctx context.Context) (domain.FieldCatalogSnapshot, error) {
 	var raw []struct {
 		ID     string `json:"id"`
 		Name   string `json:"name"`
@@ -22,13 +30,17 @@ func (j *Jira) Fields(ctx context.Context) ([]domain.FieldDef, error) {
 		} `json:"schema"`
 	}
 	if err := j.c.GetJSON(ctx, "/rest/api/2/field", &raw); err != nil {
-		return nil, err
+		return domain.FieldCatalogSnapshot{}, err
 	}
 	out := make([]domain.FieldDef, 0, len(raw))
 	for _, f := range raw {
 		out = append(out, domain.FieldDef{ID: f.ID, Name: f.Name, Custom: f.Custom, Schema: f.Schema.Type})
 	}
-	return out, nil
+	snapshot := domain.FieldCatalogSnapshot{Fields: out, Complete: len(out) > 0}
+	if !snapshot.Complete {
+		snapshot.PartialReason = "Jira returned an empty field catalog"
+	}
+	return snapshot, nil
 }
 
 // FieldOptions returns the allowed values for a field on a project/issuetype.

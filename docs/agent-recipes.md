@@ -180,8 +180,9 @@ atl jira epic digest PROJ-42 --quarter 2026-Q2 \
 atl conf page section '<same-origin-page-url>' --heading Results --max-bytes 32768
 ```
 
-Require the board/Structure snapshot, every selected digest source, and every
-section to report complete. Reuse the snapshot for epic membership, child
+Require the field catalog, board/Structure snapshot, every selected digest
+source, and every section to report complete. An unmatched field name is absent
+only when the catalog itself is complete. Reuse the snapshot for epic membership, child
 status counts, and child update times; compare those times with the narrative
 field's `last_change` rather than inventing a freshness threshold. Discover
 display names once, then reuse technical field ids so each epic does not fetch

@@ -918,9 +918,13 @@ func TestFields(t *testing.T) {
 	defer srv.Close()
 
 	j := newTestJira(srv)
-	fields, err := j.Fields(context.Background())
+	snapshot, err := j.ReadFieldCatalog(context.Background())
 	if err != nil {
-		t.Fatalf("Fields: %v", err)
+		t.Fatalf("ReadFieldCatalog: %v", err)
+	}
+	fields := snapshot.Fields
+	if !snapshot.Complete || snapshot.PartialReason != "" {
+		t.Fatalf("snapshot=%+v", snapshot)
 	}
 	if len(fields) != 2 {
 		t.Fatalf("got %d fields, want 2", len(fields))
@@ -930,6 +934,19 @@ func TestFields(t *testing.T) {
 	}
 	if fields[1].ID != "customfield_10010" || fields[1].Name != "Epic Link" || !fields[1].Custom || fields[1].Schema != "any" {
 		t.Errorf("fields[1] = %+v (custom field)", fields[1])
+	}
+}
+
+func TestEmptyFieldCatalogIsExplicitlyPartial(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `[]`)
+	}))
+	defer srv.Close()
+
+	snapshot, err := newTestJira(srv).ReadFieldCatalog(context.Background())
+	if err != nil || snapshot.Complete || snapshot.PartialReason == "" || len(snapshot.Fields) != 0 {
+		t.Fatalf("snapshot=%+v err=%v", snapshot, err)
 	}
 }
 

@@ -31,6 +31,12 @@
       "kind": "atl_all_succeeded"
     },
     {
+      "name": "catalog_complete",
+      "kind": "json_equals",
+      "pointer": "/catalog_complete",
+      "expected": true
+    },
+    {
       "name": "decision_correct",
       "kind": "json_equals",
       "pointer": "/decision",

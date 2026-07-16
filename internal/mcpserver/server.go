@@ -140,7 +140,7 @@ type ConfluenceSectionInput struct {
 }
 
 func registerJiraTools(server *mcp.Server, deps Dependencies) {
-	mcp.AddTool(server, readOnlyTool("jira_fields", "Discover Jira field ids", "List Jira field definitions without issue values."),
+	mcp.AddTool(server, readOnlyTool("jira_fields", "Discover Jira field ids", "List value-free Jira field definitions with explicit catalog completeness and source/filtered counts."),
 		func(ctx context.Context, _ *mcp.CallToolRequest, in JiraFieldsInput) (*mcp.CallToolResult, *app.JiraFieldCatalogResult, error) {
 			jira, err := jiraReader(deps)
 			if err != nil {

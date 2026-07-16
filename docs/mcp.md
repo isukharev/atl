@@ -15,7 +15,7 @@ The v1 surface is an explicit allowlist:
 
 | Tool | Purpose | Important bound |
 |---|---|---|
-| `jira_fields` | Discover field ids without issue values | metadata only |
+| `jira_fields` | Discover field ids without issue values | explicit catalog completeness and counts |
 | `jira_issue_search` | Read one compact IssueList page | default 50, maximum 1000 rows |
 | `jira_issue_field_get` | Expand one exact compact field with issue/update provenance | default 16 KiB, maximum 128 KiB encoded value |
 | `jira_epic_digest` | Aggregate selected qualified epic evidence | `projection:compact` bounds synthesis context |
@@ -30,6 +30,12 @@ Set `projection:"compact"` for normal synthesis. The typed result preserves
 source completeness and exposes every omitted/clipped path. When a required
 narrative field is clipped, use `jira_issue_field_get`; do not repeat the whole
 digest with `projection:"full"`.
+
+`jira_fields` returns `schema_version`, `source`, `complete`, optional
+`partial_reason`, source `total`, filtered `count`, and value-free field
+definitions. Treat an empty match as evidence of absence only when
+`complete:true`; a successful tool call or non-empty match is not itself a
+completeness signal.
 
 Every tool advertises `readOnlyHint:true`, `idempotentHint:true`,
 `destructiveHint:false`, and `openWorldHint:false`. The server instructions tell
