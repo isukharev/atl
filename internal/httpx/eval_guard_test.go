@@ -81,7 +81,7 @@ func TestClientConstructionAlwaysInstallsEvaluationHTTPGuard(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
 	t.Setenv(evaluationHTTPGuardEnv, path)
 	var calls int
-	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		calls++
 		response.WriteHeader(http.StatusNoContent)
 	}))
