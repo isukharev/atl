@@ -1,11 +1,14 @@
 package agenteval
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -40,6 +43,82 @@ func PreparePrivateOutputRoot(root, repositoryRoot string) (string, error) {
 		return "", err
 	}
 	return absRoot, nil
+}
+
+func requirePrivateLiveInputs(specPath, liveConfigDir, repositoryRoot string) error {
+	specPath, err := filepath.Abs(specPath)
+	if err != nil {
+		return err
+	}
+	specPath, err = filepath.EvalSymlinks(specPath)
+	if err != nil {
+		return fmt.Errorf("private-live spec: %w", err)
+	}
+	inside, err := pathWithin(repositoryRoot, specPath)
+	if err != nil {
+		return err
+	}
+	if inside {
+		command := exec.Command("git", "-C", repositoryRoot, "check-ignore", "--quiet", "--no-index", "--", specPath)
+		if err := command.Run(); err != nil {
+			return fmt.Errorf("private-live spec and its referenced inputs must be outside Git or Git-ignored")
+		}
+	}
+	configInside, err := pathWithin(repositoryRoot, liveConfigDir)
+	if err != nil {
+		return err
+	}
+	if configInside {
+		return fmt.Errorf("private-live config directory must be outside the repository")
+	}
+	if err := requireOwnerOnly("private-live config directory", liveConfigDir, true); err != nil {
+		return err
+	}
+	for _, name := range []string{"config.json", "credentials.json"} {
+		path := filepath.Join(liveConfigDir, name)
+		if err := requireOwnerOnly("private-live "+name, path, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func requireOwnerOnly(name, path string, directory bool) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s must not be a symlink", name)
+	}
+	if directory != info.IsDir() || (!directory && !info.Mode().IsRegular()) {
+		return fmt.Errorf("%s has the wrong file type", name)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("%s must not be accessible by group or other users", name)
+	}
+	return nil
+}
+
+func copyLiveConfig(source, target string) error {
+	if err := mkdirPrivate(target); err != nil {
+		return err
+	}
+	for _, name := range []string{"config.json", "credentials.json"} {
+		data, err := readBoundedFile(filepath.Join(source, name), 4<<20)
+		if err != nil {
+			return fmt.Errorf("copy private-live %s: %w", name, err)
+		}
+		var object map[string]json.RawMessage
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		if err := decoder.Decode(&object); err != nil || object == nil || decoder.Decode(new(any)) != io.EOF {
+			return fmt.Errorf("private-live %s must contain one JSON object", name)
+		}
+		if err := writePrivateFile(filepath.Join(target, name), data); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func canonicalizeForCreation(path string) (string, error) {

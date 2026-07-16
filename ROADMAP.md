@@ -41,6 +41,10 @@ Recent beta work established the contracts the next wave builds on:
 - synthetic Confluence agent-evaluation cells for duplicate-heading/rich-page
   evidence and multi-page decision synthesis, including hostile-content guards,
   deterministic route budgets, qualitative rubrics, and bounded delegation.
+- opt-in private-live agent evaluation for real Jira/Confluence compatibility,
+  constrained to one typed-MCP run with ephemeral credentials, only confined
+  skill readers outside MCP, and an independent GET/HEAD transport guard; only
+  reviewed aggregates cross the private/public boundary.
 - explicit package-update ownership: Homebrew launchers delegate exclusively to
   `brew upgrade atl`, while a consolidated egress contract separates read-only,
   update-disable, backend traffic, and externally enforced air-gap controls.

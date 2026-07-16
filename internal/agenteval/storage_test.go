@@ -44,3 +44,56 @@ func TestCopyWorkspaceRejectsSymlinks(t *testing.T) {
 		t.Fatal("symlink workspace passed")
 	}
 }
+
+func TestPrivateLiveInputsRequireIgnoredSpecAndExternalOwnerOnlyConfig(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission boundary")
+	}
+	repository := t.TempDir()
+	if err := exec.Command("git", "-C", repository, "init", "-q").Run(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, ".gitignore"), []byte("private/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	trackedDir := filepath.Join(repository, "tracked")
+	privateDir := filepath.Join(repository, "private")
+	if err := os.MkdirAll(trackedDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(privateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	trackedSpec := filepath.Join(trackedDir, "run.json")
+	privateSpec := filepath.Join(privateDir, "run.json")
+	if err := os.WriteFile(trackedSpec, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(privateSpec, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config := filepath.Join(t.TempDir(), "config")
+	if err := os.Mkdir(config, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"config.json", "credentials.json"} {
+		if err := os.WriteFile(filepath.Join(config, name), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := requirePrivateLiveInputs(privateSpec, config, repository); err != nil {
+		t.Fatal(err)
+	}
+	if err := requirePrivateLiveInputs(trackedSpec, config, repository); err == nil {
+		t.Fatal("tracked private-live spec passed")
+	}
+	if err := requirePrivateLiveInputs(privateSpec, privateDir, repository); err == nil {
+		t.Fatal("repository-contained live config passed")
+	}
+	if err := os.Chmod(filepath.Join(config, "credentials.json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := requirePrivateLiveInputs(privateSpec, config, repository); err == nil {
+		t.Fatal("world-readable credentials passed")
+	}
+}

@@ -28,6 +28,7 @@ type RunOptions struct {
 	ATLBinary           string
 	PluginRoot          string
 	WrapperExecutable   string
+	LiveConfigDir       string
 	ModelOverride       string
 	RepetitionsOverride int
 	DryRun              bool
@@ -38,6 +39,7 @@ type RunPreview struct {
 	ScenarioID                     string          `json:"scenario_id"`
 	Provider                       string          `json:"provider"`
 	Variant                        string          `json:"variant"`
+	BackendMode                    string          `json:"backend_mode"`
 	Repetitions                    int             `json:"repetitions"`
 	MaxEstimatedCostMicroUSDTotal  int64           `json:"max_estimated_cost_microusd_total"`
 	MaxEstimatedCostMicroUSDPerRun int64           `json:"max_estimated_cost_microusd_per_run"`
@@ -61,6 +63,11 @@ type atlProxyRecord struct {
 
 type guardDecisionRecord struct {
 	Decision string `json:"decision"`
+}
+
+type liveHTTPRecord struct {
+	Method      string `json:"method"`
+	RequestHash string `json:"request_hash"`
 }
 
 func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
@@ -91,6 +98,16 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 	if err := loaded.spec.ValidateAgainstScenario(loaded.scenario); err != nil {
 		return RunOutput{}, err
 	}
+	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
+		if options.LiveConfigDir == "" {
+			return RunOutput{}, fmt.Errorf("private-live runs require --live-config-dir")
+		}
+		if err := requirePrivateLiveInputs(options.SpecPath, options.LiveConfigDir, options.RepositoryRoot); err != nil {
+			return RunOutput{}, err
+		}
+	} else if options.LiveConfigDir != "" {
+		return RunOutput{}, fmt.Errorf("--live-config-dir is only valid for private-live runs")
+	}
 	outputRoot, err := PreparePrivateOutputRoot(options.OutputRoot, options.RepositoryRoot)
 	if err != nil {
 		return RunOutput{}, err
@@ -104,6 +121,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 	preview := RunPreview{
 		SchemaVersion: 1, ScenarioID: loaded.scenario.ID,
 		Provider: loaded.spec.Provider, Variant: loaded.spec.Variant,
+		BackendMode:                    loaded.spec.EffectiveBackendMode(),
 		Repetitions:                    loaded.spec.Repetitions,
 		MaxEstimatedCostMicroUSDTotal:  loaded.spec.MaxEstimatedCostMicroUSD,
 		MaxEstimatedCostMicroUSDPerRun: invocationSpec.MaxEstimatedCostMicroUSD,
@@ -217,6 +235,11 @@ func canonicalizeRunOptions(options RunOptions) (RunOptions, error) {
 	if options.WrapperExecutable, err = canonicalExecutable("evaluation wrapper", options.WrapperExecutable); err != nil {
 		return RunOptions{}, err
 	}
+	if options.LiveConfigDir != "" {
+		if options.LiveConfigDir, err = canonicalDirectory("live config dir", options.LiveConfigDir); err != nil {
+			return RunOptions{}, err
+		}
+	}
 	return options, nil
 }
 
@@ -227,7 +250,7 @@ func perRepetitionCostCap(spec RunSpec) int64 {
 type loadedRun struct {
 	spec           RunSpec
 	scenario       Scenario
-	fixture        MockFixture
+	fixture        *MockFixture
 	prompt         []byte
 	responseSchema []byte
 	rubric         Rubric
@@ -290,14 +313,18 @@ func loadRunInputs(options RunOptions) (loadedRun, error) {
 	if err := spec.ValidateAgainstScenario(scenario); err != nil {
 		return loadedRun{}, err
 	}
-	fixtureFile, err := openRelative(spec.FixtureFile)
-	if err != nil {
-		return loadedRun{}, err
-	}
-	fixture, fixtureErr := DecodeMockFixture(fixtureFile)
-	_ = fixtureFile.Close()
-	if fixtureErr != nil {
-		return loadedRun{}, fixtureErr
+	var fixture *MockFixture
+	if spec.EffectiveBackendMode() == BackendModeSynthetic {
+		fixtureFile, err := openRelative(spec.FixtureFile)
+		if err != nil {
+			return loadedRun{}, err
+		}
+		decoded, fixtureErr := DecodeMockFixture(fixtureFile)
+		_ = fixtureFile.Close()
+		if fixtureErr != nil {
+			return loadedRun{}, fixtureErr
+		}
+		fixture = &decoded
 	}
 	promptPath, err := resolveRelative(spec.PromptFile)
 	if err != nil {
@@ -380,24 +407,57 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if err := copyExecutable(options.WrapperExecutable, guardPath); err != nil {
 		return Result{}, err
 	}
+	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
+		for _, reader := range []string{"cat", "sed", "wc"} {
+			if err := copyExecutable(options.WrapperExecutable, filepath.Join(wrapperDir, reader)); err != nil {
+				return Result{}, err
+			}
+		}
+	}
 	settingsPath := filepath.Join(runDir, "claude-settings.json")
 	if err := writeClaudeGuardSettings(settingsPath, guardPath); err != nil {
 		return Result{}, err
 	}
-	backend, err := StartMockBackend(loaded.fixture)
-	if err != nil {
-		return Result{}, err
+	atlConfigDir := filepath.Join(evalDir, "atl-config")
+	httpGuardPath := ""
+	backendEnvironment := map[string]string{}
+	var backend *MockBackend
+	var err error
+	if loaded.spec.EffectiveBackendMode() == BackendModeSynthetic {
+		if loaded.fixture == nil {
+			return Result{}, fmt.Errorf("synthetic run has no fixture")
+		}
+		backend, err = StartMockBackend(*loaded.fixture)
+		if err != nil {
+			return Result{}, err
+		}
+		defer backend.Close()
+		backendEnvironment = backend.Environment()
+	} else {
+		atlConfigDir, err = os.MkdirTemp("", "atl-agent-eval-live-config-")
+		if err != nil {
+			return Result{}, err
+		}
+		if err := os.Chmod(atlConfigDir, 0o700); err != nil {
+			_ = os.RemoveAll(atlConfigDir)
+			return Result{}, err
+		}
+		defer func() { _ = os.RemoveAll(atlConfigDir) }()
+		if err := copyLiveConfig(options.LiveConfigDir, atlConfigDir); err != nil {
+			return Result{}, err
+		}
+		httpGuardPath = filepath.Join(evalDir, "http-methods.jsonl")
+		backendEnvironment["ATL_EVAL_HTTP_GUARD_FILE"] = httpGuardPath
 	}
-	defer backend.Close()
 	mcpConfigPath := claudeMCPConfigPath(loaded.spec, filepath.Join(runDir, "claude-mcp.json"))
 	if mcpConfigPath != "" {
 		mcpEnvironment := map[string]string{
 			"ATL_READ_ONLY":   "1",
 			"ATL_NO_UPDATE":   "1",
-			"ATL_CONFIG_DIR":  filepath.Join(evalDir, "atl-config"),
+			"ATL_CONFIG_DIR":  atlConfigDir,
 			"ATL_MIRROR_ROOT": filepath.Join(evalDir, "mirror"),
 		}
-		for name, value := range backend.Environment() {
+		for name, value := range backendEnvironment {
 			mcpEnvironment[name] = value
 		}
 		if err := writeClaudeMCPConfig(mcpConfigPath, options.ATLBinary, mcpEnvironment); err != nil {
@@ -432,13 +492,16 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	environment := safeAgentEnvironment(os.Environ())
 	environment["ATL_READ_ONLY"] = "1"
 	environment["ATL_NO_UPDATE"] = "1"
-	environment["ATL_CONFIG_DIR"] = filepath.Join(evalDir, "atl-config")
+	environment["ATL_CONFIG_DIR"] = atlConfigDir
 	environment["ATL_MIRROR_ROOT"] = filepath.Join(evalDir, "mirror")
 	environment["ATL_EVAL_REAL_BINARY"] = options.ATLBinary
 	environment["ATL_EVAL_COUNTER"] = counterPath
 	environment["ATL_EVAL_GUARD_COUNTER"] = guardCounterPath
 	if loaded.spec.ToolTransport == "mcp" {
 		environment["ATL_EVAL_GUARD_MODE"] = "mcp-only"
+		if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
+			environment["ATL_EVAL_GUARD_MODE"] = "mcp-with-skill-read"
+		}
 	}
 	environment["ATL_EVAL_MAX_DELEGATIONS"] = fmt.Sprintf("%d", loaded.scenario.Budgets.MaxDelegations)
 	allowedCommands, _ := json.Marshal(loaded.spec.AllowedATLCommands)
@@ -447,7 +510,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	environment["ATL_EVAL_ALLOWED_READ_ROOTS"] = string(allowedReadRoots)
 	environment["PATH"] = wrapperDir
 	if loaded.spec.Provider != "claude-code" || loaded.spec.ToolTransport != "mcp" {
-		for name, value := range backend.Environment() {
+		for name, value := range backendEnvironment {
 			environment[name] = value
 		}
 	}
@@ -516,7 +579,19 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if err != nil {
 		return Result{}, err
 	}
-	methods, unexpected, duplicateRequests := backend.Summary()
+	var methods map[string]int
+	unexpected := 0
+	duplicateRequests := 0
+	httpMethodsObserved := false
+	if backend != nil {
+		methods, unexpected, duplicateRequests = backend.Summary()
+		httpMethodsObserved = true
+	} else {
+		methods, duplicateRequests, httpMethodsObserved, err = readLiveHTTPRecords(httpGuardPath)
+		if err != nil {
+			return Result{}, err
+		}
+	}
 	if loaded.spec.Provider == "claude-code" {
 		if err := writePrivateFile(finalPath, append(append([]byte(nil), final...), '\n')); err != nil {
 			return Result{}, err
@@ -536,7 +611,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	atlInvocations := len(proxyRecords) + providerMetrics.MCPToolCalls
 	failedATL += providerMetrics.FailedMCPToolCalls
-	checks, err := evaluateRunChecks(loaded.spec.Checks, final, atlInvocations, failedATL, unexpected, providerMetrics.Delegations, guardDenials)
+	checks, err := evaluateRunChecks(loaded.spec.Checks, final, atlInvocations, failedATL, unexpected, providerMetrics.Delegations, guardDenials, httpMethodsObserved)
 	if err != nil {
 		return Result{}, err
 	}
@@ -556,8 +631,8 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		providerMetrics.Coverage["estimated_cost_microusd"] = true
 	}
 	providerMetrics.Coverage["atl_invocations"] = true
-	providerMetrics.Coverage["backend_requests"] = true
-	providerMetrics.Coverage["duplicate_backend_requests"] = true
+	providerMetrics.Coverage["backend_requests"] = httpMethodsObserved
+	providerMetrics.Coverage["duplicate_backend_requests"] = httpMethodsObserved
 	providerMetrics.Coverage["output_bytes"] = true
 	observation := Observation{
 		SchemaVersion: ObservationSchemaVersion, ScenarioID: loaded.scenario.ID,
@@ -716,6 +791,49 @@ func countGuardDenials(path string) (int, error) {
 		}
 	}
 	return denials, nil
+}
+
+func readLiveHTTPRecords(path string) (map[string]int, int, bool, error) {
+	data, err := readBoundedFile(path, 4<<20)
+	if os.IsNotExist(err) {
+		return map[string]int{}, 0, false, nil
+	}
+	if err != nil {
+		return nil, 0, false, err
+	}
+	methods := map[string]int{}
+	identities := map[string]int{}
+	var records int
+	for _, line := range bytes.Split(data, []byte{'\n'}) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var record liveHTTPRecord
+		decoder := json.NewDecoder(bytes.NewReader(line))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&record); err != nil || decoder.Decode(new(any)) != io.EOF {
+			return nil, 0, false, fmt.Errorf("decode private-live HTTP audit")
+		}
+		if (record.Method != "GET" && record.Method != "HEAD") || len(record.RequestHash) != 64 {
+			return nil, 0, false, fmt.Errorf("invalid private-live HTTP audit record")
+		}
+		if _, err := hex.DecodeString(record.RequestHash); err != nil {
+			return nil, 0, false, fmt.Errorf("invalid private-live HTTP audit identity")
+		}
+		methods[record.Method]++
+		identities[record.RequestHash]++
+		records++
+	}
+	if records == 0 {
+		return methods, 0, false, nil
+	}
+	duplicates := 0
+	for _, count := range identities {
+		if count > 1 {
+			duplicates += count - 1
+		}
+	}
+	return methods, duplicates, true, nil
 }
 
 func estimateCost(inputTokens, outputTokens int64, pricing Pricing) (int64, error) {

@@ -47,6 +47,7 @@ func TestBuildCodexMCPCommandIsCredentialIsolatedAndHookGuarded(t *testing.T) {
 		"--dangerously-bypass-hook-trust", `web_search="disabled"`,
 		`mcp_servers.atl.command="/opt/atl"`, `mcp_servers.atl.args=["mcp","serve"]`,
 		`mcp_servers.atl.required=true`, `mcp_servers.atl.enabled_tools=["jira_fields","jira_epic_digest","confluence_page_section"]`,
+		`"ATL_EVAL_HTTP_GUARD_FILE"`,
 		`default_tools_approval_mode="approve"`, "hooks.PreToolUse=", "/opt/guard",
 		`shell_environment_policy.include_only=["PATH","LANG","LC_ALL","TERM"]`,
 	} {

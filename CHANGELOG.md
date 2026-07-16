@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added an explicit private-live model-in-the-loop benchmark mode for real
+  configured Jira/Confluence backends. Live cases must remain Git-ignored,
+  execute exactly once through typed read-only MCP, expose no general native
+  model tools beyond path-confined skill readers, and declare zero writes plus
+  GET/HEAD-only budgets. Credentials are
+  copied into an ephemeral owner-only directory and removed after the run; an
+  independent HTTP transport guard blocks non-read methods before network I/O
+  while retaining only privacy-safe method and duplicate-request aggregates.
+
 - Added two synthetic Confluence model-in-the-loop benchmark families: bounded
   approved-occurrence evidence over duplicate headings/rich content, and a
   three-page decision brief with comparable single-agent/one-child variants.
