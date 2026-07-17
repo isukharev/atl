@@ -56,6 +56,131 @@ func TestValidatePrivateRunPairRejectsTransportAndContractDrift(t *testing.T) {
 	}
 }
 
+func TestValidatePrivateRunComparisonSetAcceptsThreeUniqueSurfacesAndMechanicalChecks(t *testing.T) {
+	directory, cliPath, mcpPath, _, mcp := writePrivatePairFixture(t)
+	external := mcp
+	external.Variant = "external-read-only-mcp"
+	external.Surface = SurfaceExternalMCP
+	external.Checks = append([]RunCheck(nil), mcp.Checks...)
+	for index := range external.Checks {
+		switch external.Checks[index].Kind {
+		case "atl_invocations_min":
+			external.Checks[index].Kind = "interface_invocations_min"
+		case "atl_all_succeeded":
+			external.Checks[index].Kind = "interface_all_succeeded"
+		}
+	}
+	external.Checks = append(external.Checks, RunCheck{Name: "bounded_interface", Kind: "interface_invocations_max", Maximum: 4})
+	externalPath := filepath.Join(directory, "run.external.json")
+	writeJSONTestFile(t, externalPath, external)
+
+	set, err := ValidatePrivateRunComparisonSet(cliPath, mcpPath, externalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSurfaces := []string{SurfaceATLMCP, SurfaceCLISkill, SurfaceExternalMCP}
+	if !set.Comparable || set.Category != BenchmarkCategoryRouteFixed || set.Provider != "codex" || !equalPrivateComparisonJSON(set.Surfaces, wantSurfaces) {
+		t.Fatalf("set=%+v", set)
+	}
+	encoded, err := json.Marshal(set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "private.pair") || strings.Contains(string(encoded), directory) {
+		t.Fatalf("comparison summary retained private identity: %s", encoded)
+	}
+}
+
+func TestValidatePairRetainsExactMechanicalChecksWhileComparisonSetAllowsThem(t *testing.T) {
+	_, cliPath, mcpPath, _, mcp := writePrivatePairFixture(t)
+	mcp.Checks = append(mcp.Checks, RunCheck{Name: "bounded_interface", Kind: "interface_invocations_max", Maximum: 4})
+	writeJSONTestFile(t, mcpPath, mcp)
+	if _, err := ValidatePrivateRunComparisonSet(cliPath, mcpPath); err != nil {
+		t.Fatalf("comparison set rejected mechanical difference: %v", err)
+	}
+	if _, err := ValidatePrivateRunPair(cliPath, mcpPath); err == nil || !strings.Contains(err.Error(), "run checks") {
+		t.Fatalf("validate-pair did not preserve exact checks: %v", err)
+	}
+}
+
+func TestComparisonSetRejectsMechanicalSubstitutionForRequiredSemanticCheck(t *testing.T) {
+	directory, cliPath, mcpPath, _, mcp := writePrivatePairFixture(t)
+	external := mcp
+	external.Variant = "external-read-only-mcp"
+	external.Surface = SurfaceExternalMCP
+	external.Checks = append([]RunCheck(nil), mcp.Checks...)
+	external.Checks[0] = RunCheck{Name: "answer", Kind: "guard_no_denials"}
+	external.Checks = append(external.Checks, RunCheck{Name: "irrelevant_answer", Kind: "json_equals", Pointer: "/complete", Expected: json.RawMessage(`true`)})
+	externalPath := filepath.Join(directory, "run.external.json")
+	writeJSONTestFile(t, externalPath, external)
+	if _, err := ValidatePrivateRunComparisonSet(cliPath, mcpPath, externalPath); err == nil || !strings.Contains(err.Error(), "required semantic") {
+		t.Fatalf("semantic substitution passed: %v", err)
+	}
+}
+
+func TestValidatePrivateRunComparisonSetRejectsSemanticAndIdentityDrift(t *testing.T) {
+	for name, mutate := range map[string]func(string, *RunSpec){
+		"semantic check": func(_ string, external *RunSpec) {
+			external.Checks[0].Expected = json.RawMessage(`false`)
+		},
+		"surface": func(_ string, external *RunSpec) {
+			external.Surface = SurfaceATLMCP
+		},
+		"category": func(directory string, external *RunSpec) {
+			scenarioPath := filepath.Join(directory, "other-scenario.json")
+			scenario := validScenario()
+			scenario.ID = "private.pair"
+			scenario.DataClass = "private-local"
+			scenario.Category = BenchmarkCategoryNeutralCommon
+			scenario.RequiredChecks = []string{"answer", "atl_succeeded", "guard_clean", "http_observed", "no_delegation", "used_atl"}
+			scenario.Budgets.MaxRemoteWrites = 0
+			scenario.Budgets.MaxDelegations = 0
+			scenario.Budgets.MaxBackendRequests = 4
+			scenario.Budgets.MaxATLInvocations = 4
+			scenario.Budgets.AllowedHTTPMethods = []string{"GET", "HEAD"}
+			scenario.Budgets.MaxEstimatedCostMicroUSD = 10_000_000
+			writeJSONTestFile(t, scenarioPath, scenario)
+			external.ScenarioFile = "other-scenario.json"
+			external.Category = BenchmarkCategoryNeutralCommon
+		},
+		"prompt": func(directory string, external *RunSpec) {
+			writeTestFile(t, filepath.Join(directory, "other-prompt.md"), "A transport-specific task.\n", 0o600)
+			external.PromptFile = "other-prompt.md"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory, cliPath, mcpPath, _, mcp := writePrivatePairFixture(t)
+			external := mcp
+			external.Variant = "external-read-only-mcp"
+			external.Surface = SurfaceExternalMCP
+			external.Checks = append([]RunCheck(nil), mcp.Checks...)
+			mutate(directory, &external)
+			externalPath := filepath.Join(directory, "run.external.json")
+			writeJSONTestFile(t, externalPath, external)
+			if _, err := ValidatePrivateRunComparisonSet(cliPath, mcpPath, externalPath); err == nil {
+				t.Fatal("incompatible private comparison set passed")
+			}
+		})
+	}
+}
+
+func TestValidatePrivateRunComparisonSetRequiresBoundedCardinalityAndSemanticCheck(t *testing.T) {
+	_, cliPath, mcpPath, cli, mcp := writePrivatePairFixture(t)
+	if _, err := ValidatePrivateRunComparisonSet(cliPath); err == nil {
+		t.Fatal("one-member comparison set passed")
+	}
+	if _, err := ValidatePrivateRunComparisonSet(cliPath, mcpPath, cliPath, mcpPath); err == nil {
+		t.Fatal("four-member comparison set passed")
+	}
+	cli.Checks[0] = RunCheck{Name: "answer", Kind: "guard_no_denials"}
+	mcp.Checks[0] = RunCheck{Name: "answer", Kind: "guard_no_denials"}
+	writeJSONTestFile(t, cliPath, cli)
+	writeJSONTestFile(t, mcpPath, mcp)
+	if _, err := ValidatePrivateRunComparisonSet(cliPath, mcpPath); err == nil || !strings.Contains(err.Error(), "semantic") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func writePrivatePairFixture(t *testing.T) (string, string, string, RunSpec, RunSpec) {
 	t.Helper()
 	directory := t.TempDir()
@@ -68,6 +193,7 @@ func writePrivatePairFixture(t *testing.T) (string, string, string, RunSpec, Run
 	scenario.ID = "private.pair"
 	scenario.DataClass = "private-local"
 	scenario.RequiredChecks = []string{"answer", "atl_succeeded", "guard_clean", "http_observed", "no_delegation", "used_atl"}
+	scenario.RequiredSemanticChecks = []string{"answer"}
 	scenario.Budgets.MaxRemoteWrites = 0
 	scenario.Budgets.MaxDelegations = 0
 	scenario.Budgets.MaxBackendRequests = 4

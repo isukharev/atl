@@ -47,6 +47,9 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 	if err := spec.Validate(); err != nil {
 		return ProviderCommand{}, err
 	}
+	if spec.EffectiveSurface() == SurfaceExternalMCP {
+		return ProviderCommand{}, fmt.Errorf("surface %s has no configured provider transport", SurfaceExternalMCP)
+	}
 	switch spec.Provider {
 	case "claude-code":
 		if !json.Valid(responseSchema) {

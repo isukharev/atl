@@ -3,6 +3,7 @@ package agenteval
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -103,5 +104,57 @@ func TestAggregateSeparatesQualitativeReviewerAndReportsScores(t *testing.T) {
 	}
 	if len(aggregate.Groups) != 1 || aggregate.Groups[0].Qualitative == nil || aggregate.Groups[0].Qualitative.ScoreBPS.ObservedRuns != 2 || aggregate.Groups[0].Qualitative.Reviewer.Model != "gpt-test-1" || aggregate.Groups[0].Qualitative.RubricID != rubric.ID || aggregate.Groups[0].Qualitative.RubricSHA256 == "" {
 		t.Fatalf("aggregate=%+v", aggregate)
+	}
+}
+
+func TestNeutralQualitativeReviewRequiresAndBindsBlindAssignment(t *testing.T) {
+	scenario := validScenario()
+	scenario.Category = BenchmarkCategoryNeutralCommon
+	scenario.RequiredSemanticChecks = []string{"answer_correct"}
+	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests"}
+	scenario.Budgets.MaxATLInvocations = 0
+	scenario.Budgets.MaxInterfaceInvocations = 2
+	observation := validObservation()
+	observation.Surface = SurfaceATLMCP
+	observation.Metrics.InterfaceInvocations = observation.Metrics.ATLInvocations
+	observation.Metrics.ATLInvocations = 0
+	delete(observation.Coverage, "atl_invocations")
+	observation.Coverage["interface_invocations"] = true
+	result, err := Evaluate(scenario, observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultBytes, _ := json.Marshal(result)
+	final := []byte(`{"answer":"synthetic"}`)
+	rubric := testRubric(result.ScenarioID)
+	if _, err := NewReviewTemplate(result, resultBytes, final, rubric, Reviewer{Kind: "human"}); err == nil || !strings.Contains(err.Error(), "blind") {
+		t.Fatalf("unblinded neutral review passed: %v", err)
+	}
+	assignment := []byte("candidate B maps to an answer hidden from the reviewer")
+	review, err := NewReviewTemplate(result, resultBytes, final, rubric, Reviewer{Kind: "human"}, assignment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !review.Blinded || review.AssignmentDigest != sha256Hex(assignment) {
+		t.Fatalf("review=%+v", review)
+	}
+	encoded, _ := json.Marshal(review)
+	if bytes.Contains(encoded, assignment) {
+		t.Fatalf("blind assignment content persisted: %s", encoded)
+	}
+	review.Criteria[0].Score = 4
+	review.Criteria[1].Score = 4
+	assessed, err := AssessQualitative(result, resultBytes, final, rubric, review)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assessed.Qualitative == nil || !assessed.Qualitative.Blinded || assessed.Qualitative.AssignmentDigest != review.AssignmentDigest {
+		t.Fatalf("assessment=%+v", assessed.Qualitative)
+	}
+
+	review.Blinded = false
+	review.AssignmentDigest = ""
+	if _, err := AssessQualitative(result, resultBytes, final, rubric, review); err == nil {
+		t.Fatal("neutral assessment accepted stripped blind metadata")
 	}
 }

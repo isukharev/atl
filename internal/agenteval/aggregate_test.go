@@ -56,6 +56,127 @@ func TestAggregateResultsSeparatesRuntimeAndVariant(t *testing.T) {
 	}
 }
 
+func TestAggregateResultsSeparatesBenchmarkCategoryAndSurface(t *testing.T) {
+	baseScenario := validScenario()
+	baseObservation := validObservation()
+	baseObservation.Surface = SurfaceCLISkill
+	cli, err := Evaluate(baseScenario, baseObservation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcpObservation := validObservation()
+	mcpObservation.Surface = SurfaceATLMCP
+	mcp, err := Evaluate(baseScenario, mcpObservation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	neutralScenario := validScenario()
+	neutralScenario.Category = BenchmarkCategoryNeutralCommon
+	neutralScenario.RequiredSemanticChecks = []string{"answer_correct"}
+	neutralScenario.RequiredMetrics = []string{"interface_invocations", "backend_requests", "output_bytes"}
+	neutralScenario.Budgets.MaxInterfaceInvocations = neutralScenario.Budgets.MaxATLInvocations
+	neutralScenario.Budgets.MaxATLInvocations = 0
+	neutralObservation := validObservation()
+	neutralObservation.Surface = SurfaceCLISkill
+	neutralObservation.Metrics.InterfaceInvocations = neutralObservation.Metrics.ATLInvocations
+	neutralObservation.Metrics.ATLInvocations = 0
+	neutralObservation.Coverage["interface_invocations"] = true
+	delete(neutralObservation.Coverage, "atl_invocations")
+	neutral, err := Evaluate(neutralScenario, neutralObservation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err := AggregateResults([]Result{neutral, mcp, cli})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aggregate.Groups) != 3 {
+		t.Fatalf("groups=%+v", aggregate.Groups)
+	}
+	identities := map[string]bool{}
+	for _, group := range aggregate.Groups {
+		identities[group.Category+"/"+group.Surface] = true
+	}
+	for _, want := range []string{
+		BenchmarkCategoryRouteFixed + "/" + SurfaceCLISkill,
+		BenchmarkCategoryRouteFixed + "/" + SurfaceATLMCP,
+		BenchmarkCategoryNeutralCommon + "/" + SurfaceCLISkill,
+	} {
+		if !identities[want] {
+			t.Fatalf("missing %s in %+v", want, aggregate.Groups)
+		}
+	}
+}
+
+func TestAggregateResultsIncludesGenericInterfaceInvocations(t *testing.T) {
+	scenario := validScenario()
+	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests"}
+	scenario.Budgets.MaxInterfaceInvocations = 3
+	observation := validObservation()
+	delete(observation.Coverage, "atl_invocations")
+	observation.Metrics.ATLInvocations = 0
+	observation.Coverage["interface_invocations"] = true
+	observation.Metrics.InterfaceInvocations = 3
+	result, err := Evaluate(scenario, observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err := AggregateResults([]Result{result})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metric := aggregate.Groups[0].Metrics.InterfaceInvocations
+	if metric.ObservedRuns != 1 || metric.P50 != 3 {
+		t.Fatalf("interface invocations=%+v", metric)
+	}
+}
+
+func TestAggregateResultsReportsEligibilityAndFiltersNeutralEfficiency(t *testing.T) {
+	scenario := validScenario()
+	scenario.Category = BenchmarkCategoryNeutralCommon
+	scenario.RequiredSemanticChecks = []string{"answer_correct"}
+	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests"}
+	scenario.Budgets.MaxInterfaceInvocations = 4
+	scenario.Budgets.MaxATLInvocations = 0
+	makeObservation := func(eligibility string, invocations int) Observation {
+		o := validObservation()
+		o.Surface = SurfaceCLISkill
+		o.Eligibility = eligibility
+		o.Metrics.ATLInvocations = 0
+		o.Metrics.InterfaceInvocations = invocations
+		delete(o.Coverage, "atl_invocations")
+		o.Coverage["interface_invocations"] = true
+		if eligibility == EligibilityUnsupportedCapability {
+			o.UnavailableCapabilities = []string{"jira.epic.digest"}
+		}
+		return o
+	}
+	observations := []Observation{
+		makeObservation(EligibilitySupported, 2),
+		makeObservation(EligibilityUnsupportedCapability, 4),
+		makeObservation(EligibilityInvalidatedDrift, 3),
+	}
+	results := make([]Result, 0, len(observations))
+	for _, observation := range observations {
+		result, err := Evaluate(scenario, observation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		results = append(results, result)
+	}
+	aggregate, err := AggregateResults(results)
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := aggregate.Groups[0]
+	if group.Runs != 3 || group.EligibleRuns != 1 || group.UnsupportedRuns != 1 || group.DriftedRuns != 1 || group.CoverageRate != 0.5 || group.SuccessRate != 1 {
+		t.Fatalf("group=%+v", group)
+	}
+	if group.Metrics.InterfaceInvocations.ObservedRuns != 1 || group.Metrics.InterfaceInvocations.P50 != 2 {
+		t.Fatalf("ineligible efficiency leaked into quantiles: %+v", group.Metrics.InterfaceInvocations)
+	}
+}
+
 func TestAggregateResultsDoesNotTreatUnavailableMetricAsZero(t *testing.T) {
 	first, err := Evaluate(validScenario(), validObservation())
 	if err != nil {

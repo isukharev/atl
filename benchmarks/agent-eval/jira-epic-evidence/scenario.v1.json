@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "id": "jira.synthetic-epic-evidence",
+  "category": "route-fixed",
   "task_class": "jira/evidence",
   "description": "Discover an unfamiliar custom field and collect qualified epic evidence through the shipped agent workflow.",
   "data_class": "synthetic",

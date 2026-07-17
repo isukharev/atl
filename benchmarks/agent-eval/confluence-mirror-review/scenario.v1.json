@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "id": "confluence.synthetic-mirror-review",
+  "category": "route-fixed",
   "task_class": "confluence/edit",
   "description": "Review a durable Confluence mirror offline and distinguish semantic edits, byte-only edits, unchanged content, and corrupt baseline evidence.",
   "data_class": "synthetic",

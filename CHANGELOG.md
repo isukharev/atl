@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added versioned multi-surface agent-evaluation contracts for outcome-driven
+  common tasks, surface-native coverage, and route-fixed microbenchmarks.
+  Comparison sets distinguish CLI+skill, built-in MCP, and external MCP;
+  require identical task evidence and typed semantic oracles; record supported,
+  unsupported, and backend-drift-invalidated runs; and keep efficiency and blind
+  qualitative summaries restricted to eligible deterministic results. Generic
+  interface-call budgets coexist with legacy ATL metrics, while external MCP
+  execution remains fail-closed until its credential-isolated transport is
+  configured.
+
 - Added a synthetic model-in-the-loop Confluence plan benchmark covering
   offline plan creation, GET-only preview under the inherited read-only policy,
   one exact reviewed PUT, a proven version conflict, and an unverifiable outcome

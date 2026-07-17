@@ -40,6 +40,8 @@ type RunPreview struct {
 	ScenarioID                     string          `json:"scenario_id"`
 	Provider                       string          `json:"provider"`
 	Variant                        string          `json:"variant"`
+	Category                       string          `json:"category"`
+	Surface                        string          `json:"surface"`
 	BackendMode                    string          `json:"backend_mode"`
 	Repetitions                    int             `json:"repetitions"`
 	MaxEstimatedCostMicroUSDTotal  int64           `json:"max_estimated_cost_microusd_total"`
@@ -101,6 +103,9 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 	if err := loaded.spec.ValidateAgainstScenario(loaded.scenario); err != nil {
 		return RunOutput{}, err
 	}
+	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+		return RunOutput{}, fmt.Errorf("surface %s is contract-only until an external MCP transport is configured", SurfaceExternalMCP)
+	}
 	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
 		if options.LiveConfigDir == "" {
 			return RunOutput{}, fmt.Errorf("private-live runs require --live-config-dir")
@@ -129,6 +134,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 	preview := RunPreview{
 		SchemaVersion: 1, ScenarioID: loaded.scenario.ID,
 		Provider: loaded.spec.Provider, Variant: loaded.spec.Variant,
+		Category: loaded.spec.EffectiveCategory(), Surface: loaded.spec.EffectiveSurface(),
 		BackendMode:                    loaded.spec.EffectiveBackendMode(),
 		Repetitions:                    loaded.spec.Repetitions,
 		MaxEstimatedCostMicroUSDTotal:  loaded.spec.MaxEstimatedCostMicroUSD,
@@ -343,6 +349,11 @@ func loadRunInputs(options RunOptions) (loadedRun, error) {
 	prompt, err := readBoundedFile(promptPath, 1<<20)
 	if err != nil {
 		return loadedRun{}, err
+	}
+	if scenario.EffectiveCategory() == BenchmarkCategoryNeutralCommon {
+		if err := validateNeutralCorePrompt(prompt); err != nil {
+			return loadedRun{}, err
+		}
 	}
 	responseSchemaPath, err := resolveRelative(spec.ResponseSchemaFile)
 	if err != nil {
@@ -792,7 +803,15 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		providerMetrics.EstimatedCostMicroUSD = cost
 		providerMetrics.Coverage["estimated_cost_microusd"] = true
 	}
-	providerMetrics.Coverage["atl_invocations"] = true
+	providerMetrics.Coverage["interface_invocations"] = true
+	legacyATLInvocations := 0
+	if loaded.scenario.Budgets.MaxInterfaceInvocations == 0 {
+		// Legacy scenarios budget and require the historical atl-specific
+		// metric. New multi-surface scenarios use only the generic metric so a
+		// zero legacy budget cannot become a false violation.
+		providerMetrics.Coverage["atl_invocations"] = true
+		legacyATLInvocations = atlInvocations
+	}
 	providerMetrics.Coverage["backend_requests"] = httpMethodsObserved
 	providerMetrics.Coverage["duplicate_backend_requests"] = httpMethodsObserved
 	providerMetrics.Coverage["output_bytes"] = true
@@ -803,10 +822,10 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	observation := Observation{
 		SchemaVersion: ObservationSchemaVersion, ScenarioID: loaded.scenario.ID,
-		Variant: loaded.spec.Variant, Runtime: runtime,
+		Variant: loaded.spec.Variant, Surface: loaded.spec.EffectiveSurface(), Runtime: runtime,
 		Metrics: InputMetrics{
 			AgentTurns: providerMetrics.AgentTurns, ToolCalls: providerMetrics.ToolCalls,
-			ATLInvocations: atlInvocations, Delegations: providerMetrics.Delegations,
+			ATLInvocations: legacyATLInvocations, InterfaceInvocations: atlInvocations, Delegations: providerMetrics.Delegations,
 			DuplicateBackendRequests: duplicateRequests, OutputBytes: outputBytes,
 			InputTokens: providerMetrics.InputTokens, OutputTokens: providerMetrics.OutputTokens,
 			MainThreadInputTokens: providerMetrics.MainThreadInputTokens, MainThreadOutputTokens: providerMetrics.MainThreadOutputTokens,

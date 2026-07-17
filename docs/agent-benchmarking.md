@@ -43,6 +43,13 @@ tasks.
   different code paths: text-heavy, macro-heavy, and table-heavy bodies, with
   both edit and read tasks. Per-class breakdowns matter more than the overall
   median — regressions hide in classes.
+- **Blocked ordering.** Run three-surface comparisons sequentially in
+  Latin-square order (`ABC`, `BCA`, `CAB`) so backend drift and warm caches do
+  not always favor one surface. Synthetic cells use at least three fresh
+  sessions per surface; private-live keeps one supervised run per surface in a
+  block and accumulates blocks over time.
+- **Correctness before efficiency.** Safety and deterministic correctness are
+  hard gates. Compare calls, tokens, cost, and duration among correct results.
 - **A ceiling, not a competitor.** Where relevant, a "ceiling" variant
   measures the same tasks with all real constraints removed (e.g. editing
   plain markdown with no CSF produced at all). It bounds what optimization
@@ -87,6 +94,28 @@ materially different reasoning shape; do not add one merely to exercise another
 flag. Model-run prompts must request a user outcome rather than prescribe every
 command, except when the experiment intentionally holds the route fixed.
 
+## Benchmark categories and surfaces
+
+- `neutral-common` is outcome-driven. Core prompt bytes, schema, rubric,
+  scenario, budgets, and semantic response checks are identical across
+  surfaces; the prompt does not prescribe commands or tool names. Its scenario
+  must name at least one `required_semantic_checks` entry, require the generic
+  `interface_invocations` metric, and set a positive generic interface budget.
+  Transport-specific `atl_*` check aliases and `atl_invocations` are rejected.
+  Loading a run spec also rejects qualified MCP names, exact `atl jira`/`atl
+  conf` routes, and typed Jira/Confluence tool spellings in the core prompt;
+  ordinary prose about Jira or Confluence remains valid.
+- `surface-native` intentionally exercises a capability that is not available
+  everywhere, such as an offline durable mirror. Unsupported coverage remains
+  a result rather than being hidden by changing the task.
+- `route-fixed` is a contract microbenchmark with a reviewed execution route.
+  It must not be interpreted as an overall ranking of surfaces.
+
+The compatibility default for old scenarios and run specs is `route-fixed`.
+Executable surfaces are `cli-skill` and `atl-mcp`; `external-mcp` is reserved
+for the separate external-transport implementation. Old stored results without
+a surface aggregate as `legacy-unspecified` rather than mixing with new runs.
+
 ## Evaluation layers
 
 The evaluation stack has distinct safety and cost properties:
@@ -103,7 +132,7 @@ The evaluation stack has distinct safety and cost properties:
 4. **Supervised live runs** are local, agentless read-only compatibility checks
    against a configured private backend.
 5. **Private-live model runs** let Claude Code or Codex solve a reviewed task
-   against that backend through typed read-only MCP only. They are explicit,
+   through either the exact-argv CLI gateway or guarded typed read-only MCP. They are explicit,
    single-run, local experiments and publish only privacy-reviewed aggregates.
 
 Model-in-the-loop runs remain manual or opt-in because they cost resources and
@@ -154,6 +183,24 @@ bodies. Validate the committed scenarios and deterministic workflows with:
 make agent-eval-contract
 ```
 
+New multi-surface scenarios use `interface_invocations`,
+`max_interface_invocations`, and the corresponding `interface_*` run-check
+aliases. Existing `atl_invocations` contracts remain valid; when the generic
+budget is absent, `max_atl_invocations` is its compatibility limit.
+
+Observations classify each run as `supported` (the default),
+`unsupported-capability`, or `invalidated-backend-drift`. Unsupported runs name
+only bounded capability identifiers; drifted runs carry no backend detail.
+Ineligible runs do not count as task passes or failures, while their safety and
+budget violations are still retained. Aggregate schema v3 reports eligible,
+unsupported, and drifted counts, eligibility coverage, and success conditional
+on eligible runs. Coverage excludes drift-invalidated blocks from its
+denominator: drift says nothing about whether the surface supports the task.
+Neutral and surface-native efficiency/quality summaries use
+only supported deterministically valid runs; route-fixed historical aggregation
+keeps its compatibility behavior. The observation/result schema change is
+additive; older records without eligibility remain supported.
+
 The maintainer tool can validate scenario files, evaluate one aggregate
 observation, and combine comparable result files into p50/p90 groups:
 
@@ -164,7 +211,7 @@ go run ./scripts/agent-eval aggregate runs/*.result.json >aggregate.json
 ```
 
 Aggregation separates providers, exact models, agent versions, variants,
-`atl` versions, plugin versions, and skill digests. Compare baseline and
+benchmark categories, surfaces, `atl` versions, plugin versions, and skill digests. Compare baseline and
 candidate within one such runtime group; do not compare raw turns or dollar
 estimates across providers.
 
@@ -182,6 +229,7 @@ After a private run, create a hash-bound review template:
   --rubric benchmarks/agent-eval/jira-epic-evidence/rubric.v1.json \
   --result "$ATL_AGENT_EVAL_OUTPUT/jira.synthetic-epic-evidence/claude-code/v0.4-skill/run-01/result.json" \
   --final "$ATL_AGENT_EVAL_OUTPUT/jira.synthetic-epic-evidence/claude-code/v0.4-skill/run-01/final.json" \
+  --blind-assignment "$ATL_AGENT_EVAL_OUTPUT/blind-assignment.txt" \
   --reviewer codex --model gpt-5.6-sol >"$ATL_AGENT_EVAL_OUTPUT/review.json"
 ```
 
@@ -206,6 +254,18 @@ free-form rationale. Aggregation separates different reviewer/model identities
 and reports qualitative pass count plus p50/p90 normalized score. Compare
 rubric scores only within the same rubric and reviewer runtime. Review all
 repetitions; do not select only a favorable answer.
+
+For `neutral-common`, `--blind-assignment` is mandatory. It is a bounded private
+file that maps randomized answer labels to candidates for the reviewer. Only
+its SHA-256 digest and a `blinded:true` marker enter the review/result contract;
+the assignment bytes and surface identity never do. `assess` rejects neutral
+reviews with missing or malformed blind metadata.
+
+Blind a comparison reviewer to surface names and randomize answer order. Use
+one rubric and exact reviewer runtime. Report pass `n/N` and raw values when
+`N=3`; summarize with median plus MAD/IQR without significance claims. Use a
+per-class macro-average and a Pareto view of correctness/quality versus calls,
+tokens, cost, and duration instead of one weighted global score.
 
 Every observation also carries per-metric `coverage`. An observed zero is
 different from an unavailable metric: a required metric without coverage fails
@@ -642,6 +702,8 @@ A private run spec differs from a synthetic spec in these fields:
 {
   "schema_version": 2,
   "backend_mode": "private-live",
+  "category": "neutral-common",
+  "surface": "atl-mcp",
   "scenario_file": "scenario.v1.json",
   "provider": "codex",
   "variant": "typed-mcp",
@@ -670,12 +732,12 @@ A private run spec differs from a synthetic spec in these fields:
     "confluence_page_section"
   ],
   "checks": [
-    {"name":"atl_succeeded","kind":"atl_all_succeeded"},
+    {"name":"interface_succeeded","kind":"interface_all_succeeded"},
     {"name":"guard_clean","kind":"guard_no_denials"},
     {"name":"http_observed","kind":"http_methods_observed"},
     {"name":"no_delegation","kind":"delegations_none"},
-    {"name":"used_atl","kind":"atl_invocations_min","minimum":1},
-    {"name":"bounded_atl","kind":"atl_invocations_max","maximum":5},
+    {"name":"used_interface","kind":"interface_invocations_min","minimum":1},
+    {"name":"bounded_interface","kind":"interface_invocations_max","maximum":5},
     {"name":"complete","kind":"json_equals","pointer":"/complete","expected":true}
   ]
 }
@@ -683,7 +745,8 @@ A private run spec differs from a synthetic spec in these fields:
 
 Its private scenario must use `data_class:"private-local"`, exactly one
 repetition, zero delegations and writes, positive invocation/request limits,
-and an explicit `allowed_http_methods` containing only `GET`/`HEAD`. Start with
+an explicit `allowed_http_methods` containing only `GET`/`HEAD`, and name
+`complete` in both `required_checks` and `required_semantic_checks`. Start with
 the smallest MCP execution allowlist and response schema that can answer the user task.
 Expected private facts may live in the ignored run spec; never copy them into a
 public fixture or PR.
@@ -837,34 +900,40 @@ Run `--dry-run` first, inspect the provider plan and local private spec, then
 remove that flag for the single supervised execution. Use the same task,
 response schema, rubric, and evidence scope for a paired typed-MCP run.
 
-### Paired CLI and MCP comparison
+### Multi-surface comparison
 
-A transport comparison is valid only when the task and evaluation contract are
-identical. Keep both specs in one private case directory and use a
+A surface comparison is valid only when the task and evaluation contract are
+identical. Keep two or three specs in one private case directory and use a
 transport-neutral prompt: say “use the available atl interface”, not “call this
 MCP tool” or “run this shell command”. Variants should identify only the
-surface, for example `cli-skill` and `typed-mcp`.
+surface, for example `cli-skill`, `atl-mcp`, and `external-mcp`.
 
 Preflight the pair before either model invocation:
 
 ```sh
-/tmp/agent-eval validate-pair \
+/tmp/agent-eval validate-comparison-set \
   "$ATL_PRIVATE_EVAL_CASE/run.cli.codex.json" \
-  "$ATL_PRIVATE_EVAL_CASE/run.mcp.codex.json"
+  "$ATL_PRIVATE_EVAL_CASE/run.atl-mcp.codex.json" \
+  "$ATL_PRIVATE_EVAL_CASE/run.external-mcp.codex.json"
 ```
 
-The validator requires one private CLI and one private MCP spec from the same
-directory. Provider, model, reasoning, scenario, prompt bytes, response schema,
-rubric, workspace, run checks, repetitions, timeout, pricing and cost cap must
-match. It intentionally ignores transport-specific tool, command, route and
-gateway policies. Success reports only the provider and generic `cli`/`mcp`
-transports, not the private scenario identity.
+The validator requires unique surfaces in one private case directory. Provider,
+model, reasoning, category, scenario and budgets, core prompt bytes, response
+schema, rubric, workspace, semantic response checks, repetitions, timeout,
+pricing, and cost cap must match. Mechanical checks have a closed
+classification and may differ for surface-specific guards. Tool, command,
+route, and gateway policies also remain surface-specific. Success reports only
+category, provider, and surfaces, never private scenario identity.
+
+`validate-pair` remains a compatibility wrapper for `cli-skill` plus `atl-mcp`.
+Declaring `external-mcp` is supported by the contract, but execution fails
+closed until its external launch and credential-isolation profile is implemented.
 
 Then dry-run both, inspect both plans, and perform exactly one supervised run
 of each with the same built atl/plugin commit:
 
 ```sh
-for spec in run.cli.codex.json run.mcp.codex.json; do
+for spec in run.cli.codex.json run.atl-mcp.codex.json; do
   /tmp/agent-eval run \
     --spec "$ATL_PRIVATE_EVAL_CASE/$spec" \
     --output-root /tmp/atl-private-live-runs \
@@ -878,7 +947,7 @@ done
 ```
 
 Remove `--dry-run` only after both previews and source config permissions pass.
-Do not run transports concurrently: sequential execution keeps backend load
+Do not run surfaces concurrently: sequential execution keeps backend load
 bounded and makes duplicate/request comparisons interpretable. Abort on a
 hook/gateway denial, a non-GET/HEAD observation, or an incomplete audit. A
 failed deterministic oracle, shim denial, or declared budget violation makes
@@ -903,8 +972,9 @@ receives the private final answer as untrusted data and no tools. Compare:
 Raw transcripts, answers, review rationales, route labels and per-run files stay
 private. A public result may state only generic task class, exact public runtime
 versions/commit, transport names and privacy-reviewed aggregate numbers. One
-supervised live pair is compatibility evidence, not a statistically stable
-model-quality benchmark; use repeated synthetic cells for that purpose.
+supervised live block is compatibility evidence, not a statistically stable
+model-quality benchmark; accumulate Latin-square blocks and use repeated
+synthetic cells for product decisions.
 
 ## Public/private boundary
 

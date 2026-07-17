@@ -5,7 +5,7 @@ import (
 	"sort"
 )
 
-const AggregateSchemaVersion = 2
+const AggregateSchemaVersion = 3
 
 type Aggregate struct {
 	SchemaVersion int              `json:"schema_version"`
@@ -16,9 +16,15 @@ type AggregateGroup struct {
 	ScenarioID         string                      `json:"scenario_id"`
 	TaskClass          string                      `json:"task_class"`
 	DataClass          string                      `json:"data_class"`
+	Category           string                      `json:"category"`
 	Variant            string                      `json:"variant"`
+	Surface            string                      `json:"surface"`
 	Runtime            Runtime                     `json:"runtime"`
 	Runs               int                         `json:"runs"`
+	EligibleRuns       int                         `json:"eligible_runs"`
+	UnsupportedRuns    int                         `json:"unsupported_runs"`
+	DriftedRuns        int                         `json:"drifted_runs"`
+	CoverageRate       float64                     `json:"coverage_rate"`
 	Passes             int                         `json:"passes"`
 	SuccessRate        float64                     `json:"success_rate"`
 	Metrics            AggregateMetrics            `json:"metrics"`
@@ -46,6 +52,7 @@ type AggregateMetrics struct {
 	AgentTurns               Quantiles `json:"agent_turns"`
 	ToolCalls                Quantiles `json:"tool_calls"`
 	ATLInvocations           Quantiles `json:"atl_invocations"`
+	InterfaceInvocations     Quantiles `json:"interface_invocations"`
 	Delegations              Quantiles `json:"delegations"`
 	BackendRequests          Quantiles `json:"backend_requests"`
 	DuplicateBackendRequests Quantiles `json:"duplicate_backend_requests"`
@@ -65,11 +72,11 @@ type Quantiles struct {
 }
 
 type aggregateKey struct {
-	ScenarioID, TaskClass, DataClass, Variant            string
-	Provider, AgentVersion, Model, Reasoning, ATLVersion string
-	PluginVersion, SkillDigest                           string
-	ReviewerKind, ReviewerModel                          string
-	RubricID, RubricSHA256                               string
+	ScenarioID, TaskClass, DataClass, Category, Variant, Surface string
+	Provider, AgentVersion, Model, Reasoning, ATLVersion         string
+	PluginVersion, SkillDigest                                   string
+	ReviewerKind, ReviewerModel                                  string
+	RubricID, RubricSHA256                                       string
 }
 
 func AggregateResults(results []Result) (Aggregate, error) {
@@ -79,7 +86,8 @@ func AggregateResults(results []Result) (Aggregate, error) {
 			return Aggregate{}, fmt.Errorf("result %d: %w", index, err)
 		}
 		key := aggregateKey{
-			ScenarioID: result.ScenarioID, TaskClass: result.TaskClass, DataClass: result.DataClass, Variant: result.Variant,
+			ScenarioID: result.ScenarioID, TaskClass: result.TaskClass, DataClass: result.DataClass,
+			Category: result.EffectiveCategory(), Variant: result.Variant, Surface: result.EffectiveSurface(),
 			Provider: result.Runtime.Provider, AgentVersion: result.Runtime.AgentVersion,
 			Model: result.Runtime.Model, Reasoning: result.Runtime.Reasoning,
 			ATLVersion: result.Runtime.ATLVersion, PluginVersion: result.Runtime.PluginVersion,
@@ -102,7 +110,8 @@ func AggregateResults(results []Result) (Aggregate, error) {
 	for _, key := range keys {
 		items := groups[key]
 		group := AggregateGroup{
-			ScenarioID: key.ScenarioID, TaskClass: key.TaskClass, DataClass: key.DataClass, Variant: key.Variant,
+			ScenarioID: key.ScenarioID, TaskClass: key.TaskClass, DataClass: key.DataClass,
+			Category: key.Category, Variant: key.Variant, Surface: key.Surface,
 			Runtime: Runtime{
 				Provider: key.Provider, AgentVersion: key.AgentVersion, Model: key.Model,
 				Reasoning: key.Reasoning, ATLVersion: key.ATLVersion,
@@ -110,15 +119,27 @@ func AggregateResults(results []Result) (Aggregate, error) {
 			},
 			Runs: len(items),
 		}
-		turns, tools, invocations, delegations, requests, duplicates := make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items))
+		turns, tools, invocations, interfaceInvocations, delegations, requests, duplicates := make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items))
 		bytesOut, input, output, mainInput, mainOutput, cost, duration := make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items))
 		for _, item := range items {
-			if item.Status == "pass" {
+			switch item.EffectiveEligibility() {
+			case EligibilitySupported:
+				group.EligibleRuns++
+			case EligibilityUnsupportedCapability:
+				group.UnsupportedRuns++
+			case EligibilityInvalidatedDrift:
+				group.DriftedRuns++
+			}
+			if item.EffectiveEligibility() == EligibilitySupported && item.Status == "pass" {
 				group.Passes++
+			}
+			if key.Category != BenchmarkCategoryRouteFixed && !deterministicValidForEfficiency(item) {
+				continue
 			}
 			turns = appendCovered(turns, item.Coverage, "agent_turns", int64(item.Metrics.AgentTurns))
 			tools = appendCovered(tools, item.Coverage, "tool_calls", int64(item.Metrics.ToolCalls))
 			invocations = appendCovered(invocations, item.Coverage, "atl_invocations", int64(item.Metrics.ATLInvocations))
+			interfaceInvocations = appendCovered(interfaceInvocations, item.Coverage, "interface_invocations", int64(item.Metrics.InterfaceInvocations))
 			delegations = appendCovered(delegations, item.Coverage, "delegations", int64(item.Metrics.Delegations))
 			requests = appendCovered(requests, item.Coverage, "backend_requests", int64(item.Metrics.BackendRequests))
 			duplicates = appendCovered(duplicates, item.Coverage, "duplicate_backend_requests", int64(item.Metrics.DuplicateBackendRequests))
@@ -130,10 +151,18 @@ func AggregateResults(results []Result) (Aggregate, error) {
 			cost = appendCovered(cost, item.Coverage, "estimated_cost_microusd", item.Metrics.EstimatedCostMicroUSD)
 			duration = appendCovered(duration, item.Coverage, "duration_millis", item.Metrics.DurationMillis)
 		}
-		group.SuccessRate = float64(group.Passes) / float64(group.Runs)
+		coverageDenominator := group.EligibleRuns + group.UnsupportedRuns
+		if coverageDenominator > 0 {
+			// Backend drift invalidates the block rather than demonstrating that
+			// an interface does or does not support the task.
+			group.CoverageRate = float64(group.EligibleRuns) / float64(coverageDenominator)
+		}
+		if group.EligibleRuns > 0 {
+			group.SuccessRate = float64(group.Passes) / float64(group.EligibleRuns)
+		}
 		group.Metrics = AggregateMetrics{
 			AgentTurns: quantiles(turns), ToolCalls: quantiles(tools),
-			ATLInvocations: quantiles(invocations), Delegations: quantiles(delegations),
+			ATLInvocations: quantiles(invocations), InterfaceInvocations: quantiles(interfaceInvocations), Delegations: quantiles(delegations),
 			BackendRequests: quantiles(requests), DuplicateBackendRequests: quantiles(duplicates),
 			OutputBytes: quantiles(bytesOut), InputTokens: quantiles(input),
 			OutputTokens: quantiles(output), MainThreadInputTokens: quantiles(mainInput),
@@ -143,6 +172,9 @@ func AggregateResults(results []Result) (Aggregate, error) {
 		familyNames := map[string]struct{}{}
 		coveredRuns := 0
 		for _, item := range items {
+			if key.Category != BenchmarkCategoryRouteFixed && !deterministicValidForEfficiency(item) {
+				continue
+			}
 			if item.Coverage["capability_families"] {
 				coveredRuns++
 				for _, family := range item.CapabilityFamilies {
@@ -158,6 +190,9 @@ func AggregateResults(results []Result) (Aggregate, error) {
 		for _, name := range names {
 			invocations, successes, failures, bytesOut := make([]int64, 0, coveredRuns), make([]int64, 0, coveredRuns), make([]int64, 0, coveredRuns), make([]int64, 0, coveredRuns)
 			for _, item := range items {
+				if key.Category != BenchmarkCategoryRouteFixed && !deterministicValidForEfficiency(item) {
+					continue
+				}
 				if !item.Coverage["capability_families"] {
 					continue
 				}
@@ -179,6 +214,9 @@ func AggregateResults(results []Result) (Aggregate, error) {
 			scores := make([]int64, 0, len(items))
 			passes := 0
 			for _, item := range items {
+				if key.Category != BenchmarkCategoryRouteFixed && !deterministicValidForEfficiency(item) {
+					continue
+				}
 				if item.Qualitative == nil {
 					continue
 				}
@@ -194,6 +232,18 @@ func AggregateResults(results []Result) (Aggregate, error) {
 	return out, nil
 }
 
+func deterministicValidForEfficiency(result Result) bool {
+	if result.EffectiveEligibility() != EligibilitySupported {
+		return false
+	}
+	for _, violation := range result.Violations {
+		if violation.Code != "qualitative_review_failed" {
+			return false
+		}
+	}
+	return true
+}
+
 func (r Result) Validate() error {
 	if r.SchemaVersion != ResultSchemaVersion {
 		return fmt.Errorf("unsupported result schema_version %d", r.SchemaVersion)
@@ -201,13 +251,26 @@ func (r Result) Validate() error {
 	if !identifierRE.MatchString(r.ScenarioID) || !identifierRE.MatchString(r.TaskClass) || !identifierRE.MatchString(r.Variant) {
 		return fmt.Errorf("result identity is invalid")
 	}
+	if !validBenchmarkCategory(r.EffectiveCategory()) || !validResultSurface(r.EffectiveSurface()) {
+		return fmt.Errorf("result benchmark identity is invalid")
+	}
 	if r.DataClass != "synthetic" && r.DataClass != "private-local" {
 		return fmt.Errorf("result data_class is invalid")
 	}
 	if err := r.Runtime.validate(); err != nil {
 		return err
 	}
+	eligibility := r.EffectiveEligibility()
+	if err := validateEligibility(eligibility, r.UnavailableCapabilities); err != nil {
+		return fmt.Errorf("result eligibility: %w", err)
+	}
 	if r.Qualitative != nil {
+		if eligibility != EligibilitySupported {
+			return fmt.Errorf("ineligible result cannot have a qualitative assessment")
+		}
+		if r.EffectiveCategory() == BenchmarkCategoryNeutralCommon && (!r.Qualitative.Blinded || !validSHA256(r.Qualitative.AssignmentDigest)) {
+			return fmt.Errorf("neutral-common qualitative assessment must be blinded")
+		}
 		if err := r.Qualitative.validate(r.ScenarioID); err != nil {
 			return err
 		}
@@ -224,11 +287,14 @@ func (r Result) Validate() error {
 			return fmt.Errorf("qualitative status and violation disagree")
 		}
 	}
-	if r.Status != "pass" && r.Status != "fail" {
-		return fmt.Errorf("result status must be pass or fail")
+	if r.Status != "pass" && r.Status != "fail" && r.Status != "ineligible" {
+		return fmt.Errorf("result status must be pass, fail, or ineligible")
 	}
-	if (r.Status == "pass") != (len(r.Violations) == 0) {
+	if eligibility == EligibilitySupported && ((r.Status == "pass") != (len(r.Violations) == 0) || r.Status == "ineligible") {
 		return fmt.Errorf("result status and violations disagree")
+	}
+	if eligibility != EligibilitySupported && r.Status != "ineligible" {
+		return fmt.Errorf("ineligible result must use ineligible status")
 	}
 	if len(r.Coverage) > len(metricNames) || len(r.HTTPMethods) > maxContractListEntries || len(r.Checks) > maxContractListEntries || len(r.Violations) > maxContractListEntries || len(r.Warnings) > maxContractListEntries {
 		return fmt.Errorf("result exceeds %d entries in a bounded collection", maxContractListEntries)
@@ -270,7 +336,7 @@ func (r Result) Validate() error {
 	}
 	metrics := InputMetrics{
 		AgentTurns: r.Metrics.AgentTurns, ToolCalls: r.Metrics.ToolCalls,
-		ATLInvocations: r.Metrics.ATLInvocations, Delegations: r.Metrics.Delegations,
+		ATLInvocations: r.Metrics.ATLInvocations, InterfaceInvocations: r.Metrics.InterfaceInvocations, Delegations: r.Metrics.Delegations,
 		DuplicateBackendRequests: r.Metrics.DuplicateBackendRequests,
 		OutputBytes:              r.Metrics.OutputBytes,
 		InputTokens:              r.Metrics.InputTokens, OutputTokens: r.Metrics.OutputTokens,
@@ -334,5 +400,5 @@ func nearestRank(sorted []int64, percentile int) int64 {
 }
 
 func aggregateKeyString(key aggregateKey) string {
-	return key.ScenarioID + "\x00" + key.TaskClass + "\x00" + key.DataClass + "\x00" + key.Variant + "\x00" + key.Provider + "\x00" + key.AgentVersion + "\x00" + key.Model + "\x00" + key.Reasoning + "\x00" + key.ATLVersion + "\x00" + key.PluginVersion + "\x00" + key.SkillDigest + "\x00" + key.RubricID + "\x00" + key.RubricSHA256 + "\x00" + key.ReviewerKind + "\x00" + key.ReviewerModel
+	return key.ScenarioID + "\x00" + key.TaskClass + "\x00" + key.DataClass + "\x00" + key.Category + "\x00" + key.Variant + "\x00" + key.Surface + "\x00" + key.Provider + "\x00" + key.AgentVersion + "\x00" + key.Model + "\x00" + key.Reasoning + "\x00" + key.ATLVersion + "\x00" + key.PluginVersion + "\x00" + key.SkillDigest + "\x00" + key.RubricID + "\x00" + key.RubricSHA256 + "\x00" + key.ReviewerKind + "\x00" + key.ReviewerModel
 }

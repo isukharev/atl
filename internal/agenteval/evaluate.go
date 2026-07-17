@@ -18,10 +18,21 @@ func Evaluate(s Scenario, o Observation) (Result, error) {
 	if o.ScenarioID != s.ID {
 		return Result{}, fmt.Errorf("observation scenario_id %q does not match %q", o.ScenarioID, s.ID)
 	}
+	if o.EffectiveEligibility() == EligibilityUnsupportedCapability {
+		required := make(map[string]struct{}, len(s.RequiredCapabilities))
+		for _, capability := range s.RequiredCapabilities {
+			required[capability] = struct{}{}
+		}
+		for _, capability := range o.UnavailableCapabilities {
+			if _, ok := required[capability]; !ok {
+				return Result{}, fmt.Errorf("unavailable capability %q is not required by the scenario", capability)
+			}
+		}
+	}
 
 	metrics := Metrics{
 		AgentTurns: o.Metrics.AgentTurns, ToolCalls: o.Metrics.ToolCalls,
-		ATLInvocations: o.Metrics.ATLInvocations, Delegations: o.Metrics.Delegations,
+		ATLInvocations: o.Metrics.ATLInvocations, InterfaceInvocations: o.Metrics.InterfaceInvocations, Delegations: o.Metrics.Delegations,
 		DuplicateBackendRequests: o.Metrics.DuplicateBackendRequests,
 		OutputBytes:              o.Metrics.OutputBytes,
 		InputTokens:              o.Metrics.InputTokens, OutputTokens: o.Metrics.OutputTokens,
@@ -58,6 +69,7 @@ func Evaluate(s Scenario, o Observation) (Result, error) {
 		{"agent_turns", int64(metrics.AgentTurns), int64(s.Budgets.MaxAgentTurns)},
 		{"tool_calls", int64(metrics.ToolCalls), int64(s.Budgets.MaxToolCalls)},
 		{"atl_invocations", int64(metrics.ATLInvocations), int64(s.Budgets.MaxATLInvocations)},
+		{"interface_invocations", int64(metrics.InterfaceInvocations), int64(s.Budgets.EffectiveMaxInterfaceInvocations())},
 		{"delegations", int64(metrics.Delegations), int64(s.Budgets.MaxDelegations)},
 		{"backend_requests", int64(metrics.BackendRequests), int64(s.Budgets.MaxBackendRequests)},
 		{"duplicate_backend_requests", int64(metrics.DuplicateBackendRequests), int64(s.Budgets.MaxDuplicateBackendRequests)},
@@ -86,9 +98,12 @@ func Evaluate(s Scenario, o Observation) (Result, error) {
 	}
 
 	checks := sortedBoolMap(o.Checks)
-	for _, name := range s.RequiredChecks {
-		if passed, ok := checks[name]; !ok || !passed {
-			violations = append(violations, Violation{Code: "required_check_failed", Subject: name, Limit: 1})
+	eligibility := o.EffectiveEligibility()
+	if eligibility == EligibilitySupported {
+		for _, name := range s.RequiredChecks {
+			if passed, ok := checks[name]; !ok || !passed {
+				violations = append(violations, Violation{Code: "required_check_failed", Subject: name, Limit: 1})
+			}
 		}
 	}
 	sort.Slice(violations, func(i, j int) bool {
@@ -98,7 +113,9 @@ func Evaluate(s Scenario, o Observation) (Result, error) {
 		return violations[i].Subject < violations[j].Subject
 	})
 	status := "pass"
-	if len(violations) > 0 {
+	if eligibility != EligibilitySupported {
+		status = "ineligible"
+	} else if len(violations) > 0 {
 		status = "fail"
 	}
 	warnings := append([]string(nil), o.Warnings...)
@@ -109,7 +126,9 @@ func Evaluate(s Scenario, o Observation) (Result, error) {
 	}
 	return Result{
 		SchemaVersion: ResultSchemaVersion,
-		ScenarioID:    s.ID, TaskClass: s.TaskClass, DataClass: s.DataClass, Variant: o.Variant,
+		ScenarioID:    s.ID, TaskClass: s.TaskClass, DataClass: s.DataClass,
+		Category: s.EffectiveCategory(), Variant: o.Variant, Surface: o.EffectiveSurface(),
+		Eligibility: eligibility, UnavailableCapabilities: append([]string(nil), o.UnavailableCapabilities...),
 		Runtime: o.Runtime, Status: status, Metrics: metrics,
 		Coverage: coverage, HTTPMethods: methods, Checks: checks, Violations: violations,
 		Warnings:           warnings,

@@ -37,7 +37,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | validate-pair CLI_SPEC MCP_SPEC | evaluate scenario observation | review-template options | assess options | aggregate results | run options")
+		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | run options")
 	}
 	switch args[0] {
 	case "validate":
@@ -97,6 +97,15 @@ func run(args []string) error {
 			return err
 		}
 		return writeJSON(pair)
+	case "validate-comparison-set":
+		if len(args) < 3 || len(args) > 4 {
+			return fmt.Errorf("validate-comparison-set requires two or three private run specs")
+		}
+		set, err := agenteval.ValidatePrivateRunComparisonSet(args[1:]...)
+		if err != nil {
+			return err
+		}
+		return writeJSON(set)
 	case "aggregate":
 		if len(args) < 2 {
 			return fmt.Errorf("aggregate requires at least one result")
@@ -125,12 +134,13 @@ func run(args []string) error {
 	case "review-template":
 		flags := flag.NewFlagSet("review-template", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
-		var rubricPath, resultPath, finalPath, reviewerKind, reviewerModel string
+		var rubricPath, resultPath, finalPath, reviewerKind, reviewerModel, blindAssignmentPath string
 		flags.StringVar(&rubricPath, "rubric", "", "qualitative rubric")
 		flags.StringVar(&resultPath, "result", "", "deterministic result")
 		flags.StringVar(&finalPath, "final", "", "private final response")
 		flags.StringVar(&reviewerKind, "reviewer", "", "human, codex, or claude-code")
 		flags.StringVar(&reviewerModel, "model", "", "exact reviewer model")
+		flags.StringVar(&blindAssignmentPath, "blind-assignment", "", "private blind assignment file")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -149,7 +159,15 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		review, err := agenteval.NewReviewTemplate(result, resultBytes, finalBytes, rubric, agenteval.Reviewer{Kind: reviewerKind, Model: reviewerModel})
+		var blindAssignment [][]byte
+		if blindAssignmentPath != "" {
+			assignment, err := readPrivateFinal(blindAssignmentPath)
+			if err != nil {
+				return err
+			}
+			blindAssignment = append(blindAssignment, assignment)
+		}
+		review, err := agenteval.NewReviewTemplate(result, resultBytes, finalBytes, rubric, agenteval.Reviewer{Kind: reviewerKind, Model: reviewerModel}, blindAssignment...)
 		if err != nil {
 			return err
 		}

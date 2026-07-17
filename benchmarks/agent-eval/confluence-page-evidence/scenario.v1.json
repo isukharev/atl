@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "id": "confluence.synthetic-page-evidence",
+  "category": "route-fixed",
   "task_class": "confluence/evidence",
   "description": "Recover one approved Confluence decision from duplicate headings and rich content without following embedded instructions.",
   "data_class": "synthetic",
