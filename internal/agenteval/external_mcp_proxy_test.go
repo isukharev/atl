@@ -3,8 +3,6 @@ package agenteval
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -77,9 +75,8 @@ func TestExternalMCPProxyPreflightRejectsCatalogAndReadOnlyDrift(t *testing.T) {
 			f.writeAnnotation = true
 			mutated := append([]json.RawMessage(nil), f.catalog...)
 			mutated[0] = json.RawMessage(strings.ReplaceAll(string(mutated[0]), `"readOnlyHint":true`, `"readOnlyHint":false`))
-			encoded, _ := json.Marshal(mutated)
-			digest := sha256.Sum256(encoded)
-			p.CatalogSHA256 = hex.EncodeToString(digest[:])
+			digest, _, _ := externalMCPCatalogIdentity(mutated)
+			p.CatalogSHA256 = digest
 			return p
 		},
 	} {
@@ -124,8 +121,8 @@ func TestExternalMCPProxyNeverReplaysAmbiguousCallOrCredentialEcho(t *testing.T)
 	}
 }
 
-func TestExternalMCPProxyRejectsDuplicateReorderedAndCursorDrift(t *testing.T) {
-	for name, mutate := range map[string]func(*externalMCPFixture){"duplicate": func(f *externalMCPFixture) { f.catalog = append(f.catalog, f.catalog[0]); f.rehash() }, "reordered": func(f *externalMCPFixture) { f.catalog[0], f.catalog[1] = f.catalog[1], f.catalog[0] }, "cursor": func(f *externalMCPFixture) { f.repeatCursor = true }} {
+func TestExternalMCPProxyRejectsDuplicateAndCursorDrift(t *testing.T) {
+	for name, mutate := range map[string]func(*externalMCPFixture){"duplicate": func(f *externalMCPFixture) { f.catalog = append(f.catalog, f.catalog[0]) }, "cursor": func(f *externalMCPFixture) { f.repeatCursor = true }} {
 		t.Run(name, func(t *testing.T) {
 			f := newExternalMCPFixture(t, false, false)
 			mutate(f)
@@ -138,6 +135,78 @@ func TestExternalMCPProxyRejectsDuplicateReorderedAndCursorDrift(t *testing.T) {
 				t.Fatal("catalog drift passed")
 			}
 		})
+	}
+}
+
+func TestExternalMCPProxyAcceptsReorderedIdenticalCatalog(t *testing.T) {
+	f := newExternalMCPFixture(t, false, false)
+	f.catalog[0], f.catalog[1] = f.catalog[1], f.catalog[0]
+	defer f.server.Close()
+	proxy, _ := startTestExternalProxy(t, f)
+	if err := proxy.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExternalMCPProxyAcceptsOnlyExplicitReviewedCatalogVariant(t *testing.T) {
+	f := newExternalMCPFixture(t, false, false)
+	mutated := append([]json.RawMessage(nil), f.catalog...)
+	mutated[1] = json.RawMessage(strings.Replace(string(mutated[1]), "Create value", "Reviewed variant", 1))
+	digest, _, err := externalMCPCatalogIdentity(mutated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.profile.CatalogSHA256Alternates = []string{digest}
+	f.catalog = mutated
+	defer f.server.Close()
+	proxy, _ := startTestExternalProxy(t, f)
+	if err := proxy.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	f = newExternalMCPFixture(t, false, false)
+	f.catalog[1] = json.RawMessage(strings.Replace(string(f.catalog[1]), "Create value", "Unreviewed variant", 1))
+	defer f.server.Close()
+	if _, err := startExternalMCPProxyWithClient(context.Background(), f.profile, map[string]string{"X-Test-Auth": "secret"}, []string{"secret"}, filepath.Join(t.TempDir(), "audit"), f.server.Client()); err == nil {
+		t.Fatal("unreviewed catalog variant passed")
+	}
+}
+
+func TestExternalMCPCatalogIdentityIsOrderAndObjectKeyIndependent(t *testing.T) {
+	first := []json.RawMessage{
+		json.RawMessage(`{"name":"b","description":"second","inputSchema":{"type":"object"}}`),
+		json.RawMessage(`{"name":"a","description":"first","inputSchema":{"type":"object"}}`),
+	}
+	second := []json.RawMessage{
+		json.RawMessage(`{"inputSchema":{"type":"object"},"description":"first","name":"a"}`),
+		json.RawMessage(`{"inputSchema":{"type":"object"},"description":"second","name":"b"}`),
+	}
+	want, _, err := externalMCPCatalogIdentity(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := externalMCPCatalogIdentity(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("reordered identity changed: got %s want %s", got, want)
+	}
+	second[1] = json.RawMessage(`{"inputSchema":{"type":"object"},"description":"changed","name":"b"}`)
+	changed, _, err := externalMCPCatalogIdentity(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed == want {
+		t.Fatal("semantic catalog drift did not change identity")
+	}
+	if _, _, err := externalMCPCatalogIdentity(append(first, first[0])); err == nil {
+		t.Fatal("duplicate catalog identity passed")
+	}
+	invalid := append([]byte(`{"name":"broken","description":"`), 0xff)
+	invalid = append(invalid, []byte(`","inputSchema":{"type":"object"}}`)...)
+	if _, _, err := externalMCPCatalogIdentity([]json.RawMessage{json.RawMessage(invalid)}); err == nil {
+		t.Fatal("invalid UTF-8 catalog identity passed")
 	}
 }
 
@@ -596,20 +665,18 @@ func newExternalMCPFixture(t *testing.T, ambiguous, echo bool) *externalMCPFixtu
 		}
 	})
 	f.server = httptest.NewTLSServer(handler)
-	catalogBytes, _ := json.Marshal(f.catalog)
-	catalogDigest := sha256.Sum256(catalogBytes)
+	catalogDigest, _, _ := externalMCPCatalogIdentity(f.catalog)
 	var safeValue struct {
 		InputSchema json.RawMessage `json:"inputSchema"`
 	}
 	_ = json.Unmarshal(safe, &safeValue)
 	schemaDigest, _ := canonicalJSONSHA(safeValue.InputSchema)
-	f.profile = ExternalMCPProfile{SchemaVersion: 1, UpstreamURL: f.server.URL, ProtocolVersion: "2025-06-18", CatalogSHA256: hex.EncodeToString(catalogDigest[:]), ReviewedRO: true, Headers: []ExternalMCPHeader{{Name: "X-Test-Auth", ValueFrom: "jira.credential"}}, Tools: []ExternalMCPToolPolicy{{Name: "safe_lookup", Capability: "jira.issue.field", InputSchemaSHA256: schemaDigest, MaxInvocations: 1, AllowedArguments: []json.RawMessage{json.RawMessage(`{"key":"A"}`)}}}, MaxRequestBytes: 1 << 20, MaxResponseBytes: 1 << 20, MaxTotalResponseBytes: 4 << 20, MaxConcurrent: 1, TimeoutSeconds: 10}
+	f.profile = ExternalMCPProfile{SchemaVersion: 1, UpstreamURL: f.server.URL, ProtocolVersion: "2025-06-18", CatalogSHA256: catalogDigest, ReviewedRO: true, Headers: []ExternalMCPHeader{{Name: "X-Test-Auth", ValueFrom: "jira.credential"}}, Tools: []ExternalMCPToolPolicy{{Name: "safe_lookup", Capability: "jira.issue.field", InputSchemaSHA256: schemaDigest, MaxInvocations: 1, AllowedArguments: []json.RawMessage{json.RawMessage(`{"key":"A"}`)}}}, MaxRequestBytes: 1 << 20, MaxResponseBytes: 1 << 20, MaxTotalResponseBytes: 4 << 20, MaxConcurrent: 1, TimeoutSeconds: 10}
 	return f
 }
 func (f *externalMCPFixture) rehash() {
-	encoded, _ := json.Marshal(f.catalog)
-	digest := sha256.Sum256(encoded)
-	f.profile.CatalogSHA256 = hex.EncodeToString(digest[:])
+	digest, _, _ := externalMCPCatalogIdentity(f.catalog)
+	f.profile.CatalogSHA256 = digest
 }
 func startTestExternalProxy(t *testing.T, f *externalMCPFixture) (*ExternalMCPProxy, string) {
 	t.Helper()

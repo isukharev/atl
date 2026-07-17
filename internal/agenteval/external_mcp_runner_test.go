@@ -140,6 +140,26 @@ func TestExternalMCPProfileRejectsHopByHopHeadersAndUnsafeValues(t *testing.T) {
 	}
 }
 
+func TestExternalMCPProfileRejectsInvalidCatalogDigestVariants(t *testing.T) {
+	for name, variants := range map[string][]string{
+		"duplicate_primary":   {strings.Repeat("0", 64)},
+		"duplicate_alternate": {strings.Repeat("1", 64), strings.Repeat("1", 64)},
+		"malformed":           {"not-a-digest"},
+		"oversized": {
+			strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64), strings.Repeat("4", 64),
+			strings.Repeat("5", 64), strings.Repeat("6", 64), strings.Repeat("7", 64), strings.Repeat("8", 64),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			profile := validExternalTestProfile()
+			profile.CatalogSHA256Alternates = variants
+			if err := profile.Validate(); err == nil {
+				t.Fatal("invalid catalog digest variants passed")
+			}
+		})
+	}
+}
+
 func TestExternalMCPProfileAggregateCallCapCannotExceedScenario(t *testing.T) {
 	profile := validExternalTestProfile()
 	profile.Tools[0].MaxInvocations = 2

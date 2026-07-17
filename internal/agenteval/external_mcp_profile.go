@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -39,18 +40,19 @@ var externalMCPReadCapabilityFamilies = map[string]struct{}{
 // credentials: header values are resolved from the owner-only atl config only
 // after dry-run validation has completed.
 type ExternalMCPProfile struct {
-	SchemaVersion         int                     `json:"schema_version"`
-	UpstreamURL           string                  `json:"upstream_url"`
-	ProtocolVersion       string                  `json:"protocol_version"`
-	CatalogSHA256         string                  `json:"catalog_sha256"`
-	ReviewedRO            bool                    `json:"reviewed_ro"`
-	Headers               []ExternalMCPHeader     `json:"headers"`
-	Tools                 []ExternalMCPToolPolicy `json:"tools"`
-	MaxRequestBytes       int64                   `json:"max_request_bytes"`
-	MaxResponseBytes      int64                   `json:"max_response_bytes"`
-	MaxTotalResponseBytes int64                   `json:"max_total_response_bytes"`
-	MaxConcurrent         int                     `json:"max_concurrent"`
-	TimeoutSeconds        int                     `json:"timeout_seconds"`
+	SchemaVersion           int                     `json:"schema_version"`
+	UpstreamURL             string                  `json:"upstream_url"`
+	ProtocolVersion         string                  `json:"protocol_version"`
+	CatalogSHA256           string                  `json:"catalog_sha256"`
+	CatalogSHA256Alternates []string                `json:"catalog_sha256_alternates,omitempty"`
+	ReviewedRO              bool                    `json:"reviewed_ro"`
+	Headers                 []ExternalMCPHeader     `json:"headers"`
+	Tools                   []ExternalMCPToolPolicy `json:"tools"`
+	MaxRequestBytes         int64                   `json:"max_request_bytes"`
+	MaxResponseBytes        int64                   `json:"max_response_bytes"`
+	MaxTotalResponseBytes   int64                   `json:"max_total_response_bytes"`
+	MaxConcurrent           int                     `json:"max_concurrent"`
+	TimeoutSeconds          int                     `json:"timeout_seconds"`
 }
 
 type ExternalMCPHeader struct {
@@ -158,6 +160,16 @@ func (p ExternalMCPProfile) Validate() error {
 	if p.ProtocolVersion == "" || len(p.ProtocolVersion) > 64 || strings.ContainsAny(p.ProtocolVersion, "\r\n\x00") || !sha256HexRE.MatchString(p.CatalogSHA256) {
 		return fmt.Errorf("external MCP protocol or catalog digest is invalid")
 	}
+	if len(p.CatalogSHA256Alternates) > 7 {
+		return fmt.Errorf("external MCP catalog digest variants are oversized")
+	}
+	seenCatalogDigests := map[string]bool{p.CatalogSHA256: true}
+	for _, digest := range p.CatalogSHA256Alternates {
+		if !sha256HexRE.MatchString(digest) || seenCatalogDigests[digest] {
+			return fmt.Errorf("external MCP catalog digest variants are invalid")
+		}
+		seenCatalogDigests[digest] = true
+	}
 	if len(p.Headers) < 1 || len(p.Headers) > 8 || len(p.Tools) < 1 || len(p.Tools) > 128 {
 		return fmt.Errorf("external MCP header/tool policy is empty or oversized")
 	}
@@ -256,16 +268,7 @@ func canonicalJSONObject(raw json.RawMessage) ([]byte, error) {
 }
 
 func canonicalJSONSHA(raw json.RawMessage) (string, error) {
-	if err := validateJSONNoDuplicateKeys(raw); err != nil {
-		return "", err
-	}
-	var value any
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	if err := decoder.Decode(&value); err != nil || decoder.Decode(new(any)) != io.EOF {
-		return "", fmt.Errorf("invalid JSON")
-	}
-	canonical, err := json.Marshal(value)
+	canonical, err := canonicalJSON(raw)
 	if err != nil {
 		return "", err
 	}
@@ -273,7 +276,27 @@ func canonicalJSONSHA(raw json.RawMessage) (string, error) {
 	return hex.EncodeToString(digest[:]), nil
 }
 
+func canonicalJSON(raw json.RawMessage) ([]byte, error) {
+	if err := validateJSONNoDuplicateKeys(raw); err != nil {
+		return nil, err
+	}
+	var value any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil || decoder.Decode(new(any)) != io.EOF {
+		return nil, fmt.Errorf("invalid JSON")
+	}
+	canonical, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	return canonical, nil
+}
+
 func validateJSONNoDuplicateKeys(raw []byte) error {
+	if !utf8.Valid(raw) {
+		return fmt.Errorf("JSON is not valid UTF-8")
+	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	if err := validateJSONValue(decoder, 0); err != nil {

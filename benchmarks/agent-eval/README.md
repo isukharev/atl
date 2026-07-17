@@ -33,7 +33,11 @@ Private `external-mcp` execution requires `--external-mcp-profile`. The
 owner-only profile and its directory stay outside the repository. Header
 values are bindings to the existing private ATL config, never literals. Dry-run
 validates the profile structure and scenario caps without reading credentials
-or contacting the upstream. The model connects only to a disposable loopback
+or contacting the upstream. Catalog identity canonicalizes each tool and sorts
+by tool name; harmless response reordering is accepted, while additions,
+removals, duplicates, and content drift are rejected. A profile may pin at most
+seven additional exact catalog digests when every variant was reviewed;
+unlisted variants remain blocked. The model connects only to a disposable loopback
 policy proxy; selected tool identities are visible, while the upstream origin
 and credentials are not. Because the external server's Atlassian HTTP hop is
 opaque, backend request, duplicate,

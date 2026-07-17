@@ -933,7 +933,12 @@ bindings rather than literal credentials. Header values bind only to
 `jira|confluence.credential|base_url` from `--live-config-dir`; the runner
 parent injects them only on the upstream hop. It also pins the protocol, full
 catalog digest, every selected input-schema digest, exact allowed argument
-objects, per-tool invocation caps, and byte/concurrency/time budgets. The sum
+objects, per-tool invocation caps, and byte/concurrency/time budgets. Catalog
+identity canonicalizes each tool object and sorts by tool name, so response
+ordering is irrelevant while every other catalog content change remains a hard
+preflight failure. A server with a finite, reviewed set of otherwise unstable
+catalog encodings may pin at most seven additional exact digests; an unlisted
+variant still fails closed. The sum
 of invocation caps and the total response cap must fit the scenario budgets.
 
 ```json
@@ -942,6 +947,7 @@ of invocation caps and the total response cap must fit the scenario budgets.
   "upstream_url": "https://mcp.example.invalid/mcp",
   "protocol_version": "2025-06-18",
   "catalog_sha256": "<64 lowercase hex bytes>",
+  "catalog_sha256_alternates": ["<optional reviewed variant>"],
   "reviewed_ro": true,
   "headers": [{"name":"X-Private-Service-Token","value_from":"jira.credential"}],
   "tools": [{
