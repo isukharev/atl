@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/content/7201",
+      "responses": [
+        {
+          "status": 200,
+          "body": {"id":"7201","type":"page","title":"Synthetic change plan","space":{"key":"DEMO"},"version":{"number":7},"body":{"storage":{"representation":"storage","value":"<p>Current synthetic body.</p>\n"}}}
+        },
+        {
+          "status": 200,
+          "body": {"id":"7201","type":"page","title":"Synthetic change plan","space":{"key":"DEMO"},"version":{"number":7},"body":{"storage":{"representation":"storage","value":"<p>Current synthetic body.</p>\n"}}}
+        },
+        {
+          "status": 403,
+          "body": {"message":"synthetic reconciliation unavailable"}
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/wiki/rest/api/content/7201",
+      "request_body": {"type":"page","title":"Synthetic change plan","version":{"number":8},"body":{"storage":{"value":"<p>Approved synthetic body.</p>\n","representation":"storage"}}},
+      "status": 500,
+      "body": {"message":"synthetic ambiguous response"}
+    }
+  ]
+}

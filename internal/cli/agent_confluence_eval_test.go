@@ -14,6 +14,11 @@ import (
 func startAgentEvalFixture(t *testing.T, scenario string) *agenteval.MockBackend {
 	t.Helper()
 	path := filepath.Join("..", "..", "benchmarks", "agent-eval", scenario, "fixture.json")
+	return startAgentEvalFixturePath(t, path)
+}
+
+func startAgentEvalFixturePath(t *testing.T, path string) *agenteval.MockBackend {
+	t.Helper()
 	file, err := os.Open(path)
 	if err != nil {
 		t.Fatal(err)
@@ -29,6 +34,78 @@ func startAgentEvalFixture(t *testing.T, scenario string) *agenteval.MockBackend
 	}
 	t.Cleanup(backend.Close)
 	return backend
+}
+
+func TestSyntheticConfluencePlanMutationBoundaries(t *testing.T) {
+	caseRoot := filepath.Join("..", "..", "benchmarks", "agent-eval", "confluence-plan-mutation")
+	source := filepath.Join(caseRoot, "workspace", "mirror")
+	for _, test := range []struct {
+		name, fixture, status, entryStatus string
+		applyExit                          int
+		readOnly                           bool
+		methods                            map[string]int
+	}{
+		{name: "preview", fixture: "fixture.preview.json", status: "would_apply", entryStatus: "would_apply", applyExit: -1, readOnly: true, methods: map[string]int{"GET": 1}},
+		{name: "apply", fixture: "fixture.apply.json", status: "applied", entryStatus: "applied", applyExit: exitOK, methods: map[string]int{"GET": 3, "PUT": 1}},
+		{name: "conflict", fixture: "fixture.conflict.json", status: "partial", entryStatus: "failed", applyExit: exitVersionConfl, methods: map[string]int{"GET": 3, "PUT": 1}},
+		{name: "unknown", fixture: "fixture.unknown.json", status: "partial", entryStatus: "unknown", applyExit: exitCheckFailed, methods: map[string]int{"GET": 3, "PUT": 1}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			backend := startAgentEvalFixturePath(t, filepath.Join(caseRoot, test.fixture))
+			root := filepath.Join(t.TempDir(), "mirror")
+			if err := os.CopyFS(root, os.DirFS(source)); err != nil {
+				t.Fatal(err)
+			}
+			plan := filepath.Join(t.TempDir(), "plan.json")
+			createArgs := []string{"conf", "plan", "create", root, "--out", plan}
+			if test.readOnly {
+				createArgs = append([]string{"--read-only"}, createArgs...)
+			}
+			created, code := runCLI(t, backend.Environment(), createArgs...)
+			if code != exitOK {
+				t.Fatalf("create exit=%d output=%s", code, created)
+			}
+			var createResult app.ConfluencePlanCreateResult
+			if err := json.Unmarshal([]byte(created), &createResult); err != nil || createResult.ProposalHash == "" || createResult.OperationCount != 1 {
+				t.Fatalf("create result=%+v err=%v", createResult, err)
+			}
+			previewArgs := []string{"conf", "plan", "preview", plan}
+			if test.readOnly {
+				previewArgs = append([]string{"--read-only"}, previewArgs...)
+			}
+			previewed, code := runCLI(t, backend.Environment(), previewArgs...)
+			if code != exitOK {
+				t.Fatalf("preview exit=%d output=%s", code, previewed)
+			}
+			out := previewed
+			if test.applyExit >= 0 {
+				out, code = runCLI(t, backend.Environment(), "conf", "plan", "apply", plan, "--expected-proposal-hash", createResult.ProposalHash, "--confirm", "APPLY")
+				if code != test.applyExit {
+					t.Fatalf("apply exit=%d want=%d output=%s", code, test.applyExit, out)
+				}
+			}
+			var result app.ConfluencePlanApplyResult
+			if err := json.Unmarshal([]byte(out), &result); err != nil || result.Status != test.status || len(result.Entries) != 1 || result.Entries[0].Status != test.entryStatus {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+			methods, unexpected, _ := backend.Summary()
+			if unexpected != 0 || !equalIntMap(methods, test.methods) {
+				t.Fatalf("methods=%v want=%v unexpected=%d", methods, test.methods, unexpected)
+			}
+		})
+	}
+}
+
+func equalIntMap(left, right map[string]int) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, value := range left {
+		if right[key] != value {
+			return false
+		}
+	}
+	return true
 }
 
 func TestSyntheticConfluenceMirrorReviewIsExactAndOffline(t *testing.T) {

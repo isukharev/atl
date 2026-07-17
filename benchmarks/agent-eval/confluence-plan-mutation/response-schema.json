@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "page_id": {"type": "string"},
+    "proposal_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "expected_version": {"type": "integer"},
+    "outcome": {"enum": ["would_apply", "applied", "version_conflict", "unknown"]},
+    "write_attempted": {"type": "boolean"},
+    "replayed": {"type": "boolean"},
+    "next_action": {"enum": ["await_approval", "complete", "refresh_and_repreview", "reconcile_before_any_retry"]}
+  },
+  "required": [
+    "page_id",
+    "proposal_hash",
+    "expected_version",
+    "outcome",
+    "write_attempted",
+    "replayed",
+    "next_action"
+  ]
+}

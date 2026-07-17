@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -276,6 +277,13 @@ func (s RunSpec) Validate() error {
 			if check.Pointer == "" || len(check.Expected) != 0 {
 				return fmt.Errorf("json_present check %q requires only pointer", check.Name)
 			}
+		case "json_equals_workspace_json":
+			if check.Pointer == "" {
+				return fmt.Errorf("json_equals_workspace_json check %q requires an output pointer", check.Name)
+			}
+			if _, ok := workspaceJSONExpectationFrom(check.Expected); !ok {
+				return fmt.Errorf("json_equals_workspace_json check %q requires a contained JSON file and pointer", check.Name)
+			}
 		case "atl_invocations_min":
 			if check.Minimum < 1 || check.Pointer != "" || len(check.Expected) != 0 {
 				return fmt.Errorf("atl_invocations_min check %q is invalid", check.Name)
@@ -376,6 +384,9 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 			if check.Kind == "mock_no_unexpected" {
 				return fmt.Errorf("private-live runs cannot use mock_no_unexpected")
 			}
+			if check.Kind == "json_equals_workspace_json" {
+				return fmt.Errorf("private-live runs cannot inspect workspace JSON as an oracle")
+			}
 			if _, ok := requiredKinds[check.Kind]; ok {
 				requiredKinds[check.Kind] = true
 			}
@@ -437,7 +448,7 @@ func escapesBase(path string) bool {
 	return clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
 
-func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedATL, unexpectedRequests, skillInvocations int, skillInvocationsByName map[string]int, delegations, guardDenials int, httpMethods map[string]int, httpMethodsObserved bool) (map[string]bool, error) {
+func evaluateRunChecks(checks []RunCheck, final []byte, workspace string, atlInvocations, failedATL, unexpectedRequests, skillInvocations int, skillInvocationsByName map[string]int, delegations, guardDenials int, httpMethods map[string]int, httpMethodsObserved bool) (map[string]bool, error) {
 	var document any
 	if err := json.Unmarshal(final, &document); err != nil {
 		return nil, fmt.Errorf("decode structured final response: %w", err)
@@ -490,9 +501,74 @@ func evaluateRunChecks(checks []RunCheck, final []byte, atlInvocations, failedAT
 			actualJSON, _ := json.Marshal(actual)
 			expectedJSON, _ := json.Marshal(expected)
 			results[check.Name] = bytes.Equal(actualJSON, expectedJSON)
+		case "json_equals_workspace_json":
+			actual, ok := resolveJSONPointer(document, check.Pointer)
+			if !ok {
+				results[check.Name] = false
+				continue
+			}
+			expectation, _ := workspaceJSONExpectationFrom(check.Expected)
+			expected, ok := readWorkspaceJSONPointer(workspace, expectation)
+			if !ok {
+				results[check.Name] = false
+				continue
+			}
+			actualJSON, _ := json.Marshal(actual)
+			expectedJSON, _ := json.Marshal(expected)
+			results[check.Name] = bytes.Equal(actualJSON, expectedJSON)
 		}
 	}
 	return results, nil
+}
+
+type workspaceJSONExpectation struct {
+	Path    string `json:"path"`
+	Pointer string `json:"pointer"`
+}
+
+func workspaceJSONExpectationFrom(raw json.RawMessage) (workspaceJSONExpectation, bool) {
+	var value workspaceJSONExpectation
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&value) != nil || decoder.Decode(new(any)) != io.EOF {
+		return workspaceJSONExpectation{}, false
+	}
+	cleanPath := filepath.ToSlash(filepath.Clean(filepath.FromSlash(value.Path)))
+	if value.Path == "" || filepath.IsAbs(filepath.FromSlash(value.Path)) || escapesBase(filepath.FromSlash(value.Path)) || cleanPath != value.Path || value.Pointer == "" {
+		return workspaceJSONExpectation{}, false
+	}
+	return value, true
+}
+
+func readWorkspaceJSONPointer(workspace string, expectation workspaceJSONExpectation) (any, bool) {
+	root, err := filepath.EvalSymlinks(workspace)
+	if err != nil {
+		return nil, false
+	}
+	target, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(expectation.Path)))
+	if err != nil {
+		return nil, false
+	}
+	relative, err := filepath.Rel(root, target)
+	if err != nil || escapesBase(relative) {
+		return nil, false
+	}
+	info, err := os.Stat(target)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 16<<20 {
+		return nil, false
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		return nil, false
+	}
+	var document any
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if decoder.Decode(&document) != nil || decoder.Decode(new(any)) != io.EOF {
+		return nil, false
+	}
+	value, ok := resolveJSONPointer(document, expectation.Pointer)
+	return value, ok
 }
 
 func expectedHTTPMethods(raw json.RawMessage) (map[string]int, bool) {

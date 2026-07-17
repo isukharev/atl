@@ -59,6 +59,11 @@ path; creation never overwrites. Preview must qualify every entry as
 `would_apply` or `already_satisfied`. Never edit/re-hash a plan, invent entries,
 replace its exact hash/confirmation, or replay an unknown outcome.
 
+Treat a proven version conflict as a rejected gate: refresh/reconcile the
+mirror, create a new plan, and preview its new hash. Treat `unknown` differently:
+the PUT may have committed, so inspect fresh state before creating or applying
+anything and never replay the reviewed command.
+
 ## Concurrency and follow-up
 
 Pull/render/apply/push and mirror-local edit share a persistent mutation lock;

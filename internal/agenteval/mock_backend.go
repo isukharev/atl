@@ -25,19 +25,31 @@ type MockRoute struct {
 	Path          string            `json:"path"`
 	QueryContains map[string]string `json:"query_contains,omitempty"`
 	RequestBody   json.RawMessage   `json:"request_body,omitempty"`
-	Status        int               `json:"status"`
-	Body          json.RawMessage   `json:"body"`
+	Status        int               `json:"status,omitempty"`
+	Body          json.RawMessage   `json:"body,omitempty"`
+	Responses     []MockResponse    `json:"responses,omitempty"`
+}
+
+// MockResponse is one bounded response in a stateful synthetic route. A
+// sequence is consumed only by requests that satisfy the route's query and
+// request-body constraints; any request after the last response is unexpected.
+// This lets mutation benchmarks model preflight, reconciliation, and replay
+// refusal without teaching the mock backend product-specific state changes.
+type MockResponse struct {
+	Status int             `json:"status"`
+	Body   json.RawMessage `json:"body"`
 }
 
 type MockBackend struct {
 	server *httptest.Server
 
-	mu         sync.Mutex
-	methods    map[string]int
-	routeHits  map[string]int
-	unexpected int
-	routes     map[string]MockRoute
-	fixture    MockFixture
+	mu           sync.Mutex
+	methods      map[string]int
+	routeHits    map[string]int
+	sequenceHits map[string]int
+	unexpected   int
+	routes       map[string]MockRoute
+	fixture      MockFixture
 }
 
 func DecodeMockFixture(r io.Reader) (MockFixture, error) {
@@ -74,8 +86,21 @@ func (f MockFixture) Validate() error {
 		if !strings.HasPrefix(route.Path, f.JiraContext+"/") && !strings.HasPrefix(route.Path, f.ConfluenceContext+"/") {
 			return fmt.Errorf("mock route lies outside configured contexts")
 		}
-		if route.Status < 100 || route.Status > 599 || !json.Valid(route.Body) {
+		hasSingle := route.Status != 0 || len(route.Body) != 0
+		hasSequence := len(route.Responses) != 0
+		if hasSingle == hasSequence {
+			return fmt.Errorf("mock route must define exactly one response or response sequence for %s %s", route.Method, route.Path)
+		}
+		if hasSingle && !validMockResponse(route.Status, route.Body) {
 			return fmt.Errorf("invalid mock response for %s %s", route.Method, route.Path)
+		}
+		if len(route.Responses) > 32 {
+			return fmt.Errorf("mock response sequence exceeds 32 entries for %s %s", route.Method, route.Path)
+		}
+		for _, response := range route.Responses {
+			if !validMockResponse(response.Status, response.Body) {
+				return fmt.Errorf("invalid mock response sequence for %s %s", route.Method, route.Path)
+			}
 		}
 		if len(route.RequestBody) > 1<<20 || len(route.RequestBody) > 0 && (!json.Valid(route.RequestBody) || route.Method == http.MethodGet || route.Method == http.MethodHead) {
 			return fmt.Errorf("invalid mock request body for %s %s", route.Method, route.Path)
@@ -97,11 +122,15 @@ func (f MockFixture) Validate() error {
 	return nil
 }
 
+func validMockResponse(status int, body json.RawMessage) bool {
+	return status >= 100 && status <= 599 && json.Valid(body)
+}
+
 func StartMockBackend(fixture MockFixture) (*MockBackend, error) {
 	if err := fixture.Validate(); err != nil {
 		return nil, err
 	}
-	backend := &MockBackend{methods: map[string]int{}, routeHits: map[string]int{}, routes: map[string]MockRoute{}, fixture: fixture}
+	backend := &MockBackend{methods: map[string]int{}, routeHits: map[string]int{}, sequenceHits: map[string]int{}, routes: map[string]MockRoute{}, fixture: fixture}
 	for _, route := range fixture.Routes {
 		backend.routes[route.Method+" "+route.Path] = route
 	}
@@ -162,6 +191,16 @@ func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
 	b.methods[r.Method]++
 	requestKey := r.Method + " " + r.URL.RequestURI()
 	b.routeHits[requestKey]++
+	if ok && len(route.Responses) > 0 {
+		index := b.sequenceHits[routeKey]
+		if index >= len(route.Responses) {
+			ok = false
+		} else {
+			route.Status = route.Responses[index].Status
+			route.Body = route.Responses[index].Body
+			b.sequenceHits[routeKey]++
+		}
+	}
 	if !ok {
 		b.unexpected++
 	}

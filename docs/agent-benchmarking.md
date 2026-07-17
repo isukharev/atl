@@ -248,6 +248,16 @@ may bind an exact semantic JSON `request_body`, so an allowed PUT with the
 wrong field or value still fails the route oracle. This mode is never valid for
 private-live or MCP runs.
 
+For stateful synthetic reconciliation, a route may replace its single
+`status`/`body` with a bounded `responses` array. Matching requests consume the
+sequence in order; query/body mismatches do not consume it, and any request
+after exhaustion is unexpected. Use this for a preflight-old / reconciliation-
+new transition, not as a general backend emulator. A
+`json_equals_workspace_json` run check can compare one final-response pointer
+with one pointer in a contained, regular JSON artifact created inside the
+synthetic workspace. It is forbidden in private-live specs and is useful for
+dynamic review artifacts such as proposal hashes.
+
 ### Guarded Jira field mutation
 
 `jira-field-mutation` covers three distinct review states with one file-backed
@@ -266,6 +276,31 @@ two GETs for preview, two invocations / four GETs / one PUT for apply, and two
 invocations / five GETs / one PUT for the ambiguous case. Treat token, cost,
 and duration values as provider observations; the exact method/body, guard,
 proposal, outcome, and no-replay oracles are the stable claims.
+
+### Guarded Confluence plan mutation
+
+`confluence-plan-mutation` covers four states of the native multi-page plan
+workflow. The preview-only variant creates the private plan offline, then runs
+the dedicated GET-only preview under inherited `ATL_READ_ONLY=1`. Approved
+variants bind the generated plan's exact proposal hash and page version to one
+`conf plan apply --confirm APPLY`; the fixture accepts only the expected native
+CSF body and version payload.
+
+The mock response sequence exposes the same page as baseline during preview and
+apply preflight, then returns either the committed candidate, an unchanged page
+after a 409, or an unavailable reconciliation read after an ambiguous 5xx. The
+method oracle remains `GET=1` for preview and `GET=3,PUT=1` for every approved
+variant. Sequence exhaustion, a second PUT, a different body, a copied/wrong
+proposal hash, an extra command, or replay makes the run fail.
+
+The reviewed Claude Code baseline passed 3/3 for preview, reviewed apply,
+version-conflict-no-replay, and ambiguous-no-replay; all twelve answers scored
+10,000 bps. Stable median trajectories were two atl calls/one GET for preview
+and three atl calls/three GETs/one PUT for each approved state. Median input was
+69,577 tokens for preview and 86,571–86,959 for approved states; median duration
+was 19.8–26.4 seconds. Compare future candidates against the exact runtime,
+skill digest, prompt, fixture, and deterministic oracles before interpreting
+token or timing movement.
 
 ### Jira skill routing comparison
 
