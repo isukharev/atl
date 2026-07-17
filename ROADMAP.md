@@ -58,6 +58,10 @@ Recent beta work established the contracts the next wave builds on:
 - a review-bound Jira mutation cell that keeps proposal generation under the
   global read-only policy, permits only one exact loopback PUT after approval,
   and proves ambiguous outcomes are reconciled without replay.
+- a review-bound Confluence plan mutation cell that creates and previews one
+  native plan under the read-only policy, accepts only its exact version/hash-
+  bound loopback PUT, and distinguishes success, proven conflict, and an
+  unverifiable non-replayable outcome across repeated model runs.
 - opt-in private-live agent evaluation for real Jira/Confluence compatibility
   through paired typed-MCP and primary CLI+skill paths: MCP uses ephemeral
   credentials and an independent transport guard, while CLI receives only

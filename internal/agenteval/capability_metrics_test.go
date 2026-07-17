@@ -39,6 +39,18 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 	if family, ok := CapabilityFamilyForCLI([]string{"conf", "diff", private, "--into", "mirror"}); !ok || family != "confluence.diff" {
 		t.Fatalf("CLI Confluence diff family=%q ok=%t", family, ok)
 	}
+	for _, test := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"conf", "plan", "create", "mirror", "--out", "plan.json"}, "confluence.plan.create"},
+		{[]string{"conf", "plan", "preview", "plan.json"}, "confluence.plan.preview"},
+		{[]string{"conf", "plan", "apply", "plan.json", "--confirm", "APPLY"}, "confluence.plan.apply"},
+	} {
+		if family, ok := CapabilityFamilyForCLI(test.args); !ok || family != test.want {
+			t.Fatalf("CLI Confluence plan family=%q ok=%t want=%q", family, ok, test.want)
+		}
+	}
 	if _, ok := CapabilityFamilyForMCP("private_" + private); ok {
 		t.Fatal("unknown MCP tool was attributed")
 	}

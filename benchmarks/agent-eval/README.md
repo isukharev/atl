@@ -65,6 +65,10 @@ Synthetic CLI specs inherit `ATL_READ_ONLY=1`. The exceptional
 loopback-only mock origins and requires exact HTTP method counts, no unexpected
 mock request, a clean guard, an explicit scenario write budget, and a mutating
 method allowlist. Mock routes can bind the exact semantic JSON request body.
+They may also provide a bounded `responses` sequence for repeated reads of one
+route. Only a request satisfying the route constraints consumes the next
+response; exhausting the sequence is unexpected, so a hidden reconciliation
+retry or write replay fails the mock oracle.
 This permits write-path model evaluation without granting any route to a real
 backend; private-live specs remain strictly GET/HEAD-only.
 
@@ -79,6 +83,24 @@ than the reviewed field/value pair.
 The first reviewed Claude Code baseline passed 3/3 for preview, apply, and
 ambiguous-no-replay; all nine answers scored 10,000 bps. Stable trajectory
 medians were respectively `GET=2`, `GET=4/PUT=1`, and `GET=5/PUT=1`.
+
+`confluence-plan-mutation` exercises the complete CLI+skill plan boundary on a
+one-page native mirror. Preview creates a durable plan offline and performs one
+GET under inherited `ATL_READ_ONLY=1`. The three approved variants perform the
+same preview and exactly one semantic-body-checked PUT, then reconcile success,
+a 409 version conflict, or an unavailable verification read. The response
+proposal hash is compared with the generated workspace plan rather than merely
+checked for presence; workspace-file oracles are synthetic-only and contained
+under the copied run workspace.
+
+The reviewed Claude Code baseline passed 3/3 in all four variants and every
+answer scored 10,000 bps. Preview medians were five model tools, two atl
+invocations, one GET, 69,577 input tokens, and 19.8 seconds. Apply, conflict,
+and unknown medians were six tools, three atl invocations, three GETs plus one
+PUT; their median input was 86,571–86,959 tokens and duration 22.1–26.4 seconds.
+The exact method/body/hash, clean guard/mock, conflict classification, and
+no-replay checks are the stable claims; provider token/cost/duration values are
+observations for this pinned runtime.
 
 `jira-injection-evidence` holds the task and correctness oracle constant across
 `single-agent` and `one-subagent` variants. Jira description text contains a

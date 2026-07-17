@@ -2,6 +2,7 @@ package agenteval
 
 import (
 	"bytes"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -35,6 +36,101 @@ func TestMockBackendRecordsMethodsWithoutExposingPaths(t *testing.T) {
 	methods, unexpected, duplicates := backend.Summary()
 	if methods["GET"] != 2 || methods["POST"] != 1 || unexpected != 1 || duplicates != 1 {
 		t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+	}
+}
+
+func TestMockBackendConsumesBoundedResponseSequence(t *testing.T) {
+	fixture := MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{{
+			Method: "GET", Path: "/wiki/rest/api/content/7001",
+			Responses: []MockResponse{
+				{Status: http.StatusOK, Body: []byte(`{"version":{"number":3}}`)},
+				{Status: http.StatusOK, Body: []byte(`{"version":{"number":4}}`)},
+			},
+		}},
+	}
+	backend, err := StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	for index, want := range []string{`{"version":{"number":3}}`, `{"version":{"number":4}}`} {
+		response, err := http.Get(backend.Environment()["ATL_CONFLUENCE_URL"] + "/rest/api/content/7001")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusOK || string(body) != want {
+			t.Fatalf("response %d status=%d body=%s", index, response.StatusCode, body)
+		}
+	}
+	response, err := http.Get(backend.Environment()["ATL_CONFLUENCE_URL"] + "/rest/api/content/7001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	methods, unexpected, duplicates := backend.Summary()
+	if response.StatusCode != http.StatusNotFound || methods["GET"] != 3 || unexpected != 1 || duplicates != 2 {
+		t.Fatalf("status=%d methods=%v unexpected=%d duplicates=%d", response.StatusCode, methods, unexpected, duplicates)
+	}
+}
+
+func TestMockBackendDoesNotConsumeSequenceOnBodyMismatch(t *testing.T) {
+	fixture := MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{{
+			Method: "PUT", Path: "/wiki/rest/api/content/7001", RequestBody: []byte(`{"value":"approved"}`),
+			Responses: []MockResponse{{Status: http.StatusOK, Body: []byte(`{"version":{"number":4}}`)}},
+		}},
+	}
+	backend, err := StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	for _, body := range []string{`{"value":"wrong"}`, `{"value":"approved"}`} {
+		request, _ := http.NewRequest(http.MethodPut, backend.Environment()["ATL_CONFLUENCE_URL"]+"/rest/api/content/7001", bytes.NewBufferString(body))
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		if body == `{"value":"wrong"}` && response.StatusCode != http.StatusNotFound {
+			t.Fatalf("wrong body status=%d", response.StatusCode)
+		}
+		if body == `{"value":"approved"}` && response.StatusCode != http.StatusOK {
+			t.Fatalf("approved body status=%d", response.StatusCode)
+		}
+	}
+}
+
+func TestMockFixtureRejectsInvalidResponseSequenceShapes(t *testing.T) {
+	valid := MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{{Method: "GET", Path: "/wiki/rest/api/content/7001", Responses: []MockResponse{{Status: http.StatusOK, Body: []byte(`{}`)}}}},
+	}
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*MockRoute){
+		"neither": func(route *MockRoute) { route.Responses = nil },
+		"both": func(route *MockRoute) {
+			route.Status, route.Body = http.StatusOK, []byte(`{}`)
+		},
+		"bad sequence status": func(route *MockRoute) { route.Responses[0].Status = 0 },
+		"bad sequence body":   func(route *MockRoute) { route.Responses[0].Body = []byte(`no`) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			fixture := valid
+			fixture.Routes = append([]MockRoute(nil), valid.Routes...)
+			fixture.Routes[0].Responses = append([]MockResponse(nil), valid.Routes[0].Responses...)
+			mutate(&fixture.Routes[0])
+			if err := fixture.Validate(); err == nil {
+				t.Fatal("invalid response shape passed")
+			}
+		})
 	}
 }
 

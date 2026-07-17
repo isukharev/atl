@@ -24,6 +24,7 @@ var allowedCapabilityFamilies = map[string]struct{}{
 	"atl.config": {}, "atl.capabilities": {}, "jira.fields": {}, "jira.issue.fields": {},
 	"jira.issue.field": {}, "jira.issue.field.preview": {}, "jira.issue.field.set": {}, "jira.issue.search": {}, "jira.epic.digest": {}, "jira.board.view": {},
 	"confluence.diff": {}, "confluence.search": {}, "confluence.page.resolve": {}, "confluence.page.outline": {}, "confluence.page.section": {},
+	"confluence.plan.create": {}, "confluence.plan.preview": {}, "confluence.plan.apply": {},
 }
 
 func CapabilityFamilyForMCP(tool string) (string, bool) {
@@ -55,6 +56,8 @@ matched:
 		{[]string{"jira", "issue", "field", "get"}, "jira.issue.field"}, {[]string{"jira", "issue", "fields"}, "jira.issue.fields"}, {[]string{"jira", "epic", "digest"}, "jira.epic.digest"},
 		{[]string{"jira", "issue", "search"}, "jira.issue.search"}, {[]string{"jira", "board", "view"}, "jira.board.view"}, {[]string{"jira", "fields"}, "jira.fields"},
 		{[]string{"conf", "diff"}, "confluence.diff"}, {[]string{"conf", "search"}, "confluence.search"},
+		{[]string{"conf", "plan", "create"}, "confluence.plan.create"}, {[]string{"conf", "plan", "preview"}, "confluence.plan.preview"},
+		{[]string{"conf", "plan", "apply"}, "confluence.plan.apply"},
 		{[]string{"conf", "page", "resolve"}, "confluence.page.resolve"}, {[]string{"conf", "page", "outline"}, "confluence.page.outline"},
 		{[]string{"conf", "page", "section"}, "confluence.page.section"},
 	}

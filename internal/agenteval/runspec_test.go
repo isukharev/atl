@@ -2,6 +2,8 @@ package agenteval
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -117,6 +119,9 @@ func TestPrivateLiveRunSpecFailsClosed(t *testing.T) {
 		"delegation":   func(_ *RunSpec, sc *Scenario) { sc.Budgets.MaxDelegations = 1 },
 		"mock oracle": func(s *RunSpec, _ *Scenario) {
 			s.Checks = append(s.Checks, RunCheck{Name: "mock", Kind: "mock_no_unexpected"})
+		},
+		"workspace oracle": func(s *RunSpec, _ *Scenario) {
+			s.Checks = append(s.Checks, RunCheck{Name: "workspace", Kind: "json_equals_workspace_json", Pointer: "/answer", Expected: json.RawMessage(`{"path":"plan.json","pointer":"/answer"}`)})
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -279,7 +284,7 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 		{Name: "guarded", Kind: "guard_no_denials"},
 		{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":2,"PUT":1}`)},
 	}
-	result, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 2, 1, 0, 1, map[string]int{"atl:jira": 1}, 1, 0, map[string]int{"GET": 2, "PUT": 1}, true)
+	result, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), "", 2, 1, 0, 1, map[string]int{"atl:jira": 1}, 1, 0, map[string]int{"GET": 2, "PUT": 1}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +293,7 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 			t.Errorf("check %s failed", name)
 		}
 	}
-	over, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), 3, 0, 0, 1, map[string]int{"atl:confluence": 1}, 1, 0, map[string]int{"GET": 3}, true)
+	over, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), "", 3, 0, 0, 1, map[string]int{"atl:confluence": 1}, 1, 0, map[string]int{"GET": 3}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,6 +311,37 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 	}
 	if over["methods"] {
 		t.Fatal("http_methods_equal accepted a different method map")
+	}
+}
+
+func TestEvaluateRunChecksBindsContainedWorkspaceJSON(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "plan.json"), []byte(`{"proposal_hash":"abc"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check := RunCheck{
+		Name: "proposal", Kind: "json_equals_workspace_json", Pointer: "/proposal_hash",
+		Expected: json.RawMessage(`{"path":"plan.json","pointer":"/proposal_hash"}`),
+	}
+	result, err := evaluateRunChecks([]RunCheck{check}, []byte(`{"proposal_hash":"abc"}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false)
+	if err != nil || !result["proposal"] {
+		t.Fatalf("result=%v err=%v", result, err)
+	}
+	result, err = evaluateRunChecks([]RunCheck{check}, []byte(`{"proposal_hash":"wrong"}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false)
+	if err != nil || result["proposal"] {
+		t.Fatalf("mismatch result=%v err=%v", result, err)
+	}
+
+	valid := validRunSpec()
+	valid.Checks = append(valid.Checks, check)
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	invalid := validRunSpec()
+	check.Expected = json.RawMessage(`{"path":"../plan.json","pointer":"/proposal_hash"}`)
+	invalid.Checks = append(invalid.Checks, check)
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("escaping workspace JSON oracle passed")
 	}
 }
 

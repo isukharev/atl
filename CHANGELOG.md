@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a synthetic model-in-the-loop Confluence plan benchmark covering
+  offline plan creation, GET-only preview under the inherited read-only policy,
+  one exact reviewed PUT, a proven version conflict, and an unverifiable outcome
+  without replay. Stateful mock response sequences are bounded and fail closed
+  when exhausted; exact semantic request bodies, method counts, proposal hashes,
+  named skill use, and per-plan capability metrics are deterministic gates.
+
 - Added a GET-only `jira issue field preview` surface that preserves inherited
   `ATL_READ_ONLY=1` while producing the exact timestamp- and proposal-hash-bound
   artifact consumed by `field set --apply`. The capability catalog and Jira
