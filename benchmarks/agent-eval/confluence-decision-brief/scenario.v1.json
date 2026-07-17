@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "id": "confluence.synthetic-decision-brief",
+  "category": "route-fixed",
   "task_class": "confluence/evidence",
   "description": "Synthesize a qualified rollout decision from three bounded Confluence sections with one superseded conflict and two open risks.",
   "data_class": "synthetic",

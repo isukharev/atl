@@ -65,6 +65,134 @@ func TestEvaluatePassesBoundedReadOnlyWorkflow(t *testing.T) {
 	}
 }
 
+func TestBenchmarkIdentityCompatibilityDefaultsAndExplicitValues(t *testing.T) {
+	scenario := validScenario()
+	observation := validObservation()
+	result, err := Evaluate(scenario, observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Category != BenchmarkCategoryRouteFixed || result.Surface != SurfaceLegacyUnspecified {
+		t.Fatalf("legacy identity=%+v", result)
+	}
+
+	scenario.Category = BenchmarkCategoryNeutralCommon
+	scenario.RequiredSemanticChecks = []string{"answer_correct"}
+	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests", "output_bytes"}
+	scenario.Budgets.MaxInterfaceInvocations = scenario.Budgets.MaxATLInvocations
+	scenario.Budgets.MaxATLInvocations = 0
+	observation.Surface = SurfaceATLMCP
+	observation.Metrics.InterfaceInvocations = observation.Metrics.ATLInvocations
+	observation.Metrics.ATLInvocations = 0
+	observation.Coverage["interface_invocations"] = true
+	delete(observation.Coverage, "atl_invocations")
+	result, err = Evaluate(scenario, observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Category != BenchmarkCategoryNeutralCommon || result.Surface != SurfaceATLMCP {
+		t.Fatalf("explicit identity=%+v", result)
+	}
+
+	scenario.Category = "unknown"
+	if err := scenario.Validate(); err == nil {
+		t.Fatal("unknown category passed")
+	}
+	observation = validObservation()
+	observation.Surface = "unknown"
+	if err := observation.Validate(); err == nil {
+		t.Fatal("unknown surface passed")
+	}
+}
+
+func TestEvaluateSupportsGenericInterfaceInvocationMetric(t *testing.T) {
+	scenario := validScenario()
+	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests"}
+	scenario.Budgets.MaxATLInvocations = 0
+	scenario.Budgets.MaxInterfaceInvocations = 2
+	observation := validObservation()
+	delete(observation.Coverage, "atl_invocations")
+	observation.Metrics.ATLInvocations = 0
+	observation.Metrics.InterfaceInvocations = 2
+	observation.Coverage["interface_invocations"] = true
+	result, err := Evaluate(scenario, observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "pass" || result.Metrics.InterfaceInvocations != 2 {
+		t.Fatalf("result=%+v", result)
+	}
+	observation.Metrics.InterfaceInvocations = 3
+	result, err = Evaluate(scenario, observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "fail" || len(result.Violations) == 0 || result.Violations[0].Subject != "interface_invocations" {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestEvaluateMarksUnsupportedAndDriftedRunsIneligibleWithoutSemanticFailure(t *testing.T) {
+	for name, eligibility := range map[string]string{
+		"unsupported": EligibilityUnsupportedCapability,
+		"drifted":     EligibilityInvalidatedDrift,
+	} {
+		t.Run(name, func(t *testing.T) {
+			observation := validObservation()
+			observation.Eligibility = eligibility
+			observation.Checks["answer_correct"] = false
+			if eligibility == EligibilityUnsupportedCapability {
+				observation.UnavailableCapabilities = []string{"jira.epic.digest"}
+			}
+			observation.Metrics.OutputBytes = 9000
+			result, err := Evaluate(validScenario(), observation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Status != "ineligible" || result.EffectiveEligibility() != eligibility {
+				t.Fatalf("result=%+v", result)
+			}
+			for _, violation := range result.Violations {
+				if violation.Code == "required_check_failed" {
+					t.Fatalf("ineligible result received semantic failure: %+v", result.Violations)
+				}
+			}
+			if len(result.Violations) != 1 || result.Violations[0].Code != "budget_exceeded" {
+				t.Fatalf("safety/budget violation not preserved: %+v", result.Violations)
+			}
+		})
+	}
+}
+
+func TestEligibilityValidationFailsClosed(t *testing.T) {
+	for name, mutate := range map[string]func(*Observation){
+		"unknown":                    func(o *Observation) { o.Eligibility = "unknown" },
+		"supported with unavailable": func(o *Observation) { o.UnavailableCapabilities = []string{"jira.issue.search"} },
+		"unsupported without ids":    func(o *Observation) { o.Eligibility = EligibilityUnsupportedCapability },
+		"drifted with ids": func(o *Observation) {
+			o.Eligibility = EligibilityInvalidatedDrift
+			o.UnavailableCapabilities = []string{"jira.issue.search"}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			observation := validObservation()
+			mutate(&observation)
+			if err := observation.Validate(); err == nil {
+				t.Fatal("invalid eligibility passed")
+			}
+		})
+	}
+}
+
+func TestEvaluateRejectsUnsupportedCapabilityOutsideScenario(t *testing.T) {
+	observation := validObservation()
+	observation.Eligibility = EligibilityUnsupportedCapability
+	observation.UnavailableCapabilities = []string{"confluence.page.section"}
+	if _, err := Evaluate(validScenario(), observation); err == nil || !strings.Contains(err.Error(), "not required") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestEvaluateReportsBudgetsMethodsAndChecks(t *testing.T) {
 	observation := validObservation()
 	observation.Metrics.OutputBytes = 9000

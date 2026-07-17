@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "id": "jira.synthetic-quarter-portfolio",
+  "category": "route-fixed",
   "task_class": "jira/portfolio",
   "description": "Build a qualified quarterly result from one portfolio snapshot, narrow epic history, and bounded linked Confluence evidence.",
   "data_class": "synthetic",

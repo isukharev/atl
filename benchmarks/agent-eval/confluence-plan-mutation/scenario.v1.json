@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "id": "confluence.synthetic-guarded-plan-mutation",
+  "category": "route-fixed",
   "task_class": "confluence/edit",
   "description": "Exercise offline plan creation, read-only preview, one reviewed Confluence apply, version conflict, and an unverifiable outcome without replay.",
   "data_class": "synthetic",

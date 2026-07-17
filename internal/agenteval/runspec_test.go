@@ -275,9 +275,12 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 		{Name: "equals", Kind: "json_equals", Pointer: "/nested/value", Expected: json.RawMessage(`7`)},
 		{Name: "present", Kind: "json_present", Pointer: "/nested"},
 		{Name: "used", Kind: "atl_invocations_min", Minimum: 2},
+		{Name: "used_interface", Kind: "interface_invocations_min", Minimum: 2},
 		{Name: "used_skill", Kind: "skill_invocations_min", Minimum: 1},
 		{Name: "used_jira_skill", Kind: "skill_invocations_min", Minimum: 1, Expected: json.RawMessage(`"atl:jira"`)},
 		{Name: "bounded", Kind: "atl_invocations_max", Maximum: 2},
+		{Name: "bounded_interface", Kind: "interface_invocations_max", Maximum: 2},
+		{Name: "interface_failures", Kind: "interface_failures_equals", Expected: json.RawMessage(`1`)},
 		{Name: "expected_fail_closed", Kind: "atl_failures_equals", Expected: json.RawMessage(`1`)},
 		{Name: "routes", Kind: "mock_no_unexpected"},
 		{Name: "delegated", Kind: "delegations_min", Minimum: 1},
@@ -300,6 +303,12 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 	if over["bounded"] {
 		t.Fatal("atl_invocations_max accepted an over-budget run")
 	}
+	if over["bounded_interface"] {
+		t.Fatal("interface_invocations_max accepted an over-budget run")
+	}
+	if over["interface_failures"] {
+		t.Fatal("interface_failures_equals accepted the wrong failure count")
+	}
 	if over["expected_fail_closed"] {
 		t.Fatal("atl_failures_equals accepted the wrong failure count")
 	}
@@ -311,6 +320,116 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 	}
 	if over["methods"] {
 		t.Fatal("http_methods_equal accepted a different method map")
+	}
+	success, err := evaluateRunChecks([]RunCheck{{Name: "interface_succeeded", Kind: "interface_all_succeeded"}}, []byte(`{}`), "", 1, 0, 0, 0, nil, 0, 0, nil, false)
+	if err != nil || !success["interface_succeeded"] {
+		t.Fatalf("interface success alias result=%v err=%v", success, err)
+	}
+}
+
+func TestRunSpecCategoryAndSurfaceDefaultsAndCompatibility(t *testing.T) {
+	legacy := validRunSpec()
+	if legacy.EffectiveCategory() != BenchmarkCategoryRouteFixed || legacy.EffectiveSurface() != SurfaceCLISkill {
+		t.Fatalf("legacy identity category=%q surface=%q", legacy.EffectiveCategory(), legacy.EffectiveSurface())
+	}
+	legacy.ToolTransport = "mcp"
+	legacy.AllowedTools = nil
+	legacy.AllowedATLCommands = nil
+	legacy.AllowedMCPTools = []string{"jira_epic_digest"}
+	if legacy.EffectiveSurface() != SurfaceATLMCP {
+		t.Fatalf("mcp surface=%q", legacy.EffectiveSurface())
+	}
+	if err := legacy.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, mutate := range map[string]func(*RunSpec){
+		"unknown category": func(spec *RunSpec) { spec.Category = "unknown" },
+		"unknown surface":  func(spec *RunSpec) { spec.Surface = "unknown" },
+		"cli as mcp": func(spec *RunSpec) {
+			spec.Surface = SurfaceCLISkill
+			spec.ToolTransport = "mcp"
+			spec.AllowedTools = nil
+			spec.AllowedATLCommands = nil
+			spec.AllowedMCPTools = []string{"jira_epic_digest"}
+		},
+		"mcp as cli": func(spec *RunSpec) { spec.Surface = SurfaceATLMCP },
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := validRunSpec()
+			mutate(&spec)
+			if err := spec.Validate(); err == nil {
+				t.Fatal("invalid identity passed")
+			}
+		})
+	}
+}
+
+func TestRunSpecRequiresMatchingScenarioCategory(t *testing.T) {
+	spec := validRunSpec()
+	spec.Category = BenchmarkCategoryNeutralCommon
+	if err := spec.ValidateAgainstScenario(validScenario()); err == nil || !strings.Contains(err.Error(), "category") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestNeutralCommonRequiresGenericMetricsSemanticChecksAndAliases(t *testing.T) {
+	scenario := validScenario()
+	scenario.Category = BenchmarkCategoryNeutralCommon
+	scenario.RequiredChecks = []string{"answer_correct", "used_atl"}
+	scenario.RequiredSemanticChecks = []string{"answer_correct"}
+	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests"}
+	scenario.Budgets.MaxATLInvocations = 0
+	scenario.Budgets.MaxInterfaceInvocations = 2
+	scenario.Budgets.MaxEstimatedCostMicroUSD = 10_000_000
+	spec := validRunSpec()
+	spec.Category = BenchmarkCategoryNeutralCommon
+	for index := range spec.Checks {
+		if spec.Checks[index].Kind == "atl_invocations_min" {
+			spec.Checks[index].Kind = "interface_invocations_min"
+		}
+	}
+	if err := spec.ValidateAgainstScenario(scenario); err != nil {
+		t.Fatal(err)
+	}
+
+	bad := spec
+	bad.Checks = append([]RunCheck(nil), spec.Checks...)
+	bad.Checks[0] = RunCheck{Name: "answer_correct", Kind: "guard_no_denials"}
+	bad.Checks = append(bad.Checks, RunCheck{Name: "irrelevant", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`true`)})
+	if err := bad.ValidateAgainstScenario(scenario); err == nil || !strings.Contains(err.Error(), "required semantic") {
+		t.Fatalf("semantic substitution passed: %v", err)
+	}
+
+	bad = spec
+	bad.Checks = append([]RunCheck(nil), spec.Checks...)
+	bad.Checks = append(bad.Checks, RunCheck{Name: "legacy", Kind: "atl_all_succeeded"})
+	if err := bad.ValidateAgainstScenario(scenario); err == nil || !strings.Contains(err.Error(), "generic") {
+		t.Fatalf("legacy atl alias passed neutral contract: %v", err)
+	}
+}
+
+func TestNeutralCorePromptRouteHintScannerIsConservative(t *testing.T) {
+	for _, prompt := range []string{
+		"Use the available ATL interface to investigate Jira and Confluence evidence.",
+		"Return a concise answer with explicit completeness.",
+	} {
+		if err := validateNeutralCorePrompt([]byte(prompt)); err != nil {
+			t.Fatalf("natural prompt %q rejected: %v", prompt, err)
+		}
+	}
+	for _, prompt := range []string{
+		"Call mcp__atl__jira_fields first.",
+		"Call jira_fields first.",
+		"Call confluence_search first.",
+		"Run atl jira fields before answering.",
+		"Use atl conf page section.",
+		"Begin with atl capabilities --task jira/evidence.",
+		"Invoke jira_epic_digest and confluence_page_section.",
+	} {
+		if err := validateNeutralCorePrompt([]byte(prompt)); err == nil {
+			t.Fatalf("route hint %q passed", prompt)
+		}
 	}
 }
 

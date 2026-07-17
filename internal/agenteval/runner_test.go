@@ -39,12 +39,12 @@ func TestRunHeadlessWithFakeProvidersUsesPrivateWrapperAndSyntheticMetrics(t *te
 	scenario.ID = "jira.synthetic-model"
 	scenario.RequiredChecks = []string{"answer_correct", "atl_succeeded", "mock_clean", "used_atl"}
 	scenario.RequiredMetrics = []string{
-		"agent_turns", "tool_calls", "atl_invocations", "backend_requests",
+		"agent_turns", "tool_calls", "interface_invocations", "backend_requests",
 		"output_bytes", "input_tokens", "output_tokens",
 		"estimated_cost_microusd", "duration_millis",
 	}
 	scenario.Budgets = Budgets{
-		MaxAgentTurns: 2, MaxToolCalls: 2, MaxATLInvocations: 2,
+		MaxAgentTurns: 2, MaxToolCalls: 2, MaxInterfaceInvocations: 2,
 		MaxBackendRequests: 0, MaxRemoteWrites: 0, MaxOutputBytes: 4096,
 		MaxInputTokens: 1000, MaxOutputTokens: 1000,
 		MaxMainThreadInputTokens: 1000, MaxMainThreadOutputTokens: 1000,
@@ -72,9 +72,9 @@ func TestRunHeadlessWithFakeProvidersUsesPrivateWrapperAndSyntheticMetrics(t *te
 		AllowedATLCommands:       []string{"atl version"},
 		Checks: []RunCheck{
 			{Name: "answer_correct", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`"ok"`)},
-			{Name: "atl_succeeded", Kind: "atl_all_succeeded"},
+			{Name: "atl_succeeded", Kind: "interface_all_succeeded"},
 			{Name: "mock_clean", Kind: "mock_no_unexpected"},
-			{Name: "used_atl", Kind: "atl_invocations_min", Minimum: 1},
+			{Name: "used_atl", Kind: "interface_invocations_min", Minimum: 1},
 		},
 	}
 	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
@@ -160,7 +160,7 @@ exit 2
 		t.Fatalf("preview command path=%q", output.Preview.Command.Path)
 	}
 	result := output.Results[0]
-	if result.Metrics.ATLInvocations != 1 || result.Metrics.BackendRequests != 0 || result.Metrics.EstimatedCostMicroUSD != 140 {
+	if result.Metrics.ATLInvocations != 0 || result.Metrics.InterfaceInvocations != 1 || result.Metrics.BackendRequests != 0 || result.Metrics.EstimatedCostMicroUSD != 140 {
 		t.Fatalf("metrics=%+v", result.Metrics)
 	}
 	transcript := filepath.Join(outputRoot, scenario.ID, "claude-code", "baseline", "run-01", "transcript.jsonl")
@@ -197,7 +197,7 @@ exit 2
 		t.Fatalf("claude MCP output=%+v", output)
 	}
 	result = output.Results[0]
-	if result.Metrics.ATLInvocations != 1 || result.Metrics.ToolCalls != 1 || result.Metrics.EstimatedCostMicroUSD != 140 {
+	if result.Metrics.ATLInvocations != 0 || result.Metrics.InterfaceInvocations != 1 || result.Metrics.ToolCalls != 1 || result.Metrics.EstimatedCostMicroUSD != 140 {
 		t.Fatalf("claude MCP metrics=%+v", result.Metrics)
 	}
 	if !result.Coverage["capability_families"] || len(result.CapabilityFamilies) != 1 || result.CapabilityFamilies[0].Family != "jira.fields" {
@@ -266,7 +266,7 @@ exit 2
 		t.Fatalf("codex output=%+v", output)
 	}
 	result = output.Results[0]
-	if result.Metrics.ATLInvocations != 1 || result.Metrics.ToolCalls != 1 || result.Metrics.EstimatedCostMicroUSD != 140 {
+	if result.Metrics.ATLInvocations != 0 || result.Metrics.InterfaceInvocations != 1 || result.Metrics.ToolCalls != 1 || result.Metrics.EstimatedCostMicroUSD != 140 {
 		t.Fatalf("codex metrics=%+v", result.Metrics)
 	}
 }

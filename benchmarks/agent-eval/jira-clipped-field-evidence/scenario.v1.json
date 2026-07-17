@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "id": "jira.synthetic-clipped-field-evidence",
+  "category": "route-fixed",
   "task_class": "jira/evidence",
   "description": "Require a qualified field catalog, then expand one required narrative clipped by a compact epic digest without repeating the broad digest.",
   "data_class": "synthetic",

@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "id": "jira.synthetic-guarded-field-mutation",
+  "category": "route-fixed",
   "task_class": "jira/edit",
   "description": "Exercise the preview, reviewed apply, and ambiguous-outcome boundaries of one file-backed Jira custom-field mutation.",
   "data_class": "synthetic",

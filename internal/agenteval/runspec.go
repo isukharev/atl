@@ -18,8 +18,10 @@ const (
 )
 
 var (
-	mcpToolNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
-	skillNameRE   = regexp.MustCompile(`^[a-z0-9][a-z0-9:._-]{0,127}$`)
+	mcpToolNameRE      = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
+	skillNameRE        = regexp.MustCompile(`^[a-z0-9][a-z0-9:._-]{0,127}$`)
+	neutralATLRouteRE  = regexp.MustCompile(`(?m)(^|[^a-z0-9_-])atl[ \t]+(jira|conf|capabilities|config)([^a-z0-9_-]|$)`)
+	neutralTypedToolRE = regexp.MustCompile(`(^|[^a-z0-9_])(jira|confluence)_[a-z0-9]+(_[a-z0-9]+)*([^a-z0-9_]|$)`)
 )
 
 // RunSpec is intentionally separate from Scenario: scenarios define comparable
@@ -27,6 +29,8 @@ var (
 type RunSpec struct {
 	SchemaVersion            int                           `json:"schema_version"`
 	BackendMode              string                        `json:"backend_mode,omitempty"`
+	Category                 string                        `json:"category,omitempty"`
+	Surface                  string                        `json:"surface,omitempty"`
 	ScenarioFile             string                        `json:"scenario_file"`
 	Provider                 string                        `json:"provider"`
 	Variant                  string                        `json:"variant"`
@@ -63,6 +67,30 @@ func (s RunSpec) EffectiveBackendMode() string {
 		return BackendModeSynthetic
 	}
 	return s.BackendMode
+}
+
+func (s RunSpec) EffectiveCategory() string {
+	if s.Category == "" {
+		return BenchmarkCategoryRouteFixed
+	}
+	return s.Category
+}
+
+func (s RunSpec) EffectiveSurface() string {
+	if s.Surface != "" {
+		return s.Surface
+	}
+	if s.EffectiveToolTransport() == "mcp" {
+		return SurfaceATLMCP
+	}
+	return SurfaceCLISkill
+}
+
+func (s RunSpec) EffectiveToolTransport() string {
+	if s.ToolTransport == "" {
+		return "cli"
+	}
+	return s.ToolTransport
 }
 
 type Pricing struct {
@@ -108,6 +136,12 @@ func (s RunSpec) Validate() error {
 	}
 	if !identifierRE.MatchString(s.Variant) {
 		return fmt.Errorf("invalid run variant %q", s.Variant)
+	}
+	if !validBenchmarkCategory(s.EffectiveCategory()) {
+		return fmt.Errorf("invalid benchmark category %q", s.Category)
+	}
+	if !validRunSurface(s.EffectiveSurface()) {
+		return fmt.Errorf("invalid benchmark surface %q", s.Surface)
 	}
 	if strings.TrimSpace(s.Model) == "" || len(s.Model) > 256 || strings.ContainsAny(s.Model, "\r\n\x00") {
 		return fmt.Errorf("model must contain 1..256 safe bytes")
@@ -161,12 +195,19 @@ func (s RunSpec) Validate() error {
 	if s.Provider == "codex" && (s.Pricing.InputMicroUSDPerMillionTokens == 0 || s.Pricing.OutputMicroUSDPerMillionTokens == 0) {
 		return fmt.Errorf("codex runs require explicit input and output pricing")
 	}
-	transport := s.ToolTransport
-	if transport == "" {
-		transport = "cli"
-	}
+	transport := s.EffectiveToolTransport()
 	if transport != "cli" && transport != "mcp" {
 		return fmt.Errorf("tool_transport must be cli or mcp")
+	}
+	switch s.EffectiveSurface() {
+	case SurfaceCLISkill:
+		if transport != "cli" {
+			return fmt.Errorf("surface %s requires cli tool_transport", SurfaceCLISkill)
+		}
+	case SurfaceATLMCP, SurfaceExternalMCP:
+		if transport != "mcp" {
+			return fmt.Errorf("surface %s requires mcp tool_transport", s.EffectiveSurface())
+		}
 	}
 	if s.AllowSyntheticWrites && (transport != "cli" || s.Provider != "claude-code") {
 		return fmt.Errorf("allow_synthetic_writes requires Claude Code cli transport")
@@ -265,7 +306,7 @@ func (s RunSpec) Validate() error {
 			return fmt.Errorf("duplicate run check %q", check.Name)
 		}
 		seenChecks[check.Name] = struct{}{}
-		if check.Kind != "atl_invocations_max" && check.Maximum != 0 {
+		if check.Kind != "atl_invocations_max" && check.Kind != "interface_invocations_max" && check.Maximum != 0 {
 			return fmt.Errorf("run check %q does not accept maximum", check.Name)
 		}
 		switch check.Kind {
@@ -284,26 +325,26 @@ func (s RunSpec) Validate() error {
 			if _, ok := workspaceJSONExpectationFrom(check.Expected); !ok {
 				return fmt.Errorf("json_equals_workspace_json check %q requires a contained JSON file and pointer", check.Name)
 			}
-		case "atl_invocations_min":
+		case "atl_invocations_min", "interface_invocations_min":
 			if check.Minimum < 1 || check.Pointer != "" || len(check.Expected) != 0 {
-				return fmt.Errorf("atl_invocations_min check %q is invalid", check.Name)
+				return fmt.Errorf("%s check %q is invalid", check.Kind, check.Name)
 			}
 		case "skill_invocations_min":
 			if _, ok := skillInvocationTarget(check.Expected); check.Minimum < 1 || check.Pointer != "" || !ok {
 				return fmt.Errorf("skill_invocations_min check %q is invalid", check.Name)
 			}
 			requiresSkillInvocation = true
-		case "atl_invocations_max":
+		case "atl_invocations_max", "interface_invocations_max":
 			if check.Maximum < 1 || check.Minimum != 0 || check.Pointer != "" || len(check.Expected) != 0 {
-				return fmt.Errorf("atl_invocations_max check %q is invalid", check.Name)
+				return fmt.Errorf("%s check %q is invalid", check.Kind, check.Name)
 			}
-		case "atl_all_succeeded":
+		case "atl_all_succeeded", "interface_all_succeeded":
 			if check.Minimum != 0 || check.Pointer != "" || len(check.Expected) != 0 {
-				return fmt.Errorf("atl_all_succeeded check %q is invalid", check.Name)
+				return fmt.Errorf("%s check %q is invalid", check.Kind, check.Name)
 			}
-		case "atl_failures_equals":
+		case "atl_failures_equals", "interface_failures_equals":
 			if _, ok := expectedATLFailureCount(check.Expected); check.Minimum != 0 || check.Pointer != "" || !ok {
-				return fmt.Errorf("atl_failures_equals check %q requires a non-negative integer expected value", check.Name)
+				return fmt.Errorf("%s check %q requires a non-negative integer expected value", check.Kind, check.Name)
 			}
 		case "mock_no_unexpected":
 			if check.Minimum != 0 || check.Pointer != "" || len(check.Expected) != 0 {
@@ -352,6 +393,26 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 	if err := scenario.Validate(); err != nil {
 		return err
 	}
+	if s.EffectiveCategory() != scenario.EffectiveCategory() {
+		return fmt.Errorf("run category %q does not match scenario category %q", s.EffectiveCategory(), scenario.EffectiveCategory())
+	}
+	if scenario.EffectiveCategory() == BenchmarkCategoryNeutralCommon {
+		for _, check := range s.Checks {
+			if strings.HasPrefix(check.Kind, "atl_") {
+				return fmt.Errorf("neutral-common run checks must use generic interface aliases, found %q", check.Kind)
+			}
+		}
+	}
+	checksByName := make(map[string]RunCheck, len(s.Checks))
+	for _, check := range s.Checks {
+		checksByName[check.Name] = check
+	}
+	for _, name := range scenario.RequiredSemanticChecks {
+		check, ok := checksByName[name]
+		if !ok || runCheckClass(check.Kind) != "semantic" {
+			return fmt.Errorf("required semantic check %q must exist with a semantic kind", name)
+		}
+	}
 	if s.EffectiveBackendMode() == BackendModePrivateLive {
 		if scenario.DataClass != "private-local" {
 			return fmt.Errorf("private-live runs require scenario data_class=private-local")
@@ -362,8 +423,8 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 		if scenario.Budgets.MaxDelegations != 0 {
 			return fmt.Errorf("private-live runs do not allow delegation")
 		}
-		if scenario.Budgets.MaxBackendRequests < 1 || scenario.Budgets.MaxATLInvocations < 1 {
-			return fmt.Errorf("private-live runs require positive backend and atl invocation budgets")
+		if scenario.Budgets.MaxBackendRequests < 1 || scenario.Budgets.EffectiveMaxInterfaceInvocations() < 1 {
+			return fmt.Errorf("private-live runs require positive backend and interface invocation budgets")
 		}
 		if len(scenario.Budgets.AllowedHTTPMethods) == 0 {
 			return fmt.Errorf("private-live runs require an explicit GET/HEAD method allowlist")
@@ -373,13 +434,9 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 				return fmt.Errorf("private-live allowed_http_methods may contain only GET and HEAD")
 			}
 		}
-		requiredKinds := map[string]bool{
-			"atl_all_succeeded":     false,
-			"atl_invocations_min":   false,
-			"http_methods_observed": false,
-			"guard_no_denials":      false,
-			"delegations_none":      false,
-		}
+		requiredSuccess := false
+		requiredInvocation := false
+		requiredKinds := map[string]bool{"http_methods_observed": false, "guard_no_denials": false, "delegations_none": false}
 		for _, check := range s.Checks {
 			if check.Kind == "mock_no_unexpected" {
 				return fmt.Errorf("private-live runs cannot use mock_no_unexpected")
@@ -390,6 +447,18 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 			if _, ok := requiredKinds[check.Kind]; ok {
 				requiredKinds[check.Kind] = true
 			}
+			if check.Kind == "atl_all_succeeded" || check.Kind == "interface_all_succeeded" {
+				requiredSuccess = true
+			}
+			if check.Kind == "atl_invocations_min" || check.Kind == "interface_invocations_min" {
+				requiredInvocation = true
+			}
+		}
+		if !requiredSuccess {
+			return fmt.Errorf("private-live runs require an interface_all_succeeded or atl_all_succeeded check")
+		}
+		if !requiredInvocation {
+			return fmt.Errorf("private-live runs require an interface_invocations_min or atl_invocations_min check")
 		}
 		for kind, present := range requiredKinds {
 			if !present {
@@ -443,6 +512,14 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 	return nil
 }
 
+func validateNeutralCorePrompt(prompt []byte) error {
+	lower := strings.ToLower(string(prompt))
+	if strings.Contains(lower, "mcp__") || neutralATLRouteRE.MatchString(lower) || neutralTypedToolRE.MatchString(lower) {
+		return fmt.Errorf("neutral-common core prompt contains a transport-specific route hint")
+	}
+	return nil
+}
+
 func escapesBase(path string) bool {
 	clean := filepath.Clean(path)
 	return clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator))
@@ -456,7 +533,7 @@ func evaluateRunChecks(checks []RunCheck, final []byte, workspace string, atlInv
 	results := make(map[string]bool, len(checks))
 	for _, check := range checks {
 		switch check.Kind {
-		case "atl_invocations_min":
+		case "atl_invocations_min", "interface_invocations_min":
 			results[check.Name] = atlInvocations >= check.Minimum
 		case "skill_invocations_min":
 			target, _ := skillInvocationTarget(check.Expected)
@@ -465,11 +542,11 @@ func evaluateRunChecks(checks []RunCheck, final []byte, workspace string, atlInv
 				observed = skillInvocationsByName[target]
 			}
 			results[check.Name] = observed >= check.Minimum
-		case "atl_invocations_max":
+		case "atl_invocations_max", "interface_invocations_max":
 			results[check.Name] = atlInvocations <= check.Maximum
-		case "atl_all_succeeded":
+		case "atl_all_succeeded", "interface_all_succeeded":
 			results[check.Name] = failedATL == 0
-		case "atl_failures_equals":
+		case "atl_failures_equals", "interface_failures_equals":
 			expected, _ := expectedATLFailureCount(check.Expected)
 			results[check.Name] = failedATL == expected
 		case "mock_no_unexpected":

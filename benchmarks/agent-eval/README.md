@@ -1,5 +1,39 @@
 # Agent evaluations
 
+## Comparison categories
+
+`neutral-common` scenarios compare surfaces with one byte-identical
+outcome-driven prompt, scenario, response schema, rubric, budget, and semantic
+oracle. They must not name commands, tools, or a preferred route. They also
+declare non-empty `required_semantic_checks`, use a positive generic interface
+budget and the required `interface_invocations` metric, and cannot use
+transport-specific `atl_*` check aliases. Run-spec loading rejects qualified
+MCP names, exact `atl jira`/`atl conf` routes, and typed Jira/Confluence tool
+spellings in a neutral core prompt while allowing ordinary product prose.
+`surface-native` scenarios measure realistic capabilities that may be
+unsupported elsewhere. `route-fixed` scenarios pin an execution route to catch
+contract regressions and must not be used as a general surface ranking. The
+existing committed cases are explicitly route-fixed; missing category fields
+in older private cases default to that safer interpretation.
+
+Results distinguish `cli-skill`, `atl-mcp`, and the reserved `external-mcp`
+surface. Old results without a surface remain `legacy-unspecified`. Generic
+comparison contracts use `interface_invocations` and `interface_*` checks;
+legacy `atl_invocations` fields continue to validate.
+
+Observations classify runs as `supported`, `unsupported-capability`, or
+`invalidated-backend-drift`. Ineligible runs retain safety and budget failures
+but are excluded from task pass/fail. Aggregate schema v3 reports eligibility
+counts and coverage, conditional success, and computes neutral/surface-native
+efficiency and qualitative summaries only from supported deterministically
+valid runs. Missing eligibility in older observations means `supported`.
+
+Use at least three fresh synthetic repetitions per surface. For three-surface
+blocks rotate order as `ABC`, `BCA`, `CAB`, compare efficiency only among
+deterministically correct answers, review answers blind to surface identity,
+and report per-class macro summaries plus a Pareto view rather than one total
+score.
+
 ## Public synthetic suite
 
 These cases exercise the shipped `atl` skills and binary against a deterministic
@@ -137,7 +171,7 @@ over-budget. The deterministic MCP test additionally verifies the exact
 four-GET, zero-write trajectory with technical-id reuse and that the expansion alone recovers the
 marker.
 
-Result schema v3 and aggregate schema v2 expose `capability_families` using a
+Result schema v3 and aggregate schema v3 expose `capability_families` using a
 closed generic vocabulary shared by CLI and MCP. Each entry contains only
 invocations, successes, failures, and output bytes. Treat the section as
 available only when `coverage.capability_families` is true; unknown events
@@ -173,6 +207,18 @@ requires identical task/evaluation inputs and one spec for each transport; it
 does not print the private scenario id. Run each case once, assess both answers
 with the same rubric/reviewer contract, and keep every raw run/review artifact
 under the private output root.
+
+For two or three surfaces, prefer
+`agent-eval validate-comparison-set SPEC SPEC [SPEC]`. It requires unique
+surface identities and identical category, provider/model, scenario and
+budgets, core prompt bytes, schema, rubric, workspace, and semantic checks.
+Mechanical guard/skill/invocation checks may differ only within a closed
+classification. `validate-pair` remains the compatibility form for
+`cli-skill` plus `atl-mcp` and still requires exact equality of the complete
+check list. The broader comparison-set validator requires every scenario-named
+semantic check to exist and remain semantic, so a guard or shape check cannot
+silently replace the answer oracle. `external-mcp` execution is intentionally not
+implemented by this contract-only change.
 
 Each run spec also binds a public `rubric.v1.json`. After deterministic checks
 pass, use `agent-eval review-template` and `agent-eval assess` as documented in

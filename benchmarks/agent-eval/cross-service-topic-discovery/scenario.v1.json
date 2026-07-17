@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "id": "knowledge.synthetic-topic-discovery",
+  "category": "route-fixed",
   "task_class": "knowledge/search",
   "description": "Discover and synthesize bounded Jira and Confluence evidence from a topic without following distractors or embedded instructions.",
   "data_class": "synthetic",

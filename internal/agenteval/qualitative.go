@@ -51,6 +51,8 @@ type Review struct {
 	ScenarioID          string                 `json:"scenario_id"`
 	ResultSHA256        string                 `json:"result_sha256"`
 	FinalResponseSHA256 string                 `json:"final_response_sha256"`
+	Blinded             bool                   `json:"blinded,omitempty"`
+	AssignmentDigest    string                 `json:"assignment_digest,omitempty"`
 	Reviewer            Reviewer               `json:"reviewer"`
 	Criteria            []ReviewCriterionScore `json:"criteria"`
 	FindingIDs          []string               `json:"finding_ids"`
@@ -68,6 +70,8 @@ type QualitativeAssessment struct {
 	RubricSHA256        string                 `json:"rubric_sha256"`
 	ResultSHA256        string                 `json:"result_sha256"`
 	FinalResponseSHA256 string                 `json:"final_response_sha256"`
+	Blinded             bool                   `json:"blinded,omitempty"`
+	AssignmentDigest    string                 `json:"assignment_digest,omitempty"`
 	Reviewer            Reviewer               `json:"reviewer"`
 	Status              string                 `json:"status"`
 	ScoreBPS            int                    `json:"score_bps"`
@@ -90,6 +94,9 @@ func (q QualitativeAssessment) validate(scenarioID string) error {
 	}
 	if err := q.Reviewer.validate(); err != nil {
 		return err
+	}
+	if err := validateBlindAssignment(q.Blinded, q.AssignmentDigest); err != nil {
+		return fmt.Errorf("qualitative assessment: %w", err)
 	}
 	if q.Status != "pass" && q.Status != "fail" {
 		return fmt.Errorf("qualitative status must be pass or fail")
@@ -136,9 +143,12 @@ func DecodeReview(r io.Reader) (Review, error) {
 	return value, nil
 }
 
-func NewReviewTemplate(result Result, resultBytes, finalBytes []byte, rubric Rubric, reviewer Reviewer) (Review, error) {
+func NewReviewTemplate(result Result, resultBytes, finalBytes []byte, rubric Rubric, reviewer Reviewer, blindAssignment ...[]byte) (Review, error) {
 	if err := result.Validate(); err != nil {
 		return Review{}, err
+	}
+	if result.EffectiveEligibility() != EligibilitySupported {
+		return Review{}, fmt.Errorf("ineligible result cannot be qualitatively reviewed")
 	}
 	if err := rubric.Validate(); err != nil {
 		return Review{}, err
@@ -149,11 +159,25 @@ func NewReviewTemplate(result Result, resultBytes, finalBytes []byte, rubric Rub
 	if result.ScenarioID != rubric.ScenarioID {
 		return Review{}, fmt.Errorf("rubric and result scenario_id do not match")
 	}
+	if len(blindAssignment) > 1 {
+		return Review{}, fmt.Errorf("at most one blind assignment is allowed")
+	}
+	blinded := len(blindAssignment) == 1
+	assignmentDigest := ""
+	if blinded {
+		if len(blindAssignment[0]) == 0 || len(blindAssignment[0]) > maxReviewBytes {
+			return Review{}, fmt.Errorf("blind assignment must contain 1..%d bytes", maxReviewBytes)
+		}
+		assignmentDigest = sha256Hex(blindAssignment[0])
+	}
+	if result.EffectiveCategory() == BenchmarkCategoryNeutralCommon && !blinded {
+		return Review{}, fmt.Errorf("neutral-common review requires a blind assignment")
+	}
 	criteria := make([]ReviewCriterionScore, 0, len(rubric.Criteria))
 	for _, item := range rubric.Criteria {
 		criteria = append(criteria, ReviewCriterionScore{ID: item.ID, Score: 0})
 	}
-	return Review{SchemaVersion: ReviewSchemaVersion, RubricID: rubric.ID, RubricSHA256: rubricSHA256(rubric), ScenarioID: result.ScenarioID, ResultSHA256: sha256Hex(resultBytes), FinalResponseSHA256: sha256Hex(finalBytes), Reviewer: reviewer, Criteria: criteria, FindingIDs: []string{}}, nil
+	return Review{SchemaVersion: ReviewSchemaVersion, RubricID: rubric.ID, RubricSHA256: rubricSHA256(rubric), ScenarioID: result.ScenarioID, ResultSHA256: sha256Hex(resultBytes), FinalResponseSHA256: sha256Hex(finalBytes), Blinded: blinded, AssignmentDigest: assignmentDigest, Reviewer: reviewer, Criteria: criteria, FindingIDs: []string{}}, nil
 }
 
 func (r Rubric) Validate() error {
@@ -214,6 +238,9 @@ func (r Review) Validate() error {
 	if err := r.Reviewer.validate(); err != nil {
 		return err
 	}
+	if err := validateBlindAssignment(r.Blinded, r.AssignmentDigest); err != nil {
+		return err
+	}
 	if len(r.Criteria) == 0 || len(r.Criteria) > maxRubricCriteria {
 		return fmt.Errorf("review criteria must contain 1..%d entries", maxRubricCriteria)
 	}
@@ -242,6 +269,9 @@ func AssessQualitative(result Result, resultBytes, finalBytes []byte, rubric Rub
 	}
 	if rubric.ScenarioID != result.ScenarioID || review.ScenarioID != result.ScenarioID || review.RubricID != rubric.ID {
 		return Result{}, fmt.Errorf("rubric, review, and result identity do not match")
+	}
+	if result.EffectiveCategory() == BenchmarkCategoryNeutralCommon && (!review.Blinded || !validSHA256(review.AssignmentDigest)) {
+		return Result{}, fmt.Errorf("neutral-common qualitative assessment requires a blinded assignment digest")
 	}
 	resultHash := sha256Hex(resultBytes)
 	finalHash := sha256Hex(finalBytes)
@@ -297,7 +327,7 @@ func AssessQualitative(result Result, resultBytes, finalBytes []byte, rubric Rub
 	if !qualitativePass {
 		status = "fail"
 	}
-	result.Qualitative = &QualitativeAssessment{RubricID: rubric.ID, RubricSHA256: review.RubricSHA256, ResultSHA256: resultHash, FinalResponseSHA256: finalHash, Reviewer: review.Reviewer, Status: status, ScoreBPS: scoreBPS, Criteria: criteria, FindingIDs: findings}
+	result.Qualitative = &QualitativeAssessment{RubricID: rubric.ID, RubricSHA256: review.RubricSHA256, ResultSHA256: resultHash, FinalResponseSHA256: finalHash, Blinded: review.Blinded, AssignmentDigest: review.AssignmentDigest, Reviewer: review.Reviewer, Status: status, ScoreBPS: scoreBPS, Criteria: criteria, FindingIDs: findings}
 	if !qualitativePass {
 		result.Status = "fail"
 		result.Violations = append(result.Violations, Violation{Code: "qualitative_review_failed", Subject: rubric.ID, Observed: int64(scoreBPS), Limit: int64(rubric.MinimumScoreBPS)})
@@ -309,6 +339,19 @@ func AssessQualitative(result Result, resultBytes, finalBytes []byte, rubric Rub
 		})
 	}
 	return result, nil
+}
+
+func validateBlindAssignment(blinded bool, digest string) error {
+	if blinded {
+		if !validSHA256(digest) {
+			return fmt.Errorf("blinded review requires a SHA-256 assignment digest")
+		}
+		return nil
+	}
+	if digest != "" {
+		return fmt.Errorf("unblinded review cannot contain an assignment digest")
+	}
+	return nil
 }
 
 func validSHA256(value string) bool {

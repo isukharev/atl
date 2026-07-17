@@ -33,6 +33,19 @@ func TestBuildProviderCommandsAreEphemeralAndReadOnly(t *testing.T) {
 	}
 }
 
+func TestBuildProviderCommandRejectsUnimplementedExternalMCPSurface(t *testing.T) {
+	spec := validRunSpec()
+	spec.ToolTransport = "mcp"
+	spec.Surface = SurfaceExternalMCP
+	spec.AllowedTools = nil
+	spec.AllowedATLCommands = nil
+	spec.AllowedMCPTools = []string{"jira_fields"}
+	_, err := BuildProviderCommand(spec, "codex", "/atl", "/guard", "/workspace", "/schema", "/final", "", "", "/mcp.json", ProviderConfinement{}, []byte(`{"type":"object"}`))
+	if err == nil || !strings.Contains(err.Error(), SurfaceExternalMCP) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestBuildCodexMCPCommandIsCredentialIsolatedAndHookGuarded(t *testing.T) {
 	spec := validRunSpec()
 	spec.ToolTransport = "mcp"
