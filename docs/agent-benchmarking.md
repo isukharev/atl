@@ -112,9 +112,9 @@ command, except when the experiment intentionally holds the route fixed.
   It must not be interpreted as an overall ranking of surfaces.
 
 The compatibility default for old scenarios and run specs is `route-fixed`.
-Executable surfaces are `cli-skill` and `atl-mcp`; `external-mcp` is reserved
-for the separate external-transport implementation. Old stored results without
-a surface aggregate as `legacy-unspecified` rather than mixing with new runs.
+Executable surfaces are `cli-skill`, `atl-mcp`, and the private-live-only
+`external-mcp` surface described below. Old stored results without a surface
+aggregate as `legacy-unspecified` rather than mixing with new runs.
 
 ## Evaluation layers
 
@@ -926,8 +926,56 @@ route, and gateway policies also remain surface-specific. Success reports only
 category, provider, and surfaces, never private scenario identity.
 
 `validate-pair` remains a compatibility wrapper for `cli-skill` plus `atl-mcp`.
-Declaring `external-mcp` is supported by the contract, but execution fails
-closed until its external launch and credential-isolation profile is implemented.
+The `external-mcp` surface requires `--external-mcp-profile` pointing to a
+regular owner-only file in an owner-only directory outside the repository. The
+profile contains private endpoint and tool identities, while header values are
+bindings rather than literal credentials. Header values bind only to
+`jira|confluence.credential|base_url` from `--live-config-dir`; the runner
+parent injects them only on the upstream hop. It also pins the protocol, full
+catalog digest, every selected input-schema digest, exact allowed argument
+objects, per-tool invocation caps, and byte/concurrency/time budgets. The sum
+of invocation caps and the total response cap must fit the scenario budgets.
+
+```json
+{
+  "schema_version": 1,
+  "upstream_url": "https://mcp.example.invalid/mcp",
+  "protocol_version": "2025-06-18",
+  "catalog_sha256": "<64 lowercase hex bytes>",
+  "reviewed_ro": true,
+  "headers": [{"name":"X-Private-Service-Token","value_from":"jira.credential"}],
+  "tools": [{
+    "name": "read_issue",
+    "capability": "jira.issue.field",
+    "input_schema_sha256": "<64 lowercase hex bytes>",
+    "max_invocations": 1,
+    "allowed_arguments": [{"key":"PROJ-1"}]
+  }],
+  "max_request_bytes": 1048576,
+  "max_response_bytes": 1048576,
+  "max_total_response_bytes": 4194304,
+  "max_concurrent": 1,
+  "timeout_seconds": 60
+}
+```
+
+Dry-run structurally validates the complete profile and its scenario budgets
+without reading credentials or contacting the upstream. Before a real model
+run, the parent performs only initialize, initialized, and tools/list preflight
+and independently requires read-only, non-destructive selected tools. Selected
+tool names and schemas are necessarily visible to the model, but the generated
+provider connection contains only a loopback URL and disposable capability:
+the upstream origin and credentials remain parent-only. Unknown methods,
+hidden tools,
+argument drift, exhausted calls, redirects, oversized responses, credential
+echoes, malformed or mismatched JSON-RPC responses, or incomplete audit fail
+closed. JSON/SSE responses are matched to the request id, decoded canaries are
+blocked before delivery, and ambiguous `tools/call` responses are never
+replayed. A bounded preflight covers the catalog, the local hop bypasses ambient
+HTTP proxies, cancellation reaches the active request, and upstream sessions
+are closed when supported. Results use `backend_observation:"opaque-mcp"` and
+`safety_assurance:"reviewed-ro-mcp-interface"`; internal HTTP request, method,
+duplicate, and write coverage is deliberately unavailable.
 
 Then dry-run both, inspect both plans, and perform exactly one supervised run
 of each with the same built atl/plugin commit:
@@ -944,6 +992,21 @@ for spec in run.cli.codex.json run.atl-mcp.codex.json; do
     --live-config-dir "$HOME/.config/atl-private" \
     --dry-run
 done
+```
+
+Preview the third surface separately so its private profile is explicit:
+
+```sh
+/tmp/agent-eval run \
+  --spec "$ATL_PRIVATE_EVAL_CASE/run.external-mcp.codex.json" \
+  --output-root /tmp/atl-private-live-runs \
+  --repository-root . \
+  --agent-binary "$(command -v codex)" \
+  --atl-binary "$PWD/atl" \
+  --plugin-root . \
+  --live-config-dir "$HOME/.config/atl-private" \
+  --external-mcp-profile "$ATL_PRIVATE_EXTERNAL_MCP_PROFILE" \
+  --dry-run
 ```
 
 Remove `--dry-run` only after both previews and source config permissions pass.

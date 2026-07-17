@@ -33,15 +33,19 @@ func TestBuildProviderCommandsAreEphemeralAndReadOnly(t *testing.T) {
 	}
 }
 
-func TestBuildProviderCommandRejectsUnimplementedExternalMCPSurface(t *testing.T) {
+func TestBuildProviderCommandRequiresExternalMCPProxy(t *testing.T) {
 	spec := validRunSpec()
 	spec.ToolTransport = "mcp"
+	spec.Provider = "codex"
+	spec.BackendMode = BackendModePrivateLive
+	spec.FixtureFile = ""
+	spec.Repetitions = 1
 	spec.Surface = SurfaceExternalMCP
 	spec.AllowedTools = nil
 	spec.AllowedATLCommands = nil
 	spec.AllowedMCPTools = []string{"jira_fields"}
 	_, err := BuildProviderCommand(spec, "codex", "/atl", "/guard", "/workspace", "/schema", "/final", "", "", "/mcp.json", ProviderConfinement{}, []byte(`{"type":"object"}`))
-	if err == nil || !strings.Contains(err.Error(), SurfaceExternalMCP) {
+	if err == nil || !strings.Contains(err.Error(), "local proxy") {
 		t.Fatalf("err=%v", err)
 	}
 }

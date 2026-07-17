@@ -29,6 +29,10 @@ const (
 	EligibilitySupported             = "supported"
 	EligibilityUnsupportedCapability = "unsupported-capability"
 	EligibilityInvalidatedDrift      = "invalidated-backend-drift"
+	BackendObservationHTTP           = "observed-http"
+	BackendObservationOpaqueMCP      = "opaque-mcp"
+	SafetyAssuranceObservedHTTP      = "observed-http-policy"
+	SafetyAssuranceReviewedROMCP     = "reviewed-ro-mcp-interface"
 )
 
 const (
@@ -44,7 +48,8 @@ var (
 var metricNames = map[string]struct{}{
 	"agent_turns": {}, "tool_calls": {}, "atl_invocations": {}, "interface_invocations": {},
 	"delegations": {}, "backend_requests": {}, "duplicate_backend_requests": {},
-	"output_bytes": {}, "input_tokens": {}, "output_tokens": {},
+	"remote_writes": {},
+	"output_bytes":  {}, "input_tokens": {}, "output_tokens": {},
 	"main_thread_input_tokens": {}, "main_thread_output_tokens": {},
 	"estimated_cost_microusd": {}, "duration_millis": {},
 	"capability_families": {},
@@ -107,6 +112,8 @@ type Observation struct {
 	Surface                 string                   `json:"surface,omitempty"`
 	Eligibility             string                   `json:"eligibility,omitempty"`
 	UnavailableCapabilities []string                 `json:"unavailable_capabilities,omitempty"`
+	BackendObservation      string                   `json:"backend_observation,omitempty"`
+	SafetyAssurance         string                   `json:"safety_assurance,omitempty"`
 	Runtime                 Runtime                  `json:"runtime"`
 	Metrics                 InputMetrics             `json:"metrics"`
 	Coverage                map[string]bool          `json:"coverage"`
@@ -171,6 +178,8 @@ type Result struct {
 	Surface                 string                   `json:"surface,omitempty"`
 	Eligibility             string                   `json:"eligibility,omitempty"`
 	UnavailableCapabilities []string                 `json:"unavailable_capabilities,omitempty"`
+	BackendObservation      string                   `json:"backend_observation,omitempty"`
+	SafetyAssurance         string                   `json:"safety_assurance,omitempty"`
 	Runtime                 Runtime                  `json:"runtime"`
 	Status                  string                   `json:"status"`
 	Metrics                 Metrics                  `json:"metrics"`
@@ -299,6 +308,9 @@ func (o Observation) Validate() error {
 	if err := validateEligibility(o.EffectiveEligibility(), o.UnavailableCapabilities); err != nil {
 		return fmt.Errorf("observation eligibility: %w", err)
 	}
+	if err := validateBackendAssurance(o.EffectiveSurface(), o.BackendObservation, o.SafetyAssurance, o.Coverage, o.HTTPMethods); err != nil {
+		return fmt.Errorf("observation backend assurance: %w", err)
+	}
 	if err := o.Runtime.validate(); err != nil {
 		return err
 	}
@@ -318,6 +330,9 @@ func (o Observation) Validate() error {
 	}
 	if o.Coverage["duplicate_backend_requests"] && !o.Coverage["backend_requests"] {
 		return fmt.Errorf("duplicate_backend_requests coverage requires backend_requests coverage")
+	}
+	if o.Coverage["remote_writes"] && !o.Coverage["backend_requests"] {
+		return fmt.Errorf("remote_writes coverage requires backend_requests coverage")
 	}
 	if !o.Coverage["capability_families"] && len(o.CapabilityFamilies) != 0 {
 		return fmt.Errorf("capability families require coverage")
@@ -542,6 +557,36 @@ func validRunSurface(surface string) bool {
 
 func validResultSurface(surface string) bool {
 	return surface == SurfaceLegacyUnspecified || validRunSurface(surface)
+}
+
+func validateBackendAssurance(surface, observation, assurance string, coverage map[string]bool, methods map[string]int) error {
+	// Older observation/result files predate these additive fields. Preserve
+	// their decoding, but never accept a partial or surface-inconsistent claim.
+	if observation == "" && assurance == "" {
+		if surface == SurfaceExternalMCP {
+			return fmt.Errorf("external MCP requires explicit opaque assurance")
+		}
+		return nil
+	}
+	if observation == "" || assurance == "" {
+		return fmt.Errorf("observation and assurance must be declared together")
+	}
+	if surface == SurfaceExternalMCP {
+		if observation != BackendObservationOpaqueMCP || assurance != SafetyAssuranceReviewedROMCP {
+			return fmt.Errorf("external MCP requires opaque reviewed-RO assurance")
+		}
+		if coverage["backend_requests"] || coverage["duplicate_backend_requests"] || coverage["remote_writes"] || len(methods) != 0 {
+			return fmt.Errorf("opaque MCP cannot claim internal backend coverage")
+		}
+		return nil
+	}
+	if observation != BackendObservationHTTP || assurance != SafetyAssuranceObservedHTTP {
+		return fmt.Errorf("non-external surface requires observed HTTP policy assurance")
+	}
+	if !coverage["backend_requests"] || !coverage["duplicate_backend_requests"] || !coverage["remote_writes"] {
+		return fmt.Errorf("observed HTTP assurance requires backend coverage")
+	}
+	return nil
 }
 
 func sortedStringMap(in map[string]int) map[string]int {

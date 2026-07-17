@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a credential-isolated private-live external MCP benchmark surface. An
+  owner-only parent profile pins the HTTPS server, protocol/catalog/schema
+  digests, credential bindings, exact read tools, arguments, and budgets. A
+  disposable loopback policy proxy filters the catalog, injects credentials
+  only on the upstream hop, audits canonical capabilities without arguments or
+  content, validates matching JSON-RPC responses and decoded secret canaries,
+  and reports the external backend as opaque instead of inventing HTTP request
+  or write coverage.
+
 - Added versioned multi-surface agent-evaluation contracts for outcome-driven
   common tasks, surface-native coverage, and route-fixed microbenchmarks.
   Comparison sets distinguish CLI+skill, built-in MCP, and external MCP;

@@ -55,6 +55,8 @@ type RunSpec struct {
 	GatewayMaxTotalBytes     int64                         `json:"gateway_max_total_response_bytes,omitempty"`
 	AllowSyntheticWrites     bool                          `json:"allow_synthetic_writes,omitempty"`
 	Checks                   []RunCheck                    `json:"checks"`
+	mcpServerURL             string
+	mcpBearerTokenEnv        string
 }
 
 const (
@@ -208,6 +210,9 @@ func (s RunSpec) Validate() error {
 		if transport != "mcp" {
 			return fmt.Errorf("surface %s requires mcp tool_transport", s.EffectiveSurface())
 		}
+	}
+	if s.EffectiveSurface() == SurfaceExternalMCP && s.EffectiveBackendMode() != BackendModePrivateLive {
+		return fmt.Errorf("external-mcp surface is valid only for private-live runs")
 	}
 	if s.AllowSyntheticWrites && (transport != "cli" || s.Provider != "claude-code") {
 		return fmt.Errorf("allow_synthetic_writes requires Claude Code cli transport")
@@ -436,7 +441,10 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 		}
 		requiredSuccess := false
 		requiredInvocation := false
-		requiredKinds := map[string]bool{"http_methods_observed": false, "guard_no_denials": false, "delegations_none": false}
+		requiredKinds := map[string]bool{"guard_no_denials": false, "delegations_none": false}
+		if s.EffectiveSurface() != SurfaceExternalMCP {
+			requiredKinds["http_methods_observed"] = false
+		}
 		for _, check := range s.Checks {
 			if check.Kind == "mock_no_unexpected" {
 				return fmt.Errorf("private-live runs cannot use mock_no_unexpected")
