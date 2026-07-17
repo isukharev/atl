@@ -25,8 +25,8 @@ type MockRoute struct {
 	Path          string            `json:"path"`
 	QueryContains map[string]string `json:"query_contains,omitempty"`
 	RequestBody   json.RawMessage   `json:"request_body,omitempty"`
-	Status        int               `json:"status"`
-	Body          json.RawMessage   `json:"body"`
+	Status        int               `json:"status,omitempty"`
+	Body          json.RawMessage   `json:"body,omitempty"`
 	Responses     []MockResponse    `json:"responses,omitempty"`
 }
 

@@ -2,6 +2,7 @@ package agenteval
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -113,6 +114,14 @@ func TestMockFixtureRejectsInvalidResponseSequenceShapes(t *testing.T) {
 	}
 	if err := valid.Validate(); err != nil {
 		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeMockFixture(bytes.NewReader(encoded))
+	if err != nil || len(decoded.Routes[0].Responses) != 1 {
+		t.Fatalf("round trip responses=%v err=%v encoded=%s", decoded.Routes, err, encoded)
 	}
 	for name, mutate := range map[string]func(*MockRoute){
 		"neither": func(route *MockRoute) { route.Responses = nil },

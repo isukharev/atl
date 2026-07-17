@@ -530,7 +530,11 @@ func workspaceJSONExpectationFrom(raw json.RawMessage) (workspaceJSONExpectation
 	var value workspaceJSONExpectation
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&value) != nil || decoder.Decode(new(any)) != io.EOF || value.Path == "" || filepath.IsAbs(value.Path) || escapesBase(value.Path) || filepath.Clean(value.Path) != value.Path || value.Pointer == "" {
+	if decoder.Decode(&value) != nil || decoder.Decode(new(any)) != io.EOF {
+		return workspaceJSONExpectation{}, false
+	}
+	cleanPath := filepath.ToSlash(filepath.Clean(filepath.FromSlash(value.Path)))
+	if value.Path == "" || filepath.IsAbs(filepath.FromSlash(value.Path)) || escapesBase(filepath.FromSlash(value.Path)) || cleanPath != value.Path || value.Pointer == "" {
 		return workspaceJSONExpectation{}, false
 	}
 	return value, true
@@ -541,7 +545,7 @@ func readWorkspaceJSONPointer(workspace string, expectation workspaceJSONExpecta
 	if err != nil {
 		return nil, false
 	}
-	target, err := filepath.EvalSymlinks(filepath.Join(root, expectation.Path))
+	target, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(expectation.Path)))
 	if err != nil {
 		return nil, false
 	}
