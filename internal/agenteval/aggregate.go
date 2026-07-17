@@ -310,6 +310,12 @@ func (r Result) Validate() error {
 	if r.Coverage["duplicate_backend_requests"] && !r.Coverage["backend_requests"] {
 		return fmt.Errorf("result duplicate_backend_requests coverage requires backend_requests coverage")
 	}
+	if r.Coverage["remote_writes"] && !r.Coverage["backend_requests"] {
+		return fmt.Errorf("result remote_writes coverage requires backend_requests coverage")
+	}
+	if err := validateBackendAssurance(r.EffectiveSurface(), r.BackendObservation, r.SafetyAssurance, r.Coverage, r.HTTPMethods); err != nil {
+		return fmt.Errorf("result backend assurance: %w", err)
+	}
 	if !r.Coverage["capability_families"] && len(r.CapabilityFamilies) != 0 {
 		return fmt.Errorf("result capability families require coverage")
 	}

@@ -30,6 +30,7 @@ type RunOptions struct {
 	PluginRoot          string
 	WrapperExecutable   string
 	LiveConfigDir       string
+	ExternalMCPProfile  string
 	ModelOverride       string
 	RepetitionsOverride int
 	DryRun              bool
@@ -103,9 +104,6 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 	if err := loaded.spec.ValidateAgainstScenario(loaded.scenario); err != nil {
 		return RunOutput{}, err
 	}
-	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
-		return RunOutput{}, fmt.Errorf("surface %s is contract-only until an external MCP transport is configured", SurfaceExternalMCP)
-	}
 	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
 		if options.LiveConfigDir == "" {
 			return RunOutput{}, fmt.Errorf("private-live runs require --live-config-dir")
@@ -116,12 +114,32 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 	} else if options.LiveConfigDir != "" {
 		return RunOutput{}, fmt.Errorf("--live-config-dir is only valid for private-live runs")
 	}
+	var externalProfile ExternalMCPProfile
+	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+		if options.ExternalMCPProfile == "" {
+			return RunOutput{}, fmt.Errorf("external-mcp runs require --external-mcp-profile")
+		}
+		externalProfile, err = LoadExternalMCPProfile(options.ExternalMCPProfile, options.RepositoryRoot)
+		if err != nil {
+			return RunOutput{}, err
+		}
+		if err := validateExternalMCPProfileForRun(externalProfile, loaded.spec, loaded.scenario); err != nil {
+			return RunOutput{}, err
+		}
+	} else if options.ExternalMCPProfile != "" {
+		return RunOutput{}, fmt.Errorf("--external-mcp-profile is valid only for external-mcp runs")
+	}
 	outputRoot, err := PreparePrivateOutputRoot(options.OutputRoot, options.RepositoryRoot)
 	if err != nil {
 		return RunOutput{}, err
 	}
 	invocationSpec := loaded.spec
 	invocationSpec.MaxEstimatedCostMicroUSD = perRepetitionCostCap(loaded.spec)
+	if invocationSpec.EffectiveSurface() == SurfaceExternalMCP {
+		invocationSpec.mcpServerURL = "http://127.0.0.1:<private>/mcp"
+		invocationSpec.mcpBearerTokenEnv = "ATL_EVAL_EXTERNAL_MCP_TOKEN"
+		invocationSpec.AllowedMCPTools = []string{"reviewed_tool"}
+	}
 	previewConfinement := ProviderConfinement{}
 	if loaded.spec.Provider == "codex" && loaded.spec.EffectiveBackendMode() == BackendModePrivateLive && loaded.spec.ToolTransport == "cli" {
 		previewConfinement.RequestDirectory = "/private/requests"
@@ -175,7 +193,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 			Provider: loaded.spec.Provider, AgentVersion: agentVersion,
 			Model: loaded.spec.Model, Reasoning: loaded.spec.Reasoning,
 			ATLVersion: atlVersion, PluginVersion: pluginVersion, SkillDigest: skillDigest,
-		})
+		}, externalProfile)
 		if err != nil {
 			return RunOutput{}, fmt.Errorf("repetition %d: %w", repetition, err)
 		}
@@ -390,7 +408,7 @@ func ValidateRunSpecFile(path string) (RunSpec, Scenario, error) {
 	return loaded.spec, loaded.scenario, nil
 }
 
-func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOptions, outputRoot string, repetition int, runtime Runtime) (Result, error) {
+func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOptions, outputRoot string, repetition int, runtime Runtime, externalProfile ExternalMCPProfile) (Result, error) {
 	runDir := filepath.Join(outputRoot, loaded.scenario.ID, loaded.spec.Provider, loaded.spec.Variant, fmt.Sprintf("run-%02d", repetition))
 	if err := mkdirPrivate(runDir); err != nil {
 		return Result{}, err
@@ -464,9 +482,9 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	settingsPath := filepath.Join(runDir, "claude-settings.json")
 	var reviewedMCPTools []string
 	if loaded.spec.Provider == "claude-code" && loaded.spec.ToolTransport == "mcp" {
-		reviewedMCPTools = claudeMCPToolNames(loaded.spec.AllowedMCPTools)
+		reviewedMCPTools = claudeMCPToolNamesForServer(mcpServerName(loaded.spec), loaded.spec.AllowedMCPTools)
 	}
-	if err := writeClaudeGuardSettings(settingsPath, guardPath, reviewedMCPTools); err != nil {
+	if err := writeClaudeGuardSettings(settingsPath, guardPath, mcpServerName(loaded.spec), reviewedMCPTools); err != nil {
 		return Result{}, err
 	}
 	atlConfigDir := filepath.Join(evalDir, "atl-config")
@@ -477,6 +495,9 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	brokerManifestPath := ""
 	var backend *MockBackend
 	var liveGateway *LiveGateway
+	var externalProxy *ExternalMCPProxy
+	externalAuditPath := ""
+	var externalCanaries []string
 	var commandBroker *CommandBroker
 	var err error
 	if codexPrivateCLI {
@@ -551,6 +572,22 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 				}
 				defer func() { _ = commandBroker.Close() }()
 			}
+		} else if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+			headers, canaries, err := resolveExternalMCPHeaders(externalProfile, options.LiveConfigDir)
+			if err != nil {
+				return Result{}, err
+			}
+			externalAuditPath = filepath.Join(evalDir, "external-mcp-audit.jsonl")
+			externalCanaries = append([]string(nil), canaries...)
+			externalProxy, err = StartExternalMCPProxy(parent, externalProfile, headers, canaries, externalAuditPath)
+			if err != nil {
+				return Result{}, err
+			}
+			defer func() { _ = externalProxy.closeBounded() }()
+			endpoint, capability := externalProxy.Endpoint()
+			loaded.spec.mcpServerURL = endpoint
+			loaded.spec.mcpBearerTokenEnv = "ATL_EVAL_EXTERNAL_MCP_TOKEN"
+			backendEnvironment["ATL_EVAL_EXTERNAL_MCP_TOKEN"] = capability
 		} else {
 			if err := copyLiveConfig(options.LiveConfigDir, atlConfigDir); err != nil {
 				return Result{}, err
@@ -570,7 +607,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		for name, value := range backendEnvironment {
 			mcpEnvironment[name] = value
 		}
-		if err := writeClaudeMCPConfig(mcpConfigPath, options.ATLBinary, mcpEnvironment); err != nil {
+		if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+			if err := writeClaudeExternalMCPConfig(mcpConfigPath, loaded.spec.mcpServerURL, backendEnvironment["ATL_EVAL_EXTERNAL_MCP_TOKEN"]); err != nil {
+				return Result{}, err
+			}
+		} else if err := writeClaudeMCPConfig(mcpConfigPath, options.ATLBinary, mcpEnvironment); err != nil {
 			return Result{}, err
 		}
 	}
@@ -636,10 +677,17 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			environment["ATL_EVAL_GUARD_MODE"] = "mcp-with-skill-read"
 		}
 	}
+	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP && loaded.spec.Provider == "codex" {
+		environment["ATL_EVAL_EXTERNAL_MCP_TOKEN"] = backendEnvironment["ATL_EVAL_EXTERNAL_MCP_TOKEN"]
+	}
+	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+		environment["NO_PROXY"] = "127.0.0.1,localhost"
+		environment["no_proxy"] = "127.0.0.1,localhost"
+	}
 	environment["ATL_EVAL_MAX_DELEGATIONS"] = fmt.Sprintf("%d", loaded.scenario.Budgets.MaxDelegations)
 	allowedCommands, _ := json.Marshal(loaded.spec.AllowedATLCommands)
 	environment["ATL_EVAL_ALLOWED_COMMANDS"] = string(allowedCommands)
-	allowedMCPTools, _ := json.Marshal(claudeMCPToolNames(loaded.spec.AllowedMCPTools))
+	allowedMCPTools, _ := json.Marshal(claudeMCPToolNamesForServer(mcpServerName(loaded.spec), loaded.spec.AllowedMCPTools))
 	environment["ATL_EVAL_ALLOWED_MCP_TOOLS"] = string(allowedMCPTools)
 	allowedReadRoots, _ := json.Marshal([]string{filepath.Join(options.PluginRoot, "skills"), workspace})
 	environment["ATL_EVAL_ALLOWED_READ_ROOTS"] = string(allowedReadRoots)
@@ -684,6 +732,10 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if liveGateway != nil {
 		gatewayCloseErr = liveGateway.Close(context.Background())
 	}
+	var externalCloseErr error
+	if externalProxy != nil {
+		externalCloseErr = externalProxy.closeBounded()
+	}
 	close(guardStop)
 	if guardDone != nil {
 		<-guardDone
@@ -696,6 +748,9 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	if brokerCloseErr != nil {
 		return Result{}, fmt.Errorf("close private-live command broker: %w", brokerCloseErr)
+	}
+	if externalCloseErr != nil {
+		return Result{}, fmt.Errorf("close external MCP proxy: %w", externalCloseErr)
 	}
 	if ctx.Err() == context.DeadlineExceeded {
 		return Result{}, fmt.Errorf("agent exceeded %d second timeout", loaded.spec.TimeoutSeconds)
@@ -713,6 +768,24 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if err != nil {
 		return Result{}, err
 	}
+	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+		stderrData, readErr := readBoundedFile(stderrPath, 4<<20)
+		if readErr != nil {
+			return Result{}, readErr
+		}
+		configData := []byte(nil)
+		if mcpConfigPath != "" {
+			configData, readErr = readBoundedFile(mcpConfigPath, 4<<20)
+			if readErr != nil {
+				return Result{}, readErr
+			}
+		}
+		for _, data := range [][]byte{transcriptData, stderrData, configData} {
+			if containsCanary(data, externalCanaries) {
+				return Result{}, fmt.Errorf("external MCP protected material reached a provider-visible artifact")
+			}
+		}
+	}
 	var finalData []byte
 	if loaded.spec.Provider == "codex" {
 		finalData, err = readBoundedFile(finalPath, 4<<20)
@@ -723,6 +796,22 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	providerMetrics, final, err := ParseProviderOutput(loaded.spec.Provider, transcriptData, finalData)
 	if err != nil {
 		return Result{}, err
+	}
+	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+		for _, data := range [][]byte{finalData, final} {
+			if containsCanary(data, externalCanaries) {
+				return Result{}, fmt.Errorf("external MCP protected material reached the final provider artifact")
+			}
+		}
+	}
+	externalCalls, externalFailures, externalDenials := 0, 0, 0
+	var externalOutputBytes int64
+	var externalFamilies []CapabilityFamilyMetric
+	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+		externalCalls, externalFailures, externalDenials, externalOutputBytes, externalFamilies, err = readExternalMCPAudit(externalAuditPath)
+		if err != nil {
+			return Result{}, err
+		}
 	}
 	proxyRecords, err := readProxyRecords(counterPath)
 	if err != nil {
@@ -765,6 +854,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	atlInvocations := len(proxyRecords) + providerMetrics.MCPToolCalls
 	failedATL += providerMetrics.FailedMCPToolCalls
+	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+		atlInvocations = externalCalls
+		failedATL = externalFailures
+		guardDenials += externalDenials
+	}
 	checks, err := evaluateRunChecks(loaded.spec.Checks, final, workspace, atlInvocations, failedATL, unexpected, providerMetrics.SkillToolCalls, providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, guardDenials, methods, httpMethodsObserved)
 	if err != nil {
 		return Result{}, err
@@ -781,7 +875,13 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		mergeCapabilityFamily(familyValues, record.CommandFamily, record.ExitCode != 0, record.StdoutBytes)
 	}
 	outputBytes += providerMetrics.MCPToolOutputBytes
-	for _, value := range providerMetrics.CapabilityFamilies {
+	providerFamilies := providerMetrics.CapabilityFamilies
+	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+		outputBytes = externalOutputBytes
+		providerFamilies = externalFamilies
+		providerMetrics.CapabilityFamilyCoverage = true
+	}
+	for _, value := range providerFamilies {
 		existing := familyValues[value.Family]
 		existing.Family = value.Family
 		existing.Invocations += value.Invocations
@@ -814,15 +914,21 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	providerMetrics.Coverage["backend_requests"] = httpMethodsObserved
 	providerMetrics.Coverage["duplicate_backend_requests"] = httpMethodsObserved
+	providerMetrics.Coverage["remote_writes"] = httpMethodsObserved
 	providerMetrics.Coverage["output_bytes"] = true
 	providerMetrics.Coverage["capability_families"] = familyCoverage
 	capabilityFamilies := capabilityFamilySlice(familyValues)
 	if !familyCoverage {
 		capabilityFamilies = nil
 	}
+	backendObservation, safetyAssurance := BackendObservationHTTP, SafetyAssuranceObservedHTTP
+	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+		backendObservation, safetyAssurance = BackendObservationOpaqueMCP, SafetyAssuranceReviewedROMCP
+	}
 	observation := Observation{
 		SchemaVersion: ObservationSchemaVersion, ScenarioID: loaded.scenario.ID,
 		Variant: loaded.spec.Variant, Surface: loaded.spec.EffectiveSurface(), Runtime: runtime,
+		BackendObservation: backendObservation, SafetyAssurance: safetyAssurance,
 		Metrics: InputMetrics{
 			AgentTurns: providerMetrics.AgentTurns, ToolCalls: providerMetrics.ToolCalls,
 			ATLInvocations: legacyATLInvocations, InterfaceInvocations: atlInvocations, Delegations: providerMetrics.Delegations,
@@ -1346,7 +1452,7 @@ func confinementProbeName() string {
 	}
 	return "atl-eval-confinement-probe"
 }
-func writeClaudeGuardSettings(path, guardPath string, reviewedMCPTools []string) error {
+func writeClaudeGuardSettings(path, guardPath, serverName string, reviewedMCPTools []string) error {
 	hooks := make([]any, 0, 6)
 	matchers := []string{"Bash", "Agent", "Read", "Edit", "Write", "apply_patch"}
 	if len(reviewedMCPTools) > 0 {
@@ -1377,10 +1483,22 @@ func writeClaudeGuardSettings(path, guardPath string, reviewedMCPTools []string)
 		// only the run spec's exact dynamic tool names. Passing the same names to
 		// Claude's --tools/--allowed-tools CLI filters hides dynamic MCP tools in
 		// current releases before discovery completes.
-		settings["enabledMcpjsonServers"] = []string{"atl"}
+		settings["enabledMcpjsonServers"] = []string{serverName}
 		settings["permissions"] = map[string]any{"allow": reviewedMCPTools}
 	}
 	data, err := json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	return writePrivateFile(path, append(data, '\n'))
+}
+
+func writeClaudeExternalMCPConfig(path, endpoint, capability string) error {
+	if endpoint == "" || capability == "" {
+		return fmt.Errorf("external MCP proxy is not configured")
+	}
+	config := map[string]any{"mcpServers": map[string]any{externalMCPServerName: map[string]any{"type": "http", "url": endpoint, "headers": map[string]string{"Authorization": "Bearer " + capability}, "alwaysLoad": true}}}
+	data, err := json.Marshal(config)
 	if err != nil {
 		return err
 	}

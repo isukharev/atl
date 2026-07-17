@@ -16,8 +16,9 @@ contract regressions and must not be used as a general surface ranking. The
 existing committed cases are explicitly route-fixed; missing category fields
 in older private cases default to that safer interpretation.
 
-Results distinguish `cli-skill`, `atl-mcp`, and the reserved `external-mcp`
-surface. Old results without a surface remain `legacy-unspecified`. Generic
+Results distinguish `cli-skill`, `atl-mcp`, and the private-live-only
+`external-mcp` surface. Old results without a surface remain
+`legacy-unspecified`. Generic
 comparison contracts use `interface_invocations` and `interface_*` checks;
 legacy `atl_invocations` fields continue to validate.
 
@@ -27,6 +28,16 @@ but are excluded from task pass/fail. Aggregate schema v3 reports eligibility
 counts and coverage, conditional success, and computes neutral/surface-native
 efficiency and qualitative summaries only from supported deterministically
 valid runs. Missing eligibility in older observations means `supported`.
+
+Private `external-mcp` execution requires `--external-mcp-profile`. The
+owner-only profile and its directory stay outside the repository. Header
+values are bindings to the existing private ATL config, never literals. Dry-run
+validates the profile structure and scenario caps without reading credentials
+or contacting the upstream. The model connects only to a disposable loopback
+policy proxy; selected tool identities are visible, while the upstream origin
+and credentials are not. Because the external server's Atlassian HTTP hop is
+opaque, backend request, duplicate,
+method, and remote-write coverage is unavailable rather than reported as zero.
 
 Use at least three fresh synthetic repetitions per surface. For three-surface
 blocks rotate order as `ABC`, `BCA`, `CAB`, compare efficiency only among
@@ -217,8 +228,8 @@ classification. `validate-pair` remains the compatibility form for
 `cli-skill` plus `atl-mcp` and still requires exact equality of the complete
 check list. The broader comparison-set validator requires every scenario-named
 semantic check to exist and remain semantic, so a guard or shape check cannot
-silently replace the answer oracle. `external-mcp` execution is intentionally not
-implemented by this contract-only change.
+silently replace the answer oracle. `external-mcp` additionally requires the
+owner-only credential-isolation profile described in the private-live guide.
 
 Each run spec also binds a public `rubric.v1.json`. After deterministic checks
 pass, use `agent-eval review-template` and `agent-eval assess` as documented in

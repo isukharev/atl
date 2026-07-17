@@ -47,9 +47,6 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 	if err := spec.Validate(); err != nil {
 		return ProviderCommand{}, err
 	}
-	if spec.EffectiveSurface() == SurfaceExternalMCP {
-		return ProviderCommand{}, fmt.Errorf("surface %s has no configured provider transport", SurfaceExternalMCP)
-	}
 	switch spec.Provider {
 	case "claude-code":
 		if !json.Valid(responseSchema) {
@@ -71,7 +68,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 			// MCP runs; dontAsk plus the exact private-settings permission list
 			// remains the execution boundary for built-ins and dynamic tools alike.
 			toolNames = nil
-			allowedTools = claudeMCPToolNames(spec.AllowedMCPTools)
+			allowedTools = claudeMCPToolNamesForServer(mcpServerName(spec), spec.AllowedMCPTools)
 		}
 		args := []string{
 			"-p", "--output-format", "stream-json", "--verbose",
@@ -105,6 +102,9 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 		sandboxMode := "read-only"
 		if spec.ToolTransport == "mcp" {
 			includeOnly = `["PATH","LANG","LC_ALL","TERM"]`
+			if spec.EffectiveSurface() == SurfaceExternalMCP {
+				includeOnly = `["PATH","LANG","LC_ALL","TERM","NO_PROXY","no_proxy","ATL_EVAL_EXTERNAL_MCP_TOKEN"]`
+			}
 		}
 		if spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli" {
 			sandboxMode = "workspace-write"
@@ -130,17 +130,32 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 			if atlBinary == "" || guardPath == "" {
 				return ProviderCommand{}, fmt.Errorf("codex mcp transport requires atl and guard executables")
 			}
-			args = append(args,
-				"--dangerously-bypass-hook-trust",
-				"-c", `web_search="disabled"`,
-				"-c", `mcp_servers.atl.command=`+strconv.Quote(atlBinary),
-				"-c", `mcp_servers.atl.args=["mcp","serve"]`,
-				"-c", `mcp_servers.atl.required=true`,
-				"-c", `mcp_servers.atl.enabled_tools=`+quotedStringList(spec.AllowedMCPTools),
-				"-c", `mcp_servers.atl.default_tools_approval_mode="approve"`,
-				"-c", `mcp_servers.atl.env_vars=["ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_JIRA_URL","ATL_CONFLUENCE_URL","ATL_JIRA_PAT","ATL_CONFLUENCE_PAT","ATL_ALLOW_INSECURE","ATL_EVAL_HTTP_GUARD_FILE"]`,
-				"-c", codexDenyNonMCPHook(guardPath),
-			)
+			if spec.EffectiveSurface() == SurfaceExternalMCP {
+				if spec.mcpServerURL == "" || spec.mcpBearerTokenEnv == "" {
+					return ProviderCommand{}, fmt.Errorf("codex external MCP requires a local proxy")
+				}
+				args = append(args,
+					"--dangerously-bypass-hook-trust", "-c", `web_search="disabled"`,
+					"-c", `mcp_servers.external_ro.url=`+strconv.Quote(spec.mcpServerURL),
+					"-c", `mcp_servers.external_ro.bearer_token_env_var=`+strconv.Quote(spec.mcpBearerTokenEnv),
+					"-c", `mcp_servers.external_ro.required=true`,
+					"-c", `mcp_servers.external_ro.enabled_tools=`+quotedStringList(spec.AllowedMCPTools),
+					"-c", `mcp_servers.external_ro.default_tools_approval_mode="approve"`,
+					"-c", codexDenyNonMCPHook(guardPath),
+				)
+			} else {
+				args = append(args,
+					"--dangerously-bypass-hook-trust",
+					"-c", `web_search="disabled"`,
+					"-c", `mcp_servers.atl.command=`+strconv.Quote(atlBinary),
+					"-c", `mcp_servers.atl.args=["mcp","serve"]`,
+					"-c", `mcp_servers.atl.required=true`,
+					"-c", `mcp_servers.atl.enabled_tools=`+quotedStringList(spec.AllowedMCPTools),
+					"-c", `mcp_servers.atl.default_tools_approval_mode="approve"`,
+					"-c", `mcp_servers.atl.env_vars=["ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_JIRA_URL","ATL_CONFLUENCE_URL","ATL_JIRA_PAT","ATL_CONFLUENCE_PAT","ATL_ALLOW_INSECURE","ATL_EVAL_HTTP_GUARD_FILE"]`,
+					"-c", codexDenyNonMCPHook(guardPath),
+				)
+			}
 		}
 		if spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli" {
 			if guardPath == "" {
@@ -213,12 +228,19 @@ func quotedStringList(values []string) string {
 	return "[" + strings.Join(quoted, ",") + "]"
 }
 
-func claudeMCPToolNames(values []string) []string {
+func claudeMCPToolNamesForServer(server string, values []string) []string {
 	qualified := make([]string, len(values))
 	for i, value := range values {
-		qualified[i] = "mcp__atl__" + value
+		qualified[i] = "mcp__" + server + "__" + value
 	}
 	return qualified
+}
+
+func mcpServerName(spec RunSpec) string {
+	if spec.EffectiveSurface() == SurfaceExternalMCP {
+		return externalMCPServerName
+	}
+	return "atl"
 }
 
 func codexDenyNonMCPHook(guardPath string) string {
@@ -484,9 +506,12 @@ func countClaudeToolCalls(event map[string]any) claudeToolCallCounts {
 			if name == "Agent" || name == "Task" {
 				counts.Delegations++
 			}
-			if strings.HasPrefix(name, "mcp__atl__") {
+			if strings.HasPrefix(name, "mcp__") {
 				if id, _ := block["id"].(string); id != "" {
-					family, _ := CapabilityFamilyForMCP(strings.TrimPrefix(name, "mcp__atl__"))
+					family := ""
+					if strings.HasPrefix(name, "mcp__atl__") {
+						family, _ = CapabilityFamilyForMCP(strings.TrimPrefix(name, "mcp__atl__"))
+					}
 					counts.MCPIDs[id] = family
 				}
 			}

@@ -129,6 +129,7 @@ func Evaluate(s Scenario, o Observation) (Result, error) {
 		ScenarioID:    s.ID, TaskClass: s.TaskClass, DataClass: s.DataClass,
 		Category: s.EffectiveCategory(), Variant: o.Variant, Surface: o.EffectiveSurface(),
 		Eligibility: eligibility, UnavailableCapabilities: append([]string(nil), o.UnavailableCapabilities...),
+		BackendObservation: o.BackendObservation, SafetyAssurance: o.SafetyAssurance,
 		Runtime: o.Runtime, Status: status, Metrics: metrics,
 		Coverage: coverage, HTTPMethods: methods, Checks: checks, Violations: violations,
 		Warnings:           warnings,

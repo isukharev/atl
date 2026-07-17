@@ -226,6 +226,7 @@ func run(args []string) error {
 		flags.StringVar(&options.ATLBinary, "atl-binary", "", "atl executable")
 		flags.StringVar(&options.PluginRoot, "plugin-root", ".", "atl plugin root")
 		flags.StringVar(&options.LiveConfigDir, "live-config-dir", "", "private atl config directory for a private-live run")
+		flags.StringVar(&options.ExternalMCPProfile, "external-mcp-profile", "", "owner-only external MCP policy profile")
 		flags.StringVar(&options.ModelOverride, "model", "", "exact model override")
 		flags.IntVar(&options.RepetitionsOverride, "repetitions", 0, "reduce the run repetition count")
 		flags.BoolVar(&options.DryRun, "dry-run", false, "validate and preview without invoking a model")
