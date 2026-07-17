@@ -467,28 +467,12 @@ func (p *ExternalMCPProxy) preflight(ctx context.Context) error {
 			return fmt.Errorf("external MCP catalog pagination exceeded")
 		}
 	}
-	canonical, _ := json.Marshal(catalog)
-	digest := sha256.Sum256(canonical)
-	if hex.EncodeToString(digest[:]) != p.profile.CatalogSHA256 {
-		return fmt.Errorf("external MCP catalog drift")
+	digest, byName, err := externalMCPCatalogIdentity(catalog)
+	if err != nil {
+		return err
 	}
-	byName := map[string]json.RawMessage{}
-	for _, raw := range catalog {
-		var value struct {
-			Name        string          `json:"name"`
-			InputSchema json.RawMessage `json:"inputSchema"`
-			Annotations struct {
-				ReadOnly    *bool `json:"readOnlyHint"`
-				Destructive *bool `json:"destructiveHint"`
-			} `json:"annotations"`
-		}
-		if json.Unmarshal(raw, &value) != nil || value.Name == "" {
-			return fmt.Errorf("external MCP catalog contains invalid tool")
-		}
-		if _, exists := byName[value.Name]; exists {
-			return fmt.Errorf("external MCP catalog contains duplicate tools")
-		}
-		byName[value.Name] = raw
+	if !p.profile.acceptsCatalogDigest(digest) {
+		return fmt.Errorf("external MCP catalog drift")
 	}
 	for _, policy := range p.profile.Tools {
 		raw, ok := byName[policy.Name]
@@ -515,6 +499,52 @@ func (p *ExternalMCPProxy) preflight(ctx context.Context) error {
 		p.tools[policy.Name] = externalMCPTool{policy: policy, raw: raw, allowed: allowed}
 	}
 	return nil
+}
+
+func (p ExternalMCPProfile) acceptsCatalogDigest(digest string) bool {
+	if digest == p.CatalogSHA256 {
+		return true
+	}
+	for _, alternate := range p.CatalogSHA256Alternates {
+		if digest == alternate {
+			return true
+		}
+	}
+	return false
+}
+
+func externalMCPCatalogIdentity(catalog []json.RawMessage) (string, map[string]json.RawMessage, error) {
+	type catalogEntry struct {
+		name      string
+		canonical json.RawMessage
+	}
+	entries := make([]catalogEntry, 0, len(catalog))
+	byName := make(map[string]json.RawMessage, len(catalog))
+	for _, raw := range catalog {
+		var identity struct {
+			Name string `json:"name"`
+		}
+		canonical, err := canonicalJSON(raw)
+		if err != nil || json.Unmarshal(raw, &identity) != nil || identity.Name == "" {
+			return "", nil, fmt.Errorf("external MCP catalog contains invalid tool")
+		}
+		if _, exists := byName[identity.Name]; exists {
+			return "", nil, fmt.Errorf("external MCP catalog contains duplicate tools")
+		}
+		byName[identity.Name] = raw
+		entries = append(entries, catalogEntry{name: identity.Name, canonical: canonical})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].name < entries[j].name })
+	canonical := make([]json.RawMessage, 0, len(entries))
+	for _, entry := range entries {
+		canonical = append(canonical, entry.canonical)
+	}
+	encoded, err := json.Marshal(canonical)
+	if err != nil {
+		return "", nil, fmt.Errorf("canonicalize external MCP catalog: %w", err)
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), byName, nil
 }
 
 func (p *ExternalMCPProxy) upstreamCall(ctx context.Context, body []byte, expectedID json.RawMessage, allowNoContent, allowNewSession bool) ([]byte, string, bool, error) {

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- External MCP benchmark catalog identity is now independent of tool and JSON
+  object-key ordering. Additions, removals, duplicate names, schema changes,
+  annotations, descriptions, malformed UTF-8, and every other non-normalized
+  catalog content change remain fail-closed. Profiles may pin a small finite
+  set of explicitly reviewed exact catalog variants for upstreams whose catalog
+  content is not byte-stable.
+
 ### Added
 
 - Added a credential-isolated private-live external MCP benchmark surface. An
