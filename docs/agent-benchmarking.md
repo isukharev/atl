@@ -854,6 +854,12 @@ the instruction does not expose the hidden allowlist or any case-specific
 command. A model that still answers without an interface call remains a normal
 measured failure.
 
+For reviewed capability families, routing is deterministic: Jira-only runs
+name `$jira`, Confluence-only runs name `$confluence`, mixed runs name both in
+that order, and unknown families remain generic. This is derived only from
+`data_capabilities`; private selectors, fields, expected values, and command
+policy contents never enter the instruction.
+
 Provider fidelity is explicit: Codex receives and hashes the generated
 `plugins/atl/skills/` tree with its `agents/openai.yaml` routing metadata,
 whereas Claude Code receives and hashes the generated root `skills/` tree. The

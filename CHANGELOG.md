@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Private-live Codex `cli-skill` evaluations now route Jira and Confluence
+  evidence through `$jira` and `$confluence` based only on reviewed
+  `data_capabilities`. The generic instruction remains selector- and
+  allowlist-blind, and unknown capability families do not invent a skill.
+
 - Private-live Codex `cli-skill` evaluations now explicitly select and follow
   the installed task-matching skill before invoking `atl`. This exercises the
   intended skill-plus-CLI surface without revealing the reviewed command policy

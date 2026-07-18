@@ -23,7 +23,7 @@ type ProviderConfinement struct {
 
 const (
 	codexAgentEvalPermissionProfile = "atl_agent_eval"
-	codexPrivateCLIInstructions     = "This is an evidence task. Before answering, first select and follow the installed task-matching skill, then use the literal atl executable through the shell tool to retrieve the evidence required for the answer. Make only the minimum necessary invocation or invocations allowed by the reviewed command policy. Base the answer on the returned evidence; a no-tool answer or an answer based on assumptions is invalid for this benchmark. Never use apply_patch, Edit, Write, or direct filesystem operations to create, inspect, or modify command-broker manifests or request/response files. If evidence retrieval through atl fails, do not invent or use an alternate broker-file protocol; return the failure through the required response schema."
+	codexPrivateCLIInstructionsTail = ", then use the literal atl executable through the shell tool to retrieve the evidence required for the answer. Make only the minimum necessary invocation or invocations allowed by the reviewed command policy. Base the answer on the returned evidence; a no-tool answer or an answer based on assumptions is invalid for this benchmark. Never use apply_patch, Edit, Write, or direct filesystem operations to create, inspect, or modify command-broker manifests or request/response files. If evidence retrieval through atl fails, do not invent or use an alternate broker-file protocol; return the failure through the required response schema."
 )
 
 type ProviderMetrics struct {
@@ -199,7 +199,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 				"--ignore-rules", "--dangerously-bypass-hook-trust",
 				"-c", `approval_policy="never"`,
 				"-c", `web_search="disabled"`,
-				"-c", `developer_instructions=`+strconv.Quote(codexPrivateCLIInstructions),
+				"-c", `developer_instructions=`+strconv.Quote(codexPrivateCLIInstructions(spec)),
 				"-c", codexDenyNonMCPHook(guardPath),
 			)
 			args = append(args, confinementArgs...)
@@ -211,6 +211,33 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 		return ProviderCommand{Path: agentBinary, Args: args}, nil
 	default:
 		return ProviderCommand{}, fmt.Errorf("unsupported provider %q", spec.Provider)
+	}
+}
+
+func codexPrivateCLIInstructions(spec RunSpec) string {
+	return "This is an evidence task. Before answering, " + codexPrivateCLISkillRoute(spec.DataCapabilities) + codexPrivateCLIInstructionsTail
+}
+
+func codexPrivateCLISkillRoute(capabilities []string) string {
+	jira, confluence := false, false
+	for _, capability := range capabilities {
+		capability = strings.ToLower(strings.TrimSpace(capability))
+		switch {
+		case capability == "jira" || strings.HasPrefix(capability, "jira."):
+			jira = true
+		case capability == "confluence" || strings.HasPrefix(capability, "confluence."):
+			confluence = true
+		}
+	}
+	switch {
+	case jira && confluence:
+		return "select and follow the installed $jira and $confluence skills implied by the reviewed data capabilities"
+	case jira:
+		return "select and follow the installed $jira skill implied by the reviewed data capabilities"
+	case confluence:
+		return "select and follow the installed $confluence skill implied by the reviewed data capabilities"
+	default:
+		return "select and follow the installed task-matching skill"
 	}
 }
 
