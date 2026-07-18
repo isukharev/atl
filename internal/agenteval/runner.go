@@ -22,20 +22,21 @@ import (
 )
 
 type RunOptions struct {
-	SpecPath             string
-	OutputRoot           string
-	RepositoryRoot       string
-	AgentBinary          string
-	ATLBinary            string
-	PluginRoot           string
-	WrapperExecutable    string
-	LiveConfigDir        string
-	ExternalMCPProfile   string
-	ScratchRoot          string
-	PrivateWorkspaceRoot string
-	ModelOverride        string
-	RepetitionsOverride  int
-	DryRun               bool
+	SpecPath              string
+	OutputRoot            string
+	RepositoryRoot        string
+	AgentBinary           string
+	ATLBinary             string
+	PluginRoot            string
+	WrapperExecutable     string
+	LiveConfigDir         string
+	ExternalMCPProfile    string
+	ScratchRoot           string
+	PrivateWorkspaceRoot  string
+	qualifiedAgentVersion string
+	ModelOverride         string
+	RepetitionsOverride   int
+	DryRun                bool
 }
 
 type RunPreview struct {
@@ -172,9 +173,9 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 		}
 	}
 
-	agentVersion, err := commandVersion(ctx, options.AgentBinary)
+	agentVersion, err := agentRuntimeVersion(ctx, options)
 	if err != nil {
-		return RunOutput{}, fmt.Errorf("agent version: %w", err)
+		return RunOutput{}, err
 	}
 	atlVersion, err := atlRuntimeVersion(ctx, options.ATLBinary)
 	if err != nil {
@@ -209,6 +210,24 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 		}
 	}
 	return RunOutput{Preview: preview, Results: results, EstimatedCostMicroUSDTotal: totalCost, BudgetExhausted: budgetExhausted}, nil
+}
+
+func validQualifiedAgentVersion(value string) bool {
+	return strings.HasPrefix(value, "binary-sha256:") && validSHA256(strings.TrimPrefix(value, "binary-sha256:"))
+}
+
+func agentRuntimeVersion(ctx context.Context, options RunOptions) (string, error) {
+	if options.qualifiedAgentVersion != "" {
+		if options.PrivateWorkspaceRoot == "" || !validQualifiedAgentVersion(options.qualifiedAgentVersion) {
+			return "", fmt.Errorf("qualified agent version requires a private workspace and binary-sha256 identity")
+		}
+		return options.qualifiedAgentVersion, nil
+	}
+	version, err := commandVersion(ctx, options.AgentBinary)
+	if err != nil {
+		return "", fmt.Errorf("agent version: %w", err)
+	}
+	return version, nil
 }
 
 func canonicalizeRunOptions(options RunOptions) (RunOptions, error) {

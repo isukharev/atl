@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Private agent benchmark plans now require `--agent-binary` to resolve to a
+  single-file native executable for the host OS and architecture. Plan and
+  execution canonicalize safe symlinks, structurally parse ELF, Mach-O/classic
+  fat Mach-O with `LC_MAIN`, or PE, and bind opaque target-byte and provenance
+  hashes before any model or backend access. Scripts, package launchers,
+  malformed binaries, and
+  wrong-platform binaries fail before a consent plan is stored. The lifecycle
+  no longer executes agent `--version`; no launcher path or version output is
+  retained. Private runtime identity is now `binary-sha256:<digest>`; replace
+  older private baselines before comparing runs across this upgrade.
+
 - Agent-eval run specs now use schema v3. Neutral-common runs must add the same
   sorted semantic `data_capabilities` set across compared surfaces; private v2
   specs must update the version and declare that set before they can run.

@@ -176,6 +176,23 @@ runtime, repository commit, backend-config identity, external profile when
 used, cost cap, and consent expiry. Credential bytes are never hashed into a
 plan or retained in a run/baseline.
 
+`--agent-binary` must identify a reviewed single-file native executable for the
+host OS and architecture. A symlink is accepted when its canonical target is
+such an executable; scripts, JavaScript/package launchers, malformed binaries,
+and binaries for another platform are rejected. Do not assume that the first
+result from `command -v` satisfies this contract. Resolve and review the
+provider's native executable once, keep its absolute path in a session-local
+variable, and pass the same value to plan and run. The lifecycle structurally
+parses ELF, Mach-O/classic fat Mach-O with `LC_MAIN`, or PE as appropriate and
+hashes the canonical target path and bytes without retaining that path. It does
+not execute
+`--version` or any other agent command during plan/snapshot preflight, supplies
+no provider or backend credentials, and intentionally makes no model or
+Atlassian request. The check does not claim that dynamic system libraries are
+absent or that every normal execution path is resource-independent; the
+operator must review the native provider distribution. Arbitrary package-tree
+snapshotting remains intentionally unsupported.
+
 The command first performs contract, comparison, runtime-binding, and input
 identity preflight without invoking a model or backend. It then writes an
 immutable plan and returns its SHA-256. Execution must re-read every input and
@@ -186,13 +203,15 @@ the plan, and executes from that snapshot. Normal completion removes the
 snapshot; doctor reports crash leftovers instead of silently reusing them:
 
 ```sh
+REVIEWED_AGENT_BINARY=/absolute/path/to/reviewed-native-agent
+
 /tmp/agent-eval private plan \
   --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
   --run-set evidence \
   --repository-root . \
   --atl-binary "$PWD/atl" \
   --plugin-root . \
-  --agent-binary "$(command -v codex)" \
+  --agent-binary "$REVIEWED_AGENT_BINARY" \
   --consent-expires "$REVIEWED_CONSENT_EXPIRY" \
   --approve-provider-data \
   --confirm CONSENT
@@ -204,7 +223,7 @@ snapshot; doctor reports crash leftovers instead of silently reusing them:
   --repository-root . \
   --atl-binary "$PWD/atl" \
   --plugin-root . \
-  --agent-binary "$(command -v codex)" \
+  --agent-binary "$REVIEWED_AGENT_BINARY" \
   --confirm RUN
 ```
 
