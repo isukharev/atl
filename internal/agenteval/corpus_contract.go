@@ -138,7 +138,7 @@ func ValidateBenchmarkCorpus(root string) (CorpusInventory, error) {
 func validateNeutralCommonCohorts(runs []loadedRun) (int, error) {
 	base := runs[0]
 	for _, run := range runs[1:] {
-		if err := compareNeutralCommonContract(base, run); err != nil {
+		if err := compareNeutralCommonTaskContract(base, run); err != nil {
 			return 0, err
 		}
 	}
@@ -151,6 +151,12 @@ func validateNeutralCommonCohorts(runs []loadedRun) (int, error) {
 	for _, cohort := range cohorts {
 		if len(cohort) < 2 || len(cohort) > 3 {
 			return 0, fmt.Errorf("neutral-common comparison cohort requires 2..3 surfaces")
+		}
+		base := cohort[0]
+		for _, run := range cohort[1:] {
+			if err := compareNeutralCommonExecutionContract(base, run); err != nil {
+				return 0, err
+			}
 		}
 		seen := map[string]struct{}{}
 		variants := map[string]struct{}{}
@@ -169,7 +175,7 @@ func validateNeutralCommonCohorts(runs []loadedRun) (int, error) {
 	return len(cohorts), nil
 }
 
-func compareNeutralCommonContract(base, candidate loadedRun) error {
+func compareNeutralCommonTaskContract(base, candidate loadedRun) error {
 	semanticBase, err := semanticRunChecks(base.spec.Checks)
 	if err != nil {
 		return err
@@ -188,15 +194,31 @@ func compareNeutralCommonContract(base, candidate loadedRun) error {
 		{"qualitative rubric", equalPrivateComparisonJSON(base.rubric, candidate.rubric)},
 		{"fixture", equalPrivateComparisonJSON(base.fixture, candidate.fixture)},
 		{"semantic response checks", equalPrivateComparisonJSON(semanticBase, semanticCandidate)},
-		{"repetitions", base.spec.Repetitions == candidate.spec.Repetitions},
-		{"timeout", base.spec.TimeoutSeconds == candidate.spec.TimeoutSeconds},
-		{"cost cap", base.spec.MaxEstimatedCostMicroUSD == candidate.spec.MaxEstimatedCostMicroUSD},
-		{"pricing", base.spec.Pricing == candidate.spec.Pricing},
 		{"data capabilities", equalStrings(base.spec.DataCapabilities, candidate.spec.DataCapabilities)},
+		{"backend mode", base.spec.EffectiveBackendMode() == candidate.spec.EffectiveBackendMode()},
+		{"workspace", base.spec.WorkspaceTemplate == candidate.spec.WorkspaceTemplate && base.workspace == candidate.workspace},
 	}
 	for _, comparison := range comparisons {
 		if !comparison.equal {
 			return fmt.Errorf("neutral-common runs differ in %s", comparison.name)
+		}
+	}
+	return nil
+}
+
+func compareNeutralCommonExecutionContract(base, candidate loadedRun) error {
+	comparisons := []struct {
+		name  string
+		equal bool
+	}{
+		{"repetitions", base.spec.Repetitions == candidate.spec.Repetitions},
+		{"timeout", base.spec.TimeoutSeconds == candidate.spec.TimeoutSeconds},
+		{"cost cap", base.spec.MaxEstimatedCostMicroUSD == candidate.spec.MaxEstimatedCostMicroUSD},
+		{"pricing", base.spec.Pricing == candidate.spec.Pricing},
+	}
+	for _, comparison := range comparisons {
+		if !comparison.equal {
+			return fmt.Errorf("neutral-common cohort runs differ in %s", comparison.name)
 		}
 	}
 	return nil

@@ -496,7 +496,9 @@ func (p *ExternalMCPProxy) preflight(ctx context.Context) error {
 				Destructive *bool `json:"destructiveHint"`
 			} `json:"annotations"`
 		}
-		_ = json.Unmarshal(raw, &value)
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return fmt.Errorf("external MCP reviewed tool metadata is invalid")
+		}
 		schemaDigest, err := canonicalJSONSHA(value.InputSchema)
 		if err != nil {
 			return fmt.Errorf("external MCP reviewed tool has an invalid input schema")

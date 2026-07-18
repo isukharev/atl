@@ -8,8 +8,7 @@ issue batch are sufficient.
 ```sh
 export ATL_READ_ONLY=1
 atl jira structure rows <structure-id> --root <row-id-or-folder>
-atl jira export --ids <id,id,...> --fields summary,status \
-  --format json --out -
+atl jira export --ids <id,id,...> --fields summary,status --format json --out -
 ```
 
 Preserve Structure row order and repeated issue rows. Build the explicit

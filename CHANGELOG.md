@@ -27,7 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   content is not byte-stable.
   Owner-reviewed read-only profiles may cover servers that omit optional MCP
   read/destructive annotations, while explicit unsafe annotations remain an
-  unconditional failure alongside exact catalog/schema/tool/argument checks.
+  unconditional failure alongside malformed annotation types and exact
+  catalog/schema/tool/argument checks.
   Protocol-reserved client `_meta` is accepted for interoperability but removed
   before the upstream call, leaving exact reviewed business arguments intact.
   Profiles may also pin a small finite set of reviewed per-tool input-schema
@@ -45,10 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   GET-only Structure subtree batches, and multi-table
   Confluence analytics. Neutral common cohorts now enforce byte-identical
   prompt/schema files, semantically identical task and oracle contracts, and
-  equivalent declared data capabilities, while CLI-native coverage is reported
-  separately. Existing offline mirror review and guarded synthetic mutation
-  cases are now explicitly classified as surface-native rather than being
-  mixed into route-fixed regressions.
+  equivalent declared data capabilities across providers, while provider/model
+  cohorts retain their own pricing and execution settings and CLI-native
+  coverage is reported separately. Existing offline mirror review and guarded
+  synthetic mutation cases are now explicitly classified as surface-native
+  rather than being mixed into route-fixed regressions.
   CLI+skill runs now admit only the two inert statements used by the
   shipped safety preflight (`export ATL_READ_ONLY=1` and `command -v atl`) in
   addition to bounded blocks of reviewed `atl` command prefixes separated only

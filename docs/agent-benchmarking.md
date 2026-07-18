@@ -188,11 +188,14 @@ The inventory command validates the whole corpus before returning only
 aggregate category/task-class counts. Its success and error outputs never emit
 scenario ids, filesystem paths, prompts, fixtures, or private values. For every
 inventory row, `task_class` must also come from the closed public task taxonomy;
-private project or roadmap names are rejected rather than echoed. For every
-`neutral-common` cohort it also proves that two or three unique surfaces share
-byte-identical prompt and response-schema files, semantically identical JSON
-task/rubric/fixture/oracle contracts, the same declared data capabilities, and
-identical repetition, pricing, timeout, and budget contracts.
+private project or roadmap names are rejected rather than echoed. Across all
+provider/model cohorts for one `neutral-common` scenario it proves that runs
+share byte-identical prompt and response-schema files, semantically identical
+JSON task/rubric/fixture/oracle contracts, the same workspace and backend mode,
+and the same declared data capabilities. Within each cohort, two or three
+unique surfaces must additionally share repetition, pricing, timeout, and run
+cost-cap contracts. Scenario budgets remain common because every run in the
+directory binds the same scenario file.
 
 The committed realistic matrix includes neutral-common cohorts for deep Jira
 evidence, ordered batch reading, board portfolio synthesis, a long

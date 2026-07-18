@@ -79,6 +79,14 @@ func TestExternalMCPProxyPreflightRejectsCatalogAndReadOnlyDrift(t *testing.T) {
 			p.CatalogSHA256 = digest
 			return p
 		},
+		"malformed annotation": func(f *externalMCPFixture, p ExternalMCPProfile) ExternalMCPProfile {
+			mutated := append([]json.RawMessage(nil), f.catalog...)
+			mutated[0] = json.RawMessage(strings.ReplaceAll(string(mutated[0]), `"readOnlyHint":true`, `"readOnlyHint":"true"`))
+			f.catalog = mutated
+			digest, _, _ := externalMCPCatalogIdentity(mutated)
+			p.CatalogSHA256 = digest
+			return p
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			fixture := newExternalMCPFixture(t, false, false)

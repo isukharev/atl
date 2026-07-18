@@ -75,6 +75,94 @@ func TestBenchmarkCorpusValidatesNeutralCommonComparisonContracts(t *testing.T) 
 	}
 }
 
+func TestBenchmarkCorpusScopesExecutionContractsToProviderModelCohorts(t *testing.T) {
+	directory, cliPath, mcpPath, cli, mcp := writePrivatePairFixture(t)
+	scenario := validScenario()
+	scenario.ID = "neutral.multi-provider"
+	scenario.Category = BenchmarkCategoryNeutralCommon
+	scenario.DataClass = "private-local"
+	scenario.RequiredChecks = []string{"answer", "atl_succeeded", "guard_clean", "http_observed", "no_delegation", "used_atl"}
+	scenario.RequiredSemanticChecks = []string{"answer"}
+	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests", "output_bytes"}
+	scenario.Budgets.MaxRemoteWrites = 0
+	scenario.Budgets.MaxDelegations = 0
+	scenario.Budgets.MaxBackendRequests = 4
+	scenario.Budgets.MaxATLInvocations = 4
+	scenario.Budgets.MaxInterfaceInvocations = 4
+	scenario.Budgets.AllowedHTTPMethods = []string{"GET", "HEAD"}
+	scenario.Budgets.MaxEstimatedCostMicroUSD = 10_000_000
+	writeJSONTestFile(t, filepath.Join(directory, "scenario.json"), scenario)
+	rubric := Rubric{SchemaVersion: 1, ID: "neutral-multi-provider", ScenarioID: scenario.ID, MinimumScoreBPS: 5000, Criteria: []RubricCriterion{{ID: "grounded", Description: "Grounded.", Maximum: 4, Minimum: 2, Weight: 1}}, AllowedFindingIDs: []string{"missing"}}
+	writeJSONTestFile(t, filepath.Join(directory, "rubric.json"), rubric)
+	cli.Category, mcp.Category = BenchmarkCategoryNeutralCommon, BenchmarkCategoryNeutralCommon
+	for _, spec := range []*RunSpec{&cli, &mcp} {
+		spec.DataCapabilities = []string{"jira.fields"}
+		for index := range spec.Checks {
+			switch spec.Checks[index].Kind {
+			case "atl_all_succeeded":
+				spec.Checks[index].Kind = "interface_all_succeeded"
+			case "atl_invocations_min":
+				spec.Checks[index].Kind = "interface_invocations_min"
+			}
+		}
+	}
+	writeJSONTestFile(t, cliPath, cli)
+	writeJSONTestFile(t, mcpPath, mcp)
+
+	otherCLI, otherMCP := cli, mcp
+	for _, spec := range []*RunSpec{&otherCLI, &otherMCP} {
+		spec.Provider = "claude-code"
+		spec.Model = "other-test-model"
+		spec.TimeoutSeconds = 90
+		spec.MaxEstimatedCostMicroUSD = 9_000_000
+		spec.Pricing = Pricing{InputMicroUSDPerMillionTokens: 3_000_000, OutputMicroUSDPerMillionTokens: 4_000_000}
+	}
+	otherCLIPath := filepath.Join(directory, "run.cli.other.json")
+	otherMCPPath := filepath.Join(directory, "run.mcp.other.json")
+	writeJSONTestFile(t, otherCLIPath, otherCLI)
+	writeJSONTestFile(t, otherMCPPath, otherMCP)
+
+	inventory, err := ValidateBenchmarkCorpus(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inventory.Runs != 4 || inventory.Classes[0].ComparisonSets != 2 {
+		t.Fatalf("inventory=%+v", inventory)
+	}
+
+	for name, mutate := range map[string]func(*RunSpec){
+		"timeout":  func(spec *RunSpec) { spec.TimeoutSeconds++ },
+		"cost cap": func(spec *RunSpec) { spec.MaxEstimatedCostMicroUSD-- },
+		"pricing":  func(spec *RunSpec) { spec.Pricing.InputMicroUSDPerMillionTokens++ },
+	} {
+		t.Run(name, func(t *testing.T) {
+			drifted := otherMCP
+			mutate(&drifted)
+			writeJSONTestFile(t, otherMCPPath, drifted)
+			if _, err := ValidateBenchmarkCorpus(directory); err == nil || !strings.Contains(err.Error(), "cohort runs differ in "+name) {
+				t.Fatalf("within-cohort %s drift passed: %v", name, err)
+			}
+			writeJSONTestFile(t, otherMCPPath, otherMCP)
+		})
+	}
+	repetitionDrift := otherMCP
+	repetitionDrift.Repetitions++
+	if err := compareNeutralCommonExecutionContract(loadedRun{spec: otherCLI}, loadedRun{spec: repetitionDrift}); err == nil || !strings.Contains(err.Error(), "cohort runs differ in repetitions") {
+		t.Fatalf("within-cohort repetition drift passed: %v", err)
+	}
+
+	otherWorkspace := filepath.Join(directory, "workspace-other")
+	if err := os.Mkdir(otherWorkspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	drifted := otherMCP
+	drifted.WorkspaceTemplate = filepath.Base(otherWorkspace)
+	writeJSONTestFile(t, otherMCPPath, drifted)
+	if _, err := ValidateBenchmarkCorpus(directory); err == nil || !strings.Contains(err.Error(), "workspace") {
+		t.Fatalf("cross-cohort workspace drift passed: %v", err)
+	}
+}
+
 func TestBenchmarkCorpusRejectsNeutralCapabilityAndVariantDrift(t *testing.T) {
 	directory, cliPath, mcpPath, cli, mcp := writePrivatePairFixture(t)
 	scenarioFile := filepath.Join(directory, "scenario.json")
