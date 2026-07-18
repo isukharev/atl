@@ -116,6 +116,12 @@ patterns over introducing cross-layer shortcuts.
 - Context7-selected runtime documentation must contain at least one real,
   non-empty language-tagged fenced example. Run `make check-context7-docs` when
   adding root Markdown, changing `context7.json`, or editing the indexed corpus.
+- Private model-in-the-loop benchmarks use the marked lifecycle in
+  `docs/agent-benchmark-private-workspace.md`. If
+  `ATL_AGENT_EVAL_PRIVATE_ROOT` is configured, start with `agent-eval private
+  status`/`doctor`; do not enumerate raw cases or transcripts, construct ad-hoc
+  `/tmp` output roots, infer consent, or publish private artifacts. Real
+  workspace files stay ignored and owner-only.
 - Keep PRs small; commit subjects use `<type>: <summary>`.
 
 ## GitHub tracking

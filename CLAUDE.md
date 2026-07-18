@@ -32,6 +32,11 @@ make integration                               # runs only -run Integration, nev
 make live-smoke                                # opt-in live CLI smoke checks (built binary)
 ```
 
+Private model-in-the-loop agent evaluations use the owner-only lifecycle in
+`docs/agent-benchmark-private-workspace.md`. Start from workspace status and a
+reviewed plan; never use raw transcripts as implicit consent or retain new live
+runs in unrelated `/tmp` directories.
+
 For CLI changes, run focused tests first (`go test ./internal/app ./internal/cli` or the
 touched packages), then `make test`.
 

@@ -43,6 +43,18 @@ func TestRunSpecFailsClosedOnCostPathsAndOracle(t *testing.T) {
 	}
 }
 
+func TestRunVariantRejectsOutputPathTraversal(t *testing.T) {
+	for _, value := range []string{"a/../../escaped", `a\..\escaped`, ".", ".."} {
+		t.Run(value, func(t *testing.T) {
+			spec := validRunSpec()
+			spec.Variant = value
+			if err := spec.Validate(); err == nil {
+				t.Fatal("path-like run variant passed")
+			}
+		})
+	}
+}
+
 func TestRunSpecSeparatesCLIAndMCPAllowlists(t *testing.T) {
 	mcpSpec := validRunSpec()
 	mcpSpec.ToolTransport = "mcp"

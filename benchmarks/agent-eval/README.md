@@ -275,7 +275,9 @@ is blocked and the broker is ready; gateway method/route/byte controls remain
 independent mandatory layers.
 
 See [the private-live procedure](../../docs/agent-benchmarking.md#private-live-model-in-the-loop-check)
-for the reviewed JSON contract and commands. Public comparisons may contain
+for the transport/security contract and the
+[private workspace runbook](../../docs/agent-benchmark-private-workspace.md)
+for the recommended operator lifecycle. Public comparisons may contain
 only privacy-reviewed aggregate counts and generic task-class labels.
 Before treating two live results as a transport comparison, run
 `agent-eval validate-pair PRIVATE_CLI_SPEC PRIVATE_MCP_SPEC`. The validator
@@ -296,9 +298,11 @@ semantic check to exist and remain semantic, so a guard or shape check cannot
 silently replace the answer oracle. `external-mcp` additionally requires the
 owner-only credential-isolation profile described in the private-live guide.
 
-Each run spec also binds a public `rubric.v1.json`. After deterministic checks
-pass, use `agent-eval review-template` and `agent-eval assess` as documented in
-`docs/agent-benchmarking.md` to score answer grounding, qualification,
+Each run spec also binds a public `rubric.v1.json`. In the marked private
+workspace, use `agent-eval private review prepare` and `private review assess`
+to create a fixed-layout, source-bound packet without discovering raw paths.
+The generic `review-template` and `assess` commands remain the low-level form
+for synthetic/framework work. Both score grounding, qualification,
 completeness, actionability, and concision. A separately prompted model may act
 as reviewer, but it receives no tools, treats the candidate as untrusted data,
 and cannot override a strict failure. Publish only reviewed result aggregates,

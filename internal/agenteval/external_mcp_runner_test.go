@@ -62,7 +62,11 @@ func TestExternalMCPDryRunValidatesProfileWithoutCredentialsOrNetwork(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	output, err := RunHeadless(context.Background(), RunOptions{SpecPath: specPath, OutputRoot: t.TempDir(), RepositoryRoot: repo, AgentBinary: executable, ATLBinary: executable, PluginRoot: repo, WrapperExecutable: executable, LiveConfigDir: live, ExternalMCPProfile: profilePath, DryRun: true})
+	outputRoot := t.TempDir()
+	if err := os.Chmod(outputRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	output, err := RunHeadless(context.Background(), RunOptions{SpecPath: specPath, OutputRoot: outputRoot, RepositoryRoot: repo, AgentBinary: executable, ATLBinary: executable, PluginRoot: repo, WrapperExecutable: executable, LiveConfigDir: live, ExternalMCPProfile: profilePath, DryRun: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +78,7 @@ func TestExternalMCPDryRunValidatesProfileWithoutCredentialsOrNetwork(t *testing
 	opaqueScenario := scenario
 	opaqueScenario.RequiredMetrics = append(append([]string(nil), scenario.RequiredMetrics...), "backend_requests")
 	writeJSONTestFile(t, filepath.Join(caseDir, "scenario.json"), opaqueScenario)
-	_, err = RunHeadless(context.Background(), RunOptions{SpecPath: specPath, OutputRoot: t.TempDir(), RepositoryRoot: repo, AgentBinary: executable, ATLBinary: executable, PluginRoot: repo, WrapperExecutable: executable, LiveConfigDir: live, ExternalMCPProfile: profilePath, DryRun: true})
+	_, err = RunHeadless(context.Background(), RunOptions{SpecPath: specPath, OutputRoot: outputRoot, RepositoryRoot: repo, AgentBinary: executable, ATLBinary: executable, PluginRoot: repo, WrapperExecutable: executable, LiveConfigDir: live, ExternalMCPProfile: profilePath, DryRun: true})
 	if err == nil || !strings.Contains(err.Error(), "opaque backend metrics") {
 		t.Fatalf("external run accepted unobservable required metric: %v", err)
 	}
@@ -82,7 +86,7 @@ func TestExternalMCPDryRunValidatesProfileWithoutCredentialsOrNetwork(t *testing
 
 	spec.DataCapabilities = []string{"jira.issue.list"}
 	writeJSONTestFile(t, specPath, spec)
-	_, err = RunHeadless(context.Background(), RunOptions{SpecPath: specPath, OutputRoot: t.TempDir(), RepositoryRoot: repo, AgentBinary: executable, ATLBinary: executable, PluginRoot: repo, WrapperExecutable: executable, LiveConfigDir: live, ExternalMCPProfile: profilePath, DryRun: true})
+	_, err = RunHeadless(context.Background(), RunOptions{SpecPath: specPath, OutputRoot: outputRoot, RepositoryRoot: repo, AgentBinary: executable, ATLBinary: executable, PluginRoot: repo, WrapperExecutable: executable, LiveConfigDir: live, ExternalMCPProfile: profilePath, DryRun: true})
 	if err == nil || !strings.Contains(err.Error(), "external MCP profile data capabilities do not match the reviewed run") {
 		t.Fatalf("mismatched external MCP data capability passed dry-run: %v", err)
 	}

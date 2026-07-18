@@ -22,18 +22,20 @@ import (
 )
 
 type RunOptions struct {
-	SpecPath            string
-	OutputRoot          string
-	RepositoryRoot      string
-	AgentBinary         string
-	ATLBinary           string
-	PluginRoot          string
-	WrapperExecutable   string
-	LiveConfigDir       string
-	ExternalMCPProfile  string
-	ModelOverride       string
-	RepetitionsOverride int
-	DryRun              bool
+	SpecPath             string
+	OutputRoot           string
+	RepositoryRoot       string
+	AgentBinary          string
+	ATLBinary            string
+	PluginRoot           string
+	WrapperExecutable    string
+	LiveConfigDir        string
+	ExternalMCPProfile   string
+	ScratchRoot          string
+	PrivateWorkspaceRoot string
+	ModelOverride        string
+	RepetitionsOverride  int
+	DryRun               bool
 }
 
 type RunPreview struct {
@@ -108,7 +110,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 		if options.LiveConfigDir == "" {
 			return RunOutput{}, fmt.Errorf("private-live runs require --live-config-dir")
 		}
-		if err := requirePrivateLiveInputs(options.SpecPath, options.LiveConfigDir, options.RepositoryRoot); err != nil {
+		if err := requirePrivateLiveInputsForWorkspace(options.SpecPath, options.LiveConfigDir, options.RepositoryRoot, options.PrivateWorkspaceRoot); err != nil {
 			return RunOutput{}, err
 		}
 	} else if options.LiveConfigDir != "" {
@@ -119,7 +121,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 		if options.ExternalMCPProfile == "" {
 			return RunOutput{}, fmt.Errorf("external-mcp runs require --external-mcp-profile")
 		}
-		externalProfile, err = LoadExternalMCPProfile(options.ExternalMCPProfile, options.RepositoryRoot)
+		externalProfile, err = loadExternalMCPProfileForWorkspace(options.ExternalMCPProfile, options.RepositoryRoot, options.PrivateWorkspaceRoot)
 		if err != nil {
 			return RunOutput{}, err
 		}
@@ -274,6 +276,22 @@ func canonicalizeRunOptions(options RunOptions) (RunOptions, error) {
 			return RunOptions{}, err
 		}
 	}
+	if options.ScratchRoot != "" {
+		if options.ScratchRoot, err = canonicalDirectory("private scratch root", options.ScratchRoot); err != nil {
+			return RunOptions{}, err
+		}
+		if err := requirePrivateDirectory("private scratch root", options.ScratchRoot); err != nil {
+			return RunOptions{}, err
+		}
+	}
+	if options.PrivateWorkspaceRoot != "" {
+		if options.PrivateWorkspaceRoot, err = canonicalDirectory("private workspace root", options.PrivateWorkspaceRoot); err != nil {
+			return RunOptions{}, err
+		}
+		if err := validatePrivateWorkspaceRootForRuntime(options.PrivateWorkspaceRoot); err != nil {
+			return RunOptions{}, err
+		}
+	}
 	return options, nil
 }
 
@@ -409,8 +427,18 @@ func ValidateRunSpecFile(path string) (RunSpec, Scenario, error) {
 }
 
 func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOptions, outputRoot string, repetition int, runtime Runtime, externalProfile ExternalMCPProfile) (Result, error) {
+	if err := validatePathComponentID("scenario id", loaded.scenario.ID); err != nil {
+		return Result{}, err
+	}
+	if err := validatePathComponentID("run variant", loaded.spec.Variant); err != nil {
+		return Result{}, err
+	}
 	runDir := filepath.Join(outputRoot, loaded.scenario.ID, loaded.spec.Provider, loaded.spec.Variant, fmt.Sprintf("run-%02d", repetition))
-	if err := mkdirPrivate(runDir); err != nil {
+	inside, pathErr := pathWithin(outputRoot, runDir)
+	if pathErr != nil || !inside {
+		return Result{}, fmt.Errorf("private run directory escapes its output root")
+	}
+	if err := mkdirPrivateWithin(outputRoot, runDir); err != nil {
 		return Result{}, err
 	}
 	workspace := filepath.Join(runDir, "workspace")
@@ -515,7 +543,8 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		defer backend.Close()
 		backendEnvironment = backend.Environment()
 	} else {
-		atlConfigDir, err = os.MkdirTemp("", "atl-agent-eval-live-config-")
+		scratchRoot := options.ScratchRoot
+		atlConfigDir, err = os.MkdirTemp(scratchRoot, "atl-agent-eval-live-config-")
 		if err != nil {
 			return Result{}, err
 		}

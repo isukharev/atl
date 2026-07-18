@@ -71,6 +71,10 @@ type ExternalMCPToolPolicy struct {
 }
 
 func LoadExternalMCPProfile(path, repositoryRoot string) (ExternalMCPProfile, error) {
+	return loadExternalMCPProfileForWorkspace(path, repositoryRoot, "")
+}
+
+func loadExternalMCPProfileForWorkspace(path, repositoryRoot, privateWorkspaceRoot string) (ExternalMCPProfile, error) {
 	if err := requireOwnerOnly("external MCP profile directory", filepath.Dir(path), true); err != nil {
 		return ExternalMCPProfile{}, err
 	}
@@ -94,7 +98,9 @@ func LoadExternalMCPProfile(path, repositoryRoot string) (ExternalMCPProfile, er
 		return ExternalMCPProfile{}, err
 	}
 	if inside {
-		return ExternalMCPProfile{}, fmt.Errorf("external MCP profile must be outside the repository")
+		if !privateRuntimePathAllowed(privateWorkspaceRoot, profilePath) {
+			return ExternalMCPProfile{}, fmt.Errorf("external MCP profile must be outside the repository")
+		}
 	}
 	file, err := os.Open(profilePath)
 	if err != nil {

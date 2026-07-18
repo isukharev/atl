@@ -37,9 +37,11 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | inventory CORPUS_ROOT | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | run options")
+		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | inventory CORPUS_ROOT | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | run options | private COMMAND options")
 	}
 	switch args[0] {
+	case "private":
+		return runPrivateCommand(args[1:], os.Stdout)
 	case "validate":
 		if len(args) < 2 {
 			return fmt.Errorf("validate requires at least one scenario")

@@ -300,7 +300,10 @@ must not report an empty method map as measured zero traffic.
 Committed run specs bind one scenario to an exact provider/model, prompt,
 structured response schema, deterministic mock fixture, oracle checks, reviewed
 CLI command prefixes or typed MCP tool names, repetitions, timeout, and a whole-run
-USD-equivalent cap. Review the provider command without contacting a model:
+USD-equivalent cap. Output roots are owner-only and carry an ATL marker; use a
+new empty directory or an already marked root. A non-empty legacy directory is
+never adopted or chmodded implicitly. Review the provider command without
+contacting a model:
 
 ```sh
 make build
@@ -708,6 +711,15 @@ secrets to the agent process.
 
 ## Private-live model-in-the-loop check
 
+For normal operation, use the marked workspace lifecycle in
+[Private agent-benchmark workspace](agent-benchmark-private-workspace.md). It
+gives agents a single `init -> doctor -> plan -> run -> review -> baseline ->
+compare -> prune` state machine, binds execution to reviewed input hashes, and
+keeps raw candidates out of unrelated `/tmp` directories. The lower-level
+commands below document the transport and confinement contract and remain an
+escape hatch for framework development; they are not the recommended way to
+maintain a private baseline.
+
 Use this mode only when the maintainer has approved sending the selected real
 Jira/Confluence evidence to the configured model provider. The provider will
 receive the prompt, MCP responses or CLI output selected by the model, and the
@@ -809,7 +821,9 @@ clients, then removes it before forwarding. All business arguments remain
 canonicalized and exact-profile-bound; any other unknown params field fails
 closed.
 
-Review without invoking the model or backend, then run once:
+At the low level, review without invoking the model or backend, then run once.
+New private baselines should use `agent-eval private plan` and `private run`
+instead, so the reviewed bytes and execution remain bound:
 
 ```sh
 umask 077
