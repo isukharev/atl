@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -34,6 +35,7 @@ type RunOptions struct {
 	ScratchRoot           string
 	PrivateWorkspaceRoot  string
 	qualifiedAgentVersion string
+	providerAuthSession   *codexAuthSession
 	ModelOverride         string
 	RepetitionsOverride   int
 	DryRun                bool
@@ -79,7 +81,7 @@ type liveHTTPRecord struct {
 	RequestHash string `json:"request_hash"`
 }
 
-func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
+func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, returnErr error) {
 	if options.OutputRoot == "" || options.RepositoryRoot == "" || options.AgentBinary == "" || options.ATLBinary == "" || options.PluginRoot == "" || options.WrapperExecutable == "" {
 		return RunOutput{}, fmt.Errorf("run options require output, repository, agent, atl, plugin, and wrapper paths")
 	}
@@ -172,10 +174,45 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 			return RunOutput{}, fmt.Errorf("codex synthetic model execution requires tool_transport=mcp; cli transport remains validate/dry-run only")
 		}
 	}
+	providerAuthSession := options.providerAuthSession
+	providerAuthSessionOwned := false
+	providerScratchRoot := options.ScratchRoot
+	if loaded.spec.Provider == "codex" {
+		if providerScratchRoot == "" {
+			providerScratchRoot = filepath.Join(outputRoot, ".ephemeral")
+			if err := mkdirPrivate(providerScratchRoot); err != nil {
+				return RunOutput{}, fmt.Errorf("prepare isolated codex provider runtime")
+			}
+		}
+		if providerAuthSession == nil {
+			providerAuthSession, err = newCodexAuthSession(os.Environ())
+			if err != nil {
+				return RunOutput{}, err
+			}
+			providerAuthSessionOwned = true
+		}
+		defer func() {
+			if providerAuthSessionOwned {
+				returnErr = errors.Join(returnErr, providerAuthSession.Close())
+			}
+		}()
+	} else if providerAuthSession != nil {
+		return RunOutput{}, fmt.Errorf("isolated codex provider authentication is valid only for codex runs")
+	}
 
-	agentVersion, err := agentRuntimeVersion(ctx, options)
-	if err != nil {
-		return RunOutput{}, err
+	var versionRuntime *providerRuntimeCapsule
+	if providerAuthSession != nil && options.qualifiedAgentVersion == "" {
+		versionRuntime, err = newCodexProviderRuntime(providerScratchRoot, providerAuthSession)
+		if err != nil {
+			return RunOutput{}, err
+		}
+	}
+	agentVersion, versionErr := agentRuntimeVersion(ctx, options, versionRuntime)
+	if versionRuntime != nil {
+		versionErr = errors.Join(versionErr, versionRuntime.Close())
+	}
+	if versionErr != nil {
+		return RunOutput{}, versionErr
 	}
 	atlVersion, err := atlRuntimeVersion(ctx, options.ATLBinary)
 	if err != nil {
@@ -192,13 +229,23 @@ func RunHeadless(ctx context.Context, options RunOptions) (RunOutput, error) {
 	for repetition := 1; repetition <= loaded.spec.Repetitions; repetition++ {
 		perRun := loaded
 		perRun.spec.MaxEstimatedCostMicroUSD = perRepetitionCostCap(loaded.spec)
-		result, err := runHeadlessOnce(ctx, perRun, options, outputRoot, repetition, Runtime{
+		var providerRuntime *providerRuntimeCapsule
+		if providerAuthSession != nil {
+			providerRuntime, err = newCodexProviderRuntime(providerScratchRoot, providerAuthSession)
+			if err != nil {
+				return RunOutput{}, err
+			}
+		}
+		result, runErr := runHeadlessOnce(ctx, perRun, options, outputRoot, repetition, Runtime{
 			Provider: loaded.spec.Provider, AgentVersion: agentVersion,
 			Model: loaded.spec.Model, Reasoning: loaded.spec.Reasoning,
 			ATLVersion: atlVersion, PluginVersion: pluginVersion, SkillDigest: skillDigest,
-		}, externalProfile)
-		if err != nil {
-			return RunOutput{}, fmt.Errorf("repetition %d: %w", repetition, err)
+		}, externalProfile, providerRuntime)
+		if providerRuntime != nil {
+			runErr = errors.Join(runErr, providerRuntime.Close())
+		}
+		if runErr != nil {
+			return RunOutput{}, fmt.Errorf("repetition %d: %w", repetition, runErr)
 		}
 		results = append(results, result)
 		if result.Coverage["estimated_cost_microusd"] {
@@ -216,14 +263,18 @@ func validQualifiedAgentVersion(value string) bool {
 	return strings.HasPrefix(value, "binary-sha256:") && validSHA256(strings.TrimPrefix(value, "binary-sha256:"))
 }
 
-func agentRuntimeVersion(ctx context.Context, options RunOptions) (string, error) {
+func agentRuntimeVersion(ctx context.Context, options RunOptions, providerRuntime *providerRuntimeCapsule) (string, error) {
 	if options.qualifiedAgentVersion != "" {
 		if options.PrivateWorkspaceRoot == "" || !validQualifiedAgentVersion(options.qualifiedAgentVersion) {
 			return "", fmt.Errorf("qualified agent version requires a private workspace and binary-sha256 identity")
 		}
 		return options.qualifiedAgentVersion, nil
 	}
-	version, err := commandVersion(ctx, options.AgentBinary)
+	var environment []string
+	if providerRuntime != nil {
+		environment = flattenEnvironment(providerRuntime.Environment())
+	}
+	version, err := commandVersionWithEnvironment(ctx, options.AgentBinary, environment)
 	if err != nil {
 		return "", fmt.Errorf("agent version: %w", err)
 	}
@@ -445,7 +496,7 @@ func ValidateRunSpecFile(path string) (RunSpec, Scenario, error) {
 	return loaded.spec, loaded.scenario, nil
 }
 
-func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOptions, outputRoot string, repetition int, runtime Runtime, externalProfile ExternalMCPProfile) (Result, error) {
+func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOptions, outputRoot string, repetition int, runtime Runtime, externalProfile ExternalMCPProfile, providerRuntime *providerRuntimeCapsule) (Result, error) {
 	if err := validatePathComponentID("scenario id", loaded.scenario.ID); err != nil {
 		return Result{}, err
 	}
@@ -669,7 +720,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		return Result{}, err
 	}
 	if codexPrivateCLI {
-		if err := runCodexConfinementPreflight(parent, options.AgentBinary, workspace, probeExecutablePath, brokerManifestPath, providerConfinement); err != nil {
+		if err := runCodexConfinementPreflight(parent, options.AgentBinary, workspace, probeExecutablePath, brokerManifestPath, providerConfinement, providerRuntime); err != nil {
 			return Result{}, err
 		}
 	}
@@ -694,6 +745,9 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	command.Stdout = transcript
 	command.Stderr = stderr
 	environment := safeAgentEnvironment(os.Environ())
+	if providerRuntime != nil {
+		environment = providerRuntime.Environment()
+	}
 	if !loaded.spec.AllowSyntheticWrites {
 		environment["ATL_READ_ONLY"] = "1"
 	}
@@ -1084,7 +1138,7 @@ func resolveProviderLaunch(plan ProviderCommand) (ProviderCommand, error) {
 	return ProviderCommand{Path: interpreter, Args: args}, nil
 }
 
-func runCodexConfinementPreflight(parent context.Context, agentBinary, workspace, probeExecutable, brokerManifestPath string, confinement ProviderConfinement) error {
+func runCodexConfinementPreflight(parent context.Context, agentBinary, workspace, probeExecutable, brokerManifestPath string, confinement ProviderConfinement, providerRuntime *providerRuntimeCapsule) error {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return fmt.Errorf("prepare codex private-live confinement preflight")
@@ -1105,6 +1159,9 @@ func runCodexConfinementPreflight(parent context.Context, agentBinary, workspace
 	command.Stdout = io.Discard
 	command.Stderr = io.Discard
 	environment := safeAgentEnvironment(os.Environ())
+	if providerRuntime != nil {
+		environment = providerRuntime.Environment()
+	}
 	if pathValue := os.Getenv("PATH"); pathValue != "" {
 		environment["PATH"] = pathValue
 	}
@@ -1299,8 +1356,11 @@ func max64(a, b int64) int64 {
 	return b
 }
 
-func commandVersion(ctx context.Context, binary string) (string, error) {
+func commandVersionWithEnvironment(ctx context.Context, binary string, environment []string) (string, error) {
 	command := exec.CommandContext(ctx, binary, "--version")
+	if environment != nil {
+		command.Env = environment
+	}
 	output, err := command.Output()
 	if err != nil {
 		return "", err

@@ -183,7 +183,7 @@ func TestQualifiedPrivateAgentIdentityNeverExecutesVersionAcrossThreeSurfaces(t 
 	identity := "binary-sha256:" + strings.Repeat("a", 64)
 	options := RunOptions{AgentBinary: binary, PrivateWorkspaceRoot: root, qualifiedAgentVersion: identity}
 	for surface := 0; surface < 3; surface++ {
-		got, err := agentRuntimeVersion(context.Background(), options)
+		got, err := agentRuntimeVersion(context.Background(), options, nil)
 		if err != nil || got != identity {
 			t.Fatalf("surface %d identity=%q err=%v", surface, got, err)
 		}

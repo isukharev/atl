@@ -11,6 +11,8 @@ import (
 )
 
 func TestExternalMCPDryRunValidatesProfileWithoutCredentialsOrNetwork(t *testing.T) {
+	t.Setenv("HOME", filepath.Join(t.TempDir(), "home-without-auth"))
+	t.Setenv("CODEX_HOME", filepath.Join(t.TempDir(), "codex-home-without-auth"))
 	caseDir := t.TempDir()
 	_ = os.Chmod(caseDir, 0o700)
 	workspace := filepath.Join(caseDir, "workspace")
@@ -69,6 +71,9 @@ func TestExternalMCPDryRunValidatesProfileWithoutCredentialsOrNetwork(t *testing
 	output, err := RunHeadless(context.Background(), RunOptions{SpecPath: specPath, OutputRoot: outputRoot, RepositoryRoot: repo, AgentBinary: executable, ATLBinary: executable, PluginRoot: repo, WrapperExecutable: executable, LiveConfigDir: live, ExternalMCPProfile: profilePath, DryRun: true})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(outputRoot, ".ephemeral")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run created a provider runtime: %v", err)
 	}
 	encoded, _ := json.Marshal(output.Preview)
 	if bytes.Contains(encoded, []byte(profile.UpstreamURL)) || bytes.Contains(encoded, []byte(profile.CatalogSHA256)) || bytes.Contains(encoded, []byte("safe_lookup")) {

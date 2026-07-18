@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Codex agent-evaluation processes now run inside an owner-only ephemeral
+  provider-home capsule instead of inheriting the operator's home, Codex, and
+  XDG state. The runner projects only a validated file-backed `auth.json`, uses
+  a fresh capsule for every repetition, and attempts owner-private cleanup on
+  every ordinary exit (cleanup failure fails the run closed). A plan-level
+  in-memory auth session carries bounded syntactically valid provider refreshes
+  between surfaces without writing back to the operator's Codex home. Ambient
+  `AGENTS.md`, user skills, config, history, sessions, memories, and caches no
+  longer contaminate benchmark prompts or tool choice; keyring-only Codex login
+  is rejected before model or backend access. Actual Codex execution fails
+  closed on Windows until equivalent owner-only ACL validation is available;
+  validation and dry-run remain available.
+
 - Private-live Codex CLI benchmark runs now explicitly identify the run as an
   evidence task, require the minimum necessary reviewed literal `atl` shell
   invocation, and require the answer to be grounded in returned evidence.
