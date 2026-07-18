@@ -194,6 +194,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reviewed CLI invocation; the explicit prompt and copied shipped skills remain
   the only task workflow sources.
 
+- Kept direct patch/edit/write access fail-closed in private-live Codex CLI
+  evaluations and added a provider-scoped operational instruction to use only
+  the literal `atl` shell shim. Ad-hoc broker request files remain unsupported;
+  failures are reported instead of triggering an alternate filesystem
+  protocol.
+
 - Added a schema-validated exact-argument policy for private-live CLI+skill
   benchmarks. Each reviewed command family pins its command path, positional
   values, flags, and invocation budget; the evaluation shim rechecks the

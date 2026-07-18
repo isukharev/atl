@@ -21,7 +21,10 @@ type ProviderConfinement struct {
 	ResponseDirectory string
 }
 
-const codexAgentEvalPermissionProfile = "atl_agent_eval"
+const (
+	codexAgentEvalPermissionProfile = "atl_agent_eval"
+	codexPrivateCLIInstructions     = "Use atl only by invoking the literal atl executable through the shell tool. Never use apply_patch, Edit, Write, or direct filesystem operations to create, inspect, or modify command-broker manifests or request/response files. If an atl invocation fails, do not invent or use an alternate broker-file protocol; return the failure through the required response schema."
+)
 
 type ProviderMetrics struct {
 	AgentTurns               int
@@ -181,6 +184,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 				"--ignore-rules", "--dangerously-bypass-hook-trust",
 				"-c", `approval_policy="never"`,
 				"-c", `web_search="disabled"`,
+				"-c", `developer_instructions=`+strconv.Quote(codexPrivateCLIInstructions),
 				"-c", codexDenyNonMCPHook(guardPath),
 			)
 			args = append(args, confinementArgs...)

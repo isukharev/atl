@@ -3,6 +3,7 @@ package agenteval
 import (
 	"encoding/json"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -154,6 +155,7 @@ func TestBuildPrivateCLIProviderCommandsEnforceHooksAndCodexCommandBroker(t *tes
 			for _, value := range []string{
 				"--ignore-rules", "--dangerously-bypass-hook-trust",
 				`approval_policy="never"`, `web_search="disabled"`,
+				`developer_instructions=` + strconv.Quote(codexPrivateCLIInstructions),
 				`default_permissions="atl_agent_eval"`, `permissions.atl_agent_eval.extends=":workspace"`,
 				`permissions.atl_agent_eval.filesystem={"/private/requests"="write","/private/responses"="read"}`,
 				"hooks.PreToolUse=", "/opt/guard", `"ATL_EVAL_CLI_POLICY_FILE"`, `"ATL_EVAL_GUARD_MODE"`,
@@ -171,6 +173,64 @@ func TestBuildPrivateCLIProviderCommandsEnforceHooksAndCodexCommandBroker(t *tes
 			for _, forbidden := range []string{"--sandbox workspace-write", `sandbox_workspace_write.network_access=true`, `features.network_proxy.enabled=false`, `network.enabled=true`, `unix_sockets=`, `dangerously_allow_all_unix_sockets=true`, `"*"="allow"`} {
 				if strings.Contains(joined, forbidden) {
 					t.Errorf("Codex private CLI command weakens confinement with %q: %s", forbidden, joined)
+				}
+			}
+		})
+	}
+}
+
+func TestCodexPrivateCLIInstructionsAreScopedToPrivateCLI(t *testing.T) {
+	privateSpec := validRunSpec()
+	privateSpec.BackendMode = BackendModePrivateLive
+	privateSpec.FixtureFile = ""
+	privateSpec.Repetitions = 1
+	privateSpec.Provider = "codex"
+	privateSpec.ToolTransport = "cli"
+	privateSpec.AllowedTools = []string{"Bash(atl *)", "Read", "Skill"}
+	privateSpec.AllowedATLCommands = nil
+	privateSpec.AllowedCLICommands = validCLICommandPolicy().Rules
+	privateSpec.AllowedGatewayRoutes = map[string][]LiveGatewayRoute{"jira": {{Name: "jira_api", PathPrefix: "/rest/api/2"}}}
+	privateSpec.GatewayMaxResponseBytes = 1 << 20
+	privateSpec.GatewayMaxTotalBytes = 2 << 20
+	confinement := ProviderConfinement{RequestDirectory: "/private/requests", ResponseDirectory: "/private/responses"}
+	command, err := BuildProviderCommand(privateSpec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", confinement, []byte(`{"type":"object"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	exactSetting := `developer_instructions=` + strconv.Quote(codexPrivateCLIInstructions)
+	if !slices.Contains(command.Args, exactSetting) {
+		t.Fatalf("private CLI command misses exact operational instruction: %v", command.Args)
+	}
+	privateMCP := privateSpec
+	privateMCP.Surface = SurfaceATLMCP
+	privateMCP.ToolTransport = "mcp"
+	privateMCP.AllowedTools = nil
+	privateMCP.AllowedCLICommands = nil
+	privateMCP.AllowedMCPTools = []string{"jira_fields"}
+	privateMCP.AllowedGatewayRoutes = nil
+	privateMCP.GatewayMaxResponseBytes = 0
+	privateMCP.GatewayMaxTotalBytes = 0
+
+	for name, spec := range map[string]RunSpec{
+		"synthetic-cli": validRunSpec(),
+		"synthetic-mcp": func() RunSpec {
+			value := validRunSpec()
+			value.ToolTransport = "mcp"
+			value.AllowedTools = nil
+			value.AllowedATLCommands = nil
+			value.AllowedMCPTools = []string{"jira_fields"}
+			return value
+		}(),
+		"private-mcp": privateMCP,
+	} {
+		t.Run(name, func(t *testing.T) {
+			built, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", ProviderConfinement{}, []byte(`{"type":"object"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, arg := range built.Args {
+				if strings.HasPrefix(arg, "developer_instructions=") {
+					t.Fatalf("non-private-CLI command received private operational instruction: %v", built.Args)
 				}
 			}
 		})

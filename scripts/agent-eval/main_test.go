@@ -248,6 +248,20 @@ func TestPrivateLiveCLIGuardAllowsOnlyOneATLCommandShape(t *testing.T) {
 			t.Fatalf("command=%q code=%d output=%s stderr=%s", command, code, output.String(), errorOutput.String())
 		}
 	}
+	for _, patch := range []string{
+		"*** Begin Patch\n*** Add File: /private/requests/command.json\n+{\"command\":\"atl jira fields\",\"cwd\":\"/workspace\",\"timeout_ms\":30000}\n*** End Patch",
+		"*** Begin Patch\n*** Add File: /private/requests/request-00000000000000000000000000000000.json\n+{\"schema_version\":1,\"id\":\"00000000000000000000000000000000\",\"capability\":\"synthetic\",\"args\":[\"jira\",\"fields\"]}\n*** End Patch",
+		"*** Begin Patch\n*** Add File: /private/requests/../outside.json\n+{}\n*** End Patch",
+		"*** Begin Patch\n*** Add File: /private/requests/one.json\n+{}\n*** Add File: /private/requests/two.json\n+{}\n*** End Patch",
+		"*** Begin Patch\n*** Update File: /private/requests/existing.json\n@@\n-{}\n+{\"command\":\"atl jira fields\"}\n*** End Patch",
+		"*** Begin Patch\n*** Delete File: /private/requests/existing.json\n*** End Patch",
+	} {
+		input := `{"tool_name":"apply_patch","tool_input":{"patch":` + strconv.Quote(patch) + `}}`
+		var output, errorOutput bytes.Buffer
+		if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
+			t.Fatalf("patch=%q code=%d output=%s stderr=%s", patch, code, output.String(), errorOutput.String())
+		}
+	}
 }
 
 func TestATLProxyEnforcesExactPrivateCLIArgumentsAndBudget(t *testing.T) {
