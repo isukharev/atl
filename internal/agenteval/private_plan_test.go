@@ -227,8 +227,14 @@ func TestExecutePrivatePlanBindsApprovalAndReviewedInputs(t *testing.T) {
 		{name: "binary", mutate: func(t *testing.T, fixture privatePlanTestFixture) {
 			appendPrivatePlanTestFile(t, fixture.atl, "\n# changed\n")
 		}},
-		{name: "plugin", mutate: func(t *testing.T, fixture privatePlanTestFixture) {
-			appendPrivatePlanTestFile(t, filepath.Join(fixture.pluginRoot, "skills", "atl", "SKILL.md"), "\nChanged.\n")
+		{name: "plugin-skill", mutate: func(t *testing.T, fixture privatePlanTestFixture) {
+			appendPrivatePlanTestFile(t, filepath.Join(fixture.pluginRoot, "plugins", "atl", "skills", "atl", "SKILL.md"), "\nChanged.\n")
+		}},
+		{name: "plugin-routing", mutate: func(t *testing.T, fixture privatePlanTestFixture) {
+			appendPrivatePlanTestFile(t, filepath.Join(fixture.pluginRoot, "plugins", "atl", "skills", "atl", "agents", "openai.yaml"), "\nChanged.\n")
+		}},
+		{name: "plugin-manifest", mutate: func(t *testing.T, fixture privatePlanTestFixture) {
+			appendPrivatePlanTestFile(t, filepath.Join(fixture.pluginRoot, "plugins", "atl", ".codex-plugin", "plugin.json"), "\n")
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -456,7 +462,7 @@ func TestExecutePrivatePlanRechecksInputsBetweenSurfaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	preview := fixture.createPlan(t)
-	if err := os.WriteFile(fixture.mutationControl, []byte(filepath.Join(fixture.pluginRoot, "skills", "atl", "SKILL.md")+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(fixture.mutationControl, []byte(filepath.Join(fixture.pluginRoot, "plugins", "atl", "skills", "atl", "SKILL.md")+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	summary, err := ExecutePrivatePlan(context.Background(), fixture.executeOptions(preview))
@@ -564,14 +570,7 @@ func newPrivatePlanTestFixture(t *testing.T, includeCLI, failAgent bool) private
 	t.Setenv(manifest.LiveConfigEnv, liveConfig)
 
 	pluginRoot := filepath.Join(t.TempDir(), "plugin")
-	if err := os.MkdirAll(filepath.Join(pluginRoot, ".claude-plugin"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(pluginRoot, "skills", "atl"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	writeTestFile(t, filepath.Join(pluginRoot, ".claude-plugin", "plugin.json"), `{"version":"test"}`+"\n", 0o600)
-	writeTestFile(t, filepath.Join(pluginRoot, "skills", "atl", "SKILL.md"), "---\nname: atl\n---\nSynthetic skill.\n", 0o600)
+	writeTestPluginTrees(t, pluginRoot, "test", "Synthetic skill.")
 
 	binRoot := filepath.Join(t.TempDir(), "bin")
 	if err := os.Mkdir(binRoot, 0o700); err != nil {
@@ -597,7 +596,7 @@ func main() {
   fmt.Println("{\"type\":\"item.completed\",\"item\":{\"type\":\"mcp_tool_call\",\"server\":\"atl\",\"tool\":\"jira_fields\",\"status\":\"completed\",\"result\":{\"fields\":[]}}}")
   fmt.Println("{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":100,\"output_tokens\":20}}")
   _ = os.WriteFile(final, []byte("{\"complete\":true}\n"), 0600)
-  if data, err := os.ReadFile(mutationControl); err == nil { target := strings.TrimSpace(string(data)); if target == "SNAPSHOT" { target = filepath.Join(filepath.Dir(os.Args[0]), "..", "plugin", "skills", "atl", "SKILL.md") }; appendFile(target, "changed\n") }
+  if data, err := os.ReadFile(mutationControl); err == nil { target := strings.TrimSpace(string(data)); if target == "SNAPSHOT" { target = filepath.Join(filepath.Dir(os.Args[0]), "..", "plugin", "plugins", "atl", "skills", "atl", "SKILL.md") }; appendFile(target, "changed\n") }
 }
 `, agent+".calls", mutationControl, failAgent)
 	writeTestFile(t, agentSource, agentProgram, 0o600)

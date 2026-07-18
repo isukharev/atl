@@ -223,6 +223,7 @@ func TestCodexPrivateCLIInstructionsAreScopedToPrivateCLI(t *testing.T) {
 	}
 	for _, required := range []string{
 		"This is an evidence task",
+		"first select and follow the installed task-matching skill",
 		"use the literal atl executable through the shell tool to retrieve the evidence required for the answer",
 		"minimum necessary invocation or invocations allowed by the reviewed command policy",
 		"Base the answer on the returned evidence",

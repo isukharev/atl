@@ -43,6 +43,12 @@ func createPrivateExecutionSnapshot(root, runID string, options PrivatePlanExecu
 	if err := copyWorkspace(filepath.Join(options.PluginRoot, ".claude-plugin"), filepath.Join(snapshot.pluginRoot, ".claude-plugin")); err != nil {
 		return privateExecutionSnapshot{}, err
 	}
+	if err := copyWorkspace(filepath.Join(options.PluginRoot, "plugins", "atl", "skills"), filepath.Join(snapshot.pluginRoot, "plugins", "atl", "skills")); err != nil {
+		return privateExecutionSnapshot{}, err
+	}
+	if err := copyWorkspace(filepath.Join(options.PluginRoot, "plugins", "atl", ".codex-plugin"), filepath.Join(snapshot.pluginRoot, "plugins", "atl", ".codex-plugin")); err != nil {
+		return privateExecutionSnapshot{}, err
+	}
 	snapshot.liveConfig = filepath.Join(snapshot.root, "live-config")
 	if err := safepath.MkdirAllWithin(root, snapshot.liveConfig, 0o700); err != nil {
 		return privateExecutionSnapshot{}, err

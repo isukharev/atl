@@ -224,6 +224,16 @@ shell selection and startup state are never projected. The shell remains inside
 the existing hook, filesystem, command-broker, read-only, and GET/HEAD controls;
 MCP surfaces do not opt into these CLI-only feature flags.
 
+The private CLI instruction first routes the model through the installed
+task-matching skill, then requires evidence retrieval through the literal
+`atl` executable. This is the intended `cli-skill` surface: the skill teaches
+the command shape, while the reviewed broker still decides whether that exact
+invocation is allowed. The instruction never reveals a case-specific command.
+Codex runs install and hash `plugins/atl/skills/`, including its Codex routing
+metadata; Claude Code runs continue to use the generated root `skills/` tree.
+Both trees are copied into the immutable execution snapshot before the plan is
+revalidated, so a client-specific skill change invalidates the reviewed bytes.
+
 `--agent-binary` must identify a reviewed single-file native executable for the
 host OS and architecture. A symlink is accepted when its canonical target is
 such an executable; scripts, JavaScript/package launchers, malformed binaries,

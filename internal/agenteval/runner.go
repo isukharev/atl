@@ -218,7 +218,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 	if err != nil {
 		return RunOutput{}, fmt.Errorf("atl version: %w", err)
 	}
-	pluginVersion, skillDigest, err := pluginIdentity(options.PluginRoot)
+	pluginVersion, skillDigest, err := pluginIdentity(options.PluginRoot, loaded.spec.Provider)
 	if err != nil {
 		return RunOutput{}, err
 	}
@@ -521,7 +521,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		return Result{}, err
 	}
 	if loaded.spec.Provider == "codex" {
-		if err := copyWorkspace(filepath.Join(options.PluginRoot, "skills"), filepath.Join(workspace, ".agents", "skills")); err != nil {
+		_, skillRoot, err := providerPluginLayout(options.PluginRoot, loaded.spec.Provider)
+		if err != nil {
+			return Result{}, err
+		}
+		if err := copyWorkspace(skillRoot, filepath.Join(workspace, ".agents", "skills")); err != nil {
 			return Result{}, fmt.Errorf("install benchmark skills: %w", err)
 		}
 	}
@@ -1404,8 +1408,12 @@ func atlRuntimeVersion(ctx context.Context, binary string) (string, error) {
 	return plain, nil
 }
 
-func pluginIdentity(root string) (string, string, error) {
-	manifest, err := readBoundedFile(filepath.Join(root, ".claude-plugin", "plugin.json"), 1<<20)
+func pluginIdentity(root, provider string) (string, string, error) {
+	manifestPath, skillRoot, err := providerPluginLayout(root, provider)
+	if err != nil {
+		return "", "", err
+	}
+	manifest, err := readBoundedFile(manifestPath, 1<<20)
 	if err != nil {
 		return "", "", err
 	}
@@ -1415,8 +1423,20 @@ func pluginIdentity(root string) (string, string, error) {
 	if err := json.Unmarshal(manifest, &value); err != nil || value.Version == "" {
 		return "", "", fmt.Errorf("plugin manifest version is invalid")
 	}
-	digest, err := digestTree(filepath.Join(root, "skills"))
+	digest, err := digestTree(skillRoot)
 	return value.Version, digest, err
+}
+
+func providerPluginLayout(root, provider string) (manifest, skills string, err error) {
+	switch provider {
+	case "claude-code":
+		return filepath.Join(root, ".claude-plugin", "plugin.json"), filepath.Join(root, "skills"), nil
+	case "codex":
+		codexRoot := filepath.Join(root, "plugins", "atl")
+		return filepath.Join(codexRoot, ".codex-plugin", "plugin.json"), filepath.Join(codexRoot, "skills"), nil
+	default:
+		return "", "", fmt.Errorf("unsupported provider %q", provider)
+	}
 }
 
 func digestTree(root string) (string, error) {

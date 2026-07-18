@@ -848,6 +848,18 @@ the reviewed local route available: the hook, custom filesystem profile,
 one-command broker policy, read-only environment, and GET/HEAD gateway still
 decide what may execute. MCP surfaces do not enable this CLI-only feature pair.
 
+Before shell execution, its generic provider instruction requires selecting
+and following the installed task-matching skill. The skill supplies CLI usage;
+the instruction does not expose the hidden allowlist or any case-specific
+command. A model that still answers without an interface call remains a normal
+measured failure.
+
+Provider fidelity is explicit: Codex receives and hashes the generated
+`plugins/atl/skills/` tree with its `agents/openai.yaml` routing metadata,
+whereas Claude Code receives and hashes the generated root `skills/` tree. The
+private snapshot retains both and installs only the tree selected by the run's
+provider.
+
 At the low level, review without invoking the model or backend, then run once.
 New private baselines should use `agent-eval private plan` and `private run`
 instead, so the reviewed bytes and execution remain bound:
