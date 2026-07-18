@@ -40,6 +40,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a marked owner-private agent-evaluation workspace lifecycle with strict
+  manifests, privacy-safe doctor/status output, reviewed execution plans,
+  fixed-layout qualitative review packets, compact baselines, offline
+  comparison, and crash-recoverable content-bound retention. Private inputs and
+  raw artifacts remain untracked; the public repository contains only generic
+  lifecycle code, synthetic tests, and operator documentation.
+
+- Hardened agent-evaluation output storage against identity-based path escape,
+  descendant symlinks, accidental adoption or permission changes of existing
+  directories, and partial/private-file writes. New private roots carry an
+  owner-only marker and legacy unmarked output roots require explicit migration.
+
 - Added an aggregate-only benchmark corpus inventory plus realistic
   multi-surface scenarios for deep Jira evidence, ordered issue batches, board
   portfolio synthesis, long Confluence decisions, cross-service discovery,

@@ -10,14 +10,27 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
-	maxWorkspaceBytes   = 32 << 20
-	maxWorkspaceEntries = 4096
+	maxWorkspaceBytes               = 32 << 20
+	maxWorkspaceEntries             = 4096
+	privateOutputRootMarker         = ".atl-agent-eval-private-root"
+	privateOutputRootMarkerContents = "atl-agent-eval-private-root-v1\n"
 )
 
 func PreparePrivateOutputRoot(root, repositoryRoot string) (string, error) {
+	requestedRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	if info, statErr := os.Lstat(requestedRoot); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("evaluation output root must not be a symlink")
+	} else if statErr != nil && !os.IsNotExist(statErr) {
+		return "", statErr
+	}
 	absRoot, err := canonicalizeForCreation(root)
 	if err != nil {
 		return "", err
@@ -39,13 +52,68 @@ func PreparePrivateOutputRoot(root, repositoryRoot string) (string, error) {
 			return "", fmt.Errorf("evaluation output root inside the worktree must be Git-ignored")
 		}
 	}
-	if err := mkdirPrivate(absRoot); err != nil {
+	if err := prepareMarkedPrivateRoot(absRoot); err != nil {
 		return "", err
 	}
 	return absRoot, nil
 }
 
+func prepareMarkedPrivateRoot(root string) error {
+	info, err := os.Lstat(root)
+	if os.IsNotExist(err) {
+		if err := mkdirPrivate(root); err != nil {
+			return err
+		}
+		return initializePrivateRootMarker(root)
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("evaluation output root must be a directory")
+	}
+	if err := requirePrivateDirectory("evaluation output root", root); err != nil {
+		return err
+	}
+	marker := filepath.Join(root, privateOutputRootMarker)
+	if _, err := os.Lstat(marker); os.IsNotExist(err) {
+		entries, readErr := os.ReadDir(root)
+		if readErr != nil {
+			return readErr
+		}
+		if len(entries) != 0 {
+			return fmt.Errorf("existing evaluation output root is not initialized")
+		}
+		return initializePrivateRootMarker(root)
+	} else if err != nil {
+		return err
+	}
+	if err := requireOwnerOnly("evaluation output root marker", marker, false); err != nil {
+		return err
+	}
+	data, err := safepath.ReadFileWithinLimit(root, marker, int64(len(privateOutputRootMarkerContents)))
+	if err != nil {
+		return err
+	}
+	if string(data) != privateOutputRootMarkerContents {
+		return fmt.Errorf("evaluation output root marker is invalid")
+	}
+	return nil
+}
+
+func initializePrivateRootMarker(root string) error {
+	marker := filepath.Join(root, privateOutputRootMarker)
+	if err := safepath.WriteFileExclusiveWithin(root, marker, []byte(privateOutputRootMarkerContents), 0o600); err != nil {
+		return fmt.Errorf("initialize evaluation output root: %w", err)
+	}
+	return nil
+}
+
 func requirePrivateLiveInputs(specPath, liveConfigDir, repositoryRoot string) error {
+	return requirePrivateLiveInputsForWorkspace(specPath, liveConfigDir, repositoryRoot, "")
+}
+
+func requirePrivateLiveInputsForWorkspace(specPath, liveConfigDir, repositoryRoot, privateWorkspaceRoot string) error {
 	repositoryRoot, err := filepath.Abs(repositoryRoot)
 	if err != nil {
 		return err
@@ -85,7 +153,9 @@ func requirePrivateLiveInputs(specPath, liveConfigDir, repositoryRoot string) er
 		return err
 	}
 	if configInside {
-		return fmt.Errorf("private-live config directory must be outside the repository")
+		if !privateRuntimePathAllowed(privateWorkspaceRoot, canonicalConfigDir) {
+			return fmt.Errorf("private-live config directory must be outside the repository")
+		}
 	}
 	if err := requireOwnerOnly("private-live config directory", canonicalConfigDir, true); err != nil {
 		return err
@@ -97,6 +167,37 @@ func requirePrivateLiveInputs(specPath, liveConfigDir, repositoryRoot string) er
 		}
 	}
 	return nil
+}
+
+func validatePrivateWorkspaceRootForRuntime(root string) error {
+	if err := requirePrivateDirectory("private workspace root", root); err != nil {
+		return err
+	}
+	marker := filepath.Join(root, privateOutputRootMarker)
+	if err := requireOwnerOnly("private workspace marker", marker, false); err != nil {
+		return err
+	}
+	data, err := safepath.ReadFileWithinLimit(root, marker, int64(len(privateOutputRootMarkerContents)))
+	if err != nil || string(data) != privateOutputRootMarkerContents {
+		return fmt.Errorf("private workspace marker is invalid")
+	}
+	return nil
+}
+
+func privateRuntimePathAllowed(privateWorkspaceRoot, target string) bool {
+	if privateWorkspaceRoot == "" || validatePrivateWorkspaceRootForRuntime(privateWorkspaceRoot) != nil {
+		return false
+	}
+	root, err := filepath.EvalSymlinks(privateWorkspaceRoot)
+	if err != nil {
+		return false
+	}
+	target, err = filepath.EvalSymlinks(target)
+	if err != nil {
+		return false
+	}
+	inside, err := pathWithin(filepath.Join(root, ".ephemeral"), target)
+	return err == nil && inside
 }
 
 func requireOwnerOnly(name, path string, directory bool) error {
@@ -173,14 +274,37 @@ func mkdirPrivate(path string) error {
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		return err
 	}
-	return os.Chmod(path, 0o700)
+	return requirePrivateDirectory("private directory", path)
+}
+
+func mkdirPrivateWithin(root, path string) error {
+	if _, err := safepath.StatWithin(root, path); err == nil {
+		return fmt.Errorf("private run directory already exists")
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := safepath.MkdirAllWithin(root, path, 0o700); err != nil {
+		return err
+	}
+	return requirePrivateDirectory("private run directory", path)
 }
 
 func writePrivateFile(path string, data []byte) error {
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	return safepath.WriteFileAtomicPrivate(path, data, 0o600)
+}
+
+func requirePrivateDirectory(name, path string) error {
+	if err := requireOwnerOnly(name, path, true); err != nil {
 		return err
 	}
-	return os.Chmod(path, 0o600)
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
+		return fmt.Errorf("%s must have mode 0700", name)
+	}
+	return nil
 }
 
 func copyWorkspace(source, target string) error {

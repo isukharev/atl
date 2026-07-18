@@ -41,9 +41,22 @@ const (
 )
 
 var (
-	identifierRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._/-]{0,127}$`)
-	methodRE     = regexp.MustCompile(`^[A-Z][A-Z0-9-]{0,31}$`)
+	identifierRE      = regexp.MustCompile(`^[a-z0-9][a-z0-9._/-]{0,127}$`)
+	pathComponentIDRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
+	methodRE          = regexp.MustCompile(`^[A-Z][A-Z0-9-]{0,31}$`)
 )
+
+// validatePathComponentID is deliberately stricter than identifierRE. Some
+// contract identifiers are namespaces and legitimately contain '/', while a
+// scenario id and run variant become on-disk directory names. Keeping the two
+// vocabularies separate prevents a valid semantic identifier from becoming a
+// path traversal primitive.
+func validatePathComponentID(name, value string) error {
+	if !pathComponentIDRE.MatchString(value) || value == "." || value == ".." || strings.ContainsAny(value, `/\`) {
+		return fmt.Errorf("invalid %s %q", name, value)
+	}
+	return nil
+}
 
 var metricNames = map[string]struct{}{
 	"agent_turns": {}, "tool_calls": {}, "atl_invocations": {}, "interface_invocations": {},
@@ -196,8 +209,8 @@ func (s Scenario) Validate() error {
 	if s.SchemaVersion != ScenarioSchemaVersion {
 		return fmt.Errorf("unsupported scenario schema_version %d", s.SchemaVersion)
 	}
-	if !identifierRE.MatchString(s.ID) {
-		return fmt.Errorf("invalid scenario id %q", s.ID)
+	if err := validatePathComponentID("scenario id", s.ID); err != nil {
+		return err
 	}
 	if !validBenchmarkCategory(s.EffectiveCategory()) {
 		return fmt.Errorf("invalid benchmark category %q", s.Category)

@@ -105,6 +105,18 @@ func TestBenchmarkIdentityCompatibilityDefaultsAndExplicitValues(t *testing.T) {
 	}
 }
 
+func TestScenarioIDRejectsOutputPathTraversal(t *testing.T) {
+	for _, value := range []string{"a/../../escaped", `a\..\escaped`, ".", ".."} {
+		t.Run(value, func(t *testing.T) {
+			scenario := validScenario()
+			scenario.ID = value
+			if err := scenario.Validate(); err == nil {
+				t.Fatal("path-like scenario id passed")
+			}
+		})
+	}
+}
+
 func TestEvaluateSupportsGenericInterfaceInvocationMetric(t *testing.T) {
 	scenario := validScenario()
 	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests"}

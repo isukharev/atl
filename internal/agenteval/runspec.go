@@ -137,8 +137,8 @@ func (s RunSpec) Validate() error {
 	if s.Provider != "claude-code" && s.Provider != "codex" {
 		return fmt.Errorf("provider must be claude-code or codex")
 	}
-	if !identifierRE.MatchString(s.Variant) {
-		return fmt.Errorf("invalid run variant %q", s.Variant)
+	if err := validatePathComponentID("run variant", s.Variant); err != nil {
+		return err
 	}
 	if !validBenchmarkCategory(s.EffectiveCategory()) {
 		return fmt.Errorf("invalid benchmark category %q", s.Category)
