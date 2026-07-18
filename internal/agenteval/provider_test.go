@@ -201,6 +201,19 @@ func TestCodexPrivateCLIInstructionsAreScopedToPrivateCLI(t *testing.T) {
 	if !slices.Contains(command.Args, exactSetting) {
 		t.Fatalf("private CLI command misses exact operational instruction: %v", command.Args)
 	}
+	for _, required := range []string{
+		"This is an evidence task",
+		"use the literal atl executable through the shell tool to retrieve the evidence required for the answer",
+		"minimum necessary invocation or invocations allowed by the reviewed command policy",
+		"Base the answer on the returned evidence",
+		"a no-tool answer or an answer based on assumptions is invalid",
+		"Never use apply_patch, Edit, Write",
+		"return the failure through the required response schema",
+	} {
+		if !strings.Contains(codexPrivateCLIInstructions, required) {
+			t.Errorf("private CLI operational instruction misses %q: %s", required, codexPrivateCLIInstructions)
+		}
+	}
 	privateMCP := privateSpec
 	privateMCP.Surface = SurfaceATLMCP
 	privateMCP.ToolTransport = "mcp"
@@ -210,9 +223,13 @@ func TestCodexPrivateCLIInstructionsAreScopedToPrivateCLI(t *testing.T) {
 	privateMCP.AllowedGatewayRoutes = nil
 	privateMCP.GatewayMaxResponseBytes = 0
 	privateMCP.GatewayMaxTotalBytes = 0
+	privateClaudeCLI := privateSpec
+	privateClaudeCLI.Provider = "claude-code"
+	privateClaudeCLI.Pricing = Pricing{}
 
 	for name, spec := range map[string]RunSpec{
-		"synthetic-cli": validRunSpec(),
+		"private-claude-cli": privateClaudeCLI,
+		"synthetic-cli":      validRunSpec(),
 		"synthetic-mcp": func() RunSpec {
 			value := validRunSpec()
 			value.ToolTransport = "mcp"

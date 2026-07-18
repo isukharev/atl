@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Private-live Codex CLI benchmark runs now explicitly identify the run as an
+  evidence task, require the minimum necessary reviewed literal `atl` shell
+  invocation, and require the answer to be grounded in returned evidence.
+  No-tool or assumption-only answers are invalid, while failed shim calls must
+  be reported through the response schema without weakening broker-file,
+  patch/edit/write, network, or read-only denials.
+
 - Private agent benchmark plans now require `--agent-binary` to resolve to a
   single-file native executable for the host OS and architecture. Plan and
   execution canonicalize safe symlinks, structurally parse ELF, Mach-O/classic
