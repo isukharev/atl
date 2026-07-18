@@ -229,6 +229,11 @@ task-matching skill, then requires evidence retrieval through the literal
 `atl` executable. This is the intended `cli-skill` surface: the skill teaches
 the command shape, while the reviewed broker still decides whether that exact
 invocation is allowed. The instruction never reveals a case-specific command.
+When the reviewed `data_capabilities` are Jira-only or Confluence-only, the
+instruction names `$jira` or `$confluence` respectively. Mixed capability sets
+name both in a stable order; unknown families stay on generic task matching.
+This route discloses only the already-reviewed service family, not a selector,
+field, expected answer, backend, or command allowlist.
 Codex runs install and hash `plugins/atl/skills/`, including its Codex routing
 metadata; Claude Code runs continue to use the generated root `skills/` tree.
 Both trees are copied into the immutable execution snapshot before the plan is

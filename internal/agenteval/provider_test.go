@@ -170,7 +170,7 @@ func TestBuildPrivateCLIProviderCommandsEnforceHooksAndCodexCommandBroker(t *tes
 			for _, value := range []string{
 				"--ignore-rules", "--dangerously-bypass-hook-trust",
 				`approval_policy="never"`, `web_search="disabled"`,
-				`developer_instructions=` + strconv.Quote(codexPrivateCLIInstructions),
+				`developer_instructions=` + strconv.Quote(codexPrivateCLIInstructions(spec)),
 				`default_permissions="atl_agent_eval"`, `permissions.atl_agent_eval.extends=":workspace"`,
 				`permissions.atl_agent_eval.filesystem={"/private/requests"="write","/private/responses"="read"}`,
 				"hooks.PreToolUse=", "/opt/guard", `"SHELL"`, `"ATL_EVAL_CLI_POLICY_FILE"`, `"ATL_EVAL_GUARD_MODE"`,
@@ -205,6 +205,7 @@ func TestCodexPrivateCLIInstructionsAreScopedToPrivateCLI(t *testing.T) {
 	privateSpec.FixtureFile = ""
 	privateSpec.Repetitions = 1
 	privateSpec.Provider = "codex"
+	privateSpec.Category = BenchmarkCategoryNeutralCommon
 	privateSpec.ToolTransport = "cli"
 	privateSpec.AllowedTools = []string{"Bash(atl *)", "Read", "Skill"}
 	privateSpec.AllowedATLCommands = nil
@@ -212,18 +213,20 @@ func TestCodexPrivateCLIInstructionsAreScopedToPrivateCLI(t *testing.T) {
 	privateSpec.AllowedGatewayRoutes = map[string][]LiveGatewayRoute{"jira": {{Name: "jira_api", PathPrefix: "/rest/api/2"}}}
 	privateSpec.GatewayMaxResponseBytes = 1 << 20
 	privateSpec.GatewayMaxTotalBytes = 2 << 20
+	privateSpec.DataCapabilities = []string{"jira.epic.digest"}
 	confinement := ProviderConfinement{RequestDirectory: "/private/requests", ResponseDirectory: "/private/responses"}
 	command, err := BuildProviderCommand(privateSpec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", confinement, []byte(`{"type":"object"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	exactSetting := `developer_instructions=` + strconv.Quote(codexPrivateCLIInstructions)
+	instructions := codexPrivateCLIInstructions(privateSpec)
+	exactSetting := `developer_instructions=` + strconv.Quote(instructions)
 	if !slices.Contains(command.Args, exactSetting) {
 		t.Fatalf("private CLI command misses exact operational instruction: %v", command.Args)
 	}
 	for _, required := range []string{
 		"This is an evidence task",
-		"first select and follow the installed task-matching skill",
+		"select and follow the installed $jira skill implied by the reviewed data capabilities",
 		"use the literal atl executable through the shell tool to retrieve the evidence required for the answer",
 		"minimum necessary invocation or invocations allowed by the reviewed command policy",
 		"Base the answer on the returned evidence",
@@ -231,12 +234,14 @@ func TestCodexPrivateCLIInstructionsAreScopedToPrivateCLI(t *testing.T) {
 		"Never use apply_patch, Edit, Write",
 		"return the failure through the required response schema",
 	} {
-		if !strings.Contains(codexPrivateCLIInstructions, required) {
-			t.Errorf("private CLI operational instruction misses %q: %s", required, codexPrivateCLIInstructions)
+		if !strings.Contains(instructions, required) {
+			t.Errorf("private CLI operational instruction misses %q: %s", required, instructions)
 		}
 	}
 	privateMCP := privateSpec
 	privateMCP.Surface = SurfaceATLMCP
+	privateMCP.Category = ""
+	privateMCP.DataCapabilities = nil
 	privateMCP.ToolTransport = "mcp"
 	privateMCP.AllowedTools = nil
 	privateMCP.AllowedCLICommands = nil
@@ -270,6 +275,27 @@ func TestCodexPrivateCLIInstructionsAreScopedToPrivateCLI(t *testing.T) {
 				if strings.HasPrefix(arg, "developer_instructions=") {
 					t.Fatalf("non-private-CLI command received private operational instruction: %v", built.Args)
 				}
+			}
+		})
+	}
+}
+
+func TestCodexPrivateCLISkillRouteUsesOnlyReviewedCapabilityFamilies(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		capabilities []string
+		expected     string
+	}{
+		{name: "generic", capabilities: nil, expected: "select and follow the installed task-matching skill"},
+		{name: "unknown", capabilities: []string{"knowledge.search"}, expected: "select and follow the installed task-matching skill"},
+		{name: "lookalike-prefixes", capabilities: []string{"confluence2.page", "jira-extra.issue", "jirassic.issue"}, expected: "select and follow the installed task-matching skill"},
+		{name: "jira", capabilities: []string{"jira.issue.field"}, expected: "select and follow the installed $jira skill implied by the reviewed data capabilities"},
+		{name: "confluence", capabilities: []string{"confluence.page.section"}, expected: "select and follow the installed $confluence skill implied by the reviewed data capabilities"},
+		{name: "mixed-deduplicated", capabilities: []string{"confluence.page", "jira.issue", "JIRA.ISSUE.FIELD", "other"}, expected: "select and follow the installed $jira and $confluence skills implied by the reviewed data capabilities"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if actual := codexPrivateCLISkillRoute(test.capabilities); actual != test.expected {
+				t.Fatalf("route=%q want=%q", actual, test.expected)
 			}
 		})
 	}
