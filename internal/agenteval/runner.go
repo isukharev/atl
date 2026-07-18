@@ -692,6 +692,12 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 				return Result{}, err
 			}
 			httpGuardPath = filepath.Join(evalDir, "http-methods.jsonl")
+			// Create the audit channel before starting the MCP server. The guarded
+			// transport appends before forwarding any request, so an empty file is
+			// durable evidence that the configured route observed zero requests.
+			if err := writePrivateFile(httpGuardPath, nil); err != nil {
+				return Result{}, err
+			}
 			backendEnvironment["ATL_EVAL_HTTP_GUARD_FILE"] = httpGuardPath
 		}
 	}
@@ -1256,7 +1262,10 @@ func readLiveHTTPRecords(path string) (map[string]int, int, bool, error) {
 		records++
 	}
 	if records == 0 {
-		return methods, 0, false, nil
+		// An existing, successfully parsed empty audit proves that the guarded
+		// transport forwarded zero requests. Only a missing audit means that HTTP
+		// behavior was not observed.
+		return methods, 0, true, nil
 	}
 	duplicates := 0
 	for _, count := range identities {
@@ -1328,7 +1337,9 @@ func readLiveGatewayRecords(path string) (map[string]int, int, bool, error) {
 		}
 	}
 	if allowed == 0 {
-		return methods, 0, false, nil
+		// The gateway creates the audit before provider execution. A present empty
+		// file therefore remains observed evidence of zero forwarded requests.
+		return methods, 0, true, nil
 	}
 	duplicates := 0
 	for _, count := range identities {

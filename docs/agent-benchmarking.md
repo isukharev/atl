@@ -830,6 +830,17 @@ clients, then removes it before forwarding. All business arguments remain
 canonicalized and exact-profile-bound; any other unknown params field fails
 closed.
 
+Codex runs explicitly disable provider-managed Apps, browser/computer,
+image-generation, and remote-plugin features. Those account-side
+tools are outside the reviewed comparison surface and must not be initialized
+merely because the provider account exposes them. CLI runs retain only the
+hook-guarded local shell route; MCP runs retain only the exact configured MCP
+server. A present but empty HTTP audit is recorded as an observed zero-request
+outcome, so a schema-valid answer that skipped evidence becomes a persisted
+failing measurement instead of an infrastructure interruption. A reviewed
+Codex binary that does not recognize one of the pinned feature flags fails
+closed before model or backend access under `--strict-config`.
+
 At the low level, review without invoking the model or backend, then run once.
 New private baselines should use `agent-eval private plan` and `private run`
 instead, so the reviewed bytes and execution remain bound:

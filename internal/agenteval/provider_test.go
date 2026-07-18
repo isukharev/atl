@@ -20,6 +20,16 @@ func TestBuildProviderCommandsAreEphemeralAndReadOnly(t *testing.T) {
 			t.Errorf("Codex command misses %q: %s", value, joined)
 		}
 	}
+	for _, feature := range []string{"apps", "browser_use", "computer_use", "image_generation", "remote_plugin"} {
+		if !containsArgumentPair(codex.Args, "--disable", feature) {
+			t.Errorf("Codex command does not disable provider feature %q: %s", feature, joined)
+		}
+	}
+	for _, feature := range []string{"shell_tool", "unified_exec", "multi_agent", "enable_fanout", "plugins"} {
+		if containsArgumentPair(codex.Args, "--disable", feature) {
+			t.Errorf("Codex command disables reviewed local tool feature %q: %s", feature, joined)
+		}
+	}
 	spec.Provider = "claude-code"
 	spec.Pricing = Pricing{}
 	originalAllowedTools := slices.Clone(spec.AllowedTools)
@@ -293,6 +303,15 @@ func providerArgument(args []string, name string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func containsArgumentPair(args []string, name, value string) bool {
+	for index := 0; index+1 < len(args); index++ {
+		if args[index] == name && args[index+1] == value {
+			return true
+		}
+	}
+	return false
 }
 
 func TestParseProviderOutputs(t *testing.T) {

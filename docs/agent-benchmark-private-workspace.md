@@ -207,6 +207,17 @@ operator's subscription login has expired or requires renewal after a run,
 renew it with the provider CLI; the benchmark does not reconcile credentials
 back into ambient state.
 
+The isolated Codex command also pins unrelated provider-managed tool features
+off. Account-side Apps, browser/computer tools, image generation, and remote
+plugins are not part of a reviewed CLI/MCP comparison. The
+benchmark keeps the local hook-guarded shell for `cli-skill` and only the exact
+configured MCP server for MCP surfaces. If an agent returns a structured answer
+without using the reviewed interface, the surface-specific guarded audit proves
+that zero requests crossed the reviewed backend boundary; the run is retained
+as a measured failure, not discarded as an execution error. The reviewed Codex
+binary must recognize these feature flags; an older incompatible binary fails
+closed before model or backend access under `--strict-config`.
+
 `--agent-binary` must identify a reviewed single-file native executable for the
 host OS and architecture. A symlink is accepted when its canonical target is
 such an executable; scripts, JavaScript/package launchers, malformed binaries,
