@@ -400,12 +400,16 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 		"agent-bytes:"+agent.bytesSHA256,
 		"agent-provenance:"+agent.provenanceSHA256,
 	)
-	pluginDigest, err := digestTree(filepath.Join(pluginRoot, "skills"))
+	pluginManifestPath, pluginSkills, err := providerPluginLayout(pluginRoot, provider)
+	if err != nil {
+		return nil, material, "", "", 0, false, privatePlanError("plugin")
+	}
+	pluginDigest, err := digestTree(pluginSkills)
 	if err != nil {
 		return nil, material, "", "", 0, false, privatePlanError("plugin")
 	}
 	material.inputs = append(material.inputs, "plugin:"+pluginDigest)
-	pluginManifestDigest, err := privateFileDigest(filepath.Join(pluginRoot, ".claude-plugin", "plugin.json"))
+	pluginManifestDigest, err := privateFileDigest(pluginManifestPath)
 	if err != nil {
 		return nil, material, "", "", 0, false, privatePlanError("plugin_manifest")
 	}

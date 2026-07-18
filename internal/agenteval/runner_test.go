@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -81,14 +82,7 @@ func TestRunHeadlessWithFakeProvidersUsesPrivateWrapperAndSyntheticMetrics(t *te
 	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
 
 	pluginRoot := filepath.Join(tempRepository, "plugin")
-	if err := os.MkdirAll(filepath.Join(pluginRoot, ".claude-plugin"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(pluginRoot, "skills", "atl"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	writeTestFile(t, filepath.Join(pluginRoot, ".claude-plugin", "plugin.json"), `{"version":"0.4.0"}`, 0o600)
-	writeTestFile(t, filepath.Join(pluginRoot, "skills", "atl", "SKILL.md"), "---\nname: atl\n---\nSynthetic skill.\n", 0o600)
+	writeTestPluginTrees(t, pluginRoot, "0.4.0", "Synthetic skill.")
 
 	fakeAgent := filepath.Join(tempRepository, "fake-agent")
 	codexContinuity := filepath.Join(tempRepository, "codex-continuity")
@@ -382,14 +376,7 @@ func TestPrivateLiveRunUsesCopiedCredentialsAndObservedReadMethods(t *testing.T)
 	writeTestFile(t, filepath.Join(liveConfig, "config.json"), `{"jira_url":"https://private.invalid"}`, 0o600)
 	writeTestFile(t, filepath.Join(liveConfig, "credentials.json"), `{"jira":"private-test-token"}`, 0o600)
 	pluginRoot := filepath.Join(tempRepository, "plugin")
-	if err := os.MkdirAll(filepath.Join(pluginRoot, ".claude-plugin"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(pluginRoot, "skills", "atl"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	writeTestFile(t, filepath.Join(pluginRoot, ".claude-plugin", "plugin.json"), `{"version":"0.4.0"}`, 0o600)
-	writeTestFile(t, filepath.Join(pluginRoot, "skills", "atl", "SKILL.md"), "---\nname: atl\n---\nPrivate live skill.\n", 0o600)
+	writeTestPluginTrees(t, pluginRoot, "0.4.0", "Private live skill.")
 	fakeAgent := filepath.Join(tempRepository, "fake-agent")
 	writeTestFile(t, fakeAgent, `#!/bin/sh
 if [ "$1" = "--version" ]; then echo fake-agent-1; exit 0; fi
@@ -518,14 +505,7 @@ func TestPrivateLiveCLIProvidersUseGatewayWithoutSourceCredentials(t *testing.T)
 	writeTestFile(t, filepath.Join(liveConfig, "config.json"), `{"jira_url":`+quotedJSON(t, upstream.URL+"/jira")+`}`, 0o600)
 	writeTestFile(t, filepath.Join(liveConfig, "credentials.json"), `{"jira":"upstream-secret"}`, 0o600)
 	pluginRoot := filepath.Join(tempRepository, "plugin")
-	if err := os.MkdirAll(filepath.Join(pluginRoot, ".claude-plugin"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(pluginRoot, "skills", "atl"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	writeTestFile(t, filepath.Join(pluginRoot, ".claude-plugin", "plugin.json"), `{"version":"0.4.0"}`, 0o600)
-	writeTestFile(t, filepath.Join(pluginRoot, "skills", "atl", "SKILL.md"), "---\nname: atl\n---\nUse read-only atl commands.\n", 0o600)
+	writeTestPluginTrees(t, pluginRoot, "0.4.0", "Use read-only atl commands.")
 	fakeAgent := filepath.Join(tempRepository, "fake-agent")
 	runtimeCapture := filepath.Join(tempRepository, "codex-runtime-capture")
 	fakeAgentScript := `#!/bin/sh
@@ -544,6 +524,7 @@ check_runtime() {
   printf '%s|%s\n' "$HOME" "$CODEX_HOME" >>"__RUNTIME_CAPTURE__"
 }
 if [ "$1" = "--version" ]; then echo fake-agent-1; exit 0; fi
+if [ "$1" != "-p" ]; then [ -f "$PWD/.agents/skills/atl/agents/openai.yaml" ] || exit 50; fi
 if [ "$1" = "sandbox" ]; then
   check_runtime
   for last do :; done
@@ -849,11 +830,73 @@ func TestReadLiveHTTPRecordsDistinguishesEmptyFromMissingAudit(t *testing.T) {
 	}
 }
 
+func TestPluginIdentityUsesProviderSpecificSkillTree(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "plugin")
+	writeTestPluginTrees(t, root, "0.4.0", "Provider-specific skill.")
+
+	claudeVersion, claudeDigest, err := pluginIdentity(root, "claude-code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	codexVersion, codexDigest, err := pluginIdentity(root, "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claudeVersion != "0.4.0" || codexVersion != "0.4.0" {
+		t.Fatalf("versions claude=%q codex=%q", claudeVersion, codexVersion)
+	}
+	if claudeDigest == codexDigest {
+		t.Fatal("provider-specific skill trees unexpectedly have the same digest")
+	}
+
+	writeTestFile(t, filepath.Join(root, "plugins", "atl", "skills", "atl", "SKILL.md"), "---\nname: atl\n---\nChanged Codex skill.\n", 0o600)
+	_, unchangedClaudeDigest, err := pluginIdentity(root, "claude-code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, changedCodexDigest, err := pluginIdentity(root, "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchangedClaudeDigest != claudeDigest || changedCodexDigest == codexDigest {
+		t.Fatalf("digests claude=%q/%q codex=%q/%q", claudeDigest, unchangedClaudeDigest, codexDigest, changedCodexDigest)
+	}
+	if err := os.RemoveAll(filepath.Join(root, "plugins", "atl")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := pluginIdentity(root, "codex"); err == nil {
+		t.Fatal("missing Codex plugin tree unexpectedly fell back to another provider tree")
+	}
+	if _, _, err := pluginIdentity(root, "claude-code"); err != nil {
+		t.Fatalf("removing Codex tree changed Claude identity: %v", err)
+	}
+}
+
 func writeTestFile(t *testing.T, path, content string, mode os.FileMode) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), mode); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writeTestPluginTrees(t *testing.T, root, version, body string) {
+	t.Helper()
+	for _, relative := range []string{
+		filepath.Join(".claude-plugin"),
+		filepath.Join("skills", "atl"),
+		filepath.Join("plugins", "atl", ".codex-plugin"),
+		filepath.Join("plugins", "atl", "skills", "atl", "agents"),
+	} {
+		if err := os.MkdirAll(filepath.Join(root, relative), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest := `{"version":` + strconv.Quote(version) + `}`
+	writeTestFile(t, filepath.Join(root, ".claude-plugin", "plugin.json"), manifest, 0o600)
+	writeTestFile(t, filepath.Join(root, "plugins", "atl", ".codex-plugin", "plugin.json"), manifest, 0o600)
+	writeTestFile(t, filepath.Join(root, "skills", "atl", "SKILL.md"), "---\nname: atl\n---\nClaude "+body+"\n", 0o600)
+	writeTestFile(t, filepath.Join(root, "plugins", "atl", "skills", "atl", "SKILL.md"), "---\nname: atl\n---\nCodex "+body+"\n", 0o600)
+	writeTestFile(t, filepath.Join(root, "plugins", "atl", "skills", "atl", "agents", "openai.yaml"), "policy:\n  allow_implicit_invocation: true\n", 0o600)
 }
 
 func writeJSONTestFile(t *testing.T, path string, value any) {

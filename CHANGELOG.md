@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Private-live Codex `cli-skill` evaluations now explicitly select and follow
+  the installed task-matching skill before invoking `atl`. This exercises the
+  intended skill-plus-CLI surface without revealing the reviewed command policy
+  or expanding shell, filesystem, network, or backend authority. Agent-eval now
+  also hashes and installs the Codex-specific generated skill tree (including
+  its routing metadata) instead of substituting the Claude Code tree.
+
 - Private-live Codex `cli-skill` benchmarks now explicitly enable the reviewed
   local shell/unified execution features and use a fixed `/bin/sh` inside the
   isolated provider capsule instead of relying on feature defaults or the
