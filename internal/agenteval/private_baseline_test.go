@@ -715,6 +715,11 @@ func newPrivateBaselineFixture(t *testing.T, retention int) privateBaselineFixtu
 	if _, err := InitPrivateWorkspace(root, repository, manifest); err != nil {
 		t.Fatal(err)
 	}
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root = canonicalRoot
 	planID := "pln-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	runID := "run-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	planPath := filepath.Join(root, "plans", planID+".json")
