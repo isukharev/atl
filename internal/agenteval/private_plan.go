@@ -146,7 +146,7 @@ func CreatePrivatePlan(ctx context.Context, options PrivatePlanCreateOptions) (P
 	}
 	items, material, provider, model, maxCost, external, err := buildPrivatePlanMaterial(ctx, root, options.RepositoryRoot, "", runSet,
 		options.ATLBinary, options.PluginRoot, options.AgentBinary, options.WrapperExecutable,
-		os.Getenv(manifest.LiveConfigEnv), os.Getenv(manifest.ExternalMCPProfileEnv))
+		os.Getenv(manifest.LiveConfigEnv), os.Getenv(manifest.ExternalMCPProfileEnv), "")
 	if err != nil {
 		return PrivatePlanPreview{}, err
 	}
@@ -225,7 +225,7 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 	liveConfig := os.Getenv(manifest.LiveConfigEnv)
 	externalProfile := os.Getenv(manifest.ExternalMCPProfileEnv)
 	items, material, _, _, _, _, err := buildPrivatePlanMaterial(ctx, root, options.RepositoryRoot, "", runSet,
-		options.ATLBinary, options.PluginRoot, options.AgentBinary, options.WrapperExecutable, liveConfig, externalProfile)
+		options.ATLBinary, options.PluginRoot, options.AgentBinary, options.WrapperExecutable, liveConfig, externalProfile, "")
 	if err != nil {
 		return PrivatePlanExecutionSummary{}, err
 	}
@@ -237,13 +237,13 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 		return PrivatePlanExecutionSummary{}, privatePlanError("id")
 	}
 	runRoot := filepath.Join(root, "runs", runID)
-	snapshot, err := createPrivateExecutionSnapshot(root, runID, options, runSet, liveConfig, externalProfile)
+	snapshot, err := createPrivateExecutionSnapshot(root, runID, options, runSet, liveConfig, externalProfile, material.agent)
 	if err != nil {
 		return PrivatePlanExecutionSummary{}, privatePlanError("execution_snapshot")
 	}
 	defer func() { _ = removePrivateTree(root, snapshot.root) }()
 	snapshotItems, snapshotMaterial, _, _, _, _, err := buildPrivatePlanMaterial(ctx, snapshot.root, options.RepositoryRoot, root, runSet,
-		snapshot.atlBinary, snapshot.pluginRoot, snapshot.agentBinary, snapshot.wrapperExecutable, snapshot.liveConfig, snapshot.externalProfile)
+		snapshot.atlBinary, snapshot.pluginRoot, snapshot.agentBinary, snapshot.wrapperExecutable, snapshot.liveConfig, snapshot.externalProfile, snapshot.agentProvenanceSHA256)
 	if err != nil || !privatePlanMaterialMatches(plan, snapshotItems, snapshotMaterial) {
 		return PrivatePlanExecutionSummary{}, privatePlanError("execution_snapshot")
 	}
@@ -262,12 +262,12 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 	var total int64
 	for _, item := range plan.Items {
 		currentItems, currentMaterial, _, _, _, _, materialErr := buildPrivatePlanMaterial(ctx, root, options.RepositoryRoot, "", runSet,
-			options.ATLBinary, options.PluginRoot, options.AgentBinary, options.WrapperExecutable, liveConfig, externalProfile)
+			options.ATLBinary, options.PluginRoot, options.AgentBinary, options.WrapperExecutable, liveConfig, externalProfile, "")
 		if materialErr != nil || !privatePlanMaterialMatches(plan, currentItems, currentMaterial) {
 			return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), len(state.CompletedSurfaces), total), privatePlanError("input_drift")
 		}
 		snapshotItems, snapshotMaterial, _, _, _, _, snapshotErr := buildPrivatePlanMaterial(ctx, snapshot.root, options.RepositoryRoot, root, runSet,
-			snapshot.atlBinary, snapshot.pluginRoot, snapshot.agentBinary, snapshot.wrapperExecutable, snapshot.liveConfig, snapshot.externalProfile)
+			snapshot.atlBinary, snapshot.pluginRoot, snapshot.agentBinary, snapshot.wrapperExecutable, snapshot.liveConfig, snapshot.externalProfile, snapshot.agentProvenanceSHA256)
 		if snapshotErr != nil || !privatePlanMaterialMatches(plan, snapshotItems, snapshotMaterial) {
 			return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), len(state.CompletedSurfaces), total), privatePlanError("snapshot_drift")
 		}
@@ -278,7 +278,8 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 		}
 		output, runErr := RunHeadless(ctx, RunOptions{SpecPath: specPath, OutputRoot: filepath.Join(runRoot, "raw"), RepositoryRoot: options.RepositoryRoot,
 			AgentBinary: snapshot.agentBinary, ATLBinary: snapshot.atlBinary, PluginRoot: snapshot.pluginRoot, WrapperExecutable: snapshot.wrapperExecutable,
-			LiveConfigDir: snapshot.liveConfig, ExternalMCPProfile: itemExternalProfile, ScratchRoot: filepath.Join(root, ".ephemeral"), PrivateWorkspaceRoot: root})
+			LiveConfigDir: snapshot.liveConfig, ExternalMCPProfile: itemExternalProfile, ScratchRoot: filepath.Join(root, ".ephemeral"), PrivateWorkspaceRoot: root,
+			qualifiedAgentVersion: snapshot.agentIdentity})
 		if modeErr := normalizePrivateCandidateTree(root, runRoot); modeErr != nil {
 			return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), len(state.CompletedSurfaces), total), privatePlanError("run_modes")
 		}
@@ -303,10 +304,13 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 	return privatePlanSummary(plan.PlanID, runID, "completed", privatePlanSurfaces(plan.Items), len(plan.Items), total), nil
 }
 
-type privatePlanMaterial struct{ contract, inputs []string }
+type privatePlanMaterial struct {
+	contract, inputs []string
+	agent            privateAgentBinaryContract
+}
 
-func buildPrivatePlanMaterial(ctx context.Context, root, repository, trustedWorkspaceRoot string, runSet PrivateWorkspaceRunSet,
-	atlBinary, pluginRoot, agentBinary, wrapper, liveConfig, externalProfile string,
+func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorkspaceRoot string, runSet PrivateWorkspaceRunSet,
+	atlBinary, pluginRoot, agentBinary, wrapper, liveConfig, externalProfile, agentProvenanceSHA256 string,
 ) ([]privatePlanItem, privatePlanMaterial, string, string, int64, bool, error) {
 	paths := make([]string, 0, len(runSet.SpecPaths))
 	items := make([]privatePlanItem, 0, len(paths))
@@ -360,7 +364,6 @@ func buildPrivatePlanMaterial(ctx context.Context, root, repository, trustedWork
 	}
 	for _, executable := range []struct{ name, path string }{
 		{name: "atl", path: atlBinary},
-		{name: "agent", path: agentBinary},
 		{name: "wrapper", path: wrapper},
 	} {
 		d, err := privateFileDigest(executable.path)
@@ -369,6 +372,15 @@ func buildPrivatePlanMaterial(ctx context.Context, root, repository, trustedWork
 		}
 		material.inputs = append(material.inputs, executable.name+":"+d)
 	}
+	agent, _, err := inspectPrivateAgentBinary(agentBinary, agentProvenanceSHA256)
+	if err != nil {
+		return nil, material, "", "", 0, false, err
+	}
+	material.agent = agent
+	material.inputs = append(material.inputs,
+		"agent-bytes:"+agent.bytesSHA256,
+		"agent-provenance:"+agent.provenanceSHA256,
+	)
 	pluginDigest, err := digestTree(filepath.Join(pluginRoot, "skills"))
 	if err != nil {
 		return nil, material, "", "", 0, false, privatePlanError("plugin")
@@ -389,7 +401,6 @@ func buildPrivatePlanMaterial(ctx context.Context, root, repository, trustedWork
 		return nil, material, "", "", 0, false, privatePlanError("repository")
 	}
 	material.inputs = append(material.inputs, "commit:"+commit, fmt.Sprintf("dirty:%t", dirty))
-	_ = ctx
 	return items, material, provider, model, maxCost, external, nil
 }
 

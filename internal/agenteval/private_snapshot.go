@@ -12,9 +12,11 @@ import (
 type privateExecutionSnapshot struct {
 	root, atlBinary, pluginRoot, agentBinary, wrapperExecutable string
 	liveConfig, externalProfile                                 string
+	agentProvenanceSHA256                                       string
+	agentIdentity                                               string
 }
 
-func createPrivateExecutionSnapshot(root, runID string, options PrivatePlanExecuteOptions, runSet PrivateWorkspaceRunSet, liveConfig, externalProfile string) (privateExecutionSnapshot, error) {
+func createPrivateExecutionSnapshot(root, runID string, options PrivatePlanExecuteOptions, runSet PrivateWorkspaceRunSet, liveConfig, externalProfile string, reviewedAgent privateAgentBinaryContract) (privateExecutionSnapshot, error) {
 	if !privateRunIDRE.MatchString(runID) {
 		return privateExecutionSnapshot{}, privatePlanError("snapshot_id")
 	}
@@ -66,7 +68,6 @@ func createPrivateExecutionSnapshot(root, runID string, options PrivatePlanExecu
 		destination *string
 	}{
 		{name: "atl", source: options.ATLBinary, destination: &snapshot.atlBinary},
-		{name: "agent", source: options.AgentBinary, destination: &snapshot.agentBinary},
 		{name: "wrapper", source: options.WrapperExecutable, destination: &snapshot.wrapperExecutable},
 	} {
 		*executable.destination = filepath.Join(binRoot, executable.name)
@@ -74,11 +75,38 @@ func createPrivateExecutionSnapshot(root, runID string, options PrivatePlanExecu
 			return privateExecutionSnapshot{}, err
 		}
 	}
+	snapshot.agentBinary = filepath.Join(binRoot, privateAgentSnapshotName(reviewedAgent.canonicalPath))
+	if err := copyReviewedPrivateAgent(root, snapshot.root, reviewedAgent, snapshot.agentBinary); err != nil {
+		return privateExecutionSnapshot{}, err
+	}
+	snapshotAgent, _, err := inspectPrivateAgentBinary(snapshot.agentBinary, reviewedAgent.provenanceSHA256)
+	if err != nil || snapshotAgent.bytesSHA256 != reviewedAgent.bytesSHA256 || snapshotAgent.identity != reviewedAgent.identity {
+		return privateExecutionSnapshot{}, privatePlanError("agent_binary_snapshot")
+	}
+	snapshot.agentProvenanceSHA256 = reviewedAgent.provenanceSHA256
+	snapshot.agentIdentity = reviewedAgent.identity
 	if err := normalizePrivateSnapshotTree(snapshot.root); err != nil {
 		return privateExecutionSnapshot{}, err
 	}
 	failed = false
 	return snapshot, nil
+}
+
+func copyReviewedPrivateAgent(root, snapshotRoot string, reviewed privateAgentBinaryContract, destination string) error {
+	if reviewed.canonicalPath == "" || !validSHA256(reviewed.bytesSHA256) || !validSHA256(reviewed.provenanceSHA256) || reviewed.identity != "binary-sha256:"+reviewed.bytesSHA256 {
+		return privatePlanError("agent_binary_snapshot")
+	}
+	data, err := readBoundedFile(reviewed.canonicalPath, privateAgentBinaryMaxBytes)
+	if err != nil || sha256HexBytes(data) != reviewed.bytesSHA256 {
+		return privatePlanError("agent_binary_drift")
+	}
+	if !privatePathWithin(root, snapshotRoot, destination) {
+		return privatePlanError("agent_binary_snapshot")
+	}
+	if err := writePrivateAgentCopy(destination, data); err != nil {
+		return privatePlanError("agent_binary_snapshot")
+	}
+	return nil
 }
 
 func copyPrivateSelectedCases(root, snapshotRoot string, specPaths []string) error {

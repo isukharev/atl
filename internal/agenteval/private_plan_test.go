@@ -76,8 +76,10 @@ func TestCreatePrivatePlanRequiresBoundedConsentAndReturnsSafePreview(t *testing
 	if !bytes.Equal([]byte(preview.PlanSHA256), []byte(sha256HexBytes(planData))) {
 		t.Fatal("preview hash does not bind the exact stored plan")
 	}
-	if bytes.Contains(planData, []byte(privatePlanTestSecret)) || bytes.Contains(planData, []byte(fixture.liveConfig)) {
-		t.Fatal("stored plan retained private input content or a live-config path")
+	for _, forbidden := range []string{privatePlanTestSecret, fixture.liveConfig, fixture.agent, "fake-agent-1"} {
+		if bytes.Contains(planData, []byte(forbidden)) {
+			t.Fatalf("stored plan retained private input, executable path, or version output %q", forbidden)
+		}
 	}
 }
 
@@ -576,28 +578,32 @@ func newPrivatePlanTestFixture(t *testing.T, includeCLI, failAgent bool) private
 	}
 	agent := filepath.Join(binRoot, "fake-agent")
 	mutationControl := filepath.Join(binRoot, "mutation-control")
-	agentBody := "#!/bin/sh\n"
-	agentBody += "if [ \"$1\" = \"--version\" ]; then printf '%s\\n' 'fake-agent-1'; exit 0; fi\n"
-	agentBody += fmt.Sprintf("printf '%%s\\n' x >>%q\n", agent+".calls")
-	mutationHook := fmt.Sprintf("if [ -f %q ]; then IFS= read -r target <%q; if [ \"$target\" = SNAPSHOT ]; then target=\"${0%%/*}/../plugin/skills/atl/SKILL.md\"; fi; printf '%%s\\n' changed >>\"$target\"; fi\n", mutationControl, mutationControl)
-	if failAgent {
-		agentBody += "exit 41\n"
-	} else {
-		agentBody += `
-if [ -z "$ATL_EVAL_HTTP_GUARD_FILE" ]; then exit 42; fi
-printf '%s\n' '{"method":"GET","request_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' >"$ATL_EVAL_HTTP_GUARD_FILE"
-final=""
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = "--output-last-message" ]; then final="$2"; shift 2; continue; fi
-  shift
-done
-printf '%s\n' '{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}'
-printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
-printf '%s\n' '{"complete":true}' >"$final"
-`
-		agentBody += mutationHook
+	agentSource := filepath.Join(binRoot, "fake-agent.go")
+	agentProgram := fmt.Sprintf(`package main
+import ("fmt"; "os"; "os/exec"; "path/filepath"; "strings")
+const calls = %q
+const mutationControl = %q
+const fail = %t
+func appendFile(path, value string) { f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600); if err != nil { os.Exit(90) }; _, _ = f.WriteString(value); _ = f.Close() }
+func main() {
+  if len(os.Args) > 1 && os.Args[1] == "--version" { appendFile(calls+".version", "x\n"); fmt.Println("fake-agent-1"); return }
+  if len(os.Args) > 2 && os.Args[1] == "sandbox" { command := exec.Command(os.Args[len(os.Args)-1]); command.Stdout = os.Stdout; command.Stderr = os.Stderr; command.Env = os.Environ(); if err := command.Run(); err != nil { os.Exit(43) }; return }
+  appendFile(calls, "x\n")
+  if fail { os.Exit(41) }
+  guard := os.Getenv("ATL_EVAL_HTTP_GUARD_FILE"); if guard == "" { os.Exit(42) }
+  _ = os.WriteFile(guard, []byte("{\"method\":\"GET\",\"request_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}\n"), 0600)
+  final := ""; for index := 1; index < len(os.Args); index++ { if os.Args[index] == "--output-last-message" && index+1 < len(os.Args) { final = os.Args[index+1]; index++ } }
+  fmt.Println("{\"type\":\"item.completed\",\"item\":{\"type\":\"mcp_tool_call\",\"server\":\"atl\",\"tool\":\"jira_fields\",\"status\":\"completed\",\"result\":{\"fields\":[]}}}")
+  fmt.Println("{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":100,\"output_tokens\":20}}")
+  _ = os.WriteFile(final, []byte("{\"complete\":true}\n"), 0600)
+  if data, err := os.ReadFile(mutationControl); err == nil { target := strings.TrimSpace(string(data)); if target == "SNAPSHOT" { target = filepath.Join(filepath.Dir(os.Args[0]), "..", "plugin", "skills", "atl", "SKILL.md") }; appendFile(target, "changed\n") }
+}
+`, agent+".calls", mutationControl, failAgent)
+	writeTestFile(t, agentSource, agentProgram, 0o600)
+	buildAgent := exec.Command("go", "build", "-buildvcs=false", "-o", agent, agentSource)
+	if output, err := buildAgent.CombinedOutput(); err != nil {
+		t.Fatalf("build native agent fixture: %v: %s", err, output)
 	}
-	writeTestFile(t, agent, agentBody, 0o700)
 	atl := filepath.Join(binRoot, "fake-atl")
 	writeTestFile(t, atl, "#!/bin/sh\n"+fmt.Sprintf("printf '%%s\\n' x >>%q\n", atl+".calls")+`if [ "$1" = "version" ]; then printf '%s\n' '{"version":"test","commit":"synthetic","build_state":"clean"}'; exit 0; fi
 exit 2

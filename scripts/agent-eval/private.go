@@ -69,7 +69,7 @@ func runPrivateCommand(args []string, out io.Writer) error {
 		flags.StringVar(&runSet, "run-set", "", "generic private run-set alias")
 		flags.StringVar(&atlBinary, "atl-binary", "", "atl executable")
 		flags.StringVar(&pluginRoot, "plugin-root", ".", "plugin root")
-		flags.StringVar(&agentBinary, "agent-binary", "", "Claude Code or Codex executable")
+		flags.StringVar(&agentBinary, "agent-binary", "", "reviewed single-file native Claude Code or Codex executable")
 		flags.StringVar(&expiresAt, "consent-expires", "", "RFC3339 consent expiry")
 		flags.StringVar(&confirm, "confirm", "", "must be CONSENT")
 		flags.BoolVar(&approveProvider, "approve-provider-data", false, "approve reviewed evidence delivery to the provider")
@@ -98,7 +98,7 @@ func runPrivateCommand(args []string, out io.Writer) error {
 		flags.StringVar(&expected, "expected-plan-sha256", "", "reviewed plan digest")
 		flags.StringVar(&atlBinary, "atl-binary", "", "atl executable")
 		flags.StringVar(&pluginRoot, "plugin-root", ".", "plugin root")
-		flags.StringVar(&agentBinary, "agent-binary", "", "agent executable")
+		flags.StringVar(&agentBinary, "agent-binary", "", "reviewed single-file native agent executable")
 		flags.StringVar(&confirm, "confirm", "", "must be RUN")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
