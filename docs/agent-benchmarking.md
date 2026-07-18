@@ -969,14 +969,18 @@ Ambient global/repository `AGENTS.md` instructions are disabled for the run;
 only the reviewed prompt and copied shipped skills define the task workflow.
 
 Private-live Codex CLI runs also receive a provider-scoped operational
-instruction to invoke only the literal `atl` executable through the shell
-tool. Direct `apply_patch`, edit, write, or filesystem access to broker
-manifests and request/response files remains denied by `PreToolUse`. In
-particular, an ad-hoc JSON file proposed after a failed shell command is not a
-broker request and is never an alternate execution path. The authenticated
-shim protocol and the parent-side broker remain the only supported route; a
-shim failure must be reported rather than bypassed. This instruction does not
-alter the shared user prompt, task, response schema, or comparison contract.
+instruction that identifies the run as an evidence task. Before answering, the
+agent must use the minimum necessary invocation or invocations of the reviewed
+literal `atl` shell interface, and the answer must be grounded in the returned
+evidence. A no-tool or assumption-only answer is invalid for this benchmark.
+Direct `apply_patch`, edit, write, or filesystem access to broker manifests and
+request/response files remains denied by `PreToolUse`. In particular, an ad-hoc
+JSON file proposed after a failed shell command is not a broker request and is
+never an alternate execution path. The authenticated shim protocol and the
+parent-side broker remain the only supported route; a shim failure must be
+reported through the response schema rather than bypassed. This instruction
+does not alter the shared user prompt, task, response schema, or comparison
+contract.
 
 Run `--dry-run` first, inspect the provider plan and local private spec, then
 remove that flag for the single supervised execution. Use the same task,
