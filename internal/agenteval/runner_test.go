@@ -540,6 +540,7 @@ check_runtime() {
   [ ! -e "$CODEX_HOME/skills" ] || exit 46
   [ "$HOME" != "__AMBIENT_HOME__" ] || exit 47
   [ "$CODEX_HOME" != "__AMBIENT_CODEX_HOME__" ] || exit 48
+  [ "$SHELL" = "/bin/sh" ] || exit 49
   printf '%s|%s\n' "$HOME" "$CODEX_HOME" >>"__RUNTIME_CAPTURE__"
 }
 if [ "$1" = "--version" ]; then echo fake-agent-1; exit 0; fi
