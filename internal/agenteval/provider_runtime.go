@@ -16,6 +16,8 @@ import (
 
 const codexAuthMaxBytes = 4 << 20
 
+const codexIsolatedShell = "/bin/sh"
+
 // codexAuthSession carries only validated provider authentication between
 // otherwise fresh runtime capsules. It never writes back to the operator's
 // CODEX_HOME; the benchmark must not mutate ambient provider state.
@@ -149,6 +151,10 @@ func newCodexProviderRuntime(scratchRoot string, session *codexAuthSession) (*pr
 	}
 	capsule.environment["USER"] = "atl-agent-eval"
 	capsule.environment["LOGNAME"] = "atl-agent-eval"
+	// Do not inherit the operator's interactive shell or shell startup state.
+	// Codex still needs one explicit POSIX shell to expose the reviewed local
+	// execution tool used by private CLI benchmarks.
+	capsule.environment["SHELL"] = codexIsolatedShell
 	auth, err := session.authentication()
 	if err != nil {
 		return nil, err

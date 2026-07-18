@@ -93,6 +93,11 @@ func TestBuildCodexMCPCommandIsCredentialIsolatedAndHookGuarded(t *testing.T) {
 			t.Errorf("shell environment exposes %s: %s", secretName, joined)
 		}
 	}
+	for _, feature := range []string{"shell_tool", "unified_exec"} {
+		if containsArgumentPair(command.Args, "--enable", feature) {
+			t.Errorf("typed MCP command exposes private CLI feature %q: %s", feature, joined)
+		}
+	}
 }
 
 func TestBuildClaudeMCPCommandDisablesBuiltinsAndUsesQualifiedAllowlist(t *testing.T) {
@@ -168,11 +173,16 @@ func TestBuildPrivateCLIProviderCommandsEnforceHooksAndCodexCommandBroker(t *tes
 				`developer_instructions=` + strconv.Quote(codexPrivateCLIInstructions),
 				`default_permissions="atl_agent_eval"`, `permissions.atl_agent_eval.extends=":workspace"`,
 				`permissions.atl_agent_eval.filesystem={"/private/requests"="write","/private/responses"="read"}`,
-				"hooks.PreToolUse=", "/opt/guard", `"ATL_EVAL_CLI_POLICY_FILE"`, `"ATL_EVAL_GUARD_MODE"`,
+				"hooks.PreToolUse=", "/opt/guard", `"SHELL"`, `"ATL_EVAL_CLI_POLICY_FILE"`, `"ATL_EVAL_GUARD_MODE"`,
 				`"ATL_EVAL_COMMAND_BROKER_FILE"`, `project_doc_max_bytes=0`,
 			} {
 				if !strings.Contains(joined, value) {
 					t.Errorf("Codex private CLI command misses %q: %s", value, joined)
+				}
+			}
+			for _, feature := range []string{"shell_tool", "unified_exec"} {
+				if !containsArgumentPair(command.Args, "--enable", feature) {
+					t.Errorf("Codex private CLI command does not enable %q: %s", feature, joined)
 				}
 			}
 			for _, forbidden := range []string{`"ATL_JIRA_PAT"`, `"ATL_CONFLUENCE_PAT"`, `"ATL_JIRA_URL"`, `"ATL_CONFLUENCE_URL"`} {

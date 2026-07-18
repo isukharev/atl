@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Private-live Codex `cli-skill` benchmarks now explicitly enable the reviewed
+  local shell/unified execution features and use a fixed `/bin/sh` inside the
+  isolated provider capsule instead of relying on feature defaults or the
+  operator's interactive shell. MCP surfaces do not gain this route, and the
+  existing hook, filesystem profile, command broker, read-only policy, and
+  GET/HEAD gateway remain authoritative.
+
 - Codex agent-evaluation commands now explicitly disable provider-managed Apps,
   browser/computer, image-generation, and remote-plugin features
   outside the reviewed CLI/MCP surface. A present empty HTTP audit now records

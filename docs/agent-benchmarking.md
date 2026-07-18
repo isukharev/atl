@@ -841,6 +841,13 @@ failing measurement instead of an infrastructure interruption. A reviewed
 Codex binary that does not recognize one of the pinned feature flags fails
 closed before model or backend access under `--strict-config`.
 
+The `cli-skill` surface also pins the built-in `shell_tool` and `unified_exec`
+features on and supplies a fixed `/bin/sh` inside the isolated capsule. It does
+not inherit the operator's interactive `SHELL` or startup files. This only makes
+the reviewed local route available: the hook, custom filesystem profile,
+one-command broker policy, read-only environment, and GET/HEAD gateway still
+decide what may execute. MCP surfaces do not enable this CLI-only feature pair.
+
 At the low level, review without invoking the model or backend, then run once.
 New private baselines should use `agent-eval private plan` and `private run`
 instead, so the reviewed bytes and execution remain bound:

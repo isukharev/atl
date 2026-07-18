@@ -56,6 +56,7 @@ func TestCodexProviderRuntimeProjectsOnlyAuthAndConnectionEnvironment(t *testing
 	}
 	ambient := []string{
 		"HOME=" + home, "CODEX_HOME=" + codexHome,
+		"SHELL=/private/ambient-shell",
 		"HTTPS_PROXY=http://proxy.invalid", "SSL_CERT_FILE=/certs/ca.pem", "CODEX_CA_CERTIFICATE=/certs/codex.pem",
 		"ALL_PROXY=socks5://ambient-proxy.invalid",
 		"OPENAI_API_KEY=ambient-secret", "GH_TOKEN=ambient-secret",
@@ -83,6 +84,9 @@ func TestCodexProviderRuntimeProjectsOnlyAuthAndConnectionEnvironment(t *testing
 	}
 	if environment["HTTPS_PROXY"] != "http://proxy.invalid" || environment["SSL_CERT_FILE"] != "/certs/ca.pem" || environment["CODEX_CA_CERTIFICATE"] != "/certs/codex.pem" {
 		t.Fatalf("connection environment=%v", environment)
+	}
+	if environment["SHELL"] != codexIsolatedShell {
+		t.Fatalf("isolated shell=%q", environment["SHELL"])
 	}
 	for _, name := range []string{"OPENAI_API_KEY", "GH_TOKEN", "CLAUDE_CONFIG_DIR", "ALL_PROXY"} {
 		if _, ok := environment[name]; ok {

@@ -218,6 +218,12 @@ as a measured failure, not discarded as an execution error. The reviewed Codex
 binary must recognize these feature flags; an older incompatible binary fails
 closed before model or backend access under `--strict-config`.
 
+For `cli-skill`, the command explicitly enables Codex's local shell/unified
+execution features and the capsule supplies `/bin/sh` as a fixed shell. Ambient
+shell selection and startup state are never projected. The shell remains inside
+the existing hook, filesystem, command-broker, read-only, and GET/HEAD controls;
+MCP surfaces do not opt into these CLI-only feature flags.
+
 `--agent-binary` must identify a reviewed single-file native executable for the
 host OS and architecture. A symlink is accepted when its canonical target is
 such an executable; scripts, JavaScript/package launchers, malformed binaries,

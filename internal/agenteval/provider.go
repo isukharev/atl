@@ -123,7 +123,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 		}
 		if spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli" {
 			sandboxMode = "workspace-write"
-			includeOnly = `["PATH","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS"]`
+			includeOnly = `["PATH","SHELL","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS"]`
 		}
 		args := []string{
 			"exec", "--json", "--ephemeral", "--strict-config",
@@ -139,6 +139,13 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 			args = append(args, "--disable", feature)
 		}
 		privateCLI := spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli"
+		if privateCLI {
+			// Pin the local execution route instead of relying on feature defaults
+			// that may differ between reviewed Codex binaries. Hooks, the custom
+			// filesystem profile, and the command broker remain the authority over
+			// what that shell can do.
+			args = append(args, "--enable", "shell_tool", "--enable", "unified_exec")
+		}
 		if !privateCLI {
 			args = append(args, "--sandbox", sandboxMode)
 		}
