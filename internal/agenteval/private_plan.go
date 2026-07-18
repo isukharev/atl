@@ -188,7 +188,7 @@ func CreatePrivatePlan(ctx context.Context, options PrivatePlanCreateOptions) (P
 		Provider: provider, Model: model, ExpiresAt: options.Consent.ExpiresAt, MaxEstimatedCostMicroUSD: maxCost}, nil
 }
 
-func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) (PrivatePlanExecutionSummary, error) {
+func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) (summary PrivatePlanExecutionSummary, returnErr error) {
 	if options.Confirm != PrivatePlanConfirmation || !privatePlanIDRE.MatchString(options.PlanID) || !validSHA256(options.ExpectedPlanSHA256) {
 		return PrivatePlanExecutionSummary{}, privatePlanError("approval")
 	}
@@ -259,6 +259,19 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 	if err := persistPrivateRunContracts(root, runRoot, snapshot.root, plan.Items); err != nil {
 		return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), 0, 0), privatePlanError("run_contract")
 	}
+	var providerAuthSession *codexAuthSession
+	providerAuthSessionClosed := false
+	if plan.Provider == "codex" {
+		providerAuthSession, err = newCodexAuthSession(os.Environ())
+		if err != nil {
+			return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), 0, 0), err
+		}
+		defer func() {
+			if !providerAuthSessionClosed {
+				returnErr = errors.Join(returnErr, providerAuthSession.Close())
+			}
+		}()
+	}
 	var total int64
 	for _, item := range plan.Items {
 		currentItems, currentMaterial, _, _, _, _, materialErr := buildPrivatePlanMaterial(ctx, root, options.RepositoryRoot, "", runSet,
@@ -279,7 +292,7 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 		output, runErr := RunHeadless(ctx, RunOptions{SpecPath: specPath, OutputRoot: filepath.Join(runRoot, "raw"), RepositoryRoot: options.RepositoryRoot,
 			AgentBinary: snapshot.agentBinary, ATLBinary: snapshot.atlBinary, PluginRoot: snapshot.pluginRoot, WrapperExecutable: snapshot.wrapperExecutable,
 			LiveConfigDir: snapshot.liveConfig, ExternalMCPProfile: itemExternalProfile, ScratchRoot: filepath.Join(root, ".ephemeral"), PrivateWorkspaceRoot: root,
-			qualifiedAgentVersion: snapshot.agentIdentity})
+			qualifiedAgentVersion: snapshot.agentIdentity, providerAuthSession: providerAuthSession})
 		if modeErr := normalizePrivateCandidateTree(root, runRoot); modeErr != nil {
 			return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), len(state.CompletedSurfaces), total), privatePlanError("run_modes")
 		}
@@ -291,6 +304,12 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 		if err := writePrivatePlanState(statePath, state); err != nil {
 			return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), len(state.CompletedSurfaces), total), privatePlanError("state")
 		}
+	}
+	if providerAuthSession != nil {
+		if err := providerAuthSession.Close(); err != nil {
+			return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), len(state.CompletedSurfaces), total), err
+		}
+		providerAuthSessionClosed = true
 	}
 	state.Status = "completed"
 	completedAt := time.Now().UTC()

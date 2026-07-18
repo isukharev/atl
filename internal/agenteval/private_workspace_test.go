@@ -291,30 +291,39 @@ func TestPrivateWorkspaceDoctorNeverEchoesPrivateInputs(t *testing.T) {
 }
 
 func TestPrivateWorkspaceDoctorDetectsStaleCredentialScratch(t *testing.T) {
-	repository := t.TempDir()
-	root := filepath.Join(t.TempDir(), "private")
-	if _, err := InitPrivateWorkspace(root, repository, DefaultPrivateWorkspaceManifest()); err != nil {
-		t.Fatal(err)
-	}
-	scratch := filepath.Join(root, ".ephemeral", "atl-agent-eval-live-config-stale")
-	if err := os.Mkdir(scratch, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(scratch, "credentials.json"), []byte(`{"secret":"synthetic"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	report, err := DoctorPrivateWorkspace(root, repository)
-	if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) || report.Healthy {
-		t.Fatalf("report=%+v err=%v", report, err)
-	}
-	found := false
-	for _, check := range report.Checks {
-		if check.Code == PrivateWorkspaceCheckScratchClean {
-			found = check.Status == "fail"
-		}
-	}
-	if !found {
-		t.Fatalf("scratch check did not fail: %+v", report.Checks)
+	for _, name := range []string{"atl-agent-eval-live-config-stale", "atl-agent-eval-provider-runtime-stale"} {
+		t.Run(name, func(t *testing.T) {
+			repository := t.TempDir()
+			root := filepath.Join(t.TempDir(), "private")
+			if _, err := InitPrivateWorkspace(root, repository, DefaultPrivateWorkspaceManifest()); err != nil {
+				t.Fatal(err)
+			}
+			scratch := filepath.Join(root, ".ephemeral", name)
+			if err := os.Mkdir(scratch, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			secret := "synthetic-provider-auth-canary"
+			if err := os.WriteFile(filepath.Join(scratch, "credentials.json"), []byte(`{"secret":"`+secret+`"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			report, err := DoctorPrivateWorkspace(root, repository)
+			if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) || report.Healthy {
+				t.Fatalf("report=%+v err=%v", report, err)
+			}
+			found := false
+			for _, check := range report.Checks {
+				if check.Code == PrivateWorkspaceCheckScratchClean {
+					found = check.Status == "fail"
+				}
+			}
+			if !found {
+				t.Fatalf("scratch check did not fail: %+v", report.Checks)
+			}
+			encoded, marshalErr := json.Marshal(report)
+			if marshalErr != nil || bytes.Contains(encoded, []byte(secret)) || bytes.Contains(encoded, []byte(root)) {
+				t.Fatalf("scratch diagnostics leaked private material: %s err=%v", encoded, marshalErr)
+			}
+		})
 	}
 }
 

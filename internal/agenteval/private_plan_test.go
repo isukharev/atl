@@ -507,6 +507,7 @@ func TestExecutePrivatePlanRechecksExecutionSnapshotBetweenSurfaces(t *testing.T
 
 func newPrivatePlanTestFixture(t *testing.T, includeCLI, failAgent bool) privatePlanTestFixture {
 	t.Helper()
+	useSyntheticCodexHome(t)
 	if runtime.GOOS == "windows" {
 		t.Skip("synthetic executable scripts are Unix-only")
 	}

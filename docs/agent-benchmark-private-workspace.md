@@ -22,9 +22,16 @@ Persistent cases, plans, runs, baselines, and reports never contain source
 credentials. The manifest stores only environment-variable names that point to
 an owner-only ATL config directory or external MCP profile. During an approved
 run, the parent may copy those inputs into an owner-only `.ephemeral` execution
-snapshot; it removes the snapshot on return and never exposes upstream
-credentials to the model process. A crash residue makes doctor fail closed and
-must be handled inside the private root.
+snapshot. Codex runs also create an isolated provider-home capsule there and
+copy only the validated owner-only file-backed `auth.json`; ambient global
+instructions, config, user skills, history, sessions, memories, and caches are
+not copied. Each surface/repetition starts with a fresh capsule; only bounded,
+syntactically valid JSON auth refreshes flow forward through an in-memory plan
+session. The
+operator's source `auth.json` is read once and never modified. Normal return
+removes both transient trees and model-spawned tools never receive upstream or
+provider credentials. A crash residue makes doctor fail closed and must be
+handled inside the private root.
 
 ## Fixed layout
 
@@ -53,7 +60,10 @@ non-empty unmarked directory is never adopted or chmodded implicitly.
 - `runs/` contains raw candidate attempts and remains private.
 - `baselines/` contains compact promoted evidence and an atomic current pointer.
 - `reports/` contains private offline comparisons.
-- `.ephemeral/` is bounded scratch space; credentials must not survive a run.
+- `.ephemeral/` is bounded scratch space. Cleanup is attempted on every ordinary
+  return; failure fails the run closed and leaves reviewable residue rather than
+  hiding it. Crash or cleanup residue is never reused and blocks doctor until
+  reviewed recovery.
 
 ## Agent operating protocol
 
@@ -176,6 +186,27 @@ runtime, repository commit, backend-config identity, external profile when
 used, cost cap, and consent expiry. Credential bytes are never hashed into a
 plan or retained in a run/baseline.
 
+Actual Codex execution requires file-backed provider authentication. The
+effective `CODEX_HOME` (or `HOME/.codex` fallback) must be a real directory not
+writable by group/other on POSIX, and `auth.json` must be a regular,
+non-symlink JSON object no larger than the runner limit (owner-only mode on
+POSIX). Actual Codex execution fails closed on Windows until equivalent ACL
+ownership validation is available; plan validation and dry-run remain
+available. Keyring-only login is rejected before model or backend access. The
+runner never adds the source path, credential bytes, or credential hashes to
+plan/result/baseline metadata or its own error messages. Raw provider
+stdout/stderr/final responses remain unsanitized private artifacts and can
+contain anything the provider elects to print; inspect them before baseline
+promotion and never publish them without a separate privacy review.
+
+Provider changes to the projected authentication are bounded and checked as a
+syntactically valid JSON object before the next surface, then discarded when
+the plan ends. This is structural validation, not proof that a credential is
+usable. Other provider state never crosses the capsule boundary. If the
+operator's subscription login has expired or requires renewal after a run,
+renew it with the provider CLI; the benchmark does not reconcile credentials
+back into ambient state.
+
 `--agent-binary` must identify a reviewed single-file native executable for the
 host OS and architecture. A symlink is accepted when its canonical target is
 such an executable; scripts, JavaScript/package launchers, malformed binaries,
@@ -286,7 +317,8 @@ The compact baseline retains contract/provenance hashes, assessed results,
 final answers, bounded audit evidence, and optionally transcripts according to
 the manifest. It excludes copied binaries, installed skill trees,
 credential/config copies, and scratch workspaces. The full candidate remains in
-`runs/` until a separate prune.
+`runs/` until a separate prune. Retained provider-originated artifacts are still
+private and unsanitized; promotion is not a privacy transformation.
 
 ```sh
 /tmp/agent-eval private baseline set \

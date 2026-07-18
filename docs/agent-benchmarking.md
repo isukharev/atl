@@ -705,9 +705,18 @@ Write-path evaluation belongs on the synthetic backend or an explicitly
 disposable, separately authorized fixture.
 
 Headless model runs use provider subscription authentication already stored by
-the provider CLI. The runner deliberately drops API-key and unrelated
-credential environment variables instead of exposing the caller's ambient
-secrets to the agent process.
+the provider CLI. Codex execution requires a safe file-backed `auth.json` in the
+effective `CODEX_HOME` (or `HOME/.codex` fallback); keyring-only authentication
+is not accepted by the hermetic benchmark path. The runner copies only that
+bounded owner-only JSON file into an owner-only ephemeral provider home. It does
+not copy global instructions, config, skills, history, sessions, memories, or
+caches. Each repetition gets a fresh home. Bounded syntactically valid auth JSON
+can flow to the next repetition through memory, but the source provider home is
+never modified. This is structural validation, not a semantic credential
+check. API-key and unrelated credential environment variables remain absent
+from the agent process. Actual Codex execution currently requires POSIX
+owner-only mode enforcement and fails closed on Windows; validation and dry-run
+remain cross-platform.
 
 ## Private-live model-in-the-loop check
 
@@ -963,10 +972,33 @@ Seatbelt-backed profile must pass the loopback-denial and broker-readiness
 probe or the run aborts before the model starts.
 
 The provider process keeps its normal subscription-authenticated model
-connection. The custom network policy applies only to commands spawned by the
-model, whose environment excludes source URLs/PATs and ambient proxy variables.
-Ambient global/repository `AGENTS.md` instructions are disabled for the run;
-only the reviewed prompt and copied shipped skills define the task workflow.
+connection. Before actual Codex execution (never during dry-run), the runner
+creates distinct ephemeral `HOME`, `CODEX_HOME`, XDG, and temporary roots. It
+projects only the validated file-backed auth object and preserves the bounded
+proxy/TLS/locale environment needed by the provider connection. Version probing
+uses a disposable capsule. Each model repetition gets another fresh capsule;
+its private CLI confinement probe and model process share that capsule while
+retaining stage-specific `PATH` confinement. Across repetitions and plan
+surfaces only a revalidated in-memory auth object flows forward—never sessions,
+logs, caches, instructions, or configuration. The source provider home is not
+written back.
+The custom network policy applies separately to commands spawned by the model,
+whose environment excludes source URLs/PATs and ambient proxy variables.
+`--ignore-user-config`, `--ignore-rules` where applicable, and
+`project_doc_max_bytes=0` remain defense in depth; the ephemeral home is the
+structural control that excludes home-scoped `AGENTS.md`, user skills, config,
+history, sessions, memories, and caches. Repository control files are rejected
+from private workspace templates, while only the copied shipped ATL skills are
+installed into the generated workspace.
+
+The provider-home capsule is outside retained run artifacts and cleanup is
+attempted on ordinary success, error, timeout, or validation failure. Cleanup
+failure fails the run closed and leaves residue for review. For plan-managed
+private runs, residue remains inside the marked owner-private `.ephemeral`
+boundary, makes `private doctor` fail closed, is never reused, and is not
+eligible for baseline promotion. A direct low-level `run` uses the selected
+private output root instead and must be inspected there. A process crash cannot
+promise physical erasure.
 
 Private-live Codex CLI runs also receive a provider-scoped operational
 instruction that identifies the run as an evidence task. Before answering, the

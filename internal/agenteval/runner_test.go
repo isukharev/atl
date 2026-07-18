@@ -19,6 +19,7 @@ func TestRunHeadlessWithFakeProvidersUsesPrivateWrapperAndSyntheticMetrics(t *te
 	if runtime.GOOS == "windows" {
 		t.Skip("fake executable scripts are Unix-only")
 	}
+	useSyntheticCodexHome(t)
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +91,8 @@ func TestRunHeadlessWithFakeProvidersUsesPrivateWrapperAndSyntheticMetrics(t *te
 	writeTestFile(t, filepath.Join(pluginRoot, "skills", "atl", "SKILL.md"), "---\nname: atl\n---\nSynthetic skill.\n", 0o600)
 
 	fakeAgent := filepath.Join(tempRepository, "fake-agent")
-	writeTestFile(t, fakeAgent, `#!/bin/sh
+	codexContinuity := filepath.Join(tempRepository, "codex-continuity")
+	fakeAgentScript := `#!/bin/sh
 if [ "$1" = "--version" ]; then
   echo fake-agent-1
   exit 0
@@ -117,6 +119,18 @@ if [ "$1" = "-p" ]; then
   printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":0.00014,"usage":{"input_tokens":100,"output_tokens":20},"structured_output":{"answer":"ok"}}'
   exit 0
 fi
+if [ -e "__CODEX_CONTINUITY__" ]; then
+  auth_value=$(/bin/cat "$CODEX_HOME/auth.json") || exit 54
+  case "$auth_value" in *synthetic-refreshed-auth*) ;; *) exit 54;; esac
+  [ ! -e "$CODEX_HOME/config.toml" ] || exit 55
+else
+
+  printf '%s\n' '{"tokens":{"access_token":"synthetic-refreshed-auth"}}' >"$CODEX_HOME/auth.next" || exit 56
+  /bin/chmod 600 "$CODEX_HOME/auth.next" || exit 56
+  /bin/mv -f "$CODEX_HOME/auth.next" "$CODEX_HOME/auth.json" || exit 56
+  printf '%s\n' 'must-not-cross-repetitions' >"$CODEX_HOME/config.toml" || exit 57
+  : >"__CODEX_CONTINUITY__"
+fi
 final=""
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "--output-last-message" ]; then
@@ -129,7 +143,9 @@ done
 printf '%s\n' '{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
 printf '%s\n' '{"answer":"ok"}' >"$final"
-`, 0o700)
+`
+	fakeAgentScript = strings.ReplaceAll(fakeAgentScript, "__CODEX_CONTINUITY__", codexContinuity)
+	writeTestFile(t, fakeAgent, fakeAgentScript, 0o700)
 	fakeATL := filepath.Join(tempRepository, "fake-atl")
 	writeTestFile(t, fakeATL, `#!/bin/sh
 if [ "$1" = "version" ]; then
@@ -249,25 +265,65 @@ exit 2
 	spec.Provider = "codex"
 	spec.Variant = "typed-mcp-codex"
 	spec.Model = "gpt-test-1"
+	spec.Repetitions = 2
 	spec.Pricing = Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000}
 	spec.AllowedTools = nil
 	spec.AllowedATLCommands = nil
 	spec.AllowedMCPTools = []string{"jira_fields"}
 	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
-	output, err = RunHeadless(context.Background(), RunOptions{
-		SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,
-		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
-		PluginRoot: pluginRoot, WrapperExecutable: wrapper,
-	})
+	continuitySession, err := newCodexAuthSession(os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(output.Results) != 1 || output.Results[0].Status != "pass" {
+	defer func() { _ = continuitySession.Close() }()
+	output, err = RunHeadless(context.Background(), RunOptions{
+		SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,
+		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
+		PluginRoot: pluginRoot, WrapperExecutable: wrapper, providerAuthSession: continuitySession,
+	})
+	if err != nil {
+		observed, sessionErr := continuitySession.authentication()
+		defer clear(observed)
+		t.Fatalf("%v; session auth=%s session_err=%v", err, observed, sessionErr)
+	}
+	if len(output.Results) != 2 || output.Results[0].Status != "pass" || output.Results[1].Status != "pass" {
 		t.Fatalf("codex output=%+v", output)
 	}
 	result = output.Results[0]
 	if result.Metrics.ATLInvocations != 0 || result.Metrics.InterfaceInvocations != 1 || result.Metrics.ToolCalls != 1 || result.Metrics.EstimatedCostMicroUSD != 140 {
 		t.Fatalf("codex metrics=%+v", result.Metrics)
+	}
+
+	spec.Variant = "typed-mcp-codex-error"
+	spec.Repetitions = 1
+	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
+	writeTestFile(t, fakeAgent, "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo fake-agent-1; exit 0; fi\nexit 59\n", 0o700)
+	if _, err := RunHeadless(context.Background(), RunOptions{
+		SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,
+		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
+		PluginRoot: pluginRoot, WrapperExecutable: wrapper,
+	}); err == nil {
+		t.Fatal("provider error was accepted")
+	}
+	ephemeralEntries, err := os.ReadDir(filepath.Join(outputRoot, ".ephemeral"))
+	if err != nil || len(ephemeralEntries) != 0 {
+		t.Fatalf("provider error left runtime credentials: entries=%v err=%v", ephemeralEntries, err)
+	}
+
+	spec.Variant = "typed-mcp-codex-timeout"
+	spec.TimeoutSeconds = 1
+	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
+	writeTestFile(t, fakeAgent, "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo fake-agent-1; exit 0; fi\nwhile :; do :; done\n", 0o700)
+	if _, err := RunHeadless(context.Background(), RunOptions{
+		SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,
+		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
+		PluginRoot: pluginRoot, WrapperExecutable: wrapper,
+	}); err == nil || !strings.Contains(err.Error(), "timeout") {
+		t.Fatalf("provider timeout result=%v", err)
+	}
+	ephemeralEntries, err = os.ReadDir(filepath.Join(outputRoot, ".ephemeral"))
+	if err != nil || len(ephemeralEntries) != 0 {
+		t.Fatalf("provider timeout left runtime credentials: entries=%v err=%v", ephemeralEntries, err)
 	}
 }
 
@@ -290,6 +346,7 @@ func TestPrivateLiveRunUsesCopiedCredentialsAndObservedReadMethods(t *testing.T)
 	if runtime.GOOS == "windows" {
 		t.Skip("fake executable scripts are Unix-only")
 	}
+	useSyntheticCodexHome(t)
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -390,6 +447,7 @@ func TestPrivateLiveCLIProvidersUseGatewayWithoutSourceCredentials(t *testing.T)
 	if runtime.GOOS == "windows" {
 		t.Skip("fake executable scripts are Unix-only")
 	}
+	ambientHome, ambientCodexHome := useSyntheticCodexHome(t)
 	var upstreamRequests int
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/jira/rest/api/2/field" || request.Header.Get("Authorization") != "Bearer upstream-secret" {
@@ -442,13 +500,29 @@ func TestPrivateLiveCLIProvidersUseGatewayWithoutSourceCredentials(t *testing.T)
 	writeTestFile(t, filepath.Join(pluginRoot, ".claude-plugin", "plugin.json"), `{"version":"0.4.0"}`, 0o600)
 	writeTestFile(t, filepath.Join(pluginRoot, "skills", "atl", "SKILL.md"), "---\nname: atl\n---\nUse read-only atl commands.\n", 0o600)
 	fakeAgent := filepath.Join(tempRepository, "fake-agent")
-	writeTestFile(t, fakeAgent, `#!/bin/sh
+	runtimeCapture := filepath.Join(tempRepository, "codex-runtime-capture")
+	fakeAgentScript := `#!/bin/sh
+check_runtime() {
+  case "$HOME" in *atl-agent-eval-provider-runtime-*/home) ;; *) exit 40;; esac
+  case "$CODEX_HOME" in *atl-agent-eval-provider-runtime-*/codex-home) ;; *) exit 41;; esac
+  [ -f "$CODEX_HOME/auth.json" ] || exit 42
+  auth_value=$(/bin/cat "$CODEX_HOME/auth.json") || exit 43
+  case "$auth_value" in *synthetic-subscription-auth*) ;; *) exit 43;; esac
+  [ ! -e "$CODEX_HOME/AGENTS.md" ] || exit 44
+  [ ! -e "$CODEX_HOME/config.toml" ] || exit 45
+  [ ! -e "$CODEX_HOME/skills" ] || exit 46
+  [ "$HOME" != "__AMBIENT_HOME__" ] || exit 47
+  [ "$CODEX_HOME" != "__AMBIENT_CODEX_HOME__" ] || exit 48
+  printf '%s|%s\n' "$HOME" "$CODEX_HOME" >>"__RUNTIME_CAPTURE__"
+}
 if [ "$1" = "--version" ]; then echo fake-agent-1; exit 0; fi
 if [ "$1" = "sandbox" ]; then
+  check_runtime
   for last do :; done
   ATL_EVAL_FORBIDDEN_NETWORK_ADDRESS=127.0.0.1:9 "$last"
   exit $?
 fi
+if [ "$1" != "-p" ]; then check_runtime; fi
 if [ -z "$ATL_EVAL_CLI_POLICY_FILE" ] || [ "$ATL_EVAL_GUARD_MODE" != "private-cli" ]; then exit 31; fi
 if [ -n "$ATL_JIRA_PAT" ]; then exit 32; fi
 if [ "$1" = "-p" ]; then
@@ -471,7 +545,13 @@ done
 printf '%s\n' '{"type":"item.completed","item":{"type":"command_execution"}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
 printf '%s\n' '{"answer":"ok"}' >"$final"
-`, 0o700)
+`
+	fakeAgentScript = strings.NewReplacer(
+		"__AMBIENT_HOME__", ambientHome,
+		"__AMBIENT_CODEX_HOME__", ambientCodexHome,
+		"__RUNTIME_CAPTURE__", runtimeCapture,
+	).Replace(fakeAgentScript)
+	writeTestFile(t, fakeAgent, fakeAgentScript, 0o700)
 	wrapper := filepath.Join(tempRepository, "agent-eval")
 	buildWrapper := exec.Command("go", "build", "-o", wrapper, "./scripts/agent-eval")
 	buildWrapper.Dir = repositoryRoot
@@ -494,7 +574,11 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 			}
 			specPath := filepath.Join(caseDir, "run-"+provider+".json")
 			writeJSONTestFile(t, specPath, spec)
-			output, err := RunHeadless(context.Background(), RunOptions{SpecPath: specPath, OutputRoot: filepath.Join(tempRepository, "private", "runs"), RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: atlBinary, PluginRoot: pluginRoot, WrapperExecutable: wrapper, LiveConfigDir: liveConfig})
+			scratchRoot := filepath.Join(tempRepository, "private", ".ephemeral")
+			if err := os.MkdirAll(scratchRoot, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			output, err := RunHeadless(context.Background(), RunOptions{SpecPath: specPath, OutputRoot: filepath.Join(tempRepository, "private", "runs"), RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: atlBinary, PluginRoot: pluginRoot, WrapperExecutable: wrapper, LiveConfigDir: liveConfig, ScratchRoot: scratchRoot})
 			if err != nil {
 				runDir := filepath.Join(tempRepository, "private", "runs", scenario.ID, provider, spec.Variant, "run-01")
 				stderr, _ := os.ReadFile(filepath.Join(runDir, "agent.stderr"))
@@ -512,6 +596,22 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 				t.Fatalf("model-readable telemetry exists: %v", err)
 			}
 			if provider == "codex" {
+				capture, err := os.ReadFile(runtimeCapture)
+				if err != nil {
+					t.Fatal(err)
+				}
+				lines := strings.Split(strings.TrimSpace(string(capture)), "\n")
+				if len(lines) != 2 || lines[0] != lines[1] {
+					t.Fatalf("preflight/provider did not share isolated runtime: %q", lines)
+				}
+				runtimeRoot := filepath.Dir(strings.Split(lines[0], "|")[0])
+				if _, err := os.Stat(runtimeRoot); !os.IsNotExist(err) {
+					t.Fatalf("codex runtime survived ordinary completion: %v", err)
+				}
+				entries, err := os.ReadDir(scratchRoot)
+				if err != nil || len(entries) != 0 {
+					t.Fatalf("private scratch residue: entries=%v err=%v", entries, err)
+				}
 				for _, directory := range []string{"command-broker-requests", "command-broker-responses"} {
 					entries, err := os.ReadDir(filepath.Join(runDir, ".atl-eval", directory))
 					if err != nil {
@@ -535,7 +635,7 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 				if err != nil {
 					return err
 				}
-				if bytes.Contains(data, []byte("upstream-secret")) || bytes.Contains(data, []byte(upstream.URL)) {
+				if bytes.Contains(data, []byte("upstream-secret")) || bytes.Contains(data, []byte("synthetic-subscription-auth")) || bytes.Contains(data, []byte(upstream.URL)) {
 					return fmt.Errorf("run artifact retained source backend material")
 				}
 				return nil
@@ -547,6 +647,33 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 	if upstreamRequests != 2 {
 		t.Fatalf("upstream requests=%d", upstreamRequests)
 	}
+}
+
+func useSyntheticCodexHome(t *testing.T) (string, string) {
+	t.Helper()
+	for _, name := range []string{"GOPATH", "GOMODCACHE", "GOCACHE"} {
+		if os.Getenv(name) != "" {
+			continue
+		}
+		command := exec.Command("go", "env", name)
+		value, err := command.Output()
+		if err != nil {
+			t.Fatalf("resolve %s before isolating HOME: %v", name, err)
+		}
+		t.Setenv(name, strings.TrimSpace(string(value)))
+	}
+	home := filepath.Join(t.TempDir(), "ambient-home")
+	codexHome := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(filepath.Join(codexHome, "skills"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(codexHome, "auth.json"), `{"tokens":{"access_token":"synthetic-subscription-auth"}}`, 0o600)
+	writeTestFile(t, filepath.Join(codexHome, "AGENTS.md"), "hostile ambient instructions\n", 0o600)
+	writeTestFile(t, filepath.Join(codexHome, "config.toml"), "hostile = true\n", 0o600)
+	writeTestFile(t, filepath.Join(codexHome, "skills", "SKILL.md"), "hostile skill\n", 0o600)
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", codexHome)
+	return home, codexHome
 }
 
 func TestResolveProviderLaunchUsesAbsoluteEnvInterpreter(t *testing.T) {
