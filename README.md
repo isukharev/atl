@@ -181,6 +181,11 @@ versioned offline router:
 ```sh
 atl capabilities --task jira/evidence
 atl capabilities --task confluence/edit -o text
+atl capabilities --task jira/board-portfolio -o text
+atl capabilities --task jira/batch-analysis -o text
+atl capabilities --task jira/structure-planning -o text
+atl capabilities --task confluence/table-analytics -o text
+atl capabilities --task knowledge/search -o text
 ```
 
 It returns only a small ordered set of real command paths plus their access,

@@ -37,7 +37,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | run options")
+		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | inventory CORPUS_ROOT | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | run options")
 	}
 	switch args[0] {
 	case "validate":
@@ -88,6 +88,15 @@ func run(args []string) error {
 			ids = append(ids, scenario.ID+"/"+spec.Provider+"/"+spec.Variant)
 		}
 		return writeJSON(map[string]any{"schema_version": 1, "valid_runs": ids})
+	case "inventory":
+		if len(args) != 2 {
+			return fmt.Errorf("inventory requires exactly one corpus root")
+		}
+		inventory, err := agenteval.ValidateBenchmarkCorpus(args[1])
+		if err != nil {
+			return err
+		}
+		return writeJSON(inventory)
 	case "validate-pair":
 		if len(args) != 3 {
 			return fmt.Errorf("validate-pair requires exactly one private CLI spec and one private MCP spec")

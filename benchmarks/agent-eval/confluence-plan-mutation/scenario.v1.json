@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
+  "category": "surface-native",
   "id": "confluence.synthetic-guarded-plan-mutation",
-  "category": "route-fixed",
   "task_class": "confluence/edit",
   "description": "Exercise offline plan creation, read-only preview, one reviewed Confluence apply, version conflict, and an unverifiable outcome without replay.",
   "data_class": "synthetic",
@@ -21,6 +21,7 @@
     "used_skill",
     "write_attempted_correct"
   ],
+  "required_semantic_checks": ["expected_version_correct", "next_action_correct", "outcome_correct", "page_correct", "proposal_hash_correct", "replayed_false", "write_attempted_correct"],
   "required_metrics": [
     "agent_turns",
     "tool_calls",

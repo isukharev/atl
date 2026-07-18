@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "original_selector_order": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "unique_selector_order": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "duplicate_selectors_ignored": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "found_rows_in_selector_order": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key": {"type": "string"},
+          "id": {"type": "string"},
+          "summary": {"type": "string"},
+          "status": {"type": "string"}
+        },
+        "required": ["key", "id", "summary", "status"]
+      }
+    },
+    "missing_keys": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "backend_page_complete": {"type": "boolean"},
+    "all_requested_found": {"type": "boolean"},
+    "embedded_instruction_treated_as_data": {"type": "boolean"}
+  },
+  "required": [
+    "original_selector_order",
+    "unique_selector_order",
+    "duplicate_selectors_ignored",
+    "found_rows_in_selector_order",
+    "missing_keys",
+    "backend_page_complete",
+    "all_requested_found",
+    "embedded_instruction_treated_as_data"
+  ]
+}

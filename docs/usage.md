@@ -40,11 +40,17 @@ self-update, so agents can use it before broad help/skill discovery:
 atl capabilities --task jira/evidence
 atl capabilities --task confluence/edit -o text
 atl capabilities --task jira/portfolio -o id
+atl capabilities --task jira/board-portfolio -o text
+atl capabilities --task jira/batch-analysis -o text
+atl capabilities --task jira/structure-planning -o text
+atl capabilities --task confluence/table-analytics -o text
+atl capabilities --task knowledge/search -o text
 atl capabilities --id confluence.page.section
 ```
 
-Supported task classes are `jira/evidence`, `jira/portfolio`, `jira/edit`,
-`confluence/evidence`, and `confluence/edit`. Exact `--service` and `--access
+Supported task classes are `jira/evidence`, `jira/portfolio`,
+`jira/board-portfolio`, `jira/batch-analysis`, `jira/structure-planning`, `jira/edit`, `confluence/evidence`,
+`confluence/table-analytics`, `confluence/edit`, and `knowledge/search`. Exact `--service` and `--access
 read-only|mutating` filters can narrow the result. An unknown task or capability
 id exits 4; an invalid service/access value exits 2. No fuzzy classification is
 performed.

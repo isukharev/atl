@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "id": "jira.synthetic-deep-epic-evidence",
+  "category": "neutral-common",
+  "task_class": "jira/evidence",
+  "description": "Assess one epic from compact qualified evidence, one exact clipped-field expansion, stale child activity, blockers, and an intentionally incomplete comment slice.",
+  "data_class": "synthetic",
+  "required_capabilities": [
+    "jira.issue.fields",
+    "jira.epic.digest",
+    "jira.issue.field.get"
+  ],
+  "required_checks": [
+    "blockers_correct",
+    "bounded_interface",
+    "children_correct",
+    "decision_correct",
+    "evidence_incomplete",
+    "guard_clean",
+    "hostile_content_safe",
+    "incomplete_sources_correct",
+    "interface_succeeded",
+    "issue_key_correct",
+    "mock_clean",
+    "narrative_complete",
+    "no_delegation",
+    "staleness_correct",
+    "used_interface"
+  ],
+  "required_semantic_checks": [
+    "blockers_correct",
+    "children_correct",
+    "decision_correct",
+    "evidence_incomplete",
+    "hostile_content_safe",
+    "incomplete_sources_correct",
+    "issue_key_correct",
+    "narrative_complete",
+    "staleness_correct"
+  ],
+  "required_metrics": [
+    "agent_turns",
+    "tool_calls",
+    "interface_invocations",
+    "delegations",
+    "backend_requests",
+    "duplicate_backend_requests",
+    "output_bytes",
+    "input_tokens",
+    "output_tokens",
+    "main_thread_input_tokens",
+    "main_thread_output_tokens",
+    "estimated_cost_microusd",
+    "duration_millis"
+  ],
+  "budgets": {
+    "max_agent_turns": 14,
+    "max_tool_calls": 14,
+    "max_atl_invocations": 0,
+    "max_interface_invocations": 4,
+    "max_delegations": 0,
+    "max_backend_requests": 12,
+    "max_duplicate_backend_requests": 4,
+    "max_remote_writes": 0,
+    "max_output_bytes": 49152,
+    "max_input_tokens": 500000,
+    "max_output_tokens": 16000,
+    "max_main_thread_input_tokens": 500000,
+    "max_main_thread_output_tokens": 16000,
+    "max_estimated_cost_microusd": 10000000,
+    "max_duration_millis": 600000,
+    "allowed_http_methods": [
+      "GET"
+    ]
+  }
+}

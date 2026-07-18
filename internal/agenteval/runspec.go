@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	RunSpecSchemaVersion = 2
+	RunSpecSchemaVersion = 3
 	maxRunSpecBytes      = 1 << 20
 	maxRunCostMicroUSD   = 10_000_000
 )
@@ -50,6 +50,7 @@ type RunSpec struct {
 	AllowedATLCommands       []string                      `json:"allowed_atl_commands"`
 	AllowedCLICommands       []CLICommandRule              `json:"allowed_cli_commands,omitempty"`
 	AllowedMCPTools          []string                      `json:"allowed_mcp_tools,omitempty"`
+	DataCapabilities         []string                      `json:"data_capabilities,omitempty"`
 	AllowedGatewayRoutes     map[string][]LiveGatewayRoute `json:"allowed_gateway_routes,omitempty"`
 	GatewayMaxResponseBytes  int64                         `json:"gateway_max_response_bytes,omitempty"`
 	GatewayMaxTotalBytes     int64                         `json:"gateway_max_total_response_bytes,omitempty"`
@@ -144,6 +145,9 @@ func (s RunSpec) Validate() error {
 	}
 	if !validRunSurface(s.EffectiveSurface()) {
 		return fmt.Errorf("invalid benchmark surface %q", s.Surface)
+	}
+	if err := validateRunDataCapabilities(s); err != nil {
+		return err
 	}
 	if strings.TrimSpace(s.Model) == "" || len(s.Model) > 256 || strings.ContainsAny(s.Model, "\r\n\x00") {
 		return fmt.Errorf("model must contain 1..256 safe bytes")
@@ -433,6 +437,13 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 		}
 		if len(scenario.Budgets.AllowedHTTPMethods) == 0 {
 			return fmt.Errorf("private-live runs require an explicit GET/HEAD method allowlist")
+		}
+		if s.EffectiveSurface() == SurfaceExternalMCP {
+			for _, metric := range scenario.RequiredMetrics {
+				if externalMCPMetricIsOpaque(metric) {
+					return fmt.Errorf("external MCP runs cannot require opaque backend metrics")
+				}
+			}
 		}
 		for _, method := range scenario.Budgets.AllowedHTTPMethods {
 			if method != "GET" && method != "HEAD" {

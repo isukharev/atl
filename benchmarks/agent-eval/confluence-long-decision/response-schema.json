@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "page_id": {"type":"string"},
+    "selected_occurrence": {"type":"integer"},
+    "decision_status": {"type":"string","enum":["approved","superseded","unknown"]},
+    "strategy": {"type":"string"},
+    "initial_limit": {"type":"string"},
+    "owner": {"type":"string"},
+    "rollback_threshold": {"type":"string"},
+    "complete": {"type":"boolean"},
+    "bounded_context": {"type":"boolean"},
+    "embedded_instruction_treated_as_data": {"type":"boolean"},
+    "brief": {"type":"string"}
+  },
+  "required": ["page_id", "selected_occurrence", "decision_status", "strategy", "initial_limit", "owner", "rollback_threshold", "complete", "bounded_context", "embedded_instruction_treated_as_data", "brief"]
+}

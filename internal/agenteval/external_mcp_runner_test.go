@@ -29,13 +29,20 @@ func TestExternalMCPDryRunValidatesProfileWithoutCredentialsOrNetwork(t *testing
 	scenario.Budgets.MaxInterfaceInvocations = 2
 	scenario.Budgets.AllowedHTTPMethods = []string{"GET", "HEAD"}
 	scenario.Budgets.MaxEstimatedCostMicroUSD = 10_000_000
+	filteredMetrics := scenario.RequiredMetrics[:0]
+	for _, metric := range scenario.RequiredMetrics {
+		if !externalMCPMetricIsOpaque(metric) {
+			filteredMetrics = append(filteredMetrics, metric)
+		}
+	}
+	scenario.RequiredMetrics = filteredMetrics
 	writeJSONTestFile(t, filepath.Join(caseDir, "scenario.json"), scenario)
 	writeTestFile(t, filepath.Join(caseDir, "prompt.md"), "Use the available interface.\n", 0o600)
 	writeTestFile(t, filepath.Join(caseDir, "response.json"), `{"type":"object","properties":{"answer":{"type":"boolean"}},"required":["answer"],"additionalProperties":false}`, 0o600)
 	rubric := Rubric{SchemaVersion: 1, ID: "external", ScenarioID: scenario.ID, MinimumScoreBPS: 5000, Criteria: []RubricCriterion{{ID: "grounded", Description: "Grounded.", Maximum: 4, Minimum: 2, Weight: 1}}, AllowedFindingIDs: []string{"missing"}}
 	writeJSONTestFile(t, filepath.Join(caseDir, "rubric.json"), rubric)
 	checks := []RunCheck{{Name: "answer", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`true`)}, {Name: "interface_ok", Kind: "interface_all_succeeded"}, {Name: "guard", Kind: "guard_no_denials"}, {Name: "no_delegate", Kind: "delegations_none"}, {Name: "used", Kind: "interface_invocations_min", Minimum: 1}}
-	spec := RunSpec{SchemaVersion: RunSpecSchemaVersion, BackendMode: BackendModePrivateLive, Category: BenchmarkCategoryNeutralCommon, Surface: SurfaceExternalMCP, ScenarioFile: "scenario.json", Provider: "codex", Variant: "external", Model: "test", PromptFile: "prompt.md", ResponseSchemaFile: "response.json", QualitativeRubricFile: "rubric.json", WorkspaceTemplate: "workspace", Repetitions: 1, TimeoutSeconds: 30, MaxEstimatedCostMicroUSD: 10_000_000, Pricing: Pricing{InputMicroUSDPerMillionTokens: 1, OutputMicroUSDPerMillionTokens: 1}, ToolTransport: "mcp", AllowedMCPTools: []string{"safe_lookup"}, Checks: checks}
+	spec := RunSpec{SchemaVersion: RunSpecSchemaVersion, BackendMode: BackendModePrivateLive, Category: BenchmarkCategoryNeutralCommon, Surface: SurfaceExternalMCP, ScenarioFile: "scenario.json", Provider: "codex", Variant: "external", Model: "test", PromptFile: "prompt.md", ResponseSchemaFile: "response.json", QualitativeRubricFile: "rubric.json", WorkspaceTemplate: "workspace", Repetitions: 1, TimeoutSeconds: 30, MaxEstimatedCostMicroUSD: 10_000_000, Pricing: Pricing{InputMicroUSDPerMillionTokens: 1, OutputMicroUSDPerMillionTokens: 1}, ToolTransport: "mcp", AllowedMCPTools: []string{"safe_lookup"}, DataCapabilities: []string{"jira.issue.field"}, Checks: checks}
 	specPath := filepath.Join(caseDir, "run.json")
 	writeJSONTestFile(t, specPath, spec)
 	profile := validExternalTestProfile()
@@ -62,6 +69,22 @@ func TestExternalMCPDryRunValidatesProfileWithoutCredentialsOrNetwork(t *testing
 	encoded, _ := json.Marshal(output.Preview)
 	if bytes.Contains(encoded, []byte(profile.UpstreamURL)) || bytes.Contains(encoded, []byte(profile.CatalogSHA256)) || bytes.Contains(encoded, []byte("safe_lookup")) {
 		t.Fatalf("preview leaked private profile: %s", encoded)
+	}
+
+	opaqueScenario := scenario
+	opaqueScenario.RequiredMetrics = append(append([]string(nil), scenario.RequiredMetrics...), "backend_requests")
+	writeJSONTestFile(t, filepath.Join(caseDir, "scenario.json"), opaqueScenario)
+	_, err = RunHeadless(context.Background(), RunOptions{SpecPath: specPath, OutputRoot: t.TempDir(), RepositoryRoot: repo, AgentBinary: executable, ATLBinary: executable, PluginRoot: repo, WrapperExecutable: executable, LiveConfigDir: live, ExternalMCPProfile: profilePath, DryRun: true})
+	if err == nil || !strings.Contains(err.Error(), "opaque backend metrics") {
+		t.Fatalf("external run accepted unobservable required metric: %v", err)
+	}
+	writeJSONTestFile(t, filepath.Join(caseDir, "scenario.json"), scenario)
+
+	spec.DataCapabilities = []string{"jira.issue.list"}
+	writeJSONTestFile(t, specPath, spec)
+	_, err = RunHeadless(context.Background(), RunOptions{SpecPath: specPath, OutputRoot: t.TempDir(), RepositoryRoot: repo, AgentBinary: executable, ATLBinary: executable, PluginRoot: repo, WrapperExecutable: executable, LiveConfigDir: live, ExternalMCPProfile: profilePath, DryRun: true})
+	if err == nil || !strings.Contains(err.Error(), "external MCP profile data capabilities do not match the reviewed run") {
+		t.Fatalf("mismatched external MCP data capability passed dry-run: %v", err)
 	}
 }
 

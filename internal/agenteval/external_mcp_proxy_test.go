@@ -93,6 +93,91 @@ func TestExternalMCPProxyPreflightRejectsCatalogAndReadOnlyDrift(t *testing.T) {
 	}
 }
 
+func TestExternalMCPProxyPreflightAcceptsMissingOptionalReadOnlyAnnotations(t *testing.T) {
+	fixture := newExternalMCPFixture(t, false, false)
+	defer fixture.server.Close()
+	mutated := append([]json.RawMessage(nil), fixture.catalog...)
+	mutated[0] = json.RawMessage(strings.ReplaceAll(string(mutated[0]), `,"annotations":{"readOnlyHint":true,"destructiveHint":false}`, ""))
+	fixture.catalog = mutated
+	digest, _, err := externalMCPCatalogIdentity(mutated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := fixture.profile
+	profile.CatalogSHA256 = digest
+	auditDir := t.TempDir()
+	if err := os.Chmod(auditDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	audit := filepath.Join(auditDir, "audit.jsonl")
+	proxy, err := startExternalMCPProxyWithClient(context.Background(), profile, map[string]string{"X-Test-Auth": "secret"}, []string{"secret", fixture.server.URL}, audit, fixture.server.Client())
+	if err != nil {
+		t.Fatalf("owner-reviewed exact tool without optional annotations was rejected: %v", err)
+	}
+	if err := proxy.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExternalMCPProxyPreflightAcceptsFiniteReviewedSchemaVariant(t *testing.T) {
+	fixture := newExternalMCPFixture(t, false, false)
+	defer fixture.server.Close()
+	mutated := append([]json.RawMessage(nil), fixture.catalog...)
+	mutated[0] = json.RawMessage(strings.ReplaceAll(string(mutated[0]), `"key":{"type":"string"}`, `"key":{"type":"string","description":"Reviewed variant"}`))
+	fixture.catalog = mutated
+	catalogDigest, byName, err := externalMCPCatalogIdentity(mutated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var selected struct {
+		InputSchema json.RawMessage `json:"inputSchema"`
+	}
+	if err := json.Unmarshal(byName["safe_lookup"], &selected); err != nil {
+		t.Fatal(err)
+	}
+	schemaDigest, err := canonicalJSONSHA(selected.InputSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := fixture.profile
+	profile.CatalogSHA256 = catalogDigest
+	profile.Tools[0].InputSchemaSHA256Alternates = []string{schemaDigest}
+	auditDir := t.TempDir()
+	if err := os.Chmod(auditDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	proxy, err := startExternalMCPProxyWithClient(context.Background(), profile, map[string]string{"X-Test-Auth": "secret"}, []string{"secret", fixture.server.URL}, filepath.Join(auditDir, "audit.jsonl"), fixture.server.Client())
+	if err != nil {
+		t.Fatalf("reviewed schema variant was rejected: %v", err)
+	}
+	if err := proxy.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	profile.Tools[0].InputSchemaSHA256Alternates = []string{profile.Tools[0].InputSchemaSHA256}
+	if err := profile.Validate(); err == nil {
+		t.Fatal("duplicate schema digest variant passed profile validation")
+	}
+}
+
+func TestExternalMCPProxyStripsReservedClientMetadataBeforeUpstream(t *testing.T) {
+	fixture := newExternalMCPFixture(t, false, false)
+	defer fixture.server.Close()
+	proxy, _ := startTestExternalProxy(t, fixture)
+	endpoint, token := proxy.Endpoint()
+	body := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"safe_lookup","arguments":{"key":"A"},"_meta":{"progressToken":"private-client-token"}}}`
+	status, _ := postExternalMCP(t, endpoint, token, body, "application/json", "application/json, text/event-stream")
+	if status != http.StatusOK {
+		t.Fatalf("reserved client metadata call status=%d", status)
+	}
+	if atomic.LoadInt32(&fixture.callMeta) != 0 {
+		t.Fatal("client metadata reached the upstream MCP server")
+	}
+	if err := proxy.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestExternalMCPProxyNeverReplaysAmbiguousCallOrCredentialEcho(t *testing.T) {
 	for name, ambiguous := range map[string]bool{"ambiguous": true, "credential_echo": false} {
 		t.Run(name, func(t *testing.T) {
@@ -548,6 +633,7 @@ type externalMCPFixture struct {
 	profile                          ExternalMCPProfile
 	catalog                          []json.RawMessage
 	toolCalls                        int32
+	callMeta                         int32
 	deleteCalls                      int32
 	ambiguous, echo, writeAnnotation bool
 	repeatCursor                     bool
@@ -607,6 +693,11 @@ func newExternalMCPFixture(t *testing.T, ambiguous, echo bool) *externalMCPFixtu
 			writeRPCResult(w, request.ID, result)
 		case "tools/call":
 			atomic.AddInt32(&f.toolCalls, 1)
+			var forwardedParams map[string]json.RawMessage
+			_ = json.Unmarshal(request.Params, &forwardedParams)
+			if _, present := forwardedParams["_meta"]; present {
+				atomic.StoreInt32(&f.callMeta, 1)
+			}
 			if f.started != nil {
 				select {
 				case f.started <- struct{}{}:

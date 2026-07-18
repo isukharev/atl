@@ -15,6 +15,14 @@ this workflow.
 
 **Preflight:** `atl` must be installed and configured. If `command -v atl` fails
 or a command exits `7` ("not configured"), run `$setup` and stop.
+For an unfamiliar mixed-backend question, inspect the bounded offline route
+once before loading any broader reference:
+
+<!-- atl:read-only-shell -->
+```sh
+export ATL_READ_ONLY=1
+atl capabilities --task knowledge/search
+```
 
 ## Workflow
 

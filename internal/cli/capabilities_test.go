@@ -50,9 +50,14 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 	}{
 		{"jira/evidence", []string{"jira.issue.fields", "jira.epic.digest", "jira.issue.field.get", "jira.issue.refs", "jira.issue.history"}},
 		{"jira/portfolio", []string{"jira.board.list", "jira.board.view", "jira.structure.folders", "jira.structure.view", "jira.portfolio.epic.digest", "jira.portfolio.confluence.section"}},
+		{"jira/board-portfolio", []string{"jira.board-portfolio.fields", "jira.board-portfolio.view", "jira.board-portfolio.epic.digest"}},
+		{"jira/batch-analysis", []string{"jira.batch.issue.export"}},
+		{"jira/structure-planning", []string{"jira.structure.rows", "jira.structure.issue.export"}},
 		{"jira/edit", []string{"jira.issue.fields.edit", "jira.issue.field.preview", "jira.issue.field.set", "jira.issue.plan.apply"}},
 		{"confluence/evidence", []string{"confluence.page.resolve", "confluence.page.outline", "confluence.page.section", "confluence.page.view"}},
+		{"confluence/table-analytics", []string{"confluence.table.extract"}},
 		{"confluence/edit", []string{"confluence.pull", "confluence.diff", "confluence.plan.create", "confluence.plan.preview", "confluence.plan.apply"}},
+		{"knowledge/search", []string{"knowledge.jira.search", "knowledge.confluence.search", "knowledge.jira.field", "knowledge.confluence.outline", "knowledge.confluence.section"}},
 	}
 	root := newRoot()
 	for _, tt := range tests {
@@ -72,6 +77,30 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 				t.Fatalf("route expanded beyond bounded catalog contract: %v", ids)
 			}
 		})
+	}
+}
+
+func TestCapabilityRoutesPointToTheirFocusedWorkflow(t *testing.T) {
+	root := newRoot()
+	structure, err := buildCapabilityCatalog(root, capabilitySelection{Task: "jira/structure-planning"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(structure.Capabilities) != 2 || structure.Capabilities[0].Command != "jira structure rows" || structure.Capabilities[1].Command != "jira export" {
+		t.Fatalf("structure route=%+v", structure.Capabilities)
+	}
+	for _, item := range structure.Capabilities {
+		if item.Skill != "jira" || item.Reference != "reference/structure-batch.md" {
+			t.Fatalf("structure workflow route=%s/%s", item.Skill, item.Reference)
+		}
+	}
+
+	knowledge, err := buildCapabilityCatalog(root, capabilitySelection{Task: "knowledge/search"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(knowledge.Capabilities) == 0 || knowledge.Capabilities[0].Skill != "search-knowledge" || knowledge.Capabilities[0].Reference != "SKILL.md" {
+		t.Fatalf("knowledge discovery route=%+v", knowledge.Capabilities)
 	}
 }
 

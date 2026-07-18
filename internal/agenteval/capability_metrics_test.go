@@ -46,9 +46,16 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 		{[]string{"conf", "plan", "create", "mirror", "--out", "plan.json"}, "confluence.plan.create"},
 		{[]string{"conf", "plan", "preview", "plan.json"}, "confluence.plan.preview"},
 		{[]string{"conf", "plan", "apply", "plan.json", "--confirm", "APPLY"}, "confluence.plan.apply"},
+		{[]string{"jira", "export", "--keys", "PROJ-1,PROJ-2", "--out", "-"}, "jira.issue.batch-read"},
+		{[]string{"jira", "export", "--ids=1,2", "--out", "-"}, "jira.issue.batch-read"},
+		{[]string{"jira", "export", "--jql", "project = DEMO", "--out", "-"}, "jira.export"},
+		{[]string{"jira", "export", "diff", "old.jsonl", "new.jsonl"}, "jira.export.diff"},
+		{[]string{"jira", "structure", "folders", "42"}, "jira.structure.folders"},
+		{[]string{"jira", "structure", "rows", "42"}, "jira.structure.rows"},
+		{[]string{"conf", "table", "extract", "page.csf", "--format", "json"}, "confluence.table.extract"},
 	} {
 		if family, ok := CapabilityFamilyForCLI(test.args); !ok || family != test.want {
-			t.Fatalf("CLI Confluence plan family=%q ok=%t want=%q", family, ok, test.want)
+			t.Fatalf("CLI family=%q ok=%t want=%q", family, ok, test.want)
 		}
 	}
 	if _, ok := CapabilityFamilyForMCP("private_" + private); ok {
@@ -57,6 +64,18 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 	encoded, _ := json.Marshal([]CapabilityFamilyMetric{{Family: family, Invocations: 1, Successes: 1, OutputBytes: 42}})
 	if strings.Contains(string(encoded), private) {
 		t.Fatalf("metric leaked input: %s", encoded)
+	}
+}
+
+func TestCapabilityFamilyForCLIRequiresExactBatchSelectorFlag(t *testing.T) {
+	for _, args := range [][]string{
+		{"jira", "export", "--keys-file", "values.txt"},
+		{"jira", "export", "--identity", "PROJ-1"},
+	} {
+		family, ok := CapabilityFamilyForCLI(args)
+		if !ok || family != "jira.export" {
+			t.Fatalf("args=%q family=%q ok=%t", args, family, ok)
+		}
 	}
 }
 

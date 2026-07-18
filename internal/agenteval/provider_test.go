@@ -21,12 +21,16 @@ func TestBuildProviderCommandsAreEphemeralAndReadOnly(t *testing.T) {
 	}
 	spec.Provider = "claude-code"
 	spec.Pricing = Pricing{}
+	originalAllowedTools := slices.Clone(spec.AllowedTools)
 	claude, err := BuildProviderCommand(spec, "claude", "/atl", "/guard", "/workspace", "/schema", "/final", "/plugin", "/settings", "", ProviderConfinement{}, []byte(`{"type":"object"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !slices.Equal(spec.AllowedTools, originalAllowedTools) {
+		t.Fatalf("provider command mutated run spec allowed tools: got %v want %v", spec.AllowedTools, originalAllowedTools)
+	}
 	joined = strings.Join(claude.Args, " ")
-	for _, value := range []string{"--no-session-persistence", "--permission-mode dontAsk", "--setting-sources project", "--max-budget-usd 10.000000", "--tools Bash", "--allowed-tools Bash(atl *)", "--plugin-dir /plugin", "--settings /settings"} {
+	for _, value := range []string{"--no-session-persistence", "--permission-mode dontAsk", "--setting-sources project", "--max-budget-usd 10.000000", "--tools Bash", "--allowed-tools Bash(atl *),Bash(export ATL_READ_ONLY=1),Bash(command -v atl)", "--plugin-dir /plugin", "--settings /settings"} {
 		if !strings.Contains(joined, value) {
 			t.Errorf("Claude command misses %q: %s", value, joined)
 		}
@@ -137,7 +141,7 @@ func TestBuildPrivateCLIProviderCommandsEnforceHooksAndCodexCommandBroker(t *tes
 			}
 			joined := strings.Join(command.Args, " ")
 			if provider == "claude-code" {
-				for _, value := range []string{"--permission-mode dontAsk", "--tools Bash,Read,Skill", "--allowed-tools Bash(atl *),Read,Skill", "--settings /settings"} {
+				for _, value := range []string{"--permission-mode dontAsk", "--tools Bash,Read,Skill", "--allowed-tools Bash(atl *),Read,Skill,Bash(export ATL_READ_ONLY=1),Bash(command -v atl)", "--settings /settings"} {
 					if !strings.Contains(joined, value) {
 						t.Errorf("Claude private CLI command misses %q: %s", value, joined)
 					}

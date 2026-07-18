@@ -1,5 +1,7 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
+  "category": "surface-native",
+  "surface": "cli-skill",
   "scenario_file": "scenario.v1.json",
   "provider": "claude-code",
   "variant": "reviewed-apply",

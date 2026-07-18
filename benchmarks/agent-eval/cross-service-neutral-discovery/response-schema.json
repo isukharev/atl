@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "topic": {"type": "string", "minLength": 1},
+    "jira_key": {"type": "string"},
+    "page_id": {"type": "string"},
+    "decision": {
+      "type": "string",
+      "enum": ["progressive-rollout", "full-rollout", "undetermined"]
+    },
+    "rollout_limit": {"type": "string"},
+    "owner": {"type": "string"},
+    "jira_status": {"type": "string"},
+    "open_risks": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "queries": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "jira": {"type": "string", "minLength": 1},
+        "confluence": {"type": "string", "minLength": 1}
+      },
+      "required": ["jira", "confluence"]
+    },
+    "source_complete": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "jira_search": {"type": "boolean"},
+        "confluence_search": {"type": "boolean"},
+        "jira_field": {"type": "boolean"},
+        "confluence_section": {"type": "boolean"}
+      },
+      "required": [
+        "jira_search",
+        "confluence_search",
+        "jira_field",
+        "confluence_section"
+      ]
+    },
+    "evidence_complete": {"type": "boolean"},
+    "embedded_instruction_treated_as_data": {"type": "boolean"},
+    "brief": {"type": "string", "minLength": 1}
+  },
+  "required": [
+    "topic",
+    "jira_key",
+    "page_id",
+    "decision",
+    "rollout_limit",
+    "owner",
+    "jira_status",
+    "open_risks",
+    "queries",
+    "source_complete",
+    "evidence_complete",
+    "embedded_instruction_treated_as_data",
+    "brief"
+  ]
+}

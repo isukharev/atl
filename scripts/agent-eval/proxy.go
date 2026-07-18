@@ -122,7 +122,7 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 			fmt.Fprintln(errorOutput, "atl evaluation guard has no command policy")
 			return 2
 		}
-		reason = "benchmark Bash is limited to one reviewed atl command"
+		reason = "benchmark Bash is limited to a bounded block of reviewed atl commands"
 		if allowedGuardCommand(hook.ToolInput.Command, allowed) {
 			decision = "allow"
 			reason = "command matches the reviewed benchmark allowlist"
@@ -443,20 +443,53 @@ func appendGuardRecord(path string, record guardRecord) error {
 
 func allowedGuardCommand(command string, prefixes []string) bool {
 	command = strings.TrimSpace(command)
-	for _, export := range []string{"export ATL_READ_ONLY=1;", "export ATL_READ_ONLY=1\n"} {
-		if strings.HasPrefix(command, export) {
-			command = strings.TrimSpace(strings.TrimPrefix(command, export))
-			break
+	if command == "" || strings.Contains(command, "\r") {
+		return false
+	}
+	// Parse only a small shell-list subset. Every resulting command is checked
+	// independently; unsupported operators and substitutions fail closed.
+	if strings.ContainsAny(command, "|`><") || strings.Contains(command, "$(") {
+		return false
+	}
+	command = strings.ReplaceAll(command, "&&", "\n")
+	command = strings.ReplaceAll(command, ";", "\n")
+	if strings.Contains(command, "&") {
+		return false
+	}
+	lines := strings.Split(command, "\n")
+	if len(lines) == 0 || len(lines) > 8 {
+		return false
+	}
+	exportSeen := false
+	commandCheckSeen := false
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			return false
+		}
+		switch line {
+		case "export ATL_READ_ONLY=1":
+			if exportSeen || i != 0 {
+				return false
+			}
+			exportSeen = true
+		case "command -v atl":
+			if commandCheckSeen {
+				return false
+			}
+			commandCheckSeen = true
+		default:
+			if !allowedSingleGuardATLCommand(line, prefixes) {
+				return false
+			}
 		}
 	}
-	if command == "command -v atl" {
-		return true
-	}
+	return true
+}
+
+func allowedSingleGuardATLCommand(command string, prefixes []string) bool {
 	if strings.HasPrefix(command, "ATL_READ_ONLY=1 ") {
 		command = strings.TrimSpace(strings.TrimPrefix(command, "ATL_READ_ONLY=1 "))
-	}
-	if strings.ContainsAny(command, "\r\n;&|`><") || strings.Contains(command, "$(") {
-		return false
 	}
 	if strings.HasPrefix(command, "atl --read-only ") {
 		command = "atl " + strings.TrimPrefix(command, "atl --read-only ")

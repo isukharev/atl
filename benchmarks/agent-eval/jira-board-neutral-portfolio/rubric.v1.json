@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "id": "jira-board-neutral-portfolio-answer",
+  "scenario_id": "jira.synthetic-board-neutral-portfolio",
+  "minimum_score_bps": 7500,
+  "criteria": [
+    {
+      "id": "evidence_grounding",
+      "description": "Membership and child counts come only from the complete board snapshot, while results and freshness use the selected field and its qualified history.",
+      "maximum": 4,
+      "minimum": 4,
+      "weight": 35
+    },
+    {
+      "id": "qualification",
+      "description": "Current, stale, and incomplete evidence remain distinct, and the incomplete epic prevents a complete portfolio claim.",
+      "maximum": 4,
+      "minimum": 3,
+      "weight": 30
+    },
+    {
+      "id": "task_completeness",
+      "description": "The response covers the quarter outcome, all three epics, child counts, freshness, and source completeness.",
+      "maximum": 4,
+      "minimum": 3,
+      "weight": 20
+    },
+    {
+      "id": "actionability",
+      "description": "The structured result exposes portfolio exceptions without requiring the consumer to rejoin board and history records.",
+      "maximum": 4,
+      "minimum": 2,
+      "weight": 10
+    },
+    {
+      "id": "concision",
+      "description": "The answer does not reproduce backend narratives or unrelated issue data.",
+      "maximum": 4,
+      "minimum": 3,
+      "weight": 5
+    }
+  ],
+  "allowed_finding_ids": [
+    "incomplete_answer",
+    "missing_qualification",
+    "unsupported_claim",
+    "verbose"
+  ]
+}

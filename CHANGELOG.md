@@ -11,14 +11,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Agent-eval run specs now use schema v3. Neutral-common runs must add the same
+  sorted semantic `data_capabilities` set across compared surfaces; private v2
+  specs must update the version and declare that set before they can run.
+
+- The Jira evidence skill now skips metadata discovery when a task already
+  names one exact standard field, keeping agent reads bounded to the requested
+  value while retaining metadata-first discovery for unknown custom fields.
+
 - External MCP benchmark catalog identity is now independent of tool and JSON
   object-key ordering. Additions, removals, duplicate names, schema changes,
   annotations, descriptions, malformed UTF-8, and every other non-normalized
   catalog content change remain fail-closed. Profiles may pin a small finite
   set of explicitly reviewed exact catalog variants for upstreams whose catalog
   content is not byte-stable.
+  Owner-reviewed read-only profiles may cover servers that omit optional MCP
+  read/destructive annotations, while explicit unsafe annotations remain an
+  unconditional failure alongside exact catalog/schema/tool/argument checks.
+  Protocol-reserved client `_meta` is accepted for interoperability but removed
+  before the upstream call, leaving exact reviewed business arguments intact.
+  Profiles may also pin a small finite set of reviewed per-tool input-schema
+  digests for catalog variants; both the full catalog and selected schema must
+  match a reviewed value.
+  Three-surface comparison validation now rejects backend request/duplicate/
+  write metrics that an opaque external MCP hop cannot observe, instead of
+  letting unknown coverage masquerade as a failed zero.
 
 ### Added
+
+- Added an aggregate-only benchmark corpus inventory plus realistic
+  multi-surface scenarios for deep Jira evidence, ordered issue batches, board
+  portfolio synthesis, long Confluence decisions, cross-service discovery,
+  GET-only Structure subtree batches, and multi-table
+  Confluence analytics. Neutral common cohorts now enforce byte-identical
+  prompt/schema files, semantically identical task and oracle contracts, and
+  equivalent declared data capabilities, while CLI-native coverage is reported
+  separately. Existing offline mirror review and guarded synthetic mutation
+  cases are now explicitly classified as surface-native rather than being
+  mixed into route-fixed regressions.
+  CLI+skill runs now admit only the two inert statements used by the
+  shipped safety preflight (`export ATL_READ_ONLY=1` and `command -v atl`) in
+  addition to bounded blocks of reviewed `atl` command prefixes separated only
+  by newlines or the exact list operators `;`/`&&`.
+  Every atl line still crosses the accounting proxy, so establishing the
+  read-only boundary is measured instead of being rejected by the harness.
 
 - Added a credential-isolated private-live external MCP benchmark surface. An
   owner-only parent profile pins the HTTPS server, protocol/catalog/schema

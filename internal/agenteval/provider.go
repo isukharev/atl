@@ -53,7 +53,19 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 			return ProviderCommand{}, fmt.Errorf("response schema is not valid JSON")
 		}
 		toolNames := claudeToolNames(spec.AllowedTools)
-		allowedTools := spec.AllowedTools
+		allowedTools := append([]string(nil), spec.AllowedTools...)
+		if containsRunString(spec.AllowedTools, "Bash(atl *)") && !containsRunString(allowedTools, "Bash(export ATL_READ_ONLY=1)") {
+			// Shipped read-only skills intentionally establish a block-wide
+			// safety policy before their first atl command. Grant only that exact
+			// inert export; the hook still rejects every other shell command.
+			allowedTools = append(allowedTools, "Bash(export ATL_READ_ONLY=1)")
+		}
+		if containsRunString(spec.AllowedTools, "Bash(atl *)") && !containsRunString(allowedTools, "Bash(command -v atl)") {
+			// The same preflight verifies which executable the benchmark is about
+			// to use. Keep this as an exact inert command rather than broadening
+			// the reviewed atl prefix.
+			allowedTools = append(allowedTools, "Bash(command -v atl)")
+		}
 		settingSources := "project"
 		if spec.EffectiveBackendMode() == BackendModePrivateLive {
 			settingSources = ""
