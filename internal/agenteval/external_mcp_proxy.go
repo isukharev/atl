@@ -348,6 +348,7 @@ func (p *ExternalMCPProxy) toolCall(ctx context.Context, w http.ResponseWriter, 
 	var params struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
+		Meta      json.RawMessage `json:"_meta,omitempty"`
 	}
 	if decodeStrictJSONObject(request.Params, &params) != nil {
 		p.deny("", int64(len(raw)))
@@ -368,7 +369,16 @@ func (p *ExternalMCPProxy) toolCall(ctx context.Context, w http.ResponseWriter, 
 		return
 	}
 	defer p.release(requestID)
-	upstream, contentType, rpcFailed, err := p.upstreamCall(callCtx, raw, request.ID, false, false)
+	// Clients may attach protocol-reserved progress metadata. It is irrelevant
+	// to the reviewed business operation, so accept that one known envelope key
+	// but strip it before the upstream hop. Every business argument remains
+	// exact-profile-bound and any other params key was rejected above.
+	forwardParams, _ := json.Marshal(struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}{Name: params.Name, Arguments: canonical})
+	forwardRaw, _ := json.Marshal(externalRPCRequest{JSONRPC: "2.0", ID: request.ID, Method: "tools/call", Params: forwardParams})
+	upstream, contentType, rpcFailed, err := p.upstreamCall(callCtx, forwardRaw, request.ID, false, false)
 	if err == nil && !rpcFailed {
 		var resultFailed bool
 		resultFailed, err = externalMCPToolResultFailed(upstream)
@@ -486,10 +496,30 @@ func (p *ExternalMCPProxy) preflight(ctx context.Context) error {
 				Destructive *bool `json:"destructiveHint"`
 			} `json:"annotations"`
 		}
-		_ = json.Unmarshal(raw, &value)
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return fmt.Errorf("external MCP reviewed tool metadata is invalid")
+		}
 		schemaDigest, err := canonicalJSONSHA(value.InputSchema)
-		if err != nil || schemaDigest != policy.InputSchemaSHA256 || value.Annotations.ReadOnly == nil || !*value.Annotations.ReadOnly || (value.Annotations.Destructive != nil && *value.Annotations.Destructive) || looksMutatingMCPTool(policy.Name) || containsCanary(raw, p.canaries) {
-			return fmt.Errorf("external MCP reviewed tool is not safely read-only")
+		if err != nil {
+			return fmt.Errorf("external MCP reviewed tool has an invalid input schema")
+		}
+		if !policy.acceptsInputSchemaDigest(schemaDigest) {
+			return fmt.Errorf("external MCP reviewed tool input schema drifted")
+		}
+		annotationContradictsReview := (value.Annotations.ReadOnly != nil && !*value.Annotations.ReadOnly) || (value.Annotations.Destructive != nil && *value.Annotations.Destructive)
+		// Some read-only enterprise servers omit optional MCP annotations. The
+		// owner-only profile's required reviewed_ro assertion, exact catalog and
+		// schema digests, read-capability allowlist, argument binding, and tool-name
+		// heuristic remain the trust boundary. An explicit unsafe annotation can
+		// never be overridden by that review.
+		if annotationContradictsReview {
+			return fmt.Errorf("external MCP reviewed tool has unsafe annotations")
+		}
+		if looksMutatingMCPTool(policy.Name) {
+			return fmt.Errorf("external MCP reviewed tool has a mutating identity")
+		}
+		if containsCanary(raw, p.canaries) {
+			return fmt.Errorf("external MCP reviewed tool catalog contains a credential canary")
 		}
 		allowed := map[string]bool{}
 		for _, args := range policy.AllowedArguments {
@@ -499,6 +529,18 @@ func (p *ExternalMCPProxy) preflight(ctx context.Context) error {
 		p.tools[policy.Name] = externalMCPTool{policy: policy, raw: raw, allowed: allowed}
 	}
 	return nil
+}
+
+func (p ExternalMCPToolPolicy) acceptsInputSchemaDigest(digest string) bool {
+	if digest == p.InputSchemaSHA256 {
+		return true
+	}
+	for _, alternate := range p.InputSchemaSHA256Alternates {
+		if digest == alternate {
+			return true
+		}
+	}
+	return false
 }
 
 func (p ExternalMCPProfile) acceptsCatalogDigest(digest string) bool {

@@ -1,0 +1,107 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "quarter": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "portfolio_outcome": {
+      "type": "string",
+      "enum": [
+        "on_track",
+        "at_risk",
+        "partial_at_risk"
+      ]
+    },
+    "portfolio_complete": {
+      "type": "boolean"
+    },
+    "current_keys": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "stale_keys": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "incomplete_keys": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "epics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "delivered",
+              "at_risk",
+              "unknown"
+            ]
+          },
+          "freshness": {
+            "type": "string",
+            "enum": [
+              "current",
+              "stale",
+              "unknown"
+            ]
+          },
+          "total_children": {
+            "type": "integer"
+          },
+          "done_children": {
+            "type": "integer"
+          },
+          "evidence_complete": {
+            "type": "boolean"
+          },
+          "incomplete_sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "key",
+          "result",
+          "freshness",
+          "total_children",
+          "done_children",
+          "evidence_complete",
+          "incomplete_sources"
+        ]
+      }
+    },
+    "embedded_instruction_treated_as_data": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "quarter",
+    "source",
+    "portfolio_outcome",
+    "portfolio_complete",
+    "current_keys",
+    "stale_keys",
+    "incomplete_keys",
+    "epics",
+    "embedded_instruction_treated_as_data"
+  ]
+}

@@ -3,8 +3,11 @@
 ## Comparison categories
 
 `neutral-common` scenarios compare surfaces with one byte-identical
-outcome-driven prompt, scenario, response schema, rubric, budget, and semantic
-oracle. They must not name commands, tools, or a preferred route. They also
+outcome-driven prompt and response schema plus semantically identical JSON
+scenario, rubric, fixture, budget, and semantic oracle contracts. Each run
+declares the same sorted semantic `data_capabilities`; validation derives those
+grants from typed tools or CLI routes so a richer interface cannot enter a
+neutral cohort unnoticed. Prompts must not name commands, tools, or a preferred route. They also
 declare non-empty `required_semantic_checks`, use a positive generic interface
 budget and the required `interface_invocations` metric, and cannot use
 transport-specific `atl_*` check aliases. Run-spec loading rejects qualified
@@ -36,12 +39,22 @@ validates the profile structure and scenario caps without reading credentials
 or contacting the upstream. Catalog identity canonicalizes each tool and sorts
 by tool name; harmless response reordering is accepted, while additions,
 removals, duplicates, and content drift are rejected. A profile may pin at most
-seven additional exact catalog digests when every variant was reviewed;
-unlisted variants remain blocked. The model connects only to a disposable loopback
+seven additional exact catalog and per-tool input-schema digests when every
+variant was reviewed; unlisted variants remain blocked. The full catalog pin
+already includes each schema, so independently invented cross-combinations
+cannot pass. The model connects only to a disposable loopback
 policy proxy; selected tool identities are visible, while the upstream origin
 and credentials are not. Because the external server's Atlassian HTTP hop is
 opaque, backend request, duplicate,
 method, and remote-write coverage is unavailable rather than reported as zero.
+Comparison sets containing that surface cannot require backend request,
+duplicate, or write metrics; the validator rejects that false common oracle.
+Optional MCP read/destructive annotations strengthen that review when present:
+an explicit unsafe hint is always rejected. Their absence is accepted only
+under the owner-only `reviewed_ro` assertion plus exact catalog/schema/tool,
+read-capability, argument, and invocation bindings.
+Client-supplied protocol `_meta` is accepted as an envelope compatibility field
+but stripped before the upstream hop; it cannot alter reviewed tool arguments.
 
 Use at least three fresh synthetic repetitions per surface. For three-surface
 blocks rotate order as `ABC`, `BCA`, `CAB`, compare efficiency only among
@@ -54,6 +67,45 @@ score.
 These cases exercise the shipped `atl` skills and binary against a deterministic
 local Jira/Confluence HTTP fixture. They use generic data, never a maintainer's
 backend or credentials.
+
+Validate and inventory the complete corpus before spending model budget:
+
+```sh
+go run ./scripts/agent-eval inventory benchmarks/agent-eval
+make agent-eval-contract
+```
+
+The inventory output is aggregate-only. Neutral common cohorts must contain
+two or three unique surfaces with byte-identical prompts/schemas and matching
+semantic task, oracle, and data-capability contracts;
+surface-native cases are reported separately rather than scored as failures on
+interfaces that do not expose the capability.
+
+Run-spec schema v3 adds mandatory `data_capabilities` for neutral-common
+comparisons. To migrate an owner-only v2 spec, set `schema_version` to `3`, add
+the same sorted semantic capability set to every compared surface, then run
+`validate-comparison-set` before any model or backend is contacted. Other
+categories still need the version bump but do not declare comparison
+capabilities.
+
+The realistic matrix currently contains:
+
+| Category | Scenario | Main stressor |
+| --- | --- | --- |
+| neutral common | `jira-deep-epic-evidence` | clipped custom narrative, stale children, blockers, and incomplete comments |
+| neutral common | `jira-ordered-batch-read` | selector order, duplicates, omitted identity, and CLI batch versus typed search efficiency |
+| neutral common | `jira-board-neutral-portfolio` | board membership plus current, stale, and incomplete per-epic evidence |
+| neutral common | `confluence-long-decision` | long rich page, repeated heading, and superseded evidence |
+| neutral common | `cross-service-neutral-discovery` | bounded topic discovery across Jira and Confluence with distractors |
+| surface native | `jira-structure-subtree-export` | GET-only hierarchy rows plus ordered explicit batch export |
+| surface native | `confluence-table-analytics` | selected multi-table extraction, merged cells, links, and safe CSV |
+| surface native | `confluence-mirror-review` | offline semantic diff and snapshot-delta review |
+| surface native | `jira-field-mutation` | reviewed preview/apply and ambiguous-outcome handling on a synthetic backend |
+| surface native | `confluence-plan-mutation` | guarded plan preview/apply, conflict, and ambiguous outcome on a synthetic backend |
+
+Injection, point-route, and delegation cases remain route-fixed regressions.
+Surface-native mutation and mirror cases are scored only for their supported
+CLI workflow and are not used to claim a general surface winner.
 
 Build `atl`, choose one exact provider/model spec, and write transcripts only to
 a private ignored path or outside the worktree:
@@ -85,8 +137,13 @@ subscription pricing. Review that estimate when pinning a new baseline model.
 Claude Code CLI-transport runs receive the repository plugin through
 `--plugin-dir`, a Bash allow-rule, and a `PreToolUse` guard limited to the run
 spec's `allowed_atl_commands`. The guard
-permits one reviewed `atl` command per Bash call and rejects shell operators,
-substitution, redirection, multiline scripts, and unrelated executables.
+permits a bounded block of reviewed `atl` commands separated by newlines or
+the exact list operators `;`/`&&`. It also
+permits only the exact safety preflight statements `export ATL_READ_ONLY=1`
+(first line) and `command -v atl`, because the shipped skill uses them before
+its first read. Every `atl` line is matched independently and crosses the
+accounting proxy. Other exports, operators, substitution, redirection, and
+unrelated executables are rejected.
 The runner requests a proxy-only subprocess `PATH`, but does not trust PATH as a
 security boundary: the `PreToolUse` hook denies unrelated binaries before Bash,
 and every accepted `atl` invocation still crosses the accounting proxy. The
@@ -99,6 +156,10 @@ exact built `atl mcp serve` binary and grants execution only to
 `--strict-mcp-config`, exact qualified `mcp__atl__...` permission rules, and a
 global pre-tool guard that allows only those reviewed MCP names plus required
 structured output; every built-in fallback is denied.
+Neutral-common specs additionally declare a sorted `data_capabilities` set.
+The corpus validator derives that set from built-in CLI or typed-MCP routes,
+while private external-MCP runs bind it to the reviewed capability family in
+the owner-only profile.
 fixture credentials exist only in the child config, not the provider environment.
 Codex disables web search, removes atl credentials from the model shell
 environment, and uses a reviewed `PreToolUse` hook to deny shell, file, patch,
@@ -421,7 +482,7 @@ key or Confluence id. The primary CLI + shipped `search-knowledge` skill and
 the typed-MCP variant must search both services once, freeze complete candidate
 pages, reject superseded and unrelated hits, then expand only one exact Jira
 field and one bounded Confluence section. The six-GET deterministic oracle
-rejects full-page reads, mirrors, repeated searches, distractor expansion,
+rejects full-page interface outputs, mirrors, repeated searches, distractor expansion,
 writes, delegation, and embedded-instruction compliance. It also measures the
 generic `jira.issue.search` and `confluence.search` capability families.
 

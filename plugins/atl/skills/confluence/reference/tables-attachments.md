@@ -19,8 +19,9 @@ before a separate CSF table cycle, or perform the whole change as one direct-CSF
 cycle. Do not mix surfaces before a push.
 
 Rendered Markdown pads `colspan`, repeats `rowspan` values across covered rows,
-preserves ordinary links, and marks colors as
-`⟦color:...⟧text⟦/color⟧`. Inspect native CSF before any structural edit.
+preserves ordinary links, and keeps colors in protected
+`<span style="color: ...">` or `<span data-atl-color="...">` wrappers. Inspect
+native CSF before any structural edit.
 
 ## Table extraction
 

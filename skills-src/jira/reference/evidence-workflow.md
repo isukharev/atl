@@ -9,6 +9,7 @@ step mechanically.
 
 | Situation | First command | Expand only when needed |
 |---|---|---|
+| One exact standard field named by the task | `jira issue field get <KEY> --field <NAME>` | nothing when the bounded result is complete |
 | One unfamiliar issue | `jira issue fields <KEY> --metadata-only` | exact bounded field get, selected history/refs, then a linked page section |
 | One epic and known evidence-field names | `jira epic digest <KEY>` plus only a task-supplied period | bounded Confluence section expansion |
 | One epic but unknown custom fields | `jira issue fields <KEY> --metadata-only` | exact compact fields, then one digest after choosing names/ids |
@@ -16,6 +17,10 @@ step mechanically.
 | Broad discovery | `jira issue search --columns ...` | batch export for selected keys |
 
 ## First-use epic flow
+
+If the task already names one exact standard field, skip this discovery flow
+and read only that field with bounded `jira issue field get`. Do not enumerate
+other populated fields merely to confirm a built-in name.
 
 ```sh
 export ATL_READ_ONLY=1

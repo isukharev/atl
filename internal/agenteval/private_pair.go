@@ -88,10 +88,18 @@ func ValidatePrivateRunComparisonSet(paths ...string) (PrivateComparisonSet, err
 			{"timeout", item.spec.TimeoutSeconds == base.spec.TimeoutSeconds},
 			{"cost cap", item.spec.MaxEstimatedCostMicroUSD == base.spec.MaxEstimatedCostMicroUSD},
 			{"pricing", item.spec.Pricing == base.spec.Pricing},
+			{"data capabilities", equalStrings(item.spec.DataCapabilities, base.spec.DataCapabilities)},
 		}
 		for _, comparison := range comparisons {
 			if !comparison.equal {
 				return PrivateComparisonSet{}, fmt.Errorf("comparison runs differ in %s", comparison.name)
+			}
+		}
+	}
+	if _, includesExternal := seenSurfaces[SurfaceExternalMCP]; includesExternal {
+		for _, metric := range base.scenario.RequiredMetrics {
+			if externalMCPMetricIsOpaque(metric) {
+				return PrivateComparisonSet{}, fmt.Errorf("external MCP comparison cannot require opaque backend metrics")
 			}
 		}
 	}
@@ -100,6 +108,15 @@ func ValidatePrivateRunComparisonSet(paths ...string) (PrivateComparisonSet, err
 		SchemaVersion: 1, Comparable: true, Category: base.spec.EffectiveCategory(),
 		Provider: base.spec.Provider, Surfaces: surfaces,
 	}, nil
+}
+
+func externalMCPMetricIsOpaque(metric string) bool {
+	switch metric {
+	case "backend_requests", "duplicate_backend_requests", "remote_writes":
+		return true
+	default:
+		return false
+	}
 }
 
 // ValidatePrivateRunPair preserves the original CLI/atl-MCP contract and

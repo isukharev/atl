@@ -181,7 +181,29 @@ bodies. Validate the committed scenarios and deterministic workflows with:
 
 ```sh
 make agent-eval-contract
+go run ./scripts/agent-eval inventory benchmarks/agent-eval
 ```
+
+The inventory command validates the whole corpus before returning only
+aggregate category/task-class counts. Its success and error outputs never emit
+scenario ids, filesystem paths, prompts, fixtures, or private values. For every
+inventory row, `task_class` must also come from the closed public task taxonomy;
+private project or roadmap names are rejected rather than echoed. Across all
+provider/model cohorts for one `neutral-common` scenario it proves that runs
+share byte-identical prompt and response-schema files, semantically identical
+JSON task/rubric/fixture/oracle contracts, the same workspace and backend mode,
+and the same declared data capabilities. Within each cohort, two or three
+unique surfaces must additionally share repetition, pricing, timeout, and run
+cost-cap contracts. Scenario budgets remain common because every run in the
+directory binds the same scenario file.
+
+The committed realistic matrix includes neutral-common cohorts for deep Jira
+evidence, ordered batch reading, board portfolio synthesis, a long
+repeated-heading Confluence decision, and cross-service topic discovery, plus
+separately scored surface-native cases for GET-only Structure subtree batch
+export, multi-table Confluence analytics, offline mirror review, and guarded
+synthetic Jira/Confluence mutations. Delegation, injection, and point-route
+cases remain route-fixed regression tests rather than general surface rankings.
 
 New multi-surface scenarios use `interface_invocations`,
 `max_interface_invocations`, and the corresponding `interface_*` run-check
@@ -400,10 +422,18 @@ results are the stable claims.
 
 The runner creates a fresh private workspace per repetition. Claude Code CLI
 runs load the repository plugin explicitly and receive an `atl`-only Bash
-allow-rule plus a `PreToolUse` guard. The guard accepts one command per Bash call, optionally
-preceded by the exact `export ATL_READ_ONLY=1`, and only when it matches a
-run-spec `allowed_atl_commands` prefix. Shell operators, substitutions,
-redirections, multiline scripts, and unrelated binaries are denied before Bash.
+allow-rule plus a `PreToolUse` guard. The guard accepts a bounded command block
+separated only by newlines or the exact list operators `;`/`&&`; every `atl`
+command independently matches a run-spec
+`allowed_atl_commands` prefix and crosses the accounting proxy. The exact
+leading `export ATL_READ_ONLY=1` and one `command -v atl` preflight line are
+also accepted. Other operators, substitutions, redirections, and
+unrelated binaries are denied before Bash.
+For compatibility with the shipped read-only preflight, the provider permission
+set and guard also admit the exact statements
+`export ATL_READ_ONLY=1` and `command -v atl`. They do not admit arbitrary
+exports or any other standalone shell command; the benchmark process already
+inherits `ATL_READ_ONLY=1`, so these statements cannot weaken its policy.
 Codex gets the same generated skills in `.agents/skills` for a reviewable
 ephemeral read-only command preview. Both providers support MCP transport.
 Claude receives a generated mode-0600 config under `--strict-mcp-config`; every
@@ -700,7 +730,7 @@ A private run spec differs from a synthetic spec in these fields:
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "backend_mode": "private-live",
   "category": "neutral-common",
   "surface": "atl-mcp",
@@ -731,6 +761,13 @@ A private run spec differs from a synthetic spec in these fields:
     "confluence_page_outline",
     "confluence_page_section"
   ],
+  "data_capabilities": [
+    "confluence.page.outline",
+    "confluence.page.resolve",
+    "confluence.page.section",
+    "jira.epic.digest",
+    "jira.fields"
+  ],
   "checks": [
     {"name":"interface_succeeded","kind":"interface_all_succeeded"},
     {"name":"guard_clean","kind":"guard_no_denials"},
@@ -748,8 +785,29 @@ repetition, zero delegations and writes, positive invocation/request limits,
 an explicit `allowed_http_methods` containing only `GET`/`HEAD`, and name
 `complete` in both `required_checks` and `required_semantic_checks`. Start with
 the smallest MCP execution allowlist and response schema that can answer the user task.
+Every neutral run also declares a sorted `data_capabilities` set. Built-in CLI
+and typed-MCP routes are reduced to this semantic set during spec validation;
+an external MCP run is bound to the same set through its owner-reviewed profile.
 Expected private facts may live in the ignored run spec; never copy them into a
 public fixture or PR.
+
+This contract is run-spec schema v3. Migrate an ignored/private v2 run by
+setting `schema_version` to `3`, declaring the same sorted semantic capability
+set on every neutral-common surface, and running `validate-comparison-set`.
+Non-neutral specs only require the version bump. Validation happens before
+credentials, model execution, or backend traffic.
+
+The external profile's mandatory `reviewed_ro:true` is the explicit owner
+assertion for servers that omit optional MCP tool annotations. When annotations
+exist, `readOnlyHint:false` or `destructiveHint:true` is an unconditional
+preflight failure. When they are absent, the proxy still requires the exact
+catalog and input-schema digests, a read-only semantic capability and
+non-mutating tool name, exact allowed arguments, and bounded invocations; the
+profile cannot override contradictory annotations.
+The proxy accepts the protocol-reserved `tools/call` `_meta` field used by some
+clients, then removes it before forwarding. All business arguments remain
+canonicalized and exact-profile-bound; any other unknown params field fails
+closed.
 
 Review without invoking the model or backend, then run once:
 
@@ -938,7 +996,9 @@ identity canonicalizes each tool object and sorts by tool name, so response
 ordering is irrelevant while every other catalog content change remains a hard
 preflight failure. A server with a finite, reviewed set of otherwise unstable
 catalog encodings may pin at most seven additional exact digests; an unlisted
-variant still fails closed. The sum
+variant still fails closed. A selected tool may likewise pin at most seven
+reviewed input-schema digests; the full catalog digest includes that schema, so
+both pins must match a reviewed catalog response. The sum
 of invocation caps and the total response cap must fit the scenario budgets.
 
 ```json
@@ -954,6 +1014,7 @@ of invocation caps and the total response cap must fit the scenario budgets.
     "name": "read_issue",
     "capability": "jira.issue.field",
     "input_schema_sha256": "<64 lowercase hex bytes>",
+    "input_schema_sha256_alternates": ["<optional reviewed variant>"],
     "max_invocations": 1,
     "allowed_arguments": [{"key":"PROJ-1"}]
   }],
@@ -982,6 +1043,12 @@ HTTP proxies, cancellation reaches the active request, and upstream sessions
 are closed when supported. Results use `backend_observation:"opaque-mcp"` and
 `safety_assurance:"reviewed-ro-mcp-interface"`; internal HTTP request, method,
 duplicate, and write coverage is deliberately unavailable.
+Therefore a comparison set containing `external-mcp` must not list
+`backend_requests`, `duplicate_backend_requests`, or `remote_writes` as
+`required_metrics`. Keep them as observed diagnostics for CLI/atl-MCP; the
+external surface proves safety through its reviewed interface assurance rather
+than fabricating zero backend traffic. Run-spec and comparison-set validation
+enforce this before any run.
 
 Then dry-run both, inspect both plans, and perform exactly one supervised run
 of each with the same built atl/plugin commit:

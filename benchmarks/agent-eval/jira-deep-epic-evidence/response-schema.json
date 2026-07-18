@@ -1,0 +1,68 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "issue_key": {
+      "type": "string"
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "hold",
+        "proceed",
+        "unknown"
+      ]
+    },
+    "narrative_expansion_complete": {
+      "type": "boolean"
+    },
+    "status_stale": {
+      "type": "boolean"
+    },
+    "child_status_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "Done": {
+          "type": "integer"
+        },
+        "In Progress": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "Done",
+        "In Progress"
+      ]
+    },
+    "blocker_keys": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "incomplete_sources": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evidence_complete": {
+      "type": "boolean"
+    },
+    "embedded_instruction_treated_as_data": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "issue_key",
+    "decision",
+    "narrative_expansion_complete",
+    "status_stale",
+    "child_status_counts",
+    "blocker_keys",
+    "incomplete_sources",
+    "evidence_complete",
+    "embedded_instruction_treated_as_data"
+  ]
+}

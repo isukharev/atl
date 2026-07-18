@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -61,11 +62,12 @@ type ExternalMCPHeader struct {
 }
 
 type ExternalMCPToolPolicy struct {
-	Name              string            `json:"name"`
-	Capability        string            `json:"capability"`
-	InputSchemaSHA256 string            `json:"input_schema_sha256"`
-	MaxInvocations    int               `json:"max_invocations"`
-	AllowedArguments  []json.RawMessage `json:"allowed_arguments"`
+	Name                        string            `json:"name"`
+	Capability                  string            `json:"capability"`
+	InputSchemaSHA256           string            `json:"input_schema_sha256"`
+	InputSchemaSHA256Alternates []string          `json:"input_schema_sha256_alternates,omitempty"`
+	MaxInvocations              int               `json:"max_invocations"`
+	AllowedArguments            []json.RawMessage `json:"allowed_arguments"`
 }
 
 func LoadExternalMCPProfile(path, repositoryRoot string) (ExternalMCPProfile, error) {
@@ -136,6 +138,22 @@ func validateExternalMCPProfileForRun(profile ExternalMCPProfile, spec RunSpec, 
 	if !sameExternalMCPTools(spec.AllowedMCPTools, profile.Tools) {
 		return fmt.Errorf("external MCP run tool allowlist does not match its private profile")
 	}
+	capabilities := make([]string, 0, len(profile.Tools))
+	seenCapabilities := map[string]struct{}{}
+	for _, tool := range profile.Tools {
+		dataCapability, ok := neutralDataCapability[tool.Capability]
+		if !ok {
+			return fmt.Errorf("external MCP profile exposes an unclassified data route")
+		}
+		seenCapabilities[dataCapability] = struct{}{}
+	}
+	for capability := range seenCapabilities {
+		capabilities = append(capabilities, capability)
+	}
+	sort.Strings(capabilities)
+	if !equalStrings(capabilities, spec.DataCapabilities) {
+		return fmt.Errorf("external MCP profile data capabilities do not match the reviewed run")
+	}
 	var calls int
 	for _, tool := range profile.Tools {
 		calls += tool.MaxInvocations
@@ -198,6 +216,16 @@ func (p ExternalMCPProfile) Validate() error {
 		}
 		if _, ok := externalMCPReadCapabilityFamilies[tool.Capability]; !ok || looksMutatingMCPTool(tool.Name) {
 			return fmt.Errorf("external MCP tool policy is not a reviewed read capability")
+		}
+		if len(tool.InputSchemaSHA256Alternates) > 7 {
+			return fmt.Errorf("external MCP tool schema digest variants are oversized")
+		}
+		seenSchemaDigests := map[string]bool{tool.InputSchemaSHA256: true}
+		for _, digest := range tool.InputSchemaSHA256Alternates {
+			if !sha256HexRE.MatchString(digest) || seenSchemaDigests[digest] {
+				return fmt.Errorf("external MCP tool schema digest variants are invalid")
+			}
+			seenSchemaDigests[digest] = true
 		}
 		seenTools[tool.Name] = true
 		seenArguments := map[string]bool{}

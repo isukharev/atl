@@ -11,8 +11,10 @@ Confluence Storage Format (CSF) as the write substrate. `atl` prints JSON by
 default. Durable document markers may use LF or CRLF; atl normalizes only the
 marker line and never treats whole-document newline conversion as neutral.
 
-For an unfamiliar goal, run `atl capabilities --task confluence/evidence` or
-`confluence/edit`, then load exactly the reference named by the result. A
+For an unfamiliar goal, run `atl capabilities --task confluence/evidence`,
+`confluence/table-analytics`, `confluence/edit`, or the cross-service
+`knowledge/search` route, then load exactly the
+reference named by the result. A
 capability route does not grant write authority.
 
 ## Establish the safety boundary

@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/jira/rest/structure/2.0/forest/latest",
+      "status": 200,
+      "body": {
+        "formula": "100:0:1/plans,110:1:1/q3,111:2:20001,112:2:20002,113:2:20002,114:2:20003,200:0:1/archive,201:1:30001",
+        "itemTypes": {"1": "folder"},
+        "version": {"signature": 701, "version": 9}
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/api/2/search",
+      "status": 200,
+      "body": {
+        "startAt": 0,
+        "maxResults": 100,
+        "total": 2,
+        "issues": [
+          {
+            "id": "20001",
+            "key": "PROJ-1",
+            "fields": {
+              "summary": "Prepare launch",
+              "status": {"name": "Done"}
+            }
+          },
+          {
+            "id": "20002",
+            "key": "PROJ-2",
+            "fields": {
+              "summary": "Validate rollout",
+              "status": {"name": "In Progress"}
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

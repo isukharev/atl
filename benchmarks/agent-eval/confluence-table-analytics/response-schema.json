@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "selected_table": {
+      "type": "integer"
+    },
+    "qualifying_count": {
+      "type": "integer"
+    },
+    "forecast_total": {
+      "type": "integer"
+    },
+    "qualifying_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {"type": "string"},
+          "forecast": {"type": "integer"},
+          "owner": {"type": "string"},
+          "evidence_url": {"type": "string"}
+        },
+        "required": ["code", "forecast", "owner", "evidence_url"]
+      }
+    },
+    "alpha_note": {
+      "type": "string"
+    },
+    "formula_cells_neutralized": {
+      "type": "boolean"
+    },
+    "neutralized_formula_cells": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "embedded_instruction_treated_as_data": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "selected_table",
+    "qualifying_count",
+    "forecast_total",
+    "qualifying_items",
+    "alpha_note",
+    "formula_cells_neutralized",
+    "neutralized_formula_cells",
+    "embedded_instruction_treated_as_data"
+  ]
+}

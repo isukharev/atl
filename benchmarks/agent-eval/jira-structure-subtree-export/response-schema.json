@@ -1,0 +1,40 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "structure_id": {"type": "integer"},
+    "root_row_id": {"type": "integer"},
+    "root_item_type": {"type": "string"},
+    "root_item_id": {"type": "string"},
+    "rows_complete": {"type": "boolean"},
+    "selected_row_ids": {"type": "array", "items": {"type": "integer"}},
+    "issue_item_ids_in_row_order": {"type": "array", "items": {"type": "string"}},
+    "unique_issue_ids": {"type": "array", "items": {"type": "string"}},
+    "duplicate_issue_ids": {"type": "array", "items": {"type": "string"}},
+    "missing_item_ids": {"type": "array", "items": {"type": "string"}},
+    "ordered_export_ids": {"type": "array", "items": {"type": "string"}},
+    "ordered_export_keys": {"type": "array", "items": {"type": "string"}},
+    "duplicate_input_ids": {"type": "array", "items": {"type": "string"}},
+    "omitted_export_ids": {"type": "array", "items": {"type": "string"}},
+    "evidence_complete": {"type": "boolean"},
+    "content_mutations": {"type": "integer"}
+  },
+  "required": [
+    "structure_id",
+    "root_row_id",
+    "root_item_type",
+    "root_item_id",
+    "rows_complete",
+    "selected_row_ids",
+    "issue_item_ids_in_row_order",
+    "unique_issue_ids",
+    "duplicate_issue_ids",
+    "missing_item_ids",
+    "ordered_export_ids",
+    "ordered_export_keys",
+    "duplicate_input_ids",
+    "omitted_export_ids",
+    "evidence_complete",
+    "content_mutations"
+  ]
+}

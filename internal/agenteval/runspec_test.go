@@ -368,8 +368,58 @@ func TestRunSpecCategoryAndSurfaceDefaultsAndCompatibility(t *testing.T) {
 func TestRunSpecRequiresMatchingScenarioCategory(t *testing.T) {
 	spec := validRunSpec()
 	spec.Category = BenchmarkCategoryNeutralCommon
+	spec.DataCapabilities = []string{"jira.epic.digest", "jira.issue.fields"}
 	if err := spec.ValidateAgainstScenario(validScenario()); err == nil || !strings.Contains(err.Error(), "category") {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestNeutralCommonRunSpecBindsDeclaredDataCapabilities(t *testing.T) {
+	spec := validRunSpec()
+	spec.Category = BenchmarkCategoryNeutralCommon
+	spec.DataCapabilities = []string{"jira.epic.digest", "jira.issue.fields"}
+	if err := spec.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	bad := spec
+	bad.DataCapabilities = []string{"jira.issue.fields"}
+	if err := bad.Validate(); err == nil || !strings.Contains(err.Error(), "do not match") {
+		t.Fatalf("missing declared capability passed: %v", err)
+	}
+	bad = spec
+	bad.AllowedATLCommands = append([]string(nil), spec.AllowedATLCommands...)
+	bad.AllowedATLCommands = append(bad.AllowedATLCommands, "atl conf page view")
+	if err := bad.Validate(); err == nil || !strings.Contains(err.Error(), "unknown") {
+		t.Fatalf("unknown or richer route passed: %v", err)
+	}
+}
+
+func TestNeutralPrivateCLIDataCapabilityUsesReviewedSelectorFlags(t *testing.T) {
+	spec := validRunSpec()
+	spec.BackendMode = BackendModePrivateLive
+	spec.Category = BenchmarkCategoryNeutralCommon
+	spec.Surface = SurfaceCLISkill
+	spec.FixtureFile = ""
+	spec.Repetitions = 1
+	spec.ToolTransport = "cli"
+	spec.AllowedTools = []string{"Bash(atl *)", "Read", "Skill"}
+	spec.AllowedATLCommands = nil
+	spec.AllowedCLICommands = []CLICommandRule{{
+		Name: "batch", Command: []string{"jira", "export"}, MaxInvocations: 1,
+		Flags: []CLIFlagRule{{Name: "--keys", Values: []string{"PROJ-1"}, Required: true}},
+	}}
+	spec.DataCapabilities = []string{"jira.issue.list"}
+	if err := validateRunDataCapabilities(spec); err != nil {
+		t.Fatal(err)
+	}
+
+	spec.AllowedCLICommands[0].Flags = []CLIFlagRule{
+		{Name: "--keys", Values: []string{"PROJ-1"}},
+		{Name: "--jql", Values: []string{"project = PROJ"}},
+	}
+	if err := validateRunDataCapabilities(spec); err == nil || !strings.Contains(err.Error(), "unclassified") {
+		t.Fatalf("optional selector or alternate query passed as a bounded issue list: %v", err)
 	}
 }
 
@@ -384,6 +434,7 @@ func TestNeutralCommonRequiresGenericMetricsSemanticChecksAndAliases(t *testing.
 	scenario.Budgets.MaxEstimatedCostMicroUSD = 10_000_000
 	spec := validRunSpec()
 	spec.Category = BenchmarkCategoryNeutralCommon
+	spec.DataCapabilities = []string{"jira.epic.digest", "jira.issue.fields"}
 	for index := range spec.Checks {
 		if spec.Checks[index].Kind == "atl_invocations_min" {
 			spec.Checks[index].Kind = "interface_invocations_min"

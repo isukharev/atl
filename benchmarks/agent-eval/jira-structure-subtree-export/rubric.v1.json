@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "jira-structure-subtree-export-answer",
+  "scenario_id": "jira.synthetic-structure-subtree-export",
+  "minimum_score_bps": 7500,
+  "criteria": [
+    {"id": "evidence_grounding", "description": "Every conclusion is grounded in the exact Structure rows snapshot or explicit ordered export.", "maximum": 4, "minimum": 3, "weight": 30},
+    {"id": "qualification", "description": "A missing exported identity remains explicit instead of becoming a false absence claim about the Structure plan.", "maximum": 4, "minimum": 3, "weight": 25},
+    {"id": "task_completeness", "description": "The response covers exact root selection, repeated rows, unique identities, missing identity, and export ordering.", "maximum": 4, "minimum": 3, "weight": 25},
+    {"id": "actionability", "description": "The result is directly usable to review the selected quarterly plan without reconstructing hierarchy or order.", "maximum": 4, "minimum": 2, "weight": 10},
+    {"id": "concision", "description": "The structured answer avoids copying unrelated Structure or issue data.", "maximum": 4, "minimum": 2, "weight": 10}
+  ],
+  "allowed_finding_ids": ["incomplete_answer", "missing_qualification", "poor_structure", "unsupported_claim", "verbose"]
+}

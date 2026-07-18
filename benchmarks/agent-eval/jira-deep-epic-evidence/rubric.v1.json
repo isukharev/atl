@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "id": "jira-deep-epic-evidence-answer",
+  "scenario_id": "jira.synthetic-deep-epic-evidence",
+  "minimum_score_bps": 7500,
+  "criteria": [
+    {
+      "id": "evidence_grounding",
+      "description": "The decision comes only from the complete exact narrative expansion, while child, blocker, and staleness claims come from qualified structured evidence.",
+      "maximum": 4,
+      "minimum": 4,
+      "weight": 35
+    },
+    {
+      "id": "qualification",
+      "description": "The intentionally bounded comments remain explicitly incomplete and prevent an overall complete-evidence claim.",
+      "maximum": 4,
+      "minimum": 3,
+      "weight": 25
+    },
+    {
+      "id": "task_completeness",
+      "description": "The response covers the decision, exact expansion, staleness, child statuses, blockers, and source completeness.",
+      "maximum": 4,
+      "minimum": 3,
+      "weight": 20
+    },
+    {
+      "id": "actionability",
+      "description": "The structured answer can be consumed directly without reading the long narrative or raw tool output.",
+      "maximum": 4,
+      "minimum": 2,
+      "weight": 10
+    },
+    {
+      "id": "concision",
+      "description": "The answer does not reproduce the narrative, comments, or other source bodies.",
+      "maximum": 4,
+      "minimum": 3,
+      "weight": 10
+    }
+  ],
+  "allowed_finding_ids": [
+    "incomplete_answer",
+    "missing_qualification",
+    "unsupported_claim",
+    "verbose"
+  ]
+}

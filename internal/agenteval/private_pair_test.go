@@ -91,6 +91,25 @@ func TestValidatePrivateRunComparisonSetAcceptsThreeUniqueSurfacesAndMechanicalC
 	}
 }
 
+func TestValidatePrivateRunComparisonSetRejectsOpaqueExternalRequiredMetric(t *testing.T) {
+	directory, cliPath, mcpPath, _, mcp := writePrivatePairFixture(t)
+	var scenario Scenario
+	data, err := os.ReadFile(filepath.Join(directory, "scenario.json"))
+	if err != nil || json.Unmarshal(data, &scenario) != nil {
+		t.Fatal(err)
+	}
+	scenario.RequiredMetrics = append(scenario.RequiredMetrics, "backend_requests")
+	writeJSONTestFile(t, filepath.Join(directory, "scenario.json"), scenario)
+	external := mcp
+	external.Variant = "external-read-only-mcp"
+	external.Surface = SurfaceExternalMCP
+	externalPath := filepath.Join(directory, "run.external.json")
+	writeJSONTestFile(t, externalPath, external)
+	if _, err := ValidatePrivateRunComparisonSet(cliPath, mcpPath, externalPath); err == nil || !strings.Contains(err.Error(), "opaque backend metrics") {
+		t.Fatalf("opaque external metric passed comparison validation: %v", err)
+	}
+}
+
 func TestValidatePairRetainsExactMechanicalChecksWhileComparisonSetAllowsThem(t *testing.T) {
 	_, cliPath, mcpPath, _, mcp := writePrivatePairFixture(t)
 	mcp.Checks = append(mcp.Checks, RunCheck{Name: "bounded_interface", Kind: "interface_invocations_max", Maximum: 4})
@@ -200,6 +219,13 @@ func writePrivatePairFixture(t *testing.T) (string, string, string, RunSpec, Run
 	scenario.Budgets.MaxATLInvocations = 4
 	scenario.Budgets.AllowedHTTPMethods = []string{"GET", "HEAD"}
 	scenario.Budgets.MaxEstimatedCostMicroUSD = 10_000_000
+	filteredMetrics := scenario.RequiredMetrics[:0]
+	for _, metric := range scenario.RequiredMetrics {
+		if !externalMCPMetricIsOpaque(metric) {
+			filteredMetrics = append(filteredMetrics, metric)
+		}
+	}
+	scenario.RequiredMetrics = filteredMetrics
 	writeJSONTestFile(t, filepath.Join(directory, "scenario.json"), scenario)
 	writeTestFile(t, filepath.Join(directory, "prompt.md"), "Use the reviewed atl interface.\n", 0o600)
 	writeTestFile(t, filepath.Join(directory, "response.json"), `{"type":"object","properties":{"complete":{"type":"boolean"}},"required":["complete"],"additionalProperties":false}`, 0o600)

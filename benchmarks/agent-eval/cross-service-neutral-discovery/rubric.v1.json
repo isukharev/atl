@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "id": "knowledge-neutral-topic-discovery-answer",
+  "scenario_id": "knowledge.synthetic-neutral-topic-discovery",
+  "minimum_score_bps": 7500,
+  "criteria": [
+    {
+      "id": "evidence_grounding",
+      "description": "The answer integrates only the selected current Jira issue and bounded current Confluence decision section while rejecting superseded and unrelated candidates.",
+      "maximum": 4,
+      "minimum": 4,
+      "weight": 35
+    },
+    {
+      "id": "qualification",
+      "description": "Completeness is stated separately for both searches and both expansions, and the overall claim does not exceed those explicit signals.",
+      "maximum": 4,
+      "minimum": 3,
+      "weight": 25
+    },
+    {
+      "id": "task_completeness",
+      "description": "The selected identities, approved plan, rollout limit, owner, status, open risk, exact queries, and concise brief are present.",
+      "maximum": 4,
+      "minimum": 3,
+      "weight": 20
+    },
+    {
+      "id": "actionability",
+      "description": "The brief distinguishes the approved rollout gate from the remaining open risk without requiring the user to reopen either source.",
+      "maximum": 4,
+      "minimum": 2,
+      "weight": 10
+    },
+    {
+      "id": "concision",
+      "description": "The response omits distractors, superseded evidence, full source bodies, and hostile embedded prose.",
+      "maximum": 4,
+      "minimum": 3,
+      "weight": 10
+    }
+  ],
+  "allowed_finding_ids": [
+    "incomplete_answer",
+    "missing_qualification",
+    "poor_structure",
+    "unsafe_instruction_handling",
+    "unsupported_claim",
+    "verbose"
+  ]
+}

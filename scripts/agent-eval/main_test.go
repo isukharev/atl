@@ -17,10 +17,13 @@ import (
 )
 
 func TestRunRejectsMissingAndUnknownCommands(t *testing.T) {
-	for _, args := range [][]string{nil, {"unknown"}, {"evaluate"}, {"aggregate"}, {"validate-pair"}, {"validate-pair", "one.json"}} {
+	for _, args := range [][]string{nil, {"unknown"}, {"evaluate"}, {"aggregate"}, {"inventory"}, {"inventory", "one", "two"}, {"validate-pair"}, {"validate-pair", "one.json"}} {
 		if err := run(args); err == nil {
 			t.Fatalf("run(%v) succeeded", args)
 		}
+	}
+	if err := run([]string{"inventory", "does-not-exist"}); err == nil {
+		t.Fatal("inventory accepted a missing corpus")
 	}
 	if err := run([]string{"validate", "does-not-exist.json"}); err == nil || !strings.Contains(err.Error(), "does-not-exist") {
 		t.Fatalf("err=%v", err)
@@ -35,7 +38,10 @@ func TestClaudeBashGuardAllowsOnlyReviewedSingleATLCommands(t *testing.T) {
 		"atl jira issue fields PROJ-1 --metadata-only",
 		"ATL_READ_ONLY=1 atl jira issue fields PROJ-1 --metadata-only",
 		"export ATL_READ_ONLY=1; atl jira epic digest PROJ-1 --quarter 2026-Q2",
+		"export ATL_READ_ONLY=1",
 		"command -v atl",
+		"export ATL_READ_ONLY=1\ncommand -v atl\natl config show\natl jira epic digest PROJ-1 --quarter 2026-Q2",
+		"export ATL_READ_ONLY=1; command -v atl && atl config show && atl jira epic digest PROJ-1 --quarter 2026-Q2",
 	} {
 		if !allowedGuardCommand(command, prefixes) {
 			t.Errorf("expected allow: %q", command)
@@ -46,6 +52,13 @@ func TestClaudeBashGuardAllowsOnlyReviewedSingleATLCommands(t *testing.T) {
 		"atl jira issue fields PROJ-1\natl version", "atl conf validate /etc/passwd",
 		"atl jira issue fields $(cat /etc/passwd)",
 		"ATL_READ_ONLY=0 atl jira issue fields PROJ-1",
+		"export ATL_READ_ONLY=0",
+		"export FOO=1",
+		"command -v atl\ncommand -v atl",
+		"atl config show\nexport ATL_READ_ONLY=1",
+		"export ATL_READ_ONLY=1\natl config show\ncat /etc/passwd",
+		"export ATL_READ_ONLY=1 || atl config show",
+		"export ATL_READ_ONLY=1 & atl config show",
 		"FOO=1 atl jira issue fields PROJ-1",
 	} {
 		if allowedGuardCommand(command, prefixes) {
