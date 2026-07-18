@@ -397,12 +397,22 @@ if [ -z "$ATL_EVAL_HTTP_GUARD_FILE" ]; then echo missing HTTP guard >&2; exit 31
 case "$ATL_CONFIG_DIR" in */atl-agent-eval-live-config-*) ;; *) echo source config exposed directly >&2; exit 32;; esac
 if [ ! -s "$ATL_CONFIG_DIR/config.json" ] || [ ! -s "$ATL_CONFIG_DIR/credentials.json" ]; then echo copied config missing >&2; exit 33; fi
 printf '%s\n' "$ATL_CONFIG_DIR" >"${ATL_EVAL_COUNTER}.config-path"
-printf '%s\n' '{"method":"GET","request_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' >"$ATL_EVAL_HTTP_GUARD_FILE"
 final=""
+no_evidence=""
+for argument do
+  if [ "$argument" = "gpt-test-no-evidence" ]; then no_evidence=1; fi
+done
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "--output-last-message" ]; then final="$2"; shift 2; continue; fi
   shift
 done
+if [ -n "$no_evidence" ]; then
+  printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"no evidence"}}'
+  printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
+  printf '%s\n' '{"answer":"missing"}' >"$final"
+  exit 0
+fi
+printf '%s\n' '{"method":"GET","request_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' >"$ATL_EVAL_HTTP_GUARD_FILE"
 printf '%s\n' '{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
 printf '%s\n' '{"answer":"ok"}' >"$final"
@@ -440,6 +450,23 @@ exit 2
 	}
 	if _, err := os.Stat(strings.TrimSpace(string(configPathRecord))); !os.IsNotExist(err) {
 		t.Fatalf("ephemeral live config was not removed: %v", err)
+	}
+
+	noEvidenceSpec := spec
+	noEvidenceSpec.Variant = "typed-mcp-no-evidence"
+	noEvidenceSpec.Model = "gpt-test-no-evidence"
+	noEvidencePath := filepath.Join(caseDir, "run-no-evidence.json")
+	writeJSONTestFile(t, noEvidencePath, noEvidenceSpec)
+	noEvidence, err := RunHeadless(context.Background(), RunOptions{SpecPath: noEvidencePath, OutputRoot: outputRoot, RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL, PluginRoot: pluginRoot, WrapperExecutable: wrapper, LiveConfigDir: liveConfig})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(noEvidence.Results) != 1 || noEvidence.Results[0].Status != "fail" || noEvidence.Results[0].Metrics.BackendRequests != 0 || !noEvidence.Results[0].Coverage["backend_requests"] || !noEvidence.Results[0].Checks["http_observed"] || noEvidence.Results[0].Checks["used_atl"] || len(noEvidence.Results[0].HTTPMethods) != 0 {
+		t.Fatalf("no-evidence output=%+v", noEvidence)
+	}
+	noEvidenceRun := filepath.Join(outputRoot, scenario.ID, "codex", noEvidenceSpec.Variant, "run-01")
+	if _, err := os.Stat(filepath.Join(noEvidenceRun, "result.json")); err != nil {
+		t.Fatalf("internal MCP measured failure was not persisted: %v", err)
 	}
 }
 
@@ -530,6 +557,21 @@ if [ "$1" = "-p" ]; then
   if /bin/grep -q 'upstream-secret' "$ATL_CONFIG_DIR/credentials.json"; then exit 35; fi
 else
   if [ -n "$ATL_CONFIG_DIR" ] || [ -n "$ATL_EVAL_REAL_BINARY" ] || [ -z "$ATL_EVAL_COMMAND_BROKER_FILE" ]; then exit 36; fi
+fi
+no_evidence=""
+for argument do
+  if [ "$argument" = "test-model-no-evidence" ]; then no_evidence=1; fi
+done
+if [ -n "$no_evidence" ]; then
+  final=""
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--output-last-message" ]; then final="$2"; shift 2; continue; fi
+    shift
+  done
+  printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"no evidence"}}'
+  printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
+  printf '%s\n' '{"answer":"missing"}' >"$final"
+  exit 0
 fi
 atl jira fields >/dev/null || exit 33
 if [ "$1" = "-p" ]; then
@@ -647,6 +689,26 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 	if upstreamRequests != 2 {
 		t.Fatalf("upstream requests=%d", upstreamRequests)
 	}
+	t.Run("codex-no-evidence-is-measured", func(t *testing.T) {
+		spec := RunSpec{SchemaVersion: RunSpecSchemaVersion, BackendMode: BackendModePrivateLive, ScenarioFile: "scenario.json", Provider: "codex", Variant: "cli-skill-codex-no-evidence", Model: "test-model-no-evidence", PromptFile: "prompt.md", ResponseSchemaFile: "response.json", QualitativeRubricFile: "rubric.json", WorkspaceTemplate: "workspace", Repetitions: 1, TimeoutSeconds: 30, MaxEstimatedCostMicroUSD: 10_000_000, Pricing: Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000}, ToolTransport: "cli", AllowedTools: []string{"Bash(atl *)", "Read", "Skill"}, AllowedCLICommands: []CLICommandRule{{Name: "jira_fields", Command: []string{"jira", "fields"}, MaxInvocations: 1}}, AllowedGatewayRoutes: map[string][]LiveGatewayRoute{"jira": {{Name: "jira_api", PathPrefix: "/rest/api/2"}}}, GatewayMaxResponseBytes: 1 << 20, GatewayMaxTotalBytes: 1 << 20, Checks: []RunCheck{{Name: "answer_correct", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`"ok"`)}, {Name: "atl_succeeded", Kind: "atl_all_succeeded"}, {Name: "guard_clean", Kind: "guard_no_denials"}, {Name: "http_observed", Kind: "http_methods_observed"}, {Name: "no_delegation", Kind: "delegations_none"}, {Name: "used_atl", Kind: "atl_invocations_min", Minimum: 1}}}
+		specPath := filepath.Join(caseDir, "run-codex-no-evidence.json")
+		writeJSONTestFile(t, specPath, spec)
+		scratchRoot := filepath.Join(tempRepository, "private", ".ephemeral")
+		output, err := RunHeadless(context.Background(), RunOptions{SpecPath: specPath, OutputRoot: filepath.Join(tempRepository, "private", "runs"), RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: atlBinary, PluginRoot: pluginRoot, WrapperExecutable: wrapper, LiveConfigDir: liveConfig, ScratchRoot: scratchRoot})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(output.Results) != 1 || output.Results[0].Status != "fail" || output.Results[0].Metrics.BackendRequests != 0 || !output.Results[0].Coverage["backend_requests"] || !output.Results[0].Checks["http_observed"] || output.Results[0].Checks["used_atl"] || len(output.Results[0].HTTPMethods) != 0 {
+			t.Fatalf("output=%+v", output)
+		}
+		runDir := filepath.Join(tempRepository, "private", "runs", scenario.ID, "codex", spec.Variant, "run-01")
+		if _, err := os.Stat(filepath.Join(runDir, "result.json")); err != nil {
+			t.Fatalf("measured failure was not persisted: %v", err)
+		}
+		if upstreamRequests != 2 {
+			t.Fatalf("no-evidence run reached backend: requests=%d", upstreamRequests)
+		}
+	})
 }
 
 func useSyntheticCodexHome(t *testing.T) (string, string) {
@@ -762,6 +824,27 @@ func TestReadLiveGatewayRecordsRequiresCompleteAllowedPairs(t *testing.T) {
 	denied.Reason = "route"
 	if _, _, _, err := readLiveGatewayRecords(writeRecords(t, denied)); err == nil || !strings.Contains(err.Error(), "denied") {
 		t.Fatalf("denied err=%v", err)
+	}
+	methods, duplicates, observed, err = readLiveGatewayRecords(writeRecords(t))
+	if err != nil || !observed || len(methods) != 0 || duplicates != 0 {
+		t.Fatalf("empty audit methods=%v duplicates=%d observed=%v err=%v", methods, duplicates, observed, err)
+	}
+	missing := filepath.Join(t.TempDir(), "missing-audit.jsonl")
+	if _, _, observed, err = readLiveGatewayRecords(missing); err != nil || observed {
+		t.Fatalf("missing audit observed=%v err=%v", observed, err)
+	}
+}
+
+func TestReadLiveHTTPRecordsDistinguishesEmptyFromMissingAudit(t *testing.T) {
+	directory := t.TempDir()
+	empty := filepath.Join(directory, "empty.jsonl")
+	writeTestFile(t, empty, "", 0o600)
+	methods, duplicates, observed, err := readLiveHTTPRecords(empty)
+	if err != nil || !observed || len(methods) != 0 || duplicates != 0 {
+		t.Fatalf("empty audit methods=%v duplicates=%d observed=%v err=%v", methods, duplicates, observed, err)
+	}
+	if _, _, observed, err = readLiveHTTPRecords(filepath.Join(directory, "missing.jsonl")); err != nil || observed {
+		t.Fatalf("missing audit observed=%v err=%v", observed, err)
 	}
 }
 

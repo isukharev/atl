@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Codex agent-evaluation commands now explicitly disable provider-managed Apps,
+  browser/computer, image-generation, and remote-plugin features
+  outside the reviewed CLI/MCP surface. A present empty HTTP audit now records
+  an observed zero-request outcome, allowing no-evidence answers to persist as
+  deterministic failed measurements instead of being misclassified as
+  infrastructure interruptions.
+
 - Codex agent-evaluation processes now run inside an owner-only ephemeral
   provider-home capsule instead of inheriting the operator's home, Codex, and
   XDG state. The runner projects only a validated file-backed `auth.json`, uses

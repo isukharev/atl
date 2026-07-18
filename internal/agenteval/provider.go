@@ -130,6 +130,14 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 			"--ignore-user-config", "--skip-git-repo-check",
 			"--model", spec.Model,
 		}
+		// Provider-managed remote tools are outside the reviewed benchmark
+		// surface. Disable them explicitly rather than relying on a clean home:
+		// account-side Apps or browser/computer capabilities may otherwise be
+		// discovered after authentication. The built-in shell and the exact MCP
+		// server configured below remain available and are still hook-guarded.
+		for _, feature := range []string{"apps", "browser_use", "computer_use", "image_generation", "remote_plugin"} {
+			args = append(args, "--disable", feature)
+		}
 		privateCLI := spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli"
 		if !privateCLI {
 			args = append(args, "--sandbox", sandboxMode)
