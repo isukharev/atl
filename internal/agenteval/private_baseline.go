@@ -1259,7 +1259,8 @@ func compatiblePrivateResults(baseline, candidate Result) bool {
 		return baseline.Qualitative.RubricID == candidate.Qualitative.RubricID &&
 			baseline.Qualitative.RubricSHA256 == candidate.Qualitative.RubricSHA256 &&
 			baseline.Qualitative.Reviewer == candidate.Qualitative.Reviewer &&
-			baseline.Qualitative.Blinded == candidate.Qualitative.Blinded
+			baseline.Qualitative.Blinded == candidate.Qualitative.Blinded &&
+			baseline.Qualitative.AssignmentDigest == candidate.Qualitative.AssignmentDigest
 	}
 	if baseline.QualitativeReviewSet != nil {
 		return baseline.QualitativeReviewSet.RubricID == candidate.QualitativeReviewSet.RubricID &&

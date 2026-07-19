@@ -264,19 +264,19 @@ func validatePrivatePanelRunPrepared(root string, source PrivateBaselineSource) 
 			if err := validatePrivatePanelPacket(root, packet, resultData, finalData, rubricData); err != nil {
 				return err
 			}
+			reviewData, readErr := readPrivatePlanLifecycleFile(root, filepath.Join(packet, "review.json"), maxReviewBytes)
+			if readErr != nil {
+				return privatePlanError("review_packet_drift")
+			}
+			canonicalData, canonicalErr := canonicalPrivatePanelAssessment(result, resultData, finalData, rubric, reviewer, reviewData)
+			if canonicalErr != nil {
+				return canonicalErr
+			}
 			assessmentPath := filepath.Join(packet, "assessment.json")
 			if _, statErr := safepath.StatWithin(root, assessmentPath); os.IsNotExist(statErr) {
 				continue
 			} else if statErr != nil {
 				return privatePlanError("assessment_invalid")
-			}
-			reviewData, readErr := readPrivatePlanLifecycleFile(root, filepath.Join(packet, "review.json"), maxReviewBytes)
-			if readErr != nil {
-				return privatePlanError("review_read")
-			}
-			canonicalData, canonicalErr := canonicalPrivatePanelAssessment(result, resultData, finalData, rubric, reviewer, reviewData)
-			if canonicalErr != nil {
-				return canonicalErr
 			}
 			existing, readErr := readPrivatePlanLifecycleFile(root, assessmentPath, maxReviewBytes)
 			if readErr != nil || !bytes.Equal(existing, canonicalData) {

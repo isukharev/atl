@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   available, but singleton and panel baselines are intentionally incompatible.
   Panel artifacts use result schema v4, review schema v2, and aggregate schema
   v4; legacy singleton result v3 and review v1 artifacts remain readable.
+  Baseline comparison and aggregate grouping now keep different blind
+  assignments separate for both singleton and panel reviews.
 
 - Private-live Codex `cli-skill` evaluations now route Jira and Confluence
   evidence through `$jira` and `$confluence` based only on reviewed

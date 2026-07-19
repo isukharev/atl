@@ -42,22 +42,24 @@ type AggregateCapabilityFamily struct {
 }
 
 type AggregateQualitative struct {
-	RubricID     string    `json:"rubric_id"`
-	RubricSHA256 string    `json:"rubric_sha256"`
-	Reviewer     Reviewer  `json:"reviewer"`
-	Passes       int       `json:"passes"`
-	ScoreBPS     Quantiles `json:"score_bps"`
+	RubricID         string    `json:"rubric_id"`
+	RubricSHA256     string    `json:"rubric_sha256"`
+	AssignmentDigest string    `json:"assignment_digest,omitempty"`
+	Reviewer         Reviewer  `json:"reviewer"`
+	Passes           int       `json:"passes"`
+	ScoreBPS         Quantiles `json:"score_bps"`
 }
 
 type AggregateQualitativeReviewSet struct {
-	ContractSHA256 string                 `json:"contract_sha256"`
-	RubricID       string                 `json:"rubric_id"`
-	RubricSHA256   string                 `json:"rubric_sha256"`
-	Policy         QualitativePanelPolicy `json:"policy"`
-	Passes         int                    `json:"passes"`
-	Failures       int                    `json:"failures"`
-	Disagreements  int                    `json:"disagreements"`
-	ScoreBPS       Quantiles              `json:"score_bps"`
+	ContractSHA256   string                 `json:"contract_sha256"`
+	RubricID         string                 `json:"rubric_id"`
+	RubricSHA256     string                 `json:"rubric_sha256"`
+	AssignmentDigest string                 `json:"assignment_digest,omitempty"`
+	Policy           QualitativePanelPolicy `json:"policy"`
+	Passes           int                    `json:"passes"`
+	Failures         int                    `json:"failures"`
+	Disagreements    int                    `json:"disagreements"`
+	ScoreBPS         Quantiles              `json:"score_bps"`
 }
 
 type AggregateMetrics struct {
@@ -88,7 +90,8 @@ type aggregateKey struct {
 	Provider, AgentVersion, Model, Reasoning, ATLVersion         string
 	PluginVersion, SkillDigest                                   string
 	ReviewerID, ReviewerKind, ReviewerModel                      string
-	RubricID, RubricSHA256, ReviewSetContractSHA256              string
+	RubricID, RubricSHA256, AssignmentDigest                     string
+	ReviewSetContractSHA256                                      string
 }
 
 func AggregateResults(results []Result) (Aggregate, error) {
@@ -111,11 +114,13 @@ func AggregateResults(results []Result) (Aggregate, error) {
 			key.ReviewerModel = result.Qualitative.Reviewer.Model
 			key.RubricID = result.Qualitative.RubricID
 			key.RubricSHA256 = result.Qualitative.RubricSHA256
+			key.AssignmentDigest = result.Qualitative.AssignmentDigest
 		}
 		if result.QualitativeReviewSet != nil {
 			key.RubricID = result.QualitativeReviewSet.RubricID
 			key.RubricSHA256 = result.QualitativeReviewSet.RubricSHA256
 			key.ReviewSetContractSHA256 = result.QualitativeReviewSet.ContractSHA256
+			key.AssignmentDigest = result.QualitativeReviewSet.AssignmentDigest
 		}
 		groups[key] = append(groups[key], result)
 	}
@@ -243,7 +248,7 @@ func AggregateResults(results []Result) (Aggregate, error) {
 					passes++
 				}
 			}
-			group.Qualitative = &AggregateQualitative{RubricID: key.RubricID, RubricSHA256: key.RubricSHA256, Reviewer: Reviewer{ID: key.ReviewerID, Kind: key.ReviewerKind, Model: key.ReviewerModel}, Passes: passes, ScoreBPS: quantiles(scores)}
+			group.Qualitative = &AggregateQualitative{RubricID: key.RubricID, RubricSHA256: key.RubricSHA256, AssignmentDigest: key.AssignmentDigest, Reviewer: Reviewer{ID: key.ReviewerID, Kind: key.ReviewerKind, Model: key.ReviewerModel}, Passes: passes, ScoreBPS: quantiles(scores)}
 		}
 		if key.ReviewSetContractSHA256 != "" {
 			scores := make([]int64, 0, len(items))
@@ -267,7 +272,7 @@ func AggregateResults(results []Result) (Aggregate, error) {
 					disagreements++
 				}
 			}
-			group.QualitativeReviewSet = &AggregateQualitativeReviewSet{ContractSHA256: key.ReviewSetContractSHA256, RubricID: key.RubricID, RubricSHA256: key.RubricSHA256, Policy: policy, Passes: passes, Failures: failures, Disagreements: disagreements, ScoreBPS: quantiles(scores)}
+			group.QualitativeReviewSet = &AggregateQualitativeReviewSet{ContractSHA256: key.ReviewSetContractSHA256, RubricID: key.RubricID, RubricSHA256: key.RubricSHA256, AssignmentDigest: key.AssignmentDigest, Policy: policy, Passes: passes, Failures: failures, Disagreements: disagreements, ScoreBPS: quantiles(scores)}
 		}
 		out.Groups = append(out.Groups, group)
 	}
@@ -497,5 +502,5 @@ func nearestRank(sorted []int64, percentile int) int64 {
 }
 
 func aggregateKeyString(key aggregateKey) string {
-	return key.ScenarioID + "\x00" + key.TaskClass + "\x00" + key.DataClass + "\x00" + key.Category + "\x00" + key.Variant + "\x00" + key.Surface + "\x00" + key.Provider + "\x00" + key.AgentVersion + "\x00" + key.Model + "\x00" + key.Reasoning + "\x00" + key.ATLVersion + "\x00" + key.PluginVersion + "\x00" + key.SkillDigest + "\x00" + key.RubricID + "\x00" + key.RubricSHA256 + "\x00" + key.ReviewerID + "\x00" + key.ReviewerKind + "\x00" + key.ReviewerModel + "\x00" + key.ReviewSetContractSHA256
+	return key.ScenarioID + "\x00" + key.TaskClass + "\x00" + key.DataClass + "\x00" + key.Category + "\x00" + key.Variant + "\x00" + key.Surface + "\x00" + key.Provider + "\x00" + key.AgentVersion + "\x00" + key.Model + "\x00" + key.Reasoning + "\x00" + key.ATLVersion + "\x00" + key.PluginVersion + "\x00" + key.SkillDigest + "\x00" + key.RubricID + "\x00" + key.RubricSHA256 + "\x00" + key.AssignmentDigest + "\x00" + key.ReviewerID + "\x00" + key.ReviewerKind + "\x00" + key.ReviewerModel + "\x00" + key.ReviewSetContractSHA256
 }

@@ -306,6 +306,10 @@ one rubric and exact reviewer runtime. Report pass `n/N` and raw values when
 per-class macro-average and a Pareto view of correctness/quality versus calls,
 tokens, cost, and duration instead of one weighted global score.
 
+Aggregate grouping includes the blind-assignment digest. Never pool scores from
+different answer mappings as though they were repetitions of one comparison
+contract.
+
 Every observation also carries per-metric `coverage`. An observed zero is
 different from an unavailable metric: a required metric without coverage fails
 with `metric_not_observed`, while aggregation reports `observed_runs` before

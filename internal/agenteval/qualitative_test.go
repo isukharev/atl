@@ -151,6 +151,17 @@ func TestNeutralQualitativeReviewRequiresAndBindsBlindAssignment(t *testing.T) {
 	if assessed.Qualitative == nil || !assessed.Qualitative.Blinded || assessed.Qualitative.AssignmentDigest != review.AssignmentDigest {
 		t.Fatalf("assessment=%+v", assessed.Qualitative)
 	}
+	other := assessed
+	otherAssessment := *assessed.Qualitative
+	otherAssessment.AssignmentDigest = strings.Repeat("b", 64)
+	other.Qualitative = &otherAssessment
+	aggregate, err := AggregateResults([]Result{assessed, other})
+	if err != nil || len(aggregate.Groups) != 2 {
+		t.Fatalf("blind assignments were merged: groups=%+v err=%v", aggregate.Groups, err)
+	}
+	if compatiblePrivateResults(assessed, other) {
+		t.Fatal("private baseline comparison accepted a different blind assignment")
+	}
 
 	review.Blinded = false
 	review.AssignmentDigest = ""

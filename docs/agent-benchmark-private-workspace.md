@@ -451,6 +451,10 @@ start a new baseline when adopting a panel. It reports
 correctness, eligibility, qualitative score, and metric deltas without paths,
 prompts, commands, routes, response text, or private identities.
 
+Comparison and aggregate grouping include the assignment digest for both the
+legacy singleton and panel workflows. Differently randomized mappings are not
+pooled even when every other rubric and runtime field matches.
+
 Panel results use result schema v4 and review packets use review schema v2.
 The decoder still accepts result schema v3 without a panel and review schema v1
 without a reviewer id, so existing singleton baselines remain readable. Older

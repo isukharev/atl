@@ -405,6 +405,21 @@ func TestPrivatePanelReviewRetryRejectsChangedReview(t *testing.T) {
 		packets = append(packets, packet)
 	}
 	completePrivateReviewPacket(t, fixture.root, packets[0].Packet, true)
+	incompleteReviewPath := filepath.Join(fixture.root, filepath.FromSlash(packets[2].Packet), "review.json")
+	incompleteReviewData, err := os.ReadFile(incompleteReviewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(incompleteReviewPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AssessPrivateReview(PrivateReviewAssessOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
+		PlanID: preview.PlanID, Surface: SurfaceATLMCP, ReviewerID: packets[0].ReviewerID}); err == nil || !strings.Contains(err.Error(), "review_packet_drift") {
+		t.Fatalf("incomplete packet crossed assessment barrier: %v", err)
+	}
+	if err := writePrivateFile(incompleteReviewPath, incompleteReviewData); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := AssessPrivateReview(PrivateReviewAssessOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
 		PlanID: preview.PlanID, Surface: SurfaceATLMCP, ReviewerID: packets[0].ReviewerID}); err != nil {
 		t.Fatal(err)

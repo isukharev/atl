@@ -291,6 +291,27 @@ func TestAggregateQualitativeReviewSetSeparatesContractsAndCountsConsensus(t *te
 	}
 }
 
+func TestAggregateQualitativeReviewSetSeparatesBlindAssignments(t *testing.T) {
+	result, resultBytes, final, rubric := panelFixture(t)
+	firstReviews := panelReviews(t, result, resultBytes, final, rubric, [][2]int{{4, 4}, {4, 4}, {4, 4}}, []byte("blind mapping a"))
+	first, err := AssessQualitativeReviewSet(result, resultBytes, final, rubric, panelPolicy(9999), firstReviews)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondReviews := panelReviews(t, result, resultBytes, final, rubric, [][2]int{{4, 4}, {4, 4}, {4, 4}}, []byte("blind mapping b"))
+	second, err := AssessQualitativeReviewSet(result, resultBytes, final, rubric, panelPolicy(9999), secondReviews)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err := AggregateResults([]Result{first, second})
+	if err != nil || len(aggregate.Groups) != 2 {
+		t.Fatalf("blind assignments were merged: groups=%+v err=%v", aggregate.Groups, err)
+	}
+	if aggregate.Groups[0].QualitativeReviewSet.AssignmentDigest == aggregate.Groups[1].QualitativeReviewSet.AssignmentDigest {
+		t.Fatalf("assignment namespace was not exposed: %+v", aggregate.Groups)
+	}
+}
+
 func TestAggregateQualitativeReviewSetFiltersDeterministicFailuresButKeepsDisagreementEfficiency(t *testing.T) {
 	result, _, final, rubric := panelFixture(t)
 	result.Category = BenchmarkCategorySurfaceNative
