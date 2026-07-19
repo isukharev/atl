@@ -69,7 +69,7 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 			decision = "allow"
 			reason = "structured output is required by the reviewed response schema"
 		case "Read":
-			allowed, err := allowedReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
+			allowed, err := allowedPrivateReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
 			if err != nil {
 				fmt.Fprintln(errorOutput, "atl evaluation guard could not enforce the read limit")
 				return 2
@@ -95,7 +95,7 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 		reason = "private-live CLI allows only confined skill reads and reviewed atl invocations"
 		switch hook.ToolName {
 		case "Read":
-			allowed, err := allowedReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
+			allowed, err := allowedPrivateReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
 			if err != nil {
 				fmt.Fprintln(errorOutput, "atl evaluation guard could not enforce the read limit")
 				return 2
@@ -159,7 +159,7 @@ var sedLineRangeRE = regexp.MustCompile(`^(\d+)(?:,(\d+))?p$`)
 
 func allowedSkillReadCommand(command, rawRoots string) bool {
 	command = strings.TrimSpace(command)
-	if command == "" || strings.ContainsAny(command, "\r|`><$()") {
+	if command == "" || strings.ContainsAny(command, "\r|`><$()") || strings.Contains(strings.ReplaceAll(command, "&&", ""), "&") {
 		return false
 	}
 	command = strings.ReplaceAll(command, "\n", ";")
@@ -182,7 +182,7 @@ func allowedSkillReadCommand(command, rawRoots string) bool {
 		}
 		for _, target := range targets {
 			target = strings.Trim(target, `'"`)
-			allowed, err := allowedReadPath(target, rawRoots)
+			allowed, err := allowedPrivateReadPath(target, rawRoots)
 			if err != nil || !allowed {
 				return false
 			}
@@ -232,12 +232,12 @@ func runSkillReader(name string, args []string, output, errorOutput io.Writer) i
 	default:
 		return 2
 	}
-	allowed, err := allowedReadPath(target, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
+	resolved, allowed, err := resolveAllowedReadPath(target, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"), true)
 	if err != nil || !allowed {
 		fmt.Fprintln(errorOutput, "private benchmark reader denied path")
 		return 2
 	}
-	file, err := os.Open(target)
+	file, err := os.Open(resolved)
 	if err != nil {
 		fmt.Fprintln(errorOutput, "private benchmark reader could not open file")
 		return 1
@@ -270,15 +270,17 @@ func runSkillCat(paths []string, output, errorOutput io.Writer) int {
 		fmt.Fprintln(errorOutput, "private benchmark cat accepts 1..16 files")
 		return 2
 	}
+	resolved := make([]string, 0, len(paths))
 	for _, path := range paths {
-		allowed, err := allowedReadPath(path, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
+		target, allowed, err := resolveAllowedReadPath(path, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"), true)
 		if err != nil || !allowed {
 			fmt.Fprintln(errorOutput, "private benchmark reader denied path")
 			return 2
 		}
+		resolved = append(resolved, target)
 	}
 	var combined bytes.Buffer
-	for _, path := range paths {
+	for _, path := range resolved {
 		file, err := os.Open(path)
 		if err != nil {
 			fmt.Fprintln(errorOutput, "private benchmark reader could not open file")
@@ -302,12 +304,12 @@ func runSkillCat(paths []string, output, errorOutput io.Writer) int {
 func runSkillLineCount(paths []string, output, errorOutput io.Writer) int {
 	total := 0
 	for _, path := range paths {
-		allowed, err := allowedReadPath(path, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
+		resolved, allowed, err := resolveAllowedReadPath(path, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"), true)
 		if err != nil || !allowed {
 			fmt.Fprintln(errorOutput, "private benchmark reader denied path")
 			return 2
 		}
-		file, err := os.Open(path)
+		file, err := os.Open(resolved)
 		if err != nil {
 			fmt.Fprintln(errorOutput, "private benchmark reader could not open file")
 			return 1
@@ -370,36 +372,60 @@ func writeGuardDecision(output, errorOutput io.Writer, decision, reason string) 
 }
 
 func allowedReadPath(path, rawRoots string) (bool, error) {
+	_, allowed, err := resolveAllowedReadPath(path, rawRoots, false)
+	return allowed, err
+}
+
+func allowedPrivateReadPath(path, rawRoots string) (bool, error) {
+	_, allowed, err := resolveAllowedReadPath(path, rawRoots, true)
+	return allowed, err
+}
+
+func resolveAllowedReadPath(path, rawRoots string, requireWorkspace bool) (string, bool, error) {
 	if path == "" {
-		return false, nil
+		return "", false, nil
 	}
 	var roots []string
 	if err := json.Unmarshal([]byte(rawRoots), &roots); err != nil || len(roots) == 0 {
-		return false, fmt.Errorf("invalid read policy")
+		return "", false, fmt.Errorf("invalid read policy")
 	}
-	target, err := filepath.Abs(path)
+	target := path
+	if !filepath.IsAbs(target) {
+		workspace := os.Getenv("ATL_EVAL_WORKSPACE_ROOT")
+		if workspace == "" {
+			if requireWorkspace {
+				return "", false, nil
+			}
+		} else {
+			if !filepath.IsAbs(workspace) {
+				return "", false, fmt.Errorf("invalid workspace read policy")
+			}
+			target = filepath.Join(workspace, target)
+		}
+	}
+	target, err := filepath.Abs(target)
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
 	target, err = filepath.EvalSymlinks(target)
 	if err != nil {
-		return false, nil
+		return "", false, nil
 	}
 	for _, root := range roots {
 		root, err = filepath.Abs(root)
 		if err != nil {
-			return false, err
+			return "", false, err
 		}
 		root, err = filepath.EvalSymlinks(root)
 		if err != nil {
-			return false, err
+			return "", false, err
 		}
 		relative, err := filepath.Rel(root, target)
 		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative) {
-			return true, nil
+			return target, true, nil
 		}
 	}
-	return false, nil
+	return "", false, nil
 }
 
 func reserveDelegationSlot(counterPath, rawLimit string) (bool, error) {

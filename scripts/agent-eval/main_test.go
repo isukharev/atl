@@ -514,6 +514,94 @@ func TestPrivateSkillReaderCannotEscapeRoots(t *testing.T) {
 	}
 }
 
+func TestPrivateSkillReaderResolvesRelativePathsFromReviewedWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	skillDir := filepath.Join(workspace, ".agents", "skills", "jira")
+	if err := os.MkdirAll(skillDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	skill := filepath.Join(skillDir, "SKILL.md")
+	if err := os.WriteFile(skill, []byte("reviewed skill\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "outside.md"), []byte("outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(workspace, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	roots, _ := json.Marshal([]string{workspace})
+	t.Setenv("ATL_EVAL_ALLOWED_READ_ROOTS", string(roots))
+	t.Setenv("ATL_EVAL_WORKSPACE_ROOT", workspace)
+	t.Chdir(t.TempDir())
+	relative := filepath.Join(".agents", "skills", "jira", "SKILL.md")
+	if !allowedSkillReadCommand("sed -n '1,240p' "+relative, string(roots)) {
+		t.Fatal("reviewed workspace-relative skill read was denied")
+	}
+	t.Setenv("ATL_EVAL_GUARD_MODE", "mcp-with-skill-read")
+	t.Setenv("ATL_EVAL_GUARD_COUNTER", filepath.Join(t.TempDir(), "guard.jsonl"))
+	input := `{"tool_name":"Bash","tool_input":{"command":` + strconv.Quote("sed -n '1,240p' "+relative) + `}}`
+	var guardOutput, guardError bytes.Buffer
+	if code := runClaudeBashGuard(strings.NewReader(input), &guardOutput, &guardError); code != 0 || !strings.Contains(guardOutput.String(), `"permissionDecision":"allow"`) {
+		t.Fatalf("relative guard code=%d output=%s stderr=%s", code, guardOutput.String(), guardError.String())
+	}
+	var output, errorOutput bytes.Buffer
+	if code := runSkillReader("sed", []string{"-n", "1,240p", relative}, &output, &errorOutput); code != 0 || output.String() != "reviewed skill\n" {
+		t.Fatalf("relative reader code=%d output=%q stderr=%s", code, output.String(), errorOutput.String())
+	}
+	if allowedSkillReadCommand("cat "+filepath.Join("escape", "outside.md"), string(roots)) {
+		t.Fatal("workspace-relative symlink escape was allowed")
+	}
+	parentOutside := filepath.Join(filepath.Dir(workspace), "outside.md")
+	if err := os.WriteFile(parentOutside, []byte("outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if allowedSkillReadCommand("cat "+filepath.Join("..", "outside.md"), string(roots)) {
+		t.Fatal("workspace-relative traversal escape was allowed")
+	}
+	for _, name := range []string{"&", "atl", "jira", "fields"} {
+		if err := os.WriteFile(filepath.Join(workspace, name), []byte("token\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if allowedSkillReadCommand("cat "+relative+" & atl jira fields", string(roots)) {
+		t.Fatal("standalone shell background operator was allowed")
+	}
+	t.Setenv("ATL_EVAL_WORKSPACE_ROOT", "")
+	if allowedSkillReadCommand("cat "+relative, string(roots)) {
+		t.Fatal("relative read without a reviewed workspace was allowed")
+	}
+	guardOutput.Reset()
+	guardError.Reset()
+	if code := runClaudeBashGuard(strings.NewReader(input), &guardOutput, &guardError); code != 0 || !strings.Contains(guardOutput.String(), `"permissionDecision":"deny"`) {
+		t.Fatalf("missing-base guard code=%d output=%s stderr=%s", code, guardOutput.String(), guardError.String())
+	}
+	readInput := `{"tool_name":"Read","tool_input":{"file_path":` + strconv.Quote(relative) + `}}`
+	guardOutput.Reset()
+	guardError.Reset()
+	if code := runClaudeBashGuard(strings.NewReader(readInput), &guardOutput, &guardError); code != 0 || !strings.Contains(guardOutput.String(), `"permissionDecision":"deny"`) {
+		t.Fatalf("missing-base Read guard code=%d output=%s stderr=%s", code, guardOutput.String(), guardError.String())
+	}
+}
+
+func TestSyntheticReadGuardKeepsReviewedCWDFallback(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("synthetic\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(workspace)
+	roots, _ := json.Marshal([]string{workspace})
+	t.Setenv("ATL_EVAL_ALLOWED_READ_ROOTS", string(roots))
+	t.Setenv("ATL_EVAL_WORKSPACE_ROOT", "")
+	t.Setenv("ATL_EVAL_GUARD_COUNTER", filepath.Join(t.TempDir(), "guard.jsonl"))
+	input := `{"tool_name":"Read","tool_input":{"file_path":"README.md"}}`
+	var output, errorOutput bytes.Buffer
+	if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 || !strings.Contains(output.String(), `"permissionDecision":"allow"`) {
+		t.Fatalf("synthetic relative read code=%d output=%s stderr=%s", code, output.String(), errorOutput.String())
+	}
+}
+
 func TestPrivateSkillCatAppliesCombinedByteCap(t *testing.T) {
 	root := t.TempDir()
 	first, second := filepath.Join(root, "one.md"), filepath.Join(root, "two.md")

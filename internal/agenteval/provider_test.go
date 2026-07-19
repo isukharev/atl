@@ -15,6 +15,9 @@ func TestBuildProviderCommandsAreEphemeralAndReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(codex.Args, " ")
+	if !slices.Contains(codex.Args, `shell_environment_policy.include_only=["PATH","ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_JIRA_URL","ATL_CONFLUENCE_URL","ATL_JIRA_PAT","ATL_CONFLUENCE_PAT","ATL_ALLOW_INSECURE","ATL_EVAL_REAL_BINARY","ATL_EVAL_COUNTER","ATL_EVAL_ALLOWED_COMMANDS"]`) {
+		t.Fatalf("synthetic CLI environment projection drifted: %s", joined)
+	}
 	for _, value := range []string{"exec", "--ephemeral", "--ignore-user-config", "--sandbox read-only", "--output-schema /schema", "--output-last-message /final", `project_doc_max_bytes=0`, `shell_environment_policy.inherit="all"`, "shell_environment_policy.include_only="} {
 		if !strings.Contains(joined, value) {
 			t.Errorf("Codex command misses %q: %s", value, joined)
@@ -100,6 +103,43 @@ func TestBuildCodexMCPCommandIsCredentialIsolatedAndHookGuarded(t *testing.T) {
 	}
 }
 
+func TestBuildPrivateCodexMCPProjectsOnlyReviewedSkillReadPolicy(t *testing.T) {
+	spec := validRunSpec()
+	spec.Provider = "codex"
+	spec.ToolTransport = "mcp"
+	spec.BackendMode = BackendModePrivateLive
+	spec.FixtureFile = ""
+	spec.Repetitions = 1
+	spec.AllowedTools = nil
+	spec.AllowedATLCommands = nil
+	spec.AllowedMCPTools = []string{"jira_fields"}
+	command, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", ProviderConfinement{}, []byte(`{"type":"object"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(command.Args, " ")
+	want := `shell_environment_policy.include_only=["PATH","LANG","LC_ALL","TERM","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
+	if !strings.Contains(joined, want) {
+		t.Fatalf("private MCP command misses reviewed read policy: %s", joined)
+	}
+	for _, forbidden := range []string{"ATL_JIRA_PAT", "ATL_CONFLUENCE_PAT", "ATL_CONFIG_DIR", "ATL_EVAL_GUARD_COUNTER"} {
+		if strings.Contains(joined, `shell_environment_policy.include_only=["PATH","LANG","LC_ALL","TERM","`+forbidden) {
+			t.Fatalf("private MCP shell exposes %s: %s", forbidden, joined)
+		}
+	}
+	spec.Surface = SurfaceExternalMCP
+	spec.mcpServerURL = "http://127.0.0.1:1234/mcp"
+	spec.mcpBearerTokenEnv = "ATL_EVAL_EXTERNAL_MCP_TOKEN"
+	external, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", ProviderConfinement{}, []byte(`{"type":"object"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	externalWant := `shell_environment_policy.include_only=["PATH","LANG","LC_ALL","TERM","NO_PROXY","no_proxy","ATL_EVAL_EXTERNAL_MCP_TOKEN","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
+	if !slices.Contains(external.Args, externalWant) {
+		t.Fatalf("private external MCP environment projection drifted: %s", strings.Join(external.Args, " "))
+	}
+}
+
 func TestBuildClaudeMCPCommandDisablesBuiltinsAndUsesQualifiedAllowlist(t *testing.T) {
 	spec := validRunSpec()
 	spec.Provider = "claude-code"
@@ -180,6 +220,9 @@ func TestBuildPrivateCLIProviderCommandsEnforceHooksAndCodexCommandBroker(t *tes
 				if !strings.Contains(joined, value) {
 					t.Errorf("Codex private CLI command misses %q: %s", value, joined)
 				}
+			}
+			if !slices.Contains(command.Args, `shell_environment_policy.include_only=["PATH","SHELL","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`) {
+				t.Fatalf("private CLI environment projection drifted: %s", joined)
 			}
 			if slices.Contains(command.Args, "--ignore-user-config") {
 				t.Errorf("Codex private CLI ignored its fresh isolated installed-plugin config: %s", joined)

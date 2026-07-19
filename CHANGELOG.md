@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Private-live Codex skill-read guards now resolve relative `cat`/`sed`/`wc`
+  targets from the exact ephemeral model workspace instead of the hook
+  process's current directory. The change adds only that workspace base and
+  the reviewed read-root set to the private MCP shell projection, so normal
+  generated skill reads work while traversal or symlink resolution outside
+  those roots remains fail-closed.
+
 - Private-live qualitative review can now use a predeclared three- or
   five-member `criterion-median-v1` panel. The exact roster, model identities,
   disagreement threshold, and neutral-common blind assignment are bound before
