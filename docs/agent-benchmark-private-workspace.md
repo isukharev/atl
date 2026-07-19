@@ -291,13 +291,19 @@ that as a direct measurement of skill loading.
 
 Codex may express a generated skill read as a workspace-relative bounded
 `cat`, `sed`, or `wc` command. The guard resolves such a path from the exact
-canonical ephemeral workspace supplied by the runner, never from the hook
-process's ambient directory. The target must still resolve within the reviewed
-workspace or installed skill roots; a missing base, a path resolving outside
-those roots through traversal or symlinks, or another reader command remains
-denied. The change adds only these two non-secret path-policy variables to the
-private MCP shell projection; external-MCP cells continue to carry their
-existing disposable loopback capability and proxy-bypass fields.
+canonical ephemeral workspace supplied by the runner. The same canonical
+workspace and ordered JSON read-root set are passed to tool subprocesses and
+embedded as shell-quoted assignments in the exact PreToolUse hook command. The
+same command explicitly binds its guard mode, owner-private audit counter, and
+exact MCP tool allowlist, so the safety decision does not depend on ambient hook
+environment propagation.
+The target must still resolve within the reviewed workspace or installed skill
+roots; missing, relative, duplicate, unclean, traversal, symlink-escape, and
+unrelated-reader policies are denied. Codex MCP runs need only the generated
+workspace tree. CLI cells additionally admit the verified installed-plugin
+skill root. These policy values contain no credential or backend identity;
+external-MCP cells continue to carry their existing disposable loopback
+capability and proxy-bypass fields.
 
 `--agent-binary` must identify a reviewed single-file native executable for the
 host OS and architecture. A symlink is accepted when its canonical target is

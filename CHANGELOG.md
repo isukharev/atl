@@ -13,10 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Private-live Codex skill-read guards now resolve relative `cat`/`sed`/`wc`
   targets from the exact ephemeral model workspace instead of the hook
-  process's current directory. The change adds only that workspace base and
-  the reviewed read-root set to the private MCP shell projection, so normal
-  generated skill reads work while traversal or symlink resolution outside
-  those roots remains fail-closed.
+  process's current directory. The canonical workspace and ordered read-root
+  set are bound directly into the reviewed hook command as well as the shell
+  projection. The command also binds its guard mode, audit counter, and exact
+  MCP tool allowlist, so hook environment filtering cannot change its policy.
+  Codex MCP runs admit only the generated workspace skill tree; CLI runs add
+  the verified installed-plugin skill root. Malformed, duplicate, relative,
+  traversal, and symlink-escape policies remain fail-closed.
+  Provider launcher argument assembly also avoids manual size arithmetic, so a
+  malformed oversized argument vector cannot overflow a preallocation.
 
 - Private-live qualitative review can now use a predeclared three- or
   five-member `criterion-median-v1` panel. The exact roster, model identities,

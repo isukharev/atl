@@ -147,6 +147,18 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 		invocationSpec.AllowedMCPTools = []string{"reviewed_tool"}
 	}
 	previewConfinement := ProviderConfinement{}
+	if loaded.spec.Provider == "codex" && loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
+		previewConfinement.GuardMode = "mcp-with-skill-read"
+		previewConfinement.GuardCounterPath = "/private/guard-decisions.jsonl"
+		previewConfinement.WorkspaceReadRoot = "/private/workspace"
+		previewConfinement.AllowedReadRoots = []string{"/private/workspace"}
+		previewConfinement.AllowedMCPTools = claudeMCPToolNamesForServer(mcpServerName(invocationSpec), invocationSpec.AllowedMCPTools)
+		if loaded.spec.ToolTransport == "cli" {
+			previewConfinement.GuardMode = "private-cli"
+			previewConfinement.AllowedReadRoots = []string{"/private/skill-read-root", "/private/workspace"}
+			previewConfinement.AllowedMCPTools = nil
+		}
+	}
 	if loaded.spec.Provider == "codex" && loaded.spec.EffectiveBackendMode() == BackendModePrivateLive && loaded.spec.ToolTransport == "cli" {
 		previewConfinement.RequestDirectory = "/private/requests"
 		previewConfinement.ResponseDirectory = "/private/responses"
@@ -737,6 +749,44 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			return Result{}, err
 		}
 	}
+	skillReadRoot := filepath.Join(options.PluginRoot, "skills")
+	if codexPrivateCLI {
+		skillReadRoot = providerRuntime.PluginSkillRoot()
+		if skillReadRoot == "" {
+			return Result{}, fmt.Errorf("private codex CLI run has no installed plugin skill root")
+		}
+	}
+	reviewedReadRoots := []string{skillReadRoot, workspace}
+	canonicalWorkspace := ""
+	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
+		canonicalWorkspace, err = filepath.EvalSymlinks(workspace)
+		if err != nil {
+			return Result{}, fmt.Errorf("resolve private benchmark workspace: %w", err)
+		}
+		if loaded.spec.Provider == "codex" && !codexPrivateCLI {
+			reviewedReadRoots = []string{canonicalWorkspace}
+		} else {
+			canonicalSkillReadRoot, canonicalErr := filepath.EvalSymlinks(skillReadRoot)
+			if canonicalErr != nil {
+				return Result{}, fmt.Errorf("resolve private benchmark skill read root: %w", canonicalErr)
+			}
+			reviewedReadRoots = []string{canonicalSkillReadRoot, canonicalWorkspace}
+		}
+		if loaded.spec.Provider == "codex" {
+			providerConfinement.GuardMode = "mcp-with-skill-read"
+			if codexPrivateCLI {
+				providerConfinement.GuardMode = "private-cli"
+			}
+			providerConfinement.GuardCounterPath = guardCounterPath
+			providerConfinement.WorkspaceReadRoot = canonicalWorkspace
+			providerConfinement.AllowedReadRoots = append([]string(nil), reviewedReadRoots...)
+			providerConfinement.AllowedMCPTools = claudeMCPToolNamesForServer(mcpServerName(loaded.spec), loaded.spec.AllowedMCPTools)
+			if codexPrivateCLI {
+				providerConfinement.AllowedMCPTools = nil
+			}
+		}
+	}
+	allowedReadRoots, _ := json.Marshal(reviewedReadRoots)
 	commandPlan, err := BuildProviderCommand(loaded.spec, options.AgentBinary, options.ATLBinary, guardPath, workspace, responseSchemaPath, finalPath, claudePluginPath(loaded.spec.Provider, options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, settingsPath), mcpConfigPath, providerConfinement, loaded.responseSchema)
 	if err != nil {
 		return Result{}, err
@@ -813,20 +863,8 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	environment["ATL_EVAL_ALLOWED_COMMANDS"] = string(allowedCommands)
 	allowedMCPTools, _ := json.Marshal(claudeMCPToolNamesForServer(mcpServerName(loaded.spec), loaded.spec.AllowedMCPTools))
 	environment["ATL_EVAL_ALLOWED_MCP_TOOLS"] = string(allowedMCPTools)
-	skillReadRoot := filepath.Join(options.PluginRoot, "skills")
-	if codexPrivateCLI {
-		skillReadRoot = providerRuntime.PluginSkillRoot()
-		if skillReadRoot == "" {
-			return Result{}, fmt.Errorf("private codex CLI run has no installed plugin skill root")
-		}
-	}
-	allowedReadRoots, _ := json.Marshal([]string{skillReadRoot, workspace})
 	environment["ATL_EVAL_ALLOWED_READ_ROOTS"] = string(allowedReadRoots)
 	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
-		canonicalWorkspace, err := filepath.EvalSymlinks(workspace)
-		if err != nil {
-			return Result{}, fmt.Errorf("resolve private benchmark workspace: %w", err)
-		}
 		environment["ATL_EVAL_WORKSPACE_ROOT"] = canonicalWorkspace
 	}
 	environment["PATH"] = wrapperDir
@@ -1168,8 +1206,7 @@ func resolveProviderLaunch(plan ProviderCommand) (ProviderCommand, error) {
 	if err != nil {
 		return ProviderCommand{}, fmt.Errorf("provider interpreter %q: %w", fields[1], err)
 	}
-	args := make([]string, 0, len(plan.Args)+1)
-	args = append(args, plan.Path)
+	args := []string{plan.Path}
 	args = append(args, plan.Args...)
 	return ProviderCommand{Path: interpreter, Args: args}, nil
 }

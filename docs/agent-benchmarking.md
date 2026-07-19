@@ -879,11 +879,15 @@ allowlist or any case-specific command. A model that still answers without an
 interface call remains a normal measured failure.
 
 Generated Codex skill reads commonly use paths relative to the model workspace.
-Private-live guards bind those paths to the runner's canonical ephemeral
-workspace before applying the existing canonical read-root containment check.
-Only bounded `cat`, `sed`, and `wc` shapes are admitted; missing workspace
-policy, paths resolving outside reviewed roots through traversal or symlinks,
-and unrelated shell commands remain denied.
+Private-live guards bind the runner's canonical ephemeral workspace and exact
+ordered read-root JSON directly into the reviewed hook command, while projecting
+the same values to ordinary tool subprocesses. The hook command also binds its
+guard mode, owner-private audit counter, and exact MCP tool allowlist, so its
+policy does not rely on ambient propagation. Codex MCP uses only its
+generated workspace root; CLI+skill adds the verified installed-plugin skill
+root. Only bounded `cat`, `sed`, and `wc` shapes are admitted; missing, relative,
+duplicate, or unclean policy and paths resolving outside reviewed roots through
+traversal or symlinks remain denied.
 
 For reviewed capability families, routing is deterministic: Jira-only runs
 name `$atl:jira`, Confluence-only runs name `$atl:confluence`, mixed runs name both in
