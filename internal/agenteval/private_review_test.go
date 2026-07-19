@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/safepath"
 )
 
 func TestPrivateReviewPacketBindsAssessmentWithoutPrintingPrivateContent(t *testing.T) {
@@ -208,7 +211,7 @@ func TestPrivatePanelReviewRequiresCompleteRosterAndAggregatesOnce(t *testing.T)
 	}
 	_, _, policy, err := loadPrivatePanelReviewContract(fixture.root, source.Surfaces[0])
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%v (%s)", err, diagnosePrivatePanelContract(fixture.root, source.Surfaces[0]))
 	}
 	data, err := os.ReadFile(filepath.Join(source.Surfaces[0].RunDirectory, "reviewed-result.json"))
 	if err != nil {
@@ -334,7 +337,7 @@ func TestPrivatePanelReviewRequiresAllRunSurfacesBeforeAssessment(t *testing.T) 
 	first := source.Surfaces[0]
 	firstResultData, firstFinalData, firstRubricData, firstResult, firstRubric, err := loadPrivateReviewInputs(fixture.root, first)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%v (%s)", err, diagnosePrivateReviewInputs(fixture.root, first))
 	}
 	second := first
 	second.Surface = SurfaceCLISkill
@@ -495,4 +498,25 @@ func privateReviewTestReviewsFromSet(scenarioID string, set *QualitativeReviewSe
 			Criteria: append([]ReviewCriterionScore{}, member.Criteria...), FindingIDs: append([]string{}, member.FindingIDs...)})
 	}
 	return reviews
+}
+
+func diagnosePrivatePanelContract(root string, surface PrivateBaselineSurfaceSource) string {
+	data, readErr := readPrivatePlanLifecycleFile(root, surface.QualitativePanelContractPath, maxReviewBytes)
+	var contract privateQualitativeReviewPanelContract
+	decodeErr := decodePrivateLifecycleJSON(data, &contract)
+	encoded, encodeErr := encodePrivateQualitativeReviewPanelContract(contract)
+	policyErr := (QualitativePanelPolicy{SchemaVersion: QualitativePanelSchemaVersion, Method: contract.Method,
+		ExpectedReviewers: len(contract.Reviewers), MaxCriterionRangeBPS: contract.MaxCriterionRangeBPS}).Validate()
+	panelErr := (PrivateQualitativeReviewPanel{Method: contract.Method, Reviewers: contract.Reviewers,
+		MaxCriterionRangeBPS: contract.MaxCriterionRangeBPS}).validate()
+	return fmt.Sprintf("read=%t hash=%t decode=%t canonical=%t policy=%t panel=%t", readErr == nil,
+		sha256HexBytes(data) == surface.QualitativePanelContractSHA256, decodeErr == nil,
+		encodeErr == nil && bytes.Equal(data, encoded), policyErr == nil, panelErr == nil)
+}
+
+func diagnosePrivateReviewInputs(root string, surface PrivateBaselineSurfaceSource) string {
+	data, readErr := safepath.ReadFileWithinLimit(root, filepath.Join(surface.RunDirectory, "result.json"), maxContractBytes)
+	result, decodeErr := DecodeResult(bytes.NewReader(data))
+	return fmt.Sprintf("read=%t decode=%t data_class=%t surface=%t", readErr == nil, decodeErr == nil,
+		result.DataClass == "private-local", result.EffectiveSurface() == surface.Surface)
 }
