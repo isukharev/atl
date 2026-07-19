@@ -19,7 +19,29 @@
         "cases/evidence/run.atl-mcp.json",
         "cases/evidence/run.external-mcp.json"
       ],
-      "qualitative_review_required": true
+      "qualitative_review_required": false,
+      "qualitative_review_panel": {
+        "method": "criterion-median-v1",
+        "reviewers": [
+          {
+            "id": "reviewer-01",
+            "kind": "codex",
+            "model": "gpt-test-reviewer"
+          },
+          {
+            "id": "reviewer-02",
+            "kind": "codex",
+            "model": "gpt-test-reviewer"
+          },
+          {
+            "id": "reviewer-03",
+            "kind": "codex",
+            "model": "gpt-test-reviewer"
+          }
+        ],
+        "max_criterion_range_bps": 2500,
+        "blind_assignment": "cases/evidence/blind-assignment.txt"
+      }
     }
   ]
 }

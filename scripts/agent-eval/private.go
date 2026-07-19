@@ -125,7 +125,7 @@ func runPrivateCommand(args []string, out io.Writer) error {
 			return fmt.Errorf("private review requires prepare or assess")
 		}
 		flags := privateFlagSet("private review " + args[1])
-		var root, repositoryRoot, planID, surface, reviewer, model, blindAssignment string
+		var root, repositoryRoot, planID, surface, reviewer, model, reviewerID, blindAssignment string
 		flags.StringVar(&root, "root", "", "workspace root")
 		flags.StringVar(&repositoryRoot, "repository-root", ".", "repository root")
 		flags.StringVar(&planID, "plan", "", "completed plan id")
@@ -133,7 +133,10 @@ func runPrivateCommand(args []string, out io.Writer) error {
 		if args[1] == "prepare" {
 			flags.StringVar(&reviewer, "reviewer", "", "human, codex, or claude-code")
 			flags.StringVar(&model, "model", "", "exact reviewer model")
+			flags.StringVar(&reviewerID, "reviewer-id", "", "predeclared generic panel reviewer id")
 			flags.StringVar(&blindAssignment, "blind-assignment", "", "workspace-relative blind assignment under cases")
+		} else {
+			flags.StringVar(&reviewerID, "reviewer-id", "", "predeclared generic panel reviewer id")
 		}
 		if err := flags.Parse(args[2:]); err != nil {
 			return err
@@ -142,17 +145,17 @@ func runPrivateCommand(args []string, out io.Writer) error {
 			return fmt.Errorf("private review %s requires root, plan, surface, and no positional arguments", args[1])
 		}
 		if args[1] == "prepare" {
-			if reviewer == "" {
-				return fmt.Errorf("private review prepare requires --reviewer")
+			if reviewer == "" && reviewerID == "" {
+				return fmt.Errorf("private review prepare requires --reviewer for legacy-single or --reviewer-id for a panel")
 			}
 			summary, err := agenteval.PreparePrivateReview(agenteval.PrivateReviewPrepareOptions{Root: root, RepositoryRoot: repositoryRoot,
-				PlanID: planID, Surface: surface, ReviewerKind: reviewer, ReviewerModel: model, BlindAssignment: blindAssignment})
+				PlanID: planID, Surface: surface, ReviewerKind: reviewer, ReviewerModel: model, ReviewerID: reviewerID, BlindAssignment: blindAssignment})
 			if err != nil {
 				return err
 			}
 			return writePrivateJSON(out, summary)
 		}
-		summary, err := agenteval.AssessPrivateReview(agenteval.PrivateReviewAssessOptions{Root: root, RepositoryRoot: repositoryRoot, PlanID: planID, Surface: surface})
+		summary, err := agenteval.AssessPrivateReview(agenteval.PrivateReviewAssessOptions{Root: root, RepositoryRoot: repositoryRoot, PlanID: planID, Surface: surface, ReviewerID: reviewerID})
 		if err != nil {
 			return err
 		}

@@ -1,6 +1,7 @@
 package agenteval
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -77,20 +78,28 @@ func privatePlanSummary(planID, runID, status string, surfaces []string, complet
 }
 
 type privatePlan struct {
-	SchemaVersion            int                `json:"schema_version"`
-	PlanID                   string             `json:"plan_id"`
-	RunSetAlias              string             `json:"run_set_alias"`
-	ContractSHA256           string             `json:"contract_sha256"`
-	InputsSHA256             string             `json:"inputs_sha256"`
-	CreatedAt                string             `json:"created_at"`
-	Consent                  PrivatePlanConsent `json:"consent"`
-	RepositoryCommit         string             `json:"repository_commit"`
-	RepositoryDirty          bool               `json:"repository_dirty"`
-	Provider                 string             `json:"provider"`
-	Model                    string             `json:"model"`
-	MaxEstimatedCostMicroUSD int64              `json:"max_estimated_cost_microusd"`
-	QualitativeRequired      bool               `json:"qualitative_required"`
-	Items                    []privatePlanItem  `json:"items"`
+	SchemaVersion            int                                    `json:"schema_version"`
+	PlanID                   string                                 `json:"plan_id"`
+	RunSetAlias              string                                 `json:"run_set_alias"`
+	ContractSHA256           string                                 `json:"contract_sha256"`
+	InputsSHA256             string                                 `json:"inputs_sha256"`
+	CreatedAt                string                                 `json:"created_at"`
+	Consent                  PrivatePlanConsent                     `json:"consent"`
+	RepositoryCommit         string                                 `json:"repository_commit"`
+	RepositoryDirty          bool                                   `json:"repository_dirty"`
+	Provider                 string                                 `json:"provider"`
+	Model                    string                                 `json:"model"`
+	MaxEstimatedCostMicroUSD int64                                  `json:"max_estimated_cost_microusd"`
+	QualitativeRequired      bool                                   `json:"qualitative_required"`
+	QualitativeReviewPanel   *privateQualitativeReviewPanelContract `json:"qualitative_review_panel,omitempty"`
+	Items                    []privatePlanItem                      `json:"items"`
+}
+
+type privateQualitativeReviewPanelContract struct {
+	Method                string     `json:"method"`
+	Reviewers             []Reviewer `json:"reviewers"`
+	MaxCriterionRangeBPS  int        `json:"max_criterion_range_bps"`
+	BlindAssignmentSHA256 string     `json:"blind_assignment_sha256,omitempty"`
 }
 
 type privatePlanItem struct {
@@ -174,7 +183,8 @@ func CreatePrivatePlan(ctx context.Context, options PrivatePlanCreateOptions) (P
 	plan := privatePlan{SchemaVersion: PrivatePlanSchemaVersion, PlanID: planID, RunSetAlias: runSet.Alias,
 		ContractSHA256: contractDigest, InputsSHA256: inputDigest, CreatedAt: now.Format(time.RFC3339), Consent: options.Consent,
 		RepositoryCommit: commit, RepositoryDirty: dirty, Provider: provider, Model: model,
-		MaxEstimatedCostMicroUSD: maxCost, QualitativeRequired: runSet.QualitativeReviewRequired, Items: items}
+		MaxEstimatedCostMicroUSD: maxCost, QualitativeRequired: runSet.QualitativeReviewRequired || runSet.QualitativeReviewPanel != nil,
+		QualitativeReviewPanel: material.qualitativePanel, Items: items}
 	data, err := encodePrivatePlan(plan)
 	if err != nil {
 		return PrivatePlanPreview{}, err
@@ -256,7 +266,7 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 	if err := safepath.MkdirAllWithin(root, runRoot, 0o700); err != nil {
 		return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), 0, 0), privatePlanError("run_root")
 	}
-	if err := persistPrivateRunContracts(root, runRoot, snapshot.root, plan.Items); err != nil {
+	if err := persistPrivateRunContracts(root, runRoot, snapshot.root, plan, runSet); err != nil {
 		return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), 0, 0), privatePlanError("run_contract")
 	}
 	var providerAuthSession *codexAuthSession
@@ -326,6 +336,7 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 type privatePlanMaterial struct {
 	contract, inputs []string
 	agent            privateAgentBinaryContract
+	qualitativePanel *privateQualitativeReviewPanelContract
 }
 
 func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorkspaceRoot string, runSet PrivateWorkspaceRunSet,
@@ -337,6 +348,7 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 	var provider, model string
 	var maxCost int64
 	external := false
+	neutral := false
 	for _, rel := range runSet.SpecPaths {
 		path := filepath.Join(root, filepath.FromSlash(rel))
 		paths = append(paths, path)
@@ -345,6 +357,7 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 			return nil, material, "", "", 0, false, privatePlanError("spec")
 		}
 		spec, scenario := loaded.spec, loaded.scenario
+		neutral = neutral || scenario.EffectiveCategory() == BenchmarkCategoryNeutralCommon
 		if spec.EffectiveBackendMode() != BackendModePrivateLive {
 			return nil, material, "", "", 0, false, privatePlanError("spec")
 		}
@@ -379,6 +392,17 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 	if len(paths) > 1 {
 		if _, err := ValidatePrivateRunComparisonSet(paths...); err != nil {
 			return nil, material, "", "", 0, false, privatePlanError("comparison")
+		}
+	}
+	panel, panelJSON, assignment, err := buildPrivateQualitativePanelMaterial(root, runSet, neutral)
+	if err != nil {
+		return nil, material, "", "", 0, false, err
+	}
+	material.qualitativePanel = panel
+	if panel != nil {
+		material.contract = append(material.contract, "qualitative-panel:"+sha256HexBytes(panelJSON))
+		if len(assignment) != 0 {
+			material.contract = append(material.contract, "blind-assignment:"+sha256HexBytes(assignment))
 		}
 	}
 	for _, executable := range []struct{ name, path string }{
@@ -425,6 +449,51 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 	}
 	material.inputs = append(material.inputs, "commit:"+commit, fmt.Sprintf("dirty:%t", dirty))
 	return items, material, provider, model, maxCost, external, nil
+}
+
+func buildPrivateQualitativePanelMaterial(root string, runSet PrivateWorkspaceRunSet, neutral bool) (*privateQualitativeReviewPanelContract, []byte, []byte, error) {
+	if runSet.QualitativeReviewPanel == nil {
+		// Legacy-single plans keep their historical review-time assignment
+		// workflow. New panel plans bind every judge and any required blind
+		// assignment before provider execution.
+		return nil, nil, nil, nil
+	}
+	panel := runSet.QualitativeReviewPanel
+	if err := panel.validate(); err != nil {
+		return nil, nil, nil, privatePlanError("qualitative_panel")
+	}
+	var assignment []byte
+	if panel.BlindAssignment != "" {
+		path := filepath.Join(root, filepath.FromSlash(panel.BlindAssignment))
+		data, err := readPrivatePlanLifecycleFile(root, path, maxReviewBytes)
+		if err != nil || len(data) == 0 {
+			return nil, nil, nil, privatePlanError("blind_assignment")
+		}
+		assignment = data
+	}
+	if neutral && len(assignment) == 0 {
+		return nil, nil, nil, privatePlanError("blind_assignment")
+	}
+	contract := &privateQualitativeReviewPanelContract{
+		Method: panel.Method, Reviewers: append([]Reviewer(nil), panel.Reviewers...),
+		MaxCriterionRangeBPS: panel.MaxCriterionRangeBPS,
+	}
+	if len(assignment) != 0 {
+		contract.BlindAssignmentSHA256 = sha256HexBytes(assignment)
+	}
+	encoded, err := encodePrivateQualitativeReviewPanelContract(*contract)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return contract, encoded, assignment, nil
+}
+
+func encodePrivateQualitativeReviewPanelContract(contract privateQualitativeReviewPanelContract) ([]byte, error) {
+	data, err := json.MarshalIndent(contract, "", "  ")
+	if err != nil {
+		return nil, privatePlanError("qualitative_panel")
+	}
+	return append(data, '\n'), nil
 }
 
 func loadPrivatePlanWorkspace(root, repository, alias string) (string, PrivateWorkspaceManifest, PrivateWorkspaceRunSet, error) {
@@ -569,9 +638,19 @@ func samePrivatePlanItemsUnordered(a, b []privatePlanItem) bool {
 }
 
 func privatePlanMaterialMatches(plan privatePlan, items []privatePlanItem, material privatePlanMaterial) bool {
-	return sha256HexBytes([]byte(strings.Join(material.contract, "\x00"))) == plan.ContractSHA256 &&
+	return privateQualitativePanelContractsEqual(plan.QualitativeReviewPanel, material.qualitativePanel) &&
+		sha256HexBytes([]byte(strings.Join(material.contract, "\x00"))) == plan.ContractSHA256 &&
 		sha256HexBytes([]byte(strings.Join(material.inputs, "\x00"))) == plan.InputsSHA256 &&
 		samePrivatePlanItemsUnordered(items, plan.Items)
+}
+
+func privateQualitativePanelContractsEqual(left, right *privateQualitativeReviewPanelContract) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	leftData, leftErr := encodePrivateQualitativeReviewPanelContract(*left)
+	rightData, rightErr := encodePrivateQualitativeReviewPanelContract(*right)
+	return leftErr == nil && rightErr == nil && bytes.Equal(leftData, rightData)
 }
 func privatePlanError(code string) error { return fmt.Errorf("%w: %s", ErrPrivatePlanRejected, code) }
 
@@ -598,13 +677,54 @@ func LoadCompletedPrivateRun(root, repository, planID string) (PrivateBaselineSo
 	}
 	source := PrivateBaselineSource{PlanID: p.PlanID, PlanPath: filepath.Join(abs, "plans", p.PlanID+".json"), PlanSHA256: s.PlanSHA256, ContractSHA256: p.ContractSHA256, RunID: s.RunID, RunRoot: filepath.Join(abs, "runs", s.RunID), Completed: true, Immutable: true}
 	for _, i := range p.Items {
-		source.Surfaces = append(source.Surfaces, PrivateBaselineSurfaceSource{
+		surface := PrivateBaselineSurfaceSource{
 			Surface: i.Surface, RunDirectory: filepath.Join(source.RunRoot, "raw", i.ScenarioID, i.Provider, i.Variant, "run-01"),
 			RubricPath: filepath.Join(source.RunRoot, "contracts", i.Surface, "rubric.json"), RubricSHA256: i.RubricSHA256,
 			QualitativeRequired: p.QualitativeRequired,
-		})
+		}
+		if p.QualitativeReviewPanel != nil {
+			contractPath := filepath.Join(source.RunRoot, "contracts", i.Surface, "qualitative-panel.json")
+			assignmentPath := ""
+			if p.QualitativeReviewPanel.BlindAssignmentSHA256 != "" {
+				assignmentPath = filepath.Join(source.RunRoot, "contracts", i.Surface, "blind-assignment")
+			}
+			contractDigest, assignmentDigest, err := validatePersistedPrivatePanelMaterials(abs, contractPath, assignmentPath, *p.QualitativeReviewPanel)
+			if err != nil {
+				return PrivateBaselineSource{}, err
+			}
+			surface.QualitativePanelContractPath = contractPath
+			surface.QualitativePanelContractSHA256 = contractDigest
+			surface.BlindAssignmentPath = assignmentPath
+			surface.BlindAssignmentSHA256 = assignmentDigest
+		}
+		source.Surfaces = append(source.Surfaces, surface)
 	}
 	return source, nil
+}
+
+func validatePersistedPrivatePanelMaterials(root, contractPath, assignmentPath string, expected privateQualitativeReviewPanelContract) (string, string, error) {
+	contractData, err := readPrivatePlanLifecycleFile(root, contractPath, maxReviewBytes)
+	if err != nil {
+		return "", "", privatePlanError("panel_contract")
+	}
+	expectedData, err := encodePrivateQualitativeReviewPanelContract(expected)
+	if err != nil || !bytes.Equal(contractData, expectedData) {
+		return "", "", privatePlanError("panel_contract")
+	}
+	assignmentDigest := ""
+	if expected.BlindAssignmentSHA256 != "" {
+		if assignmentPath == "" {
+			return "", "", privatePlanError("blind_assignment")
+		}
+		assignmentData, readErr := readPrivatePlanLifecycleFile(root, assignmentPath, maxReviewBytes)
+		if readErr != nil || len(assignmentData) == 0 || sha256HexBytes(assignmentData) != expected.BlindAssignmentSHA256 {
+			return "", "", privatePlanError("blind_assignment")
+		}
+		assignmentDigest = expected.BlindAssignmentSHA256
+	} else if assignmentPath != "" {
+		return "", "", privatePlanError("blind_assignment")
+	}
+	return sha256HexBytes(contractData), assignmentDigest, nil
 }
 func InspectPrivatePlanRunReferences(root, repository string) ([]PrivatePlanRunReference, error) {
 	abs, _, err := privateWorkspaceLocations(root, repository, false)
@@ -855,6 +975,11 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 		plan.MaxEstimatedCostMicroUSD < 1 || plan.MaxEstimatedCostMicroUSD > 3*maxRunCostMicroUSD || len(plan.Items) < 1 || len(plan.Items) > 3 {
 		return privatePlanError("plan")
 	}
+	if plan.QualitativeReviewPanel != nil {
+		if !plan.QualitativeRequired || validatePrivateQualitativeReviewPanelContract(*plan.QualitativeReviewPanel) != nil {
+			return privatePlanError("qualitative_panel")
+		}
+	}
 	seenSurfaces := map[string]struct{}{}
 	for _, item := range plan.Items {
 		if !validPrivateWorkspaceSpecPath(item.SpecPath) || validatePathComponentID("scenario id", item.ScenarioID) != nil ||
@@ -869,6 +994,25 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 		if item.Surface == SurfaceExternalMCP && !plan.Consent.ExternalUpstreamApproved {
 			return privatePlanError("external_consent")
 		}
+	}
+	return nil
+}
+
+func validatePrivateQualitativeReviewPanelContract(panel privateQualitativeReviewPanelContract) error {
+	policy := QualitativePanelPolicy{SchemaVersion: QualitativePanelSchemaVersion, Method: panel.Method,
+		ExpectedReviewers: len(panel.Reviewers), MaxCriterionRangeBPS: panel.MaxCriterionRangeBPS}
+	if policy.Validate() != nil || (panel.BlindAssignmentSHA256 != "" && !validSHA256(panel.BlindAssignmentSHA256)) {
+		return privatePlanError("qualitative_panel")
+	}
+	seen := map[string]struct{}{}
+	for _, reviewer := range panel.Reviewers {
+		if !identifierRE.MatchString(reviewer.ID) || reviewer.validate() != nil {
+			return privatePlanError("qualitative_panel")
+		}
+		if _, exists := seen[reviewer.ID]; exists {
+			return privatePlanError("qualitative_panel")
+		}
+		seen[reviewer.ID] = struct{}{}
 	}
 	return nil
 }

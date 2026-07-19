@@ -62,9 +62,44 @@ type PrivateWorkspaceRetention struct {
 // PrivateWorkspaceRunSet gives an operator a generic local alias for one
 // comparable set. Spec paths are slash-separated and rooted below cases/.
 type PrivateWorkspaceRunSet struct {
-	Alias                     string   `json:"alias"`
-	SpecPaths                 []string `json:"spec_paths"`
-	QualitativeReviewRequired bool     `json:"qualitative_review_required"`
+	Alias                     string                         `json:"alias"`
+	SpecPaths                 []string                       `json:"spec_paths"`
+	QualitativeReviewRequired bool                           `json:"qualitative_review_required"`
+	QualitativeReviewPanel    *PrivateQualitativeReviewPanel `json:"qualitative_review_panel,omitempty"`
+}
+
+const PrivateQualitativeReviewPanelMethod = QualitativePanelMethod
+
+// PrivateQualitativeReviewPanel is the review policy selected before provider
+// execution. BlindAssignment is a workspace-relative owner-private input below
+// cases/; its contents never appear in lifecycle summaries.
+type PrivateQualitativeReviewPanel struct {
+	Method               string     `json:"method"`
+	Reviewers            []Reviewer `json:"reviewers"`
+	MaxCriterionRangeBPS int        `json:"max_criterion_range_bps"`
+	BlindAssignment      string     `json:"blind_assignment,omitempty"`
+}
+
+func (p PrivateQualitativeReviewPanel) validate() error {
+	policy := QualitativePanelPolicy{SchemaVersion: QualitativePanelSchemaVersion, Method: p.Method,
+		ExpectedReviewers: len(p.Reviewers), MaxCriterionRangeBPS: p.MaxCriterionRangeBPS}
+	if policy.Validate() != nil {
+		return privateWorkspaceContractError("qualitative_review_panel")
+	}
+	seen := make(map[string]struct{}, len(p.Reviewers))
+	for _, reviewer := range p.Reviewers {
+		if !identifierRE.MatchString(reviewer.ID) || reviewer.validate() != nil {
+			return privateWorkspaceContractError("qualitative_review_panel")
+		}
+		if _, exists := seen[reviewer.ID]; exists {
+			return privateWorkspaceContractError("qualitative_review_panel")
+		}
+		seen[reviewer.ID] = struct{}{}
+	}
+	if p.BlindAssignment != "" && !validPrivateWorkspaceCaseFilePath(p.BlindAssignment) {
+		return privateWorkspaceContractError("qualitative_review_panel")
+	}
+	return nil
 }
 
 type PrivateWorkspaceCounts struct {
@@ -172,16 +207,28 @@ func (m PrivateWorkspaceManifest) Validate() error {
 			}
 			seenSpecs[path] = struct{}{}
 		}
+		if runSet.QualitativeReviewRequired && runSet.QualitativeReviewPanel != nil {
+			return privateWorkspaceContractError("qualitative_review_policy")
+		}
+		if runSet.QualitativeReviewPanel != nil {
+			if err := runSet.QualitativeReviewPanel.validate(); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
 
 func validPrivateWorkspaceSpecPath(path string) bool {
+	return validPrivateWorkspaceCaseFilePath(path) && strings.HasSuffix(path, ".json")
+}
+
+func validPrivateWorkspaceCaseFilePath(path string) bool {
 	if path == "" || len(path) > 512 || filepath.IsAbs(path) || strings.ContainsAny(path, "\\\r\n\x00") {
 		return false
 	}
 	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
-	return clean == path && strings.HasPrefix(path, "cases/") && path != "cases/" && strings.HasSuffix(path, ".json")
+	return clean == path && strings.HasPrefix(path, "cases/") && path != "cases/"
 }
 
 func DecodePrivateWorkspaceManifest(r io.Reader) (PrivateWorkspaceManifest, error) {

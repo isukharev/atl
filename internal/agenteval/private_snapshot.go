@@ -33,6 +33,9 @@ func createPrivateExecutionSnapshot(root, runID string, options PrivatePlanExecu
 	if err := copyPrivateSelectedCases(root, snapshot.root, runSet.SpecPaths); err != nil {
 		return privateExecutionSnapshot{}, err
 	}
+	if err := copyPrivateBlindAssignment(root, snapshot.root, runSet); err != nil {
+		return privateExecutionSnapshot{}, err
+	}
 	snapshot.pluginRoot = filepath.Join(snapshot.root, "plugin")
 	if err := safepath.MkdirAllWithin(root, snapshot.pluginRoot, 0o700); err != nil {
 		return privateExecutionSnapshot{}, err
@@ -157,8 +160,61 @@ func copyPrivateSelectedCases(root, snapshotRoot string, specPaths []string) err
 	return nil
 }
 
-func persistPrivateRunContracts(root, runRoot, snapshotRoot string, items []privatePlanItem) error {
-	for _, item := range items {
+func copyPrivateBlindAssignment(root, snapshotRoot string, runSet PrivateWorkspaceRunSet) error {
+	if runSet.QualitativeReviewPanel == nil || runSet.QualitativeReviewPanel.BlindAssignment == "" {
+		return nil
+	}
+	relative := runSet.QualitativeReviewPanel.BlindAssignment
+	if !validPrivateWorkspaceCaseFilePath(relative) {
+		return privatePlanError("snapshot_blind_assignment")
+	}
+	source := filepath.Join(root, filepath.FromSlash(relative))
+	data, err := readPrivatePlanLifecycleFile(root, source, maxReviewBytes)
+	if err != nil || len(data) == 0 {
+		return privatePlanError("snapshot_blind_assignment")
+	}
+	destination := filepath.Join(snapshotRoot, filepath.FromSlash(relative))
+	if _, statErr := safepath.StatWithin(root, destination); statErr == nil {
+		existing, readErr := readPrivatePlanLifecycleFile(root, destination, maxReviewBytes)
+		if readErr != nil {
+			return privatePlanError("snapshot_blind_assignment")
+		}
+		if !bytes.Equal(existing, data) {
+			return privatePlanError("snapshot_blind_assignment")
+		}
+		return nil
+	} else if !os.IsNotExist(statErr) {
+		return privatePlanError("snapshot_blind_assignment")
+	}
+	if err := safepath.MkdirAllWithin(root, filepath.Dir(destination), 0o700); err != nil {
+		return err
+	}
+	if err := safepath.WriteFileExclusiveWithin(root, destination, data, 0o600); err != nil {
+		return privatePlanError("snapshot_blind_assignment")
+	}
+	return nil
+}
+
+func persistPrivateRunContracts(root, runRoot, snapshotRoot string, plan privatePlan, runSet PrivateWorkspaceRunSet) error {
+	var panelData, assignmentData []byte
+	if plan.QualitativeReviewPanel != nil {
+		var err error
+		panelData, err = encodePrivateQualitativeReviewPanelContract(*plan.QualitativeReviewPanel)
+		if err != nil {
+			return privatePlanError("contract_panel")
+		}
+		if plan.QualitativeReviewPanel.BlindAssignmentSHA256 != "" {
+			if runSet.QualitativeReviewPanel == nil || runSet.QualitativeReviewPanel.BlindAssignment == "" {
+				return privatePlanError("contract_assignment")
+			}
+			assignmentPath := filepath.Join(snapshotRoot, filepath.FromSlash(runSet.QualitativeReviewPanel.BlindAssignment))
+			assignmentData, err = readPrivatePlanLifecycleFile(snapshotRoot, assignmentPath, maxReviewBytes)
+			if err != nil || len(assignmentData) == 0 || sha256HexBytes(assignmentData) != plan.QualitativeReviewPanel.BlindAssignmentSHA256 {
+				return privatePlanError("contract_assignment")
+			}
+		}
+	}
+	for _, item := range plan.Items {
 		specPath := filepath.Join(snapshotRoot, filepath.FromSlash(item.SpecPath))
 		spec, scenario, err := ValidateRunSpecFile(specPath)
 		if err != nil || scenario.ID != item.ScenarioID {
@@ -186,6 +242,18 @@ func persistPrivateRunContracts(root, runRoot, snapshotRoot string, items []priv
 		}
 		if err := safepath.WriteFileExclusiveWithin(root, destination, data, 0o600); err != nil {
 			return err
+		}
+		if plan.QualitativeReviewPanel != nil {
+			panelDestination := filepath.Join(runRoot, "contracts", item.Surface, "qualitative-panel.json")
+			if err := safepath.WriteFileExclusiveWithin(root, panelDestination, panelData, 0o600); err != nil {
+				return err
+			}
+			if len(assignmentData) != 0 {
+				assignmentDestination := filepath.Join(runRoot, "contracts", item.Surface, "blind-assignment")
+				if err := safepath.WriteFileExclusiveWithin(root, assignmentDestination, assignmentData, 0o600); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil

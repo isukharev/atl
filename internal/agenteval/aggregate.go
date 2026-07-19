@@ -13,23 +13,24 @@ type Aggregate struct {
 }
 
 type AggregateGroup struct {
-	ScenarioID         string                      `json:"scenario_id"`
-	TaskClass          string                      `json:"task_class"`
-	DataClass          string                      `json:"data_class"`
-	Category           string                      `json:"category"`
-	Variant            string                      `json:"variant"`
-	Surface            string                      `json:"surface"`
-	Runtime            Runtime                     `json:"runtime"`
-	Runs               int                         `json:"runs"`
-	EligibleRuns       int                         `json:"eligible_runs"`
-	UnsupportedRuns    int                         `json:"unsupported_runs"`
-	DriftedRuns        int                         `json:"drifted_runs"`
-	CoverageRate       float64                     `json:"coverage_rate"`
-	Passes             int                         `json:"passes"`
-	SuccessRate        float64                     `json:"success_rate"`
-	Metrics            AggregateMetrics            `json:"metrics"`
-	Qualitative        *AggregateQualitative       `json:"qualitative,omitempty"`
-	CapabilityFamilies []AggregateCapabilityFamily `json:"capability_families,omitempty"`
+	ScenarioID           string                         `json:"scenario_id"`
+	TaskClass            string                         `json:"task_class"`
+	DataClass            string                         `json:"data_class"`
+	Category             string                         `json:"category"`
+	Variant              string                         `json:"variant"`
+	Surface              string                         `json:"surface"`
+	Runtime              Runtime                        `json:"runtime"`
+	Runs                 int                            `json:"runs"`
+	EligibleRuns         int                            `json:"eligible_runs"`
+	UnsupportedRuns      int                            `json:"unsupported_runs"`
+	DriftedRuns          int                            `json:"drifted_runs"`
+	CoverageRate         float64                        `json:"coverage_rate"`
+	Passes               int                            `json:"passes"`
+	SuccessRate          float64                        `json:"success_rate"`
+	Metrics              AggregateMetrics               `json:"metrics"`
+	Qualitative          *AggregateQualitative          `json:"qualitative,omitempty"`
+	QualitativeReviewSet *AggregateQualitativeReviewSet `json:"qualitative_review_set,omitempty"`
+	CapabilityFamilies   []AggregateCapabilityFamily    `json:"capability_families,omitempty"`
 }
 
 type AggregateCapabilityFamily struct {
@@ -46,6 +47,17 @@ type AggregateQualitative struct {
 	Reviewer     Reviewer  `json:"reviewer"`
 	Passes       int       `json:"passes"`
 	ScoreBPS     Quantiles `json:"score_bps"`
+}
+
+type AggregateQualitativeReviewSet struct {
+	ContractSHA256 string                 `json:"contract_sha256"`
+	RubricID       string                 `json:"rubric_id"`
+	RubricSHA256   string                 `json:"rubric_sha256"`
+	Policy         QualitativePanelPolicy `json:"policy"`
+	Passes         int                    `json:"passes"`
+	Failures       int                    `json:"failures"`
+	Disagreements  int                    `json:"disagreements"`
+	ScoreBPS       Quantiles              `json:"score_bps"`
 }
 
 type AggregateMetrics struct {
@@ -75,8 +87,8 @@ type aggregateKey struct {
 	ScenarioID, TaskClass, DataClass, Category, Variant, Surface string
 	Provider, AgentVersion, Model, Reasoning, ATLVersion         string
 	PluginVersion, SkillDigest                                   string
-	ReviewerKind, ReviewerModel                                  string
-	RubricID, RubricSHA256                                       string
+	ReviewerID, ReviewerKind, ReviewerModel                      string
+	RubricID, RubricSHA256, ReviewSetContractSHA256              string
 }
 
 func AggregateResults(results []Result) (Aggregate, error) {
@@ -94,10 +106,16 @@ func AggregateResults(results []Result) (Aggregate, error) {
 			SkillDigest: result.Runtime.SkillDigest,
 		}
 		if result.Qualitative != nil {
+			key.ReviewerID = result.Qualitative.Reviewer.ID
 			key.ReviewerKind = result.Qualitative.Reviewer.Kind
 			key.ReviewerModel = result.Qualitative.Reviewer.Model
 			key.RubricID = result.Qualitative.RubricID
 			key.RubricSHA256 = result.Qualitative.RubricSHA256
+		}
+		if result.QualitativeReviewSet != nil {
+			key.RubricID = result.QualitativeReviewSet.RubricID
+			key.RubricSHA256 = result.QualitativeReviewSet.RubricSHA256
+			key.ReviewSetContractSHA256 = result.QualitativeReviewSet.ContractSHA256
 		}
 		groups[key] = append(groups[key], result)
 	}
@@ -225,7 +243,28 @@ func AggregateResults(results []Result) (Aggregate, error) {
 					passes++
 				}
 			}
-			group.Qualitative = &AggregateQualitative{RubricID: key.RubricID, RubricSHA256: key.RubricSHA256, Reviewer: Reviewer{Kind: key.ReviewerKind, Model: key.ReviewerModel}, Passes: passes, ScoreBPS: quantiles(scores)}
+			group.Qualitative = &AggregateQualitative{RubricID: key.RubricID, RubricSHA256: key.RubricSHA256, Reviewer: Reviewer{ID: key.ReviewerID, Kind: key.ReviewerKind, Model: key.ReviewerModel}, Passes: passes, ScoreBPS: quantiles(scores)}
+		}
+		if key.ReviewSetContractSHA256 != "" {
+			scores := make([]int64, 0, len(items))
+			passes, failures, disagreements := 0, 0, 0
+			var policy QualitativePanelPolicy
+			for _, item := range items {
+				if item.QualitativeReviewSet == nil {
+					continue
+				}
+				policy = item.QualitativeReviewSet.Policy
+				scores = append(scores, int64(item.QualitativeReviewSet.ScoreBPS))
+				switch item.QualitativeReviewSet.Status {
+				case "pass":
+					passes++
+				case "fail":
+					failures++
+				case "disagreement":
+					disagreements++
+				}
+			}
+			group.QualitativeReviewSet = &AggregateQualitativeReviewSet{ContractSHA256: key.ReviewSetContractSHA256, RubricID: key.RubricID, RubricSHA256: key.RubricSHA256, Policy: policy, Passes: passes, Failures: failures, Disagreements: disagreements, ScoreBPS: quantiles(scores)}
 		}
 		out.Groups = append(out.Groups, group)
 	}
@@ -264,6 +303,9 @@ func (r Result) Validate() error {
 	if err := validateEligibility(eligibility, r.UnavailableCapabilities); err != nil {
 		return fmt.Errorf("result eligibility: %w", err)
 	}
+	if r.Qualitative != nil && r.QualitativeReviewSet != nil {
+		return fmt.Errorf("result cannot contain both legacy and panel qualitative assessments")
+	}
 	if r.Qualitative != nil {
 		if eligibility != EligibilitySupported {
 			return fmt.Errorf("ineligible result cannot have a qualitative assessment")
@@ -285,6 +327,42 @@ func (r Result) Validate() error {
 		}
 		if found != (r.Qualitative.Status == "fail") {
 			return fmt.Errorf("qualitative status and violation disagree")
+		}
+	}
+	if r.QualitativeReviewSet != nil {
+		assessment := r.QualitativeReviewSet
+		if eligibility != EligibilitySupported {
+			return fmt.Errorf("ineligible result cannot have a qualitative review-set assessment")
+		}
+		if r.EffectiveCategory() == BenchmarkCategoryNeutralCommon && (!assessment.Blinded || !validSHA256(assessment.AssignmentDigest)) {
+			return fmt.Errorf("neutral-common qualitative review-set assessment must be blinded")
+		}
+		if err := assessment.validate(r.ScenarioID); err != nil {
+			return err
+		}
+		if assessment.Status != "pass" && r.Status != "fail" {
+			return fmt.Errorf("non-passing qualitative review-set assessment requires failed result")
+		}
+		failureCount, disagreementCount := 0, 0
+		for _, violation := range r.Violations {
+			if violation.Subject != assessment.RubricID {
+				continue
+			}
+			switch violation.Code {
+			case "qualitative_review_failed":
+				failureCount++
+				if violation.Observed != int64(assessment.ScoreBPS) || violation.Limit != int64(assessment.MinimumScoreBPS) {
+					return fmt.Errorf("qualitative review-set failure violation is inconsistent")
+				}
+			case "qualitative_review_disagreement":
+				disagreementCount++
+				if violation.Observed != 1 || violation.Limit != 0 {
+					return fmt.Errorf("qualitative review-set disagreement violation is inconsistent")
+				}
+			}
+		}
+		if failureCount != boolCount(assessment.Status == "fail") || disagreementCount != boolCount(assessment.Status == "disagreement") {
+			return fmt.Errorf("qualitative review-set status and violation disagree")
 		}
 	}
 	if r.Status != "pass" && r.Status != "fail" && r.Status != "ineligible" {
@@ -381,6 +459,13 @@ func (r Result) Validate() error {
 	return nil
 }
 
+func boolCount(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
 func quantiles(values []int64) Quantiles {
 	sorted := append([]int64(nil), values...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
@@ -406,5 +491,5 @@ func nearestRank(sorted []int64, percentile int) int64 {
 }
 
 func aggregateKeyString(key aggregateKey) string {
-	return key.ScenarioID + "\x00" + key.TaskClass + "\x00" + key.DataClass + "\x00" + key.Category + "\x00" + key.Variant + "\x00" + key.Surface + "\x00" + key.Provider + "\x00" + key.AgentVersion + "\x00" + key.Model + "\x00" + key.Reasoning + "\x00" + key.ATLVersion + "\x00" + key.PluginVersion + "\x00" + key.SkillDigest + "\x00" + key.RubricID + "\x00" + key.RubricSHA256 + "\x00" + key.ReviewerKind + "\x00" + key.ReviewerModel
+	return key.ScenarioID + "\x00" + key.TaskClass + "\x00" + key.DataClass + "\x00" + key.Category + "\x00" + key.Variant + "\x00" + key.Surface + "\x00" + key.Provider + "\x00" + key.AgentVersion + "\x00" + key.Model + "\x00" + key.Reasoning + "\x00" + key.ATLVersion + "\x00" + key.PluginVersion + "\x00" + key.SkillDigest + "\x00" + key.RubricID + "\x00" + key.RubricSHA256 + "\x00" + key.ReviewerID + "\x00" + key.ReviewerKind + "\x00" + key.ReviewerModel + "\x00" + key.ReviewSetContractSHA256
 }

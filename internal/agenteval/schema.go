@@ -182,27 +182,28 @@ type Violation struct {
 }
 
 type Result struct {
-	SchemaVersion           int                      `json:"schema_version"`
-	ScenarioID              string                   `json:"scenario_id"`
-	TaskClass               string                   `json:"task_class"`
-	DataClass               string                   `json:"data_class"`
-	Category                string                   `json:"category,omitempty"`
-	Variant                 string                   `json:"variant"`
-	Surface                 string                   `json:"surface,omitempty"`
-	Eligibility             string                   `json:"eligibility,omitempty"`
-	UnavailableCapabilities []string                 `json:"unavailable_capabilities,omitempty"`
-	BackendObservation      string                   `json:"backend_observation,omitempty"`
-	SafetyAssurance         string                   `json:"safety_assurance,omitempty"`
-	Runtime                 Runtime                  `json:"runtime"`
-	Status                  string                   `json:"status"`
-	Metrics                 Metrics                  `json:"metrics"`
-	Coverage                map[string]bool          `json:"coverage"`
-	HTTPMethods             map[string]int           `json:"http_methods"`
-	Checks                  map[string]bool          `json:"checks"`
-	Violations              []Violation              `json:"violations"`
-	Warnings                []string                 `json:"warnings,omitempty"`
-	Qualitative             *QualitativeAssessment   `json:"qualitative,omitempty"`
-	CapabilityFamilies      []CapabilityFamilyMetric `json:"capability_families,omitempty"`
+	SchemaVersion           int                             `json:"schema_version"`
+	ScenarioID              string                          `json:"scenario_id"`
+	TaskClass               string                          `json:"task_class"`
+	DataClass               string                          `json:"data_class"`
+	Category                string                          `json:"category,omitempty"`
+	Variant                 string                          `json:"variant"`
+	Surface                 string                          `json:"surface,omitempty"`
+	Eligibility             string                          `json:"eligibility,omitempty"`
+	UnavailableCapabilities []string                        `json:"unavailable_capabilities,omitempty"`
+	BackendObservation      string                          `json:"backend_observation,omitempty"`
+	SafetyAssurance         string                          `json:"safety_assurance,omitempty"`
+	Runtime                 Runtime                         `json:"runtime"`
+	Status                  string                          `json:"status"`
+	Metrics                 Metrics                         `json:"metrics"`
+	Coverage                map[string]bool                 `json:"coverage"`
+	HTTPMethods             map[string]int                  `json:"http_methods"`
+	Checks                  map[string]bool                 `json:"checks"`
+	Violations              []Violation                     `json:"violations"`
+	Warnings                []string                        `json:"warnings,omitempty"`
+	Qualitative             *QualitativeAssessment          `json:"qualitative,omitempty"`
+	QualitativeReviewSet    *QualitativeReviewSetAssessment `json:"qualitative_review_set,omitempty"`
+	CapabilityFamilies      []CapabilityFamilyMetric        `json:"capability_families,omitempty"`
 }
 
 func (s Scenario) Validate() error {

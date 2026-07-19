@@ -277,6 +277,19 @@ and reports qualitative pass count plus p50/p90 normalized score. Compare
 rubric scores only within the same rubric and reviewer runtime. Review all
 repetitions; do not select only a favorable answer.
 
+Private-live workspaces can instead predeclare an odd panel of three or five
+reviewers. The `criterion-median-v1` policy computes each criterion from the
+median member score, then computes the weighted normalized score from those
+medians. It reports high disagreement when members split on overall pass/fail,
+split across any criterion's pass boundary, or exceed the configured normalized
+range threshold for any criterion. A disagreement blocks baseline promotion;
+a unanimous low-disagreement failure may still be retained as a measurement
+baseline. The complete roster, exact model identities, policy, and required
+blind assignment are bound before provider execution. Legacy singleton and
+panel results are deliberately comparison-incompatible rather than silently
+migrated. See [Private agent-benchmark workspace](agent-benchmark-private-workspace.md)
+for the panel manifest and operator flow.
+
 For `neutral-common`, `--blind-assignment` is mandatory. It is a bounded private
 file that maps randomized answer labels to candidates for the reviewer. Only
 its SHA-256 digest and a `blinded:true` marker enter the review/result contract;
@@ -1186,10 +1199,12 @@ failed deterministic oracle, shim denial, or declared budget violation makes
 the pair non-passing, but the other pre-approved transport may still run once
 to localize the regression; never relax either side after seeing a result.
 
-For every result with a valid structured final answer, create a review template
-from the same rubric and use
-the same human or separately prompted model reviewer identity. The reviewer
-receives the private final answer as untrusted data and no tools. Compare:
+For every result with a valid structured final answer, use the review policy
+bound into its private plan. A legacy singleton uses one exact human or model
+reviewer identity. A panel uses all three or five predeclared reviewers, with
+every packet prepared before the first assessment and one median consensus
+written only after the last assessment. Each reviewer receives the private
+final answer as untrusted data and no tools. Compare:
 
 - deterministic status and every required check;
 - qualitative score and finding classes;
@@ -1202,8 +1217,10 @@ receives the private final answer as untrusted data and no tools. Compare:
 - duration under the same provider/model/reasoning/runtime identity.
 
 Raw transcripts, answers, review rationales, route labels and per-run files stay
-private. A public result may state only generic task class, exact public runtime
-versions/commit, transport names and privacy-reviewed aggregate numbers. One
+private. Review artifacts retain only bounded scores and identifiers plus
+content digests; they never retain excerpts or free-form rationale. A public
+result may state only generic task class, exact public runtime versions/commit,
+transport names and privacy-reviewed aggregate numbers. One
 supervised live block is compatibility evidence, not a statistically stable
 model-quality benchmark; accumulate Latin-square blocks and use repeated
 synthetic cells for product decisions.
