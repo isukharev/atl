@@ -424,6 +424,10 @@ func TestPrivatePanelReviewRetryRejectsChangedReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := AssessPrivateReview(PrivateReviewAssessOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
+		PlanID: preview.PlanID, Surface: SurfaceATLMCP, ReviewerID: packets[1].ReviewerID}); err == nil || !strings.Contains(err.Error(), "assessment_drift") {
+		t.Fatalf("cross-member continuation ignored changed review: %v", err)
+	}
+	if _, err := AssessPrivateReview(PrivateReviewAssessOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
 		PlanID: preview.PlanID, Surface: SurfaceATLMCP, ReviewerID: packets[0].ReviewerID}); err == nil || !strings.Contains(err.Error(), "assessment_drift") {
 		t.Fatalf("changed retry was accepted: %v", err)
 	}

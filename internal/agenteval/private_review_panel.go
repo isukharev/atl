@@ -72,22 +72,10 @@ func assessPrivatePanelReview(root string, source PrivateBaselineSource, surface
 	if readErr != nil {
 		return PrivateReviewSummary{}, privatePlanError("review_read")
 	}
-	review, decodeErr := DecodeReview(bytes.NewReader(reviewData))
-	if decodeErr != nil || review.Reviewer != reviewer {
-		return PrivateReviewSummary{}, privatePlanError("review_decode")
+	canonicalData, err := canonicalPrivatePanelAssessment(result, resultData, finalData, rubric, reviewer, reviewData)
+	if err != nil {
+		return PrivateReviewSummary{}, err
 	}
-	if _, assessErr := AssessQualitative(result, resultData, finalData, rubric, review); assessErr != nil {
-		return PrivateReviewSummary{}, privatePlanError("assessment")
-	}
-	canonical, canonicalErr := canonicalPrivateReview(review, rubric)
-	if canonicalErr != nil {
-		return PrivateReviewSummary{}, privatePlanError("assessment")
-	}
-	canonicalData, encodeErr := json.MarshalIndent(canonical, "", "  ")
-	if encodeErr != nil {
-		return PrivateReviewSummary{}, privatePlanError("assessment_encode")
-	}
-	canonicalData = append(canonicalData, '\n')
 	if _, statErr := safepath.StatWithin(root, assessmentPath); os.IsNotExist(statErr) {
 		if err := safepath.WriteFileExclusiveWithin(root, assessmentPath, canonicalData, 0o600); err != nil {
 			return PrivateReviewSummary{}, privatePlanError("assessment_write")
@@ -267,7 +255,7 @@ func validatePrivatePanelRunPrepared(root string, source PrivateBaselineSource) 
 		if err != nil || prepared != policy.ExpectedReviewers {
 			return privatePlanError("review_roster_incomplete")
 		}
-		resultData, finalData, rubricData, _, _, err := loadPrivateReviewInputs(root, surface)
+		resultData, finalData, rubricData, result, rubric, err := loadPrivateReviewInputs(root, surface)
 		if err != nil {
 			return err
 		}
@@ -276,9 +264,46 @@ func validatePrivatePanelRunPrepared(root string, source PrivateBaselineSource) 
 			if err := validatePrivatePanelPacket(root, packet, resultData, finalData, rubricData); err != nil {
 				return err
 			}
+			assessmentPath := filepath.Join(packet, "assessment.json")
+			if _, statErr := safepath.StatWithin(root, assessmentPath); os.IsNotExist(statErr) {
+				continue
+			} else if statErr != nil {
+				return privatePlanError("assessment_invalid")
+			}
+			reviewData, readErr := readPrivatePlanLifecycleFile(root, filepath.Join(packet, "review.json"), maxReviewBytes)
+			if readErr != nil {
+				return privatePlanError("review_read")
+			}
+			canonicalData, canonicalErr := canonicalPrivatePanelAssessment(result, resultData, finalData, rubric, reviewer, reviewData)
+			if canonicalErr != nil {
+				return canonicalErr
+			}
+			existing, readErr := readPrivatePlanLifecycleFile(root, assessmentPath, maxReviewBytes)
+			if readErr != nil || !bytes.Equal(existing, canonicalData) {
+				return privatePlanError("assessment_drift")
+			}
 		}
 	}
 	return nil
+}
+
+func canonicalPrivatePanelAssessment(result Result, resultData, finalData []byte, rubric Rubric, reviewer Reviewer, reviewData []byte) ([]byte, error) {
+	review, err := DecodeReview(bytes.NewReader(reviewData))
+	if err != nil || review.Reviewer != reviewer {
+		return nil, privatePlanError("review_decode")
+	}
+	if _, err := AssessQualitative(result, resultData, finalData, rubric, review); err != nil {
+		return nil, privatePlanError("assessment")
+	}
+	canonical, err := canonicalPrivateReview(review, rubric)
+	if err != nil {
+		return nil, privatePlanError("assessment")
+	}
+	data, err := json.MarshalIndent(canonical, "", "  ")
+	if err != nil {
+		return nil, privatePlanError("assessment_encode")
+	}
+	return append(data, '\n'), nil
 }
 
 func validatePrivatePanelPacket(root, packet string, resultData, finalData, rubricData []byte) error {
