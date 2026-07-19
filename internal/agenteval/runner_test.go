@@ -550,7 +550,8 @@ fi
 if [ "$1" = "mcp" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
   check_runtime
   enabled=true
-  if /bin/grep -q 'mcp_servers."atl"' "$CODEX_HOME/config.toml"; then enabled=false; fi
+  config=$(/bin/cat "$CODEX_HOME/config.toml") || exit 5
+  case "$config" in *'mcp_servers."atl"'*) enabled=false;; esac
   printf '[{"name":"atl","enabled":%s}]\n' "$enabled"
   exit 0
 fi

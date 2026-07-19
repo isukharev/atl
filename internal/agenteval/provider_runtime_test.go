@@ -61,8 +61,9 @@ fi
 if [ "$1" = "mcp" ] && [ "$2" = "list" ]; then
   atl_enabled=true
   extra_enabled=true
-  if /bin/grep -q 'mcp_servers."atl"' "$CODEX_HOME/config.toml"; then atl_enabled=false; fi
-  if /bin/grep -q 'mcp_servers."extra-read"' "$CODEX_HOME/config.toml"; then extra_enabled=false; fi
+  config=$(/bin/cat "$CODEX_HOME/config.toml") || exit 5
+  case "$config" in *'mcp_servers."atl"'*) atl_enabled=false;; esac
+  case "$config" in *'mcp_servers."extra-read"'*) extra_enabled=false;; esac
   printf '[{"name":"atl","enabled":%s},{"name":"extra-read","enabled":%s}]\n' "$atl_enabled" "$extra_enabled"
   exit 0
 fi
