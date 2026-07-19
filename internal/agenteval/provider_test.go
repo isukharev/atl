@@ -2,6 +2,9 @@ package agenteval
 
 import (
 	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -113,7 +116,7 @@ func TestBuildPrivateCodexMCPProjectsOnlyReviewedSkillReadPolicy(t *testing.T) {
 	spec.AllowedTools = nil
 	spec.AllowedATLCommands = nil
 	spec.AllowedMCPTools = []string{"jira_fields"}
-	command, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", ProviderConfinement{}, []byte(`{"type":"object"}`))
+	command, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", privateMCPHookConfinement("atl", "jira_fields"), []byte(`{"type":"object"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,13 +133,115 @@ func TestBuildPrivateCodexMCPProjectsOnlyReviewedSkillReadPolicy(t *testing.T) {
 	spec.Surface = SurfaceExternalMCP
 	spec.mcpServerURL = "http://127.0.0.1:1234/mcp"
 	spec.mcpBearerTokenEnv = "ATL_EVAL_EXTERNAL_MCP_TOKEN"
-	external, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", ProviderConfinement{}, []byte(`{"type":"object"}`))
+	external, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", privateMCPHookConfinement("external_ro", "jira_fields"), []byte(`{"type":"object"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	externalWant := `shell_environment_policy.include_only=["PATH","LANG","LC_ALL","TERM","NO_PROXY","no_proxy","ATL_EVAL_EXTERNAL_MCP_TOKEN","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
 	if !slices.Contains(external.Args, externalWant) {
 		t.Fatalf("private external MCP environment projection drifted: %s", strings.Join(external.Args, " "))
+	}
+}
+
+func TestCodexPrivateHookCommandBindsReviewedPolicyWithoutShellInjection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("executes a local POSIX shell")
+	}
+	root := t.TempDir()
+	sentinel := filepath.Join(root, "injected")
+	workspace := filepath.Join(root, "workspace ' $(touch injected) ; &")
+	skills := filepath.Join(root, "skills $HOME `touch injected` ; &")
+	guardDir := filepath.Join(root, "guard ' $() ; &")
+	for _, directory := range []string{workspace, skills, guardDir} {
+		if err := os.Mkdir(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	workspaceCapture := filepath.Join(root, "workspace.capture")
+	rootsCapture := filepath.Join(root, "roots.capture")
+	modeCapture := filepath.Join(root, "mode.capture")
+	counterCapture := filepath.Join(root, "counter.capture")
+	toolsCapture := filepath.Join(root, "tools.capture")
+	counter := filepath.Join(root, "counter ' $() ; &")
+	guard := filepath.Join(guardDir, "guard")
+	writeTestFile(t, guard, "#!/bin/sh\nprintf '%s' \"$ATL_EVAL_WORKSPACE_ROOT\" >"+shellSingleQuote(workspaceCapture)+"\nprintf '%s' \"$ATL_EVAL_ALLOWED_READ_ROOTS\" >"+shellSingleQuote(rootsCapture)+"\nprintf '%s' \"$ATL_EVAL_GUARD_MODE\" >"+shellSingleQuote(modeCapture)+"\nprintf '%s' \"$ATL_EVAL_GUARD_COUNTER\" >"+shellSingleQuote(counterCapture)+"\nprintf '%s' \"$ATL_EVAL_ALLOWED_MCP_TOOLS\" >"+shellSingleQuote(toolsCapture)+"\n", 0o700)
+	tools := []string{"mcp__atl__jira_fields"}
+	confinement := ProviderConfinement{GuardMode: "mcp-with-skill-read", GuardCounterPath: counter, WorkspaceReadRoot: workspace, AllowedReadRoots: []string{skills, workspace}, AllowedMCPTools: tools}
+	command, err := codexPrivateHookCommand(guard, "mcp-with-skill-read", tools, confinement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	process := exec.Command("/bin/sh", "-c", command)
+	process.Dir = root
+	process.Env = []string{"PATH=/usr/bin:/bin", "ATL_EVAL_GUARD_MODE=ambient", "ATL_EVAL_GUARD_COUNTER=/ambient", `ATL_EVAL_ALLOWED_MCP_TOOLS=["ambient"]`, "ATL_EVAL_WORKSPACE_ROOT=/ambient", `ATL_EVAL_ALLOWED_READ_ROOTS=["/ambient"]`}
+	if output, err := process.CombinedOutput(); err != nil {
+		t.Fatalf("hook command: %v: %s", err, output)
+	}
+	if _, err := os.Stat(sentinel); !os.IsNotExist(err) {
+		t.Fatalf("path policy triggered shell interpolation: %v", err)
+	}
+	gotWorkspace, err := os.ReadFile(workspaceCapture)
+	if err != nil || string(gotWorkspace) != workspace {
+		t.Fatalf("workspace=%q err=%v", gotWorkspace, err)
+	}
+	gotRoots, err := os.ReadFile(rootsCapture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRoots, _ := json.Marshal(confinement.AllowedReadRoots)
+	if string(gotRoots) != string(wantRoots) {
+		t.Fatalf("roots=%q want=%q", gotRoots, wantRoots)
+	}
+	for path, want := range map[string]string{modeCapture: confinement.GuardMode, counterCapture: counter, toolsCapture: `["mcp__atl__jira_fields"]`} {
+		got, err := os.ReadFile(path)
+		if err != nil || string(got) != want {
+			t.Fatalf("capture %s=%q want=%q err=%v", filepath.Base(path), got, want, err)
+		}
+	}
+}
+
+func TestCodexPrivateHookReadPolicyFailsClosed(t *testing.T) {
+	valid := privateMCPHookConfinement("atl", "jira_fields")
+	tests := map[string]func(*ProviderConfinement){
+		"missing mode":            func(value *ProviderConfinement) { value.GuardMode = "" },
+		"wrong tools":             func(value *ProviderConfinement) { value.AllowedMCPTools = []string{"mcp__atl__other"} },
+		"relative counter":        func(value *ProviderConfinement) { value.GuardCounterPath = "counter" },
+		"relative workspace":      func(value *ProviderConfinement) { value.WorkspaceReadRoot = "workspace" },
+		"relative root":           func(value *ProviderConfinement) { value.AllowedReadRoots[0] = "skills" },
+		"unclean root":            func(value *ProviderConfinement) { value.AllowedReadRoots[0] = "/skills/../skills" },
+		"root filesystem":         func(value *ProviderConfinement) { value.AllowedReadRoots[0] = "/" },
+		"newline":                 func(value *ProviderConfinement) { value.WorkspaceReadRoot = "/workspace\nother" },
+		"duplicate":               func(value *ProviderConfinement) { value.AllowedReadRoots = []string{"/workspace", "/workspace"} },
+		"too many roots":          func(value *ProviderConfinement) { value.AllowedReadRoots = []string{"/skills", "/other", "/workspace"} },
+		"workspace not permitted": func(value *ProviderConfinement) { value.AllowedReadRoots = []string{"/skills"} },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			confinement := valid
+			confinement.AllowedReadRoots = append([]string(nil), valid.AllowedReadRoots...)
+			confinement.AllowedMCPTools = append([]string(nil), valid.AllowedMCPTools...)
+			mutate(&confinement)
+			if _, err := codexPrivateHookCommand("/guard", "mcp-with-skill-read", []string{"mcp__atl__jira_fields"}, confinement); err == nil {
+				t.Fatalf("unsafe policy passed: %+v", confinement)
+			}
+		})
+	}
+	if _, err := codexPrivateHookCommand("/guard", "mcp-with-skill-read", []string{"mcp__atl__jira_fields"}, valid); err != nil {
+		t.Fatalf("valid policy failed: %v", err)
+	}
+}
+
+func TestSyntheticCodexHookDoesNotEmbedPrivatePolicy(t *testing.T) {
+	spec := validRunSpec()
+	config, err := codexDenyNonMCPHook("/opt/guard", spec, ProviderConfinement{
+		WorkspaceReadRoot: "/private/workspace", AllowedReadRoots: []string{"/private/workspace"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `hooks.PreToolUse=[{matcher="^(Bash|apply_patch|Edit|Write|Read|Agent)$",hooks=[{type="command",command="/opt/guard",timeout=5}]}]`
+	if config != want || strings.Contains(config, "ATL_EVAL_") {
+		t.Fatalf("synthetic hook changed: %s", config)
 	}
 }
 
@@ -188,8 +293,7 @@ func TestBuildPrivateCLIProviderCommandsEnforceHooksAndCodexCommandBroker(t *tes
 			}
 			confinement := ProviderConfinement{}
 			if provider == "codex" {
-				confinement.RequestDirectory = "/private/requests"
-				confinement.ResponseDirectory = "/private/responses"
+				confinement = privateCLIHookConfinement()
 			}
 			command, err := BuildProviderCommand(spec, provider, "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "/plugin", "/settings", "", confinement, []byte(`{"type":"object"}`))
 			if err != nil {
@@ -261,7 +365,7 @@ func TestCodexPrivateCLIInstructionsAreScopedToPrivateCLI(t *testing.T) {
 	privateSpec.GatewayMaxResponseBytes = 1 << 20
 	privateSpec.GatewayMaxTotalBytes = 2 << 20
 	privateSpec.DataCapabilities = []string{"jira.epic.digest"}
-	confinement := ProviderConfinement{RequestDirectory: "/private/requests", ResponseDirectory: "/private/responses"}
+	confinement := privateCLIHookConfinement()
 	command, err := BuildProviderCommand(privateSpec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", confinement, []byte(`{"type":"object"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -314,7 +418,15 @@ func TestCodexPrivateCLIInstructionsAreScopedToPrivateCLI(t *testing.T) {
 		"private-mcp": privateMCP,
 	} {
 		t.Run(name, func(t *testing.T) {
-			built, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", ProviderConfinement{}, []byte(`{"type":"object"}`))
+			confinement := ProviderConfinement{}
+			if spec.Provider == "codex" && spec.EffectiveBackendMode() == BackendModePrivateLive {
+				if spec.ToolTransport == "cli" {
+					confinement = privateCLIHookConfinement()
+				} else {
+					confinement = privateMCPHookConfinement("atl", spec.AllowedMCPTools...)
+				}
+			}
+			built, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", confinement, []byte(`{"type":"object"}`))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -396,6 +508,18 @@ func containsArgumentPair(args []string, name, value string) bool {
 		}
 	}
 	return false
+}
+
+func privateMCPHookConfinement(server string, tools ...string) ProviderConfinement {
+	qualified := make([]string, len(tools))
+	for index, tool := range tools {
+		qualified[index] = "mcp__" + server + "__" + tool
+	}
+	return ProviderConfinement{GuardMode: "mcp-with-skill-read", GuardCounterPath: "/guard-decisions.jsonl", WorkspaceReadRoot: "/workspace", AllowedReadRoots: []string{"/skills", "/workspace"}, AllowedMCPTools: qualified}
+}
+
+func privateCLIHookConfinement() ProviderConfinement {
+	return ProviderConfinement{RequestDirectory: "/private/requests", ResponseDirectory: "/private/responses", GuardMode: "private-cli", GuardCounterPath: "/guard-decisions.jsonl", WorkspaceReadRoot: "/workspace", AllowedReadRoots: []string{"/skills", "/workspace"}}
 }
 
 func TestParseProviderOutputs(t *testing.T) {

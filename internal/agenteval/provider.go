@@ -19,6 +19,11 @@ type ProviderCommand struct {
 type ProviderConfinement struct {
 	RequestDirectory  string
 	ResponseDirectory string
+	GuardMode         string
+	GuardCounterPath  string
+	WorkspaceReadRoot string
+	AllowedReadRoots  []string
+	AllowedMCPTools   []string
 }
 
 const (
@@ -173,6 +178,10 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 				if spec.mcpServerURL == "" || spec.mcpBearerTokenEnv == "" {
 					return ProviderCommand{}, fmt.Errorf("codex external MCP requires a local proxy")
 				}
+				hookConfig, err := codexDenyNonMCPHook(guardPath, spec, confinement)
+				if err != nil {
+					return ProviderCommand{}, err
+				}
 				args = append(args,
 					"--dangerously-bypass-hook-trust", "-c", `web_search="disabled"`,
 					"-c", `mcp_servers.external_ro.url=`+strconv.Quote(spec.mcpServerURL),
@@ -180,9 +189,13 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 					"-c", `mcp_servers.external_ro.required=true`,
 					"-c", `mcp_servers.external_ro.enabled_tools=`+quotedStringList(spec.AllowedMCPTools),
 					"-c", `mcp_servers.external_ro.default_tools_approval_mode="approve"`,
-					"-c", codexDenyNonMCPHook(guardPath),
+					"-c", hookConfig,
 				)
 			} else {
+				hookConfig, err := codexDenyNonMCPHook(guardPath, spec, confinement)
+				if err != nil {
+					return ProviderCommand{}, err
+				}
 				args = append(args,
 					"--dangerously-bypass-hook-trust",
 					"-c", `web_search="disabled"`,
@@ -192,13 +205,17 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 					"-c", `mcp_servers.atl.enabled_tools=`+quotedStringList(spec.AllowedMCPTools),
 					"-c", `mcp_servers.atl.default_tools_approval_mode="approve"`,
 					"-c", `mcp_servers.atl.env_vars=["ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_JIRA_URL","ATL_CONFLUENCE_URL","ATL_JIRA_PAT","ATL_CONFLUENCE_PAT","ATL_ALLOW_INSECURE","ATL_EVAL_HTTP_GUARD_FILE"]`,
-					"-c", codexDenyNonMCPHook(guardPath),
+					"-c", hookConfig,
 				)
 			}
 		}
 		if spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli" {
 			if guardPath == "" {
 				return ProviderCommand{}, fmt.Errorf("codex private-live cli transport requires a guard executable")
+			}
+			hookConfig, err := codexDenyNonMCPHook(guardPath, spec, confinement)
+			if err != nil {
+				return ProviderCommand{}, err
 			}
 			confinementArgs, err := codexConfinementConfigArgs(confinement, true)
 			if err != nil {
@@ -210,7 +227,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 				"-c", `web_search="disabled"`,
 				"-c", `plugins."atl@atl".enabled=true`,
 				"-c", `developer_instructions=`+strconv.Quote(codexPrivateCLIInstructions(spec)),
-				"-c", codexDenyNonMCPHook(guardPath),
+				"-c", hookConfig,
 			)
 			args = append(args, confinementArgs...)
 		}
@@ -311,8 +328,76 @@ func mcpServerName(spec RunSpec) string {
 	return "atl"
 }
 
-func codexDenyNonMCPHook(guardPath string) string {
-	return `hooks.PreToolUse=[{matcher="^(Bash|apply_patch|Edit|Write|Read|Agent)$",hooks=[{type="command",command=` + strconv.Quote(guardPath) + `,timeout=5}]}]`
+func codexDenyNonMCPHook(guardPath string, spec RunSpec, confinement ProviderConfinement) (string, error) {
+	command := guardPath
+	if spec.EffectiveBackendMode() == BackendModePrivateLive {
+		expectedMode := "mcp-with-skill-read"
+		expectedTools := claudeMCPToolNamesForServer(mcpServerName(spec), spec.AllowedMCPTools)
+		if spec.ToolTransport == "cli" {
+			expectedMode = "private-cli"
+			expectedTools = nil
+		}
+		var err error
+		command, err = codexPrivateHookCommand(guardPath, expectedMode, expectedTools, confinement)
+		if err != nil {
+			return "", err
+		}
+	}
+	return `hooks.PreToolUse=[{matcher="^(Bash|apply_patch|Edit|Write|Read|Agent)$",hooks=[{type="command",command=` + strconv.Quote(command) + `,timeout=5}]}]`, nil
+}
+
+func codexPrivateHookCommand(guardPath, expectedMode string, expectedTools []string, confinement ProviderConfinement) (string, error) {
+	if err := validateCodexPrivateHookPolicy(expectedMode, expectedTools, confinement); err != nil {
+		return "", err
+	}
+	roots, err := json.Marshal(confinement.AllowedReadRoots)
+	if err != nil {
+		return "", fmt.Errorf("encode codex private-live hook read policy: %w", err)
+	}
+	tools, err := json.Marshal(confinement.AllowedMCPTools)
+	if err != nil {
+		return "", fmt.Errorf("encode codex private-live hook tool policy: %w", err)
+	}
+	return "ATL_EVAL_GUARD_MODE=" + shellSingleQuote(confinement.GuardMode) +
+		" ATL_EVAL_GUARD_COUNTER=" + shellSingleQuote(confinement.GuardCounterPath) +
+		" ATL_EVAL_ALLOWED_MCP_TOOLS=" + shellSingleQuote(string(tools)) +
+		" ATL_EVAL_WORKSPACE_ROOT=" + shellSingleQuote(confinement.WorkspaceReadRoot) +
+		" ATL_EVAL_ALLOWED_READ_ROOTS=" + shellSingleQuote(string(roots)) +
+		" " + shellSingleQuote(guardPath), nil
+}
+
+func validateCodexPrivateHookPolicy(expectedMode string, expectedTools []string, confinement ProviderConfinement) error {
+	if confinement.GuardMode != expectedMode || !equalStrings(confinement.AllowedMCPTools, expectedTools) || !validCodexHookPath(confinement.GuardCounterPath) {
+		return fmt.Errorf("codex private-live hook requires an explicit guard policy")
+	}
+	workspace := confinement.WorkspaceReadRoot
+	if !validCodexHookReadRoot(workspace) || len(confinement.AllowedReadRoots) == 0 || len(confinement.AllowedReadRoots) > 2 {
+		return fmt.Errorf("codex private-live hook requires an explicit workspace read policy")
+	}
+	seen := map[string]struct{}{}
+	workspaceAllowed := false
+	for _, root := range confinement.AllowedReadRoots {
+		if !validCodexHookReadRoot(root) {
+			return fmt.Errorf("codex private-live hook read policy contains an invalid root")
+		}
+		if _, exists := seen[root]; exists {
+			return fmt.Errorf("codex private-live hook read policy contains duplicate roots")
+		}
+		seen[root] = struct{}{}
+		workspaceAllowed = workspaceAllowed || root == workspace
+	}
+	if !workspaceAllowed {
+		return fmt.Errorf("codex private-live hook workspace is outside its read roots")
+	}
+	return nil
+}
+
+func validCodexHookReadRoot(value string) bool {
+	return validCodexHookPath(value) && filepath.Clean(value) != string(filepath.Separator)
+}
+
+func validCodexHookPath(value string) bool {
+	return value != "" && filepath.IsAbs(value) && filepath.Clean(value) == value && !strings.ContainsAny(value, "\x00\r\n")
 }
 
 func claudeToolNames(rules []string) []string {
