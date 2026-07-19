@@ -11,7 +11,7 @@ import (
 
 type privateExecutionSnapshot struct {
 	root, atlBinary, pluginRoot, agentBinary, wrapperExecutable string
-	liveConfig, externalProfile                                 string
+	liveConfig, externalProfile, providerScratch                string
 	agentProvenanceSHA256                                       string
 	agentIdentity                                               string
 }
@@ -113,6 +113,10 @@ func createPrivateExecutionSnapshot(root, runID string, options PrivatePlanExecu
 	}
 	snapshot.agentProvenanceSHA256 = reviewedAgent.provenanceSHA256
 	snapshot.agentIdentity = reviewedAgent.identity
+	snapshot.providerScratch = filepath.Join(snapshot.root, "provider-runtime")
+	if err := safepath.MkdirAllWithin(root, snapshot.providerScratch, 0o700); err != nil {
+		return privateExecutionSnapshot{}, err
+	}
 	if err := normalizePrivateSnapshotTree(snapshot.root); err != nil {
 		return privateExecutionSnapshot{}, err
 	}
@@ -234,6 +238,7 @@ func persistPrivateRunContracts(root, runRoot, snapshotRoot string, plan private
 		}
 	}
 	for _, item := range plan.Items {
+		contractKey := privatePlanItemContractKey(plan, item)
 		specPath := filepath.Join(snapshotRoot, filepath.FromSlash(item.SpecPath))
 		spec, scenario, err := ValidateRunSpecFile(specPath)
 		if err != nil || scenario.ID != item.ScenarioID {
@@ -255,7 +260,7 @@ func persistPrivateRunContracts(root, runRoot, snapshotRoot string, plan private
 		if err != nil || rubric.ScenarioID != item.ScenarioID || rubricSHA256(rubric) != item.RubricSHA256 {
 			return privatePlanError("contract_rubric")
 		}
-		destination := filepath.Join(runRoot, "contracts", item.Surface, "rubric.json")
+		destination := filepath.Join(runRoot, "contracts", contractKey, "rubric.json")
 		if err := safepath.MkdirAllWithin(root, filepath.Dir(destination), 0o700); err != nil {
 			return err
 		}
@@ -263,12 +268,12 @@ func persistPrivateRunContracts(root, runRoot, snapshotRoot string, plan private
 			return err
 		}
 		if plan.QualitativeReviewPanel != nil {
-			panelDestination := filepath.Join(runRoot, "contracts", item.Surface, "qualitative-panel.json")
+			panelDestination := filepath.Join(runRoot, "contracts", contractKey, "qualitative-panel.json")
 			if err := safepath.WriteFileExclusiveWithin(root, panelDestination, panelData, 0o600); err != nil {
 				return err
 			}
 			if len(assignmentData) != 0 {
-				assignmentDestination := filepath.Join(runRoot, "contracts", item.Surface, "blind-assignment")
+				assignmentDestination := filepath.Join(runRoot, "contracts", contractKey, "blind-assignment")
 				if err := safepath.WriteFileExclusiveWithin(root, assignmentDestination, assignmentData, 0o600); err != nil {
 					return err
 				}

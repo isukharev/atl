@@ -24,22 +24,23 @@ import (
 )
 
 type RunOptions struct {
-	SpecPath              string
-	OutputRoot            string
-	RepositoryRoot        string
-	AgentBinary           string
-	ATLBinary             string
-	PluginRoot            string
-	WrapperExecutable     string
-	LiveConfigDir         string
-	ExternalMCPProfile    string
-	ScratchRoot           string
-	PrivateWorkspaceRoot  string
-	qualifiedAgentVersion string
-	providerAuthSession   *codexAuthSession
-	ModelOverride         string
-	RepetitionsOverride   int
-	DryRun                bool
+	SpecPath                 string
+	OutputRoot               string
+	RepositoryRoot           string
+	AgentBinary              string
+	ATLBinary                string
+	PluginRoot               string
+	WrapperExecutable        string
+	LiveConfigDir            string
+	ExternalMCPProfile       string
+	ScratchRoot              string
+	PrivateWorkspaceRoot     string
+	qualifiedAgentVersion    string
+	providerAuthSession      *codexAuthSession
+	providerAttemptCommitted func() error
+	ModelOverride            string
+	RepetitionsOverride      int
+	DryRun                   bool
 }
 
 type RunPreview struct {
@@ -914,7 +915,22 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			}
 		}()
 	}
-	runErr := command.Run()
+	var runErr error
+	// Persist the irrevocable attempt boundary immediately before spawn. There
+	// is no atomic primitive spanning durable storage and exec: committing after
+	// Start would leave a crash window in which a live provider process could be
+	// replayed. A failed Start is therefore conservatively charged as an attempt.
+	if options.providerAttemptCommitted != nil {
+		if commitErr := options.providerAttemptCommitted(); commitErr != nil {
+			runErr = fmt.Errorf("persist provider attempt boundary: %w", commitErr)
+		}
+	}
+	if runErr == nil {
+		runErr = command.Start()
+	}
+	if runErr == nil {
+		runErr = command.Wait()
+	}
 	var brokerCloseErr error
 	if commandBroker != nil {
 		brokerCloseErr = commandBroker.Close()

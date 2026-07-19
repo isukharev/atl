@@ -89,6 +89,13 @@ from v4. A Codex `private-live` `cli-skill` spec must additionally choose
 that field is rejected on all other cells. Run `validate-comparison-set` before
 any model or backend is contacted.
 
+Private-workspace manifest schema v2 makes the lifecycle explicit. A
+`kind:"comparison"` run set keeps one to three unique surfaces; an omitted kind
+is the legacy comparison form. A `kind:"activation-study"` run set contains
+exactly four otherwise-identical Codex `private-live` `cli-skill` v5 specs, one
+for each activation treatment, plus a mandatory blinded three- or five-member
+review panel and an explicit reviewer cost reserve.
+
 The realistic matrix currently contains:
 
 | Category | Scenario | Main stressor |
@@ -302,16 +309,73 @@ are bound by a private prompt-contract digest. That digest stays in private
 plan/result artifacts. Low-level dry-run exposes only a bound flag; the digest
 is omitted from preview and aggregate JSON.
 
-The private lifecycle currently addresses one candidate per surface. Run the
-four same-surface cells as separately reviewed run sets, then describe their
-aggregate groups or a privacy-reviewed offline report. `private compare`
-intentionally rejects different activation identities. Separate plans do not
-control order or provider state, so they are compatibility observations rather
-than a causal 2x2 study; dedicated orchestration is tracked in issue #508. Do
-not put multiple cells into one ordinary plan or relabel a cell as another
-surface.
-Multi-surface validation accepts only implicit activation on a Codex CLI member
-so a route hint cannot be mistaken for a surface-only difference.
+Use one `kind:"activation-study"` run set for the complete 2x2. One reviewed
+plan and one consent bind all four same-surface cells, their common contract,
+the exact treatment specs, reviewer roster, and any required blind assignment.
+Attempts run sequentially in a canonical four-order balanced cycle scoped to
+the exact reviewed study material, not its editable run-set alias, so every
+treatment occurs once in every position and once before every other treatment
+across the cycle.
+A stopped or uncertain execution with a durable pre-spawn provider commitment is terminal and
+advances the cycle. A bare launch marker, expired plan, or recovered pre-provider interruption does not advance
+it, so repeated plan allocation cannot select an order. Create a fresh plan and
+consent rather than resuming or reusing a terminal attempt. Reviewer packet
+cell ids are random and cannot be derived from the visible plan id plus the four
+treatment names.
+An incomplete crash state blocks that exact study series and is never replayed
+or counted as a completed order automatically. Reconcile it offline with
+`private study recover --confirm PROVIDER_STOPPED_RECOVER`; this confirmation
+attests that the operator has independently stopped any orphaned provider
+process. Recovery validates any durable receipt, removes the exact owned
+execution capsule, and never invokes the model or backend. Study execution and
+recovery summaries include `cost_known`; false means the detected numeric total
+is only a lower bound.
+
+The study budget partitions all four treatment caps and a positive
+`reviewer_reserve_microusd` under the workspace maximum. Cost enforcement is
+detection-only: it checks provider-reported cost and coverage after calls and
+stops remaining cells on exhaustion, uncertainty, or a safety failure. It is
+not a preventive provider-side hard cap and cannot undo cost already incurred.
+The runner does not launch panel reviewers, so the reviewer reserve is a
+reviewed authorization partition, not durable reviewer-spend accounting;
+supervise any model-reviewer cost separately.
+
+Prepare every blinded panel packet for all four treatments before assessing any
+packet, selecting the cell with both `--surface cli-skill` and `--treatment`.
+Activation packets omit `result.json` and expose a random binding token instead
+of an enumerable digest of the treatment-bearing result.
+After all four cells have deterministic and panel results, capture an immutable
+`private study reference`, inspect the privacy-safe closed-field report with
+`private study compare`, and update the study pointer only through the stricter
+`private study promote` gate:
+
+```sh
+/tmp/agent-eval private review prepare \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --plan "$REVIEWED_PLAN_ID" \
+  --surface cli-skill \
+  --treatment implicit \
+  --reviewer-id reviewer-01
+
+/tmp/agent-eval private study reference \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --plan "$REVIEWED_PLAN_ID" \
+  --reference activation-study-01 \
+  --confirm REFERENCE
+
+/tmp/agent-eval private study compare \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --reference activation-study-01
+```
+
+Legacy treatments run under separate comparison plans remain valid descriptive
+observations, but they are not reordered, state-controlled, or promoted into a
+causal study. Multi-surface validation accepts only implicit activation on a
+Codex CLI member so a route hint cannot be mistaken for a surface-only
+difference.
 
 For two or three surfaces, prefer
 `agent-eval validate-comparison-set SPEC SPEC [SPEC]`. It requires unique

@@ -21,15 +21,22 @@ import (
 )
 
 const (
-	PrivatePlanSchemaVersion                  = 3
-	LegacyPromptBoundPrivatePlanSchemaVersion = 2
-	LegacyPrivatePlanSchemaVersion            = 1
-	PrivatePlanConsentConfirmation            = "CONSENT"
-	PrivatePlanConfirmation                   = "RUN"
-	privatePlanMaxBytes                       = 4 << 20
+	PrivatePlanSchemaVersion                         = 4
+	LegacyCompleteActivationPrivatePlanSchemaVersion = 3
+	LegacyPromptBoundPrivatePlanSchemaVersion        = 2
+	LegacyPrivatePlanSchemaVersion                   = 1
+	PrivatePlanConsentConfirmation                   = "CONSENT"
+	PrivatePlanConfirmation                          = "RUN"
+	privatePlanMaxBytes                              = 4 << 20
 )
 
 var ErrPrivatePlanRejected = errors.New("private plan rejected")
+
+var (
+	privatePlanRunHeadless = RunHeadless
+	privatePlanWriteState  = writePrivatePlanState
+	privatePlanRemoveTree  = removePrivateTree
+)
 
 var privateGitCommitRE = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 
@@ -56,6 +63,11 @@ type PrivatePlanPreview struct {
 	Model                    string   `json:"model"`
 	ExpiresAt                string   `json:"expires_at"`
 	MaxEstimatedCostMicroUSD int64    `json:"max_estimated_cost_microusd"`
+	Kind                     string   `json:"kind,omitempty"`
+	OrderedTreatments        []string `json:"ordered_treatments,omitempty"`
+	CostAssurance            string   `json:"cost_assurance,omitempty"`
+	CostPreventive           bool     `json:"cost_preventive,omitempty"`
+	ReviewerReserveMicroUSD  int64    `json:"reviewer_reserve_microusd,omitempty"`
 }
 
 type PrivatePlanExecuteOptions struct {
@@ -72,6 +84,7 @@ type PrivatePlanExecutionSummary struct {
 	Surfaces              []string `json:"surfaces"`
 	Completed             int      `json:"completed"`
 	EstimatedCostMicroUSD int64    `json:"estimated_cost_microusd"`
+	CostKnown             *bool    `json:"cost_known,omitempty"`
 }
 
 func privatePlanSummary(planID, runID, status string, surfaces []string, completed int, cost int64) PrivatePlanExecutionSummary {
@@ -83,6 +96,7 @@ type privatePlan struct {
 	SchemaVersion            int                                    `json:"schema_version"`
 	PlanID                   string                                 `json:"plan_id"`
 	RunSetAlias              string                                 `json:"run_set_alias"`
+	Kind                     string                                 `json:"kind,omitempty"`
 	ContractSHA256           string                                 `json:"contract_sha256"`
 	InputsSHA256             string                                 `json:"inputs_sha256"`
 	CreatedAt                string                                 `json:"created_at"`
@@ -92,6 +106,11 @@ type privatePlan struct {
 	Provider                 string                                 `json:"provider"`
 	Model                    string                                 `json:"model"`
 	MaxEstimatedCostMicroUSD int64                                  `json:"max_estimated_cost_microusd"`
+	ReviewerReserveMicroUSD  int64                                  `json:"reviewer_reserve_microusd,omitempty"`
+	CostAssurance            string                                 `json:"cost_assurance,omitempty"`
+	StudySeriesSHA256        string                                 `json:"study_series_sha256,omitempty"`
+	StudyContract            *privateActivationStudyPlanContract    `json:"study_contract,omitempty"`
+	ActivationContract       *PrivateActivationStudyContract        `json:"activation_contract,omitempty"`
 	QualitativeRequired      bool                                   `json:"qualitative_required"`
 	QualitativeReviewPanel   *privateQualitativeReviewPanelContract `json:"qualitative_review_panel,omitempty"`
 	Items                    []privatePlanItem                      `json:"items"`
@@ -105,23 +124,29 @@ type privateQualitativeReviewPanelContract struct {
 }
 
 type privatePlanItem struct {
-	SpecPath             string `json:"spec_path"`
-	ScenarioID           string `json:"scenario_id"`
-	Provider             string `json:"provider"`
-	Variant              string `json:"variant"`
-	Surface              string `json:"surface"`
-	SkillActivation      string `json:"skill_activation,omitempty"`
-	PromptContractSHA256 string `json:"prompt_contract_sha256,omitempty"`
-	RubricSHA256         string `json:"rubric_sha256"`
+	CellID                   string `json:"cell_id,omitempty"`
+	SpecPath                 string `json:"spec_path"`
+	ScenarioID               string `json:"scenario_id"`
+	Provider                 string `json:"provider"`
+	Variant                  string `json:"variant"`
+	Surface                  string `json:"surface"`
+	SkillActivation          string `json:"skill_activation,omitempty"`
+	PromptContractSHA256     string `json:"prompt_contract_sha256,omitempty"`
+	RubricSHA256             string `json:"rubric_sha256"`
+	MaxEstimatedCostMicroUSD int64  `json:"max_estimated_cost_microusd,omitempty"`
 }
 
 type privatePlanState struct {
-	SchemaVersion     int      `json:"schema_version"`
-	PlanSHA256        string   `json:"plan_sha256"`
-	RunID             string   `json:"run_id"`
-	Status            string   `json:"status"`
-	CompletedSurfaces []string `json:"completed_surfaces"`
-	CompletedAt       string   `json:"completed_at,omitempty"`
+	SchemaVersion         int                               `json:"schema_version"`
+	PlanSHA256            string                            `json:"plan_sha256"`
+	RunID                 string                            `json:"run_id"`
+	Status                string                            `json:"status"`
+	CompletedSurfaces     []string                          `json:"completed_surfaces"`
+	CompletedCells        []string                          `json:"completed_cells,omitempty"`
+	Events                []PrivateActivationLifecycleEvent `json:"events,omitempty"`
+	StopReason            string                            `json:"stop_reason,omitempty"`
+	EstimatedCostMicroUSD int64                             `json:"estimated_cost_microusd,omitempty"`
+	CompletedAt           string                            `json:"completed_at,omitempty"`
 }
 
 type PrivatePlanRunReference struct {
@@ -129,6 +154,7 @@ type PrivatePlanRunReference struct {
 	RunSetAlias    string
 	PlanID         string
 	State          string
+	RunRequired    bool
 	CompletedOrder int64
 }
 
@@ -163,7 +189,14 @@ func CreatePrivatePlan(ctx context.Context, options PrivatePlanCreateOptions) (P
 	if err != nil {
 		return PrivatePlanPreview{}, err
 	}
-	if maxCost > manifest.Execution.MaxEstimatedCostMicroUSD {
+	totalAuthorized := maxCost
+	if runSet.EffectiveKind() == PrivateRunSetKindActivationStudy {
+		if totalAuthorized > manifest.Execution.MaxEstimatedCostMicroUSD-runSet.ReviewerReserveMicroUSD {
+			return PrivatePlanPreview{}, privatePlanError("cost_budget")
+		}
+		totalAuthorized += runSet.ReviewerReserveMicroUSD
+	}
+	if totalAuthorized > manifest.Execution.MaxEstimatedCostMicroUSD {
 		return PrivatePlanPreview{}, privatePlanError("cost_budget")
 	}
 	if external && !options.Consent.ExternalUpstreamApproved {
@@ -179,16 +212,84 @@ func CreatePrivatePlan(ctx context.Context, options PrivatePlanCreateOptions) (P
 	}
 	contractDigest := sha256HexBytes([]byte(strings.Join(material.contract, "\x00")))
 	inputDigest := sha256HexBytes([]byte(strings.Join(material.inputs, "\x00")))
-	completedCount, err := completedPrivatePlanCount(root, runSet.Alias)
-	if err != nil {
-		return PrivatePlanPreview{}, err
+	kind := runSet.EffectiveKind()
+	var studyContract *privateActivationStudyPlanContract
+	var activationContract *PrivateActivationStudyContract
+	studySeriesSHA256 := ""
+	if kind == PrivateRunSetKindActivationStudy {
+		paths := make([]string, len(runSet.SpecPaths))
+		for index, relative := range runSet.SpecPaths {
+			paths[index] = filepath.Join(root, filepath.FromSlash(relative))
+		}
+		contract, contractErr := ValidatePrivateActivationStudy(paths...)
+		if contractErr != nil {
+			return PrivatePlanPreview{}, privatePlanError("activation_study")
+		}
+		activationContract = &contract
+		studySeriesSHA256 = privateActivationStudySeriesDigest(contract, material)
+		attempt, active, countErr := privateActivationStudyAttemptCount(root, studySeriesSHA256, now)
+		if countErr != nil {
+			return PrivatePlanPreview{}, countErr
+		}
+		if active {
+			return PrivatePlanPreview{}, privatePlanError("study_active")
+		}
+		order, orderErr := PrivateActivationStudyOrder(attempt)
+		if orderErr != nil {
+			return PrivatePlanPreview{}, privatePlanError("study_order")
+		}
+		ordered := make([]privatePlanItem, 0, len(items))
+		cells := make([]PrivateActivationStudyCell, 0, len(items))
+		for _, identity := range order {
+			for _, item := range items {
+				if item.SkillActivation != identity.SkillActivation {
+					continue
+				}
+				treatment, ok := contract.Treatment(item.SkillActivation)
+				if !ok {
+					return PrivatePlanPreview{}, privatePlanError("study_order")
+				}
+				cellID, idErr := privateRandomID("cell-")
+				if idErr != nil {
+					return PrivatePlanPreview{}, privatePlanError("cell_id")
+				}
+				item.CellID = cellID
+				ordered = append(ordered, item)
+				cells = append(cells, PrivateActivationStudyCell{CellID: item.CellID, SkillActivation: item.SkillActivation,
+					ContractSHA256: treatment.RunSpecSHA256, MaxEstimatedCostMicroUSD: item.MaxEstimatedCostMicroUSD})
+				break
+			}
+		}
+		if len(ordered) != len(items) {
+			return PrivatePlanPreview{}, privatePlanError("study_order")
+		}
+		items = ordered
+		lifecycleContract, lifecycleErr := NewPrivateActivationStudyPlan(PrivateActivationStudyPlanInput{StudyID: planID,
+			TotalAuthorizedMicroUSD: totalAuthorized, ReviewerReserveMicroUSD: runSet.ReviewerReserveMicroUSD, OrderedBalancedRoster: cells})
+		if lifecycleErr != nil {
+			return PrivatePlanPreview{}, privatePlanError("study_contract")
+		}
+		studyContract = &lifecycleContract
+	} else {
+		completedCount, countErr := completedPrivatePlanCount(root, runSet.Alias)
+		if countErr != nil {
+			return PrivatePlanPreview{}, countErr
+		}
+		items = rotatePrivatePlanItems(items, completedCount)
 	}
-	items = rotatePrivatePlanItems(items, completedCount)
 	plan := privatePlan{SchemaVersion: PrivatePlanSchemaVersion, PlanID: planID, RunSetAlias: runSet.Alias,
+		Kind:           kind,
 		ContractSHA256: contractDigest, InputsSHA256: inputDigest, CreatedAt: now.Format(time.RFC3339), Consent: options.Consent,
 		RepositoryCommit: commit, RepositoryDirty: dirty, Provider: provider, Model: model,
-		MaxEstimatedCostMicroUSD: maxCost, QualitativeRequired: runSet.QualitativeReviewRequired || runSet.QualitativeReviewPanel != nil,
+		MaxEstimatedCostMicroUSD: totalAuthorized, ReviewerReserveMicroUSD: runSet.ReviewerReserveMicroUSD,
+		QualitativeRequired:    runSet.QualitativeReviewRequired || runSet.QualitativeReviewPanel != nil,
 		QualitativeReviewPanel: material.qualitativePanel, Items: items}
+	if kind == PrivateRunSetKindActivationStudy {
+		plan.CostAssurance = PrivateActivationCostAssuranceDetectionOnly
+		plan.StudySeriesSHA256 = studySeriesSHA256
+		plan.StudyContract = studyContract
+		plan.ActivationContract = activationContract
+	}
 	data, err := encodePrivatePlan(plan)
 	if err != nil {
 		return PrivatePlanPreview{}, err
@@ -198,8 +299,16 @@ func CreatePrivatePlan(ctx context.Context, options PrivatePlanCreateOptions) (P
 		return PrivatePlanPreview{}, privatePlanError("write")
 	}
 	surfaces := privatePlanSurfaces(items)
-	return PrivatePlanPreview{SchemaVersion: PrivatePlanSchemaVersion, PlanID: planID, PlanSHA256: sha256HexBytes(data), Surfaces: surfaces,
-		Provider: provider, Model: model, ExpiresAt: options.Consent.ExpiresAt, MaxEstimatedCostMicroUSD: maxCost}, nil
+	preview := PrivatePlanPreview{SchemaVersion: PrivatePlanSchemaVersion, PlanID: planID, PlanSHA256: sha256HexBytes(data), Surfaces: surfaces,
+		Provider: provider, Model: model, ExpiresAt: options.Consent.ExpiresAt, MaxEstimatedCostMicroUSD: totalAuthorized, Kind: kind}
+	if kind == PrivateRunSetKindActivationStudy {
+		preview.Surfaces = []string{SurfaceCLISkill}
+		preview.OrderedTreatments = privatePlanTreatments(items)
+		preview.CostAssurance = PrivateActivationCostAssuranceDetectionOnly
+		preview.CostPreventive = false
+		preview.ReviewerReserveMicroUSD = runSet.ReviewerReserveMicroUSD
+	}
+	return preview, nil
 }
 
 func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) (summary PrivatePlanExecutionSummary, returnErr error) {
@@ -262,30 +371,62 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 	if err != nil {
 		return PrivatePlanExecutionSummary{}, privatePlanError("execution_snapshot")
 	}
-	defer func() { _ = removePrivateTree(root, snapshot.root) }()
+	snapshotCleanupPending := true
+	defer func() {
+		if !snapshotCleanupPending {
+			return
+		}
+		if cleanupErr := privatePlanRemoveTree(root, snapshot.root); cleanupErr != nil {
+			returnErr = errors.Join(returnErr, privatePlanError("snapshot_cleanup"), cleanupErr)
+			if summary.Status == "completed" {
+				summary.Status = "interrupted"
+			}
+		}
+	}()
 	snapshotItems, snapshotMaterial, _, _, _, _, err := buildPrivatePlanMaterial(ctx, snapshot.root, options.RepositoryRoot, root, runSet,
 		snapshot.atlBinary, snapshot.pluginRoot, snapshot.agentBinary, snapshot.wrapperExecutable, snapshot.liveConfig, snapshot.externalProfile, snapshot.agentProvenanceSHA256)
 	if err != nil || !privatePlanMaterialMatches(plan, snapshotItems, snapshotMaterial) {
 		return PrivatePlanExecutionSummary{}, privatePlanError("execution_snapshot")
 	}
 	state := privatePlanState{SchemaVersion: 1, PlanSHA256: options.ExpectedPlanSHA256, RunID: runID, Status: "interrupted", CompletedSurfaces: []string{}}
+	var activationLifecycle *PrivateActivationStudyLifecycle
+	if plan.Kind == PrivateRunSetKindActivationStudy {
+		if plan.StudyContract == nil {
+			return PrivatePlanExecutionSummary{}, privatePlanError("study_contract")
+		}
+		lifecycle, lifecycleErr := NewPrivateActivationStudyLifecycle(*plan.StudyContract)
+		if lifecycleErr != nil {
+			return PrivatePlanExecutionSummary{}, privatePlanError("study_contract")
+		}
+		activationLifecycle = &lifecycle
+		state.SchemaVersion = 2
+		state.CompletedCells = []string{}
+		defer func() {
+			if summary.PlanID == "" {
+				return
+			}
+			summary.SchemaVersion = 2
+			known := privateActivationDetectedCostKnown(state.Events)
+			summary.CostKnown = &known
+		}()
+	}
 	stateData, _ := json.MarshalIndent(state, "", "  ")
 	stateData = append(stateData, '\n')
 	if err := safepath.WriteFileExclusiveWithin(root, statePath, stateData, 0o600); err != nil {
 		return PrivatePlanExecutionSummary{}, privatePlanError("state")
 	}
 	if err := safepath.MkdirAllWithin(root, runRoot, 0o700); err != nil {
-		return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), 0, 0), privatePlanError("run_root")
+		return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanExecutionSurfaces(plan), 0, 0), privatePlanError("run_root")
 	}
 	if err := persistPrivateRunContracts(root, runRoot, snapshot.root, plan, runSet); err != nil {
-		return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), 0, 0), privatePlanError("run_contract")
+		return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanExecutionSurfaces(plan), 0, 0), privatePlanError("run_contract")
 	}
 	var providerAuthSession *codexAuthSession
 	providerAuthSessionClosed := false
 	if plan.Provider == "codex" {
 		providerAuthSession, err = newCodexAuthSession(os.Environ())
 		if err != nil {
-			return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), 0, 0), err
+			return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanExecutionSurfaces(plan), 0, 0), err
 		}
 		defer func() {
 			if !providerAuthSessionClosed {
@@ -293,61 +434,186 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 			}
 		}()
 	}
+	if activationLifecycle != nil {
+		if err := persistPrivateActivationPlanState(statePath, plan, &state, activationLifecycle, ""); err != nil {
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), 0, 0), errors.Join(privatePlanError("state"), err)
+		}
+	}
 	var total int64
-	for _, item := range plan.Items {
+	for itemIndex, item := range plan.Items {
 		currentItems, currentMaterial, _, _, _, _, materialErr := buildPrivatePlanMaterial(ctx, root, options.RepositoryRoot, "", runSet,
 			options.ATLBinary, options.PluginRoot, options.AgentBinary, options.WrapperExecutable, liveConfig, externalProfile, "")
 		if materialErr != nil || !privatePlanMaterialMatches(plan, currentItems, currentMaterial) {
-			return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), len(state.CompletedSurfaces), total), privatePlanError("input_drift")
+			stopErr := stopAndPersistPrivateActivationState(statePath, plan, &state, activationLifecycle, PrivateActivationStopInputDrift)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("input_drift"), stopErr)
 		}
 		snapshotItems, snapshotMaterial, _, _, _, _, snapshotErr := buildPrivatePlanMaterial(ctx, snapshot.root, options.RepositoryRoot, root, runSet,
 			snapshot.atlBinary, snapshot.pluginRoot, snapshot.agentBinary, snapshot.wrapperExecutable, snapshot.liveConfig, snapshot.externalProfile, snapshot.agentProvenanceSHA256)
 		if snapshotErr != nil || !privatePlanMaterialMatches(plan, snapshotItems, snapshotMaterial) {
-			return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), len(state.CompletedSurfaces), total), privatePlanError("snapshot_drift")
+			stopErr := stopAndPersistPrivateActivationState(statePath, plan, &state, activationLifecycle, PrivateActivationStopSnapshotDrift)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("snapshot_drift"), stopErr)
 		}
 		specPath := filepath.Join(snapshot.root, filepath.FromSlash(item.SpecPath))
+		loadedCell, loadCellErr := loadRunInputs(RunOptions{SpecPath: specPath})
+		if loadCellErr != nil {
+			stopErr := stopAndPersistPrivateActivationState(statePath, plan, &state, activationLifecycle, PrivateActivationStopCellContract)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("study_contract"), stopErr)
+		}
+		if activationLifecycle != nil {
+			cell, reserveErr := activationLifecycle.ReserveNextCell()
+			if reserveErr != nil || cell.CellID != item.CellID {
+				stopErr := stopAndPersistPrivateActivationState(statePath, plan, &state, activationLifecycle, PrivateActivationStopReservation)
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("study_lifecycle"), reserveErr, stopErr)
+			}
+			if err := persistPrivateActivationPlanState(statePath, plan, &state, activationLifecycle, ""); err != nil {
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("state")
+			}
+			if err := activationLifecycle.MarkLaunched(item.CellID); err != nil {
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("study_lifecycle")
+			}
+			if err := persistPrivateActivationPlanState(statePath, plan, &state, activationLifecycle, ""); err != nil {
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("state")
+			}
+		}
 		itemExternalProfile := ""
 		if item.Surface == SurfaceExternalMCP {
 			itemExternalProfile = snapshot.externalProfile
 		}
-		output, runErr := RunHeadless(ctx, RunOptions{SpecPath: specPath, OutputRoot: filepath.Join(runRoot, "raw"), RepositoryRoot: options.RepositoryRoot,
+		var providerAttemptCommitted func() error
+		if activationLifecycle != nil {
+			providerAttemptCommitted = func() error {
+				candidate := *activationLifecycle
+				candidate.Events = append([]PrivateActivationStudyEvent(nil), activationLifecycle.Events...)
+				if err := candidate.MarkProviderAttemptCommitted(item.CellID); err != nil {
+					return err
+				}
+				if err := persistPrivateActivationPlanState(statePath, plan, &state, &candidate, ""); err != nil {
+					return err
+				}
+				*activationLifecycle = candidate
+				return nil
+			}
+		}
+		output, runErr := privatePlanRunHeadless(ctx, RunOptions{SpecPath: specPath, OutputRoot: filepath.Join(runRoot, "raw"), RepositoryRoot: options.RepositoryRoot,
 			AgentBinary: snapshot.agentBinary, ATLBinary: snapshot.atlBinary, PluginRoot: snapshot.pluginRoot, WrapperExecutable: snapshot.wrapperExecutable,
-			LiveConfigDir: snapshot.liveConfig, ExternalMCPProfile: itemExternalProfile, ScratchRoot: filepath.Join(root, ".ephemeral"), PrivateWorkspaceRoot: root,
-			qualifiedAgentVersion: snapshot.agentIdentity, providerAuthSession: providerAuthSession})
+			LiveConfigDir: snapshot.liveConfig, ExternalMCPProfile: itemExternalProfile, ScratchRoot: snapshot.providerScratch, PrivateWorkspaceRoot: root,
+			qualifiedAgentVersion: snapshot.agentIdentity, providerAuthSession: providerAuthSession, providerAttemptCommitted: providerAttemptCommitted})
 		if modeErr := normalizePrivateCandidateTree(root, runRoot); modeErr != nil {
-			return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), len(state.CompletedSurfaces), total), privatePlanError("run_modes")
+			reason := privateActivationPostRunUnknownReason(activationLifecycle, PrivateActivationUnknownContainment)
+			stateErr := markAndPersistPrivateActivationUnknown(statePath, plan, &state, activationLifecycle, item.CellID, reason)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("run_modes"), stateErr)
 		}
 		if runErr != nil {
-			return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), len(state.CompletedSurfaces), total), privatePlanError("execution")
+			reason := privateActivationPostRunUnknownReason(activationLifecycle, PrivateActivationUnknownProvider)
+			stateErr := markAndPersistPrivateActivationUnknown(statePath, plan, &state, activationLifecycle, item.CellID, reason)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("execution"), runErr, stateErr)
 		}
 		total += output.EstimatedCostMicroUSDTotal
-		state.CompletedSurfaces = append(state.CompletedSurfaces, item.Surface)
-		if err := writePrivatePlanState(statePath, state); err != nil {
-			return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), len(state.CompletedSurfaces), total), privatePlanError("state")
+		if activationLifecycle != nil {
+			receiptSHA256, receiptWriteErr := persistPrivateActivationExecutionReceipt(root, runRoot, plan, item, output)
+			if receiptWriteErr != nil {
+				stateErr := markAndPersistPrivateActivationUnknown(statePath, plan, &state, activationLifecycle, item.CellID, PrivateActivationUnknownPersistence)
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("study_receipt"), receiptWriteErr, stateErr)
+			}
+			costKnown := len(output.Results) > 0
+			for _, result := range output.Results {
+				costKnown = costKnown && result.Coverage["estimated_cost_microusd"]
+			}
+			detectedCost := output.EstimatedCostMicroUSDTotal
+			if !costKnown {
+				detectedCost = 0
+			}
+			receiptErr := activationLifecycle.RecordReceipt(item.CellID, PrivateActivationReceipt{SHA256: receiptSHA256,
+				CostKnown: costKnown, DetectedCostMicroUSD: detectedCost,
+				ProviderCompleted: true, PersistenceComplete: true, ContainmentCertain: true})
+			if receiptErr != nil {
+				stateErr := markAndPersistPrivateActivationUnknown(statePath, plan, &state, activationLifecycle, item.CellID, PrivateActivationUnknownPersistence)
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("study_receipt"), receiptErr, stateErr)
+			}
+			// Persist the provider receipt before making any decision that can
+			// advance or terminate the roster.
+			if err := persistPrivateActivationPlanState(statePath, plan, &state, activationLifecycle, ""); err != nil {
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("state"), err)
+			}
+			if activationLifecycle.Status() == PrivateActivationStudyStopped {
+				return privatePlanSummary(plan.PlanID, runID, "stopped", []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("study_stopped")
+			}
+			if output.BudgetExhausted {
+				stateErr := markAndPersistPrivateActivationUnknown(statePath, plan, &state, activationLifecycle, item.CellID, PrivateActivationUnknownCostExceeded)
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("study_stopped"), stateErr)
+			}
+			classification := classifyPrivateActivationResults(output.Results, loadedCell.spec.Checks)
+			if classification.Outcome == privateActivationSafetyRejected {
+				stateErr := markAndPersistPrivateActivationUnknown(statePath, plan, &state, activationLifecycle, item.CellID, PrivateActivationUnknownContainment)
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("study_safety"), stateErr)
+			}
+			lastCell := itemIndex == len(plan.Items)-1
+			if lastCell && providerAuthSession != nil {
+				if err := providerAuthSession.Close(); err != nil {
+					stateErr := markAndPersistPrivateActivationUnknown(statePath, plan, &state, activationLifecycle, item.CellID, PrivateActivationUnknownProvider)
+					return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(err, stateErr)
+				}
+				providerAuthSessionClosed = true
+			}
+			if lastCell {
+				if err := privatePlanRemoveTree(root, snapshot.root); err != nil {
+					// Keep the receipt-phase state recoverable and leave the
+					// deferred retry armed. A terminal state here would strand a
+					// credential-bearing execution snapshot outside the recovery
+					// command's accepted state set.
+					return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("snapshot_cleanup"), err)
+				}
+				snapshotCleanupPending = false
+			}
+			if err := activationLifecycle.MarkDefinitive(item.CellID, classification.Outcome); err != nil {
+				stateErr := markAndPersistPrivateActivationUnknown(statePath, plan, &state, activationLifecycle, item.CellID, PrivateActivationUnknownPersistence)
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("study_lifecycle"), err, stateErr)
+			}
+			completedAt := ""
+			if lastCell {
+				completedAt = privatePlanCompletionTime(now, fixedNow).Format(time.RFC3339Nano)
+			}
+			if err := persistPrivateActivationPlanState(statePath, plan, &state, activationLifecycle, completedAt); err != nil {
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("state"), err)
+			}
+		} else {
+			state.CompletedSurfaces = append(state.CompletedSurfaces, item.Surface)
+			if err := privatePlanWriteState(statePath, state); err != nil {
+				return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanExecutionSurfaces(plan), len(state.CompletedSurfaces), total), privatePlanError("state")
+			}
 		}
 	}
-	if providerAuthSession != nil {
+	if providerAuthSession != nil && !providerAuthSessionClosed {
 		if err := providerAuthSession.Close(); err != nil {
-			return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanSurfaces(plan.Items), len(state.CompletedSurfaces), total), err
+			stopErr := stopAndPersistPrivateActivationState(statePath, plan, &state, activationLifecycle, PrivateActivationStopProviderSession)
+			status, cost := "interrupted", total
+			if activationLifecycle != nil {
+				status, cost = privateActivationDurableSummaryStatus(state), state.EstimatedCostMicroUSD
+			}
+			return privatePlanSummary(plan.PlanID, runID, status, privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), cost), errors.Join(err, stopErr)
 		}
 		providerAuthSessionClosed = true
 	}
-	state.Status = "completed"
-	completedAt := time.Now().UTC()
-	if fixedNow {
-		completedAt = now
+	if activationLifecycle != nil {
+		return privatePlanSummary(plan.PlanID, runID, "completed", []string{SurfaceCLISkill}, len(plan.Items), total), nil
 	}
-	state.CompletedAt = completedAt.Format(time.RFC3339Nano)
-	if err := writePrivatePlanState(statePath, state); err != nil {
+	if err := privatePlanRemoveTree(root, snapshot.root); err != nil {
+		snapshotCleanupPending = false
+		return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanExecutionSurfaces(plan), len(state.CompletedSurfaces), total), errors.Join(privatePlanError("snapshot_cleanup"), err)
+	}
+	snapshotCleanupPending = false
+	state.Status = "completed"
+	state.CompletedAt = privatePlanCompletionTime(now, fixedNow).Format(time.RFC3339Nano)
+	if err := privatePlanWriteState(statePath, state); err != nil {
 		return PrivatePlanExecutionSummary{}, privatePlanError("state")
 	}
-	return privatePlanSummary(plan.PlanID, runID, "completed", privatePlanSurfaces(plan.Items), len(plan.Items), total), nil
+	return privatePlanSummary(plan.PlanID, runID, "completed", privatePlanExecutionSurfaces(plan), len(plan.Items), total), nil
 }
 
 type privatePlanMaterial struct {
-	contract, inputs []string
-	agent            privateAgentBinaryContract
-	qualitativePanel *privateQualitativeReviewPanelContract
+	contract, inputs, series []string
+	agent                    privateAgentBinaryContract
+	qualitativePanel         *privateQualitativeReviewPanelContract
 }
 
 func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorkspaceRoot string, runSet PrivateWorkspaceRunSet,
@@ -380,14 +646,19 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 			return nil, material, "", "", 0, false, privatePlanError("case_digest")
 		}
 		material.contract = append(material.contract, rel, caseDigest, spec.EffectiveSurface(), spec.Provider, spec.Model)
+		material.series = append(material.series, "case:"+caseDigest)
 		// Bind the complete prompt envelope without retaining prompt contents or a
 		// separately visible prompt digest in the plan-level public preview.
 		if loaded.promptContractSHA256 != "" {
 			material.inputs = append(material.inputs, "prompt-contract:"+loaded.promptContractSHA256)
 		}
-		items = append(items, privatePlanItem{SpecPath: rel, ScenarioID: scenario.ID, Provider: spec.Provider, Variant: spec.Variant,
+		cellID := ""
+		if runSet.EffectiveKind() == PrivateRunSetKindActivationStudy {
+			cellID = spec.SkillActivationIdentity()
+		}
+		items = append(items, privatePlanItem{CellID: cellID, SpecPath: rel, ScenarioID: scenario.ID, Provider: spec.Provider, Variant: spec.Variant,
 			Surface: spec.EffectiveSurface(), SkillActivation: spec.SkillActivationIdentity(), PromptContractSHA256: loaded.promptContractSHA256,
-			RubricSHA256: rubricSHA256(loaded.rubric)})
+			RubricSHA256: rubricSHA256(loaded.rubric), MaxEstimatedCostMicroUSD: spec.MaxEstimatedCostMicroUSD})
 		if provider == "" {
 			provider, model = spec.Provider, spec.Model
 		}
@@ -406,7 +677,11 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 			material.inputs = append(material.inputs, "external:"+d)
 		}
 	}
-	if len(paths) > 1 {
+	if runSet.EffectiveKind() == PrivateRunSetKindActivationStudy {
+		if _, err := ValidatePrivateActivationStudy(paths...); err != nil {
+			return nil, material, "", "", 0, false, privatePlanError("activation_study")
+		}
+	} else if len(paths) > 1 {
 		if _, err := ValidatePrivateRunComparisonSet(paths...); err != nil {
 			return nil, material, "", "", 0, false, privatePlanError("comparison")
 		}
@@ -418,8 +693,10 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 	material.qualitativePanel = panel
 	if panel != nil {
 		material.contract = append(material.contract, "qualitative-panel:"+sha256HexBytes(panelJSON))
+		material.series = append(material.series, "qualitative-panel:"+sha256HexBytes(panelJSON))
 		if len(assignment) != 0 {
 			material.contract = append(material.contract, "blind-assignment:"+sha256HexBytes(assignment))
+			material.series = append(material.series, "blind-assignment:"+sha256HexBytes(assignment))
 		}
 	}
 	for _, executable := range []struct{ name, path string }{
@@ -544,12 +821,7 @@ func loadPrivatePlanWorkspace(root, repository, alias string) (string, PrivateWo
 	return abs, m, s, err
 }
 func loadPrivateManifestRunSet(root, alias string) (PrivateWorkspaceManifest, PrivateWorkspaceRunSet, error) {
-	f, err := os.Open(filepath.Join(root, PrivateWorkspaceManifestName))
-	if err != nil {
-		return PrivateWorkspaceManifest{}, PrivateWorkspaceRunSet{}, privatePlanError("manifest")
-	}
-	defer f.Close()
-	m, err := DecodePrivateWorkspaceManifest(f)
+	m, _, err := loadPrivateWorkspaceManifest(root)
 	if err != nil {
 		return m, PrivateWorkspaceRunSet{}, privatePlanError("manifest")
 	}
@@ -617,6 +889,73 @@ func privatePlanSurfaces(items []privatePlanItem) []string {
 	}
 	return out
 }
+
+func privatePlanExecutionSurfaces(plan privatePlan) []string {
+	if plan.Kind == PrivateRunSetKindActivationStudy {
+		return []string{SurfaceCLISkill}
+	}
+	return privatePlanSurfaces(plan.Items)
+}
+
+func privatePlanCompletedCount(state privatePlanState) int {
+	if state.SchemaVersion == 2 {
+		return len(state.CompletedCells)
+	}
+	return len(state.CompletedSurfaces)
+}
+
+func privateActivationDurableSummaryStatus(state privatePlanState) string {
+	if state.Status != "" {
+		return state.Status
+	}
+	return "interrupted"
+}
+
+// privateActivationDetectedCostKnown reports whether the durable detected total
+// is complete. A provider commitment makes it unknown until a receipt proves
+// both completion and cost coverage. Pre-provider interruption is known zero.
+func privateActivationDetectedCostKnown(events []PrivateActivationLifecycleEvent) bool {
+	known := true
+	for _, event := range events {
+		switch event.Type {
+		case PrivateActivationEventProviderCommitted:
+			known = false
+		case PrivateActivationEventReceipt:
+			known = event.ProviderCompleted && event.CostKnown
+		}
+	}
+	return known
+}
+
+func privatePlanCompletionTime(now time.Time, fixed bool) time.Time {
+	if fixed {
+		return now
+	}
+	return time.Now().UTC()
+}
+
+func privatePlanTreatments(items []privatePlanItem) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, item.SkillActivation)
+	}
+	return out
+}
+
+func privatePlanCellIDs(items []privatePlanItem) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, item.CellID)
+	}
+	return out
+}
+
+func privatePlanItemContractKey(plan privatePlan, item privatePlanItem) string {
+	if plan.Kind == PrivateRunSetKindActivationStudy {
+		return item.CellID
+	}
+	return item.Surface
+}
 func rotatePrivatePlanItems(items []privatePlanItem, n int) []privatePlanItem {
 	out := append([]privatePlanItem(nil), items...)
 	if len(out) > 1 {
@@ -653,12 +992,92 @@ func completedPrivatePlanCount(root, runSetAlias string) (int, error) {
 	}
 	return n, nil
 }
+
+// privateActivationStudyAttemptCount is scoped to the reviewed material rather
+// than a mutable manifest alias. An expired plan that never executed does not
+// advance the order, so repeatedly allocating or renaming plans cannot select a
+// preferred order. Any live pending plan still serializes the series.
+func privateActivationStudyAttemptCount(root, seriesSHA256 string, now time.Time) (attempts int, active bool, err error) {
+	entries, readErr := os.ReadDir(filepath.Join(root, "plans"))
+	if readErr != nil {
+		return 0, false, privatePlanError("plans")
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || strings.HasSuffix(entry.Name(), ".state.json") || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		planID := strings.TrimSuffix(entry.Name(), ".json")
+		plan, planData, loadErr := loadPrivatePlan(root, planID)
+		if loadErr != nil {
+			return 0, false, privatePlanError("study_state")
+		}
+		if plan.Kind != PrivateRunSetKindActivationStudy || plan.StudySeriesSHA256 != seriesSHA256 {
+			continue
+		}
+		statePath := filepath.Join(root, "plans", planID+".state.json")
+		if _, statErr := os.Lstat(statePath); os.IsNotExist(statErr) {
+			expires, expiryErr := time.Parse(time.RFC3339, plan.Consent.ExpiresAt)
+			if expiryErr != nil {
+				return 0, false, privatePlanError("study_state")
+			}
+			if expires.After(now) {
+				active = true
+			}
+			continue
+		} else if statErr != nil {
+			return 0, false, privatePlanError("study_state")
+		}
+		data, stateErr := readPrivatePlanLifecycleFile(root, statePath, 1<<20)
+		if stateErr != nil {
+			return 0, false, privatePlanError("study_state")
+		}
+		var state privatePlanState
+		if decodePrivateLifecycleJSON(data, &state) != nil || validatePrivatePlanState(state) != nil ||
+			state.PlanSHA256 != sha256HexBytes(planData) || validatePrivateActivationPlanState(plan, state) != nil {
+			return 0, false, privatePlanError("study_state")
+		}
+		if state.Status == "running" || state.Status == "interrupted" {
+			active = true
+		} else if privateActivationAttemptStarted(state.Events) {
+			attempts++
+		}
+	}
+	return attempts, active, nil
+}
+
+func privateActivationStudySeriesDigest(contract PrivateActivationStudyContract, material privatePlanMaterial) string {
+	contractParts := append([]string(nil), material.series...)
+	inputParts := append([]string(nil), material.inputs...)
+	sort.Strings(contractParts)
+	sort.Strings(inputParts)
+	return sha256HexBytes([]byte(contract.CommonContractSHA256 + "\x00" + strings.Join(contractParts, "\x00") + "\x00" + strings.Join(inputParts, "\x00")))
+}
+
+func privateActivationAttemptStarted(events []PrivateActivationLifecycleEvent) bool {
+	for _, event := range events {
+		if event.Type == PrivateActivationEventProviderCommitted || event.Type == PrivateActivationEventReceipt {
+			return true
+		}
+	}
+	return false
+}
+
+func privateActivationPostRunUnknownReason(lifecycle *PrivateActivationStudyLifecycle, committedReason string) string {
+	if lifecycle == nil {
+		return committedReason
+	}
+	projection, err := lifecycle.project()
+	if err == nil && (projection.activePhase == PrivateActivationEventProviderCommitted || projection.activePhase == PrivateActivationEventReceipt) {
+		return committedReason
+	}
+	return PrivateActivationUnknownInterrupted
+}
 func samePrivatePlanItemsUnordered(a, b []privatePlanItem) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	key := func(x privatePlanItem) string {
-		return x.SpecPath + "\x00" + x.ScenarioID + "\x00" + x.Provider + "\x00" + x.Variant + "\x00" + x.Surface + "\x00" + x.SkillActivation + "\x00" + x.PromptContractSHA256 + "\x00" + x.RubricSHA256
+		return x.SpecPath + "\x00" + x.ScenarioID + "\x00" + x.Provider + "\x00" + x.Variant + "\x00" + x.Surface + "\x00" + x.SkillActivation + "\x00" + x.PromptContractSHA256 + "\x00" + x.RubricSHA256 + fmt.Sprintf("\x00%d", x.MaxEstimatedCostMicroUSD)
 	}
 	aa := make([]string, len(a))
 	bb := make([]string, len(b))
@@ -674,7 +1093,11 @@ func samePrivatePlanItemsUnordered(a, b []privatePlanItem) bool {
 }
 
 func privatePlanMaterialMatches(plan privatePlan, items []privatePlanItem, material privatePlanMaterial) bool {
-	return privateQualitativePanelContractsEqual(plan.QualitativeReviewPanel, material.qualitativePanel) &&
+	seriesMatches := true
+	if plan.Kind == PrivateRunSetKindActivationStudy {
+		seriesMatches = plan.ActivationContract != nil && privateActivationStudySeriesDigest(*plan.ActivationContract, material) == plan.StudySeriesSHA256
+	}
+	return seriesMatches && privateQualitativePanelContractsEqual(plan.QualitativeReviewPanel, material.qualitativePanel) &&
 		sha256HexBytes([]byte(strings.Join(material.contract, "\x00"))) == plan.ContractSHA256 &&
 		sha256HexBytes([]byte(strings.Join(material.inputs, "\x00"))) == plan.InputsSHA256 &&
 		samePrivatePlanItemsUnordered(items, plan.Items)
@@ -688,6 +1111,118 @@ func privateQualitativePanelContractsEqual(left, right *privateQualitativeReview
 	rightData, rightErr := encodePrivateQualitativeReviewPanelContract(*right)
 	return leftErr == nil && rightErr == nil && bytes.Equal(leftData, rightData)
 }
+
+func markAndPersistPrivateActivationUnknown(statePath string, plan privatePlan, state *privatePlanState,
+	lifecycle *PrivateActivationStudyLifecycle, cellID, reason string,
+) error {
+	if lifecycle == nil {
+		return nil
+	}
+	if err := lifecycle.MarkUnknown(cellID, reason); err != nil {
+		return err
+	}
+	return persistPrivateActivationPlanState(statePath, plan, state, lifecycle, "")
+}
+
+func stopAndPersistPrivateActivationState(statePath string, plan privatePlan, state *privatePlanState,
+	lifecycle *PrivateActivationStudyLifecycle, reason string,
+) error {
+	if lifecycle == nil {
+		return nil
+	}
+	projection, err := lifecycle.project()
+	if err != nil {
+		return err
+	}
+	if projection.activePhase != "" {
+		unknownReason := PrivateActivationUnknownInterrupted
+		if reason == PrivateActivationStopCellContract || reason == PrivateActivationStopSnapshotCleanup {
+			unknownReason = PrivateActivationUnknownContainment
+		}
+		if err := lifecycle.MarkUnknown(projection.activeCell, unknownReason); err != nil {
+			return err
+		}
+	} else if err := lifecycle.Stop(reason); err != nil {
+		return err
+	}
+	return persistPrivateActivationPlanState(statePath, plan, state, lifecycle, "")
+}
+
+func persistPrivateActivationPlanState(statePath string, plan privatePlan, state *privatePlanState,
+	lifecycle *PrivateActivationStudyLifecycle, completedAt string,
+) error {
+	projection, err := lifecycle.project()
+	if err != nil {
+		return err
+	}
+	candidate := *state
+	candidate.Events = append([]PrivateActivationLifecycleEvent(nil), lifecycle.Events...)
+	candidate.CompletedCells = append([]string(nil), projection.completedCells...)
+	candidate.EstimatedCostMicroUSD = projection.detectedCostMicroUSD
+	candidate.StopReason = projection.stopReason
+	candidate.CompletedAt = ""
+	switch projection.status {
+	case PrivateActivationStudyPending, PrivateActivationStudyRunning:
+		candidate.Status = "running"
+	case PrivateActivationStudyStopped:
+		candidate.Status = "stopped"
+	case PrivateActivationStudyCompleted:
+		if completedAt == "" {
+			return privatePlanError("completed_at")
+		}
+		candidate.Status = "completed"
+		candidate.CompletedAt = completedAt
+	default:
+		return privatePlanError("study_state")
+	}
+	if validatePrivatePlanState(candidate) != nil || validatePrivateActivationPlanState(plan, candidate) != nil {
+		return privatePlanError("study_state")
+	}
+	if err := privatePlanWriteState(statePath, candidate); err != nil {
+		return err
+	}
+	*state = candidate
+	return nil
+}
+
+func validatePrivateActivationPlanState(plan privatePlan, state privatePlanState) error {
+	if plan.Kind != PrivateRunSetKindActivationStudy || plan.StudyContract == nil || state.SchemaVersion != 2 {
+		return privatePlanError("study_state")
+	}
+	lifecycle, err := NewPrivateActivationStudyLifecycle(*plan.StudyContract)
+	if err != nil {
+		return privatePlanError("study_state")
+	}
+	lifecycle.Events = append([]PrivateActivationStudyEvent(nil), state.Events...)
+	projection, err := lifecycle.project()
+	if err != nil || !equalStrings(state.CompletedCells, projection.completedCells) ||
+		state.EstimatedCostMicroUSD != projection.detectedCostMicroUSD || state.StopReason != projection.stopReason {
+		return privatePlanError("study_state")
+	}
+	switch state.Status {
+	case "interrupted":
+		if projection.status != PrivateActivationStudyPending || len(state.Events) != 0 || len(state.CompletedCells) != 0 ||
+			state.EstimatedCostMicroUSD != 0 || state.StopReason != "" || state.CompletedAt != "" {
+			return privatePlanError("study_state")
+		}
+	case "running":
+		if projection.status != PrivateActivationStudyPending && projection.status != PrivateActivationStudyRunning || state.CompletedAt != "" {
+			return privatePlanError("study_state")
+		}
+	case "stopped":
+		if projection.status != PrivateActivationStudyStopped || state.CompletedAt != "" {
+			return privatePlanError("study_state")
+		}
+	case "completed":
+		if projection.status != PrivateActivationStudyCompleted || !equalStrings(state.CompletedCells, privatePlanCellIDs(plan.Items)) || state.CompletedAt == "" {
+			return privatePlanError("study_state")
+		}
+	default:
+		return privatePlanError("study_state")
+	}
+	return nil
+}
+
 func privatePlanError(code string) error { return fmt.Errorf("%w: %s", ErrPrivatePlanRejected, code) }
 
 func LoadCompletedPrivateRun(root, repository, planID string) (PrivateBaselineSource, error) {
@@ -705,24 +1240,43 @@ func LoadCompletedPrivateRun(root, repository, planID string) (PrivateBaselineSo
 	}
 	var s privatePlanState
 	if decodePrivateLifecycleJSON(stateData, &s) != nil || validatePrivatePlanState(s) != nil || s.Status != "completed" ||
-		s.PlanSHA256 != sha256HexBytes(data) || !equalStrings(s.CompletedSurfaces, privatePlanSurfaces(p.Items)) {
+		s.PlanSHA256 != sha256HexBytes(data) {
+		return PrivateBaselineSource{}, privatePlanError("state")
+	}
+	if p.Kind == PrivateRunSetKindActivationStudy {
+		if validatePrivateActivationPlanState(p, s) != nil {
+			return PrivateBaselineSource{}, privatePlanError("state")
+		}
+	} else if !equalStrings(s.CompletedSurfaces, privatePlanSurfaces(p.Items)) {
 		return PrivateBaselineSource{}, privatePlanError("state")
 	}
 	if pruned, pruneErr := inspectPrivatePrunedRun(abs, s.RunID, p.PlanID); pruneErr != nil || pruned {
 		return PrivateBaselineSource{}, privatePlanError("run_pruned")
 	}
-	source := PrivateBaselineSource{PlanID: p.PlanID, PlanPath: filepath.Join(abs, "plans", p.PlanID+".json"), PlanSHA256: s.PlanSHA256, ContractSHA256: p.ContractSHA256, RunID: s.RunID, RunRoot: filepath.Join(abs, "runs", s.RunID), Completed: true, Immutable: true}
+	source := PrivateBaselineSource{Kind: p.Kind, PlanID: p.PlanID, PlanPath: filepath.Join(abs, "plans", p.PlanID+".json"), PlanSHA256: s.PlanSHA256, ContractSHA256: p.ContractSHA256, RunID: s.RunID, RunRoot: filepath.Join(abs, "runs", s.RunID), Completed: true, Immutable: true}
 	for _, i := range p.Items {
+		contractKey := privatePlanItemContractKey(p, i)
 		surface := PrivateBaselineSurfaceSource{
-			Surface: i.Surface, RunDirectory: filepath.Join(source.RunRoot, "raw", i.ScenarioID, i.Provider, i.Variant, "run-01"),
-			RubricPath: filepath.Join(source.RunRoot, "contracts", i.Surface, "rubric.json"), RubricSHA256: i.RubricSHA256,
+			Surface: i.Surface, CellID: i.CellID, SkillActivation: i.SkillActivation,
+			RunDirectory: filepath.Join(source.RunRoot, "raw", i.ScenarioID, i.Provider, i.Variant, "run-01"),
+			RubricPath:   filepath.Join(source.RunRoot, "contracts", contractKey, "rubric.json"), RubricSHA256: i.RubricSHA256,
 			QualitativeRequired: p.QualitativeRequired,
 		}
+		if p.Kind == PrivateRunSetKindActivationStudy {
+			receipt, ok := privateActivationReceiptEvent(s.Events, i.CellID)
+			if !ok || !receipt.CostKnown || !receipt.ProviderCompleted || !receipt.PersistenceComplete || !receipt.ContainmentCertain ||
+				!validSHA256(receipt.ReceiptSHA256) {
+				return PrivateBaselineSource{}, privatePlanError("execution_receipt")
+			}
+			surface.ExecutionReceiptPath = filepath.Join(source.RunRoot, "contracts", contractKey, "execution-receipt.json")
+			surface.ExecutionReceiptSHA256 = receipt.ReceiptSHA256
+			surface.ExecutionCostMicroUSD = receipt.DetectedCostMicroUSD
+		}
 		if p.QualitativeReviewPanel != nil {
-			contractPath := filepath.Join(source.RunRoot, "contracts", i.Surface, "qualitative-panel.json")
+			contractPath := filepath.Join(source.RunRoot, "contracts", contractKey, "qualitative-panel.json")
 			assignmentPath := ""
 			if p.QualitativeReviewPanel.BlindAssignmentSHA256 != "" {
-				assignmentPath = filepath.Join(source.RunRoot, "contracts", i.Surface, "blind-assignment")
+				assignmentPath = filepath.Join(source.RunRoot, "contracts", contractKey, "blind-assignment")
 			}
 			contractDigest, assignmentDigest, err := validatePersistedPrivatePanelMaterials(abs, contractPath, assignmentPath, *p.QualitativeReviewPanel)
 			if err != nil {
@@ -794,8 +1348,17 @@ func inspectPrivatePlanRunReferencesAtRoot(abs string) ([]PrivatePlanRunReferenc
 		if err != nil || s.PlanSHA256 != sha256HexBytes(planData) {
 			return nil, privatePlanError("state_plan")
 		}
-		if s.Status == "completed" && !equalStrings(s.CompletedSurfaces, privatePlanSurfaces(plan.Items)) {
-			return nil, privatePlanError("state_surfaces")
+		if plan.Kind == PrivateRunSetKindActivationStudy && validatePrivateActivationPlanState(plan, s) != nil {
+			return nil, privatePlanError("study_state")
+		}
+		if s.Status == "completed" {
+			if plan.Kind == PrivateRunSetKindActivationStudy {
+				if !equalStrings(s.CompletedCells, privatePlanCellIDs(plan.Items)) {
+					return nil, privatePlanError("state_cells")
+				}
+			} else if !equalStrings(s.CompletedSurfaces, privatePlanSurfaces(plan.Items)) {
+				return nil, privatePlanError("state_surfaces")
+			}
 		}
 		var state string
 		completedOrder := int64(0)
@@ -803,6 +1366,8 @@ func inspectPrivatePlanRunReferencesAtRoot(abs string) ([]PrivatePlanRunReferenc
 		case "running":
 			state = "active"
 		case "interrupted":
+			state = "incomplete"
+		case "stopped":
 			state = "incomplete"
 		case "completed":
 			pruned, pruneErr := inspectPrivatePrunedRun(abs, s.RunID, planID)
@@ -828,7 +1393,14 @@ func inspectPrivatePlanRunReferencesAtRoot(abs string) ([]PrivatePlanRunReferenc
 		default:
 			return nil, privatePlanError("state_status")
 		}
-		out = append(out, PrivatePlanRunReference{RunID: s.RunID, RunSetAlias: plan.RunSetAlias, PlanID: planID, State: state, CompletedOrder: completedOrder})
+		if plan.Kind == PrivateRunSetKindActivationStudy && state != "pruned" {
+			if err := validatePrivateActivationStateEvidence(abs, plan, s); err != nil {
+				return nil, privatePlanError("study_evidence")
+			}
+		}
+		runRequired := s.Status != "interrupted" || len(s.Events) != 0 || len(s.CompletedSurfaces) != 0 || len(s.CompletedCells) != 0
+		out = append(out, PrivatePlanRunReference{RunID: s.RunID, RunSetAlias: plan.RunSetAlias, PlanID: planID,
+			State: state, RunRequired: runRequired, CompletedOrder: completedOrder})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].RunID < out[j].RunID })
 	return out, nil
@@ -884,9 +1456,9 @@ func inspectPrivatePlanLifecycleAtRoot(root string) (privatePlanLifecycle, error
 		return privatePlanLifecycle{}, err
 	}
 	lifecycle := privatePlanLifecycle{pendingPlans: len(plans) - len(states)}
-	referencedRuns := make(map[string]struct{}, len(references))
+	referencedRuns := make(map[string]PrivatePlanRunReference, len(references))
 	for _, reference := range references {
-		referencedRuns[reference.RunID] = struct{}{}
+		referencedRuns[reference.RunID] = reference
 		switch reference.State {
 		case "active":
 			lifecycle.activeRuns++
@@ -911,8 +1483,10 @@ func inspectPrivatePlanLifecycleAtRoot(root string) (privatePlanLifecycle, error
 		}
 		delete(referencedRuns, entry.Name())
 	}
-	if len(referencedRuns) != 0 {
-		return privatePlanLifecycle{}, privatePlanError("missing_run")
+	for _, reference := range referencedRuns {
+		if reference.RunRequired {
+			return privatePlanLifecycle{}, privatePlanError("missing_run")
+		}
 	}
 	return lifecycle, nil
 }
@@ -1003,33 +1577,84 @@ func normalizePrivateCandidateTree(root, runRoot string) error {
 func validatePrivatePlan(plan privatePlan, expectedID string) error {
 	created, createdErr := time.Parse(time.RFC3339Nano, plan.CreatedAt)
 	expires, expiryErr := time.Parse(time.RFC3339, plan.Consent.ExpiresAt)
-	if (plan.SchemaVersion != PrivatePlanSchemaVersion && plan.SchemaVersion != LegacyPromptBoundPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyPrivatePlanSchemaVersion) || plan.PlanID != expectedID || !privatePlanIDRE.MatchString(plan.PlanID) ||
+	if (plan.SchemaVersion != PrivatePlanSchemaVersion && plan.SchemaVersion != LegacyCompleteActivationPrivatePlanSchemaVersion &&
+		plan.SchemaVersion != LegacyPromptBoundPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyPrivatePlanSchemaVersion) || plan.PlanID != expectedID || !privatePlanIDRE.MatchString(plan.PlanID) ||
 		!privateWorkspaceAliasRE.MatchString(plan.RunSetAlias) || !validSHA256(plan.ContractSHA256) || !validSHA256(plan.InputsSHA256) ||
 		createdErr != nil || expiryErr != nil || !expires.After(created) || expires.After(created.Add(7*24*time.Hour)) ||
 		!plan.Consent.ProviderDataApproved || !privateGitCommitRE.MatchString(plan.RepositoryCommit) ||
 		(plan.Provider != "codex" && plan.Provider != "claude-code") || strings.TrimSpace(plan.Model) == "" || len(plan.Model) > 256 ||
-		plan.MaxEstimatedCostMicroUSD < 1 || plan.MaxEstimatedCostMicroUSD > 3*maxRunCostMicroUSD || len(plan.Items) < 1 || len(plan.Items) > 3 {
+		plan.MaxEstimatedCostMicroUSD < 1 || plan.MaxEstimatedCostMicroUSD > 100_000_000 || len(plan.Items) < 1 || len(plan.Items) > 4 {
 		return privatePlanError("plan")
+	}
+	if plan.SchemaVersion != PrivatePlanSchemaVersion {
+		if plan.Kind != "" || plan.ReviewerReserveMicroUSD != 0 || plan.CostAssurance != "" || plan.StudySeriesSHA256 != "" || plan.StudyContract != nil || plan.ActivationContract != nil || len(plan.Items) > 3 {
+			return privatePlanError("plan")
+		}
+	} else if plan.Kind != PrivateRunSetKindComparison && plan.Kind != PrivateRunSetKindActivationStudy {
+		return privatePlanError("plan_kind")
 	}
 	if plan.QualitativeReviewPanel != nil {
 		if !plan.QualitativeRequired || validatePrivateQualitativeReviewPanelContract(*plan.QualitativeReviewPanel) != nil {
 			return privatePlanError("qualitative_panel")
 		}
 	}
+	study := plan.SchemaVersion == PrivatePlanSchemaVersion && plan.Kind == PrivateRunSetKindActivationStudy
+	if study {
+		if len(plan.Items) != 4 || plan.Provider != "codex" || !plan.QualitativeRequired || plan.QualitativeReviewPanel == nil ||
+			plan.CostAssurance != PrivateActivationCostAssuranceDetectionOnly || !validSHA256(plan.StudySeriesSHA256) || plan.StudyContract == nil || plan.ActivationContract == nil ||
+			plan.StudyContract.Validate() != nil || plan.ActivationContract.Validate() != nil || plan.StudyContract.StudyID != plan.PlanID ||
+			plan.StudyContract.Cost.TotalAuthorizedMicroUSD != plan.MaxEstimatedCostMicroUSD ||
+			plan.StudyContract.Cost.ReviewerReserveMicroUSD != plan.ReviewerReserveMicroUSD ||
+			plan.ActivationContract.CommonContractSHA256 == "" {
+			return privatePlanError("study_contract")
+		}
+	} else if plan.SchemaVersion == PrivatePlanSchemaVersion &&
+		(plan.ReviewerReserveMicroUSD != 0 || plan.CostAssurance != "" || plan.StudySeriesSHA256 != "" || plan.StudyContract != nil || plan.ActivationContract != nil || len(plan.Items) > 3) {
+		return privatePlanError("plan")
+	}
 	seenSurfaces := map[string]struct{}{}
+	seenCells := map[string]struct{}{}
 	for _, item := range plan.Items {
 		if !validPrivateWorkspaceSpecPath(item.SpecPath) || validatePathComponentID("scenario id", item.ScenarioID) != nil ||
 			(item.Provider != "codex" && item.Provider != "claude-code") || item.Provider != plan.Provider ||
 			validatePathComponentID("run variant", item.Variant) != nil || !validRunSurface(item.Surface) || !validSHA256(item.RubricSHA256) ||
-			!validPrivatePlanPromptIdentity(plan.SchemaVersion, item) {
+			!validPrivatePlanPromptIdentity(plan.SchemaVersion, item) ||
+			(plan.SchemaVersion == PrivatePlanSchemaVersion && item.MaxEstimatedCostMicroUSD < 1) {
 			return privatePlanError("item")
 		}
-		if _, exists := seenSurfaces[item.Surface]; exists {
-			return privatePlanError("item")
+		if study {
+			if !identifierRE.MatchString(item.CellID) || item.Surface != SurfaceCLISkill || privateActivationTreatmentIndex(item.SkillActivation) < 0 {
+				return privatePlanError("study_item")
+			}
+			if _, exists := seenCells[item.CellID]; exists {
+				return privatePlanError("study_item")
+			}
+			seenCells[item.CellID] = struct{}{}
+			treatment, ok := plan.ActivationContract.Treatment(item.SkillActivation)
+			if !ok || treatment.Variant != item.Variant {
+				return privatePlanError("study_item")
+			}
+		} else {
+			if item.CellID != "" || (plan.SchemaVersion != PrivatePlanSchemaVersion && item.MaxEstimatedCostMicroUSD != 0) {
+				return privatePlanError("item")
+			}
+			if _, exists := seenSurfaces[item.Surface]; exists {
+				return privatePlanError("item")
+			}
+			seenSurfaces[item.Surface] = struct{}{}
 		}
-		seenSurfaces[item.Surface] = struct{}{}
 		if item.Surface == SurfaceExternalMCP && !plan.Consent.ExternalUpstreamApproved {
 			return privatePlanError("external_consent")
+		}
+	}
+	if study {
+		for index, item := range plan.Items {
+			cell := plan.StudyContract.Cells[index]
+			treatment, _ := plan.ActivationContract.Treatment(item.SkillActivation)
+			if cell.CellID != item.CellID || cell.SkillActivation != item.SkillActivation || cell.ContractSHA256 != treatment.RunSpecSHA256 ||
+				cell.MaxEstimatedCostMicroUSD != item.MaxEstimatedCostMicroUSD {
+				return privatePlanError("study_item")
+			}
 		}
 	}
 	return nil
@@ -1039,7 +1664,7 @@ func validPrivatePlanPromptIdentity(schemaVersion int, item privatePlanItem) boo
 	if schemaVersion == LegacyPrivatePlanSchemaVersion {
 		return item.SkillActivation == "" && item.PromptContractSHA256 == ""
 	}
-	if schemaVersion != LegacyPromptBoundPrivatePlanSchemaVersion && schemaVersion != PrivatePlanSchemaVersion {
+	if schemaVersion != LegacyPromptBoundPrivatePlanSchemaVersion && schemaVersion != LegacyCompleteActivationPrivatePlanSchemaVersion && schemaVersion != PrivatePlanSchemaVersion {
 		return false
 	}
 	activationCell := item.Provider == "codex" && item.Surface == SurfaceCLISkill
@@ -1076,8 +1701,15 @@ func validatePrivateQualitativeReviewPanelContract(panel privateQualitativeRevie
 }
 
 func validatePrivatePlanState(state privatePlanState) error {
-	if state.SchemaVersion != 1 || !validSHA256(state.PlanSHA256) || !privateRunIDRE.MatchString(state.RunID) ||
-		(state.Status != "running" && state.Status != "interrupted" && state.Status != "completed") || len(state.CompletedSurfaces) > 3 {
+	if (state.SchemaVersion != 1 && state.SchemaVersion != 2) || !validSHA256(state.PlanSHA256) || !privateRunIDRE.MatchString(state.RunID) ||
+		(state.Status != "running" && state.Status != "interrupted" && state.Status != "completed" && state.Status != "stopped") ||
+		len(state.CompletedSurfaces) > 3 || len(state.CompletedCells) > 4 || state.EstimatedCostMicroUSD < 0 {
+		return privatePlanError("state")
+	}
+	if state.SchemaVersion == 1 && (len(state.CompletedCells) != 0 || len(state.Events) != 0 || state.StopReason != "" || state.EstimatedCostMicroUSD != 0 || state.Status == "stopped") {
+		return privatePlanError("state")
+	}
+	if state.SchemaVersion == 2 && (len(state.CompletedSurfaces) != 0 || len(state.Events) > 20 || (state.Status == "stopped") != (state.StopReason != "")) {
 		return privatePlanError("state")
 	}
 	seen := map[string]struct{}{}
@@ -1089,6 +1721,16 @@ func validatePrivatePlanState(state privatePlanState) error {
 			return privatePlanError("state")
 		}
 		seen[surface] = struct{}{}
+	}
+	seenCells := map[string]struct{}{}
+	for _, cell := range state.CompletedCells {
+		if !identifierRE.MatchString(cell) {
+			return privatePlanError("state")
+		}
+		if _, exists := seenCells[cell]; exists {
+			return privatePlanError("state")
+		}
+		seenCells[cell] = struct{}{}
 	}
 	if state.CompletedAt != "" {
 		if state.Status != "completed" {

@@ -14,17 +14,20 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
-	PrivateWorkspaceSchemaVersion = 1
-	PrivateWorkspaceManifestName  = "private-workspace.v1.json"
+	PrivateWorkspaceSchemaVersion       = 2
+	LegacyPrivateWorkspaceSchemaVersion = 1
+	PrivateWorkspaceManifestName        = "private-workspace.v2.json"
+	LegacyPrivateWorkspaceManifestName  = "private-workspace.v1.json"
 
 	maxPrivateWorkspaceManifestBytes = 1 << 20
 	maxPrivateWorkspaceRunSets       = 64
-	maxPrivateWorkspaceSpecsPerSet   = 3
+	maxPrivateWorkspaceSpecsPerSet   = 4
 	maxPrivateWorkspaceTreeEntries   = 100_000
 )
 
@@ -62,10 +65,24 @@ type PrivateWorkspaceRetention struct {
 // PrivateWorkspaceRunSet gives an operator a generic local alias for one
 // comparable set. Spec paths are slash-separated and rooted below cases/.
 type PrivateWorkspaceRunSet struct {
+	Kind                      string                         `json:"kind,omitempty"`
 	Alias                     string                         `json:"alias"`
 	SpecPaths                 []string                       `json:"spec_paths"`
 	QualitativeReviewRequired bool                           `json:"qualitative_review_required"`
 	QualitativeReviewPanel    *PrivateQualitativeReviewPanel `json:"qualitative_review_panel,omitempty"`
+	ReviewerReserveMicroUSD   int64                          `json:"reviewer_reserve_microusd,omitempty"`
+}
+
+const (
+	PrivateRunSetKindComparison      = "comparison"
+	PrivateRunSetKindActivationStudy = "activation-study"
+)
+
+func (r PrivateWorkspaceRunSet) EffectiveKind() string {
+	if r.Kind == "" {
+		return PrivateRunSetKindComparison
+	}
+	return r.Kind
 }
 
 const PrivateQualitativeReviewPanelMethod = QualitativePanelMethod
@@ -103,15 +120,16 @@ func (p PrivateQualitativeReviewPanel) validate() error {
 }
 
 type PrivateWorkspaceCounts struct {
-	FixedDirectories int `json:"fixed_directories"`
-	RunSets          int `json:"run_sets"`
-	SpecReferences   int `json:"spec_references"`
-	ValidSpecs       int `json:"valid_specs"`
-	PendingPlans     int `json:"pending_plans"`
-	ActiveRuns       int `json:"active_runs"`
-	IncompleteRuns   int `json:"incomplete_runs"`
-	CompletedRuns    int `json:"completed_runs"`
-	PrunedRuns       int `json:"pruned_runs"`
+	FixedDirectories  int `json:"fixed_directories"`
+	RunSets           int `json:"run_sets"`
+	ActivationStudies int `json:"activation_studies"`
+	SpecReferences    int `json:"spec_references"`
+	ValidSpecs        int `json:"valid_specs"`
+	PendingPlans      int `json:"pending_plans"`
+	ActiveRuns        int `json:"active_runs"`
+	IncompleteRuns    int `json:"incomplete_runs"`
+	CompletedRuns     int `json:"completed_runs"`
+	PrunedRuns        int `json:"pruned_runs"`
 }
 
 type PrivateWorkspaceCheck struct {
@@ -165,7 +183,7 @@ func DefaultPrivateWorkspaceManifest() PrivateWorkspaceManifest {
 }
 
 func (m PrivateWorkspaceManifest) Validate() error {
-	if m.SchemaVersion != PrivateWorkspaceSchemaVersion {
+	if m.SchemaVersion != PrivateWorkspaceSchemaVersion && m.SchemaVersion != LegacyPrivateWorkspaceSchemaVersion {
 		return privateWorkspaceContractError("schema_version")
 	}
 	if !privateWorkspaceEnvRE.MatchString(m.LiveConfigEnv) {
@@ -187,6 +205,13 @@ func (m PrivateWorkspaceManifest) Validate() error {
 	}
 	aliases := make(map[string]struct{}, len(m.RunSets))
 	for _, runSet := range m.RunSets {
+		kind := runSet.EffectiveKind()
+		if kind != PrivateRunSetKindComparison && kind != PrivateRunSetKindActivationStudy {
+			return privateWorkspaceContractError("run_set_kind")
+		}
+		if m.SchemaVersion == LegacyPrivateWorkspaceSchemaVersion && (runSet.Kind != "" || runSet.ReviewerReserveMicroUSD != 0) {
+			return privateWorkspaceContractError("run_set_kind")
+		}
 		if !privateWorkspaceAliasRE.MatchString(runSet.Alias) {
 			return privateWorkspaceContractError("run_set_alias")
 		}
@@ -194,7 +219,12 @@ func (m PrivateWorkspaceManifest) Validate() error {
 			return privateWorkspaceContractError("run_set_alias")
 		}
 		aliases[runSet.Alias] = struct{}{}
-		if len(runSet.SpecPaths) < 1 || len(runSet.SpecPaths) > maxPrivateWorkspaceSpecsPerSet {
+		maxSpecs := 3
+		if kind == PrivateRunSetKindActivationStudy {
+			maxSpecs = maxPrivateWorkspaceSpecsPerSet
+		}
+		if len(runSet.SpecPaths) < 1 || len(runSet.SpecPaths) > maxSpecs ||
+			(kind == PrivateRunSetKindActivationStudy && len(runSet.SpecPaths) != 4) {
 			return privateWorkspaceContractError("spec_paths")
 		}
 		seenSpecs := make(map[string]struct{}, len(runSet.SpecPaths))
@@ -215,6 +245,15 @@ func (m PrivateWorkspaceManifest) Validate() error {
 				return err
 			}
 		}
+		if kind == PrivateRunSetKindActivationStudy {
+			if m.SchemaVersion != PrivateWorkspaceSchemaVersion || runSet.QualitativeReviewRequired || runSet.QualitativeReviewPanel == nil ||
+				runSet.QualitativeReviewPanel.BlindAssignment == "" || runSet.ReviewerReserveMicroUSD < 1 ||
+				runSet.ReviewerReserveMicroUSD > m.Execution.MaxEstimatedCostMicroUSD {
+				return privateWorkspaceContractError("activation_study")
+			}
+		} else if runSet.ReviewerReserveMicroUSD != 0 {
+			return privateWorkspaceContractError("reviewer_reserve")
+		}
 	}
 	return nil
 }
@@ -224,7 +263,7 @@ func validPrivateWorkspaceSpecPath(path string) bool {
 }
 
 func validPrivateWorkspaceCaseFilePath(path string) bool {
-	if path == "" || len(path) > 512 || filepath.IsAbs(path) || strings.ContainsAny(path, "\\\r\n\x00") {
+	if path == "" || utf8.RuneCountInString(path) > 512 || filepath.IsAbs(path) || strings.ContainsAny(path, "\\\r\n\x00") {
 		return false
 	}
 	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
@@ -243,6 +282,9 @@ func DecodePrivateWorkspaceManifest(r io.Reader) (PrivateWorkspaceManifest, erro
 	if err := validateJSONNoDuplicateKeys(data); err != nil {
 		return PrivateWorkspaceManifest{}, privateWorkspaceContractError("decode")
 	}
+	if err := validatePrivateWorkspaceManifestPresence(data); err != nil {
+		return PrivateWorkspaceManifest{}, err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var manifest PrivateWorkspaceManifest
@@ -256,6 +298,188 @@ func DecodePrivateWorkspaceManifest(r io.Reader) (PrivateWorkspaceManifest, erro
 		return PrivateWorkspaceManifest{}, err
 	}
 	return manifest, nil
+}
+
+func validatePrivateWorkspaceManifestPresence(data []byte) error {
+	var value any
+	if json.Unmarshal(data, &value) != nil || privateWorkspaceJSONContainsNull(value) {
+		return privateWorkspaceContractError("decode")
+	}
+	var root map[string]json.RawMessage
+	if json.Unmarshal(data, &root) != nil || validatePrivateWorkspaceObjectKeys(root,
+		[]string{"schema_version", "live_config_env", "execution", "retention", "run_sets"},
+		[]string{"external_mcp_profile_env"}) != nil {
+		return privateWorkspaceContractError("decode")
+	}
+	var execution map[string]json.RawMessage
+	if json.Unmarshal(root["execution"], &execution) != nil || validatePrivateWorkspaceObjectKeys(execution,
+		[]string{"max_estimated_cost_microusd"}, nil) != nil {
+		return privateWorkspaceContractError("decode")
+	}
+	var retention map[string]json.RawMessage
+	if json.Unmarshal(root["retention"], &retention) != nil || validatePrivateWorkspaceObjectKeys(retention,
+		[]string{"keep_completed_run_sets_per_alias", "max_candidate_age_days", "max_candidate_bytes", "retain_baseline_transcripts"}, nil) != nil {
+		return privateWorkspaceContractError("decode")
+	}
+	var runSets []map[string]json.RawMessage
+	if json.Unmarshal(root["run_sets"], &runSets) != nil {
+		return privateWorkspaceContractError("decode")
+	}
+	for _, runSet := range runSets {
+		if validatePrivateWorkspaceObjectKeys(runSet, []string{"alias", "spec_paths", "qualitative_review_required"},
+			[]string{"kind", "reviewer_reserve_microusd", "qualitative_review_panel"}) != nil {
+			return privateWorkspaceContractError("decode")
+		}
+		if panelData, ok := runSet["qualitative_review_panel"]; ok {
+			var panel map[string]json.RawMessage
+			if json.Unmarshal(panelData, &panel) != nil || validatePrivateWorkspaceObjectKeys(panel,
+				[]string{"method", "reviewers", "max_criterion_range_bps"}, []string{"blind_assignment"}) != nil {
+				return privateWorkspaceContractError("decode")
+			}
+			var reviewers []map[string]json.RawMessage
+			if json.Unmarshal(panel["reviewers"], &reviewers) != nil {
+				return privateWorkspaceContractError("decode")
+			}
+			for _, reviewer := range reviewers {
+				if validatePrivateWorkspaceObjectKeys(reviewer, []string{"id", "kind"}, []string{"model"}) != nil {
+					return privateWorkspaceContractError("decode")
+				}
+			}
+		}
+	}
+	var raw struct {
+		SchemaVersion         int                          `json:"schema_version"`
+		ExternalMCPProfileEnv json.RawMessage              `json:"external_mcp_profile_env"`
+		Retention             map[string]json.RawMessage   `json:"retention"`
+		RunSets               []map[string]json.RawMessage `json:"run_sets"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return privateWorkspaceContractError("decode")
+	}
+	if _, ok := raw.Retention["retain_baseline_transcripts"]; !ok {
+		return privateWorkspaceContractError("retention_presence")
+	}
+	if len(raw.ExternalMCPProfileEnv) != 0 {
+		var value string
+		if json.Unmarshal(raw.ExternalMCPProfileEnv, &value) != nil || value == "" {
+			return privateWorkspaceContractError("external_mcp_profile_env")
+		}
+	}
+	for _, runSet := range raw.RunSets {
+		if _, ok := runSet["qualitative_review_required"]; !ok {
+			return privateWorkspaceContractError("qualitative_review_presence")
+		}
+		kind := PrivateRunSetKindComparison
+		if encoded, ok := runSet["kind"]; ok {
+			if json.Unmarshal(encoded, &kind) != nil || kind == "" {
+				return privateWorkspaceContractError("run_set_kind")
+			}
+		}
+		_, reservePresent := runSet["reviewer_reserve_microusd"]
+		if raw.SchemaVersion == LegacyPrivateWorkspaceSchemaVersion && reservePresent {
+			return privateWorkspaceContractError("reviewer_reserve")
+		}
+		if kind == PrivateRunSetKindActivationStudy && !reservePresent {
+			return privateWorkspaceContractError("reviewer_reserve")
+		}
+		if kind != PrivateRunSetKindActivationStudy && reservePresent {
+			return privateWorkspaceContractError("reviewer_reserve")
+		}
+	}
+	return nil
+}
+
+func validatePrivateWorkspaceObjectKeys(value map[string]json.RawMessage, required, optional []string) error {
+	allowed := make(map[string]struct{}, len(required)+len(optional))
+	for _, key := range required {
+		allowed[key] = struct{}{}
+		if _, ok := value[key]; !ok {
+			return privateWorkspaceContractError("decode")
+		}
+	}
+	for _, key := range optional {
+		allowed[key] = struct{}{}
+	}
+	for key := range value {
+		if _, ok := allowed[key]; !ok {
+			return privateWorkspaceContractError("decode")
+		}
+	}
+	return nil
+}
+
+func privateWorkspaceJSONContainsNull(value any) bool {
+	switch typed := value.(type) {
+	case nil:
+		return true
+	case []any:
+		for _, item := range typed {
+			if privateWorkspaceJSONContainsNull(item) {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, item := range typed {
+			if privateWorkspaceJSONContainsNull(item) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func loadPrivateWorkspaceManifest(root string) (PrivateWorkspaceManifest, string, error) {
+	path, err := privateWorkspaceManifestPath(root)
+	if err != nil {
+		return PrivateWorkspaceManifest{}, "", err
+	}
+	data, err := safepath.ReadFileWithinLimit(root, path, maxPrivateWorkspaceManifestBytes)
+	if err != nil {
+		return PrivateWorkspaceManifest{}, "", privateWorkspaceOperationError("manifest_read")
+	}
+	manifest, err := DecodePrivateWorkspaceManifest(bytes.NewReader(data))
+	if err != nil || !privateWorkspaceManifestSchemaMatchesPath(path, manifest.SchemaVersion) {
+		return PrivateWorkspaceManifest{}, "", privateWorkspaceOperationError("manifest_mismatch")
+	}
+	return manifest, path, nil
+}
+
+func privateWorkspaceManifestPath(root string) (string, error) {
+	current := filepath.Join(root, PrivateWorkspaceManifestName)
+	legacy := filepath.Join(root, LegacyPrivateWorkspaceManifestName)
+	_, currentErr := os.Lstat(current)
+	_, legacyErr := os.Lstat(legacy)
+	if currentErr == nil && legacyErr == nil {
+		return "", privateWorkspaceOperationError("manifest_ambiguous")
+	}
+	if currentErr == nil {
+		return current, nil
+	}
+	if legacyErr == nil {
+		return legacy, nil
+	}
+	if !os.IsNotExist(currentErr) || !os.IsNotExist(legacyErr) {
+		return "", privateWorkspaceOperationError("manifest_stat")
+	}
+	return current, nil
+}
+
+func privateWorkspaceManifestPathForSchema(root string, schemaVersion int) string {
+	if schemaVersion == LegacyPrivateWorkspaceSchemaVersion {
+		return filepath.Join(root, LegacyPrivateWorkspaceManifestName)
+	}
+	return filepath.Join(root, PrivateWorkspaceManifestName)
+}
+
+func privateWorkspaceManifestSchemaMatchesPath(path string, schemaVersion int) bool {
+	switch filepath.Base(path) {
+	case PrivateWorkspaceManifestName:
+		return schemaVersion == PrivateWorkspaceSchemaVersion
+	case LegacyPrivateWorkspaceManifestName:
+		return schemaVersion == LegacyPrivateWorkspaceSchemaVersion
+	default:
+		return false
+	}
 }
 
 func EncodePrivateWorkspaceManifest(manifest PrivateWorkspaceManifest) ([]byte, error) {
@@ -286,9 +510,13 @@ func InitPrivateWorkspace(root, repositoryRoot string, manifest PrivateWorkspace
 		return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("root_marker")
 	}
 
-	markerPath := filepath.Join(absRoot, PrivateWorkspaceManifestName)
+	markerPath, pathErr := privateWorkspaceManifestPath(absRoot)
+	if pathErr != nil {
+		return emptyPrivateWorkspaceReport(), pathErr
+	}
 	markerInfo, markerErr := os.Lstat(markerPath)
 	if os.IsNotExist(markerErr) {
+		markerPath = privateWorkspaceManifestPathForSchema(absRoot, manifest.SchemaVersion)
 		entries, err := os.ReadDir(absRoot)
 		if err != nil {
 			return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("root_read")
@@ -315,7 +543,8 @@ func InitPrivateWorkspace(root, repositoryRoot string, manifest PrivateWorkspace
 		}
 		existing, decodeErr := DecodePrivateWorkspaceManifest(file)
 		closeErr := file.Close()
-		if decodeErr != nil || closeErr != nil || !reflect.DeepEqual(existing, manifest) {
+		if decodeErr != nil || closeErr != nil || !privateWorkspaceManifestSchemaMatchesPath(markerPath, existing.SchemaVersion) ||
+			(existing.SchemaVersion == PrivateWorkspaceSchemaVersion && !reflect.DeepEqual(existing, manifest)) {
 			return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("manifest_mismatch")
 		}
 	}
@@ -349,8 +578,14 @@ func InspectPrivateWorkspace(root, repositoryRoot string) PrivateWorkspaceReport
 	gitOK := rootOK && privateWorkspaceGitBoundary(absRoot, absRepository, true) == nil
 	report = appendPrivateWorkspaceCheck(report, PrivateWorkspaceCheckGitBoundary, gitOK)
 
-	markerPath := filepath.Join(absRoot, PrivateWorkspaceManifestName)
+	markerPath, markerPathErr := privateWorkspaceManifestPath(absRoot)
+	if markerPathErr != nil {
+		markerPath = filepath.Join(absRoot, PrivateWorkspaceManifestName)
+	}
 	markerInfo, markerErr := os.Lstat(markerPath)
+	if markerPathErr != nil {
+		markerErr = markerPathErr
+	}
 	markerOK := markerErr == nil && markerInfo.Mode()&os.ModeSymlink == 0 && markerInfo.Mode().IsRegular() && privateWorkspaceFileMode(markerInfo.Mode())
 	report = appendPrivateWorkspaceCheck(report, PrivateWorkspaceCheckManifestMode, markerOK)
 
@@ -361,7 +596,7 @@ func InspectPrivateWorkspace(root, repositoryRoot string) PrivateWorkspaceReport
 		if openErr == nil {
 			manifest, err = DecodePrivateWorkspaceManifest(file)
 			closeErr := file.Close()
-			manifestOK = err == nil && closeErr == nil
+			manifestOK = err == nil && closeErr == nil && privateWorkspaceManifestSchemaMatchesPath(markerPath, manifest.SchemaVersion)
 		}
 	}
 	report = appendPrivateWorkspaceCheck(report, PrivateWorkspaceCheckManifestValid, manifestOK)
@@ -369,6 +604,9 @@ func InspectPrivateWorkspace(root, repositoryRoot string) PrivateWorkspaceReport
 		report.Counts.RunSets = len(manifest.RunSets)
 		for _, runSet := range manifest.RunSets {
 			report.Counts.SpecReferences += len(runSet.SpecPaths)
+			if runSet.EffectiveKind() == PrivateRunSetKindActivationStudy {
+				report.Counts.ActivationStudies++
+			}
 		}
 	}
 
@@ -583,7 +821,7 @@ func privateWorkspaceLayoutOK(root string) bool {
 	if err != nil {
 		return false
 	}
-	allowed := map[string]struct{}{PrivateWorkspaceManifestName: {}, privateOutputRootMarker: {}}
+	allowed := map[string]struct{}{PrivateWorkspaceManifestName: {}, LegacyPrivateWorkspaceManifestName: {}, privateOutputRootMarker: {}}
 	for _, name := range privateWorkspaceFixedDirectories {
 		allowed[name] = struct{}{}
 	}
@@ -676,7 +914,11 @@ func inspectPrivateWorkspaceSpecs(root string, manifest PrivateWorkspaceManifest
 		if len(paths) != len(runSet.SpecPaths) {
 			continue
 		}
-		if len(paths) > 1 {
+		if runSet.EffectiveKind() == PrivateRunSetKindActivationStudy {
+			if _, err := ValidatePrivateActivationStudy(paths...); err != nil {
+				specsOK = false
+			}
+		} else if len(paths) > 1 {
 			if _, err := ValidatePrivateRunComparisonSet(paths...); err != nil {
 				specsOK = false
 			}

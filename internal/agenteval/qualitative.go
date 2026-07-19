@@ -8,6 +8,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -451,7 +452,7 @@ func (r Reviewer) validate() error {
 	if r.Kind != "human" && r.Kind != "codex" && r.Kind != "claude-code" {
 		return fmt.Errorf("reviewer kind must be human, codex, or claude-code")
 	}
-	if len(r.Model) > 256 || strings.ContainsAny(r.Model, "\r\n\x00") {
+	if utf8.RuneCountInString(r.Model) > 256 || strings.ContainsAny(r.Model, "\r\n\x00") {
 		return fmt.Errorf("reviewer model is invalid")
 	}
 	if r.Kind != "human" && strings.TrimSpace(r.Model) == "" {

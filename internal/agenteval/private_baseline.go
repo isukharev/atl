@@ -41,6 +41,7 @@ var (
 // completion. This layer independently rechecks containment, hashes, result
 // contracts, and retained artifacts before publishing an immutable baseline.
 type PrivateBaselineSource struct {
+	Kind           string
 	PlanID         string
 	PlanPath       string
 	PlanSHA256     string
@@ -54,6 +55,8 @@ type PrivateBaselineSource struct {
 
 type PrivateBaselineSurfaceSource struct {
 	Surface                        string
+	CellID                         string
+	SkillActivation                string
 	RunDirectory                   string
 	RubricPath                     string
 	RubricSHA256                   string
@@ -62,6 +65,9 @@ type PrivateBaselineSurfaceSource struct {
 	QualitativePanelContractSHA256 string
 	BlindAssignmentPath            string
 	BlindAssignmentSHA256          string
+	ExecutionReceiptPath           string
+	ExecutionReceiptSHA256         string
+	ExecutionCostMicroUSD          int64
 }
 
 type PrivateBaselineSetOptions struct {
@@ -203,6 +209,9 @@ type privatePruneIntent struct {
 const privatePrunedRunName = "pruned.v1.json"
 
 func SetPrivateBaseline(options PrivateBaselineSetOptions) (PrivateBaselineSummary, error) {
+	if options.Source.Kind == PrivateRunSetKindActivationStudy {
+		return PrivateBaselineSummary{}, privateBaselineError("activation_study_requires_reference")
+	}
 	root, _, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
 	if err != nil {
 		return PrivateBaselineSummary{}, privateBaselineError("workspace")
@@ -221,11 +230,7 @@ func SetPrivateBaseline(options PrivateBaselineSetOptions) (PrivateBaselineSumma
 	if !validPrivateBaselineSource(root, options.Source) {
 		return PrivateBaselineSummary{}, privateBaselineError("source_drift")
 	}
-	workspaceManifestData, err := readPrivatePlanLifecycleFile(root, filepath.Join(root, PrivateWorkspaceManifestName), maxPrivateWorkspaceManifestBytes)
-	if err != nil {
-		return PrivateBaselineSummary{}, privateBaselineError("manifest")
-	}
-	workspaceManifest, err := DecodePrivateWorkspaceManifest(bytes.NewReader(workspaceManifestData))
+	workspaceManifest, _, err := loadPrivateWorkspaceManifest(root)
 	if err != nil {
 		return PrivateBaselineSummary{}, privateBaselineError("manifest")
 	}
@@ -831,7 +836,8 @@ func privatePlanPruneInventoryLoader(repository string) PrivatePruneInventoryLoa
 		}
 		inventory := PrivatePruneInventory{Runs: make([]PrivateRunLifecycle, 0, len(references))}
 		for _, reference := range references {
-			inventory.Runs = append(inventory.Runs, PrivateRunLifecycle(reference))
+			inventory.Runs = append(inventory.Runs, PrivateRunLifecycle{RunID: reference.RunID, RunSetAlias: reference.RunSetAlias,
+				PlanID: reference.PlanID, State: reference.State, CompletedOrder: reference.CompletedOrder})
 		}
 		return inventory, nil
 	}
@@ -843,11 +849,11 @@ func buildPrivatePrunePreview(root string, loader PrivatePruneInventoryLoader, n
 }
 
 func privatePruneInventory(root string, loader PrivatePruneInventoryLoader, now time.Time) (PrivatePrunePreview, []privatePruneCandidate, error) {
-	manifestData, err := readPrivatePlanLifecycleFile(root, filepath.Join(root, PrivateWorkspaceManifestName), maxPrivateWorkspaceManifestBytes)
+	manifest, manifestPath, err := loadPrivateWorkspaceManifest(root)
 	if err != nil {
 		return PrivatePrunePreview{}, nil, privatePruneError("manifest")
 	}
-	manifest, err := DecodePrivateWorkspaceManifest(bytes.NewReader(manifestData))
+	manifestData, err := safepath.ReadFileWithinLimit(root, manifestPath, maxPrivateWorkspaceManifestBytes)
 	if err != nil {
 		return PrivatePrunePreview{}, nil, privatePruneError("manifest")
 	}
@@ -1176,6 +1182,9 @@ func hashPrivatePruneTree(root, target string) (string, int, int64, error) {
 }
 
 func ComparePrivateBaseline(options PrivateCompareOptions) (PrivateComparison, error) {
+	if options.Candidate.Kind == PrivateRunSetKindActivationStudy {
+		return PrivateComparison{}, privateBaselineError("activation_study_requires_reference")
+	}
 	root, _, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
 	if err != nil || !privateWorkspaceAliasRE.MatchString(options.Baseline) || !validPrivateBaselineSource(root, options.Candidate) {
 		return PrivateComparison{}, privateBaselineError("compare_input")

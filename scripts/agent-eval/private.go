@@ -13,7 +13,7 @@ import (
 
 func runPrivateCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("private requires init, doctor, status, plan, run, review, baseline, compare, or prune")
+		return fmt.Errorf("private requires init, doctor, status, plan, run, review, study, baseline, compare, or prune")
 	}
 	switch args[0] {
 	case "init":
@@ -129,11 +129,12 @@ func runPrivateCommand(args []string, out io.Writer) error {
 			return fmt.Errorf("private review requires prepare or assess")
 		}
 		flags := privateFlagSet("private review " + operation)
-		var root, repositoryRoot, planID, surface, reviewer, model, reviewerID, blindAssignment string
+		var root, repositoryRoot, planID, surface, treatment, reviewer, model, reviewerID, blindAssignment string
 		flags.StringVar(&root, "root", "", "workspace root")
 		flags.StringVar(&repositoryRoot, "repository-root", ".", "repository root")
 		flags.StringVar(&planID, "plan", "", "completed plan id")
 		flags.StringVar(&surface, "surface", "", "reviewed surface")
+		flags.StringVar(&treatment, "treatment", "", "activation-study treatment")
 		if operation == "prepare" {
 			flags.StringVar(&reviewer, "reviewer", "", "human, codex, or claude-code")
 			flags.StringVar(&model, "model", "", "exact reviewer model")
@@ -157,17 +158,19 @@ func runPrivateCommand(args []string, out io.Writer) error {
 				return fmt.Errorf("private review prepare requires --reviewer for legacy-single or --reviewer-id for a panel")
 			}
 			summary, err := agenteval.PreparePrivateReview(agenteval.PrivateReviewPrepareOptions{Root: root, RepositoryRoot: repositoryRoot,
-				PlanID: planID, Surface: surface, ReviewerKind: reviewer, ReviewerModel: model, ReviewerID: reviewerID, BlindAssignment: blindAssignment})
+				PlanID: planID, Surface: surface, Treatment: treatment, ReviewerKind: reviewer, ReviewerModel: model, ReviewerID: reviewerID, BlindAssignment: blindAssignment})
 			if err != nil {
 				return err
 			}
 			return writePrivateJSON(out, summary)
 		}
-		summary, err := agenteval.AssessPrivateReview(agenteval.PrivateReviewAssessOptions{Root: root, RepositoryRoot: repositoryRoot, PlanID: planID, Surface: surface, ReviewerID: reviewerID})
+		summary, err := agenteval.AssessPrivateReview(agenteval.PrivateReviewAssessOptions{Root: root, RepositoryRoot: repositoryRoot, PlanID: planID, Surface: surface, Treatment: treatment, ReviewerID: reviewerID})
 		if err != nil {
 			return err
 		}
 		return writePrivateJSON(out, summary)
+	case "study":
+		return runPrivateStudyCommand(args[1:], out)
 	case "baseline":
 		if len(args) < 2 || args[1] != "set" {
 			return fmt.Errorf("private baseline requires set")
@@ -251,6 +254,93 @@ func runPrivateCommand(args []string, out io.Writer) error {
 		return writePrivateJSON(out, summary)
 	default:
 		return fmt.Errorf("unknown private command %q", args[0])
+	}
+}
+
+func runPrivateStudyCommand(args []string, out io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("private study requires recover, reference, compare, or promote")
+	}
+	switch args[0] {
+	case "recover":
+		flags := privateFlagSet("private study recover")
+		var root, repositoryRoot, planID, expected, confirm string
+		flags.StringVar(&root, "root", "", "workspace root")
+		flags.StringVar(&repositoryRoot, "repository-root", ".", "repository root")
+		flags.StringVar(&planID, "plan", "", "interrupted activation-study plan id")
+		flags.StringVar(&expected, "expected-plan-sha256", "", "reviewed plan digest")
+		flags.StringVar(&confirm, "confirm", "", "must attest PROVIDER_STOPPED_RECOVER")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 || root == "" || planID == "" || expected == "" {
+			return fmt.Errorf("private study recover requires root, plan, reviewed hash, and no positional arguments")
+		}
+		summary, err := agenteval.RecoverPrivateActivationStudy(agenteval.PrivateActivationRecoveryOptions{Root: root,
+			RepositoryRoot: repositoryRoot, PlanID: planID, ExpectedPlanSHA256: expected, Confirm: confirm})
+		if err != nil {
+			return err
+		}
+		return writePrivateJSON(out, summary)
+	case "reference":
+		flags := privateFlagSet("private study reference")
+		var root, repositoryRoot, planID, reference, confirm string
+		flags.StringVar(&root, "root", "", "workspace root")
+		flags.StringVar(&repositoryRoot, "repository-root", ".", "repository root")
+		flags.StringVar(&planID, "plan", "", "completed activation-study plan id")
+		flags.StringVar(&reference, "reference", "", "immutable measurement reference alias")
+		flags.StringVar(&confirm, "confirm", "", "must be REFERENCE")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 || root == "" || planID == "" || reference == "" {
+			return fmt.Errorf("private study reference requires root, plan, reference, and no positional arguments")
+		}
+		summary, err := agenteval.SetPrivateActivationReference(agenteval.PrivateActivationReferenceSetOptions{Root: root,
+			RepositoryRoot: repositoryRoot, PlanID: planID, Reference: reference, Confirm: confirm})
+		if err != nil {
+			return err
+		}
+		return writePrivateJSON(out, summary)
+	case "compare":
+		flags := privateFlagSet("private study compare")
+		var root, repositoryRoot, reference string
+		flags.StringVar(&root, "root", "", "workspace root")
+		flags.StringVar(&repositoryRoot, "repository-root", ".", "repository root")
+		flags.StringVar(&reference, "reference", "", "measurement reference alias")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 || root == "" || reference == "" {
+			return fmt.Errorf("private study compare requires root, reference, and no positional arguments")
+		}
+		report, err := agenteval.CompareStoredPrivateActivationReference(agenteval.PrivateActivationReferenceCompareOptions{Root: root,
+			RepositoryRoot: repositoryRoot, Reference: reference})
+		if err != nil {
+			return err
+		}
+		return writePrivateJSON(out, report)
+	case "promote":
+		flags := privateFlagSet("private study promote")
+		var root, repositoryRoot, reference, confirm string
+		flags.StringVar(&root, "root", "", "workspace root")
+		flags.StringVar(&repositoryRoot, "repository-root", ".", "repository root")
+		flags.StringVar(&reference, "reference", "", "passing measurement reference alias")
+		flags.StringVar(&confirm, "confirm", "", "must be PROMOTE")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 || root == "" || reference == "" {
+			return fmt.Errorf("private study promote requires root, reference, and no positional arguments")
+		}
+		summary, err := agenteval.PromotePrivateActivationReference(agenteval.PrivateActivationPromotionOptions{Root: root,
+			RepositoryRoot: repositoryRoot, Reference: reference, Confirm: confirm})
+		if err != nil {
+			return err
+		}
+		return writePrivateJSON(out, summary)
+	default:
+		return fmt.Errorf("private study requires recover, reference, compare, or promote")
 	}
 }
 

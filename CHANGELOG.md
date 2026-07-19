@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Private-workspace manifest schema v2 adds explicit `comparison` and
+  `activation-study` run-set kinds. An activation study binds exactly four Codex
+  CLI-skill treatments into one plan and consent, executes them sequentially in
+  a reviewed-material-scoped balanced four-attempt order cycle, and requires a
+  blinded three- or five-reviewer panel with exact treatment selection and treatment-blinded
+  packets with random non-derivable cell identities. Expired unexecuted plans
+  cannot advance or select the next order, while terminal executions with
+  durable pre-spawn provider commitment do. An offline recovery transition,
+  gated by an explicit operator attestation that no orphaned provider process
+  remains, closes crash state without replaying a provider and reconciles a
+  durable receipt when present, and removes the exact owned execution capsule.
+  Activation execution and recovery summaries distinguish complete detected
+  cost from an unknown lower bound with `cost_known`. Private
+  plans advance to v4, with hash-chained v2 state and crash-safe receipt/terminal
+  persistence for the four-cell lifecycle. The study budget includes a
+  positive explicit reviewer reserve and is
+  detection-only rather than a preventive provider hard cap. Unknown safety,
+  evidence, and resource failures stop the remaining roster fail-closed.
+  Completed reviewed
+  studies can be captured as immutable private study references, compared
+  through privacy-safe closed aggregate fields, and promoted only through the
+  stricter study gate. Legacy
+  separate-plan treatments remain readable descriptive observations and are not
+  reclassified as causal studies.
+
 - Codex private-live CLI skill activation now defines the full prompt-channel
   2x2: `implicit`, `explicit`, `developer`, and `combined`. Named-skill
   treatments fail closed unless reviewed capabilities identify exactly one
@@ -18,10 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Private plans and results bind the treatment and exact user/developer prompt
   contract, while public previews and aggregates omit the private digest.
   Run specs advance to v5, observations to v4, results and aggregates to v6,
-  and private plans to v3. Legacy artifacts remain readable but are never
-  silently reclassified, and separately reviewed treatment plans remain
-  descriptive rather than a causal study until dedicated orchestration is
-  added.
+  and private plans to v3 at that compatibility stage. Legacy artifacts remain
+  readable but are never silently reclassified, and separately reviewed
+  treatment plans remain descriptive rather than causal studies.
 
 - Private-live Codex skill-read guards now resolve relative `cat`/`sed`/`wc`
   targets from the exact ephemeral model workspace instead of the hook

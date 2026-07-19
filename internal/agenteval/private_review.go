@@ -14,6 +14,7 @@ const privateReviewPacketVersion = 1
 
 type PrivateReviewPrepareOptions struct {
 	Root, RepositoryRoot, PlanID, Surface string
+	Treatment                             string
 	ReviewerKind, ReviewerModel           string
 	ReviewerID                            string
 	BlindAssignment                       string
@@ -21,6 +22,7 @@ type PrivateReviewPrepareOptions struct {
 
 type PrivateReviewAssessOptions struct {
 	Root, RepositoryRoot, PlanID, Surface string
+	Treatment                             string
 	ReviewerID                            string
 }
 
@@ -29,6 +31,7 @@ type PrivateReviewSummary struct {
 	PlanID        string `json:"plan_id"`
 	RunID         string `json:"run_id"`
 	Surface       string `json:"surface"`
+	Treatment     string `json:"skill_activation,omitempty"`
 	Status        string `json:"status"`
 	Packet        string `json:"packet"`
 	ResultSHA256  string `json:"result_sha256"`
@@ -44,7 +47,8 @@ type PrivateReviewSummary struct {
 // printing private answer or rubric bytes. The packet is deliberately inside
 // the candidate run so retention and containment rules cover it.
 func PreparePrivateReview(options PrivateReviewPrepareOptions) (PrivateReviewSummary, error) {
-	if options.ReviewerKind == "" && options.ReviewerID == "" || !validRunSurface(options.Surface) {
+	if options.ReviewerKind == "" && options.ReviewerID == "" || !validRunSurface(options.Surface) ||
+		(options.Treatment != "" && privateActivationTreatmentIndex(options.Treatment) < 0) {
 		return PrivateReviewSummary{}, privatePlanError("review_input")
 	}
 	root, _, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
@@ -56,7 +60,7 @@ func PreparePrivateReview(options PrivateReviewPrepareOptions) (PrivateReviewSum
 		return PrivateReviewSummary{}, privatePlanError("workspace_busy")
 	}
 	defer func() { _ = lock.Unlock() }()
-	source, surface, err := loadPrivateReviewSurface(root, options.RepositoryRoot, options.PlanID, options.Surface)
+	source, surface, err := loadPrivateReviewSurface(root, options.RepositoryRoot, options.PlanID, options.Surface, options.Treatment)
 	if err != nil {
 		return PrivateReviewSummary{}, err
 	}
@@ -129,7 +133,7 @@ func PreparePrivateReview(options PrivateReviewPrepareOptions) (PrivateReviewSum
 // AssessPrivateReview binds an edited packet back to the exact immutable run
 // inputs and writes only the versioned assessed result into the source run.
 func AssessPrivateReview(options PrivateReviewAssessOptions) (PrivateReviewSummary, error) {
-	if !validRunSurface(options.Surface) {
+	if !validRunSurface(options.Surface) || (options.Treatment != "" && privateActivationTreatmentIndex(options.Treatment) < 0) {
 		return PrivateReviewSummary{}, privatePlanError("review_input")
 	}
 	root, _, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
@@ -141,7 +145,7 @@ func AssessPrivateReview(options PrivateReviewAssessOptions) (PrivateReviewSumma
 		return PrivateReviewSummary{}, privatePlanError("workspace_busy")
 	}
 	defer func() { _ = lock.Unlock() }()
-	source, surface, err := loadPrivateReviewSurface(root, options.RepositoryRoot, options.PlanID, options.Surface)
+	source, surface, err := loadPrivateReviewSurface(root, options.RepositoryRoot, options.PlanID, options.Surface, options.Treatment)
 	if err != nil {
 		return PrivateReviewSummary{}, err
 	}
@@ -185,13 +189,13 @@ func AssessPrivateReview(options PrivateReviewAssessOptions) (PrivateReviewSumma
 	return privateReviewSummary(source, options.Surface, "assessed", packetRelative, resultData, finalData, rubric), nil
 }
 
-func loadPrivateReviewSurface(root, repository, planID, surfaceName string) (PrivateBaselineSource, PrivateBaselineSurfaceSource, error) {
+func loadPrivateReviewSurface(root, repository, planID, surfaceName, treatment string) (PrivateBaselineSource, PrivateBaselineSurfaceSource, error) {
 	source, err := LoadCompletedPrivateRun(root, repository, planID)
 	if err != nil {
 		return PrivateBaselineSource{}, PrivateBaselineSurfaceSource{}, err
 	}
 	for _, surface := range source.Surfaces {
-		if surface.Surface == surfaceName {
+		if surface.Surface == surfaceName && (source.Kind != PrivateRunSetKindActivationStudy || surface.SkillActivation == treatment) {
 			return source, surface, nil
 		}
 	}
@@ -223,15 +227,34 @@ func loadPrivateReviewInputs(root string, surface PrivateBaselineSurfaceSource) 
 }
 
 func privateReviewSummary(source PrivateBaselineSource, surface, status, packet string, resultData, finalData []byte, rubric Rubric) PrivateReviewSummary {
-	return PrivateReviewSummary{SchemaVersion: privateReviewPacketVersion, PlanID: source.PlanID, RunID: source.RunID,
+	summary := PrivateReviewSummary{SchemaVersion: privateReviewPacketVersion, PlanID: source.PlanID, RunID: source.RunID,
 		Surface: surface, Status: status, Packet: packet, ResultSHA256: sha256HexBytes(resultData),
 		FinalSHA256: sha256HexBytes(finalData), RubricSHA256: rubricSHA256(rubric)}
+	// Activation-study summaries are part of the reviewer handoff surface. Keep
+	// their opaque cell path, but never reveal the treatment assignment there.
+	if source.Kind != PrivateRunSetKindActivationStudy {
+		for _, candidate := range source.Surfaces {
+			if candidate.Surface == surface && privateReviewCellKey(candidate) == filepath.Base(filepath.Dir(packet)) {
+				summary.Treatment = candidate.SkillActivation
+				break
+			}
+		}
+	}
+	return summary
+}
+
+func privateReviewCellKey(surface PrivateBaselineSurfaceSource) string {
+	if surface.CellID != "" {
+		return surface.CellID
+	}
+	return surface.Surface
 }
 
 func (s PrivateReviewSummary) Validate() error {
 	if s.SchemaVersion != privateReviewPacketVersion || !privatePlanIDRE.MatchString(s.PlanID) || !privateRunIDRE.MatchString(s.RunID) ||
 		!validRunSurface(s.Surface) || (s.Status != "prepared" && s.Status != "recorded" && s.Status != "assessed" && s.Status != "disagreement") || s.Packet == "" ||
-		!validSHA256(s.ResultSHA256) || !validSHA256(s.FinalSHA256) || !validSHA256(s.RubricSHA256) {
+		!validSHA256(s.ResultSHA256) || !validSHA256(s.FinalSHA256) || !validSHA256(s.RubricSHA256) ||
+		(s.Treatment != "" && privateActivationTreatmentIndex(s.Treatment) < 0) {
 		return fmt.Errorf("invalid private review summary")
 	}
 	if s.Expected != 0 && (s.Expected != 3 && s.Expected != 5 || s.Prepared < 0 || s.Prepared > s.Expected || s.Assessed < 0 || s.Assessed > s.Prepared || validatePathComponentID("reviewer id", s.ReviewerID) != nil) {
