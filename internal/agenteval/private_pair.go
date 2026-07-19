@@ -53,7 +53,7 @@ func ValidatePrivateRunComparisonSet(paths ...string) (PrivateComparisonSet, err
 		return PrivateComparisonSet{}, fmt.Errorf("private comparison set requires at least one semantic response check")
 	}
 	for index, item := range loaded {
-		if item.spec.SkillActivationIdentity() == SkillActivationExplicit {
+		if activation := item.spec.SkillActivationIdentity(); activation != "" && activation != SkillActivationImplicit {
 			return PrivateComparisonSet{}, fmt.Errorf("multi-surface comparisons require implicit cli-skill activation")
 		}
 		if item.specDir != base.specDir {

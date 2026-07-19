@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "category": "neutral-common",
   "surface": "atl-mcp",
   "scenario_file": "scenario.v1.json",

@@ -366,6 +366,41 @@ func TestPanelSchemasPreserveOnlyExplicitLegacyReadCompatibility(t *testing.T) {
 	}
 }
 
+func TestPanelAssessmentPreservesLegacyPromptBoundResultV5(t *testing.T) {
+	result, _, final, rubric := panelFixture(t)
+	result.SchemaVersion = LegacyPromptBoundResultSchemaVersion
+	result.DataClass = "private-local"
+	result.Surface = SurfaceCLISkill
+	result.Runtime.Provider = "codex"
+	result.Runtime.SkillActivation = SkillActivationImplicit
+	result.Runtime.PromptContractSHA256 = strings.Repeat("a", 64)
+	resultBytes, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviews := panelReviews(t, result, resultBytes, final, rubric, [][2]int{{4, 4}, {4, 4}, {4, 4}}, nil)
+	assessed, err := AssessQualitativeReviewSet(result, resultBytes, final, rubric, panelPolicy(9999), reviews)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assessed.SchemaVersion != LegacyPromptBoundResultSchemaVersion || assessed.Runtime != result.Runtime {
+		t.Fatalf("legacy prompt-bound provenance changed: version=%d runtime=%+v", assessed.SchemaVersion, assessed.Runtime)
+	}
+	if err := assessed.Validate(); err != nil {
+		t.Fatalf("assessed legacy prompt-bound result is invalid: %v", err)
+	}
+
+	future := result
+	future.SchemaVersion = ResultSchemaVersion + 1
+	futureBytes, err := json.Marshal(future)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AssessQualitativeReviewSet(future, futureBytes, final, rubric, panelPolicy(9999), reviews); err == nil || !strings.Contains(err.Error(), "unsupported result schema_version") {
+		t.Fatalf("future result schema was assessed: %v", err)
+	}
+}
+
 func TestAggregateQualitativeReviewSetSeparatesContractsAndCountsConsensus(t *testing.T) {
 	result, resultBytes, final, rubric := panelFixture(t)
 	passingReviews := panelReviews(t, result, resultBytes, final, rubric, [][2]int{{4, 4}, {4, 4}, {4, 4}}, nil)

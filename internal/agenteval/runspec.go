@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	RunSpecSchemaVersion = 4
+	RunSpecSchemaVersion = 5
 	maxRunSpecBytes      = 1 << 20
 	maxRunCostMicroUSD   = 10_000_000
 )
@@ -62,11 +62,44 @@ type RunSpec struct {
 }
 
 const (
-	BackendModeSynthetic    = "synthetic"
-	BackendModePrivateLive  = "private-live"
-	SkillActivationImplicit = "implicit"
-	SkillActivationExplicit = "explicit"
+	BackendModeSynthetic     = "synthetic"
+	BackendModePrivateLive   = "private-live"
+	SkillActivationImplicit  = "implicit"
+	SkillActivationExplicit  = "explicit"
+	SkillActivationDeveloper = "developer"
+	SkillActivationCombined  = "combined"
 )
+
+type skillActivationDescriptor struct {
+	promptPrefix           bool
+	developerReinforcement bool
+}
+
+func describeSkillActivation(value string) (skillActivationDescriptor, error) {
+	switch value {
+	case "", SkillActivationImplicit:
+		return skillActivationDescriptor{}, nil
+	case SkillActivationExplicit:
+		return skillActivationDescriptor{promptPrefix: true}, nil
+	case SkillActivationDeveloper:
+		return skillActivationDescriptor{developerReinforcement: true}, nil
+	case SkillActivationCombined:
+		return skillActivationDescriptor{promptPrefix: true, developerReinforcement: true}, nil
+	default:
+		return skillActivationDescriptor{}, fmt.Errorf("skill_activation must be implicit, explicit, developer, or combined")
+	}
+}
+
+func (d skillActivationDescriptor) hintsServiceSkill() bool {
+	return d.promptPrefix || d.developerReinforcement
+}
+
+func (d skillActivationDescriptor) serviceSkill(capabilities []string) (string, error) {
+	if !d.hintsServiceSkill() {
+		return "", nil
+	}
+	return explicitServiceSkill(capabilities)
+}
 
 func (s RunSpec) EffectiveBackendMode() string {
 	if s.BackendMode == "" {
@@ -111,8 +144,9 @@ func (s RunSpec) SkillActivationIdentity() string {
 }
 
 func validateSkillActivation(s RunSpec) error {
-	if s.SkillActivation != "" && s.SkillActivation != SkillActivationImplicit && s.SkillActivation != SkillActivationExplicit {
-		return fmt.Errorf("skill_activation must be implicit or explicit")
+	descriptor, err := describeSkillActivation(s.SkillActivation)
+	if err != nil {
+		return err
 	}
 	eligible := s.Provider == "codex" && s.EffectiveBackendMode() == BackendModePrivateLive &&
 		s.EffectiveSurface() == SurfaceCLISkill && s.EffectiveToolTransport() == "cli"
@@ -122,10 +156,8 @@ func validateSkillActivation(s RunSpec) error {
 	if s.SkillActivation != "" && !eligible {
 		return fmt.Errorf("skill_activation is valid only for codex private-live cli-skill runs")
 	}
-	if s.SkillActivation == SkillActivationExplicit {
-		if _, err := explicitServiceSkill(s.DataCapabilities); err != nil {
-			return err
-		}
+	if _, err := descriptor.serviceSkill(s.DataCapabilities); err != nil {
+		return err
 	}
 	return nil
 }
@@ -141,15 +173,15 @@ func explicitServiceSkill(capabilities []string) (string, error) {
 		case family == "confluence" || strings.HasPrefix(family, "confluence."):
 			candidate = "confluence"
 		default:
-			return "", fmt.Errorf("explicit skill_activation requires jira-only or confluence-only data_capabilities")
+			return "", fmt.Errorf("hinted skill_activation requires jira-only or confluence-only data_capabilities")
 		}
 		if service != "" && service != candidate {
-			return "", fmt.Errorf("explicit skill_activation does not support mixed data_capabilities")
+			return "", fmt.Errorf("hinted skill_activation does not support mixed data_capabilities")
 		}
 		service = candidate
 	}
 	if service == "" {
-		return "", fmt.Errorf("explicit skill_activation requires jira-only or confluence-only data_capabilities")
+		return "", fmt.Errorf("hinted skill_activation requires jira-only or confluence-only data_capabilities")
 	}
 	return "atl:" + service, nil
 }

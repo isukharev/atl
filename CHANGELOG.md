@@ -11,17 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Agent-eval run specs now use schema v4 and make Codex private-live CLI skill
-  activation an explicit benchmark treatment. `implicit` preserves the neutral
-  task prompt byte-for-byte; `explicit` puts the reviewed Jira or Confluence
-  skill invocation in the actual model-facing prompt. Observation schema
-  advances to v3, result and aggregate schemas to v5, private plans to v2, and
-  baseline compatibility binds both activation and the exact private prompt
-  contract. Prompt digests remain
-  confined to private plan/result artifacts; low-level dry-run exposes only a
-  bound flag, and preview/aggregate output omits the digest.
-  Existing result v3/v4 and private plan v1 artifacts remain readable but are
-  never silently reclassified into a new activation arm.
+- Codex private-live CLI skill activation now defines the full prompt-channel
+  2x2: `implicit`, `explicit`, `developer`, and `combined`. Named-skill
+  treatments fail closed unless reviewed capabilities identify exactly one
+  Jira or Confluence service; multi-surface comparisons remain implicit-only.
+  Private plans and results bind the treatment and exact user/developer prompt
+  contract, while public previews and aggregates omit the private digest.
+  Run specs advance to v5, observations to v4, results and aggregates to v6,
+  and private plans to v3. Legacy artifacts remain readable but are never
+  silently reclassified, and separately reviewed treatment plans remain
+  descriptive rather than a causal study until dedicated orchestration is
+  added.
 
 - Private-live Codex skill-read guards now resolve relative `cat`/`sed`/`wc`
   targets from the exact ephemeral model workspace instead of the hook
@@ -43,9 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   boundaries, and excessive criterion ranges are retained as disagreement and
   block baseline promotion. The explicit legacy single-review workflow remains
   available, but singleton and panel baselines are intentionally incompatible.
-  Current panel artifacts use result schema v5, review schema v2, and aggregate
-  schema v5; legacy singleton result v3, panel result v4, and review v1
-  artifacts remain readable.
+  Current panel artifacts use result schema v6, review schema v2, and aggregate
+  schema v6; legacy prompt-bound result v5, singleton result v3, panel result
+  v4, and review v1 artifacts remain readable.
   Baseline comparison and aggregate grouping now keep different blind
   assignments separate for both singleton and panel reviews.
 

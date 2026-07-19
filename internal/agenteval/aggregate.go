@@ -5,7 +5,7 @@ import (
 	"sort"
 )
 
-const AggregateSchemaVersion = 5
+const AggregateSchemaVersion = 6
 
 type Aggregate struct {
 	SchemaVersion int              `json:"schema_version"`
@@ -295,22 +295,27 @@ func deterministicValidForEfficiency(result Result) bool {
 }
 
 func (r Result) Validate() error {
-	if r.SchemaVersion != ResultSchemaVersion && r.SchemaVersion != PanelResultSchemaVersion && r.SchemaVersion != LegacyResultSchemaVersion {
+	if r.SchemaVersion != ResultSchemaVersion && r.SchemaVersion != LegacyPromptBoundResultSchemaVersion &&
+		r.SchemaVersion != PanelResultSchemaVersion && r.SchemaVersion != LegacyResultSchemaVersion {
 		return fmt.Errorf("unsupported result schema_version %d", r.SchemaVersion)
 	}
 	if r.SchemaVersion == LegacyResultSchemaVersion && r.QualitativeReviewSet != nil {
 		return fmt.Errorf("legacy result cannot contain a qualitative review set")
 	}
-	if r.SchemaVersion < ResultSchemaVersion && (r.Runtime.SkillActivation != "" || r.Runtime.PromptContractSHA256 != "") {
+	if r.SchemaVersion < LegacyPromptBoundResultSchemaVersion && (r.Runtime.SkillActivation != "" || r.Runtime.PromptContractSHA256 != "") {
 		return fmt.Errorf("legacy result cannot contain prompt contract identity")
 	}
-	if r.SchemaVersion == ResultSchemaVersion {
+	if r.SchemaVersion == LegacyPromptBoundResultSchemaVersion || r.SchemaVersion == ResultSchemaVersion {
 		activationCell := r.DataClass == "private-local" && r.EffectiveSurface() == SurfaceCLISkill && r.Runtime.Provider == "codex"
 		if activationCell && (r.Runtime.SkillActivation == "" || r.Runtime.PromptContractSHA256 == "") {
 			return fmt.Errorf("private codex cli-skill result requires prompt contract identity")
 		}
 		if !activationCell && (r.Runtime.SkillActivation != "" || r.Runtime.PromptContractSHA256 != "") {
 			return fmt.Errorf("result prompt contract identity is outside private codex cli-skill")
+		}
+		if r.SchemaVersion == LegacyPromptBoundResultSchemaVersion &&
+			r.Runtime.SkillActivation != "" && r.Runtime.SkillActivation != SkillActivationImplicit && r.Runtime.SkillActivation != SkillActivationExplicit {
+			return fmt.Errorf("legacy prompt-bound result has unsupported skill activation")
 		}
 	}
 	if !identifierRE.MatchString(r.ScenarioID) || !identifierRE.MatchString(r.TaskClass) || !identifierRE.MatchString(r.Variant) {

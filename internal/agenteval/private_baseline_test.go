@@ -927,10 +927,12 @@ func TestCompatiblePrivateResultsBindsPromptRouting(t *testing.T) {
 		t.Fatal("identical prompt routing was incompatible")
 	}
 
-	explicit := baseline
-	explicit.Runtime.SkillActivation = SkillActivationExplicit
-	if compatiblePrivateResults(baseline, explicit) {
-		t.Fatal("explicit and implicit activation were compatible")
+	for _, activation := range []string{SkillActivationExplicit, SkillActivationDeveloper, SkillActivationCombined} {
+		other := baseline
+		other.Runtime.SkillActivation = activation
+		if compatiblePrivateResults(baseline, other) {
+			t.Fatalf("%s and implicit activation were compatible", activation)
+		}
 	}
 
 	changedPrompt := baseline

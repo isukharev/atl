@@ -634,17 +634,38 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 	if output, err := buildATL.CombinedOutput(); err != nil {
 		t.Fatalf("build atl: %v\n%s", err, output)
 	}
-	for _, provider := range []string{"claude-code", "codex"} {
-		t.Run(provider, func(t *testing.T) {
+	providerCases := []struct {
+		name       string
+		provider   string
+		activation string
+		wantPrompt string
+	}{
+		{name: "claude-code", provider: "claude-code"},
+		{name: "codex-implicit", provider: "codex", activation: SkillActivationImplicit, wantPrompt: "Use atl to inspect the field catalog.\n"},
+		{name: "codex-explicit", provider: "codex", activation: SkillActivationExplicit, wantPrompt: "$atl:jira\n\nUse atl to inspect the field catalog.\n"},
+		{name: "codex-developer", provider: "codex", activation: SkillActivationDeveloper, wantPrompt: "Use atl to inspect the field catalog.\n"},
+		{name: "codex-combined", provider: "codex", activation: SkillActivationCombined, wantPrompt: "$atl:jira\n\nUse atl to inspect the field catalog.\n"},
+	}
+	for _, test := range providerCases {
+		t.Run(test.name, func(t *testing.T) {
+			provider := test.provider
 			spec := RunSpec{SchemaVersion: RunSpecSchemaVersion, BackendMode: BackendModePrivateLive, Category: BenchmarkCategoryNeutralCommon, ScenarioFile: "scenario.json", Provider: provider, Variant: "cli-skill-" + provider, Model: "test-model", PromptFile: "prompt.md", ResponseSchemaFile: "response.json", QualitativeRubricFile: "rubric.json", WorkspaceTemplate: "workspace", Repetitions: 1, TimeoutSeconds: 30, MaxEstimatedCostMicroUSD: 10_000_000, Pricing: Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000}, ToolTransport: "cli", DataCapabilities: []string{"jira.fields"}, AllowedTools: []string{"Bash(atl *)", "Read", "Skill"}, AllowedCLICommands: []CLICommandRule{{Name: "jira_fields", Command: []string{"jira", "fields"}, MaxInvocations: 1}}, AllowedGatewayRoutes: map[string][]LiveGatewayRoute{"jira": {{Name: "jira_api", PathPrefix: "/rest/api/2"}}}, GatewayMaxResponseBytes: 1 << 20, GatewayMaxTotalBytes: 1 << 20, Checks: []RunCheck{{Name: "answer_correct", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`"ok"`)}, {Name: "atl_succeeded", Kind: "interface_all_succeeded"}, {Name: "guard_clean", Kind: "guard_no_denials"}, {Name: "http_observed", Kind: "http_methods_observed"}, {Name: "no_delegation", Kind: "delegations_none"}, {Name: "used_atl", Kind: "interface_invocations_min", Minimum: 1}}}
 			if provider == "claude-code" {
 				spec.Pricing = Pricing{}
 			} else {
-				spec.SkillActivation = SkillActivationExplicit
+				spec.SkillActivation = test.activation
 				spec.DataCapabilities = []string{"jira.fields"}
 			}
-			specPath := filepath.Join(caseDir, "run-"+provider+".json")
+			spec.Variant = "cli-skill-" + test.name
+			specPath := filepath.Join(caseDir, "run-"+test.name+".json")
 			writeJSONTestFile(t, specPath, spec)
+			if provider == "codex" {
+				for _, path := range []string{runtimeCapture, promptCapture} {
+					if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+						t.Fatal(err)
+					}
+				}
+			}
 			scratchRoot := filepath.Join(tempRepository, "private", ".ephemeral")
 			if err := os.MkdirAll(scratchRoot, 0o700); err != nil {
 				t.Fatal(err)
@@ -668,10 +689,10 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 			}
 			if provider == "codex" {
 				prompt, err := os.ReadFile(promptCapture)
-				if err != nil || string(prompt) != "$atl:jira\n\nUse atl to inspect the field catalog.\n" {
-					t.Fatalf("Codex explicit provider input changed: %q err=%v", prompt, err)
+				if err != nil || string(prompt) != test.wantPrompt {
+					t.Fatalf("Codex %s provider input changed: %q err=%v", test.activation, prompt, err)
 				}
-				if !output.Preview.PromptContractBound || output.Preview.SkillActivation != SkillActivationExplicit {
+				if !output.Preview.PromptContractBound || output.Preview.SkillActivation != test.activation {
 					t.Fatalf("preview prompt identity=%+v", output.Preview)
 				}
 				previewJSON, err := json.Marshal(output.Preview)
@@ -731,7 +752,7 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 			}
 		})
 	}
-	if upstreamRequests != 2 {
+	if upstreamRequests != len(providerCases) {
 		t.Fatalf("upstream requests=%d", upstreamRequests)
 	}
 	t.Run("codex-no-evidence-is-measured", func(t *testing.T) {
@@ -750,7 +771,7 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 		if _, err := os.Stat(filepath.Join(runDir, "result.json")); err != nil {
 			t.Fatalf("measured failure was not persisted: %v", err)
 		}
-		if upstreamRequests != 2 {
+		if upstreamRequests != len(providerCases) {
 			t.Fatalf("no-evidence run reached backend: requests=%d", upstreamRequests)
 		}
 	})
