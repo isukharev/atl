@@ -453,7 +453,9 @@ prompts, commands, routes, response text, or private identities.
 
 Comparison and aggregate grouping include the assignment digest for both the
 legacy singleton and panel workflows. Differently randomized mappings are not
-pooled even when every other rubric and runtime field matches.
+pooled even when every other rubric and runtime field matches. The digest is an
+internal grouping key and is omitted from aggregate JSON because a short answer
+mapping may be dictionary-guessable.
 
 Panel results use result schema v4 and review packets use review schema v2.
 The decoder still accepts result schema v3 without a panel and review schema v1

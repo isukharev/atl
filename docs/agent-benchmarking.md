@@ -308,7 +308,8 @@ tokens, cost, and duration instead of one weighted global score.
 
 Aggregate grouping includes the blind-assignment digest. Never pool scores from
 different answer mappings as though they were repetitions of one comparison
-contract.
+contract. The digest remains internal and is never serialized in the aggregate:
+small mapping domains are not safe merely because they were SHA-256 hashed.
 
 Every observation also carries per-metric `coverage`. An observed zero is
 different from an unavailable metric: a required metric without coverage fails

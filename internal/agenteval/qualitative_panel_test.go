@@ -307,8 +307,9 @@ func TestAggregateQualitativeReviewSetSeparatesBlindAssignments(t *testing.T) {
 	if err != nil || len(aggregate.Groups) != 2 {
 		t.Fatalf("blind assignments were merged: groups=%+v err=%v", aggregate.Groups, err)
 	}
-	if aggregate.Groups[0].QualitativeReviewSet.AssignmentDigest == aggregate.Groups[1].QualitativeReviewSet.AssignmentDigest {
-		t.Fatalf("assignment namespace was not exposed: %+v", aggregate.Groups)
+	encoded, _ := json.Marshal(aggregate)
+	if bytes.Contains(encoded, []byte(first.QualitativeReviewSet.AssignmentDigest)) || bytes.Contains(encoded, []byte(second.QualitativeReviewSet.AssignmentDigest)) {
+		t.Fatalf("private assignment digest was published: %s", encoded)
 	}
 }
 
