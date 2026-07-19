@@ -27,9 +27,10 @@ type ProviderConfinement struct {
 }
 
 const (
-	codexAgentEvalPermissionProfile = "atl_agent_eval"
-	codexPrivateCLIInstructionsText = "This is an evidence task. Use the literal atl executable through the shell tool to retrieve the evidence required for the answer. Make only the minimum necessary invocation or invocations allowed by the reviewed command policy. Base the answer on the returned evidence; a no-tool answer or an answer based on assumptions is invalid for this benchmark. Never use apply_patch, Edit, Write, or direct filesystem operations to create, inspect, or modify command-broker manifests or request/response files. If evidence retrieval through atl fails, do not invent or use an alternate broker-file protocol; return the failure through the required response schema."
-	maxProviderPromptBytes          = 1 << 20
+	codexAgentEvalPermissionProfile           = "atl_agent_eval"
+	codexPrivateCLIInstructionsText           = "This is an evidence task. Use the literal atl executable through the shell tool to retrieve the evidence required for the answer. Make only the minimum necessary invocation or invocations allowed by the reviewed command policy. Base the answer on the returned evidence; a no-tool answer or an answer based on assumptions is invalid for this benchmark. Never use apply_patch, Edit, Write, or direct filesystem operations to create, inspect, or modify command-broker manifests or request/response files. If evidence retrieval through atl fails, do not invent or use an alternate broker-file protocol; return the failure through the required response schema."
+	codexPrivateCLIInstructionsReinforcedTail = ", then use the literal atl executable through the shell tool to retrieve the evidence required for the answer. Make only the minimum necessary invocation or invocations allowed by the reviewed command policy. Base the answer on the returned evidence; a no-tool answer or an answer based on assumptions is invalid for this benchmark. Never use apply_patch, Edit, Write, or direct filesystem operations to create, inspect, or modify command-broker manifests or request/response files. If evidence retrieval through atl fails, do not invent or use an alternate broker-file protocol; return the failure through the required response schema."
+	maxProviderPromptBytes                    = 1 << 20
 )
 
 type ProviderMetrics struct {
@@ -222,12 +223,16 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 			if err != nil {
 				return ProviderCommand{}, err
 			}
+			developerInstructions, err := codexPrivateCLIInstructions(spec)
+			if err != nil {
+				return ProviderCommand{}, err
+			}
 			args = append(args,
 				"--ignore-rules", "--dangerously-bypass-hook-trust",
 				"-c", `approval_policy="never"`,
 				"-c", `web_search="disabled"`,
 				"-c", `plugins."atl@atl".enabled=true`,
-				"-c", `developer_instructions=`+strconv.Quote(codexPrivateCLIInstructions(spec)),
+				"-c", `developer_instructions=`+strconv.Quote(developerInstructions),
 				"-c", hookConfig,
 			)
 			args = append(args, confinementArgs...)
@@ -242,25 +247,39 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 	}
 }
 
-func codexPrivateCLIInstructions(_ RunSpec) string {
-	return codexPrivateCLIInstructionsText
+func codexPrivateCLIInstructions(spec RunSpec) (string, error) {
+	descriptor, err := describeSkillActivation(spec.SkillActivation)
+	if err != nil {
+		return "", err
+	}
+	skill, err := descriptor.serviceSkill(spec.DataCapabilities)
+	if err != nil {
+		return "", err
+	}
+	if !descriptor.developerReinforcement {
+		return codexPrivateCLIInstructionsText, nil
+	}
+	// Preserve the exact developer channel used by the pre-v4 compatibility
+	// control. The factorial treatment must remove or add only this channel;
+	// rewording it would create a new, confounded intervention.
+	return "This is an evidence task. Before answering, select and follow the installed $" + skill +
+		" skill implied by the reviewed data capabilities" + codexPrivateCLIInstructionsReinforcedTail, nil
 }
 
 func effectiveProviderPrompt(spec RunSpec, core []byte) ([]byte, error) {
-	switch spec.SkillActivation {
-	case "", SkillActivationImplicit:
+	descriptor, err := describeSkillActivation(spec.SkillActivation)
+	if err != nil {
+		return nil, err
+	}
+	skill, err := descriptor.serviceSkill(spec.DataCapabilities)
+	if err != nil {
+		return nil, err
+	}
+	if !descriptor.promptPrefix {
 		if len(core) > maxProviderPromptBytes {
 			return nil, fmt.Errorf("effective provider prompt exceeds %d bytes", maxProviderPromptBytes)
 		}
 		return core, nil
-	case SkillActivationExplicit:
-		// Continue below.
-	default:
-		return nil, fmt.Errorf("skill_activation must be implicit or explicit")
-	}
-	skill, err := explicitServiceSkill(spec.DataCapabilities)
-	if err != nil {
-		return nil, err
 	}
 	prefix := []byte("$" + skill + "\n\n")
 	if len(core) > maxProviderPromptBytes-len(prefix) {
@@ -275,7 +294,11 @@ func providerPromptContractSHA256(spec RunSpec, core, effective []byte) (string,
 	if spec.SkillActivationIdentity() == "" {
 		return "", nil
 	}
-	return promptContractSHA256(spec.SkillActivationIdentity(), core, effective, codexPrivateCLIInstructions(spec))
+	developerInstructions, err := codexPrivateCLIInstructions(spec)
+	if err != nil {
+		return "", err
+	}
+	return promptContractSHA256(spec.SkillActivationIdentity(), core, effective, developerInstructions)
 }
 
 func promptContractSHA256(skillActivation string, core, effective []byte, developerInstructions string) (string, error) {

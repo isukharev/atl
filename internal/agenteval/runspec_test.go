@@ -235,7 +235,7 @@ func TestRunSpecSkillActivationIsClosedToPrivateCodexCLISkill(t *testing.T) {
 	}
 	invalid := valid
 	invalid.SkillActivation = "automatic"
-	if err := invalid.Validate(); err == nil || !strings.Contains(err.Error(), "implicit or explicit") {
+	if err := invalid.Validate(); err == nil || !strings.Contains(err.Error(), "implicit, explicit, developer, or combined") {
 		t.Fatalf("invalid activation err=%v", err)
 	}
 	for name, mutate := range map[string]func(*RunSpec){
@@ -261,22 +261,73 @@ func TestRunSpecSkillActivationIsClosedToPrivateCodexCLISkill(t *testing.T) {
 		})
 	}
 
-	explicit := valid
-	explicit.Category = BenchmarkCategoryNeutralCommon
-	explicit.SkillActivation = SkillActivationExplicit
-	explicit.DataCapabilities = []string{"jira.epic.digest"}
-	if err := explicit.Validate(); err != nil {
-		t.Fatalf("jira explicit activation: %v", err)
+	for _, activation := range []string{SkillActivationExplicit, SkillActivationDeveloper, SkillActivationCombined} {
+		t.Run(activation, func(t *testing.T) {
+			hinted := valid
+			hinted.Category = BenchmarkCategoryNeutralCommon
+			hinted.SkillActivation = activation
+			hinted.DataCapabilities = []string{"jira.epic.digest"}
+			if err := hinted.Validate(); err != nil {
+				t.Fatalf("jira hinted activation: %v", err)
+			}
+			hinted.DataCapabilities = []string{"confluence.page.section"}
+			// The fixture's reviewed command and gateway policy are Jira-only. Test
+			// service-family routing here without conflating it with the independent
+			// interface-capability validator.
+			if err := validateSkillActivation(hinted); err != nil {
+				t.Fatalf("confluence hinted activation: %v", err)
+			}
+
+			for name, capabilities := range map[string][]string{
+				"missing":          nil,
+				"unknown":          {"knowledge.search"},
+				"lookalike-prefix": {"jira-extra.issue"},
+				"mixed":            {"confluence.page.section", "jira.epic.digest"},
+			} {
+				t.Run(name, func(t *testing.T) {
+					candidate := hinted
+					candidate.DataCapabilities = capabilities
+					err := validateSkillActivation(candidate)
+					if err == nil {
+						t.Fatal("invalid hinted activation passed")
+					}
+					if name == "mixed" && !strings.Contains(err.Error(), "mixed") {
+						t.Fatalf("mixed activation err=%v", err)
+					}
+					if name != "mixed" && !strings.Contains(err.Error(), "jira-only or confluence-only") {
+						t.Fatalf("invalid family err=%v", err)
+					}
+				})
+			}
+		})
 	}
-	mixed := explicit
-	mixed.DataCapabilities = []string{"confluence.page.section", "jira.epic.digest"}
-	if err := validateSkillActivation(mixed); err == nil || !strings.Contains(err.Error(), "mixed") {
-		t.Fatalf("mixed activation err=%v", err)
+}
+
+func TestSkillActivationDescriptorModelsTwoByTwoMatrix(t *testing.T) {
+	tests := []struct {
+		activation             string
+		promptPrefix           bool
+		developerReinforcement bool
+	}{
+		{activation: SkillActivationImplicit},
+		{activation: SkillActivationExplicit, promptPrefix: true},
+		{activation: SkillActivationDeveloper, developerReinforcement: true},
+		{activation: SkillActivationCombined, promptPrefix: true, developerReinforcement: true},
 	}
-	unknown := explicit
-	unknown.DataCapabilities = []string{"knowledge.search"}
-	if err := validateSkillActivation(unknown); err == nil || !strings.Contains(err.Error(), "jira-only or confluence-only") {
-		t.Fatalf("unknown activation err=%v", err)
+	for _, test := range tests {
+		t.Run(test.activation, func(t *testing.T) {
+			descriptor, err := describeSkillActivation(test.activation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if descriptor.promptPrefix != test.promptPrefix || descriptor.developerReinforcement != test.developerReinforcement ||
+				descriptor.hintsServiceSkill() != (test.promptPrefix || test.developerReinforcement) {
+				t.Fatalf("descriptor=%+v", descriptor)
+			}
+		})
+	}
+	if _, err := describeSkillActivation("automatic"); err == nil {
+		t.Fatal("unknown activation descriptor passed")
 	}
 }
 

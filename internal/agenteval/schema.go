@@ -11,11 +11,12 @@ import (
 )
 
 const (
-	ScenarioSchemaVersion     = 1
-	ObservationSchemaVersion  = 3
-	ResultSchemaVersion       = 5
-	PanelResultSchemaVersion  = 4
-	LegacyResultSchemaVersion = 3
+	ScenarioSchemaVersion                = 1
+	ObservationSchemaVersion             = 4
+	ResultSchemaVersion                  = 6
+	LegacyPromptBoundResultSchemaVersion = 5
+	PanelResultSchemaVersion             = 4
+	LegacyResultSchemaVersion            = 3
 )
 
 const (
@@ -405,7 +406,8 @@ func (r Runtime) validate() error {
 			return fmt.Errorf("runtime %s is invalid", name)
 		}
 	}
-	if r.SkillActivation != "" && r.SkillActivation != SkillActivationImplicit && r.SkillActivation != SkillActivationExplicit {
+	if r.SkillActivation != "" && r.SkillActivation != SkillActivationImplicit && r.SkillActivation != SkillActivationExplicit &&
+		r.SkillActivation != SkillActivationDeveloper && r.SkillActivation != SkillActivationCombined {
 		return fmt.Errorf("runtime skill_activation is invalid")
 	}
 	if r.PromptContractSHA256 != "" && !validSHA256(r.PromptContractSHA256) {

@@ -215,7 +215,7 @@ the reviewed plan. Stdout does not enumerate case aliases or private paths.
 
 ## Review, run, and assess
 
-A v2 plan binds the exact comparison contract and execution identity: case
+A v3 plan binds the exact comparison contract and execution identity: case
 inputs, ordered surfaces, skill activation and private prompt-contract digest,
 ATL and wrapper binaries, plugin/skill tree, agent runtime, repository commit,
 backend-config identity, external profile when used, cost cap, and consent
@@ -260,23 +260,53 @@ shell selection and startup state are never projected. The shell remains inside
 the existing hook, filesystem, command-broker, read-only, and GET/HEAD controls;
 MCP surfaces do not opt into these CLI-only feature flags.
 
-The private CLI developer instruction requires evidence retrieval through the
-literal `atl` executable but stays neutral about skill selection and never
-reveals a case-specific command. Codex `cli-skill` run specs separately choose
-`skill_activation:"implicit"` or `"explicit"`. The implicit arm sends the core
-task byte-for-byte and measures task-matched skill discovery. The explicit arm
-prepends `$atl:jira` or `$atl:confluence` to the actual user prompt, derived
-only from a reviewed single-service `data_capabilities` set. Mixed or unknown
-families fail closed. Neither arm discloses a selector, field, expected answer,
-backend, or command allowlist.
+Codex `cli-skill` run specs choose one cell from the complete prompt-channel
+2x2. A named skill is derived only from reviewed `data_capabilities`:
 
-The plan and raw result bind activation plus a digest of the exact core prompt,
-effective stdin, and developer instruction. Low-level dry-run exposes only
-`prompt_contract_bound:true`. Keep the digest private: it is omitted from
-preview and aggregate JSON because short private prompts may be
-dictionary-guessable. The current plan layout supports one candidate per
-surface, so implicit/explicit A/B runs use two separately reviewed run sets;
-do not encode the arms as different surfaces.
+| `skill_activation` | User channel (effective stdin) | Developer channel |
+| --- | --- | --- |
+| `implicit` | Exact core task bytes | Neutral evidence instruction; no skill name |
+| `explicit` | `$atl:jira\n\n` or `$atl:confluence\n\n`, then exact core task | Neutral evidence instruction; no skill name |
+| `developer` | Exact core task bytes | Evidence instruction names the derived skill |
+| `combined` | `$atl:jira\n\n` or `$atl:confluence\n\n`, then exact core task | Evidence instruction names the same derived skill |
+
+For `developer` and `combined`, the developer instruction preserves the exact
+pre-v4 compatibility-control wording: `This is an evidence task. Before
+answering, select and follow the installed $atl:jira skill implied by the
+reviewed data capabilities, then use…` or the corresponding Confluence form.
+The remaining safety/evidence text is byte-identical to that control. All
+developer variants require evidence through the literal `atl` executable and
+never reveal a case-specific command, field selector, expected answer, backend
+identity, or command allowlist. `explicit`,
+`developer`, and `combined` fail closed unless the capability set is non-empty
+and entirely Jira or entirely Confluence; mixed and unknown families are valid
+only for `implicit`. Validation completes before credentials, provider
+execution, or backend access.
+
+The plan and raw result bind the treatment separately and inside a canonical
+schema-v1 prompt-contract envelope with the exact core prompt, effective stdin,
+and exact developer instruction; SHA-256 covers the whole envelope. Thus every
+named channel and the unchanged task bytes are covered without publishing them.
+Low-level dry-run exposes only `prompt_contract_bound:true`. Keep the digest
+private: it is omitted from preview and aggregate JSON because short private
+prompts may be dictionary-guessable.
+
+The current plan layout supports one candidate per surface, so the four
+treatments require four separately reviewed run sets; never encode them as
+different surfaces. These runs can provide descriptive observations, but the
+separate plans do not control ordering, provider state, or assignment and are
+not a causal study. Do not infer user-channel, developer-channel, or interaction
+effects until the dedicated causal-study orchestration tracked in #508 exists.
+Multi-surface plans accept only `implicit`; naming a skill in either channel is
+a surface confounder.
+
+Run-spec schema v5 carries the four treatments. Existing v4 `implicit` and
+`explicit` specs retain their meanings when deliberately migrated. Legacy v3
+specs that named a skill through provider instructions are not silently mapped
+to `developer`; create and review a new activation-bound v5 spec and baseline.
+Legacy prompt-bound result v5/private-plan v2 artifacts retain only
+`implicit`/`explicit`; result v3/v4 and private-plan v1 remain readable under
+their earlier rules. None can be silently reclassified into a new treatment.
 Private Codex CLI runs add the snapshotted repository as an owner-local
 marketplace and install `atl@atl` through Codex's plugin command before provider
 launch. The resulting skills therefore retain their shipped `atl:` namespace;
@@ -495,13 +525,13 @@ pooled even when every other rubric and runtime field matches. The digest is an
 internal grouping key and is omitted from aggregate JSON because a short answer
 mapping may be dictionary-guessable.
 
-Current results use schema v5, aggregates use schema v5, private plans use
-schema v2, and review packets use schema v2. The decoder still accepts result
-schema v3/v4 and private plan schema v1 for lifecycle inspection and retention.
-Legacy plans are not silently re-executed or reclassified under the v2 material;
-create a fresh v2 plan and baseline for activation-bound execution and
-comparison. Older binaries reject the new artifacts rather than accepting them
-under a misleading old version.
+Current results use schema v6, aggregates use schema v6, private plans use
+schema v3, and review packets use schema v2. The decoder still accepts
+prompt-bound result schema v5, result schema v3/v4, and private plan schema
+v1/v2 for lifecycle inspection and retention. Legacy plans are not silently
+re-executed or reclassified under the v3 material; create a fresh v3 plan and
+baseline for a new treatment. Older binaries reject the new artifacts rather
+than accepting them under a misleading old version.
 
 ## Retention and recovery
 

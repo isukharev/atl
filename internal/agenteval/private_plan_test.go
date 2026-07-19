@@ -395,6 +395,61 @@ func TestPrivatePlanBindsSkillActivationAndPromptContractBeforeExecution(t *test
 	assertPrivatePlanNoRuntimeInvocation(t, fixture)
 }
 
+func TestPrivatePlanPromptIdentityPreservesExplicitSchemaGenerations(t *testing.T) {
+	item := privatePlanItem{
+		Provider:             "codex",
+		Surface:              SurfaceCLISkill,
+		PromptContractSHA256: strings.Repeat("a", 64),
+	}
+	for _, activation := range []string{SkillActivationImplicit, SkillActivationExplicit, SkillActivationDeveloper, SkillActivationCombined} {
+		item.SkillActivation = activation
+		if !validPrivatePlanPromptIdentity(PrivatePlanSchemaVersion, item) {
+			t.Fatalf("current plan rejected activation %q", activation)
+		}
+	}
+	for _, activation := range []string{SkillActivationImplicit, SkillActivationExplicit} {
+		item.SkillActivation = activation
+		if !validPrivatePlanPromptIdentity(LegacyPromptBoundPrivatePlanSchemaVersion, item) {
+			t.Fatalf("legacy prompt-bound plan rejected activation %q", activation)
+		}
+	}
+	for _, activation := range []string{SkillActivationDeveloper, SkillActivationCombined} {
+		item.SkillActivation = activation
+		if validPrivatePlanPromptIdentity(LegacyPromptBoundPrivatePlanSchemaVersion, item) {
+			t.Fatalf("legacy prompt-bound plan accepted new activation %q", activation)
+		}
+	}
+	item.SkillActivation = ""
+	item.PromptContractSHA256 = ""
+	if !validPrivatePlanPromptIdentity(LegacyPrivatePlanSchemaVersion, item) {
+		t.Fatal("pre-prompt plan identity became unreadable")
+	}
+	if validPrivatePlanPromptIdentity(PrivatePlanSchemaVersion+1, item) {
+		t.Fatal("future plan schema accepted prompt identity")
+	}
+}
+
+func TestLegacyPromptBoundPrivatePlanV2RemainsReadable(t *testing.T) {
+	fixture := newPrivatePlanTestFixture(t, true, false)
+	preview := fixture.createPlan(t)
+	plan, _, err := loadPrivatePlan(fixture.root, preview.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.SchemaVersion = LegacyPromptBoundPrivatePlanSchemaVersion
+	data, err := encodePrivatePlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixture.root, "plans", preview.PlanID+".json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, err := loadPrivatePlan(fixture.root, preview.PlanID)
+	if err != nil || loaded.SchemaVersion != LegacyPromptBoundPrivatePlanSchemaVersion {
+		t.Fatalf("legacy prompt-bound plan=%+v err=%v", loaded, err)
+	}
+}
+
 func TestLegacyPrivatePlanV1RemainsReadableByWorkspaceLifecycle(t *testing.T) {
 	fixture := newPrivatePlanTestFixture(t, true, false)
 	preview := fixture.createPlan(t)

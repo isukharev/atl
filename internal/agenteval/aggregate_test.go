@@ -75,21 +75,43 @@ func TestAggregateResultsSeparatesSkillActivationWithoutPublishingPromptHash(t *
 		}
 		return result
 	}
-	implicit := makeResult(SkillActivationImplicit, strings.Repeat("a", 64))
-	explicit := makeResult(SkillActivationExplicit, strings.Repeat("b", 64))
-	aggregate, err := AggregateResults([]Result{explicit, implicit})
+	arms := []struct {
+		activation string
+		digest     string
+	}{
+		{SkillActivationImplicit, strings.Repeat("a", 64)},
+		{SkillActivationExplicit, strings.Repeat("b", 64)},
+		{SkillActivationDeveloper, strings.Repeat("c", 64)},
+		{SkillActivationCombined, strings.Repeat("d", 64)},
+	}
+	results := make([]Result, 0, len(arms))
+	for _, arm := range arms {
+		results = append(results, makeResult(arm.activation, arm.digest))
+	}
+	aggregate, err := AggregateResults(results)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(aggregate.Groups) != 2 || aggregate.Groups[0].Runtime.SkillActivation != SkillActivationExplicit || aggregate.Groups[1].Runtime.SkillActivation != SkillActivationImplicit {
+	want := []string{SkillActivationCombined, SkillActivationDeveloper, SkillActivationExplicit, SkillActivationImplicit}
+	if len(aggregate.Groups) != len(want) {
 		t.Fatalf("groups=%+v", aggregate.Groups)
+	}
+	for index, activation := range want {
+		if aggregate.Groups[index].Runtime.SkillActivation != activation || aggregate.Groups[index].Runtime.PromptContractSHA256 != "" {
+			t.Fatalf("group %d=%+v", index, aggregate.Groups[index])
+		}
 	}
 	encoded, err := json.Marshal(aggregate)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(encoded), "prompt_contract_sha256") || strings.Contains(string(encoded), strings.Repeat("a", 64)) || strings.Contains(string(encoded), strings.Repeat("b", 64)) {
+	if strings.Contains(string(encoded), "prompt_contract_sha256") {
 		t.Fatalf("aggregate published private prompt identity: %s", encoded)
+	}
+	for _, arm := range arms {
+		if strings.Contains(string(encoded), arm.digest) {
+			t.Fatalf("aggregate published private prompt identity: %s", encoded)
+		}
 	}
 }
 
@@ -115,7 +137,7 @@ func TestAggregateResultsRejectsHiddenPromptContractDrift(t *testing.T) {
 	}
 }
 
-func TestResultPromptIdentityKeepsLegacyV4ReadableAndCurrentFailClosed(t *testing.T) {
+func TestResultPromptIdentityKeepsExplicitLegacySchemasReadableAndCurrentFailClosed(t *testing.T) {
 	legacy, err := Evaluate(validScenario(), validObservation())
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +153,7 @@ func TestResultPromptIdentityKeepsLegacyV4ReadableAndCurrentFailClosed(t *testin
 	legacy.Runtime.SkillActivation = SkillActivationImplicit
 	legacy.Runtime.PromptContractSHA256 = strings.Repeat("a", 64)
 	if err := legacy.Validate(); err == nil || !strings.Contains(err.Error(), "legacy") {
-		t.Fatalf("legacy result accepted v5 identity: %v", err)
+		t.Fatalf("pre-prompt result accepted prompt identity: %v", err)
 	}
 
 	current := legacy
@@ -143,6 +165,32 @@ func TestResultPromptIdentityKeepsLegacyV4ReadableAndCurrentFailClosed(t *testin
 	current.Runtime.PromptContractSHA256 = ""
 	if err := current.Validate(); err == nil || !strings.Contains(err.Error(), "requires prompt contract") {
 		t.Fatalf("current result missed activation identity: %v", err)
+	}
+
+	promptBound := current
+	promptBound.SchemaVersion = LegacyPromptBoundResultSchemaVersion
+	promptBound.Runtime.SkillActivation = SkillActivationImplicit
+	promptBound.Runtime.PromptContractSHA256 = strings.Repeat("b", 64)
+	encoded, err = json.Marshal(promptBound)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeResult(strings.NewReader(string(encoded))); err != nil {
+		t.Fatalf("legacy prompt-bound v5 result became unreadable: %v", err)
+	}
+	promptBound.Runtime.SkillActivation = SkillActivationDeveloper
+	if err := promptBound.Validate(); err == nil || !strings.Contains(err.Error(), "legacy prompt-bound") {
+		t.Fatalf("legacy v5 accepted a new activation arm: %v", err)
+	}
+
+	current.Runtime.SkillActivation = SkillActivationDeveloper
+	current.Runtime.PromptContractSHA256 = strings.Repeat("c", 64)
+	if err := current.Validate(); err != nil {
+		t.Fatalf("current result rejected developer activation: %v", err)
+	}
+	current.SchemaVersion = ResultSchemaVersion + 1
+	if err := current.Validate(); err == nil || !strings.Contains(err.Error(), "unsupported result schema_version") {
+		t.Fatalf("future result schema passed: %v", err)
 	}
 }
 

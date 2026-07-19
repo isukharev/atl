@@ -760,12 +760,18 @@ func AssessQualitativeReviewSet(result Result, resultBytes, finalBytes []byte, r
 	}
 	resultHash := sha256Hex(resultBytes)
 	finalHash := sha256Hex(finalBytes)
-	if result.SchemaVersion < ResultSchemaVersion {
-		// A legacy raw result has no audited prompt envelope. Panel assessment
-		// adds review data but must not relabel it as the v5 prompt-identified
+	switch result.SchemaVersion {
+	case LegacyResultSchemaVersion, PanelResultSchemaVersion:
+		// Pre-prompt results have no audited prompt envelope. Panel assessment
+		// adds review data but must not relabel them as a prompt-identified
 		// contract.
 		result.SchemaVersion = PanelResultSchemaVersion
-	} else {
+	case LegacyPromptBoundResultSchemaVersion:
+		// Preserve the first prompt-bound schema exactly. In particular, adding a
+		// panel must not demote v5 to the pre-prompt panel schema or promote it to
+		// the current four-arm contract.
+		result.SchemaVersion = LegacyPromptBoundResultSchemaVersion
+	case ResultSchemaVersion:
 		result.SchemaVersion = ResultSchemaVersion
 	}
 	result.QualitativeReviewSet = &QualitativeReviewSetAssessment{

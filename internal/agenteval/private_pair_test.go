@@ -26,6 +26,24 @@ func TestValidatePrivateRunPairRequiresIdenticalTaskContract(t *testing.T) {
 	}
 }
 
+func TestValidatePrivateRunComparisonSetKeepsNonActivationCLISurfaces(t *testing.T) {
+	_, cliPath, mcpPath, cli, mcp := writePrivatePairFixture(t)
+	cli.Provider = "claude-code"
+	cli.SkillActivation = ""
+	cli.Pricing = Pricing{}
+	mcp.Provider = "claude-code"
+	mcp.Pricing = Pricing{}
+	writeJSONTestFile(t, cliPath, cli)
+	writeJSONTestFile(t, mcpPath, mcp)
+	set, err := ValidatePrivateRunComparisonSet(cliPath, mcpPath)
+	if err != nil {
+		t.Fatalf("non-activation CLI surface was rejected: %v", err)
+	}
+	if !set.Comparable || set.Provider != "claude-code" {
+		t.Fatalf("set=%+v", set)
+	}
+}
+
 func TestValidatePrivateRunPairRejectsTransportAndContractDrift(t *testing.T) {
 	for name, mutate := range map[string]func(string, *RunSpec, *RunSpec){
 		"same transport": func(_ string, cli, mcp *RunSpec) {
@@ -45,6 +63,14 @@ func TestValidatePrivateRunPairRejectsTransportAndContractDrift(t *testing.T) {
 		},
 		"explicit cli activation": func(_ string, cli, _ *RunSpec) {
 			cli.SkillActivation = SkillActivationExplicit
+			cli.DataCapabilities = []string{"jira.fields"}
+		},
+		"developer cli activation": func(_ string, cli, _ *RunSpec) {
+			cli.SkillActivation = SkillActivationDeveloper
+			cli.DataCapabilities = []string{"jira.fields"}
+		},
+		"combined cli activation": func(_ string, cli, _ *RunSpec) {
+			cli.SkillActivation = SkillActivationCombined
 			cli.DataCapabilities = []string{"jira.fields"}
 		},
 	} {

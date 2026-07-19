@@ -27,7 +27,7 @@ legacy `atl_invocations` fields continue to validate.
 
 Observations classify runs as `supported`, `unsupported-capability`, or
 `invalidated-backend-drift`. Ineligible runs retain safety and budget failures
-but are excluded from task pass/fail. Aggregate schema v5 reports eligibility
+but are excluded from task pass/fail. Aggregate schema v6 reports eligibility
 counts and coverage, conditional success, and computes neutral/surface-native
 efficiency and qualitative summaries only from supported deterministically
 valid runs. Missing eligibility in older observations means `supported`.
@@ -81,13 +81,13 @@ semantic task, oracle, and data-capability contracts;
 surface-native cases are reported separately rather than scored as failures on
 interfaces that do not expose the capability.
 
-Run-spec schema v4 retains the mandatory `data_capabilities` contract for
-neutral-common comparisons and adds a private Codex CLI skill-activation
-treatment. Committed synthetic specs need only the version bump from v3. A
-Codex `private-live` `cli-skill` spec must additionally choose
-`skill_activation:"implicit"` or `"explicit"`; that field is rejected on all
-other cells. Run `validate-comparison-set` before any model or backend is
-contacted.
+Run-spec schema v5 retains the mandatory `data_capabilities` contract for
+neutral-common comparisons and models the complete private Codex CLI
+prompt-channel treatment. Committed synthetic specs need only the version bump
+from v4. A Codex `private-live` `cli-skill` spec must additionally choose
+`skill_activation:"implicit"`, `"explicit"`, `"developer"`, or `"combined"`;
+that field is rejected on all other cells. Run `validate-comparison-set` before
+any model or backend is contacted.
 
 The realistic matrix currently contains:
 
@@ -251,7 +251,7 @@ over-budget. The deterministic MCP test additionally verifies the exact
 four-GET, zero-write trajectory with technical-id reuse and that the expansion alone recovers the
 marker.
 
-Observation schema v3, result schema v5, and aggregate schema v5 retain the
+Observation schema v4, result schema v6, and aggregate schema v6 retain the
 `capability_families` contract introduced in v3, using a
 closed generic vocabulary shared by CLI and MCP. Each entry contains only
 invocations, successes, failures, and output bytes. Treat the section as
@@ -291,22 +291,25 @@ does not print the private scenario id. Run each case once, assess both answers
 with the same rubric/reviewer contract, and keep every raw run/review artifact
 under the private output root.
 
-Codex private `cli-skill` specs make skill routing measurable rather than
-implicit in provider instructions. `skill_activation:"implicit"` sends the
-neutral core task to the model byte-for-byte and relies on description-based
-skill selection. `"explicit"` prepends the reviewed service skill name to the
-actual user prompt. Only single-service Jira or Confluence capability sets can
-use the explicit arm; mixed and unknown families fail closed. The exact core
-prompt, effective stdin, activation mode, and mode-neutral developer
-instructions are bound by a private prompt-contract digest. That digest stays
-in private plan/result artifacts. Low-level dry-run exposes only a bound flag;
-the digest is omitted from preview and aggregate JSON.
+Codex private `cli-skill` specs make both skill-routing channels measurable.
+`skill_activation:"implicit"` leaves the neutral user task and developer
+instruction unnamed; `"explicit"` prefixes only the user task; `"developer"`
+names the same derived skill only in the developer instruction; and
+`"combined"` names it in both channels. Named cells require one reviewed Jira
+or Confluence capability family; mixed and unknown families fail closed. The
+exact core prompt, effective stdin, activation mode, and developer instruction
+are bound by a private prompt-contract digest. That digest stays in private
+plan/result artifacts. Low-level dry-run exposes only a bound flag; the digest
+is omitted from preview and aggregate JSON.
 
-The private lifecycle currently addresses one candidate per surface. Run an
-implicit/explicit same-surface A/B as two separately reviewed run sets, then
-compare their aggregate groups or a privacy-reviewed offline report. `private
-compare` intentionally rejects the different activation identities. Do not put
-both arms into one plan or relabel one arm as another surface.
+The private lifecycle currently addresses one candidate per surface. Run the
+four same-surface cells as separately reviewed run sets, then describe their
+aggregate groups or a privacy-reviewed offline report. `private compare`
+intentionally rejects different activation identities. Separate plans do not
+control order or provider state, so they are compatibility observations rather
+than a causal 2x2 study; dedicated orchestration is tracked in issue #508. Do
+not put multiple cells into one ordinary plan or relabel a cell as another
+surface.
 Multi-surface validation accepts only implicit activation on a Codex CLI member
 so a route hint cannot be mistaken for a surface-only difference.
 

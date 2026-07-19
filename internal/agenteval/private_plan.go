@@ -21,11 +21,12 @@ import (
 )
 
 const (
-	PrivatePlanSchemaVersion       = 2
-	LegacyPrivatePlanSchemaVersion = 1
-	PrivatePlanConsentConfirmation = "CONSENT"
-	PrivatePlanConfirmation        = "RUN"
-	privatePlanMaxBytes            = 4 << 20
+	PrivatePlanSchemaVersion                  = 3
+	LegacyPromptBoundPrivatePlanSchemaVersion = 2
+	LegacyPrivatePlanSchemaVersion            = 1
+	PrivatePlanConsentConfirmation            = "CONSENT"
+	PrivatePlanConfirmation                   = "RUN"
+	privatePlanMaxBytes                       = 4 << 20
 )
 
 var ErrPrivatePlanRejected = errors.New("private plan rejected")
@@ -1002,7 +1003,7 @@ func normalizePrivateCandidateTree(root, runRoot string) error {
 func validatePrivatePlan(plan privatePlan, expectedID string) error {
 	created, createdErr := time.Parse(time.RFC3339Nano, plan.CreatedAt)
 	expires, expiryErr := time.Parse(time.RFC3339, plan.Consent.ExpiresAt)
-	if (plan.SchemaVersion != PrivatePlanSchemaVersion && plan.SchemaVersion != LegacyPrivatePlanSchemaVersion) || plan.PlanID != expectedID || !privatePlanIDRE.MatchString(plan.PlanID) ||
+	if (plan.SchemaVersion != PrivatePlanSchemaVersion && plan.SchemaVersion != LegacyPromptBoundPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyPrivatePlanSchemaVersion) || plan.PlanID != expectedID || !privatePlanIDRE.MatchString(plan.PlanID) ||
 		!privateWorkspaceAliasRE.MatchString(plan.RunSetAlias) || !validSHA256(plan.ContractSHA256) || !validSHA256(plan.InputsSHA256) ||
 		createdErr != nil || expiryErr != nil || !expires.After(created) || expires.After(created.Add(7*24*time.Hour)) ||
 		!plan.Consent.ProviderDataApproved || !privateGitCommitRE.MatchString(plan.RepositoryCommit) ||
@@ -1038,15 +1039,21 @@ func validPrivatePlanPromptIdentity(schemaVersion int, item privatePlanItem) boo
 	if schemaVersion == LegacyPrivatePlanSchemaVersion {
 		return item.SkillActivation == "" && item.PromptContractSHA256 == ""
 	}
-	if schemaVersion != PrivatePlanSchemaVersion {
+	if schemaVersion != LegacyPromptBoundPrivatePlanSchemaVersion && schemaVersion != PrivatePlanSchemaVersion {
 		return false
 	}
 	activationCell := item.Provider == "codex" && item.Surface == SurfaceCLISkill
 	if !activationCell {
 		return item.SkillActivation == "" && item.PromptContractSHA256 == ""
 	}
-	return validSHA256(item.PromptContractSHA256) &&
-		(item.SkillActivation == SkillActivationImplicit || item.SkillActivation == SkillActivationExplicit)
+	if !validSHA256(item.PromptContractSHA256) {
+		return false
+	}
+	if schemaVersion == LegacyPromptBoundPrivatePlanSchemaVersion {
+		return item.SkillActivation == SkillActivationImplicit || item.SkillActivation == SkillActivationExplicit
+	}
+	return item.SkillActivation == SkillActivationImplicit || item.SkillActivation == SkillActivationExplicit ||
+		item.SkillActivation == SkillActivationDeveloper || item.SkillActivation == SkillActivationCombined
 }
 
 func validatePrivateQualitativeReviewPanelContract(panel privateQualitativeReviewPanelContract) error {

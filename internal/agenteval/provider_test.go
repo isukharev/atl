@@ -313,11 +313,15 @@ func TestBuildPrivateCLIProviderCommandsEnforceHooksAndCodexCommandBroker(t *tes
 				}
 				return
 			}
+			developerInstructions, err := codexPrivateCLIInstructions(spec)
+			if err != nil {
+				t.Fatal(err)
+			}
 			for _, value := range []string{
 				"--ignore-rules", "--dangerously-bypass-hook-trust",
 				`approval_policy="never"`, `web_search="disabled"`,
 				`plugins."atl@atl".enabled=true`,
-				`developer_instructions=` + strconv.Quote(codexPrivateCLIInstructions(spec)),
+				`developer_instructions=` + strconv.Quote(developerInstructions),
 				`default_permissions="atl_agent_eval"`, `permissions.atl_agent_eval.extends=":workspace"`,
 				`permissions.atl_agent_eval.filesystem={"/private/requests"="write","/private/responses"="read"}`,
 				"hooks.PreToolUse=", "/opt/guard", `"SHELL"`, `"ATL_EVAL_CLI_POLICY_FILE"`, `"ATL_EVAL_GUARD_MODE"`,
@@ -373,7 +377,10 @@ func TestCodexPrivateCLIInstructionsAreScopedToPrivateCLI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	instructions := codexPrivateCLIInstructions(privateSpec)
+	instructions, err := codexPrivateCLIInstructions(privateSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
 	exactSetting := `developer_instructions=` + strconv.Quote(instructions)
 	if !slices.Contains(command.Args, exactSetting) {
 		t.Fatalf("private CLI command misses exact operational instruction: %v", command.Args)
@@ -398,8 +405,34 @@ func TestCodexPrivateCLIInstructionsAreScopedToPrivateCLI(t *testing.T) {
 	}
 	explicit := privateSpec
 	explicit.SkillActivation = SkillActivationExplicit
-	if explicitInstructions := codexPrivateCLIInstructions(explicit); explicitInstructions != instructions {
+	explicitInstructions, err := codexPrivateCLIInstructions(explicit)
+	if err != nil || explicitInstructions != instructions {
 		t.Fatalf("developer instruction depends on activation: implicit=%q explicit=%q", instructions, explicitInstructions)
+	}
+	for _, activation := range []string{SkillActivationDeveloper, SkillActivationCombined} {
+		reinforced := privateSpec
+		reinforced.SkillActivation = activation
+		reinforcedInstructions, err := codexPrivateCLIInstructions(reinforced)
+		want := "This is an evidence task. Before answering, select and follow the installed $atl:jira skill implied by the reviewed data capabilities, then use the literal atl executable through the shell tool to retrieve the evidence required for the answer. Make only the minimum necessary invocation or invocations allowed by the reviewed command policy. Base the answer on the returned evidence; a no-tool answer or an answer based on assumptions is invalid for this benchmark. Never use apply_patch, Edit, Write, or direct filesystem operations to create, inspect, or modify command-broker manifests or request/response files. If evidence retrieval through atl fails, do not invent or use an alternate broker-file protocol; return the failure through the required response schema."
+		if err != nil || reinforcedInstructions != want {
+			t.Fatalf("%s developer instruction=%q want=%q err=%v", activation, reinforcedInstructions, want, err)
+		}
+		if strings.Count(reinforcedInstructions, "$atl:") != 1 || strings.Contains(reinforcedInstructions, "$atl:confluence") {
+			t.Fatalf("%s developer reinforcement leaked routing detail: %q", activation, reinforcedInstructions)
+		}
+		exactSetting := `developer_instructions=` + strconv.Quote(reinforcedInstructions)
+		built, err := BuildProviderCommand(reinforced, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", confinement, []byte(`{"type":"object"}`))
+		if err != nil || !slices.Contains(built.Args, exactSetting) {
+			t.Fatalf("%s command misses reinforcement: %v err=%v", activation, built.Args, err)
+		}
+	}
+	confluence := privateSpec
+	confluence.SkillActivation = SkillActivationDeveloper
+	confluence.DataCapabilities = []string{"confluence.page.section"}
+	confluenceInstructions, err := codexPrivateCLIInstructions(confluence)
+	wantConfluence := "This is an evidence task. Before answering, select and follow the installed $atl:confluence skill implied by the reviewed data capabilities, then use the literal atl executable through the shell tool to retrieve the evidence required for the answer. Make only the minimum necessary invocation or invocations allowed by the reviewed command policy. Base the answer on the returned evidence; a no-tool answer or an answer based on assumptions is invalid for this benchmark. Never use apply_patch, Edit, Write, or direct filesystem operations to create, inspect, or modify command-broker manifests or request/response files. If evidence retrieval through atl fails, do not invent or use an alternate broker-file protocol; return the failure through the required response schema."
+	if err != nil || confluenceInstructions != wantConfluence {
+		t.Fatalf("confluence developer instruction=%q want=%q err=%v", confluenceInstructions, wantConfluence, err)
 	}
 	privateMCP := privateSpec
 	privateMCP.SkillActivation = ""
@@ -453,33 +486,40 @@ func TestCodexPrivateCLIInstructionsAreScopedToPrivateCLI(t *testing.T) {
 	}
 }
 
-func TestEffectiveProviderPromptDistinguishesImplicitAndExplicitSkillActivation(t *testing.T) {
+func TestEffectiveProviderPromptModelsTwoByTwoSkillActivation(t *testing.T) {
 	core := []byte("Collect the reviewed evidence.\n")
-	implicit := validRunSpec()
-	implicitPrompt, err := effectiveProviderPrompt(implicit, core)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if &implicitPrompt[0] != &core[0] || !bytes.Equal(implicitPrompt, core) {
-		t.Fatalf("implicit prompt changed: %q", implicitPrompt)
+	for _, activation := range []string{SkillActivationImplicit, SkillActivationDeveloper} {
+		spec := validRunSpec()
+		spec.SkillActivation = activation
+		spec.DataCapabilities = []string{"jira.issue.field"}
+		actual, err := effectiveProviderPrompt(spec, core)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if &actual[0] != &core[0] || !bytes.Equal(actual, core) {
+			t.Fatalf("%s prompt changed: %q", activation, actual)
+		}
 	}
 
 	for _, test := range []struct {
 		name         string
+		activation   string
 		capabilities []string
 		expected     string
 		wantErr      string
 	}{
-		{name: "jira", capabilities: []string{"jira.issue.field"}, expected: "$atl:jira\n\nCollect the reviewed evidence.\n"},
-		{name: "confluence", capabilities: []string{"confluence.page.section"}, expected: "$atl:confluence\n\nCollect the reviewed evidence.\n"},
-		{name: "missing", wantErr: "jira-only or confluence-only"},
-		{name: "unknown", capabilities: []string{"knowledge.search"}, wantErr: "jira-only or confluence-only"},
-		{name: "lookalike-prefix", capabilities: []string{"jira-extra.issue"}, wantErr: "jira-only or confluence-only"},
-		{name: "mixed", capabilities: []string{"confluence.page", "jira.issue"}, wantErr: "mixed"},
+		{name: "explicit-jira", activation: SkillActivationExplicit, capabilities: []string{"jira.issue.field"}, expected: "$atl:jira\n\nCollect the reviewed evidence.\n"},
+		{name: "explicit-confluence", activation: SkillActivationExplicit, capabilities: []string{"confluence.page.section"}, expected: "$atl:confluence\n\nCollect the reviewed evidence.\n"},
+		{name: "combined-jira", activation: SkillActivationCombined, capabilities: []string{"jira.issue.field"}, expected: "$atl:jira\n\nCollect the reviewed evidence.\n"},
+		{name: "combined-confluence", activation: SkillActivationCombined, capabilities: []string{"confluence.page.section"}, expected: "$atl:confluence\n\nCollect the reviewed evidence.\n"},
+		{name: "missing", activation: SkillActivationCombined, wantErr: "jira-only or confluence-only"},
+		{name: "unknown", activation: SkillActivationCombined, capabilities: []string{"knowledge.search"}, wantErr: "jira-only or confluence-only"},
+		{name: "lookalike-prefix", activation: SkillActivationCombined, capabilities: []string{"jira-extra.issue"}, wantErr: "jira-only or confluence-only"},
+		{name: "mixed", activation: SkillActivationCombined, capabilities: []string{"confluence.page", "jira.issue"}, wantErr: "mixed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			spec := validRunSpec()
-			spec.SkillActivation = SkillActivationExplicit
+			spec.SkillActivation = test.activation
 			spec.DataCapabilities = test.capabilities
 			actual, err := effectiveProviderPrompt(spec, core)
 			if test.wantErr != "" {
@@ -497,7 +537,7 @@ func TestEffectiveProviderPromptDistinguishesImplicitAndExplicitSkillActivation(
 
 func TestEffectiveProviderPromptBoundsCombinedBytes(t *testing.T) {
 	spec := validRunSpec()
-	spec.SkillActivation = SkillActivationExplicit
+	spec.SkillActivation = SkillActivationCombined
 	spec.DataCapabilities = []string{"jira.issue.field"}
 	prefix := len("$atl:jira\n\n")
 	core := bytes.Repeat([]byte{'x'}, maxProviderPromptBytes-prefix)
@@ -535,6 +575,30 @@ func TestProviderPromptContractBindsEveryStableChannel(t *testing.T) {
 		if err != nil || got == base {
 			t.Fatalf("variant %d digest=%q base=%q err=%v", index, got, base, err)
 		}
+	}
+
+	privateSpec := validRunSpec()
+	privateSpec.Provider = "codex"
+	privateSpec.BackendMode = BackendModePrivateLive
+	privateSpec.ToolTransport = "cli"
+	privateSpec.DataCapabilities = []string{"jira.issue.field"}
+	digests := map[string]string{}
+	for _, activation := range []string{SkillActivationImplicit, SkillActivationExplicit, SkillActivationDeveloper, SkillActivationCombined} {
+		privateSpec.SkillActivation = activation
+		effectivePrompt, err := effectiveProviderPrompt(privateSpec, core)
+		if err != nil {
+			t.Fatalf("%s effective prompt: %v", activation, err)
+		}
+		digest, err := providerPromptContractSHA256(privateSpec, core, effectivePrompt)
+		if err != nil || !validSHA256(digest) {
+			t.Fatalf("%s digest=%q err=%v", activation, digest, err)
+		}
+		for previousActivation, previousDigest := range digests {
+			if digest == previousDigest {
+				t.Fatalf("%s and %s share digest %q", activation, previousActivation, digest)
+			}
+		}
+		digests[activation] = digest
 	}
 
 	nonActivation := validRunSpec()
