@@ -597,7 +597,8 @@ if [ "$1" = "mcp" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
 fi
 if [ "$1" = "debug" ] && [ "$2" = "prompt-input" ]; then
   check_runtime
-  printf '%s\n' '[{"type":"message","role":"developer","content":[{"type":"input_text","text":"- atl:atl: Synthetic skill"}]}]'
+  installed="$CODEX_HOME/plugins/cache/atl/atl/0.4.0"
+  printf '[{"type":"message","role":"developer","content":[{"type":"input_text","text":"- atl:atl: Synthetic skill (file: %s/skills/atl/SKILL.md)"}]}]\n' "$installed"
   exit 0
 fi
 if [ "$1" != "-p" ] && [ "$1" != "sandbox" ]; then

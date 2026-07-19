@@ -210,31 +210,31 @@ func provisionCodexBenchmarkPlugin(ctx context.Context, agentBinary, pluginRoot 
 	}
 	manifestPath, _, err := providerPluginLayout(pluginRoot, "codex")
 	if err != nil {
-		return fmt.Errorf("provision isolated codex benchmark plugin")
+		return fmt.Errorf("provision isolated codex benchmark plugin: layout")
 	}
 	manifestData, err := readBoundedFile(manifestPath, 1<<20)
 	if err != nil {
-		return fmt.Errorf("provision isolated codex benchmark plugin")
+		return fmt.Errorf("provision isolated codex benchmark plugin: manifest read")
 	}
 	var manifest struct {
 		Name    string `json:"name"`
 		Version string `json:"version"`
 	}
 	if json.Unmarshal(manifestData, &manifest) != nil || manifest.Name != codexBenchmarkPluginName || manifest.Version == "" {
-		return fmt.Errorf("provision isolated codex benchmark plugin")
+		return fmt.Errorf("provision isolated codex benchmark plugin: manifest decode")
 	}
 	sourcePackage := filepath.Join(pluginRoot, "plugins", codexBenchmarkPluginName)
 	sourcePackageDigest, err := digestTree(sourcePackage)
 	if err != nil {
-		return fmt.Errorf("provision isolated codex benchmark plugin")
+		return fmt.Errorf("provision isolated codex benchmark plugin: source digest")
 	}
 	sourceSkillRoot := filepath.Join(sourcePackage, "skills")
 	sourceSkillCatalog, err := skillmeta.LoadSource(sourceSkillRoot)
 	if err != nil {
-		return fmt.Errorf("provision isolated codex benchmark plugin")
+		return fmt.Errorf("provision isolated codex benchmark plugin: source catalog")
 	}
 	if _, err := digestTree(filepath.Join(pluginRoot, ".agents", "plugins")); err != nil {
-		return fmt.Errorf("provision isolated codex benchmark plugin")
+		return fmt.Errorf("provision isolated codex benchmark plugin: marketplace contract")
 	}
 	environment := flattenEnvironment(capsule.Environment())
 	if _, err := runCodexPluginCommand(ctx, agentBinary, environment, "plugin", "marketplace", "add", pluginRoot); err != nil {
@@ -252,35 +252,35 @@ func provisionCodexBenchmarkPlugin(ctx context.Context, agentBinary, pluginRoot 
 		InstalledPath   string `json:"installedPath"`
 	}
 	if json.Unmarshal(installedData, &installed) != nil || installed.PluginID != codexBenchmarkPluginID || installed.Name != manifest.Name || installed.MarketplaceName != codexBenchmarkPluginName || installed.Version != manifest.Version || !filepath.IsAbs(installed.InstalledPath) {
-		return fmt.Errorf("verify isolated codex benchmark plugin")
+		return fmt.Errorf("verify isolated codex benchmark plugin: install response")
 	}
 	cleanInstalledPath := filepath.Clean(installed.InstalledPath)
 	codexHome := capsule.Environment()["CODEX_HOME"]
 	canonicalCodexHome, err := filepath.EvalSymlinks(codexHome)
 	if err != nil {
-		return fmt.Errorf("verify isolated codex benchmark plugin")
+		return fmt.Errorf("verify isolated codex benchmark plugin: home path")
 	}
 	installedPath, err := filepath.EvalSymlinks(cleanInstalledPath)
 	if err != nil {
-		return fmt.Errorf("verify isolated codex benchmark plugin")
+		return fmt.Errorf("verify isolated codex benchmark plugin: installed path")
 	}
 	inside, err := pathWithin(canonicalCodexHome, installedPath)
 	if err != nil || !inside {
-		return fmt.Errorf("verify isolated codex benchmark plugin")
+		return fmt.Errorf("verify isolated codex benchmark plugin: installed containment")
 	}
 	// Validate the complete installed tree before parsing semantic metadata.
 	// In particular, this rejects an installer-produced intermediate symlink
 	// before the metadata reader can traverse it.
 	installedPackageDigest, err := digestTree(installedPath)
 	if err != nil || installedPackageDigest != sourcePackageDigest {
-		return fmt.Errorf("verify isolated codex benchmark plugin")
+		return fmt.Errorf("verify isolated codex benchmark plugin: installed digest")
 	}
 	pluginSkillRoot := filepath.Join(installedPath, "skills")
 	if info, err := os.Lstat(pluginSkillRoot); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("verify isolated codex benchmark plugin")
+		return fmt.Errorf("verify isolated codex benchmark plugin: installed skill root")
 	}
 	if err := verifyInstalledCodexSkillCatalog(sourceSkillCatalog, pluginSkillRoot); err != nil {
-		return fmt.Errorf("verify isolated codex benchmark plugin")
+		return fmt.Errorf("verify isolated codex benchmark plugin: installed catalog")
 	}
 	listData, err := runCodexPluginCommand(ctx, agentBinary, environment, "plugin", "list", "--json")
 	if err != nil {
@@ -301,17 +301,17 @@ func provisionCodexBenchmarkPlugin(ctx context.Context, agentBinary, pluginRoot 
 		} `json:"installed"`
 	}
 	if json.Unmarshal(listData, &inventory) != nil || len(inventory.Installed) != 1 {
-		return fmt.Errorf("verify isolated codex benchmark plugin")
+		return fmt.Errorf("verify isolated codex benchmark plugin: inventory decode")
 	}
 	entry := inventory.Installed[0]
 	canonicalExpectedSource, expectedSourceErr := filepath.EvalSymlinks(sourcePackage)
 	canonicalInventorySource, inventorySourceErr := filepath.EvalSymlinks(entry.Source.Path)
 	if entry.PluginID != codexBenchmarkPluginID || entry.Name != manifest.Name || entry.MarketplaceName != codexBenchmarkPluginName || entry.Version != manifest.Version || !entry.Installed || !entry.Enabled || entry.Source.Source != "local" || expectedSourceErr != nil || inventorySourceErr != nil || canonicalInventorySource != canonicalExpectedSource {
-		return fmt.Errorf("verify isolated codex benchmark plugin")
+		return fmt.Errorf("verify isolated codex benchmark plugin: inventory identity")
 	}
 	promptInput, err := runCodexPluginCommand(ctx, agentBinary, environment, "debug", "prompt-input", "atl skill inventory validation")
-	if err != nil || !codexPromptExposesImplicitSkills(promptInput, sourceSkillCatalog) {
-		return fmt.Errorf("verify isolated codex benchmark plugin")
+	if err != nil || !codexPromptExposesImplicitSkills(promptInput, sourceSkillCatalog, pluginSkillRoot) {
+		return fmt.Errorf("verify isolated codex benchmark plugin: prompt inventory")
 	}
 	if err := disableCodexBenchmarkPluginMCP(ctx, agentBinary, environment, capsule); err != nil {
 		return err
@@ -324,16 +324,22 @@ func provisionCodexBenchmarkPlugin(ctx context.Context, agentBinary, pluginRoot 
 
 func (c *providerRuntimeCapsule) verifyPluginPackage() error {
 	if c == nil || c.pluginPackageRoot == "" || c.pluginPackageDigest == "" {
-		return fmt.Errorf("verify isolated codex benchmark plugin")
+		return fmt.Errorf("verify isolated codex benchmark plugin: missing binding")
 	}
 	digest, err := digestTree(c.pluginPackageRoot)
-	if err != nil || digest != c.pluginPackageDigest {
-		return fmt.Errorf("verify isolated codex benchmark plugin")
+	if err != nil {
+		return fmt.Errorf("verify isolated codex benchmark plugin: digest failed")
+	}
+	if digest != c.pluginPackageDigest {
+		return fmt.Errorf("verify isolated codex benchmark plugin: digest mismatch")
 	}
 	return nil
 }
 
-func codexPromptExposesImplicitSkills(data []byte, catalog skillmeta.Catalog) bool {
+func codexPromptExposesImplicitSkills(data []byte, catalog skillmeta.Catalog, installedSkillRoot string) bool {
+	if !filepath.IsAbs(installedSkillRoot) || filepath.Clean(installedSkillRoot) != installedSkillRoot {
+		return false
+	}
 	var messages []struct {
 		Content []struct {
 			Type string `json:"type"`
@@ -343,6 +349,10 @@ func codexPromptExposesImplicitSkills(data []byte, catalog skillmeta.Catalog) bo
 	if json.Unmarshal(data, &messages) != nil {
 		return false
 	}
+	byName := make(map[string]skillmeta.Skill, len(catalog.Skills))
+	for _, skill := range catalog.Skills {
+		byName[skill.Name] = skill
+	}
 	seen := make(map[string]struct{})
 	for _, message := range messages {
 		for _, content := range message.Content {
@@ -350,12 +360,26 @@ func codexPromptExposesImplicitSkills(data []byte, catalog skillmeta.Catalog) bo
 				continue
 			}
 			for _, line := range strings.Split(content.Text, "\n") {
-				const prefix = "- atl:"
-				if !strings.HasPrefix(line, prefix) {
+				name, path, ok := parseCodexSkillInventoryLine(line)
+				if !ok {
+					if strings.HasPrefix(line, "- atl:") {
+						return false
+					}
 					continue
 				}
-				name, _, ok := strings.Cut(strings.TrimPrefix(line, prefix), ":")
-				if !ok || name == "" {
+				expectedPath := filepath.Join(installedSkillRoot, name, "SKILL.md")
+				inside, err := pathWithin(installedSkillRoot, path)
+				if err != nil {
+					return false
+				}
+				if !inside {
+					continue
+				}
+				skill, known := byName[name]
+				if !known || !skill.OpenAI.AllowImplicitInvocation || path != expectedPath {
+					return false
+				}
+				if _, duplicate := seen[name]; duplicate {
 					return false
 				}
 				seen[name] = struct{}{}
@@ -373,6 +397,26 @@ func codexPromptExposesImplicitSkills(data []byte, catalog skillmeta.Catalog) bo
 		}
 	}
 	return len(seen) == want
+}
+
+func parseCodexSkillInventoryLine(line string) (name, path string, ok bool) {
+	const (
+		prefix    = "- atl:"
+		fileStart = " (file: "
+	)
+	if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, ")") {
+		return "", "", false
+	}
+	name, _, found := strings.Cut(strings.TrimPrefix(line, prefix), ":")
+	fileIndex := strings.LastIndex(line, fileStart)
+	if !found || name == "" || fileIndex < 0 {
+		return "", "", false
+	}
+	path = strings.TrimSuffix(line[fileIndex+len(fileStart):], ")")
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return "", "", false
+	}
+	return name, path, true
 }
 
 func verifyInstalledCodexSkillCatalog(source skillmeta.Catalog, installedRoot string) error {
