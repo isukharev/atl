@@ -214,7 +214,7 @@ Observations classify each run as `supported` (the default),
 `unsupported-capability`, or `invalidated-backend-drift`. Unsupported runs name
 only bounded capability identifiers; drifted runs carry no backend detail.
 Ineligible runs do not count as task passes or failures, while their safety and
-budget violations are still retained. Aggregate schema v3 reports eligible,
+budget violations are still retained. Aggregate schema v4 reports eligible,
 unsupported, and drifted counts, eligibility coverage, and success conditional
 on eligible runs. Coverage excludes drift-invalidated blocks from its
 denominator: drift says nothing about whether the surface supports the task.
@@ -289,6 +289,10 @@ blind assignment are bound before provider execution. Legacy singleton and
 panel results are deliberately comparison-incompatible rather than silently
 migrated. See [Private agent-benchmark workspace](agent-benchmark-private-workspace.md)
 for the panel manifest and operator flow.
+
+Panel assessments emit result schema v4, review schema v2, and aggregate schema
+v4. Current decoders retain read compatibility with singleton result schema v3
+and reviewer-id-free review schema v1.
 
 For `neutral-common`, `--blind-assignment` is mandatory. It is a bounded private
 file that maps randomized answer labels to candidates for the reviewer. Only

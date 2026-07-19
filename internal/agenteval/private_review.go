@@ -150,7 +150,7 @@ func AssessPrivateReview(options PrivateReviewAssessOptions) (PrivateReviewSumma
 		return PrivateReviewSummary{}, err
 	}
 	if surface.QualitativePanelContractPath != "" {
-		return assessPrivatePanelReview(root, source, surface, resultData, finalData, rubricData, result, rubric, options)
+		return assessPrivatePanelReview(root, source, surface, resultData, finalData, result, rubric, options)
 	}
 	if options.ReviewerID != "" {
 		return PrivateReviewSummary{}, privatePlanError("review_input")
@@ -234,7 +234,7 @@ func (s PrivateReviewSummary) Validate() error {
 		!validSHA256(s.ResultSHA256) || !validSHA256(s.FinalSHA256) || !validSHA256(s.RubricSHA256) {
 		return fmt.Errorf("invalid private review summary")
 	}
-	if s.Expected != 0 && (s.Expected != 3 && s.Expected != 5 || s.Prepared < 0 || s.Prepared > s.Expected || s.Assessed < 0 || s.Assessed > s.Prepared || !identifierRE.MatchString(s.ReviewerID)) {
+	if s.Expected != 0 && (s.Expected != 3 && s.Expected != 5 || s.Prepared < 0 || s.Prepared > s.Expected || s.Assessed < 0 || s.Assessed > s.Prepared || validatePathComponentID("reviewer id", s.ReviewerID) != nil) {
 		return fmt.Errorf("invalid private review summary")
 	}
 	return nil

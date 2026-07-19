@@ -27,7 +27,7 @@ legacy `atl_invocations` fields continue to validate.
 
 Observations classify runs as `supported`, `unsupported-capability`, or
 `invalidated-backend-drift`. Ineligible runs retain safety and budget failures
-but are excluded from task pass/fail. Aggregate schema v3 reports eligibility
+but are excluded from task pass/fail. Aggregate schema v4 reports eligibility
 counts and coverage, conditional success, and computes neutral/surface-native
 efficiency and qualitative summaries only from supported deterministically
 valid runs. Missing eligibility in older observations means `supported`.
@@ -247,7 +247,8 @@ over-budget. The deterministic MCP test additionally verifies the exact
 four-GET, zero-write trajectory with technical-id reuse and that the expansion alone recovers the
 marker.
 
-Result schema v3 and aggregate schema v3 expose `capability_families` using a
+Result schema v4 and aggregate schema v4 retain the `capability_families`
+contract introduced in v3, using a
 closed generic vocabulary shared by CLI and MCP. Each entry contains only
 invocations, successes, failures, and output bytes. Treat the section as
 available only when `coverage.capability_families` is true; unknown events

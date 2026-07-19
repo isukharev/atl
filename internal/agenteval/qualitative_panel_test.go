@@ -1,6 +1,7 @@
 package agenteval
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -201,10 +202,10 @@ func TestAssessQualitativeReviewSetIndividualStatusSplitAndDeterministicFailure(
 		t.Fatalf("individual pass split was not disagreement: %+v", assessed.QualitativeReviewSet)
 	}
 
-	base, baseBytes, final, rubric := panelFixture(t)
+	base, _, final, rubric := panelFixture(t)
 	base.Status = "fail"
 	base.Violations = []Violation{{Code: "required_check_failed", Subject: "answer_correct", Limit: 1}}
-	baseBytes, _ = json.Marshal(base)
+	baseBytes, _ := json.Marshal(base)
 	reviews = panelReviews(t, base, baseBytes, final, rubric, [][2]int{{4, 4}, {4, 4}, {4, 4}}, nil)
 	assessed, err = AssessQualitativeReviewSet(base, baseBytes, final, rubric, panelPolicy(9999), reviews)
 	if err != nil {
@@ -225,6 +226,37 @@ func TestResultRejectsMutuallyExclusiveQualitativeContracts(t *testing.T) {
 	assessed.Qualitative = &QualitativeAssessment{}
 	if err := assessed.Validate(); err == nil || !strings.Contains(err.Error(), "both legacy and panel") {
 		t.Fatalf("mutually exclusive assessments passed: %v", err)
+	}
+}
+
+func TestPanelSchemasPreserveOnlyExplicitLegacyReadCompatibility(t *testing.T) {
+	result, resultBytes, final, rubric := panelFixture(t)
+	legacyResult := result
+	legacyResult.SchemaVersion = LegacyResultSchemaVersion
+	legacyBytes, _ := json.Marshal(legacyResult)
+	if _, err := DecodeResult(bytes.NewReader(legacyBytes)); err != nil {
+		t.Fatalf("legacy singleton-capable result was not readable: %v", err)
+	}
+	reviews := panelReviews(t, legacyResult, legacyBytes, final, rubric, [][2]int{{4, 4}, {4, 4}, {4, 4}}, nil)
+	assessed, err := AssessQualitativeReviewSet(legacyResult, legacyBytes, final, rubric, panelPolicy(9999), reviews)
+	if err != nil || assessed.SchemaVersion != ResultSchemaVersion {
+		t.Fatalf("panel did not upgrade result schema: version=%d err=%v", assessed.SchemaVersion, err)
+	}
+	assessed.SchemaVersion = LegacyResultSchemaVersion
+	if err := assessed.Validate(); err == nil {
+		t.Fatal("legacy result schema accepted a panel field")
+	}
+	review, err := NewReviewTemplate(result, resultBytes, final, rubric, Reviewer{Kind: "human"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	review.SchemaVersion = LegacyReviewSchemaVersion
+	if err := review.Validate(); err != nil {
+		t.Fatalf("legacy reviewer-id-free packet was not readable: %v", err)
+	}
+	review.Reviewer.ID = "reviewer-01"
+	if err := review.Validate(); err == nil {
+		t.Fatal("legacy review schema accepted a reviewer id")
 	}
 }
 
@@ -256,5 +288,36 @@ func TestAggregateQualitativeReviewSetSeparatesContractsAndCountsConsensus(t *te
 	}
 	if disagreements != 1 {
 		t.Fatalf("aggregate disagreement count=%d: %+v", disagreements, aggregate)
+	}
+}
+
+func TestAggregateQualitativeReviewSetFiltersDeterministicFailuresButKeepsDisagreementEfficiency(t *testing.T) {
+	result, _, final, rubric := panelFixture(t)
+	result.Category = BenchmarkCategorySurfaceNative
+	resultBytes, _ := json.Marshal(result)
+	disagreeingReviews := panelReviews(t, result, resultBytes, final, rubric, [][2]int{{2, 4}, {3, 4}, {4, 4}}, nil)
+	disagreeing, err := AssessQualitativeReviewSet(result, resultBytes, final, rubric, panelPolicy(9998), disagreeingReviews)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deterministicFailure := result
+	deterministicFailure.Status = "fail"
+	deterministicFailure.Violations = []Violation{{Code: "required_check_failed", Subject: "answer_correct", Limit: 1}}
+	failedBytes, _ := json.Marshal(deterministicFailure)
+	passingReviews := panelReviews(t, deterministicFailure, failedBytes, final, rubric, [][2]int{{4, 4}, {4, 4}, {4, 4}}, nil)
+	failed, err := AssessQualitativeReviewSet(deterministicFailure, failedBytes, final, rubric, panelPolicy(9998), passingReviews)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err := AggregateResults([]Result{disagreeing, failed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aggregate.Groups) != 1 || aggregate.Groups[0].QualitativeReviewSet == nil {
+		t.Fatalf("aggregate=%+v", aggregate)
+	}
+	group := aggregate.Groups[0]
+	if group.QualitativeReviewSet.ScoreBPS.ObservedRuns != 1 || group.QualitativeReviewSet.Disagreements != 1 || group.Metrics.ATLInvocations.ObservedRuns != 1 {
+		t.Fatalf("deterministic filtering or disagreement efficiency is wrong: %+v", group)
 	}
 }

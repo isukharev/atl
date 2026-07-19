@@ -5,7 +5,7 @@ import (
 	"sort"
 )
 
-const AggregateSchemaVersion = 3
+const AggregateSchemaVersion = 4
 
 type Aggregate struct {
 	SchemaVersion int              `json:"schema_version"`
@@ -250,6 +250,9 @@ func AggregateResults(results []Result) (Aggregate, error) {
 			passes, failures, disagreements := 0, 0, 0
 			var policy QualitativePanelPolicy
 			for _, item := range items {
+				if key.Category != BenchmarkCategoryRouteFixed && !deterministicValidForEfficiency(item) {
+					continue
+				}
 				if item.QualitativeReviewSet == nil {
 					continue
 				}
@@ -276,7 +279,7 @@ func deterministicValidForEfficiency(result Result) bool {
 		return false
 	}
 	for _, violation := range result.Violations {
-		if violation.Code != "qualitative_review_failed" {
+		if violation.Code != "qualitative_review_failed" && violation.Code != "qualitative_review_disagreement" {
 			return false
 		}
 	}
@@ -284,8 +287,11 @@ func deterministicValidForEfficiency(result Result) bool {
 }
 
 func (r Result) Validate() error {
-	if r.SchemaVersion != ResultSchemaVersion {
+	if r.SchemaVersion != ResultSchemaVersion && r.SchemaVersion != LegacyResultSchemaVersion {
 		return fmt.Errorf("unsupported result schema_version %d", r.SchemaVersion)
+	}
+	if r.SchemaVersion == LegacyResultSchemaVersion && r.QualitativeReviewSet != nil {
+		return fmt.Errorf("legacy result cannot contain a qualitative review set")
 	}
 	if !identifierRE.MatchString(r.ScenarioID) || !identifierRE.MatchString(r.TaskClass) || !identifierRE.MatchString(r.Variant) {
 		return fmt.Errorf("result identity is invalid")

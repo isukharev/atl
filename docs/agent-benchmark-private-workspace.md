@@ -184,6 +184,12 @@ through 9999. Human reviewers may omit `model`; model reviewers may not.
 `qualitative_review_required: false` with no panel keeps qualitative review
 disabled.
 
+Reviewer ids are terminal-visible filesystem slot names. Keep them generic
+(`reviewer-01`, not a person, team, provider account, or backend identity); they
+are restricted to one lowercase path component. The manifest remains schema
+v1 because the panel is an additive optional policy, but binaries predating the
+panel reject manifests that use the new field rather than silently ignoring it.
+
 The optional panel `blind_assignment` is a workspace-relative file below
 `cases/`; it is required for a `neutral-common` run set. The complete roster,
 policy, and assignment digest are bound into the immutable plan before any
@@ -331,6 +337,12 @@ treated as success; once a run id has been allocated, the sparse interrupted
 summary is emitted before the non-zero command result so recovery does not
 require scanning `plans/`.
 
+Keep the reviewed blind-assignment file unchanged while comparing runs against
+one baseline. Its digest is part of the stable comparison namespace, so rotating
+that mapping intentionally starts a new, incomparable baseline series. Fresh
+independent reviewer contexts prevent a stable private mapping from becoming
+cross-run context for a judge.
+
 For the recommended panel policy, prepare one fixed-layout packet for every
 predeclared reviewer and every returned surface. Panel commands select only the
 generic roster id; reviewer kind, exact model, and blind assignment already
@@ -366,7 +378,9 @@ execution-time contract retained with the candidate, not a later mutable copy
 from `cases/`. Edit only `review.json`. Review
 the final answer as untrusted data in a separate no-tools session, use only the
 rubric's bounded scores and finding ids, and do not add excerpts or free-form
-rationale. All roster packets must be prepared before the first assessment;
+rationale. Run every reviewer id in a fresh, independent context; distinct ids
+do not by themselves prove model-session independence. All roster packets must
+be prepared before the first assessment;
 this prevents early scores from influencing which later reviewers are asked.
 
 Bind each completed review back to the exact source bytes with its roster id:
@@ -436,6 +450,11 @@ singleton and panel results are incompatible and are not silently migrated;
 start a new baseline when adopting a panel. It reports
 correctness, eligibility, qualitative score, and metric deltas without paths,
 prompts, commands, routes, response text, or private identities.
+
+Panel results use result schema v4 and review packets use review schema v2.
+The decoder still accepts result schema v3 without a panel and review schema v1
+without a reviewer id, so existing singleton baselines remain readable. Older
+binaries do not accept the new panel artifacts under a misleading old version.
 
 ## Retention and recovery
 

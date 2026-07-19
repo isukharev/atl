@@ -569,6 +569,17 @@ func validatePrivateAssessmentBinding(root string, source PrivateBaselineSurface
 		if loadErr != nil || policy != set.Policy || len(contract.Reviewers) != len(set.Members) {
 			return privateBaselineError("assessment_binding")
 		}
+		expectedContract, contractErr := QualitativeReviewSetContractSHA256(policy, contract.Reviewers)
+		if contractErr != nil || set.ContractSHA256 != expectedContract || set.AssignmentDigest != contract.BlindAssignmentSHA256 || set.Blinded != (contract.BlindAssignmentSHA256 != "") {
+			return privateBaselineError("assessment_binding")
+		}
+		expectedReviewers := append([]Reviewer(nil), contract.Reviewers...)
+		sort.Slice(expectedReviewers, func(i, j int) bool { return expectedReviewers[i].ID < expectedReviewers[j].ID })
+		for index, reviewer := range expectedReviewers {
+			if reviewer != set.Members[index].Reviewer {
+				return privateBaselineError("assessment_binding")
+			}
+		}
 		reviews := make([]Review, 0, len(set.Members))
 		for _, member := range set.Members {
 			reviews = append(reviews, Review{SchemaVersion: ReviewSchemaVersion, RubricID: set.RubricID, RubricSHA256: set.RubricSHA256,

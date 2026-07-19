@@ -117,6 +117,7 @@
               },
               "reviewers": {
                 "type": "array",
+                "description": "Reviewer ids must be unique; doctor enforces id uniqueness in addition to JSON item uniqueness.",
                 "uniqueItems": true,
                 "items": {
                   "$ref": "#/$defs/reviewer"
@@ -170,7 +171,7 @@
       "maxLength": 512,
       "allOf": [
         {
-          "pattern": "^cases/[^\\r\\n\\u0000\\\\]+$"
+          "pattern": "^cases/[^\\r\\n\\u0000\\\\]*[^/\\r\\n\\u0000\\\\]$"
         },
         {
           "not": {
@@ -181,7 +182,7 @@
     },
     "identifier": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._/-]{0,127}$"
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
     },
     "reviewer": {
       "type": "object",

@@ -23,8 +23,11 @@ func preparePrivatePanelReview(root string, source PrivateBaselineSource, surfac
 	if !ok {
 		return PrivateReviewSummary{}, privatePlanError("review_input")
 	}
-	prepared, assessed, err := privatePanelReviewProgress(root, source, surface, contract)
-	if err != nil || assessed != 0 || prepared >= policy.ExpectedReviewers {
+	prepared, _, err := privatePanelReviewProgress(root, source, surface, contract)
+	if err != nil || prepared >= policy.ExpectedReviewers {
+		return PrivateReviewSummary{}, privatePlanError("review_roster")
+	}
+	if err := requirePrivatePanelRunUnassessed(root, source); err != nil {
 		return PrivateReviewSummary{}, privatePlanError("review_roster")
 	}
 	review, err := NewReviewTemplate(result, resultData, finalData, rubric, reviewer, optionalPrivateAssignment(assignment)...)
@@ -39,14 +42,14 @@ func preparePrivatePanelReview(root string, source PrivateBaselineSource, surfac
 	if err := writePrivateReviewPacket(root, packet, resultData, finalData, rubricData, review); err != nil {
 		return PrivateReviewSummary{}, err
 	}
-	prepared, assessed, err = privatePanelReviewProgress(root, source, surface, contract)
+	prepared, assessed, err := privatePanelReviewProgress(root, source, surface, contract)
 	if err != nil {
 		return PrivateReviewSummary{}, err
 	}
 	return privatePanelReviewSummary(source, surface.Surface, reviewer.ID, "prepared", packetRelative, resultData, finalData, rubric, policy.ExpectedReviewers, prepared, assessed), nil
 }
 
-func assessPrivatePanelReview(root string, source PrivateBaselineSource, surface PrivateBaselineSurfaceSource, resultData, finalData, rubricData []byte, result Result, rubric Rubric, options PrivateReviewAssessOptions) (PrivateReviewSummary, error) {
+func assessPrivatePanelReview(root string, source PrivateBaselineSource, surface PrivateBaselineSurfaceSource, resultData, finalData []byte, result Result, rubric Rubric, options PrivateReviewAssessOptions) (PrivateReviewSummary, error) {
 	contract, _, policy, err := loadPrivatePanelReviewContract(root, surface)
 	if err != nil {
 		return PrivateReviewSummary{}, err
@@ -55,46 +58,49 @@ func assessPrivatePanelReview(root string, source PrivateBaselineSource, surface
 	if !ok {
 		return PrivateReviewSummary{}, privatePlanError("review_input")
 	}
-	prepared, assessed, err := privatePanelReviewProgress(root, source, surface, contract)
+	prepared, _, err := privatePanelReviewProgress(root, source, surface, contract)
 	if err != nil || prepared != policy.ExpectedReviewers {
 		return PrivateReviewSummary{}, privatePlanError("review_roster_incomplete")
 	}
-	for _, expectedReviewer := range contract.Reviewers {
-		packet := filepath.Join(root, filepath.FromSlash(privatePanelPacketRelative(source.RunID, surface.Surface, expectedReviewer.ID)))
-		if err := validatePrivatePanelPacket(root, packet, resultData, finalData, rubricData); err != nil {
-			return PrivateReviewSummary{}, err
-		}
+	if err := validatePrivatePanelRunPrepared(root, source); err != nil {
+		return PrivateReviewSummary{}, err
 	}
 	packetRelative := privatePanelPacketRelative(source.RunID, surface.Surface, reviewer.ID)
 	packet := filepath.Join(root, filepath.FromSlash(packetRelative))
 	assessmentPath := filepath.Join(packet, "assessment.json")
+	reviewData, readErr := readPrivatePlanLifecycleFile(root, filepath.Join(packet, "review.json"), maxReviewBytes)
+	if readErr != nil {
+		return PrivateReviewSummary{}, privatePlanError("review_read")
+	}
+	review, decodeErr := DecodeReview(bytes.NewReader(reviewData))
+	if decodeErr != nil || review.Reviewer != reviewer {
+		return PrivateReviewSummary{}, privatePlanError("review_decode")
+	}
+	if _, assessErr := AssessQualitative(result, resultData, finalData, rubric, review); assessErr != nil {
+		return PrivateReviewSummary{}, privatePlanError("assessment")
+	}
+	canonical, canonicalErr := canonicalPrivateReview(review, rubric)
+	if canonicalErr != nil {
+		return PrivateReviewSummary{}, privatePlanError("assessment")
+	}
+	canonicalData, encodeErr := json.MarshalIndent(canonical, "", "  ")
+	if encodeErr != nil {
+		return PrivateReviewSummary{}, privatePlanError("assessment_encode")
+	}
+	canonicalData = append(canonicalData, '\n')
 	if _, statErr := safepath.StatWithin(root, assessmentPath); os.IsNotExist(statErr) {
-		reviewData, readErr := readPrivatePlanLifecycleFile(root, filepath.Join(packet, "review.json"), maxReviewBytes)
-		if readErr != nil {
-			return PrivateReviewSummary{}, privatePlanError("review_read")
-		}
-		review, decodeErr := DecodeReview(bytes.NewReader(reviewData))
-		if decodeErr != nil || review.Reviewer != reviewer {
-			return PrivateReviewSummary{}, privatePlanError("review_decode")
-		}
-		if _, assessErr := AssessQualitative(result, resultData, finalData, rubric, review); assessErr != nil {
-			return PrivateReviewSummary{}, privatePlanError("assessment")
-		}
-		canonical, canonicalErr := canonicalPrivateReview(review, rubric)
-		if canonicalErr != nil {
-			return PrivateReviewSummary{}, privatePlanError("assessment")
-		}
-		canonicalData, encodeErr := json.MarshalIndent(canonical, "", "  ")
-		if encodeErr != nil {
-			return PrivateReviewSummary{}, privatePlanError("assessment_encode")
-		}
-		if err := safepath.WriteFileExclusiveWithin(root, assessmentPath, append(canonicalData, '\n'), 0o600); err != nil {
+		if err := safepath.WriteFileExclusiveWithin(root, assessmentPath, canonicalData, 0o600); err != nil {
 			return PrivateReviewSummary{}, privatePlanError("assessment_write")
 		}
 	} else if statErr != nil {
 		return PrivateReviewSummary{}, privatePlanError("assessment_invalid")
+	} else {
+		existing, readErr := readPrivatePlanLifecycleFile(root, assessmentPath, maxReviewBytes)
+		if readErr != nil || !bytes.Equal(existing, canonicalData) {
+			return PrivateReviewSummary{}, privatePlanError("assessment_drift")
+		}
 	}
-	prepared, assessed, err = privatePanelReviewProgress(root, source, surface, contract)
+	prepared, assessed, err := privatePanelReviewProgress(root, source, surface, contract)
 	if err != nil {
 		return PrivateReviewSummary{}, err
 	}
@@ -154,6 +160,10 @@ func loadPrivatePanelReviewContract(root string, surface PrivateBaselineSurfaceS
 	}
 	policy := QualitativePanelPolicy{SchemaVersion: QualitativePanelSchemaVersion, Method: contract.Method, ExpectedReviewers: len(contract.Reviewers), MaxCriterionRangeBPS: contract.MaxCriterionRangeBPS}
 	if err := policy.Validate(); err != nil {
+		return privateQualitativeReviewPanelContract{}, nil, QualitativePanelPolicy{}, privatePlanError("panel_contract")
+	}
+	panel := PrivateQualitativeReviewPanel{Method: contract.Method, Reviewers: contract.Reviewers, MaxCriterionRangeBPS: contract.MaxCriterionRangeBPS}
+	if err := panel.validate(); err != nil {
 		return privateQualitativeReviewPanelContract{}, nil, QualitativePanelPolicy{}, privatePlanError("panel_contract")
 	}
 	var assignment []byte
@@ -222,6 +232,53 @@ func privatePanelReviewProgress(root string, source PrivateBaselineSource, surfa
 		assessed++
 	}
 	return prepared, assessed, nil
+}
+
+func requirePrivatePanelRunUnassessed(root string, source PrivateBaselineSource) error {
+	for _, surface := range source.Surfaces {
+		if surface.QualitativePanelContractPath == "" {
+			return privatePlanError("review_roster")
+		}
+		contract, _, _, err := loadPrivatePanelReviewContract(root, surface)
+		if err != nil {
+			return err
+		}
+		_, assessed, err := privatePanelReviewProgress(root, source, surface, contract)
+		if err != nil {
+			return err
+		}
+		if assessed != 0 {
+			return privatePlanError("review_roster")
+		}
+	}
+	return nil
+}
+
+func validatePrivatePanelRunPrepared(root string, source PrivateBaselineSource) error {
+	for _, surface := range source.Surfaces {
+		if surface.QualitativePanelContractPath == "" {
+			return privatePlanError("review_roster_incomplete")
+		}
+		contract, _, policy, err := loadPrivatePanelReviewContract(root, surface)
+		if err != nil {
+			return err
+		}
+		prepared, _, err := privatePanelReviewProgress(root, source, surface, contract)
+		if err != nil || prepared != policy.ExpectedReviewers {
+			return privatePlanError("review_roster_incomplete")
+		}
+		resultData, finalData, rubricData, _, _, err := loadPrivateReviewInputs(root, surface)
+		if err != nil {
+			return err
+		}
+		for _, reviewer := range contract.Reviewers {
+			packet := filepath.Join(root, filepath.FromSlash(privatePanelPacketRelative(source.RunID, surface.Surface, reviewer.ID)))
+			if err := validatePrivatePanelPacket(root, packet, resultData, finalData, rubricData); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func validatePrivatePanelPacket(root, packet string, resultData, finalData, rubricData []byte) error {

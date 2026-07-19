@@ -12,7 +12,8 @@ import (
 
 const (
 	RubricSchemaVersion           = 1
-	ReviewSchemaVersion           = 1
+	ReviewSchemaVersion           = 2
+	LegacyReviewSchemaVersion     = 1
 	QualitativePanelSchemaVersion = 1
 	QualitativePanelMethod        = "criterion-median-v1"
 	maxReviewBytes                = 16 << 20
@@ -442,8 +443,10 @@ func (r Rubric) Validate() error {
 }
 
 func (r Reviewer) validate() error {
-	if r.ID != "" && !identifierRE.MatchString(r.ID) {
-		return fmt.Errorf("reviewer id is invalid")
+	if r.ID != "" {
+		if err := validatePathComponentID("reviewer id", r.ID); err != nil {
+			return err
+		}
 	}
 	if r.Kind != "human" && r.Kind != "codex" && r.Kind != "claude-code" {
 		return fmt.Errorf("reviewer kind must be human, codex, or claude-code")
@@ -474,8 +477,11 @@ func (p QualitativePanelPolicy) Validate() error {
 }
 
 func (r Review) Validate() error {
-	if r.SchemaVersion != ReviewSchemaVersion {
+	if r.SchemaVersion != ReviewSchemaVersion && r.SchemaVersion != LegacyReviewSchemaVersion {
 		return fmt.Errorf("unsupported review schema_version %d", r.SchemaVersion)
+	}
+	if r.SchemaVersion == LegacyReviewSchemaVersion && r.Reviewer.ID != "" {
+		return fmt.Errorf("legacy review cannot contain a reviewer id")
 	}
 	if !identifierRE.MatchString(r.RubricID) || !identifierRE.MatchString(r.ScenarioID) {
 		return fmt.Errorf("review identity is invalid")
@@ -752,6 +758,7 @@ func AssessQualitativeReviewSet(result Result, resultBytes, finalBytes []byte, r
 	}
 	resultHash := sha256Hex(resultBytes)
 	finalHash := sha256Hex(finalBytes)
+	result.SchemaVersion = ResultSchemaVersion
 	result.QualitativeReviewSet = &QualitativeReviewSetAssessment{
 		SchemaVersion: QualitativePanelSchemaVersion, Policy: policy, ContractSHA256: contractDigest,
 		RubricID: rubric.ID, RubricSHA256: rubricSHA256(rubric), MinimumScoreBPS: rubric.MinimumScoreBPS, ResultSHA256: resultHash,

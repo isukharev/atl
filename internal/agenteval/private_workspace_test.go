@@ -206,6 +206,9 @@ func TestPrivateWorkspaceManifestQualitativeReviewPolicies(t *testing.T) {
 		"missing id": func(manifest *PrivateWorkspaceManifest) {
 			manifest.RunSets[0].QualitativeReviewPanel.Reviewers[1].ID = ""
 		},
+		"path reviewer id": func(manifest *PrivateWorkspaceManifest) {
+			manifest.RunSets[0].QualitativeReviewPanel.Reviewers[1].ID = "judge/../../reports"
+		},
 		"invalid model": func(manifest *PrivateWorkspaceManifest) {
 			manifest.RunSets[0].QualitativeReviewPanel.Reviewers[1].Model = ""
 		},

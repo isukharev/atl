@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	ScenarioSchemaVersion    = 1
-	ObservationSchemaVersion = 2
-	ResultSchemaVersion      = 3
+	ScenarioSchemaVersion     = 1
+	ObservationSchemaVersion  = 2
+	ResultSchemaVersion       = 4
+	LegacyResultSchemaVersion = 3
 )
 
 const (

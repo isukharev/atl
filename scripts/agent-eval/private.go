@@ -121,16 +121,20 @@ func runPrivateCommand(args []string, out io.Writer) error {
 		}
 		return writePrivateJSON(out, summary)
 	case "review":
-		if len(args) < 2 || (args[1] != "prepare" && args[1] != "assess") {
+		if len(args) < 2 {
 			return fmt.Errorf("private review requires prepare or assess")
 		}
-		flags := privateFlagSet("private review " + args[1])
+		operation := args[1]
+		if operation != "prepare" && operation != "assess" {
+			return fmt.Errorf("private review requires prepare or assess")
+		}
+		flags := privateFlagSet("private review " + operation)
 		var root, repositoryRoot, planID, surface, reviewer, model, reviewerID, blindAssignment string
 		flags.StringVar(&root, "root", "", "workspace root")
 		flags.StringVar(&repositoryRoot, "repository-root", ".", "repository root")
 		flags.StringVar(&planID, "plan", "", "completed plan id")
 		flags.StringVar(&surface, "surface", "", "reviewed surface")
-		if args[1] == "prepare" {
+		if operation == "prepare" {
 			flags.StringVar(&reviewer, "reviewer", "", "human, codex, or claude-code")
 			flags.StringVar(&model, "model", "", "exact reviewer model")
 			flags.StringVar(&reviewerID, "reviewer-id", "", "predeclared generic panel reviewer id")
@@ -138,13 +142,17 @@ func runPrivateCommand(args []string, out io.Writer) error {
 		} else {
 			flags.StringVar(&reviewerID, "reviewer-id", "", "predeclared generic panel reviewer id")
 		}
-		if err := flags.Parse(args[2:]); err != nil {
+		reviewArgs := []string{}
+		if len(args) > 2 {
+			reviewArgs = args[2:]
+		}
+		if err := flags.Parse(reviewArgs); err != nil {
 			return err
 		}
 		if flags.NArg() != 0 || root == "" || planID == "" || surface == "" {
-			return fmt.Errorf("private review %s requires root, plan, surface, and no positional arguments", args[1])
+			return fmt.Errorf("private review %s requires root, plan, surface, and no positional arguments", operation)
 		}
-		if args[1] == "prepare" {
+		if operation == "prepare" {
 			if reviewer == "" && reviewerID == "" {
 				return fmt.Errorf("private review prepare requires --reviewer for legacy-single or --reviewer-id for a panel")
 			}
@@ -171,7 +179,11 @@ func runPrivateCommand(args []string, out io.Writer) error {
 		flags.StringVar(&planID, "plan", "", "completed plan id")
 		flags.StringVar(&baseline, "baseline", "", "generic baseline alias")
 		flags.StringVar(&confirm, "confirm", "", "must be BASELINE")
-		if err := flags.Parse(args[2:]); err != nil {
+		baselineArgs := []string{}
+		if len(args) > 2 {
+			baselineArgs = args[2:]
+		}
+		if err := flags.Parse(baselineArgs); err != nil {
 			return err
 		}
 		if flags.NArg() != 0 || root == "" || planID == "" || baseline == "" {
