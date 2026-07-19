@@ -1,5 +1,5 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "category": "surface-native",
   "surface": "cli-skill",
   "scenario_file": "scenario.v1.json",

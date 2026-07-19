@@ -357,6 +357,20 @@ exit 0
 	}
 }
 
+func TestRunnerEvidenceAttemptClassifiesBrokerDenialAsBlocked(t *testing.T) {
+	telemetry, err := deriveRunnerEvidenceAttempt([]atlProxyRecord{{Denied: true, ExitCode: 2}}, 0, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if telemetry.State != EvidenceAttemptStateBlocked || telemetry.Attempts != 1 || telemetry.Denied != 1 || telemetry.Admitted != 0 || telemetry.Failed != 0 {
+		t.Fatalf("telemetry=%+v", telemetry)
+	}
+	partial, err := deriveRunnerEvidenceAttempt([]atlProxyRecord{{CommandFamily: "jira.read"}, {Denied: true, ExitCode: 2}}, 0, 0, 0)
+	if err != nil || partial.State != EvidenceAttemptStatePartial || partial.Admitted != 1 || partial.Succeeded != 1 || partial.Denied != 1 {
+		t.Fatalf("partial=%+v err=%v", partial, err)
+	}
+}
+
 func TestCommittedHeadlessRunSpecs(t *testing.T) {
 	paths, err := filepath.Glob(filepath.Join("..", "..", "benchmarks", "agent-eval", "*", "run.*.json"))
 	if err != nil {

@@ -495,7 +495,7 @@ func TestLegacyPrivatePlanV1RemainsReadableByWorkspaceLifecycle(t *testing.T) {
 	legacyPreview := preview
 	legacyPreview.PlanSHA256 = sha256HexBytes(data)
 	_, err = ExecutePrivatePlan(context.Background(), fixture.executeOptions(legacyPreview))
-	assertPrivatePlanError(t, err, "input_drift")
+	assertPrivatePlanError(t, err, "legacy_plan_read_only")
 	assertPrivatePlanNoRuntimeInvocation(t, fixture)
 }
 

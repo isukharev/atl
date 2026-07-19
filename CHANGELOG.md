@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Private Codex activation studies now calibrate the real local tool path before
+  any treatment: one isolated, hook- and broker-audited `atl version` runs with
+  no backend config or credentials and must produce bounded output through a
+  matching `atl`-family hook admission. Its zero-backend/write property is
+  construction-derived from the exact command and stripped authority rather
+  than gateway telemetry. Calibration has its own reviewed cost partition and
+  is infrastructure evidence, not a fifth treatment. Runner-derived evidence
+  telemetry distinguishes no attempt, unavailable, blocked, failed, partial,
+  and successful outcomes; a common bounded model report is checked against the
+  audit but never substitutes for it. Workspace manifests advance to schema v3,
+  private plans to v5, activation state to v3, and study references/reports to
+  v2. Run specs advance to v6, observations to v5, and results to v7 so the
+  emitted attempt contracts have unambiguous canonical versions. Pre-calibration
+  plans and state remain inspectable, while legacy references remain
+  compare-only; none can execute, recover, capture, or promote.
+
 - Shipped agent skills now declare mutually exclusive ownership and exclusion
   boundaries for focused workflows, cross-service discovery,
   direct-service skills, and the `atl` mirror/orientation role. Setup and
@@ -27,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provider NLP behavior. Codex UI descriptions are also checked against their
   documented 25..64-character contract.
 
-- Private-workspace manifest schema v2 adds explicit `comparison` and
+- Private-workspace manifest schema v3 uses explicit `comparison` and
   `activation-study` run-set kinds. An activation study binds exactly four Codex
   CLI-skill treatments into one plan and consent, executes them sequentially in
   a reviewed-material-scoped balanced four-attempt order cycle, and requires a
@@ -40,9 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   durable receipt when present, and removes the exact owned execution capsule.
   Activation execution and recovery summaries distinguish complete detected
   cost from an unknown lower bound with `cost_known`. Private
-  plans advance to v4, with hash-chained v2 state and crash-safe receipt/terminal
+  plans advance to v5, with hash-chained v3 state and crash-safe receipt/terminal
   persistence for the four-cell lifecycle. The study budget includes a
-  positive explicit reviewer reserve and is
+  positive explicit calibration and reviewer reserves and is
   detection-only rather than a preventive provider hard cap. Unknown safety,
   evidence, and resource failures stop the remaining roster fail-closed.
   Completed reviewed
@@ -58,7 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Jira or Confluence service; multi-surface comparisons remain implicit-only.
   Private plans and results bind the treatment and exact user/developer prompt
   contract, while public previews and aggregates omit the private digest.
-  Run specs advance to v5, observations to v4, results and aggregates to v6,
+  Run specs now use v6, observations v5, results v7, and aggregates v6,
   and private plans to v3 at that compatibility stage. Legacy artifacts remain
   readable but are never silently reclassified, and separately reviewed
   treatment plans remain descriptive rather than causal studies.
@@ -83,8 +99,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   boundaries, and excessive criterion ranges are retained as disagreement and
   block baseline promotion. The explicit legacy single-review workflow remains
   available, but singleton and panel baselines are intentionally incompatible.
-  Current panel artifacts use result schema v6, review schema v2, and aggregate
-  schema v6; legacy prompt-bound result v5, singleton result v3, panel result
+  Current panel artifacts use result schema v7, review schema v2, and aggregate
+  schema v6; attemptless result v6, legacy prompt-bound result v5, singleton result v3, panel result
   v4, and review v1 artifacts remain readable.
   Baseline comparison and aggregate grouping now keep different blind
   assignments separate for both singleton and panel reviews.

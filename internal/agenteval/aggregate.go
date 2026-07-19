@@ -295,7 +295,7 @@ func deterministicValidForEfficiency(result Result) bool {
 }
 
 func (r Result) Validate() error {
-	if r.SchemaVersion != ResultSchemaVersion && r.SchemaVersion != LegacyPromptBoundResultSchemaVersion &&
+	if r.SchemaVersion != ResultSchemaVersion && r.SchemaVersion != LegacyAttemptlessResultSchemaVersion && r.SchemaVersion != LegacyPromptBoundResultSchemaVersion &&
 		r.SchemaVersion != PanelResultSchemaVersion && r.SchemaVersion != LegacyResultSchemaVersion {
 		return fmt.Errorf("unsupported result schema_version %d", r.SchemaVersion)
 	}
@@ -305,7 +305,7 @@ func (r Result) Validate() error {
 	if r.SchemaVersion < LegacyPromptBoundResultSchemaVersion && (r.Runtime.SkillActivation != "" || r.Runtime.PromptContractSHA256 != "") {
 		return fmt.Errorf("legacy result cannot contain prompt contract identity")
 	}
-	if r.SchemaVersion == LegacyPromptBoundResultSchemaVersion || r.SchemaVersion == ResultSchemaVersion {
+	if r.SchemaVersion == LegacyPromptBoundResultSchemaVersion || r.SchemaVersion == LegacyAttemptlessResultSchemaVersion || r.SchemaVersion == ResultSchemaVersion {
 		activationCell := r.DataClass == "private-local" && r.EffectiveSurface() == SurfaceCLISkill && r.Runtime.Provider == "codex"
 		if activationCell && (r.Runtime.SkillActivation == "" || r.Runtime.PromptContractSHA256 == "") {
 			return fmt.Errorf("private codex cli-skill result requires prompt contract identity")
@@ -317,6 +317,18 @@ func (r Result) Validate() error {
 			r.Runtime.SkillActivation != "" && r.Runtime.SkillActivation != SkillActivationImplicit && r.Runtime.SkillActivation != SkillActivationExplicit {
 			return fmt.Errorf("legacy prompt-bound result has unsupported skill activation")
 		}
+	}
+	if r.SchemaVersion != ResultSchemaVersion && (r.EvidenceAttempt != (EvidenceAttemptTelemetry{}) || r.EvidenceReport != (EvidenceOutcomeReport{})) {
+		return fmt.Errorf("legacy result cannot contain evidence attempt contracts")
+	}
+	if err := r.EvidenceAttempt.Validate(); err != nil {
+		return fmt.Errorf("result evidence attempt: %w", err)
+	}
+	if err := r.EvidenceReport.Validate(); err != nil {
+		return fmt.Errorf("result evidence report: %w", err)
+	}
+	if r.EvidenceReport.Coverage && !r.EvidenceReport.ConsistentWithAudit(r.EvidenceAttempt) {
+		return fmt.Errorf("result evidence report contradicts audit telemetry")
 	}
 	if !identifierRE.MatchString(r.ScenarioID) || !identifierRE.MatchString(r.TaskClass) || !identifierRE.MatchString(r.Variant) {
 		return fmt.Errorf("result identity is invalid")

@@ -132,6 +132,8 @@ func Evaluate(s Scenario, o Observation) (Result, error) {
 		BackendObservation: o.BackendObservation, SafetyAssurance: o.SafetyAssurance,
 		Runtime: o.Runtime, Status: status, Metrics: metrics,
 		Coverage: coverage, HTTPMethods: methods, Checks: checks, Violations: violations,
+		EvidenceAttempt:    o.EvidenceAttempt,
+		EvidenceReport:     o.EvidenceReport,
 		Warnings:           warnings,
 		CapabilityFamilies: families,
 	}

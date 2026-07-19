@@ -20,10 +20,12 @@ import (
 )
 
 const (
-	PrivateWorkspaceSchemaVersion       = 2
-	LegacyPrivateWorkspaceSchemaVersion = 1
-	PrivateWorkspaceManifestName        = "private-workspace.v2.json"
-	LegacyPrivateWorkspaceManifestName  = "private-workspace.v1.json"
+	PrivateWorkspaceSchemaVersion          = 3
+	LegacyActivationWorkspaceSchemaVersion = 2
+	LegacyPrivateWorkspaceSchemaVersion    = 1
+	PrivateWorkspaceManifestName           = "private-workspace.v3.json"
+	LegacyActivationWorkspaceManifestName  = "private-workspace.v2.json"
+	LegacyPrivateWorkspaceManifestName     = "private-workspace.v1.json"
 
 	maxPrivateWorkspaceManifestBytes = 1 << 20
 	maxPrivateWorkspaceRunSets       = 64
@@ -65,12 +67,13 @@ type PrivateWorkspaceRetention struct {
 // PrivateWorkspaceRunSet gives an operator a generic local alias for one
 // comparable set. Spec paths are slash-separated and rooted below cases/.
 type PrivateWorkspaceRunSet struct {
-	Kind                      string                         `json:"kind,omitempty"`
-	Alias                     string                         `json:"alias"`
-	SpecPaths                 []string                       `json:"spec_paths"`
-	QualitativeReviewRequired bool                           `json:"qualitative_review_required"`
-	QualitativeReviewPanel    *PrivateQualitativeReviewPanel `json:"qualitative_review_panel,omitempty"`
-	ReviewerReserveMicroUSD   int64                          `json:"reviewer_reserve_microusd,omitempty"`
+	Kind                                string                         `json:"kind,omitempty"`
+	Alias                               string                         `json:"alias"`
+	SpecPaths                           []string                       `json:"spec_paths"`
+	QualitativeReviewRequired           bool                           `json:"qualitative_review_required"`
+	QualitativeReviewPanel              *PrivateQualitativeReviewPanel `json:"qualitative_review_panel,omitempty"`
+	ReviewerReserveMicroUSD             int64                          `json:"reviewer_reserve_microusd,omitempty"`
+	CalibrationMaxEstimatedCostMicroUSD int64                          `json:"calibration_max_estimated_cost_microusd,omitempty"`
 }
 
 const (
@@ -183,7 +186,7 @@ func DefaultPrivateWorkspaceManifest() PrivateWorkspaceManifest {
 }
 
 func (m PrivateWorkspaceManifest) Validate() error {
-	if m.SchemaVersion != PrivateWorkspaceSchemaVersion && m.SchemaVersion != LegacyPrivateWorkspaceSchemaVersion {
+	if m.SchemaVersion != PrivateWorkspaceSchemaVersion && m.SchemaVersion != LegacyActivationWorkspaceSchemaVersion && m.SchemaVersion != LegacyPrivateWorkspaceSchemaVersion {
 		return privateWorkspaceContractError("schema_version")
 	}
 	if !privateWorkspaceEnvRE.MatchString(m.LiveConfigEnv) {
@@ -209,7 +212,7 @@ func (m PrivateWorkspaceManifest) Validate() error {
 		if kind != PrivateRunSetKindComparison && kind != PrivateRunSetKindActivationStudy {
 			return privateWorkspaceContractError("run_set_kind")
 		}
-		if m.SchemaVersion == LegacyPrivateWorkspaceSchemaVersion && (runSet.Kind != "" || runSet.ReviewerReserveMicroUSD != 0) {
+		if m.SchemaVersion == LegacyPrivateWorkspaceSchemaVersion && (runSet.Kind != "" || runSet.ReviewerReserveMicroUSD != 0 || runSet.CalibrationMaxEstimatedCostMicroUSD != 0) {
 			return privateWorkspaceContractError("run_set_kind")
 		}
 		if !privateWorkspaceAliasRE.MatchString(runSet.Alias) {
@@ -246,12 +249,16 @@ func (m PrivateWorkspaceManifest) Validate() error {
 			}
 		}
 		if kind == PrivateRunSetKindActivationStudy {
-			if m.SchemaVersion != PrivateWorkspaceSchemaVersion || runSet.QualitativeReviewRequired || runSet.QualitativeReviewPanel == nil ||
+			commonInvalid := runSet.QualitativeReviewRequired || runSet.QualitativeReviewPanel == nil ||
 				runSet.QualitativeReviewPanel.BlindAssignment == "" || runSet.ReviewerReserveMicroUSD < 1 ||
-				runSet.ReviewerReserveMicroUSD > m.Execution.MaxEstimatedCostMicroUSD {
+				runSet.ReviewerReserveMicroUSD > m.Execution.MaxEstimatedCostMicroUSD
+			currentInvalid := m.SchemaVersion == PrivateWorkspaceSchemaVersion &&
+				(runSet.CalibrationMaxEstimatedCostMicroUSD < 1 || runSet.CalibrationMaxEstimatedCostMicroUSD > m.Execution.MaxEstimatedCostMicroUSD-runSet.ReviewerReserveMicroUSD)
+			legacyInvalid := m.SchemaVersion == LegacyActivationWorkspaceSchemaVersion && runSet.CalibrationMaxEstimatedCostMicroUSD != 0
+			if commonInvalid || currentInvalid || legacyInvalid || m.SchemaVersion == LegacyPrivateWorkspaceSchemaVersion {
 				return privateWorkspaceContractError("activation_study")
 			}
-		} else if runSet.ReviewerReserveMicroUSD != 0 {
+		} else if runSet.ReviewerReserveMicroUSD != 0 || runSet.CalibrationMaxEstimatedCostMicroUSD != 0 {
 			return privateWorkspaceContractError("reviewer_reserve")
 		}
 	}
@@ -327,7 +334,7 @@ func validatePrivateWorkspaceManifestPresence(data []byte) error {
 	}
 	for _, runSet := range runSets {
 		if validatePrivateWorkspaceObjectKeys(runSet, []string{"alias", "spec_paths", "qualitative_review_required"},
-			[]string{"kind", "reviewer_reserve_microusd", "qualitative_review_panel"}) != nil {
+			[]string{"kind", "reviewer_reserve_microusd", "calibration_max_estimated_cost_microusd", "qualitative_review_panel"}) != nil {
 			return privateWorkspaceContractError("decode")
 		}
 		if panelData, ok := runSet["qualitative_review_panel"]; ok {
@@ -376,14 +383,18 @@ func validatePrivateWorkspaceManifestPresence(data []byte) error {
 			}
 		}
 		_, reservePresent := runSet["reviewer_reserve_microusd"]
+		_, calibrationPresent := runSet["calibration_max_estimated_cost_microusd"]
 		if raw.SchemaVersion == LegacyPrivateWorkspaceSchemaVersion && reservePresent {
 			return privateWorkspaceContractError("reviewer_reserve")
 		}
-		if kind == PrivateRunSetKindActivationStudy && !reservePresent {
+		if kind == PrivateRunSetKindActivationStudy && (!reservePresent || raw.SchemaVersion == PrivateWorkspaceSchemaVersion && !calibrationPresent) {
 			return privateWorkspaceContractError("reviewer_reserve")
 		}
-		if kind != PrivateRunSetKindActivationStudy && reservePresent {
+		if kind != PrivateRunSetKindActivationStudy && (reservePresent || calibrationPresent) {
 			return privateWorkspaceContractError("reviewer_reserve")
+		}
+		if raw.SchemaVersion != PrivateWorkspaceSchemaVersion && calibrationPresent {
+			return privateWorkspaceContractError("calibration_reserve")
 		}
 	}
 	return nil
@@ -446,35 +457,52 @@ func loadPrivateWorkspaceManifest(root string) (PrivateWorkspaceManifest, string
 
 func privateWorkspaceManifestPath(root string) (string, error) {
 	current := filepath.Join(root, PrivateWorkspaceManifestName)
+	legacyActivation := filepath.Join(root, LegacyActivationWorkspaceManifestName)
 	legacy := filepath.Join(root, LegacyPrivateWorkspaceManifestName)
 	_, currentErr := os.Lstat(current)
+	_, legacyActivationErr := os.Lstat(legacyActivation)
 	_, legacyErr := os.Lstat(legacy)
-	if currentErr == nil && legacyErr == nil {
+	present := 0
+	for _, err := range []error{currentErr, legacyActivationErr, legacyErr} {
+		if err == nil {
+			present++
+		}
+	}
+	if present > 1 {
 		return "", privateWorkspaceOperationError("manifest_ambiguous")
 	}
 	if currentErr == nil {
 		return current, nil
 	}
+	if legacyActivationErr == nil {
+		return legacyActivation, nil
+	}
 	if legacyErr == nil {
 		return legacy, nil
 	}
-	if !os.IsNotExist(currentErr) || !os.IsNotExist(legacyErr) {
+	if !os.IsNotExist(currentErr) || !os.IsNotExist(legacyActivationErr) || !os.IsNotExist(legacyErr) {
 		return "", privateWorkspaceOperationError("manifest_stat")
 	}
 	return current, nil
 }
 
 func privateWorkspaceManifestPathForSchema(root string, schemaVersion int) string {
-	if schemaVersion == LegacyPrivateWorkspaceSchemaVersion {
+	switch schemaVersion {
+	case LegacyPrivateWorkspaceSchemaVersion:
 		return filepath.Join(root, LegacyPrivateWorkspaceManifestName)
+	case LegacyActivationWorkspaceSchemaVersion:
+		return filepath.Join(root, LegacyActivationWorkspaceManifestName)
+	default:
+		return filepath.Join(root, PrivateWorkspaceManifestName)
 	}
-	return filepath.Join(root, PrivateWorkspaceManifestName)
 }
 
 func privateWorkspaceManifestSchemaMatchesPath(path string, schemaVersion int) bool {
 	switch filepath.Base(path) {
 	case PrivateWorkspaceManifestName:
 		return schemaVersion == PrivateWorkspaceSchemaVersion
+	case LegacyActivationWorkspaceManifestName:
+		return schemaVersion == LegacyActivationWorkspaceSchemaVersion
 	case LegacyPrivateWorkspaceManifestName:
 		return schemaVersion == LegacyPrivateWorkspaceSchemaVersion
 	default:
@@ -821,7 +849,7 @@ func privateWorkspaceLayoutOK(root string) bool {
 	if err != nil {
 		return false
 	}
-	allowed := map[string]struct{}{PrivateWorkspaceManifestName: {}, LegacyPrivateWorkspaceManifestName: {}, privateOutputRootMarker: {}}
+	allowed := map[string]struct{}{PrivateWorkspaceManifestName: {}, LegacyActivationWorkspaceManifestName: {}, LegacyPrivateWorkspaceManifestName: {}, privateOutputRootMarker: {}}
 	for _, name := range privateWorkspaceFixedDirectories {
 		allowed[name] = struct{}{}
 	}
@@ -915,7 +943,13 @@ func inspectPrivateWorkspaceSpecs(root string, manifest PrivateWorkspaceManifest
 			continue
 		}
 		if runSet.EffectiveKind() == PrivateRunSetKindActivationStudy {
-			if _, err := ValidatePrivateActivationStudy(paths...); err != nil {
+			var err error
+			if manifest.SchemaVersion == LegacyActivationWorkspaceSchemaVersion {
+				err = validateLegacyPrivateActivationStudy(paths...)
+			} else {
+				_, err = ValidatePrivateActivationStudy(paths...)
+			}
+			if err != nil {
 				specsOK = false
 			}
 		} else if len(paths) > 1 {

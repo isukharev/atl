@@ -91,7 +91,7 @@ func TestClaudeBashGuardEmitsPreToolDecision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "{\"decision\":\"allow\"}\n" {
+	if string(data) != "{\"decision\":\"allow\",\"family\":\"atl\"}\n" {
 		t.Fatalf("counter=%q", data)
 	}
 }
@@ -260,6 +260,29 @@ func TestPrivateLiveCLIGuardAllowsOnlyOneATLCommandShape(t *testing.T) {
 		var output, errorOutput bytes.Buffer
 		if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
 			t.Fatalf("patch=%q code=%d output=%s stderr=%s", patch, code, output.String(), errorOutput.String())
+		}
+	}
+}
+
+func TestProviderCalibrationGuardAllowsOnlyLiteralATLVersion(t *testing.T) {
+	t.Setenv("ATL_EVAL_GUARD_MODE", "provider-calibration")
+	t.Setenv("ATL_EVAL_GUARD_COUNTER", filepath.Join(t.TempDir(), "guard.jsonl"))
+	for _, test := range []struct {
+		command string
+		want    string
+	}{
+		{command: "atl version", want: "allow"},
+		{command: " atl version", want: "deny"},
+		{command: "atl version\n", want: "deny"},
+		{command: "command -v atl\natl version", want: "deny"},
+		{command: "export ATL_READ_ONLY=1\natl version", want: "deny"},
+		{command: "atl version; atl version", want: "deny"},
+	} {
+		input := `{"tool_name":"Bash","tool_input":{"command":` + strconv.Quote(test.command) + `}}`
+		var output, errorOutput bytes.Buffer
+		if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 ||
+			!strings.Contains(output.String(), `"permissionDecision":"`+test.want+`"`) {
+			t.Fatalf("command=%q code=%d output=%s stderr=%s", test.command, code, output.String(), errorOutput.String())
 		}
 	}
 }
@@ -637,7 +660,7 @@ func TestClaudeGuardEnforcesDelegationLimitWithoutRecordingInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "{\"decision\":\"allow\"}\n{\"decision\":\"deny\"}\n" {
+	if string(data) != "{\"decision\":\"allow\",\"family\":\"agent\"}\n{\"decision\":\"deny\",\"family\":\"other\"}\n" {
 		t.Fatalf("counter=%q", data)
 	}
 	if bytes.Contains(data, []byte("synthetic secret")) {

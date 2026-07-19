@@ -6,8 +6,10 @@ import (
 )
 
 const (
-	PrivateActivationReferenceSchemaVersion = 1
-	PrivateActivationReportSchemaVersion    = 1
+	PrivateActivationReferenceSchemaVersion       = 2
+	LegacyPrivateActivationReferenceSchemaVersion = 1
+	PrivateActivationReportSchemaVersion          = 2
+	LegacyPrivateActivationReportSchemaVersion    = 1
 
 	privateActivationReviewIncomplete   = "incomplete"
 	privateActivationReviewPass         = "pass"
@@ -18,8 +20,14 @@ const (
 	privateActivationFactorDeveloperChannel = "developer_channel"
 	privateActivationFactorInteraction      = "interaction"
 
-	privateActivationMetricOutcomeBasisPoints  = "deterministic_pass_bps"
-	privateActivationMetricQualitativeScoreBPS = "qualitative_score_bps"
+	privateActivationMetricOutcomeBasisPoints     = "deterministic_pass_bps"
+	privateActivationMetricQualitativeScoreBPS    = "qualitative_score_bps"
+	privateActivationMetricEvidenceAttemptedBPS   = "evidence_attempted_bps"
+	privateActivationMetricEvidenceSucceededBPS   = "evidence_succeeded_bps"
+	privateActivationMetricEvidenceBlockedBPS     = "evidence_blocked_bps"
+	privateActivationMetricEvidenceUnavailableBPS = "evidence_unavailable_bps"
+	privateActivationMetricReportedNoneBPS        = "evidence_reported_none_bps"
+	privateActivationMetricReportedUnavailableBPS = "evidence_reported_unavailable_bps"
 
 	// Keeping report values within the exactly representable JSON integer range
 	// makes the privacy-safe contract portable across Go and JavaScript readers.
@@ -34,8 +42,14 @@ var privateActivationTreatments = []string{
 }
 
 var privateActivationMetricNames = map[string]struct{}{
-	privateActivationMetricOutcomeBasisPoints:  {},
-	privateActivationMetricQualitativeScoreBPS: {},
+	privateActivationMetricOutcomeBasisPoints:     {},
+	privateActivationMetricQualitativeScoreBPS:    {},
+	privateActivationMetricEvidenceAttemptedBPS:   {},
+	privateActivationMetricEvidenceSucceededBPS:   {},
+	privateActivationMetricEvidenceBlockedBPS:     {},
+	privateActivationMetricEvidenceUnavailableBPS: {},
+	privateActivationMetricReportedNoneBPS:        {},
+	privateActivationMetricReportedUnavailableBPS: {},
 	"agent_turns":                {},
 	"atl_invocations":            {},
 	"backend_requests":           {},
@@ -185,7 +199,7 @@ func CapturePrivateActivationReference(inputs []PrivateActivationCellInput) (Pri
 }
 
 func (r PrivateActivationReference) Validate() error {
-	if r.SchemaVersion != PrivateActivationReferenceSchemaVersion {
+	if r.SchemaVersion != PrivateActivationReferenceSchemaVersion && r.SchemaVersion != LegacyPrivateActivationReferenceSchemaVersion {
 		return fmt.Errorf("unsupported activation reference schema version")
 	}
 	if len(r.Cells) != len(privateActivationTreatments) {
@@ -215,7 +229,7 @@ func (r PrivateActivationReference) Validate() error {
 		if !validPrivateActivationReview(cell.ReviewStatus, cell.QualitativeScoreBPS) {
 			return fmt.Errorf("activation reference review outcome is invalid")
 		}
-		if err := validatePrivateActivationMetrics(cell); err != nil {
+		if err := validatePrivateActivationMetrics(r.SchemaVersion, cell); err != nil {
 			return err
 		}
 	}
@@ -227,16 +241,20 @@ func ComparePrivateActivationReference(reference PrivateActivationReference) (Pr
 		return PrivateActivationReport{}, err
 	}
 
+	reportSchemaVersion := PrivateActivationReportSchemaVersion
+	if reference.SchemaVersion == LegacyPrivateActivationReferenceSchemaVersion {
+		reportSchemaVersion = LegacyPrivateActivationReportSchemaVersion
+	}
 	report := PrivateActivationReport{
-		SchemaVersion: PrivateActivationReportSchemaVersion,
+		SchemaVersion: reportSchemaVersion,
 		Treatments:    []PrivateActivationTreatmentReport{},
 		Contrasts:     []PrivateActivationContrast{},
 	}
-	report.Gates = privateActivationReferenceGates(reference.Cells)
+	report.Gates = privateActivationReferenceGates(reference.SchemaVersion, reference.Cells)
 	for _, cell := range reference.Cells {
 		report.Treatments = append(report.Treatments, PrivateActivationTreatmentReport{
 			Treatment: cell.Treatment,
-			Gates:     privateActivationReferenceGates([]PrivateActivationReferenceCell{cell}),
+			Gates:     privateActivationReferenceGates(reference.SchemaVersion, []PrivateActivationReferenceCell{cell}),
 			Metrics:   append([]PrivateActivationMetric(nil), cell.Metrics...),
 		})
 	}
@@ -253,10 +271,13 @@ func PrivateActivationReferenceGates(reference PrivateActivationReference) (Priv
 	if err := reference.Validate(); err != nil {
 		return PrivateActivationGates{}, err
 	}
-	return privateActivationReferenceGates(reference.Cells), nil
+	return privateActivationReferenceGates(reference.SchemaVersion, reference.Cells), nil
 }
 
 func ValidatePrivateActivationReferencePromotion(reference PrivateActivationReference) error {
+	if reference.SchemaVersion != PrivateActivationReferenceSchemaVersion {
+		return fmt.Errorf("legacy activation study reference is compare-only")
+	}
 	gates, err := PrivateActivationReferenceGates(reference)
 	if err != nil {
 		return err
@@ -268,7 +289,7 @@ func ValidatePrivateActivationReferencePromotion(reference PrivateActivationRefe
 }
 
 func (r PrivateActivationReport) Validate() error {
-	if r.SchemaVersion != PrivateActivationReportSchemaVersion || len(r.Treatments) != len(privateActivationTreatments) {
+	if (r.SchemaVersion != PrivateActivationReportSchemaVersion && r.SchemaVersion != LegacyPrivateActivationReportSchemaVersion) || len(r.Treatments) != len(privateActivationTreatments) {
 		return fmt.Errorf("activation study report shape is invalid")
 	}
 	aggregate := PrivateActivationGates{
@@ -284,6 +305,23 @@ func (r PrivateActivationReport) Validate() error {
 		}
 		if err := validatePrivateActivationReportMetrics(treatment.Metrics); err != nil {
 			return err
+		}
+		if r.SchemaVersion == PrivateActivationReportSchemaVersion {
+			if err := validatePrivateActivationAttemptMetrics(treatment.Metrics); err != nil {
+				return err
+			}
+			if err := validatePrivateActivationReportStateMetrics(treatment.Metrics); err != nil {
+				return err
+			}
+		} else {
+			for _, metric := range treatment.Metrics {
+				if privateActivationEvidenceMetric(metric.Name) {
+					return fmt.Errorf("legacy activation report cannot contain evidence metrics")
+				}
+			}
+		}
+		if r.SchemaVersion == PrivateActivationReportSchemaVersion && treatment.Gates.PromotionEligible && !privateActivationAttemptSucceeded(treatment.Metrics) {
+			return fmt.Errorf("activation study report promotion requires successful evidence")
 		}
 		aggregate.CaptureEligible = aggregate.CaptureEligible && treatment.Gates.CaptureEligible
 		aggregate.Supported = aggregate.Supported && treatment.Gates.Supported
@@ -324,7 +362,7 @@ func (r PrivateActivationReport) Validate() error {
 	return nil
 }
 
-func privateActivationReferenceGates(cells []PrivateActivationReferenceCell) PrivateActivationGates {
+func privateActivationReferenceGates(schemaVersion int, cells []PrivateActivationReferenceCell) PrivateActivationGates {
 	gates := PrivateActivationGates{
 		CaptureEligible: true, Supported: true, SafetyComplete: true, SafetyClean: true,
 		ReviewComplete: true, NoDisagreement: true, CausalEligible: true, PromotionEligible: true,
@@ -335,8 +373,8 @@ func privateActivationReferenceGates(cells []PrivateActivationReferenceCell) Pri
 		reviewComplete := cell.ReviewStatus == privateActivationReviewPass || cell.ReviewStatus == privateActivationReviewFail
 		noDisagreement := cell.ReviewStatus != privateActivationReviewDisagreement
 		causalEligible := supported && safetyClean && reviewComplete && noDisagreement
-		promotionEligible := causalEligible && cell.ResultStatus == "pass" && cell.ResultViolationCount == 0 &&
-			cell.DeterministicPass && cell.ReviewStatus == privateActivationReviewPass
+		promotionEligible := schemaVersion == PrivateActivationReferenceSchemaVersion && causalEligible && cell.ResultStatus == "pass" && cell.ResultViolationCount == 0 &&
+			cell.DeterministicPass && cell.ReviewStatus == privateActivationReviewPass && privateActivationAttemptSucceeded(cell.Metrics)
 
 		gates.Supported = gates.Supported && supported
 		gates.SafetyComplete = gates.SafetyComplete && cell.SafetyComplete
@@ -393,6 +431,40 @@ func privateActivationMetrics(result Result, deterministicPass bool, qualitative
 		passBPS = 10000
 	}
 	metrics := []PrivateActivationMetric{{Name: privateActivationMetricOutcomeBasisPoints, Value: passBPS}}
+	if result.EvidenceAttempt.Coverage {
+		attempted, succeeded, blocked, unavailable := int64(0), int64(0), int64(0), int64(0)
+		if result.EvidenceAttempt.Attempts > 0 {
+			attempted = 10000
+		}
+		if result.EvidenceAttempt.State == EvidenceAttemptStateSucceeded {
+			succeeded = 10000
+		}
+		if result.EvidenceAttempt.State == EvidenceAttemptStateBlocked {
+			blocked = 10000
+		}
+		if result.EvidenceAttempt.State == EvidenceAttemptStateUnavailable {
+			unavailable = 10000
+		}
+		metrics = append(metrics,
+			PrivateActivationMetric{Name: privateActivationMetricEvidenceAttemptedBPS, Value: attempted},
+			PrivateActivationMetric{Name: privateActivationMetricEvidenceSucceededBPS, Value: succeeded},
+			PrivateActivationMetric{Name: privateActivationMetricEvidenceBlockedBPS, Value: blocked},
+			PrivateActivationMetric{Name: privateActivationMetricEvidenceUnavailableBPS, Value: unavailable},
+		)
+	}
+	if result.EvidenceReport.Coverage {
+		reportedNone, reportedUnavailable := int64(0), int64(0)
+		if result.EvidenceReport.State == EvidenceAttemptStateNone {
+			reportedNone = 10000
+		}
+		if result.EvidenceReport.State == EvidenceAttemptStateUnavailable {
+			reportedUnavailable = 10000
+		}
+		metrics = append(metrics,
+			PrivateActivationMetric{Name: privateActivationMetricReportedNoneBPS, Value: reportedNone},
+			PrivateActivationMetric{Name: privateActivationMetricReportedUnavailableBPS, Value: reportedUnavailable},
+		)
+	}
 	if qualitativeScore != nil {
 		metrics = append(metrics, PrivateActivationMetric{Name: privateActivationMetricQualitativeScoreBPS, Value: int64(*qualitativeScore)})
 	}
@@ -446,9 +518,24 @@ func privateActivationDeterministicPass(result Result) bool {
 	return true
 }
 
-func validatePrivateActivationMetrics(cell PrivateActivationReferenceCell) error {
+func validatePrivateActivationMetrics(schemaVersion int, cell PrivateActivationReferenceCell) error {
 	if err := validatePrivateActivationReportMetrics(cell.Metrics); err != nil {
 		return err
+	}
+	if schemaVersion == LegacyPrivateActivationReferenceSchemaVersion {
+		for _, metric := range cell.Metrics {
+			if privateActivationEvidenceMetric(metric.Name) {
+				return fmt.Errorf("legacy activation reference cannot contain evidence metrics")
+			}
+		}
+	}
+	if schemaVersion == PrivateActivationReferenceSchemaVersion {
+		if err := validatePrivateActivationAttemptMetrics(cell.Metrics); err != nil {
+			return err
+		}
+		if err := validatePrivateActivationReportStateMetrics(cell.Metrics); err != nil {
+			return err
+		}
 	}
 	values := make(map[string]int64, len(cell.Metrics))
 	for _, metric := range cell.Metrics {
@@ -466,6 +553,95 @@ func validatePrivateActivationMetrics(cell PrivateActivationReferenceCell) error
 		return fmt.Errorf("activation reference qualitative metric is inconsistent")
 	}
 	return nil
+}
+
+func validatePrivateActivationReportStateMetrics(metrics []PrivateActivationMetric) error {
+	values := make(map[string]int64, 2)
+	for _, metric := range metrics {
+		switch metric.Name {
+		case privateActivationMetricReportedNoneBPS, privateActivationMetricReportedUnavailableBPS:
+			if metric.Value != 0 && metric.Value != 10000 {
+				return fmt.Errorf("activation reference evidence-report metric is invalid")
+			}
+			values[metric.Name] = metric.Value
+		}
+	}
+	if len(values) != 2 || values[privateActivationMetricReportedNoneBPS]+values[privateActivationMetricReportedUnavailableBPS] > 10000 {
+		return fmt.Errorf("activation reference evidence-report metrics are incomplete or inconsistent")
+	}
+	audit := make(map[string]int64, 4)
+	for _, metric := range metrics {
+		switch metric.Name {
+		case privateActivationMetricEvidenceAttemptedBPS, privateActivationMetricEvidenceSucceededBPS,
+			privateActivationMetricEvidenceBlockedBPS, privateActivationMetricEvidenceUnavailableBPS:
+			audit[metric.Name] = metric.Value
+		}
+	}
+	attempted := audit[privateActivationMetricEvidenceAttemptedBPS]
+	reportedNone := values[privateActivationMetricReportedNoneBPS]
+	reportedUnavailable := values[privateActivationMetricReportedUnavailableBPS]
+	switch {
+	case attempted == 0:
+		if reportedNone+reportedUnavailable != 10000 || audit[privateActivationMetricEvidenceSucceededBPS]+audit[privateActivationMetricEvidenceBlockedBPS]+audit[privateActivationMetricEvidenceUnavailableBPS] != 0 {
+			return fmt.Errorf("activation reference evidence report contradicts audit metrics")
+		}
+	case audit[privateActivationMetricEvidenceUnavailableBPS] == 10000:
+		if reportedUnavailable != 10000 || reportedNone != 0 {
+			return fmt.Errorf("activation reference evidence report contradicts audit metrics")
+		}
+	default:
+		if reportedNone != 0 || reportedUnavailable != 0 {
+			return fmt.Errorf("activation reference evidence report contradicts audit metrics")
+		}
+	}
+	return nil
+}
+
+func privateActivationEvidenceMetric(name string) bool {
+	switch name {
+	case privateActivationMetricEvidenceAttemptedBPS, privateActivationMetricEvidenceSucceededBPS,
+		privateActivationMetricEvidenceBlockedBPS, privateActivationMetricEvidenceUnavailableBPS,
+		privateActivationMetricReportedNoneBPS, privateActivationMetricReportedUnavailableBPS:
+		return true
+	default:
+		return false
+	}
+}
+
+func validatePrivateActivationAttemptMetrics(metrics []PrivateActivationMetric) error {
+	values := make(map[string]int64, 4)
+	for _, metric := range metrics {
+		switch metric.Name {
+		case privateActivationMetricEvidenceAttemptedBPS, privateActivationMetricEvidenceSucceededBPS,
+			privateActivationMetricEvidenceBlockedBPS, privateActivationMetricEvidenceUnavailableBPS:
+			if metric.Value != 0 && metric.Value != 10000 {
+				return fmt.Errorf("activation reference evidence-attempt metric is invalid")
+			}
+			values[metric.Name] = metric.Value
+		}
+	}
+	if len(values) != 4 {
+		return fmt.Errorf("activation reference evidence-attempt metrics are incomplete")
+	}
+	attempted := values[privateActivationMetricEvidenceAttemptedBPS]
+	outcomes := values[privateActivationMetricEvidenceSucceededBPS] + values[privateActivationMetricEvidenceBlockedBPS] + values[privateActivationMetricEvidenceUnavailableBPS]
+	if outcomes > attempted {
+		return fmt.Errorf("activation reference evidence-attempt metrics are inconsistent")
+	}
+	return nil
+}
+
+func privateActivationAttemptSucceeded(metrics []PrivateActivationMetric) bool {
+	attempted, succeeded := int64(-1), int64(-1)
+	for _, metric := range metrics {
+		switch metric.Name {
+		case privateActivationMetricEvidenceAttemptedBPS:
+			attempted = metric.Value
+		case privateActivationMetricEvidenceSucceededBPS:
+			succeeded = metric.Value
+		}
+	}
+	return attempted == 10000 && succeeded == 10000
 }
 
 func validatePrivateActivationReportMetrics(metrics []PrivateActivationMetric) error {

@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	PrivateActivationReferenceConfirmation = "REFERENCE"
-	PrivateActivationPromotionConfirmation = "PROMOTE"
-	privateActivationStoredSchemaVersion   = 1
+	PrivateActivationReferenceConfirmation     = "REFERENCE"
+	PrivateActivationPromotionConfirmation     = "PROMOTE"
+	privateActivationStoredSchemaVersion       = 2
+	legacyPrivateActivationStoredSchemaVersion = 1
 )
 
 type PrivateActivationReferenceSetOptions struct {
@@ -76,7 +77,8 @@ func SetPrivateActivationReference(options PrivateActivationReferenceSetOptions)
 		return PrivateActivationReferenceSummary{}, privatePlanError("reference_source")
 	}
 	plan, _, err := loadPrivatePlan(root, source.PlanID)
-	if err != nil || plan.ActivationContract == nil {
+	if err != nil || plan.SchemaVersion != PrivatePlanSchemaVersion || plan.StudyContract == nil ||
+		plan.StudyContract.SchemaVersion != PrivateActivationStudyPlanSchemaVersion || plan.ActivationContract == nil {
 		return PrivateActivationReferenceSummary{}, privatePlanError("reference_source")
 	}
 	initialTreeHash, _, _, err := hashPrivatePruneTree(root, source.RunRoot)
@@ -200,6 +202,9 @@ func PromotePrivateActivationReference(options PrivateActivationPromotionOptions
 	if err != nil {
 		return PrivateActivationPromotionSummary{}, err
 	}
+	if stored.SchemaVersion != privateActivationStoredSchemaVersion {
+		return PrivateActivationPromotionSummary{}, privatePlanError("promotion_gates")
+	}
 	if err := ValidatePrivateActivationReferencePromotion(stored.Reference); err != nil {
 		return PrivateActivationPromotionSummary{}, privatePlanError("promotion_gates")
 	}
@@ -236,7 +241,7 @@ func loadPrivateStoredActivationReference(root, alias string) (privateStoredActi
 		return privateStoredActivationReference{}, nil, privatePlanError("reference_read")
 	}
 	var stored privateStoredActivationReference
-	if decodePrivateLifecycleJSON(data, &stored) != nil || stored.SchemaVersion != privateActivationStoredSchemaVersion || stored.ReferenceAlias != alias ||
+	if decodePrivateLifecycleJSON(data, &stored) != nil || !validPrivateStoredActivationReferenceSchema(stored) || stored.ReferenceAlias != alias ||
 		!validPrivateActivationReferenceAlias(stored.ReferenceAlias) || !privatePlanIDRE.MatchString(stored.PlanID) ||
 		!validSHA256(stored.PlanSHA256) || !validSHA256(stored.CommonContractSHA256) || !validSHA256(stored.RunTreeSHA256) || stored.Reference.Validate() != nil {
 		return privateStoredActivationReference{}, nil, privatePlanError("reference_decode")
@@ -253,7 +258,26 @@ func loadPrivateStoredActivationReference(root, alias string) (privateStoredActi
 		plan.ActivationContract == nil || plan.ActivationContract.CommonContractSHA256 != stored.CommonContractSHA256 {
 		return privateStoredActivationReference{}, nil, privatePlanError("reference_plan")
 	}
+	if stored.SchemaVersion == privateActivationStoredSchemaVersion {
+		if plan.SchemaVersion != PrivatePlanSchemaVersion || plan.StudyContract == nil || plan.StudyContract.SchemaVersion != PrivateActivationStudyPlanSchemaVersion {
+			return privateStoredActivationReference{}, nil, privatePlanError("reference_plan")
+		}
+	} else if plan.SchemaVersion != LegacyActivationStudyPrivatePlanSchemaVersion || plan.StudyContract == nil ||
+		plan.StudyContract.SchemaVersion != legacyPrivateActivationStudyPlanSchemaVersion {
+		return privateStoredActivationReference{}, nil, privatePlanError("reference_plan")
+	}
 	return stored, data, nil
+}
+
+func validPrivateStoredActivationReferenceSchema(stored privateStoredActivationReference) bool {
+	switch stored.SchemaVersion {
+	case privateActivationStoredSchemaVersion:
+		return stored.Reference.SchemaVersion == PrivateActivationReferenceSchemaVersion
+	case legacyPrivateActivationStoredSchemaVersion:
+		return stored.Reference.SchemaVersion == LegacyPrivateActivationReferenceSchemaVersion
+	default:
+		return false
+	}
 }
 
 func encodePrivateStoredActivationReference(stored privateStoredActivationReference) ([]byte, error) {

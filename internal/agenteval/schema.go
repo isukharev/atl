@@ -12,8 +12,9 @@ import (
 
 const (
 	ScenarioSchemaVersion                = 1
-	ObservationSchemaVersion             = 4
-	ResultSchemaVersion                  = 6
+	ObservationSchemaVersion             = 5
+	ResultSchemaVersion                  = 7
+	LegacyAttemptlessResultSchemaVersion = 6
 	LegacyPromptBoundResultSchemaVersion = 5
 	PanelResultSchemaVersion             = 4
 	LegacyResultSchemaVersion            = 3
@@ -137,6 +138,8 @@ type Observation struct {
 	Coverage                map[string]bool          `json:"coverage"`
 	HTTPMethods             map[string]int           `json:"http_methods"`
 	Checks                  map[string]bool          `json:"checks"`
+	EvidenceAttempt         EvidenceAttemptTelemetry `json:"evidence_attempt"`
+	EvidenceReport          EvidenceOutcomeReport    `json:"evidence_report"`
 	Warnings                []string                 `json:"warnings,omitempty"`
 	CapabilityFamilies      []CapabilityFamilyMetric `json:"capability_families,omitempty"`
 }
@@ -204,6 +207,8 @@ type Result struct {
 	Coverage                map[string]bool                 `json:"coverage"`
 	HTTPMethods             map[string]int                  `json:"http_methods"`
 	Checks                  map[string]bool                 `json:"checks"`
+	EvidenceAttempt         EvidenceAttemptTelemetry        `json:"evidence_attempt"`
+	EvidenceReport          EvidenceOutcomeReport           `json:"evidence_report"`
 	Violations              []Violation                     `json:"violations"`
 	Warnings                []string                        `json:"warnings,omitempty"`
 	Qualitative             *QualitativeAssessment          `json:"qualitative,omitempty"`
@@ -335,6 +340,15 @@ func (o Observation) Validate() error {
 	}
 	if err := o.Metrics.validate(); err != nil {
 		return err
+	}
+	if err := o.EvidenceAttempt.Validate(); err != nil {
+		return fmt.Errorf("observation evidence attempt: %w", err)
+	}
+	if err := o.EvidenceReport.Validate(); err != nil {
+		return fmt.Errorf("observation evidence report: %w", err)
+	}
+	if o.EvidenceReport.Coverage && !o.EvidenceReport.ConsistentWithAudit(o.EvidenceAttempt) {
+		return fmt.Errorf("observation evidence report contradicts audit telemetry")
 	}
 	if len(o.Coverage) > len(metricNames) || len(o.HTTPMethods) > maxContractListEntries || len(o.Checks) > maxContractListEntries || len(o.Warnings) > maxContractListEntries {
 		return fmt.Errorf("observation exceeds %d entries in a bounded collection", maxContractListEntries)
