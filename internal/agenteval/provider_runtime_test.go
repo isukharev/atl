@@ -3,6 +3,7 @@ package agenteval
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,6 +12,75 @@ import (
 
 	"github.com/isukharev/atl/internal/skillmeta"
 )
+
+func TestCodexPromptInventoryIsBoundToInstalledSkillRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "installed", "skills")
+	catalog := skillmeta.Catalog{Skills: []skillmeta.Skill{
+		{Name: "atl", OpenAI: skillmeta.OpenAI{AllowImplicitInvocation: true}},
+		{Name: "setup", OpenAI: skillmeta.OpenAI{AllowImplicitInvocation: false}},
+	}}
+	line := func(name, path string) string {
+		return "- atl:" + name + ": Synthetic (file: " + path + ")"
+	}
+	for _, name := range []string{"atl", "setup", "other"} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte("synthetic"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root = canonicalRoot
+	expected := line("atl", filepath.Join(root, "atl", "SKILL.md"))
+	systemSkill := filepath.Join(t.TempDir(), "skills", ".system", "imagegen")
+	if err := os.MkdirAll(systemSkill, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(systemSkill, "SKILL.md"), []byte("synthetic"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	systemCollision := line("imagegen", filepath.Join(systemSkill, "SKILL.md"))
+	if !codexPromptExposesImplicitSkills(promptInventoryDocument(t, systemCollision, expected), catalog, root) {
+		t.Fatal("same-prefix system skill outside the installed root caused a false mismatch")
+	}
+
+	for name, lines := range map[string][]string{
+		"missing":             {systemCollision},
+		"duplicate":           {expected, expected},
+		"unexpected":          {expected, line("other", filepath.Join(root, "other", "SKILL.md"))},
+		"explicit-only":       {expected, line("setup", filepath.Join(root, "setup", "SKILL.md"))},
+		"wrong skill path":    {line("atl", filepath.Join(root, "other", "SKILL.md"))},
+		"malformed":           {expected, "- atl:broken inventory line"},
+		"relative path":       {line("atl", filepath.Join("relative", "atl", "SKILL.md"))},
+		"traversal path":      {line("atl", root+string(filepath.Separator)+"atl"+string(filepath.Separator)+".."+string(filepath.Separator)+"atl"+string(filepath.Separator)+"SKILL.md")},
+		"escape path":         {line("atl", root+string(filepath.Separator)+".."+string(filepath.Separator)+"escape"+string(filepath.Separator)+"SKILL.md")},
+		"malformed duplicate": {expected, "- atl:atl: Synthetic (file: relative/atl/SKILL.md)"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if codexPromptExposesImplicitSkills(promptInventoryDocument(t, lines...), catalog, root) {
+				t.Fatal("invalid installed inventory passed")
+			}
+		})
+	}
+}
+
+func promptInventoryDocument(t *testing.T, lines ...string) []byte {
+	t.Helper()
+	document := []map[string]any{{
+		"type":    "message",
+		"content": []map[string]string{{"type": "input_text", "text": strings.Join(lines, "\n")}},
+	}}
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
 
 func TestProvisionCodexBenchmarkPluginUsesFreshLocalMarketplaceInventory(t *testing.T) {
 	requireCodexRuntimePOSIX(t)
@@ -61,7 +131,8 @@ if [ "$1" = "plugin" ] && [ "$2" = "list" ]; then
   exit 0
 fi
 if [ "$1" = "debug" ] && [ "$2" = "prompt-input" ]; then
-  printf '%s\n' '[{"type":"message","role":"developer","content":[{"type":"input_text","text":"- atl:atl: Synthetic skill"}]}]'
+  installed="$CODEX_HOME/plugins/cache/atl/atl/0.4.0"
+  printf '[{"type":"message","role":"developer","content":[{"type":"input_text","text":"- atl:atl: Synthetic skill (file: %s/skills/atl/SKILL.md)"}]}]\n' "$installed"
   exit 0
 fi
 if [ "$1" = "mcp" ] && [ "$2" = "list" ]; then

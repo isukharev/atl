@@ -170,6 +170,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   write metrics that an opaque external MCP hop cannot observe, instead of
   letting unknown coverage masquerade as a failed zero.
 
+### Fixed
+
+- Isolated Codex plugin verification now binds model-visible skill entries to
+  the verified installed skill root as well as the `atl:` namespace. Unrelated
+  client skills projected with the same visible prefix no longer cause a false
+  inventory mismatch; missing, duplicate, unexpected, explicit-only, or
+  path-drifted plugin skills still fail closed before model execution.
+
 ### Added
 
 - Added a marked owner-private agent-evaluation workspace lifecycle with strict
