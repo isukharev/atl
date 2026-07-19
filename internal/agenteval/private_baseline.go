@@ -1249,6 +1249,13 @@ func compatiblePrivateResults(baseline, candidate Result) bool {
 		baseline.Runtime.Model != candidate.Runtime.Model || baseline.Runtime.Reasoning != candidate.Runtime.Reasoning {
 		return false
 	}
+	// Prompt routing is part of the measured system. A legacy result, an
+	// implicit task-matched run, and an explicit prompt-level skill invocation
+	// must never be compared as interchangeable baselines.
+	if baseline.Runtime.SkillActivation != candidate.Runtime.SkillActivation ||
+		baseline.Runtime.PromptContractSHA256 != candidate.Runtime.PromptContractSHA256 {
+		return false
+	}
 	if (baseline.Qualitative == nil) != (candidate.Qualitative == nil) {
 		return false
 	}

@@ -215,11 +215,12 @@ the reviewed plan. Stdout does not enumerate case aliases or private paths.
 
 ## Review, run, and assess
 
-A plan binds the exact comparison contract and execution identity: case
-inputs, ordered surfaces, ATL and wrapper binaries, plugin/skill tree, agent
-runtime, repository commit, backend-config identity, external profile when
-used, cost cap, and consent expiry. Credential bytes are never hashed into a
-plan or retained in a run/baseline.
+A v2 plan binds the exact comparison contract and execution identity: case
+inputs, ordered surfaces, skill activation and private prompt-contract digest,
+ATL and wrapper binaries, plugin/skill tree, agent runtime, repository commit,
+backend-config identity, external profile when used, cost cap, and consent
+expiry. Credential bytes are never hashed into a plan or retained in a
+run/baseline.
 
 Actual Codex execution requires file-backed provider authentication. The
 effective `CODEX_HOME` (or `HOME/.codex` fallback) must be a real directory not
@@ -259,18 +260,23 @@ shell selection and startup state are never projected. The shell remains inside
 the existing hook, filesystem, command-broker, read-only, and GET/HEAD controls;
 MCP surfaces do not opt into these CLI-only feature flags.
 
-The private CLI instruction tells the model to select the installed
-task-matching skill, then requires evidence retrieval through the literal
-`atl` executable. This is the intended `cli-skill` surface: when selected, the
-installed skill can supply command-shape guidance, while the reviewed broker
-still decides whether that exact invocation is allowed. The instruction never
-reveals a case-specific command.
-When the reviewed `data_capabilities` are Jira-only or Confluence-only, the
-instruction names `$atl:jira` or `$atl:confluence` respectively. Mixed
-capability sets name both in a stable order; unknown families stay on generic
-task matching.
-This route discloses only the already-reviewed service family, not a selector,
-field, expected answer, backend, or command allowlist.
+The private CLI developer instruction requires evidence retrieval through the
+literal `atl` executable but stays neutral about skill selection and never
+reveals a case-specific command. Codex `cli-skill` run specs separately choose
+`skill_activation:"implicit"` or `"explicit"`. The implicit arm sends the core
+task byte-for-byte and measures task-matched skill discovery. The explicit arm
+prepends `$atl:jira` or `$atl:confluence` to the actual user prompt, derived
+only from a reviewed single-service `data_capabilities` set. Mixed or unknown
+families fail closed. Neither arm discloses a selector, field, expected answer,
+backend, or command allowlist.
+
+The plan and raw result bind activation plus a digest of the exact core prompt,
+effective stdin, and developer instruction. Low-level dry-run exposes only
+`prompt_contract_bound:true`. Keep the digest private: it is omitted from
+preview and aggregate JSON because short private prompts may be
+dictionary-guessable. The current plan layout supports one candidate per
+surface, so implicit/explicit A/B runs use two separately reviewed run sets;
+do not encode the arms as different surfaces.
 Private Codex CLI runs add the snapshotted repository as an owner-local
 marketplace and install `atl@atl` through Codex's plugin command before provider
 launch. The resulting skills therefore retain their shipped `atl:` namespace;
@@ -476,7 +482,8 @@ private and unsanitized; promotion is not a privacy transformation.
 ```
 
 Comparison is offline. It refuses mismatched scenario/rubric contracts,
-surfaces, provider/model/reasoning identity, or reviewer contract. Legacy
+surfaces, provider/model/reasoning identity, skill activation, private prompt
+contract, or reviewer contract. Legacy
 singleton and panel results are incompatible and are not silently migrated;
 start a new baseline when adopting a panel. It reports
 correctness, eligibility, qualitative score, and metric deltas without paths,
@@ -488,10 +495,13 @@ pooled even when every other rubric and runtime field matches. The digest is an
 internal grouping key and is omitted from aggregate JSON because a short answer
 mapping may be dictionary-guessable.
 
-Panel results use result schema v4 and review packets use review schema v2.
-The decoder still accepts result schema v3 without a panel and review schema v1
-without a reviewer id, so existing singleton baselines remain readable. Older
-binaries do not accept the new panel artifacts under a misleading old version.
+Current results use schema v5, aggregates use schema v5, private plans use
+schema v2, and review packets use schema v2. The decoder still accepts result
+schema v3/v4 and private plan schema v1 for lifecycle inspection and retention.
+Legacy plans are not silently re-executed or reclassified under the v2 material;
+create a fresh v2 plan and baseline for activation-bound execution and
+comparison. Older binaries reject the new artifacts rather than accepting them
+under a misleading old version.
 
 ## Retention and recovery
 

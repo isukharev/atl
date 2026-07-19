@@ -916,6 +916,37 @@ func privateBaselineResult(t *testing.T, surface string) Result {
 	return result
 }
 
+func TestCompatiblePrivateResultsBindsPromptRouting(t *testing.T) {
+	baseline := privateBaselineResult(t, SurfaceCLISkill)
+	baseline.Runtime.Provider = "codex"
+	baseline.Runtime.SkillActivation = SkillActivationImplicit
+	baseline.Runtime.PromptContractSHA256 = strings.Repeat("a", 64)
+
+	identical := baseline
+	if !compatiblePrivateResults(baseline, identical) {
+		t.Fatal("identical prompt routing was incompatible")
+	}
+
+	explicit := baseline
+	explicit.Runtime.SkillActivation = SkillActivationExplicit
+	if compatiblePrivateResults(baseline, explicit) {
+		t.Fatal("explicit and implicit activation were compatible")
+	}
+
+	changedPrompt := baseline
+	changedPrompt.Runtime.PromptContractSHA256 = strings.Repeat("b", 64)
+	if compatiblePrivateResults(baseline, changedPrompt) {
+		t.Fatal("different prompt contracts were compatible")
+	}
+
+	legacy := baseline
+	legacy.Runtime.SkillActivation = ""
+	legacy.Runtime.PromptContractSHA256 = ""
+	if compatiblePrivateResults(baseline, legacy) {
+		t.Fatal("legacy and activation-bound results were compatible")
+	}
+}
+
 func writePrivateBaselineResult(t *testing.T, path string, result Result) {
 	t.Helper()
 	data, err := json.MarshalIndent(result, "", "  ")

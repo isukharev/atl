@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Agent-eval run specs now use schema v4 and make Codex private-live CLI skill
+  activation an explicit benchmark treatment. `implicit` preserves the neutral
+  task prompt byte-for-byte; `explicit` puts the reviewed Jira or Confluence
+  skill invocation in the actual model-facing prompt. Observation schema
+  advances to v3, result and aggregate schemas to v5, private plans to v2, and
+  baseline compatibility binds both activation and the exact private prompt
+  contract. Prompt digests remain
+  confined to private plan/result artifacts; low-level dry-run exposes only a
+  bound flag, and preview/aggregate output omits the digest.
+  Existing result v3/v4 and private plan v1 artifacts remain readable but are
+  never silently reclassified into a new activation arm.
+
 - Private-live Codex skill-read guards now resolve relative `cat`/`sed`/`wc`
   targets from the exact ephemeral model workspace instead of the hook
   process's current directory. The canonical workspace and ordered read-root
@@ -31,16 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   boundaries, and excessive criterion ranges are retained as disagreement and
   block baseline promotion. The explicit legacy single-review workflow remains
   available, but singleton and panel baselines are intentionally incompatible.
-  Panel artifacts use result schema v4, review schema v2, and aggregate schema
-  v4; legacy singleton result v3 and review v1 artifacts remain readable.
+  Current panel artifacts use result schema v5, review schema v2, and aggregate
+  schema v5; legacy singleton result v3, panel result v4, and review v1
+  artifacts remain readable.
   Baseline comparison and aggregate grouping now keep different blind
   assignments separate for both singleton and panel reviews.
-
-- Private-live Codex `cli-skill` provider instructions now name and tell the
-  model to select the installed `$atl:jira` or `$atl:confluence` skill based
-  only on reviewed `data_capabilities`. The generic instruction remains
-  selector- and allowlist-blind, and unknown capability families do not add a
-  named skill hint.
 
 - Private-live Codex `cli-skill` evaluations now install the hash-bound
   `atl@atl` package through a snapshotted local marketplace inside every fresh
@@ -99,10 +106,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no longer executes agent `--version`; no launcher path or version output is
   retained. Private runtime identity is now `binary-sha256:<digest>`; replace
   older private baselines before comparing runs across this upgrade.
-
-- Agent-eval run specs now use schema v3. Neutral-common runs must add the same
-  sorted semantic `data_capabilities` set across compared surfaces; private v2
-  specs must update the version and declare that set before they can run.
 
 - The Jira evidence skill now skips metadata discovery when a task already
   names one exact standard field, keeping agent reads bounded to the requested

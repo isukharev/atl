@@ -124,7 +124,7 @@ func Evaluate(s Scenario, o Observation) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("observation: %w", err)
 	}
-	return Result{
+	result := Result{
 		SchemaVersion: ResultSchemaVersion,
 		ScenarioID:    s.ID, TaskClass: s.TaskClass, DataClass: s.DataClass,
 		Category: s.EffectiveCategory(), Variant: o.Variant, Surface: o.EffectiveSurface(),
@@ -134,5 +134,9 @@ func Evaluate(s Scenario, o Observation) (Result, error) {
 		Coverage: coverage, HTTPMethods: methods, Checks: checks, Violations: violations,
 		Warnings:           warnings,
 		CapabilityFamilies: families,
-	}, nil
+	}
+	if err := result.Validate(); err != nil {
+		return Result{}, fmt.Errorf("result contract: %w", err)
+	}
+	return result, nil
 }

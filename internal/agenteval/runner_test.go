@@ -491,10 +491,12 @@ func TestPrivateLiveCLIProvidersUseGatewayWithoutSourceCredentials(t *testing.T)
 	writeTestFile(t, filepath.Join(caseDir, "workspace", "README.md"), "Use the installed atl skill.\n", 0o600)
 	scenario := validScenario()
 	scenario.ID = "jira.private-cli"
+	scenario.Category = BenchmarkCategoryNeutralCommon
 	scenario.DataClass = "private-local"
 	scenario.RequiredChecks = []string{"answer_correct", "atl_succeeded", "guard_clean", "http_observed", "no_delegation", "used_atl"}
-	scenario.RequiredMetrics = []string{"atl_invocations", "backend_requests", "duplicate_backend_requests", "output_bytes"}
-	scenario.Budgets = Budgets{MaxAgentTurns: 2, MaxToolCalls: 2, MaxATLInvocations: 1, MaxBackendRequests: 1, MaxRemoteWrites: 0, MaxOutputBytes: 1 << 20, MaxInputTokens: 1000, MaxOutputTokens: 1000, MaxMainThreadInputTokens: 1000, MaxMainThreadOutputTokens: 1000, MaxEstimatedCostMicroUSD: 10_000_000, MaxDurationMillis: 30_000, AllowedHTTPMethods: []string{"GET", "HEAD"}}
+	scenario.RequiredSemanticChecks = []string{"answer_correct"}
+	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests", "duplicate_backend_requests", "output_bytes"}
+	scenario.Budgets = Budgets{MaxAgentTurns: 2, MaxToolCalls: 2, MaxATLInvocations: 1, MaxInterfaceInvocations: 1, MaxBackendRequests: 1, MaxRemoteWrites: 0, MaxOutputBytes: 1 << 20, MaxInputTokens: 1000, MaxOutputTokens: 1000, MaxMainThreadInputTokens: 1000, MaxMainThreadOutputTokens: 1000, MaxEstimatedCostMicroUSD: 10_000_000, MaxDurationMillis: 30_000, AllowedHTTPMethods: []string{"GET", "HEAD"}}
 	writeJSONTestFile(t, filepath.Join(caseDir, "scenario.json"), scenario)
 	writeTestFile(t, filepath.Join(caseDir, "prompt.md"), "Use atl to inspect the field catalog.\n", 0o600)
 	writeTestFile(t, filepath.Join(caseDir, "response.json"), `{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}`, 0o600)
@@ -634,9 +636,12 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 	}
 	for _, provider := range []string{"claude-code", "codex"} {
 		t.Run(provider, func(t *testing.T) {
-			spec := RunSpec{SchemaVersion: RunSpecSchemaVersion, BackendMode: BackendModePrivateLive, ScenarioFile: "scenario.json", Provider: provider, Variant: "cli-skill-" + provider, Model: "test-model", PromptFile: "prompt.md", ResponseSchemaFile: "response.json", QualitativeRubricFile: "rubric.json", WorkspaceTemplate: "workspace", Repetitions: 1, TimeoutSeconds: 30, MaxEstimatedCostMicroUSD: 10_000_000, Pricing: Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000}, ToolTransport: "cli", AllowedTools: []string{"Bash(atl *)", "Read", "Skill"}, AllowedCLICommands: []CLICommandRule{{Name: "jira_fields", Command: []string{"jira", "fields"}, MaxInvocations: 1}}, AllowedGatewayRoutes: map[string][]LiveGatewayRoute{"jira": {{Name: "jira_api", PathPrefix: "/rest/api/2"}}}, GatewayMaxResponseBytes: 1 << 20, GatewayMaxTotalBytes: 1 << 20, Checks: []RunCheck{{Name: "answer_correct", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`"ok"`)}, {Name: "atl_succeeded", Kind: "atl_all_succeeded"}, {Name: "guard_clean", Kind: "guard_no_denials"}, {Name: "http_observed", Kind: "http_methods_observed"}, {Name: "no_delegation", Kind: "delegations_none"}, {Name: "used_atl", Kind: "atl_invocations_min", Minimum: 1}}}
+			spec := RunSpec{SchemaVersion: RunSpecSchemaVersion, BackendMode: BackendModePrivateLive, Category: BenchmarkCategoryNeutralCommon, ScenarioFile: "scenario.json", Provider: provider, Variant: "cli-skill-" + provider, Model: "test-model", PromptFile: "prompt.md", ResponseSchemaFile: "response.json", QualitativeRubricFile: "rubric.json", WorkspaceTemplate: "workspace", Repetitions: 1, TimeoutSeconds: 30, MaxEstimatedCostMicroUSD: 10_000_000, Pricing: Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000}, ToolTransport: "cli", DataCapabilities: []string{"jira.fields"}, AllowedTools: []string{"Bash(atl *)", "Read", "Skill"}, AllowedCLICommands: []CLICommandRule{{Name: "jira_fields", Command: []string{"jira", "fields"}, MaxInvocations: 1}}, AllowedGatewayRoutes: map[string][]LiveGatewayRoute{"jira": {{Name: "jira_api", PathPrefix: "/rest/api/2"}}}, GatewayMaxResponseBytes: 1 << 20, GatewayMaxTotalBytes: 1 << 20, Checks: []RunCheck{{Name: "answer_correct", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`"ok"`)}, {Name: "atl_succeeded", Kind: "interface_all_succeeded"}, {Name: "guard_clean", Kind: "guard_no_denials"}, {Name: "http_observed", Kind: "http_methods_observed"}, {Name: "no_delegation", Kind: "delegations_none"}, {Name: "used_atl", Kind: "interface_invocations_min", Minimum: 1}}}
 			if provider == "claude-code" {
 				spec.Pricing = Pricing{}
+			} else {
+				spec.SkillActivation = SkillActivationExplicit
+				spec.DataCapabilities = []string{"jira.fields"}
 			}
 			specPath := filepath.Join(caseDir, "run-"+provider+".json")
 			writeJSONTestFile(t, specPath, spec)
@@ -663,8 +668,15 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 			}
 			if provider == "codex" {
 				prompt, err := os.ReadFile(promptCapture)
-				if err != nil || string(prompt) != "Use atl to inspect the field catalog.\n" {
-					t.Fatalf("Codex neutral provider input changed: %q err=%v", prompt, err)
+				if err != nil || string(prompt) != "$atl:jira\n\nUse atl to inspect the field catalog.\n" {
+					t.Fatalf("Codex explicit provider input changed: %q err=%v", prompt, err)
+				}
+				if !output.Preview.PromptContractBound || output.Preview.SkillActivation != SkillActivationExplicit {
+					t.Fatalf("preview prompt identity=%+v", output.Preview)
+				}
+				previewJSON, err := json.Marshal(output.Preview)
+				if err != nil || bytes.Contains(previewJSON, []byte("prompt_contract_sha256")) || bytes.Contains(previewJSON, []byte(output.Results[0].Runtime.PromptContractSHA256)) {
+					t.Fatalf("preview exposed private prompt digest: %s err=%v", previewJSON, err)
 				}
 				capture, err := os.ReadFile(runtimeCapture)
 				if err != nil {
@@ -723,7 +735,7 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 		t.Fatalf("upstream requests=%d", upstreamRequests)
 	}
 	t.Run("codex-no-evidence-is-measured", func(t *testing.T) {
-		spec := RunSpec{SchemaVersion: RunSpecSchemaVersion, BackendMode: BackendModePrivateLive, ScenarioFile: "scenario.json", Provider: "codex", Variant: "cli-skill-codex-no-evidence", Model: "test-model-no-evidence", PromptFile: "prompt.md", ResponseSchemaFile: "response.json", QualitativeRubricFile: "rubric.json", WorkspaceTemplate: "workspace", Repetitions: 1, TimeoutSeconds: 30, MaxEstimatedCostMicroUSD: 10_000_000, Pricing: Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000}, ToolTransport: "cli", AllowedTools: []string{"Bash(atl *)", "Read", "Skill"}, AllowedCLICommands: []CLICommandRule{{Name: "jira_fields", Command: []string{"jira", "fields"}, MaxInvocations: 1}}, AllowedGatewayRoutes: map[string][]LiveGatewayRoute{"jira": {{Name: "jira_api", PathPrefix: "/rest/api/2"}}}, GatewayMaxResponseBytes: 1 << 20, GatewayMaxTotalBytes: 1 << 20, Checks: []RunCheck{{Name: "answer_correct", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`"ok"`)}, {Name: "atl_succeeded", Kind: "atl_all_succeeded"}, {Name: "guard_clean", Kind: "guard_no_denials"}, {Name: "http_observed", Kind: "http_methods_observed"}, {Name: "no_delegation", Kind: "delegations_none"}, {Name: "used_atl", Kind: "atl_invocations_min", Minimum: 1}}}
+		spec := RunSpec{SchemaVersion: RunSpecSchemaVersion, BackendMode: BackendModePrivateLive, Category: BenchmarkCategoryNeutralCommon, ScenarioFile: "scenario.json", Provider: "codex", Variant: "cli-skill-codex-no-evidence", Model: "test-model-no-evidence", PromptFile: "prompt.md", ResponseSchemaFile: "response.json", QualitativeRubricFile: "rubric.json", WorkspaceTemplate: "workspace", Repetitions: 1, TimeoutSeconds: 30, MaxEstimatedCostMicroUSD: 10_000_000, Pricing: Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000}, ToolTransport: "cli", SkillActivation: SkillActivationImplicit, DataCapabilities: []string{"jira.fields"}, AllowedTools: []string{"Bash(atl *)", "Read", "Skill"}, AllowedCLICommands: []CLICommandRule{{Name: "jira_fields", Command: []string{"jira", "fields"}, MaxInvocations: 1}}, AllowedGatewayRoutes: map[string][]LiveGatewayRoute{"jira": {{Name: "jira_api", PathPrefix: "/rest/api/2"}}}, GatewayMaxResponseBytes: 1 << 20, GatewayMaxTotalBytes: 1 << 20, Checks: []RunCheck{{Name: "answer_correct", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`"ok"`)}, {Name: "atl_succeeded", Kind: "interface_all_succeeded"}, {Name: "guard_clean", Kind: "guard_no_denials"}, {Name: "http_observed", Kind: "http_methods_observed"}, {Name: "no_delegation", Kind: "delegations_none"}, {Name: "used_atl", Kind: "interface_invocations_min", Minimum: 1}}}
 		specPath := filepath.Join(caseDir, "run-codex-no-evidence.json")
 		writeJSONTestFile(t, specPath, spec)
 		scratchRoot := filepath.Join(tempRepository, "private", ".ephemeral")

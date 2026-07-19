@@ -18,6 +18,33 @@ func TestRepositoryBenchmarkCorpusContract(t *testing.T) {
 	}
 }
 
+func TestExplicitSkillIdentifiersMatchShippedCodexPlugin(t *testing.T) {
+	pluginRoot := filepath.Join("..", "..", "plugins", "atl")
+	data, err := os.ReadFile(filepath.Join(pluginRoot, ".codex-plugin", "plugin.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Name   string `json:"name"`
+		Skills string `json:"skills"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Name != "atl" || manifest.Skills != "./skills/" {
+		t.Fatalf("plugin namespace changed: %+v", manifest)
+	}
+	for _, service := range []string{"jira", "confluence"} {
+		if _, err := os.Stat(filepath.Join(pluginRoot, "skills", service, "SKILL.md")); err != nil {
+			t.Fatalf("explicit skill $atl:%s is not shipped: %v", service, err)
+		}
+		got, err := explicitServiceSkill([]string{service + ".read"})
+		if err != nil || got != "atl:"+service {
+			t.Fatalf("explicit service %s resolved as %q: %v", service, got, err)
+		}
+	}
+}
+
 func TestBenchmarkCorpusValidatesNeutralCommonComparisonContracts(t *testing.T) {
 	directory, cliPath, mcpPath, cli, mcp := writePrivatePairFixture(t)
 	scenario := validScenario()
@@ -112,6 +139,7 @@ func TestBenchmarkCorpusScopesExecutionContractsToProviderModelCohorts(t *testin
 	otherCLI, otherMCP := cli, mcp
 	for _, spec := range []*RunSpec{&otherCLI, &otherMCP} {
 		spec.Provider = "claude-code"
+		spec.SkillActivation = ""
 		spec.Model = "other-test-model"
 		spec.TimeoutSeconds = 90
 		spec.MaxEstimatedCostMicroUSD = 9_000_000

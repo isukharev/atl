@@ -161,6 +161,7 @@ func TestPrivateLiveCLIRunSpecRequiresStructuredArgumentPolicy(t *testing.T) {
 	spec.FixtureFile = ""
 	spec.Repetitions = 1
 	spec.ToolTransport = "cli"
+	spec.SkillActivation = SkillActivationImplicit
 	spec.AllowedTools = []string{"Bash(atl *)", "Read"}
 	spec.AllowedATLCommands = nil
 	spec.AllowedCLICommands = validCLICommandPolicy().Rules
@@ -207,6 +208,75 @@ func TestPrivateLiveCLIRunSpecRequiresStructuredArgumentPolicy(t *testing.T) {
 				t.Fatal("unsafe private-live CLI spec passed")
 			}
 		})
+	}
+}
+
+func TestRunSpecSkillActivationIsClosedToPrivateCodexCLISkill(t *testing.T) {
+	valid := validRunSpec()
+	valid.BackendMode = BackendModePrivateLive
+	valid.FixtureFile = ""
+	valid.Repetitions = 1
+	valid.ToolTransport = "cli"
+	valid.SkillActivation = SkillActivationImplicit
+	valid.AllowedTools = []string{"Bash(atl *)", "Read", "Skill"}
+	valid.AllowedATLCommands = nil
+	valid.AllowedCLICommands = validCLICommandPolicy().Rules
+	valid.AllowedGatewayRoutes = map[string][]LiveGatewayRoute{"jira": {{Name: "jira_api", PathPrefix: "/rest/api/2"}}}
+	valid.GatewayMaxResponseBytes = 1 << 20
+	valid.GatewayMaxTotalBytes = 4 << 20
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	missing := valid
+	missing.SkillActivation = ""
+	if err := missing.Validate(); err == nil || !strings.Contains(err.Error(), "require skill_activation") {
+		t.Fatalf("missing activation err=%v", err)
+	}
+	invalid := valid
+	invalid.SkillActivation = "automatic"
+	if err := invalid.Validate(); err == nil || !strings.Contains(err.Error(), "implicit or explicit") {
+		t.Fatalf("invalid activation err=%v", err)
+	}
+	for name, mutate := range map[string]func(*RunSpec){
+		"synthetic": func(s *RunSpec) {
+			s.BackendMode, s.FixtureFile, s.Repetitions = "", "fixture.json", 3
+			s.AllowedATLCommands, s.AllowedCLICommands, s.AllowedGatewayRoutes = []string{"atl jira epic digest"}, nil, nil
+			s.GatewayMaxResponseBytes, s.GatewayMaxTotalBytes = 0, 0
+		},
+		"claude": func(s *RunSpec) { s.Provider, s.Pricing = "claude-code", Pricing{} },
+		"mcp": func(s *RunSpec) {
+			s.Surface, s.ToolTransport, s.AllowedTools = SurfaceATLMCP, "mcp", nil
+			s.AllowedCLICommands, s.AllowedGatewayRoutes = nil, nil
+			s.GatewayMaxResponseBytes, s.GatewayMaxTotalBytes = 0, 0
+			s.AllowedMCPTools = []string{"jira_epic_digest"}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := valid
+			mutate(&candidate)
+			if err := candidate.Validate(); err == nil || !strings.Contains(err.Error(), "valid only") {
+				t.Fatalf("outside activation err=%v", err)
+			}
+		})
+	}
+
+	explicit := valid
+	explicit.Category = BenchmarkCategoryNeutralCommon
+	explicit.SkillActivation = SkillActivationExplicit
+	explicit.DataCapabilities = []string{"jira.epic.digest"}
+	if err := explicit.Validate(); err != nil {
+		t.Fatalf("jira explicit activation: %v", err)
+	}
+	mixed := explicit
+	mixed.DataCapabilities = []string{"confluence.page.section", "jira.epic.digest"}
+	if err := validateSkillActivation(mixed); err == nil || !strings.Contains(err.Error(), "mixed") {
+		t.Fatalf("mixed activation err=%v", err)
+	}
+	unknown := explicit
+	unknown.DataCapabilities = []string{"knowledge.search"}
+	if err := validateSkillActivation(unknown); err == nil || !strings.Contains(err.Error(), "jira-only or confluence-only") {
+		t.Fatalf("unknown activation err=%v", err)
 	}
 }
 

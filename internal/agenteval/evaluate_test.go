@@ -65,6 +65,26 @@ func TestEvaluatePassesBoundedReadOnlyWorkflow(t *testing.T) {
 	}
 }
 
+func TestEvaluateRejectsPrivateCodexCLIMissingPromptIdentity(t *testing.T) {
+	scenario := validScenario()
+	scenario.DataClass = "private-local"
+	observation := validObservation()
+	observation.Surface = SurfaceCLISkill
+	observation.Runtime.Provider = "codex"
+
+	if _, err := Evaluate(scenario, observation); err == nil || !strings.Contains(err.Error(), "prompt contract identity") {
+		t.Fatalf("missing private prompt identity err=%v", err)
+	}
+}
+
+func TestObservationV2RequiresExplicitMigration(t *testing.T) {
+	observation := validObservation()
+	observation.SchemaVersion = 2
+	if err := observation.Validate(); err == nil || !strings.Contains(err.Error(), "schema_version 2") {
+		t.Fatalf("legacy observation err=%v", err)
+	}
+}
+
 func TestBenchmarkIdentityCompatibilityDefaultsAndExplicitValues(t *testing.T) {
 	scenario := validScenario()
 	observation := validObservation()

@@ -5,7 +5,7 @@ import (
 	"sort"
 )
 
-const AggregateSchemaVersion = 4
+const AggregateSchemaVersion = 5
 
 type Aggregate struct {
 	SchemaVersion int              `json:"schema_version"`
@@ -86,7 +86,7 @@ type Quantiles struct {
 type aggregateKey struct {
 	ScenarioID, TaskClass, DataClass, Category, Variant, Surface string
 	Provider, AgentVersion, Model, Reasoning, ATLVersion         string
-	PluginVersion, SkillDigest                                   string
+	PluginVersion, SkillDigest, SkillActivation                  string
 	ReviewerID, ReviewerKind, ReviewerModel                      string
 	RubricID, RubricSHA256, AssignmentDigest                     string
 	ReviewSetContractSHA256                                      string
@@ -94,6 +94,7 @@ type aggregateKey struct {
 
 func AggregateResults(results []Result) (Aggregate, error) {
 	groups := map[aggregateKey][]Result{}
+	promptContracts := map[aggregateKey]string{}
 	for index, result := range results {
 		if err := result.Validate(); err != nil {
 			return Aggregate{}, fmt.Errorf("result %d: %w", index, err)
@@ -104,7 +105,7 @@ func AggregateResults(results []Result) (Aggregate, error) {
 			Provider: result.Runtime.Provider, AgentVersion: result.Runtime.AgentVersion,
 			Model: result.Runtime.Model, Reasoning: result.Runtime.Reasoning,
 			ATLVersion: result.Runtime.ATLVersion, PluginVersion: result.Runtime.PluginVersion,
-			SkillDigest: result.Runtime.SkillDigest,
+			SkillDigest: result.Runtime.SkillDigest, SkillActivation: result.Runtime.SkillActivation,
 		}
 		if result.Qualitative != nil {
 			key.ReviewerID = result.Qualitative.Reviewer.ID
@@ -120,6 +121,10 @@ func AggregateResults(results []Result) (Aggregate, error) {
 			key.ReviewSetContractSHA256 = result.QualitativeReviewSet.ContractSHA256
 			key.AssignmentDigest = result.QualitativeReviewSet.AssignmentDigest
 		}
+		if previous, exists := promptContracts[key]; exists && previous != result.Runtime.PromptContractSHA256 {
+			return Aggregate{}, fmt.Errorf("result %d differs in private prompt contract", index)
+		}
+		promptContracts[key] = result.Runtime.PromptContractSHA256
 		groups[key] = append(groups[key], result)
 	}
 	keys := make([]aggregateKey, 0, len(groups))
@@ -136,7 +141,7 @@ func AggregateResults(results []Result) (Aggregate, error) {
 			Runtime: Runtime{
 				Provider: key.Provider, AgentVersion: key.AgentVersion, Model: key.Model,
 				Reasoning: key.Reasoning, ATLVersion: key.ATLVersion,
-				PluginVersion: key.PluginVersion, SkillDigest: key.SkillDigest,
+				PluginVersion: key.PluginVersion, SkillDigest: key.SkillDigest, SkillActivation: key.SkillActivation,
 			},
 			Runs: len(items),
 		}
@@ -290,11 +295,23 @@ func deterministicValidForEfficiency(result Result) bool {
 }
 
 func (r Result) Validate() error {
-	if r.SchemaVersion != ResultSchemaVersion && r.SchemaVersion != LegacyResultSchemaVersion {
+	if r.SchemaVersion != ResultSchemaVersion && r.SchemaVersion != PanelResultSchemaVersion && r.SchemaVersion != LegacyResultSchemaVersion {
 		return fmt.Errorf("unsupported result schema_version %d", r.SchemaVersion)
 	}
 	if r.SchemaVersion == LegacyResultSchemaVersion && r.QualitativeReviewSet != nil {
 		return fmt.Errorf("legacy result cannot contain a qualitative review set")
+	}
+	if r.SchemaVersion < ResultSchemaVersion && (r.Runtime.SkillActivation != "" || r.Runtime.PromptContractSHA256 != "") {
+		return fmt.Errorf("legacy result cannot contain prompt contract identity")
+	}
+	if r.SchemaVersion == ResultSchemaVersion {
+		activationCell := r.DataClass == "private-local" && r.EffectiveSurface() == SurfaceCLISkill && r.Runtime.Provider == "codex"
+		if activationCell && (r.Runtime.SkillActivation == "" || r.Runtime.PromptContractSHA256 == "") {
+			return fmt.Errorf("private codex cli-skill result requires prompt contract identity")
+		}
+		if !activationCell && (r.Runtime.SkillActivation != "" || r.Runtime.PromptContractSHA256 != "") {
+			return fmt.Errorf("result prompt contract identity is outside private codex cli-skill")
+		}
 	}
 	if !identifierRE.MatchString(r.ScenarioID) || !identifierRE.MatchString(r.TaskClass) || !identifierRE.MatchString(r.Variant) {
 		return fmt.Errorf("result identity is invalid")
@@ -423,7 +440,8 @@ func (r Result) Validate() error {
 		return err
 	}
 	for _, violation := range r.Violations {
-		if !identifierRE.MatchString(violation.Code) || !identifierRE.MatchString(violation.Subject) || violation.Observed < 0 || violation.Limit < 0 {
+		validSubject := identifierRE.MatchString(violation.Subject) || methodRE.MatchString(violation.Subject)
+		if !identifierRE.MatchString(violation.Code) || !validSubject || violation.Observed < 0 || violation.Limit < 0 {
 			return fmt.Errorf("invalid result violation")
 		}
 	}
@@ -500,5 +518,5 @@ func nearestRank(sorted []int64, percentile int) int64 {
 }
 
 func aggregateKeyString(key aggregateKey) string {
-	return key.ScenarioID + "\x00" + key.TaskClass + "\x00" + key.DataClass + "\x00" + key.Category + "\x00" + key.Variant + "\x00" + key.Surface + "\x00" + key.Provider + "\x00" + key.AgentVersion + "\x00" + key.Model + "\x00" + key.Reasoning + "\x00" + key.ATLVersion + "\x00" + key.PluginVersion + "\x00" + key.SkillDigest + "\x00" + key.RubricID + "\x00" + key.RubricSHA256 + "\x00" + key.AssignmentDigest + "\x00" + key.ReviewerID + "\x00" + key.ReviewerKind + "\x00" + key.ReviewerModel + "\x00" + key.ReviewSetContractSHA256
+	return key.ScenarioID + "\x00" + key.TaskClass + "\x00" + key.DataClass + "\x00" + key.Category + "\x00" + key.Variant + "\x00" + key.Surface + "\x00" + key.Provider + "\x00" + key.AgentVersion + "\x00" + key.Model + "\x00" + key.Reasoning + "\x00" + key.ATLVersion + "\x00" + key.PluginVersion + "\x00" + key.SkillDigest + "\x00" + key.SkillActivation + "\x00" + key.RubricID + "\x00" + key.RubricSHA256 + "\x00" + key.AssignmentDigest + "\x00" + key.ReviewerID + "\x00" + key.ReviewerKind + "\x00" + key.ReviewerModel + "\x00" + key.ReviewSetContractSHA256
 }

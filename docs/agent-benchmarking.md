@@ -175,9 +175,12 @@ read-only contract looks like:
 }
 ```
 
-Observations and unreviewed results contain aggregate trajectory data only. The contract
-has no fields for prompts, commands, HTTP paths, backend URLs, or response
-bodies. Validate the committed scenarios and deterministic workflows with:
+Observations and unreviewed results contain aggregate trajectory data only. The
+contract contains no prompt bytes, commands, HTTP paths, backend URLs, or
+response bodies. A private Codex CLI result v5 retains only the activation mode
+and a SHA-256 identity of its complete prompt contract; that digest is omitted
+from aggregate output. Validate the committed scenarios and deterministic
+workflows with:
 
 ```sh
 make agent-eval-contract
@@ -214,14 +217,16 @@ Observations classify each run as `supported` (the default),
 `unsupported-capability`, or `invalidated-backend-drift`. Unsupported runs name
 only bounded capability identifiers; drifted runs carry no backend detail.
 Ineligible runs do not count as task passes or failures, while their safety and
-budget violations are still retained. Aggregate schema v4 reports eligible,
+budget violations are still retained. Aggregate schema v5 reports eligible,
 unsupported, and drifted counts, eligibility coverage, and success conditional
 on eligible runs. Coverage excludes drift-invalidated blocks from its
 denominator: drift says nothing about whether the surface supports the task.
 Neutral and surface-native efficiency/quality summaries use
 only supported deterministically valid runs; route-fixed historical aggregation
-keeps its compatibility behavior. The observation/result schema change is
-additive; older records without eligibility remain supported.
+keeps its compatibility behavior. Current observations use schema v3 and
+results use schema v5. Older result records without eligibility remain
+supported through the documented result decoders; observation inputs must be
+migrated explicitly before evaluation.
 
 The maintainer tool can validate scenario files, evaluate one aggregate
 observation, and combine comparable result files into p50/p90 groups:
@@ -233,7 +238,9 @@ go run ./scripts/agent-eval aggregate runs/*.result.json >aggregate.json
 ```
 
 Aggregation separates providers, exact models, agent versions, variants,
-benchmark categories, surfaces, `atl` versions, plugin versions, and skill digests. Compare baseline and
+benchmark categories, surfaces, `atl` versions, plugin versions, skill digests,
+and skill activation. The private prompt-contract digest is deliberately not
+serialized into or used as a visible aggregate dimension. Compare baseline and
 candidate within one such runtime group; do not compare raw turns or dollar
 estimates across providers.
 
@@ -290,9 +297,9 @@ panel results are deliberately comparison-incompatible rather than silently
 migrated. See [Private agent-benchmark workspace](agent-benchmark-private-workspace.md)
 for the panel manifest and operator flow.
 
-Panel assessments emit result schema v4, review schema v2, and aggregate schema
-v4. Current decoders retain read compatibility with singleton result schema v3
-and reviewer-id-free review schema v1.
+Current assessments emit result schema v5, review schema v2, and aggregate
+schema v5. Current decoders retain read compatibility with singleton result
+schema v3, panel result schema v4, and reviewer-id-free review schema v1.
 
 For `neutral-common`, `--blind-assignment` is mandatory. It is a bounded private
 file that maps randomized answer labels to candidates for the reviewer. Only
@@ -775,7 +782,7 @@ A private run spec differs from a synthetic spec in these fields:
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "backend_mode": "private-live",
   "category": "neutral-common",
   "surface": "atl-mcp",
@@ -836,11 +843,15 @@ an external MCP run is bound to the same set through its owner-reviewed profile.
 Expected private facts may live in the ignored run spec; never copy them into a
 public fixture or PR.
 
-This contract is run-spec schema v3. Migrate an ignored/private v2 run by
-setting `schema_version` to `3`, declaring the same sorted semantic capability
-set on every neutral-common surface, and running `validate-comparison-set`.
-Non-neutral specs only require the version bump. Validation happens before
-credentials, model execution, or backend traffic.
+This contract is run-spec schema v4. Specs already on v3 retain their semantic
+capability declarations and require a version bump. A Codex `private-live`
+`cli-skill` spec must also declare exactly one of
+`skill_activation:"implicit"` or `skill_activation:"explicit"`; the field is
+forbidden on MCP, Claude Code, and synthetic cells. Because v3 named a skill in
+provider instructions rather than in the actual user prompt, it is not silently
+reclassified as either arm. Review the intended treatment and start a new
+activation-bound baseline. Validation happens before credentials, model
+execution, or backend traffic.
 
 The external profile's mandatory `reviewed_ro:true` is the explicit owner
 assertion for servers that omit optional MCP tool annotations. When annotations
@@ -872,11 +883,10 @@ the reviewed local route available: the hook, custom filesystem profile,
 one-command broker policy, read-only environment, and GET/HEAD gateway still
 decide what may execute. MCP surfaces do not enable this CLI-only feature pair.
 
-Before shell execution, its generic provider instruction requires selecting
-and following the installed task-matching skill. When selected, the installed
-skill can supply CLI usage guidance; the instruction does not expose the hidden
-allowlist or any case-specific command. A model that still answers without an
-interface call remains a normal measured failure.
+Before shell execution, a mode-neutral provider instruction requires evidence
+through the literal `atl` executable. It does not name a skill, expose the
+hidden allowlist, or reveal a case-specific command. A model that answers
+without an interface call remains a normal measured failure.
 
 Generated Codex skill reads commonly use paths relative to the model workspace.
 Private-live guards bind the runner's canonical ephemeral workspace and exact
@@ -889,11 +899,31 @@ root. Only bounded `cat`, `sed`, and `wc` shapes are admitted; missing, relative
 duplicate, or unclean policy and paths resolving outside reviewed roots through
 traversal or symlinks remain denied.
 
-For reviewed capability families, routing is deterministic: Jira-only runs
-name `$atl:jira`, Confluence-only runs name `$atl:confluence`, mixed runs name both in
-that order, and unknown families remain generic. This is derived only from
-`data_capabilities`; private selectors, fields, expected values, and command
-policy contents never enter the instruction.
+For Codex private CLI runs, `skill_activation:"implicit"` preserves the neutral
+core prompt byte-for-byte and measures description-based skill selection.
+`"explicit"` deterministically prepends `$atl:jira` or `$atl:confluence` to the
+actual user prompt, derived only from a single-service `data_capabilities` set.
+Mixed and unknown capability families are rejected for the explicit arm.
+Private selectors, fields, expected values, and command-policy contents never
+enter either routing treatment.
+
+The runtime result binds activation plus a SHA-256 contract over the core
+prompt, effective stdin, and mode-neutral developer instruction. The digest is
+retained only in owner-private plan/result artifacts. Low-level dry-run reports
+only `prompt_contract_bound:true`; the digest is intentionally omitted from
+preview and aggregate JSON because a short private prompt may be guessable. Baseline comparison nevertheless
+requires the exact digest and activation to match. Result schema v5 carries
+both fields; aggregate schema v5 carries activation as a grouping/runtime
+dimension but deliberately omits the digest. Legacy result v3 and v4 artifacts
+remain readable but are not activation-compatible baselines.
+
+The private plan layout currently permits one candidate per surface. To measure
+implicit versus explicit activation on the same `cli-skill` surface, create two
+separately reviewed run sets with otherwise identical inputs. `private compare`
+is not an activation A/B mechanism because it correctly rejects different
+activation and prompt identities. Compare privacy-reviewed aggregate groups or
+an offline report only after both runs complete; do not disguise an activation
+arm as another surface.
 
 Provider fidelity is explicit: private Codex CLI runs hash the complete
 `plugins/atl/` package plus the local marketplace descriptor, install
@@ -1096,9 +1126,12 @@ request/response files remains denied by `PreToolUse`. In particular, an ad-hoc
 JSON file proposed after a failed shell command is not a broker request and is
 never an alternate execution path. The authenticated shim protocol and the
 parent-side broker remain the only supported route; a shim failure must be
-reported through the response schema rather than bypassed. This instruction
-does not alter the shared user prompt, task, response schema, or comparison
-contract.
+reported through the response schema rather than bypassed. The developer
+instruction is byte-identical across activation arms and does not alter the
+core task, response schema, or cross-surface comparison contract. Explicit
+activation changes only the effective stdin by adding the documented skill
+prefix; comparison-set validation continues to bind the unchanged core prompt
+bytes.
 
 Run `--dry-run` first, inspect the provider plan and local private spec, then
 remove that flag for the single supervised execution. Use the same task,
@@ -1111,6 +1144,12 @@ identical. Keep two or three specs in one private case directory and use a
 transport-neutral prompt: say “use the available atl interface”, not “call this
 MCP tool” or “run this shell command”. Variants should identify only the
 surface, for example `cli-skill`, `atl-mcp`, and `external-mcp`.
+
+This multi-surface validator is separate from a same-surface activation A/B.
+The latter uses distinct private run sets and privacy-reviewed aggregate or
+offline comparison because a plan intentionally permits only one item per
+surface. A Codex CLI member of a multi-surface set must therefore use implicit
+activation; explicit prompt routing is rejected as a surface confounder.
 
 Preflight the pair before either model invocation:
 
