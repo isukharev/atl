@@ -31,6 +31,51 @@ PATs, and live fixture values out of the repo. Use `make integration` for
 app-level live checks and `make live-smoke` for CLI-level fixture checks when
 relevant. Requires Go 1.26.5+.
 
+## Agent operating model
+
+The root agent owns the plan, integration decisions, final diff, and final
+verification. Work directly when a task is short, sequential, or depends on the
+same files and reasoning throughout. Delegate only concrete, bounded work that
+can proceed independently, such as disjoint implementation areas, read-only
+research, or an independent review of an integrated diff. Delegation is not a
+substitute for understanding the result.
+
+Give a worker the smallest context that lets it succeed. When the agent tooling
+supports history forking, default to no inherited transcript or a small recent
+window. Full-transcript inheritance is opt-in and should be used only when the
+worker genuinely needs conversational state that cannot be summarized safely.
+Every worker brief should state:
+
+- the objective and why the work is needed;
+- the allowed files or subsystem and whether edits are permitted;
+- relevant invariants, privacy boundaries, and explicit non-goals;
+- expected output or acceptance criteria;
+- focused verification commands;
+- branch/worktree ownership and any concurrent work to avoid.
+
+Keep parallel waves bounded and give every overlapping file set a single
+implementation owner. Prefer parallel read-only analysis or disjoint edits over
+multiple workers modifying the same files. The root must inspect and reconcile
+worker changes; a worker report is evidence, not proof that the shared worktree
+is correct. Reuse a worker for a closely related follow-up when its context is
+still accurate, but start a fresh bounded context when the scope or assumptions
+have materially changed.
+
+Review the integrated diff, not a collection of stale intermediate snapshots.
+One independent review pass is the normal default. Add another pass when the
+first review finds material issues, the fix changes the design or a security
+boundary, or repository policy explicitly requires it. Run focused tests while
+iterating, then the required full gates once the diff is stable; rerun affected
+full gates after material fixes instead of repeatedly testing unchanged code.
+
+Long-running roots must keep durable state outside the transcript. Maintain the
+active issue and plan, and leave a checkpoint at safe issue or PR boundaries
+that records completed work, the current branch/worktree and dirty state,
+verification already run, remaining steps, and important constraints. Move to
+a fresh root session when repeated context compaction or obsolete history makes
+the transcript more costly than that checkpoint. Do not hand off in the middle
+of an unrecorded edit, destructive operation, release, or remote write.
+
 ## Architecture invariants
 
 The codebase follows hexagonal architecture. Preserve the dependency rule:
