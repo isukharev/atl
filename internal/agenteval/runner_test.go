@@ -574,7 +574,8 @@ if [ -z "$ATL_EVAL_CLI_POLICY_FILE" ] || [ "$ATL_EVAL_GUARD_MODE" != "private-cl
 if [ -n "$ATL_JIRA_PAT" ]; then exit 32; fi
 if [ "$1" = "-p" ]; then
   case "$ATL_CONFIG_DIR" in */atl-agent-eval-live-config-*) ;; *) exit 34;; esac
-  if /bin/grep -q 'upstream-secret' "$ATL_CONFIG_DIR/credentials.json"; then exit 35; fi
+  credentials=$(/bin/cat "$ATL_CONFIG_DIR/credentials.json") || exit 35
+  case "$credentials" in *'upstream-secret'*) exit 35;; esac
 else
   if [ -n "$ATL_CONFIG_DIR" ] || [ -n "$ATL_EVAL_REAL_BINARY" ] || [ -z "$ATL_EVAL_COMMAND_BROKER_FILE" ]; then exit 36; fi
 fi
