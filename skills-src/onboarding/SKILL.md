@@ -1,6 +1,6 @@
 ---
 name: onboarding
-description: Discover a user's recurring Jira and Confluence workflow, inspect only explicitly approved sample resources, compose declared team defaults, and create a reviewed private atl workflow profile plus compact workspace guidance. Use when the user explicitly asks to onboard, personalize atl, set up an agent workflow, or refresh their saved Atlassian working preferences.
+description: Build a reviewed private atl workflow profile from approved Jira/Confluence samples. USE WHEN the user explicitly asks to onboard, personalize atl, or refresh saved preferences. DO NOT USE WHEN handling ordinary service, search, report, or setup work; explicit-only.
 disable-model-invocation: true
 ---
 

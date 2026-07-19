@@ -1,6 +1,6 @@
 ---
 name: jira
-description: Search, pull, read, and edit Jira issues with the atl CLI — search by JQL, mirror issues locally, and create/update/edit/transition/comment/link/delete issues and epics. USE WHEN the user wants to read, search, create, update, assign, transition, comment on, link, delete, check fields of, log or inspect work, or report on a Jira issue, ticket, bug, story, epic, or task; extract artifact references; build an epic tree; add/remove labels; view issue history or changelog; look up users; run a JQL query; find out who is logged in; check required fields before transitioning; list or download issue attachments/images; work with agile boards and sprints; or read Tempo Structure metadata, forest rows, values, and issue exports.
+description: Read or change Jira issues, fields, history, boards, sprints, Structure, and exports with atl. USE WHEN the outcome is a direct Jira operation. DO NOT USE WHEN cross-service search, reporting, dashboards, triage, meeting/spec workflows, Confluence, setup/onboarding, or codebase work is primary.
 ---
 <!-- Generated from skills-src/jira/SKILL.md — edit the source and run 'make gen-plugins'. -->
 

@@ -595,6 +595,11 @@ if [ "$1" = "mcp" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
   printf '[{"name":"atl","enabled":%s}]\n' "$enabled"
   exit 0
 fi
+if [ "$1" = "debug" ] && [ "$2" = "prompt-input" ]; then
+  check_runtime
+  printf '%s\n' '[{"type":"message","role":"developer","content":[{"type":"input_text","text":"- atl:atl: Synthetic skill"}]}]'
+  exit 0
+fi
 if [ "$1" != "-p" ] && [ "$1" != "sandbox" ]; then
   [ ! -e "$PWD/.agents/skills" ] || exit 50
   [ -f "$CODEX_HOME/config.toml" ] || exit 45
@@ -740,7 +745,7 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 					t.Fatal(err)
 				}
 				lines := strings.Split(strings.TrimSpace(string(capture)), "\n")
-				if len(lines) != 7 {
+				if len(lines) != 8 {
 					t.Fatalf("plugin provisioning, preflight, and provider did not share one isolated runtime: %q", lines)
 				}
 				for _, line := range lines[1:] {
@@ -1011,6 +1016,17 @@ func TestDigestTreeLengthFramesPathsAndBinaryContents(t *testing.T) {
 	}
 }
 
+func TestDigestTreeRejectsFileAddedAfterInitialInventory(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "existing"), "reviewed", 0o600)
+	_, err := digestTreeWithHook(root, func() {
+		writeTestFile(t, filepath.Join(root, "injected"), "unreviewed", 0o600)
+	})
+	if err == nil || !strings.Contains(err.Error(), "changed while it was hashed") {
+		t.Fatalf("concurrent file addition passed: %v", err)
+	}
+}
+
 func writeTestFile(t *testing.T, path, content string, mode os.FileMode) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), mode); err != nil {
@@ -1037,9 +1053,10 @@ func writeTestPluginTrees(t *testing.T, root, version, body string) {
 	writeTestFile(t, filepath.Join(root, ".claude-plugin", "plugin.json"), manifest, 0o600)
 	writeTestFile(t, filepath.Join(root, "plugins", "atl", ".codex-plugin", "plugin.json"), manifest, 0o600)
 	writeTestFile(t, filepath.Join(root, "plugins", "atl", ".mcp.json"), `{"mcpServers":{"atl":{"command":"atl","args":["mcp","serve"]}}}`, 0o600)
-	writeTestFile(t, filepath.Join(root, "skills", "atl", "SKILL.md"), "---\nname: atl\n---\nClaude "+body+"\n", 0o600)
-	writeTestFile(t, filepath.Join(root, "plugins", "atl", "skills", "atl", "SKILL.md"), "---\nname: atl\n---\nCodex "+body+"\n", 0o600)
-	writeTestFile(t, filepath.Join(root, "plugins", "atl", "skills", "atl", "agents", "openai.yaml"), "policy:\n  allow_implicit_invocation: true\n", 0o600)
+	skill := "---\nname: atl\ndescription: Work with synthetic Atlassian fixtures. USE WHEN a benchmark needs atl evidence. DO NOT USE WHEN the task is unrelated to Atlassian.\n---\n"
+	writeTestFile(t, filepath.Join(root, "skills", "atl", "SKILL.md"), skill+"Claude "+body+"\n", 0o600)
+	writeTestFile(t, filepath.Join(root, "plugins", "atl", "skills", "atl", "SKILL.md"), skill+"Codex "+body+"\n", 0o600)
+	writeTestFile(t, filepath.Join(root, "plugins", "atl", "skills", "atl", "agents", "openai.yaml"), "interface:\n  display_name: \"atl\"\n  short_description: \"Work with synthetic Atlassian fixtures\"\n  default_prompt: \"Use $atl for this synthetic Atlassian task.\"\npolicy:\n  allow_implicit_invocation: true\n", 0o600)
 }
 
 func writeJSONTestFile(t *testing.T, path string, value any) {

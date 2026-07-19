@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "skills": [
+    {
+      "name": "atl",
+      "implicit": true,
+      "owned_task_classes": [
+        "atlassian/local-mirror",
+        "atlassian/mixed-workflow",
+        "atlassian/orientation"
+      ],
+      "excluded_task_classes": [
+        "atlassian/onboarding",
+        "atlassian/setup",
+        "codebase/atl-cli",
+        "codebase/confluence-renderer",
+        "codebase/jira-webhook",
+        "confluence/direct-read",
+        "confluence/direct-write",
+        "cross-service/knowledge-search",
+        "cross-service/meeting-tasks",
+        "cross-service/spec-backlog",
+        "jira/bug-triage",
+        "jira/direct-read",
+        "jira/direct-write",
+        "jira/sprint-dashboard",
+        "jira/status-report"
+      ]
+    },
+    {
+      "name": "confluence",
+      "implicit": true,
+      "owned_task_classes": [
+        "confluence/direct-read",
+        "confluence/direct-write"
+      ],
+      "excluded_task_classes": [
+        "codebase/confluence-renderer",
+        "codebase/repository-search",
+        "cross-service/knowledge-search",
+        "cross-service/meeting-tasks",
+        "cross-service/spec-backlog",
+        "jira/direct-read",
+        "jira/direct-write"
+      ]
+    },
+    {
+      "name": "jira",
+      "implicit": true,
+      "owned_task_classes": [
+        "jira/direct-read",
+        "jira/direct-write"
+      ],
+      "excluded_task_classes": [
+        "codebase/jira-webhook",
+        "codebase/sprint-algorithm",
+        "confluence/direct-read",
+        "confluence/direct-write",
+        "cross-service/knowledge-search",
+        "cross-service/meeting-tasks",
+        "cross-service/spec-backlog",
+        "jira/bug-triage",
+        "jira/sprint-dashboard",
+        "jira/status-report"
+      ]
+    },
+    {
+      "name": "meeting-tasks",
+      "implicit": true,
+      "owned_task_classes": [
+        "cross-service/meeting-tasks"
+      ],
+      "excluded_task_classes": [
+        "cross-service/spec-backlog",
+        "notes/summary-only"
+      ]
+    },
+    {
+      "name": "onboarding",
+      "implicit": false,
+      "owned_task_classes": [
+        "atlassian/onboarding"
+      ],
+      "excluded_task_classes": [
+        "codebase/atl-cli"
+      ]
+    },
+    {
+      "name": "search-knowledge",
+      "implicit": true,
+      "owned_task_classes": [
+        "cross-service/knowledge-search"
+      ],
+      "excluded_task_classes": [
+        "codebase/repository-search",
+        "confluence/direct-read",
+        "jira/direct-read",
+        "jira/sprint-dashboard",
+        "jira/status-report"
+      ]
+    },
+    {
+      "name": "setup",
+      "implicit": false,
+      "owned_task_classes": [
+        "atlassian/setup"
+      ],
+      "excluded_task_classes": [
+        "codebase/atl-cli"
+      ]
+    },
+    {
+      "name": "spec-to-backlog",
+      "implicit": true,
+      "owned_task_classes": [
+        "cross-service/spec-backlog"
+      ],
+      "excluded_task_classes": [
+        "cross-service/meeting-tasks",
+        "writing/spec-only"
+      ]
+    },
+    {
+      "name": "sprint-dashboard",
+      "implicit": true,
+      "owned_task_classes": [
+        "jira/sprint-dashboard"
+      ],
+      "excluded_task_classes": [
+        "codebase/sprint-algorithm",
+        "jira/status-report"
+      ]
+    },
+    {
+      "name": "status-report",
+      "implicit": true,
+      "owned_task_classes": [
+        "jira/status-report"
+      ],
+      "excluded_task_classes": [
+        "jira/sprint-dashboard",
+        "writing/status-from-text"
+      ]
+    },
+    {
+      "name": "triage-issue",
+      "implicit": true,
+      "owned_task_classes": [
+        "jira/bug-triage"
+      ],
+      "excluded_task_classes": [
+        "codebase/fix-bug",
+        "jira/direct-read"
+      ]
+    }
+  ]
+}

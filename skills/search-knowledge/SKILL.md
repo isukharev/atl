@@ -1,6 +1,6 @@
 ---
 name: search-knowledge
-description: Answer questions from company knowledge by searching Confluence and Jira together with the atl CLI and synthesizing a cited answer. USE WHEN the user asks "what do we know about X", "find docs/tickets about X", "explain our <process/system/term>", "has this been discussed", or any question whose answer may live in Confluence pages or Jira issues rather than in the codebase.
+description: Answer from qualified Jira and Confluence evidence with atl. USE WHEN organizational knowledge is unknown or split across both services. DO NOT USE WHEN one exact resource is known, the task is a report/dashboard, or the answer belongs in the codebase.
 ---
 <!-- Generated from skills-src/search-knowledge/SKILL.md — edit the source and run 'make gen-plugins'. -->
 

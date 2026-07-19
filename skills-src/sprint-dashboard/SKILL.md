@@ -1,6 +1,6 @@
 ---
 name: sprint-dashboard
-description: Build a visual sprint or board dashboard from Jira data with the atl CLI — status columns, attention signals, per-assignee load — rendered in the richest format the client supports. USE WHEN the user asks for a sprint dashboard, standup view, sprint review or closeout snapshot, WIP overview, or a visual picture of current Jira work instead of a flat report. Read-only.
+description: Build a visual read-only Jira sprint or board dashboard with atl. USE WHEN the user wants a standup view, WIP picture, or sprint snapshot. DO NOT USE WHEN the output is a narrative report, raw Jira list, or codebase dashboard.
 ---
 
 # Sprint dashboard with `atl`

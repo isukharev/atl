@@ -419,6 +419,21 @@ token or timing movement.
 
 ### Jira skill routing comparison
 
+Before a provider comparison, validate the provider-neutral discovery contract:
+
+```sh
+make check-skill-routing
+```
+
+The strict source catalog binds directory, logical name, description
+boundaries, implicit policy, and Codex default-prompt target. The routing
+registry and synthetic corpus then prove one declared skill or an explicit
+no-activation result for every annotated task class, including
+codebase-only Jira/Confluence mentions. This offline result is a policy and
+packaging oracle, not a model-quality score: the prompt text is retained so the
+same cases can be replayed in fresh model sessions when behavioral evidence is
+needed.
+
 The `jira-epic-evidence` CLI variant now requires the exact `atl:jira` skill,
 then confines the model to one metadata-only issue-field discovery and one
 compact digest. `skill_invocations_min` accepts an optional JSON-string

@@ -76,7 +76,7 @@ gen-plugins:
 	cp .mcp.json plugins/atl/.mcp.json
 
 .PHONY: check-plugins
-check-plugins: gen-plugins check-skill-safety
+check-plugins: gen-plugins check-skill-safety check-skill-routing
 	@test -z "$$(git status --porcelain -- skills plugins/atl/skills plugins/atl/.mcp.json)" || { \
 		git status --porcelain -- skills plugins/atl/skills plugins/atl/.mcp.json; \
 		echo "generated plugin trees are stale or hand-edited: edit skills-src/, run 'make gen-plugins', commit all three trees"; exit 1; }
@@ -85,12 +85,16 @@ check-plugins: gen-plugins check-skill-safety
 check-skill-safety:
 	go run ./scripts/check-skill-safety
 
+.PHONY: check-skill-routing
+check-skill-routing:
+	go run ./scripts/check-skill-routing --root .
+
 .PHONY: check-context7-docs
 check-context7-docs:
 	go run ./scripts/check-context7-docs
 
 .PHONY: agent-eval-contract
-agent-eval-contract:
+agent-eval-contract: check-skill-routing
 	go test ./internal/agenteval ./scripts/agent-eval
 	go run ./scripts/agent-eval validate internal/cli/testdata/agent-eval/*.json benchmarks/agent-eval/*/scenario.v1.json >/dev/null
 	go run ./scripts/agent-eval validate-run benchmarks/agent-eval/*/run.*.json >/dev/null

@@ -1,6 +1,6 @@
 ---
 name: confluence
-description: Pull, read, edit, validate, and push Confluence pages with the atl CLI in their native storage format (CSF). USE WHEN the user wants to read, search, summarize, edit, update, create, publish, copy, move, open, or delete a Confluence page or native blog post; work with page metadata, comments, tables, attachments, space trees, or .csf/storage-format content.
+description: Read or change Confluence pages, comments, tables, attachments, trees, and native CSF with atl. USE WHEN the outcome is a direct Confluence operation. DO NOT USE WHEN cross-service search, Jira, meeting-task, spec-to-backlog, setup/onboarding, or codebase work is primary.
 ---
 <!-- Generated from skills-src/confluence/SKILL.md — edit the source and run 'make gen-plugins'. -->
 

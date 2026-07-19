@@ -925,6 +925,14 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			runErr = fmt.Errorf("persist provider attempt boundary: %w", commitErr)
 		}
 	}
+	// Rebind the installed package at the last safe point before spawning the
+	// provider. A failed rebind consumes the conservative attempt boundary but
+	// cannot expose unreviewed plugin bytes to the model.
+	if runErr == nil && codexPrivateCLI {
+		if verifyErr := providerRuntime.verifyPluginPackage(); verifyErr != nil {
+			runErr = verifyErr
+		}
+	}
 	if runErr == nil {
 		runErr = command.Start()
 	}
@@ -1533,9 +1541,83 @@ func providerPluginLayout(root, provider string) (manifest, skills string, err e
 	}
 }
 
+type digestTreeFile struct {
+	path string
+	info fs.FileInfo
+}
+
 func digestTree(root string) (string, error) {
-	var paths []string
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+	return digestTreeWithHook(root, nil)
+}
+
+func digestTreeWithHook(root string, afterInitialInventory func()) (string, error) {
+	rootInfo, err := os.Lstat(root)
+	if err != nil || rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return "", fmt.Errorf("skill tree root is not a plain directory")
+	}
+	rootHandle, err := os.OpenRoot(root)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rootHandle.Close() }()
+	openedRootInfo, err := rootHandle.Stat(".")
+	if err != nil || !openedRootInfo.IsDir() || !os.SameFile(rootInfo, openedRootInfo) {
+		return "", fmt.Errorf("skill tree root changed while it was opened")
+	}
+	files, err := digestTreeInventory(rootHandle)
+	if err != nil {
+		return "", err
+	}
+	if afterInitialInventory != nil {
+		afterInitialInventory()
+	}
+	hash := sha256.New()
+	_, _ = hash.Write([]byte("atl-tree-digest-v3\x00"))
+	var length [8]byte
+	for _, treeFile := range files {
+		file, err := rootHandle.Open(treeFile.path)
+		if err != nil {
+			return "", err
+		}
+		openedInfo, statErr := file.Stat()
+		if statErr != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(treeFile.info, openedInfo) {
+			_ = file.Close()
+			return "", fmt.Errorf("skill tree changed while it was hashed")
+		}
+		data, readErr := ioReadAllLimit(file, 4<<20)
+		finalInfo, finalStatErr := file.Stat()
+		closeErr := file.Close()
+		if readErr != nil {
+			return "", readErr
+		}
+		if finalStatErr != nil || !os.SameFile(openedInfo, finalInfo) || finalInfo.Size() != int64(len(data)) || !finalInfo.ModTime().Equal(openedInfo.ModTime()) {
+			return "", fmt.Errorf("skill tree changed while it was hashed")
+		}
+		if closeErr != nil {
+			return "", closeErr
+		}
+		relativeBytes := []byte(filepath.ToSlash(treeFile.path))
+		binary.BigEndian.PutUint64(length[:], uint64(len(relativeBytes)))
+		_, _ = hash.Write(length[:])
+		_, _ = hash.Write(relativeBytes)
+		binary.BigEndian.PutUint64(length[:], uint64(len(data)))
+		_, _ = hash.Write(length[:])
+		_, _ = hash.Write(data)
+	}
+	finalFiles, err := digestTreeInventory(rootHandle)
+	if err != nil || !sameDigestTreeInventory(files, finalFiles) {
+		return "", fmt.Errorf("skill tree changed while it was hashed")
+	}
+	finalRootInfo, err := os.Lstat(root)
+	if err != nil || finalRootInfo.Mode()&os.ModeSymlink != 0 || !finalRootInfo.IsDir() || !os.SameFile(openedRootInfo, finalRootInfo) {
+		return "", fmt.Errorf("skill tree root changed while it was hashed")
+	}
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func digestTreeInventory(root *os.Root) ([]digestTreeFile, error) {
+	var files []digestTreeFile
+	err := fs.WalkDir(root.FS(), ".", func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -1552,47 +1634,30 @@ func digestTree(root string) (string, error) {
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("skill tree contains special file")
 		}
-		paths = append(paths, path)
+		files = append(files, digestTreeFile{path: filepath.FromSlash(path), info: info})
 		return nil
 	})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	rootHandle, err := os.OpenRoot(root)
-	if err != nil {
-		return "", err
+	sort.Slice(files, func(i, j int) bool { return files[i].path < files[j].path })
+	return files, nil
+}
+
+func sameDigestTreeInventory(first, second []digestTreeFile) bool {
+	if len(first) != len(second) {
+		return false
 	}
-	defer func() { _ = rootHandle.Close() }()
-	sort.Strings(paths)
-	hash := sha256.New()
-	_, _ = hash.Write([]byte("atl-tree-digest-v2\x00"))
-	var length [8]byte
-	for _, path := range paths {
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return "", err
+	for index := range first {
+		if first[index].path != second[index].path ||
+			!os.SameFile(first[index].info, second[index].info) ||
+			first[index].info.Size() != second[index].info.Size() ||
+			!first[index].info.ModTime().Equal(second[index].info.ModTime()) ||
+			first[index].info.Mode() != second[index].info.Mode() {
+			return false
 		}
-		file, err := rootHandle.Open(relative)
-		if err != nil {
-			return "", err
-		}
-		data, readErr := ioReadAllLimit(file, 4<<20)
-		closeErr := file.Close()
-		if readErr != nil {
-			return "", readErr
-		}
-		if closeErr != nil {
-			return "", closeErr
-		}
-		relativeBytes := []byte(filepath.ToSlash(relative))
-		binary.BigEndian.PutUint64(length[:], uint64(len(relativeBytes)))
-		_, _ = hash.Write(length[:])
-		_, _ = hash.Write(relativeBytes)
-		binary.BigEndian.PutUint64(length[:], uint64(len(data)))
-		_, _ = hash.Write(length[:])
-		_, _ = hash.Write(data)
 	}
-	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
+	return true
 }
 
 func readBoundedFile(path string, limit int64) ([]byte, error) {
