@@ -1,6 +1,6 @@
 interface:
   display_name: "atl Confluence"
   short_description: "Mirror and update Confluence pages"
-  default_prompt: "Use $confluence to pull, edit, validate, or push a Confluence page with atl."
+  default_prompt: "Use $confluence for a direct Confluence operation."
 policy:
   allow_implicit_invocation: true

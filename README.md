@@ -163,10 +163,18 @@ shared skills when relevant. The plugin also starts the binary's typed read-only
 begin a new session after installing/configuring `atl`. See [docs/mcp.md](docs/mcp.md)
 for its nine tools, bounds, and standalone setup.
 
+Shipped skill metadata declares mutually exclusive intended discovery
+boundaries. Focused workflows, cross-service discovery, direct
+Jira/Confluence work, and `atl` mirror or orientation tasks each have one
+declared route. Setup and onboarding are explicit-only; codebase-only mentions
+are declared no-activation cases. The offline corpus checks this policy, while
+actual provider selection is measured separately with model-in-the-loop runs.
+
 Core skills:
 
-- **`atl`** — orientation: when to use `atl` (vs a live Atlassian MCP), the search-first workflow,
-  and where the mirror lives.
+- **`atl`** — orientation and genuinely mixed local-mirror work: when to use
+  `atl` (vs a live Atlassian MCP), the search-first workflow, and where the
+  mirror lives.
 - **`confluence`** — pull, edit `.csf`, validate, and push pages under the version gate.
 - **`jira`** — search/pull issues, discover exact Structure folders, and inspect normalized Structure and Kanban/Scrum board views,
   and create/update/transition/comment/link via guarded commands.

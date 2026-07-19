@@ -1,6 +1,6 @@
 ---
 name: atl
-description: Work with Confluence pages and Jira issues as local files using the atl CLI — mirror them to disk in native format, use them as grounding context, edit, and push changes back under a version gate. Use when the user mentions Confluence, a wiki page, Jira, a ticket/issue/epic, an agile board, sprint, Structure tree, a spec or runbook that lives in Atlassian, JQL or CQL, or wants Atlassian content available locally to read or edit.
+description: Coordinate atl local mirrors across Jira and Confluence. USE WHEN orienting to atl, maintaining or recovering an existing mirror, or combining both services. DO NOT USE WHEN setup/onboarding, one service, a focused workflow, or codebase-only work is primary.
 ---
 
 # Working with Confluence & Jira via `atl`

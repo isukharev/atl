@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Install the atl CLI and configure Confluence/Jira authentication, backend URLs, and the local mirror directory. Run this once (/atl:setup) before using atl.
+description: Install and configure atl authentication, backends, and mirror defaults. USE WHEN the user explicitly requests install, authentication, setup repair, or /atl:setup. DO NOT USE WHEN handling normal Jira, Confluence, search, reporting, or mirror work; explicit-only.
 disable-model-invocation: true
 allowed-tools: Bash(command -v atl) Bash(atl version) Bash(brew install *) Bash(brew upgrade *) Bash(curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh) Bash(go install *) Bash(go env *) Bash(echo *) Bash(atl config show) Bash(atl config set *) Bash(atl auth status) Bash(atl auth login *) Bash(atl conf search *) Bash(atl jira fields)
 ---

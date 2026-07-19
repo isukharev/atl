@@ -64,6 +64,27 @@ score.
 
 ## Public synthetic suite
 
+### Skill discovery routing contract
+
+The provider-neutral registry at `skills-src/routing.v1.json` and the synthetic
+prompt corpus at `skill-routing.v1.json` pin exactly one logical skill—or
+an explicit no-activation result—for common Jira, Confluence, mixed-service,
+workflow, setup, and codebase-only requests. Validate them without a model or a
+backend:
+
+```sh
+make check-skill-routing
+```
+
+The deterministic oracle consumes the reviewed task-class annotation, not the
+natural-language prompt. It proves identity, implicit-policy, exclusive
+routing, owned-route, and exclusion coverage. It does not claim to emulate
+a provider's NLP routing. Implicit and no-activation prompts can be replayed
+byte-for-byte in supervised model-in-the-loop runs. Explicit cases use the
+provider-neutral logical token recorded by `invoked_skill`; a runner must
+project that token to the installed client syntax (`$atl:<skill>` for Codex or
+`/atl:<skill>` for Claude Code) before measuring actual activation.
+
 These cases exercise the shipped `atl` skills and binary against a deterministic
 local Jira/Confluence HTTP fixture. They use generic data, never a maintainer's
 backend or credentials.

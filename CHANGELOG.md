@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Shipped agent skills now declare mutually exclusive ownership and exclusion
+  boundaries for focused workflows, cross-service discovery,
+  direct-service skills, and the `atl` mirror/orientation role. Setup and
+  onboarding remain explicit-only, while codebase-only
+  Jira/Confluence mentions are pinned as no-activation cases. A strict
+  preflight validator binds logical ids, source inventory, invocation policy,
+  Codex default prompts, and the routing corpus before generated trees are
+  replaced. Repository checks and private benchmark provisioning separately
+  verify generated and installed inventories, including the installed
+  namespaced implicit skills exposed in Codex's model-visible prompt. A
+  provider-neutral registry and
+  26-case synthetic routing
+  corpus add an offline, aggregate-only policy oracle without claiming to model
+  provider NLP behavior. Codex UI descriptions are also checked against their
+  documented 25..64-character contract.
+
 - Private-workspace manifest schema v2 adds explicit `comparison` and
   `activation-study` run-set kinds. An activation study binds exactly four Codex
   CLI-skill treatments into one plan and consent, executes them sequentially in

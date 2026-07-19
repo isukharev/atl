@@ -1,0 +1,288 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "atl-local-mirror",
+      "prompt": "Keep a local mirror of the Jira issues and Confluence pages I work with repeatedly.",
+      "task_class": "atlassian/local-mirror",
+      "invocation": "implicit",
+      "expected_skill": "atl"
+    },
+    {
+      "id": "atl-mixed-workflow",
+      "prompt": "Compare a Jira epic with its Confluence design page and keep both available as local working files.",
+      "task_class": "atlassian/mixed-workflow",
+      "invocation": "implicit",
+      "expected_skill": "atl"
+    },
+    {
+      "id": "atl-orientation",
+      "prompt": "Explain how to use atl for a local-file workflow spanning Jira and Confluence.",
+      "task_class": "atlassian/orientation",
+      "invocation": "implicit",
+      "expected_skill": "atl"
+    },
+    {
+      "id": "confluence-direct-read",
+      "prompt": "Read the decision section of this Confluence page and summarize it.",
+      "task_class": "confluence/direct-read",
+      "invocation": "implicit",
+      "expected_skill": "confluence",
+      "forbidden_skills": [
+        "atl",
+        "jira",
+        "search-knowledge"
+      ]
+    },
+    {
+      "id": "confluence-direct-write",
+      "prompt": "Update this Confluence page after showing me a safe preview of the change.",
+      "task_class": "confluence/direct-write",
+      "invocation": "implicit",
+      "expected_skill": "confluence",
+      "forbidden_skills": [
+        "atl",
+        "jira"
+      ]
+    },
+    {
+      "id": "jira-direct-read",
+      "prompt": "Show the current status, assignee, and non-empty delivery fields of Jira issue DEMO-17.",
+      "task_class": "jira/direct-read",
+      "invocation": "implicit",
+      "expected_skill": "jira",
+      "forbidden_skills": [
+        "atl",
+        "confluence",
+        "search-knowledge",
+        "triage-issue"
+      ]
+    },
+    {
+      "id": "jira-direct-write",
+      "prompt": "Prepare a guarded update to one field on Jira issue DEMO-18 and wait for approval.",
+      "task_class": "jira/direct-write",
+      "invocation": "implicit",
+      "expected_skill": "jira",
+      "forbidden_skills": [
+        "atl",
+        "confluence"
+      ]
+    },
+    {
+      "id": "jira-bug-triage",
+      "prompt": "Check whether this stack trace matches an existing Jira bug before proposing a new ticket.",
+      "task_class": "jira/bug-triage",
+      "invocation": "implicit",
+      "expected_skill": "triage-issue",
+      "forbidden_skills": [
+        "atl",
+        "jira"
+      ]
+    },
+    {
+      "id": "jira-sprint-dashboard",
+      "prompt": "Build a visual snapshot of the active Jira sprint with WIP and attention signals.",
+      "task_class": "jira/sprint-dashboard",
+      "invocation": "implicit",
+      "expected_skill": "sprint-dashboard",
+      "forbidden_skills": [
+        "atl",
+        "jira",
+        "search-knowledge",
+        "status-report"
+      ]
+    },
+    {
+      "id": "jira-status-report",
+      "prompt": "Draft this week's project status report from current Jira evidence and blockers.",
+      "task_class": "jira/status-report",
+      "invocation": "implicit",
+      "expected_skill": "status-report",
+      "forbidden_skills": [
+        "atl",
+        "jira",
+        "search-knowledge",
+        "sprint-dashboard"
+      ]
+    },
+    {
+      "id": "knowledge-cross-service-search",
+      "prompt": "Find what our Jira issues and Confluence pages say about the rollout and answer with citations.",
+      "task_class": "cross-service/knowledge-search",
+      "invocation": "implicit",
+      "expected_skill": "search-knowledge",
+      "forbidden_skills": [
+        "atl",
+        "confluence",
+        "jira"
+      ]
+    },
+    {
+      "id": "meeting-notes-to-tasks",
+      "prompt": "Turn the action items in these meeting notes into a reviewed Jira task proposal.",
+      "task_class": "cross-service/meeting-tasks",
+      "invocation": "implicit",
+      "expected_skill": "meeting-tasks",
+      "forbidden_skills": [
+        "atl",
+        "confluence",
+        "jira",
+        "spec-to-backlog"
+      ]
+    },
+    {
+      "id": "spec-to-backlog",
+      "prompt": "Break this Confluence specification into a proposed Jira epic and implementation backlog.",
+      "task_class": "cross-service/spec-backlog",
+      "invocation": "implicit",
+      "expected_skill": "spec-to-backlog",
+      "forbidden_skills": [
+        "atl",
+        "confluence",
+        "jira",
+        "meeting-tasks"
+      ]
+    },
+    {
+      "id": "onboarding-explicit",
+      "prompt": "$onboarding Run the atl onboarding workflow and help me create a reviewed private workflow profile.",
+      "task_class": "atlassian/onboarding",
+      "invocation": "explicit",
+      "invoked_skill": "onboarding",
+      "expected_skill": "onboarding",
+      "forbidden_skills": [
+        "atl"
+      ]
+    },
+    {
+      "id": "onboarding-implicit-refusal",
+      "prompt": "Learn my recurring Atlassian preferences and save them for later sessions.",
+      "task_class": "atlassian/onboarding",
+      "invocation": "implicit",
+      "expected_skill": null,
+      "forbidden_skills": [
+        "atl",
+        "onboarding"
+      ]
+    },
+    {
+      "id": "setup-explicit",
+      "prompt": "$setup Run the atl setup workflow to install the CLI and configure authentication.",
+      "task_class": "atlassian/setup",
+      "invocation": "explicit",
+      "invoked_skill": "setup",
+      "expected_skill": "setup",
+      "forbidden_skills": [
+        "atl"
+      ]
+    },
+    {
+      "id": "setup-implicit-refusal",
+      "prompt": "Install and configure atl for access to my Atlassian services.",
+      "task_class": "atlassian/setup",
+      "invocation": "implicit",
+      "expected_skill": null,
+      "forbidden_skills": [
+        "atl",
+        "setup"
+      ]
+    },
+    {
+      "id": "codebase-atl-cli",
+      "prompt": "Refactor the Go command registration code for the atl CLI and update its unit tests.",
+      "task_class": "codebase/atl-cli",
+      "invocation": "implicit",
+      "expected_skill": null,
+      "forbidden_skills": [
+        "atl",
+        "onboarding",
+        "setup"
+      ]
+    },
+    {
+      "id": "codebase-confluence-renderer",
+      "prompt": "Fix the Markdown renderer for Confluence-style links in this repository without contacting a backend.",
+      "task_class": "codebase/confluence-renderer",
+      "invocation": "implicit",
+      "expected_skill": null,
+      "forbidden_skills": [
+        "atl",
+        "confluence"
+      ]
+    },
+    {
+      "id": "codebase-fix-bug",
+      "prompt": "Diagnose and fix this bug in the local Go package, then run its tests.",
+      "task_class": "codebase/fix-bug",
+      "invocation": "implicit",
+      "expected_skill": null,
+      "forbidden_skills": [
+        "triage-issue"
+      ]
+    },
+    {
+      "id": "codebase-jira-webhook",
+      "prompt": "Refactor the Jira webhook payload parser in this codebase and add regression tests.",
+      "task_class": "codebase/jira-webhook",
+      "invocation": "implicit",
+      "expected_skill": null,
+      "forbidden_skills": [
+        "atl",
+        "jira"
+      ]
+    },
+    {
+      "id": "codebase-repository-search",
+      "prompt": "Search this repository's Markdown files for the retry policy and summarize the codebase documentation.",
+      "task_class": "codebase/repository-search",
+      "invocation": "implicit",
+      "expected_skill": null,
+      "forbidden_skills": [
+        "confluence",
+        "search-knowledge"
+      ]
+    },
+    {
+      "id": "codebase-sprint-algorithm",
+      "prompt": "Optimize the sprint scheduling algorithm in this repository and benchmark the implementation.",
+      "task_class": "codebase/sprint-algorithm",
+      "invocation": "implicit",
+      "expected_skill": null,
+      "forbidden_skills": [
+        "jira",
+        "sprint-dashboard"
+      ]
+    },
+    {
+      "id": "notes-summary-only",
+      "prompt": "Summarize these pasted meeting notes without extracting or creating action items.",
+      "task_class": "notes/summary-only",
+      "invocation": "implicit",
+      "expected_skill": null,
+      "forbidden_skills": [
+        "meeting-tasks"
+      ]
+    },
+    {
+      "id": "writing-spec-only",
+      "prompt": "Improve the wording of this local design specification without creating a backlog.",
+      "task_class": "writing/spec-only",
+      "invocation": "implicit",
+      "expected_skill": null,
+      "forbidden_skills": [
+        "spec-to-backlog"
+      ]
+    },
+    {
+      "id": "writing-status-from-text",
+      "prompt": "Polish this supplied status update without fetching any Jira data.",
+      "task_class": "writing/status-from-text",
+      "invocation": "implicit",
+      "expected_skill": null,
+      "forbidden_skills": [
+        "status-report"
+      ]
+    }
+  ]
+}
