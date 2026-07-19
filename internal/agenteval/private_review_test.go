@@ -5,14 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 func TestPrivateReviewPacketBindsAssessmentWithoutPrintingPrivateContent(t *testing.T) {
@@ -209,9 +206,13 @@ func TestPrivatePanelReviewRequiresCompleteRosterAndAggregatesOnce(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, policy, err := loadPrivatePanelReviewContract(fixture.root, source.Surfaces[0])
+	root, _, err := privateWorkspaceLocations(fixture.root, fixture.repository, false)
 	if err != nil {
-		t.Fatalf("%v (%s)", err, diagnosePrivatePanelContract(fixture.root, source.Surfaces[0]))
+		t.Fatal(err)
+	}
+	_, _, policy, err := loadPrivatePanelReviewContract(root, source.Surfaces[0])
+	if err != nil {
+		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(source.Surfaces[0].RunDirectory, "reviewed-result.json"))
 	if err != nil {
@@ -334,10 +335,14 @@ func TestPrivatePanelReviewRequiresAllRunSurfacesBeforeAssessment(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	first := source.Surfaces[0]
-	firstResultData, firstFinalData, firstRubricData, firstResult, firstRubric, err := loadPrivateReviewInputs(fixture.root, first)
+	root, _, err := privateWorkspaceLocations(fixture.root, fixture.repository, false)
 	if err != nil {
-		t.Fatalf("%v (%s)", err, diagnosePrivateReviewInputs(fixture.root, first))
+		t.Fatal(err)
+	}
+	first := source.Surfaces[0]
+	firstResultData, firstFinalData, firstRubricData, firstResult, firstRubric, err := loadPrivateReviewInputs(root, first)
+	if err != nil {
+		t.Fatal(err)
 	}
 	second := first
 	second.Surface = SurfaceCLISkill
@@ -358,30 +363,30 @@ func TestPrivatePanelReviewRequiresAllRunSurfacesBeforeAssessment(t *testing.T) 
 	source.Surfaces = append(source.Surfaces, second)
 	firstPackets := make([]PrivateReviewSummary, 0, len(panel.Reviewers))
 	for _, reviewer := range panel.Reviewers {
-		packet, err := preparePrivatePanelReview(fixture.root, source, first, firstResultData, firstFinalData, firstRubricData, firstResult, firstRubric,
+		packet, err := preparePrivatePanelReview(root, source, first, firstResultData, firstFinalData, firstRubricData, firstResult, firstRubric,
 			PrivateReviewPrepareOptions{ReviewerID: reviewer.ID})
 		if err != nil {
 			t.Fatal(err)
 		}
 		firstPackets = append(firstPackets, packet)
 	}
-	completePrivateReviewPacket(t, fixture.root, firstPackets[0].Packet, true)
-	if _, err := assessPrivatePanelReview(fixture.root, source, first, firstResultData, firstFinalData, firstResult, firstRubric,
+	completePrivateReviewPacket(t, root, firstPackets[0].Packet, true)
+	if _, err := assessPrivatePanelReview(root, source, first, firstResultData, firstFinalData, firstResult, firstRubric,
 		PrivateReviewAssessOptions{ReviewerID: panel.Reviewers[0].ID}); err == nil || !strings.Contains(err.Error(), "review_roster_incomplete") {
 		t.Fatalf("assessment before all surfaces were prepared: %v", err)
 	}
 	secondResultData = append(secondResultData, '\n')
 	for _, reviewer := range panel.Reviewers {
-		if _, err := preparePrivatePanelReview(fixture.root, source, second, secondResultData, firstFinalData, firstRubricData, secondResult, firstRubric,
+		if _, err := preparePrivatePanelReview(root, source, second, secondResultData, firstFinalData, firstRubricData, secondResult, firstRubric,
 			PrivateReviewPrepareOptions{ReviewerID: reviewer.ID}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := assessPrivatePanelReview(fixture.root, source, first, firstResultData, firstFinalData, firstResult, firstRubric,
+	if _, err := assessPrivatePanelReview(root, source, first, firstResultData, firstFinalData, firstResult, firstRubric,
 		PrivateReviewAssessOptions{ReviewerID: panel.Reviewers[0].ID}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := preparePrivatePanelReview(fixture.root, source, second, secondResultData, firstFinalData, firstRubricData, secondResult, firstRubric,
+	if _, err := preparePrivatePanelReview(root, source, second, secondResultData, firstFinalData, firstRubricData, secondResult, firstRubric,
 		PrivateReviewPrepareOptions{ReviewerID: panel.Reviewers[0].ID}); err == nil || !strings.Contains(err.Error(), "review_roster") {
 		t.Fatalf("preparation resumed after assessment began: %v", err)
 	}
@@ -498,25 +503,4 @@ func privateReviewTestReviewsFromSet(scenarioID string, set *QualitativeReviewSe
 			Criteria: append([]ReviewCriterionScore{}, member.Criteria...), FindingIDs: append([]string{}, member.FindingIDs...)})
 	}
 	return reviews
-}
-
-func diagnosePrivatePanelContract(root string, surface PrivateBaselineSurfaceSource) string {
-	data, readErr := readPrivatePlanLifecycleFile(root, surface.QualitativePanelContractPath, maxReviewBytes)
-	var contract privateQualitativeReviewPanelContract
-	decodeErr := decodePrivateLifecycleJSON(data, &contract)
-	encoded, encodeErr := encodePrivateQualitativeReviewPanelContract(contract)
-	policyErr := (QualitativePanelPolicy{SchemaVersion: QualitativePanelSchemaVersion, Method: contract.Method,
-		ExpectedReviewers: len(contract.Reviewers), MaxCriterionRangeBPS: contract.MaxCriterionRangeBPS}).Validate()
-	panelErr := (PrivateQualitativeReviewPanel{Method: contract.Method, Reviewers: contract.Reviewers,
-		MaxCriterionRangeBPS: contract.MaxCriterionRangeBPS}).validate()
-	return fmt.Sprintf("read=%t hash=%t decode=%t canonical=%t policy=%t panel=%t", readErr == nil,
-		sha256HexBytes(data) == surface.QualitativePanelContractSHA256, decodeErr == nil,
-		encodeErr == nil && bytes.Equal(data, encoded), policyErr == nil, panelErr == nil)
-}
-
-func diagnosePrivateReviewInputs(root string, surface PrivateBaselineSurfaceSource) string {
-	data, readErr := safepath.ReadFileWithinLimit(root, filepath.Join(surface.RunDirectory, "result.json"), maxContractBytes)
-	result, decodeErr := DecodeResult(bytes.NewReader(data))
-	return fmt.Sprintf("read=%t decode=%t data_class=%t surface=%t", readErr == nil, decodeErr == nil,
-		result.DataClass == "private-local", result.EffectiveSurface() == surface.Surface)
 }
