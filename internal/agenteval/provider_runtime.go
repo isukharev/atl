@@ -340,6 +340,10 @@ func codexPromptExposesImplicitSkills(data []byte, catalog skillmeta.Catalog, in
 	if !filepath.IsAbs(installedSkillRoot) || filepath.Clean(installedSkillRoot) != installedSkillRoot {
 		return false
 	}
+	canonicalSkillRoot, err := filepath.EvalSymlinks(installedSkillRoot)
+	if err != nil || canonicalSkillRoot != installedSkillRoot {
+		return false
+	}
 	var messages []struct {
 		Content []struct {
 			Type string `json:"type"`
@@ -367,8 +371,12 @@ func codexPromptExposesImplicitSkills(data []byte, catalog skillmeta.Catalog, in
 					}
 					continue
 				}
-				expectedPath := filepath.Join(installedSkillRoot, name, "SKILL.md")
-				inside, err := pathWithin(installedSkillRoot, path)
+				canonicalPath, err := filepath.EvalSymlinks(path)
+				if err != nil {
+					return false
+				}
+				expectedPath := filepath.Join(canonicalSkillRoot, name, "SKILL.md")
+				inside, err := pathWithin(canonicalSkillRoot, canonicalPath)
 				if err != nil {
 					return false
 				}
@@ -376,7 +384,7 @@ func codexPromptExposesImplicitSkills(data []byte, catalog skillmeta.Catalog, in
 					continue
 				}
 				skill, known := byName[name]
-				if !known || !skill.OpenAI.AllowImplicitInvocation || path != expectedPath {
+				if !known || !skill.OpenAI.AllowImplicitInvocation || canonicalPath != expectedPath {
 					return false
 				}
 				if _, duplicate := seen[name]; duplicate {

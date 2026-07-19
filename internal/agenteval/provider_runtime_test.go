@@ -22,8 +22,29 @@ func TestCodexPromptInventoryIsBoundToInstalledSkillRoot(t *testing.T) {
 	line := func(name, path string) string {
 		return "- atl:" + name + ": Synthetic (file: " + path + ")"
 	}
+	for _, name := range []string{"atl", "setup", "other"} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte("synthetic"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root = canonicalRoot
 	expected := line("atl", filepath.Join(root, "atl", "SKILL.md"))
-	systemCollision := line("imagegen", filepath.Join(t.TempDir(), "skills", ".system", "imagegen", "SKILL.md"))
+	systemSkill := filepath.Join(t.TempDir(), "skills", ".system", "imagegen")
+	if err := os.MkdirAll(systemSkill, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(systemSkill, "SKILL.md"), []byte("synthetic"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	systemCollision := line("imagegen", filepath.Join(systemSkill, "SKILL.md"))
 	if !codexPromptExposesImplicitSkills(promptInventoryDocument(t, systemCollision, expected), catalog, root) {
 		t.Fatal("same-prefix system skill outside the installed root caused a false mismatch")
 	}
