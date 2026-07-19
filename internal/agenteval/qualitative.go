@@ -521,6 +521,7 @@ func AssessQualitative(result Result, resultBytes, finalBytes []byte, rubric Rub
 	if len(finalBytes) > maxReviewBytes {
 		return Result{}, fmt.Errorf("final response exceeds %d bytes", maxReviewBytes)
 	}
+	result = cloneResultForQualitative(result)
 	assessment, err := assessBoundReview(result, resultBytes, finalBytes, rubric, review)
 	if err != nil {
 		return Result{}, err
@@ -630,6 +631,7 @@ func AssessQualitativeReviewSet(result Result, resultBytes, finalBytes []byte, r
 	if len(reviews) != policy.ExpectedReviewers {
 		return Result{}, fmt.Errorf("review panel requires exactly %d reviews", policy.ExpectedReviewers)
 	}
+	result = cloneResultForQualitative(result)
 
 	type assessedMember struct {
 		assessment QualitativeAssessment
@@ -776,6 +778,19 @@ func AssessQualitativeReviewSet(result Result, resultBytes, finalBytes []byte, r
 		sortViolations(result.Violations)
 	}
 	return result, nil
+}
+
+// cloneResultForQualitative isolates the only mutable result slice used by
+// qualitative assessment. Result is passed by value, but a slice header still
+// aliases the caller's backing array; append followed by sort must not rewrite
+// deterministic violations in the caller or a later panel computation.
+func cloneResultForQualitative(result Result) Result {
+	if result.Violations != nil {
+		violations := make([]Violation, len(result.Violations))
+		copy(violations, result.Violations)
+		result.Violations = violations
+	}
+	return result
 }
 
 func ceilRangeBPS(scoreRange, maximum int) int {

@@ -68,6 +68,10 @@ func TestAssessQualitativeReviewSetIsPermutationDeterministicAndAuditable(t *tes
 	if err := assessed.Validate(); err != nil {
 		t.Fatalf("generated assessment is invalid: %v", err)
 	}
+	if assessed.Violations == nil {
+		t.Fatal("passing assessment changed empty violations from [] to null")
+	}
+	requireResultJSONRoundTrip(t, assessed)
 
 	permuted := []Review{reviews[2], reviews[0], reviews[1]}
 	second, err := AssessQualitativeReviewSet(result, resultBytes, final, rubric, panelPolicy(2500), permuted)
@@ -170,6 +174,7 @@ func TestAssessQualitativeReviewSetDisagreementAndFailureModes(t *testing.T) {
 	if assessed.QualitativeReviewSet.Status != "disagreement" || assessed.Status != "fail" || assessed.Violations[len(assessed.Violations)-1].Code != "qualitative_review_disagreement" {
 		t.Fatalf("boundary split=%+v", assessed)
 	}
+	requireResultJSONRoundTrip(t, assessed)
 
 	rangeSplit := panelReviews(t, result, resultBytes, final, rubric, [][2]int{{3, 4}, {4, 4}, {4, 4}}, nil)
 	assessed, err = AssessQualitativeReviewSet(result, resultBytes, final, rubric, panelPolicy(2499), rangeSplit)
@@ -179,6 +184,7 @@ func TestAssessQualitativeReviewSetDisagreementAndFailureModes(t *testing.T) {
 	if assessed.QualitativeReviewSet.Status != "disagreement" {
 		t.Fatalf("range above threshold did not disagree: %+v", assessed.QualitativeReviewSet)
 	}
+	requireResultJSONRoundTrip(t, assessed)
 
 	allFail := panelReviews(t, result, resultBytes, final, rubric, [][2]int{{2, 1}, {2, 1}, {2, 1}}, nil)
 	assessed, err = AssessQualitativeReviewSet(result, resultBytes, final, rubric, panelPolicy(9999), allFail)
@@ -187,6 +193,106 @@ func TestAssessQualitativeReviewSetDisagreementAndFailureModes(t *testing.T) {
 	}
 	if assessed.QualitativeReviewSet.Status != "fail" || assessed.Violations[len(assessed.Violations)-1].Code != "qualitative_review_failed" {
 		t.Fatalf("unanimous failure=%+v", assessed)
+	}
+	requireResultJSONRoundTrip(t, assessed)
+}
+
+func TestAssessQualitativeReviewSetPreservesDeterministicViolationsWithoutMutatingInput(t *testing.T) {
+	result, _, final, rubric := panelFixture(t)
+	deterministic := []Violation{
+		{Code: "alpha_failure", Subject: "first_check", Observed: 2, Limit: 1},
+		{Code: "zeta_failure", Subject: "second_check", Observed: 3, Limit: 2},
+	}
+	backing := make([]Violation, len(deterministic), len(deterministic)+2)
+	copy(backing, deterministic)
+	result.Status = "fail"
+	result.Violations = backing
+	inputJSON, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backingBefore := append([]Violation(nil), backing[:cap(backing)]...)
+	reviews := panelReviews(t, result, inputJSON, final, rubric, [][2]int{{2, 1}, {2, 1}, {2, 1}}, nil)
+
+	assessed, err := AssessQualitativeReviewSet(result, inputJSON, final, rubric, panelPolicy(9999), reviews)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputAfter, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(inputAfter, inputJSON) {
+		t.Fatalf("assessment mutated input result\nbefore=%s\nafter=%s", inputJSON, inputAfter)
+	}
+	backingAfter := backing[:cap(backing)]
+	if !equalViolationSlices(backingAfter, backingBefore) {
+		t.Fatalf("assessment mutated input violation backing array\nbefore=%+v\nafter=%+v", backingBefore, backingAfter)
+	}
+
+	want := append([]Violation(nil), deterministic...)
+	want = append(want, Violation{Code: "qualitative_review_failed", Subject: rubric.ID,
+		Observed: int64(assessed.QualitativeReviewSet.ScoreBPS), Limit: int64(rubric.MinimumScoreBPS)})
+	if len(assessed.Violations) != len(want) {
+		t.Fatalf("violations=%+v", assessed.Violations)
+	}
+	for _, violation := range want {
+		count := 0
+		for _, actual := range assessed.Violations {
+			if actual == violation {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Fatalf("violation %+v appears %d times in %+v", violation, count, assessed.Violations)
+		}
+	}
+
+	encoded, err := json.Marshal(assessed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeResult(bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatalf("encoded assessment did not decode: %v\n%s", err, encoded)
+	}
+	roundTrip, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(roundTrip, encoded) {
+		t.Fatalf("result did not round-trip\nencoded=%s\ndecoded=%s", encoded, roundTrip)
+	}
+}
+
+func equalViolationSlices(left, right []Violation) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func requireResultJSONRoundTrip(t *testing.T, result Result) {
+	t.Helper()
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeResult(bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatalf("encoded assessment did not decode: %v\n%s", err, encoded)
+	}
+	roundTrip, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(roundTrip, encoded) {
+		t.Fatalf("result did not round-trip\nencoded=%s\ndecoded=%s", encoded, roundTrip)
 	}
 }
 

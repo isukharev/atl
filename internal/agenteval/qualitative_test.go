@@ -40,6 +40,9 @@ func TestAssessQualitativeBindsPrivateAnswerAndCannotOverrideDeterministicFailur
 	if !bytes.Contains(encoded, []byte(`"finding_ids":[]`)) {
 		t.Fatalf("empty findings must encode as an array: %s", encoded)
 	}
+	if !bytes.Contains(encoded, []byte(`"violations":[]`)) {
+		t.Fatalf("empty violations must remain an array: %s", encoded)
+	}
 
 	failed := result
 	failed.Status = "fail"
@@ -80,6 +83,36 @@ func TestAssessQualitativeFailsClosedOnLowCriterionAndHashDrift(t *testing.T) {
 	}
 	if _, err := AssessQualitative(result, resultBytes, append(final, 'x'), rubric, review); err == nil {
 		t.Fatal("changed final response passed hash binding")
+	}
+}
+
+func TestAssessQualitativeDoesNotMutateViolationBackingArray(t *testing.T) {
+	result, err := Evaluate(validScenario(), validObservation())
+	if err != nil {
+		t.Fatal(err)
+	}
+	backing := make([]Violation, 1, 3)
+	backing[0] = Violation{Code: "required_check_failed", Subject: "answer_correct", Limit: 1}
+	result.Status = "fail"
+	result.Violations = backing
+	resultBytes, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backingBefore := append([]Violation(nil), backing[:cap(backing)]...)
+	final := []byte(`{"answer":"synthetic"}`)
+	rubric := testRubric(result.ScenarioID)
+	review, err := NewReviewTemplate(result, resultBytes, final, rubric, Reviewer{Kind: "human"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	review.Criteria[0].Score = 0
+	review.Criteria[1].Score = 0
+	if _, err := AssessQualitative(result, resultBytes, final, rubric, review); err != nil {
+		t.Fatal(err)
+	}
+	if !equalViolationSlices(backing[:cap(backing)], backingBefore) {
+		t.Fatalf("assessment mutated input violation backing array\nbefore=%+v\nafter=%+v", backingBefore, backing[:cap(backing)])
 	}
 }
 

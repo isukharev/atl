@@ -231,6 +231,81 @@ func TestPrivateBaselineRechecksQualitativeContentBindings(t *testing.T) {
 	}
 }
 
+func TestPrivateBaselineAcceptsUnanimousPanelFailureButRejectsDisagreement(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		scores        [][2]int
+		wantStatus    string
+		wantPromotion bool
+	}{
+		{name: "unanimous failure", scores: [][2]int{{2, 1}, {2, 1}, {2, 1}}, wantStatus: "fail", wantPromotion: true},
+		{name: "disagreement", scores: [][2]int{{2, 4}, {3, 4}, {4, 4}}, wantStatus: "disagreement"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newPrivateBaselineFixture(t, 3)
+			writePrivateBaselineRunArtifacts(t, fixture, "answer")
+			resultPath := filepath.Join(fixture.surfaceDirectory, "result.json")
+			resultData, err := os.ReadFile(resultPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := DecodeResult(bytes.NewReader(resultData))
+			if err != nil {
+				t.Fatal(err)
+			}
+			finalData, err := os.ReadFile(filepath.Join(fixture.surfaceDirectory, "final.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			rubricData, err := os.ReadFile(fixture.source.Surfaces[0].RubricPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rubric, err := DecodeRubric(bytes.NewReader(rubricData))
+			if err != nil {
+				t.Fatal(err)
+			}
+			policy := panelPolicy(9999)
+			reviews := panelReviews(t, result, resultData, finalData, rubric, test.scores, nil)
+			assessed, err := AssessQualitativeReviewSet(result, resultData, finalData, rubric, policy, reviews)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if assessed.QualitativeReviewSet.Status != test.wantStatus || assessed.Status != "fail" {
+				t.Fatalf("assessment=%+v", assessed)
+			}
+
+			panelContract := privateQualitativeReviewPanelContract{
+				Method: policy.Method, MaxCriterionRangeBPS: policy.MaxCriterionRangeBPS,
+				Reviewers: []Reviewer{reviews[0].Reviewer, reviews[1].Reviewer, reviews[2].Reviewer},
+			}
+			contractData, err := encodePrivateQualitativeReviewPanelContract(panelContract)
+			if err != nil {
+				t.Fatal(err)
+			}
+			contractPath := filepath.Join(fixture.source.RunRoot, "contracts", SurfaceCLISkill, "qualitative-panel.json")
+			if err := os.WriteFile(contractPath, contractData, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			fixture.source.Surfaces[0].QualitativeRequired = true
+			fixture.source.Surfaces[0].QualitativePanelContractPath = contractPath
+			fixture.source.Surfaces[0].QualitativePanelContractSHA256 = sha256HexBytes(contractData)
+			writePrivateBaselineResult(t, filepath.Join(fixture.surfaceDirectory, "reviewed-result.json"), assessed)
+
+			_, err = SetPrivateBaseline(PrivateBaselineSetOptions{
+				Root: fixture.root, RepositoryRoot: fixture.repository, Baseline: "baseline-panel",
+				Confirm: PrivateBaselineConfirmation, Source: fixture.source,
+			})
+			if test.wantPromotion && err != nil {
+				t.Fatalf("unanimous panel failure was not promotable: %v", err)
+			}
+			if !test.wantPromotion && (!errors.Is(err, ErrPrivateBaselineRejected) || !strings.Contains(err.Error(), "assessment_disagreement")) {
+				t.Fatalf("panel disagreement promotion err=%v", err)
+			}
+		})
+	}
+}
+
 func TestSetPrivateBaselineHonorsTranscriptRetentionPolicy(t *testing.T) {
 	fixture := newPrivateBaselineFixture(t, 3)
 	manifest := DefaultPrivateWorkspaceManifest()
