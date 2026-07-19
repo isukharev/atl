@@ -676,8 +676,10 @@ identities, or backend details.
 
 Promotion is stricter than descriptive or causal eligibility. Every treatment
 must have pass run status, zero deterministic violations and deterministic pass,
-complete clean safety, and panel review pass without disagreement before the
-command may update the activation-study `current` pointer:
+complete clean safety, at least one successful audit-observed evidence attempt,
+and panel review pass without disagreement before the command may update the
+activation-study `current` pointer. A model's self-reported outcome cannot
+substitute for the audited attempt:
 
 ```sh
 /tmp/agent-eval private study promote \
