@@ -170,6 +170,7 @@ func TestBuildPrivateCLIProviderCommandsEnforceHooksAndCodexCommandBroker(t *tes
 			for _, value := range []string{
 				"--ignore-rules", "--dangerously-bypass-hook-trust",
 				`approval_policy="never"`, `web_search="disabled"`,
+				`plugins."atl@atl".enabled=true`,
 				`developer_instructions=` + strconv.Quote(codexPrivateCLIInstructions(spec)),
 				`default_permissions="atl_agent_eval"`, `permissions.atl_agent_eval.extends=":workspace"`,
 				`permissions.atl_agent_eval.filesystem={"/private/requests"="write","/private/responses"="read"}`,
@@ -179,6 +180,9 @@ func TestBuildPrivateCLIProviderCommandsEnforceHooksAndCodexCommandBroker(t *tes
 				if !strings.Contains(joined, value) {
 					t.Errorf("Codex private CLI command misses %q: %s", value, joined)
 				}
+			}
+			if slices.Contains(command.Args, "--ignore-user-config") {
+				t.Errorf("Codex private CLI ignored its fresh isolated installed-plugin config: %s", joined)
 			}
 			for _, feature := range []string{"shell_tool", "unified_exec"} {
 				if !containsArgumentPair(command.Args, "--enable", feature) {
@@ -226,7 +230,7 @@ func TestCodexPrivateCLIInstructionsAreScopedToPrivateCLI(t *testing.T) {
 	}
 	for _, required := range []string{
 		"This is an evidence task",
-		"select and follow the installed $jira skill implied by the reviewed data capabilities",
+		"select and follow the installed $atl:jira skill implied by the reviewed data capabilities",
 		"use the literal atl executable through the shell tool to retrieve the evidence required for the answer",
 		"minimum necessary invocation or invocations allowed by the reviewed command policy",
 		"Base the answer on the returned evidence",
@@ -289,9 +293,9 @@ func TestCodexPrivateCLISkillRouteUsesOnlyReviewedCapabilityFamilies(t *testing.
 		{name: "generic", capabilities: nil, expected: "select and follow the installed task-matching skill"},
 		{name: "unknown", capabilities: []string{"knowledge.search"}, expected: "select and follow the installed task-matching skill"},
 		{name: "lookalike-prefixes", capabilities: []string{"confluence2.page", "jira-extra.issue", "jirassic.issue"}, expected: "select and follow the installed task-matching skill"},
-		{name: "jira", capabilities: []string{"jira.issue.field"}, expected: "select and follow the installed $jira skill implied by the reviewed data capabilities"},
-		{name: "confluence", capabilities: []string{"confluence.page.section"}, expected: "select and follow the installed $confluence skill implied by the reviewed data capabilities"},
-		{name: "mixed-deduplicated", capabilities: []string{"confluence.page", "jira.issue", "JIRA.ISSUE.FIELD", "other"}, expected: "select and follow the installed $jira and $confluence skills implied by the reviewed data capabilities"},
+		{name: "jira", capabilities: []string{"jira.issue.field"}, expected: "select and follow the installed $atl:jira skill implied by the reviewed data capabilities"},
+		{name: "confluence", capabilities: []string{"confluence.page.section"}, expected: "select and follow the installed $atl:confluence skill implied by the reviewed data capabilities"},
+		{name: "mixed-deduplicated", capabilities: []string{"confluence.page", "jira.issue", "JIRA.ISSUE.FIELD", "other"}, expected: "select and follow the installed $atl:jira and $atl:confluence skills implied by the reviewed data capabilities"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if actual := codexPrivateCLISkillRoute(test.capabilities); actual != test.expected {

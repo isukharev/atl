@@ -508,6 +508,7 @@ func TestPrivateLiveCLIProvidersUseGatewayWithoutSourceCredentials(t *testing.T)
 	writeTestPluginTrees(t, pluginRoot, "0.4.0", "Use read-only atl commands.")
 	fakeAgent := filepath.Join(tempRepository, "fake-agent")
 	runtimeCapture := filepath.Join(tempRepository, "codex-runtime-capture")
+	promptCapture := filepath.Join(tempRepository, "codex-prompt-capture")
 	fakeAgentScript := `#!/bin/sh
 check_runtime() {
   case "$HOME" in *atl-agent-eval-provider-runtime-*/home) ;; *) exit 40;; esac
@@ -516,7 +517,6 @@ check_runtime() {
   auth_value=$(/bin/cat "$CODEX_HOME/auth.json") || exit 43
   case "$auth_value" in *synthetic-subscription-auth*) ;; *) exit 43;; esac
   [ ! -e "$CODEX_HOME/AGENTS.md" ] || exit 44
-  [ ! -e "$CODEX_HOME/config.toml" ] || exit 45
   [ ! -e "$CODEX_HOME/skills" ] || exit 46
   [ "$HOME" != "__AMBIENT_HOME__" ] || exit 47
   [ "$CODEX_HOME" != "__AMBIENT_CODEX_HOME__" ] || exit 48
@@ -524,7 +524,44 @@ check_runtime() {
   printf '%s|%s\n' "$HOME" "$CODEX_HOME" >>"__RUNTIME_CAPTURE__"
 }
 if [ "$1" = "--version" ]; then echo fake-agent-1; exit 0; fi
-if [ "$1" != "-p" ]; then [ -f "$PWD/.agents/skills/atl/agents/openai.yaml" ] || exit 50; fi
+if [ "$1" = "plugin" ]; then
+  check_runtime
+  if [ "$2" = "marketplace" ] && [ "$3" = "add" ]; then
+    [ ! -e "$CODEX_HOME/config.toml" ] || exit 45
+    printf '%s\n' "$4" >"$CODEX_HOME/marketplace-root"
+    printf '%s\n' '[plugins."atl@atl"]' 'enabled = true' >"$CODEX_HOME/config.toml"
+    exit 0
+  fi
+  if [ "$2" = "add" ] && [ "$3" = "atl@atl" ] && [ "$4" = "--json" ]; then
+    root=$(/bin/cat "$CODEX_HOME/marketplace-root") || exit 51
+    installed="$CODEX_HOME/plugins/cache/atl/atl/0.4.0"
+    /bin/mkdir -p "$CODEX_HOME/plugins/cache/atl/atl" || exit 54
+    /bin/cp -R "$root/plugins/atl" "$installed" || exit 54
+    printf '{"pluginId":"atl@atl","name":"atl","marketplaceName":"atl","version":"0.4.0","installedPath":"%s"}\n' "$installed"
+    exit 0
+  fi
+  if [ "$2" = "list" ] && [ "$3" = "--json" ]; then
+    root=$(/bin/cat "$CODEX_HOME/marketplace-root") || exit 51
+    printf '{"installed":[{"pluginId":"atl@atl","name":"atl","marketplaceName":"atl","version":"0.4.0","installed":true,"enabled":true,"source":{"source":"local","path":"%s/plugins/atl"}}]}\n' "$root"
+    exit 0
+  fi
+  exit 52
+fi
+if [ "$1" = "mcp" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
+  check_runtime
+  enabled=true
+  if /bin/grep -q 'mcp_servers."atl"' "$CODEX_HOME/config.toml"; then enabled=false; fi
+  printf '[{"name":"atl","enabled":%s}]\n' "$enabled"
+  exit 0
+fi
+if [ "$1" != "-p" ] && [ "$1" != "sandbox" ]; then
+  [ ! -e "$PWD/.agents/skills" ] || exit 50
+  [ -f "$CODEX_HOME/config.toml" ] || exit 45
+  case "$ATL_EVAL_ALLOWED_READ_ROOTS" in *"$CODEX_HOME/plugins/cache/atl/atl/0.4.0/skills"*) ;; *) exit 55;; esac
+  root=$(/bin/cat "$CODEX_HOME/marketplace-root") || exit 51
+  case "$ATL_EVAL_ALLOWED_READ_ROOTS" in *"$root/skills"*) exit 56;; esac
+  /bin/cat >"__PROMPT_CAPTURE__" || exit 53
+fi
 if [ "$1" = "sandbox" ]; then
   check_runtime
   for last do :; done
@@ -574,6 +611,7 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 		"__AMBIENT_HOME__", ambientHome,
 		"__AMBIENT_CODEX_HOME__", ambientCodexHome,
 		"__RUNTIME_CAPTURE__", runtimeCapture,
+		"__PROMPT_CAPTURE__", promptCapture,
 	).Replace(fakeAgentScript)
 	writeTestFile(t, fakeAgent, fakeAgentScript, 0o700)
 	wrapper := filepath.Join(tempRepository, "agent-eval")
@@ -620,13 +658,22 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 				t.Fatalf("model-readable telemetry exists: %v", err)
 			}
 			if provider == "codex" {
+				prompt, err := os.ReadFile(promptCapture)
+				if err != nil || string(prompt) != "Use atl to inspect the field catalog.\n" {
+					t.Fatalf("Codex neutral provider input changed: %q err=%v", prompt, err)
+				}
 				capture, err := os.ReadFile(runtimeCapture)
 				if err != nil {
 					t.Fatal(err)
 				}
 				lines := strings.Split(strings.TrimSpace(string(capture)), "\n")
-				if len(lines) != 2 || lines[0] != lines[1] {
-					t.Fatalf("preflight/provider did not share isolated runtime: %q", lines)
+				if len(lines) != 7 {
+					t.Fatalf("plugin provisioning, preflight, and provider did not share one isolated runtime: %q", lines)
+				}
+				for _, line := range lines[1:] {
+					if line != lines[0] {
+						t.Fatalf("plugin provisioning, preflight, and provider did not share one isolated runtime: %q", lines)
+					}
 				}
 				runtimeRoot := filepath.Dir(strings.Split(lines[0], "|")[0])
 				if _, err := os.Stat(runtimeRoot); !os.IsNotExist(err) {
@@ -872,6 +919,25 @@ func TestPluginIdentityUsesProviderSpecificSkillTree(t *testing.T) {
 	}
 }
 
+func TestDigestTreeLengthFramesPathsAndBinaryContents(t *testing.T) {
+	first := t.TempDir()
+	writeTestFile(t, filepath.Join(first, "a"), "x\x00b\x00y", 0o600)
+	second := t.TempDir()
+	writeTestFile(t, filepath.Join(second, "a"), "x", 0o600)
+	writeTestFile(t, filepath.Join(second, "b"), "y", 0o600)
+	firstDigest, err := digestTree(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondDigest, err := digestTree(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstDigest == secondDigest {
+		t.Fatalf("length-unframed tree collision: %s", firstDigest)
+	}
+}
+
 func writeTestFile(t *testing.T, path, content string, mode os.FileMode) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), mode); err != nil {
@@ -882,6 +948,7 @@ func writeTestFile(t *testing.T, path, content string, mode os.FileMode) {
 func writeTestPluginTrees(t *testing.T, root, version, body string) {
 	t.Helper()
 	for _, relative := range []string{
+		filepath.Join(".agents", "plugins"),
 		filepath.Join(".claude-plugin"),
 		filepath.Join("skills", "atl"),
 		filepath.Join("plugins", "atl", ".codex-plugin"),
@@ -891,9 +958,12 @@ func writeTestPluginTrees(t *testing.T, root, version, body string) {
 			t.Fatal(err)
 		}
 	}
-	manifest := `{"version":` + strconv.Quote(version) + `}`
+	manifest := `{"name":"atl","version":` + strconv.Quote(version) + `}`
+	marketplace := `{"name":"atl","plugins":[{"name":"atl","source":{"source":"local","path":"./plugins/atl"}}]}`
+	writeTestFile(t, filepath.Join(root, ".agents", "plugins", "marketplace.json"), marketplace, 0o600)
 	writeTestFile(t, filepath.Join(root, ".claude-plugin", "plugin.json"), manifest, 0o600)
 	writeTestFile(t, filepath.Join(root, "plugins", "atl", ".codex-plugin", "plugin.json"), manifest, 0o600)
+	writeTestFile(t, filepath.Join(root, "plugins", "atl", ".mcp.json"), `{"mcpServers":{"atl":{"command":"atl","args":["mcp","serve"]}}}`, 0o600)
 	writeTestFile(t, filepath.Join(root, "skills", "atl", "SKILL.md"), "---\nname: atl\n---\nClaude "+body+"\n", 0o600)
 	writeTestFile(t, filepath.Join(root, "plugins", "atl", "skills", "atl", "SKILL.md"), "---\nname: atl\n---\nCodex "+body+"\n", 0o600)
 	writeTestFile(t, filepath.Join(root, "plugins", "atl", "skills", "atl", "agents", "openai.yaml"), "policy:\n  allow_implicit_invocation: true\n", 0o600)

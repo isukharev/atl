@@ -125,10 +125,14 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 			sandboxMode = "workspace-write"
 			includeOnly = `["PATH","SHELL","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS"]`
 		}
+		privateCLI := spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli"
 		args := []string{
 			"exec", "--json", "--ephemeral", "--strict-config",
-			"--ignore-user-config", "--skip-git-repo-check",
+			"--skip-git-repo-check",
 			"--model", spec.Model,
+		}
+		if !privateCLI {
+			args = append(args, "--ignore-user-config")
 		}
 		// Provider-managed remote tools are outside the reviewed benchmark
 		// surface. Disable them explicitly rather than relying on a clean home:
@@ -138,7 +142,6 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 		for _, feature := range []string{"apps", "browser_use", "computer_use", "image_generation", "remote_plugin"} {
 			args = append(args, "--disable", feature)
 		}
-		privateCLI := spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli"
 		if privateCLI {
 			// Pin the local execution route instead of relying on feature defaults
 			// that may differ between reviewed Codex binaries. Hooks, the custom
@@ -199,6 +202,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 				"--ignore-rules", "--dangerously-bypass-hook-trust",
 				"-c", `approval_policy="never"`,
 				"-c", `web_search="disabled"`,
+				"-c", `plugins."atl@atl".enabled=true`,
 				"-c", `developer_instructions=`+strconv.Quote(codexPrivateCLIInstructions(spec)),
 				"-c", codexDenyNonMCPHook(guardPath),
 			)
@@ -231,11 +235,11 @@ func codexPrivateCLISkillRoute(capabilities []string) string {
 	}
 	switch {
 	case jira && confluence:
-		return "select and follow the installed $jira and $confluence skills implied by the reviewed data capabilities"
+		return "select and follow the installed $atl:jira and $atl:confluence skills implied by the reviewed data capabilities"
 	case jira:
-		return "select and follow the installed $jira skill implied by the reviewed data capabilities"
+		return "select and follow the installed $atl:jira skill implied by the reviewed data capabilities"
 	case confluence:
-		return "select and follow the installed $confluence skill implied by the reviewed data capabilities"
+		return "select and follow the installed $atl:confluence skill implied by the reviewed data capabilities"
 	default:
 		return "select and follow the installed task-matching skill"
 	}

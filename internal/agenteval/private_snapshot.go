@@ -16,7 +16,7 @@ type privateExecutionSnapshot struct {
 	agentIdentity                                               string
 }
 
-func createPrivateExecutionSnapshot(root, runID string, options PrivatePlanExecuteOptions, runSet PrivateWorkspaceRunSet, liveConfig, externalProfile string, reviewedAgent privateAgentBinaryContract) (privateExecutionSnapshot, error) {
+func createPrivateExecutionSnapshot(root, runID string, options PrivatePlanExecuteOptions, runSet PrivateWorkspaceRunSet, liveConfig, externalProfile, provider string, installCodexPlugin bool, reviewedAgent privateAgentBinaryContract) (privateExecutionSnapshot, error) {
 	if !privateRunIDRE.MatchString(runID) {
 		return privateExecutionSnapshot{}, privatePlanError("snapshot_id")
 	}
@@ -40,17 +40,36 @@ func createPrivateExecutionSnapshot(root, runID string, options PrivatePlanExecu
 	if err := safepath.MkdirAllWithin(root, snapshot.pluginRoot, 0o700); err != nil {
 		return privateExecutionSnapshot{}, err
 	}
-	if err := copyWorkspace(filepath.Join(options.PluginRoot, "skills"), filepath.Join(snapshot.pluginRoot, "skills")); err != nil {
-		return privateExecutionSnapshot{}, err
-	}
-	if err := copyWorkspace(filepath.Join(options.PluginRoot, ".claude-plugin"), filepath.Join(snapshot.pluginRoot, ".claude-plugin")); err != nil {
-		return privateExecutionSnapshot{}, err
-	}
-	if err := copyWorkspace(filepath.Join(options.PluginRoot, "plugins", "atl", "skills"), filepath.Join(snapshot.pluginRoot, "plugins", "atl", "skills")); err != nil {
-		return privateExecutionSnapshot{}, err
-	}
-	if err := copyWorkspace(filepath.Join(options.PluginRoot, "plugins", "atl", ".codex-plugin"), filepath.Join(snapshot.pluginRoot, "plugins", "atl", ".codex-plugin")); err != nil {
-		return privateExecutionSnapshot{}, err
+	switch provider {
+	case "claude-code":
+		if err := copyWorkspace(filepath.Join(options.PluginRoot, "skills"), filepath.Join(snapshot.pluginRoot, "skills")); err != nil {
+			return privateExecutionSnapshot{}, err
+		}
+		if err := copyWorkspace(filepath.Join(options.PluginRoot, ".claude-plugin"), filepath.Join(snapshot.pluginRoot, ".claude-plugin")); err != nil {
+			return privateExecutionSnapshot{}, err
+		}
+	case "codex":
+		if installCodexPlugin {
+			if err := copyWorkspace(filepath.Join(options.PluginRoot, "plugins", "atl"), filepath.Join(snapshot.pluginRoot, "plugins", "atl")); err != nil {
+				return privateExecutionSnapshot{}, err
+			}
+			marketplaceDestination := filepath.Join(snapshot.pluginRoot, ".agents", "plugins", "marketplace.json")
+			if err := safepath.MkdirAllWithin(root, filepath.Dir(marketplaceDestination), 0o700); err != nil {
+				return privateExecutionSnapshot{}, err
+			}
+			if err := copyPrivateSnapshotFile(root, filepath.Join(options.PluginRoot, ".agents", "plugins", "marketplace.json"), marketplaceDestination, 1<<20, 0o600); err != nil {
+				return privateExecutionSnapshot{}, err
+			}
+		} else {
+			if err := copyWorkspace(filepath.Join(options.PluginRoot, "plugins", "atl", "skills"), filepath.Join(snapshot.pluginRoot, "plugins", "atl", "skills")); err != nil {
+				return privateExecutionSnapshot{}, err
+			}
+			if err := copyWorkspace(filepath.Join(options.PluginRoot, "plugins", "atl", ".codex-plugin"), filepath.Join(snapshot.pluginRoot, "plugins", "atl", ".codex-plugin")); err != nil {
+				return privateExecutionSnapshot{}, err
+			}
+		}
+	default:
+		return privateExecutionSnapshot{}, privatePlanError("snapshot_plugin")
 	}
 	snapshot.liveConfig = filepath.Join(snapshot.root, "live-config")
 	if err := safepath.MkdirAllWithin(root, snapshot.liveConfig, 0o700); err != nil {

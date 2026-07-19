@@ -236,9 +236,16 @@ func TestExecutePrivatePlanBindsApprovalAndReviewedInputs(t *testing.T) {
 		{name: "plugin-manifest", mutate: func(t *testing.T, fixture privatePlanTestFixture) {
 			appendPrivatePlanTestFile(t, filepath.Join(fixture.pluginRoot, "plugins", "atl", ".codex-plugin", "plugin.json"), "\n")
 		}},
+		{name: "plugin-marketplace", mutate: func(t *testing.T, fixture privatePlanTestFixture) {
+			appendPrivatePlanTestFile(t, filepath.Join(fixture.pluginRoot, ".agents", "plugins", "marketplace.json"), "\n")
+		}},
+		{name: "plugin-package", mutate: func(t *testing.T, fixture privatePlanTestFixture) {
+			appendPrivatePlanTestFile(t, filepath.Join(fixture.pluginRoot, "plugins", "atl", ".mcp.json"), "\n")
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			fixture := newPrivatePlanTestFixture(t, false, false)
+			includeCLI := test.name == "plugin-marketplace" || test.name == "plugin-package"
+			fixture := newPrivatePlanTestFixture(t, includeCLI, false)
 			preview := fixture.createPlan(t)
 			test.mutate(t, fixture)
 			_, err := ExecutePrivatePlan(context.Background(), fixture.executeOptions(preview))
@@ -415,6 +422,23 @@ func TestExecutePrivatePlanCompletesExactlyOnceAndLoadsBaselineSource(t *testing
 	}
 	if _, err := LoadCompletedPrivateRun(fixture.root, fixture.repository, preview.PlanID); err == nil {
 		t.Fatal("state detached from the plan hash loaded as completed")
+	}
+}
+
+func TestPrivateMCPOnlyPlanIgnoresUnusedCodexPackageControls(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("synthetic executable scripts are Unix-only")
+	}
+	fixture := newPrivatePlanTestFixture(t, false, false)
+	preview := fixture.createPlan(t)
+	appendPrivatePlanTestFile(t, filepath.Join(fixture.pluginRoot, "plugins", "atl", ".mcp.json"), "\nchanged but unused by typed MCP\n")
+	appendPrivatePlanTestFile(t, filepath.Join(fixture.pluginRoot, ".agents", "plugins", "marketplace.json"), "\n")
+	summary, err := ExecutePrivatePlan(context.Background(), fixture.executeOptions(preview))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Status != "completed" || len(summary.Surfaces) != 1 || summary.Surfaces[0] != SurfaceATLMCP {
+		t.Fatalf("summary=%+v", summary)
 	}
 }
 

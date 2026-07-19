@@ -459,8 +459,10 @@ set and guard also admit the exact statements
 `export ATL_READ_ONLY=1` and `command -v atl`. They do not admit arbitrary
 exports or any other standalone shell command; the benchmark process already
 inherits `ATL_READ_ONLY=1`, so these statements cannot weaken its policy.
-Codex gets the same generated skills in `.agents/skills` for a reviewable
-ephemeral read-only command preview. Both providers support MCP transport.
+Synthetic Codex cases get the generated skills in `.agents/skills` for a
+reviewable ephemeral read-only command preview. Private-live CLI cases instead
+install the snapshotted Codex plugin through its local marketplace, preserving
+the shipped namespace. Both providers support MCP transport.
 Claude receives a generated mode-0600 config under `--strict-mcp-config`; every
 model tool crosses a global guard that grants only qualified reviewed
 `mcp__atl__...` names plus required structured output. Its synthetic backend
@@ -470,8 +472,8 @@ grants only `allowed_mcp_tools`, disables web search, removes atl credentials
 from the model shell environment, and denies shell/file/patch/delegation tools
 through `PreToolUse`. Codex benchmark runs set `project_doc_max_bytes=0` so
 ambient global/repository `AGENTS.md` files cannot change the reviewed task;
-the copied prompt and generated shipped skills remain the explicit instruction
-sources. Synthetic CLI-transport Codex specs remain
+the copied prompt and selected shipped plugin or skills remain the explicit
+instruction sources. Synthetic CLI-transport Codex specs remain
 validate/dry-run only because its OS sandbox cannot safely reach the host-side
 mock; private-live Codex CLI specs use the reviewed zero-network command broker
 below. Supported model runs inherit
@@ -871,22 +873,34 @@ one-command broker policy, read-only environment, and GET/HEAD gateway still
 decide what may execute. MCP surfaces do not enable this CLI-only feature pair.
 
 Before shell execution, its generic provider instruction requires selecting
-and following the installed task-matching skill. The skill supplies CLI usage;
-the instruction does not expose the hidden allowlist or any case-specific
-command. A model that still answers without an interface call remains a normal
-measured failure.
+and following the installed task-matching skill. When selected, the installed
+skill can supply CLI usage guidance; the instruction does not expose the hidden
+allowlist or any case-specific command. A model that still answers without an
+interface call remains a normal measured failure.
 
 For reviewed capability families, routing is deterministic: Jira-only runs
-name `$jira`, Confluence-only runs name `$confluence`, mixed runs name both in
+name `$atl:jira`, Confluence-only runs name `$atl:confluence`, mixed runs name both in
 that order, and unknown families remain generic. This is derived only from
 `data_capabilities`; private selectors, fields, expected values, and command
 policy contents never enter the instruction.
 
-Provider fidelity is explicit: Codex receives and hashes the generated
-`plugins/atl/skills/` tree with its `agents/openai.yaml` routing metadata,
-whereas Claude Code receives and hashes the generated root `skills/` tree. The
-private snapshot retains both and installs only the tree selected by the run's
+Provider fidelity is explicit: private Codex CLI runs hash the complete
+`plugins/atl/` package plus the local marketplace descriptor, install
+`atl@atl` inside a fresh provider capsule, and verify its one-entry installed
+inventory before launch. No project-skill copy or ambient plugin is accepted.
+The installed copy must reproduce the reviewed package digest; every discovered
+plugin-provided MCP server is disabled and rechecked so the measured interface
+remains CLI+skill. Guarded file reads admit the installed skill root, not an
+unused provider tree. Claude Code receives and hashes the generated root plugin
+tree. The private snapshot includes only the package selected by the run's
 provider.
+
+Codex JSONL does not expose a trustworthy native skill-load event. The runner
+therefore makes two narrower claims: local inventory proves that the reviewed
+namespaced plugin was available, while `interface_invocations_min` plus the
+answer oracle proves reviewed CLI evidence activation. A no-interface answer
+is a measured failure; it is not reclassified as a missing-plugin error or
+reported as direct proof that a skill did or did not load.
 
 At the low level, review without invoking the model or backend, then run once.
 New private baselines should use `agent-eval private plan` and `private run`
@@ -1042,12 +1056,15 @@ logs, caches, instructions, or configuration. The source provider home is not
 written back.
 The custom network policy applies separately to commands spawned by the model,
 whose environment excludes source URLs/PATs and ambient proxy variables.
-`--ignore-user-config`, `--ignore-rules` where applicable, and
+`--ignore-user-config` on surfaces without a locally installed test plugin,
+`--ignore-rules` where applicable, and
 `project_doc_max_bytes=0` remain defense in depth; the ephemeral home is the
 structural control that excludes home-scoped `AGENTS.md`, user skills, config,
-history, sessions, memories, and caches. Repository control files are rejected
-from private workspace templates, while only the copied shipped ATL skills are
-installed into the generated workspace.
+history, sessions, memories, and caches. The private CLI cell deliberately reads
+only the fresh config produced by its local `atl@atl` installation; exact CLI
+overrides still pin approvals, hooks, tools, and the disabled bundled MCP
+server. Repository control files are rejected from private workspace
+templates, and the installed package comes only from the reviewed snapshot.
 
 The provider-home capsule is outside retained run artifacts and cleanup is
 attempted on ordinary success, error, timeout, or validation failure. Cleanup

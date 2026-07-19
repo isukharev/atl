@@ -165,7 +165,10 @@ Codex disables web search, removes atl credentials from the model shell
 environment, and uses a reviewed `PreToolUse` hook to deny shell, file, patch,
 and delegation tools. It also disables ambient `AGENTS.md` discovery so
 machine-local instructions cannot change a comparable run; reviewed prompts
-and copied shipped skills remain available. Synthetic CLI-transport Codex specs remain
+and shipped skills remain available. Private CLI runs install the snapshotted
+`atl@atl` package in a fresh provider home and preserve the real `atl:` skill
+namespace; synthetic Codex cases continue to use project-skill copies.
+Synthetic CLI-transport Codex specs remain
 validate/dry-run only because its read-only OS sandbox cannot safely reach the
 host-side mock; private-live Codex CLI specs use the separately documented
 zero-network command broker confinement.

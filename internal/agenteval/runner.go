@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -497,6 +498,7 @@ func ValidateRunSpecFile(path string) (RunSpec, Scenario, error) {
 }
 
 func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOptions, outputRoot string, repetition int, runtime Runtime, externalProfile ExternalMCPProfile, providerRuntime *providerRuntimeCapsule) (Result, error) {
+	codexPrivateCLI := loaded.spec.Provider == "codex" && loaded.spec.EffectiveBackendMode() == BackendModePrivateLive && loaded.spec.ToolTransport == "cli"
 	if err := validatePathComponentID("scenario id", loaded.scenario.ID); err != nil {
 		return Result{}, err
 	}
@@ -520,7 +522,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if err := copyWorkspace(loaded.workspace, workspace); err != nil {
 		return Result{}, err
 	}
-	if loaded.spec.Provider == "codex" {
+	if loaded.spec.Provider == "codex" && !codexPrivateCLI {
 		_, skillRoot, err := providerPluginLayout(options.PluginRoot, loaded.spec.Provider)
 		if err != nil {
 			return Result{}, err
@@ -553,7 +555,6 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if err := copyExecutable(options.WrapperExecutable, guardPath); err != nil {
 		return Result{}, err
 	}
-	codexPrivateCLI := loaded.spec.Provider == "codex" && loaded.spec.EffectiveBackendMode() == BackendModePrivateLive && loaded.spec.ToolTransport == "cli"
 	brokerRequestDirectory := ""
 	brokerResponseDirectory := ""
 	if codexPrivateCLI {
@@ -725,6 +726,17 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		}
 	}
 
+	if codexPrivateCLI {
+		if providerRuntime == nil {
+			return Result{}, fmt.Errorf("private codex CLI run requires an isolated provider runtime")
+		}
+		provisionContext, cancelProvision := context.WithTimeout(parent, 30*time.Second)
+		err := provisionCodexBenchmarkPlugin(provisionContext, options.AgentBinary, options.PluginRoot, providerRuntime)
+		cancelProvision()
+		if err != nil {
+			return Result{}, err
+		}
+	}
 	commandPlan, err := BuildProviderCommand(loaded.spec, options.AgentBinary, options.ATLBinary, guardPath, workspace, responseSchemaPath, finalPath, claudePluginPath(loaded.spec.Provider, options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, settingsPath), mcpConfigPath, providerConfinement, loaded.responseSchema)
 	if err != nil {
 		return Result{}, err
@@ -801,7 +813,14 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	environment["ATL_EVAL_ALLOWED_COMMANDS"] = string(allowedCommands)
 	allowedMCPTools, _ := json.Marshal(claudeMCPToolNamesForServer(mcpServerName(loaded.spec), loaded.spec.AllowedMCPTools))
 	environment["ATL_EVAL_ALLOWED_MCP_TOOLS"] = string(allowedMCPTools)
-	allowedReadRoots, _ := json.Marshal([]string{filepath.Join(options.PluginRoot, "skills"), workspace})
+	skillReadRoot := filepath.Join(options.PluginRoot, "skills")
+	if codexPrivateCLI {
+		skillReadRoot = providerRuntime.PluginSkillRoot()
+		if skillReadRoot == "" {
+			return Result{}, fmt.Errorf("private codex CLI run has no installed plugin skill root")
+		}
+	}
+	allowedReadRoots, _ := json.Marshal([]string{skillReadRoot, workspace})
 	environment["ATL_EVAL_ALLOWED_READ_ROOTS"] = string(allowedReadRoots)
 	environment["PATH"] = wrapperDir
 	if loaded.spec.Provider != "claude-code" || loaded.spec.ToolTransport != "mcp" {
@@ -1448,9 +1467,17 @@ func digestTree(root string) (string, error) {
 		if entry.Type()&os.ModeSymlink != 0 {
 			return fmt.Errorf("skill tree contains symlink")
 		}
-		if entry.Type().IsRegular() {
-			paths = append(paths, path)
+		if entry.IsDir() {
+			return nil
 		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("skill tree contains special file")
+		}
+		paths = append(paths, path)
 		return nil
 	})
 	if err != nil {
@@ -1463,6 +1490,8 @@ func digestTree(root string) (string, error) {
 	defer func() { _ = rootHandle.Close() }()
 	sort.Strings(paths)
 	hash := sha256.New()
+	_, _ = hash.Write([]byte("atl-tree-digest-v2\x00"))
+	var length [8]byte
 	for _, path := range paths {
 		relative, err := filepath.Rel(root, path)
 		if err != nil {
@@ -1480,10 +1509,13 @@ func digestTree(root string) (string, error) {
 		if closeErr != nil {
 			return "", closeErr
 		}
-		_, _ = hash.Write([]byte(filepath.ToSlash(relative)))
-		_, _ = hash.Write([]byte{0})
+		relativeBytes := []byte(filepath.ToSlash(relative))
+		binary.BigEndian.PutUint64(length[:], uint64(len(relativeBytes)))
+		_, _ = hash.Write(length[:])
+		_, _ = hash.Write(relativeBytes)
+		binary.BigEndian.PutUint64(length[:], uint64(len(data)))
+		_, _ = hash.Write(length[:])
 		_, _ = hash.Write(data)
-		_, _ = hash.Write([]byte{0})
 	}
 	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
