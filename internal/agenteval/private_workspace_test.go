@@ -27,6 +27,145 @@ func TestPrivateWorkspacePublicExampleMatchesStrictManifestContract(t *testing.T
 	}
 }
 
+func TestActivationStudyManifestRequiresPositiveReviewerReserve(t *testing.T) {
+	manifest := DefaultPrivateWorkspaceManifest()
+	panel := privateReviewTestPanel()
+	panel.BlindAssignment = "cases/study/blind-assignment.txt"
+	manifest.RunSets = []PrivateWorkspaceRunSet{{Kind: PrivateRunSetKindActivationStudy, Alias: "study",
+		SpecPaths:              []string{"cases/study/run-1.json", "cases/study/run-2.json", "cases/study/run-3.json", "cases/study/run-4.json"},
+		QualitativeReviewPanel: &panel}}
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("activation study accepted a zero or omitted reviewer reserve")
+	}
+	manifest.RunSets[0].ReviewerReserveMicroUSD = 1
+	if err := manifest.Validate(); err != nil {
+		t.Fatalf("positive reviewer reserve rejected: %v", err)
+	}
+}
+
+func TestPrivateWorkspaceManifestPreservesSchemaPresenceRules(t *testing.T) {
+	comparison := DefaultPrivateWorkspaceManifest()
+	comparison.RunSets = []PrivateWorkspaceRunSet{{Alias: "comparison", SpecPaths: []string{"cases/comparison/run.json"}}}
+	comparisonData, err := EncodePrivateWorkspaceManifest(comparison)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activation := comparison
+	panel := privateReviewTestPanel()
+	panel.BlindAssignment = "cases/study/blind-assignment.txt"
+	activation.RunSets = []PrivateWorkspaceRunSet{{Kind: PrivateRunSetKindActivationStudy, Alias: "study",
+		SpecPaths:              []string{"cases/study/implicit.json", "cases/study/explicit.json", "cases/study/developer.json", "cases/study/combined.json"},
+		QualitativeReviewPanel: &panel, ReviewerReserveMicroUSD: 1}}
+	activationData, err := EncodePrivateWorkspaceManifest(activation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := comparison
+	legacy.SchemaVersion = LegacyPrivateWorkspaceSchemaVersion
+	legacyData, err := EncodePrivateWorkspaceManifest(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := map[string]struct {
+		base   []byte
+		mutate func(map[string]any)
+	}{
+		"missing retention boolean": {comparisonData, func(root map[string]any) {
+			delete(root["retention"].(map[string]any), "retain_baseline_transcripts")
+		}},
+		"null retention boolean": {comparisonData, func(root map[string]any) {
+			root["retention"].(map[string]any)["retain_baseline_transcripts"] = nil
+		}},
+		"missing qualitative boolean": {comparisonData, func(root map[string]any) {
+			delete(root["run_sets"].([]any)[0].(map[string]any), "qualitative_review_required")
+		}},
+		"null qualitative boolean": {comparisonData, func(root map[string]any) {
+			root["run_sets"].([]any)[0].(map[string]any)["qualitative_review_required"] = nil
+		}},
+		"null external profile env": {comparisonData, func(root map[string]any) {
+			root["external_mcp_profile_env"] = nil
+		}},
+		"empty kind": {comparisonData, func(root map[string]any) {
+			root["run_sets"].([]any)[0].(map[string]any)["kind"] = ""
+		}},
+		"null kind": {comparisonData, func(root map[string]any) {
+			root["run_sets"].([]any)[0].(map[string]any)["kind"] = nil
+		}},
+		"null optional panel": {comparisonData, func(root map[string]any) {
+			root["run_sets"].([]any)[0].(map[string]any)["qualitative_review_panel"] = nil
+		}},
+		"comparison reserve present": {comparisonData, func(root map[string]any) {
+			root["run_sets"].([]any)[0].(map[string]any)["reviewer_reserve_microusd"] = float64(0)
+		}},
+		"activation reserve missing": {activationData, func(root map[string]any) {
+			delete(root["run_sets"].([]any)[0].(map[string]any), "reviewer_reserve_microusd")
+		}},
+		"legacy kind present": {legacyData, func(root map[string]any) {
+			root["run_sets"].([]any)[0].(map[string]any)["kind"] = "comparison"
+		}},
+		"legacy reserve present": {legacyData, func(root map[string]any) {
+			root["run_sets"].([]any)[0].(map[string]any)["reviewer_reserve_microusd"] = float64(0)
+		}},
+		"mixed-case root key": {comparisonData, func(root map[string]any) {
+			root["SCHEMA_VERSION"] = root["schema_version"]
+			delete(root, "schema_version")
+		}},
+		"mixed-case retention key": {comparisonData, func(root map[string]any) {
+			retention := root["retention"].(map[string]any)
+			retention["Max_Candidate_Bytes"] = retention["max_candidate_bytes"]
+			delete(retention, "max_candidate_bytes")
+		}},
+		"mixed-case run-set key": {comparisonData, func(root map[string]any) {
+			runSet := root["run_sets"].([]any)[0].(map[string]any)
+			runSet["Alias"] = runSet["alias"]
+			delete(runSet, "alias")
+		}},
+		"mixed-case panel key": {activationData, func(root map[string]any) {
+			panel := root["run_sets"].([]any)[0].(map[string]any)["qualitative_review_panel"].(map[string]any)
+			panel["Reviewers"] = panel["reviewers"]
+			delete(panel, "reviewers")
+		}},
+		"mixed-case reviewer key": {activationData, func(root map[string]any) {
+			reviewer := root["run_sets"].([]any)[0].(map[string]any)["qualitative_review_panel"].(map[string]any)["reviewers"].([]any)[0].(map[string]any)
+			reviewer["Kind"] = reviewer["kind"]
+			delete(reviewer, "kind")
+		}},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			var root map[string]any
+			if err := json.Unmarshal(test.base, &root); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(root)
+			data, err := json.Marshal(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := DecodePrivateWorkspaceManifest(bytes.NewReader(data)); err == nil {
+				t.Fatal("schema-invalid field presence was accepted")
+			}
+		})
+	}
+}
+
+func TestPrivateWorkspaceManifestUnicodeLengthsMatchJSONSchema(t *testing.T) {
+	validPath := "cases/" + strings.Repeat("界", 501) + ".json"
+	if !validPrivateWorkspaceSpecPath(validPath) {
+		t.Fatal("512-code-point case path was rejected")
+	}
+	if validPrivateWorkspaceSpecPath("cases/" + strings.Repeat("界", 502) + ".json") {
+		t.Fatal("513-code-point case path was accepted")
+	}
+	if err := (Reviewer{ID: "reviewer-01", Kind: "codex", Model: strings.Repeat("界", 256)}).validate(); err != nil {
+		t.Fatalf("256-code-point reviewer model rejected: %v", err)
+	}
+	if err := (Reviewer{ID: "reviewer-01", Kind: "codex", Model: strings.Repeat("界", 257)}).validate(); err == nil {
+		t.Fatal("257-code-point reviewer model accepted")
+	}
+}
+
 func TestInitPrivateWorkspaceCreatesFixedOwnerOnlyLayout(t *testing.T) {
 	repository := t.TempDir()
 	root := filepath.Join(t.TempDir(), "private-evaluations")
@@ -61,6 +200,96 @@ func TestInitPrivateWorkspaceCreatesFixedOwnerOnlyLayout(t *testing.T) {
 	second, err := InitPrivateWorkspace(root, repository, manifest)
 	if err != nil || !second.Healthy {
 		t.Fatalf("idempotent init report=%+v err=%v", second, err)
+	}
+	mismatched := manifest
+	mismatched.Retention.MaxCandidateAgeDays++
+	if _, err := InitPrivateWorkspace(root, repository, mismatched); err == nil || !errors.Is(err, ErrPrivateWorkspaceUnhealthy) {
+		t.Fatalf("current manifest accepted mismatched init settings: %v", err)
+	}
+}
+
+func TestInitPrivateWorkspaceResumesLegacyFilenameAndSchema(t *testing.T) {
+	repository := t.TempDir()
+	root := filepath.Join(t.TempDir(), "private-evaluations")
+	legacyManifest := DefaultPrivateWorkspaceManifest()
+	legacyManifest.SchemaVersion = LegacyPrivateWorkspaceSchemaVersion
+	legacyManifest.Retention.MaxCandidateAgeDays = 21
+	current := filepath.Join(root, PrivateWorkspaceManifestName)
+	legacy := filepath.Join(root, LegacyPrivateWorkspaceManifestName)
+	if report, err := InitPrivateWorkspace(root, repository, legacyManifest); err != nil || !report.Healthy {
+		t.Fatalf("legacy init report=%+v err=%v", report, err)
+	}
+	if _, err := os.Stat(legacy); err != nil {
+		t.Fatalf("legacy manifest missing: %v", err)
+	}
+	if _, err := os.Stat(current); !os.IsNotExist(err) {
+		t.Fatalf("current manifest unexpectedly created: %v", err)
+	}
+	if report, err := InitPrivateWorkspace(root, repository, DefaultPrivateWorkspaceManifest()); err != nil || !report.Healthy {
+		t.Fatalf("legacy resume with current default report=%+v err=%v", report, err)
+	}
+	if report, err := DoctorPrivateWorkspace(root, repository); err != nil || !report.Healthy {
+		t.Fatalf("legacy doctor report=%+v err=%v", report, err)
+	}
+	legacyData, err := os.ReadFile(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumedManifest, err := DecodePrivateWorkspaceManifest(bytes.NewReader(legacyData))
+	if err != nil || !reflect.DeepEqual(resumedManifest, legacyManifest) {
+		t.Fatalf("legacy manifest changed during resume: manifest=%+v err=%v", resumedManifest, err)
+	}
+	if _, err := os.Stat(current); !os.IsNotExist(err) {
+		t.Fatalf("legacy resume unexpectedly migrated manifest: %v", err)
+	}
+}
+
+func TestPrivateWorkspaceManifestFilenamesAreUnambiguous(t *testing.T) {
+	repository := t.TempDir()
+	root := filepath.Join(t.TempDir(), "private-evaluations")
+	legacyManifest := DefaultPrivateWorkspaceManifest()
+	legacyManifest.SchemaVersion = LegacyPrivateWorkspaceSchemaVersion
+	if _, err := InitPrivateWorkspace(root, repository, legacyManifest); err != nil {
+		t.Fatal(err)
+	}
+	currentData, err := EncodePrivateWorkspaceManifest(DefaultPrivateWorkspaceManifest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, PrivateWorkspaceManifestName), currentData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InitPrivateWorkspace(root, repository, DefaultPrivateWorkspaceManifest()); err == nil || !errors.Is(err, ErrPrivateWorkspaceUnhealthy) {
+		t.Fatalf("ambiguous manifest filenames were accepted by init: %v", err)
+	}
+	report, err := DoctorPrivateWorkspace(root, repository)
+	if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) || report.Healthy || privateWorkspaceCheckStatus(report, PrivateWorkspaceCheckManifestMode) != "fail" {
+		t.Fatalf("ambiguous manifest filenames were accepted by doctor: report=%+v err=%v", report, err)
+	}
+}
+
+func TestPrivateWorkspaceManifestLoaderRejectsSchemaFilenameMismatch(t *testing.T) {
+	repository := t.TempDir()
+	root := filepath.Join(t.TempDir(), "private-evaluations")
+	manifest := DefaultPrivateWorkspaceManifest()
+	if _, err := InitPrivateWorkspace(root, repository, manifest); err != nil {
+		t.Fatal(err)
+	}
+	legacy := manifest
+	legacy.SchemaVersion = LegacyPrivateWorkspaceSchemaVersion
+	legacy.RunSets = []PrivateWorkspaceRunSet{{Alias: "comparison", SpecPaths: []string{"cases/comparison/run.json"}}}
+	data, err := EncodePrivateWorkspaceManifest(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, PrivateWorkspaceManifestName), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := loadPrivateManifestRunSet(root, "comparison"); err == nil {
+		t.Fatal("execution manifest loader accepted a legacy schema under the current filename")
+	}
+	if _, err := PreviewPrivatePrune(PrivatePruneOptions{Root: root, RepositoryRoot: repository}); err == nil {
+		t.Fatal("prune manifest loader accepted a legacy schema under the current filename")
 	}
 }
 
@@ -149,13 +378,13 @@ func TestPrivateWorkspaceManifestStrictSchemaAndContainedSpecs(t *testing.T) {
 	if _, err := DecodePrivateWorkspaceManifest(strings.NewReader(unknown)); err == nil || strings.Contains(err.Error(), privateMarker) {
 		t.Fatalf("unknown-field err=%v", err)
 	}
-	duplicate := strings.Replace(string(data), `"schema_version": 1`, `"schema_version": 1, "schema_version": 1`, 1)
+	duplicate := strings.Replace(string(data), `"schema_version": 2`, `"schema_version": 2, "schema_version": 2`, 1)
 	if _, err := DecodePrivateWorkspaceManifest(strings.NewReader(duplicate)); err == nil {
 		t.Fatal("duplicate manifest key passed")
 	}
 
 	for name, mutate := range map[string]func(*PrivateWorkspaceManifest){
-		"version":        func(m *PrivateWorkspaceManifest) { m.SchemaVersion = 2 },
+		"version":        func(m *PrivateWorkspaceManifest) { m.SchemaVersion = 3 },
 		"env":            func(m *PrivateWorkspaceManifest) { m.LiveConfigEnv = "TOKEN=value" },
 		"alias":          func(m *PrivateWorkspaceManifest) { m.RunSets[0].Alias = "Private Project" },
 		"traversal":      func(m *PrivateWorkspaceManifest) { m.RunSets[0].SpecPaths[0] = "cases/../outside.json" },

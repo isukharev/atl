@@ -437,6 +437,15 @@ func TestLegacyPromptBoundPrivatePlanV2RemainsReadable(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan.SchemaVersion = LegacyPromptBoundPrivatePlanSchemaVersion
+	plan.Kind = ""
+	plan.ReviewerReserveMicroUSD = 0
+	plan.CostAssurance = ""
+	plan.StudyContract = nil
+	plan.ActivationContract = nil
+	for index := range plan.Items {
+		plan.Items[index].CellID = ""
+		plan.Items[index].MaxEstimatedCostMicroUSD = 0
+	}
 	data, err := encodePrivatePlan(plan)
 	if err != nil {
 		t.Fatal(err)
@@ -458,7 +467,14 @@ func TestLegacyPrivatePlanV1RemainsReadableByWorkspaceLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan.SchemaVersion = LegacyPrivatePlanSchemaVersion
+	plan.Kind = ""
+	plan.ReviewerReserveMicroUSD = 0
+	plan.CostAssurance = ""
+	plan.StudyContract = nil
+	plan.ActivationContract = nil
 	for index := range plan.Items {
+		plan.Items[index].CellID = ""
+		plan.Items[index].MaxEstimatedCostMicroUSD = 0
 		plan.Items[index].SkillActivation = ""
 		plan.Items[index].PromptContractSHA256 = ""
 	}
@@ -858,7 +874,7 @@ func main() {
   guard := os.Getenv("ATL_EVAL_HTTP_GUARD_FILE"); if guard == "" { os.Exit(42) }
   _ = os.WriteFile(guard, []byte("{\"method\":\"GET\",\"request_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}\n"), 0600)
   final := ""; for index := 1; index < len(os.Args); index++ { if os.Args[index] == "--output-last-message" && index+1 < len(os.Args) { final = os.Args[index+1]; index++ } }
-  fmt.Println("{\"type\":\"item.completed\",\"item\":{\"type\":\"mcp_tool_call\",\"server\":\"atl\",\"tool\":\"jira_fields\",\"status\":\"completed\",\"result\":{\"fields\":[]}}}")
+  if os.Getenv("ATL_EVAL_CLI_POLICY_FILE") != "" { _ = exec.Command("atl", "jira", "fields").Run(); fmt.Println("{\"type\":\"item.completed\",\"item\":{\"type\":\"command_execution\"}}") } else { fmt.Println("{\"type\":\"item.completed\",\"item\":{\"type\":\"mcp_tool_call\",\"server\":\"atl\",\"tool\":\"jira_fields\",\"status\":\"completed\",\"result\":{\"fields\":[]}}}") }
   fmt.Println("{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":100,\"output_tokens\":20}}")
   _ = os.WriteFile(final, []byte("{\"complete\":true}\n"), 0600)
   if data, err := os.ReadFile(mutationControl); err == nil { target := strings.TrimSpace(string(data)); if target == "SNAPSHOT" { target = filepath.Join(filepath.Dir(os.Args[0]), "..", "plugin", "plugins", "atl", "skills", "atl", "SKILL.md") }; appendFile(target, "changed\n") }
@@ -871,6 +887,7 @@ func main() {
 	}
 	atl := filepath.Join(binRoot, "fake-atl")
 	writeTestFile(t, atl, "#!/bin/sh\n"+fmt.Sprintf("printf '%%s\\n' x >>%q\n", atl+".calls")+`if [ "$1" = "version" ]; then printf '%s\n' '{"version":"test","commit":"synthetic","build_state":"clean"}'; exit 0; fi
+if [ "$1" = "jira" ] && [ "$2" = "fields" ]; then printf '%s\n' '{"fields":[]}'; exit 0; fi
 exit 2
 `, 0o700)
 	wrapper := filepath.Join(binRoot, "fake-wrapper")

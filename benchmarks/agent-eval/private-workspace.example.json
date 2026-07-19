@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "live_config_env": "ATL_AGENT_EVAL_LIVE_CONFIG_DIR",
   "external_mcp_profile_env": "ATL_AGENT_EVAL_EXTERNAL_MCP_PROFILE",
   "execution": {
@@ -13,6 +13,7 @@
   },
   "run_sets": [
     {
+      "kind": "comparison",
       "alias": "evidence",
       "spec_paths": [
         "cases/evidence/run.cli.json",

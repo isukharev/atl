@@ -41,7 +41,7 @@ directories:
 ```text
 PRIVATE_ROOT/
   .atl-agent-eval-private-root
-  private-workspace.v1.json
+  private-workspace.v2.json
   cases/
   plans/
   runs/
@@ -103,10 +103,14 @@ echoed into a terminal or CI log.
 | Inspect | `private status` / `private doctor` | None | Read-only | None |
 | Plan | `private plan` | None | Writes one immutable plan | Data-boundary flags and `CONSENT` |
 | Execute | `private run` | Reviewed model and read-only backend routes | Writes one candidate run | Exact plan SHA-256 and `RUN` |
+| Recover study | `private study recover` | None | Closes an interrupted study without replaying the provider after the operator establishes provider-process quiescence | Exact plan SHA-256 and `PROVIDER_STOPPED_RECOVER` |
 | Prepare review | `private review prepare` | None | Copies one result, answer, rubric, and hash-bound template into an owner-only packet | Completed plan and explicit surface; every panel member before assessment |
 | Assess | `private review assess` | No tools in the reviewer session | Records one member; the last member writes one median consensus | Completed bounded review; bound blind assignment where required |
 | Promote | `private baseline set` | None | Adds an immutable compact baseline and updates `current` | Complete assessed run without panel disagreement and `BASELINE` |
 | Compare | `private compare` | None | Read-only; emits aggregate deltas | Compatible contract/runtime and review mode |
+| Reference study | `private study reference` | None | Adds an immutable compact activation-study reference | Complete four-cell review and `REFERENCE` |
+| Compare study | `private study compare` | None | Read-only; emits privacy-safe treatment metrics, gates, and eligible contrasts | Structurally valid immutable reference |
+| Promote study | `private study promote` | None | Updates the activation-study `current` pointer | Strict promotion eligibility and `PROMOTE` |
 | Retain | `private prune` | None | Preview is read-only | None |
 | Prune | `private prune` with confirmation | None | Removes raw artifacts from eligible runs and leaves compact lifecycle tombstones | Exact inventory SHA-256 and `PRUNE` |
 
@@ -129,23 +133,27 @@ go build -o /tmp/agent-eval ./scripts/agent-eval
   --repository-root .
 ```
 
-Edit the generated private manifest locally. A run set uses a generic alias and
-one to three relative run-spec paths. Runtime bindings are environment-variable
-names, never literal paths or credentials. Keep provider-specific profiles
-outside the repository as required by the existing private-live transport. The
-public [JSON Schema](../benchmarks/agent-eval/private-workspace.schema.json)
-supports editor validation, and the
+Edit the generated private manifest locally. Schema v2 gives each run set a
+`kind`: `comparison` accepts one to three unique surfaces, while
+`activation-study` requires exactly four otherwise-identical Codex
+`private-live` `cli-skill` v5 specs carrying `implicit`, `explicit`, `developer`,
+and `combined` once each. An omitted kind is the legacy comparison form. Runtime
+bindings are environment-variable names, never literal paths or credentials.
+Keep provider-specific profiles outside the repository as required by the
+existing private-live transport. The public
+[JSON Schema](../benchmarks/agent-eval/private-workspace.schema.json) supports
+editor validation, and the
 [generic example](../benchmarks/agent-eval/private-workspace.example.json)
-shows a three-surface comparison without any backend-specific values. The Go
-decoder remains the authoritative strict validator.
+shows a comparison without backend-specific values. The Go decoder remains the
+authoritative strict validator.
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "live_config_env": "ATL_AGENT_EVAL_LIVE_CONFIG_DIR",
   "external_mcp_profile_env": "ATL_AGENT_EVAL_EXTERNAL_MCP_PROFILE",
   "execution": {
-    "max_estimated_cost_microusd": 10000000
+    "max_estimated_cost_microusd": 50000000
   },
   "retention": {
     "keep_completed_run_sets_per_alias": 3,
@@ -154,10 +162,13 @@ decoder remains the authoritative strict validator.
     "retain_baseline_transcripts": true
   },
   "run_sets": [{
-    "alias": "evidence",
+    "kind": "activation-study",
+    "alias": "activation-study",
     "spec_paths": [
-      "cases/evidence/run.cli.json",
-      "cases/evidence/run.atl-mcp.json"
+      "cases/activation-study/run.implicit.json",
+      "cases/activation-study/run.explicit.json",
+      "cases/activation-study/run.developer.json",
+      "cases/activation-study/run.combined.json"
     ],
     "qualitative_review_required": false,
     "qualitative_review_panel": {
@@ -168,33 +179,38 @@ decoder remains the authoritative strict validator.
         {"id": "reviewer-03", "kind": "codex", "model": "gpt-test-reviewer"}
       ],
       "max_criterion_range_bps": 2500,
-      "blind_assignment": "cases/evidence/blind-assignment.txt"
-    }
+      "blind_assignment": "cases/activation-study/blind-assignment.txt"
+    },
+    "reviewer_reserve_microusd": 1000000
   }]
 }
 ```
 
-`qualitative_review_required: true` remains the explicit legacy singleton
-policy. It selects one review whose reviewer kind, exact model, and optional
-blind assignment are supplied at review time. A run set cannot combine that
-setting with `qualitative_review_panel`. A panel declares exactly three or five
-reviewers, their generic ids, kinds, exact model identities, the fixed
+An activation study requires the panel shown above and cannot use the legacy
+singleton policy. Its four treatment caps plus a positive `reviewer_reserve_microusd` must
+fit under the workspace execution maximum. A comparison may still use
+`qualitative_review_required: true` for one legacy review, or declare the same
+panel form. A run set cannot combine the singleton setting with
+`qualitative_review_panel`. A panel declares exactly three or five reviewers,
+their generic ids, kinds, exact model identities, the fixed
 `criterion-median-v1` method, and a `max_criterion_range_bps` threshold from 1
-through 9999. Human reviewers may omit `model`; model reviewers may not.
-`qualitative_review_required: false` with no panel keeps qualitative review
+through 9999. Human reviewers may omit `model`; model reviewers may not. A
+comparison with `qualitative_review_required: false` and no panel keeps review
 disabled.
 
 Reviewer ids are terminal-visible filesystem slot names. Keep them generic
 (`reviewer-01`, not a person, team, provider account, or backend identity); they
-are restricted to one lowercase path component. The manifest remains schema
-v1 because the panel is an additive optional policy, but binaries predating the
-panel reject manifests that use the new field rather than silently ignoring it.
+are restricted to one lowercase path component. Schema v1 manifests remain
+readable as legacy comparisons but cannot declare a kind or reviewer reserve;
+create and review a schema v2 manifest for an activation study.
 
-The optional panel `blind_assignment` is a workspace-relative file below
-`cases/`; it is required for a `neutral-common` run set. The complete roster,
-policy, and assignment digest are bound into the immutable plan before any
-model or backend execution. They are copied into the retained run contract, so
-changing a reviewer, exact model, threshold, or assignment invalidates the
+The panel `blind_assignment` is a workspace-relative file below `cases/`. It is
+required for every activation study and for any other `neutral-common` run set. Activation-study
+packets are treatment-blinded by the lifecycle even when the task category does
+not require a separate assignment file. The complete roster and policy, plus
+the assignment digest when present, are bound into the immutable plan before
+any model or backend execution. They are copied into the retained run contract,
+so changing a reviewer, exact model, threshold, or assignment invalidates the
 reviewed plan instead of altering a completed candidate.
 
 Run doctor after every manifest or case change:
@@ -215,12 +231,12 @@ the reviewed plan. Stdout does not enumerate case aliases or private paths.
 
 ## Review, run, and assess
 
-A v3 plan binds the exact comparison contract and execution identity: case
-inputs, ordered surfaces, skill activation and private prompt-contract digest,
-ATL and wrapper binaries, plugin/skill tree, agent runtime, repository commit,
-backend-config identity, external profile when used, cost cap, and consent
-expiry. Credential bytes are never hashed into a plan or retained in a
-run/baseline.
+A v4 plan binds the exact comparison or activation-study contract and execution
+identity: case inputs, ordered surfaces, skill activation and private
+prompt-contract digest, ATL and wrapper binaries, plugin/skill tree, agent
+runtime, repository commit, backend-config identity, external profile when
+used, cost cap, and consent expiry. Credential bytes are never hashed into a
+plan or retained in a run/baseline.
 
 Actual Codex execution requires file-backed provider authentication. The
 effective `CODEX_HOME` (or `HOME/.codex` fallback) must be a real directory not
@@ -291,14 +307,39 @@ Low-level dry-run exposes only `prompt_contract_bound:true`. Keep the digest
 private: it is omitted from preview and aggregate JSON because short private
 prompts may be dictionary-guessable.
 
-The current plan layout supports one candidate per surface, so the four
-treatments require four separately reviewed run sets; never encode them as
-different surfaces. These runs can provide descriptive observations, but the
-separate plans do not control ordering, provider state, or assignment and are
-not a causal study. Do not infer user-channel, developer-channel, or interaction
-effects until the dedicated causal-study orchestration tracked in #508 exists.
-Multi-surface plans accept only `implicit`; naming a skill in either channel is
-a surface confounder.
+An `activation-study` plan binds all four treatments under one consent, one
+execution snapshot, and one provider-auth session. The four specs must live in
+one case directory and match in every contract field except `skill_activation`
+and the per-cell `variant`. The plan retains one common-contract digest plus the
+exact digest of every treatment spec. Cells remain the same `cli-skill`
+surface; never disguise treatments as different surfaces. Ordinary
+multi-surface comparison plans continue to accept only `implicit`, because
+naming a skill in either channel is a surface confounder.
+
+The order cycle is keyed by the exact reviewed material, not the run-set alias.
+Only a terminal execution with a durable commitment immediately before provider
+spawn advances it; a bare pre-call launch marker is insufficient. An expired plan or a recovered
+pre-provider interruption receives the same order again.
+Each reviewer-facing cell id is freshly random and has no derivable mapping
+from plan id to treatment.
+
+Every activation study requires the predeclared blinded three- or five-member
+panel. All four treatment-by-reviewer packet slots are fixed before provider
+execution. The plan also partitions the sum of the four treatment caps and the
+positive explicit reviewer reserve under the workspace maximum. The runner
+does not launch panel reviewers, so this reserve records reviewed authorization
+rather than durable reviewer-spend receipts; supervise model-reviewer cost
+separately. Treatment cost assurance is detection-only, not a preventive or
+provider-side hard cap: after each provider call, the runner records the event
+chain and checks reported cost and coverage. Detected exhaustion, unknown cost,
+provider uncertainty, or failure to persist or contain the state stops the
+remaining cells; a safety violation does too. None of those checks can undo
+cost already incurred.
+
+Schema v1 comparison manifests and legacy plans remain readable. Four treatments
+collected under separate legacy plans are descriptive compatibility observations
+only: they do not acquire the study's ordering, shared state, or causal gates and
+must not be used to estimate channel effects or interaction.
 
 Run-spec schema v5 carries the four treatments. Existing v4 `implicit` and
 `explicit` specs retain their meanings when deliberately migrated. Legacy v3
@@ -372,7 +413,7 @@ REVIEWED_AGENT_BINARY=/absolute/path/to/reviewed-native-agent
 
 /tmp/agent-eval private plan \
   --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
-  --run-set evidence \
+  --run-set activation-study \
   --repository-root . \
   --atl-binary "$PWD/atl" \
   --plugin-root . \
@@ -392,8 +433,31 @@ REVIEWED_AGENT_BINARY=/absolute/path/to/reviewed-native-agent
   --confirm RUN
 ```
 
-The successful run summary returns only its opaque `plan_id`, opaque `run_id`,
-surface names, completion count, and measured cost. It never returns a private
+If execution crashes after its state is persisted, the same series remains
+blocked. First establish outside atl that the provider process and any children
+have stopped. Then inspect the owner-private artifacts, review the original
+plan hash, and close the attempt offline without replaying the provider:
+
+```sh
+/tmp/agent-eval private study recover \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --plan "$REVIEWED_PLAN_ID" \
+  --expected-plan-sha256 "$REVIEWED_PLAN_SHA256" \
+  --confirm PROVIDER_STOPPED_RECOVER
+```
+
+Recovery changes an active cell to an explicit unknown outcome or stops the
+block between cells. A provider-committed cell advances the next balanced
+order; a launch marker before that commitment does not. Recovery never invokes
+a model or backend. The confirmation is an operator attestation of process
+quiescence because atl cannot prove the absence of orphan processes after a
+controller or operating-system crash.
+
+The activation-study run and recovery summaries return only their opaque
+`plan_id`, opaque `run_id`, surface names, completion count, detected cost, and
+`cost_known`. A false `cost_known` means the numeric detected total is only a
+lower bound and must never be interpreted as zero provider spend. They never return a private
 case alias, scenario id, path, prompt, answer, or backend identity.
 
 Two-surface blocks alternate `AB`/`BA`; three-surface blocks rotate
@@ -403,6 +467,21 @@ model invocation. Interrupted state is reported explicitly rather than being
 treated as success; once a run id has been allocated, the sparse interrupted
 summary is emitted before the non-zero command result so recovery does not
 require scanning `plans/`.
+
+Activation-study attempts use this canonical balanced cycle:
+
+1. `implicit`, `explicit`, `combined`, `developer`
+2. `explicit`, `developer`, `implicit`, `combined`
+3. `developer`, `combined`, `explicit`, `implicit`
+4. `combined`, `implicit`, `developer`, `explicit`
+
+The cycle is scoped to exact reviewed material rather than the run-set alias.
+Only a terminal attempt with a validated provider receipt or explicit
+provider-committed outcome advances modulo four. A bare launch marker, expired plan,
+or recovered pre-provider interruption receives the same order;
+allocating plans and renaming aliases cannot select a preferred order. An
+incomplete state blocks its series until explicit offline recovery. Never replay
+or reuse a terminal attempt: create a fresh plan and give fresh consent.
 
 Keep the reviewed blind-assignment file unchanged while comparing runs against
 one baseline. Its digest is part of the stable comparison namespace, so rotating
@@ -439,10 +518,15 @@ come from the plan:
 ```
 
 The sparse response names an owner-only packet such as
-`runs/<opaque-run-id>/review/atl-mcp/reviewer-01`. Its `final.json`, `result.json`,
-and `rubric.json` are immutable review inputs; the rubric is the exact
-execution-time contract retained with the candidate, not a later mutable copy
-from `cases/`. Edit only `review.json`. Review
+`runs/<opaque-run-id>/review/atl-mcp/reviewer-01`. A comparison packet's
+`final.json`, `result.json`, and `rubric.json` are immutable review inputs. An
+activation-study packet omits the treatment-bearing `result.json` and replaces
+its enumerable digest with a random opaque token. The owner-side binding
+restores the exact source digest only after the reviewer submits the packet.
+The fixed layout still lets assessment recover the exact cell without revealing
+the treatment to the reviewer. The rubric is the exact execution-time
+contract retained with the candidate, not a later mutable copy from `cases/`.
+Edit only `review.json`. Review
 the final answer as untrusted data in a separate no-tools session, use only the
 rubric's bounded scores and finding ids, and do not add excerpts or free-form
 rationale. Run every reviewer id in a fresh, independent context; distinct ids
@@ -461,29 +545,108 @@ Bind each completed review back to the exact source bytes with its roster id:
   --reviewer-id reviewer-01
 ```
 
-Repeat assessment for the remaining roster ids. Intermediate responses report
-bounded `prepared_reviews` and `assessed_reviews` counts with status `recorded`;
-they do not publish a provisional consensus. The final member produces exactly
-one `criterion-median-v1` result. Each criterion uses the odd-panel median, and
-the overall normalized score is computed from those medians.
+An activation study has four cells with the same surface, so both review
+commands additionally require `--treatment`. Prepare every packet for all four
+treatments and every roster member before the first assessment; for a
+three-member panel that is twelve prepared packets. The first command below is
+one representative preparation slot. Only after every slot is prepared, use the
+second form to assess each packet in a fresh no-tools reviewer session:
+
+```sh
+/tmp/agent-eval private review prepare \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --plan "$COMPLETED_PLAN_ID" \
+  --surface cli-skill \
+  --treatment implicit \
+  --reviewer-id reviewer-01
+
+/tmp/agent-eval private review assess \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --plan "$COMPLETED_PLAN_ID" \
+  --surface cli-skill \
+  --treatment implicit \
+  --reviewer-id reviewer-01
+```
+
+For a comparison, repeat assessment for the remaining roster ids. For an
+activation study, repeat it for every remaining treatment and reviewer slot.
+Intermediate responses report bounded `prepared_reviews` and `assessed_reviews`
+counts with status `recorded`; they do not publish a provisional consensus. The
+final member for each cell produces exactly one `criterion-median-v1` result.
+Each criterion uses the odd-panel median, and the overall normalized score is
+computed from those medians.
 
 The consensus status is `disagreement` when individual reviewers split between
 overall pass and fail, when any criterion splits across its pass boundary, or
 when a criterion's normalized max-minus-min range is greater than
-`max_criterion_range_bps`. Disagreement fails the candidate and blocks baseline
-promotion. A unanimous low-disagreement result may be promoted even when its
-consensus is `fail`: a baseline is a measurement reference, not a claim of
-success.
+`max_criterion_range_bps`. Disagreement fails the candidate and blocks
+promotion. An ordinary comparison baseline may contain a unanimous
+low-disagreement `fail`: that baseline is a measurement reference, not a claim
+of success. Activation-study promotion uses the stricter all-cell pass gate
+documented below.
 
 Assessment refuses packet drift and never overwrites a different member or
-consensus result; an exact retry reconciles the already-recorded bytes. Panel
-prepare/assess accepts only `--reviewer-id`; do not add
-`--reviewer`, `--model`, or `--blind-assignment`. The legacy singleton path is
-still available with `private review prepare --reviewer ... --model ...` and an
-optional `--blind-assignment`; its `private review assess` has no reviewer id.
+consensus result; an exact retry reconciles the already-recorded bytes. For
+reviewer identity and model configuration, panel prepare/assess accepts only
+`--reviewer-id`; activation studies additionally require the treatment
+selector. Do not add `--reviewer`, `--model`, or `--blind-assignment`. The
+legacy singleton path is still available with
+`private review prepare --reviewer ... --model ...` and an optional
+`--blind-assignment`; its `private review assess` has no reviewer id.
 The generic low-level `review-template` and `assess` commands remain available
 for synthetic/framework work; agents should use the private wrapper for live
 candidates so they never need to infer scenario-specific raw paths.
+
+## Activation-study references and comparison
+
+After deterministic checks and all required panel assessments exist for all
+four cells, capture the completed plan as an immutable private study reference.
+Creating the same alias again is idempotent only for identical bytes; different
+study content under that alias is rejected. The retained reference binds the
+plan, common treatment contract, exact run tree, bounded results, safety status,
+and review consensus without making raw artifacts publishable:
+
+```sh
+/tmp/agent-eval private study reference \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --plan "$COMPLETED_PLAN_ID" \
+  --reference activation-study-01 \
+  --confirm REFERENCE
+
+/tmp/agent-eval private study compare \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --reference activation-study-01
+```
+
+`private study compare` is read-only and privacy-safe by construction. Its
+closed output contains only treatment labels, bounded metrics, gates, and exact
+rational contrasts for the user-channel, developer-channel, and interaction
+factors. It emits contrasts only when the reference is supported, safety is
+complete and clean, review is complete, and the panel has no disagreement. It
+does not emit prompts, answers, paths, hashes, private identifiers, reviewer
+identities, or backend details.
+
+Promotion is stricter than descriptive or causal eligibility. Every treatment
+must have pass run status, zero deterministic violations and deterministic pass,
+complete clean safety, and panel review pass without disagreement before the
+command may update the activation-study `current` pointer:
+
+```sh
+/tmp/agent-eval private study promote \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --reference activation-study-01 \
+  --confirm PROMOTE
+```
+
+A failed task may therefore remain useful as gated causal data when safety and
+review are complete and clean, but it cannot be promoted. Ordinary
+`private baseline set` and `private compare` remain the lifecycle for comparison
+run sets; they do not convert legacy separate-plan treatments into a study.
 
 ## Baselines and comparison
 
@@ -525,13 +688,14 @@ pooled even when every other rubric and runtime field matches. The digest is an
 internal grouping key and is omitted from aggregate JSON because a short answer
 mapping may be dictionary-guessable.
 
-Current results use schema v6, aggregates use schema v6, private plans use
-schema v3, and review packets use schema v2. The decoder still accepts
-prompt-bound result schema v5, result schema v3/v4, and private plan schema
-v1/v2 for lifecycle inspection and retention. Legacy plans are not silently
-re-executed or reclassified under the v3 material; create a fresh v3 plan and
-baseline for a new treatment. Older binaries reject the new artifacts rather
-than accepting them under a misleading old version.
+Current manifests use schema v2, results use schema v6, aggregates use schema
+v6, private plans use schema v4, and review packets use schema v2. The decoder
+still accepts schema v1 manifests as comparisons, prompt-bound result schema v5,
+result schema v3/v4, and private plan schema v1/v2/v3 for lifecycle inspection
+and retention. Legacy plans are not silently re-executed or reclassified as
+activation studies; create a fresh schema v2 run set, v4 plan, and consent for a
+causal study. Older binaries reject the new artifacts rather than accepting them
+under a misleading old version.
 
 ## Retention and recovery
 
@@ -540,7 +704,10 @@ of the exact inventory. Apply re-scans under the workspace lock and requires
 that same hash plus explicit confirmation. It atomically stages each eligible
 raw candidate under `.ephemeral/`, installs a small `pruned.v1.json` lifecycle
 tombstone, then removes the staged raw tree. Plans and states remain auditable;
-pruned runs cannot be promoted or selected again:
+the pruned raw run cannot be selected or captured again. Capture an activation
+study reference before pruning. That compact, content-free reference is
+deliberately self-contained and may still be compared or promoted after its raw
+source is pruned:
 
 ```sh
 /tmp/agent-eval private prune \

@@ -946,15 +946,121 @@ identities and cannot contain the new treatments. Result v3/v4 and private-plan
 v1 artifacts remain readable under their earlier legacy rules. None is silently
 reclassified as `developer` or `combined`.
 
-The private plan layout currently permits one candidate per surface. Exercising
-the full 2x2 therefore requires four separately reviewed run sets with otherwise
-identical inputs. `private compare` is not a treatment-comparison mechanism
-because it correctly rejects different activation and prompt identities.
-Privacy-reviewed aggregate groups or an offline report may describe the four
-observations, but separate plans do not control ordering, provider state, or
-assignment and are not a causal study. Do not estimate channel effects or an
-interaction from them until the dedicated causal-study orchestration tracked in
-#508 exists, and do not disguise a treatment as another surface.
+Private-workspace manifest schema v2 provides two run-set kinds. A
+`comparison` contains one to three unique surfaces and keeps any Codex CLI member
+implicit-only. An `activation-study` contains exactly four otherwise-identical
+Codex `private-live` `cli-skill` v5 specs, one per treatment, in one case
+directory. It requires a blinded `criterion-median-v1` panel with exactly three
+or five reviewers and a positive explicit `reviewer_reserve_microusd`. Current private
+plans use schema v4; activation-study execution state uses its four-cell v2
+lifecycle rather than the legacy per-surface state.
+
+One activation-study plan and one consent bind the common contract, all four
+exact treatment contracts, panel roster, any required blind assignment,
+execution snapshot, and provider-auth session. Attempts run sequentially through
+these canonical balanced orders:
+`implicit/explicit/combined/developer`,
+`explicit/developer/implicit/combined`,
+`developer/combined/explicit/implicit`, and
+`combined/implicit/developer/explicit`. The cycle is scoped to the exact
+reviewed study material rather than a mutable run-set alias. A terminal
+execution with a durable pre-spawn provider commitment advances modulo four,
+including stopped or uncertain provider outcomes. A bare launch marker, expired plan,
+or recovered pre-provider
+interruption does not advance, so allocating plans or renaming an alias cannot
+select a preferred order. Terminal attempts are not resumed or reused; the next
+attempt requires a new plan and consent.
+An incomplete crash state blocks the same series until it is reconciled with
+the offline `private study recover --confirm PROVIDER_STOPPED_RECOVER`
+transition; the confirmation is an operator attestation that no orphaned
+provider process remains. The attempt is never counted as a completed order or
+replayed automatically. Recovery validates and accounts for any durable
+execution receipt, removes the exact owned execution capsule, and never invokes
+the provider or backend. Execution and recovery summaries expose `cost_known`;
+when it is false, the numeric detected total is only a lower bound.
+
+The plan partitions the four treatment caps plus the reviewer reserve below the
+workspace maximum. The runner does not launch panel reviewers, so the reserve
+records reviewed authorization rather than measured reviewer receipts. This is
+detection-only cost assurance, not a preventive
+provider-side hard cap: reported cost and coverage are checked after provider
+calls, and exhaustion, uncertainty, or a safety failure stops remaining cells
+without undoing already-incurred cost.
+
+Review selects the same `cli-skill` surface by `--treatment`. Prepare all
+four-by-three or four-by-five blinded packets before the first assessment. Once
+all deterministic and panel results exist, capture an immutable study reference,
+inspect its privacy-safe closed-field report, and promote it only if the stricter
+all-cell gate passes:
+
+```sh
+/tmp/agent-eval private plan \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --run-set activation-study \
+  --repository-root . \
+  --atl-binary "$PWD/atl" \
+  --plugin-root . \
+  --agent-binary "$REVIEWED_AGENT_BINARY" \
+  --consent-expires "$REVIEWED_CONSENT_EXPIRY" \
+  --approve-provider-data \
+  --confirm CONSENT
+
+/tmp/agent-eval private run \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --plan "$REVIEWED_PLAN_ID" \
+  --expected-plan-sha256 "$REVIEWED_PLAN_SHA256" \
+  --repository-root . \
+  --atl-binary "$PWD/atl" \
+  --plugin-root . \
+  --agent-binary "$REVIEWED_AGENT_BINARY" \
+  --confirm RUN
+
+/tmp/agent-eval private review prepare \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --plan "$REVIEWED_PLAN_ID" \
+  --surface cli-skill \
+  --treatment implicit \
+  --reviewer-id reviewer-01
+
+/tmp/agent-eval private review assess \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --plan "$REVIEWED_PLAN_ID" \
+  --surface cli-skill \
+  --treatment implicit \
+  --reviewer-id reviewer-01
+
+/tmp/agent-eval private study reference \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --plan "$REVIEWED_PLAN_ID" \
+  --reference activation-study-01 \
+  --confirm REFERENCE
+
+/tmp/agent-eval private study compare \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --reference activation-study-01
+
+/tmp/agent-eval private study promote \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --reference activation-study-01 \
+  --confirm PROMOTE
+```
+
+The review commands above show one packet slot; prepare every treatment and
+reviewer slot before running any assessment. The immutable reference rejects
+different content under an existing alias. `private study compare` emits only
+closed treatment metrics, gates, and causally eligible rational contrasts for
+the user channel, developer channel, and interaction—never private paths,
+prompts, hashes, identities, or backend details. `private study promote` also
+requires every cell to have pass run status, zero deterministic violations and
+deterministic pass, complete clean safety, and panel review pass without
+disagreement before updating the study pointer. Legacy
+treatments collected in separate comparison plans remain descriptive,
+non-causal observations and are never upgraded automatically into a study.
 
 Provider fidelity is explicit: private Codex CLI runs hash the complete
 `plugins/atl/` package plus the local marketplace descriptor, install
@@ -975,8 +1081,9 @@ is a measured failure; it is not reclassified as a missing-plugin error or
 reported as direct proof that a skill did or did not load.
 
 At the low level, review without invoking the model or backend, then run once.
-New private baselines should use `agent-eval private plan` and `private run`
-instead, so the reviewed bytes and execution remain bound:
+New private comparison baselines and activation studies should use
+`agent-eval private plan` and `private run` instead, so the reviewed bytes and
+execution remain bound:
 
 ```sh
 umask 077
@@ -1176,13 +1283,11 @@ transport-neutral prompt: say “use the available atl interface”, not “call
 MCP tool” or “run this shell command”. Variants should identify only the
 surface, for example `cli-skill`, `atl-mcp`, and `external-mcp`.
 
-This multi-surface validator is separate from a same-surface activation
-treatment comparison. The latter uses distinct private run sets and
-privacy-reviewed aggregate or offline description because a plan intentionally
-permits only one item per surface. A Codex CLI member of a multi-surface set
-must use `implicit`; `explicit`, `developer`, and `combined` are rejected because
-adding a skill name to either prompt channel would confound the surface
-comparison.
+This `comparison` run-set kind is separate from the same-surface
+`activation-study` kind, whose one plan contains exactly four treatment cells.
+A Codex CLI member of a multi-surface comparison must use `implicit`;
+`explicit`, `developer`, and `combined` are rejected because adding a skill name
+to either prompt channel would confound the surface comparison.
 
 Preflight the pair before either model invocation:
 

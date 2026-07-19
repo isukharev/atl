@@ -11,6 +11,14 @@ import (
 	"github.com/isukharev/atl/internal/safepath"
 )
 
+const privatePanelResultBindingSchemaVersion = 1
+
+type privatePanelResultBinding struct {
+	SchemaVersion int    `json:"schema_version"`
+	OpaqueToken   string `json:"opaque_token"`
+	ResultSHA256  string `json:"result_sha256"`
+}
+
 func preparePrivatePanelReview(root string, source PrivateBaselineSource, surface PrivateBaselineSurfaceSource, resultData, finalData, rubricData []byte, result Result, rubric Rubric, options PrivateReviewPrepareOptions) (PrivateReviewSummary, error) {
 	contract, assignment, policy, err := loadPrivatePanelReviewContract(root, surface)
 	if err != nil {
@@ -34,19 +42,28 @@ func preparePrivatePanelReview(root string, source PrivateBaselineSource, surfac
 	if err != nil {
 		return PrivateReviewSummary{}, privatePlanError("review_template")
 	}
-	packetRelative := privatePanelPacketRelative(source.RunID, surface.Surface, reviewer.ID)
+	resultBinding := review.ResultSHA256
+	if surface.CellID != "" {
+		binding, bindingErr := createOrLoadPrivatePanelResultBinding(root, source, surface, reviewer, review.ResultSHA256)
+		if bindingErr != nil {
+			return PrivateReviewSummary{}, bindingErr
+		}
+		review.ResultSHA256 = binding.OpaqueToken
+		resultBinding = binding.OpaqueToken
+	}
+	packetRelative := privatePanelPacketRelative(source.RunID, privateReviewCellKey(surface), reviewer.ID)
 	packet := filepath.Join(root, filepath.FromSlash(packetRelative))
 	if _, err := safepath.StatWithin(root, packet); err == nil || !os.IsNotExist(err) {
 		return PrivateReviewSummary{}, privatePlanError("review_exists")
 	}
-	if err := writePrivateReviewPacket(root, packet, resultData, finalData, rubricData, review); err != nil {
+	if err := writePrivateReviewPacket(root, packet, resultData, finalData, rubricData, review, surface.CellID == ""); err != nil {
 		return PrivateReviewSummary{}, err
 	}
 	prepared, assessed, err := privatePanelReviewProgress(root, source, surface, contract)
 	if err != nil {
 		return PrivateReviewSummary{}, err
 	}
-	return privatePanelReviewSummary(source, surface.Surface, reviewer.ID, "prepared", packetRelative, resultData, finalData, rubric, policy.ExpectedReviewers, prepared, assessed), nil
+	return privatePanelReviewSummary(source, surface.Surface, reviewer.ID, "prepared", packetRelative, resultBinding, finalData, rubric, policy.ExpectedReviewers, prepared, assessed), nil
 }
 
 func assessPrivatePanelReview(root string, source PrivateBaselineSource, surface PrivateBaselineSurfaceSource, resultData, finalData []byte, result Result, rubric Rubric, options PrivateReviewAssessOptions) (PrivateReviewSummary, error) {
@@ -65,14 +82,18 @@ func assessPrivatePanelReview(root string, source PrivateBaselineSource, surface
 	if err := validatePrivatePanelRunPrepared(root, source); err != nil {
 		return PrivateReviewSummary{}, err
 	}
-	packetRelative := privatePanelPacketRelative(source.RunID, surface.Surface, reviewer.ID)
+	packetRelative := privatePanelPacketRelative(source.RunID, privateReviewCellKey(surface), reviewer.ID)
 	packet := filepath.Join(root, filepath.FromSlash(packetRelative))
 	assessmentPath := filepath.Join(packet, "assessment.json")
 	reviewData, readErr := readPrivatePlanLifecycleFile(root, filepath.Join(packet, "review.json"), maxReviewBytes)
 	if readErr != nil {
 		return PrivateReviewSummary{}, privatePlanError("review_read")
 	}
-	canonicalData, err := canonicalPrivatePanelAssessment(result, resultData, finalData, rubric, reviewer, reviewData)
+	binding, err := loadPrivatePanelResultBinding(root, source, surface, reviewer, sha256HexBytes(resultData))
+	if err != nil {
+		return PrivateReviewSummary{}, err
+	}
+	canonicalData, err := canonicalPrivatePanelAssessment(result, resultData, finalData, rubric, reviewer, reviewData, binding)
 	if err != nil {
 		return PrivateReviewSummary{}, err
 	}
@@ -96,7 +117,7 @@ func assessPrivatePanelReview(root string, source PrivateBaselineSource, surface
 	if assessed == policy.ExpectedReviewers {
 		reviews := make([]Review, 0, assessed)
 		for _, expectedReviewer := range contract.Reviewers {
-			path := filepath.Join(root, filepath.FromSlash(privatePanelPacketRelative(source.RunID, surface.Surface, expectedReviewer.ID)), "assessment.json")
+			path := filepath.Join(root, filepath.FromSlash(privatePanelPacketRelative(source.RunID, privateReviewCellKey(surface), expectedReviewer.ID)), "assessment.json")
 			data, readErr := readPrivatePlanLifecycleFile(root, path, maxReviewBytes)
 			if readErr != nil {
 				return PrivateReviewSummary{}, privatePlanError("assessment_read")
@@ -130,7 +151,7 @@ func assessPrivatePanelReview(root string, source PrivateBaselineSource, surface
 			status = "disagreement"
 		}
 	}
-	return privatePanelReviewSummary(source, surface.Surface, reviewer.ID, status, packetRelative, resultData, finalData, rubric, policy.ExpectedReviewers, prepared, assessed), nil
+	return privatePanelReviewSummary(source, surface.Surface, reviewer.ID, status, packetRelative, binding.OpaqueToken, finalData, rubric, policy.ExpectedReviewers, prepared, assessed), nil
 }
 
 func loadPrivatePanelReviewContract(root string, surface PrivateBaselineSurfaceSource) (privateQualitativeReviewPanelContract, []byte, QualitativePanelPolicy, error) {
@@ -187,7 +208,7 @@ func privatePanelPacketRelative(runID, surface, reviewerID string) string {
 }
 
 func privatePanelReviewProgress(root string, source PrivateBaselineSource, surface PrivateBaselineSurfaceSource, contract privateQualitativeReviewPanelContract) (int, int, error) {
-	reviewRoot := filepath.Join(root, "runs", source.RunID, "review", surface.Surface)
+	reviewRoot := filepath.Join(root, "runs", source.RunID, "review", privateReviewCellKey(surface))
 	entries, err := safepath.ReadDirWithin(root, reviewRoot)
 	if os.IsNotExist(err) {
 		return 0, 0, nil
@@ -260,15 +281,19 @@ func validatePrivatePanelRunPrepared(root string, source PrivateBaselineSource) 
 			return err
 		}
 		for _, reviewer := range contract.Reviewers {
-			packet := filepath.Join(root, filepath.FromSlash(privatePanelPacketRelative(source.RunID, surface.Surface, reviewer.ID)))
-			if err := validatePrivatePanelPacket(root, packet, resultData, finalData, rubricData); err != nil {
+			packet := filepath.Join(root, filepath.FromSlash(privatePanelPacketRelative(source.RunID, privateReviewCellKey(surface), reviewer.ID)))
+			if err := validatePrivatePanelPacket(root, packet, resultData, finalData, rubricData, surface.CellID == ""); err != nil {
 				return err
 			}
 			reviewData, readErr := readPrivatePlanLifecycleFile(root, filepath.Join(packet, "review.json"), maxReviewBytes)
 			if readErr != nil {
 				return privatePlanError("review_packet_drift")
 			}
-			canonicalData, canonicalErr := canonicalPrivatePanelAssessment(result, resultData, finalData, rubric, reviewer, reviewData)
+			binding, bindingErr := loadPrivatePanelResultBinding(root, source, surface, reviewer, sha256HexBytes(resultData))
+			if bindingErr != nil {
+				return bindingErr
+			}
+			canonicalData, canonicalErr := canonicalPrivatePanelAssessment(result, resultData, finalData, rubric, reviewer, reviewData, binding)
 			if canonicalErr != nil {
 				return canonicalErr
 			}
@@ -287,11 +312,15 @@ func validatePrivatePanelRunPrepared(root string, source PrivateBaselineSource) 
 	return nil
 }
 
-func canonicalPrivatePanelAssessment(result Result, resultData, finalData []byte, rubric Rubric, reviewer Reviewer, reviewData []byte) ([]byte, error) {
+func canonicalPrivatePanelAssessment(result Result, resultData, finalData []byte, rubric Rubric, reviewer Reviewer, reviewData []byte,
+	binding privatePanelResultBinding,
+) ([]byte, error) {
 	review, err := DecodeReview(bytes.NewReader(reviewData))
-	if err != nil || review.Reviewer != reviewer {
+	if err != nil || review.Reviewer != reviewer || review.ResultSHA256 != binding.OpaqueToken ||
+		binding.ResultSHA256 != sha256HexBytes(resultData) {
 		return nil, privatePlanError("review_decode")
 	}
+	review.ResultSHA256 = binding.ResultSHA256
 	if _, err := AssessQualitative(result, resultData, finalData, rubric, review); err != nil {
 		return nil, privatePlanError("assessment")
 	}
@@ -306,18 +335,25 @@ func canonicalPrivatePanelAssessment(result Result, resultData, finalData []byte
 	return append(data, '\n'), nil
 }
 
-func validatePrivatePanelPacket(root, packet string, resultData, finalData, rubricData []byte) error {
+func validatePrivatePanelPacket(root, packet string, resultData, finalData, rubricData []byte, includeResult bool) error {
 	entries, err := safepath.ReadDirWithin(root, packet)
 	if err != nil {
 		return privatePlanError("review_packet")
 	}
-	allowed := map[string]bool{"result.json": true, "final.json": true, "rubric.json": true, "review.json": true, "assessment.json": true}
+	allowed := map[string]bool{"final.json": true, "rubric.json": true, "review.json": true, "assessment.json": true}
+	if includeResult {
+		allowed["result.json"] = true
+	}
 	for _, entry := range entries {
 		if !allowed[entry.Name()] || entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
 			return privatePlanError("review_packet_drift")
 		}
 	}
-	for name, expected := range map[string][]byte{"result.json": resultData, "final.json": finalData, "rubric.json": rubricData} {
+	expectedFiles := map[string][]byte{"final.json": finalData, "rubric.json": rubricData}
+	if includeResult {
+		expectedFiles["result.json"] = resultData
+	}
+	for name, expected := range expectedFiles {
 		actual, readErr := readPrivatePlanLifecycleFile(root, filepath.Join(packet, name), maxReviewBytes)
 		if readErr != nil || !bytes.Equal(actual, expected) {
 			return privatePlanError("review_packet_drift")
@@ -326,7 +362,7 @@ func validatePrivatePanelPacket(root, packet string, resultData, finalData, rubr
 	return nil
 }
 
-func writePrivateReviewPacket(root, packet string, resultData, finalData, rubricData []byte, review Review) error {
+func writePrivateReviewPacket(root, packet string, resultData, finalData, rubricData []byte, review Review, includeResult bool) error {
 	if err := safepath.MkdirAllWithin(root, filepath.Dir(packet), 0o700); err != nil {
 		return privatePlanError("review_directory")
 	}
@@ -348,7 +384,11 @@ func writePrivateReviewPacket(root, packet string, resultData, finalData, rubric
 	if err != nil {
 		return privatePlanError("review_encode")
 	}
-	for name, data := range map[string][]byte{"final.json": finalData, "result.json": resultData, "rubric.json": rubricData, "review.json": append(reviewData, '\n')} {
+	files := map[string][]byte{"final.json": finalData, "rubric.json": rubricData, "review.json": append(reviewData, '\n')}
+	if includeResult {
+		files["result.json"] = resultData
+	}
+	for name, data := range files {
 		if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(stage, name), data, 0o600); err != nil {
 			return privatePlanError("review_write")
 		}
@@ -379,11 +419,80 @@ func canonicalPrivateReview(review Review, rubric Rubric) (Review, error) {
 	return canonical, nil
 }
 
-func privatePanelReviewSummary(source PrivateBaselineSource, surface, reviewerID, status, packet string, resultData, finalData []byte, rubric Rubric, expected, prepared, assessed int) PrivateReviewSummary {
-	summary := privateReviewSummary(source, surface, status, packet, resultData, finalData, rubric)
+func privatePanelReviewSummary(source PrivateBaselineSource, surface, reviewerID, status, packet, resultBinding string, finalData []byte, rubric Rubric, expected, prepared, assessed int) PrivateReviewSummary {
+	summary := privateReviewSummary(source, surface, status, packet, []byte(resultBinding), finalData, rubric)
+	summary.ResultSHA256 = resultBinding
 	summary.ReviewerID = reviewerID
 	summary.Expected = expected
 	summary.Prepared = prepared
 	summary.Assessed = assessed
 	return summary
+}
+
+func privatePanelResultBindingPath(root string, source PrivateBaselineSource, surface PrivateBaselineSurfaceSource, reviewer Reviewer) string {
+	return filepath.Join(root, "runs", source.RunID, "contracts", privateReviewCellKey(surface), "review-bindings", reviewer.ID+".json")
+}
+
+func createOrLoadPrivatePanelResultBinding(root string, source PrivateBaselineSource, surface PrivateBaselineSurfaceSource,
+	reviewer Reviewer, resultSHA256 string,
+) (privatePanelResultBinding, error) {
+	path := privatePanelResultBindingPath(root, source, surface, reviewer)
+	if _, err := safepath.StatWithin(root, path); err == nil {
+		return loadPrivatePanelResultBinding(root, source, surface, reviewer, resultSHA256)
+	} else if !os.IsNotExist(err) {
+		return privatePanelResultBinding{}, privatePlanError("review_binding")
+	}
+	randomID, err := privateRandomID("")
+	if err != nil {
+		return privatePanelResultBinding{}, privatePlanError("review_binding")
+	}
+	binding := privatePanelResultBinding{SchemaVersion: privatePanelResultBindingSchemaVersion,
+		OpaqueToken: sha256HexBytes([]byte(randomID)), ResultSHA256: resultSHA256}
+	data, err := encodePrivatePanelResultBinding(binding)
+	if err != nil {
+		return privatePanelResultBinding{}, err
+	}
+	if err := safepath.MkdirAllWithin(root, filepath.Dir(path), 0o700); err != nil {
+		return privatePanelResultBinding{}, privatePlanError("review_binding")
+	}
+	if err := safepath.WriteFileExclusiveWithin(root, path, data, 0o600); err != nil {
+		return privatePanelResultBinding{}, privatePlanError("review_binding")
+	}
+	return binding, nil
+}
+
+func loadPrivatePanelResultBinding(root string, source PrivateBaselineSource, surface PrivateBaselineSurfaceSource,
+	reviewer Reviewer, resultSHA256 string,
+) (privatePanelResultBinding, error) {
+	if surface.CellID == "" {
+		return privatePanelResultBinding{SchemaVersion: privatePanelResultBindingSchemaVersion,
+			OpaqueToken: resultSHA256, ResultSHA256: resultSHA256}, nil
+	}
+	path := privatePanelResultBindingPath(root, source, surface, reviewer)
+	data, err := readPrivatePlanLifecycleFile(root, path, maxContractBytes)
+	if err != nil {
+		return privatePanelResultBinding{}, privatePlanError("review_binding")
+	}
+	var binding privatePanelResultBinding
+	if decodePrivateLifecycleJSON(data, &binding) != nil || binding.SchemaVersion != privatePanelResultBindingSchemaVersion ||
+		binding.ResultSHA256 != resultSHA256 || binding.OpaqueToken == binding.ResultSHA256 {
+		return privatePanelResultBinding{}, privatePlanError("review_binding")
+	}
+	canonical, err := encodePrivatePanelResultBinding(binding)
+	if err != nil || !bytes.Equal(canonical, data) {
+		return privatePanelResultBinding{}, privatePlanError("review_binding")
+	}
+	return binding, nil
+}
+
+func encodePrivatePanelResultBinding(binding privatePanelResultBinding) ([]byte, error) {
+	if binding.SchemaVersion != privatePanelResultBindingSchemaVersion || !validSHA256(binding.OpaqueToken) ||
+		!validSHA256(binding.ResultSHA256) || binding.OpaqueToken == binding.ResultSHA256 {
+		return nil, privatePlanError("review_binding")
+	}
+	data, err := json.MarshalIndent(binding, "", "  ")
+	if err != nil {
+		return nil, privatePlanError("review_binding")
+	}
+	return append(data, '\n'), nil
 }

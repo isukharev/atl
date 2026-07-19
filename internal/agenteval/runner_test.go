@@ -155,16 +155,24 @@ exit 2
 		t.Fatalf("build wrapper: %v\n%s", err, output)
 	}
 
+	providerAttempts := 0
 	output, err := RunHeadless(context.Background(), RunOptions{
 		SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,
 		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
 		PluginRoot: pluginRoot, WrapperExecutable: wrapper,
+		providerAttemptCommitted: func() error {
+			providerAttempts++
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(output.Results) != 1 || output.Results[0].Status != "pass" {
 		t.Fatalf("output=%+v", output)
+	}
+	if providerAttempts != 1 {
+		t.Fatalf("durable provider boundaries=%d want=1", providerAttempts)
 	}
 	if output.Preview.Command.Path != "claude" {
 		t.Fatalf("preview command path=%q", output.Preview.Command.Path)
@@ -318,6 +326,34 @@ exit 2
 	ephemeralEntries, err = os.ReadDir(filepath.Join(outputRoot, ".ephemeral"))
 	if err != nil || len(ephemeralEntries) != 0 {
 		t.Fatalf("provider timeout left runtime credentials: entries=%v err=%v", ephemeralEntries, err)
+	}
+
+	spec.Provider = "claude-code"
+	spec.ToolTransport = "cli"
+	spec.Variant = "provider-boundary-persistence-failure"
+	spec.Model = "claude-test-1"
+	spec.TimeoutSeconds = 30
+	spec.Repetitions = 1
+	spec.AllowedTools = []string{"Bash(atl *)", "Skill"}
+	spec.AllowedATLCommands = []string{"atl version"}
+	spec.AllowedMCPTools = nil
+	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
+	startedMarker := filepath.Join(tempRepository, "provider-started")
+	writeTestFile(t, fakeAgent, strings.ReplaceAll(`#!/bin/sh
+if [ "$1" = "--version" ]; then echo fake-agent-1; exit 0; fi
+: >"__STARTED_MARKER__"
+exit 0
+`, "__STARTED_MARKER__", startedMarker), 0o700)
+	if _, err := RunHeadless(context.Background(), RunOptions{
+		SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,
+		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
+		PluginRoot: pluginRoot, WrapperExecutable: wrapper,
+		providerAttemptCommitted: func() error { return fmt.Errorf("synthetic state persistence failure") },
+	}); err == nil || !strings.Contains(err.Error(), "persist provider attempt boundary") {
+		t.Fatalf("provider boundary failure result=%v", err)
+	}
+	if _, err := os.Stat(startedMarker); !os.IsNotExist(err) {
+		t.Fatalf("provider started before its durable boundary: %v", err)
 	}
 }
 

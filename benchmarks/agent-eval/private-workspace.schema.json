@@ -13,7 +13,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2
     },
     "live_config_env": {
       "$ref": "#/$defs/environmentName"
@@ -77,13 +77,19 @@
           "qualitative_review_required"
         ],
         "properties": {
+          "kind": {
+            "enum": [
+              "comparison",
+              "activation-study"
+            ]
+          },
           "alias": {
             "$ref": "#/$defs/alias"
           },
           "spec_paths": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 3,
+            "maxItems": 4,
             "uniqueItems": true,
             "items": {
               "type": "string",
@@ -102,6 +108,11 @@
           },
           "qualitative_review_required": {
             "type": "boolean"
+          },
+          "reviewer_reserve_microusd": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000000
           },
           "qualitative_review_panel": {
             "type": "object",
@@ -144,16 +155,64 @@
             }
           }
         },
-        "not": {
-          "required": [
-            "qualitative_review_panel"
-          ],
-          "properties": {
-            "qualitative_review_required": {
-              "const": true
+        "allOf": [
+          {
+            "not": {
+              "required": [
+                "qualitative_review_panel"
+              ],
+              "properties": {
+                "qualitative_review_required": {
+                  "const": true
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "activation-study"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "required": [
+                "qualitative_review_panel",
+                "reviewer_reserve_microusd"
+              ],
+              "properties": {
+                "spec_paths": {
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                "qualitative_review_required": {
+                  "const": false
+                },
+                "qualitative_review_panel": {
+                  "required": [
+                    "blind_assignment"
+                  ]
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "spec_paths": {
+                  "maxItems": 3
+                }
+              },
+              "not": {
+                "required": [
+                  "reviewer_reserve_microusd"
+                ]
+              }
             }
           }
-        }
+        ]
       }
     }
   },
