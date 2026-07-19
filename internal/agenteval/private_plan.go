@@ -247,7 +247,14 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 		return PrivatePlanExecutionSummary{}, privatePlanError("id")
 	}
 	runRoot := filepath.Join(root, "runs", runID)
-	snapshot, err := createPrivateExecutionSnapshot(root, runID, options, runSet, liveConfig, externalProfile, material.agent)
+	installCodexPlugin := false
+	for _, item := range plan.Items {
+		if item.Surface == SurfaceCLISkill {
+			installCodexPlugin = true
+			break
+		}
+	}
+	snapshot, err := createPrivateExecutionSnapshot(root, runID, options, runSet, liveConfig, externalProfile, plan.Provider, installCodexPlugin, material.agent)
 	if err != nil {
 		return PrivatePlanExecutionSummary{}, privatePlanError("execution_snapshot")
 	}
@@ -438,6 +445,25 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 		return nil, material, "", "", 0, false, privatePlanError("plugin_manifest")
 	}
 	material.inputs = append(material.inputs, "plugin-manifest:"+pluginManifestDigest)
+	installCodexPlugin := false
+	for _, item := range items {
+		if item.Surface == SurfaceCLISkill {
+			installCodexPlugin = true
+			break
+		}
+	}
+	if provider == "codex" && installCodexPlugin {
+		packageDigest, err := digestTree(filepath.Join(pluginRoot, "plugins", "atl"))
+		if err != nil {
+			return nil, material, "", "", 0, false, privatePlanError("plugin_package")
+		}
+		material.inputs = append(material.inputs, "plugin-package:"+packageDigest)
+		marketplaceDigest, err := privateFileDigest(filepath.Join(pluginRoot, ".agents", "plugins", "marketplace.json"))
+		if err != nil {
+			return nil, material, "", "", 0, false, privatePlanError("plugin_marketplace")
+		}
+		material.inputs = append(material.inputs, "plugin-marketplace:"+marketplaceDigest)
+	}
 	configDigest, err := privateFileDigest(filepath.Join(liveConfig, "config.json"))
 	if err != nil {
 		return nil, material, "", "", 0, false, privatePlanError("config")

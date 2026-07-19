@@ -259,20 +259,35 @@ shell selection and startup state are never projected. The shell remains inside
 the existing hook, filesystem, command-broker, read-only, and GET/HEAD controls;
 MCP surfaces do not opt into these CLI-only feature flags.
 
-The private CLI instruction first routes the model through the installed
+The private CLI instruction tells the model to select the installed
 task-matching skill, then requires evidence retrieval through the literal
-`atl` executable. This is the intended `cli-skill` surface: the skill teaches
-the command shape, while the reviewed broker still decides whether that exact
-invocation is allowed. The instruction never reveals a case-specific command.
+`atl` executable. This is the intended `cli-skill` surface: when selected, the
+installed skill can supply command-shape guidance, while the reviewed broker
+still decides whether that exact invocation is allowed. The instruction never
+reveals a case-specific command.
 When the reviewed `data_capabilities` are Jira-only or Confluence-only, the
-instruction names `$jira` or `$confluence` respectively. Mixed capability sets
-name both in a stable order; unknown families stay on generic task matching.
+instruction names `$atl:jira` or `$atl:confluence` respectively. Mixed
+capability sets name both in a stable order; unknown families stay on generic
+task matching.
 This route discloses only the already-reviewed service family, not a selector,
 field, expected answer, backend, or command allowlist.
-Codex runs install and hash `plugins/atl/skills/`, including its Codex routing
-metadata; Claude Code runs continue to use the generated root `skills/` tree.
-Both trees are copied into the immutable execution snapshot before the plan is
-revalidated, so a client-specific skill change invalidates the reviewed bytes.
+Private Codex CLI runs add the snapshotted repository as an owner-local
+marketplace and install `atl@atl` through Codex's plugin command before provider
+launch. The resulting skills therefore retain their shipped `atl:` namespace;
+they are not rewritten as project skills. The complete Codex plugin package,
+manifest, marketplace descriptor, and routing metadata are hash-bound, while
+the installed copy must reproduce the same package digest. Every discovered
+bundled MCP server is disabled in the fresh config and the effective inventory
+is rechecked before the CLI-only cell. Guarded reference reads admit only that
+installed plugin's skill root. Claude
+Code runs continue to use the generated root plugin tree. Every selected tree
+is copied into the immutable execution snapshot before the plan is revalidated,
+so a client-specific package or routing change invalidates the reviewed bytes.
+Codex JSONL does not currently expose a trustworthy native skill-load event.
+Installation fidelity is therefore proven separately from task behavior: the
+neutral-user-task cell passes only when the guarded audit observes the required
+reviewed CLI evidence invocation and the answer oracle succeeds. Do not report
+that as a direct measurement of skill loading.
 
 `--agent-binary` must identify a reviewed single-file native executable for the
 host OS and architecture. A symlink is accepted when its canonical target is

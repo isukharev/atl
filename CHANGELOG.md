@@ -24,17 +24,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Baseline comparison and aggregate grouping now keep different blind
   assignments separate for both singleton and panel reviews.
 
-- Private-live Codex `cli-skill` evaluations now route Jira and Confluence
-  evidence through `$jira` and `$confluence` based only on reviewed
-  `data_capabilities`. The generic instruction remains selector- and
-  allowlist-blind, and unknown capability families do not invent a skill.
+- Private-live Codex `cli-skill` provider instructions now name and tell the
+  model to select the installed `$atl:jira` or `$atl:confluence` skill based
+  only on reviewed `data_capabilities`. The generic instruction remains
+  selector- and allowlist-blind, and unknown capability families do not add a
+  named skill hint.
 
-- Private-live Codex `cli-skill` evaluations now explicitly select and follow
-  the installed task-matching skill before invoking `atl`. This exercises the
-  intended skill-plus-CLI surface without revealing the reviewed command policy
-  or expanding shell, filesystem, network, or backend authority. Agent-eval now
-  also hashes and installs the Codex-specific generated skill tree (including
-  its routing metadata) instead of substituting the Claude Code tree.
+- Private-live Codex `cli-skill` evaluations now install the hash-bound
+  `atl@atl` package through a snapshotted local marketplace inside every fresh
+  provider capsule. This preserves the shipped `atl:` namespace instead of
+  rewriting plugin skills as project skills. The complete package, manifest,
+  marketplace descriptor, and routing metadata are bound to the reviewed
+  execution; inventory must contain only the expected installed plugin, and its
+  complete copied package must match the reviewed digest. Every bundled MCP
+  server is disabled in the isolated config and rechecked before launch. Only
+  the installed plugin's skill root (not the unused provider tree) is admitted
+  for guarded reference reads. Tree digests now length-frame paths and binary
+  contents to prevent ambiguous package encodings. Shell, filesystem, network,
+  broker, read-only, and backend authority are unchanged.
 
 - Private-live Codex `cli-skill` benchmarks now explicitly enable the reviewed
   local shell/unified execution features and use a fixed `/bin/sh` inside the
@@ -261,8 +268,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gateway auth, GET/HEAD, route, response-budget, and audit gates remain
   independently mandatory. Codex benchmark runs also disable ambient
   `AGENTS.md` discovery so machine-local instructions cannot redirect a
-  reviewed CLI invocation; the explicit prompt and copied shipped skills remain
-  the only task workflow sources.
+  reviewed CLI invocation; the reviewed prompt/provider instruction and
+  snapshotted shipped plugin remain the only benchmark-supplied task-workflow
+  sources.
 
 - Kept direct patch/edit/write access fail-closed in private-live Codex CLI
   evaluations and added a provider-scoped operational instruction to use only

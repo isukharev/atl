@@ -10,6 +10,335 @@ import (
 	"testing"
 )
 
+func TestProvisionCodexBenchmarkPluginUsesFreshLocalMarketplaceInventory(t *testing.T) {
+	requireCodexRuntimePOSIX(t)
+	home := t.TempDir()
+	codexHome := filepath.Join(home, ".codex")
+	if err := os.Mkdir(codexHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexHome, "auth.json"), []byte(`{"token":"synthetic"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scratch := filepath.Join(t.TempDir(), "scratch")
+	if err := os.Mkdir(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	session, err := newCodexAuthSession([]string{"HOME=" + home, "CODEX_HOME=" + codexHome})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	capsule, err := newCodexProviderRuntime(scratch, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = capsule.Close() }()
+	pluginRoot := filepath.Join(t.TempDir(), "plugin")
+	writeTestPluginTrees(t, pluginRoot, "0.4.0", "Synthetic plugin.")
+	commandLog := filepath.Join(t.TempDir(), "commands")
+	binary := filepath.Join(t.TempDir(), "codex")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >>` + shellQuote(commandLog) + `
+if [ "$1" = "plugin" ] && [ "$2" = "marketplace" ] && [ "$3" = "add" ]; then
+  printf '%s\n' "$4" >"$CODEX_HOME/marketplace-root"
+  printf '%s\n' '[plugins."atl@atl"]' 'enabled = true' >"$CODEX_HOME/config.toml"
+  exit 0
+fi
+if [ "$1" = "plugin" ] && [ "$2" = "add" ]; then
+  root=$(/bin/cat "$CODEX_HOME/marketplace-root") || exit 5
+  installed="$CODEX_HOME/plugins/cache/atl/atl/0.4.0"
+  /bin/mkdir -p "$CODEX_HOME/plugins/cache/atl/atl" || exit 5
+  /bin/cp -R "$root/plugins/atl" "$installed" || exit 5
+  printf '{"pluginId":"atl@atl","name":"atl","marketplaceName":"atl","version":"0.4.0","installedPath":"%s"}\n' "$installed"
+  exit 0
+fi
+if [ "$1" = "plugin" ] && [ "$2" = "list" ]; then
+  root=$(/bin/cat "$CODEX_HOME/marketplace-root") || exit 5
+  printf '{"installed":[{"pluginId":"atl@atl","name":"atl","marketplaceName":"atl","version":"0.4.0","installed":true,"enabled":true,"source":{"source":"local","path":"%s/plugins/atl"}}]}\n' "$root"
+  exit 0
+fi
+if [ "$1" = "mcp" ] && [ "$2" = "list" ]; then
+  atl_enabled=true
+  extra_enabled=true
+  config=$(/bin/cat "$CODEX_HOME/config.toml") || exit 5
+  case "$config" in *'mcp_servers."atl"'*) atl_enabled=false;; esac
+  case "$config" in *'mcp_servers."extra-read"'*) extra_enabled=false;; esac
+  printf '[{"name":"atl","enabled":%s},{"name":"extra-read","enabled":%s}]\n' "$atl_enabled" "$extra_enabled"
+  exit 0
+fi
+exit 6
+`
+	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := provisionCodexBenchmarkPlugin(context.Background(), binary, pluginRoot, capsule); err != nil {
+		t.Fatal(err)
+	}
+	commands, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := "plugin marketplace add " + pluginRoot + "\nplugin add atl@atl --json\nplugin list --json\nmcp list --json\nmcp list --json\n"
+	if string(commands) != expected {
+		t.Fatalf("commands=%q want=%q", commands, expected)
+	}
+	if _, err := os.Stat(filepath.Join(capsule.Environment()["CODEX_HOME"], "config.toml")); err != nil {
+		t.Fatalf("isolated plugin config missing: %v", err)
+	}
+	config, err := os.ReadFile(filepath.Join(capsule.Environment()["CODEX_HOME"], "config.toml"))
+	if err != nil || !strings.Contains(string(config), `[plugins."atl@atl".mcp_servers."atl"]`) || !strings.Contains(string(config), `[plugins."atl@atl".mcp_servers."extra-read"]`) {
+		t.Fatalf("effective plugin MCP disable missing: %q err=%v", config, err)
+	}
+	expectedSkillRoot, err := filepath.EvalSymlinks(filepath.Join(capsule.Environment()["CODEX_HOME"], "plugins", "cache", "atl", "atl", "0.4.0", "skills"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if capsule.PluginSkillRoot() != expectedSkillRoot {
+		t.Fatalf("installed skill root=%q", capsule.PluginSkillRoot())
+	}
+}
+
+func TestProvisionCodexBenchmarkPluginRejectsUnexpectedInventoryWithoutLeakingOutput(t *testing.T) {
+	requireCodexRuntimePOSIX(t)
+	home := t.TempDir()
+	codexHome := filepath.Join(home, ".codex")
+	if err := os.Mkdir(codexHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexHome, "auth.json"), []byte(`{"token":"synthetic"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scratch := filepath.Join(t.TempDir(), "scratch")
+	if err := os.Mkdir(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	session, err := newCodexAuthSession([]string{"HOME=" + home, "CODEX_HOME=" + codexHome})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	capsule, err := newCodexProviderRuntime(scratch, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = capsule.Close() }()
+	pluginRoot := filepath.Join(t.TempDir(), "private-path-canary")
+	writeTestPluginTrees(t, pluginRoot, "0.4.0", "Synthetic plugin.")
+	binary := filepath.Join(t.TempDir(), "codex")
+	script := `#!/bin/sh
+if [ "$2" = "marketplace" ]; then printf '%s\n' "$4" >"$CODEX_HOME/marketplace-root"; printf enabled >"$CODEX_HOME/config.toml"; exit 0; fi
+if [ "$2" = "add" ]; then
+  root=$(/bin/cat "$CODEX_HOME/marketplace-root") || exit 5
+  installed="$CODEX_HOME/plugins/cache/atl/atl/0.4.0"
+  /bin/mkdir -p "$CODEX_HOME/plugins/cache/atl/atl" || exit 5
+  /bin/cp -R "$root/plugins/atl" "$installed" || exit 5
+  printf '{"pluginId":"atl@atl","name":"atl","marketplaceName":"atl","version":"0.4.0","installedPath":"%s"}\n' "$installed"
+  exit 0
+fi
+if [ "$1" = "mcp" ]; then printf '%s\n' '[{"name":"atl","enabled":true}]'; exit 0; fi
+printf '%s\n' '{"installed":[{"pluginId":"unexpected@ambient","name":"unexpected","marketplaceName":"ambient","version":"1","installed":true,"enabled":true,"source":{"source":"local","path":"private-path-canary"}}]}'
+`
+	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	err = provisionCodexBenchmarkPlugin(context.Background(), binary, pluginRoot, capsule)
+	if err == nil || strings.Contains(err.Error(), "private-path-canary") || strings.Contains(err.Error(), "unexpected") {
+		t.Fatalf("unsafe inventory result: %v", err)
+	}
+}
+
+func TestDisableCodexBenchmarkPluginMCPRejectsIneffectivePolicy(t *testing.T) {
+	requireCodexRuntimePOSIX(t)
+	home := t.TempDir()
+	codexHome := filepath.Join(home, ".codex")
+	if err := os.Mkdir(codexHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexHome, "auth.json"), []byte(`{"token":"synthetic"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scratch := filepath.Join(t.TempDir(), "scratch")
+	if err := os.Mkdir(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	session, err := newCodexAuthSession([]string{"HOME=" + home, "CODEX_HOME=" + codexHome})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	capsule, err := newCodexProviderRuntime(scratch, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = capsule.Close() }()
+	if err := os.WriteFile(filepath.Join(capsule.Environment()["CODEX_HOME"], "config.toml"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "calls")
+	binary := filepath.Join(t.TempDir(), "codex")
+	script := "#!/bin/sh\nprintf called >>" + shellQuote(marker) + "\nprintf '%s\\n' '[{\"name\":\"private-server-canary\",\"enabled\":true}]'\n"
+	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	err = disableCodexBenchmarkPluginMCP(context.Background(), binary, flattenEnvironment(capsule.Environment()), capsule)
+	if err == nil || strings.Contains(err.Error(), "private-server-canary") {
+		t.Fatalf("ineffective MCP policy result: %v", err)
+	}
+	calls, readErr := os.ReadFile(marker)
+	if readErr != nil || string(calls) != "calledcalled" {
+		t.Fatalf("post-policy verification did not run: calls=%q err=%v", calls, readErr)
+	}
+}
+
+func TestDisableCodexBenchmarkPluginMCPRejectsDuplicatePostPolicyInventory(t *testing.T) {
+	requireCodexRuntimePOSIX(t)
+	home := t.TempDir()
+	codexHome := filepath.Join(home, ".codex")
+	if err := os.Mkdir(codexHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexHome, "auth.json"), []byte(`{"token":"synthetic"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scratch := filepath.Join(t.TempDir(), "scratch")
+	if err := os.Mkdir(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	session, err := newCodexAuthSession([]string{"HOME=" + home, "CODEX_HOME=" + codexHome})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	capsule, err := newCodexProviderRuntime(scratch, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = capsule.Close() }()
+	if err := os.WriteFile(filepath.Join(capsule.Environment()["CODEX_HOME"], "config.toml"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(t.TempDir(), "state")
+	binary := filepath.Join(t.TempDir(), "codex")
+	script := `#!/bin/sh
+if [ -f ` + shellQuote(state) + ` ]; then
+  printf '%s\n' '[{"name":"one","enabled":false},{"name":"one","enabled":false}]'
+else
+  printf called >` + shellQuote(state) + `
+  printf '%s\n' '[{"name":"one","enabled":true},{"name":"two","enabled":true}]'
+fi
+`
+	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := disableCodexBenchmarkPluginMCP(context.Background(), binary, flattenEnvironment(capsule.Environment()), capsule); err == nil {
+		t.Fatal("duplicate post-policy inventory was accepted")
+	}
+}
+
+func TestDisableCodexBenchmarkPluginMCPRequiresExplicitDisabledState(t *testing.T) {
+	requireCodexRuntimePOSIX(t)
+	for _, after := range []string{
+		`[{"name":"one"}]`,
+		`[{"name":"one","enabled":null}]`,
+	} {
+		t.Run(after, func(t *testing.T) {
+			home := t.TempDir()
+			codexHome := filepath.Join(home, ".codex")
+			if err := os.Mkdir(codexHome, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(codexHome, "auth.json"), []byte(`{"token":"synthetic"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			scratch := filepath.Join(t.TempDir(), "scratch")
+			if err := os.Mkdir(scratch, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			session, err := newCodexAuthSession([]string{"HOME=" + home, "CODEX_HOME=" + codexHome})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = session.Close() }()
+			capsule, err := newCodexProviderRuntime(scratch, session)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = capsule.Close() }()
+			if err := os.WriteFile(filepath.Join(capsule.Environment()["CODEX_HOME"], "config.toml"), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			state := filepath.Join(t.TempDir(), "state")
+			binary := filepath.Join(t.TempDir(), "codex")
+			script := `#!/bin/sh
+if [ -f ` + shellQuote(state) + ` ]; then
+  printf '%s\n' ` + shellQuote(after) + `
+else
+  printf called >` + shellQuote(state) + `
+  printf '%s\n' '[{"name":"one","enabled":true}]'
+fi
+`
+			if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := disableCodexBenchmarkPluginMCP(context.Background(), binary, flattenEnvironment(capsule.Environment()), capsule); err == nil {
+				t.Fatal("missing explicit disabled state was accepted")
+			}
+		})
+	}
+}
+
+func TestProvisionCodexBenchmarkPluginRejectsPackageSymlinkBeforeProviderCommand(t *testing.T) {
+	requireCodexRuntimePOSIX(t)
+	home := t.TempDir()
+	codexHome := filepath.Join(home, ".codex")
+	if err := os.Mkdir(codexHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexHome, "auth.json"), []byte(`{"token":"synthetic"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scratch := filepath.Join(t.TempDir(), "scratch")
+	if err := os.Mkdir(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	session, err := newCodexAuthSession([]string{"HOME=" + home, "CODEX_HOME=" + codexHome})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	capsule, err := newCodexProviderRuntime(scratch, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = capsule.Close() }()
+	pluginRoot := filepath.Join(t.TempDir(), "plugin")
+	writeTestPluginTrees(t, pluginRoot, "0.4.0", "Synthetic plugin.")
+	external := filepath.Join(t.TempDir(), "private-package-canary")
+	if err := os.WriteFile(external, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mcpPath := filepath.Join(pluginRoot, "plugins", "atl", ".mcp.json")
+	if err := os.Remove(mcpPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, mcpPath); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "provider-called")
+	binary := filepath.Join(t.TempDir(), "codex")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf called >"+shellQuote(marker)+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	err = provisionCodexBenchmarkPlugin(context.Background(), binary, pluginRoot, capsule)
+	if err == nil || strings.Contains(err.Error(), "private-package-canary") {
+		t.Fatalf("package symlink result: %v", err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("provider command ran before package validation: %v", err)
+	}
+}
+
 func TestCodexProviderRuntimeFailsClosedBeforeAuthLookupOnWindows(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows-specific ACL fail-closed control")
