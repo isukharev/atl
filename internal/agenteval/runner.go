@@ -49,6 +49,8 @@ type RunPreview struct {
 	Variant                        string          `json:"variant"`
 	Category                       string          `json:"category"`
 	Surface                        string          `json:"surface"`
+	SkillActivation                string          `json:"skill_activation,omitempty"`
+	PromptContractBound            bool            `json:"prompt_contract_bound,omitempty"`
 	BackendMode                    string          `json:"backend_mode"`
 	Repetitions                    int             `json:"repetitions"`
 	MaxEstimatedCostMicroUSDTotal  int64           `json:"max_estimated_cost_microusd_total"`
@@ -171,6 +173,8 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 		SchemaVersion: 1, ScenarioID: loaded.scenario.ID,
 		Provider: loaded.spec.Provider, Variant: loaded.spec.Variant,
 		Category: loaded.spec.EffectiveCategory(), Surface: loaded.spec.EffectiveSurface(),
+		SkillActivation:                loaded.spec.SkillActivationIdentity(),
+		PromptContractBound:            loaded.promptContractSHA256 != "",
 		BackendMode:                    loaded.spec.EffectiveBackendMode(),
 		Repetitions:                    loaded.spec.Repetitions,
 		MaxEstimatedCostMicroUSDTotal:  loaded.spec.MaxEstimatedCostMicroUSD,
@@ -253,6 +257,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 			Provider: loaded.spec.Provider, AgentVersion: agentVersion,
 			Model: loaded.spec.Model, Reasoning: loaded.spec.Reasoning,
 			ATLVersion: atlVersion, PluginVersion: pluginVersion, SkillDigest: skillDigest,
+			SkillActivation: loaded.spec.SkillActivationIdentity(), PromptContractSHA256: loaded.promptContractSHA256,
 		}, externalProfile, providerRuntime)
 		if providerRuntime != nil {
 			runErr = errors.Join(runErr, providerRuntime.Close())
@@ -383,14 +388,16 @@ func perRepetitionCostCap(spec RunSpec) int64 {
 }
 
 type loadedRun struct {
-	spec           RunSpec
-	scenario       Scenario
-	fixture        *MockFixture
-	prompt         []byte
-	responseSchema []byte
-	rubric         Rubric
-	workspace      string
-	specDir        string
+	spec                 RunSpec
+	scenario             Scenario
+	fixture              *MockFixture
+	prompt               []byte
+	providerPrompt       []byte
+	promptContractSHA256 string
+	responseSchema       []byte
+	rubric               Rubric
+	workspace            string
+	specDir              string
 }
 
 func loadRunInputs(options RunOptions) (loadedRun, error) {
@@ -465,7 +472,7 @@ func loadRunInputs(options RunOptions) (loadedRun, error) {
 	if err != nil {
 		return loadedRun{}, err
 	}
-	prompt, err := readBoundedFile(promptPath, 1<<20)
+	prompt, err := readBoundedFile(promptPath, maxProviderPromptBytes)
 	if err != nil {
 		return loadedRun{}, err
 	}
@@ -473,6 +480,14 @@ func loadRunInputs(options RunOptions) (loadedRun, error) {
 		if err := validateNeutralCorePrompt(prompt); err != nil {
 			return loadedRun{}, err
 		}
+	}
+	providerPrompt, err := effectiveProviderPrompt(spec, prompt)
+	if err != nil {
+		return loadedRun{}, err
+	}
+	promptContractSHA256, err := providerPromptContractSHA256(spec, prompt, providerPrompt)
+	if err != nil {
+		return loadedRun{}, err
 	}
 	responseSchemaPath, err := resolveRelative(spec.ResponseSchemaFile)
 	if err != nil {
@@ -498,7 +513,7 @@ func loadRunInputs(options RunOptions) (loadedRun, error) {
 	if err != nil {
 		return loadedRun{}, err
 	}
-	return loadedRun{spec: spec, scenario: scenario, fixture: fixture, prompt: prompt, responseSchema: responseSchema, rubric: rubric, workspace: workspace, specDir: specDir}, nil
+	return loadedRun{spec: spec, scenario: scenario, fixture: fixture, prompt: prompt, providerPrompt: providerPrompt, promptContractSHA256: promptContractSHA256, responseSchema: responseSchema, rubric: rubric, workspace: workspace, specDir: specDir}, nil
 }
 
 func ValidateRunSpecFile(path string) (RunSpec, Scenario, error) {
@@ -813,7 +828,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	defer cancel()
 	command := exec.CommandContext(ctx, commandPlan.Path, commandPlan.Args...)
 	command.Dir = workspace
-	command.Stdin = bytes.NewReader(loaded.prompt)
+	command.Stdin = bytes.NewReader(loaded.providerPrompt)
 	command.Stdout = transcript
 	command.Stderr = stderr
 	environment := safeAgentEnvironment(os.Environ())

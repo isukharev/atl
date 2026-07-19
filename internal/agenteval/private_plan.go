@@ -21,7 +21,8 @@ import (
 )
 
 const (
-	PrivatePlanSchemaVersion       = 1
+	PrivatePlanSchemaVersion       = 2
+	LegacyPrivatePlanSchemaVersion = 1
 	PrivatePlanConsentConfirmation = "CONSENT"
 	PrivatePlanConfirmation        = "RUN"
 	privatePlanMaxBytes            = 4 << 20
@@ -103,12 +104,14 @@ type privateQualitativeReviewPanelContract struct {
 }
 
 type privatePlanItem struct {
-	SpecPath     string `json:"spec_path"`
-	ScenarioID   string `json:"scenario_id"`
-	Provider     string `json:"provider"`
-	Variant      string `json:"variant"`
-	Surface      string `json:"surface"`
-	RubricSHA256 string `json:"rubric_sha256"`
+	SpecPath             string `json:"spec_path"`
+	ScenarioID           string `json:"scenario_id"`
+	Provider             string `json:"provider"`
+	Variant              string `json:"variant"`
+	Surface              string `json:"surface"`
+	SkillActivation      string `json:"skill_activation,omitempty"`
+	PromptContractSHA256 string `json:"prompt_contract_sha256,omitempty"`
+	RubricSHA256         string `json:"rubric_sha256"`
 }
 
 type privatePlanState struct {
@@ -194,7 +197,7 @@ func CreatePrivatePlan(ctx context.Context, options PrivatePlanCreateOptions) (P
 		return PrivatePlanPreview{}, privatePlanError("write")
 	}
 	surfaces := privatePlanSurfaces(items)
-	return PrivatePlanPreview{SchemaVersion: 1, PlanID: planID, PlanSHA256: sha256HexBytes(data), Surfaces: surfaces,
+	return PrivatePlanPreview{SchemaVersion: PrivatePlanSchemaVersion, PlanID: planID, PlanSHA256: sha256HexBytes(data), Surfaces: surfaces,
 		Provider: provider, Model: model, ExpiresAt: options.Consent.ExpiresAt, MaxEstimatedCostMicroUSD: maxCost}, nil
 }
 
@@ -376,8 +379,14 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 			return nil, material, "", "", 0, false, privatePlanError("case_digest")
 		}
 		material.contract = append(material.contract, rel, caseDigest, spec.EffectiveSurface(), spec.Provider, spec.Model)
+		// Bind the complete prompt envelope without retaining prompt contents or a
+		// separately visible prompt digest in the plan-level public preview.
+		if loaded.promptContractSHA256 != "" {
+			material.inputs = append(material.inputs, "prompt-contract:"+loaded.promptContractSHA256)
+		}
 		items = append(items, privatePlanItem{SpecPath: rel, ScenarioID: scenario.ID, Provider: spec.Provider, Variant: spec.Variant,
-			Surface: spec.EffectiveSurface(), RubricSHA256: rubricSHA256(loaded.rubric)})
+			Surface: spec.EffectiveSurface(), SkillActivation: spec.SkillActivationIdentity(), PromptContractSHA256: loaded.promptContractSHA256,
+			RubricSHA256: rubricSHA256(loaded.rubric)})
 		if provider == "" {
 			provider, model = spec.Provider, spec.Model
 		}
@@ -648,7 +657,7 @@ func samePrivatePlanItemsUnordered(a, b []privatePlanItem) bool {
 		return false
 	}
 	key := func(x privatePlanItem) string {
-		return x.SpecPath + "\x00" + x.ScenarioID + "\x00" + x.Provider + "\x00" + x.Variant + "\x00" + x.Surface + "\x00" + x.RubricSHA256
+		return x.SpecPath + "\x00" + x.ScenarioID + "\x00" + x.Provider + "\x00" + x.Variant + "\x00" + x.Surface + "\x00" + x.SkillActivation + "\x00" + x.PromptContractSHA256 + "\x00" + x.RubricSHA256
 	}
 	aa := make([]string, len(a))
 	bb := make([]string, len(b))
@@ -993,7 +1002,7 @@ func normalizePrivateCandidateTree(root, runRoot string) error {
 func validatePrivatePlan(plan privatePlan, expectedID string) error {
 	created, createdErr := time.Parse(time.RFC3339Nano, plan.CreatedAt)
 	expires, expiryErr := time.Parse(time.RFC3339, plan.Consent.ExpiresAt)
-	if plan.SchemaVersion != PrivatePlanSchemaVersion || plan.PlanID != expectedID || !privatePlanIDRE.MatchString(plan.PlanID) ||
+	if (plan.SchemaVersion != PrivatePlanSchemaVersion && plan.SchemaVersion != LegacyPrivatePlanSchemaVersion) || plan.PlanID != expectedID || !privatePlanIDRE.MatchString(plan.PlanID) ||
 		!privateWorkspaceAliasRE.MatchString(plan.RunSetAlias) || !validSHA256(plan.ContractSHA256) || !validSHA256(plan.InputsSHA256) ||
 		createdErr != nil || expiryErr != nil || !expires.After(created) || expires.After(created.Add(7*24*time.Hour)) ||
 		!plan.Consent.ProviderDataApproved || !privateGitCommitRE.MatchString(plan.RepositoryCommit) ||
@@ -1010,7 +1019,8 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 	for _, item := range plan.Items {
 		if !validPrivateWorkspaceSpecPath(item.SpecPath) || validatePathComponentID("scenario id", item.ScenarioID) != nil ||
 			(item.Provider != "codex" && item.Provider != "claude-code") || item.Provider != plan.Provider ||
-			validatePathComponentID("run variant", item.Variant) != nil || !validRunSurface(item.Surface) || !validSHA256(item.RubricSHA256) {
+			validatePathComponentID("run variant", item.Variant) != nil || !validRunSurface(item.Surface) || !validSHA256(item.RubricSHA256) ||
+			!validPrivatePlanPromptIdentity(plan.SchemaVersion, item) {
 			return privatePlanError("item")
 		}
 		if _, exists := seenSurfaces[item.Surface]; exists {
@@ -1022,6 +1032,21 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 		}
 	}
 	return nil
+}
+
+func validPrivatePlanPromptIdentity(schemaVersion int, item privatePlanItem) bool {
+	if schemaVersion == LegacyPrivatePlanSchemaVersion {
+		return item.SkillActivation == "" && item.PromptContractSHA256 == ""
+	}
+	if schemaVersion != PrivatePlanSchemaVersion {
+		return false
+	}
+	activationCell := item.Provider == "codex" && item.Surface == SurfaceCLISkill
+	if !activationCell {
+		return item.SkillActivation == "" && item.PromptContractSHA256 == ""
+	}
+	return validSHA256(item.PromptContractSHA256) &&
+		(item.SkillActivation == SkillActivationImplicit || item.SkillActivation == SkillActivationExplicit)
 }
 
 func validatePrivateQualitativeReviewPanelContract(panel privateQualitativeReviewPanelContract) error {

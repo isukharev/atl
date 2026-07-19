@@ -345,7 +345,7 @@ func TestPanelSchemasPreserveOnlyExplicitLegacyReadCompatibility(t *testing.T) {
 	}
 	reviews := panelReviews(t, legacyResult, legacyBytes, final, rubric, [][2]int{{4, 4}, {4, 4}, {4, 4}}, nil)
 	assessed, err := AssessQualitativeReviewSet(legacyResult, legacyBytes, final, rubric, panelPolicy(9999), reviews)
-	if err != nil || assessed.SchemaVersion != ResultSchemaVersion {
+	if err != nil || assessed.SchemaVersion != PanelResultSchemaVersion {
 		t.Fatalf("panel did not upgrade result schema: version=%d err=%v", assessed.SchemaVersion, err)
 	}
 	assessed.SchemaVersion = LegacyResultSchemaVersion

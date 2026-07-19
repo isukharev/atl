@@ -1,6 +1,10 @@
 package agenteval
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestAggregateResultsGroupsComparableRunsAndUsesNearestRank(t *testing.T) {
 	results := make([]Result, 0, 5)
@@ -53,6 +57,92 @@ func TestAggregateResultsSeparatesRuntimeAndVariant(t *testing.T) {
 	}
 	if len(aggregate.Groups) != 2 || aggregate.Groups[0].Variant != "baseline" || aggregate.Groups[1].Variant != "candidate" {
 		t.Fatalf("groups=%+v", aggregate.Groups)
+	}
+}
+
+func TestAggregateResultsSeparatesSkillActivationWithoutPublishingPromptHash(t *testing.T) {
+	makeResult := func(activation, digest string) Result {
+		observation := validObservation()
+		observation.Surface = SurfaceCLISkill
+		observation.Runtime.Provider = "codex"
+		observation.Runtime.SkillActivation = activation
+		observation.Runtime.PromptContractSHA256 = digest
+		scenario := validScenario()
+		scenario.DataClass = "private-local"
+		result, err := Evaluate(scenario, observation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	implicit := makeResult(SkillActivationImplicit, strings.Repeat("a", 64))
+	explicit := makeResult(SkillActivationExplicit, strings.Repeat("b", 64))
+	aggregate, err := AggregateResults([]Result{explicit, implicit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aggregate.Groups) != 2 || aggregate.Groups[0].Runtime.SkillActivation != SkillActivationExplicit || aggregate.Groups[1].Runtime.SkillActivation != SkillActivationImplicit {
+		t.Fatalf("groups=%+v", aggregate.Groups)
+	}
+	encoded, err := json.Marshal(aggregate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "prompt_contract_sha256") || strings.Contains(string(encoded), strings.Repeat("a", 64)) || strings.Contains(string(encoded), strings.Repeat("b", 64)) {
+		t.Fatalf("aggregate published private prompt identity: %s", encoded)
+	}
+}
+
+func TestAggregateResultsRejectsHiddenPromptContractDrift(t *testing.T) {
+	makeResult := func(digest string) Result {
+		observation := validObservation()
+		observation.Surface = SurfaceCLISkill
+		observation.Runtime.Provider = "codex"
+		observation.Runtime.SkillActivation = SkillActivationImplicit
+		observation.Runtime.PromptContractSHA256 = digest
+		scenario := validScenario()
+		scenario.DataClass = "private-local"
+		result, err := Evaluate(scenario, observation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	first := makeResult(strings.Repeat("a", 64))
+	second := makeResult(strings.Repeat("b", 64))
+	if _, err := AggregateResults([]Result{first, second}); err == nil || !strings.Contains(err.Error(), "prompt contract") {
+		t.Fatalf("hidden prompt drift err=%v", err)
+	}
+}
+
+func TestResultPromptIdentityKeepsLegacyV4ReadableAndCurrentFailClosed(t *testing.T) {
+	legacy, err := Evaluate(validScenario(), validObservation())
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.SchemaVersion = PanelResultSchemaVersion
+	encoded, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeResult(strings.NewReader(string(encoded))); err != nil {
+		t.Fatalf("legacy v4 result became unreadable: %v", err)
+	}
+	legacy.Runtime.SkillActivation = SkillActivationImplicit
+	legacy.Runtime.PromptContractSHA256 = strings.Repeat("a", 64)
+	if err := legacy.Validate(); err == nil || !strings.Contains(err.Error(), "legacy") {
+		t.Fatalf("legacy result accepted v5 identity: %v", err)
+	}
+
+	current := legacy
+	current.SchemaVersion = ResultSchemaVersion
+	current.DataClass = "private-local"
+	current.Surface = SurfaceCLISkill
+	current.Runtime.Provider = "codex"
+	current.Runtime.SkillActivation = ""
+	current.Runtime.PromptContractSHA256 = ""
+	if err := current.Validate(); err == nil || !strings.Contains(err.Error(), "requires prompt contract") {
+		t.Fatalf("current result missed activation identity: %v", err)
 	}
 }
 

@@ -28,7 +28,8 @@ type ProviderConfinement struct {
 
 const (
 	codexAgentEvalPermissionProfile = "atl_agent_eval"
-	codexPrivateCLIInstructionsTail = ", then use the literal atl executable through the shell tool to retrieve the evidence required for the answer. Make only the minimum necessary invocation or invocations allowed by the reviewed command policy. Base the answer on the returned evidence; a no-tool answer or an answer based on assumptions is invalid for this benchmark. Never use apply_patch, Edit, Write, or direct filesystem operations to create, inspect, or modify command-broker manifests or request/response files. If evidence retrieval through atl fails, do not invent or use an alternate broker-file protocol; return the failure through the required response schema."
+	codexPrivateCLIInstructionsText = "This is an evidence task. Use the literal atl executable through the shell tool to retrieve the evidence required for the answer. Make only the minimum necessary invocation or invocations allowed by the reviewed command policy. Base the answer on the returned evidence; a no-tool answer or an answer based on assumptions is invalid for this benchmark. Never use apply_patch, Edit, Write, or direct filesystem operations to create, inspect, or modify command-broker manifests or request/response files. If evidence retrieval through atl fails, do not invent or use an alternate broker-file protocol; return the failure through the required response schema."
+	maxProviderPromptBytes          = 1 << 20
 )
 
 type ProviderMetrics struct {
@@ -241,31 +242,58 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 	}
 }
 
-func codexPrivateCLIInstructions(spec RunSpec) string {
-	return "This is an evidence task. Before answering, " + codexPrivateCLISkillRoute(spec.DataCapabilities) + codexPrivateCLIInstructionsTail
+func codexPrivateCLIInstructions(_ RunSpec) string {
+	return codexPrivateCLIInstructionsText
 }
 
-func codexPrivateCLISkillRoute(capabilities []string) string {
-	jira, confluence := false, false
-	for _, capability := range capabilities {
-		capability = strings.ToLower(strings.TrimSpace(capability))
-		switch {
-		case capability == "jira" || strings.HasPrefix(capability, "jira."):
-			jira = true
-		case capability == "confluence" || strings.HasPrefix(capability, "confluence."):
-			confluence = true
+func effectiveProviderPrompt(spec RunSpec, core []byte) ([]byte, error) {
+	switch spec.SkillActivation {
+	case "", SkillActivationImplicit:
+		if len(core) > maxProviderPromptBytes {
+			return nil, fmt.Errorf("effective provider prompt exceeds %d bytes", maxProviderPromptBytes)
 		}
-	}
-	switch {
-	case jira && confluence:
-		return "select and follow the installed $atl:jira and $atl:confluence skills implied by the reviewed data capabilities"
-	case jira:
-		return "select and follow the installed $atl:jira skill implied by the reviewed data capabilities"
-	case confluence:
-		return "select and follow the installed $atl:confluence skill implied by the reviewed data capabilities"
+		return core, nil
+	case SkillActivationExplicit:
+		// Continue below.
 	default:
-		return "select and follow the installed task-matching skill"
+		return nil, fmt.Errorf("skill_activation must be implicit or explicit")
 	}
+	skill, err := explicitServiceSkill(spec.DataCapabilities)
+	if err != nil {
+		return nil, err
+	}
+	prefix := []byte("$" + skill + "\n\n")
+	if len(core) > maxProviderPromptBytes-len(prefix) {
+		return nil, fmt.Errorf("effective provider prompt exceeds %d bytes", maxProviderPromptBytes)
+	}
+	result := make([]byte, 0, len(prefix)+len(core))
+	result = append(result, prefix...)
+	return append(result, core...), nil
+}
+
+func providerPromptContractSHA256(spec RunSpec, core, effective []byte) (string, error) {
+	if spec.SkillActivationIdentity() == "" {
+		return "", nil
+	}
+	return promptContractSHA256(spec.SkillActivationIdentity(), core, effective, codexPrivateCLIInstructions(spec))
+}
+
+func promptContractSHA256(skillActivation string, core, effective []byte, developerInstructions string) (string, error) {
+	envelope := struct {
+		SchemaVersion         int    `json:"schema_version"`
+		SkillActivation       string `json:"skill_activation"`
+		CorePrompt            []byte `json:"core_prompt"`
+		EffectiveStdin        []byte `json:"effective_stdin"`
+		DeveloperInstructions string `json:"developer_instructions"`
+	}{
+		SchemaVersion: 1, SkillActivation: skillActivation,
+		CorePrompt: core, EffectiveStdin: effective, DeveloperInstructions: developerInstructions,
+	}
+	canonical, err := json.Marshal(envelope)
+	if err != nil {
+		return "", fmt.Errorf("encode provider prompt contract: %w", err)
+	}
+	return sha256HexBytes(canonical), nil
 }
 
 func BuildCodexConfinementProbeCommand(agentBinary, workspace, probeExecutable string, confinement ProviderConfinement) (ProviderCommand, error) {

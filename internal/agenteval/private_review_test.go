@@ -353,6 +353,8 @@ func TestPrivatePanelReviewRequiresAllRunSurfacesBeforeAssessment(t *testing.T) 
 	secondResult := firstResult
 	secondResult.Surface = SurfaceCLISkill
 	secondResult.Variant = SurfaceCLISkill
+	secondResult.Runtime.SkillActivation = SkillActivationImplicit
+	secondResult.Runtime.PromptContractSHA256 = strings.Repeat("a", 64)
 	secondResultData, _ := json.MarshalIndent(secondResult, "", "  ")
 	if err := writePrivateFile(filepath.Join(second.RunDirectory, "result.json"), append(secondResultData, '\n')); err != nil {
 		t.Fatal(err)

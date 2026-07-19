@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	RunSpecSchemaVersion = 3
+	RunSpecSchemaVersion = 4
 	maxRunSpecBytes      = 1 << 20
 	maxRunCostMicroUSD   = 10_000_000
 )
@@ -46,6 +46,7 @@ type RunSpec struct {
 	MaxEstimatedCostMicroUSD int64                         `json:"max_estimated_cost_microusd"`
 	Pricing                  Pricing                       `json:"pricing"`
 	ToolTransport            string                        `json:"tool_transport,omitempty"`
+	SkillActivation          string                        `json:"skill_activation,omitempty"`
 	AllowedTools             []string                      `json:"allowed_tools"`
 	AllowedATLCommands       []string                      `json:"allowed_atl_commands"`
 	AllowedCLICommands       []CLICommandRule              `json:"allowed_cli_commands,omitempty"`
@@ -61,8 +62,10 @@ type RunSpec struct {
 }
 
 const (
-	BackendModeSynthetic   = "synthetic"
-	BackendModePrivateLive = "private-live"
+	BackendModeSynthetic    = "synthetic"
+	BackendModePrivateLive  = "private-live"
+	SkillActivationImplicit = "implicit"
+	SkillActivationExplicit = "explicit"
 )
 
 func (s RunSpec) EffectiveBackendMode() string {
@@ -94,6 +97,61 @@ func (s RunSpec) EffectiveToolTransport() string {
 		return "cli"
 	}
 	return s.ToolTransport
+}
+
+// SkillActivationIdentity returns a value only on the surface where activation
+// is an experimental treatment. MCP and Claude runs are not labeled as an
+// implicit skill arm because they do not use the Codex prompt-routing contract.
+func (s RunSpec) SkillActivationIdentity() string {
+	if s.Provider != "codex" || s.EffectiveBackendMode() != BackendModePrivateLive ||
+		s.EffectiveSurface() != SurfaceCLISkill || s.EffectiveToolTransport() != "cli" {
+		return ""
+	}
+	return s.SkillActivation
+}
+
+func validateSkillActivation(s RunSpec) error {
+	if s.SkillActivation != "" && s.SkillActivation != SkillActivationImplicit && s.SkillActivation != SkillActivationExplicit {
+		return fmt.Errorf("skill_activation must be implicit or explicit")
+	}
+	eligible := s.Provider == "codex" && s.EffectiveBackendMode() == BackendModePrivateLive &&
+		s.EffectiveSurface() == SurfaceCLISkill && s.EffectiveToolTransport() == "cli"
+	if eligible && s.SkillActivation == "" {
+		return fmt.Errorf("codex private-live cli-skill runs require skill_activation")
+	}
+	if s.SkillActivation != "" && !eligible {
+		return fmt.Errorf("skill_activation is valid only for codex private-live cli-skill runs")
+	}
+	if s.SkillActivation == SkillActivationExplicit {
+		if _, err := explicitServiceSkill(s.DataCapabilities); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func explicitServiceSkill(capabilities []string) (string, error) {
+	service := ""
+	for _, capability := range capabilities {
+		family := strings.ToLower(strings.TrimSpace(capability))
+		candidate := ""
+		switch {
+		case family == "jira" || strings.HasPrefix(family, "jira."):
+			candidate = "jira"
+		case family == "confluence" || strings.HasPrefix(family, "confluence."):
+			candidate = "confluence"
+		default:
+			return "", fmt.Errorf("explicit skill_activation requires jira-only or confluence-only data_capabilities")
+		}
+		if service != "" && service != candidate {
+			return "", fmt.Errorf("explicit skill_activation does not support mixed data_capabilities")
+		}
+		service = candidate
+	}
+	if service == "" {
+		return "", fmt.Errorf("explicit skill_activation requires jira-only or confluence-only data_capabilities")
+	}
+	return "atl:" + service, nil
 }
 
 type Pricing struct {
@@ -217,6 +275,9 @@ func (s RunSpec) Validate() error {
 	}
 	if s.EffectiveSurface() == SurfaceExternalMCP && s.EffectiveBackendMode() != BackendModePrivateLive {
 		return fmt.Errorf("external-mcp surface is valid only for private-live runs")
+	}
+	if err := validateSkillActivation(s); err != nil {
+		return err
 	}
 	if s.AllowSyntheticWrites && (transport != "cli" || s.Provider != "claude-code") {
 		return fmt.Errorf("allow_synthetic_writes requires Claude Code cli transport")

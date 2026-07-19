@@ -360,6 +360,74 @@ func TestCreatePrivatePlanRotatesSurfaceOrderAfterCompletedPlan(t *testing.T) {
 	}
 }
 
+func TestPrivatePlanBindsSkillActivationAndPromptContractBeforeExecution(t *testing.T) {
+	fixture := newPrivatePlanTestFixture(t, true, false)
+	preview := fixture.createPlan(t)
+	plan, _, err := loadPrivatePlan(fixture.root, preview.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := false
+	for index := range plan.Items {
+		if plan.Items[index].Surface != SurfaceCLISkill {
+			continue
+		}
+		if plan.Items[index].SkillActivation != SkillActivationImplicit || !validSHA256(plan.Items[index].PromptContractSHA256) {
+			t.Fatalf("cli item=%+v", plan.Items[index])
+		}
+		plan.Items[index].SkillActivation = SkillActivationExplicit
+		changed = true
+	}
+	if !changed {
+		t.Fatal("plan has no cli-skill item")
+	}
+	data, err := encodePrivatePlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixture.root, "plans", preview.PlanID+".json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tampered := preview
+	tampered.PlanSHA256 = sha256HexBytes(data)
+	_, err = ExecutePrivatePlan(context.Background(), fixture.executeOptions(tampered))
+	assertPrivatePlanError(t, err, "input_drift")
+	assertPrivatePlanNoRuntimeInvocation(t, fixture)
+}
+
+func TestLegacyPrivatePlanV1RemainsReadableByWorkspaceLifecycle(t *testing.T) {
+	fixture := newPrivatePlanTestFixture(t, true, false)
+	preview := fixture.createPlan(t)
+	plan, _, err := loadPrivatePlan(fixture.root, preview.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.SchemaVersion = LegacyPrivatePlanSchemaVersion
+	for index := range plan.Items {
+		plan.Items[index].SkillActivation = ""
+		plan.Items[index].PromptContractSHA256 = ""
+	}
+	data, err := encodePrivatePlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixture.root, "plans", preview.PlanID+".json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, err := loadPrivatePlan(fixture.root, preview.PlanID)
+	if err != nil || loaded.SchemaVersion != LegacyPrivatePlanSchemaVersion {
+		t.Fatalf("legacy plan=%+v err=%v", loaded, err)
+	}
+	if report, err := DoctorPrivateWorkspace(fixture.root, fixture.repository); err != nil || !report.Healthy {
+		t.Fatalf("legacy workspace report=%+v err=%v", report, err)
+	}
+	legacyPreview := preview
+	legacyPreview.PlanSHA256 = sha256HexBytes(data)
+	_, err = ExecutePrivatePlan(context.Background(), fixture.executeOptions(legacyPreview))
+	assertPrivatePlanError(t, err, "input_drift")
+	assertPrivatePlanNoRuntimeInvocation(t, fixture)
+}
+
 func TestExecutePrivatePlanCompletesExactlyOnceAndLoadsBaselineSource(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("synthetic executable scripts are Unix-only")

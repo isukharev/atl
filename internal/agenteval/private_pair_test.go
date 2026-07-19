@@ -43,6 +43,10 @@ func TestValidatePrivateRunPairRejectsTransportAndContractDrift(t *testing.T) {
 		"checks": func(_ string, _ *RunSpec, mcp *RunSpec) {
 			mcp.Checks[0].Expected = json.RawMessage(`false`)
 		},
+		"explicit cli activation": func(_ string, cli, _ *RunSpec) {
+			cli.SkillActivation = SkillActivationExplicit
+			cli.DataCapabilities = []string{"jira.fields"}
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			directory, cliPath, mcpPath, cli, mcp := writePrivatePairFixture(t)
@@ -243,6 +247,7 @@ func writePrivatePairFixture(t *testing.T) (string, string, string, RunSpec, Run
 	cli := base
 	cli.Variant = "cli-skill"
 	cli.ToolTransport = "cli"
+	cli.SkillActivation = SkillActivationImplicit
 	cli.AllowedTools = []string{"Bash(atl *)", "Read", "Skill"}
 	cli.AllowedCLICommands = []CLICommandRule{{Name: "jira_fields", Command: []string{"jira", "fields"}, MaxInvocations: 1}}
 	cli.AllowedGatewayRoutes = map[string][]LiveGatewayRoute{"jira": {{Name: "jira_api", PathPrefix: "/rest/api/2"}}}

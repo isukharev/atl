@@ -760,7 +760,14 @@ func AssessQualitativeReviewSet(result Result, resultBytes, finalBytes []byte, r
 	}
 	resultHash := sha256Hex(resultBytes)
 	finalHash := sha256Hex(finalBytes)
-	result.SchemaVersion = ResultSchemaVersion
+	if result.SchemaVersion < ResultSchemaVersion {
+		// A legacy raw result has no audited prompt envelope. Panel assessment
+		// adds review data but must not relabel it as the v5 prompt-identified
+		// contract.
+		result.SchemaVersion = PanelResultSchemaVersion
+	} else {
+		result.SchemaVersion = ResultSchemaVersion
+	}
 	result.QualitativeReviewSet = &QualitativeReviewSetAssessment{
 		SchemaVersion: QualitativePanelSchemaVersion, Policy: policy, ContractSHA256: contractDigest,
 		RubricID: rubric.ID, RubricSHA256: rubricSHA256(rubric), MinimumScoreBPS: rubric.MinimumScoreBPS, ResultSHA256: resultHash,

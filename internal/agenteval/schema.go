@@ -12,8 +12,9 @@ import (
 
 const (
 	ScenarioSchemaVersion     = 1
-	ObservationSchemaVersion  = 2
-	ResultSchemaVersion       = 4
+	ObservationSchemaVersion  = 3
+	ResultSchemaVersion       = 5
+	PanelResultSchemaVersion  = 4
 	LegacyResultSchemaVersion = 3
 )
 
@@ -108,13 +109,15 @@ type Budgets struct {
 
 // Runtime identifies the tested system without retaining task content.
 type Runtime struct {
-	Provider      string `json:"provider"`
-	AgentVersion  string `json:"agent_version,omitempty"`
-	Model         string `json:"model,omitempty"`
-	Reasoning     string `json:"reasoning,omitempty"`
-	ATLVersion    string `json:"atl_version"`
-	PluginVersion string `json:"plugin_version,omitempty"`
-	SkillDigest   string `json:"skill_digest,omitempty"`
+	Provider             string `json:"provider"`
+	AgentVersion         string `json:"agent_version,omitempty"`
+	Model                string `json:"model,omitempty"`
+	Reasoning            string `json:"reasoning,omitempty"`
+	ATLVersion           string `json:"atl_version"`
+	PluginVersion        string `json:"plugin_version,omitempty"`
+	SkillDigest          string `json:"skill_digest,omitempty"`
+	SkillActivation      string `json:"skill_activation,omitempty"`
+	PromptContractSHA256 string `json:"prompt_contract_sha256,omitempty"`
 }
 
 // Observation is the minimal aggregate trace accepted from a runner. HTTP
@@ -390,15 +393,23 @@ func (r Runtime) validate() error {
 		return fmt.Errorf("runtime atl_version must contain 1..128 bytes")
 	}
 	for name, value := range map[string]string{
-		"agent_version":  r.AgentVersion,
-		"model":          r.Model,
-		"reasoning":      r.Reasoning,
-		"plugin_version": r.PluginVersion,
-		"skill_digest":   r.SkillDigest,
+		"agent_version":          r.AgentVersion,
+		"model":                  r.Model,
+		"reasoning":              r.Reasoning,
+		"plugin_version":         r.PluginVersion,
+		"skill_digest":           r.SkillDigest,
+		"skill_activation":       r.SkillActivation,
+		"prompt_contract_sha256": r.PromptContractSHA256,
 	} {
 		if len(value) > 256 || strings.ContainsAny(value, "\r\n\x00") {
 			return fmt.Errorf("runtime %s is invalid", name)
 		}
+	}
+	if r.SkillActivation != "" && r.SkillActivation != SkillActivationImplicit && r.SkillActivation != SkillActivationExplicit {
+		return fmt.Errorf("runtime skill_activation is invalid")
+	}
+	if r.PromptContractSHA256 != "" && !validSHA256(r.PromptContractSHA256) {
+		return fmt.Errorf("runtime prompt_contract_sha256 is invalid")
 	}
 	return nil
 }
