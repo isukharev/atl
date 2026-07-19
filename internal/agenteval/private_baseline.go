@@ -53,11 +53,15 @@ type PrivateBaselineSource struct {
 }
 
 type PrivateBaselineSurfaceSource struct {
-	Surface             string
-	RunDirectory        string
-	RubricPath          string
-	RubricSHA256        string
-	QualitativeRequired bool
+	Surface                        string
+	RunDirectory                   string
+	RubricPath                     string
+	RubricSHA256                   string
+	QualitativeRequired            bool
+	QualitativePanelContractPath   string
+	QualitativePanelContractSHA256 string
+	BlindAssignmentPath            string
+	BlindAssignmentSHA256          string
 }
 
 type PrivateBaselineSetOptions struct {
@@ -350,6 +354,20 @@ func validPrivateBaselineSource(root string, source PrivateBaselineSource) bool 
 			!privatePathWithin(root, filepath.Join(source.RunRoot, "contracts", surface.Surface), surface.RubricPath) || !validSHA256(surface.RubricSHA256) {
 			return false
 		}
+		contractRoot := filepath.Join(source.RunRoot, "contracts", surface.Surface)
+		if surface.QualitativePanelContractPath != "" {
+			if !privatePathWithin(root, contractRoot, surface.QualitativePanelContractPath) || !validSHA256(surface.QualitativePanelContractSHA256) {
+				return false
+			}
+			if (surface.BlindAssignmentPath == "") != (surface.BlindAssignmentSHA256 == "") {
+				return false
+			}
+			if surface.BlindAssignmentPath != "" && (!privatePathWithin(root, contractRoot, surface.BlindAssignmentPath) || !validSHA256(surface.BlindAssignmentSHA256)) {
+				return false
+			}
+		} else if surface.QualitativePanelContractSHA256 != "" || surface.BlindAssignmentPath != "" || surface.BlindAssignmentSHA256 != "" {
+			return false
+		}
 		if _, exists := seen[surface.Surface]; exists {
 			return false
 		}
@@ -395,14 +413,23 @@ func compactPrivateSurface(root, staging string, source PrivateBaselineSurfaceSo
 	}
 	effectiveResult, effectiveData, effectiveName := result, resultData, "result.json"
 	if assessedPath != "" {
-		if !samePrivateResultIdentity(result, assessed) || assessed.Qualitative == nil ||
+		if !samePrivateResultIdentity(result, assessed) || !hasPrivateQualitativeAssessment(assessed) ||
 			validatePrivateAssessmentBinding(root, source, resultData, assessed) != nil {
 			return privateBaselineSurface{}, privateBaselineError("assessment_invalid")
 		}
+		if assessed.QualitativeReviewSet != nil && assessed.QualitativeReviewSet.Status == "disagreement" {
+			return privateBaselineSurface{}, privateBaselineError("assessment_disagreement")
+		}
 		effectiveResult, effectiveData, effectiveName = assessed, assessedData, "reviewed-result.json"
 	}
-	if source.QualitativeRequired && effectiveResult.Qualitative == nil {
+	if privateSurfaceRequiresQualitative(source) && !hasPrivateQualitativeAssessment(effectiveResult) {
 		return privateBaselineSurface{}, privateBaselineError("assessment_missing")
+	}
+	if source.QualitativePanelContractPath != "" && effectiveResult.QualitativeReviewSet == nil {
+		return privateBaselineSurface{}, privateBaselineError("assessment_missing")
+	}
+	if source.QualitativePanelContractPath == "" && effectiveResult.QualitativeReviewSet != nil {
+		return privateBaselineSurface{}, privateBaselineError("assessment_invalid")
 	}
 	destinationRoot := filepath.Join(staging, "surfaces", source.Surface)
 	if err := safepath.MkdirAllWithin(root, destinationRoot, 0o700); err != nil {
@@ -505,12 +532,11 @@ func samePrivateResultIdentity(left, right Result) bool {
 }
 
 func validatePrivateAssessmentBinding(root string, source PrivateBaselineSurfaceSource, resultData []byte, assessed Result) error {
-	if assessed.Qualitative == nil || !privatePathWithin(root, filepath.Join(root, "runs"), source.RubricPath) {
+	if !hasPrivateQualitativeAssessment(assessed) || !privatePathWithin(root, filepath.Join(root, "runs"), source.RubricPath) {
 		return privateBaselineError("assessment_binding")
 	}
 	finalData, err := safepath.ReadFileWithinLimit(root, filepath.Join(source.RunDirectory, "final.json"), 16<<20)
-	if err != nil || assessed.Qualitative.ResultSHA256 != sha256HexBytes(resultData) ||
-		assessed.Qualitative.FinalResponseSHA256 != sha256HexBytes(finalData) {
+	if err != nil {
 		return privateBaselineError("assessment_binding")
 	}
 	rubricData, err := safepath.ReadFileWithinLimit(root, source.RubricPath, maxReviewBytes)
@@ -518,11 +544,80 @@ func validatePrivateAssessmentBinding(root string, source PrivateBaselineSurface
 		return privateBaselineError("assessment_binding")
 	}
 	rubric, err := DecodeRubric(bytes.NewReader(rubricData))
-	if err != nil || rubric.ID != assessed.Qualitative.RubricID || rubricSHA256(rubric) != source.RubricSHA256 ||
-		rubricSHA256(rubric) != assessed.Qualitative.RubricSHA256 {
+	if err != nil || rubricSHA256(rubric) != source.RubricSHA256 {
+		return privateBaselineError("assessment_binding")
+	}
+	original, err := DecodeResult(bytes.NewReader(resultData))
+	if err != nil {
+		return privateBaselineError("assessment_binding")
+	}
+	var recomputed Result
+	if assessed.Qualitative != nil {
+		assessment := assessed.Qualitative
+		if source.QualitativePanelContractPath != "" || assessment.ResultSHA256 != sha256HexBytes(resultData) || assessment.FinalResponseSHA256 != sha256HexBytes(finalData) || assessment.RubricID != rubric.ID || assessment.RubricSHA256 != rubricSHA256(rubric) {
+			return privateBaselineError("assessment_binding")
+		}
+		review := privateReviewFromAssessment(*assessment)
+		review.ScenarioID = original.ScenarioID
+		recomputed, err = AssessQualitative(original, resultData, finalData, rubric, review)
+	} else {
+		set := assessed.QualitativeReviewSet
+		if source.QualitativePanelContractPath == "" || set.ResultSHA256 != sha256HexBytes(resultData) || set.FinalResponseSHA256 != sha256HexBytes(finalData) || set.RubricID != rubric.ID || set.RubricSHA256 != rubricSHA256(rubric) {
+			return privateBaselineError("assessment_binding")
+		}
+		contract, _, policy, loadErr := loadPrivatePanelReviewContract(root, source)
+		if loadErr != nil || policy != set.Policy || len(contract.Reviewers) != len(set.Members) {
+			return privateBaselineError("assessment_binding")
+		}
+		expectedContract, contractErr := QualitativeReviewSetContractSHA256(policy, contract.Reviewers)
+		if contractErr != nil || set.ContractSHA256 != expectedContract || set.AssignmentDigest != contract.BlindAssignmentSHA256 || set.Blinded != (contract.BlindAssignmentSHA256 != "") {
+			return privateBaselineError("assessment_binding")
+		}
+		expectedReviewers := append([]Reviewer(nil), contract.Reviewers...)
+		sort.Slice(expectedReviewers, func(i, j int) bool { return expectedReviewers[i].ID < expectedReviewers[j].ID })
+		for index, reviewer := range expectedReviewers {
+			if reviewer != set.Members[index].Reviewer {
+				return privateBaselineError("assessment_binding")
+			}
+		}
+		reviews := make([]Review, 0, len(set.Members))
+		for _, member := range set.Members {
+			reviews = append(reviews, Review{SchemaVersion: ReviewSchemaVersion, RubricID: set.RubricID, RubricSHA256: set.RubricSHA256,
+				ScenarioID: original.ScenarioID, ResultSHA256: set.ResultSHA256, FinalResponseSHA256: set.FinalResponseSHA256,
+				Blinded: set.Blinded, AssignmentDigest: set.AssignmentDigest, Reviewer: member.Reviewer,
+				Criteria: append([]ReviewCriterionScore{}, member.Criteria...), FindingIDs: append([]string{}, member.FindingIDs...)})
+		}
+		recomputed, err = AssessQualitativeReviewSet(original, resultData, finalData, rubric, policy, reviews)
+	}
+	if err != nil || !equalPrivateResultJSON(recomputed, assessed) {
 		return privateBaselineError("assessment_binding")
 	}
 	return nil
+}
+
+func privateSurfaceRequiresQualitative(source PrivateBaselineSurfaceSource) bool {
+	return source.QualitativeRequired || source.QualitativePanelContractPath != ""
+}
+
+func hasPrivateQualitativeAssessment(result Result) bool {
+	return (result.Qualitative != nil) != (result.QualitativeReviewSet != nil)
+}
+
+func privateReviewFromAssessment(assessment QualitativeAssessment) Review {
+	criteria := make([]ReviewCriterionScore, 0, len(assessment.Criteria))
+	for _, item := range assessment.Criteria {
+		criteria = append(criteria, ReviewCriterionScore{ID: item.ID, Score: item.Score})
+	}
+	return Review{SchemaVersion: ReviewSchemaVersion, RubricID: assessment.RubricID, RubricSHA256: assessment.RubricSHA256,
+		ResultSHA256: assessment.ResultSHA256, FinalResponseSHA256: assessment.FinalResponseSHA256,
+		Blinded: assessment.Blinded, AssignmentDigest: assessment.AssignmentDigest, Reviewer: assessment.Reviewer,
+		Criteria: criteria, FindingIDs: append([]string{}, assessment.FindingIDs...)}
+}
+
+func equalPrivateResultJSON(left, right Result) bool {
+	leftData, leftErr := json.Marshal(left)
+	rightData, rightErr := json.Marshal(right)
+	return leftErr == nil && rightErr == nil && bytes.Equal(leftData, rightData)
 }
 
 func copyPrivateArtifact(root, source, destinationRoot, name string, limit int64, optional bool) error {
@@ -1137,6 +1232,9 @@ func ComparePrivateBaseline(options PrivateCompareOptions) (PrivateComparison, e
 		if baseline.Qualitative != nil && candidate.Qualitative != nil {
 			value := candidate.Qualitative.ScoreBPS - baseline.Qualitative.ScoreBPS
 			delta.QualitativeScoreBPSDelta = &value
+		} else if baseline.QualitativeReviewSet != nil && candidate.QualitativeReviewSet != nil {
+			value := candidate.QualitativeReviewSet.ScoreBPS - baseline.QualitativeReviewSet.ScoreBPS
+			delta.QualitativeScoreBPSDelta = &value
 		}
 		comparison.Surfaces = append(comparison.Surfaces, delta)
 	}
@@ -1154,11 +1252,22 @@ func compatiblePrivateResults(baseline, candidate Result) bool {
 	if (baseline.Qualitative == nil) != (candidate.Qualitative == nil) {
 		return false
 	}
+	if (baseline.QualitativeReviewSet == nil) != (candidate.QualitativeReviewSet == nil) {
+		return false
+	}
 	if baseline.Qualitative != nil {
 		return baseline.Qualitative.RubricID == candidate.Qualitative.RubricID &&
 			baseline.Qualitative.RubricSHA256 == candidate.Qualitative.RubricSHA256 &&
 			baseline.Qualitative.Reviewer == candidate.Qualitative.Reviewer &&
-			baseline.Qualitative.Blinded == candidate.Qualitative.Blinded
+			baseline.Qualitative.Blinded == candidate.Qualitative.Blinded &&
+			baseline.Qualitative.AssignmentDigest == candidate.Qualitative.AssignmentDigest
+	}
+	if baseline.QualitativeReviewSet != nil {
+		return baseline.QualitativeReviewSet.RubricID == candidate.QualitativeReviewSet.RubricID &&
+			baseline.QualitativeReviewSet.RubricSHA256 == candidate.QualitativeReviewSet.RubricSHA256 &&
+			baseline.QualitativeReviewSet.ContractSHA256 == candidate.QualitativeReviewSet.ContractSHA256 &&
+			baseline.QualitativeReviewSet.Blinded == candidate.QualitativeReviewSet.Blinded &&
+			baseline.QualitativeReviewSet.AssignmentDigest == candidate.QualitativeReviewSet.AssignmentDigest
 	}
 	return true
 }
@@ -1209,13 +1318,16 @@ func effectivePrivateSourceResults(root string, source PrivateBaselineSource) (m
 			return nil, err
 		}
 		if assessed.SchemaVersion != 0 {
-			if !samePrivateResultIdentity(result, assessed) || assessed.Qualitative == nil ||
+			if !samePrivateResultIdentity(result, assessed) || !hasPrivateQualitativeAssessment(assessed) ||
 				validatePrivateAssessmentBinding(root, surface, resultData, assessed) != nil {
 				return nil, privateBaselineError("candidate_assessment")
 			}
 			result = assessed
 		}
-		if surface.QualitativeRequired && result.Qualitative == nil {
+		if privateSurfaceRequiresQualitative(surface) && !hasPrivateQualitativeAssessment(result) {
+			return nil, privateBaselineError("candidate_assessment")
+		}
+		if surface.QualitativePanelContractPath != "" && result.QualitativeReviewSet == nil {
 			return nil, privateBaselineError("candidate_assessment")
 		}
 		results[surface.Surface] = result

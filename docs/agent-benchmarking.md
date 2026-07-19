@@ -214,7 +214,7 @@ Observations classify each run as `supported` (the default),
 `unsupported-capability`, or `invalidated-backend-drift`. Unsupported runs name
 only bounded capability identifiers; drifted runs carry no backend detail.
 Ineligible runs do not count as task passes or failures, while their safety and
-budget violations are still retained. Aggregate schema v3 reports eligible,
+budget violations are still retained. Aggregate schema v4 reports eligible,
 unsupported, and drifted counts, eligibility coverage, and success conditional
 on eligible runs. Coverage excludes drift-invalidated blocks from its
 denominator: drift says nothing about whether the surface supports the task.
@@ -277,6 +277,23 @@ and reports qualitative pass count plus p50/p90 normalized score. Compare
 rubric scores only within the same rubric and reviewer runtime. Review all
 repetitions; do not select only a favorable answer.
 
+Private-live workspaces can instead predeclare an odd panel of three or five
+reviewers. The `criterion-median-v1` policy computes each criterion from the
+median member score, then computes the weighted normalized score from those
+medians. It reports high disagreement when members split on overall pass/fail,
+split across any criterion's pass boundary, or exceed the configured normalized
+range threshold for any criterion. A disagreement blocks baseline promotion;
+a unanimous low-disagreement failure may still be retained as a measurement
+baseline. The complete roster, exact model identities, policy, and required
+blind assignment are bound before provider execution. Legacy singleton and
+panel results are deliberately comparison-incompatible rather than silently
+migrated. See [Private agent-benchmark workspace](agent-benchmark-private-workspace.md)
+for the panel manifest and operator flow.
+
+Panel assessments emit result schema v4, review schema v2, and aggregate schema
+v4. Current decoders retain read compatibility with singleton result schema v3
+and reviewer-id-free review schema v1.
+
 For `neutral-common`, `--blind-assignment` is mandatory. It is a bounded private
 file that maps randomized answer labels to candidates for the reviewer. Only
 its SHA-256 digest and a `blinded:true` marker enter the review/result contract;
@@ -288,6 +305,11 @@ one rubric and exact reviewer runtime. Report pass `n/N` and raw values when
 `N=3`; summarize with median plus MAD/IQR without significance claims. Use a
 per-class macro-average and a Pareto view of correctness/quality versus calls,
 tokens, cost, and duration instead of one weighted global score.
+
+Aggregate grouping includes the blind-assignment digest. Never pool scores from
+different answer mappings as though they were repetitions of one comparison
+contract. The digest remains internal and is never serialized in the aggregate:
+small mapping domains are not safe merely because they were SHA-256 hashed.
 
 Every observation also carries per-metric `coverage`. An observed zero is
 different from an unavailable metric: a required metric without coverage fails
@@ -1186,10 +1208,12 @@ failed deterministic oracle, shim denial, or declared budget violation makes
 the pair non-passing, but the other pre-approved transport may still run once
 to localize the regression; never relax either side after seeing a result.
 
-For every result with a valid structured final answer, create a review template
-from the same rubric and use
-the same human or separately prompted model reviewer identity. The reviewer
-receives the private final answer as untrusted data and no tools. Compare:
+For every result with a valid structured final answer, use the review policy
+bound into its private plan. A legacy singleton uses one exact human or model
+reviewer identity. A panel uses all three or five predeclared reviewers, with
+every packet prepared before the first assessment and one median consensus
+written only after the last assessment. Each reviewer receives the private
+final answer as untrusted data and no tools. Compare:
 
 - deterministic status and every required check;
 - qualitative score and finding classes;
@@ -1202,8 +1226,10 @@ receives the private final answer as untrusted data and no tools. Compare:
 - duration under the same provider/model/reasoning/runtime identity.
 
 Raw transcripts, answers, review rationales, route labels and per-run files stay
-private. A public result may state only generic task class, exact public runtime
-versions/commit, transport names and privacy-reviewed aggregate numbers. One
+private. Review artifacts retain only bounded scores and identifiers plus
+content digests; they never retain excerpts or free-form rationale. A public
+result may state only generic task class, exact public runtime versions/commit,
+transport names and privacy-reviewed aggregate numbers. One
 supervised live block is compatibility evidence, not a statistically stable
 model-quality benchmark; accumulate Latin-square blocks and use repeated
 synthetic cells for product decisions.

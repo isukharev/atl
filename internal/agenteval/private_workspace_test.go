@@ -175,6 +175,78 @@ func TestPrivateWorkspaceManifestStrictSchemaAndContainedSpecs(t *testing.T) {
 	}
 }
 
+func TestPrivateWorkspaceManifestQualitativeReviewPolicies(t *testing.T) {
+	legacy := DefaultPrivateWorkspaceManifest()
+	legacy.RunSets = []PrivateWorkspaceRunSet{{Alias: "portfolio", SpecPaths: []string{"cases/portfolio/run.json"}, QualitativeReviewRequired: true}}
+	data, err := EncodePrivateWorkspaceManifest(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodePrivateWorkspaceManifest(bytes.NewReader(data))
+	if err != nil || !decoded.RunSets[0].QualitativeReviewRequired || decoded.RunSets[0].QualitativeReviewPanel != nil {
+		t.Fatalf("legacy policy decoded=%+v err=%v", decoded.RunSets[0], err)
+	}
+
+	valid := legacy
+	valid.RunSets = []PrivateWorkspaceRunSet{{Alias: "portfolio", SpecPaths: []string{"cases/portfolio/run.json"}, QualitativeReviewPanel: testPrivateQualitativePanel()}}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid panel: %v", err)
+	}
+	for name, mutate := range map[string]func(*PrivateWorkspaceManifest){
+		"both policies": func(manifest *PrivateWorkspaceManifest) { manifest.RunSets[0].QualitativeReviewRequired = true },
+		"two reviewers": func(manifest *PrivateWorkspaceManifest) {
+			manifest.RunSets[0].QualitativeReviewPanel.Reviewers = manifest.RunSets[0].QualitativeReviewPanel.Reviewers[:2]
+		},
+		"four reviewers": func(manifest *PrivateWorkspaceManifest) {
+			manifest.RunSets[0].QualitativeReviewPanel.Reviewers = append(manifest.RunSets[0].QualitativeReviewPanel.Reviewers, Reviewer{ID: "judge-4", Kind: "codex", Model: "model-d"})
+		},
+		"duplicate id": func(manifest *PrivateWorkspaceManifest) {
+			manifest.RunSets[0].QualitativeReviewPanel.Reviewers[1].ID = "judge-1"
+		},
+		"missing id": func(manifest *PrivateWorkspaceManifest) {
+			manifest.RunSets[0].QualitativeReviewPanel.Reviewers[1].ID = ""
+		},
+		"path reviewer id": func(manifest *PrivateWorkspaceManifest) {
+			manifest.RunSets[0].QualitativeReviewPanel.Reviewers[1].ID = "judge/../../reports"
+		},
+		"invalid model": func(manifest *PrivateWorkspaceManifest) {
+			manifest.RunSets[0].QualitativeReviewPanel.Reviewers[1].Model = ""
+		},
+		"invalid method": func(manifest *PrivateWorkspaceManifest) {
+			manifest.RunSets[0].QualitativeReviewPanel.Method = "mean-v1"
+		},
+		"zero range": func(manifest *PrivateWorkspaceManifest) {
+			manifest.RunSets[0].QualitativeReviewPanel.MaxCriterionRangeBPS = 0
+		},
+		"outside assignment": func(manifest *PrivateWorkspaceManifest) {
+			manifest.RunSets[0].QualitativeReviewPanel.BlindAssignment = "reports/blind.txt"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := valid
+			panel := *valid.RunSets[0].QualitativeReviewPanel
+			panel.Reviewers = append([]Reviewer(nil), panel.Reviewers...)
+			candidate.RunSets = []PrivateWorkspaceRunSet{{Alias: valid.RunSets[0].Alias, SpecPaths: append([]string(nil), valid.RunSets[0].SpecPaths...), QualitativeReviewPanel: &panel}}
+			mutate(&candidate)
+			if err := candidate.Validate(); err == nil {
+				t.Fatal("invalid qualitative review policy passed")
+			}
+		})
+	}
+}
+
+func testPrivateQualitativePanel() *PrivateQualitativeReviewPanel {
+	return &PrivateQualitativeReviewPanel{
+		Method: PrivateQualitativeReviewPanelMethod,
+		Reviewers: []Reviewer{
+			{ID: "judge-1", Kind: "codex", Model: "model-a"},
+			{ID: "judge-2", Kind: "claude-code", Model: "model-b"},
+			{ID: "judge-3", Kind: "codex", Model: "model-c"},
+		},
+		MaxCriterionRangeBPS: 2500,
+	}
+}
+
 func TestPrivateWorkspaceReportGuidesTheNextSafeAction(t *testing.T) {
 	repository := t.TempDir()
 	root := filepath.Join(t.TempDir(), "private")

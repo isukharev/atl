@@ -418,6 +418,124 @@ func TestExecutePrivatePlanCompletesExactlyOnceAndLoadsBaselineSource(t *testing
 	}
 }
 
+func TestPrivatePlanBindsQualitativePanelBeforeExecution(t *testing.T) {
+	fixture := newPrivatePlanTestFixture(t, false, false)
+	assignmentPath := filepath.Join(fixture.root, "cases", "blind-assignment.txt")
+	writeTestFile(t, assignmentPath, "opaque assignment a\n", 0o600)
+	panel := testPrivateQualitativePanel()
+	panel.BlindAssignment = "cases/blind-assignment.txt"
+	setPrivatePlanTestPanel(t, fixture, panel)
+
+	firstPreview := fixture.createPlan(t)
+	first, _, err := loadPrivatePlan(fixture.root, firstPreview.PlanID)
+	if err != nil || first.QualitativeReviewPanel == nil || !first.QualitativeRequired {
+		t.Fatalf("first plan=%+v err=%v", first, err)
+	}
+	firstContract := first.ContractSHA256
+
+	panel.Reviewers[0].ID = "judge-1b"
+	setPrivatePlanTestPanel(t, fixture, panel)
+	rosterPreview := fixture.createPlan(t)
+	roster, _, err := loadPrivatePlan(fixture.root, rosterPreview.PlanID)
+	if err != nil || roster.ContractSHA256 == firstContract {
+		t.Fatalf("reviewer roster did not change contract: first=%s roster=%s err=%v", firstContract, roster.ContractSHA256, err)
+	}
+
+	panel.Reviewers[0].Model = "model-a-v2"
+	setPrivatePlanTestPanel(t, fixture, panel)
+	secondPreview := fixture.createPlan(t)
+	second, _, err := loadPrivatePlan(fixture.root, secondPreview.PlanID)
+	if err != nil || second.ContractSHA256 == roster.ContractSHA256 {
+		t.Fatalf("reviewer model did not change contract: roster=%s second=%s err=%v", roster.ContractSHA256, second.ContractSHA256, err)
+	}
+
+	panel.MaxCriterionRangeBPS++
+	setPrivatePlanTestPanel(t, fixture, panel)
+	thirdPreview := fixture.createPlan(t)
+	third, _, err := loadPrivatePlan(fixture.root, thirdPreview.PlanID)
+	if err != nil || third.ContractSHA256 == second.ContractSHA256 {
+		t.Fatalf("range policy did not change contract: second=%s third=%s err=%v", second.ContractSHA256, third.ContractSHA256, err)
+	}
+
+	writeTestFile(t, assignmentPath, "opaque assignment b\n", 0o600)
+	fourthPreview := fixture.createPlan(t)
+	fourth, _, err := loadPrivatePlan(fixture.root, fourthPreview.PlanID)
+	if err != nil || fourth.ContractSHA256 == third.ContractSHA256 || fourth.QualitativeReviewPanel.BlindAssignmentSHA256 == third.QualitativeReviewPanel.BlindAssignmentSHA256 {
+		t.Fatalf("assignment bytes did not change contract: third=%+v fourth=%+v err=%v", third.QualitativeReviewPanel, fourth.QualitativeReviewPanel, err)
+	}
+
+	panel.Method = "unsupported-method"
+	setPrivatePlanTestPanelRaw(t, fixture, panel)
+	_, err = CreatePrivatePlan(context.Background(), fixture.createOptions())
+	assertPrivatePlanError(t, err, "doctor")
+}
+
+func TestPrivatePlanNeutralPanelRequiresBlindAssignment(t *testing.T) {
+	fixture := newPrivatePlanTestFixture(t, false, false)
+	runSet := PrivateWorkspaceRunSet{Alias: "portfolio", SpecPaths: []string{"cases/portfolio/run.mcp.json"}, QualitativeReviewPanel: testPrivateQualitativePanel()}
+	if _, _, _, err := buildPrivateQualitativePanelMaterial(fixture.root, runSet, true); err == nil {
+		t.Fatal("neutral panel without blind assignment passed")
+	}
+	writeTestFile(t, filepath.Join(fixture.root, "cases", "blind.txt"), "opaque assignment\n", 0o600)
+	runSet.QualitativeReviewPanel.BlindAssignment = "cases/blind.txt"
+	contract, contractJSON, assignment, err := buildPrivateQualitativePanelMaterial(fixture.root, runSet, true)
+	if err != nil || contract == nil || len(contractJSON) == 0 || string(assignment) != "opaque assignment\n" {
+		t.Fatalf("contract=%+v json=%d assignment=%q err=%v", contract, len(contractJSON), assignment, err)
+	}
+}
+
+func TestPrivatePlanPersistsImmutableQualitativePanelMaterials(t *testing.T) {
+	fixture := newPrivatePlanTestFixture(t, false, false)
+	assignmentPath := filepath.Join(fixture.root, "cases", "blind.txt")
+	writeTestFile(t, assignmentPath, "opaque assignment\n", 0o600)
+	panel := testPrivateQualitativePanel()
+	panel.BlindAssignment = "cases/blind.txt"
+	setPrivatePlanTestPanel(t, fixture, panel)
+	preview := fixture.createPlan(t)
+	if _, err := ExecutePrivatePlan(context.Background(), fixture.executeOptions(preview)); err != nil {
+		t.Fatal(err)
+	}
+	source, err := LoadCompletedPrivateRun(fixture.root, fixture.repository, preview.PlanID)
+	if err != nil || len(source.Surfaces) != 1 {
+		t.Fatalf("source=%+v err=%v", source, err)
+	}
+	surface := source.Surfaces[0]
+	if surface.QualitativePanelContractPath == "" || !validSHA256(surface.QualitativePanelContractSHA256) ||
+		surface.BlindAssignmentPath == "" || !validSHA256(surface.BlindAssignmentSHA256) {
+		t.Fatalf("panel handoff=%+v", surface)
+	}
+	for _, path := range []string{surface.QualitativePanelContractPath, surface.BlindAssignmentPath} {
+		info, statErr := os.Stat(path)
+		if statErr != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+			t.Fatalf("persisted material %q info=%v err=%v", filepath.Base(path), info, statErr)
+		}
+	}
+
+	// Completed-run review sources are bound to persisted execution-time bytes,
+	// not later manifest or case edits.
+	writeTestFile(t, assignmentPath, "later workspace assignment\n", 0o600)
+	panel.Reviewers[0].Model = "later-model"
+	setPrivatePlanTestPanel(t, fixture, panel)
+	stable, err := LoadCompletedPrivateRun(fixture.root, fixture.repository, preview.PlanID)
+	if err != nil || stable.Surfaces[0].BlindAssignmentSHA256 != surface.BlindAssignmentSHA256 || stable.Surfaces[0].QualitativePanelContractSHA256 != surface.QualitativePanelContractSHA256 {
+		t.Fatalf("completed source drifted: stable=%+v err=%v", stable, err)
+	}
+
+	persistedAssignment, err := os.ReadFile(surface.BlindAssignmentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, surface.BlindAssignmentPath, "drifted assignment\n", 0o600)
+	if _, err := LoadCompletedPrivateRun(fixture.root, fixture.repository, preview.PlanID); err == nil {
+		t.Fatal("drifted persisted blind assignment loaded")
+	}
+	writeTestFile(t, surface.BlindAssignmentPath, string(persistedAssignment), 0o600)
+	appendPrivatePlanTestFile(t, surface.QualitativePanelContractPath, " ")
+	if _, err := LoadCompletedPrivateRun(fixture.root, fixture.repository, preview.PlanID); err == nil {
+		t.Fatal("drifted persisted panel contract loaded")
+	}
+}
+
 func TestExecutePrivatePlanInterruptedStateCannotReplay(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("synthetic executable scripts are Unix-only")
@@ -614,6 +732,46 @@ exit 2
 	return privatePlanTestFixture{root: root, repository: repository, liveConfig: liveConfig, pluginRoot: pluginRoot,
 		agent: agent, atl: atl, wrapper: wrapper, mutationControl: mutationControl,
 		runSetAlias: "portfolio", now: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)}
+}
+
+func setPrivatePlanTestPanel(t *testing.T, fixture privatePlanTestFixture, panel *PrivateQualitativeReviewPanel) {
+	t.Helper()
+	if err := panel.validate(); err != nil {
+		t.Fatalf("invalid test panel: %v", err)
+	}
+	setPrivatePlanTestPanelRaw(t, fixture, panel)
+}
+
+func setPrivatePlanTestPanelRaw(t *testing.T, fixture privatePlanTestFixture, panel *PrivateQualitativeReviewPanel) {
+	t.Helper()
+	manifestPath := filepath.Join(fixture.root, PrivateWorkspaceManifestName)
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := DecodePrivateWorkspaceManifest(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.RunSets[0].QualitativeReviewRequired = false
+	manifest.RunSets[0].QualitativeReviewPanel = panel
+	if err := panel.validate(); err != nil {
+		data, marshalErr := json.MarshalIndent(manifest, "", "  ")
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		if err := writePrivateFile(manifestPath, append(data, '\n')); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	data, err = EncodePrivateWorkspaceManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writePrivateFile(manifestPath, data); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (fixture privatePlanTestFixture) createOptions() PrivatePlanCreateOptions {

@@ -15,11 +15,13 @@ const privateReviewPacketVersion = 1
 type PrivateReviewPrepareOptions struct {
 	Root, RepositoryRoot, PlanID, Surface string
 	ReviewerKind, ReviewerModel           string
+	ReviewerID                            string
 	BlindAssignment                       string
 }
 
 type PrivateReviewAssessOptions struct {
 	Root, RepositoryRoot, PlanID, Surface string
+	ReviewerID                            string
 }
 
 type PrivateReviewSummary struct {
@@ -32,13 +34,17 @@ type PrivateReviewSummary struct {
 	ResultSHA256  string `json:"result_sha256"`
 	FinalSHA256   string `json:"final_sha256"`
 	RubricSHA256  string `json:"rubric_sha256"`
+	ReviewerID    string `json:"reviewer_id,omitempty"`
+	Expected      int    `json:"expected_reviews,omitempty"`
+	Prepared      int    `json:"prepared_reviews,omitempty"`
+	Assessed      int    `json:"assessed_reviews,omitempty"`
 }
 
 // PreparePrivateReview creates an owner-only, fixed-layout packet without
 // printing private answer or rubric bytes. The packet is deliberately inside
 // the candidate run so retention and containment rules cover it.
 func PreparePrivateReview(options PrivateReviewPrepareOptions) (PrivateReviewSummary, error) {
-	if options.ReviewerKind == "" || !validRunSurface(options.Surface) {
+	if options.ReviewerKind == "" && options.ReviewerID == "" || !validRunSurface(options.Surface) {
 		return PrivateReviewSummary{}, privatePlanError("review_input")
 	}
 	root, _, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
@@ -57,6 +63,12 @@ func PreparePrivateReview(options PrivateReviewPrepareOptions) (PrivateReviewSum
 	resultData, finalData, rubricData, result, rubric, err := loadPrivateReviewInputs(root, surface)
 	if err != nil {
 		return PrivateReviewSummary{}, err
+	}
+	if surface.QualitativePanelContractPath != "" {
+		return preparePrivatePanelReview(root, source, surface, resultData, finalData, rubricData, result, rubric, options)
+	}
+	if options.ReviewerID != "" {
+		return PrivateReviewSummary{}, privatePlanError("review_input")
 	}
 	var assignment [][]byte
 	if options.BlindAssignment != "" {
@@ -137,6 +149,12 @@ func AssessPrivateReview(options PrivateReviewAssessOptions) (PrivateReviewSumma
 	if err != nil {
 		return PrivateReviewSummary{}, err
 	}
+	if surface.QualitativePanelContractPath != "" {
+		return assessPrivatePanelReview(root, source, surface, resultData, finalData, result, rubric, options)
+	}
+	if options.ReviewerID != "" {
+		return PrivateReviewSummary{}, privatePlanError("review_input")
+	}
 	packetRelative := filepath.ToSlash(filepath.Join("runs", source.RunID, "review", options.Surface, "run-01"))
 	packet := filepath.Join(root, filepath.FromSlash(packetRelative))
 	for name, expected := range map[string][]byte{"result.json": resultData, "final.json": finalData, "rubric.json": rubricData} {
@@ -212,8 +230,11 @@ func privateReviewSummary(source PrivateBaselineSource, surface, status, packet 
 
 func (s PrivateReviewSummary) Validate() error {
 	if s.SchemaVersion != privateReviewPacketVersion || !privatePlanIDRE.MatchString(s.PlanID) || !privateRunIDRE.MatchString(s.RunID) ||
-		!validRunSurface(s.Surface) || (s.Status != "prepared" && s.Status != "assessed") || s.Packet == "" ||
+		!validRunSurface(s.Surface) || (s.Status != "prepared" && s.Status != "recorded" && s.Status != "assessed" && s.Status != "disagreement") || s.Packet == "" ||
 		!validSHA256(s.ResultSHA256) || !validSHA256(s.FinalSHA256) || !validSHA256(s.RubricSHA256) {
+		return fmt.Errorf("invalid private review summary")
+	}
+	if s.Expected != 0 && (s.Expected != 3 && s.Expected != 5 || s.Prepared < 0 || s.Prepared > s.Expected || s.Assessed < 0 || s.Assessed > s.Prepared || validatePathComponentID("reviewer id", s.ReviewerID) != nil) {
 		return fmt.Errorf("invalid private review summary")
 	}
 	return nil

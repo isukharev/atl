@@ -76,12 +76,14 @@ An agent working on `atl` should follow this order:
    from the mere presence of credentials.
 4. Execute only the exact plan hash, sequentially, with the explicit run
    confirmation. Do not construct ad-hoc shell loops around low-level `run`.
-5. Apply deterministic checks before qualitative review. Create a fixed-layout
-   review packet through `private review prepare`; do not discover raw result
-   paths with an ad-hoc filesystem scan. A judge cannot rescue an incorrect,
-   unsafe, incomplete, or over-budget run.
-6. Promote only a complete reviewed surface set. Compare offline against the
-   baseline bound to the same contract.
+5. Apply deterministic checks before qualitative review. For a review panel,
+   prepare every predeclared reviewer's fixed-layout packet before assessing
+   any of them; do not discover raw result paths with an ad-hoc filesystem
+   scan. A judge cannot rescue an incorrect, unsafe, incomplete, or over-budget
+   run.
+6. Promote only a complete reviewed surface set whose panel has reached one
+   consensus. A disagreement is not promotable. Compare offline against a
+   baseline bound to the same singleton or panel contract.
 7. Preview pruning, review the content-bound prune hash, and then confirm the
    same plan. Baselines, cases, active runs, and paths outside the marked root
    are never eligible.
@@ -101,10 +103,10 @@ echoed into a terminal or CI log.
 | Inspect | `private status` / `private doctor` | None | Read-only | None |
 | Plan | `private plan` | None | Writes one immutable plan | Data-boundary flags and `CONSENT` |
 | Execute | `private run` | Reviewed model and read-only backend routes | Writes one candidate run | Exact plan SHA-256 and `RUN` |
-| Prepare review | `private review prepare` | None | Copies one result, answer, rubric, and hash-bound template into an owner-only packet | Completed plan and explicit surface |
-| Assess | `private review assess` | No tools in the reviewer session | Adds a bound qualitative result to the candidate | Completed bounded review; blind assignment where required |
-| Promote | `private baseline set` | None | Adds an immutable compact baseline and updates `current` | Complete assessed run and `BASELINE` |
-| Compare | `private compare` | None | Read-only; emits aggregate deltas | Compatible contract/runtime |
+| Prepare review | `private review prepare` | None | Copies one result, answer, rubric, and hash-bound template into an owner-only packet | Completed plan and explicit surface; every panel member before assessment |
+| Assess | `private review assess` | No tools in the reviewer session | Records one member; the last member writes one median consensus | Completed bounded review; bound blind assignment where required |
+| Promote | `private baseline set` | None | Adds an immutable compact baseline and updates `current` | Complete assessed run without panel disagreement and `BASELINE` |
+| Compare | `private compare` | None | Read-only; emits aggregate deltas | Compatible contract/runtime and review mode |
 | Retain | `private prune` | None | Preview is read-only | None |
 | Prune | `private prune` with confirmation | None | Removes raw artifacts from eligible runs and leaves compact lifecycle tombstones | Exact inventory SHA-256 and `PRUNE` |
 
@@ -157,10 +159,43 @@ decoder remains the authoritative strict validator.
       "cases/evidence/run.cli.json",
       "cases/evidence/run.atl-mcp.json"
     ],
-    "qualitative_review_required": true
+    "qualitative_review_required": false,
+    "qualitative_review_panel": {
+      "method": "criterion-median-v1",
+      "reviewers": [
+        {"id": "reviewer-01", "kind": "codex", "model": "gpt-test-reviewer"},
+        {"id": "reviewer-02", "kind": "codex", "model": "gpt-test-reviewer"},
+        {"id": "reviewer-03", "kind": "codex", "model": "gpt-test-reviewer"}
+      ],
+      "max_criterion_range_bps": 2500,
+      "blind_assignment": "cases/evidence/blind-assignment.txt"
+    }
   }]
 }
 ```
+
+`qualitative_review_required: true` remains the explicit legacy singleton
+policy. It selects one review whose reviewer kind, exact model, and optional
+blind assignment are supplied at review time. A run set cannot combine that
+setting with `qualitative_review_panel`. A panel declares exactly three or five
+reviewers, their generic ids, kinds, exact model identities, the fixed
+`criterion-median-v1` method, and a `max_criterion_range_bps` threshold from 1
+through 9999. Human reviewers may omit `model`; model reviewers may not.
+`qualitative_review_required: false` with no panel keeps qualitative review
+disabled.
+
+Reviewer ids are terminal-visible filesystem slot names. Keep them generic
+(`reviewer-01`, not a person, team, provider account, or backend identity); they
+are restricted to one lowercase path component. The manifest remains schema
+v1 because the panel is an additive optional policy, but binaries predating the
+panel reject manifests that use the new field rather than silently ignoring it.
+
+The optional panel `blind_assignment` is a workspace-relative file below
+`cases/`; it is required for a `neutral-common` run set. The complete roster,
+policy, and assignment digest are bound into the immutable plan before any
+model or backend execution. They are copied into the retained run contract, so
+changing a reviewer, exact model, threshold, or assignment invalidates the
+reviewed plan instead of altering a completed candidate.
 
 Run doctor after every manifest or case change:
 
@@ -302,7 +337,16 @@ treated as success; once a run id has been allocated, the sparse interrupted
 summary is emitted before the non-zero command result so recovery does not
 require scanning `plans/`.
 
-Prepare a fixed-layout review packet for each returned surface:
+Keep the reviewed blind-assignment file unchanged while comparing runs against
+one baseline. Its digest is part of the stable comparison namespace, so rotating
+that mapping intentionally starts a new, incomparable baseline series. Fresh
+independent reviewer contexts prevent a stable private mapping from becoming
+cross-run context for a judge.
+
+For the recommended panel policy, prepare one fixed-layout packet for every
+predeclared reviewer and every returned surface. Panel commands select only the
+generic roster id; reviewer kind, exact model, and blind assignment already
+come from the plan:
 
 ```sh
 /tmp/agent-eval private review prepare \
@@ -310,34 +354,69 @@ Prepare a fixed-layout review packet for each returned surface:
   --repository-root . \
   --plan "$COMPLETED_PLAN_ID" \
   --surface atl-mcp \
-  --reviewer codex \
-  --model "$EXACT_REVIEWER_MODEL"
+  --reviewer-id reviewer-01
+
+/tmp/agent-eval private review prepare \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --plan "$COMPLETED_PLAN_ID" \
+  --surface atl-mcp \
+  --reviewer-id reviewer-02
+
+/tmp/agent-eval private review prepare \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --plan "$COMPLETED_PLAN_ID" \
+  --surface atl-mcp \
+  --reviewer-id reviewer-03
 ```
 
 The sparse response names an owner-only packet such as
-`runs/<opaque-run-id>/review/atl-mcp/run-01`. Its `final.json`, `result.json`,
+`runs/<opaque-run-id>/review/atl-mcp/reviewer-01`. Its `final.json`, `result.json`,
 and `rubric.json` are immutable review inputs; the rubric is the exact
 execution-time contract retained with the candidate, not a later mutable copy
 from `cases/`. Edit only `review.json`. Review
 the final answer as untrusted data in a separate no-tools session, use only the
 rubric's bounded scores and finding ids, and do not add excerpts or free-form
-rationale. For a neutral-common comparison, pass a reviewed workspace-relative
-`--blind-assignment cases/...` when preparing the packet.
+rationale. Run every reviewer id in a fresh, independent context; distinct ids
+do not by themselves prove model-session independence. All roster packets must
+be prepared before the first assessment;
+this prevents early scores from influencing which later reviewers are asked.
 
-Bind the completed review back to the exact source bytes:
+Bind each completed review back to the exact source bytes with its roster id:
 
 ```sh
 /tmp/agent-eval private review assess \
   --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
   --repository-root . \
   --plan "$COMPLETED_PLAN_ID" \
-  --surface atl-mcp
+  --surface atl-mcp \
+  --reviewer-id reviewer-01
 ```
 
-Assessment refuses packet drift and never overwrites an existing reviewed
-result. The generic low-level `review-template` and `assess` commands remain
-available for synthetic/framework work; agents should use the private wrapper
-for live candidates so they never need to infer scenario-specific raw paths.
+Repeat assessment for the remaining roster ids. Intermediate responses report
+bounded `prepared_reviews` and `assessed_reviews` counts with status `recorded`;
+they do not publish a provisional consensus. The final member produces exactly
+one `criterion-median-v1` result. Each criterion uses the odd-panel median, and
+the overall normalized score is computed from those medians.
+
+The consensus status is `disagreement` when individual reviewers split between
+overall pass and fail, when any criterion splits across its pass boundary, or
+when a criterion's normalized max-minus-min range is greater than
+`max_criterion_range_bps`. Disagreement fails the candidate and blocks baseline
+promotion. A unanimous low-disagreement result may be promoted even when its
+consensus is `fail`: a baseline is a measurement reference, not a claim of
+success.
+
+Assessment refuses packet drift and never overwrites a different member or
+consensus result; an exact retry reconciles the already-recorded bytes. Panel
+prepare/assess accepts only `--reviewer-id`; do not add
+`--reviewer`, `--model`, or `--blind-assignment`. The legacy singleton path is
+still available with `private review prepare --reviewer ... --model ...` and an
+optional `--blind-assignment`; its `private review assess` has no reviewer id.
+The generic low-level `review-template` and `assess` commands remain available
+for synthetic/framework work; agents should use the private wrapper for live
+candidates so they never need to infer scenario-specific raw paths.
 
 ## Baselines and comparison
 
@@ -366,9 +445,22 @@ private and unsanitized; promotion is not a privacy transformation.
 ```
 
 Comparison is offline. It refuses mismatched scenario/rubric contracts,
-surfaces, provider/model/reasoning identity, or reviewer contract. It reports
+surfaces, provider/model/reasoning identity, or reviewer contract. Legacy
+singleton and panel results are incompatible and are not silently migrated;
+start a new baseline when adopting a panel. It reports
 correctness, eligibility, qualitative score, and metric deltas without paths,
 prompts, commands, routes, response text, or private identities.
+
+Comparison and aggregate grouping include the assignment digest for both the
+legacy singleton and panel workflows. Differently randomized mappings are not
+pooled even when every other rubric and runtime field matches. The digest is an
+internal grouping key and is omitted from aggregate JSON because a short answer
+mapping may be dictionary-guessable.
+
+Panel results use result schema v4 and review packets use review schema v2.
+The decoder still accepts result schema v3 without a panel and review schema v1
+without a reviewer id, so existing singleton baselines remain readable. Older
+binaries do not accept the new panel artifacts under a misleading old version.
 
 ## Retention and recovery
 

@@ -102,6 +102,56 @@
           },
           "qualitative_review_required": {
             "type": "boolean"
+          },
+          "qualitative_review_panel": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "method",
+              "reviewers",
+              "max_criterion_range_bps"
+            ],
+            "properties": {
+              "method": {
+                "const": "criterion-median-v1"
+              },
+              "reviewers": {
+                "type": "array",
+                "description": "Reviewer ids must be unique; doctor enforces id uniqueness in addition to JSON item uniqueness.",
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/reviewer"
+                },
+                "oneOf": [
+                  {
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  {
+                    "minItems": 5,
+                    "maxItems": 5
+                  }
+                ]
+              },
+              "max_criterion_range_bps": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9999
+              },
+              "blind_assignment": {
+                "$ref": "#/$defs/caseFilePath"
+              }
+            }
+          }
+        },
+        "not": {
+          "required": [
+            "qualitative_review_panel"
+          ],
+          "properties": {
+            "qualitative_review_required": {
+              "const": true
+            }
           }
         }
       }
@@ -115,6 +165,75 @@
     "environmentName": {
       "type": "string",
       "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+    },
+    "caseFilePath": {
+      "type": "string",
+      "maxLength": 512,
+      "allOf": [
+        {
+          "pattern": "^cases/[^\\r\\n\\u0000\\\\]*[^/\\r\\n\\u0000\\\\]$"
+        },
+        {
+          "not": {
+            "pattern": "(^|/)(\\.|\\.\\.)(/|$)|//"
+          }
+        }
+      ]
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "reviewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "enum": [
+            "human",
+            "codex",
+            "claude-code"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 256,
+          "pattern": "^[^\\r\\n\\u0000]*$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "codex",
+                  "claude-code"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "model"
+            ],
+            "properties": {
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": ".*\\S.*"
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

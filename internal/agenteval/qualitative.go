@@ -11,10 +11,13 @@ import (
 )
 
 const (
-	RubricSchemaVersion = 1
-	ReviewSchemaVersion = 1
-	maxReviewBytes      = 16 << 20
-	maxRubricCriteria   = 32
+	RubricSchemaVersion           = 1
+	ReviewSchemaVersion           = 2
+	LegacyReviewSchemaVersion     = 1
+	QualitativePanelSchemaVersion = 1
+	QualitativePanelMethod        = "criterion-median-v1"
+	maxReviewBytes                = 16 << 20
+	maxRubricCriteria             = 32
 )
 
 // Rubric defines a bounded, public scoring guide. It never contains a candidate
@@ -37,6 +40,7 @@ type RubricCriterion struct {
 }
 
 type Reviewer struct {
+	ID    string `json:"id,omitempty"`
 	Kind  string `json:"kind"`
 	Model string `json:"model,omitempty"`
 }
@@ -88,6 +92,57 @@ type QualitativeCriterion struct {
 	Passed  bool   `json:"passed"`
 }
 
+// QualitativePanelPolicy is the bounded, deterministic consensus policy for a
+// review panel. Schema v1 deliberately permits only odd panels of three or
+// five reviewers so every majority and median is unambiguous.
+type QualitativePanelPolicy struct {
+	SchemaVersion        int    `json:"schema_version"`
+	Method               string `json:"method"`
+	ExpectedReviewers    int    `json:"expected_reviewers"`
+	MaxCriterionRangeBPS int    `json:"max_criterion_range_bps"`
+}
+
+type QualitativeReviewSetAssessment struct {
+	SchemaVersion       int                             `json:"schema_version"`
+	Policy              QualitativePanelPolicy          `json:"policy"`
+	ContractSHA256      string                          `json:"contract_sha256"`
+	RubricID            string                          `json:"rubric_id"`
+	RubricSHA256        string                          `json:"rubric_sha256"`
+	MinimumScoreBPS     int                             `json:"minimum_score_bps"`
+	ResultSHA256        string                          `json:"result_sha256"`
+	FinalResponseSHA256 string                          `json:"final_response_sha256"`
+	Blinded             bool                            `json:"blinded,omitempty"`
+	AssignmentDigest    string                          `json:"assignment_digest,omitempty"`
+	Status              string                          `json:"status"`
+	ScoreBPS            int                             `json:"score_bps"`
+	Members             []QualitativeReviewSetMember    `json:"members"`
+	Criteria            []QualitativeReviewSetCriterion `json:"criteria"`
+	FindingIDs          []string                        `json:"finding_ids"`
+}
+
+type QualitativeReviewSetMember struct {
+	ReviewSHA256 string                 `json:"review_sha256"`
+	Reviewer     Reviewer               `json:"reviewer"`
+	Status       string                 `json:"status"`
+	ScoreBPS     int                    `json:"score_bps"`
+	Criteria     []ReviewCriterionScore `json:"criteria"`
+	FindingIDs   []string               `json:"finding_ids"`
+}
+
+type QualitativeReviewSetCriterion struct {
+	ID       string `json:"id"`
+	Score    int    `json:"score"`
+	Minimum  int    `json:"minimum"`
+	Maximum  int    `json:"maximum"`
+	Weight   int    `json:"weight"`
+	Passed   bool   `json:"passed"`
+	MinScore int    `json:"min_score"`
+	MaxScore int    `json:"max_score"`
+	Passes   int    `json:"passes"`
+	Failures int    `json:"failures"`
+	RangeBPS int    `json:"range_bps"`
+}
+
 func (q QualitativeAssessment) validate(scenarioID string) error {
 	if !identifierRE.MatchString(q.RubricID) || !validSHA256(q.RubricSHA256) || !validSHA256(q.ResultSHA256) || !validSHA256(q.FinalResponseSHA256) {
 		return fmt.Errorf("qualitative assessment identity is invalid")
@@ -118,6 +173,181 @@ func (q QualitativeAssessment) validate(scenarioID string) error {
 		return err
 	}
 	_ = scenarioID
+	return nil
+}
+
+func (q QualitativeReviewSetAssessment) validate(scenarioID string) error {
+	if q.SchemaVersion != QualitativePanelSchemaVersion {
+		return fmt.Errorf("unsupported qualitative review-set schema_version %d", q.SchemaVersion)
+	}
+	if err := q.Policy.Validate(); err != nil {
+		return err
+	}
+	if !identifierRE.MatchString(q.RubricID) || !validSHA256(q.RubricSHA256) || !validSHA256(q.ResultSHA256) || !validSHA256(q.FinalResponseSHA256) || !validSHA256(q.ContractSHA256) {
+		return fmt.Errorf("qualitative review-set identity is invalid")
+	}
+	if err := validateBlindAssignment(q.Blinded, q.AssignmentDigest); err != nil {
+		return fmt.Errorf("qualitative review-set: %w", err)
+	}
+	if q.Status != "pass" && q.Status != "fail" && q.Status != "disagreement" {
+		return fmt.Errorf("qualitative review-set status must be pass, fail, or disagreement")
+	}
+	if q.ScoreBPS < 0 || q.ScoreBPS > 10000 || q.MinimumScoreBPS < 0 || q.MinimumScoreBPS > 10000 || len(q.Members) != q.Policy.ExpectedReviewers {
+		return fmt.Errorf("qualitative review-set bounds are invalid")
+	}
+	if len(q.Criteria) == 0 || len(q.Criteria) > maxRubricCriteria {
+		return fmt.Errorf("qualitative review-set criteria bounds are invalid")
+	}
+	seenCriteria := map[string]struct{}{}
+	for _, criterion := range q.Criteria {
+		if !identifierRE.MatchString(criterion.ID) || criterion.Maximum < 1 || criterion.Maximum > 100 || criterion.Minimum < 0 || criterion.Minimum > criterion.Maximum || criterion.Score < 0 || criterion.Score > criterion.Maximum || criterion.Weight < 1 || criterion.Weight > 1000 {
+			return fmt.Errorf("invalid qualitative review-set criterion")
+		}
+		if _, ok := seenCriteria[criterion.ID]; ok {
+			return fmt.Errorf("duplicate qualitative review-set criterion %q", criterion.ID)
+		}
+		seenCriteria[criterion.ID] = struct{}{}
+	}
+	reviewers := make([]Reviewer, 0, len(q.Members))
+	seenReviewDigests := map[string]struct{}{}
+	previousID := ""
+	individualPasses := 0
+	criterionScores := make([][]int, len(q.Criteria))
+	unionFindings := map[string]struct{}{}
+	for _, member := range q.Members {
+		if err := member.Reviewer.validate(); err != nil {
+			return err
+		}
+		if member.Reviewer.ID == "" || (previousID != "" && member.Reviewer.ID <= previousID) {
+			return fmt.Errorf("qualitative review-set members must be sorted by unique reviewer id")
+		}
+		previousID = member.Reviewer.ID
+		if !validSHA256(member.ReviewSHA256) {
+			return fmt.Errorf("qualitative review-set member digest is invalid")
+		}
+		if _, ok := seenReviewDigests[member.ReviewSHA256]; ok {
+			return fmt.Errorf("duplicate qualitative review-set member digest")
+		}
+		seenReviewDigests[member.ReviewSHA256] = struct{}{}
+		if member.Status != "pass" && member.Status != "fail" || member.ScoreBPS < 0 || member.ScoreBPS > 10000 {
+			return fmt.Errorf("qualitative review-set member bounds are invalid")
+		}
+		if err := validateIdentifierList("qualitative review-set member finding_ids", member.FindingIDs, false); err != nil {
+			return err
+		}
+		if !sort.StringsAreSorted(member.FindingIDs) {
+			return fmt.Errorf("qualitative review-set member finding_ids must be sorted")
+		}
+		for _, finding := range member.FindingIDs {
+			unionFindings[finding] = struct{}{}
+		}
+		if len(member.Criteria) != len(q.Criteria) {
+			return fmt.Errorf("qualitative review-set member criteria do not match consensus criteria")
+		}
+		var weightedScore, weightedMaximum int64
+		memberPass := true
+		for index, score := range member.Criteria {
+			definition := q.Criteria[index]
+			if score.ID != definition.ID || score.Score < 0 || score.Score > definition.Maximum {
+				return fmt.Errorf("qualitative review-set member criterion is invalid")
+			}
+			criterionScores[index] = append(criterionScores[index], score.Score)
+			weightedScore += int64(score.Score * definition.Weight)
+			weightedMaximum += int64(definition.Maximum * definition.Weight)
+			if score.Score < definition.Minimum {
+				memberPass = false
+			}
+		}
+		memberScoreBPS := int((weightedScore*10000 + weightedMaximum/2) / weightedMaximum)
+		if memberScoreBPS < q.MinimumScoreBPS {
+			memberPass = false
+		}
+		expectedMemberStatus := "fail"
+		if memberPass {
+			expectedMemberStatus = "pass"
+			individualPasses++
+		}
+		if member.ScoreBPS != memberScoreBPS || member.Status != expectedMemberStatus {
+			return fmt.Errorf("qualitative review-set member assessment is inconsistent")
+		}
+		reconstructedReview := Review{
+			SchemaVersion: ReviewSchemaVersion, RubricID: q.RubricID, RubricSHA256: q.RubricSHA256,
+			ScenarioID: scenarioID, ResultSHA256: q.ResultSHA256, FinalResponseSHA256: q.FinalResponseSHA256,
+			Blinded: q.Blinded, AssignmentDigest: q.AssignmentDigest, Reviewer: member.Reviewer,
+			Criteria: append([]ReviewCriterionScore{}, member.Criteria...), FindingIDs: append([]string{}, member.FindingIDs...),
+		}
+		data, err := json.Marshal(reconstructedReview)
+		if err != nil {
+			return err
+		}
+		if member.ReviewSHA256 != sha256Hex(data) {
+			return fmt.Errorf("qualitative review-set member digest does not match retained review")
+		}
+		reviewers = append(reviewers, member.Reviewer)
+	}
+	expectedContract, err := qualitativeReviewSetContractDigest(q.Policy, reviewers)
+	if err != nil {
+		return err
+	}
+	if q.ContractSHA256 != expectedContract {
+		return fmt.Errorf("qualitative review-set contract digest does not match")
+	}
+	highDisagreement := individualPasses > 0 && individualPasses < len(q.Members)
+	consensusPass := individualPasses > len(q.Members)/2
+	var weightedScore, weightedMaximum int64
+	for index, criterion := range q.Criteria {
+		scores := criterionScores[index]
+		sort.Ints(scores)
+		passes := 0
+		for _, score := range scores {
+			if score >= criterion.Minimum {
+				passes++
+			}
+		}
+		failures := len(scores) - passes
+		median := scores[len(scores)/2]
+		rangeBPS := ceilRangeBPS(scores[len(scores)-1]-scores[0], criterion.Maximum)
+		passed := median >= criterion.Minimum
+		if criterion.Score != median || criterion.Passed != passed || criterion.MinScore != scores[0] || criterion.MaxScore != scores[len(scores)-1] || criterion.Passes != passes || criterion.Failures != failures || criterion.RangeBPS != rangeBPS {
+			return fmt.Errorf("qualitative review-set criterion summary is inconsistent")
+		}
+		if !passed {
+			consensusPass = false
+		}
+		if (passes > 0 && failures > 0) || rangeBPS > q.Policy.MaxCriterionRangeBPS {
+			highDisagreement = true
+		}
+		weightedScore += int64(median * criterion.Weight)
+		weightedMaximum += int64(criterion.Maximum * criterion.Weight)
+	}
+	expectedScoreBPS := int((weightedScore*10000 + weightedMaximum/2) / weightedMaximum)
+	if expectedScoreBPS < q.MinimumScoreBPS {
+		consensusPass = false
+	}
+	expectedStatus := "fail"
+	if consensusPass {
+		expectedStatus = "pass"
+	}
+	if highDisagreement {
+		expectedStatus = "disagreement"
+	}
+	if q.ScoreBPS != expectedScoreBPS || q.Status != expectedStatus {
+		return fmt.Errorf("qualitative review-set consensus is inconsistent")
+	}
+	if err := validateIdentifierList("qualitative review-set finding_ids", q.FindingIDs, false); err != nil {
+		return err
+	}
+	if !sort.StringsAreSorted(q.FindingIDs) {
+		return fmt.Errorf("qualitative review-set finding_ids must be sorted")
+	}
+	expectedFindings := make([]string, 0, len(unionFindings))
+	for finding := range unionFindings {
+		expectedFindings = append(expectedFindings, finding)
+	}
+	sort.Strings(expectedFindings)
+	if strings.Join(q.FindingIDs, "\x00") != strings.Join(expectedFindings, "\x00") {
+		return fmt.Errorf("qualitative review-set findings do not match members")
+	}
 	return nil
 }
 
@@ -213,6 +443,11 @@ func (r Rubric) Validate() error {
 }
 
 func (r Reviewer) validate() error {
+	if r.ID != "" {
+		if err := validatePathComponentID("reviewer id", r.ID); err != nil {
+			return err
+		}
+	}
 	if r.Kind != "human" && r.Kind != "codex" && r.Kind != "claude-code" {
 		return fmt.Errorf("reviewer kind must be human, codex, or claude-code")
 	}
@@ -225,9 +460,28 @@ func (r Reviewer) validate() error {
 	return nil
 }
 
+func (p QualitativePanelPolicy) Validate() error {
+	if p.SchemaVersion != QualitativePanelSchemaVersion {
+		return fmt.Errorf("unsupported qualitative panel schema_version %d", p.SchemaVersion)
+	}
+	if p.Method != QualitativePanelMethod {
+		return fmt.Errorf("unsupported qualitative panel method %q", p.Method)
+	}
+	if p.ExpectedReviewers != 3 && p.ExpectedReviewers != 5 {
+		return fmt.Errorf("expected_reviewers must be 3 or 5")
+	}
+	if p.MaxCriterionRangeBPS < 1 || p.MaxCriterionRangeBPS > 9999 {
+		return fmt.Errorf("max_criterion_range_bps must be in 1..9999")
+	}
+	return nil
+}
+
 func (r Review) Validate() error {
-	if r.SchemaVersion != ReviewSchemaVersion {
+	if r.SchemaVersion != ReviewSchemaVersion && r.SchemaVersion != LegacyReviewSchemaVersion {
 		return fmt.Errorf("unsupported review schema_version %d", r.SchemaVersion)
+	}
+	if r.SchemaVersion == LegacyReviewSchemaVersion && r.Reviewer.ID != "" {
+		return fmt.Errorf("legacy review cannot contain a reviewer id")
 	}
 	if !identifierRE.MatchString(r.RubricID) || !identifierRE.MatchString(r.ScenarioID) {
 		return fmt.Errorf("review identity is invalid")
@@ -261,25 +515,39 @@ func AssessQualitative(result Result, resultBytes, finalBytes []byte, rubric Rub
 	if err := result.Validate(); err != nil {
 		return Result{}, err
 	}
-	if result.Qualitative != nil {
+	if result.Qualitative != nil || result.QualitativeReviewSet != nil {
 		return Result{}, fmt.Errorf("result already contains a qualitative assessment")
 	}
 	if len(finalBytes) > maxReviewBytes {
 		return Result{}, fmt.Errorf("final response exceeds %d bytes", maxReviewBytes)
 	}
+	assessment, err := assessBoundReview(result, resultBytes, finalBytes, rubric, review)
+	if err != nil {
+		return Result{}, err
+	}
+	result.Qualitative = &assessment
+	if assessment.Status == "fail" {
+		result.Status = "fail"
+		result.Violations = append(result.Violations, Violation{Code: "qualitative_review_failed", Subject: rubric.ID, Observed: int64(assessment.ScoreBPS), Limit: int64(rubric.MinimumScoreBPS)})
+		sortViolations(result.Violations)
+	}
+	return result, nil
+}
+
+func assessBoundReview(result Result, resultBytes, finalBytes []byte, rubric Rubric, review Review) (QualitativeAssessment, error) {
 	if rubric.ScenarioID != result.ScenarioID || review.ScenarioID != result.ScenarioID || review.RubricID != rubric.ID {
-		return Result{}, fmt.Errorf("rubric, review, and result identity do not match")
+		return QualitativeAssessment{}, fmt.Errorf("rubric, review, and result identity do not match")
 	}
 	if result.EffectiveCategory() == BenchmarkCategoryNeutralCommon && (!review.Blinded || !validSHA256(review.AssignmentDigest)) {
-		return Result{}, fmt.Errorf("neutral-common qualitative assessment requires a blinded assignment digest")
+		return QualitativeAssessment{}, fmt.Errorf("neutral-common qualitative assessment requires a blinded assignment digest")
 	}
 	resultHash := sha256Hex(resultBytes)
 	finalHash := sha256Hex(finalBytes)
 	if review.ResultSHA256 != resultHash || review.FinalResponseSHA256 != finalHash {
-		return Result{}, fmt.Errorf("review hashes do not bind the supplied result and final response")
+		return QualitativeAssessment{}, fmt.Errorf("review hashes do not bind the supplied result and final response")
 	}
 	if review.RubricSHA256 != rubricSHA256(rubric) {
-		return Result{}, fmt.Errorf("review hash does not bind the supplied rubric")
+		return QualitativeAssessment{}, fmt.Errorf("review hash does not bind the supplied rubric")
 	}
 	scores := make(map[string]int, len(review.Criteria))
 	for _, item := range review.Criteria {
@@ -292,7 +560,7 @@ func AssessQualitative(result Result, resultBytes, finalBytes []byte, rubric Rub
 	findings := append([]string{}, review.FindingIDs...)
 	for _, finding := range findings {
 		if _, ok := allowedFindings[finding]; !ok {
-			return Result{}, fmt.Errorf("review finding %q is not allowed by rubric", finding)
+			return QualitativeAssessment{}, fmt.Errorf("review finding %q is not allowed by rubric", finding)
 		}
 	}
 	sort.Strings(findings)
@@ -303,10 +571,10 @@ func AssessQualitative(result Result, resultBytes, finalBytes []byte, rubric Rub
 	for _, definition := range rubric.Criteria {
 		score, ok := scores[definition.ID]
 		if !ok {
-			return Result{}, fmt.Errorf("review omits rubric criterion %q", definition.ID)
+			return QualitativeAssessment{}, fmt.Errorf("review omits rubric criterion %q", definition.ID)
 		}
 		if score > definition.Maximum {
-			return Result{}, fmt.Errorf("review score for %q exceeds maximum", definition.ID)
+			return QualitativeAssessment{}, fmt.Errorf("review score for %q exceeds maximum", definition.ID)
 		}
 		passed := score >= definition.Minimum
 		if !passed {
@@ -317,7 +585,7 @@ func AssessQualitative(result Result, resultBytes, finalBytes []byte, rubric Rub
 		weightedMaximum += int64(definition.Maximum * definition.Weight)
 	}
 	if len(scores) != len(rubric.Criteria) {
-		return Result{}, fmt.Errorf("review contains criteria not defined by rubric")
+		return QualitativeAssessment{}, fmt.Errorf("review contains criteria not defined by rubric")
 	}
 	scoreBPS := int((weightedScore*10000 + weightedMaximum/2) / weightedMaximum)
 	if scoreBPS < rubric.MinimumScoreBPS {
@@ -327,18 +595,265 @@ func AssessQualitative(result Result, resultBytes, finalBytes []byte, rubric Rub
 	if !qualitativePass {
 		status = "fail"
 	}
-	result.Qualitative = &QualitativeAssessment{RubricID: rubric.ID, RubricSHA256: review.RubricSHA256, ResultSHA256: resultHash, FinalResponseSHA256: finalHash, Blinded: review.Blinded, AssignmentDigest: review.AssignmentDigest, Reviewer: review.Reviewer, Status: status, ScoreBPS: scoreBPS, Criteria: criteria, FindingIDs: findings}
-	if !qualitativePass {
-		result.Status = "fail"
-		result.Violations = append(result.Violations, Violation{Code: "qualitative_review_failed", Subject: rubric.ID, Observed: int64(scoreBPS), Limit: int64(rubric.MinimumScoreBPS)})
-		sort.Slice(result.Violations, func(i, j int) bool {
-			if result.Violations[i].Code != result.Violations[j].Code {
-				return result.Violations[i].Code < result.Violations[j].Code
-			}
-			return result.Violations[i].Subject < result.Violations[j].Subject
+	return QualitativeAssessment{RubricID: rubric.ID, RubricSHA256: review.RubricSHA256, ResultSHA256: resultHash, FinalResponseSHA256: finalHash, Blinded: review.Blinded, AssignmentDigest: review.AssignmentDigest, Reviewer: review.Reviewer, Status: status, ScoreBPS: scoreBPS, Criteria: criteria, FindingIDs: findings}, nil
+}
+
+func sortViolations(violations []Violation) {
+	sort.Slice(violations, func(i, j int) bool {
+		if violations[i].Code != violations[j].Code {
+			return violations[i].Code < violations[j].Code
+		}
+		return violations[i].Subject < violations[j].Subject
+	})
+}
+
+// AssessQualitativeReviewSet binds an odd review panel to one immutable result,
+// final response, rubric, and blind assignment, then computes criterion-wise
+// median consensus. Individual reviews remain inputs; only bounded assessments
+// and their canonical digests are retained.
+func AssessQualitativeReviewSet(result Result, resultBytes, finalBytes []byte, rubric Rubric, policy QualitativePanelPolicy, reviews []Review) (Result, error) {
+	if err := result.Validate(); err != nil {
+		return Result{}, err
+	}
+	if result.Qualitative != nil || result.QualitativeReviewSet != nil {
+		return Result{}, fmt.Errorf("result already contains a qualitative assessment")
+	}
+	if err := rubric.Validate(); err != nil {
+		return Result{}, err
+	}
+	if err := policy.Validate(); err != nil {
+		return Result{}, err
+	}
+	if len(finalBytes) > maxReviewBytes {
+		return Result{}, fmt.Errorf("final response exceeds %d bytes", maxReviewBytes)
+	}
+	if len(reviews) != policy.ExpectedReviewers {
+		return Result{}, fmt.Errorf("review panel requires exactly %d reviews", policy.ExpectedReviewers)
+	}
+
+	type assessedMember struct {
+		assessment QualitativeAssessment
+		digest     string
+	}
+	members := make([]assessedMember, 0, len(reviews))
+	reviewerIDs := map[string]struct{}{}
+	reviewerIdentities := map[string]struct{}{}
+	reviewDigests := map[string]struct{}{}
+	panelBlinded := reviews[0].Blinded
+	panelAssignment := reviews[0].AssignmentDigest
+	for index, review := range reviews {
+		if err := review.Validate(); err != nil {
+			return Result{}, fmt.Errorf("review %d: %w", index, err)
+		}
+		if review.Reviewer.ID == "" {
+			return Result{}, fmt.Errorf("review %d: panel reviewer id is required", index)
+		}
+		if _, ok := reviewerIDs[review.Reviewer.ID]; ok {
+			return Result{}, fmt.Errorf("duplicate panel reviewer id %q", review.Reviewer.ID)
+		}
+		reviewerIDs[review.Reviewer.ID] = struct{}{}
+		identity := reviewerIdentityKey(review.Reviewer)
+		if _, ok := reviewerIdentities[identity]; ok {
+			return Result{}, fmt.Errorf("duplicate panel reviewer identity")
+		}
+		reviewerIdentities[identity] = struct{}{}
+		if review.Blinded != panelBlinded || review.AssignmentDigest != panelAssignment {
+			return Result{}, fmt.Errorf("panel reviews must bind the same blind assignment")
+		}
+		assessment, err := assessBoundReview(result, resultBytes, finalBytes, rubric, review)
+		if err != nil {
+			return Result{}, fmt.Errorf("review %d: %w", index, err)
+		}
+		digest, err := canonicalReviewSHA256(review, rubric)
+		if err != nil {
+			return Result{}, fmt.Errorf("review %d: %w", index, err)
+		}
+		if _, ok := reviewDigests[digest]; ok {
+			return Result{}, fmt.Errorf("duplicate canonical panel review digest")
+		}
+		reviewDigests[digest] = struct{}{}
+		members = append(members, assessedMember{assessment: assessment, digest: digest})
+	}
+	sort.Slice(members, func(i, j int) bool { return members[i].assessment.Reviewer.ID < members[j].assessment.Reviewer.ID })
+
+	reviewers := make([]Reviewer, 0, len(members))
+	setMembers := make([]QualitativeReviewSetMember, 0, len(members))
+	findingSet := map[string]struct{}{}
+	individualPasses := 0
+	for _, member := range members {
+		reviewers = append(reviewers, member.assessment.Reviewer)
+		if member.assessment.Status == "pass" {
+			individualPasses++
+		}
+		for _, finding := range member.assessment.FindingIDs {
+			findingSet[finding] = struct{}{}
+		}
+		memberCriteria := make([]ReviewCriterionScore, 0, len(member.assessment.Criteria))
+		for _, criterion := range member.assessment.Criteria {
+			memberCriteria = append(memberCriteria, ReviewCriterionScore{ID: criterion.ID, Score: criterion.Score})
+		}
+		setMembers = append(setMembers, QualitativeReviewSetMember{
+			ReviewSHA256: member.digest,
+			Reviewer:     member.assessment.Reviewer,
+			Status:       member.assessment.Status,
+			ScoreBPS:     member.assessment.ScoreBPS,
+			Criteria:     memberCriteria,
+			FindingIDs:   append([]string{}, member.assessment.FindingIDs...),
 		})
 	}
+	findings := make([]string, 0, len(findingSet))
+	for finding := range findingSet {
+		findings = append(findings, finding)
+	}
+	sort.Strings(findings)
+
+	highDisagreement := individualPasses > 0 && individualPasses < len(members)
+	consensusPass := individualPasses > len(members)/2
+	criteria := make([]QualitativeReviewSetCriterion, 0, len(rubric.Criteria))
+	var weightedScore, weightedMaximum int64
+	for criterionIndex, definition := range rubric.Criteria {
+		scores := make([]int, 0, len(members))
+		passes := 0
+		for _, member := range members {
+			criterion := member.assessment.Criteria[criterionIndex]
+			scores = append(scores, criterion.Score)
+			if criterion.Passed {
+				passes++
+			}
+		}
+		sort.Ints(scores)
+		median := scores[len(scores)/2]
+		failures := len(scores) - passes
+		rangeBPS := ceilRangeBPS(scores[len(scores)-1]-scores[0], definition.Maximum)
+		passed := median >= definition.Minimum
+		if !passed {
+			consensusPass = false
+		}
+		if (passes > 0 && failures > 0) || rangeBPS > policy.MaxCriterionRangeBPS {
+			highDisagreement = true
+		}
+		criteria = append(criteria, QualitativeReviewSetCriterion{
+			ID: definition.ID, Score: median, Minimum: definition.Minimum,
+			Maximum: definition.Maximum, Weight: definition.Weight, Passed: passed,
+			MinScore: scores[0], MaxScore: scores[len(scores)-1], Passes: passes,
+			Failures: failures, RangeBPS: rangeBPS,
+		})
+		weightedScore += int64(median * definition.Weight)
+		weightedMaximum += int64(definition.Maximum * definition.Weight)
+	}
+	scoreBPS := int((weightedScore*10000 + weightedMaximum/2) / weightedMaximum)
+	if scoreBPS < rubric.MinimumScoreBPS {
+		consensusPass = false
+	}
+	status := "fail"
+	if consensusPass {
+		status = "pass"
+	}
+	if highDisagreement {
+		status = "disagreement"
+	}
+	contractDigest, err := QualitativeReviewSetContractSHA256(policy, reviewers)
+	if err != nil {
+		return Result{}, err
+	}
+	resultHash := sha256Hex(resultBytes)
+	finalHash := sha256Hex(finalBytes)
+	result.SchemaVersion = ResultSchemaVersion
+	result.QualitativeReviewSet = &QualitativeReviewSetAssessment{
+		SchemaVersion: QualitativePanelSchemaVersion, Policy: policy, ContractSHA256: contractDigest,
+		RubricID: rubric.ID, RubricSHA256: rubricSHA256(rubric), MinimumScoreBPS: rubric.MinimumScoreBPS, ResultSHA256: resultHash,
+		FinalResponseSHA256: finalHash, Blinded: panelBlinded, AssignmentDigest: panelAssignment,
+		Status: status, ScoreBPS: scoreBPS, Members: setMembers, Criteria: criteria,
+		FindingIDs: findings,
+	}
+	if status != "pass" {
+		result.Status = "fail"
+		violation := Violation{Code: "qualitative_review_failed", Subject: rubric.ID, Observed: int64(scoreBPS), Limit: int64(rubric.MinimumScoreBPS)}
+		if status == "disagreement" {
+			violation = Violation{Code: "qualitative_review_disagreement", Subject: rubric.ID, Observed: 1}
+		}
+		result.Violations = append(result.Violations, violation)
+		sortViolations(result.Violations)
+	}
 	return result, nil
+}
+
+func ceilRangeBPS(scoreRange, maximum int) int {
+	return (scoreRange*10000 + maximum - 1) / maximum
+}
+
+func reviewerIdentityKey(reviewer Reviewer) string {
+	return reviewer.ID + "\x00" + reviewer.Kind + "\x00" + reviewer.Model
+}
+
+// QualitativeReviewSetContractSHA256 identifies a compatible panel contract.
+// It binds policy and the exact reviewer roster, but intentionally not a
+// rubric, result, final response, scores, findings, or review digests.
+func QualitativeReviewSetContractSHA256(policy QualitativePanelPolicy, reviewers []Reviewer) (string, error) {
+	if err := policy.Validate(); err != nil {
+		return "", err
+	}
+	roster := append([]Reviewer{}, reviewers...)
+	if len(roster) != policy.ExpectedReviewers {
+		return "", fmt.Errorf("reviewer roster requires exactly %d members", policy.ExpectedReviewers)
+	}
+	sort.Slice(roster, func(i, j int) bool { return roster[i].ID < roster[j].ID })
+	seenIDs := map[string]struct{}{}
+	seenIdentities := map[string]struct{}{}
+	for _, reviewer := range roster {
+		if err := reviewer.validate(); err != nil {
+			return "", err
+		}
+		if reviewer.ID == "" {
+			return "", fmt.Errorf("panel reviewer id is required")
+		}
+		if _, ok := seenIDs[reviewer.ID]; ok {
+			return "", fmt.Errorf("duplicate panel reviewer id %q", reviewer.ID)
+		}
+		seenIDs[reviewer.ID] = struct{}{}
+		identity := reviewerIdentityKey(reviewer)
+		if _, ok := seenIdentities[identity]; ok {
+			return "", fmt.Errorf("duplicate panel reviewer identity")
+		}
+		seenIdentities[identity] = struct{}{}
+	}
+	return qualitativeReviewSetContractDigest(policy, roster)
+}
+
+func qualitativeReviewSetContractDigest(policy QualitativePanelPolicy, roster []Reviewer) (string, error) {
+	contract := struct {
+		SchemaVersion int                    `json:"schema_version"`
+		Policy        QualitativePanelPolicy `json:"policy"`
+		Reviewers     []Reviewer             `json:"reviewers"`
+	}{QualitativePanelSchemaVersion, policy, roster}
+	data, err := json.Marshal(contract)
+	if err != nil {
+		return "", err
+	}
+	return sha256Hex(data), nil
+}
+
+func canonicalReviewSHA256(review Review, rubric Rubric) (string, error) {
+	scores := make(map[string]int, len(review.Criteria))
+	for _, criterion := range review.Criteria {
+		scores[criterion.ID] = criterion.Score
+	}
+	canonical := review
+	canonical.Criteria = make([]ReviewCriterionScore, 0, len(rubric.Criteria))
+	for _, definition := range rubric.Criteria {
+		score, ok := scores[definition.ID]
+		if !ok {
+			return "", fmt.Errorf("review omits rubric criterion %q", definition.ID)
+		}
+		canonical.Criteria = append(canonical.Criteria, ReviewCriterionScore{ID: definition.ID, Score: score})
+	}
+	canonical.FindingIDs = append([]string{}, review.FindingIDs...)
+	sort.Strings(canonical.FindingIDs)
+	data, err := json.Marshal(canonical)
+	if err != nil {
+		return "", err
+	}
+	return sha256Hex(data), nil
 }
 
 func validateBlindAssignment(blinded bool, digest string) error {
