@@ -878,6 +878,13 @@ skill can supply CLI usage guidance; the instruction does not expose the hidden
 allowlist or any case-specific command. A model that still answers without an
 interface call remains a normal measured failure.
 
+Generated Codex skill reads commonly use paths relative to the model workspace.
+Private-live guards bind those paths to the runner's canonical ephemeral
+workspace before applying the existing canonical read-root containment check.
+Only bounded `cat`, `sed`, and `wc` shapes are admitted; missing workspace
+policy, paths resolving outside reviewed roots through traversal or symlinks,
+and unrelated shell commands remain denied.
+
 For reviewed capability families, routing is deterministic: Jira-only runs
 name `$atl:jira`, Confluence-only runs name `$atl:confluence`, mixed runs name both in
 that order, and unknown families remain generic. This is derived only from

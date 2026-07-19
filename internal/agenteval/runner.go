@@ -822,6 +822,13 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	allowedReadRoots, _ := json.Marshal([]string{skillReadRoot, workspace})
 	environment["ATL_EVAL_ALLOWED_READ_ROOTS"] = string(allowedReadRoots)
+	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
+		canonicalWorkspace, err := filepath.EvalSymlinks(workspace)
+		if err != nil {
+			return Result{}, fmt.Errorf("resolve private benchmark workspace: %w", err)
+		}
+		environment["ATL_EVAL_WORKSPACE_ROOT"] = canonicalWorkspace
+	}
 	environment["PATH"] = wrapperDir
 	if loaded.spec.Provider != "claude-code" || loaded.spec.ToolTransport != "mcp" {
 		for name, value := range backendEnvironment {

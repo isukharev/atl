@@ -149,7 +149,7 @@ fi
 exit 2
 `, 0o700)
 	wrapper := filepath.Join(tempRepository, "agent-eval")
-	build := exec.Command("go", "build", "-o", wrapper, "./scripts/agent-eval")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
 	build.Dir = repositoryRoot
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build wrapper: %v\n%s", err, output)
@@ -381,6 +381,8 @@ func TestPrivateLiveRunUsesCopiedCredentialsAndObservedReadMethods(t *testing.T)
 	writeTestFile(t, fakeAgent, `#!/bin/sh
 if [ "$1" = "--version" ]; then echo fake-agent-1; exit 0; fi
 if [ -z "$ATL_EVAL_HTTP_GUARD_FILE" ]; then echo missing HTTP guard >&2; exit 31; fi
+if [ -z "$ATL_EVAL_WORKSPACE_ROOT" ] || [ "$ATL_EVAL_WORKSPACE_ROOT" != "$PWD" ]; then echo missing workspace read root >&2; exit 34; fi
+case "$ATL_EVAL_ALLOWED_READ_ROOTS" in *"$ATL_EVAL_WORKSPACE_ROOT"*) ;; *) echo workspace outside read roots >&2; exit 35;; esac
 case "$ATL_CONFIG_DIR" in */atl-agent-eval-live-config-*) ;; *) echo source config exposed directly >&2; exit 32;; esac
 if [ ! -s "$ATL_CONFIG_DIR/config.json" ] || [ ! -s "$ATL_CONFIG_DIR/credentials.json" ]; then echo copied config missing >&2; exit 33; fi
 printf '%s\n' "$ATL_CONFIG_DIR" >"${ATL_EVAL_COUNTER}.config-path"
@@ -410,7 +412,7 @@ if [ "$1" = "version" ]; then printf '%s\n' '{"version":"0.4.0","commit":"test",
 exit 2
 `, 0o700)
 	wrapper := filepath.Join(tempRepository, "agent-eval")
-	build := exec.Command("go", "build", "-o", wrapper, "./scripts/agent-eval")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
 	build.Dir = repositoryRoot
 	build.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
 	if output, err := build.CombinedOutput(); err != nil {
@@ -617,14 +619,14 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 	).Replace(fakeAgentScript)
 	writeTestFile(t, fakeAgent, fakeAgentScript, 0o700)
 	wrapper := filepath.Join(tempRepository, "agent-eval")
-	buildWrapper := exec.Command("go", "build", "-o", wrapper, "./scripts/agent-eval")
+	buildWrapper := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
 	buildWrapper.Dir = repositoryRoot
 	buildWrapper.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
 	if output, err := buildWrapper.CombinedOutput(); err != nil {
 		t.Fatalf("build wrapper: %v\n%s", err, output)
 	}
 	atlBinary := filepath.Join(tempRepository, "real-atl")
-	buildATL := exec.Command("go", "build", "-o", atlBinary, "./cmd/atl")
+	buildATL := exec.Command("go", "build", "-buildvcs=false", "-o", atlBinary, "./cmd/atl")
 	buildATL.Dir = repositoryRoot
 	buildATL.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
 	if output, err := buildATL.CombinedOutput(); err != nil {
