@@ -206,6 +206,10 @@ func TestPrivatePanelReviewRequiresCompleteRosterAndAggregatesOnce(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, _, policy, err := loadPrivatePanelReviewContract(fixture.root, source.Surfaces[0])
+	if err != nil {
+		t.Fatal(err)
+	}
 	data, err := os.ReadFile(filepath.Join(source.Surfaces[0].RunDirectory, "reviewed-result.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -240,10 +244,6 @@ func TestPrivatePanelReviewRequiresCompleteRosterAndAggregatesOnce(t *testing.T)
 		t.Fatal(err)
 	}
 	rubric, err := DecodeRubric(bytes.NewReader(rubricData))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _, policy, err := loadPrivatePanelReviewContract(fixture.root, source.Surfaces[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,14 +332,14 @@ func TestPrivatePanelReviewRequiresAllRunSurfacesBeforeAssessment(t *testing.T) 
 		t.Fatal(err)
 	}
 	first := source.Surfaces[0]
+	firstResultData, firstFinalData, firstRubricData, firstResult, firstRubric, err := loadPrivateReviewInputs(fixture.root, first)
+	if err != nil {
+		t.Fatal(err)
+	}
 	second := first
 	second.Surface = SurfaceCLISkill
 	second.RunDirectory = filepath.Join(source.RunRoot, "surfaces", SurfaceCLISkill)
 	if err := os.MkdirAll(second.RunDirectory, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	firstResultData, firstFinalData, firstRubricData, firstResult, firstRubric, err := loadPrivateReviewInputs(fixture.root, first)
-	if err != nil {
 		t.Fatal(err)
 	}
 	secondResult := firstResult
