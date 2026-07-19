@@ -410,6 +410,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Qualitative singleton and panel assessment now clone deterministic
+  violations before appending and sorting review outcomes. A reviewed panel can
+  no longer mutate the caller's slice, duplicate its qualitative violation, or
+  drop a deterministic failure when the input slice has spare capacity;
+  non-passing panel results remain decodable and usable as measurement
+  baselines when the reviewers agree.
+
 - `skill_invocations_min` can now bind an exact Claude skill name such as
   `atl:jira` or `atl:confluence`, so loading an unrelated installed skill cannot
   satisfy a CLI+skill experiment. The routed Jira evidence candidate passed
