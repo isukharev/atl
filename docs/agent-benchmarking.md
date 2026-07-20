@@ -468,6 +468,11 @@ output tokens, 111,697 reported micro-USD, and 26,625 ms. Treat provider token,
 cost, and duration values as directional; the pass/guard/oracle and file-size
 results are the stable claims.
 
+Current public Claude Code run specs form one exact `claude-opus-4-8` / `high`
+cohort with reviewed standard token pricing. Model, effort, or pricing changes
+create a new cohort; existing aggregates and baselines remain historical and
+must not be rewritten or pooled across that boundary.
+
 The runner creates a fresh private workspace per repetition. Claude Code CLI
 runs load the repository plugin explicitly and receive an `atl`-only Bash
 allow-rule plus a `PreToolUse` guard. The guard accepts a bounded command block

@@ -159,6 +159,12 @@ count, timeout, and estimated cost cap. The default public case runs three
 fresh sessions and caps their combined USD-equivalent estimate at $10. It does not contact an
 Atlassian backend: the runner injects synthetic loopback URLs and tokens.
 
+The active public Claude Code cohort is pinned to exact model
+`claude-opus-4-8` at `high` effort. Its standard accounting rates are the
+reviewed global list prices bound in every run spec. Retained results from an
+earlier model or effort remain a separate historical cohort; never relabel or
+pool them with new Opus 4.8 measurements.
+
 Claude Code supplies its reported cost when available. The Codex run spec uses
 a deliberately conservative configurable token-rate estimate for budget
 enforcement; it is benchmark accounting, not a claim about current product or

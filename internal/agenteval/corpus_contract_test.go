@@ -2,6 +2,7 @@ package agenteval
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,49 @@ func TestRepositoryBenchmarkCorpusContract(t *testing.T) {
 	}
 	if inventory.SchemaVersion != 1 || inventory.Scenarios < 1 || inventory.Runs < inventory.Scenarios || len(inventory.Classes) < 1 {
 		t.Fatalf("inventory=%+v", inventory)
+	}
+}
+
+func TestRepositoryClaudeCorpusUsesReviewedOpus48HighCohort(t *testing.T) {
+	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
+	claudeRuns := 0
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, "run.") || !strings.HasSuffix(name, ".json") {
+			return nil
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		spec, decodeErr := DecodeRunSpec(file)
+		closeErr := file.Close()
+		if decodeErr != nil {
+			return decodeErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		claudeFilename := strings.Contains(name, ".claude")
+		if !claudeFilename && spec.Provider != "claude-code" {
+			return nil
+		}
+		claudeRuns++
+		if spec.Provider != "claude-code" || spec.Model != "claude-opus-4-8" || spec.Reasoning != "high" ||
+			spec.Pricing.InputMicroUSDPerMillionTokens != 5_000_000 ||
+			spec.Pricing.OutputMicroUSDPerMillionTokens != 25_000_000 {
+			t.Errorf("Claude run %s escaped the reviewed Opus 4.8/high cohort", name)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claudeRuns == 0 {
+		t.Fatal("repository corpus contains no Claude Code runs")
 	}
 }
 
