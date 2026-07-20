@@ -202,7 +202,8 @@ directory binds the same scenario file.
 
 The committed realistic matrix includes neutral-common cohorts for deep Jira
 evidence, ordered batch reading, board portfolio synthesis, a long
-repeated-heading Confluence decision, and cross-service topic discovery, plus
+repeated-heading Confluence decision, qualified three-page Confluence search
+with bounded section evidence, and cross-service topic discovery, plus
 separately scored surface-native cases for GET-only Structure subtree batch
 export, multi-table Confluence analytics, offline mirror review, and guarded
 synthetic Jira/Confluence mutations. Delegation, injection, and point-route
@@ -372,6 +373,13 @@ new transition, not as a general backend emulator. A
 with one pointer in a contained, regular JSON artifact created inside the
 synthetic workspace. It is forbidden in private-live specs and is useful for
 dynamic review artifacts such as proposal hashes.
+
+Pagination fixtures may repeat one GET/HEAD path when every route has a unique
+query selector. `query_contains` binds semantic query fragments, while
+`query_equals` binds exact cursor or offset values; zero or multiple matching
+routes are unexpected. Use exact selectors for independent pagination pages,
+not a stateful response sequence, so repeating page one cannot advance the
+fixture accidentally.
 
 ### Guarded Jira field mutation
 

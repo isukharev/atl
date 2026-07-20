@@ -58,6 +58,14 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		if tool.Name == "confluence_search" && !schemaRequired(input, "cql") {
 			t.Errorf("tool %s must require explicit cql: %#v", tool.Name, tool.InputSchema)
 		}
+		if tool.Name == "confluence_page_section" {
+			properties, _ := input["properties"].(map[string]any)
+			heading, _ := properties["heading"].(map[string]any)
+			description, _ := heading["description"].(string)
+			if !strings.Contains(description, "without a Markdown # prefix") {
+				t.Errorf("tool %s heading guidance is ambiguous: %#v", tool.Name, heading)
+			}
+		}
 		if tool.OutputSchema == nil {
 			t.Errorf("tool %s has no output schema", tool.Name)
 		}

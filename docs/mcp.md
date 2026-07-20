@@ -43,6 +43,9 @@ schema-v1 page as `conf search`: `query`, bounded candidate metadata, `count`,
 `complete`, `truncated`, optional `partial_reason`, and `next_cursor`. Search
 results omit page bodies. Reuse a returned numeric id directly with
 `confluence_page_outline` and `confluence_page_section`.
+Pass `confluence_page_section.heading` as the exact `title` returned by the
+outline, without a Markdown `#` prefix; use `occurrence` when that title
+repeats.
 
 Every tool advertises `readOnlyHint:true`, `idempotentHint:true`,
 `destructiveHint:false`, and `openWorldHint:false`. The server instructions tell

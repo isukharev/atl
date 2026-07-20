@@ -255,9 +255,12 @@ exit 2
 		Enabled     []string `json:"enabledMcpjsonServers"`
 		Permissions struct {
 			Allow []string `json:"allow"`
+			Deny  []string `json:"deny"`
 		} `json:"permissions"`
 	}
-	if err := json.Unmarshal(settingsData, &settings); err != nil || len(settings.Enabled) != 1 || settings.Enabled[0] != "atl" || len(settings.Permissions.Allow) != 1 || settings.Permissions.Allow[0] != "mcp__atl__jira_fields" {
+	if err := json.Unmarshal(settingsData, &settings); err != nil || len(settings.Enabled) != 1 || settings.Enabled[0] != "atl" ||
+		len(settings.Permissions.Allow) != 1 || settings.Permissions.Allow[0] != "mcp__atl__jira_fields" ||
+		len(settings.Permissions.Deny) != 1 || settings.Permissions.Deny[0] != "Skill" {
 		t.Fatalf("MCP approval settings=%s err=%v", settingsData, err)
 	}
 	if bytes.Contains(settingsData, []byte(`"matcher"`)) {

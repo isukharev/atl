@@ -170,6 +170,85 @@ func TestMockBackendQueryConstraintRejectsSemanticallyWrongSearch(t *testing.T) 
 	}
 }
 
+func TestMockBackendSelectsExactPaginatedQueryRoute(t *testing.T) {
+	fixture := MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{
+			{Method: "GET", Path: "/wiki/rest/api/search", QueryContains: map[string]string{"cql": "Quartz rollout"},
+				QueryEquals: map[string]string{"start": "0"}, Status: 200, Body: []byte(`{"page":1}`)},
+			{Method: "GET", Path: "/wiki/rest/api/search", QueryContains: map[string]string{"cql": "Quartz rollout"},
+				QueryEquals: map[string]string{"start": "2"}, Status: 200, Body: []byte(`{"page":2}`)},
+		},
+	}
+	backend, err := StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	for _, test := range []struct {
+		start, body string
+		status      int
+	}{{"0", `{"page":1}`, 200}, {"2", `{"page":2}`, 200}, {"1", `{"errorMessages":["synthetic route not configured"]}`, 404}} {
+		response, err := http.Get(backend.Environment()["ATL_CONFLUENCE_URL"] + "/rest/api/search?cql=Quartz+rollout&start=" + test.start)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		if response.StatusCode != test.status || string(body) != test.body {
+			t.Fatalf("start=%s status=%d body=%s", test.start, response.StatusCode, body)
+		}
+	}
+}
+
+func TestMockFixtureRejectsDuplicateOrAmbiguousQuerySelectors(t *testing.T) {
+	route := MockRoute{Method: "GET", Path: "/wiki/rest/api/search", QueryEquals: map[string]string{"start": "0"}, Status: 200, Body: []byte(`{}`)}
+	fixture := MockFixture{SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki", Routes: []MockRoute{route, route}}
+	if err := fixture.Validate(); err == nil {
+		t.Fatal("duplicate exact query selector passed")
+	}
+	fixture.Routes = []MockRoute{{Method: "GET", Path: "/wiki/rest/api/search", QueryContains: map[string]string{"start": "0"},
+		QueryEquals: map[string]string{"start": "0"}, Status: 200, Body: []byte(`{}`)}}
+	if err := fixture.Validate(); err == nil {
+		t.Fatal("same query key in contains and equals passed")
+	}
+	for _, routes := range [][]MockRoute{
+		{
+			{Method: "GET", Path: "/wiki/rest/api/search", Status: 200, Body: []byte(`{}`)},
+			{Method: "GET", Path: "/wiki/rest/api/search", QueryEquals: map[string]string{"start": "0"}, Status: 200, Body: []byte(`{}`)},
+		},
+		{
+			{Method: "GET", Path: "/wiki/rest/api/search", QueryEquals: map[string]string{"start": "0"}, Status: 200, Body: []byte(`{}`)},
+			{Method: "GET", Path: "/wiki/rest/api/search", Status: 200, Body: []byte(`{}`)},
+		},
+	} {
+		fixture.Routes = routes
+		if err := fixture.Validate(); err == nil {
+			t.Fatal("mixed constrained and unconstrained duplicate routes passed")
+		}
+	}
+}
+
+func TestMockBackendExactQueryRejectsMultipleValues(t *testing.T) {
+	fixture := MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{{Method: "GET", Path: "/wiki/rest/api/search", QueryEquals: map[string]string{"start": "0"}, Status: 200, Body: []byte(`{}`)}},
+	}
+	backend, err := StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	response, err := http.Get(backend.Environment()["ATL_CONFLUENCE_URL"] + "/rest/api/search?start=0&start=2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("status=%d, want %d", response.StatusCode, http.StatusNotFound)
+	}
+}
+
 func TestMockBackendMatchesExpectedJSONRequestBody(t *testing.T) {
 	fixture := MockFixture{
 		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",

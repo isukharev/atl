@@ -126,6 +126,7 @@ The realistic matrix currently contains:
 | neutral common | `jira-ordered-batch-read` | selector order, duplicates, omitted identity, and CLI batch versus typed search efficiency |
 | neutral common | `jira-board-neutral-portfolio` | board membership plus current, stale, and incomplete per-epic evidence |
 | neutral common | `confluence-long-decision` | long rich page, repeated heading, and superseded evidence |
+| neutral common | `confluence-paginated-search-evidence` | three qualified search pages, distractor rejection, and bounded section provenance |
 | neutral common | `cross-service-neutral-discovery` | bounded topic discovery across Jira and Confluence with distractors |
 | surface native | `jira-structure-subtree-export` | GET-only hierarchy rows plus ordered explicit batch export |
 | surface native | `confluence-table-analytics` | selected multi-table extraction, merged cells, links, and safe CSV |
@@ -191,7 +192,10 @@ exact built `atl mcp serve` binary and grants execution only to
 `allowed_mcp_tools`. Claude receives a private explicit config under
 `--strict-mcp-config`, exact qualified `mcp__atl__...` permission rules, and a
 global pre-tool guard that allows only those reviewed MCP names plus required
-structured output; every built-in fallback is denied.
+structured output; every built-in fallback is denied. The generated settings
+also remove `Skill` from typed-MCP model discovery so a shared neutral prompt
+cannot accidentally choose CLI workflow guidance; the hook remains the
+fail-closed boundary for every other built-in.
 Neutral-common specs additionally declare a sorted `data_capabilities` set.
 The corpus validator derives that set from built-in CLI or typed-MCP routes,
 while private external-MCP runs bind it to the reviewed capability family in
