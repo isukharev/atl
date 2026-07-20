@@ -33,9 +33,11 @@ make live-smoke                                # opt-in live CLI smoke checks (b
 ```
 
 Private model-in-the-loop agent evaluations use the owner-only lifecycle in
-`docs/agent-benchmark-private-workspace.md`. Start from workspace status and a
-reviewed plan; never use raw transcripts as implicit consent or retain new live
-runs in unrelated `/tmp` directories.
+`docs/agent-benchmark-private-workspace.md`. If `ATL_AGENT_EVAL_PRIVATE_ROOT` is
+configured, start with `agent-eval private status`/`doctor` and a reviewed plan;
+never enumerate raw cases or transcripts, use raw transcripts as implicit consent,
+construct ad-hoc `/tmp` output roots, or publish private artifacts — real
+workspace files stay gitignored and owner-only.
 
 For CLI changes, run focused tests first (`go test ./internal/app ./internal/cli` or the
 touched packages), then `make test`.
@@ -149,7 +151,8 @@ documented there.
 Non-trivial work is **issue-first**: find or open a GitHub issue before changing code, so the
 chain `roadmap → issue/sub-issue → agent plan → branch → PR → verification → done` stays
 visible. Non-trivial = changes user-facing behaviour, public docs, CLI output, release process,
-architecture, or security posture; trivial typos/formatting/local experiments may skip it. The
+architecture, or security posture; trivial typos/formatting/local experiments — and explicitly
+private/security-sensitive work — may skip public issue creation. The
 process is deliberately **issue-only** (labels + comments + sub-issues), not GitHub Projects.
 Canonical guides live outside this file: `AGENTS.md` (cross-agent handoff rules) and
 `docs/github-issue-workflow.md` (full process); issue forms are in `.github/ISSUE_TEMPLATE/`.
@@ -158,7 +161,8 @@ Canonical guides live outside this file: `AGENTS.md` (cross-agent handoff rules)
   Verification / Risks-non-goals); re-comment when scope changes instead of drifting silently.
 - **Labels carry state + routing:** `agent-ready` → `agent-working` → `needs-human`;
   `area/{confluence,jira,sync,mcp,safety,packaging,cloud,docs}`;
-  `kind/{feature,bug,research,docs,infra}`; `roadmap/{now,next,later}`.
+  `kind/{feature,bug,research,docs,infra}`; `roadmap/{now,next,later}`. If blocked, comment
+  on the issue with the blocker and add `needs-human`.
 - **Branch** with `gh issue develop <n> --checkout`; the **PR** references the issue
   (`Refs #…` / `Fixes #…`), parent initiative, and roadmap ID/section, and lists verification
   (`make test`, `make lint`). Close issues through a merged PR, not a local patch.
