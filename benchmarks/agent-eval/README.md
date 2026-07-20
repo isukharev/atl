@@ -334,13 +334,17 @@ is omitted from preview and aggregate JSON.
 Use one `kind:"activation-study"` run set for the complete 2x2. One reviewed
 plan and one consent bind all four same-surface cells, their common contract,
 the exact treatment specs, tool-availability qualification contract and
-observed shell alias, reviewer roster, and any required blind assignment.
+observed local-execution route alias, reviewer roster, and any required blind assignment.
 Before plan persistence and again before plan consumption, the exact native
 Codex binary, model, and reasoning setting must expose one unambiguous
-model-facing shell route to a credential-free synthetic loopback Responses
+model-facing local-execution route to a credential-free synthetic loopback Responses
 endpoint. This qualification makes no model, provider, or backend request and
 retains no prompt, raw request, tool schema, path, credential, or backend
-identity. Unsupported or malformed inventories stop before treatment scoring.
+identity. It recognizes direct shell schemas and the exact grammar-bound
+Responses-lite code-mode `exec`/closed-schema `wait` pair; mixed, broadened,
+unsupported, or malformed inventories stop before treatment scoring. Report
+schema v2 binds the expanded route contract; schema v1 remains legacy
+direct-shell-only.
 After that gate, one backend-free provider `atl version` calibration must
 traverse the same isolated Codex shell, plugin, hook, shim, and command broker
 without any backend config or credentials. It must prove one admitted

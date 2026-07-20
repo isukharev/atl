@@ -239,7 +239,7 @@ state. Runtime bindings and their owner-only modes are validated while creating
 the reviewed plan. Stdout does not enumerate case aliases or private paths.
 
 Before creating a Codex activation-study plan, inspect the exact model-facing
-shell inventory without provider authentication or backend authority:
+local-execution inventory without provider authentication or backend authority:
 
 ```sh
 /tmp/agent-eval private qualify \
@@ -256,7 +256,12 @@ nonce-scoped loopback Responses endpoint. It accepts exactly one bounded
 request, rejects authentication headers, and returns a fixed synthetic answer;
 no model, provider, Jira, or Confluence request is made. Its content-free report
 contains only the binary identity, qualification-contract digest, a closed
-status, the recognized shell alias when supported, and zero-authority counters.
+status, the recognized direct-shell or code-mode route alias when supported,
+and zero-authority counters. A code-mode route must be a grammar-bound custom
+`exec` host exposing the pinned shell pair plus the exact closed-schema `wait`
+companion; mixed and broadened inventories fail closed. Report schema v2 binds
+this expanded classifier; legacy schema-v1 reports accept direct-shell aliases
+only.
 It never retains the prompt, request body, tool schemas, command output, paths,
 credentials, or backend identity. Missing, ambiguous, malformed, repeated, or
 absent inventory fails closed. Activation-study planning repeats this check

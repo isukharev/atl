@@ -33,7 +33,7 @@ func TestClassifyCodexToolInventory(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := classifyCodexToolInventory(json.RawMessage(test.tools))
+			got := classifyCodexToolInventory(json.RawMessage(test.tools), false)
 			if got.status != test.want || got.shellTool != test.wantShell {
 				t.Fatalf("got=%+v want_status=%s want_shell=%q", got, test.want, test.wantShell)
 			}
@@ -65,6 +65,42 @@ func TestClassifyCodexToolProbeInventoriesSupportsResponsesLiteAndRejectsConflic
 	}
 }
 
+func TestClassifyCodexToolProbeInventoriesSupportsClosedCodeMode(t *testing.T) {
+	description := "All nested tools are available on the global `tools` object.\n" +
+		"### `exec_command`\ndeclare const tools: { exec_command(args: {\n" +
+		"### `write_stdin`\ndeclare const tools: { write_stdin(args: {"
+	exec := fmt.Sprintf(`{"type":"custom","name":"exec","description":%q,"format":{"type":"grammar","syntax":"lark","definition":%q}}`, description, codexCodeModeExecGrammar)
+	wait := `{"type":"function","name":"wait","parameters":{"type":"object","properties":{"cell_id":{"type":"string"},"max_tokens":{"type":"number"},"terminate":{"type":"boolean"},"yield_time_ms":{"type":"number"}},"required":["cell_id"],"additionalProperties":false}}`
+	input := json.RawMessage(`[{"type":"additional_tools","role":"developer","tools":[` + exec + `,` + wait + `]}]`)
+	got := classifyCodexToolProbeInventories(nil, input)
+	if got.status != CodexCLIToolAvailabilitySupported || got.shellTool != "exec" {
+		t.Fatalf("code-mode inventory=%+v", got)
+	}
+	for name, tools := range map[string]string{
+		"direct custom exec":          `[` + exec + `,` + wait + `]`,
+		"missing wait":                `[` + exec + `]`,
+		"negated nested shell":        fmt.Sprintf(`[{"type":"custom","name":"exec","description":%q,"format":{"type":"grammar","syntax":"lark","definition":%q}},%s]`, "All nested tools are available on the global `tools` object. Does not expose exec_command or write_stdin.", codexCodeModeExecGrammar, wait),
+		"wrong grammar syntax":        fmt.Sprintf(`[{"type":"custom","name":"exec","description":%q,"format":{"type":"grammar","syntax":"regex","definition":%q}},%s]`, description, codexCodeModeExecGrammar, wait),
+		"extra grammar field":         fmt.Sprintf(`[{"type":"custom","name":"exec","description":%q,"format":{"type":"grammar","syntax":"lark","definition":%q,"extra":true}},%s]`, description, codexCodeModeExecGrammar, wait),
+		"broadened wait schema":       `[` + exec + `,{"type":"function","name":"wait","parameters":{"type":"object","properties":{"cell_id":{"type":"string"},"max_tokens":{"type":"number"},"terminate":{"type":"boolean"},"yield_time_ms":{"type":"number"},"command":{"type":"string"}},"required":["cell_id"],"additionalProperties":false}}]`,
+		"open wait schema":            `[` + exec + `,{"type":"function","name":"wait","parameters":{"type":"object","properties":{"cell_id":{"type":"string"},"max_tokens":{"type":"number"},"terminate":{"type":"boolean"},"yield_time_ms":{"type":"number"}},"required":["cell_id"],"additionalProperties":true}}]`,
+		"wrong wait property types":   `[` + exec + `,{"type":"function","name":"wait","parameters":{"type":"object","properties":{"cell_id":{"type":"number"},"max_tokens":{"type":"string"},"terminate":{"type":"integer"},"yield_time_ms":{"type":"boolean"}},"required":["cell_id"],"additionalProperties":false}}]`,
+		"mixed direct shell and code": `[` + exec + `,` + wait + `,{"type":"function","name":"exec_command","parameters":{"type":"object","properties":{"cmd":{}},"required":["cmd"]}}]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var candidate codexToolProbeObservation
+			if name == "direct custom exec" {
+				candidate = classifyCodexToolProbeInventories(json.RawMessage(tools), nil)
+			} else {
+				candidate = classifyCodexToolProbeInventories(nil, json.RawMessage(`[{"type":"additional_tools","tools":`+tools+`}]`))
+			}
+			if candidate.status == CodexCLIToolAvailabilitySupported {
+				t.Fatalf("unsafe code-mode inventory passed: %+v", candidate)
+			}
+		})
+	}
+}
+
 func TestCodexCLIToolAvailabilityReportValidation(t *testing.T) {
 	identity := "binary-sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	report := CodexCLIToolAvailabilityReport{
@@ -79,6 +115,20 @@ func TestCodexCLIToolAvailabilityReportValidation(t *testing.T) {
 	}
 	if err := report.Validate(); err != nil || !report.Supported() {
 		t.Fatalf("valid report rejected: %+v err=%v", report, err)
+	}
+	codeMode := report
+	codeMode.ShellTool = "exec"
+	if err := codeMode.Validate(); err != nil || !codeMode.Supported() {
+		t.Fatalf("valid code-mode report rejected: %+v err=%v", codeMode, err)
+	}
+	legacy := report
+	legacy.SchemaVersion = 1
+	if err := legacy.Validate(); err != nil || !legacy.Supported() {
+		t.Fatalf("valid legacy direct-shell report rejected: %+v err=%v", legacy, err)
+	}
+	legacy.ShellTool = "exec"
+	if legacy.Validate() == nil {
+		t.Fatalf("legacy schema accepted code mode: %+v", legacy)
 	}
 	for name, mutate := range map[string]func(*CodexCLIToolAvailabilityReport){
 		"raw shell":        func(value *CodexCLIToolAvailabilityReport) { value.ShellTool = "arbitrary" },
@@ -99,6 +149,10 @@ func TestQualifyCodexCLIToolAvailabilityUsesOneCredentialFreeSyntheticRequest(t 
 	if runtime.GOOS == "windows" {
 		t.Skip("native private agent qualification requires POSIX owner-only runtime")
 	}
+	description := "All nested tools are available on the global `tools` object.\n" +
+		"### `exec_command`\ndeclare const tools: { exec_command(args: {\n" +
+		"### `write_stdin`\ndeclare const tools: { write_stdin(args: {"
+	codeModeBody := fmt.Sprintf(`{"model":"synthetic-model","stream":true,"input":[{"type":"additional_tools","tools":[{"type":"custom","name":"exec","description":%q,"format":{"type":"grammar","syntax":"lark","definition":%q}},{"type":"function","name":"wait","parameters":{"type":"object","properties":{"cell_id":{"type":"string"},"max_tokens":{"type":"number"},"terminate":{"type":"boolean"},"yield_time_ms":{"type":"number"}},"required":["cell_id"],"additionalProperties":false}}]}]}`, description, codexCodeModeExecGrammar)
 	tests := []struct {
 		name          string
 		body          string
@@ -108,6 +162,7 @@ func TestQualifyCodexCLIToolAvailabilityUsesOneCredentialFreeSyntheticRequest(t 
 		wantShell     string
 	}{
 		{name: "supported", body: `{"model":"synthetic-model","stream":true,"tools":[{"type":"function","name":"exec_command","parameters":{"type":"object","properties":{"cmd":{"type":"string"}},"required":["cmd"]}},{"type":"function","name":"write_stdin","parameters":{}}]}`, requestCount: 1, want: CodexCLIToolAvailabilitySupported, wantShell: "exec_command"},
+		{name: "code mode", body: codeModeBody, requestCount: 1, want: CodexCLIToolAvailabilitySupported, wantShell: "exec"},
 		{name: "missing", body: `{"model":"synthetic-model","stream":true,"tools":[]}`, requestCount: 1, want: CodexCLIToolAvailabilityMissing},
 		{name: "schema", body: `{"model":"wrong-model","stream":true,"tools":[]}`, requestCount: 1, want: CodexCLIToolAvailabilitySchemaFailed},
 		{name: "authorization rejected", body: `{"model":"synthetic-model","stream":true,"tools":[]}`, requestCount: 1, authorization: true, want: CodexCLIToolAvailabilitySchemaFailed},
