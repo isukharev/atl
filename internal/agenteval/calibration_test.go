@@ -225,9 +225,13 @@ func TestRunHeadlessRejectsProviderCalibrationMode(t *testing.T) {
 	}
 	specPath := filepath.Join(caseDir, "run.json")
 	writeTestFile(t, specPath, string(data), 0o600)
+	testBinary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, err = RunHeadless(context.Background(), RunOptions{
 		SpecPath: specPath, OutputRoot: filepath.Join(root, "output"), RepositoryRoot: root,
-		AgentBinary: "/bin/true", ATLBinary: "/bin/true", PluginRoot: plugin, WrapperExecutable: "/bin/true",
+		AgentBinary: testBinary, ATLBinary: testBinary, PluginRoot: plugin, WrapperExecutable: testBinary,
 	})
 	if err == nil || !strings.Contains(err.Error(), "provider-calibration is an internal pre-study contract") {
 		t.Fatalf("err=%v", err)
