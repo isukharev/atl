@@ -1008,6 +1008,11 @@ model execution, backend authority, or durable raw request data. The
 content-free report binds the binary, model, reasoning setting, fixed prompt,
 launch flags, bounds, and timeout. Missing, ambiguous, malformed, repeated, or
 absent inventory terminates before a treatment is reserved or scored.
+Linux distributions that declare the fixed adjacent Codex sandbox helper bind
+its native byte digest and relative layout into the same reviewed inputs. The
+owner-only runtime copies only that helper, revalidates it after snapshotting,
+and rejects absence, malformed bytes, substitution, or drift; it does not copy
+an arbitrary provider package tree.
 
 After that gate, one backend-free provider calibration makes a real Codex tool
 call through the same isolated runtime, installed plugin, shell flags,

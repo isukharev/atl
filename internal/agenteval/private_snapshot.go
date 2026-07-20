@@ -108,7 +108,8 @@ func createPrivateExecutionSnapshot(root, runID string, options PrivatePlanExecu
 		return privateExecutionSnapshot{}, err
 	}
 	snapshotAgent, _, err := inspectPrivateAgentBinary(snapshot.agentBinary, reviewedAgent.provenanceSHA256)
-	if err != nil || snapshotAgent.bytesSHA256 != reviewedAgent.bytesSHA256 || snapshotAgent.identity != reviewedAgent.identity {
+	if err != nil || snapshotAgent.bytesSHA256 != reviewedAgent.bytesSHA256 || snapshotAgent.identity != reviewedAgent.identity ||
+		verifyPrivateAgentResourceSnapshot(snapshot.agentBinary, reviewedAgent) != nil {
 		return privateExecutionSnapshot{}, privatePlanError("agent_binary_snapshot")
 	}
 	snapshot.agentProvenanceSHA256 = reviewedAgent.provenanceSHA256
@@ -137,6 +138,29 @@ func copyReviewedPrivateAgent(root, snapshotRoot string, reviewed privateAgentBi
 	}
 	if err := writePrivateAgentCopy(destination, data); err != nil {
 		return privatePlanError("agent_binary_snapshot")
+	}
+	if reviewed.resourceRelativePath == "" {
+		if reviewed.resourceCanonicalPath != "" || reviewed.resourceBytesSHA256 != "" {
+			return privatePlanError("agent_binary_resource_snapshot")
+		}
+		return nil
+	}
+	if reviewed.resourceRelativePath != privateAgentLinuxSandboxRelativePath || reviewed.resourceCanonicalPath == "" || !validSHA256(reviewed.resourceBytesSHA256) {
+		return privatePlanError("agent_binary_resource_snapshot")
+	}
+	resourceData, err := readBoundedFile(reviewed.resourceCanonicalPath, privateAgentResourceMaxBytes)
+	if err != nil || sha256HexBytes(resourceData) != reviewed.resourceBytesSHA256 {
+		return privatePlanError("agent_binary_resource_drift")
+	}
+	resourceDestination := filepath.Join(filepath.Dir(destination), "..", filepath.FromSlash(reviewed.resourceRelativePath))
+	if !privatePathWithin(root, snapshotRoot, resourceDestination) {
+		return privatePlanError("agent_binary_resource_snapshot")
+	}
+	if err := safepath.MkdirAllWithin(root, filepath.Dir(resourceDestination), 0o700); err != nil {
+		return privatePlanError("agent_binary_resource_snapshot")
+	}
+	if err := writePrivateAgentCopy(resourceDestination, resourceData); err != nil {
+		return privatePlanError("agent_binary_resource_snapshot")
 	}
 	return nil
 }
@@ -316,7 +340,7 @@ func normalizePrivateSnapshotTree(root string) error {
 			if err != nil || !info.Mode().IsRegular() {
 				return privatePlanError("snapshot_file")
 			}
-			if filepath.Dir(path) == filepath.Join(root, "bin") {
+			if filepath.Dir(path) == filepath.Join(root, "bin") || path == filepath.Join(root, filepath.FromSlash(privateAgentLinuxSandboxRelativePath)) {
 				mode = 0o700
 			}
 		}

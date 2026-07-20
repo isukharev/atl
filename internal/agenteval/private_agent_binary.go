@@ -1,6 +1,7 @@
 package agenteval
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,8 +10,11 @@ import (
 )
 
 const (
-	privateAgentBinaryMaxBytes   = 512 << 20
-	privateAgentSnapshotBaseName = "agent"
+	privateAgentBinaryMaxBytes           = 512 << 20
+	privateAgentResourceMaxBytes         = 64 << 20
+	privateAgentSnapshotBaseName         = "agent"
+	privateAgentLinuxSandboxMarker       = "codex-resources/bwrap"
+	privateAgentLinuxSandboxRelativePath = "codex-resources/bwrap"
 )
 
 // privateAgentBinaryContract is deliberately not serialized. The durable plan
@@ -18,10 +22,13 @@ const (
 // retaining an installation path. RunHeadless receives only the deterministic
 // content identity, never a value obtained by executing the binary.
 type privateAgentBinaryContract struct {
-	canonicalPath    string
-	bytesSHA256      string
-	provenanceSHA256 string
-	identity         string
+	canonicalPath         string
+	bytesSHA256           string
+	provenanceSHA256      string
+	identity              string
+	resourceCanonicalPath string
+	resourceRelativePath  string
+	resourceBytesSHA256   string
 }
 
 func inspectPrivateAgentBinary(path, provenanceOverride string) (privateAgentBinaryContract, []byte, error) {
@@ -43,6 +50,10 @@ func inspectPrivateAgentBinary(path, provenanceOverride string) (privateAgentBin
 		return privateAgentBinaryContract{}, nil, err
 	}
 	bytesDigest := sha256HexBytes(data)
+	resourcePath, resourceRelativePath, resourceDigest, err := inspectPrivateAgentResource(canonical, data)
+	if err != nil {
+		return privateAgentBinaryContract{}, nil, err
+	}
 	provenance := privateAgentProvenance(canonical)
 	if provenanceOverride != "" {
 		if !validSHA256(provenanceOverride) {
@@ -52,8 +63,50 @@ func inspectPrivateAgentBinary(path, provenanceOverride string) (privateAgentBin
 	}
 	return privateAgentBinaryContract{
 		canonicalPath: canonical, bytesSHA256: bytesDigest, provenanceSHA256: provenance,
-		identity: "binary-sha256:" + bytesDigest,
+		identity: "binary-sha256:" + bytesDigest, resourceCanonicalPath: resourcePath,
+		resourceRelativePath: resourceRelativePath, resourceBytesSHA256: resourceDigest,
 	}, data, nil
+}
+
+func inspectPrivateAgentResource(agentPath string, agentData []byte) (string, string, string, error) {
+	if runtime.GOOS != "linux" || filepath.Base(agentPath) != "codex" || !bytes.Contains(agentData, []byte(privateAgentLinuxSandboxMarker)) {
+		return "", "", "", nil
+	}
+	candidate := filepath.Join(filepath.Dir(agentPath), "..", filepath.FromSlash(privateAgentLinuxSandboxRelativePath))
+	canonical, err := canonicalPrivateAgentExecutable(candidate)
+	if err != nil {
+		return "", "", "", privatePlanError("agent_binary_resource")
+	}
+	data, err := readBoundedFile(canonical, privateAgentResourceMaxBytes)
+	if err != nil {
+		return "", "", "", privatePlanError("agent_binary_resource")
+	}
+	if err := validatePrivateAgentNativeFormat(data); err != nil {
+		return "", "", "", privatePlanError("agent_binary_resource_format")
+	}
+	return canonical, privateAgentLinuxSandboxRelativePath, sha256HexBytes(data), nil
+}
+
+func verifyPrivateAgentResourceSnapshot(agentPath string, reviewed privateAgentBinaryContract) error {
+	if reviewed.resourceRelativePath == "" {
+		return nil
+	}
+	if reviewed.resourceRelativePath != privateAgentLinuxSandboxRelativePath || !validSHA256(reviewed.resourceBytesSHA256) {
+		return privatePlanError("agent_binary_resource_snapshot")
+	}
+	candidate := filepath.Join(filepath.Dir(agentPath), "..", filepath.FromSlash(reviewed.resourceRelativePath))
+	info, err := os.Lstat(candidate)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return privatePlanError("agent_binary_resource_snapshot")
+	}
+	data, err := readBoundedFile(candidate, privateAgentResourceMaxBytes)
+	if err != nil || sha256HexBytes(data) != reviewed.resourceBytesSHA256 {
+		return privatePlanError("agent_binary_resource_snapshot")
+	}
+	if err := validatePrivateAgentNativeFormat(data); err != nil {
+		return privatePlanError("agent_binary_resource_format")
+	}
+	return nil
 }
 
 func canonicalPrivateAgentExecutable(path string) (string, error) {
@@ -88,6 +141,9 @@ func privateAgentProvenance(path string) string {
 }
 
 func privateAgentSnapshotName(source string) string {
+	if runtime.GOOS == "linux" && filepath.Base(source) == "codex" {
+		return "codex"
+	}
 	extension := filepath.Ext(source)
 	if runtime.GOOS == "windows" && !strings.EqualFold(extension, ".exe") {
 		extension = ".exe"

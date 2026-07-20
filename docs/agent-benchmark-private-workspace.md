@@ -474,16 +474,19 @@ skill root. These policy values contain no credential or backend identity;
 external-MCP cells continue to carry their existing disposable loopback
 capability and proxy-bypass fields.
 
-`--agent-binary` must identify a reviewed single-file native executable for the
-host OS and architecture. A symlink is accepted when its canonical target is
-such an executable; scripts, JavaScript/package launchers, malformed binaries,
-and binaries for another platform are rejected. Do not assume that the first
-result from `command -v` satisfies this contract. Resolve and review the
-provider's native executable once, keep its absolute path in a session-local
-variable, and pass the same value to plan and run. The lifecycle structurally
-parses ELF, Mach-O/classic fat Mach-O with `LC_MAIN`, or PE as appropriate and
-hashes the canonical target path and bytes without retaining that path. It does
-not execute
+`--agent-binary` must identify a reviewed native executable for the host OS and
+architecture. A symlink is accepted when its canonical target is such an
+executable; scripts, JavaScript/package launchers, malformed binaries, and
+binaries for another platform are rejected. Do not assume that the first result
+from `command -v` satisfies this contract. Resolve and review the provider's
+native executable once, keep its absolute path in a session-local variable, and
+pass the same value to plan and run. The lifecycle structurally parses ELF,
+Mach-O/classic fat Mach-O with `LC_MAIN`, or PE as appropriate and hashes the
+canonical target path and bytes without retaining that path. On Linux, a native
+`codex` distribution that declares the fixed adjacent `codex-resources/bwrap`
+sandbox helper also binds that helper's native bytes and relative layout. Only
+that one helper is copied into the owner-only snapshot; absence, malformed
+bytes, snapshot substitution, or source drift fails closed. It does not execute
 `--version` or any other agent command during plan/snapshot preflight, supplies
 no provider or backend credentials, and intentionally makes no model or
 Atlassian request. The check does not claim that dynamic system libraries are
