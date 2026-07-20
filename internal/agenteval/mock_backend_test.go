@@ -249,6 +249,57 @@ func TestMockBackendExactQueryRejectsMultipleValues(t *testing.T) {
 	}
 }
 
+func TestMockBackendSelectsExactRequestBodyRoute(t *testing.T) {
+	fixture := MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{
+			{Method: "POST", Path: "/jira/rest/structure/2.0/value", RequestBody: []byte(`{"kind":"labels"}`), Status: 200, Body: []byte(`{"response":"labels"}`)},
+			{Method: "POST", Path: "/jira/rest/structure/2.0/value", RequestBody: []byte(`{"kind":"values"}`), Status: 200, Body: []byte(`{"response":"values"}`)},
+		},
+	}
+	backend, err := StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	for _, test := range []struct{ request, response string }{{`{"kind":"labels"}`, `{"response":"labels"}`}, {`{"kind":"values"}`, `{"response":"values"}`}} {
+		response, err := http.Post(backend.Environment()["ATL_JIRA_URL"]+"/rest/structure/2.0/value", "application/json", strings.NewReader(test.request))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusOK || string(body) != test.response {
+			t.Fatalf("request=%s status=%d body=%s", test.request, response.StatusCode, body)
+		}
+	}
+	methods, unexpected, duplicates := backend.Summary()
+	if methods["POST"] != 2 || unexpected != 0 || duplicates != 1 {
+		t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+	}
+}
+
+func TestMockFixtureRejectsDuplicateSemanticRequestBody(t *testing.T) {
+	fixture := MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{
+			{Method: "POST", Path: "/jira/rest/structure/2.0/value", RequestBody: []byte(`{"a":1,"b":2}`), Status: 200, Body: []byte(`{}`)},
+			{Method: "POST", Path: "/jira/rest/structure/2.0/value", RequestBody: []byte(`{"b":2,"a":1}`), Status: 200, Body: []byte(`{}`)},
+		},
+	}
+	if err := fixture.Validate(); err == nil {
+		t.Fatal("duplicate semantic request body passed")
+	}
+	constrained := MockRoute{Method: "POST", Path: "/jira/rest/structure/2.0/value", RequestBody: []byte(`{"kind":"values"}`), Status: 200, Body: []byte(`{}`)}
+	unconstrained := MockRoute{Method: "POST", Path: "/jira/rest/structure/2.0/value", Status: 200, Body: []byte(`{}`)}
+	for _, routes := range [][]MockRoute{{constrained, unconstrained}, {unconstrained, constrained}} {
+		fixture.Routes = routes
+		if err := fixture.Validate(); err == nil {
+			t.Fatal("mixed constrained and unconstrained request-body routes passed")
+		}
+	}
+}
+
 func TestMockBackendMatchesExpectedJSONRequestBody(t *testing.T) {
 	fixture := MockFixture{
 		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",

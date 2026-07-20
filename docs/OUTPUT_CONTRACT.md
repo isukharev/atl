@@ -91,6 +91,9 @@ capability ids. The command reads neither config nor credentials and performs
 no self-update or backend request. `routing.reference_load` tells an agent to
 invoke the named skill first and resolve the reference relative to it; a
 filesystem search is deliberately outside the route.
+For `jira/structure-planning`, the ordered catalog exposes hierarchy rows,
+explicit Structure values with `completeness:"per-row"`, and transient issue
+export as separate capabilities.
 
 ### MCP tool results
 

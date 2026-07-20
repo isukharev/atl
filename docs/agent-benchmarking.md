@@ -205,7 +205,7 @@ evidence, ordered batch reading, board portfolio synthesis, a long
 repeated-heading Confluence decision, qualified three-page Confluence search
 with bounded section evidence, and cross-service topic discovery, plus
 separately scored surface-native cases for GET-only Structure subtree batch
-export, multi-table Confluence analytics, offline mirror review, and guarded
+export, deep Structure row-value projection, multi-table Confluence analytics, offline mirror review, and guarded
 synthetic Jira/Confluence mutations. Delegation, injection, and point-route
 cases remain route-fixed regression tests rather than general surface rankings.
 
@@ -380,6 +380,14 @@ query selector. `query_contains` binds semantic query fragments, while
 routes are unexpected. Use exact selectors for independent pagination pages,
 not a stateful response sequence, so repeating page one cannot advance the
 fixture accidentally.
+
+The deep Structure value scenario deliberately exercises the read-only
+Structure Value API, whose query payload uses HTTP POST. Its folder-label and
+explicit row-value queries are synthetic loopback-only, bind exact request
+bodies, and allow no mutation route. Generic telemetry remains deliberately
+conservative: it counts those non-safe transport methods as `remote_writes`
+and the shared endpoint as one duplicate request. Private-live runs remain
+GET/HEAD-only.
 
 ### Guarded Jira field mutation
 

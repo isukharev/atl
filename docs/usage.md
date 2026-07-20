@@ -55,6 +55,11 @@ read-only|mutating` filters can narrow the result. An unknown task or capability
 id exits 4; an invalid service/access value exits 2. No fuzzy classification is
 performed.
 
+`jira/structure-planning` returns separate routes for hierarchy rows, an
+explicit per-row Structure value matrix, and transient issue export. The value
+operation remains read-only even though the Structure API carries that query
+payload over HTTP POST.
+
 JSON uses schema version 1:
 
 ```json

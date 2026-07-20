@@ -80,7 +80,11 @@ func (f MockFixture) Validate() error {
 		return fmt.Errorf("mock routes must contain 1..256 entries")
 	}
 	seen := map[string]struct{}{}
-	seenPaths := map[string]bool{}
+	type routeDiscriminator struct {
+		query bool
+		body  bool
+	}
+	seenPaths := map[string]routeDiscriminator{}
 	for _, route := range f.Routes {
 		if !methodRE.MatchString(route.Method) || !strings.HasPrefix(route.Path, "/") || strings.ContainsAny(route.Path, "?#\r\n\x00") || len(route.Path) > 512 {
 			return fmt.Errorf("invalid mock route")
@@ -121,13 +125,17 @@ func (f MockFixture) Validate() error {
 			}
 		}
 		pathKey := route.Method + " " + route.Path
-		hasSelector := len(route.QueryContains)+len(route.QueryEquals) > 0
-		if previousHasSelector, duplicatePath := seenPaths[pathKey]; duplicatePath {
-			if route.Method != http.MethodGet && route.Method != http.MethodHead || !previousHasSelector || !hasSelector {
+		discriminator := routeDiscriminator{
+			query: len(route.QueryContains)+len(route.QueryEquals) > 0,
+			body:  len(route.RequestBody) > 0,
+		}
+		if previous, duplicatePath := seenPaths[pathKey]; duplicatePath {
+			readRoute := route.Method == http.MethodGet || route.Method == http.MethodHead
+			if readRoute && (!previous.query || !discriminator.query) || !readRoute && (!previous.body || !discriminator.body) {
 				return fmt.Errorf("duplicate mock route %s", pathKey)
 			}
 		} else {
-			seenPaths[pathKey] = hasSelector
+			seenPaths[pathKey] = discriminator
 		}
 		key := mockRouteSelectorKey(route)
 		if _, ok := seen[key]; ok {
@@ -189,21 +197,30 @@ func (b *MockBackend) Summary() (map[string]int, int, int) {
 
 func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
 	routeKey := r.Method + " " + r.URL.Path
+	candidates := b.routes[routeKey]
+	needsBody := false
+	for _, candidate := range candidates {
+		if len(candidate.RequestBody) > 0 {
+			needsBody = true
+			break
+		}
+	}
+	var requestBody []byte
+	bodyOK := true
+	if needsBody {
+		var err error
+		requestBody, err = io.ReadAll(io.LimitReader(r.Body, (1<<20)+1))
+		bodyOK = err == nil && len(requestBody) <= 1<<20 && json.Valid(requestBody)
+	}
 	var route MockRoute
 	matched := 0
-	for _, candidate := range b.routes[routeKey] {
-		if mockRouteQueryMatches(candidate, r) {
+	for _, candidate := range candidates {
+		if mockRouteQueryMatches(candidate, r) && bodyOK && (len(candidate.RequestBody) == 0 || equalJSONBody(requestBody, candidate.RequestBody)) {
 			route = candidate
 			matched++
 		}
 	}
 	ok := matched == 1
-	if ok && len(route.RequestBody) > 0 {
-		body, err := io.ReadAll(io.LimitReader(r.Body, (1<<20)+1))
-		if err != nil || len(body) > 1<<20 || !equalJSONBody(body, route.RequestBody) {
-			ok = false
-		}
-	}
 	b.mu.Lock()
 	b.methods[r.Method]++
 	requestKey := r.Method + " " + r.URL.RequestURI()
@@ -250,13 +267,27 @@ func mockRouteQueryMatches(route MockRoute, request *http.Request) bool {
 }
 
 func mockRouteSelectorKey(route MockRoute) string {
+	requestBody := canonicalMockRequestBody(route.RequestBody)
 	selector, _ := json.Marshal(struct {
 		Method        string            `json:"method"`
 		Path          string            `json:"path"`
 		QueryContains map[string]string `json:"query_contains,omitempty"`
 		QueryEquals   map[string]string `json:"query_equals,omitempty"`
-	}{route.Method, route.Path, route.QueryContains, route.QueryEquals})
+		RequestBody   json.RawMessage   `json:"request_body,omitempty"`
+	}{route.Method, route.Path, route.QueryContains, route.QueryEquals, requestBody})
 	return string(selector)
+}
+
+func canonicalMockRequestBody(body []byte) json.RawMessage {
+	if len(body) == 0 {
+		return nil
+	}
+	var value any
+	if json.Unmarshal(body, &value) != nil {
+		return append(json.RawMessage(nil), body...)
+	}
+	canonical, _ := json.Marshal(value)
+	return canonical
 }
 
 func mergeMockQueryConstraints(left, right map[string]string) map[string]string {
