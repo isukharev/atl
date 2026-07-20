@@ -7,19 +7,25 @@ import (
 )
 
 const (
-	PrivateActivationStudyPlanSchemaVersion  = 1
-	PrivateActivationStudyEventSchemaVersion = 1
+	PrivateActivationStudyPlanSchemaVersion  = 2
+	PrivateActivationStudyEventSchemaVersion = 2
 
 	PrivateActivationCostAssuranceDetectionOnly = "detection_only"
 
-	PrivateActivationEventReserved          = "reserved"
-	PrivateActivationEventLaunched          = "launched"
-	PrivateActivationEventProviderCommitted = "provider_attempt_committed"
-	PrivateActivationEventReceipt           = "receipt"
-	PrivateActivationEventDefinitive        = "definitive"
-	PrivateActivationEventUnknown           = "unknown"
-	PrivateActivationEventStopped           = "stopped"
-	PrivateActivationEventFinalized         = "finalized"
+	PrivateActivationEventReserved                     = "reserved"
+	PrivateActivationEventLaunched                     = "launched"
+	PrivateActivationEventProviderCommitted            = "provider_attempt_committed"
+	PrivateActivationEventReceipt                      = "receipt"
+	PrivateActivationEventDefinitive                   = "definitive"
+	PrivateActivationEventUnknown                      = "unknown"
+	PrivateActivationEventStopped                      = "stopped"
+	PrivateActivationEventFinalized                    = "finalized"
+	PrivateActivationEventCalibrationReserved          = "calibration_reserved"
+	PrivateActivationEventCalibrationLaunched          = "calibration_launched"
+	PrivateActivationEventCalibrationProviderCommitted = "calibration_provider_attempt_committed"
+	PrivateActivationEventCalibrationReceipt           = "calibration_receipt"
+	PrivateActivationEventCalibrationSucceeded         = "calibration_succeeded"
+	PrivateActivationEventCalibrationFailed            = "calibration_failed"
 
 	PrivateActivationOutcomeSuccess        = "success"
 	PrivateActivationOutcomeContentFailure = "content_failure"
@@ -60,26 +66,36 @@ type PrivateActivationStudyCell struct {
 	MaxEstimatedCostMicroUSD int64  `json:"max_estimated_cost_microusd"`
 }
 
+// PrivateActivationCalibrationContract binds the one provider/tool-path
+// calibration that must succeed before any treatment cell can be reserved.
+// Calibration is plan-level infrastructure evidence, never a treatment cell.
+type PrivateActivationCalibrationContract struct {
+	ContractSHA256           string `json:"contract_sha256"`
+	MaxEstimatedCostMicroUSD int64  `json:"max_estimated_cost_microusd"`
+}
+
 // PrivateActivationCostPartitions are authorization partitions, not a claim
 // that Codex can prevent provider spend. The current Codex integration observes
 // cost only after execution, so Assurance and Preventive are fixed fail-closed
 // contract values.
 type PrivateActivationCostPartitions struct {
-	Assurance                  string `json:"assurance"`
-	Preventive                 bool   `json:"preventive"`
-	TotalAuthorizedMicroUSD    int64  `json:"total_authorized_microusd"`
-	TreatmentAllocatedMicroUSD int64  `json:"treatment_allocated_microusd"`
-	ReviewerReserveMicroUSD    int64  `json:"reviewer_reserve_microusd"`
+	Assurance                    string `json:"assurance"`
+	Preventive                   bool   `json:"preventive"`
+	TotalAuthorizedMicroUSD      int64  `json:"total_authorized_microusd"`
+	CalibrationAllocatedMicroUSD int64  `json:"calibration_allocated_microusd"`
+	TreatmentAllocatedMicroUSD   int64  `json:"treatment_allocated_microusd"`
+	ReviewerReserveMicroUSD      int64  `json:"reviewer_reserve_microusd"`
 }
 
 // PrivateActivationStudyPlan binds a balanced roster in its exact execution
 // order. The order is caller-supplied and preserved; validation never sorts it.
 type PrivateActivationStudyPlan struct {
-	SchemaVersion int                             `json:"schema_version"`
-	StudyID       string                          `json:"study_id"`
-	Provider      string                          `json:"provider"`
-	Cost          PrivateActivationCostPartitions `json:"cost"`
-	Cells         []PrivateActivationStudyCell    `json:"cells"`
+	SchemaVersion int                                  `json:"schema_version"`
+	StudyID       string                               `json:"study_id"`
+	Provider      string                               `json:"provider"`
+	Cost          PrivateActivationCostPartitions      `json:"cost"`
+	Calibration   PrivateActivationCalibrationContract `json:"calibration"`
+	Cells         []PrivateActivationStudyCell         `json:"cells"`
 }
 
 // privateActivationStudyPlanContract is the plan-owned lifecycle contract.
@@ -91,6 +107,7 @@ type PrivateActivationStudyPlanInput struct {
 	StudyID                 string
 	TotalAuthorizedMicroUSD int64
 	ReviewerReserveMicroUSD int64
+	Calibration             PrivateActivationCalibrationContract
 	OrderedBalancedRoster   []PrivateActivationStudyCell
 }
 
@@ -108,13 +125,15 @@ func NewPrivateActivationStudyPlan(input PrivateActivationStudyPlanInput) (Priva
 		StudyID:       input.StudyID,
 		Provider:      "codex",
 		Cost: PrivateActivationCostPartitions{
-			Assurance:                  PrivateActivationCostAssuranceDetectionOnly,
-			Preventive:                 false,
-			TotalAuthorizedMicroUSD:    input.TotalAuthorizedMicroUSD,
-			TreatmentAllocatedMicroUSD: treatment,
-			ReviewerReserveMicroUSD:    input.ReviewerReserveMicroUSD,
+			Assurance:                    PrivateActivationCostAssuranceDetectionOnly,
+			Preventive:                   false,
+			TotalAuthorizedMicroUSD:      input.TotalAuthorizedMicroUSD,
+			CalibrationAllocatedMicroUSD: input.Calibration.MaxEstimatedCostMicroUSD,
+			TreatmentAllocatedMicroUSD:   treatment,
+			ReviewerReserveMicroUSD:      input.ReviewerReserveMicroUSD,
 		},
-		Cells: cells,
+		Calibration: input.Calibration,
+		Cells:       cells,
 	}
 	if err := plan.Validate(); err != nil {
 		return PrivateActivationStudyPlan{}, err
@@ -125,15 +144,18 @@ func NewPrivateActivationStudyPlan(input PrivateActivationStudyPlanInput) (Priva
 func (p PrivateActivationStudyPlan) Validate() error {
 	if p.SchemaVersion != PrivateActivationStudyPlanSchemaVersion || validatePathComponentID("activation study id", p.StudyID) != nil || p.Provider != "codex" ||
 		p.Cost.Assurance != PrivateActivationCostAssuranceDetectionOnly || p.Cost.Preventive ||
-		p.Cost.TotalAuthorizedMicroUSD < 1 || p.Cost.TreatmentAllocatedMicroUSD < 1 || p.Cost.ReviewerReserveMicroUSD < 1 ||
+		p.Cost.TotalAuthorizedMicroUSD < 1 || p.Cost.CalibrationAllocatedMicroUSD < 1 || p.Cost.TreatmentAllocatedMicroUSD < 1 || p.Cost.ReviewerReserveMicroUSD < 1 ||
+		!validSHA256(p.Calibration.ContractSHA256) || p.Calibration.MaxEstimatedCostMicroUSD < 1 ||
 		len(p.Cells) < 4 || len(p.Cells) > 400 {
 		return privateActivationLifecycleError("plan")
 	}
 	treatment, ok := sumPrivateActivationCellCaps(p.Cells)
 	if !ok || treatment != p.Cost.TreatmentAllocatedMicroUSD ||
-		p.Cost.TreatmentAllocatedMicroUSD > p.Cost.TotalAuthorizedMicroUSD ||
-		p.Cost.ReviewerReserveMicroUSD > p.Cost.TotalAuthorizedMicroUSD-p.Cost.TreatmentAllocatedMicroUSD ||
-		p.Cost.TreatmentAllocatedMicroUSD+p.Cost.ReviewerReserveMicroUSD != p.Cost.TotalAuthorizedMicroUSD {
+		p.Calibration.MaxEstimatedCostMicroUSD != p.Cost.CalibrationAllocatedMicroUSD ||
+		p.Cost.CalibrationAllocatedMicroUSD > p.Cost.TotalAuthorizedMicroUSD ||
+		p.Cost.TreatmentAllocatedMicroUSD > p.Cost.TotalAuthorizedMicroUSD-p.Cost.CalibrationAllocatedMicroUSD ||
+		p.Cost.ReviewerReserveMicroUSD > p.Cost.TotalAuthorizedMicroUSD-p.Cost.CalibrationAllocatedMicroUSD-p.Cost.TreatmentAllocatedMicroUSD ||
+		p.Cost.CalibrationAllocatedMicroUSD+p.Cost.TreatmentAllocatedMicroUSD+p.Cost.ReviewerReserveMicroUSD != p.Cost.TotalAuthorizedMicroUSD {
 		return privateActivationLifecycleError("cost_partitions")
 	}
 	counts := map[string]int{
@@ -236,8 +258,9 @@ func (l PrivateActivationStudyLifecycle) Status() string {
 	return projection.status
 }
 
-// ReservedCostMicroUSD includes the full cap of an unknown cell. Reservations
-// are never released or replaced by the smaller detected amount.
+// ReservedCostMicroUSD includes calibration and the full cap of every reserved
+// treatment cell. Reservations are never released or replaced by a smaller
+// detected amount.
 func (l PrivateActivationStudyLifecycle) ReservedCostMicroUSD() (int64, error) {
 	projection, err := l.project()
 	if err != nil {
@@ -251,6 +274,92 @@ func (l PrivateActivationStudyLifecycle) FinalizationEligible() bool {
 	return err == nil && projection.status == PrivateActivationStudyCompleted && projection.definitive == len(l.Plan.Cells)
 }
 
+// ReserveCalibration reserves the immutable calibration cap before any
+// provider launch or treatment reservation. It has no CellID because it is not
+// part of the causal treatment roster.
+func (l *PrivateActivationStudyLifecycle) ReserveCalibration() (PrivateActivationCalibrationContract, error) {
+	projection, err := l.project()
+	if err != nil {
+		return PrivateActivationCalibrationContract{}, err
+	}
+	if projection.status != PrivateActivationStudyPending || projection.calibrationSucceeded || projection.activePhase != "" || len(l.Events) != 0 {
+		return PrivateActivationCalibrationContract{}, privateActivationLifecycleError("calibration_not_reservable")
+	}
+	calibration := l.Plan.Calibration
+	if err := l.appendEvent(PrivateActivationStudyEvent{Type: PrivateActivationEventCalibrationReserved, ReservedCostMicroUSD: calibration.MaxEstimatedCostMicroUSD}); err != nil {
+		return PrivateActivationCalibrationContract{}, err
+	}
+	return calibration, nil
+}
+
+func (l *PrivateActivationStudyLifecycle) MarkCalibrationLaunched() error {
+	projection, err := l.project()
+	if err != nil {
+		return err
+	}
+	if projection.activePhase != PrivateActivationEventCalibrationReserved {
+		return privateActivationLifecycleError("calibration_launch_transition")
+	}
+	return l.appendEvent(PrivateActivationStudyEvent{Type: PrivateActivationEventCalibrationLaunched})
+}
+
+func (l *PrivateActivationStudyLifecycle) MarkCalibrationProviderAttemptCommitted() error {
+	projection, err := l.project()
+	if err != nil {
+		return err
+	}
+	if projection.activePhase != PrivateActivationEventCalibrationLaunched {
+		return privateActivationLifecycleError("calibration_provider_commit_transition")
+	}
+	return l.appendEvent(PrivateActivationStudyEvent{Type: PrivateActivationEventCalibrationProviderCommitted})
+}
+
+// RecordCalibrationReceipt records the same post-hoc cost and containment
+// evidence as a treatment receipt. Any uncertainty or cap breach is a durable,
+// terminal calibration failure and cannot be retried inside this study.
+func (l *PrivateActivationStudyLifecycle) RecordCalibrationReceipt(receipt PrivateActivationReceipt) error {
+	projection, err := l.project()
+	if err != nil {
+		return err
+	}
+	if projection.activePhase != PrivateActivationEventCalibrationProviderCommitted || !validPrivateActivationReceipt(receipt) {
+		return privateActivationLifecycleError("calibration_receipt_transition")
+	}
+	if err := l.appendEvent(PrivateActivationStudyEvent{Type: PrivateActivationEventCalibrationReceipt, ReceiptSHA256: receipt.SHA256,
+		CostKnown: receipt.CostKnown, DetectedCostMicroUSD: receipt.DetectedCostMicroUSD, ProviderCompleted: receipt.ProviderCompleted,
+		PersistenceComplete: receipt.PersistenceComplete, ContainmentCertain: receipt.ContainmentCertain}); err != nil {
+		return err
+	}
+	if reason := privateActivationUnsafeReceiptReason(receipt, projection.activeCap); reason != "" {
+		return l.appendEvent(PrivateActivationStudyEvent{Type: PrivateActivationEventCalibrationFailed, Reason: reason})
+	}
+	return nil
+}
+
+func (l *PrivateActivationStudyLifecycle) MarkCalibrationSucceeded() error {
+	projection, err := l.project()
+	if err != nil {
+		return err
+	}
+	if projection.activePhase != PrivateActivationEventCalibrationReceipt || !projection.receiptSafe {
+		return privateActivationLifecycleError("calibration_success_transition")
+	}
+	return l.appendEvent(PrivateActivationStudyEvent{Type: PrivateActivationEventCalibrationSucceeded})
+}
+
+// MarkCalibrationFailed is the conservative path when a valid calibration
+// receipt cannot be created. It is terminal and retains the full reservation.
+func (l *PrivateActivationStudyLifecycle) MarkCalibrationFailed(reason string) error {
+	projection, err := l.project()
+	if err != nil {
+		return err
+	}
+	if !privateActivationCalibrationPhase(projection.activePhase) || !validPrivateActivationUnknownReason(reason) {
+		return privateActivationLifecycleError("calibration_failure_transition")
+	}
+	return l.appendEvent(PrivateActivationStudyEvent{Type: PrivateActivationEventCalibrationFailed, Reason: reason})
+}
+
 // ReserveNextCell reserves the complete immutable cap before launch. It returns
 // the next bound roster member and offers no selector or retry parameter.
 func (l *PrivateActivationStudyLifecycle) ReserveNextCell() (PrivateActivationStudyCell, error) {
@@ -258,7 +367,7 @@ func (l *PrivateActivationStudyLifecycle) ReserveNextCell() (PrivateActivationSt
 	if err != nil {
 		return PrivateActivationStudyCell{}, err
 	}
-	if projection.status != PrivateActivationStudyPending && projection.status != PrivateActivationStudyRunning {
+	if projection.status != PrivateActivationStudyRunning || !projection.calibrationSucceeded {
 		return PrivateActivationStudyCell{}, privateActivationLifecycleError("study_not_runnable")
 	}
 	if projection.activePhase != "" || projection.next >= len(l.Plan.Cells) {
@@ -305,8 +414,7 @@ func (l *PrivateActivationStudyLifecycle) RecordReceipt(cellID string, receipt P
 	if err != nil {
 		return err
 	}
-	if projection.activeCell != cellID || projection.activePhase != PrivateActivationEventProviderCommitted || !validSHA256(receipt.SHA256) ||
-		receipt.DetectedCostMicroUSD < 0 || (!receipt.CostKnown && receipt.DetectedCostMicroUSD != 0) {
+	if projection.activeCell != cellID || projection.activePhase != PrivateActivationEventProviderCommitted || !validPrivateActivationReceipt(receipt) {
 		return privateActivationLifecycleError("receipt_transition")
 	}
 	if err := l.appendEvent(PrivateActivationStudyEvent{Type: PrivateActivationEventReceipt, CellID: cellID, ReceiptSHA256: receipt.SHA256,
@@ -314,19 +422,7 @@ func (l *PrivateActivationStudyLifecycle) RecordReceipt(cellID string, receipt P
 		PersistenceComplete: receipt.PersistenceComplete, ContainmentCertain: receipt.ContainmentCertain}); err != nil {
 		return err
 	}
-	reason := ""
-	switch {
-	case !receipt.ProviderCompleted:
-		reason = PrivateActivationUnknownProvider
-	case !receipt.PersistenceComplete:
-		reason = PrivateActivationUnknownPersistence
-	case !receipt.ContainmentCertain:
-		reason = PrivateActivationUnknownContainment
-	case !receipt.CostKnown:
-		reason = PrivateActivationUnknownCost
-	case receipt.DetectedCostMicroUSD > projection.activeCap:
-		reason = PrivateActivationUnknownCostExceeded
-	}
+	reason := privateActivationUnsafeReceiptReason(receipt, projection.activeCap)
 	if reason != "" {
 		return l.appendEvent(PrivateActivationStudyEvent{Type: PrivateActivationEventUnknown, CellID: cellID, Reason: reason})
 	}
@@ -352,6 +448,9 @@ func (l *PrivateActivationStudyLifecycle) MarkUnknown(cellID, reason string) err
 	projection, err := l.project()
 	if err != nil {
 		return err
+	}
+	if cellID == "" && privateActivationCalibrationPhase(projection.activePhase) && validPrivateActivationUnknownReason(reason) {
+		return l.appendEvent(PrivateActivationStudyEvent{Type: PrivateActivationEventCalibrationFailed, Reason: reason})
 	}
 	if projection.activeCell != cellID || (projection.activePhase != PrivateActivationEventReserved && projection.activePhase != PrivateActivationEventLaunched &&
 		projection.activePhase != PrivateActivationEventProviderCommitted && projection.activePhase != PrivateActivationEventReceipt) || !validPrivateActivationUnknownReason(reason) {
@@ -411,6 +510,9 @@ func (l PrivateActivationStudyLifecycle) Validate() error {
 
 type privateActivationProjection struct {
 	status               string
+	calibrationSucceeded bool
+	calibrationReserved  int64
+	treatmentReserved    int64
 	next                 int
 	definitive           int
 	reserved             int64
@@ -446,7 +548,7 @@ func (l PrivateActivationStudyLifecycle) project() (privateActivationProjection,
 	}
 	if projection.status != PrivateActivationStudyStopped && projection.status != PrivateActivationStudyFinalized {
 		switch {
-		case projection.definitive == len(l.Plan.Cells):
+		case projection.calibrationSucceeded && projection.definitive == len(l.Plan.Cells):
 			projection.status = PrivateActivationStudyCompleted
 		case len(l.Events) != 0:
 			projection.status = PrivateActivationStudyRunning
@@ -462,8 +564,56 @@ func applyPrivateActivationEvent(p *privateActivationProjection, plan PrivateAct
 		return privateActivationLifecycleError("terminal_transition")
 	}
 	switch event.Type {
+	case PrivateActivationEventCalibrationReserved:
+		if p.calibrationSucceeded || p.calibrationReserved != 0 || p.activePhase != "" || p.next != 0 || event.CellID != "" ||
+			event.ReservedCostMicroUSD != plan.Calibration.MaxEstimatedCostMicroUSD || event.CostKnown || event.DetectedCostMicroUSD != 0 ||
+			event.ProviderCompleted || event.PersistenceComplete || event.ContainmentCertain || event.ReceiptSHA256 != "" || event.Outcome != "" || event.Reason != "" {
+			return privateActivationLifecycleError("calibration_reservation_event")
+		}
+		p.calibrationReserved = event.ReservedCostMicroUSD
+		p.reserved += event.ReservedCostMicroUSD
+		p.activePhase, p.activeCap = event.Type, event.ReservedCostMicroUSD
+	case PrivateActivationEventCalibrationLaunched:
+		if p.activePhase != PrivateActivationEventCalibrationReserved || event.CellID != "" || !emptyPrivateActivationEventPayload(event) {
+			return privateActivationLifecycleError("calibration_launch_event")
+		}
+		p.activePhase = event.Type
+	case PrivateActivationEventCalibrationProviderCommitted:
+		if p.activePhase != PrivateActivationEventCalibrationLaunched || event.CellID != "" || !emptyPrivateActivationEventPayload(event) {
+			return privateActivationLifecycleError("calibration_provider_commit_event")
+		}
+		p.activePhase = event.Type
+	case PrivateActivationEventCalibrationReceipt:
+		if p.activePhase != PrivateActivationEventCalibrationProviderCommitted || event.CellID != "" || !validSHA256(event.ReceiptSHA256) ||
+			event.DetectedCostMicroUSD < 0 || (!event.CostKnown && event.DetectedCostMicroUSD != 0) || event.ReservedCostMicroUSD != 0 || event.Outcome != "" || event.Reason != "" {
+			return privateActivationLifecycleError("calibration_receipt_event")
+		}
+		p.activePhase = event.Type
+		if event.CostKnown {
+			if p.detectedCostMicroUSD > int64(^uint64(0)>>1)-event.DetectedCostMicroUSD {
+				return privateActivationLifecycleError("receipt_cost_overflow")
+			}
+			p.detectedCostMicroUSD += event.DetectedCostMicroUSD
+		}
+		p.receiptSafe = event.ProviderCompleted && event.PersistenceComplete && event.ContainmentCertain &&
+			event.CostKnown && event.DetectedCostMicroUSD <= p.activeCap
+	case PrivateActivationEventCalibrationSucceeded:
+		if p.activePhase != PrivateActivationEventCalibrationReceipt || !p.receiptSafe || event.CellID != "" || !emptyPrivateActivationEventPayload(event) {
+			return privateActivationLifecycleError("calibration_success_event")
+		}
+		p.calibrationSucceeded = true
+		p.activePhase, p.activeCap, p.receiptSafe = "", 0, false
+	case PrivateActivationEventCalibrationFailed:
+		if !privateActivationCalibrationPhase(p.activePhase) || event.CellID != "" || !validPrivateActivationUnknownReason(event.Reason) ||
+			event.ReservedCostMicroUSD != 0 || event.CostKnown || event.DetectedCostMicroUSD != 0 || event.ProviderCompleted ||
+			event.PersistenceComplete || event.ContainmentCertain || event.ReceiptSHA256 != "" || event.Outcome != "" {
+			return privateActivationLifecycleError("calibration_failure_event")
+		}
+		p.status = PrivateActivationStudyStopped
+		p.stopReason = event.Reason
+		p.activePhase, p.activeCap, p.receiptSafe = "", 0, false
 	case PrivateActivationEventReserved:
-		if p.activePhase != "" || p.next >= len(plan.Cells) {
+		if !p.calibrationSucceeded || p.activePhase != "" || p.next >= len(plan.Cells) {
 			return privateActivationLifecycleError("reservation_transition")
 		}
 		cell := plan.Cells[p.next]
@@ -472,9 +622,10 @@ func applyPrivateActivationEvent(p *privateActivationProjection, plan PrivateAct
 			event.ReceiptSHA256 != "" || event.Outcome != "" || event.Reason != "" {
 			return privateActivationLifecycleError("reservation_event")
 		}
-		if p.reserved > plan.Cost.TreatmentAllocatedMicroUSD-event.ReservedCostMicroUSD {
+		if p.treatmentReserved > plan.Cost.TreatmentAllocatedMicroUSD-event.ReservedCostMicroUSD {
 			return privateActivationLifecycleError("reservation_budget")
 		}
+		p.treatmentReserved += event.ReservedCostMicroUSD
 		p.reserved += event.ReservedCostMicroUSD
 		p.activeCell, p.activePhase, p.activeCap = event.CellID, event.Type, event.ReservedCostMicroUSD
 	case PrivateActivationEventLaunched:
@@ -529,7 +680,7 @@ func applyPrivateActivationEvent(p *privateActivationProjection, plan PrivateAct
 		p.status = PrivateActivationStudyStopped
 		p.stopReason = event.Reason
 	case PrivateActivationEventFinalized:
-		if p.definitive != len(plan.Cells) || p.activePhase != "" || event.CellID != "" || !emptyPrivateActivationEventPayload(event) {
+		if !p.calibrationSucceeded || p.definitive != len(plan.Cells) || p.activePhase != "" || event.CellID != "" || !emptyPrivateActivationEventPayload(event) {
 			return privateActivationLifecycleError("finalize_event")
 		}
 		p.status = PrivateActivationStudyFinalized
@@ -586,6 +737,38 @@ func sumPrivateActivationCellCaps(cells []PrivateActivationStudyCell) (int64, bo
 
 func validPrivateActivationOutcome(value string) bool {
 	return value == PrivateActivationOutcomeSuccess || value == PrivateActivationOutcomeContentFailure || value == PrivateActivationOutcomeOracleFailure
+}
+
+func validPrivateActivationReceipt(receipt PrivateActivationReceipt) bool {
+	return validSHA256(receipt.SHA256) && receipt.DetectedCostMicroUSD >= 0 &&
+		(receipt.CostKnown || receipt.DetectedCostMicroUSD == 0)
+}
+
+func privateActivationUnsafeReceiptReason(receipt PrivateActivationReceipt, cap int64) string {
+	switch {
+	case !receipt.ProviderCompleted:
+		return PrivateActivationUnknownProvider
+	case !receipt.PersistenceComplete:
+		return PrivateActivationUnknownPersistence
+	case !receipt.ContainmentCertain:
+		return PrivateActivationUnknownContainment
+	case !receipt.CostKnown:
+		return PrivateActivationUnknownCost
+	case receipt.DetectedCostMicroUSD > cap:
+		return PrivateActivationUnknownCostExceeded
+	default:
+		return ""
+	}
+}
+
+func privateActivationCalibrationPhase(value string) bool {
+	switch value {
+	case PrivateActivationEventCalibrationReserved, PrivateActivationEventCalibrationLaunched,
+		PrivateActivationEventCalibrationProviderCommitted, PrivateActivationEventCalibrationReceipt:
+		return true
+	default:
+		return false
+	}
 }
 
 func validPrivateActivationUnknownReason(value string) bool {

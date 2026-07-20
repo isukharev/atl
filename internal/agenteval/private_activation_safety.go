@@ -21,7 +21,8 @@ func classifyPrivateActivationResults(results []Result, checks []RunCheck) priva
 		if result.EffectiveEligibility() != EligibilitySupported || result.BackendObservation != BackendObservationHTTP ||
 			result.SafetyAssurance != SafetyAssuranceObservedHTTP || !result.Coverage["backend_requests"] ||
 			!result.Coverage["duplicate_backend_requests"] || !result.Coverage["remote_writes"] ||
-			!result.Coverage["estimated_cost_microusd"] {
+			!result.Coverage["estimated_cost_microusd"] || !result.EvidenceAttempt.Coverage || result.EvidenceAttempt.Validate() != nil ||
+			!result.EvidenceReport.Coverage || !result.EvidenceReport.ConsistentWithAudit(result.EvidenceAttempt) {
 			classification.Complete = false
 		}
 		if result.Metrics.RemoteWrites != 0 {

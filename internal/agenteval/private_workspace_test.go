@@ -38,8 +38,31 @@ func TestActivationStudyManifestRequiresPositiveReviewerReserve(t *testing.T) {
 		t.Fatal("activation study accepted a zero or omitted reviewer reserve")
 	}
 	manifest.RunSets[0].ReviewerReserveMicroUSD = 1
+	manifest.RunSets[0].CalibrationMaxEstimatedCostMicroUSD = 1
 	if err := manifest.Validate(); err != nil {
 		t.Fatalf("positive reviewer reserve rejected: %v", err)
+	}
+}
+
+func TestLegacyActivationManifestIsReadOnlyDecodableWithoutCalibration(t *testing.T) {
+	manifest := DefaultPrivateWorkspaceManifest()
+	manifest.SchemaVersion = LegacyActivationWorkspaceSchemaVersion
+	panel := privateReviewTestPanel()
+	panel.BlindAssignment = "cases/study/blind-assignment.txt"
+	manifest.RunSets = []PrivateWorkspaceRunSet{{Kind: PrivateRunSetKindActivationStudy, Alias: "study",
+		SpecPaths:              []string{"cases/study/run-1.json", "cases/study/run-2.json", "cases/study/run-3.json", "cases/study/run-4.json"},
+		QualitativeReviewPanel: &panel, ReviewerReserveMicroUSD: 1}}
+	data, err := EncodePrivateWorkspaceManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodePrivateWorkspaceManifest(bytes.NewReader(data))
+	if err != nil || decoded.SchemaVersion != LegacyActivationWorkspaceSchemaVersion || decoded.RunSets[0].CalibrationMaxEstimatedCostMicroUSD != 0 {
+		t.Fatalf("decoded=%+v err=%v", decoded, err)
+	}
+	manifest.RunSets[0].CalibrationMaxEstimatedCostMicroUSD = 1
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("legacy activation manifest accepted current calibration field")
 	}
 }
 
@@ -55,7 +78,7 @@ func TestPrivateWorkspaceManifestPreservesSchemaPresenceRules(t *testing.T) {
 	panel.BlindAssignment = "cases/study/blind-assignment.txt"
 	activation.RunSets = []PrivateWorkspaceRunSet{{Kind: PrivateRunSetKindActivationStudy, Alias: "study",
 		SpecPaths:              []string{"cases/study/implicit.json", "cases/study/explicit.json", "cases/study/developer.json", "cases/study/combined.json"},
-		QualitativeReviewPanel: &panel, ReviewerReserveMicroUSD: 1}}
+		QualitativeReviewPanel: &panel, ReviewerReserveMicroUSD: 1, CalibrationMaxEstimatedCostMicroUSD: 1}}
 	activationData, err := EncodePrivateWorkspaceManifest(activation)
 	if err != nil {
 		t.Fatal(err)
@@ -100,6 +123,9 @@ func TestPrivateWorkspaceManifestPreservesSchemaPresenceRules(t *testing.T) {
 		}},
 		"activation reserve missing": {activationData, func(root map[string]any) {
 			delete(root["run_sets"].([]any)[0].(map[string]any), "reviewer_reserve_microusd")
+		}},
+		"activation calibration reserve missing": {activationData, func(root map[string]any) {
+			delete(root["run_sets"].([]any)[0].(map[string]any), "calibration_max_estimated_cost_microusd")
 		}},
 		"legacy kind present": {legacyData, func(root map[string]any) {
 			root["run_sets"].([]any)[0].(map[string]any)["kind"] = "comparison"
@@ -378,13 +404,13 @@ func TestPrivateWorkspaceManifestStrictSchemaAndContainedSpecs(t *testing.T) {
 	if _, err := DecodePrivateWorkspaceManifest(strings.NewReader(unknown)); err == nil || strings.Contains(err.Error(), privateMarker) {
 		t.Fatalf("unknown-field err=%v", err)
 	}
-	duplicate := strings.Replace(string(data), `"schema_version": 2`, `"schema_version": 2, "schema_version": 2`, 1)
+	duplicate := strings.Replace(string(data), `"schema_version": 3`, `"schema_version": 3, "schema_version": 3`, 1)
 	if _, err := DecodePrivateWorkspaceManifest(strings.NewReader(duplicate)); err == nil {
 		t.Fatal("duplicate manifest key passed")
 	}
 
 	for name, mutate := range map[string]func(*PrivateWorkspaceManifest){
-		"version":        func(m *PrivateWorkspaceManifest) { m.SchemaVersion = 3 },
+		"version":        func(m *PrivateWorkspaceManifest) { m.SchemaVersion = 4 },
 		"env":            func(m *PrivateWorkspaceManifest) { m.LiveConfigEnv = "TOKEN=value" },
 		"alias":          func(m *PrivateWorkspaceManifest) { m.RunSets[0].Alias = "Private Project" },
 		"traversal":      func(m *PrivateWorkspaceManifest) { m.RunSets[0].SpecPaths[0] = "cases/../outside.json" },

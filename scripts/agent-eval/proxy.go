@@ -28,6 +28,7 @@ type proxyRecord struct {
 
 type guardRecord struct {
 	Decision string `json:"decision"`
+	Family   string `json:"family"`
 }
 
 type claudeHookInput struct {
@@ -52,21 +53,33 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 		return 2
 	}
 	decision := "deny"
+	family := "other"
 	var reason string
 	guardMode := os.Getenv("ATL_EVAL_GUARD_MODE")
+	if guardMode == "provider-calibration" {
+		reason = "provider calibration admits only the literal atl version command"
+		if hook.ToolName == "Bash" && hook.ToolInput.Command == "atl version" {
+			decision = "allow"
+			family = "atl"
+			reason = "command exactly matches the backend-free calibration contract"
+		}
+		return writeGuardDecision(output, errorOutput, decision, family, reason)
+	}
 	if guardMode == "mcp-only" {
 		reason = "typed-MCP benchmark blocks every non-MCP model tool"
 		if hook.ToolName == "StructuredOutput" || allowedMCPGuardTool(hook.ToolName, os.Getenv("ATL_EVAL_ALLOWED_MCP_TOOLS")) {
 			decision = "allow"
+			family = "mcp"
 			reason = "tool is required structured output or an exact reviewed MCP tool"
 		}
-		return writeGuardDecision(output, errorOutput, decision, reason)
+		return writeGuardDecision(output, errorOutput, decision, family, reason)
 	}
 	if guardMode == "mcp-with-skill-read" {
 		reason = "private-live MCP allows only confined reads of reviewed skill files"
 		switch hook.ToolName {
 		case "StructuredOutput":
 			decision = "allow"
+			family = "structured_output"
 			reason = "structured output is required by the reviewed response schema"
 		case "Read":
 			allowed, err := allowedPrivateReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
@@ -76,20 +89,23 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 			}
 			if allowed {
 				decision = "allow"
+				family = "skill_read"
 				reason = "read target is within a reviewed benchmark root"
 			}
 		case "Bash":
 			if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS")) {
 				decision = "allow"
+				family = "skill_read"
 				reason = "command contains only confined skill-reader invocations"
 			}
 		default:
 			if allowedMCPGuardTool(hook.ToolName, os.Getenv("ATL_EVAL_ALLOWED_MCP_TOOLS")) {
 				decision = "allow"
+				family = "mcp"
 				reason = "tool is an exact reviewed MCP tool"
 			}
 		}
-		return writeGuardDecision(output, errorOutput, decision, reason)
+		return writeGuardDecision(output, errorOutput, decision, family, reason)
 	}
 	if guardMode == "private-cli" {
 		reason = "private-live CLI allows only confined skill reads and reviewed atl invocations"
@@ -102,18 +118,21 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 			}
 			if allowed {
 				decision = "allow"
+				family = "skill_read"
 				reason = "read target is within a reviewed benchmark root"
 			}
 		case "Bash":
 			if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS")) {
 				decision = "allow"
+				family = "skill_read"
 				reason = "command contains only confined skill-reader invocations"
 			} else if safePrivateCLICommandShape(hook.ToolInput.Command) {
 				decision = "allow"
+				family = "atl"
 				reason = "command shape delegates exact argument enforcement to the atl evaluation shim"
 			}
 		}
-		return writeGuardDecision(output, errorOutput, decision, reason)
+		return writeGuardDecision(output, errorOutput, decision, family, reason)
 	}
 	switch hook.ToolName {
 	case "Bash":
@@ -125,6 +144,7 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 		reason = "benchmark Bash is limited to a bounded block of reviewed atl commands"
 		if allowedGuardCommand(hook.ToolInput.Command, allowed) {
 			decision = "allow"
+			family = "atl"
 			reason = "command matches the reviewed benchmark allowlist"
 		}
 	case "Agent":
@@ -135,6 +155,7 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 		}
 		if allowed {
 			decision = "allow"
+			family = "agent"
 			reason = "delegation is within the reviewed benchmark limit"
 		} else {
 			reason = "benchmark delegation limit reached"
@@ -147,12 +168,13 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 		}
 		if allowed {
 			decision = "allow"
+			family = "read"
 			reason = "read target is within a reviewed benchmark root"
 		} else {
 			reason = "read target is outside reviewed benchmark roots"
 		}
 	}
-	return writeGuardDecision(output, errorOutput, decision, reason)
+	return writeGuardDecision(output, errorOutput, decision, family, reason)
 }
 
 var sedLineRangeRE = regexp.MustCompile(`^(\d+)(?:,(\d+))?p$`)
@@ -353,8 +375,11 @@ func allowedMCPGuardTool(name, rawAllowed string) bool {
 	return false
 }
 
-func writeGuardDecision(output, errorOutput io.Writer, decision, reason string) int {
-	if err := appendGuardRecord(os.Getenv("ATL_EVAL_GUARD_COUNTER"), guardRecord{Decision: decision}); err != nil {
+func writeGuardDecision(output, errorOutput io.Writer, decision, family, reason string) int {
+	// The family is deliberately coarse and content-free. It proves which
+	// reviewed policy branch admitted a tool without retaining its command,
+	// arguments, path, or backend data.
+	if err := appendGuardRecord(os.Getenv("ATL_EVAL_GUARD_COUNTER"), guardRecord{Decision: decision, Family: family}); err != nil {
 		fmt.Fprintln(errorOutput, "atl evaluation guard could not record its decision")
 		return 2
 	}
@@ -578,6 +603,11 @@ func runATLProxy(args []string) int {
 		match, err := policy.Match(args)
 		if err != nil {
 			return rejectATLProxy(counterPath, "atl evaluation proxy rejected command arguments")
+		}
+		if match.Name == "atl_version" {
+			// This reserved family is emitted only by the backend-free calibration
+			// policy, binding its content-free receipt to that exact reviewed rule.
+			commandFamily = match.Name
 		}
 		allowed, err := reserveCLIInvocation(counterPath, match.Name, match.MaxInvocations)
 		if err != nil {

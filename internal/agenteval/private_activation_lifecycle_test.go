@@ -12,13 +12,14 @@ import (
 func TestPrivateActivationPlanBindsBalancedOrderedDetectionOnlyRoster(t *testing.T) {
 	roster := privateActivationTestRoster(10)
 	plan, err := NewPrivateActivationStudyPlan(PrivateActivationStudyPlanInput{
-		StudyID: "study-01", TotalAuthorizedMicroUSD: 47, ReviewerReserveMicroUSD: 7, OrderedBalancedRoster: roster,
+		StudyID: "study-01", TotalAuthorizedMicroUSD: 49, ReviewerReserveMicroUSD: 7,
+		Calibration: privateActivationTestCalibration(2), OrderedBalancedRoster: roster,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if plan.Provider != "codex" || plan.Cost.Assurance != PrivateActivationCostAssuranceDetectionOnly || plan.Cost.Preventive ||
-		plan.Cost.TreatmentAllocatedMicroUSD != 40 || !reflect.DeepEqual(plan.Cells, roster) {
+		plan.Cost.CalibrationAllocatedMicroUSD != 2 || plan.Cost.TreatmentAllocatedMicroUSD != 40 || !reflect.DeepEqual(plan.Cells, roster) {
 		t.Fatalf("plan=%+v", plan)
 	}
 	first, err := plan.SHA256()
@@ -40,23 +41,27 @@ func TestPrivateActivationPlanBindsBalancedOrderedDetectionOnlyRoster(t *testing
 
 func TestPrivateActivationPlanRejectsUnsafeCostAndRosterContracts(t *testing.T) {
 	valid, err := NewPrivateActivationStudyPlan(PrivateActivationStudyPlanInput{
-		StudyID: "study-valid", TotalAuthorizedMicroUSD: 45, ReviewerReserveMicroUSD: 5, OrderedBalancedRoster: privateActivationTestRoster(10),
+		StudyID: "study-valid", TotalAuthorizedMicroUSD: 47, ReviewerReserveMicroUSD: 5,
+		Calibration: privateActivationTestCalibration(2), OrderedBalancedRoster: privateActivationTestRoster(10),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	tests := map[string]func(*PrivateActivationStudyPlan){
-		"preventive claim":            func(plan *PrivateActivationStudyPlan) { plan.Cost.Preventive = true },
-		"hard assurance":              func(plan *PrivateActivationStudyPlan) { plan.Cost.Assurance = "provider_hard" },
-		"wrong provider":              func(plan *PrivateActivationStudyPlan) { plan.Provider = "claude-code" },
-		"borrow reviewer reserve":     func(plan *PrivateActivationStudyPlan) { plan.Cost.ReviewerReserveMicroUSD-- },
-		"zero reviewer reserve":       func(plan *PrivateActivationStudyPlan) { plan.Cost.ReviewerReserveMicroUSD = 0 },
-		"changed treatment partition": func(plan *PrivateActivationStudyPlan) { plan.Cost.TreatmentAllocatedMicroUSD-- },
-		"duplicate cell":              func(plan *PrivateActivationStudyPlan) { plan.Cells[1].CellID = plan.Cells[0].CellID },
-		"unbalanced roster":           func(plan *PrivateActivationStudyPlan) { plan.Cells[0].SkillActivation = SkillActivationExplicit },
-		"unknown activation":          func(plan *PrivateActivationStudyPlan) { plan.Cells[0].SkillActivation = "unknown" },
-		"zero cell cap":               func(plan *PrivateActivationStudyPlan) { plan.Cells[0].MaxEstimatedCostMicroUSD = 0 },
-		"contract missing":            func(plan *PrivateActivationStudyPlan) { plan.Cells[0].ContractSHA256 = "" },
+		"preventive claim":              func(plan *PrivateActivationStudyPlan) { plan.Cost.Preventive = true },
+		"hard assurance":                func(plan *PrivateActivationStudyPlan) { plan.Cost.Assurance = "provider_hard" },
+		"wrong provider":                func(plan *PrivateActivationStudyPlan) { plan.Provider = "claude-code" },
+		"borrow reviewer reserve":       func(plan *PrivateActivationStudyPlan) { plan.Cost.ReviewerReserveMicroUSD-- },
+		"zero reviewer reserve":         func(plan *PrivateActivationStudyPlan) { plan.Cost.ReviewerReserveMicroUSD = 0 },
+		"changed treatment partition":   func(plan *PrivateActivationStudyPlan) { plan.Cost.TreatmentAllocatedMicroUSD-- },
+		"changed calibration partition": func(plan *PrivateActivationStudyPlan) { plan.Cost.CalibrationAllocatedMicroUSD-- },
+		"calibration contract missing":  func(plan *PrivateActivationStudyPlan) { plan.Calibration.ContractSHA256 = "" },
+		"zero calibration cap":          func(plan *PrivateActivationStudyPlan) { plan.Calibration.MaxEstimatedCostMicroUSD = 0 },
+		"duplicate cell":                func(plan *PrivateActivationStudyPlan) { plan.Cells[1].CellID = plan.Cells[0].CellID },
+		"unbalanced roster":             func(plan *PrivateActivationStudyPlan) { plan.Cells[0].SkillActivation = SkillActivationExplicit },
+		"unknown activation":            func(plan *PrivateActivationStudyPlan) { plan.Cells[0].SkillActivation = "unknown" },
+		"zero cell cap":                 func(plan *PrivateActivationStudyPlan) { plan.Cells[0].MaxEstimatedCostMicroUSD = 0 },
+		"contract missing":              func(plan *PrivateActivationStudyPlan) { plan.Cells[0].ContractSHA256 = "" },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -71,9 +76,151 @@ func TestPrivateActivationPlanRejectsUnsafeCostAndRosterContracts(t *testing.T) 
 	overflow := privateActivationTestRoster(1)
 	overflow[0].MaxEstimatedCostMicroUSD = math.MaxInt64
 	if _, err := NewPrivateActivationStudyPlan(PrivateActivationStudyPlanInput{
-		StudyID: "study-overflow", TotalAuthorizedMicroUSD: math.MaxInt64, OrderedBalancedRoster: overflow,
+		StudyID: "study-overflow", TotalAuthorizedMicroUSD: math.MaxInt64, ReviewerReserveMicroUSD: 1,
+		Calibration: privateActivationTestCalibration(1), OrderedBalancedRoster: overflow,
 	}); !errors.Is(err, ErrPrivateActivationLifecycle) {
 		t.Fatalf("overflow err=%v", err)
+	}
+}
+
+func TestPrivateActivationCalibrationGatesTreatmentRoster(t *testing.T) {
+	lifecycle := privateActivationUncalibratedTestLifecycle(t, 10, 3)
+	if lifecycle.Plan.SchemaVersion != 2 {
+		t.Fatalf("plan schema=%d", lifecycle.Plan.SchemaVersion)
+	}
+	if _, err := lifecycle.ReserveNextCell(); !errors.Is(err, ErrPrivateActivationLifecycle) {
+		t.Fatalf("treatment reserved before calibration: %v", err)
+	}
+	calibration, err := lifecycle.ReserveCalibration()
+	if err != nil || calibration != lifecycle.Plan.Calibration {
+		t.Fatalf("calibration=%+v err=%v", calibration, err)
+	}
+	if _, err := lifecycle.ReserveCalibration(); !errors.Is(err, ErrPrivateActivationLifecycle) {
+		t.Fatalf("calibration reserved twice: %v", err)
+	}
+	if err := lifecycle.MarkCalibrationLaunched(); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.MarkCalibrationProviderAttemptCommitted(); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.RecordCalibrationReceipt(privateActivationGoodReceipt(0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.MarkCalibrationSucceeded(); err != nil {
+		t.Fatal(err)
+	}
+	wantTypes := []string{
+		PrivateActivationEventCalibrationReserved,
+		PrivateActivationEventCalibrationLaunched,
+		PrivateActivationEventCalibrationProviderCommitted,
+		PrivateActivationEventCalibrationReceipt,
+		PrivateActivationEventCalibrationSucceeded,
+	}
+	for index, event := range lifecycle.Events {
+		if event.SchemaVersion != 2 || event.Type != wantTypes[index] || event.CellID != "" {
+			t.Fatalf("calibration event %d=%+v", index, event)
+		}
+	}
+	cell, err := lifecycle.ReserveNextCell()
+	if err != nil || cell.CellID != lifecycle.Plan.Cells[0].CellID {
+		t.Fatalf("first treatment=%+v err=%v", cell, err)
+	}
+	if err := lifecycle.MarkLaunched(cell.CellID); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.MarkProviderAttemptCommitted(cell.CellID); err != nil {
+		t.Fatal(err)
+	}
+	calibrationAttempts, treatmentAttempts := 0, 0
+	for _, event := range lifecycle.Events {
+		switch event.Type {
+		case PrivateActivationEventCalibrationProviderCommitted:
+			calibrationAttempts++
+		case PrivateActivationEventProviderCommitted:
+			treatmentAttempts++
+		}
+	}
+	if calibrationAttempts != 1 || treatmentAttempts != 1 {
+		t.Fatalf("calibration attempts=%d treatment attempts=%d", calibrationAttempts, treatmentAttempts)
+	}
+}
+
+func TestPrivateActivationCalibrationFailureIsTerminalAtEveryActivePhase(t *testing.T) {
+	phases := []string{
+		PrivateActivationEventCalibrationReserved,
+		PrivateActivationEventCalibrationLaunched,
+		PrivateActivationEventCalibrationProviderCommitted,
+		PrivateActivationEventCalibrationReceipt,
+	}
+	for _, phase := range phases {
+		t.Run(phase, func(t *testing.T) {
+			lifecycle := privateActivationUncalibratedTestLifecycle(t, 10, 1)
+			if _, err := lifecycle.ReserveCalibration(); err != nil {
+				t.Fatal(err)
+			}
+			if phase != PrivateActivationEventCalibrationReserved {
+				if err := lifecycle.MarkCalibrationLaunched(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if phase == PrivateActivationEventCalibrationProviderCommitted || phase == PrivateActivationEventCalibrationReceipt {
+				if err := lifecycle.MarkCalibrationProviderAttemptCommitted(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if phase == PrivateActivationEventCalibrationReceipt {
+				if err := lifecycle.RecordCalibrationReceipt(privateActivationGoodReceipt(0)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if phase == PrivateActivationEventCalibrationProviderCommitted {
+				if err := lifecycle.MarkUnknown("", PrivateActivationUnknownInterrupted); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := lifecycle.MarkCalibrationFailed(PrivateActivationUnknownInterrupted); err != nil {
+				t.Fatal(err)
+			}
+			last := lifecycle.Events[len(lifecycle.Events)-1]
+			if lifecycle.Status() != PrivateActivationStudyStopped || last.Type != PrivateActivationEventCalibrationFailed || last.CellID != "" {
+				t.Fatalf("status=%q last=%+v", lifecycle.Status(), last)
+			}
+			if _, err := lifecycle.ReserveCalibration(); !errors.Is(err, ErrPrivateActivationLifecycle) {
+				t.Fatalf("terminal calibration retried: %v", err)
+			}
+			if _, err := lifecycle.ReserveNextCell(); !errors.Is(err, ErrPrivateActivationLifecycle) {
+				t.Fatalf("treatment started after failed calibration: %v", err)
+			}
+			reserved, err := lifecycle.ReservedCostMicroUSD()
+			if err != nil || reserved != lifecycle.Plan.Calibration.MaxEstimatedCostMicroUSD {
+				t.Fatalf("reserved=%d err=%v", reserved, err)
+			}
+		})
+	}
+}
+
+func TestPrivateActivationCalibrationUnsafeReceiptFailsClosed(t *testing.T) {
+	lifecycle := privateActivationUncalibratedTestLifecycle(t, 10, 1)
+	if _, err := lifecycle.ReserveCalibration(); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.MarkCalibrationLaunched(); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.MarkCalibrationProviderAttemptCommitted(); err != nil {
+		t.Fatal(err)
+	}
+	receipt := privateActivationGoodReceipt(0)
+	receipt.ProviderCompleted = false
+	if err := lifecycle.RecordCalibrationReceipt(receipt); err != nil {
+		t.Fatal(err)
+	}
+	last := lifecycle.Events[len(lifecycle.Events)-1]
+	if lifecycle.Status() != PrivateActivationStudyStopped || last.Type != PrivateActivationEventCalibrationFailed || last.Reason != PrivateActivationUnknownProvider {
+		t.Fatalf("status=%q last=%+v", lifecycle.Status(), last)
+	}
+	if err := lifecycle.MarkCalibrationSucceeded(); !errors.Is(err, ErrPrivateActivationLifecycle) {
+		t.Fatalf("unsafe receipt accepted: %v", err)
 	}
 }
 
@@ -110,7 +257,7 @@ func TestPrivateActivationLifecycleHashChainAndSafeFailuresContinue(t *testing.T
 		t.Fatalf("status=%q eligible=%t", lifecycle.Status(), lifecycle.FinalizationEligible())
 	}
 	reserved, err := lifecycle.ReservedCostMicroUSD()
-	if err != nil || reserved != 40 {
+	if err != nil || reserved != 42 {
 		t.Fatalf("reserved=%d err=%v", reserved, err)
 	}
 	for index, event := range lifecycle.Events {
@@ -168,7 +315,7 @@ func TestPrivateActivationUnknownConsumesFullCapAndStopsWithoutRetry(t *testing.
 				t.Fatalf("last=%+v", last)
 			}
 			reserved, err := lifecycle.ReservedCostMicroUSD()
-			if err != nil || reserved != cell.MaxEstimatedCostMicroUSD {
+			if err != nil || reserved != cell.MaxEstimatedCostMicroUSD+lifecycle.Plan.Calibration.MaxEstimatedCostMicroUSD {
 				t.Fatalf("reserved=%d cap=%d err=%v", reserved, cell.MaxEstimatedCostMicroUSD, err)
 			}
 			if _, err := lifecycle.ReserveNextCell(); !errors.Is(err, ErrPrivateActivationLifecycle) {
@@ -249,7 +396,7 @@ func TestPrivateActivationTerminalStopBetweenCellsBindsProjection(t *testing.T) 
 		t.Fatal(err)
 	}
 	if lifecycle.Status() != PrivateActivationStudyStopped || projection.stopReason != PrivateActivationStopInputDrift ||
-		projection.detectedCostMicroUSD != 1 || !reflect.DeepEqual(projection.completedCells, []string{cell.CellID}) {
+		projection.detectedCostMicroUSD != 2 || !reflect.DeepEqual(projection.completedCells, []string{cell.CellID}) {
 		t.Fatalf("projection=%+v", projection)
 	}
 	last := lifecycle.Events[len(lifecycle.Events)-1]
@@ -317,7 +464,8 @@ func TestPrivateActivationLifecycleRejectsOutOfOrderAndTamperedEvents(t *testing
 func TestCanStartPrivateActivationStudyRejectsSecondActiveAndStudyReuse(t *testing.T) {
 	active := privateActivationTestLifecycle(t, 10, 1)
 	candidatePlan, err := NewPrivateActivationStudyPlan(PrivateActivationStudyPlanInput{
-		StudyID: "study-next", TotalAuthorizedMicroUSD: 41, ReviewerReserveMicroUSD: 1, OrderedBalancedRoster: privateActivationTestRoster(10),
+		StudyID: "study-next", TotalAuthorizedMicroUSD: 43, ReviewerReserveMicroUSD: 1,
+		Calibration: privateActivationTestCalibration(2), OrderedBalancedRoster: privateActivationTestRoster(10),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -383,9 +531,17 @@ func privateActivationTestRoster(cap int64) []PrivateActivationStudyCell {
 
 func privateActivationTestLifecycle(t *testing.T, cellCap, reviewerReserve int64) PrivateActivationStudyLifecycle {
 	t.Helper()
+	lifecycle := privateActivationUncalibratedTestLifecycle(t, cellCap, reviewerReserve)
+	privateActivationCompleteCalibration(t, &lifecycle)
+	return lifecycle
+}
+
+func privateActivationUncalibratedTestLifecycle(t *testing.T, cellCap, reviewerReserve int64) PrivateActivationStudyLifecycle {
+	t.Helper()
 	plan, err := NewPrivateActivationStudyPlan(PrivateActivationStudyPlanInput{
-		StudyID: "study-lifecycle", TotalAuthorizedMicroUSD: 4*cellCap + reviewerReserve,
-		ReviewerReserveMicroUSD: reviewerReserve, OrderedBalancedRoster: privateActivationTestRoster(cellCap),
+		StudyID: "study-lifecycle", TotalAuthorizedMicroUSD: 4*cellCap + reviewerReserve + 2,
+		ReviewerReserveMicroUSD: reviewerReserve, Calibration: privateActivationTestCalibration(2),
+		OrderedBalancedRoster: privateActivationTestRoster(cellCap),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -395,6 +551,29 @@ func privateActivationTestLifecycle(t *testing.T, cellCap, reviewerReserve int64
 		t.Fatal(err)
 	}
 	return lifecycle
+}
+
+func privateActivationTestCalibration(cap int64) PrivateActivationCalibrationContract {
+	return PrivateActivationCalibrationContract{ContractSHA256: strings.Repeat("9", 64), MaxEstimatedCostMicroUSD: cap}
+}
+
+func privateActivationCompleteCalibration(t *testing.T, lifecycle *PrivateActivationStudyLifecycle) {
+	t.Helper()
+	if _, err := lifecycle.ReserveCalibration(); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.MarkCalibrationLaunched(); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.MarkCalibrationProviderAttemptCommitted(); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.RecordCalibrationReceipt(privateActivationGoodReceipt(0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.MarkCalibrationSucceeded(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func privateActivationGoodReceipt(index int) PrivateActivationReceipt {

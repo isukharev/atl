@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	RunSpecSchemaVersion = 5
-	maxRunSpecBytes      = 1 << 20
-	maxRunCostMicroUSD   = 10_000_000
+	RunSpecSchemaVersion       = 6
+	LegacyRunSpecSchemaVersion = 5
+	maxRunSpecBytes            = 1 << 20
+	maxRunCostMicroUSD         = 10_000_000
 )
 
 var (
@@ -62,12 +63,16 @@ type RunSpec struct {
 }
 
 const (
-	BackendModeSynthetic     = "synthetic"
-	BackendModePrivateLive   = "private-live"
-	SkillActivationImplicit  = "implicit"
-	SkillActivationExplicit  = "explicit"
-	SkillActivationDeveloper = "developer"
-	SkillActivationCombined  = "combined"
+	BackendModeSynthetic   = "synthetic"
+	BackendModePrivateLive = "private-live"
+	// BackendModeProviderCalibration is an internal, backend-free Codex CLI
+	// transport check. It is never a benchmark treatment and is not accepted by
+	// RunHeadless; the calibration runner constructs its fixed contract in code.
+	BackendModeProviderCalibration = "provider-calibration"
+	SkillActivationImplicit        = "implicit"
+	SkillActivationExplicit        = "explicit"
+	SkillActivationDeveloper       = "developer"
+	SkillActivationCombined        = "combined"
 )
 
 type skillActivationDescriptor struct {
@@ -221,7 +226,7 @@ func DecodeRunSpec(r io.Reader) (RunSpec, error) {
 }
 
 func (s RunSpec) Validate() error {
-	if s.SchemaVersion != RunSpecSchemaVersion {
+	if s.SchemaVersion != RunSpecSchemaVersion && s.SchemaVersion != LegacyRunSpecSchemaVersion {
 		return fmt.Errorf("unsupported run spec schema_version %d", s.SchemaVersion)
 	}
 	if s.Provider != "claude-code" && s.Provider != "codex" {
@@ -273,8 +278,18 @@ func (s RunSpec) Validate() error {
 		if s.ToolTransport != "mcp" && s.ToolTransport != "cli" {
 			return fmt.Errorf("private-live runs require an explicit cli or mcp tool_transport")
 		}
+	case BackendModeProviderCalibration:
+		if s.SchemaVersion != RunSpecSchemaVersion || s.Provider != "codex" || s.AllowSyntheticWrites || s.FixtureFile != "" || s.Repetitions != 1 || s.ToolTransport != "cli" {
+			return fmt.Errorf("provider-calibration requires one read-only codex cli invocation without a fixture")
+		}
+		if s.SkillActivation != "" || len(s.DataCapabilities) != 0 {
+			return fmt.Errorf("provider-calibration is not a skill-activation treatment")
+		}
+		if !isExactProviderCalibrationSpec(s) {
+			return fmt.Errorf("provider-calibration requires the fixed atl_version command and response contract")
+		}
 	default:
-		return fmt.Errorf("backend_mode must be synthetic or private-live")
+		return fmt.Errorf("backend_mode must be synthetic, private-live, or provider-calibration")
 	}
 	if s.Repetitions < 1 || s.Repetitions > 20 {
 		return fmt.Errorf("repetitions must be in 1..20")
@@ -339,9 +354,9 @@ func (s RunSpec) Validate() error {
 			if len(s.AllowedCLICommands) != 0 {
 				return fmt.Errorf("allowed_cli_commands must be empty for synthetic cli transport")
 			}
-		case BackendModePrivateLive:
+		case BackendModePrivateLive, BackendModeProviderCalibration:
 			if len(s.AllowedATLCommands) != 0 {
-				return fmt.Errorf("private-live cli transport forbids prefix-based allowed_atl_commands")
+				return fmt.Errorf("confined cli transport forbids prefix-based allowed_atl_commands")
 			}
 			if err := (CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: s.AllowedCLICommands}).Validate(); err != nil {
 				return fmt.Errorf("allowed_cli_commands: %w", err)
@@ -355,11 +370,15 @@ func (s RunSpec) Validate() error {
 			if !containsRunString(s.AllowedTools, "Bash(atl *)") {
 				return fmt.Errorf("private-live cli transport requires Bash(atl *)")
 			}
-			if err := validateLiveGatewayRoutePolicy(s.AllowedGatewayRoutes); err != nil {
-				return fmt.Errorf("allowed_gateway_routes: %w", err)
-			}
-			if s.GatewayMaxResponseBytes < 1 || s.GatewayMaxResponseBytes > 64<<20 || s.GatewayMaxTotalBytes < s.GatewayMaxResponseBytes || s.GatewayMaxTotalBytes > 256<<20 {
-				return fmt.Errorf("private-live cli gateway response budgets are invalid")
+			if s.EffectiveBackendMode() == BackendModePrivateLive {
+				if err := validateLiveGatewayRoutePolicy(s.AllowedGatewayRoutes); err != nil {
+					return fmt.Errorf("allowed_gateway_routes: %w", err)
+				}
+				if s.GatewayMaxResponseBytes < 1 || s.GatewayMaxResponseBytes > 64<<20 || s.GatewayMaxTotalBytes < s.GatewayMaxResponseBytes || s.GatewayMaxTotalBytes > 256<<20 {
+					return fmt.Errorf("private-live cli gateway response budgets are invalid")
+				}
+			} else if len(s.AllowedGatewayRoutes) != 0 || s.GatewayMaxResponseBytes != 0 || s.GatewayMaxTotalBytes != 0 {
+				return fmt.Errorf("provider-calibration forbids a backend gateway policy")
 			}
 		}
 	}
@@ -480,6 +499,16 @@ func (s RunSpec) Validate() error {
 		return fmt.Errorf("skill_invocations_min requires Claude Code CLI transport with Skill allowed")
 	}
 	return nil
+}
+
+func isExactProviderCalibrationSpec(s RunSpec) bool {
+	if len(s.AllowedTools) != 1 || s.AllowedTools[0] != "Bash(atl *)" || len(s.AllowedATLCommands) != 0 || len(s.AllowedCLICommands) != 1 || len(s.Checks) != 1 {
+		return false
+	}
+	rule := s.AllowedCLICommands[0]
+	check := s.Checks[0]
+	return rule.Name == "atl_version" && equalStrings(rule.Command, []string{"version"}) && len(rule.Positionals) == 0 && len(rule.Flags) == 0 && rule.MaxInvocations == 1 &&
+		check.Name == "calibration_response" && check.Kind == "json_equals" && check.Pointer == "/ok" && string(check.Expected) == "true" && check.Minimum == 0 && check.Maximum == 0
 }
 
 func containsRunString(values []string, candidate string) bool {

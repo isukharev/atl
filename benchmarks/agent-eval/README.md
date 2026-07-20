@@ -102,7 +102,7 @@ semantic task, oracle, and data-capability contracts;
 surface-native cases are reported separately rather than scored as failures on
 interfaces that do not expose the capability.
 
-Run-spec schema v5 retains the mandatory `data_capabilities` contract for
+Run-spec schema v6 retains the mandatory `data_capabilities` contract for
 neutral-common comparisons and models the complete private Codex CLI
 prompt-channel treatment. Committed synthetic specs need only the version bump
 from v4. A Codex `private-live` `cli-skill` spec must additionally choose
@@ -110,12 +110,13 @@ from v4. A Codex `private-live` `cli-skill` spec must additionally choose
 that field is rejected on all other cells. Run `validate-comparison-set` before
 any model or backend is contacted.
 
-Private-workspace manifest schema v2 makes the lifecycle explicit. A
+Private-workspace manifest schema v3 makes the lifecycle explicit. A
 `kind:"comparison"` run set keeps one to three unique surfaces; an omitted kind
 is the legacy comparison form. A `kind:"activation-study"` run set contains
-exactly four otherwise-identical Codex `private-live` `cli-skill` v5 specs, one
+exactly four otherwise-identical Codex `private-live` `cli-skill` v6 specs, one
 for each activation treatment, plus a mandatory blinded three- or five-member
-review panel and an explicit reviewer cost reserve.
+review panel, an explicit reviewer cost reserve, and a separate offline
+provider/tool-path calibration cap.
 
 The realistic matrix currently contains:
 
@@ -279,7 +280,7 @@ over-budget. The deterministic MCP test additionally verifies the exact
 four-GET, zero-write trajectory with technical-id reuse and that the expansion alone recovers the
 marker.
 
-Observation schema v4, result schema v6, and aggregate schema v6 retain the
+Observation schema v5, result schema v7, and aggregate schema v6 retain the
 `capability_families` contract introduced in v3, using a
 closed generic vocabulary shared by CLI and MCP. Each entry contains only
 invocations, successes, failures, and output bytes. Treat the section as
@@ -333,6 +334,13 @@ is omitted from preview and aggregate JSON.
 Use one `kind:"activation-study"` run set for the complete 2x2. One reviewed
 plan and one consent bind all four same-surface cells, their common contract,
 the exact treatment specs, reviewer roster, and any required blind assignment.
+Before the first cell, one offline `atl version` calibration must traverse the
+same isolated Codex shell, plugin, hook, shim, and command broker without any
+backend config or credentials. It must prove one admitted successful local
+command through the `atl` hook family. Zero backend authority and writes are
+construction-derived from the exact `atl version` policy and stripped inputs,
+not gateway-observed HTTP telemetry. Calibration is infrastructure
+evidence, not a fifth treatment.
 Attempts run sequentially in a canonical four-order balanced cycle scoped to
 the exact reviewed study material, not its editable run-set alias, so every
 treatment occurs once in every position and once before every other treatment
@@ -352,14 +360,21 @@ execution capsule, and never invokes the model or backend. Study execution and
 recovery summaries include `cost_known`; false means the detected numeric total
 is only a lower bound.
 
-The study budget partitions all four treatment caps and a positive
-`reviewer_reserve_microusd` under the workspace maximum. Cost enforcement is
+The study budget partitions the calibration cap, all four treatment caps, and
+a positive `reviewer_reserve_microusd` under the workspace maximum. Cost enforcement is
 detection-only: it checks provider-reported cost and coverage after calls and
 stops remaining cells on exhaustion, uncertainty, or a safety failure. It is
 not a preventive provider-side hard cap and cannot undo cost already incurred.
 The runner does not launch panel reviewers, so the reviewer reserve is a
 reviewed authorization partition, not durable reviewer-spend accounting;
 supervise any model-reviewer cost separately.
+
+Activation response schemas require a closed `evidence_outcome.state` with one
+of `none`, `unavailable`, `blocked`, `failed`, `partial`, or `succeeded`.
+Runner audit records, not that self-report, derive attempt counters and state;
+contradictions fail closed. Current references expose only bounded attempt
+metrics and closed contrasts. Pre-calibration references remain readable and
+compare-only, but cannot be promoted.
 
 Prepare every blinded panel packet for all four treatments before assessing any
 packet, selecting the cell with both `--surface cli-skill` and `--treatment`.

@@ -216,6 +216,8 @@ func TestPrivateActivationRecoveryDoesNotAdvanceLaunchedCellWithoutProviderEvide
 	if err != nil {
 		t.Fatal(err)
 	}
+	runID := "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	completePrivateActivationFixtureCalibration(t, fixture, plan, &lifecycle, runID)
 	cell, err := lifecycle.ReserveNextCell()
 	if err != nil {
 		t.Fatal(err)
@@ -223,16 +225,11 @@ func TestPrivateActivationRecoveryDoesNotAdvanceLaunchedCellWithoutProviderEvide
 	if err := lifecycle.MarkLaunched(cell.CellID); err != nil {
 		t.Fatal(err)
 	}
-	runID := "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	runRoot := filepath.Join(fixture.root, "runs", runID)
-	if err := os.Mkdir(runRoot, 0o700); err != nil {
-		t.Fatal(err)
-	}
 	snapshotResidue := filepath.Join(fixture.root, ".ephemeral", "execution-"+runID, "provider-runtime", "capsule")
 	if err := os.MkdirAll(snapshotResidue, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	state := privatePlanState{SchemaVersion: 2, PlanSHA256: preview.PlanSHA256, RunID: runID, Status: "running",
+	state := privatePlanState{SchemaVersion: privatePlanStateSchemaVersion, PlanSHA256: preview.PlanSHA256, RunID: runID, Status: "running",
 		CompletedSurfaces: []string{}, CompletedCells: []string{}}
 	statePath := filepath.Join(fixture.root, "plans", preview.PlanID+".state.json")
 	if err := persistPrivateActivationPlanState(statePath, plan, &state, &lifecycle, ""); err != nil {
@@ -240,7 +237,7 @@ func TestPrivateActivationRecoveryDoesNotAdvanceLaunchedCellWithoutProviderEvide
 	}
 	recovered, err := RecoverPrivateActivationStudy(PrivateActivationRecoveryOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
 		PlanID: preview.PlanID, ExpectedPlanSHA256: preview.PlanSHA256, Confirm: PrivateActivationRecoveryConfirmation})
-	if err != nil || recovered.Status != "stopped" || recovered.Completed != 0 || !recovered.CostKnown {
+	if err != nil || recovered.Status != "stopped" || recovered.Completed != 0 || recovered.EstimatedCostMicroUSD != 50 || !recovered.CostKnown {
 		t.Fatalf("recovered=%+v err=%v", recovered, err)
 	}
 	if _, err := os.Stat(filepath.Join(fixture.root, ".ephemeral", "execution-"+runID)); !os.IsNotExist(err) {
@@ -269,6 +266,8 @@ func TestPrivateActivationRecoveryReconcilesDurableExecutionReceipt(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	runID := "run-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	completePrivateActivationFixtureCalibration(t, fixture, plan, &lifecycle, runID)
 	cell, err := lifecycle.ReserveNextCell()
 	if err != nil {
 		t.Fatal(err)
@@ -283,9 +282,8 @@ func TestPrivateActivationRecoveryReconcilesDurableExecutionReceipt(t *testing.T
 	if !ok {
 		t.Fatal("planned cell missing")
 	}
-	runID := "run-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	output := writePrivateActivationExecutionEvidence(t, fixture, plan, item, runID)
-	state := privatePlanState{SchemaVersion: 2, PlanSHA256: preview.PlanSHA256, RunID: runID, Status: "running",
+	state := privatePlanState{SchemaVersion: privatePlanStateSchemaVersion, PlanSHA256: preview.PlanSHA256, RunID: runID, Status: "running",
 		CompletedSurfaces: []string{}, CompletedCells: []string{}}
 	statePath := filepath.Join(fixture.root, "plans", preview.PlanID+".state.json")
 	if err := persistPrivateActivationPlanState(statePath, plan, &state, &lifecycle, ""); err != nil {
@@ -293,7 +291,7 @@ func TestPrivateActivationRecoveryReconcilesDurableExecutionReceipt(t *testing.T
 	}
 	recovered, err := RecoverPrivateActivationStudy(PrivateActivationRecoveryOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
 		PlanID: preview.PlanID, ExpectedPlanSHA256: preview.PlanSHA256, Confirm: PrivateActivationRecoveryConfirmation})
-	if err != nil || recovered.Status != "stopped" || recovered.EstimatedCostMicroUSD != output.EstimatedCostMicroUSDTotal || !recovered.CostKnown {
+	if err != nil || recovered.Status != "stopped" || recovered.EstimatedCostMicroUSD != output.EstimatedCostMicroUSDTotal+50 || !recovered.CostKnown {
 		t.Fatalf("recovered=%+v err=%v", recovered, err)
 	}
 	if !privateActivationAttemptStarted(stateEventsFromFile(t, statePath)) {
@@ -319,6 +317,8 @@ func TestPrivateActivationRecoveryConsumesCommittedAttemptWithoutReceipt(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	runID := "run-cccccccccccccccccccccccccccccccc"
+	completePrivateActivationFixtureCalibration(t, fixture, plan, &lifecycle, runID)
 	cell, err := lifecycle.ReserveNextCell()
 	if err != nil {
 		t.Fatal(err)
@@ -329,11 +329,7 @@ func TestPrivateActivationRecoveryConsumesCommittedAttemptWithoutReceipt(t *test
 	if err := lifecycle.MarkProviderAttemptCommitted(cell.CellID); err != nil {
 		t.Fatal(err)
 	}
-	runID := "run-cccccccccccccccccccccccccccccccc"
-	if err := os.Mkdir(filepath.Join(fixture.root, "runs", runID), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	state := privatePlanState{SchemaVersion: 2, PlanSHA256: preview.PlanSHA256, RunID: runID, Status: "running",
+	state := privatePlanState{SchemaVersion: privatePlanStateSchemaVersion, PlanSHA256: preview.PlanSHA256, RunID: runID, Status: "running",
 		CompletedSurfaces: []string{}, CompletedCells: []string{}}
 	statePath := filepath.Join(fixture.root, "plans", preview.PlanID+".state.json")
 	if err := persistPrivateActivationPlanState(statePath, plan, &state, &lifecycle, ""); err != nil {
@@ -341,7 +337,7 @@ func TestPrivateActivationRecoveryConsumesCommittedAttemptWithoutReceipt(t *test
 	}
 	recovered, err := RecoverPrivateActivationStudy(PrivateActivationRecoveryOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
 		PlanID: preview.PlanID, ExpectedPlanSHA256: preview.PlanSHA256, Confirm: PrivateActivationRecoveryConfirmation})
-	if err != nil || recovered.Status != "stopped" || recovered.Completed != 0 || recovered.EstimatedCostMicroUSD != 0 || recovered.CostKnown {
+	if err != nil || recovered.Status != "stopped" || recovered.Completed != 0 || recovered.EstimatedCostMicroUSD != 50 || recovered.CostKnown {
 		t.Fatalf("recovered=%+v err=%v", recovered, err)
 	}
 	next, err := CreatePrivatePlan(context.Background(), fixture.createOptions())
@@ -364,6 +360,8 @@ func TestPrivateActivationRecoveryRejectsTamperedReceiptWithoutStateMutation(t *
 	if err != nil {
 		t.Fatal(err)
 	}
+	runID := "run-dddddddddddddddddddddddddddddddd"
+	completePrivateActivationFixtureCalibration(t, fixture, plan, &lifecycle, runID)
 	cell, err := lifecycle.ReserveNextCell()
 	if err != nil {
 		t.Fatal(err)
@@ -378,7 +376,6 @@ func TestPrivateActivationRecoveryRejectsTamperedReceiptWithoutStateMutation(t *
 	if !ok {
 		t.Fatal("planned cell missing")
 	}
-	runID := "run-dddddddddddddddddddddddddddddddd"
 	writePrivateActivationExecutionEvidence(t, fixture, plan, item, runID)
 	receiptPath, _ := privateActivationItemEvidencePaths(fixture.root, plan, runID, item)
 	receiptData, err := os.ReadFile(receiptPath)
@@ -388,7 +385,7 @@ func TestPrivateActivationRecoveryRejectsTamperedReceiptWithoutStateMutation(t *
 	if err := os.WriteFile(receiptPath, append(receiptData, ' '), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	state := privatePlanState{SchemaVersion: 2, PlanSHA256: preview.PlanSHA256, RunID: runID, Status: "running",
+	state := privatePlanState{SchemaVersion: privatePlanStateSchemaVersion, PlanSHA256: preview.PlanSHA256, RunID: runID, Status: "running",
 		CompletedSurfaces: []string{}, CompletedCells: []string{}}
 	statePath := filepath.Join(fixture.root, "plans", preview.PlanID+".state.json")
 	if err := persistPrivateActivationPlanState(statePath, plan, &state, &lifecycle, ""); err != nil {
@@ -425,15 +422,13 @@ func TestPrivateActivationRecoveryRejectsSymlinkSnapshotWithoutTouchingTarget(t 
 	if err != nil {
 		t.Fatal(err)
 	}
+	runID := "run-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	completePrivateActivationFixtureCalibration(t, fixture, plan, &lifecycle, runID)
 	cell, err := lifecycle.ReserveNextCell()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := lifecycle.MarkLaunched(cell.CellID); err != nil {
-		t.Fatal(err)
-	}
-	runID := "run-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-	if err := os.Mkdir(filepath.Join(fixture.root, "runs", runID), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	outside := t.TempDir()
@@ -445,7 +440,7 @@ func TestPrivateActivationRecoveryRejectsSymlinkSnapshotWithoutTouchingTarget(t 
 	if err := os.Symlink(outside, snapshot); err != nil {
 		t.Fatal(err)
 	}
-	state := privatePlanState{SchemaVersion: 2, PlanSHA256: preview.PlanSHA256, RunID: runID, Status: "running",
+	state := privatePlanState{SchemaVersion: privatePlanStateSchemaVersion, PlanSHA256: preview.PlanSHA256, RunID: runID, Status: "running",
 		CompletedSurfaces: []string{}, CompletedCells: []string{}}
 	statePath := filepath.Join(fixture.root, "plans", preview.PlanID+".state.json")
 	if err := persistPrivateActivationPlanState(statePath, plan, &state, &lifecycle, ""); err != nil {
@@ -528,7 +523,7 @@ func TestPrivateActivationStudyPersistsReceiptBeforeAtomicFinalCompletion(t *tes
 		t.Fatalf("durable receipts=%d writes=%d", receipts, len(writes))
 	}
 	last := writes[len(writes)-1]
-	if last.Status != "completed" || last.CompletedAt == "" || len(last.CompletedCells) != 4 || last.EstimatedCostMicroUSD != 400 {
+	if last.Status != "completed" || last.CompletedAt == "" || len(last.CompletedCells) != 4 || last.EstimatedCostMicroUSD != 450 {
 		t.Fatalf("last state=%+v", last)
 	}
 }
@@ -588,6 +583,7 @@ func TestPrivateActivationProviderBoundaryControlsOrderConsumption(t *testing.T)
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newPrivateActivationPlanFixture(t)
+			installPrivateActivationRunStub(t)
 			preview := fixture.createPlan(t)
 			original := privatePlanRunHeadless
 			privatePlanRunHeadless = func(_ context.Context, options RunOptions) (RunOutput, error) {
@@ -638,7 +634,7 @@ func TestPrivateActivationFailedCommitWriteDoesNotConsumeAttempt(t *testing.T) {
 	calls := 0
 	privatePlanWriteState = func(path string, state privatePlanState) error {
 		calls++
-		if calls == 4 {
+		if calls == 9 {
 			return errors.New("injected provider commitment write failure")
 		}
 		return originalWrite(path, state)
@@ -646,7 +642,7 @@ func TestPrivateActivationFailedCommitWriteDoesNotConsumeAttempt(t *testing.T) {
 	t.Cleanup(func() { privatePlanWriteState = originalWrite })
 
 	summary, err := ExecutePrivatePlan(context.Background(), fixture.executeOptions(preview))
-	if err == nil || summary.Status != "stopped" || summary.Completed != 0 || summary.EstimatedCostMicroUSD != 0 || summary.CostKnown == nil || !*summary.CostKnown {
+	if err == nil || summary.Status != "stopped" || summary.Completed != 0 || summary.EstimatedCostMicroUSD != 50 || summary.CostKnown == nil || !*summary.CostKnown {
 		t.Fatalf("summary=%+v err=%v", summary, err)
 	}
 	statePath := filepath.Join(fixture.root, "plans", preview.PlanID+".state.json")
@@ -693,7 +689,7 @@ func TestPrivateActivationUnknownCostSummaryUsesDurableProjection(t *testing.T) 
 	}
 	preview := fixture.createPlan(t)
 	summary, err := ExecutePrivatePlan(context.Background(), fixture.executeOptions(preview))
-	if err == nil || summary.Status != "stopped" || summary.EstimatedCostMicroUSD != 0 || summary.CostKnown == nil || *summary.CostKnown {
+	if err == nil || summary.Status != "stopped" || summary.EstimatedCostMicroUSD != 50 || summary.CostKnown == nil || *summary.CostKnown {
 		t.Fatalf("summary=%+v err=%v", summary, err)
 	}
 	stateData, err := os.ReadFile(filepath.Join(fixture.root, "plans", preview.PlanID+".state.json"))
@@ -766,7 +762,7 @@ func TestPrivateActivationInterruptedStateWithoutRunTreeIsDoctorValid(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := privatePlanState{SchemaVersion: 2, PlanSHA256: preview.PlanSHA256, RunID: "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	state := privatePlanState{SchemaVersion: privatePlanStateSchemaVersion, PlanSHA256: preview.PlanSHA256, RunID: "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Status: "interrupted", CompletedSurfaces: []string{}, CompletedCells: []string{}}
 	if validatePrivateActivationPlanState(plan, state) != nil {
 		t.Fatalf("initial interrupted state rejected: %+v", state)
@@ -806,6 +802,8 @@ func TestPrivateActivationStateMetadataMustMatchEventProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	runID := "run-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	completePrivateActivationFixtureCalibration(t, fixture, plan, &lifecycle, runID)
 	cell, err := lifecycle.ReserveNextCell()
 	if err != nil {
 		t.Fatal(err)
@@ -829,7 +827,7 @@ func TestPrivateActivationStateMetadataMustMatchEventProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	valid := privatePlanState{SchemaVersion: 2, PlanSHA256: preview.PlanSHA256, RunID: "run-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	valid := privatePlanState{SchemaVersion: privatePlanStateSchemaVersion, PlanSHA256: preview.PlanSHA256, RunID: runID,
 		Status: "stopped", CompletedSurfaces: []string{}, CompletedCells: append([]string(nil), projection.completedCells...),
 		Events: append([]PrivateActivationLifecycleEvent(nil), lifecycle.Events...), StopReason: projection.stopReason,
 		EstimatedCostMicroUSD: projection.detectedCostMicroUSD}
@@ -1031,6 +1029,7 @@ func newPrivateActivationPlanFixture(t *testing.T) privatePlanTestFixture {
 	fixture := newPrivatePlanTestFixture(t, true, false)
 	writeTestFile(t, filepath.Join(fixture.liveConfig, "config.json"), `{"jira_url":"http://127.0.0.1:9","confluence_url":"https://unused.example.invalid"}`+"\n", 0o600)
 	caseRoot := filepath.Join(fixture.root, "cases", "portfolio")
+	writeTestFile(t, filepath.Join(caseRoot, "response.json"), `{"type":"object","properties":{"complete":{"type":"boolean"},"evidence_outcome":{"type":"object","properties":{"state":{"type":"string","enum":["none","unavailable","blocked","failed","partial","succeeded"]}},"required":["state"],"additionalProperties":false}},"required":["complete","evidence_outcome"],"additionalProperties":false}`, 0o600)
 	var scenario Scenario
 	readPrivatePlanTestJSON(t, filepath.Join(caseRoot, "scenario.json"), &scenario)
 	scenario.Category = BenchmarkCategoryNeutralCommon
@@ -1047,6 +1046,7 @@ func newPrivateActivationPlanFixture(t *testing.T) privatePlanTestFixture {
 	}
 	base.Category = BenchmarkCategoryNeutralCommon
 	base.DataCapabilities = []string{"jira.fields"}
+	writeTestFile(t, filepath.Join(caseRoot, base.ResponseSchemaFile), `{"type":"object","properties":{"complete":{"type":"boolean"},"evidence_outcome":{"type":"object","properties":{"state":{"type":"string","enum":["none","unavailable","blocked","failed","partial","succeeded"]}},"required":["state"],"additionalProperties":false}},"required":["complete","evidence_outcome"],"additionalProperties":false}`, 0o600)
 	base.Checks = append([]RunCheck(nil), base.Checks...)
 	for index := range base.Checks {
 		switch base.Checks[index].Kind {
@@ -1082,7 +1082,8 @@ func newPrivateActivationPlanFixture(t *testing.T) privatePlanTestFixture {
 	writeTestFile(t, filepath.Join(caseRoot, "blind-assignment.txt"), "Review the response without inferring the interface treatment.\n", 0o600)
 	panel.BlindAssignment = "cases/portfolio/blind-assignment.txt"
 	manifest.RunSets = []PrivateWorkspaceRunSet{{Kind: PrivateRunSetKindActivationStudy, Alias: fixture.runSetAlias,
-		SpecPaths: paths, QualitativeReviewPanel: &panel, ReviewerReserveMicroUSD: 1_000_000}}
+		SpecPaths: paths, QualitativeReviewPanel: &panel, ReviewerReserveMicroUSD: 1_000_000,
+		CalibrationMaxEstimatedCostMicroUSD: 500_000}}
 	manifestData, err = EncodePrivateWorkspaceManifest(manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -1099,6 +1100,25 @@ func newPrivateActivationPlanFixture(t *testing.T) privatePlanTestFixture {
 func installPrivateActivationRunStub(t *testing.T) {
 	t.Helper()
 	original := privatePlanRunHeadless
+	originalCalibration := privatePlanRunCalibration
+	privatePlanRunCalibration = func(_ context.Context, options CodexCLICalibrationOptions) (CodexCLICalibrationReceipt, error) {
+		if options.providerAttemptCommitted != nil {
+			if err := options.providerAttemptCommitted(); err != nil {
+				return CodexCLICalibrationReceipt{}, err
+			}
+		}
+		contract, err := BuildCodexCLICalibrationContract(options.Model, options.Reasoning, options.TimeoutSeconds,
+			options.MaxEstimatedCostMicroUSD, options.Pricing)
+		if err != nil {
+			return CodexCLICalibrationReceipt{}, err
+		}
+		return CodexCLICalibrationReceipt{
+			SchemaVersion: CodexCLICalibrationSchemaVersion, ContractSHA256: contract.SHA256, Passed: true,
+			CommandFamily:     "atl_version",
+			CommandExecutions: 1, BrokeredInvocations: 1, GuardAdmissions: 1, GuardATLAdmissions: 1,
+			StdoutBytes: 8, InputTokens: 30, OutputTokens: 10, EstimatedCostMicroUSD: 50, DurationMillis: 1,
+		}, nil
+	}
 	privatePlanRunHeadless = func(_ context.Context, options RunOptions) (RunOutput, error) {
 		loaded, err := loadRunInputs(options)
 		if err != nil {
@@ -1121,12 +1141,15 @@ func installPrivateActivationRunStub(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(directory, "result.json"), append(data, '\n'), 0o600); err != nil {
 			return RunOutput{}, err
 		}
-		if err := os.WriteFile(filepath.Join(directory, "final.json"), []byte("{\"complete\":true}\n"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(directory, "final.json"), []byte("{\"complete\":true,\"evidence_outcome\":{\"state\":\"succeeded\"}}\n"), 0o600); err != nil {
 			return RunOutput{}, err
 		}
 		return RunOutput{Results: []Result{result}, EstimatedCostMicroUSDTotal: 100}, nil
 	}
-	t.Cleanup(func() { privatePlanRunHeadless = original })
+	t.Cleanup(func() {
+		privatePlanRunHeadless = original
+		privatePlanRunCalibration = originalCalibration
+	})
 }
 
 func privateActivationStubResult(t *testing.T, loaded loadedRun) Result {
@@ -1177,7 +1200,7 @@ func writePrivateActivationExecutionEvidence(t *testing.T, fixture privatePlanTe
 	if err := os.WriteFile(filepath.Join(runDirectory, "result.json"), append(data, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(runDirectory, "final.json"), []byte("{\"complete\":true}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(runDirectory, "final.json"), []byte("{\"complete\":true,\"evidence_outcome\":{\"state\":\"succeeded\"}}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	output := RunOutput{Results: []Result{result}, EstimatedCostMicroUSDTotal: 100}
@@ -1185,6 +1208,51 @@ func writePrivateActivationExecutionEvidence(t *testing.T, fixture privatePlanTe
 		t.Fatal(err)
 	}
 	return output
+}
+
+func completePrivateActivationFixtureCalibration(t *testing.T, fixture privatePlanTestFixture, plan privatePlan,
+	lifecycle *PrivateActivationStudyLifecycle, runID string,
+) {
+	t.Helper()
+	runRoot := filepath.Join(fixture.root, "runs", runID)
+	if err := os.MkdirAll(runRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lifecycle.ReserveCalibration(); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.MarkCalibrationLaunched(); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.MarkCalibrationProviderAttemptCommitted(); err != nil {
+		t.Fatal(err)
+	}
+	receipt := CodexCLICalibrationReceipt{
+		SchemaVersion: CodexCLICalibrationSchemaVersion, ContractSHA256: plan.StudyContract.Calibration.ContractSHA256, Passed: true,
+		CommandFamily:     "atl_version",
+		CommandExecutions: 1, BrokeredInvocations: 1, GuardAdmissions: 1, GuardATLAdmissions: 1,
+		StdoutBytes: 8, InputTokens: 30, OutputTokens: 10, EstimatedCostMicroUSD: 50, DurationMillis: 1,
+	}
+	loaded, err := loadRunInputs(RunOptions{SpecPath: filepath.Join(fixture.root, filepath.FromSlash(plan.Items[0].SpecPath))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := BuildCodexCLICalibrationContract(loaded.spec.Model, loaded.spec.Reasoning, loaded.spec.TimeoutSeconds,
+		plan.StudyContract.Calibration.MaxEstimatedCostMicroUSD, loaded.spec.Pricing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptSHA256, err := persistPrivateActivationCalibrationReceipt(fixture.root, runRoot, plan, contract, receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.RecordCalibrationReceipt(PrivateActivationReceipt{SHA256: receiptSHA256, CostKnown: true,
+		DetectedCostMicroUSD: receipt.EstimatedCostMicroUSD, ProviderCompleted: true, PersistenceComplete: true, ContainmentCertain: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.MarkCalibrationSucceeded(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func stateEventsFromFile(t *testing.T, path string) []PrivateActivationLifecycleEvent {

@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "live_config_env": "ATL_AGENT_EVAL_LIVE_CONFIG_DIR",
   "external_mcp_profile_env": "ATL_AGENT_EVAL_EXTERNAL_MCP_PROFILE",
   "execution": {

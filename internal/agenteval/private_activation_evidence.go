@@ -109,6 +109,13 @@ func privateActivationItemEvidencePaths(root string, plan privatePlan, runID str
 
 func validatePrivateActivationStateEvidence(root string, plan privatePlan, state privatePlanState) error {
 	for _, event := range state.Events {
+		if event.Type == PrivateActivationEventCalibrationReceipt {
+			if validatePrivateActivationCalibrationReceipt(root, state.RunID, plan, event.ReceiptSHA256) != nil ||
+				!event.CostKnown || !event.ProviderCompleted || !event.PersistenceComplete || !event.ContainmentCertain {
+				return privatePlanError("study_evidence")
+			}
+			continue
+		}
 		if event.Type != PrivateActivationEventReceipt {
 			continue
 		}

@@ -78,6 +78,7 @@ type atlProxyRecord struct {
 
 type guardDecisionRecord struct {
 	Decision string `json:"decision"`
+	Family   string `json:"family,omitempty"`
 }
 
 type liveHTTPRecord struct {
@@ -97,6 +98,9 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 	loaded, err := loadRunInputs(options)
 	if err != nil {
 		return RunOutput{}, err
+	}
+	if loaded.spec.EffectiveBackendMode() == BackendModeProviderCalibration {
+		return RunOutput{}, fmt.Errorf("provider-calibration is an internal pre-study contract; use the private activation plan runner")
 	}
 	if options.ModelOverride != "" {
 		loaded.spec.Model = options.ModelOverride
@@ -1073,6 +1077,20 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		atlInvocations = externalCalls
 		failedATL = externalFailures
 		guardDenials += externalDenials
+		proxyRecords = nil
+		providerMetrics.MCPToolCalls = externalCalls
+		providerMetrics.FailedMCPToolCalls = externalFailures
+	}
+	evidenceAttempt, err := deriveRunnerEvidenceAttempt(proxyRecords, providerMetrics.MCPToolCalls, providerMetrics.FailedMCPToolCalls, guardDenials)
+	if err != nil {
+		return Result{}, fmt.Errorf("derive evidence attempt telemetry: %w", err)
+	}
+	evidenceReport, err := ParseEvidenceOutcomeReport(final)
+	if err != nil {
+		return Result{}, err
+	}
+	if evidenceReport.Coverage && !evidenceReport.ConsistentWithAudit(evidenceAttempt) {
+		return Result{}, fmt.Errorf("model evidence outcome contradicts audited attempts")
 	}
 	checks, err := evaluateRunChecks(loaded.spec.Checks, final, workspace, atlInvocations, failedATL, unexpected, providerMetrics.SkillToolCalls, providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, guardDenials, methods, httpMethodsObserved)
 	if err != nil {
@@ -1154,6 +1172,8 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			DurationMillis:        providerMetrics.DurationMillis,
 		},
 		Coverage: providerMetrics.Coverage, HTTPMethods: methods, Checks: checks,
+		EvidenceAttempt:    evidenceAttempt,
+		EvidenceReport:     evidenceReport,
 		CapabilityFamilies: capabilityFamilies,
 	}
 	result, err := Evaluate(loaded.scenario, observation)
@@ -1187,6 +1207,24 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		return Result{}, err
 	}
 	return result, nil
+}
+
+func deriveRunnerEvidenceAttempt(proxyRecords []atlProxyRecord, admittedTools, failedTools, guardDenials int) (EvidenceAttemptTelemetry, error) {
+	admitted, failed, denied := admittedTools, failedTools, guardDenials
+	for _, record := range proxyRecords {
+		if record.Denied {
+			denied++
+			continue
+		}
+		admitted++
+		if record.ExitCode != 0 {
+			failed++
+		}
+	}
+	return NewEvidenceAttemptTelemetry(true, EvidenceAttemptCounts{
+		Attempts: admitted + denied, Admitted: admitted,
+		Succeeded: admitted - failed, Failed: failed, Denied: denied,
+	})
 }
 
 func requiresCleanGuard(checks []RunCheck) bool {
@@ -1309,31 +1347,55 @@ func readProxyRecords(path string) ([]atlProxyRecord, error) {
 }
 
 func countGuardDenials(path string) (int, error) {
+	_, denials, err := countGuardDecisions(path)
+	return denials, err
+}
+
+func countGuardDecisions(path string) (int, int, error) {
+	summary, err := readGuardDecisionSummary(path)
+	return summary.Admissions, summary.Denials, err
+}
+
+type guardDecisionSummary struct {
+	Admissions    int
+	Denials       int
+	ATLAdmissions int
+}
+
+func readGuardDecisionSummary(path string) (guardDecisionSummary, error) {
 	data, err := readBoundedFile(path, 1<<20)
 	if os.IsNotExist(err) {
-		return 0, nil
+		return guardDecisionSummary{}, nil
 	}
 	if err != nil {
-		return 0, err
+		return guardDecisionSummary{}, err
 	}
-	var denials int
+	var summary guardDecisionSummary
 	for _, line := range bytes.Split(data, []byte{'\n'}) {
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
 		var record guardDecisionRecord
 		if err := json.Unmarshal(line, &record); err != nil {
-			return 0, fmt.Errorf("decode guard decision record: %w", err)
+			return guardDecisionSummary{}, fmt.Errorf("decode guard decision record: %w", err)
+		}
+		if record.Family != "" && record.Family != "other" && record.Family != "atl" && record.Family != "skill_read" &&
+			record.Family != "mcp" && record.Family != "structured_output" && record.Family != "agent" && record.Family != "read" {
+			return guardDecisionSummary{}, fmt.Errorf("invalid guard decision family")
 		}
 		switch record.Decision {
 		case "allow":
+			summary.Admissions++
+			if record.Family == "atl" {
+				summary.ATLAdmissions++
+			}
 		case "deny":
-			denials++
+			summary.Denials++
 		default:
-			return 0, fmt.Errorf("invalid guard decision %q", record.Decision)
+			return guardDecisionSummary{}, fmt.Errorf("invalid guard decision %q", record.Decision)
 		}
 	}
-	return denials, nil
+	return summary, nil
 }
 
 func readLiveHTTPRecords(path string) (map[string]int, int, bool, error) {

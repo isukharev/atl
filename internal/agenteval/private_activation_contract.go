@@ -102,13 +102,19 @@ func ValidatePrivateActivationStudy(paths ...string) (PrivateActivationStudyCont
 		} else if directory != commonDirectory {
 			return PrivateActivationStudyContract{}, fmt.Errorf("private activation study runs must use one case directory")
 		}
+		if err := validateEvidenceOutcomeResponseSchema(loaded.responseSchema); err != nil {
+			return PrivateActivationStudyContract{}, fmt.Errorf("private activation study run %d has no bounded evidence outcome: %w", index+1, err)
+		}
+		if loaded.spec.SchemaVersion != RunSpecSchemaVersion {
+			return PrivateActivationStudyContract{}, fmt.Errorf("private activation study run %d uses a legacy run spec", index+1)
+		}
 		specs = append(specs, loaded.spec)
 	}
 	return BuildPrivateActivationStudyContract(specs)
 }
 
 // BuildPrivateActivationStudyContract validates and canonically binds one
-// complete 2x2 activation study. It accepts exactly one v5 Codex private-live
+// complete 2x2 activation study. It accepts exactly one v6 Codex private-live
 // CLI-skill run for each treatment and rejects every non-treatment difference.
 func BuildPrivateActivationStudyContract(specs []RunSpec) (PrivateActivationStudyContract, error) {
 	if len(specs) != 4 {
@@ -119,7 +125,7 @@ func BuildPrivateActivationStudyContract(specs []RunSpec) (PrivateActivationStud
 	seenVariants := make(map[string]struct{}, 4)
 	var commonJSON []byte
 	for index, spec := range specs {
-		if spec.SchemaVersion != RunSpecSchemaVersion || spec.Validate() != nil || spec.Provider != "codex" ||
+		if (spec.SchemaVersion != RunSpecSchemaVersion && spec.SchemaVersion != LegacyRunSpecSchemaVersion) || spec.Validate() != nil || spec.Provider != "codex" ||
 			spec.EffectiveBackendMode() != BackendModePrivateLive || spec.EffectiveSurface() != SurfaceCLISkill ||
 			spec.EffectiveToolTransport() != "cli" || spec.Repetitions != 1 {
 			return PrivateActivationStudyContract{}, fmt.Errorf("private activation study run %d is invalid", index+1)

@@ -48,6 +48,7 @@ type ProviderMetrics struct {
 	MCPToolCalls             int
 	FailedMCPToolCalls       int
 	MCPToolOutputBytes       int64
+	CommandExecutions        int
 	CapabilityFamilies       []CapabilityFamilyMetric
 	CapabilityFamilyCoverage bool
 	Coverage                 map[string]bool
@@ -134,11 +135,12 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 				}
 			}
 		}
-		if spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli" {
+		confinedCLI := isCodexConfinedCLI(spec)
+		if confinedCLI {
 			sandboxMode = "workspace-write"
 			includeOnly = `["PATH","SHELL","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
 		}
-		privateCLI := spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli"
+		privateCLI := confinedCLI
 		args := []string{
 			"exec", "--json", "--ephemeral", "--strict-config",
 			"--skip-git-repo-check",
@@ -211,7 +213,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 				)
 			}
 		}
-		if spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli" {
+		if confinedCLI {
 			if guardPath == "" {
 				return ProviderCommand{}, fmt.Errorf("codex private-live cli transport requires a guard executable")
 			}
@@ -245,6 +247,12 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 	default:
 		return ProviderCommand{}, fmt.Errorf("unsupported provider %q", spec.Provider)
 	}
+}
+
+func isCodexConfinedCLI(spec RunSpec) bool {
+	mode := spec.EffectiveBackendMode()
+	return spec.Provider == "codex" && spec.ToolTransport == "cli" &&
+		(mode == BackendModePrivateLive || mode == BackendModeProviderCalibration)
 }
 
 func codexPrivateCLIInstructions(spec RunSpec) (string, error) {
@@ -381,12 +389,15 @@ func mcpServerName(spec RunSpec) string {
 
 func codexDenyNonMCPHook(guardPath string, spec RunSpec, confinement ProviderConfinement) (string, error) {
 	command := guardPath
-	if spec.EffectiveBackendMode() == BackendModePrivateLive {
+	if spec.EffectiveBackendMode() == BackendModePrivateLive || spec.EffectiveBackendMode() == BackendModeProviderCalibration {
 		expectedMode := "mcp-with-skill-read"
 		expectedTools := claudeMCPToolNamesForServer(mcpServerName(spec), spec.AllowedMCPTools)
 		if spec.ToolTransport == "cli" {
 			expectedMode = "private-cli"
 			expectedTools = nil
+			if spec.EffectiveBackendMode() == BackendModeProviderCalibration {
+				expectedMode = "provider-calibration"
+			}
 		}
 		var err error
 		command, err = codexPrivateHookCommand(guardPath, expectedMode, expectedTools, confinement)
@@ -624,6 +635,9 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 				// They are neither model tool calls nor failed tool results.
 				if kind != "agent_message" && kind != "reasoning" && kind != "error" {
 					metrics.ToolCalls++
+				}
+				if kind == "command_execution" {
+					metrics.CommandExecutions++
 				}
 				if kind == "mcp_tool_call" {
 					metrics.MCPToolCalls++

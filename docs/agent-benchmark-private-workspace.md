@@ -41,7 +41,7 @@ directories:
 ```text
 PRIVATE_ROOT/
   .atl-agent-eval-private-root
-  private-workspace.v2.json
+  private-workspace.v3.json
   cases/
   plans/
   runs/
@@ -133,10 +133,10 @@ go build -o /tmp/agent-eval ./scripts/agent-eval
   --repository-root .
 ```
 
-Edit the generated private manifest locally. Schema v2 gives each run set a
+Edit the generated private manifest locally. Schema v3 gives each run set a
 `kind`: `comparison` accepts one to three unique surfaces, while
 `activation-study` requires exactly four otherwise-identical Codex
-`private-live` `cli-skill` v5 specs carrying `implicit`, `explicit`, `developer`,
+`private-live` `cli-skill` v6 specs carrying `implicit`, `explicit`, `developer`,
 and `combined` once each. An omitted kind is the legacy comparison form. Runtime
 bindings are environment-variable names, never literal paths or credentials.
 Keep provider-specific profiles outside the repository as required by the
@@ -149,7 +149,7 @@ authoritative strict validator.
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "live_config_env": "ATL_AGENT_EVAL_LIVE_CONFIG_DIR",
   "external_mcp_profile_env": "ATL_AGENT_EVAL_EXTERNAL_MCP_PROFILE",
   "execution": {
@@ -181,14 +181,15 @@ authoritative strict validator.
       "max_criterion_range_bps": 2500,
       "blind_assignment": "cases/activation-study/blind-assignment.txt"
     },
-    "reviewer_reserve_microusd": 1000000
+    "reviewer_reserve_microusd": 1000000,
+    "calibration_max_estimated_cost_microusd": 500000
   }]
 }
 ```
 
 An activation study requires the panel shown above and cannot use the legacy
-singleton policy. Its four treatment caps plus a positive `reviewer_reserve_microusd` must
-fit under the workspace execution maximum. A comparison may still use
+singleton policy. Its one calibration cap, four treatment caps, and positive
+`reviewer_reserve_microusd` must fit under the workspace execution maximum. A comparison may still use
 `qualitative_review_required: true` for one legacy review, or declare the same
 panel form. A run set cannot combine the singleton setting with
 `qualitative_review_panel`. A panel declares exactly three or five reviewers,
@@ -201,8 +202,12 @@ disabled.
 Reviewer ids are terminal-visible filesystem slot names. Keep them generic
 (`reviewer-01`, not a person, team, provider account, or backend identity); they
 are restricted to one lowercase path component. Schema v1 manifests remain
-readable as legacy comparisons but cannot declare a kind or reviewer reserve;
-create and review a schema v2 manifest for an activation study.
+readable as legacy comparisons. Workspace-manifest v2 activation studies,
+outer private-plan v4 artifacts, outer execution-state v2 artifacts, and their
+nested lifecycle plan/event v1 records remain inspectable, but cannot execute,
+recover, become references, or be promoted because they predate calibration
+and attempt evidence. Create and review a workspace-manifest v3 activation
+study for new measurements.
 
 The panel `blind_assignment` is a workspace-relative file below `cases/`. It is
 required for every activation study and for any other `neutral-common` run set. Activation-study
@@ -231,7 +236,7 @@ the reviewed plan. Stdout does not enumerate case aliases or private paths.
 
 ## Review, run, and assess
 
-A v4 plan binds the exact comparison or activation-study contract and execution
+A v5 plan binds the exact comparison or activation-study contract and execution
 identity: case inputs, ordered surfaces, skill activation and private
 prompt-contract digest, ATL and wrapper binaries, plugin/skill tree, agent
 runtime, repository commit, backend-config identity, external profile when
@@ -275,6 +280,38 @@ execution features and the capsule supplies `/bin/sh` as a fixed shell. Ambient
 shell selection and startup state are never projected. The shell remains inside
 the existing hook, filesystem, command-broker, read-only, and GET/HEAD controls;
 MCP surfaces do not opt into these CLI-only feature flags.
+
+Before the first treatment, a current activation plan runs one offline
+provider/tool-path calibration through the same isolated Codex runtime,
+installed plugin, shell feature flags, hook, shim, command broker, and
+permissions. The only admitted command is one local `atl version`; the
+calibration receives no backend config, URL, PAT, gateway, or corporate
+credential and must observe one provider command event, one `atl`-family hook
+admission, one successful broker record, and bounded non-empty output. Zero
+backend authority and zero writes are construction-derived from that stripped
+environment plus the exact `atl version` broker policy; they are not claimed as
+gateway-observed HTTP telemetry. Failure is terminal infrastructure evidence and no treatment cell is
+reserved. Calibration is not a fifth arm and does not advance the balanced
+treatment order. Its cap is a separate reviewed cost partition.
+
+Every activation response schema must also require this closed content-free
+member:
+
+```json
+{
+  "evidence_outcome": {
+    "state": "none"
+  }
+}
+```
+
+`state` is exactly one of `none`, `unavailable`, `blocked`, `failed`,
+`partial`, or `succeeded`. The model report can explain a zero-call result, but
+is never proof of an attempt. Audit-derived counters remain authoritative; a
+contradictory report fails closed. A calibrated route plus audit state `none`
+therefore means the runtime path worked during calibration and the treatment
+made no observed attempt. Public-safe study artifacts retain only these closed
+states, bounded counters, scores, and contrasts.
 
 Codex `cli-skill` run specs choose one cell from the complete prompt-channel
 2x2. A named skill is derived only from reviewed `data_capabilities`:
@@ -325,8 +362,9 @@ from plan id to treatment.
 
 Every activation study requires the predeclared blinded three- or five-member
 panel. All four treatment-by-reviewer packet slots are fixed before provider
-execution. The plan also partitions the sum of the four treatment caps and the
-positive explicit reviewer reserve under the workspace maximum. The runner
+execution. The plan also partitions the calibration cap, sum of the four
+treatment caps, and positive explicit reviewer reserve under the workspace
+maximum. The runner
 does not launch panel reviewers, so this reserve records reviewed authorization
 rather than durable reviewer-spend receipts; supervise model-reviewer cost
 separately. Treatment cost assurance is detection-only, not a preventive or
@@ -336,15 +374,21 @@ provider uncertainty, or failure to persist or contain the state stops the
 remaining cells; a safety violation does too. None of those checks can undo
 cost already incurred.
 
-Schema v1 comparison manifests and legacy plans remain readable. Four treatments
-collected under separate legacy plans are descriptive compatibility observations
-only: they do not acquire the study's ordering, shared state, or causal gates and
-must not be used to estimate channel effects or interaction.
+Workspace-manifest v1 comparisons remain readable. Legacy activation
+workspace-manifest v2, outer private-plan v4, outer execution-state v2, and
+nested lifecycle plan/event v1 artifacts remain readable for inspection.
+Legacy activation artifacts are explicitly
+incomparable and cannot be executed, recovered, captured, or promoted. Four
+treatments collected under separate legacy plans are descriptive compatibility
+observations only: they do not acquire the study's ordering, shared state, or
+causal gates and must not be used to estimate channel effects or interaction.
 
-Run-spec schema v5 carries the four treatments. Existing v4 `implicit` and
+Run-spec schema v6 carries the four treatments and reserves the internal
+provider-calibration contract. Existing v5 activation specs remain readable
+but cannot enter a current calibrated study. Existing v4 `implicit` and
 `explicit` specs retain their meanings when deliberately migrated. Legacy v3
 specs that named a skill through provider instructions are not silently mapped
-to `developer`; create and review a new activation-bound v5 spec and baseline.
+to `developer`; create and review a new activation-bound v6 spec and baseline.
 Legacy prompt-bound result v5/private-plan v2 artifacts retain only
 `implicit`/`explicit`; result v3/v4 and private-plan v1 remain readable under
 their earlier rules. None can be silently reclassified into a new treatment.
@@ -632,8 +676,10 @@ identities, or backend details.
 
 Promotion is stricter than descriptive or causal eligibility. Every treatment
 must have pass run status, zero deterministic violations and deterministic pass,
-complete clean safety, and panel review pass without disagreement before the
-command may update the activation-study `current` pointer:
+complete clean safety, at least one successful audit-observed evidence attempt,
+and panel review pass without disagreement before the command may update the
+activation-study `current` pointer. A model's self-reported outcome cannot
+substitute for the audited attempt:
 
 ```sh
 /tmp/agent-eval private study promote \
@@ -688,14 +734,21 @@ pooled even when every other rubric and runtime field matches. The digest is an
 internal grouping key and is omitted from aggregate JSON because a short answer
 mapping may be dictionary-guessable.
 
-Current manifests use schema v2, results use schema v6, aggregates use schema
-v6, private plans use schema v4, and review packets use schema v2. The decoder
-still accepts schema v1 manifests as comparisons, prompt-bound result schema v5,
-result schema v3/v4, and private plan schema v1/v2/v3 for lifecycle inspection
-and retention. Legacy plans are not silently re-executed or reclassified as
-activation studies; create a fresh schema v2 run set, v4 plan, and consent for a
-causal study. Older binaries reject the new artifacts rather than accepting them
-under a misleading old version.
+Current manifests use schema v3, run specs use schema v6, observations use
+schema v5, results use schema v7, aggregates use schema v6, private plans use
+schema v5, current activation state uses schema v3, and
+review packets use schema v2. Current study references/reports use schema v2
+and require audit attempt metrics plus separate bounded model-report metrics.
+The decoder still accepts workspace-manifest v1 comparisons;
+workspace-manifest v2 activation studies, outer private-plan v4 artifacts,
+outer execution-state v2 artifacts, and nested lifecycle plan/event v1 records
+as read-only legacy artifacts; attemptless result schema v6; prompt-bound
+result schema v5; result schema v3/v4; and outer private-plan schema v1/v2/v3
+for earlier comparison lifecycle inspection and retention. Legacy activation
+reference schema v1 remains readable and compare-only, but is never promotable.
+Create a fresh schema v3 run set, v5 plan, and consent for a causal study. Older
+binaries reject the new artifacts rather than accepting them under a misleading
+old version.
 
 ## Retention and recovery
 

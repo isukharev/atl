@@ -46,7 +46,7 @@ func RecoverPrivateActivationStudy(options PrivateActivationRecoveryOptions) (Pr
 	}
 	defer func() { _ = lock.Unlock() }()
 	plan, planData, err := loadPrivatePlan(root, options.PlanID)
-	if err != nil || plan.Kind != PrivateRunSetKindActivationStudy || sha256HexBytes(planData) != options.ExpectedPlanSHA256 {
+	if err != nil || plan.SchemaVersion != PrivatePlanSchemaVersion || plan.Kind != PrivateRunSetKindActivationStudy || sha256HexBytes(planData) != options.ExpectedPlanSHA256 {
 		return PrivateActivationRecoverySummary{}, privatePlanError("recovery_plan")
 	}
 	statePath := filepath.Join(root, "plans", options.PlanID+".state.json")
@@ -73,6 +73,20 @@ func RecoverPrivateActivationStudy(options PrivateActivationRecoveryOptions) (Pr
 		return PrivateActivationRecoverySummary{}, privatePlanError("recovery_cleanup")
 	}
 	switch projection.activePhase {
+	case PrivateActivationEventCalibrationProviderCommitted:
+		if err := recoverPrivateActivationCalibrationReceipt(root, plan, state, &lifecycle); err != nil {
+			return PrivateActivationRecoverySummary{}, privatePlanError("recovery_evidence")
+		}
+		projection, err = lifecycle.project()
+		if err != nil {
+			return PrivateActivationRecoverySummary{}, privatePlanError("recovery_state")
+		}
+	case PrivateActivationEventCalibrationReceipt:
+		candidate := state
+		candidate.Events = append([]PrivateActivationLifecycleEvent(nil), lifecycle.Events...)
+		if err := validatePrivateActivationStateEvidence(root, plan, candidate); err != nil {
+			return PrivateActivationRecoverySummary{}, privatePlanError("recovery_evidence")
+		}
 	case PrivateActivationEventProviderCommitted:
 		if err := recoverPrivateActivationReceipt(root, plan, state, &lifecycle, projection.activeCell); err != nil {
 			return PrivateActivationRecoverySummary{}, privatePlanError("recovery_evidence")
@@ -121,6 +135,34 @@ func RecoverPrivateActivationStudy(options PrivateActivationRecoveryOptions) (Pr
 	return PrivateActivationRecoverySummary{SchemaVersion: 2, PlanID: plan.PlanID, RunID: state.RunID,
 		Status: state.Status, Surfaces: []string{SurfaceCLISkill}, Completed: len(state.CompletedCells),
 		EstimatedCostMicroUSD: state.EstimatedCostMicroUSD, CostKnown: privateActivationDetectedCostKnown(state.Events)}, nil
+}
+
+func recoverPrivateActivationCalibrationReceipt(root string, plan privatePlan, state privatePlanState,
+	lifecycle *PrivateActivationStudyLifecycle,
+) error {
+	path := filepath.Join(root, "runs", state.RunID, "calibration", "execution-receipt.json")
+	if _, err := safepath.StatWithin(root, path); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return privatePlanError("recovery_calibration_receipt")
+	}
+	data, err := readPrivatePlanLifecycleFile(root, path, 1<<20)
+	if err != nil {
+		return privatePlanError("recovery_calibration_receipt")
+	}
+	var envelope privateActivationCalibrationExecutionReceipt
+	if decodePrivateLifecycleJSON(data, &envelope) != nil ||
+		validatePrivateActivationCalibrationReceipt(root, state.RunID, plan, sha256HexBytes(data)) != nil {
+		return privatePlanError("recovery_calibration_receipt")
+	}
+	return lifecycle.RecordCalibrationReceipt(PrivateActivationReceipt{
+		SHA256:               sha256HexBytes(data),
+		CostKnown:            true,
+		DetectedCostMicroUSD: envelope.Receipt.EstimatedCostMicroUSD,
+		ProviderCompleted:    true,
+		PersistenceComplete:  true,
+		ContainmentCertain:   true,
+	})
 }
 
 func removePrivateActivationRecoverySnapshot(root, runID string) error {

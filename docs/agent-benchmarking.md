@@ -177,7 +177,7 @@ read-only contract looks like:
 
 Observations and unreviewed results contain aggregate trajectory data only. The
 contract contains no prompt bytes, commands, HTTP paths, backend URLs, or
-response bodies. A private Codex CLI result v6 retains only the activation mode
+response bodies. A private Codex CLI result v7 retains only the activation mode
 and a SHA-256 identity of its complete prompt contract; that digest is omitted
 from aggregate output. Validate the committed scenarios and deterministic
 workflows with:
@@ -223,8 +223,8 @@ on eligible runs. Coverage excludes drift-invalidated blocks from its
 denominator: drift says nothing about whether the surface supports the task.
 Neutral and surface-native efficiency/quality summaries use
 only supported deterministically valid runs; route-fixed historical aggregation
-keeps its compatibility behavior. Current observations use schema v4 and
-results use schema v6. Older result records without eligibility remain
+keeps its compatibility behavior. Current observations use schema v5 and
+results use schema v7. Older result records without eligibility remain
 supported through the documented result decoders; observation inputs must be
 migrated explicitly before evaluation.
 
@@ -297,9 +297,9 @@ panel results are deliberately comparison-incompatible rather than silently
 migrated. See [Private agent-benchmark workspace](agent-benchmark-private-workspace.md)
 for the panel manifest and operator flow.
 
-Current assessments emit result schema v6, review schema v2, and aggregate
-schema v6. Current decoders retain read compatibility with prompt-bound result
-schema v5, panel result schema v4, singleton result schema v3, and
+Current assessments emit result schema v7, review schema v2, and aggregate
+schema v6. Current decoders retain read compatibility with attemptless result
+schema v6, prompt-bound result schema v5, panel result schema v4, singleton result schema v3, and
 reviewer-id-free review schema v1.
 
 For `neutral-common`, `--blind-assignment` is mandatory. It is a bounded private
@@ -798,7 +798,7 @@ A private run spec differs from a synthetic spec in these fields:
 
 ```json
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "backend_mode": "private-live",
   "category": "neutral-common",
   "surface": "atl-mcp",
@@ -859,14 +859,16 @@ an external MCP run is bound to the same set through its owner-reviewed profile.
 Expected private facts may live in the ignored run spec; never copy them into a
 public fixture or PR.
 
-This contract is run-spec schema v5. Specs already on v3/v4 retain their
-semantic capability declarations and require a version bump. A Codex `private-live`
+This contract is run-spec schema v6. Specs already on v3/v4 retain their
+semantic capability declarations and require a version bump; v5 remains
+readable but lacks the calibrated evidence contract and cannot enter a current
+activation study. A Codex `private-live`
 `cli-skill` spec must declare exactly one of `skill_activation:"implicit"`,
 `"explicit"`, `"developer"`, or `"combined"`; the field is forbidden on MCP,
 Claude Code, and synthetic cells. Existing v4 `implicit` and `explicit` specs
-retain those meanings when deliberately migrated to v5. A legacy v3 spec that
+retain those meanings when deliberately migrated to v6. A legacy v3 spec that
 named a skill only in provider instructions is not silently relabeled
-`developer`: review the intended treatment, create a v5 spec, and start a new
+`developer`: review the intended treatment, create a v6 spec, and start a new
 activation-bound baseline.
 Validation happens before credentials, model execution, or backend traffic.
 
@@ -954,21 +956,22 @@ owner-private plan/result artifacts. Low-level dry-run reports only
 `prompt_contract_bound:true`; the digest is intentionally omitted from preview
 and aggregate JSON because a short private prompt may be guessable. Baseline
 comparison nevertheless requires both the exact digest and treatment to match.
-Result schema v6 carries both fields; aggregate schema v6 carries activation as
+Result schema v7 carries both fields; aggregate schema v6 carries activation as
 a grouping/runtime dimension but deliberately omits the digest. Legacy result
 v5 and private-plan v2 artifacts retain only their bound `implicit`/`explicit`
 identities and cannot contain the new treatments. Result v3/v4 and private-plan
 v1 artifacts remain readable under their earlier legacy rules. None is silently
 reclassified as `developer` or `combined`.
 
-Private-workspace manifest schema v2 provides two run-set kinds. A
+Private-workspace manifest schema v3 provides two run-set kinds. A
 `comparison` contains one to three unique surfaces and keeps any Codex CLI member
 implicit-only. An `activation-study` contains exactly four otherwise-identical
-Codex `private-live` `cli-skill` v5 specs, one per treatment, in one case
+Codex `private-live` `cli-skill` v6 specs, one per treatment, in one case
 directory. It requires a blinded `criterion-median-v1` panel with exactly three
-or five reviewers and a positive explicit `reviewer_reserve_microusd`. Current private
-plans use schema v4; activation-study execution state uses its four-cell v2
-lifecycle rather than the legacy per-surface state.
+or five reviewers, a positive explicit `reviewer_reserve_microusd`, and a
+separate offline calibration cap. Current private plans use schema v5;
+activation-study execution state uses calibrated schema v3 rather than the
+legacy per-surface state.
 
 One activation-study plan and one consent bind the common contract, all four
 exact treatment contracts, panel roster, any required blind assignment,
@@ -994,8 +997,28 @@ execution receipt, removes the exact owned execution capsule, and never invokes
 the provider or backend. Execution and recovery summaries expose `cost_known`;
 when it is false, the numeric detected total is only a lower bound.
 
-The plan partitions the four treatment caps plus the reviewer reserve below the
-workspace maximum. The runner does not launch panel reviewers, so the reserve
+Before any treatment reservation, one offline calibration makes a real Codex
+tool call through the same isolated runtime, installed plugin, shell flags,
+hook, shim, broker, and permissions. It admits only `atl version`, receives no
+backend config, URL, PAT, gateway, or corporate credential, and must prove one
+successful bounded local result with a matching `atl`-family hook admission.
+The exact command and stripped authority make zero backend requests/writes a
+construction-derived guarantee here, not a gateway-observed HTTP measurement. A
+failure is classified as infrastructure/tool unavailability and terminates the
+plan without scoring a treatment. It is not a fifth arm and does not advance
+the order cycle.
+
+Every activation response schema requires the common closed
+`evidence_outcome.state` envelope. Its values are `none`, `unavailable`,
+`blocked`, `failed`, `partial`, and `succeeded`. The model report is checked
+against audit-derived attempts but never creates them. A zero-call report may
+explain `unavailable`; the durable attempt state remains `none`, while the
+successful pre-cell calibration proves that the local route existed before the
+treatment. Missing coverage, contradictions, policy denial, or incomplete
+safety evidence stop the lifecycle fail-closed.
+
+The plan partitions the calibration cap, four treatment caps, and reviewer
+reserve below the workspace maximum. The runner does not launch panel reviewers, so the reserve
 records reviewed authorization rather than measured reviewer receipts. This is
 detection-only cost assurance, not a preventive
 provider-side hard cap: reported cost and coverage are checked after provider
@@ -1007,6 +1030,14 @@ four-by-three or four-by-five blinded packets before the first assessment. Once
 all deterministic and panel results exist, capture an immutable study reference,
 inspect its privacy-safe closed-field report, and promote it only if the stricter
 all-cell gate passes:
+
+Current activation references and reports use schema v2 and require bounded
+audit-derived attempt/success/block/unavailable metrics for every cell. They
+also retain separate `evidence_reported_none_bps` and
+`evidence_reported_unavailable_bps` values, so a zero-call model explanation is
+visible without becoming audit evidence. Pre-calibration schema-v1 references
+remain readable and compare-only; they cannot pass a promotion gate or be
+mixed with calibrated references.
 
 ```sh
 /tmp/agent-eval private plan \

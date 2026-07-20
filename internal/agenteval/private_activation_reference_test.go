@@ -2,9 +2,191 @@ package agenteval
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 	"testing"
 )
+
+func TestLegacyPrivateActivationReferenceIsReadableAndCompareOnly(t *testing.T) {
+	reference, err := CapturePrivateActivationReference(privateActivationPassingInputs(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reference.SchemaVersion = LegacyPrivateActivationReferenceSchemaVersion
+	for index := range reference.Cells {
+		reference.Cells[index].Metrics = withoutPrivateActivationAttemptMetrics(reference.Cells[index].Metrics)
+	}
+	if err := reference.Validate(); err != nil {
+		t.Fatalf("legacy reference was not readable: %v", err)
+	}
+	report, err := ComparePrivateActivationReference(reference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.SchemaVersion != LegacyPrivateActivationReportSchemaVersion || !report.Gates.CausalEligible || report.Gates.PromotionEligible || len(report.Contrasts) == 0 {
+		t.Fatalf("legacy report=%+v", report)
+	}
+	for _, treatment := range report.Treatments {
+		if treatment.Gates.PromotionEligible {
+			t.Fatalf("legacy treatment was marked promotable: %+v", treatment)
+		}
+		for _, metric := range treatment.Metrics {
+			if strings.HasPrefix(metric.Name, "evidence_") {
+				t.Fatalf("legacy comparison fabricated attempt metric: %+v", metric)
+			}
+		}
+	}
+	if err := ValidatePrivateActivationReferencePromotion(reference); err == nil || !strings.Contains(err.Error(), "compare-only") {
+		t.Fatalf("legacy promotion err=%v", err)
+	}
+}
+
+func TestCurrentPrivateActivationReferenceRequiresSuccessfulAttemptForPromotion(t *testing.T) {
+	reference, err := CapturePrivateActivationReference(privateActivationPassingInputs(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reference.SchemaVersion != PrivateActivationReferenceSchemaVersion || reference.SchemaVersion == LegacyPrivateActivationReferenceSchemaVersion {
+		t.Fatalf("schema=%d", reference.SchemaVersion)
+	}
+
+	missing := reference
+	missing.Cells = append([]PrivateActivationReferenceCell(nil), reference.Cells...)
+	missing.Cells[0].Metrics = withoutPrivateActivationAttemptMetrics(missing.Cells[0].Metrics)
+	if err := missing.Validate(); err == nil {
+		t.Fatal("current reference without attempt telemetry was accepted")
+	}
+
+	blocked := reference
+	blocked.Cells = append([]PrivateActivationReferenceCell(nil), reference.Cells...)
+	blocked.Cells[0].Metrics = append([]PrivateActivationMetric(nil), reference.Cells[0].Metrics...)
+	setPrivateActivationMetric(t, blocked.Cells[0].Metrics, privateActivationMetricEvidenceSucceededBPS, 0)
+	setPrivateActivationMetric(t, blocked.Cells[0].Metrics, privateActivationMetricEvidenceBlockedBPS, 10000)
+	if err := blocked.Validate(); err != nil {
+		t.Fatalf("valid observed block was rejected: %v", err)
+	}
+	gates, err := PrivateActivationReferenceGates(blocked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gates.CausalEligible || gates.PromotionEligible {
+		t.Fatalf("blocked gates=%+v", gates)
+	}
+	if err := ValidatePrivateActivationReferencePromotion(blocked); err == nil {
+		t.Fatal("reference without successful evidence was promoted")
+	}
+
+	inconsistent := reference
+	inconsistent.Cells = append([]PrivateActivationReferenceCell(nil), reference.Cells...)
+	inconsistent.Cells[0].Metrics = append([]PrivateActivationMetric(nil), reference.Cells[0].Metrics...)
+	setPrivateActivationMetric(t, inconsistent.Cells[0].Metrics, privateActivationMetricEvidenceAttemptedBPS, 0)
+	if err := inconsistent.Validate(); err == nil {
+		t.Fatal("inconsistent attempt metrics were accepted")
+	}
+}
+
+func TestPrivateActivationReferenceKeepsZeroCallModelReportSeparateFromAudit(t *testing.T) {
+	inputs := privateActivationPassingInputs(t)
+	inputs[0].Result.EvidenceAttempt, _ = NewEvidenceAttemptTelemetry(true, EvidenceAttemptCounts{})
+	inputs[0].Result.EvidenceReport = EvidenceOutcomeReport{Coverage: true, State: EvidenceAttemptStateUnavailable}
+	reference, err := CapturePrivateActivationReference(inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metrics := reference.Cells[0].Metrics
+	assertPrivateActivationMetric(t, metrics, privateActivationMetricEvidenceAttemptedBPS, 0)
+	assertPrivateActivationMetric(t, metrics, privateActivationMetricEvidenceUnavailableBPS, 0)
+	assertPrivateActivationMetric(t, metrics, privateActivationMetricReportedNoneBPS, 0)
+	assertPrivateActivationMetric(t, metrics, privateActivationMetricReportedUnavailableBPS, 10000)
+	if err := ValidatePrivateActivationReferencePromotion(reference); err == nil {
+		t.Fatal("self-reported unavailable route was promoted as audited evidence")
+	}
+}
+
+func TestPrivateActivationReferenceRejectsAuditReportContradictions(t *testing.T) {
+	inputs := privateActivationPassingInputs(t)
+	contradictory := inputs[0].Result
+	contradictory.EvidenceReport = EvidenceOutcomeReport{Coverage: true, State: EvidenceAttemptStateNone}
+	if err := contradictory.Validate(); err == nil {
+		t.Fatal("result accepted a self-report that contradicted successful audit evidence")
+	}
+	inputs[0].Result = contradictory
+	if _, err := CapturePrivateActivationReference(inputs); err == nil {
+		t.Fatal("reference capture accepted contradictory result evidence")
+	}
+
+	reference, err := CapturePrivateActivationReference(privateActivationPassingInputs(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reference.Cells[0].Metrics = append([]PrivateActivationMetric(nil), reference.Cells[0].Metrics...)
+	setPrivateActivationMetric(t, reference.Cells[0].Metrics, privateActivationMetricReportedNoneBPS, 10000)
+	if err := reference.Validate(); err == nil {
+		t.Fatal("durable reference accepted contradictory compressed evidence")
+	}
+	if err := ValidatePrivateActivationReferencePromotion(reference); err == nil {
+		t.Fatal("contradictory durable reference was promotable")
+	}
+}
+
+func TestLegacyPrivateActivationReferenceRejectsCurrentEvidenceMetrics(t *testing.T) {
+	reference, err := CapturePrivateActivationReference(privateActivationPassingInputs(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reference.SchemaVersion = LegacyPrivateActivationReferenceSchemaVersion
+	for index := range reference.Cells {
+		reference.Cells[index].Metrics = withoutPrivateActivationAttemptMetrics(reference.Cells[index].Metrics)
+	}
+	reference.Cells[0].Metrics = append(reference.Cells[0].Metrics,
+		PrivateActivationMetric{Name: privateActivationMetricEvidenceAttemptedBPS, Value: 10000})
+	sort.Slice(reference.Cells[0].Metrics, func(i, j int) bool {
+		return reference.Cells[0].Metrics[i].Name < reference.Cells[0].Metrics[j].Name
+	})
+	if err := reference.Validate(); err == nil {
+		t.Fatal("legacy reference accepted current evidence metrics")
+	}
+}
+
+func TestPrivateActivationReportRequiresCurrentEvidenceReportMetrics(t *testing.T) {
+	reference, err := CapturePrivateActivationReference(privateActivationPassingInputs(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := ComparePrivateActivationReference(reference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report.Treatments[0].Metrics = removePrivateActivationMetric(report.Treatments[0].Metrics, privateActivationMetricReportedNoneBPS)
+	if err := report.Validate(); err == nil {
+		t.Fatal("current report accepted missing model-report metric")
+	}
+
+	legacy := report
+	legacy.SchemaVersion = LegacyPrivateActivationReportSchemaVersion
+	legacy.Treatments = append([]PrivateActivationTreatmentReport(nil), report.Treatments...)
+	legacy.Treatments[0].Metrics = []PrivateActivationMetric{
+		{Name: privateActivationMetricEvidenceAttemptedBPS, Value: 10000},
+	}
+	if err := legacy.Validate(); err == nil {
+		t.Fatal("legacy report accepted current evidence metric")
+	}
+}
+
+func TestStoredPrivateActivationReferenceSchemasCannotCross(t *testing.T) {
+	current := privateStoredActivationReference{SchemaVersion: privateActivationStoredSchemaVersion,
+		Reference: PrivateActivationReference{SchemaVersion: PrivateActivationReferenceSchemaVersion}}
+	legacy := privateStoredActivationReference{SchemaVersion: legacyPrivateActivationStoredSchemaVersion,
+		Reference: PrivateActivationReference{SchemaVersion: LegacyPrivateActivationReferenceSchemaVersion}}
+	if !validPrivateStoredActivationReferenceSchema(current) || !validPrivateStoredActivationReferenceSchema(legacy) {
+		t.Fatal("matching stored/reference schemas were rejected")
+	}
+	current.Reference.SchemaVersion = LegacyPrivateActivationReferenceSchemaVersion
+	legacy.Reference.SchemaVersion = PrivateActivationReferenceSchemaVersion
+	if validPrivateStoredActivationReferenceSchema(current) || validPrivateStoredActivationReferenceSchema(legacy) {
+		t.Fatal("crossed stored/reference schemas were accepted")
+	}
+}
 
 func TestPrivateActivationReferenceKeepsTaskFailureComparableButNotPromotable(t *testing.T) {
 	inputs := privateActivationPassingInputs(t)
@@ -268,11 +450,64 @@ func privateActivationResult(t *testing.T, treatment string) Result {
 	observation.Runtime.Provider = "codex"
 	observation.Runtime.SkillActivation = treatment
 	observation.Runtime.PromptContractSHA256 = strings.Repeat("b", 64)
+	observation.EvidenceAttempt, _ = NewEvidenceAttemptTelemetry(true, EvidenceAttemptCounts{
+		Attempts: 1, Admitted: 1, Succeeded: 1,
+	})
+	observation.EvidenceReport = EvidenceOutcomeReport{Coverage: true, State: EvidenceAttemptStateSucceeded}
 	result, err := Evaluate(scenario, observation)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return result
+}
+
+func withoutPrivateActivationAttemptMetrics(metrics []PrivateActivationMetric) []PrivateActivationMetric {
+	out := make([]PrivateActivationMetric, 0, len(metrics))
+	for _, metric := range metrics {
+		switch metric.Name {
+		case privateActivationMetricEvidenceAttemptedBPS, privateActivationMetricEvidenceSucceededBPS,
+			privateActivationMetricEvidenceBlockedBPS, privateActivationMetricEvidenceUnavailableBPS,
+			privateActivationMetricReportedNoneBPS, privateActivationMetricReportedUnavailableBPS:
+			continue
+		default:
+			out = append(out, metric)
+		}
+	}
+	return out
+}
+
+func setPrivateActivationMetric(t *testing.T, metrics []PrivateActivationMetric, name string, value int64) {
+	t.Helper()
+	for index := range metrics {
+		if metrics[index].Name == name {
+			metrics[index].Value = value
+			return
+		}
+	}
+	t.Fatalf("metric %q not found", name)
+}
+
+func assertPrivateActivationMetric(t *testing.T, metrics []PrivateActivationMetric, name string, want int64) {
+	t.Helper()
+	for _, metric := range metrics {
+		if metric.Name == name {
+			if metric.Value != want {
+				t.Fatalf("metric %q=%d want=%d", name, metric.Value, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("metric %q not found", name)
+}
+
+func removePrivateActivationMetric(metrics []PrivateActivationMetric, name string) []PrivateActivationMetric {
+	out := make([]PrivateActivationMetric, 0, len(metrics))
+	for _, metric := range metrics {
+		if metric.Name != name {
+			out = append(out, metric)
+		}
+	}
+	return out
 }
 
 func privateActivationReviewedResult(t *testing.T, result Result, pass bool) Result {

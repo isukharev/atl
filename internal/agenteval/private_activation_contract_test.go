@@ -145,6 +145,7 @@ func TestBuildPrivateActivationStudyContractFailsClosed(t *testing.T) {
 
 func TestValidatePrivateActivationStudyLoadsOneCaseDirectory(t *testing.T) {
 	directory, _, _, cli, _ := writePrivatePairFixture(t)
+	writeTestFile(t, filepath.Join(directory, "response.json"), `{"type":"object","properties":{"complete":{"type":"boolean"},"evidence_outcome":{"type":"object","properties":{"state":{"type":"string","enum":["none","unavailable","blocked","failed","partial","succeeded"]}},"required":["state"],"additionalProperties":false}},"required":["complete","evidence_outcome"],"additionalProperties":false}`, 0o600)
 	scenarioData, err := os.ReadFile(filepath.Join(directory, "scenario.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -182,6 +183,11 @@ func TestValidatePrivateActivationStudyLoadsOneCaseDirectory(t *testing.T) {
 	if err != nil || contract.CommonContractSHA256 == "" || len(contract.Cells) != 4 {
 		t.Fatalf("contract=%+v err=%v", contract, err)
 	}
+	writeTestFile(t, filepath.Join(directory, "response.json"), `{"type":"object","properties":{"complete":{"type":"boolean"}},"required":["complete"],"additionalProperties":false}`, 0o600)
+	if _, err := ValidatePrivateActivationStudy(paths...); err == nil {
+		t.Fatal("activation study without bounded evidence outcome passed")
+	}
+	writeTestFile(t, filepath.Join(directory, "response.json"), `{"type":"object","properties":{"complete":{"type":"boolean"},"evidence_outcome":{"type":"object","properties":{"state":{"type":"string","enum":["none","unavailable","blocked","failed","partial","succeeded"]}},"required":["state"],"additionalProperties":false}},"required":["complete","evidence_outcome"],"additionalProperties":false}`, 0o600)
 
 	otherDirectory := filepath.Join(t.TempDir(), "case")
 	if err := copyWorkspace(directory, otherDirectory); err != nil {
