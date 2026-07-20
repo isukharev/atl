@@ -277,6 +277,71 @@ func TestPrivateActivationStudyCapsCalibrationTimeoutWithoutChangingTreatments(t
 	}
 }
 
+func TestPreparePrivateActivationOutputRootRejectsSymlinkedRunAncestor(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink containment fixture is Unix-only")
+	}
+	root := t.TempDir()
+	runsRoot := filepath.Join(root, "runs")
+	if err := os.MkdirAll(runsRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	runRoot := filepath.Join(runsRoot, "run-00000000000000000000000000000000")
+	if err := os.Symlink(outside, runRoot); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := preparePrivateActivationOutputRoot(root, runRoot, t.TempDir()); err == nil {
+		t.Fatal("symlinked run ancestor was accepted")
+	}
+	outsideMarker := filepath.Join(outside, "raw", privateOutputRootMarker)
+	if _, err := os.Lstat(outsideMarker); !os.IsNotExist(err) {
+		t.Fatalf("marker escaped the private root: %v", err)
+	}
+}
+
+func TestPrivateActivationStudyRejectsCalibrationOutputPermissionDrift(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX owner-only mode fixture")
+	}
+	for _, target := range []string{"root", "marker"} {
+		t.Run(target, func(t *testing.T) {
+			fixture := newPrivateActivationPlanFixture(t)
+			installPrivateActivationRunStub(t)
+			passingCalibration := privatePlanRunCalibration
+			privatePlanRunCalibration = func(ctx context.Context, options CodexCLICalibrationOptions) (CodexCLICalibrationReceipt, error) {
+				receipt, err := passingCalibration(ctx, options)
+				if err != nil {
+					return receipt, err
+				}
+				path := options.OutputRoot
+				if target == "marker" {
+					path = filepath.Join(options.OutputRoot, privateOutputRootMarker)
+				}
+				if err := os.Chmod(path, 0o755); err != nil {
+					return CodexCLICalibrationReceipt{}, err
+				}
+				return receipt, nil
+			}
+			t.Cleanup(func() { privatePlanRunCalibration = passingCalibration })
+
+			passingRun := privatePlanRunHeadless
+			treatmentInvocations := 0
+			privatePlanRunHeadless = func(ctx context.Context, options RunOptions) (RunOutput, error) {
+				treatmentInvocations++
+				return passingRun(ctx, options)
+			}
+			t.Cleanup(func() { privatePlanRunHeadless = passingRun })
+
+			preview := fixture.createPlan(t)
+			summary, err := ExecutePrivatePlan(context.Background(), fixture.executeOptions(preview))
+			if err == nil || summary.Status != "stopped" || summary.Completed != 0 || treatmentInvocations != 0 {
+				t.Fatalf("summary=%+v treatments=%d err=%v", summary, treatmentInvocations, err)
+			}
+		})
+	}
+}
+
 func TestPrivateActivationStudyOrderCannotBeSelectedByExpiryOrAlias(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("synthetic executable scripts are Unix-only")

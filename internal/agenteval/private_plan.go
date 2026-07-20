@@ -510,7 +510,7 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 		if err := persistPrivateActivationPlanState(statePath, plan, &state, activationLifecycle, ""); err != nil {
 			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("state")
 		}
-		calibrationOutputRoot, err := PreparePrivateOutputRoot(filepath.Join(runRoot, "raw"), options.RepositoryRoot)
+		calibrationOutputRoot, err := preparePrivateActivationOutputRoot(root, runRoot, options.RepositoryRoot)
 		if err != nil {
 			stateErr := markAndPersistPrivateActivationCalibrationFailed(statePath, plan, &state, activationLifecycle, PrivateActivationUnknownInterrupted)
 			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("calibration_output"), stateErr)
@@ -537,6 +537,10 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 			Pricing:                  executionMaterial.calibration.Pricing, providerAuthSession: providerAuthSession,
 			providerAttemptCommitted: providerAttemptCommitted,
 		})
+		if validatePrivateActivationOutputRoot(calibrationOutputRoot, options.RepositoryRoot) != nil {
+			stateErr := markAndPersistPrivateActivationCalibrationFailed(statePath, plan, &state, activationLifecycle, PrivateActivationUnknownContainment)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("calibration_output"), stateErr)
+		}
 		if modeErr := normalizePrivateCandidateTree(root, runRoot); modeErr != nil {
 			stateErr := markAndPersistPrivateActivationCalibrationFailed(statePath, plan, &state, activationLifecycle, PrivateActivationUnknownContainment)
 			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("run_modes"), stateErr)
@@ -739,6 +743,29 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 		return PrivatePlanExecutionSummary{}, privatePlanError("state")
 	}
 	return privatePlanSummary(plan.PlanID, runID, "completed", privatePlanExecutionSurfaces(plan), len(plan.Items), total), nil
+}
+
+func preparePrivateActivationOutputRoot(root, runRoot, repositoryRoot string) (string, error) {
+	outputRoot := filepath.Join(runRoot, "raw")
+	if err := safepath.MkdirAllWithin(root, outputRoot, 0o700); err != nil {
+		return "", err
+	}
+	marker := filepath.Join(outputRoot, privateOutputRootMarker)
+	if err := safepath.WriteFileExclusiveWithin(root, marker, []byte(privateOutputRootMarkerContents), 0o600); err != nil {
+		return "", err
+	}
+	if err := validatePrivateActivationOutputRoot(outputRoot, repositoryRoot); err != nil {
+		return "", err
+	}
+	return outputRoot, nil
+}
+
+func validatePrivateActivationOutputRoot(outputRoot, repositoryRoot string) error {
+	prepared, err := PreparePrivateOutputRoot(outputRoot, repositoryRoot)
+	if err != nil || prepared != outputRoot {
+		return privatePlanError("calibration_output")
+	}
+	return nil
 }
 
 type privatePlanMaterial struct {
