@@ -141,6 +141,9 @@ func privateAgentProvenance(path string) string {
 }
 
 func privateAgentSnapshotName(source string) string {
+	if runtime.GOOS == "linux" && filepath.Base(source) == "codex" {
+		return "codex"
+	}
 	extension := filepath.Ext(source)
 	if runtime.GOOS == "windows" && !strings.EqualFold(extension, ".exe") {
 		extension = ".exe"

@@ -141,13 +141,14 @@ func QualifyCodexCLIToolAvailability(parent context.Context, options CodexCLIToo
 		return report, err
 	}
 	defer func() { returnErr = errors.Join(returnErr, runtime.Close()) }()
-	probeAgentPath := filepath.Join(runtime.root, privateAgentSnapshotBaseName)
+	probeAgentName := privateAgentSnapshotName(agent.canonicalPath)
+	probeAgentPath := filepath.Join(runtime.root, probeAgentName)
 	if agent.resourceRelativePath != "" {
 		probeBinRoot := filepath.Join(runtime.root, "bin")
 		if err := safepath.MkdirAllWithin(runtime.scratch, probeBinRoot, 0o700); err != nil {
 			return report, fmt.Errorf("prepare codex cli tool availability runtime")
 		}
-		probeAgentPath = filepath.Join(probeBinRoot, privateAgentSnapshotBaseName)
+		probeAgentPath = filepath.Join(probeBinRoot, probeAgentName)
 	}
 	if err := copyReviewedPrivateAgent(runtime.scratch, runtime.root, agent, probeAgentPath); err != nil {
 		return report, fmt.Errorf("prepare codex cli tool availability runtime")

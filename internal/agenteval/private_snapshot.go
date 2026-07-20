@@ -340,7 +340,7 @@ func normalizePrivateSnapshotTree(root string) error {
 			if err != nil || !info.Mode().IsRegular() {
 				return privatePlanError("snapshot_file")
 			}
-			if filepath.Dir(path) == filepath.Join(root, "bin") {
+			if filepath.Dir(path) == filepath.Join(root, "bin") || path == filepath.Join(root, filepath.FromSlash(privateAgentLinuxSandboxRelativePath)) {
 				mode = 0o700
 			}
 		}
