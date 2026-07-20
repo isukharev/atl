@@ -335,6 +335,10 @@ non-invocation, invocation failure, and successful brokered evidence. Every
 failure is terminal infrastructure evidence and no treatment cell is reserved.
 Calibration is not a fifth arm and does not advance the balanced treatment
 order. Its cap is a separate reviewed cost partition.
+Before calibration writes provider artifacts, the lifecycle initializes the
+shared owner-only raw output root with the normal agent-eval marker. Treatments
+reuse that same validated root; a missing, changed, loose, symlinked, or
+otherwise invalid marker remains a fail-closed execution error.
 The calibration timeout is derived rather than separately configured: it is
 the reviewed treatment timeout capped at 300 seconds. Treatment cells keep
 their full reviewed timeout. This keeps the local `atl version` preflight

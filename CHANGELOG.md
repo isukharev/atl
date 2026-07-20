@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Initialized the shared owner-only activation output root before backend-free
+  Codex calibration writes its artifacts, so a successful calibration can hand
+  the same marked root to the first treatment without being rejected as a
+  non-empty uninitialized directory.
 - Preserved the current native Codex Linux sandbox path in private agent-eval
   snapshots by binding and copying only the fixed adjacent `bwrap` helper.
   Missing, malformed, substituted, or drifting helper bytes now fail closed

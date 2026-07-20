@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -510,8 +511,8 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 		if err := persistPrivateActivationPlanState(statePath, plan, &state, activationLifecycle, ""); err != nil {
 			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("state")
 		}
-		calibrationOutputRoot := filepath.Join(runRoot, "raw")
-		if err := safepath.MkdirAllWithin(root, calibrationOutputRoot, 0o700); err != nil {
+		calibrationOutputRoot, err := preparePrivateActivationOutputRoot(root, runRoot)
+		if err != nil {
 			stateErr := markAndPersistPrivateActivationCalibrationFailed(statePath, plan, &state, activationLifecycle, PrivateActivationUnknownInterrupted)
 			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("calibration_output"), stateErr)
 		}
@@ -537,6 +538,10 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 			Pricing:                  executionMaterial.calibration.Pricing, providerAuthSession: providerAuthSession,
 			providerAttemptCommitted: providerAttemptCommitted,
 		})
+		if validatePrivateActivationOutputRoot(root, calibrationOutputRoot) != nil {
+			stateErr := markAndPersistPrivateActivationCalibrationFailed(statePath, plan, &state, activationLifecycle, PrivateActivationUnknownContainment)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("calibration_output"), stateErr)
+		}
 		if modeErr := normalizePrivateCandidateTree(root, runRoot); modeErr != nil {
 			stateErr := markAndPersistPrivateActivationCalibrationFailed(statePath, plan, &state, activationLifecycle, PrivateActivationUnknownContainment)
 			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("run_modes"), stateErr)
@@ -739,6 +744,99 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 		return PrivatePlanExecutionSummary{}, privatePlanError("state")
 	}
 	return privatePlanSummary(plan.PlanID, runID, "completed", privatePlanExecutionSurfaces(plan), len(plan.Items), total), nil
+}
+
+func preparePrivateActivationOutputRoot(root, runRoot string) (string, error) {
+	outputRoot := filepath.Join(runRoot, "raw")
+	if err := safepath.MkdirAllWithin(root, outputRoot, 0o700); err != nil {
+		return "", err
+	}
+	marker := filepath.Join(outputRoot, privateOutputRootMarker)
+	if err := safepath.WriteFileExclusiveWithin(root, marker, []byte(privateOutputRootMarkerContents), 0o600); err != nil {
+		return "", err
+	}
+	if err := validatePrivateActivationOutputRoot(root, outputRoot); err != nil {
+		return "", err
+	}
+	return outputRoot, nil
+}
+
+func validatePrivateActivationOutputRoot(root, outputRoot string) error {
+	relative, err := filepath.Rel(root, outputRoot)
+	if err != nil || relative == "." || !filepath.IsLocal(relative) {
+		return privatePlanError("calibration_output")
+	}
+	rootHandle, err := os.OpenRoot(root)
+	if err != nil {
+		return privatePlanError("calibration_output")
+	}
+	handles := []*os.Root{rootHandle}
+	defer func() {
+		for index := len(handles) - 1; index >= 0; index-- {
+			_ = handles[index].Close()
+		}
+	}()
+	components := strings.Split(filepath.Clean(relative), string(filepath.Separator))
+	componentInfos := make([]os.FileInfo, 0, len(components))
+	for _, component := range components {
+		parent := handles[len(handles)-1]
+		info, err := parent.Lstat(component)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 ||
+			(runtime.GOOS != "windows" && info.Mode().Perm() != 0o700) {
+			return privatePlanError("calibration_output")
+		}
+		child, err := parent.OpenRoot(component)
+		if err != nil {
+			return privatePlanError("calibration_output")
+		}
+		handles = append(handles, child)
+		openedInfo, err := child.Stat(".")
+		if err != nil || !os.SameFile(info, openedInfo) {
+			return privatePlanError("calibration_output")
+		}
+		componentInfos = append(componentInfos, info)
+	}
+	outputHandle := handles[len(handles)-1]
+	markerInfo, err := outputHandle.Lstat(privateOutputRootMarker)
+	if err != nil || !markerInfo.Mode().IsRegular() || markerInfo.Mode()&os.ModeSymlink != 0 ||
+		(runtime.GOOS != "windows" && markerInfo.Mode().Perm() != 0o600) {
+		return privatePlanError("calibration_output")
+	}
+	markerFile, err := outputHandle.Open(privateOutputRootMarker)
+	if err != nil {
+		return privatePlanError("calibration_output")
+	}
+	defer func() { _ = markerFile.Close() }()
+	openedMarkerInfo, err := markerFile.Stat()
+	if err != nil || !os.SameFile(markerInfo, openedMarkerInfo) || !openedMarkerInfo.Mode().IsRegular() ||
+		openedMarkerInfo.Mode()&os.ModeSymlink != 0 ||
+		(runtime.GOOS != "windows" && openedMarkerInfo.Mode().Perm() != 0o600) {
+		return privatePlanError("calibration_output")
+	}
+	data, err := io.ReadAll(io.LimitReader(markerFile, int64(len(privateOutputRootMarkerContents)+1)))
+	if err != nil || string(data) != privateOutputRootMarkerContents {
+		return privatePlanError("calibration_output")
+	}
+	finalMarkerInfo, markerErr := outputHandle.Lstat(privateOutputRootMarker)
+	finalOpenedMarkerInfo, openedMarkerErr := markerFile.Stat()
+	if markerErr != nil || !os.SameFile(markerInfo, finalMarkerInfo) ||
+		openedMarkerErr != nil || !os.SameFile(markerInfo, finalOpenedMarkerInfo) ||
+		!finalMarkerInfo.Mode().IsRegular() || finalMarkerInfo.Mode()&os.ModeSymlink != 0 ||
+		(runtime.GOOS != "windows" && (finalMarkerInfo.Mode().Perm() != 0o600 ||
+			finalOpenedMarkerInfo.Mode().Perm() != 0o600)) {
+		return privatePlanError("calibration_output")
+	}
+	for index, component := range components {
+		finalInfo, err := handles[index].Lstat(component)
+		finalOpenedInfo, openedErr := handles[index+1].Stat(".")
+		if err != nil || openedErr != nil || !os.SameFile(componentInfos[index], finalInfo) ||
+			!os.SameFile(componentInfos[index], finalOpenedInfo) || !finalInfo.IsDir() ||
+			finalInfo.Mode()&os.ModeSymlink != 0 ||
+			(runtime.GOOS != "windows" && finalInfo.Mode().Perm() != 0o700) {
+			return privatePlanError("calibration_output")
+		}
+	}
+	return nil
 }
 
 type privatePlanMaterial struct {

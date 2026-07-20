@@ -277,6 +277,133 @@ func TestPrivateActivationStudyCapsCalibrationTimeoutWithoutChangingTreatments(t
 	}
 }
 
+func TestPreparePrivateActivationOutputRootRejectsSymlinkedRunAncestor(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink containment fixture is Unix-only")
+	}
+	root := t.TempDir()
+	runsRoot := filepath.Join(root, "runs")
+	if err := os.MkdirAll(runsRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	runRoot := filepath.Join(runsRoot, "run-00000000000000000000000000000000")
+	if err := os.Symlink(outside, runRoot); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := preparePrivateActivationOutputRoot(root, runRoot); err == nil {
+		t.Fatal("symlinked run ancestor was accepted")
+	}
+	outsideMarker := filepath.Join(outside, "raw", privateOutputRootMarker)
+	if _, err := os.Lstat(outsideMarker); !os.IsNotExist(err) {
+		t.Fatalf("marker escaped the private root: %v", err)
+	}
+
+	safeRunRoot := filepath.Join(runsRoot, "run-11111111111111111111111111111111")
+	outputRoot, err := preparePrivateActivationOutputRoot(root, safeRunRoot)
+	if err != nil {
+		t.Fatalf("prepare safe output root: %v", err)
+	}
+	preservedRunRoot := safeRunRoot + "-preserved"
+	if err := os.Rename(safeRunRoot, preservedRunRoot); err != nil {
+		t.Fatal(err)
+	}
+	alternateRunRoot := filepath.Join(runsRoot, "run-22222222222222222222222222222222")
+	if _, err := preparePrivateActivationOutputRoot(root, alternateRunRoot); err != nil {
+		t.Fatalf("prepare alternate output root: %v", err)
+	}
+	if err := os.Symlink(filepath.Base(alternateRunRoot), safeRunRoot); err != nil {
+		t.Skipf("relative symlink unavailable: %v", err)
+	}
+	if err := validatePrivateActivationOutputRoot(root, outputRoot); err == nil {
+		t.Fatal("in-root relative symlinked run ancestor was accepted")
+	}
+	if err := os.Remove(safeRunRoot); err != nil {
+		t.Fatal(err)
+	}
+	lateOutside := t.TempDir()
+	if err := os.Symlink(lateOutside, safeRunRoot); err != nil {
+		t.Skipf("late symlink unavailable: %v", err)
+	}
+	if err := validatePrivateActivationOutputRoot(root, outputRoot); err == nil {
+		t.Fatal("post-creation symlinked run ancestor was accepted")
+	}
+	lateOutsideMarker := filepath.Join(lateOutside, "raw", privateOutputRootMarker)
+	if _, err := os.Lstat(lateOutsideMarker); !os.IsNotExist(err) {
+		t.Fatalf("late validation mutated the outside target: %v", err)
+	}
+}
+
+func TestPrivateActivationStudyRejectsCalibrationOutputPermissionDrift(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX owner-only mode fixture")
+	}
+	for _, target := range []string{"root", "marker", "missing-marker"} {
+		t.Run(target, func(t *testing.T) {
+			fixture := newPrivateActivationPlanFixture(t)
+			installPrivateActivationRunStub(t)
+			passingCalibration := privatePlanRunCalibration
+			privatePlanRunCalibration = func(ctx context.Context, options CodexCLICalibrationOptions) (CodexCLICalibrationReceipt, error) {
+				receipt, err := passingCalibration(ctx, options)
+				if err != nil {
+					return receipt, err
+				}
+				if target == "missing-marker" {
+					if err := os.RemoveAll(filepath.Join(options.OutputRoot, "provider-calibration")); err != nil {
+						return CodexCLICalibrationReceipt{}, err
+					}
+					if err := os.Remove(filepath.Join(options.OutputRoot, privateOutputRootMarker)); err != nil {
+						return CodexCLICalibrationReceipt{}, err
+					}
+				} else {
+					path := options.OutputRoot
+					if target == "marker" {
+						path = filepath.Join(options.OutputRoot, privateOutputRootMarker)
+					}
+					if err := os.Chmod(path, 0o755); err != nil {
+						return CodexCLICalibrationReceipt{}, err
+					}
+				}
+				return receipt, nil
+			}
+			t.Cleanup(func() { privatePlanRunCalibration = passingCalibration })
+
+			passingRun := privatePlanRunHeadless
+			treatmentInvocations := 0
+			privatePlanRunHeadless = func(ctx context.Context, options RunOptions) (RunOutput, error) {
+				treatmentInvocations++
+				return passingRun(ctx, options)
+			}
+			t.Cleanup(func() { privatePlanRunHeadless = passingRun })
+
+			preview := fixture.createPlan(t)
+			summary, err := ExecutePrivatePlan(context.Background(), fixture.executeOptions(preview))
+			if err == nil || summary.Status != "stopped" || summary.Completed != 0 || treatmentInvocations != 0 {
+				t.Fatalf("summary=%+v treatments=%d err=%v", summary, treatmentInvocations, err)
+			}
+		})
+	}
+}
+
+func TestValidatePrivateActivationOutputRootRejectsOversizedMarker(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX owner-only mode fixture")
+	}
+	root := t.TempDir()
+	runRoot := filepath.Join(root, "runs", "run-22222222222222222222222222222222")
+	outputRoot, err := preparePrivateActivationOutputRoot(root, runRoot)
+	if err != nil {
+		t.Fatalf("prepare output root: %v", err)
+	}
+	marker := filepath.Join(outputRoot, privateOutputRootMarker)
+	if err := os.WriteFile(marker, bytes.Repeat([]byte("x"), 1<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validatePrivateActivationOutputRoot(root, outputRoot); err == nil {
+		t.Fatal("oversized marker was accepted")
+	}
+}
+
 func TestPrivateActivationStudyOrderCannotBeSelectedByExpiryOrAlias(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("synthetic executable scripts are Unix-only")
@@ -1328,6 +1455,13 @@ func installPrivateActivationRunStub(t *testing.T) {
 		if err != nil {
 			return CodexCLICalibrationReceipt{}, err
 		}
+		calibrationDirectory := filepath.Join(options.OutputRoot, "provider-calibration")
+		if err := os.MkdirAll(calibrationDirectory, 0o700); err != nil {
+			return CodexCLICalibrationReceipt{}, err
+		}
+		if err := os.WriteFile(filepath.Join(calibrationDirectory, "synthetic-artifact"), []byte("calibrated\n"), 0o600); err != nil {
+			return CodexCLICalibrationReceipt{}, err
+		}
 		return CodexCLICalibrationReceipt{
 			SchemaVersion: CodexCLICalibrationSchemaVersion, ContractSHA256: contract.SHA256, Passed: true,
 			CommandFamily:     "atl_version",
@@ -1336,6 +1470,13 @@ func installPrivateActivationRunStub(t *testing.T) {
 		}, nil
 	}
 	privatePlanRunHeadless = func(_ context.Context, options RunOptions) (RunOutput, error) {
+		preparedRoot, err := PreparePrivateOutputRoot(options.OutputRoot, options.RepositoryRoot)
+		if err != nil {
+			return RunOutput{}, err
+		}
+		if preparedRoot != options.OutputRoot {
+			return RunOutput{}, fmt.Errorf("activation output root changed during preparation")
+		}
 		loaded, err := loadRunInputs(options)
 		if err != nil {
 			return RunOutput{}, err
