@@ -72,22 +72,25 @@ An agent working on `atl` should follow this order:
 1. Run workspace status/doctor before reading case files or raw artifacts.
 2. Prefer the public synthetic suite unless the requested compatibility claim
    explicitly requires a private backend.
-3. Create and review a dry plan. Never infer consent from an old transcript or
+3. Qualify the exact native Codex binary, model, and reasoning setting through
+   the credential-free loopback inventory check before authorizing a provider
+   call.
+4. Create and review a dry plan. Never infer consent from an old transcript or
    from the mere presence of credentials.
-4. Execute only the exact plan hash, sequentially, with the explicit run
+5. Execute only the exact plan hash, sequentially, with the explicit run
    confirmation. Do not construct ad-hoc shell loops around low-level `run`.
-5. Apply deterministic checks before qualitative review. For a review panel,
+6. Apply deterministic checks before qualitative review. For a review panel,
    prepare every predeclared reviewer's fixed-layout packet before assessing
    any of them; do not discover raw result paths with an ad-hoc filesystem
    scan. A judge cannot rescue an incorrect, unsafe, incomplete, or over-budget
    run.
-6. Promote only a complete reviewed surface set whose panel has reached one
+7. Promote only a complete reviewed surface set whose panel has reached one
    consensus. A disagreement is not promotable. Compare offline against a
    baseline bound to the same singleton or panel contract.
-7. Preview pruning, review the content-bound prune hash, and then confirm the
+8. Preview pruning, review the content-bound prune hash, and then confirm the
    same plan. Baselines, cases, active runs, and paths outside the marked root
    are never eligible.
-8. Keep raw prompts, responses, transcripts, commands, routes, identifiers, and
+9. Keep raw prompts, responses, transcripts, commands, routes, identifiers, and
    review rationale private. Publication is a separate manual privacy review.
 
 Administrative command output is intentionally sparse: closed finding/action
@@ -101,6 +104,7 @@ echoed into a terminal or CI log.
 |---|---|---|---|---|
 | Initialize | `private init` | None | Creates the marked fixed layout | New or empty owner-only root |
 | Inspect | `private status` / `private doctor` | None | Read-only | None |
+| Qualify Codex CLI | `private qualify` | None; one synthetic loopback Responses request | Temporary owner-only runtime removed on return | Exact native binary, model, and reasoning setting |
 | Plan | `private plan` | None | Writes one immutable plan | Data-boundary flags and `CONSENT` |
 | Execute | `private run` | Reviewed model and read-only backend routes | Writes one candidate run | Exact plan SHA-256 and `RUN` |
 | Recover study | `private study recover` | None | Closes an interrupted study without replaying the provider after the operator establishes provider-process quiescence | Exact plan SHA-256 and `PROVIDER_STOPPED_RECOVER` |
@@ -203,11 +207,11 @@ Reviewer ids are terminal-visible filesystem slot names. Keep them generic
 (`reviewer-01`, not a person, team, provider account, or backend identity); they
 are restricted to one lowercase path component. Schema v1 manifests remain
 readable as legacy comparisons. Workspace-manifest v2 activation studies,
-outer private-plan v4 artifacts, outer execution-state v2 artifacts, and their
-nested lifecycle plan/event v1 records remain inspectable, but cannot execute,
-recover, become references, or be promoted because they predate calibration
-and attempt evidence. Create and review a workspace-manifest v3 activation
-study for new measurements.
+outer private-plan v5/v4 artifacts, outer execution-state v2 artifacts, and
+their nested lifecycle plan/event v1 records remain inspectable, but cannot
+execute, recover, become references, or be promoted. Plan v5 predates the bound
+tool-availability result; v4 also predates calibration and attempt evidence.
+Create and review a workspace-manifest v3 activation study for new measurements.
 
 The panel `blind_assignment` is a workspace-relative file below `cases/`. It is
 required for every activation study and for any other `neutral-common` run set. Activation-study
@@ -234,14 +238,39 @@ case containment, run-spec contracts, comparison equivalence, and lifecycle
 state. Runtime bindings and their owner-only modes are validated while creating
 the reviewed plan. Stdout does not enumerate case aliases or private paths.
 
+Before creating a Codex activation-study plan, inspect the exact model-facing
+shell inventory without provider authentication or backend authority:
+
+```sh
+/tmp/agent-eval private qualify \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --agent-binary "$REVIEWED_AGENT_BINARY" \
+  --model "$REVIEWED_MODEL" \
+  --reasoning "$REVIEWED_REASONING"
+```
+
+The command hashes and validates the reviewed native binary, executes an
+owner-only copy of those exact bytes with a fresh auth-free home, and uses a
+nonce-scoped loopback Responses endpoint. It accepts exactly one bounded
+request, rejects authentication headers, and returns a fixed synthetic answer;
+no model, provider, Jira, or Confluence request is made. Its content-free report
+contains only the binary identity, qualification-contract digest, a closed
+status, the recognized shell alias when supported, and zero-authority counters.
+It never retains the prompt, request body, tool schemas, command output, paths,
+credentials, or backend identity. Missing, ambiguous, malformed, repeated, or
+absent inventory fails closed. Activation-study planning repeats this check
+before persisting a plan, and execution repeats it before consuming that plan.
+
 ## Review, run, and assess
 
-A v5 plan binds the exact comparison or activation-study contract and execution
+A v6 plan binds the exact comparison or activation-study contract and execution
 identity: case inputs, ordered surfaces, skill activation and private
 prompt-contract digest, ATL and wrapper binaries, plugin/skill tree, agent
-runtime, repository commit, backend-config identity, external profile when
-used, cost cap, and consent expiry. Credential bytes are never hashed into a
-plan or retained in a run/baseline.
+runtime and tool-availability qualification contract/result, repository commit,
+backend-config identity, external profile when used, cost cap, and consent
+expiry. Credential bytes are never hashed into a plan or retained in a
+run/baseline.
 
 Actual Codex execution requires file-backed provider authentication. The
 effective `CODEX_HOME` (or `HOME/.codex` fallback) must be a real directory not
@@ -281,8 +310,9 @@ shell selection and startup state are never projected. The shell remains inside
 the existing hook, filesystem, command-broker, read-only, and GET/HEAD controls;
 MCP surfaces do not opt into these CLI-only feature flags.
 
-Before the first treatment, a current activation plan runs one offline
-provider/tool-path calibration through the same isolated Codex runtime,
+After the credential-free inventory gate succeeds and before the first
+treatment, a current activation plan runs one backend-free provider/tool-path
+calibration through the same isolated Codex runtime,
 installed plugin, shell feature flags, hook, shim, command broker, and
 permissions. The only admitted command is one local `atl version`; the
 calibration receives no backend config, URL, PAT, gateway, or corporate
@@ -299,10 +329,12 @@ same way and compared in constant time in addition to the authoritative hook
 and broker audit. Raw version values remain only in owner-private provider
 artifacts; they are not copied into the durable calibration receipt or
 sanitized audit/baseline. This prevents a known constant response from passing
-when the model skips or misreports the tool. Failure is
-terminal infrastructure evidence and no treatment cell is
-reserved. Calibration is not a fifth arm and does not advance the balanced
-treatment order. Its cap is a separate reviewed cost partition.
+when the model skips or misreports the tool. Audit classification distinguishes
+provider-process failure, response-schema failure, policy denial, model
+non-invocation, invocation failure, and successful brokered evidence. Every
+failure is terminal infrastructure evidence and no treatment cell is reserved.
+Calibration is not a fifth arm and does not advance the balanced treatment
+order. Its cap is a separate reviewed cost partition.
 The calibration timeout is derived rather than separately configured: it is
 the reviewed treatment timeout capped at 300 seconds. Treatment cells keep
 their full reviewed timeout. This keeps the local `atl version` preflight
@@ -390,8 +422,9 @@ remaining cells; a safety violation does too. None of those checks can undo
 cost already incurred.
 
 Workspace-manifest v1 comparisons remain readable. Legacy activation
-workspace-manifest v2, outer private-plan v4, outer execution-state v2, and
-nested lifecycle plan/event v1 artifacts remain readable for inspection.
+workspace-manifest v2, outer private-plan v5/v4, outer execution-state v2, and
+nested lifecycle plan/event v1 artifacts remain readable for inspection. Plan
+v5 predates the bound tool-availability result; v4 also predates calibration.
 Legacy activation artifacts are explicitly
 incomparable and cannot be executed, recovered, captured, or promoted. Four
 treatments collected under separate legacy plans are descriptive compatibility
@@ -751,17 +784,17 @@ mapping may be dictionary-guessable.
 
 Current manifests use schema v3, run specs use schema v6, observations use
 schema v5, results use schema v7, aggregates use schema v6, private plans use
-schema v5, current activation state uses schema v3, and
+schema v6, current activation state uses schema v3, and
 review packets use schema v2. Current study references/reports use schema v2
 and require audit attempt metrics plus separate bounded model-report metrics.
 The decoder still accepts workspace-manifest v1 comparisons;
-workspace-manifest v2 activation studies, outer private-plan v4 artifacts,
+workspace-manifest v2 activation studies, outer private-plan v5/v4 artifacts,
 outer execution-state v2 artifacts, and nested lifecycle plan/event v1 records
 as read-only legacy artifacts; attemptless result schema v6; prompt-bound
 result schema v5; result schema v3/v4; and outer private-plan schema v1/v2/v3
 for earlier comparison lifecycle inspection and retention. Legacy activation
 reference schema v1 remains readable and compare-only, but is never promotable.
-Create a fresh schema v3 run set, v5 plan, and consent for a causal study. Older
+Create a fresh schema v3 run set, v6 plan, and consent for a causal study. Older
 binaries reject the new artifacts rather than accepting them under a misleading
 old version.
 

@@ -20,6 +20,25 @@ const (
 	maxCodexCLICalibrationTimeout    = 300
 )
 
+type CodexCLICalibrationStatus string
+
+const (
+	CodexCLICalibrationProcessFailed        CodexCLICalibrationStatus = "process_failed"
+	CodexCLICalibrationResponseSchemaFailed CodexCLICalibrationStatus = "response_schema_failed"
+	CodexCLICalibrationPolicyDenied         CodexCLICalibrationStatus = "policy_denied"
+	CodexCLICalibrationModelNonInvocation   CodexCLICalibrationStatus = "model_non_invocation"
+	CodexCLICalibrationInvocationFailed     CodexCLICalibrationStatus = "invocation_failed"
+	CodexCLICalibrationSucceeded            CodexCLICalibrationStatus = "succeeded"
+)
+
+type CodexCLICalibrationFailure struct {
+	Status CodexCLICalibrationStatus
+}
+
+func (e *CodexCLICalibrationFailure) Error() string {
+	return "codex cli calibration status " + string(e.Status)
+}
+
 var (
 	codexCLICalibrationPrompt = []byte("Use the shell tool to run the literal command `atl version` exactly once. Do not run any other command. Copy the version, commit, and build_state string values from its JSON output exactly into the required JSON object; do not infer or invent them.\n")
 	codexCLICalibrationSchema = []byte(`{"type":"object","properties":{"version":{"type":"string","minLength":1},"commit":{"type":"string","minLength":1},"build_state":{"type":"string","enum":["clean","dirty","unknown"]}},"required":["version","commit","build_state"],"additionalProperties":false}`)
@@ -366,10 +385,10 @@ func RunCodexCLICalibration(parent context.Context, options CodexCLICalibrationO
 		return receipt, fmt.Errorf("close calibration command broker: %w", brokerErr)
 	}
 	if ctx.Err() == context.DeadlineExceeded {
-		return receipt, fmt.Errorf("calibration provider exceeded %d second timeout", options.TimeoutSeconds)
+		return receipt, &CodexCLICalibrationFailure{Status: CodexCLICalibrationProcessFailed}
 	}
 	if runErr != nil {
-		return receipt, fmt.Errorf("calibration provider process failed: %w", runErr)
+		return receipt, &CodexCLICalibrationFailure{Status: CodexCLICalibrationProcessFailed}
 	}
 	if closeTranscriptErr != nil || closeStderrErr != nil {
 		return receipt, fmt.Errorf("close calibration provider output: %v %v", closeTranscriptErr, closeStderrErr)
@@ -382,7 +401,7 @@ func RunCodexCLICalibration(parent context.Context, options CodexCLICalibrationO
 	if err != nil {
 		return receipt, err
 	}
-	providerMetrics, final, err := ParseProviderOutput("codex", transcriptData, finalData)
+	providerMetrics, final, err := parseCodexCalibrationProviderOutput(transcriptData, finalData)
 	if err != nil {
 		return receipt, err
 	}
@@ -464,6 +483,18 @@ func calibrationResponse(data []byte) (codexCLICalibrationResponse, error) {
 	return response, nil
 }
 
+func parseCodexCalibrationProviderOutput(transcript, finalFile []byte) (ProviderMetrics, []byte, error) {
+	metrics, err := parseCodexOutput(transcript)
+	if err != nil {
+		return ProviderMetrics{}, nil, &CodexCLICalibrationFailure{Status: CodexCLICalibrationProcessFailed}
+	}
+	final := bytes.TrimSpace(finalFile)
+	if len(final) == 0 {
+		return ProviderMetrics{}, nil, &CodexCLICalibrationFailure{Status: CodexCLICalibrationResponseSchemaFailed}
+	}
+	return metrics, final, nil
+}
+
 // CalibrationVersionObservationSHA256 returns a content-free semantic digest
 // of the stable `atl version` JSON object. It is used only by the reserved
 // backend-free calibration proxy and never retains the observed field values.
@@ -480,15 +511,32 @@ func CalibrationVersionObservationSHA256(data []byte) (string, error) {
 }
 
 func validateCalibrationEvidence(metrics ProviderMetrics, records []atlProxyRecord, guardSummary guardDecisionSummary, final []byte) error {
+	status := classifyCalibrationEvidence(metrics, records, guardSummary, final)
+	if status != CodexCLICalibrationSucceeded {
+		return &CodexCLICalibrationFailure{Status: status}
+	}
+	return nil
+}
+
+func classifyCalibrationEvidence(metrics ProviderMetrics, records []atlProxyRecord, guardSummary guardDecisionSummary, final []byte) CodexCLICalibrationStatus {
+	if guardSummary.Denials > 0 {
+		return CodexCLICalibrationPolicyDenied
+	}
+	if metrics.CommandExecutions == 0 && len(records) == 0 && guardSummary.Admissions == 0 && guardSummary.ATLAdmissions == 0 {
+		return CodexCLICalibrationModelNonInvocation
+	}
 	observation, err := CalibrationVersionObservationSHA256(final)
 	if err != nil || len(records) != 1 || !validSHA256(records[0].CalibrationObservationSHA256) ||
 		!constantTimeStringEqual(observation, records[0].CalibrationObservationSHA256) {
-		return fmt.Errorf("calibration provider response did not match the fixed success contract")
+		if err != nil {
+			return CodexCLICalibrationResponseSchemaFailed
+		}
+		return CodexCLICalibrationInvocationFailed
 	}
 	if records[0].CommandFamily != "atl_version" || records[0].Denied || records[0].ExitCode != 0 || records[0].StdoutBytes < 1 || records[0].StdoutBytes > calibrationOutputLimit || records[0].StderrBytes != 0 || guardSummary.Admissions != 1 || guardSummary.ATLAdmissions != 1 || guardSummary.Denials != 0 || metrics.CommandExecutions != 1 {
-		return fmt.Errorf("calibration did not observe exactly one admitted successful brokered atl version invocation")
+		return CodexCLICalibrationInvocationFailed
 	}
-	return nil
+	return CodexCLICalibrationSucceeded
 }
 
 func verifyCalibrationCommandSlot(directory string) error {

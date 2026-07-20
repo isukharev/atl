@@ -3,6 +3,7 @@ package agenteval
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,6 +54,70 @@ func TestValidateCalibrationEvidenceFailsClosed(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if err := validateCalibrationEvidence(test.metrics, test.records, test.guard, test.final); err == nil {
 				t.Fatal("invalid calibration evidence passed")
+			}
+		})
+	}
+}
+
+func TestCalibrationEvidenceStatusDistinguishesPolicyNonInvocationSchemaAndSuccess(t *testing.T) {
+	final := []byte(`{"version":"0.4.0","commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","build_state":"clean"}`)
+	observation, err := CalibrationVersionObservationSHA256(final)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := []atlProxyRecord{{CommandFamily: "atl_version", CalibrationObservationSHA256: observation, StdoutBytes: 32}}
+	tests := []struct {
+		name    string
+		metrics ProviderMetrics
+		records []atlProxyRecord
+		guard   guardDecisionSummary
+		final   []byte
+		want    CodexCLICalibrationStatus
+	}{
+		{name: "model non invocation", final: []byte(`{"retrieval":"failed"}`), want: CodexCLICalibrationModelNonInvocation},
+		{name: "policy denied", guard: guardDecisionSummary{Denials: 1}, final: final, want: CodexCLICalibrationPolicyDenied},
+		{name: "response schema", metrics: ProviderMetrics{CommandExecutions: 1}, records: records, guard: guardDecisionSummary{Admissions: 1, ATLAdmissions: 1}, final: []byte(`{"version":"missing-fields"}`), want: CodexCLICalibrationResponseSchemaFailed},
+		{name: "invocation failed", metrics: ProviderMetrics{CommandExecutions: 1}, guard: guardDecisionSummary{Admissions: 1, ATLAdmissions: 1}, final: final, want: CodexCLICalibrationInvocationFailed},
+		{name: "success", metrics: ProviderMetrics{CommandExecutions: 1}, records: records, guard: guardDecisionSummary{Admissions: 1, ATLAdmissions: 1}, final: final, want: CodexCLICalibrationSucceeded},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := classifyCalibrationEvidence(test.metrics, test.records, test.guard, test.final)
+			if got != test.want {
+				t.Fatalf("status=%s want=%s", got, test.want)
+			}
+			err := validateCalibrationEvidence(test.metrics, test.records, test.guard, test.final)
+			if test.want == CodexCLICalibrationSucceeded {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			var failure *CodexCLICalibrationFailure
+			if !errors.As(err, &failure) || failure.Status != test.want {
+				t.Fatalf("failure=%v", err)
+			}
+		})
+	}
+}
+
+func TestParseCodexCalibrationProviderOutputDistinguishesProcessAndResponseSchema(t *testing.T) {
+	validTranscript := []byte(`{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}`)
+	tests := []struct {
+		name       string
+		transcript []byte
+		final      []byte
+		want       CodexCLICalibrationStatus
+	}{
+		{name: "process", transcript: []byte(`not-json`), final: []byte(`{}`), want: CodexCLICalibrationProcessFailed},
+		{name: "empty response", transcript: validTranscript, want: CodexCLICalibrationResponseSchemaFailed},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, err := parseCodexCalibrationProviderOutput(test.transcript, test.final)
+			var failure *CodexCLICalibrationFailure
+			if !errors.As(err, &failure) || failure.Status != test.want {
+				t.Fatalf("failure=%v want=%s", err, test.want)
 			}
 		})
 	}

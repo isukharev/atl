@@ -21,7 +21,8 @@ import (
 )
 
 const (
-	PrivatePlanSchemaVersion                         = 5
+	PrivatePlanSchemaVersion                         = 6
+	LegacyCalibratedPrivatePlanSchemaVersion         = 5
 	LegacyActivationStudyPrivatePlanSchemaVersion    = 4
 	LegacyCompleteActivationPrivatePlanSchemaVersion = 3
 	LegacyPromptBoundPrivatePlanSchemaVersion        = 2
@@ -37,10 +38,11 @@ const (
 var ErrPrivatePlanRejected = errors.New("private plan rejected")
 
 var (
-	privatePlanRunHeadless    = RunHeadless
-	privatePlanRunCalibration = RunCodexCLICalibration
-	privatePlanWriteState     = writePrivatePlanState
-	privatePlanRemoveTree     = removePrivateTree
+	privatePlanRunHeadless     = RunHeadless
+	privatePlanRunCalibration  = RunCodexCLICalibration
+	privatePlanQualifyCodexCLI = QualifyCodexCLIToolAvailability
+	privatePlanWriteState      = writePrivatePlanState
+	privatePlanRemoveTree      = removePrivateTree
 )
 
 var privateGitCommitRE = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
@@ -121,6 +123,7 @@ type privatePlan struct {
 	ActivationContract                  *PrivateActivationStudyContract        `json:"activation_contract,omitempty"`
 	QualitativeRequired                 bool                                   `json:"qualitative_required"`
 	QualitativeReviewPanel              *privateQualitativeReviewPanelContract `json:"qualitative_review_panel,omitempty"`
+	ToolAvailability                    *CodexCLIToolAvailabilityReport        `json:"tool_availability,omitempty"`
 	Items                               []privatePlanItem                      `json:"items"`
 }
 
@@ -214,6 +217,15 @@ func CreatePrivatePlan(ctx context.Context, options PrivatePlanCreateOptions) (P
 	if external && !options.Consent.ExternalUpstreamApproved {
 		return PrivatePlanPreview{}, privatePlanError("external_consent")
 	}
+	var toolAvailability *CodexCLIToolAvailabilityReport
+	if runSet.EffectiveKind() == PrivateRunSetKindActivationStudy {
+		report, err := qualifyPrivateActivationAgent(ctx, root, material)
+		if err != nil {
+			return PrivatePlanPreview{}, err
+		}
+		material.bindToolAvailabilityResult(report)
+		toolAvailability = &report
+	}
 	planID, err := privateRandomID("pln-")
 	if err != nil {
 		return PrivatePlanPreview{}, privatePlanError("id")
@@ -301,7 +313,7 @@ func CreatePrivatePlan(ctx context.Context, options PrivatePlanCreateOptions) (P
 		MaxEstimatedCostMicroUSD: totalAuthorized, ReviewerReserveMicroUSD: runSet.ReviewerReserveMicroUSD,
 		CalibrationMaxEstimatedCostMicroUSD: runSet.CalibrationMaxEstimatedCostMicroUSD,
 		QualitativeRequired:                 runSet.QualitativeReviewRequired || runSet.QualitativeReviewPanel != nil,
-		QualitativeReviewPanel:              material.qualitativePanel, Items: items}
+		QualitativeReviewPanel:              material.qualitativePanel, ToolAvailability: toolAvailability, Items: items}
 	if kind == PrivateRunSetKindActivationStudy {
 		plan.CostAssurance = PrivateActivationCostAssuranceDetectionOnly
 		plan.StudySeriesSHA256 = studySeriesSHA256
@@ -374,6 +386,15 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 		options.ATLBinary, options.PluginRoot, options.AgentBinary, options.WrapperExecutable, liveConfig, externalProfile, "")
 	if err != nil {
 		return PrivatePlanExecutionSummary{}, err
+	}
+	if plan.Kind == PrivateRunSetKindActivationStudy {
+		report, err := qualifyPrivateActivationAgent(ctx, root, material)
+		if err != nil {
+			return PrivatePlanExecutionSummary{}, err
+		}
+		if plan.ToolAvailability == nil || !sameCodexToolAvailabilityReport(report, *plan.ToolAvailability) {
+			return PrivatePlanExecutionSummary{}, privatePlanError("tool_availability_drift")
+		}
 	}
 	if !privatePlanMaterialMatches(plan, items, material) {
 		return PrivatePlanExecutionSummary{}, privatePlanError("input_drift")
@@ -721,10 +742,46 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 }
 
 type privatePlanMaterial struct {
-	contract, inputs, series []string
-	agent                    privateAgentBinaryContract
-	qualitativePanel         *privateQualitativeReviewPanelContract
-	calibration              *CodexCLICalibrationContract
+	contract, inputs, series       []string
+	agent                          privateAgentBinaryContract
+	qualitativePanel               *privateQualitativeReviewPanelContract
+	calibration                    *CodexCLICalibrationContract
+	toolAvailabilityContractSHA256 string
+}
+
+func qualifyPrivateActivationAgent(ctx context.Context, root string, material privatePlanMaterial) (CodexCLIToolAvailabilityReport, error) {
+	if material.calibration == nil || material.agent.canonicalPath == "" ||
+		!validSHA256(material.toolAvailabilityContractSHA256) {
+		return CodexCLIToolAvailabilityReport{}, privatePlanError("tool_availability_contract")
+	}
+	options := CodexCLIToolAvailabilityOptions{
+		AgentBinary: material.agent.canonicalPath,
+		ScratchRoot: filepath.Join(root, ".ephemeral"),
+		Model:       material.calibration.Model,
+		Reasoning:   material.calibration.Reasoning,
+	}
+	report, err := privatePlanQualifyCodexCLI(ctx, options)
+	if err != nil {
+		return CodexCLIToolAvailabilityReport{}, privatePlanError("tool_availability_execution")
+	}
+	if report.Validate() != nil || report.AgentIdentity != material.agent.identity ||
+		!constantTimeStringEqual(report.ContractSHA256, material.toolAvailabilityContractSHA256) {
+		return CodexCLIToolAvailabilityReport{}, privatePlanError("tool_availability_report")
+	}
+	if report.Status != CodexCLIToolAvailabilitySupported {
+		return CodexCLIToolAvailabilityReport{}, privatePlanError("tool_availability_" + string(report.Status))
+	}
+	return report, nil
+}
+
+func (m *privatePlanMaterial) bindToolAvailabilityResult(report CodexCLIToolAvailabilityReport) {
+	result := "tool-availability-result:" + report.ContractSHA256 + ":" + report.ShellTool
+	m.contract = append(m.contract, result)
+	m.series = append(m.series, result)
+}
+
+func sameCodexToolAvailabilityReport(left, right CodexCLIToolAvailabilityReport) bool {
+	return left == right
 }
 
 func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorkspaceRoot string, runSet PrivateWorkspaceRunSet,
@@ -848,6 +905,14 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 		"agent-bytes:"+agent.bytesSHA256,
 		"agent-provenance:"+agent.provenanceSHA256,
 	)
+	if material.calibration != nil {
+		material.toolAvailabilityContractSHA256 = codexToolAvailabilityContractSHA256(agent.identity, CodexCLIToolAvailabilityOptions{
+			Model: material.calibration.Model, Reasoning: material.calibration.Reasoning,
+		})
+		qualification := "tool-availability:" + material.toolAvailabilityContractSHA256
+		material.contract = append(material.contract, qualification)
+		material.series = append(material.series, qualification)
+	}
 	pluginManifestPath, pluginSkills, err := providerPluginLayout(pluginRoot, provider)
 	if err != nil {
 		return nil, material, "", "", 0, false, privatePlanError("plugin")
@@ -1223,6 +1288,12 @@ func samePrivatePlanItemsUnordered(a, b []privatePlanItem) bool {
 }
 
 func privatePlanMaterialMatches(plan privatePlan, items []privatePlanItem, material privatePlanMaterial) bool {
+	if plan.SchemaVersion == PrivatePlanSchemaVersion && plan.Kind == PrivateRunSetKindActivationStudy {
+		if plan.ToolAvailability == nil || !plan.ToolAvailability.Supported() {
+			return false
+		}
+		material.bindToolAvailabilityResult(*plan.ToolAvailability)
+	}
 	seriesMatches := true
 	if plan.Kind == PrivateRunSetKindActivationStudy {
 		seriesMatches = plan.ActivationContract != nil && privateActivationStudySeriesDigest(*plan.ActivationContract, material) == plan.StudySeriesSHA256
@@ -1322,7 +1393,7 @@ func validatePrivateActivationPlanState(plan privatePlan, state privatePlanState
 	if plan.SchemaVersion == LegacyActivationStudyPrivatePlanSchemaVersion {
 		return validateLegacyPrivateActivationPlanState(plan, state)
 	}
-	if plan.SchemaVersion != PrivatePlanSchemaVersion || state.SchemaVersion != privatePlanStateSchemaVersion {
+	if (plan.SchemaVersion != PrivatePlanSchemaVersion && plan.SchemaVersion != LegacyCalibratedPrivatePlanSchemaVersion) || state.SchemaVersion != privatePlanStateSchemaVersion {
 		return privatePlanError("study_state")
 	}
 	lifecycle, err := NewPrivateActivationStudyLifecycle(*plan.StudyContract)
@@ -1713,10 +1784,15 @@ func normalizePrivateCandidateTree(root, runRoot string) error {
 	})
 }
 
+func privatePlanHasActivationShape(schemaVersion int) bool {
+	return schemaVersion == PrivatePlanSchemaVersion || schemaVersion == LegacyCalibratedPrivatePlanSchemaVersion ||
+		schemaVersion == LegacyActivationStudyPrivatePlanSchemaVersion
+}
+
 func validatePrivatePlan(plan privatePlan, expectedID string) error {
 	created, createdErr := time.Parse(time.RFC3339Nano, plan.CreatedAt)
 	expires, expiryErr := time.Parse(time.RFC3339, plan.Consent.ExpiresAt)
-	if (plan.SchemaVersion != PrivatePlanSchemaVersion && plan.SchemaVersion != LegacyActivationStudyPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyCompleteActivationPrivatePlanSchemaVersion &&
+	if (plan.SchemaVersion != PrivatePlanSchemaVersion && plan.SchemaVersion != LegacyCalibratedPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyActivationStudyPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyCompleteActivationPrivatePlanSchemaVersion &&
 		plan.SchemaVersion != LegacyPromptBoundPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyPrivatePlanSchemaVersion) || plan.PlanID != expectedID || !privatePlanIDRE.MatchString(plan.PlanID) ||
 		!privateWorkspaceAliasRE.MatchString(plan.RunSetAlias) || !validSHA256(plan.ContractSHA256) || !validSHA256(plan.InputsSHA256) ||
 		createdErr != nil || expiryErr != nil || !expires.After(created) || expires.After(created.Add(7*24*time.Hour)) ||
@@ -1725,7 +1801,11 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 		plan.MaxEstimatedCostMicroUSD < 1 || plan.MaxEstimatedCostMicroUSD > 100_000_000 || len(plan.Items) < 1 || len(plan.Items) > 4 {
 		return privatePlanError("plan")
 	}
-	if plan.SchemaVersion != PrivatePlanSchemaVersion && plan.SchemaVersion != LegacyActivationStudyPrivatePlanSchemaVersion {
+	activationShape := privatePlanHasActivationShape(plan.SchemaVersion)
+	if plan.SchemaVersion != PrivatePlanSchemaVersion && plan.ToolAvailability != nil {
+		return privatePlanError("plan")
+	}
+	if !activationShape {
 		if plan.Kind != "" || plan.ReviewerReserveMicroUSD != 0 || plan.CostAssurance != "" || plan.StudySeriesSHA256 != "" || plan.StudyContract != nil || plan.ActivationContract != nil || len(plan.Items) > 3 {
 			return privatePlanError("plan")
 		}
@@ -1737,7 +1817,7 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 			return privatePlanError("qualitative_panel")
 		}
 	}
-	study := (plan.SchemaVersion == PrivatePlanSchemaVersion || plan.SchemaVersion == LegacyActivationStudyPrivatePlanSchemaVersion) && plan.Kind == PrivateRunSetKindActivationStudy
+	study := activationShape && plan.Kind == PrivateRunSetKindActivationStudy
 	if study {
 		commonInvalid := len(plan.Items) != 4 || plan.Provider != "codex" || !plan.QualitativeRequired || plan.QualitativeReviewPanel == nil ||
 			plan.CostAssurance != PrivateActivationCostAssuranceDetectionOnly || !validSHA256(plan.StudySeriesSHA256) || plan.StudyContract == nil || plan.ActivationContract == nil ||
@@ -1750,14 +1830,20 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 		}
 		if plan.SchemaVersion == PrivatePlanSchemaVersion {
 			if plan.StudyContract.Validate() != nil || plan.CalibrationMaxEstimatedCostMicroUSD < 1 ||
+				plan.StudyContract.Calibration.MaxEstimatedCostMicroUSD != plan.CalibrationMaxEstimatedCostMicroUSD ||
+				plan.ToolAvailability == nil || !plan.ToolAvailability.Supported() {
+				return privatePlanError("study_contract")
+			}
+		} else if plan.SchemaVersion == LegacyCalibratedPrivatePlanSchemaVersion {
+			if plan.StudyContract.Validate() != nil || plan.CalibrationMaxEstimatedCostMicroUSD < 1 ||
 				plan.StudyContract.Calibration.MaxEstimatedCostMicroUSD != plan.CalibrationMaxEstimatedCostMicroUSD {
 				return privatePlanError("study_contract")
 			}
 		} else if validateLegacyPrivateActivationStudyPlan(*plan.StudyContract) != nil || plan.CalibrationMaxEstimatedCostMicroUSD != 0 {
 			return privatePlanError("study_contract")
 		}
-	} else if (plan.SchemaVersion == PrivatePlanSchemaVersion || plan.SchemaVersion == LegacyActivationStudyPrivatePlanSchemaVersion) &&
-		(plan.ReviewerReserveMicroUSD != 0 || plan.CalibrationMaxEstimatedCostMicroUSD != 0 || plan.CostAssurance != "" || plan.StudySeriesSHA256 != "" || plan.StudyContract != nil || plan.ActivationContract != nil || len(plan.Items) > 3) {
+	} else if activationShape &&
+		(plan.ReviewerReserveMicroUSD != 0 || plan.CalibrationMaxEstimatedCostMicroUSD != 0 || plan.CostAssurance != "" || plan.StudySeriesSHA256 != "" || plan.StudyContract != nil || plan.ActivationContract != nil || plan.ToolAvailability != nil || len(plan.Items) > 3) {
 		return privatePlanError("plan")
 	}
 	seenSurfaces := map[string]struct{}{}
@@ -1767,7 +1853,7 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 			(item.Provider != "codex" && item.Provider != "claude-code") || item.Provider != plan.Provider ||
 			validatePathComponentID("run variant", item.Variant) != nil || !validRunSurface(item.Surface) || !validSHA256(item.RubricSHA256) ||
 			!validPrivatePlanPromptIdentity(plan.SchemaVersion, item) ||
-			((plan.SchemaVersion == PrivatePlanSchemaVersion || plan.SchemaVersion == LegacyActivationStudyPrivatePlanSchemaVersion) && item.MaxEstimatedCostMicroUSD < 1) {
+			(activationShape && item.MaxEstimatedCostMicroUSD < 1) {
 			return privatePlanError("item")
 		}
 		if study {
@@ -1783,7 +1869,7 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 				return privatePlanError("study_item")
 			}
 		} else {
-			if item.CellID != "" || (plan.SchemaVersion != PrivatePlanSchemaVersion && item.MaxEstimatedCostMicroUSD != 0) {
+			if item.CellID != "" || (!activationShape && item.MaxEstimatedCostMicroUSD != 0) {
 				return privatePlanError("item")
 			}
 			if _, exists := seenSurfaces[item.Surface]; exists {
@@ -1812,7 +1898,7 @@ func validPrivatePlanPromptIdentity(schemaVersion int, item privatePlanItem) boo
 	if schemaVersion == LegacyPrivatePlanSchemaVersion {
 		return item.SkillActivation == "" && item.PromptContractSHA256 == ""
 	}
-	if schemaVersion != LegacyPromptBoundPrivatePlanSchemaVersion && schemaVersion != LegacyCompleteActivationPrivatePlanSchemaVersion && schemaVersion != LegacyActivationStudyPrivatePlanSchemaVersion && schemaVersion != PrivatePlanSchemaVersion {
+	if schemaVersion != LegacyPromptBoundPrivatePlanSchemaVersion && schemaVersion != LegacyCompleteActivationPrivatePlanSchemaVersion && schemaVersion != LegacyActivationStudyPrivatePlanSchemaVersion && schemaVersion != LegacyCalibratedPrivatePlanSchemaVersion && schemaVersion != PrivatePlanSchemaVersion {
 		return false
 	}
 	activationCell := item.Provider == "codex" && item.Surface == SurfaceCLISkill

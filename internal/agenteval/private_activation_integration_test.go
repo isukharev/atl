@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -76,6 +77,154 @@ func TestPrivateActivationStudyPlanExecutesOneBoundFourCellBlock(t *testing.T) {
 	}
 	if !reflect.DeepEqual(next.OrderedTreatments, ActivationStudyOrder(1)) {
 		t.Fatalf("next order=%v", next.OrderedTreatments)
+	}
+}
+
+func TestPrivateActivationStudyStopsBeforePlanOrRunWhenShellInventoryIsUnavailable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("synthetic executable scripts are Unix-only")
+	}
+	fixture := newPrivateActivationPlanFixture(t)
+	original := privatePlanQualifyCodexCLI
+	privatePlanQualifyCodexCLI = func(_ context.Context, options CodexCLIToolAvailabilityOptions) (CodexCLIToolAvailabilityReport, error) {
+		agent, _, err := inspectPrivateAgentBinary(options.AgentBinary, "")
+		if err != nil {
+			return CodexCLIToolAvailabilityReport{}, err
+		}
+		return CodexCLIToolAvailabilityReport{
+			SchemaVersion:     CodexCLIToolAvailabilitySchemaVersion,
+			Provider:          "codex",
+			AgentIdentity:     agent.identity,
+			ContractSHA256:    codexToolAvailabilityContractSHA256(agent.identity, options),
+			Status:            CodexCLIToolAvailabilityMissing,
+			RequestObserved:   true,
+			SyntheticRequests: 1,
+		}, nil
+	}
+	t.Cleanup(func() { privatePlanQualifyCodexCLI = original })
+	_, err := CreatePrivatePlan(context.Background(), fixture.createOptions())
+	assertPrivatePlanError(t, err, "tool_availability_tool_inventory_missing")
+	entries, readErr := os.ReadDir(filepath.Join(fixture.root, "plans"))
+	if readErr != nil || len(entries) != 0 {
+		t.Fatalf("unsupported inventory persisted a plan: entries=%d err=%v", len(entries), readErr)
+	}
+	assertPrivatePlanNoRuntimeInvocation(t, fixture)
+
+	privatePlanQualifyCodexCLI = original
+	preview, err := CreatePrivatePlan(context.Background(), fixture.createOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	privatePlanQualifyCodexCLI = func(_ context.Context, options CodexCLIToolAvailabilityOptions) (CodexCLIToolAvailabilityReport, error) {
+		agent, _, inspectErr := inspectPrivateAgentBinary(options.AgentBinary, "")
+		if inspectErr != nil {
+			return CodexCLIToolAvailabilityReport{}, inspectErr
+		}
+		return CodexCLIToolAvailabilityReport{
+			SchemaVersion:     CodexCLIToolAvailabilitySchemaVersion,
+			Provider:          "codex",
+			AgentIdentity:     agent.identity,
+			ContractSHA256:    codexToolAvailabilityContractSHA256(agent.identity, options),
+			Status:            CodexCLIToolAvailabilityAmbiguous,
+			RequestObserved:   true,
+			SyntheticRequests: 1,
+		}, nil
+	}
+	_, err = ExecutePrivatePlan(context.Background(), fixture.executeOptions(preview))
+	assertPrivatePlanError(t, err, "tool_availability_tool_inventory_ambiguous")
+	if _, statErr := os.Stat(filepath.Join(fixture.root, "plans", preview.PlanID+".state.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("unsupported inventory consumed plan: %v", statErr)
+	}
+	runs, readErr := os.ReadDir(filepath.Join(fixture.root, "runs"))
+	if readErr != nil || len(runs) != 0 {
+		t.Fatalf("unsupported inventory created a run: entries=%d err=%v", len(runs), readErr)
+	}
+	assertPrivatePlanNoRuntimeInvocation(t, fixture)
+
+	privatePlanQualifyCodexCLI = func(_ context.Context, options CodexCLIToolAvailabilityOptions) (CodexCLIToolAvailabilityReport, error) {
+		agent, _, inspectErr := inspectPrivateAgentBinary(options.AgentBinary, "")
+		if inspectErr != nil {
+			return CodexCLIToolAvailabilityReport{}, inspectErr
+		}
+		return CodexCLIToolAvailabilityReport{
+			SchemaVersion:     CodexCLIToolAvailabilitySchemaVersion,
+			Provider:          "codex",
+			AgentIdentity:     agent.identity,
+			ContractSHA256:    codexToolAvailabilityContractSHA256(agent.identity, options),
+			Status:            CodexCLIToolAvailabilitySupported,
+			ShellTool:         "shell_command",
+			RequestObserved:   true,
+			SyntheticRequests: 1,
+		}, nil
+	}
+	_, err = ExecutePrivatePlan(context.Background(), fixture.executeOptions(preview))
+	assertPrivatePlanError(t, err, "tool_availability_drift")
+	if _, statErr := os.Stat(filepath.Join(fixture.root, "plans", preview.PlanID+".state.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("shell-route drift consumed plan: %v", statErr)
+	}
+}
+
+func TestPrivateActivationStudyRejectsUnboundShellInventoryReport(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("synthetic executable scripts are Unix-only")
+	}
+	fixture := newPrivateActivationPlanFixture(t)
+	privatePlanQualifyCodexCLI = func(_ context.Context, options CodexCLIToolAvailabilityOptions) (CodexCLIToolAvailabilityReport, error) {
+		agent, _, err := inspectPrivateAgentBinary(options.AgentBinary, "")
+		if err != nil {
+			return CodexCLIToolAvailabilityReport{}, err
+		}
+		return CodexCLIToolAvailabilityReport{
+			SchemaVersion:   CodexCLIToolAvailabilitySchemaVersion,
+			Provider:        "codex",
+			AgentIdentity:   agent.identity,
+			ContractSHA256:  strings.Repeat("f", 64),
+			Status:          CodexCLIToolAvailabilitySupported,
+			ShellTool:       "exec_command",
+			RequestObserved: true, SyntheticRequests: 1,
+		}, nil
+	}
+	_, err := CreatePrivatePlan(context.Background(), fixture.createOptions())
+	assertPrivatePlanError(t, err, "tool_availability_report")
+	entries, readErr := os.ReadDir(filepath.Join(fixture.root, "plans"))
+	if readErr != nil || len(entries) != 0 {
+		t.Fatalf("unbound inventory report persisted a plan: entries=%d err=%v", len(entries), readErr)
+	}
+}
+
+func TestPrivateActivationPlanSchemaMarksToolAvailabilityContract(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("synthetic executable scripts are Unix-only")
+	}
+	fixture := newPrivateActivationPlanFixture(t)
+	preview, err := CreatePrivatePlan(context.Background(), fixture.createOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, _, err := loadPrivatePlan(fixture.root, preview.PlanID)
+	if err != nil || plan.SchemaVersion != PrivatePlanSchemaVersion || plan.ToolAvailability == nil || !plan.ToolAvailability.Supported() {
+		t.Fatalf("plan=%+v err=%v", plan, err)
+	}
+
+	missing := plan
+	missing.ToolAvailability = nil
+	if validatePrivatePlan(missing, missing.PlanID) == nil {
+		t.Fatal("current plan without tool-availability marker was accepted")
+	}
+	legacy := missing
+	legacy.SchemaVersion = LegacyCalibratedPrivatePlanSchemaVersion
+	if err := validatePrivatePlan(legacy, legacy.PlanID); err != nil {
+		t.Fatalf("legacy calibrated plan was not readable: %v", err)
+	}
+	hybrid := legacy
+	hybrid.ToolAvailability = plan.ToolAvailability
+	if validatePrivatePlan(hybrid, hybrid.PlanID) == nil {
+		t.Fatal("legacy plan carrying a current marker was accepted")
+	}
+	future := plan
+	future.SchemaVersion = PrivatePlanSchemaVersion + 1
+	if validatePrivatePlan(future, future.PlanID) == nil {
+		t.Fatal("future plan schema was accepted")
 	}
 }
 
@@ -1075,6 +1224,24 @@ func TestPrivateActivationStudyReviewPacketsAreBlindAndGloballyPrepared(t *testi
 
 func newPrivateActivationPlanFixture(t *testing.T) privatePlanTestFixture {
 	t.Helper()
+	originalQualifier := privatePlanQualifyCodexCLI
+	privatePlanQualifyCodexCLI = func(_ context.Context, options CodexCLIToolAvailabilityOptions) (CodexCLIToolAvailabilityReport, error) {
+		agent, _, err := inspectPrivateAgentBinary(options.AgentBinary, "")
+		if err != nil {
+			return CodexCLIToolAvailabilityReport{}, err
+		}
+		return CodexCLIToolAvailabilityReport{
+			SchemaVersion:     CodexCLIToolAvailabilitySchemaVersion,
+			Provider:          "codex",
+			AgentIdentity:     agent.identity,
+			ContractSHA256:    codexToolAvailabilityContractSHA256(agent.identity, options),
+			Status:            CodexCLIToolAvailabilitySupported,
+			ShellTool:         "exec_command",
+			RequestObserved:   true,
+			SyntheticRequests: 1,
+		}, nil
+	}
+	t.Cleanup(func() { privatePlanQualifyCodexCLI = originalQualifier })
 	fixture := newPrivatePlanTestFixture(t, true, false)
 	writeTestFile(t, filepath.Join(fixture.liveConfig, "config.json"), `{"jira_url":"http://127.0.0.1:9","confluence_url":"https://unused.example.invalid"}`+"\n", 0o600)
 	caseRoot := filepath.Join(fixture.root, "cases", "portfolio")

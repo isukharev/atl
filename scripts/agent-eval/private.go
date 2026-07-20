@@ -7,13 +7,16 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/isukharev/atl/internal/agenteval"
 )
 
+var privateQualifyCodexCLI = agenteval.QualifyCodexCLIToolAvailability
+
 func runPrivateCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("private requires init, doctor, status, plan, run, review, study, baseline, compare, or prune")
+		return fmt.Errorf("private requires init, doctor, status, qualify, plan, run, review, study, baseline, compare, or prune")
 	}
 	switch args[0] {
 	case "init":
@@ -60,6 +63,48 @@ func runPrivateCommand(args []string, out io.Writer) error {
 			return fmt.Errorf("private status requires --root and no positional arguments")
 		}
 		return writePrivateJSON(out, agenteval.InspectPrivateWorkspace(root, repositoryRoot))
+	case "qualify":
+		flags := privateFlagSet("private qualify")
+		var root, repositoryRoot, agentBinary, model, reasoning string
+		var timeoutSeconds int
+		flags.StringVar(&root, "root", "", "owner-private workspace root")
+		flags.StringVar(&repositoryRoot, "repository-root", ".", "repository root")
+		flags.StringVar(&agentBinary, "agent-binary", "", "reviewed single-file native Codex executable")
+		flags.StringVar(&model, "model", "", "exact model used by the reviewed run")
+		flags.StringVar(&reasoning, "reasoning", "", "exact reasoning setting used by the reviewed run")
+		flags.IntVar(&timeoutSeconds, "timeout-seconds", 30, "offline qualification timeout")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 || root == "" || agentBinary == "" || model == "" {
+			return fmt.Errorf("private qualify requires root, agent binary, model, and no positional arguments")
+		}
+		doctor, err := agenteval.DoctorPrivateWorkspace(root, repositoryRoot)
+		if err != nil || !doctor.Healthy {
+			return fmt.Errorf("private qualify requires a healthy owner-private workspace")
+		}
+		canonicalRoot, err := filepath.Abs(root)
+		if err != nil {
+			return fmt.Errorf("private qualify requires a healthy owner-private workspace")
+		}
+		canonicalRoot, err = filepath.EvalSymlinks(canonicalRoot)
+		if err != nil {
+			return fmt.Errorf("private qualify requires a healthy owner-private workspace")
+		}
+		report, err := privateQualifyCodexCLI(context.Background(), agenteval.CodexCLIToolAvailabilityOptions{
+			AgentBinary: agentBinary, ScratchRoot: filepath.Join(canonicalRoot, ".ephemeral"), Model: model,
+			Reasoning: reasoning, TimeoutSeconds: timeoutSeconds,
+		})
+		if err != nil {
+			return err
+		}
+		if err := writePrivateJSON(out, report); err != nil {
+			return err
+		}
+		if !report.Supported() {
+			return fmt.Errorf("codex cli tool availability is %s", report.Status)
+		}
+		return nil
 	case "plan":
 		flags := privateFlagSet("private plan")
 		var root, repositoryRoot, runSet, atlBinary, pluginRoot, agentBinary, expiresAt, confirm string

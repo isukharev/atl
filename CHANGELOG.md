@@ -19,6 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Private Codex activation studies now qualify the exact native agent/model
+  shell inventory through one credential-free loopback Responses request before
+  persisting a plan and again before consuming it. Missing, ambiguous, or
+  malformed inventories stop before provider authentication, model execution,
+  backend access, and treatment scoring. The standalone `private qualify`
+  report retains only a binary identity, contract digest, closed status, and
+  zero-authority counters; paid calibration separately distinguishes policy
+  denial, model non-invocation, invocation failure, and successful brokered
+  evidence. Private plans advance to schema v6 to bind the qualified shell alias;
+  schema-v5 plans remain readable but cannot be executed.
+
 - Private activation-study plans now cap the backend-free calibration timeout
   at 300 seconds while preserving the reviewed treatment timeout. The derived
   value is bound into the calibration contract, and execution-invalid direct

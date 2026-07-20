@@ -333,16 +333,25 @@ is omitted from preview and aggregate JSON.
 
 Use one `kind:"activation-study"` run set for the complete 2x2. One reviewed
 plan and one consent bind all four same-surface cells, their common contract,
-the exact treatment specs, reviewer roster, and any required blind assignment.
-Before the first cell, one offline `atl version` calibration must traverse the
-same isolated Codex shell, plugin, hook, shim, and command broker without any
-backend config or credentials. It must prove one admitted successful local
-command through the `atl` hook family. Zero backend authority and writes are
-construction-derived from the exact `atl version` policy and stripped inputs,
-not gateway-observed HTTP telemetry. Calibration is infrastructure
-evidence, not a fifth treatment. Its timeout is the reviewed treatment timeout
-capped at 300 seconds while each treatment retains its full timeout; the
-derived value is review-bound rather than separately configured.
+the exact treatment specs, tool-availability qualification contract and
+observed shell alias, reviewer roster, and any required blind assignment.
+Before plan persistence and again before plan consumption, the exact native
+Codex binary, model, and reasoning setting must expose one unambiguous
+model-facing shell route to a credential-free synthetic loopback Responses
+endpoint. This qualification makes no model, provider, or backend request and
+retains no prompt, raw request, tool schema, path, credential, or backend
+identity. Unsupported or malformed inventories stop before treatment scoring.
+After that gate, one backend-free provider `atl version` calibration must
+traverse the same isolated Codex shell, plugin, hook, shim, and command broker
+without any backend config or credentials. It must prove one admitted
+successful local command through the `atl` hook family. Zero backend authority
+and writes are construction-derived from the exact `atl version` policy and
+stripped inputs, not gateway-observed HTTP telemetry. Calibration distinguishes
+process/schema failure, policy denial, model non-invocation, invocation failure,
+and success; it remains infrastructure evidence, not a fifth treatment. Its
+timeout is the reviewed treatment timeout capped at 300 seconds while each
+treatment retains its full timeout; the derived value is review-bound rather
+than separately configured.
 Attempts run sequentially in a canonical four-order balanced cycle scoped to
 the exact reviewed study material, not its editable run-set alias, so every
 treatment occurs once in every position and once before every other treatment
