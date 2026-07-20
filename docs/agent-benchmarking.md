@@ -1006,7 +1006,9 @@ The exact command and stripped authority make zero backend requests/writes a
 construction-derived guarantee here, not a gateway-observed HTTP measurement. A
 failure is classified as infrastructure/tool unavailability and terminates the
 plan without scoring a treatment. It is not a fifth arm and does not advance
-the order cycle.
+the order cycle. Its timeout is the reviewed treatment timeout capped at 300
+seconds and is bound into the immutable calibration contract; this does not
+shorten the treatment cells themselves or introduce a second operator setting.
 
 Every activation response schema requires the common closed
 `evidence_outcome.state` envelope. Its values are `none`, `unavailable`,

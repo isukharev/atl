@@ -293,6 +293,11 @@ environment plus the exact `atl version` broker policy; they are not claimed as
 gateway-observed HTTP telemetry. Failure is terminal infrastructure evidence and no treatment cell is
 reserved. Calibration is not a fifth arm and does not advance the balanced
 treatment order. Its cap is a separate reviewed cost partition.
+The calibration timeout is derived rather than separately configured: it is
+the reviewed treatment timeout capped at 300 seconds. Treatment cells keep
+their full reviewed timeout. This keeps the local `atl version` preflight
+bounded while letting longer evidence tasks use the timeout they need, and the
+derived value is part of the immutable calibration contract.
 
 Every activation response schema must also require this closed content-free
 member:

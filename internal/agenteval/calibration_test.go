@@ -54,7 +54,7 @@ func TestBuildCodexCLICalibrationContractIsDeterministicAndComplete(t *testing.T
 		t.Fatal(err)
 	}
 	second, err := BuildCodexCLICalibrationContract("test-model", "high", 60, 500_000, pricing)
-	if err != nil || first != second || !validSHA256(first.SHA256) {
+	if err != nil || first != second || !validSHA256(first.SHA256) || first.Validate() != nil {
 		t.Fatalf("first=%+v second=%+v err=%v", first, second, err)
 	}
 	mutations := []CodexCLICalibrationContract{}
@@ -80,6 +80,31 @@ func TestBuildCodexCLICalibrationContractIsDeterministicAndComplete(t *testing.T
 		if mutation.SHA256 == first.SHA256 {
 			t.Fatalf("contract mutation did not change digest: %+v", mutation)
 		}
+	}
+}
+
+func TestBuildCodexCLICalibrationContractRejectsExecutionInvalidInputs(t *testing.T) {
+	pricing := Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000}
+	tests := []struct {
+		name    string
+		model   string
+		timeout int
+		cap     int64
+		pricing Pricing
+	}{
+		{name: "model", timeout: 60, cap: 500_000, pricing: pricing},
+		{name: "zero timeout", model: "test-model", cap: 500_000, pricing: pricing},
+		{name: "long timeout", model: "test-model", timeout: maxCodexCLICalibrationTimeout + 1, cap: 500_000, pricing: pricing},
+		{name: "cost cap", model: "test-model", timeout: 60, pricing: pricing},
+		{name: "input pricing", model: "test-model", timeout: 60, cap: 500_000, pricing: Pricing{OutputMicroUSDPerMillionTokens: 2_000_000}},
+		{name: "output pricing", model: "test-model", timeout: 60, cap: 500_000, pricing: Pricing{InputMicroUSDPerMillionTokens: 1_000_000}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := BuildCodexCLICalibrationContract(test.model, "high", test.timeout, test.cap, test.pricing); err == nil {
+				t.Fatal("execution-invalid calibration contract was built")
+			}
+		})
 	}
 }
 

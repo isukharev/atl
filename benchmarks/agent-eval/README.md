@@ -340,7 +340,9 @@ backend config or credentials. It must prove one admitted successful local
 command through the `atl` hook family. Zero backend authority and writes are
 construction-derived from the exact `atl version` policy and stripped inputs,
 not gateway-observed HTTP telemetry. Calibration is infrastructure
-evidence, not a fifth treatment.
+evidence, not a fifth treatment. Its timeout is the reviewed treatment timeout
+capped at 300 seconds while each treatment retains its full timeout; the
+derived value is review-bound rather than separately configured.
 Attempts run sequentially in a canonical four-order balanced cycle scoped to
 the exact reviewed study material, not its editable run-set alias, so every
 treatment occurs once in every position and once before every other treatment
