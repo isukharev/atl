@@ -43,7 +43,8 @@ write command after explicit approval.
 - Transient bounded discovery/evidence: prefer typed `confluence_search`,
   `confluence_page_resolve`, `confluence_page_outline`, and
   `confluence_page_section` when the plugin exposes them. They cannot write or
-  create mirror artifacts.
+  create mirror artifacts. Pass the section `heading` as the exact outline
+  `title`, without Markdown `#` prefixes, plus `occurrence` when repeated.
 - CLI one-off read: `page resolve` once for a URL, then `page outline` before an
   exact bounded `page section`; use `page view -o text` only when the full page
   is actually required. Honor `complete` and duplicate-heading `--occurrence`.

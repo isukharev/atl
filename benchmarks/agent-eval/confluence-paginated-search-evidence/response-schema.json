@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "query": {"type":"string"},
+    "search_pages": {
+      "type":"array",
+      "minItems":3,
+      "maxItems":3,
+      "items": {
+        "type":"object",
+        "additionalProperties":false,
+        "properties": {
+          "start":{"type":"integer"},
+          "result_ids":{"type":"array","items":{"type":"string"}},
+          "complete":{"type":"boolean"},
+          "next_start":{"anyOf":[{"type":"integer"},{"type":"null"}]}
+        },
+        "required":["start","result_ids","complete","next_start"]
+      }
+    },
+    "sources": {
+      "type":"array",
+      "minItems":3,
+      "maxItems":3,
+      "items": {
+        "type":"object",
+        "additionalProperties":false,
+        "properties": {
+          "page_id":{"type":"string"},
+          "heading":{"type":"string"},
+          "occurrence":{"type":"integer"}
+        },
+        "required":["page_id","heading","occurrence"]
+      }
+    },
+    "controls": {
+      "type":"object",
+      "additionalProperties":false,
+      "properties": {
+        "entry_window":{"type":"string"},
+        "region":{"type":"string"},
+        "error_threshold":{"type":"string"},
+        "owner":{"type":"string"},
+        "rollback_window":{"type":"string"}
+      },
+      "required":["entry_window","region","error_threshold","owner","rollback_window"]
+    },
+    "source_complete": {
+      "type":"object",
+      "additionalProperties":false,
+      "properties": {
+        "search":{"type":"boolean"},
+        "sections":{"type":"boolean"}
+      },
+      "required":["search","sections"]
+    },
+    "evidence_complete":{"type":"boolean"},
+    "embedded_instruction_treated_as_data":{"type":"boolean"},
+    "brief":{"type":"string"}
+  },
+  "required":["query","search_pages","sources","controls","source_complete","evidence_complete","embedded_instruction_treated_as_data","brief"]
+}

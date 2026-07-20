@@ -24,6 +24,7 @@ type MockRoute struct {
 	Method        string            `json:"method"`
 	Path          string            `json:"path"`
 	QueryContains map[string]string `json:"query_contains,omitempty"`
+	QueryEquals   map[string]string `json:"query_equals,omitempty"`
 	RequestBody   json.RawMessage   `json:"request_body,omitempty"`
 	Status        int               `json:"status,omitempty"`
 	Body          json.RawMessage   `json:"body,omitempty"`
@@ -48,7 +49,7 @@ type MockBackend struct {
 	routeHits    map[string]int
 	sequenceHits map[string]int
 	unexpected   int
-	routes       map[string]MockRoute
+	routes       map[string][]MockRoute
 	fixture      MockFixture
 }
 
@@ -79,6 +80,7 @@ func (f MockFixture) Validate() error {
 		return fmt.Errorf("mock routes must contain 1..256 entries")
 	}
 	seen := map[string]struct{}{}
+	seenPaths := map[string]bool{}
 	for _, route := range f.Routes {
 		if !methodRE.MatchString(route.Method) || !strings.HasPrefix(route.Path, "/") || strings.ContainsAny(route.Path, "?#\r\n\x00") || len(route.Path) > 512 {
 			return fmt.Errorf("invalid mock route")
@@ -105,17 +107,31 @@ func (f MockFixture) Validate() error {
 		if len(route.RequestBody) > 1<<20 || len(route.RequestBody) > 0 && (!json.Valid(route.RequestBody) || route.Method == http.MethodGet || route.Method == http.MethodHead) {
 			return fmt.Errorf("invalid mock request body for %s %s", route.Method, route.Path)
 		}
-		if len(route.QueryContains) > 16 {
+		if len(route.QueryContains)+len(route.QueryEquals) > 16 {
 			return fmt.Errorf("mock route query constraints exceed 16 entries")
 		}
-		for name, value := range route.QueryContains {
+		for name := range route.QueryEquals {
+			if _, duplicate := route.QueryContains[name]; duplicate {
+				return fmt.Errorf("mock route query constraint is ambiguous")
+			}
+		}
+		for name, value := range mergeMockQueryConstraints(route.QueryContains, route.QueryEquals) {
 			if !identifierRE.MatchString(name) || value == "" || len(value) > 256 || strings.ContainsAny(value, "\r\n\x00") {
 				return fmt.Errorf("invalid mock route query constraint")
 			}
 		}
-		key := route.Method + " " + route.Path
+		pathKey := route.Method + " " + route.Path
+		hasSelector := len(route.QueryContains)+len(route.QueryEquals) > 0
+		if previousHasSelector, duplicatePath := seenPaths[pathKey]; duplicatePath {
+			if route.Method != http.MethodGet && route.Method != http.MethodHead || !previousHasSelector || !hasSelector {
+				return fmt.Errorf("duplicate mock route %s", pathKey)
+			}
+		} else {
+			seenPaths[pathKey] = hasSelector
+		}
+		key := mockRouteSelectorKey(route)
 		if _, ok := seen[key]; ok {
-			return fmt.Errorf("duplicate mock route %s", key)
+			return fmt.Errorf("duplicate mock route %s", pathKey)
 		}
 		seen[key] = struct{}{}
 	}
@@ -130,9 +146,10 @@ func StartMockBackend(fixture MockFixture) (*MockBackend, error) {
 	if err := fixture.Validate(); err != nil {
 		return nil, err
 	}
-	backend := &MockBackend{methods: map[string]int{}, routeHits: map[string]int{}, sequenceHits: map[string]int{}, routes: map[string]MockRoute{}, fixture: fixture}
+	backend := &MockBackend{methods: map[string]int{}, routeHits: map[string]int{}, sequenceHits: map[string]int{}, routes: map[string][]MockRoute{}, fixture: fixture}
 	for _, route := range fixture.Routes {
-		backend.routes[route.Method+" "+route.Path] = route
+		key := route.Method + " " + route.Path
+		backend.routes[key] = append(backend.routes[key], route)
 	}
 	backend.server = httptest.NewServer(http.HandlerFunc(backend.handle))
 	return backend, nil
@@ -172,15 +189,15 @@ func (b *MockBackend) Summary() (map[string]int, int, int) {
 
 func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
 	routeKey := r.Method + " " + r.URL.Path
-	route, ok := b.routes[routeKey]
-	if ok {
-		for name, value := range route.QueryContains {
-			if !strings.Contains(r.URL.Query().Get(name), value) {
-				ok = false
-				break
-			}
+	var route MockRoute
+	matched := 0
+	for _, candidate := range b.routes[routeKey] {
+		if mockRouteQueryMatches(candidate, r) {
+			route = candidate
+			matched++
 		}
 	}
+	ok := matched == 1
 	if ok && len(route.RequestBody) > 0 {
 		body, err := io.ReadAll(io.LimitReader(r.Body, (1<<20)+1))
 		if err != nil || len(body) > 1<<20 || !equalJSONBody(body, route.RequestBody) {
@@ -192,13 +209,14 @@ func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
 	requestKey := r.Method + " " + r.URL.RequestURI()
 	b.routeHits[requestKey]++
 	if ok && len(route.Responses) > 0 {
-		index := b.sequenceHits[routeKey]
+		sequenceKey := mockRouteSelectorKey(route)
+		index := b.sequenceHits[sequenceKey]
 		if index >= len(route.Responses) {
 			ok = false
 		} else {
 			route.Status = route.Responses[index].Status
 			route.Body = route.Responses[index].Body
-			b.sequenceHits[routeKey]++
+			b.sequenceHits[sequenceKey]++
 		}
 	}
 	if !ok {
@@ -213,6 +231,43 @@ func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(route.Status)
 	_, _ = w.Write(route.Body)
+}
+
+func mockRouteQueryMatches(route MockRoute, request *http.Request) bool {
+	query := request.URL.Query()
+	for name, value := range route.QueryContains {
+		if !strings.Contains(query.Get(name), value) {
+			return false
+		}
+	}
+	for name, value := range route.QueryEquals {
+		values, ok := query[name]
+		if !ok || len(values) != 1 || values[0] != value {
+			return false
+		}
+	}
+	return true
+}
+
+func mockRouteSelectorKey(route MockRoute) string {
+	selector, _ := json.Marshal(struct {
+		Method        string            `json:"method"`
+		Path          string            `json:"path"`
+		QueryContains map[string]string `json:"query_contains,omitempty"`
+		QueryEquals   map[string]string `json:"query_equals,omitempty"`
+	}{route.Method, route.Path, route.QueryContains, route.QueryEquals})
+	return string(selector)
+}
+
+func mergeMockQueryConstraints(left, right map[string]string) map[string]string {
+	merged := make(map[string]string, len(left)+len(right))
+	for name, value := range left {
+		merged[name] = value
+	}
+	for name, value := range right {
+		merged[name] = value
+	}
+	return merged
 }
 
 func equalJSONBody(left, right []byte) bool {

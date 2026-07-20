@@ -143,7 +143,7 @@ type ConfluenceSearchInput struct {
 
 type ConfluenceSectionInput struct {
 	Reference  string `json:"reference" jsonschema:"numeric page id or same-origin page URL/path"`
-	Heading    string `json:"heading" jsonschema:"exact Markdown heading to extract"`
+	Heading    string `json:"heading" jsonschema:"exact heading title from confluence_page_outline, without a Markdown # prefix"`
 	Occurrence int    `json:"occurrence,omitempty" jsonschema:"1-based occurrence when the heading repeats"`
 	MaxBytes   int    `json:"max_bytes,omitempty" jsonschema:"maximum Markdown bytes from 1 to 1048576; default 32768"`
 }

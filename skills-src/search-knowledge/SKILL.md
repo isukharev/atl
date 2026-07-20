@@ -10,7 +10,9 @@ citations. This recipe is read-only: never create, update, or comment.
 
 Make `export ATL_READ_ONLY=1` the first statement of every Bash block so all
 later atl calls and child processes inherit the guard. Never override it in
-this workflow.
+this workflow. Keep headless blocks to that export plus documented `atl`
+commands only; do not add output separators, pipes, help probes, or unrelated
+shell/file inspection commands.
 
 **Preflight:** `atl` must be installed and configured. If `command -v atl` fails
 or a command exits `7` ("not configured"), run `{{atl.setup_cmd}}` and stop.
@@ -53,7 +55,16 @@ or `project = KEY` when known. Retry one prepared variant after an empty result,
 then report the exact searches rather than implying full coverage. Freeze the
 first useful result pages before expanding anything: require Jira
 `page.complete:true` and Confluence top-level `complete:true`, or continue from
-`next_cursor` / report the partial search instead of claiming absence.
+`next_cursor` / report the partial search instead of claiming absence. To
+continue, repeat the exact query and page limit and pass only the returned
+cursor:
+
+<!-- atl:read-only-shell -->
+```sh
+export ATL_READ_ONLY=1
+atl conf search --cql 'siteSearch ~ "billing retry queue"' --limit 15 --cursor '<next-cursor>'
+atl jira issue search --jql 'text ~ "billing retry queue" ORDER BY updated DESC' --limit 15 --cursor '<next-cursor>'
+```
 
 ### 3. Read bounded Confluence evidence
 
@@ -61,7 +72,8 @@ For the 2–4 best page hits, inspect the outline, then read only the relevant
 section. A numeric id emitted by `conf search` is already a stable exact
 reference; pass it directly to `outline`/`section`. Use `resolve` only for a URL,
 short link, or user-supplied reference whose stable id is still unknown. Use a
-full page only when no heading isolates the answer.
+full page only when no heading isolates the answer. For typed tools, pass the
+section `heading` as the exact outline `title`, without Markdown `#` prefixes.
 
 <!-- atl:read-only-shell -->
 ```sh

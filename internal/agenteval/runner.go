@@ -1873,7 +1873,11 @@ func writeClaudeGuardSettings(path, guardPath, serverName string, reviewedMCPToo
 		// Claude's --tools/--allowed-tools CLI filters hides dynamic MCP tools in
 		// current releases before discovery completes.
 		settings["enabledMcpjsonServers"] = []string{serverName}
-		settings["permissions"] = map[string]any{"allow": reviewedMCPTools}
+		// Keep plugin workflow guidance available to CLI-skill runs, but remove
+		// the Skill built-in from typed-MCP model discovery. Current Claude Code
+		// cannot combine --tools filtering with dynamic MCP discovery; the exact
+		// permission deny is therefore paired with the global fail-closed hook.
+		settings["permissions"] = map[string]any{"allow": reviewedMCPTools, "deny": []string{"Skill"}}
 	}
 	data, err := json.Marshal(settings)
 	if err != nil {
