@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Made the fixed Codex activation-calibration response schema compatible with strict provider structured-output validation by explicitly typing its boolean property; reviewed plans still bind the exact schema digest and remain one-shot.
+
 ### Changed
 
 - Private activation-study plans now cap the backend-free calibration timeout

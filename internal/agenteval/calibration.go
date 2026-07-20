@@ -22,7 +22,7 @@ const (
 
 var (
 	codexCLICalibrationPrompt = []byte("Use the shell tool to run the literal command `atl version` exactly once. Do not run any other command. After the command succeeds, return the required JSON object.\n")
-	codexCLICalibrationSchema = []byte(`{"type":"object","properties":{"ok":{"const":true}},"required":["ok"],"additionalProperties":false}`)
+	codexCLICalibrationSchema = []byte(`{"type":"object","properties":{"ok":{"type":"boolean","const":true}},"required":["ok"],"additionalProperties":false}`)
 )
 
 // CodexCLICalibrationOptions describes the backend-free provider preflight.
