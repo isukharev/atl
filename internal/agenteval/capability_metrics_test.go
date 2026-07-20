@@ -52,6 +52,7 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 		{[]string{"jira", "export", "diff", "old.jsonl", "new.jsonl"}, "jira.export.diff"},
 		{[]string{"jira", "structure", "folders", "42"}, "jira.structure.folders"},
 		{[]string{"jira", "structure", "rows", "42"}, "jira.structure.rows"},
+		{[]string{"jira", "structure", "values", "42", "--rows", "100"}, "jira.structure.values"},
 		{[]string{"conf", "table", "extract", "page.csf", "--format", "json"}, "confluence.table.extract"},
 	} {
 		if family, ok := CapabilityFamilyForCLI(test.args); !ok || family != test.want {

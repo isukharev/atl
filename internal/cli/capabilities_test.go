@@ -52,7 +52,7 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 		{"jira/portfolio", []string{"jira.board.list", "jira.board.view", "jira.structure.folders", "jira.structure.view", "jira.portfolio.epic.digest", "jira.portfolio.confluence.section"}},
 		{"jira/board-portfolio", []string{"jira.board-portfolio.fields", "jira.board-portfolio.view", "jira.board-portfolio.epic.digest"}},
 		{"jira/batch-analysis", []string{"jira.batch.issue.export"}},
-		{"jira/structure-planning", []string{"jira.structure.rows", "jira.structure.issue.export"}},
+		{"jira/structure-planning", []string{"jira.structure.rows", "jira.structure.values", "jira.structure.issue.export"}},
 		{"jira/edit", []string{"jira.issue.fields.edit", "jira.issue.field.preview", "jira.issue.field.set", "jira.issue.plan.apply"}},
 		{"confluence/evidence", []string{"confluence.page.resolve", "confluence.page.outline", "confluence.page.section", "confluence.page.view"}},
 		{"confluence/table-analytics", []string{"confluence.table.extract"}},
@@ -86,7 +86,7 @@ func TestCapabilityRoutesPointToTheirFocusedWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(structure.Capabilities) != 2 || structure.Capabilities[0].Command != "jira structure rows" || structure.Capabilities[1].Command != "jira export" {
+	if len(structure.Capabilities) != 3 || structure.Capabilities[0].Command != "jira structure rows" || structure.Capabilities[1].Command != "jira structure values" || structure.Capabilities[2].Command != "jira export" {
 		t.Fatalf("structure route=%+v", structure.Capabilities)
 	}
 	for _, item := range structure.Capabilities {

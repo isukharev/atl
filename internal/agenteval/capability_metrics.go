@@ -25,7 +25,7 @@ var mcpCapabilityFamilies = map[string]string{
 var allowedCapabilityFamilies = map[string]struct{}{
 	"atl.config": {}, "atl.capabilities": {}, "jira.fields": {}, "jira.issue.fields": {},
 	"jira.issue.field": {}, "jira.issue.field.preview": {}, "jira.issue.field.set": {}, "jira.issue.search": {}, "jira.issue.batch-read": {}, "jira.epic.digest": {}, "jira.board.view": {},
-	"jira.export": {}, "jira.export.diff": {}, "jira.structure.folders": {}, "jira.structure.rows": {},
+	"jira.export": {}, "jira.export.diff": {}, "jira.structure.folders": {}, "jira.structure.rows": {}, "jira.structure.values": {},
 	"confluence.diff": {}, "confluence.search": {}, "confluence.page.resolve": {}, "confluence.page.outline": {}, "confluence.page.section": {},
 	"confluence.table.extract": {},
 	"confluence.plan.create":   {}, "confluence.plan.preview": {}, "confluence.plan.apply": {},
@@ -183,6 +183,7 @@ matched:
 		{[]string{"jira", "issue", "search"}, "jira.issue.search"}, {[]string{"jira", "board", "view"}, "jira.board.view"}, {[]string{"jira", "fields"}, "jira.fields"},
 		{[]string{"jira", "export", "diff"}, "jira.export.diff"}, {[]string{"jira", "export"}, "jira.export"},
 		{[]string{"jira", "structure", "folders"}, "jira.structure.folders"}, {[]string{"jira", "structure", "rows"}, "jira.structure.rows"},
+		{[]string{"jira", "structure", "values"}, "jira.structure.values"},
 		{[]string{"conf", "diff"}, "confluence.diff"}, {[]string{"conf", "search"}, "confluence.search"},
 		{[]string{"conf", "table", "extract"}, "confluence.table.extract"},
 		{[]string{"conf", "plan", "create"}, "confluence.plan.create"}, {[]string{"conf", "plan", "preview"}, "confluence.plan.preview"},

@@ -199,6 +199,9 @@ atl capabilities --task knowledge/search -o text
 It returns only a small ordered set of real command paths plus their access,
 output, completeness, and focused skill-reference contracts. It loads no
 config/credentials and makes no network request.
+The `jira/structure-planning` route distinguishes hierarchy discovery,
+explicit Structure row-value projection, and transient issue export; the value
+projection is read-only even though Tempo transports its query payload by POST.
 
 For transient Jira/Confluence evidence, the installed plugins can call the same
 application services through typed MCP tools instead of constructing shell
