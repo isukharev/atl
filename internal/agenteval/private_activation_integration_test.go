@@ -291,12 +291,33 @@ func TestPreparePrivateActivationOutputRootRejectsSymlinkedRunAncestor(t *testin
 	if err := os.Symlink(outside, runRoot); err != nil {
 		t.Skipf("symlink unavailable: %v", err)
 	}
-	if _, err := preparePrivateActivationOutputRoot(root, runRoot, t.TempDir()); err == nil {
+	if _, err := preparePrivateActivationOutputRoot(root, runRoot); err == nil {
 		t.Fatal("symlinked run ancestor was accepted")
 	}
 	outsideMarker := filepath.Join(outside, "raw", privateOutputRootMarker)
 	if _, err := os.Lstat(outsideMarker); !os.IsNotExist(err) {
 		t.Fatalf("marker escaped the private root: %v", err)
+	}
+
+	safeRunRoot := filepath.Join(runsRoot, "run-11111111111111111111111111111111")
+	outputRoot, err := preparePrivateActivationOutputRoot(root, safeRunRoot)
+	if err != nil {
+		t.Fatalf("prepare safe output root: %v", err)
+	}
+	preservedRunRoot := safeRunRoot + "-preserved"
+	if err := os.Rename(safeRunRoot, preservedRunRoot); err != nil {
+		t.Fatal(err)
+	}
+	lateOutside := t.TempDir()
+	if err := os.Symlink(lateOutside, safeRunRoot); err != nil {
+		t.Skipf("late symlink unavailable: %v", err)
+	}
+	if err := validatePrivateActivationOutputRoot(root, outputRoot); err == nil {
+		t.Fatal("post-creation symlinked run ancestor was accepted")
+	}
+	lateOutsideMarker := filepath.Join(lateOutside, "raw", privateOutputRootMarker)
+	if _, err := os.Lstat(lateOutsideMarker); !os.IsNotExist(err) {
+		t.Fatalf("late validation mutated the outside target: %v", err)
 	}
 }
 
@@ -304,7 +325,7 @@ func TestPrivateActivationStudyRejectsCalibrationOutputPermissionDrift(t *testin
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX owner-only mode fixture")
 	}
-	for _, target := range []string{"root", "marker"} {
+	for _, target := range []string{"root", "marker", "missing-marker"} {
 		t.Run(target, func(t *testing.T) {
 			fixture := newPrivateActivationPlanFixture(t)
 			installPrivateActivationRunStub(t)
@@ -314,12 +335,21 @@ func TestPrivateActivationStudyRejectsCalibrationOutputPermissionDrift(t *testin
 				if err != nil {
 					return receipt, err
 				}
-				path := options.OutputRoot
-				if target == "marker" {
-					path = filepath.Join(options.OutputRoot, privateOutputRootMarker)
-				}
-				if err := os.Chmod(path, 0o755); err != nil {
-					return CodexCLICalibrationReceipt{}, err
+				if target == "missing-marker" {
+					if err := os.RemoveAll(filepath.Join(options.OutputRoot, "provider-calibration")); err != nil {
+						return CodexCLICalibrationReceipt{}, err
+					}
+					if err := os.Remove(filepath.Join(options.OutputRoot, privateOutputRootMarker)); err != nil {
+						return CodexCLICalibrationReceipt{}, err
+					}
+				} else {
+					path := options.OutputRoot
+					if target == "marker" {
+						path = filepath.Join(options.OutputRoot, privateOutputRootMarker)
+					}
+					if err := os.Chmod(path, 0o755); err != nil {
+						return CodexCLICalibrationReceipt{}, err
+					}
 				}
 				return receipt, nil
 			}
