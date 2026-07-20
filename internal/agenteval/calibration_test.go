@@ -47,6 +47,26 @@ func TestValidateCalibrationEvidenceFailsClosed(t *testing.T) {
 	}
 }
 
+func TestCodexCLICalibrationSchemaTypesEveryProperty(t *testing.T) {
+	var schema struct {
+		Type       string `json:"type"`
+		Properties map[string]struct {
+			Type  string `json:"type"`
+			Const bool   `json:"const"`
+		} `json:"properties"`
+		Required             []string `json:"required"`
+		AdditionalProperties bool     `json:"additionalProperties"`
+	}
+	if err := json.Unmarshal(codexCLICalibrationSchema, &schema); err != nil {
+		t.Fatal(err)
+	}
+	ok, exists := schema.Properties["ok"]
+	if schema.Type != "object" || len(schema.Properties) != 1 || !exists || ok.Type != "boolean" || !ok.Const ||
+		len(schema.Required) != 1 || schema.Required[0] != "ok" || schema.AdditionalProperties {
+		t.Fatalf("provider-incompatible calibration schema: %+v", schema)
+	}
+}
+
 func TestBuildCodexCLICalibrationContractIsDeterministicAndComplete(t *testing.T) {
 	pricing := Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000}
 	first, err := BuildCodexCLICalibrationContract("test-model", "high", 60, 500_000, pricing)

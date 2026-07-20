@@ -290,7 +290,10 @@ credential and must observe one provider command event, one `atl`-family hook
 admission, one successful broker record, and bounded non-empty output. Zero
 backend authority and zero writes are construction-derived from that stripped
 environment plus the exact `atl version` broker policy; they are not claimed as
-gateway-observed HTTP telemetry. Failure is terminal infrastructure evidence and no treatment cell is
+gateway-observed HTTP telemetry. Its closed response schema explicitly types
+every property so the reviewed contract is accepted by strict structured-output
+providers without weakening the required `{"ok":true}` result. Failure is
+terminal infrastructure evidence and no treatment cell is
 reserved. Calibration is not a fifth arm and does not advance the balanced
 treatment order. Its cap is a separate reviewed cost partition.
 The calibration timeout is derived rather than separately configured: it is

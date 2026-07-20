@@ -1003,7 +1003,10 @@ hook, shim, broker, and permissions. It admits only `atl version`, receives no
 backend config, URL, PAT, gateway, or corporate credential, and must prove one
 successful bounded local result with a matching `atl`-family hook admission.
 The exact command and stripped authority make zero backend requests/writes a
-construction-derived guarantee here, not a gateway-observed HTTP measurement. A
+construction-derived guarantee here, not a gateway-observed HTTP measurement.
+The closed calibration response schema explicitly types every property for
+strict provider structured-output validation while still accepting only
+`{"ok":true}`. A
 failure is classified as infrastructure/tool unavailability and terminates the
 plan without scoring a treatment. It is not a fifth arm and does not advance
 the order cycle. Its timeout is the reviewed treatment timeout capped at 300
