@@ -969,14 +969,17 @@ implicit-only. An `activation-study` contains exactly four otherwise-identical
 Codex `private-live` `cli-skill` v6 specs, one per treatment, in one case
 directory. It requires a blinded `criterion-median-v1` panel with exactly three
 or five reviewers, a positive explicit `reviewer_reserve_microusd`, and a
-separate offline calibration cap. Current private plans use schema v5;
-activation-study execution state uses calibrated schema v3 rather than the
+separate backend-free provider-calibration cap. Current private plans use
+schema v6; schema-v5 plans remain inspectable but read-only because they predate
+the bound tool-availability result. Activation-study execution state uses
+calibrated schema v3 rather than the
 legacy per-surface state.
 
 One activation-study plan and one consent bind the common contract, all four
-exact treatment contracts, panel roster, any required blind assignment,
-execution snapshot, and provider-auth session. Attempts run sequentially through
-these canonical balanced orders:
+exact treatment contracts, tool-availability qualification contract and
+observed shell alias, panel
+roster, any required blind assignment, execution snapshot, and provider-auth
+session. Attempts run sequentially through these canonical balanced orders:
 `implicit/explicit/combined/developer`,
 `explicit/developer/implicit/combined`,
 `developer/combined/explicit/implicit`, and
@@ -997,8 +1000,17 @@ execution receipt, removes the exact owned execution capsule, and never invokes
 the provider or backend. Execution and recovery summaries expose `cost_known`;
 when it is false, the numeric detected total is only a lower bound.
 
-Before any treatment reservation, one offline calibration makes a real Codex
-tool call through the same isolated runtime, installed plugin, shell flags,
+Before plan persistence and again before plan consumption, a credential-free
+qualification runs the exact native Codex binary against a nonce-scoped
+loopback Responses endpoint. It accepts one bounded synthetic request and
+validates the model-facing shell inventory without provider authentication,
+model execution, backend authority, or durable raw request data. The
+content-free report binds the binary, model, reasoning setting, fixed prompt,
+launch flags, bounds, and timeout. Missing, ambiguous, malformed, repeated, or
+absent inventory terminates before a treatment is reserved or scored.
+
+After that gate, one backend-free provider calibration makes a real Codex tool
+call through the same isolated runtime, installed plugin, shell flags,
 hook, shim, broker, and permissions. It admits only `atl version`, receives no
 backend config, URL, PAT, gateway, or corporate credential, and must prove one
 successful bounded local result with a matching `atl`-family hook admission.
@@ -1012,11 +1024,14 @@ response must match that digest in addition to the hook and broker audit. Raw
 version values remain only in owner-private provider artifacts; they are not
 copied into the durable receipt or sanitized audit/baseline. This prevents a
 constant response from passing when the model skips or misreports the tool. A
-failure is classified as infrastructure/tool unavailability and terminates the
-plan without scoring a treatment. It is not a fifth arm and does not advance
-the order cycle. Its timeout is the reviewed treatment timeout capped at 300
-seconds and is bound into the immutable calibration contract; this does not
-shorten the treatment cells themselves or introduce a second operator setting.
+failure is classified as provider-process failure, response-schema failure,
+policy denial, model non-invocation, or invocation failure and terminates the
+plan without scoring a treatment. Successful calibration still requires the
+complete hook, shim, broker, and semantic-response evidence chain. It is not a
+fifth arm and does not advance the order cycle. Its timeout is the reviewed
+treatment timeout capped at 300 seconds and is bound into the immutable
+calibration contract; this does not shorten the treatment cells themselves or
+introduce a second operator setting.
 
 Every activation response schema requires the common closed
 `evidence_outcome.state` envelope. Its values are `none`, `unavailable`,

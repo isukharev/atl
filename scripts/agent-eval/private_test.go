@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -49,9 +50,53 @@ func TestPrivateDoctorEmitsSanitizedFailure(t *testing.T) {
 	assertPrivateReport(t, output.Bytes(), false)
 }
 
+func TestPrivateQualifyEmitsContentFreeReport(t *testing.T) {
+	repository := t.TempDir()
+	root := filepath.Join(t.TempDir(), "private")
+	if err := runPrivateCommand([]string{"init", "--root", root, "--repository-root", repository}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	original := privateQualifyCodexCLI
+	var captured agenteval.CodexCLIToolAvailabilityOptions
+	privateQualifyCodexCLI = func(_ context.Context, options agenteval.CodexCLIToolAvailabilityOptions) (agenteval.CodexCLIToolAvailabilityReport, error) {
+		captured = options
+		return agenteval.CodexCLIToolAvailabilityReport{
+			SchemaVersion:   agenteval.CodexCLIToolAvailabilitySchemaVersion,
+			Provider:        "codex",
+			AgentIdentity:   "binary-sha256:" + strings.Repeat("a", 64),
+			ContractSHA256:  strings.Repeat("b", 64),
+			Status:          agenteval.CodexCLIToolAvailabilitySupported,
+			ShellTool:       "exec_command",
+			RequestObserved: true, SyntheticRequests: 1,
+		}, nil
+	}
+	t.Cleanup(func() { privateQualifyCodexCLI = original })
+	var output bytes.Buffer
+	err := runPrivateCommand([]string{
+		"qualify", "--root", root, "--repository-root", repository,
+		"--agent-binary", "/reviewed/codex", "--model", "synthetic-model",
+		"--reasoning", "high", "--timeout-seconds", "17",
+	}, &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report agenteval.CodexCLIToolAvailabilityReport
+	if err := json.Unmarshal(output.Bytes(), &report); err != nil || !report.Supported() {
+		t.Fatalf("report=%+v err=%v", report, err)
+	}
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if captured.AgentBinary != "/reviewed/codex" || captured.Model != "synthetic-model" || captured.Reasoning != "high" ||
+		captured.TimeoutSeconds != 17 || captured.ScratchRoot != filepath.Join(canonicalRoot, ".ephemeral") {
+		t.Fatalf("options=%+v", captured)
+	}
+}
+
 func TestPrivateCommandRejectsMissingAndExtraArguments(t *testing.T) {
 	for _, args := range [][]string{
-		{}, {"init"}, {"status", "extra"}, {"doctor", "--root", "x", "extra"},
+		{}, {"init"}, {"status", "extra"}, {"doctor", "--root", "x", "extra"}, {"qualify"},
 		{"review"}, {"review", "prepare"}, {"review", "assess"}, {"baseline"}, {"baseline", "set"},
 		{"study"}, {"study", "recover"}, {"study", "reference"}, {"study", "compare"}, {"study", "promote"}, {"study", "unknown"},
 		{"compare"}, {"prune", "--root", "x", "--confirm", "PRUNE"}, {"unknown"},
