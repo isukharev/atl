@@ -79,6 +79,55 @@ func TestPrivateActivationStudyPlanExecutesOneBoundFourCellBlock(t *testing.T) {
 	}
 }
 
+func TestPrivateActivationStudyCapsCalibrationTimeoutWithoutChangingTreatments(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("synthetic executable scripts are Unix-only")
+	}
+	fixture := newPrivateActivationPlanFixture(t)
+	manifestPath := filepath.Join(fixture.root, PrivateWorkspaceManifestName)
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := DecodePrivateWorkspaceManifest(bytes.NewReader(manifestData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const treatmentTimeout = 600
+	for _, relative := range manifest.RunSets[0].SpecPaths {
+		path := filepath.Join(fixture.root, filepath.FromSlash(relative))
+		var spec RunSpec
+		readPrivatePlanTestJSON(t, path, &spec)
+		spec.TimeoutSeconds = treatmentTimeout
+		writeJSONTestFile(t, path, spec)
+	}
+
+	installPrivateActivationRunStub(t)
+	calibrationRun := privatePlanRunCalibration
+	calibrationTimeout := 0
+	privatePlanRunCalibration = func(ctx context.Context, options CodexCLICalibrationOptions) (CodexCLICalibrationReceipt, error) {
+		calibrationTimeout = options.TimeoutSeconds
+		return calibrationRun(ctx, options)
+	}
+	t.Cleanup(func() { privatePlanRunCalibration = calibrationRun })
+
+	preview := fixture.createPlan(t)
+	summary, err := ExecutePrivatePlan(context.Background(), fixture.executeOptions(preview))
+	if err != nil || summary.Status != "completed" || summary.Completed != 4 {
+		t.Fatalf("summary=%+v err=%v", summary, err)
+	}
+	if calibrationTimeout != maxCodexCLICalibrationTimeout {
+		t.Fatalf("calibration timeout=%d want=%d", calibrationTimeout, maxCodexCLICalibrationTimeout)
+	}
+	for _, relative := range manifest.RunSets[0].SpecPaths {
+		var spec RunSpec
+		readPrivatePlanTestJSON(t, filepath.Join(fixture.root, filepath.FromSlash(relative)), &spec)
+		if spec.TimeoutSeconds != treatmentTimeout {
+			t.Fatalf("treatment timeout=%d want=%d", spec.TimeoutSeconds, treatmentTimeout)
+		}
+	}
+}
+
 func TestPrivateActivationStudyOrderCannotBeSelectedByExpiryOrAlias(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("synthetic executable scripts are Unix-only")
@@ -1237,7 +1286,8 @@ func completePrivateActivationFixtureCalibration(t *testing.T, fixture privatePl
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := BuildCodexCLICalibrationContract(loaded.spec.Model, loaded.spec.Reasoning, loaded.spec.TimeoutSeconds,
+	contract, err := BuildCodexCLICalibrationContract(loaded.spec.Model, loaded.spec.Reasoning,
+		codexCLICalibrationTimeout(loaded.spec.TimeoutSeconds),
 		plan.StudyContract.Calibration.MaxEstimatedCostMicroUSD, loaded.spec.Pricing)
 	if err != nil {
 		t.Fatal(err)

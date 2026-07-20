@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Private activation-study plans now cap the backend-free calibration timeout
+  at 300 seconds while preserving the reviewed treatment timeout. The derived
+  value is bound into the calibration contract, and execution-invalid direct
+  calibration inputs are rejected during planning instead of consuming a plan
+  immediately before provider launch.
+
 - Private Codex activation studies now calibrate the real local tool path before
   any treatment: one isolated, hook- and broker-audited `atl version` runs with
   no backend config or credentials and must produce bounded output through a

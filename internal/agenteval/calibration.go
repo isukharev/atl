@@ -17,6 +17,7 @@ import (
 const (
 	CodexCLICalibrationSchemaVersion = 1
 	calibrationOutputLimit           = 64 << 10
+	maxCodexCLICalibrationTimeout    = 300
 )
 
 var (
@@ -112,6 +113,10 @@ func (r CodexCLICalibrationReceipt) Validate(contract CodexCLICalibrationContrac
 // BuildCodexCLICalibrationContract is pure: path placeholders are fixed and no
 // filesystem, provider, environment, or backend state is consulted.
 func BuildCodexCLICalibrationContract(model, reasoning string, timeoutSeconds int, maxEstimatedCostMicroUSD int64, pricing Pricing) (CodexCLICalibrationContract, error) {
+	if model == "" || timeoutSeconds < 1 || timeoutSeconds > maxCodexCLICalibrationTimeout || maxEstimatedCostMicroUSD < 1 ||
+		pricing.InputMicroUSDPerMillionTokens < 1 || pricing.OutputMicroUSDPerMillionTokens < 1 {
+		return CodexCLICalibrationContract{}, fmt.Errorf("invalid codex cli calibration inputs")
+	}
 	options := CodexCLICalibrationOptions{
 		Model: model, Reasoning: reasoning, TimeoutSeconds: timeoutSeconds,
 		MaxEstimatedCostMicroUSD: maxEstimatedCostMicroUSD, Pricing: pricing,
@@ -166,8 +171,8 @@ func RunCodexCLICalibration(parent context.Context, options CodexCLICalibrationO
 	if parent == nil || options.OutputRoot == "" || options.RepositoryRoot == "" || options.AgentBinary == "" || options.ATLBinary == "" || options.PluginRoot == "" || options.WrapperExecutable == "" || options.ScratchRoot == "" || options.providerAuthSession == nil || options.providerAttemptCommitted == nil {
 		return receipt, fmt.Errorf("codex cli calibration requires private output, repository, provider, atl, plugin, wrapper, scratch, authentication, and attempt-boundary inputs")
 	}
-	if options.TimeoutSeconds < 1 || options.TimeoutSeconds > 300 {
-		return receipt, fmt.Errorf("codex cli calibration timeout_seconds must be in 1..300")
+	if options.TimeoutSeconds < 1 || options.TimeoutSeconds > maxCodexCLICalibrationTimeout {
+		return receipt, fmt.Errorf("codex cli calibration timeout_seconds must be in 1..%d", maxCodexCLICalibrationTimeout)
 	}
 	contract, err := BuildCodexCLICalibrationContract(options.Model, options.Reasoning, options.TimeoutSeconds, options.MaxEstimatedCostMicroUSD, options.Pricing)
 	if err != nil {
@@ -413,6 +418,10 @@ func RunCodexCLICalibration(parent context.Context, options CodexCLICalibrationO
 		return CodexCLICalibrationReceipt{}, err
 	}
 	return receipt, nil
+}
+
+func codexCLICalibrationTimeout(treatmentTimeoutSeconds int) int {
+	return min(treatmentTimeoutSeconds, maxCodexCLICalibrationTimeout)
 }
 
 func calibrationCLICommandPolicy() CLICommandPolicy {

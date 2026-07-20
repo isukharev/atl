@@ -801,8 +801,11 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 			return nil, material, "", "", 0, false, privatePlanError("calibration_contract")
 		}
 		calibration, err := BuildCodexCLICalibrationContract(activationSpec.Model, activationSpec.Reasoning,
-			activationSpec.TimeoutSeconds, runSet.CalibrationMaxEstimatedCostMicroUSD, activationSpec.Pricing)
+			codexCLICalibrationTimeout(activationSpec.TimeoutSeconds), runSet.CalibrationMaxEstimatedCostMicroUSD, activationSpec.Pricing)
 		if err != nil {
+			return nil, material, "", "", 0, false, privatePlanError("calibration_contract")
+		}
+		if err := calibration.Validate(); err != nil {
 			return nil, material, "", "", 0, false, privatePlanError("calibration_contract")
 		}
 		material.calibration = &calibration
