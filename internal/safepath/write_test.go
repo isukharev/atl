@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -336,6 +337,40 @@ func TestRenameWithin(t *testing.T) {
 	}
 	if got, err := ReadFileWithin(root, dest); err != nil || string(got) != "first" {
 		t.Fatalf("renamed content=%q err=%v", got, err)
+	}
+}
+
+func TestSyncDirectoryWithinRejectsNonDirectoryAndSymlink(t *testing.T) {
+	root := t.TempDir()
+	if runtime.GOOS == "windows" {
+		if err := SyncDirectoryWithin(root, root); err == nil {
+			t.Fatal("directory sync unexpectedly succeeded on windows")
+		}
+		return
+	}
+	if err := SyncDirectoryWithin(root, root); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "state")
+	if err := MkdirAllWithin(root, dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := SyncDirectoryWithin(root, dir); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "file")
+	if err := WriteFileWithin(root, file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SyncDirectoryWithin(root, file); err == nil {
+		t.Fatal("regular file was accepted as a directory sync target")
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := SyncDirectoryWithin(root, link); err == nil {
+		t.Fatal("symlink directory was accepted as a sync target")
 	}
 }
 

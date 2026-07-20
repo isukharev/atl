@@ -982,6 +982,13 @@ automated reviewer slots. Activation-study execution state uses
 calibrated schema v3 rather than the
 legacy per-surface state.
 
+A healthy workspace-manifest v3 remains inspectable but is read-only for new
+plans. The maintainer command `agent-eval private migrate` first emits a
+content-bound schema-v4 projection without changing the workspace; apply
+requires that exact migration digest and `MIGRATE`. The projection changes only
+the manifest schema version. Executable reviewer settings and their reserve are
+an explicit subsequent v4 configuration choice and are bound by the fresh plan.
+
 One activation-study plan and one consent bind the common contract, all four
 exact treatment contracts, tool-availability qualification contract and
 observed execution-route alias, panel

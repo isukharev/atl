@@ -105,6 +105,8 @@ echoed into a terminal or CI log.
 |---|---|---|---|---|
 | Initialize | `private init` | None | Creates the marked fixed layout | New or empty owner-only root |
 | Inspect | `private status` / `private doctor` | None | Read-only | None |
+| Preview migration | `private migrate` | None | Read-only manifest projection | Healthy, quiescent schema-v3 workspace |
+| Apply migration | `private migrate` with confirmation | None | Installs the exact schema-v4 candidate, then removes the v3 manifest | Exact migration SHA-256 and `MIGRATE` |
 | Qualify Codex CLI | `private qualify` | None; one synthetic loopback Responses request | Temporary owner-only runtime removed on return | Exact native binary, model, and reasoning setting |
 | Plan | `private plan` | None | Writes one immutable plan | Data-boundary flags and `CONSENT` |
 | Execute | `private run` | Reviewed model and read-only backend routes | Writes one candidate run | Exact plan SHA-256 and `RUN` |
@@ -139,7 +141,7 @@ go build -o /tmp/agent-eval ./scripts/agent-eval
   --repository-root .
 ```
 
-Edit the generated private manifest locally. Schema v3 gives each run set a
+Edit the generated private manifest locally. Current schema v4 gives each run set a
 `kind`: `comparison` accepts one to three unique surfaces, while
 `activation-study` requires exactly four otherwise-identical Codex
 `private-live` `cli-skill` v6 specs carrying `implicit`, `explicit`, `developer`,
@@ -152,6 +154,59 @@ editor validation, and the
 [generic example](../benchmarks/agent-eval/private-workspace.example.json)
 shows a comparison without backend-specific values. The Go decoder remains the
 authoritative strict validator.
+
+### Migrate a schema-v3 workspace
+
+A healthy schema-v3 workspace remains readable, but it cannot create a new
+plan. Migrate it only while no plan is pending and no run is active. The first
+command is a read-only preview: it derives a byte-stable v4 manifest by changing
+only the schema version and returns source, candidate, and domain-separated
+migration digests plus preserved counts. It does not invent reviewer execution,
+pricing, timeout, cap, or reserve settings. Preview may create or reuse the
+owner-only advisory lock file in `.ephemeral/`; it does not change a manifest,
+case, plan, run, baseline, or report.
+
+```sh
+/tmp/agent-eval private migrate \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root .
+```
+
+After reviewing the preview, apply that exact projection with its
+`migration_sha256`:
+
+```sh
+/tmp/agent-eval private migrate \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --expected-migration-sha256 "$REVIEWED_MIGRATION_SHA256" \
+  --confirm MIGRATE
+```
+
+Apply revalidates the source, candidate, tree, lifecycle, and reviewed digest
+under the workspace lock. It writes and verifies `private-workspace.v4.json`,
+fsyncs the root directory, durably archives the exact v3 bytes under
+`reports/`, then atomically stages the v3 source in `.ephemeral/`. The stage
+directory is fsynced before the source directory; the implementation then
+revalidates both inode contents and the workspace, removes the staged source,
+and fsyncs the stage directory again. An interruption therefore never removes
+the only durable valid manifest or the reviewed source bytes. A retry with the
+same reviewed digest may finish only when the dual manifests, staged source, or
+archive form that exact transition; any different recovery state is left
+untouched and rejected. Cases, plans, runs, baselines, existing reports,
+ordering, and all v3 manifest fields remain unchanged. Schema v1/v2 and
+already-current v4 workspaces are never rewritten.
+
+Preview is available on Windows, but apply fails closed there because the
+current implementation cannot prove durable directory-entry ordering with
+Windows handles. Perform the reviewed migration on a supported POSIX host; do
+not copy or rename manifests manually to bypass this boundary.
+
+The migrated manifest keeps existing panels manual. Add a complete executable
+roster and its matching reserve as a separate owner-reviewed v4 edit, run
+`private doctor`, and create a fresh immutable plan. The plan binds those exact
+model, reasoning, pricing, timeout, cap, and reserve choices before any provider
+or backend call.
 
 ```json
 {

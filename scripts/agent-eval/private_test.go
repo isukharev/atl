@@ -35,6 +35,45 @@ func TestPrivateInitStatusAndDoctor(t *testing.T) {
 	assertPrivateReport(t, output.Bytes(), true)
 }
 
+func TestPrivateMigrateIsPreviewByDefaultAndDigestBoundOnApply(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("migration apply requires durable directory sync")
+	}
+	repository := t.TempDir()
+	root := filepath.Join(t.TempDir(), "private")
+	manifest := agenteval.DefaultPrivateWorkspaceManifest()
+	manifest.SchemaVersion = agenteval.LegacyCalibratedWorkspaceSchemaVersion
+	if report, err := agenteval.InitPrivateWorkspace(root, repository, manifest); err != nil || !report.Healthy {
+		t.Fatalf("init report=%+v err=%v", report, err)
+	}
+	var output bytes.Buffer
+	if err := runPrivateCommand([]string{"migrate", "--root", root, "--repository-root", repository}, &output); err != nil {
+		t.Fatal(err)
+	}
+	var preview agenteval.PrivateWorkspaceMigrationPreview
+	if err := json.Unmarshal(output.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if preview.Status != "ready" || len(preview.MigrationSHA256) != 64 {
+		t.Fatalf("preview=%+v", preview)
+	}
+	if _, err := os.Lstat(filepath.Join(root, agenteval.PrivateWorkspaceManifestName)); !os.IsNotExist(err) {
+		t.Fatalf("preview mutated workspace: %v", err)
+	}
+	output.Reset()
+	if err := runPrivateCommand([]string{"migrate", "--root", root, "--repository-root", repository,
+		"--expected-migration-sha256", preview.MigrationSHA256, "--confirm", "MIGRATE"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	var summary agenteval.PrivateWorkspaceMigrationSummary
+	if err := json.Unmarshal(output.Bytes(), &summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary.Status != "migrated" || summary.MigrationSHA256 != preview.MigrationSHA256 {
+		t.Fatalf("summary=%+v", summary)
+	}
+}
+
 func TestPrivateDoctorEmitsSanitizedFailure(t *testing.T) {
 	repository := t.TempDir()
 	privateMarker := "private-host.example.invalid/PROJ-123"
@@ -96,7 +135,8 @@ func TestPrivateQualifyEmitsContentFreeReport(t *testing.T) {
 
 func TestPrivateCommandRejectsMissingAndExtraArguments(t *testing.T) {
 	for _, args := range [][]string{
-		{}, {"init"}, {"status", "extra"}, {"doctor", "--root", "x", "extra"}, {"qualify"},
+		{}, {"init"}, {"status", "extra"}, {"doctor", "--root", "x", "extra"}, {"migrate"},
+		{"migrate", "--root", "x", "--confirm", "MIGRATE"}, {"qualify"},
 		{"review"}, {"review", "prepare"}, {"review", "run"}, {"review", "assess"}, {"baseline"}, {"baseline", "set"},
 		{"study"}, {"study", "recover"}, {"study", "reference"}, {"study", "compare"}, {"study", "promote"}, {"study", "unknown"},
 		{"compare"}, {"prune", "--root", "x", "--confirm", "PRUNE"}, {"unknown"},
