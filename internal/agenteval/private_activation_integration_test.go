@@ -308,6 +308,19 @@ func TestPreparePrivateActivationOutputRootRejectsSymlinkedRunAncestor(t *testin
 	if err := os.Rename(safeRunRoot, preservedRunRoot); err != nil {
 		t.Fatal(err)
 	}
+	alternateRunRoot := filepath.Join(runsRoot, "run-22222222222222222222222222222222")
+	if _, err := preparePrivateActivationOutputRoot(root, alternateRunRoot); err != nil {
+		t.Fatalf("prepare alternate output root: %v", err)
+	}
+	if err := os.Symlink(filepath.Base(alternateRunRoot), safeRunRoot); err != nil {
+		t.Skipf("relative symlink unavailable: %v", err)
+	}
+	if err := validatePrivateActivationOutputRoot(root, outputRoot); err == nil {
+		t.Fatal("in-root relative symlinked run ancestor was accepted")
+	}
+	if err := os.Remove(safeRunRoot); err != nil {
+		t.Fatal(err)
+	}
 	lateOutside := t.TempDir()
 	if err := os.Symlink(lateOutside, safeRunRoot); err != nil {
 		t.Skipf("late symlink unavailable: %v", err)

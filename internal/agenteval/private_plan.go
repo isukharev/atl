@@ -770,21 +770,33 @@ func validatePrivateActivationOutputRoot(root, outputRoot string) error {
 	if err != nil {
 		return privatePlanError("calibration_output")
 	}
-	defer func() { _ = rootHandle.Close() }()
-	pathInfo, err := rootHandle.Lstat(relative)
-	if err != nil || !pathInfo.IsDir() || pathInfo.Mode()&os.ModeSymlink != 0 ||
-		(runtime.GOOS != "windows" && pathInfo.Mode().Perm() != 0o700) {
-		return privatePlanError("calibration_output")
+	handles := []*os.Root{rootHandle}
+	defer func() {
+		for index := len(handles) - 1; index >= 0; index-- {
+			_ = handles[index].Close()
+		}
+	}()
+	components := strings.Split(filepath.Clean(relative), string(filepath.Separator))
+	componentInfos := make([]os.FileInfo, 0, len(components))
+	for _, component := range components {
+		parent := handles[len(handles)-1]
+		info, err := parent.Lstat(component)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 ||
+			(runtime.GOOS != "windows" && info.Mode().Perm() != 0o700) {
+			return privatePlanError("calibration_output")
+		}
+		child, err := parent.OpenRoot(component)
+		if err != nil {
+			return privatePlanError("calibration_output")
+		}
+		handles = append(handles, child)
+		openedInfo, err := child.Stat(".")
+		if err != nil || !os.SameFile(info, openedInfo) {
+			return privatePlanError("calibration_output")
+		}
+		componentInfos = append(componentInfos, info)
 	}
-	outputHandle, err := rootHandle.OpenRoot(relative)
-	if err != nil {
-		return privatePlanError("calibration_output")
-	}
-	defer func() { _ = outputHandle.Close() }()
-	openedInfo, err := outputHandle.Stat(".")
-	if err != nil || !os.SameFile(pathInfo, openedInfo) {
-		return privatePlanError("calibration_output")
-	}
+	outputHandle := handles[len(handles)-1]
 	markerInfo, err := outputHandle.Lstat(privateOutputRootMarker)
 	if err != nil || !markerInfo.Mode().IsRegular() || markerInfo.Mode()&os.ModeSymlink != 0 ||
 		(runtime.GOOS != "windows" && markerInfo.Mode().Perm() != 0o600) {
@@ -805,18 +817,24 @@ func validatePrivateActivationOutputRoot(root, outputRoot string) error {
 	if err != nil || string(data) != privateOutputRootMarkerContents {
 		return privatePlanError("calibration_output")
 	}
-	finalPathInfo, pathErr := rootHandle.Lstat(relative)
-	finalOpenedInfo, openedErr := outputHandle.Stat(".")
 	finalMarkerInfo, markerErr := outputHandle.Lstat(privateOutputRootMarker)
 	finalOpenedMarkerInfo, openedMarkerErr := markerFile.Stat()
-	if pathErr != nil || openedErr != nil || markerErr != nil || !os.SameFile(pathInfo, finalPathInfo) ||
-		!os.SameFile(pathInfo, finalOpenedInfo) || !os.SameFile(markerInfo, finalMarkerInfo) ||
+	if markerErr != nil || !os.SameFile(markerInfo, finalMarkerInfo) ||
 		openedMarkerErr != nil || !os.SameFile(markerInfo, finalOpenedMarkerInfo) ||
-		!finalPathInfo.IsDir() || !finalMarkerInfo.Mode().IsRegular() ||
-		finalPathInfo.Mode()&os.ModeSymlink != 0 || finalMarkerInfo.Mode()&os.ModeSymlink != 0 ||
-		(runtime.GOOS != "windows" && (finalPathInfo.Mode().Perm() != 0o700 || finalMarkerInfo.Mode().Perm() != 0o600 ||
+		!finalMarkerInfo.Mode().IsRegular() || finalMarkerInfo.Mode()&os.ModeSymlink != 0 ||
+		(runtime.GOOS != "windows" && (finalMarkerInfo.Mode().Perm() != 0o600 ||
 			finalOpenedMarkerInfo.Mode().Perm() != 0o600)) {
 		return privatePlanError("calibration_output")
+	}
+	for index, component := range components {
+		finalInfo, err := handles[index].Lstat(component)
+		finalOpenedInfo, openedErr := handles[index+1].Stat(".")
+		if err != nil || openedErr != nil || !os.SameFile(componentInfos[index], finalInfo) ||
+			!os.SameFile(componentInfos[index], finalOpenedInfo) || !finalInfo.IsDir() ||
+			finalInfo.Mode()&os.ModeSymlink != 0 ||
+			(runtime.GOOS != "windows" && finalInfo.Mode().Perm() != 0o700) {
+			return privatePlanError("calibration_output")
+		}
 	}
 	return nil
 }
