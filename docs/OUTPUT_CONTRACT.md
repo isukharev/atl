@@ -94,6 +94,10 @@ filesystem search is deliberately outside the route.
 For `jira/structure-planning`, the ordered catalog exposes hierarchy rows,
 explicit Structure values with `completeness:"per-row"`, and transient issue
 export as separate capabilities.
+For `jira/edit`, `jira.issue.worklog.list` exposes the complete baseline and
+`jira.issue.worklog.add` routes to the guarded preview/apply command with
+`evidence:"hash-bound"` and `completeness:"reconciled"`; catalog entries do
+not themselves grant write authority.
 
 ### MCP tool results
 

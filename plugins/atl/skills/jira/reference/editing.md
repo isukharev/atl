@@ -81,9 +81,12 @@ push.
   again and reconcile content/author/time. Never retry from a partial listing.
 - Watchers: preview resolved DC username and complete membership, then apply the
   exact proposal hash. `complete:false` blocks absence claims and writes.
-- Worklogs: list completely, prefer explicit `--started` and file comments,
+- Worklogs: `jira.issue.worklog.list` exposes the complete baseline and
+  `jira.issue.worklog.add` previews the mutation by default. List completely,
+  prefer explicit `--started` and file comments,
   review normalized duration/start/author plus the complete worklog-id baseline
-  hash, then apply once. Unknown is possibly committed and never reusable.
+  hash, then apply once. An ambiguous response gets one reconciliation read;
+  unknown is possibly committed and never reusable.
 - Links/plans: freeze exact scope, expected update times, link type metadata,
   and proposal hash before any row writes; stop/reconcile unknown outcomes.
 - Attachments/create operations are non-idempotent: do not automatically retry

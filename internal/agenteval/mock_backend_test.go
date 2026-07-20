@@ -170,6 +170,24 @@ func TestMockBackendQueryConstraintRejectsSemanticallyWrongSearch(t *testing.T) 
 	}
 }
 
+func TestMockFixtureAcceptsCaseSensitiveProductQueryNames(t *testing.T) {
+	fixture := MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{{
+			Method: "GET", Path: "/jira/rest/api/2/issue/PROJ-1/worklog",
+			QueryEquals: map[string]string{"maxResults": "100", "startAt": "0"},
+			Status:      http.StatusOK, Body: []byte(`{}`),
+		}},
+	}
+	if err := fixture.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	fixture.Routes[0].QueryEquals["bad name"] = "value"
+	if err := fixture.Validate(); err == nil {
+		t.Fatal("query name containing whitespace passed")
+	}
+}
+
 func TestMockBackendSelectsExactPaginatedQueryRoute(t *testing.T) {
 	fixture := MockFixture{
 		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
