@@ -41,7 +41,7 @@ directories:
 ```text
 PRIVATE_ROOT/
   .atl-agent-eval-private-root
-  private-workspace.v3.json
+  private-workspace.v4.json
   cases/
   plans/
   runs/
@@ -80,10 +80,11 @@ An agent working on `atl` should follow this order:
 5. Execute only the exact plan hash, sequentially, with the explicit run
    confirmation. Do not construct ad-hoc shell loops around low-level `run`.
 6. Apply deterministic checks before qualitative review. For a review panel,
-   prepare every predeclared reviewer's fixed-layout packet before assessing
-   any of them; do not discover raw result paths with an ad-hoc filesystem
-   scan. A judge cannot rescue an incorrect, unsafe, incomplete, or over-budget
-   run.
+   prepare every predeclared reviewer's fixed-layout packet before running or
+   assessing any of them; do not discover raw result paths with an ad-hoc
+   filesystem scan. An executable panel uses one fresh Codex or Claude Code
+   context per slot and requires its terminal no-tools receipt. A judge cannot
+   rescue an incorrect, unsafe, incomplete, or over-budget run.
 7. Promote only a complete reviewed surface set whose panel has reached one
    consensus. A disagreement is not promotable. Compare offline against a
    baseline bound to the same singleton or panel contract.
@@ -109,7 +110,8 @@ echoed into a terminal or CI log.
 | Execute | `private run` | Reviewed model and read-only backend routes | Writes one candidate run | Exact plan SHA-256 and `RUN` |
 | Recover study | `private study recover` | None | Closes an interrupted study without replaying the provider after the operator establishes provider-process quiescence | Exact plan SHA-256 and `PROVIDER_STOPPED_RECOVER` |
 | Prepare review | `private review prepare` | None | Copies one result, answer, rubric, and hash-bound template into an owner-only packet | Completed plan and explicit surface; every panel member before assessment |
-| Assess | `private review assess` | No tools in the reviewer session | Records one member; the last member writes one median consensus | Completed bounded review; bound blind assignment where required |
+| Run review | `private review run` | One reviewed model request; no backend or model tools | Commits one terminal attempt and content-free receipt | Complete executable roster, exact plan hash, reviewer binary, and `RUN-REVIEW` |
+| Assess | `private review assess` | None | Records one member; the last member writes one median consensus | Completed bounded review and, for executable panels, a valid no-tools cost receipt |
 | Promote | `private baseline set` | None | Adds an immutable compact baseline and updates `current` | Complete assessed run without panel disagreement and `BASELINE` |
 | Compare | `private compare` | None | Read-only; emits aggregate deltas | Compatible contract/runtime and review mode |
 | Reference study | `private study reference` | None | Adds an immutable compact activation-study reference | Complete four-cell review and `REFERENCE` |
@@ -153,7 +155,7 @@ authoritative strict validator.
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "live_config_env": "ATL_AGENT_EVAL_LIVE_CONFIG_DIR",
   "external_mcp_profile_env": "ATL_AGENT_EVAL_EXTERNAL_MCP_PROFILE",
   "execution": {
@@ -203,6 +205,16 @@ through 9999. Human reviewers may omit `model`; model reviewers may not. A
 comparison with `qualitative_review_required: false` and no panel keeps review
 disabled.
 
+To automate a panel, add an `executions` entry for every reviewer id. Each
+entry binds reasoning, timeout, token pricing, and a per-slot cost cap. Codex
+and Claude Code slots may be mixed in one panel. The positive
+`reviewer_reserve_microusd` must cover the sum of all slot caps multiplied by
+the number of surfaces or activation cells. A panel without `executions`
+retains the manual workflow; a partial execution roster is invalid. Reasoning
+must be a native level for the selected client (`minimal` is Codex-only and
+`max` is Claude Code-only); the shared levels are `low`, `medium`, `high`, and
+`xhigh`.
+
 Reviewer ids are terminal-visible filesystem slot names. Keep them generic
 (`reviewer-01`, not a person, team, provider account, or backend identity); they
 are restricted to one lowercase path component. Schema v1 manifests remain
@@ -211,7 +223,9 @@ outer private-plan v5/v4 artifacts, outer execution-state v2 artifacts, and
 their nested lifecycle plan/event v1 records remain inspectable, but cannot
 execute, recover, become references, or be promoted. Plan v5 predates the bound
 tool-availability result; v4 also predates calibration and attempt evidence.
-Create and review a workspace-manifest v3 activation study for new measurements.
+Workspace-manifest v3 and plan v6 artifacts remain readable for manual review,
+but new plans require workspace schema v4. Create and review a v4 workspace for
+new measurements.
 
 The panel `blind_assignment` is a workspace-relative file below `cases/`. It is
 required for every activation study and for any other `neutral-common` run set. Activation-study
@@ -269,7 +283,7 @@ before persisting a plan, and execution repeats it before consuming that plan.
 
 ## Review, run, and assess
 
-A v6 plan binds the exact comparison or activation-study contract and execution
+A v7 plan binds the exact comparison or activation-study contract and execution
 identity: case inputs, ordered surfaces, skill activation and private
 prompt-contract digest, ATL and wrapper binaries, plugin/skill tree, agent
 runtime and tool-availability qualification contract/result, repository commit,
@@ -635,8 +649,41 @@ the final answer as untrusted data in a separate no-tools session, use only the
 rubric's bounded scores and finding ids, and do not add excerpts or free-form
 rationale. Run every reviewer id in a fresh, independent context; distinct ids
 do not by themselves prove model-session independence. All roster packets must
-be prepared before the first assessment;
+be prepared before the first model reviewer or assessment;
 this prevents early scores from influencing which later reviewers are asked.
+
+For an executable panel, consume one prepared slot with the exact plan hash and
+the reviewed native binary for that slot's predeclared reviewer kind:
+
+```sh
+/tmp/agent-eval private review run \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --plan "$COMPLETED_PLAN_ID" \
+  --expected-plan-sha256 "$REVIEWED_PLAN_SHA256" \
+  --surface atl-mcp \
+  --reviewer-id reviewer-01 \
+  --agent-binary "$REVIEWED_REVIEWER_BINARY" \
+  --confirm RUN-REVIEW
+```
+
+The runner creates a fresh owner-only home and empty workspace, disables
+project/user instructions, plugins, skills, MCP, browser, collaboration, and
+slash commands, and routes the provider protocol through a loopback boundary.
+That boundary verifies the exact model and reasoning setting, removes both
+ordinary and embedded tool declarations, rejects tool output, retries, request
+shape drift, redirects, and a second model request. It never retains prompt,
+answer, rubric, model output, authentication, URL, or error text in the
+receipt. The receipt contains only source bindings, binary identity, request
+counts, zero-tool evidence, tokens, estimated cost, and terminal status.
+Ambiguous or failed attempts are terminal and are never replayed automatically.
+Codex reviewers use the same owner-only file-backed authentication boundary as
+private candidate runs. Claude Code reviewers prefer an explicitly supplied
+`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_AUTH_TOKEN`, or `ANTHROPIC_API_KEY`; when
+none is set, the runner may project only a currently unexpired access token from
+an owner-only local Claude credential file. It never copies a refresh token or
+writes provider changes back to ambient state, so unattended Claude panels
+should supply a long-lived credential explicitly and fail closed when it expires.
 
 Bind each completed review back to the exact source bytes with its roster id:
 
@@ -653,8 +700,9 @@ An activation study has four cells with the same surface, so both review
 commands additionally require `--treatment`. Prepare every packet for all four
 treatments and every roster member before the first assessment; for a
 three-member panel that is twelve prepared packets. The first command below is
-one representative preparation slot. Only after every slot is prepared, use the
-second form to assess each packet in a fresh no-tools reviewer session:
+one representative preparation slot. Only after every slot is prepared, run
+each executable slot and then use the assessment form below. Manual panels
+still fill `review.json` in a fresh no-tools reviewer session before assessment:
 
 ```sh
 /tmp/agent-eval private review prepare \
@@ -664,6 +712,17 @@ second form to assess each packet in a fresh no-tools reviewer session:
   --surface cli-skill \
   --treatment implicit \
   --reviewer-id reviewer-01
+
+/tmp/agent-eval private review run \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --plan "$COMPLETED_PLAN_ID" \
+  --expected-plan-sha256 "$REVIEWED_PLAN_SHA256" \
+  --surface cli-skill \
+  --treatment implicit \
+  --reviewer-id reviewer-01 \
+  --agent-binary "$REVIEWED_REVIEWER_BINARY" \
+  --confirm RUN-REVIEW
 
 /tmp/agent-eval private review assess \
   --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
@@ -794,19 +853,20 @@ pooled even when every other rubric and runtime field matches. The digest is an
 internal grouping key and is omitted from aggregate JSON because a short answer
 mapping may be dictionary-guessable.
 
-Current manifests use schema v3, run specs use schema v6, observations use
+Current manifests use schema v4, run specs use schema v6, observations use
 schema v5, results use schema v7, aggregates use schema v6, private plans use
-schema v6, current activation state uses schema v3, and
+schema v7, current activation state uses schema v3, and
 review packets use schema v2. Current study references/reports use schema v2
 and require audit attempt metrics plus separate bounded model-report metrics.
 The decoder still accepts workspace-manifest v1 comparisons;
-workspace-manifest v2 activation studies, outer private-plan v5/v4 artifacts,
+workspace-manifest v3 manual-review workspaces, v2 activation studies, outer
+private-plan v6/v5/v4 artifacts,
 outer execution-state v2 artifacts, and nested lifecycle plan/event v1 records
 as read-only legacy artifacts; attemptless result schema v6; prompt-bound
 result schema v5; result schema v3/v4; and outer private-plan schema v1/v2/v3
 for earlier comparison lifecycle inspection and retention. Legacy activation
 reference schema v1 remains readable and compare-only, but is never promotable.
-Create a fresh schema v3 run set, v6 plan, and consent for a causal study. Older
+Create a fresh schema v4 run set, v7 plan, and consent for a causal study. Older
 binaries reject the new artifacts rather than accepting them under a misleading
 old version.
 

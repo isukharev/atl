@@ -20,10 +20,12 @@ import (
 )
 
 const (
-	PrivateWorkspaceSchemaVersion          = 3
+	PrivateWorkspaceSchemaVersion          = 4
+	LegacyCalibratedWorkspaceSchemaVersion = 3
 	LegacyActivationWorkspaceSchemaVersion = 2
 	LegacyPrivateWorkspaceSchemaVersion    = 1
-	PrivateWorkspaceManifestName           = "private-workspace.v3.json"
+	PrivateWorkspaceManifestName           = "private-workspace.v4.json"
+	LegacyCalibratedWorkspaceManifestName  = "private-workspace.v3.json"
 	LegacyActivationWorkspaceManifestName  = "private-workspace.v2.json"
 	LegacyPrivateWorkspaceManifestName     = "private-workspace.v1.json"
 
@@ -94,10 +96,22 @@ const PrivateQualitativeReviewPanelMethod = QualitativePanelMethod
 // execution. BlindAssignment is a workspace-relative owner-private input below
 // cases/; its contents never appear in lifecycle summaries.
 type PrivateQualitativeReviewPanel struct {
-	Method               string     `json:"method"`
-	Reviewers            []Reviewer `json:"reviewers"`
-	MaxCriterionRangeBPS int        `json:"max_criterion_range_bps"`
-	BlindAssignment      string     `json:"blind_assignment,omitempty"`
+	Method               string                     `json:"method"`
+	Reviewers            []Reviewer                 `json:"reviewers"`
+	MaxCriterionRangeBPS int                        `json:"max_criterion_range_bps"`
+	BlindAssignment      string                     `json:"blind_assignment,omitempty"`
+	Executions           []PrivateReviewerExecution `json:"executions,omitempty"`
+}
+
+// PrivateReviewerExecution binds the provider settings and maximum spend for
+// one predeclared automated panel slot. Empty Executions preserves the manual
+// review workflow used by legacy workspaces.
+type PrivateReviewerExecution struct {
+	ReviewerID               string  `json:"reviewer_id"`
+	Reasoning                string  `json:"reasoning"`
+	TimeoutSeconds           int     `json:"timeout_seconds"`
+	Pricing                  Pricing `json:"pricing"`
+	MaxEstimatedCostMicroUSD int64   `json:"max_estimated_cost_microusd"`
 }
 
 func (p PrivateQualitativeReviewPanel) validate() error {
@@ -119,7 +133,47 @@ func (p PrivateQualitativeReviewPanel) validate() error {
 	if p.BlindAssignment != "" && !validPrivateWorkspaceCaseFilePath(p.BlindAssignment) {
 		return privateWorkspaceContractError("qualitative_review_panel")
 	}
+	if len(p.Executions) != 0 {
+		if len(p.Executions) != len(p.Reviewers) {
+			return privateWorkspaceContractError("reviewer_execution")
+		}
+		executions := make(map[string]PrivateReviewerExecution, len(p.Executions))
+		for _, execution := range p.Executions {
+			if !identifierRE.MatchString(execution.ReviewerID) || execution.Reasoning == "" ||
+				len(execution.Reasoning) > 64 || strings.ContainsAny(execution.Reasoning, "\r\n\x00") ||
+				execution.TimeoutSeconds < 1 || execution.TimeoutSeconds > 3600 ||
+				execution.Pricing.InputMicroUSDPerMillionTokens < 0 || execution.Pricing.OutputMicroUSDPerMillionTokens < 0 ||
+				execution.Pricing.InputMicroUSDPerMillionTokens+execution.Pricing.OutputMicroUSDPerMillionTokens < 1 ||
+				execution.MaxEstimatedCostMicroUSD < 1 || execution.MaxEstimatedCostMicroUSD > 100_000_000 {
+				return privateWorkspaceContractError("reviewer_execution")
+			}
+			if _, exists := executions[execution.ReviewerID]; exists {
+				return privateWorkspaceContractError("reviewer_execution")
+			}
+			executions[execution.ReviewerID] = execution
+		}
+		for _, reviewer := range p.Reviewers {
+			if reviewer.Kind != "codex" && reviewer.Kind != "claude-code" {
+				return privateWorkspaceContractError("reviewer_execution")
+			}
+			execution, ok := executions[reviewer.ID]
+			if !ok || !validPrivateReviewerReasoning(reviewer.Kind, execution.Reasoning) {
+				return privateWorkspaceContractError("reviewer_execution")
+			}
+		}
+	}
 	return nil
+}
+
+func validPrivateReviewerReasoning(kind, reasoning string) bool {
+	switch kind {
+	case "codex":
+		return reasoning == "minimal" || reasoning == "low" || reasoning == "medium" || reasoning == "high" || reasoning == "xhigh"
+	case "claude-code":
+		return reasoning == "low" || reasoning == "medium" || reasoning == "high" || reasoning == "xhigh" || reasoning == "max"
+	default:
+		return false
+	}
 }
 
 type PrivateWorkspaceCounts struct {
@@ -186,7 +240,8 @@ func DefaultPrivateWorkspaceManifest() PrivateWorkspaceManifest {
 }
 
 func (m PrivateWorkspaceManifest) Validate() error {
-	if m.SchemaVersion != PrivateWorkspaceSchemaVersion && m.SchemaVersion != LegacyActivationWorkspaceSchemaVersion && m.SchemaVersion != LegacyPrivateWorkspaceSchemaVersion {
+	if m.SchemaVersion != PrivateWorkspaceSchemaVersion && m.SchemaVersion != LegacyCalibratedWorkspaceSchemaVersion &&
+		m.SchemaVersion != LegacyActivationWorkspaceSchemaVersion && m.SchemaVersion != LegacyPrivateWorkspaceSchemaVersion {
 		return privateWorkspaceContractError("schema_version")
 	}
 	if !privateWorkspaceEnvRE.MatchString(m.LiveConfigEnv) {
@@ -247,18 +302,40 @@ func (m PrivateWorkspaceManifest) Validate() error {
 			if err := runSet.QualitativeReviewPanel.validate(); err != nil {
 				return err
 			}
+			if len(runSet.QualitativeReviewPanel.Executions) != 0 && m.SchemaVersion != PrivateWorkspaceSchemaVersion {
+				return privateWorkspaceContractError("reviewer_execution")
+			}
+		}
+		reviewerExecutionCost := int64(0)
+		if runSet.QualitativeReviewPanel != nil {
+			for _, execution := range runSet.QualitativeReviewPanel.Executions {
+				if reviewerExecutionCost > m.Execution.MaxEstimatedCostMicroUSD-execution.MaxEstimatedCostMicroUSD {
+					return privateWorkspaceContractError("reviewer_reserve")
+				}
+				reviewerExecutionCost += execution.MaxEstimatedCostMicroUSD
+			}
+		}
+		if reviewerExecutionCost != 0 {
+			if reviewerExecutionCost > m.Execution.MaxEstimatedCostMicroUSD/int64(len(runSet.SpecPaths)) {
+				return privateWorkspaceContractError("reviewer_reserve")
+			}
+			reviewerExecutionCost *= int64(len(runSet.SpecPaths))
+		}
+		if reviewerExecutionCost != 0 && (runSet.ReviewerReserveMicroUSD < reviewerExecutionCost || runSet.ReviewerReserveMicroUSD > m.Execution.MaxEstimatedCostMicroUSD) {
+			return privateWorkspaceContractError("reviewer_reserve")
 		}
 		if kind == PrivateRunSetKindActivationStudy {
 			commonInvalid := runSet.QualitativeReviewRequired || runSet.QualitativeReviewPanel == nil ||
 				runSet.QualitativeReviewPanel.BlindAssignment == "" || runSet.ReviewerReserveMicroUSD < 1 ||
 				runSet.ReviewerReserveMicroUSD > m.Execution.MaxEstimatedCostMicroUSD
-			currentInvalid := m.SchemaVersion == PrivateWorkspaceSchemaVersion &&
+			currentInvalid := (m.SchemaVersion == PrivateWorkspaceSchemaVersion || m.SchemaVersion == LegacyCalibratedWorkspaceSchemaVersion) &&
 				(runSet.CalibrationMaxEstimatedCostMicroUSD < 1 || runSet.CalibrationMaxEstimatedCostMicroUSD > m.Execution.MaxEstimatedCostMicroUSD-runSet.ReviewerReserveMicroUSD)
 			legacyInvalid := m.SchemaVersion == LegacyActivationWorkspaceSchemaVersion && runSet.CalibrationMaxEstimatedCostMicroUSD != 0
 			if commonInvalid || currentInvalid || legacyInvalid || m.SchemaVersion == LegacyPrivateWorkspaceSchemaVersion {
 				return privateWorkspaceContractError("activation_study")
 			}
-		} else if runSet.ReviewerReserveMicroUSD != 0 || runSet.CalibrationMaxEstimatedCostMicroUSD != 0 {
+		} else if runSet.CalibrationMaxEstimatedCostMicroUSD != 0 ||
+			(runSet.ReviewerReserveMicroUSD != 0 && reviewerExecutionCost == 0) {
 			return privateWorkspaceContractError("reviewer_reserve")
 		}
 	}
@@ -340,7 +417,7 @@ func validatePrivateWorkspaceManifestPresence(data []byte) error {
 		if panelData, ok := runSet["qualitative_review_panel"]; ok {
 			var panel map[string]json.RawMessage
 			if json.Unmarshal(panelData, &panel) != nil || validatePrivateWorkspaceObjectKeys(panel,
-				[]string{"method", "reviewers", "max_criterion_range_bps"}, []string{"blind_assignment"}) != nil {
+				[]string{"method", "reviewers", "max_criterion_range_bps"}, []string{"blind_assignment", "executions"}) != nil {
 				return privateWorkspaceContractError("decode")
 			}
 			var reviewers []map[string]json.RawMessage
@@ -350,6 +427,23 @@ func validatePrivateWorkspaceManifestPresence(data []byte) error {
 			for _, reviewer := range reviewers {
 				if validatePrivateWorkspaceObjectKeys(reviewer, []string{"id", "kind"}, []string{"model"}) != nil {
 					return privateWorkspaceContractError("decode")
+				}
+			}
+			if encoded, ok := panel["executions"]; ok {
+				var executions []map[string]json.RawMessage
+				if json.Unmarshal(encoded, &executions) != nil {
+					return privateWorkspaceContractError("decode")
+				}
+				for _, execution := range executions {
+					if validatePrivateWorkspaceObjectKeys(execution,
+						[]string{"reviewer_id", "reasoning", "timeout_seconds", "pricing", "max_estimated_cost_microusd"}, nil) != nil {
+						return privateWorkspaceContractError("decode")
+					}
+					var pricing map[string]json.RawMessage
+					if json.Unmarshal(execution["pricing"], &pricing) != nil || validatePrivateWorkspaceObjectKeys(pricing,
+						[]string{"input_microusd_per_million_tokens", "output_microusd_per_million_tokens"}, nil) != nil {
+						return privateWorkspaceContractError("decode")
+					}
 				}
 			}
 		}
@@ -384,17 +478,49 @@ func validatePrivateWorkspaceManifestPresence(data []byte) error {
 		}
 		_, reservePresent := runSet["reviewer_reserve_microusd"]
 		_, calibrationPresent := runSet["calibration_max_estimated_cost_microusd"]
+		executionsPresent := false
+		if panelData, ok := runSet["qualitative_review_panel"]; ok {
+			var panel map[string]json.RawMessage
+			if json.Unmarshal(panelData, &panel) != nil {
+				return privateWorkspaceContractError("decode")
+			}
+			if executionData, ok := panel["executions"]; ok {
+				var executions []json.RawMessage
+				if json.Unmarshal(executionData, &executions) != nil || len(executions) == 0 {
+					return privateWorkspaceContractError("reviewer_execution")
+				}
+				executionsPresent = true
+			}
+		}
 		if raw.SchemaVersion == LegacyPrivateWorkspaceSchemaVersion && reservePresent {
 			return privateWorkspaceContractError("reviewer_reserve")
 		}
-		if kind == PrivateRunSetKindActivationStudy && (!reservePresent || raw.SchemaVersion == PrivateWorkspaceSchemaVersion && !calibrationPresent) {
+		if kind == PrivateRunSetKindActivationStudy && (!reservePresent ||
+			(raw.SchemaVersion == PrivateWorkspaceSchemaVersion || raw.SchemaVersion == LegacyCalibratedWorkspaceSchemaVersion) && !calibrationPresent) {
 			return privateWorkspaceContractError("reviewer_reserve")
 		}
-		if kind != PrivateRunSetKindActivationStudy && (reservePresent || calibrationPresent) {
+		if kind != PrivateRunSetKindActivationStudy && calibrationPresent {
 			return privateWorkspaceContractError("reviewer_reserve")
 		}
-		if raw.SchemaVersion != PrivateWorkspaceSchemaVersion && calibrationPresent {
+		if kind != PrivateRunSetKindActivationStudy && reservePresent != executionsPresent {
+			return privateWorkspaceContractError("reviewer_reserve")
+		}
+		if raw.SchemaVersion != PrivateWorkspaceSchemaVersion && raw.SchemaVersion != LegacyCalibratedWorkspaceSchemaVersion && calibrationPresent {
 			return privateWorkspaceContractError("calibration_reserve")
+		}
+		if raw.SchemaVersion != PrivateWorkspaceSchemaVersion {
+			if reservePresent && kind != PrivateRunSetKindActivationStudy {
+				return privateWorkspaceContractError("reviewer_reserve")
+			}
+			if panelData, ok := runSet["qualitative_review_panel"]; ok {
+				var panel map[string]json.RawMessage
+				if json.Unmarshal(panelData, &panel) != nil {
+					return privateWorkspaceContractError("decode")
+				}
+				if _, executionPresent := panel["executions"]; executionPresent {
+					return privateWorkspaceContractError("reviewer_execution")
+				}
+			}
 		}
 	}
 	return nil
@@ -457,13 +583,15 @@ func loadPrivateWorkspaceManifest(root string) (PrivateWorkspaceManifest, string
 
 func privateWorkspaceManifestPath(root string) (string, error) {
 	current := filepath.Join(root, PrivateWorkspaceManifestName)
+	legacyCalibrated := filepath.Join(root, LegacyCalibratedWorkspaceManifestName)
 	legacyActivation := filepath.Join(root, LegacyActivationWorkspaceManifestName)
 	legacy := filepath.Join(root, LegacyPrivateWorkspaceManifestName)
 	_, currentErr := os.Lstat(current)
+	_, legacyCalibratedErr := os.Lstat(legacyCalibrated)
 	_, legacyActivationErr := os.Lstat(legacyActivation)
 	_, legacyErr := os.Lstat(legacy)
 	present := 0
-	for _, err := range []error{currentErr, legacyActivationErr, legacyErr} {
+	for _, err := range []error{currentErr, legacyCalibratedErr, legacyActivationErr, legacyErr} {
 		if err == nil {
 			present++
 		}
@@ -474,13 +602,16 @@ func privateWorkspaceManifestPath(root string) (string, error) {
 	if currentErr == nil {
 		return current, nil
 	}
+	if legacyCalibratedErr == nil {
+		return legacyCalibrated, nil
+	}
 	if legacyActivationErr == nil {
 		return legacyActivation, nil
 	}
 	if legacyErr == nil {
 		return legacy, nil
 	}
-	if !os.IsNotExist(currentErr) || !os.IsNotExist(legacyActivationErr) || !os.IsNotExist(legacyErr) {
+	if !os.IsNotExist(currentErr) || !os.IsNotExist(legacyCalibratedErr) || !os.IsNotExist(legacyActivationErr) || !os.IsNotExist(legacyErr) {
 		return "", privateWorkspaceOperationError("manifest_stat")
 	}
 	return current, nil
@@ -492,6 +623,8 @@ func privateWorkspaceManifestPathForSchema(root string, schemaVersion int) strin
 		return filepath.Join(root, LegacyPrivateWorkspaceManifestName)
 	case LegacyActivationWorkspaceSchemaVersion:
 		return filepath.Join(root, LegacyActivationWorkspaceManifestName)
+	case LegacyCalibratedWorkspaceSchemaVersion:
+		return filepath.Join(root, LegacyCalibratedWorkspaceManifestName)
 	default:
 		return filepath.Join(root, PrivateWorkspaceManifestName)
 	}
@@ -501,6 +634,8 @@ func privateWorkspaceManifestSchemaMatchesPath(path string, schemaVersion int) b
 	switch filepath.Base(path) {
 	case PrivateWorkspaceManifestName:
 		return schemaVersion == PrivateWorkspaceSchemaVersion
+	case LegacyCalibratedWorkspaceManifestName:
+		return schemaVersion == LegacyCalibratedWorkspaceSchemaVersion
 	case LegacyActivationWorkspaceManifestName:
 		return schemaVersion == LegacyActivationWorkspaceSchemaVersion
 	case LegacyPrivateWorkspaceManifestName:
@@ -849,7 +984,8 @@ func privateWorkspaceLayoutOK(root string) bool {
 	if err != nil {
 		return false
 	}
-	allowed := map[string]struct{}{PrivateWorkspaceManifestName: {}, LegacyActivationWorkspaceManifestName: {}, LegacyPrivateWorkspaceManifestName: {}, privateOutputRootMarker: {}}
+	allowed := map[string]struct{}{PrivateWorkspaceManifestName: {}, LegacyCalibratedWorkspaceManifestName: {},
+		LegacyActivationWorkspaceManifestName: {}, LegacyPrivateWorkspaceManifestName: {}, privateOutputRootMarker: {}}
 	for _, name := range privateWorkspaceFixedDirectories {
 		allowed[name] = struct{}{}
 	}

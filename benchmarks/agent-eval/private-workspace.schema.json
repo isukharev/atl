@@ -13,7 +13,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 3
+      "const": 4
     },
     "live_config_env": {
       "$ref": "#/$defs/environmentName"
@@ -156,6 +156,16 @@
               },
               "blind_assignment": {
                 "$ref": "#/$defs/caseFilePath"
+              },
+              "executions": {
+                "type": "array",
+                "description": "Executable panels bind exactly one unique slot per reviewer; doctor enforces roster identity and reserve totals.",
+                "minItems": 3,
+                "maxItems": 5,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/reviewerExecution"
+                }
               }
             }
           }
@@ -211,12 +221,33 @@
                   "maxItems": 3
                 }
               },
-              "not": {
-                "anyOf": [
-                  {"required": ["reviewer_reserve_microusd"]},
-                  {"required": ["calibration_max_estimated_cost_microusd"]}
-                ]
-              }
+              "allOf": [
+                {
+                  "not": {
+                    "required": ["calibration_max_estimated_cost_microusd"]
+                  }
+                },
+                {
+                  "if": {
+                    "required": ["reviewer_reserve_microusd"]
+                  },
+                  "then": {
+                    "required": ["qualitative_review_panel"],
+                    "properties": {
+                      "qualitative_review_panel": {
+                        "required": ["executions"]
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "qualitative_review_panel": {
+                        "not": {"required": ["executions"]}
+                      }
+                    }
+                  }
+                }
+              ]
             }
           }
         ]
@@ -300,6 +331,35 @@
           }
         }
       ]
+    },
+    "reviewerExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewer_id",
+        "reasoning",
+        "timeout_seconds",
+        "pricing",
+        "max_estimated_cost_microusd"
+      ],
+      "properties": {
+        "reviewer_id": {"$ref": "#/$defs/identifier"},
+        "reasoning": {
+          "type": "string",
+          "enum": ["minimal", "low", "medium", "high", "xhigh", "max"]
+        },
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+        "pricing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["input_microusd_per_million_tokens", "output_microusd_per_million_tokens"],
+          "properties": {
+            "input_microusd_per_million_tokens": {"type": "integer", "minimum": 0},
+            "output_microusd_per_million_tokens": {"type": "integer", "minimum": 0}
+          }
+        },
+        "max_estimated_cost_microusd": {"type": "integer", "minimum": 1, "maximum": 100000000}
+      }
     }
   }
 }

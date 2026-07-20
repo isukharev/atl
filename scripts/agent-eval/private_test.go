@@ -97,7 +97,7 @@ func TestPrivateQualifyEmitsContentFreeReport(t *testing.T) {
 func TestPrivateCommandRejectsMissingAndExtraArguments(t *testing.T) {
 	for _, args := range [][]string{
 		{}, {"init"}, {"status", "extra"}, {"doctor", "--root", "x", "extra"}, {"qualify"},
-		{"review"}, {"review", "prepare"}, {"review", "assess"}, {"baseline"}, {"baseline", "set"},
+		{"review"}, {"review", "prepare"}, {"review", "run"}, {"review", "assess"}, {"baseline"}, {"baseline", "set"},
 		{"study"}, {"study", "recover"}, {"study", "reference"}, {"study", "compare"}, {"study", "promote"}, {"study", "unknown"},
 		{"compare"}, {"prune", "--root", "x", "--confirm", "PRUNE"}, {"unknown"},
 	} {

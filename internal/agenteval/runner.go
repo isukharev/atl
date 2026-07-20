@@ -1526,7 +1526,22 @@ func estimateCost(inputTokens, outputTokens int64, pricing Pricing) (int64, erro
 	if inputTokens > math.MaxInt64/max64(1, pricing.InputMicroUSDPerMillionTokens) || outputTokens > math.MaxInt64/max64(1, pricing.OutputMicroUSDPerMillionTokens) {
 		return 0, fmt.Errorf("estimated cost overflows")
 	}
-	return (inputTokens*pricing.InputMicroUSDPerMillionTokens + outputTokens*pricing.OutputMicroUSDPerMillionTokens + 999_999) / 1_000_000, nil
+	inputProduct := inputTokens * pricing.InputMicroUSDPerMillionTokens
+	outputProduct := outputTokens * pricing.OutputMicroUSDPerMillionTokens
+	inputWhole, outputWhole := inputProduct/1_000_000, outputProduct/1_000_000
+	if inputWhole > math.MaxInt64-outputWhole {
+		return 0, fmt.Errorf("estimated cost overflows")
+	}
+	whole := inputWhole + outputWhole
+	remainder := inputProduct%1_000_000 + outputProduct%1_000_000
+	extra := int64(0)
+	if remainder != 0 {
+		extra = (remainder-1)/1_000_000 + 1
+	}
+	if whole > math.MaxInt64-extra {
+		return 0, fmt.Errorf("estimated cost overflows")
+	}
+	return whole + extra, nil
 }
 
 func max64(a, b int64) int64 {

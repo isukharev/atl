@@ -22,7 +22,8 @@ import (
 )
 
 const (
-	PrivatePlanSchemaVersion                         = 6
+	PrivatePlanSchemaVersion                         = 7
+	LegacyToolQualifiedPrivatePlanSchemaVersion      = 6
 	LegacyCalibratedPrivatePlanSchemaVersion         = 5
 	LegacyActivationStudyPrivatePlanSchemaVersion    = 4
 	LegacyCompleteActivationPrivatePlanSchemaVersion = 3
@@ -129,10 +130,11 @@ type privatePlan struct {
 }
 
 type privateQualitativeReviewPanelContract struct {
-	Method                string     `json:"method"`
-	Reviewers             []Reviewer `json:"reviewers"`
-	MaxCriterionRangeBPS  int        `json:"max_criterion_range_bps"`
-	BlindAssignmentSHA256 string     `json:"blind_assignment_sha256,omitempty"`
+	Method                string                     `json:"method"`
+	Reviewers             []Reviewer                 `json:"reviewers"`
+	MaxCriterionRangeBPS  int                        `json:"max_criterion_range_bps"`
+	BlindAssignmentSHA256 string                     `json:"blind_assignment_sha256,omitempty"`
+	Executions            []PrivateReviewerExecution `json:"executions,omitempty"`
 }
 
 type privatePlanItem struct {
@@ -195,7 +197,7 @@ func CreatePrivatePlan(ctx context.Context, options PrivatePlanCreateOptions) (P
 	if err != nil {
 		return PrivatePlanPreview{}, err
 	}
-	if runSet.EffectiveKind() == PrivateRunSetKindActivationStudy && manifest.SchemaVersion != PrivateWorkspaceSchemaVersion {
+	if manifest.SchemaVersion != PrivateWorkspaceSchemaVersion {
 		return PrivatePlanPreview{}, privatePlanError("legacy_workspace_read_only")
 	}
 	items, material, provider, model, maxCost, external, err := buildPrivatePlanMaterial(ctx, root, options.RepositoryRoot, "", runSet,
@@ -205,8 +207,11 @@ func CreatePrivatePlan(ctx context.Context, options PrivatePlanCreateOptions) (P
 		return PrivatePlanPreview{}, err
 	}
 	totalAuthorized := maxCost
+	reserved := runSet.ReviewerReserveMicroUSD
 	if runSet.EffectiveKind() == PrivateRunSetKindActivationStudy {
-		reserved := runSet.ReviewerReserveMicroUSD + runSet.CalibrationMaxEstimatedCostMicroUSD
+		reserved += runSet.CalibrationMaxEstimatedCostMicroUSD
+	}
+	if reserved != 0 {
 		if reserved < runSet.ReviewerReserveMicroUSD || totalAuthorized > manifest.Execution.MaxEstimatedCostMicroUSD-reserved {
 			return PrivatePlanPreview{}, privatePlanError("cost_budget")
 		}
@@ -332,12 +337,14 @@ func CreatePrivatePlan(ctx context.Context, options PrivatePlanCreateOptions) (P
 	surfaces := privatePlanSurfaces(items)
 	preview := PrivatePlanPreview{SchemaVersion: PrivatePlanSchemaVersion, PlanID: planID, PlanSHA256: sha256HexBytes(data), Surfaces: surfaces,
 		Provider: provider, Model: model, ExpiresAt: options.Consent.ExpiresAt, MaxEstimatedCostMicroUSD: totalAuthorized, Kind: kind}
+	if runSet.ReviewerReserveMicroUSD != 0 {
+		preview.ReviewerReserveMicroUSD = runSet.ReviewerReserveMicroUSD
+	}
 	if kind == PrivateRunSetKindActivationStudy {
 		preview.Surfaces = []string{SurfaceCLISkill}
 		preview.OrderedTreatments = privatePlanTreatments(items)
 		preview.CostAssurance = PrivateActivationCostAssuranceDetectionOnly
 		preview.CostPreventive = false
-		preview.ReviewerReserveMicroUSD = runSet.ReviewerReserveMicroUSD
 		preview.CalibrationBound = true
 		preview.CalibrationMaxEstimatedCostMicroUSD = runSet.CalibrationMaxEstimatedCostMicroUSD
 	}
@@ -1089,6 +1096,7 @@ func buildPrivateQualitativePanelMaterial(root string, runSet PrivateWorkspaceRu
 	contract := &privateQualitativeReviewPanelContract{
 		Method: panel.Method, Reviewers: append([]Reviewer(nil), panel.Reviewers...),
 		MaxCriterionRangeBPS: panel.MaxCriterionRangeBPS,
+		Executions:           append([]PrivateReviewerExecution(nil), panel.Executions...),
 	}
 	if len(assignment) != 0 {
 		contract.BlindAssignmentSHA256 = sha256HexBytes(assignment)
@@ -1497,7 +1505,8 @@ func validatePrivateActivationPlanState(plan privatePlan, state privatePlanState
 	if plan.SchemaVersion == LegacyActivationStudyPrivatePlanSchemaVersion {
 		return validateLegacyPrivateActivationPlanState(plan, state)
 	}
-	if (plan.SchemaVersion != PrivatePlanSchemaVersion && plan.SchemaVersion != LegacyCalibratedPrivatePlanSchemaVersion) || state.SchemaVersion != privatePlanStateSchemaVersion {
+	if (plan.SchemaVersion != PrivatePlanSchemaVersion && plan.SchemaVersion != LegacyToolQualifiedPrivatePlanSchemaVersion &&
+		plan.SchemaVersion != LegacyCalibratedPrivatePlanSchemaVersion) || state.SchemaVersion != privatePlanStateSchemaVersion {
 		return privatePlanError("study_state")
 	}
 	lifecycle, err := NewPrivateActivationStudyLifecycle(*plan.StudyContract)
@@ -1545,7 +1554,8 @@ func LoadCompletedPrivateRun(root, repository, planID string) (PrivateBaselineSo
 	if err != nil {
 		return PrivateBaselineSource{}, err
 	}
-	if p.Kind == PrivateRunSetKindActivationStudy && p.SchemaVersion != PrivatePlanSchemaVersion {
+	if p.Kind == PrivateRunSetKindActivationStudy && p.SchemaVersion != PrivatePlanSchemaVersion &&
+		p.SchemaVersion != LegacyToolQualifiedPrivatePlanSchemaVersion {
 		return PrivateBaselineSource{}, privatePlanError("legacy_plan_read_only")
 	}
 	stateData, err := readPrivatePlanLifecycleFile(abs, filepath.Join(abs, "plans", planID+".state.json"), 1<<20)
@@ -1889,14 +1899,14 @@ func normalizePrivateCandidateTree(root, runRoot string) error {
 }
 
 func privatePlanHasActivationShape(schemaVersion int) bool {
-	return schemaVersion == PrivatePlanSchemaVersion || schemaVersion == LegacyCalibratedPrivatePlanSchemaVersion ||
+	return schemaVersion == PrivatePlanSchemaVersion || schemaVersion == LegacyToolQualifiedPrivatePlanSchemaVersion || schemaVersion == LegacyCalibratedPrivatePlanSchemaVersion ||
 		schemaVersion == LegacyActivationStudyPrivatePlanSchemaVersion
 }
 
 func validatePrivatePlan(plan privatePlan, expectedID string) error {
 	created, createdErr := time.Parse(time.RFC3339Nano, plan.CreatedAt)
 	expires, expiryErr := time.Parse(time.RFC3339, plan.Consent.ExpiresAt)
-	if (plan.SchemaVersion != PrivatePlanSchemaVersion && plan.SchemaVersion != LegacyCalibratedPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyActivationStudyPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyCompleteActivationPrivatePlanSchemaVersion &&
+	if (plan.SchemaVersion != PrivatePlanSchemaVersion && plan.SchemaVersion != LegacyToolQualifiedPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyCalibratedPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyActivationStudyPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyCompleteActivationPrivatePlanSchemaVersion &&
 		plan.SchemaVersion != LegacyPromptBoundPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyPrivatePlanSchemaVersion) || plan.PlanID != expectedID || !privatePlanIDRE.MatchString(plan.PlanID) ||
 		!privateWorkspaceAliasRE.MatchString(plan.RunSetAlias) || !validSHA256(plan.ContractSHA256) || !validSHA256(plan.InputsSHA256) ||
 		createdErr != nil || expiryErr != nil || !expires.After(created) || expires.After(created.Add(7*24*time.Hour)) ||
@@ -1906,7 +1916,7 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 		return privatePlanError("plan")
 	}
 	activationShape := privatePlanHasActivationShape(plan.SchemaVersion)
-	if plan.SchemaVersion != PrivatePlanSchemaVersion && plan.ToolAvailability != nil {
+	if plan.SchemaVersion != PrivatePlanSchemaVersion && plan.SchemaVersion != LegacyToolQualifiedPrivatePlanSchemaVersion && plan.ToolAvailability != nil {
 		return privatePlanError("plan")
 	}
 	if !activationShape {
@@ -1920,6 +1930,19 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 		if !plan.QualitativeRequired || validatePrivateQualitativeReviewPanelContract(*plan.QualitativeReviewPanel) != nil {
 			return privatePlanError("qualitative_panel")
 		}
+		if len(plan.QualitativeReviewPanel.Executions) != 0 && plan.SchemaVersion != PrivatePlanSchemaVersion {
+			return privatePlanError("qualitative_panel")
+		}
+		if len(plan.QualitativeReviewPanel.Executions) != 0 {
+			executionCost, ok := privateReviewerExecutionCost(plan.QualitativeReviewPanel.Executions)
+			if !ok || executionCost > 100_000_000/int64(len(plan.Items)) {
+				return privatePlanError("reviewer_reserve")
+			}
+			executionCost *= int64(len(plan.Items))
+			if plan.ReviewerReserveMicroUSD < executionCost {
+				return privatePlanError("reviewer_reserve")
+			}
+		}
 	}
 	study := activationShape && plan.Kind == PrivateRunSetKindActivationStudy
 	if study {
@@ -1932,7 +1955,7 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 		if commonInvalid {
 			return privatePlanError("study_contract")
 		}
-		if plan.SchemaVersion == PrivatePlanSchemaVersion {
+		if plan.SchemaVersion == PrivatePlanSchemaVersion || plan.SchemaVersion == LegacyToolQualifiedPrivatePlanSchemaVersion {
 			if plan.StudyContract.Validate() != nil || plan.CalibrationMaxEstimatedCostMicroUSD < 1 ||
 				plan.StudyContract.Calibration.MaxEstimatedCostMicroUSD != plan.CalibrationMaxEstimatedCostMicroUSD ||
 				plan.ToolAvailability == nil || !plan.ToolAvailability.Supported() {
@@ -1946,9 +1969,12 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 		} else if validateLegacyPrivateActivationStudyPlan(*plan.StudyContract) != nil || plan.CalibrationMaxEstimatedCostMicroUSD != 0 {
 			return privatePlanError("study_contract")
 		}
-	} else if activationShape &&
-		(plan.ReviewerReserveMicroUSD != 0 || plan.CalibrationMaxEstimatedCostMicroUSD != 0 || plan.CostAssurance != "" || plan.StudySeriesSHA256 != "" || plan.StudyContract != nil || plan.ActivationContract != nil || plan.ToolAvailability != nil || len(plan.Items) > 3) {
-		return privatePlanError("plan")
+	} else if activationShape {
+		executableComparison := plan.SchemaVersion == PrivatePlanSchemaVersion && plan.QualitativeReviewPanel != nil && len(plan.QualitativeReviewPanel.Executions) != 0
+		if plan.CalibrationMaxEstimatedCostMicroUSD != 0 || plan.CostAssurance != "" || plan.StudySeriesSHA256 != "" || plan.StudyContract != nil || plan.ActivationContract != nil || plan.ToolAvailability != nil || len(plan.Items) > 3 ||
+			(plan.ReviewerReserveMicroUSD != 0) != executableComparison {
+			return privatePlanError("plan")
+		}
 	}
 	seenSurfaces := map[string]struct{}{}
 	seenCells := map[string]struct{}{}
@@ -1995,6 +2021,18 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 			}
 		}
 	}
+	if plan.SchemaVersion == PrivatePlanSchemaVersion && !study {
+		total := plan.ReviewerReserveMicroUSD
+		for _, item := range plan.Items {
+			if item.MaxEstimatedCostMicroUSD < 1 || total > plan.MaxEstimatedCostMicroUSD-item.MaxEstimatedCostMicroUSD {
+				return privatePlanError("cost_budget")
+			}
+			total += item.MaxEstimatedCostMicroUSD
+		}
+		if total != plan.MaxEstimatedCostMicroUSD {
+			return privatePlanError("cost_budget")
+		}
+	}
 	return nil
 }
 
@@ -2002,7 +2040,7 @@ func validPrivatePlanPromptIdentity(schemaVersion int, item privatePlanItem) boo
 	if schemaVersion == LegacyPrivatePlanSchemaVersion {
 		return item.SkillActivation == "" && item.PromptContractSHA256 == ""
 	}
-	if schemaVersion != LegacyPromptBoundPrivatePlanSchemaVersion && schemaVersion != LegacyCompleteActivationPrivatePlanSchemaVersion && schemaVersion != LegacyActivationStudyPrivatePlanSchemaVersion && schemaVersion != LegacyCalibratedPrivatePlanSchemaVersion && schemaVersion != PrivatePlanSchemaVersion {
+	if schemaVersion != LegacyPromptBoundPrivatePlanSchemaVersion && schemaVersion != LegacyCompleteActivationPrivatePlanSchemaVersion && schemaVersion != LegacyActivationStudyPrivatePlanSchemaVersion && schemaVersion != LegacyCalibratedPrivatePlanSchemaVersion && schemaVersion != LegacyToolQualifiedPrivatePlanSchemaVersion && schemaVersion != PrivatePlanSchemaVersion {
 		return false
 	}
 	activationCell := item.Provider == "codex" && item.Surface == SurfaceCLISkill
@@ -2035,7 +2073,23 @@ func validatePrivateQualitativeReviewPanelContract(panel privateQualitativeRevie
 		}
 		seen[reviewer.ID] = struct{}{}
 	}
+	workspacePanel := PrivateQualitativeReviewPanel{Method: panel.Method, Reviewers: panel.Reviewers,
+		MaxCriterionRangeBPS: panel.MaxCriterionRangeBPS, Executions: panel.Executions}
+	if workspacePanel.validate() != nil {
+		return privatePlanError("qualitative_panel")
+	}
 	return nil
+}
+
+func privateReviewerExecutionCost(executions []PrivateReviewerExecution) (int64, bool) {
+	var total int64
+	for _, execution := range executions {
+		if execution.MaxEstimatedCostMicroUSD < 1 || total > 100_000_000-execution.MaxEstimatedCostMicroUSD {
+			return 0, false
+		}
+		total += execution.MaxEstimatedCostMicroUSD
+	}
+	return total, true
 }
 
 func validatePrivatePlanState(state privatePlanState) error {
