@@ -15,6 +15,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -421,6 +422,48 @@ func RemoveWithin(root, target string) error {
 		return err
 	}
 	return r.Remove(rel)
+}
+
+// SyncDirectoryWithin fsyncs a directory beneath root after refusing symlink
+// components. Callers use it to make already-fsynced file creation, rename, or
+// removal directory entries durable before a destructive transaction advances.
+func SyncDirectoryWithin(root, target string) error {
+	if runtime.GOOS == "windows" {
+		return fmt.Errorf("%w: directory durability is unsupported on windows", ErrUnsafePrivatePath)
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(rootAbs, targetAbs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("refusing path %q outside root %q", target, root)
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = r.Close() }()
+	if err := rejectSymlinkComponents(r, rel); err != nil {
+		return err
+	}
+	directory, err := r.Open(rel)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = directory.Close() }()
+	info, err := directory.Stat()
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%w: sync target is not a directory", ErrUnsafePrivatePath)
+	}
+	return directory.Sync()
 }
 
 // WriteReaderAtomicWithin is the root-contained counterpart of

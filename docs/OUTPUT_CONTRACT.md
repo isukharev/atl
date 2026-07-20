@@ -39,6 +39,36 @@ The reviewed text/id inventories annotate the command tree before execution.
 They are also the source of truth for `atl capabilities`; the catalog cannot
 advertise an output mode that the root preflight would refuse.
 
+### Maintainer-only private workspace migration
+
+The repository's `agent-eval` maintainer tool is outside the shipped `atl`
+command tree, but its migration output is also a stable privacy boundary.
+Previewing `agent-eval private migrate` emits only this content-free JSON shape:
+
+```json
+{
+  "schema_version": 1,
+  "status": "ready",
+  "from_schema_version": 3,
+  "to_schema_version": 4,
+  "source_sha256": "<hex>",
+  "candidate_sha256": "<hex>",
+  "migration_sha256": "<hex>",
+  "preserved_run_sets": 2,
+  "preserved_spec_references": 3,
+  "preserved_run_records": 4
+}
+```
+
+`status` is `ready` for an ordinary preview. The apply result uses the same
+schema version, source/target versions, and migration digest with status
+`migrated`; an exact interrupted dual-manifest, staged-source, or archived-source
+transition returns `recovered`.
+After flag parsing, migration-operation errors contain a closed reason code and
+never include paths, run-set aliases, case identities, reviewer identities,
+models, pricing, or source content.
+Apply requires `--expected-migration-sha256` and `--confirm MIGRATE`.
+
 ### Qualified Confluence search page
 
 `atl conf search` returns

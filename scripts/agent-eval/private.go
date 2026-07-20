@@ -16,7 +16,7 @@ var privateQualifyCodexCLI = agenteval.QualifyCodexCLIToolAvailability
 
 func runPrivateCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("private requires init, doctor, status, qualify, plan, run, review, study, baseline, compare, or prune")
+		return fmt.Errorf("private requires init, doctor, status, migrate, qualify, plan, run, review, study, baseline, compare, or prune")
 	}
 	switch args[0] {
 	case "init":
@@ -63,6 +63,32 @@ func runPrivateCommand(args []string, out io.Writer) error {
 			return fmt.Errorf("private status requires --root and no positional arguments")
 		}
 		return writePrivateJSON(out, agenteval.InspectPrivateWorkspace(root, repositoryRoot))
+	case "migrate":
+		flags := privateFlagSet("private migrate")
+		var root, repositoryRoot, expected, confirm string
+		flags.StringVar(&root, "root", "", "owner-private workspace root")
+		flags.StringVar(&repositoryRoot, "repository-root", ".", "repository root")
+		flags.StringVar(&expected, "expected-migration-sha256", "", "reviewed migration digest")
+		flags.StringVar(&confirm, "confirm", "", "must be MIGRATE")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 || root == "" || (expected == "") != (confirm == "") {
+			return fmt.Errorf("private migrate requires root and either no apply flags or both reviewed digest and confirmation")
+		}
+		if expected == "" {
+			preview, err := agenteval.PreviewPrivateWorkspaceMigration(root, repositoryRoot)
+			if err != nil {
+				return err
+			}
+			return writePrivateJSON(out, preview)
+		}
+		summary, err := agenteval.ApplyPrivateWorkspaceMigration(agenteval.PrivateWorkspaceMigrationOptions{Root: root,
+			RepositoryRoot: repositoryRoot, ExpectedMigrationSHA256: expected, Confirm: confirm})
+		if err != nil {
+			return err
+		}
+		return writePrivateJSON(out, summary)
 	case "qualify":
 		flags := privateFlagSet("private qualify")
 		var root, repositoryRoot, agentBinary, model, reasoning string
