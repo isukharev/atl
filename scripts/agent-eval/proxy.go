@@ -19,11 +19,12 @@ import (
 )
 
 type proxyRecord struct {
-	CommandFamily string `json:"command_family,omitempty"`
-	Denied        bool   `json:"denied,omitempty"`
-	StdoutBytes   int64  `json:"stdout_bytes"`
-	StderrBytes   int64  `json:"stderr_bytes"`
-	ExitCode      int    `json:"exit_code"`
+	CommandFamily                string `json:"command_family,omitempty"`
+	CalibrationObservationSHA256 string `json:"calibration_observation_sha256,omitempty"`
+	Denied                       bool   `json:"denied,omitempty"`
+	StdoutBytes                  int64  `json:"stdout_bytes"`
+	StderrBytes                  int64  `json:"stderr_bytes"`
+	ExitCode                     int    `json:"exit_code"`
 }
 
 type guardRecord struct {
@@ -630,12 +631,16 @@ func runATLProxy(args []string) int {
 		if response.Status != "executed" {
 			return failATLProxy(counterPath, "atl evaluation proxy command broker failed the invocation")
 		}
+		calibrationObservation, err := calibrationProxyObservation(commandFamily, os.Getenv("ATL_EVAL_GUARD_MODE"), response)
+		if err != nil {
+			return failATLProxy(counterPath, "atl evaluation proxy rejected invalid calibration output")
+		}
 		stdoutBytes, stdoutErr := os.Stdout.Write(response.Stdout)
 		stderrBytes, stderrErr := os.Stderr.Write(response.Stderr)
 		if stdoutErr != nil || stderrErr != nil {
 			return failATLProxy(counterPath, "atl evaluation proxy could not emit brokered output")
 		}
-		if err := appendProxyRecord(counterPath, proxyRecord{CommandFamily: commandFamily, StdoutBytes: int64(stdoutBytes), StderrBytes: int64(stderrBytes), ExitCode: response.ExitCode}); err != nil {
+		if err := appendProxyRecord(counterPath, proxyRecord{CommandFamily: commandFamily, CalibrationObservationSHA256: calibrationObservation, StdoutBytes: int64(stdoutBytes), StderrBytes: int64(stderrBytes), ExitCode: response.ExitCode}); err != nil {
 			fmt.Fprintln(os.Stderr, "record atl evaluation metric:", err)
 			return 1
 		}
@@ -680,6 +685,13 @@ func runATLProxy(args []string) int {
 		return 1
 	}
 	return exitCode
+}
+
+func calibrationProxyObservation(commandFamily, guardMode string, response agenteval.CommandBrokerResponse) (string, error) {
+	if commandFamily != "atl_version" || guardMode != "provider-calibration" || response.ExitCode != 0 || len(response.Stderr) != 0 {
+		return "", nil
+	}
+	return agenteval.CalibrationVersionObservationSHA256(response.Stdout)
 }
 
 func allowedATLArgs(args []string, rawAllowed string) bool {

@@ -292,7 +292,14 @@ backend authority and zero writes are construction-derived from that stripped
 environment plus the exact `atl version` broker policy; they are not claimed as
 gateway-observed HTTP telemetry. Its closed response schema explicitly types
 every property so the reviewed contract is accepted by strict structured-output
-providers without weakening the required `{"ok":true}` result. Failure is
+providers. The model must return the exact `version`, `commit`, and
+`build_state` values it observed. The confined proxy normalizes the actual
+brokered stdout and records only its SHA-256; the response is normalized the
+same way and compared in constant time in addition to the authoritative hook
+and broker audit. Raw version values remain only in owner-private provider
+artifacts; they are not copied into the durable calibration receipt or
+sanitized audit/baseline. This prevents a known constant response from passing
+when the model skips or misreports the tool. Failure is
 terminal infrastructure evidence and no treatment cell is
 reserved. Calibration is not a fifth arm and does not advance the balanced
 treatment order. Its cap is a separate reviewed cost partition.

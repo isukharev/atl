@@ -7,14 +7,23 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
 
 func TestValidateCalibrationEvidenceFailsClosed(t *testing.T) {
 	goodMetrics := ProviderMetrics{CommandExecutions: 1}
-	goodRecords := []atlProxyRecord{{CommandFamily: "atl_version", StdoutBytes: 32}}
-	goodFinal := []byte(`{"ok":true}`)
+	goodFinal := []byte(`{"version":"0.4.0","commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","build_state":"clean"}`)
+	goodObservation, err := CalibrationVersionObservationSHA256(goodFinal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	goodRecords := []atlProxyRecord{{CommandFamily: "atl_version", CalibrationObservationSHA256: goodObservation, StdoutBytes: 32}}
+	badObservationRecords := append([]atlProxyRecord(nil), goodRecords...)
+	badObservationRecords[0].CalibrationObservationSHA256 = strings.Repeat("f", 64)
+	stderrRecords := append([]atlProxyRecord(nil), goodRecords...)
+	stderrRecords[0].StderrBytes = 1
 	goodGuard := guardDecisionSummary{Admissions: 1, ATLAdmissions: 1}
 	if err := validateCalibrationEvidence(goodMetrics, goodRecords, goodGuard, goodFinal); err != nil {
 		t.Fatal(err)
@@ -25,18 +34,20 @@ func TestValidateCalibrationEvidenceFailsClosed(t *testing.T) {
 		guard   guardDecisionSummary
 		final   []byte
 	}{
-		"no call":        {metrics: goodMetrics, guard: goodGuard, final: goodFinal},
-		"multiple":       {metrics: goodMetrics, records: append(append([]atlProxyRecord(nil), goodRecords...), goodRecords...), guard: goodGuard, final: goodFinal},
-		"failed":         {metrics: goodMetrics, records: []atlProxyRecord{{StdoutBytes: 32, ExitCode: 1}}, guard: goodGuard, final: goodFinal},
-		"wrong family":   {metrics: goodMetrics, records: []atlProxyRecord{{CommandFamily: "other", StdoutBytes: 32}}, guard: goodGuard, final: goodFinal},
-		"denied record":  {metrics: goodMetrics, records: []atlProxyRecord{{Denied: true}}, guard: goodGuard, final: goodFinal},
-		"missing hook":   {metrics: goodMetrics, records: goodRecords, final: goodFinal},
-		"wrong hook":     {metrics: goodMetrics, records: goodRecords, guard: guardDecisionSummary{Admissions: 1}, final: goodFinal},
-		"extra hook":     {metrics: goodMetrics, records: goodRecords, guard: guardDecisionSummary{Admissions: 2, ATLAdmissions: 1}, final: goodFinal},
-		"hook denial":    {metrics: goodMetrics, records: goodRecords, guard: guardDecisionSummary{Admissions: 1, ATLAdmissions: 1, Denials: 1}, final: goodFinal},
-		"empty output":   {metrics: goodMetrics, records: []atlProxyRecord{{}}, guard: goodGuard, final: goodFinal},
-		"no shell event": {records: goodRecords, guard: goodGuard, final: goodFinal},
-		"bad response":   {metrics: goodMetrics, records: goodRecords, guard: goodGuard, final: []byte(`{"ok":false}`)},
+		"no call":         {metrics: goodMetrics, guard: goodGuard, final: goodFinal},
+		"multiple":        {metrics: goodMetrics, records: append(append([]atlProxyRecord(nil), goodRecords...), goodRecords...), guard: goodGuard, final: goodFinal},
+		"failed":          {metrics: goodMetrics, records: []atlProxyRecord{{StdoutBytes: 32, ExitCode: 1}}, guard: goodGuard, final: goodFinal},
+		"wrong family":    {metrics: goodMetrics, records: []atlProxyRecord{{CommandFamily: "other", StdoutBytes: 32}}, guard: goodGuard, final: goodFinal},
+		"denied record":   {metrics: goodMetrics, records: []atlProxyRecord{{Denied: true}}, guard: goodGuard, final: goodFinal},
+		"missing hook":    {metrics: goodMetrics, records: goodRecords, final: goodFinal},
+		"wrong hook":      {metrics: goodMetrics, records: goodRecords, guard: guardDecisionSummary{Admissions: 1}, final: goodFinal},
+		"extra hook":      {metrics: goodMetrics, records: goodRecords, guard: guardDecisionSummary{Admissions: 2, ATLAdmissions: 1}, final: goodFinal},
+		"hook denial":     {metrics: goodMetrics, records: goodRecords, guard: guardDecisionSummary{Admissions: 1, ATLAdmissions: 1, Denials: 1}, final: goodFinal},
+		"empty output":    {metrics: goodMetrics, records: []atlProxyRecord{{}}, guard: goodGuard, final: goodFinal},
+		"no shell event":  {records: goodRecords, guard: goodGuard, final: goodFinal},
+		"bad response":    {metrics: goodMetrics, records: goodRecords, guard: goodGuard, final: []byte(`{"version":"0.4.0","commit":"other","build_state":"clean"}`)},
+		"bad observation": {metrics: goodMetrics, records: badObservationRecords, guard: goodGuard, final: goodFinal},
+		"stderr":          {metrics: goodMetrics, records: stderrRecords, guard: goodGuard, final: goodFinal},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -47,12 +58,44 @@ func TestValidateCalibrationEvidenceFailsClosed(t *testing.T) {
 	}
 }
 
+func TestCalibrationVersionObservationSHA256IsSemanticAndClosed(t *testing.T) {
+	first, err := CalibrationVersionObservationSHA256([]byte("{\n  \"version\": \"0.4.0\",\n  \"commit\": \"abc\",\n  \"build_state\": \"clean\"\n}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := CalibrationVersionObservationSHA256([]byte(`{"build_state":"clean","commit":"abc","version":"0.4.0"}`))
+	if err != nil || first != second || !validSHA256(first) {
+		t.Fatalf("first=%q second=%q err=%v", first, second, err)
+	}
+	for name, value := range map[string]string{
+		"changed":   `{"version":"0.4.1","commit":"abc","build_state":"clean"}`,
+		"missing":   `{"version":"0.4.0","commit":"abc"}`,
+		"extra":     `{"version":"0.4.0","commit":"abc","build_state":"clean","other":true}`,
+		"legacy":    `{"ok":true}`,
+		"duplicate": `{"version":"0.4.0","version":"0.4.1","commit":"abc","build_state":"clean"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			digest, digestErr := CalibrationVersionObservationSHA256([]byte(value))
+			if name == "changed" {
+				if digestErr != nil || digest == first {
+					t.Fatalf("digest=%q err=%v", digest, digestErr)
+				}
+				return
+			}
+			if digestErr == nil {
+				t.Fatalf("invalid response digest=%q", digest)
+			}
+		})
+	}
+}
+
 func TestCodexCLICalibrationSchemaTypesEveryProperty(t *testing.T) {
 	var schema struct {
 		Type       string `json:"type"`
 		Properties map[string]struct {
-			Type  string `json:"type"`
-			Const bool   `json:"const"`
+			Type      string   `json:"type"`
+			Enum      []string `json:"enum"`
+			MinLength int      `json:"minLength"`
 		} `json:"properties"`
 		Required             []string `json:"required"`
 		AdditionalProperties bool     `json:"additionalProperties"`
@@ -60,10 +103,20 @@ func TestCodexCLICalibrationSchemaTypesEveryProperty(t *testing.T) {
 	if err := json.Unmarshal(codexCLICalibrationSchema, &schema); err != nil {
 		t.Fatal(err)
 	}
-	ok, exists := schema.Properties["ok"]
-	if schema.Type != "object" || len(schema.Properties) != 1 || !exists || ok.Type != "boolean" || !ok.Const ||
-		len(schema.Required) != 1 || schema.Required[0] != "ok" || schema.AdditionalProperties {
+	if schema.Type != "object" || len(schema.Properties) != 3 || len(schema.Required) != 3 || schema.AdditionalProperties {
 		t.Fatalf("provider-incompatible calibration schema: %+v", schema)
+	}
+	for _, name := range []string{"version", "commit", "build_state"} {
+		property, exists := schema.Properties[name]
+		if !exists || property.Type != "string" || !slices.Contains(schema.Required, name) {
+			t.Fatalf("provider-incompatible calibration schema property %q: %+v", name, schema)
+		}
+	}
+	if schema.Properties["version"].MinLength != 1 || schema.Properties["commit"].MinLength != 1 {
+		t.Fatalf("provider-incompatible non-empty fields: %+v", schema.Properties)
+	}
+	if !slices.Equal(schema.Properties["build_state"].Enum, []string{"clean", "dirty", "unknown"}) {
+		t.Fatalf("provider-incompatible build_state enum: %+v", schema.Properties["build_state"])
 	}
 }
 
@@ -100,6 +153,22 @@ func TestBuildCodexCLICalibrationContractIsDeterministicAndComplete(t *testing.T
 		if mutation.SHA256 == first.SHA256 {
 			t.Fatalf("contract mutation did not change digest: %+v", mutation)
 		}
+	}
+}
+
+func TestCodexCLICalibrationContractRejectsPreviousPromptAndSchemaDigest(t *testing.T) {
+	currentPrompt := codexCLICalibrationPrompt
+	currentSchema := codexCLICalibrationSchema
+	codexCLICalibrationPrompt = []byte("Use the shell tool to run the literal command `atl version` exactly once. Do not run any other command. After the command succeeds, return the required JSON object.\n")
+	codexCLICalibrationSchema = []byte(`{"type":"object","properties":{"ok":{"type":"boolean","const":true}},"required":["ok"],"additionalProperties":false}`)
+	legacy, err := BuildCodexCLICalibrationContract("test-model", "high", 60, 500_000, Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000})
+	codexCLICalibrationPrompt = currentPrompt
+	codexCLICalibrationSchema = currentSchema
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Validate(); err == nil {
+		t.Fatal("previous calibration prompt/schema digest remained executable")
 	}
 }
 
@@ -428,9 +497,9 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 printf '%s\n' '{"decision":"allow","family":"atl"}' >>"$ATL_EVAL_GUARD_COUNTER" || exit 63
-atl version >/dev/null || exit 62
+observed=$(atl version) || exit 62
 printf '%s\n' '{"type":"item.completed","item":{"type":"command_execution","status":"completed","command":"atl version"}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
-printf '%s\n' '{"ok":true}' >"$final"
+printf '%s\n' "$observed" >"$final"
 `
 }

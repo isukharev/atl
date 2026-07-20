@@ -472,6 +472,99 @@ func TestATLProxyUsesParentCommandBrokerWithoutRealBinaryInEnvironment(t *testin
 	}
 }
 
+func TestATLProxyCalibrationRecordsSemanticObservationWithoutValues(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable scripts are Unix-only")
+	}
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	requests := filepath.Join(directory, "requests")
+	responses := filepath.Join(directory, "responses")
+	for _, path := range []string{requests, responses} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	versionOutput := []byte("{\n  \"version\": \"test\",\n  \"commit\": \"abc\",\n  \"build_state\": \"clean\"\n}\n")
+	realBinary := filepath.Join(directory, "real-atl")
+	if err := os.WriteFile(realBinary, []byte("#!/bin/sh\nprintf '%s\\n' '{\"version\":\"test\",\"commit\":\"abc\",\"build_state\":\"clean\"}'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	policy := agenteval.CLICommandPolicy{SchemaVersion: agenteval.CLICommandPolicySchemaVersion,
+		Rules: []agenteval.CLICommandRule{{Name: "atl_version", Command: []string{"version"}, MaxInvocations: 1}}}
+	policyData, err := agenteval.EncodeCLICommandPolicy(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyPath := filepath.Join(directory, "policy.json")
+	if err := os.WriteFile(policyPath, policyData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(directory, "broker.json")
+	broker, err := agenteval.StartCommandBroker(agenteval.CommandBrokerConfig{
+		RequestDirectory: requests, ResponseDirectory: responses, ManifestPath: manifest,
+		RealBinary: realBinary, Policy: policy, MaxStdoutBytes: 4096, MaxStderrBytes: 4096, CommandTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = broker.Close() })
+	counter := filepath.Join(requests, "counter.jsonl")
+	t.Setenv("ATL_READ_ONLY", "1")
+	t.Setenv("ATL_EVAL_REAL_BINARY", "")
+	t.Setenv("ATL_EVAL_COUNTER", counter)
+	t.Setenv("ATL_EVAL_CLI_POLICY_FILE", policyPath)
+	t.Setenv("ATL_EVAL_COMMAND_BROKER_FILE", manifest)
+	t.Setenv("ATL_EVAL_GUARD_MODE", "provider-calibration")
+	previous := os.Stdout
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = writeEnd
+	code := runATLProxy([]string{"version"})
+	_ = writeEnd.Close()
+	os.Stdout = previous
+	_, _ = io.Copy(io.Discard, readEnd)
+	_ = readEnd.Close()
+	if code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	recordData, err := os.ReadFile(counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record proxyRecord
+	if err := json.Unmarshal(bytes.TrimSpace(recordData), &record); err != nil {
+		t.Fatal(err)
+	}
+	wantDigest, err := agenteval.CalibrationVersionObservationSHA256(versionOutput)
+	if err != nil || record.CommandFamily != "atl_version" || record.CalibrationObservationSHA256 != wantDigest ||
+		bytes.Contains(recordData, []byte(`"version"`)) || bytes.Contains(recordData, []byte(`"commit"`)) || bytes.Contains(recordData, []byte(`"build_state"`)) {
+		t.Fatalf("record=%s want_digest=%q err=%v", recordData, wantDigest, err)
+	}
+}
+
+func TestCalibrationProxyObservationIsReservedToCalibrationMode(t *testing.T) {
+	response := agenteval.CommandBrokerResponse{Status: "executed", Stdout: []byte(`{"version":"test","commit":"abc","build_state":"clean"}`)}
+	digest, err := calibrationProxyObservation("atl_version", "provider-calibration", response)
+	if err != nil || len(digest) != 64 {
+		t.Fatalf("digest=%q err=%v", digest, err)
+	}
+	for _, input := range []struct {
+		family, mode string
+	}{
+		{family: "atl_version", mode: "private-cli"},
+		{family: "jira_fields", mode: "provider-calibration"},
+	} {
+		if got, gotErr := calibrationProxyObservation(input.family, input.mode, response); gotErr != nil || got != "" {
+			t.Fatalf("family=%q mode=%q digest=%q err=%v", input.family, input.mode, got, gotErr)
+		}
+	}
+}
+
 func TestCommandBrokerProbeRequiresReadyParentBroker(t *testing.T) {
 	directory := t.TempDir()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

@@ -21,9 +21,15 @@ const (
 )
 
 var (
-	codexCLICalibrationPrompt = []byte("Use the shell tool to run the literal command `atl version` exactly once. Do not run any other command. After the command succeeds, return the required JSON object.\n")
-	codexCLICalibrationSchema = []byte(`{"type":"object","properties":{"ok":{"type":"boolean","const":true}},"required":["ok"],"additionalProperties":false}`)
+	codexCLICalibrationPrompt = []byte("Use the shell tool to run the literal command `atl version` exactly once. Do not run any other command. Copy the version, commit, and build_state string values from its JSON output exactly into the required JSON object; do not infer or invent them.\n")
+	codexCLICalibrationSchema = []byte(`{"type":"object","properties":{"version":{"type":"string","minLength":1},"commit":{"type":"string","minLength":1},"build_state":{"type":"string","enum":["clean","dirty","unknown"]}},"required":["version","commit","build_state"],"additionalProperties":false}`)
 )
+
+type codexCLICalibrationResponse struct {
+	Version    string `json:"version"`
+	Commit     string `json:"commit"`
+	BuildState string `json:"build_state"`
+}
 
 // CodexCLICalibrationOptions describes the backend-free provider preflight.
 // It deliberately has no live config, URL, credential, fixture, or gateway
@@ -440,24 +446,46 @@ func calibrationRunSpec(options CodexCLICalibrationOptions) RunSpec {
 		MaxEstimatedCostMicroUSD: options.MaxEstimatedCostMicroUSD, Pricing: options.Pricing,
 		ToolTransport: "cli", AllowedTools: []string{"Bash(atl *)"},
 		AllowedCLICommands: calibrationCLICommandPolicy().Rules,
-		Checks:             []RunCheck{{Name: "calibration_response", Kind: "json_equals", Pointer: "/ok", Expected: json.RawMessage("true")}},
+		Checks:             []RunCheck{{Name: "calibration_response", Kind: "json_present", Pointer: "/version"}},
 	}
 }
 
-func calibrationResponseSucceeded(data []byte) bool {
-	var response struct {
-		OK bool `json:"ok"`
+func calibrationResponse(data []byte) (codexCLICalibrationResponse, error) {
+	var response codexCLICalibrationResponse
+	if err := validateJSONNoDuplicateKeys(data); err != nil {
+		return response, fmt.Errorf("invalid calibration version response")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	return decoder.Decode(&response) == nil && response.OK && decoder.Decode(new(any)) == io.EOF
+	if err := decoder.Decode(&response); err != nil || response.Version == "" || len(response.Version) > 256 || response.Commit == "" || len(response.Commit) > 256 ||
+		(response.BuildState != "clean" && response.BuildState != "dirty" && response.BuildState != "unknown") || decoder.Decode(new(any)) != io.EOF {
+		return codexCLICalibrationResponse{}, fmt.Errorf("invalid calibration version response")
+	}
+	return response, nil
+}
+
+// CalibrationVersionObservationSHA256 returns a content-free semantic digest
+// of the stable `atl version` JSON object. It is used only by the reserved
+// backend-free calibration proxy and never retains the observed field values.
+func CalibrationVersionObservationSHA256(data []byte) (string, error) {
+	response, err := calibrationResponse(data)
+	if err != nil {
+		return "", err
+	}
+	canonical, err := json.Marshal(response)
+	if err != nil {
+		return "", fmt.Errorf("encode calibration version response")
+	}
+	return sha256HexBytes(canonical), nil
 }
 
 func validateCalibrationEvidence(metrics ProviderMetrics, records []atlProxyRecord, guardSummary guardDecisionSummary, final []byte) error {
-	if !calibrationResponseSucceeded(final) {
+	observation, err := CalibrationVersionObservationSHA256(final)
+	if err != nil || len(records) != 1 || !validSHA256(records[0].CalibrationObservationSHA256) ||
+		!constantTimeStringEqual(observation, records[0].CalibrationObservationSHA256) {
 		return fmt.Errorf("calibration provider response did not match the fixed success contract")
 	}
-	if len(records) != 1 || records[0].CommandFamily != "atl_version" || records[0].Denied || records[0].ExitCode != 0 || records[0].StdoutBytes < 1 || records[0].StdoutBytes > calibrationOutputLimit || guardSummary.Admissions != 1 || guardSummary.ATLAdmissions != 1 || guardSummary.Denials != 0 || metrics.CommandExecutions != 1 {
+	if records[0].CommandFamily != "atl_version" || records[0].Denied || records[0].ExitCode != 0 || records[0].StdoutBytes < 1 || records[0].StdoutBytes > calibrationOutputLimit || records[0].StderrBytes != 0 || guardSummary.Admissions != 1 || guardSummary.ATLAdmissions != 1 || guardSummary.Denials != 0 || metrics.CommandExecutions != 1 {
 		return fmt.Errorf("calibration did not observe exactly one admitted successful brokered atl version invocation")
 	}
 	return nil

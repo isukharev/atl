@@ -1005,8 +1005,13 @@ successful bounded local result with a matching `atl`-family hook admission.
 The exact command and stripped authority make zero backend requests/writes a
 construction-derived guarantee here, not a gateway-observed HTTP measurement.
 The closed calibration response schema explicitly types every property for
-strict provider structured-output validation while still accepting only
-`{"ok":true}`. A
+strict provider structured-output validation. The model must return the exact
+`version`, `commit`, and `build_state` values from its brokered call. The
+confined proxy records only a semantic SHA-256 of the actual stdout, and the
+response must match that digest in addition to the hook and broker audit. Raw
+version values remain only in owner-private provider artifacts; they are not
+copied into the durable receipt or sanitized audit/baseline. This prevents a
+constant response from passing when the model skips or misreports the tool. A
 failure is classified as infrastructure/tool unavailability and terminates the
 plan without scoring a treatment. It is not a fifth arm and does not advance
 the order cycle. Its timeout is the reviewed treatment timeout capped at 300
