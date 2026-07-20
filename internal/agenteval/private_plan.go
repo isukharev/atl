@@ -790,18 +790,32 @@ func validatePrivateActivationOutputRoot(root, outputRoot string) error {
 		(runtime.GOOS != "windows" && markerInfo.Mode().Perm() != 0o600) {
 		return privatePlanError("calibration_output")
 	}
-	data, err := outputHandle.ReadFile(privateOutputRootMarker)
+	markerFile, err := outputHandle.Open(privateOutputRootMarker)
+	if err != nil {
+		return privatePlanError("calibration_output")
+	}
+	defer func() { _ = markerFile.Close() }()
+	openedMarkerInfo, err := markerFile.Stat()
+	if err != nil || !os.SameFile(markerInfo, openedMarkerInfo) || !openedMarkerInfo.Mode().IsRegular() ||
+		openedMarkerInfo.Mode()&os.ModeSymlink != 0 ||
+		(runtime.GOOS != "windows" && openedMarkerInfo.Mode().Perm() != 0o600) {
+		return privatePlanError("calibration_output")
+	}
+	data, err := io.ReadAll(io.LimitReader(markerFile, int64(len(privateOutputRootMarkerContents)+1)))
 	if err != nil || string(data) != privateOutputRootMarkerContents {
 		return privatePlanError("calibration_output")
 	}
 	finalPathInfo, pathErr := rootHandle.Lstat(relative)
 	finalOpenedInfo, openedErr := outputHandle.Stat(".")
 	finalMarkerInfo, markerErr := outputHandle.Lstat(privateOutputRootMarker)
+	finalOpenedMarkerInfo, openedMarkerErr := markerFile.Stat()
 	if pathErr != nil || openedErr != nil || markerErr != nil || !os.SameFile(pathInfo, finalPathInfo) ||
 		!os.SameFile(pathInfo, finalOpenedInfo) || !os.SameFile(markerInfo, finalMarkerInfo) ||
+		openedMarkerErr != nil || !os.SameFile(markerInfo, finalOpenedMarkerInfo) ||
 		!finalPathInfo.IsDir() || !finalMarkerInfo.Mode().IsRegular() ||
 		finalPathInfo.Mode()&os.ModeSymlink != 0 || finalMarkerInfo.Mode()&os.ModeSymlink != 0 ||
-		(runtime.GOOS != "windows" && (finalPathInfo.Mode().Perm() != 0o700 || finalMarkerInfo.Mode().Perm() != 0o600)) {
+		(runtime.GOOS != "windows" && (finalPathInfo.Mode().Perm() != 0o700 || finalMarkerInfo.Mode().Perm() != 0o600 ||
+			finalOpenedMarkerInfo.Mode().Perm() != 0o600)) {
 		return privatePlanError("calibration_output")
 	}
 	return nil

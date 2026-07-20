@@ -372,6 +372,25 @@ func TestPrivateActivationStudyRejectsCalibrationOutputPermissionDrift(t *testin
 	}
 }
 
+func TestValidatePrivateActivationOutputRootRejectsOversizedMarker(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX owner-only mode fixture")
+	}
+	root := t.TempDir()
+	runRoot := filepath.Join(root, "runs", "run-22222222222222222222222222222222")
+	outputRoot, err := preparePrivateActivationOutputRoot(root, runRoot)
+	if err != nil {
+		t.Fatalf("prepare output root: %v", err)
+	}
+	marker := filepath.Join(outputRoot, privateOutputRootMarker)
+	if err := os.WriteFile(marker, bytes.Repeat([]byte("x"), 1<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validatePrivateActivationOutputRoot(root, outputRoot); err == nil {
+		t.Fatal("oversized marker was accepted")
+	}
+}
+
 func TestPrivateActivationStudyOrderCannotBeSelectedByExpiryOrAlias(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("synthetic executable scripts are Unix-only")
