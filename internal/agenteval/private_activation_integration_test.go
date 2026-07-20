@@ -1328,6 +1328,13 @@ func installPrivateActivationRunStub(t *testing.T) {
 		if err != nil {
 			return CodexCLICalibrationReceipt{}, err
 		}
+		calibrationDirectory := filepath.Join(options.OutputRoot, "provider-calibration")
+		if err := os.MkdirAll(calibrationDirectory, 0o700); err != nil {
+			return CodexCLICalibrationReceipt{}, err
+		}
+		if err := os.WriteFile(filepath.Join(calibrationDirectory, "synthetic-artifact"), []byte("calibrated\n"), 0o600); err != nil {
+			return CodexCLICalibrationReceipt{}, err
+		}
 		return CodexCLICalibrationReceipt{
 			SchemaVersion: CodexCLICalibrationSchemaVersion, ContractSHA256: contract.SHA256, Passed: true,
 			CommandFamily:     "atl_version",
@@ -1336,6 +1343,13 @@ func installPrivateActivationRunStub(t *testing.T) {
 		}, nil
 	}
 	privatePlanRunHeadless = func(_ context.Context, options RunOptions) (RunOutput, error) {
+		preparedRoot, err := PreparePrivateOutputRoot(options.OutputRoot, options.RepositoryRoot)
+		if err != nil {
+			return RunOutput{}, err
+		}
+		if preparedRoot != options.OutputRoot {
+			return RunOutput{}, fmt.Errorf("activation output root changed during preparation")
+		}
 		loaded, err := loadRunInputs(options)
 		if err != nil {
 			return RunOutput{}, err

@@ -510,8 +510,8 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 		if err := persistPrivateActivationPlanState(statePath, plan, &state, activationLifecycle, ""); err != nil {
 			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("state")
 		}
-		calibrationOutputRoot := filepath.Join(runRoot, "raw")
-		if err := safepath.MkdirAllWithin(root, calibrationOutputRoot, 0o700); err != nil {
+		calibrationOutputRoot, err := PreparePrivateOutputRoot(filepath.Join(runRoot, "raw"), options.RepositoryRoot)
+		if err != nil {
 			stateErr := markAndPersistPrivateActivationCalibrationFailed(statePath, plan, &state, activationLifecycle, PrivateActivationUnknownInterrupted)
 			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("calibration_output"), stateErr)
 		}
