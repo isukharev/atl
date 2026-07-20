@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserved the current native Codex Linux sandbox path in private agent-eval
+  snapshots by binding and copying only the fixed adjacent `bwrap` helper.
+  Missing, malformed, substituted, or drifting helper bytes now fail closed
+  instead of letting backend-free calibration expose a shell tool that cannot
+  reach the guarded command broker.
 - Grounded the Codex activation calibration response in a content-derived semantic
   digest of the exact `version`, `commit`, and `build_state` values emitted by
   the brokered local ATL command, so a model cannot satisfy the preflight with

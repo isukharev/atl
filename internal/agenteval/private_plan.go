@@ -905,6 +905,12 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 		"agent-bytes:"+agent.bytesSHA256,
 		"agent-provenance:"+agent.provenanceSHA256,
 	)
+	if agent.resourceRelativePath != "" {
+		material.inputs = append(material.inputs,
+			"agent-resource-layout:"+agent.resourceRelativePath,
+			"agent-resource-bytes:"+agent.resourceBytesSHA256,
+		)
+	}
 	if material.calibration != nil {
 		material.toolAvailabilityContractSHA256 = codexToolAvailabilityContractSHA256(agent.identity, CodexCLIToolAvailabilityOptions{
 			Model: material.calibration.Model, Reasoning: material.calibration.Reasoning,

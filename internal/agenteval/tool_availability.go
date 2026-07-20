@@ -125,7 +125,7 @@ func QualifyCodexCLIToolAvailability(parent context.Context, options CodexCLIToo
 	if options.TimeoutSeconds == 0 {
 		options.TimeoutSeconds = defaultCodexToolProbeTimeout
 	}
-	agent, agentBytes, err := inspectPrivateAgentBinary(options.AgentBinary, "")
+	agent, _, err := inspectPrivateAgentBinary(options.AgentBinary, "")
 	if err != nil {
 		return report, err
 	}
@@ -142,11 +142,18 @@ func QualifyCodexCLIToolAvailability(parent context.Context, options CodexCLIToo
 	}
 	defer func() { returnErr = errors.Join(returnErr, runtime.Close()) }()
 	probeAgentPath := filepath.Join(runtime.root, privateAgentSnapshotBaseName)
-	if err := writePrivateAgentCopy(probeAgentPath, agentBytes); err != nil {
+	if agent.resourceRelativePath != "" {
+		probeBinRoot := filepath.Join(runtime.root, "bin")
+		if err := safepath.MkdirAllWithin(runtime.scratch, probeBinRoot, 0o700); err != nil {
+			return report, fmt.Errorf("prepare codex cli tool availability runtime")
+		}
+		probeAgentPath = filepath.Join(probeBinRoot, privateAgentSnapshotBaseName)
+	}
+	if err := copyReviewedPrivateAgent(runtime.scratch, runtime.root, agent, probeAgentPath); err != nil {
 		return report, fmt.Errorf("prepare codex cli tool availability runtime")
 	}
 	probeAgent, _, err := inspectPrivateAgentBinary(probeAgentPath, agent.provenanceSHA256)
-	if err != nil || probeAgent.identity != agent.identity {
+	if err != nil || probeAgent.identity != agent.identity || verifyPrivateAgentResourceSnapshot(probeAgentPath, agent) != nil {
 		return report, fmt.Errorf("prepare codex cli tool availability runtime")
 	}
 

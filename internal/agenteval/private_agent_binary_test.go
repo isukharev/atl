@@ -48,6 +48,161 @@ func TestInspectPrivateAgentBinaryAcceptsNativeExecutableAndSymlink(t *testing.T
 	}
 }
 
+func TestPrivateAgentLinuxSandboxResourceIsBoundCopiedAndDriftChecked(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Codex bwrap companion is Linux-only")
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentData, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentData = append(agentData, []byte("\x00"+privateAgentLinuxSandboxMarker+"\x00")...)
+
+	sourceRoot := t.TempDir()
+	sourceBin := filepath.Join(sourceRoot, "bin")
+	resourceRoot := filepath.Join(sourceRoot, "codex-resources")
+	if err := os.MkdirAll(sourceBin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(resourceRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	agentPath := filepath.Join(sourceBin, "codex")
+	resourcePath := filepath.Join(resourceRoot, "bwrap")
+	if err := os.WriteFile(agentPath, agentData, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(resourcePath, agentData[:len(agentData)-len(privateAgentLinuxSandboxMarker)-2], 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	reviewed, _, err := inspectPrivateAgentBinary(agentPath, "")
+	if err != nil {
+		t.Fatalf("inspect reviewed agent: %v", err)
+	}
+	if reviewed.resourceCanonicalPath != resourcePath || reviewed.resourceRelativePath != privateAgentLinuxSandboxRelativePath || !validSHA256(reviewed.resourceBytesSHA256) {
+		t.Fatalf("resource contract not bound: %+v", reviewed)
+	}
+
+	privateRoot := t.TempDir()
+	snapshotRoot := filepath.Join(privateRoot, "snapshot")
+	destination := filepath.Join(snapshotRoot, "bin", "agent")
+	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyReviewedPrivateAgent(privateRoot, snapshotRoot, reviewed, destination); err != nil {
+		t.Fatalf("copy reviewed agent: %v", err)
+	}
+	if err := verifyPrivateAgentResourceSnapshot(destination, reviewed); err != nil {
+		t.Fatalf("verify copied resource: %v", err)
+	}
+	copiedResource := filepath.Join(snapshotRoot, filepath.FromSlash(privateAgentLinuxSandboxRelativePath))
+	if info, err := os.Lstat(copiedResource); err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o700 {
+		t.Fatalf("copied resource mode: info=%v err=%v", info, err)
+	}
+
+	if err := os.WriteFile(resourcePath, append(agentData, 'x'), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	secondSnapshot := filepath.Join(privateRoot, "second-snapshot")
+	secondDestination := filepath.Join(secondSnapshot, "bin", "agent")
+	if err := os.MkdirAll(filepath.Dir(secondDestination), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	err = copyReviewedPrivateAgent(privateRoot, secondSnapshot, reviewed, secondDestination)
+	assertPrivatePlanError(t, err, "agent_binary_resource_drift")
+}
+
+func TestPrivateAgentLinuxSandboxResourceRejectsMissingAndMalformedHelper(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Codex bwrap companion is Linux-only")
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = append(data, []byte("\x00"+privateAgentLinuxSandboxMarker+"\x00")...)
+
+	for _, test := range []struct {
+		name       string
+		helperData []byte
+		want       string
+	}{
+		{name: "missing", want: "agent_binary_resource"},
+		{name: "malformed", helperData: []byte("not a native executable"), want: "agent_binary_resource_format"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(root, "bin"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			agent := filepath.Join(root, "bin", "codex")
+			if err := os.WriteFile(agent, data, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if test.helperData != nil {
+				if err := os.MkdirAll(filepath.Join(root, "codex-resources"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(root, "codex-resources", "bwrap"), test.helperData, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, _, err := inspectPrivateAgentBinary(agent, "")
+			assertPrivatePlanError(t, err, test.want)
+		})
+	}
+}
+
+func TestExecutePrivatePlanRejectsChangedLinuxSandboxResourceAsInputDrift(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Codex bwrap companion is Linux-only")
+	}
+	fixture := newPrivatePlanTestFixture(t, false, false)
+	distribution := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(distribution, "bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(distribution, "codex-resources"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	agentData, err := os.ReadFile(fixture.agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codex := filepath.Join(distribution, "bin", "codex")
+	helper := filepath.Join(distribution, "codex-resources", "bwrap")
+	if err := os.WriteFile(codex, append(agentData, []byte("\x00"+privateAgentLinuxSandboxMarker+"\x00")...), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(helper, agentData, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	create := fixture.createOptions()
+	create.AgentBinary = codex
+	preview, err := CreatePrivatePlan(context.Background(), create)
+	if err != nil {
+		t.Fatalf("create resource-bound plan: %v", err)
+	}
+	if err := os.WriteFile(helper, append(agentData, 'x'), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	execute := fixture.executeOptions(preview)
+	execute.AgentBinary = codex
+	_, err = ExecutePrivatePlan(context.Background(), execute)
+	assertPrivatePlanError(t, err, "input_drift")
+	assertPrivatePlanNoRuntimeInvocation(t, fixture)
+}
+
 func TestCreatePrivatePlanRejectsScriptBeforePersistenceOrExecution(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell launcher fixture is Unix-only")
