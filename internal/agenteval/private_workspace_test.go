@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,6 +42,70 @@ func TestActivationStudyManifestRequiresPositiveReviewerReserve(t *testing.T) {
 	manifest.RunSets[0].CalibrationMaxEstimatedCostMicroUSD = 1
 	if err := manifest.Validate(); err != nil {
 		t.Fatalf("positive reviewer reserve rejected: %v", err)
+	}
+}
+
+func TestExecutableReviewPanelSupportsMixedProvidersAndRequiresWholeReserve(t *testing.T) {
+	manifest := DefaultPrivateWorkspaceManifest()
+	panel := privateReviewTestPanel()
+	panel.Reviewers[1].Kind = "claude-code"
+	for _, reviewer := range panel.Reviewers {
+		panel.Executions = append(panel.Executions, PrivateReviewerExecution{ReviewerID: reviewer.ID, Reasoning: "high",
+			TimeoutSeconds: 60, Pricing: Pricing{InputMicroUSDPerMillionTokens: 1, OutputMicroUSDPerMillionTokens: 2},
+			MaxEstimatedCostMicroUSD: 10})
+	}
+	manifest.RunSets = []PrivateWorkspaceRunSet{{Kind: PrivateRunSetKindComparison, Alias: "comparison",
+		SpecPaths: []string{"cases/comparison/cli.json", "cases/comparison/mcp.json"}, QualitativeReviewPanel: &panel,
+		ReviewerReserveMicroUSD: 60}}
+	if err := manifest.Validate(); err != nil {
+		t.Fatalf("mixed executable panel rejected: %v", err)
+	}
+	manifest.RunSets[0].ReviewerReserveMicroUSD--
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("panel reserve did not cover every reviewer on every surface")
+	}
+	manifest.RunSets[0].ReviewerReserveMicroUSD = 60
+	executions := append([]PrivateReviewerExecution(nil), panel.Executions...)
+	panel.Executions = panel.Executions[:2]
+	manifest.RunSets[0].QualitativeReviewPanel = &panel
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("partial executable roster was accepted")
+	}
+	panel.Executions = executions
+	panel.Executions[1].Reasoning = "minimal"
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("Claude Code slot accepted a Codex-only reasoning level")
+	}
+}
+
+func TestLegacyCalibratedWorkspaceRemainsReadableButCannotDeclareReviewerExecution(t *testing.T) {
+	manifest := DefaultPrivateWorkspaceManifest()
+	manifest.SchemaVersion = LegacyCalibratedWorkspaceSchemaVersion
+	manifest.RunSets = []PrivateWorkspaceRunSet{{Alias: "comparison", SpecPaths: []string{"cases/comparison/run.json"}}}
+	data, err := EncodePrivateWorkspaceManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodePrivateWorkspaceManifest(bytes.NewReader(data))
+	if err != nil || decoded.SchemaVersion != LegacyCalibratedWorkspaceSchemaVersion {
+		t.Fatalf("decoded=%+v err=%v", decoded, err)
+	}
+	panel := privateReviewTestPanel()
+	for _, reviewer := range panel.Reviewers {
+		panel.Executions = append(panel.Executions, PrivateReviewerExecution{ReviewerID: reviewer.ID, Reasoning: "high",
+			TimeoutSeconds: 60, Pricing: Pricing{InputMicroUSDPerMillionTokens: 1}, MaxEstimatedCostMicroUSD: 1})
+	}
+	manifest.RunSets[0].QualitativeReviewPanel = &panel
+	manifest.RunSets[0].ReviewerReserveMicroUSD = 3
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("legacy workspace accepted reviewer execution")
+	}
+
+	repository := t.TempDir()
+	root := filepath.Join(t.TempDir(), "legacy-private")
+	manifest.RunSets = []PrivateWorkspaceRunSet{}
+	if report, err := InitPrivateWorkspace(root, repository, manifest); err != nil || !report.Healthy {
+		t.Fatalf("legacy workspace layout report=%+v err=%v", report, err)
 	}
 }
 
@@ -404,13 +469,14 @@ func TestPrivateWorkspaceManifestStrictSchemaAndContainedSpecs(t *testing.T) {
 	if _, err := DecodePrivateWorkspaceManifest(strings.NewReader(unknown)); err == nil || strings.Contains(err.Error(), privateMarker) {
 		t.Fatalf("unknown-field err=%v", err)
 	}
-	duplicate := strings.Replace(string(data), `"schema_version": 3`, `"schema_version": 3, "schema_version": 3`, 1)
+	versionField := fmt.Sprintf(`"schema_version": %d`, PrivateWorkspaceSchemaVersion)
+	duplicate := strings.Replace(string(data), versionField, versionField+", "+versionField, 1)
 	if _, err := DecodePrivateWorkspaceManifest(strings.NewReader(duplicate)); err == nil {
 		t.Fatal("duplicate manifest key passed")
 	}
 
 	for name, mutate := range map[string]func(*PrivateWorkspaceManifest){
-		"version":        func(m *PrivateWorkspaceManifest) { m.SchemaVersion = 4 },
+		"version":        func(m *PrivateWorkspaceManifest) { m.SchemaVersion = PrivateWorkspaceSchemaVersion + 1 },
 		"env":            func(m *PrivateWorkspaceManifest) { m.LiveConfigEnv = "TOKEN=value" },
 		"alias":          func(m *PrivateWorkspaceManifest) { m.RunSets[0].Alias = "Private Project" },
 		"traversal":      func(m *PrivateWorkspaceManifest) { m.RunSets[0].SpecPaths[0] = "cases/../outside.json" },

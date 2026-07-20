@@ -264,6 +264,14 @@ func requirePrivatePanelRunUnassessed(root string, source PrivateBaselineSource)
 }
 
 func validatePrivatePanelRunPrepared(root string, source PrivateBaselineSource) error {
+	return validatePrivatePanelRunPackets(root, source, true)
+}
+
+func validatePrivatePanelRunReady(root string, source PrivateBaselineSource) error {
+	return validatePrivatePanelRunPackets(root, source, false)
+}
+
+func validatePrivatePanelRunPackets(root string, source PrivateBaselineSource, requireReceipts bool) error {
 	for _, surface := range source.Surfaces {
 		if surface.QualitativePanelContractPath == "" {
 			return privatePlanError("review_roster_incomplete")
@@ -288,6 +296,11 @@ func validatePrivatePanelRunPrepared(root string, source PrivateBaselineSource) 
 			reviewData, readErr := readPrivatePlanLifecycleFile(root, filepath.Join(packet, "review.json"), maxReviewBytes)
 			if readErr != nil {
 				return privatePlanError("review_packet_drift")
+			}
+			if requireReceipts && len(contract.Executions) != 0 {
+				if err := validatePrivateReviewReceiptForAssessment(root, source, surface, contract, reviewer, packet, reviewData); err != nil {
+					return err
+				}
 			}
 			binding, bindingErr := loadPrivatePanelResultBinding(root, source, surface, reviewer, sha256HexBytes(resultData))
 			if bindingErr != nil {
@@ -340,7 +353,8 @@ func validatePrivatePanelPacket(root, packet string, resultData, finalData, rubr
 	if err != nil {
 		return privatePlanError("review_packet")
 	}
-	allowed := map[string]bool{"final.json": true, "rubric.json": true, "review.json": true, "assessment.json": true}
+	allowed := map[string]bool{"final.json": true, "rubric.json": true, "review.json": true, "assessment.json": true,
+		"execution-attempt.json": true, "execution-receipt.json": true}
 	if includeResult {
 		allowed["result.json"] = true
 	}

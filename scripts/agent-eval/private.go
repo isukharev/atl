@@ -167,25 +167,32 @@ func runPrivateCommand(args []string, out io.Writer) error {
 		return writePrivateJSON(out, summary)
 	case "review":
 		if len(args) < 2 {
-			return fmt.Errorf("private review requires prepare or assess")
+			return fmt.Errorf("private review requires prepare, run, or assess")
 		}
 		operation := args[1]
-		if operation != "prepare" && operation != "assess" {
-			return fmt.Errorf("private review requires prepare or assess")
+		if operation != "prepare" && operation != "run" && operation != "assess" {
+			return fmt.Errorf("private review requires prepare, run, or assess")
 		}
 		flags := privateFlagSet("private review " + operation)
 		var root, repositoryRoot, planID, surface, treatment, reviewer, model, reviewerID, blindAssignment string
+		var expectedPlanSHA256, agentBinary, confirm string
 		flags.StringVar(&root, "root", "", "workspace root")
 		flags.StringVar(&repositoryRoot, "repository-root", ".", "repository root")
 		flags.StringVar(&planID, "plan", "", "completed plan id")
 		flags.StringVar(&surface, "surface", "", "reviewed surface")
 		flags.StringVar(&treatment, "treatment", "", "activation-study treatment")
-		if operation == "prepare" {
+		switch operation {
+		case "prepare":
 			flags.StringVar(&reviewer, "reviewer", "", "human, codex, or claude-code")
 			flags.StringVar(&model, "model", "", "exact reviewer model")
 			flags.StringVar(&reviewerID, "reviewer-id", "", "predeclared generic panel reviewer id")
 			flags.StringVar(&blindAssignment, "blind-assignment", "", "workspace-relative blind assignment under cases")
-		} else {
+		case "run":
+			flags.StringVar(&reviewerID, "reviewer-id", "", "predeclared generic panel reviewer id")
+			flags.StringVar(&expectedPlanSHA256, "expected-plan-sha256", "", "reviewed plan digest")
+			flags.StringVar(&agentBinary, "agent-binary", "", "reviewed single-file native Claude Code or Codex executable")
+			flags.StringVar(&confirm, "confirm", "", "must be RUN-REVIEW")
+		default:
 			flags.StringVar(&reviewerID, "reviewer-id", "", "predeclared generic panel reviewer id")
 		}
 		reviewArgs := []string{}
@@ -198,7 +205,8 @@ func runPrivateCommand(args []string, out io.Writer) error {
 		if flags.NArg() != 0 || root == "" || planID == "" || surface == "" {
 			return fmt.Errorf("private review %s requires root, plan, surface, and no positional arguments", operation)
 		}
-		if operation == "prepare" {
+		switch operation {
+		case "prepare":
 			if reviewer == "" && reviewerID == "" {
 				return fmt.Errorf("private review prepare requires --reviewer for legacy-single or --reviewer-id for a panel")
 			}
@@ -208,12 +216,26 @@ func runPrivateCommand(args []string, out io.Writer) error {
 				return err
 			}
 			return writePrivateJSON(out, summary)
-		}
-		summary, err := agenteval.AssessPrivateReview(agenteval.PrivateReviewAssessOptions{Root: root, RepositoryRoot: repositoryRoot, PlanID: planID, Surface: surface, Treatment: treatment, ReviewerID: reviewerID})
-		if err != nil {
+		case "run":
+			if reviewerID == "" || expectedPlanSHA256 == "" || agentBinary == "" {
+				return fmt.Errorf("private review run requires reviewer-id, reviewed plan hash, agent binary, and confirmation")
+			}
+			summary, err := agenteval.RunPrivateReview(context.Background(), agenteval.PrivateReviewRunOptions{Root: root,
+				RepositoryRoot: repositoryRoot, PlanID: planID, ExpectedPlanSHA256: expectedPlanSHA256,
+				Surface: surface, Treatment: treatment, ReviewerID: reviewerID, AgentBinary: agentBinary, Confirm: confirm})
+			if summary.SchemaVersion != 0 {
+				if encodeErr := writePrivateJSON(out, summary); encodeErr != nil {
+					return encodeErr
+				}
+			}
 			return err
+		default:
+			summary, err := agenteval.AssessPrivateReview(agenteval.PrivateReviewAssessOptions{Root: root, RepositoryRoot: repositoryRoot, PlanID: planID, Surface: surface, Treatment: treatment, ReviewerID: reviewerID})
+			if err != nil {
+				return err
+			}
+			return writePrivateJSON(out, summary)
 		}
-		return writePrivateJSON(out, summary)
 	case "study":
 		return runPrivateStudyCommand(args[1:], out)
 	case "baseline":

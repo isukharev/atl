@@ -110,7 +110,7 @@ from v4. A Codex `private-live` `cli-skill` spec must additionally choose
 that field is rejected on all other cells. Run `validate-comparison-set` before
 any model or backend is contacted.
 
-Private-workspace manifest schema v3 makes the lifecycle explicit. A
+Private-workspace manifest schema v4 makes the lifecycle explicit. A
 `kind:"comparison"` run set keeps one to three unique surfaces; an omitted kind
 is the legacy comparison form. A `kind:"activation-study"` run set contains
 exactly four otherwise-identical Codex `private-live` `cli-skill` v6 specs, one
@@ -380,9 +380,13 @@ a positive `reviewer_reserve_microusd` under the workspace maximum. Cost enforce
 detection-only: it checks provider-reported cost and coverage after calls and
 stops remaining cells on exhaustion, uncertainty, or a safety failure. It is
 not a preventive provider-side hard cap and cannot undo cost already incurred.
-The runner does not launch panel reviewers, so the reviewer reserve is a
-reviewed authorization partition, not durable reviewer-spend accounting;
-supervise any model-reviewer cost separately.
+An optional executable panel binds every Codex or Claude Code reviewer slot to
+an exact model, reasoning setting, timeout, token pricing, and cost cap. Its
+reserve covers every reviewer on every surface or activation cell. The
+fail-closed reviewer runner commits a terminal attempt before launch, strips
+all tools at a loopback provider boundary, permits one model request, and
+persists a content-free token/cost receipt. Manual panels remain supported when
+the execution list is omitted.
 
 Activation response schemas require a closed `evidence_outcome.state` with one
 of `none`, `unavailable`, `blocked`, `failed`, `partial`, or `succeeded`.
@@ -408,6 +412,17 @@ After all four cells have deterministic and panel results, capture an immutable
   --surface cli-skill \
   --treatment implicit \
   --reviewer-id reviewer-01
+
+/tmp/agent-eval private review run \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --plan "$REVIEWED_PLAN_ID" \
+  --expected-plan-sha256 "$REVIEWED_PLAN_SHA256" \
+  --surface cli-skill \
+  --treatment implicit \
+  --reviewer-id reviewer-01 \
+  --agent-binary "$REVIEWED_REVIEWER_BINARY" \
+  --confirm RUN-REVIEW
 
 /tmp/agent-eval private study reference \
   --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
@@ -441,7 +456,8 @@ silently replace the answer oracle. `external-mcp` additionally requires the
 owner-only credential-isolation profile described in the private-live guide.
 
 Each run spec also binds a public `rubric.v1.json`. In the marked private
-workspace, use `agent-eval private review prepare` and `private review assess`
+workspace, use `agent-eval private review prepare`, optional `private review
+run`, and `private review assess`
 to create a fixed-layout, source-bound packet without discovering raw paths.
 The generic `review-template` and `assess` commands remain the low-level form
 for synthetic/framework work. Both score grounding, qualification,

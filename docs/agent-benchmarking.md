@@ -963,15 +963,17 @@ identities and cannot contain the new treatments. Result v3/v4 and private-plan
 v1 artifacts remain readable under their earlier legacy rules. None is silently
 reclassified as `developer` or `combined`.
 
-Private-workspace manifest schema v3 provides two run-set kinds. A
+Private-workspace manifest schema v4 provides two run-set kinds. A
 `comparison` contains one to three unique surfaces and keeps any Codex CLI member
 implicit-only. An `activation-study` contains exactly four otherwise-identical
 Codex `private-live` `cli-skill` v6 specs, one per treatment, in one case
 directory. It requires a blinded `criterion-median-v1` panel with exactly three
 or five reviewers, a positive explicit `reviewer_reserve_microusd`, and a
-separate backend-free provider-calibration cap. Current private plans use
-schema v6; schema-v5 plans remain inspectable but read-only because they predate
-the bound tool-availability result. Activation-study execution state uses
+separate backend-free provider-calibration cap. An executable panel may mix
+Codex and Claude Code reviewers and binds every slot's model, reasoning,
+timeout, pricing, and cap before candidate execution. Current private plans use
+schema v7; schema-v6 plans remain readable for manual review but cannot execute
+automated reviewer slots. Activation-study execution state uses
 calibrated schema v3 rather than the
 legacy per-surface state.
 
@@ -1054,12 +1056,13 @@ treatment. Missing coverage, contradictions, policy denial, or incomplete
 safety evidence stop the lifecycle fail-closed.
 
 The plan partitions the calibration cap, four treatment caps, and reviewer
-reserve below the workspace maximum. The runner does not launch panel reviewers, so the reserve
-records reviewed authorization rather than measured reviewer receipts. This is
-detection-only cost assurance, not a preventive
-provider-side hard cap: reported cost and coverage are checked after provider
-calls, and exhaustion, uncertainty, or a safety failure stops remaining cells
-without undoing already-incurred cost.
+reserve below the workspace maximum. An executable panel allocates that reserve
+across every Codex or Claude Code reviewer slot and records source-bound token
+and estimated-cost receipts. The loopback boundary strips tools before the one
+allowed model request and treats failure or ambiguity as terminal. Candidate
+execution remains detection-only cost assurance: reported cost and coverage
+are checked after provider calls, and exhaustion, uncertainty, or a safety
+failure stops remaining cells without undoing already-incurred cost.
 
 Review selects the same `cli-skill` surface by `--treatment`. Prepare all
 four-by-three or four-by-five blinded packets before the first assessment. Once
@@ -1104,6 +1107,17 @@ mixed with calibrated references.
   --surface cli-skill \
   --treatment implicit \
   --reviewer-id reviewer-01
+
+/tmp/agent-eval private review run \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --plan "$REVIEWED_PLAN_ID" \
+  --expected-plan-sha256 "$REVIEWED_PLAN_SHA256" \
+  --surface cli-skill \
+  --treatment implicit \
+  --reviewer-id reviewer-01 \
+  --agent-binary "$REVIEWED_REVIEWER_BINARY" \
+  --confirm RUN-REVIEW
 
 /tmp/agent-eval private review assess \
   --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \

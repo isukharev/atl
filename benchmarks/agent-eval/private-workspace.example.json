@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "live_config_env": "ATL_AGENT_EVAL_LIVE_CONFIG_DIR",
   "external_mcp_profile_env": "ATL_AGENT_EVAL_EXTERNAL_MCP_PROFILE",
   "execution": {
@@ -31,8 +31,8 @@
           },
           {
             "id": "reviewer-02",
-            "kind": "codex",
-            "model": "gpt-test-reviewer"
+            "kind": "claude-code",
+            "model": "claude-test-reviewer"
           },
           {
             "id": "reviewer-03",
@@ -41,8 +41,32 @@
           }
         ],
         "max_criterion_range_bps": 2500,
-        "blind_assignment": "cases/evidence/blind-assignment.txt"
-      }
+        "blind_assignment": "cases/evidence/blind-assignment.txt",
+        "executions": [
+          {
+            "reviewer_id": "reviewer-01",
+            "reasoning": "high",
+            "timeout_seconds": 300,
+            "pricing": {"input_microusd_per_million_tokens": 1000000, "output_microusd_per_million_tokens": 4000000},
+            "max_estimated_cost_microusd": 100000
+          },
+          {
+            "reviewer_id": "reviewer-02",
+            "reasoning": "high",
+            "timeout_seconds": 300,
+            "pricing": {"input_microusd_per_million_tokens": 1000000, "output_microusd_per_million_tokens": 4000000},
+            "max_estimated_cost_microusd": 100000
+          },
+          {
+            "reviewer_id": "reviewer-03",
+            "reasoning": "high",
+            "timeout_seconds": 300,
+            "pricing": {"input_microusd_per_million_tokens": 1000000, "output_microusd_per_million_tokens": 4000000},
+            "max_estimated_cost_microusd": 100000
+          }
+        ]
+      },
+      "reviewer_reserve_microusd": 900000
     }
   ]
 }
