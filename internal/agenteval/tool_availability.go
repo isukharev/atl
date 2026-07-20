@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,7 +23,7 @@ import (
 )
 
 const (
-	CodexCLIToolAvailabilitySchemaVersion = 1
+	CodexCLIToolAvailabilitySchemaVersion = 2
 	maxCodexToolProbeRequestBytes         = 4 << 20
 	maxCodexToolProbeOutputBytes          = 4 << 20
 	maxCodexToolProbeTimeout              = 60
@@ -65,7 +66,7 @@ type CodexCLIToolAvailabilityReport struct {
 }
 
 func (r CodexCLIToolAvailabilityReport) Validate() error {
-	if r.SchemaVersion != CodexCLIToolAvailabilitySchemaVersion || r.Provider != "codex" ||
+	if (r.SchemaVersion != 1 && r.SchemaVersion != CodexCLIToolAvailabilitySchemaVersion) || r.Provider != "codex" ||
 		len(r.AgentIdentity) != len("binary-sha256:")+64 || r.AgentIdentity[:len("binary-sha256:")] != "binary-sha256:" ||
 		!validSHA256(r.AgentIdentity[len("binary-sha256:"):]) || !validSHA256(r.ContractSHA256) ||
 		r.ProviderRequests != 0 || r.BackendRequests != 0 || r.RemoteWrites != 0 {
@@ -73,7 +74,10 @@ func (r CodexCLIToolAvailabilityReport) Validate() error {
 	}
 	switch r.Status {
 	case CodexCLIToolAvailabilitySupported:
-		if !r.RequestObserved || r.SyntheticRequests != 1 || (r.ShellTool != "exec_command" && r.ShellTool != "shell_command") {
+		legacyDirect := r.SchemaVersion == 1 && (r.ShellTool == "exec_command" || r.ShellTool == "shell_command")
+		currentRoute := r.SchemaVersion == CodexCLIToolAvailabilitySchemaVersion &&
+			(r.ShellTool == "exec_command" || r.ShellTool == "shell_command" || r.ShellTool == "exec")
+		if !r.RequestObserved || r.SyntheticRequests != 1 || (!legacyDirect && !currentRoute) {
 			return fmt.Errorf("invalid codex cli tool availability report")
 		}
 	case CodexCLIToolAvailabilityMissing, CodexCLIToolAvailabilityAmbiguous, CodexCLIToolAvailabilitySchemaFailed:
@@ -262,9 +266,9 @@ func classifyCodexToolProbeInventories(topLevel, input json.RawMessage) codexToo
 		return codexToolProbeObservation{status: CodexCLIToolAvailabilityAmbiguous}
 	}
 	if embeddedFound {
-		return classifyCodexToolInventory(embedded)
+		return classifyCodexToolInventory(embedded, true)
 	}
-	return classifyCodexToolInventory(topLevel)
+	return classifyCodexToolInventory(topLevel, false)
 }
 
 func codexAdditionalToolsInventory(input json.RawMessage) (json.RawMessage, bool, bool) {
@@ -295,7 +299,7 @@ func codexAdditionalToolsInventory(input json.RawMessage) (json.RawMessage, bool
 	return found, found != nil, false
 }
 
-func classifyCodexToolInventory(raw json.RawMessage) codexToolProbeObservation {
+func classifyCodexToolInventory(raw json.RawMessage, allowCodeMode bool) codexToolProbeObservation {
 	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return codexToolProbeObservation{status: CodexCLIToolAvailabilityMissing}
 	}
@@ -305,11 +309,15 @@ func classifyCodexToolInventory(raw json.RawMessage) codexToolProbeObservation {
 	}
 	seen := make(map[string]struct{}, len(tools))
 	primary := ""
+	codeModeExec := false
+	codeModeWait := false
 	for _, rawTool := range tools {
 		var tool struct {
-			Type       string          `json:"type"`
-			Name       string          `json:"name"`
-			Parameters json.RawMessage `json:"parameters"`
+			Type        string          `json:"type"`
+			Name        string          `json:"name"`
+			Description string          `json:"description"`
+			Format      json.RawMessage `json:"format"`
+			Parameters  json.RawMessage `json:"parameters"`
 		}
 		if json.Unmarshal(rawTool, &tool) != nil || tool.Type == "" {
 			return codexToolProbeObservation{status: CodexCLIToolAvailabilitySchemaFailed}
@@ -321,6 +329,21 @@ func classifyCodexToolInventory(raw json.RawMessage) codexToolProbeObservation {
 			return codexToolProbeObservation{status: CodexCLIToolAvailabilityAmbiguous}
 		}
 		seen[tool.Name] = struct{}{}
+		if allowCodeMode && tool.Name == "exec" {
+			if primary != "" || codeModeExec || tool.Type != "custom" ||
+				!validCodexCodeModeExec(tool.Description, tool.Format, tool.Parameters) {
+				return codexToolProbeObservation{status: CodexCLIToolAvailabilityAmbiguous}
+			}
+			codeModeExec = true
+			continue
+		}
+		if allowCodeMode && tool.Name == "wait" {
+			if codeModeWait || tool.Type != "function" || !validCodexCodeModeWait(tool.Parameters) {
+				return codexToolProbeObservation{status: CodexCLIToolAvailabilityAmbiguous}
+			}
+			codeModeWait = true
+			continue
+		}
 		if tool.Name != "exec_command" && tool.Name != "shell_command" {
 			continue
 		}
@@ -333,11 +356,99 @@ func classifyCodexToolInventory(raw json.RawMessage) codexToolProbeObservation {
 		}
 		primary = tool.Name
 	}
+	if codeModeExec || codeModeWait {
+		if primary != "" || !codeModeExec || !codeModeWait {
+			return codexToolProbeObservation{status: CodexCLIToolAvailabilityAmbiguous}
+		}
+		return codexToolProbeObservation{status: CodexCLIToolAvailabilitySupported, shellTool: "exec"}
+	}
 	if primary == "" {
 		return codexToolProbeObservation{status: CodexCLIToolAvailabilityMissing}
 	}
 	return codexToolProbeObservation{status: CodexCLIToolAvailabilitySupported, shellTool: primary}
 }
+
+func validCodexCodeModeExec(description string, format, parameters json.RawMessage) bool {
+	if len(parameters) != 0 && !bytes.Equal(bytes.TrimSpace(parameters), []byte("null")) {
+		return false
+	}
+	var grammarObject map[string]json.RawMessage
+	if json.Unmarshal(format, &grammarObject) != nil || len(grammarObject) != 3 {
+		return false
+	}
+	for _, name := range []string{"type", "syntax", "definition"} {
+		if _, ok := grammarObject[name]; !ok {
+			return false
+		}
+	}
+	var grammar struct {
+		Type       string `json:"type"`
+		Syntax     string `json:"syntax"`
+		Definition string `json:"definition"`
+	}
+	if json.Unmarshal(format, &grammar) != nil || grammar.Type != "grammar" || grammar.Syntax != "lark" ||
+		strings.TrimSpace(grammar.Definition) != strings.TrimSpace(codexCodeModeExecGrammar) {
+		return false
+	}
+	if !strings.Contains(description, "All nested tools are available on the global `tools` object") {
+		return false
+	}
+	// Require the generated heading/declaration pairs, not loose name mentions
+	// that could occur in a warning or a negated sentence.
+	for _, declaration := range []string{
+		"### `exec_command`\n", "declare const tools: { exec_command(args: {",
+		"### `write_stdin`\n", "declare const tools: { write_stdin(args: {",
+	} {
+		if strings.Count(description, declaration) != 1 {
+			return false
+		}
+	}
+	return true
+}
+
+func validCodexCodeModeWait(data json.RawMessage) bool {
+	var object map[string]json.RawMessage
+	if json.Unmarshal(data, &object) != nil || len(object) != 4 {
+		return false
+	}
+	for _, name := range []string{"type", "properties", "required", "additionalProperties"} {
+		if _, ok := object[name]; !ok {
+			return false
+		}
+	}
+	var schema struct {
+		Type       string                     `json:"type"`
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+		Additional *bool                      `json:"additionalProperties"`
+	}
+	if json.Unmarshal(data, &schema) != nil || schema.Type != "object" ||
+		len(schema.Properties) != 4 || len(schema.Required) != 1 || schema.Required[0] != "cell_id" ||
+		schema.Additional == nil || *schema.Additional {
+		return false
+	}
+	for name, wantType := range map[string]string{
+		"cell_id": "string", "max_tokens": "number", "terminate": "boolean", "yield_time_ms": "number",
+	} {
+		var property struct {
+			Type string `json:"type"`
+		}
+		if raw, ok := schema.Properties[name]; !ok || json.Unmarshal(raw, &property) != nil || property.Type != wantType {
+			return false
+		}
+	}
+	return true
+}
+
+const codexCodeModeExecGrammar = `
+start: pragma_source | plain_source
+pragma_source: PRAGMA_LINE NEWLINE SOURCE
+plain_source: SOURCE
+
+PRAGMA_LINE: /[ \t]*\/\/ @exec:[^\r\n]*/
+NEWLINE: /\r?\n/
+SOURCE: /[\s\S]+/
+`
 
 func validCodexShellToolParameters(data []byte, requiredParameter string) bool {
 	var schema struct {

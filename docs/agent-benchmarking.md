@@ -977,7 +977,7 @@ legacy per-surface state.
 
 One activation-study plan and one consent bind the common contract, all four
 exact treatment contracts, tool-availability qualification contract and
-observed shell alias, panel
+observed execution-route alias, panel
 roster, any required blind assignment, execution snapshot, and provider-auth
 session. Attempts run sequentially through these canonical balanced orders:
 `implicit/explicit/combined/developer`,
@@ -1003,11 +1003,17 @@ when it is false, the numeric detected total is only a lower bound.
 Before plan persistence and again before plan consumption, a credential-free
 qualification runs the exact native Codex binary against a nonce-scoped
 loopback Responses endpoint. It accepts one bounded synthetic request and
-validates the model-facing shell inventory without provider authentication,
+validates the model-facing local-execution inventory without provider authentication,
 model execution, backend authority, or durable raw request data. The
 content-free report binds the binary, model, reasoning setting, fixed prompt,
 launch flags, bounds, and timeout. Missing, ambiguous, malformed, repeated, or
-absent inventory terminates before a treatment is reserved or scored.
+absent inventory terminates before a treatment is reserved or scored. Direct
+`exec_command`/`shell_command` inventories and the Responses-lite code-mode
+`additional_tools` route are classified separately. Code mode is accepted only
+for a grammar-bound custom `exec` host that exposes the pinned shell pair and
+the exact closed-schema `wait` companion; mixed or broadened shapes fail
+closed. Qualification-report schema v2 records this expanded route contract;
+legacy schema-v1 reports remain valid only for their direct-shell aliases.
 Linux distributions that declare the fixed adjacent Codex sandbox helper bind
 its native byte digest and relative layout into the same reviewed inputs. The
 owner-only runtime copies only that helper, revalidates it after snapshotting,
