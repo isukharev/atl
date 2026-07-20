@@ -508,7 +508,7 @@ func isExactProviderCalibrationSpec(s RunSpec) bool {
 	rule := s.AllowedCLICommands[0]
 	check := s.Checks[0]
 	return rule.Name == "atl_version" && equalStrings(rule.Command, []string{"version"}) && len(rule.Positionals) == 0 && len(rule.Flags) == 0 && rule.MaxInvocations == 1 &&
-		check.Name == "calibration_response" && check.Kind == "json_equals" && check.Pointer == "/ok" && string(check.Expected) == "true" && check.Minimum == 0 && check.Maximum == 0
+		check.Name == "calibration_response" && check.Kind == "json_present" && check.Pointer == "/version" && len(check.Expected) == 0 && check.Minimum == 0 && check.Maximum == 0
 }
 
 func containsRunString(values []string, candidate string) bool {

@@ -11,7 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Made the fixed Codex activation-calibration response schema compatible with strict provider structured-output validation by explicitly typing its boolean property; reviewed plans still bind the exact schema digest and remain one-shot.
+- Grounded the Codex activation calibration response in a content-derived semantic
+  digest of the exact `version`, `commit`, and `build_state` values emitted by
+  the brokered local ATL command, so a model cannot satisfy the preflight with
+  an unverified constant response while skipping or misreporting the tool call.
+- Made the fixed Codex activation-calibration response schema compatible with strict provider structured-output validation by explicitly typing every property; reviewed plans still bind the exact schema digest and remain one-shot.
 
 ### Changed
 

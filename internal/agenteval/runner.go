@@ -69,11 +69,12 @@ type RunOutput struct {
 }
 
 type atlProxyRecord struct {
-	CommandFamily string `json:"command_family,omitempty"`
-	Denied        bool   `json:"denied,omitempty"`
-	StdoutBytes   int64  `json:"stdout_bytes"`
-	StderrBytes   int64  `json:"stderr_bytes"`
-	ExitCode      int    `json:"exit_code"`
+	CommandFamily                string `json:"command_family,omitempty"`
+	CalibrationObservationSHA256 string `json:"calibration_observation_sha256,omitempty"`
+	Denied                       bool   `json:"denied,omitempty"`
+	StdoutBytes                  int64  `json:"stdout_bytes"`
+	StderrBytes                  int64  `json:"stderr_bytes"`
+	ExitCode                     int    `json:"exit_code"`
 }
 
 type guardDecisionRecord struct {

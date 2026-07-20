@@ -15,6 +15,23 @@ import (
 	"github.com/isukharev/atl/internal/safepath"
 )
 
+func TestSanitizePrivateAuditDropsCalibrationObservation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "atl-invocations.jsonl")
+	observation := strings.Repeat("a", 64)
+	data := []byte(`{"command_family":"atl_version","calibration_observation_sha256":"` + observation + `","stdout_bytes":42,"stderr_bytes":0,"exit_code":0}` + "\n")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sanitized, err := sanitizePrivateAudit("atl-invocations.jsonl", path, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(sanitized, []byte("atl_version")) || bytes.Contains(sanitized, []byte(observation)) ||
+		string(sanitized) != "{\"stdout_bytes\":42,\"stderr_bytes\":0,\"exit_code\":0}\n" {
+		t.Fatalf("calibration observation survived sanitized audit: %s", sanitized)
+	}
+}
+
 func TestSetPrivateBaselineCreatesCompactImmutableBaselineAndCurrentPointer(t *testing.T) {
 	fixture := newPrivateBaselineFixture(t, 3)
 	privateCanary := "private-canary-must-stay-in-retained-content"
