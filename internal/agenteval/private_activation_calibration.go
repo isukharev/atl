@@ -56,15 +56,14 @@ func validatePrivateActivationCalibrationReceipt(root, runID string, plan privat
 	if decodePrivateLifecycleJSON(data, &envelope) != nil || sha256HexBytes(data) != expectedSHA256 {
 		return privatePlanError("calibration_receipt_binding")
 	}
-	canonical, err := encodePrivateActivationCalibrationReceipt(envelope)
+	canonical, err := encodePrivateActivationCalibrationReceiptForPlan(envelope, plan.SchemaVersion)
 	if err != nil || !bytes.Equal(canonical, data) {
 		return privatePlanError("calibration_receipt_canonical")
 	}
 	planData, err := encodePrivatePlan(plan)
-	if err != nil || envelope.PlanSHA256 != sha256HexBytes(planData) || envelope.Contract.Validate() != nil ||
+	if err != nil || envelope.PlanSHA256 != sha256HexBytes(planData) || validatePrivateActivationCalibrationEnvelope(envelope, plan.SchemaVersion) != nil ||
 		envelope.Contract.SHA256 != plan.StudyContract.Calibration.ContractSHA256 ||
-		envelope.Contract.MaxEstimatedCostMicroUSD != plan.StudyContract.Calibration.MaxEstimatedCostMicroUSD ||
-		envelope.Receipt.Validate(envelope.Contract) != nil {
+		envelope.Contract.MaxEstimatedCostMicroUSD != plan.StudyContract.Calibration.MaxEstimatedCostMicroUSD {
 		return privatePlanError("calibration_receipt_binding")
 	}
 	return nil
@@ -72,9 +71,37 @@ func validatePrivateActivationCalibrationReceipt(root, runID string, plan privat
 
 func encodePrivateActivationCalibrationReceipt(receipt privateActivationCalibrationExecutionReceipt) ([]byte, error) {
 	if receipt.SchemaVersion != privateActivationCalibrationReceiptSchemaVersion || !validSHA256(receipt.PlanSHA256) ||
-		receipt.Contract.Validate() != nil || receipt.Receipt.Validate(receipt.Contract) != nil {
+		validatePrivateActivationCalibrationEnvelope(receipt, PrivatePlanSchemaVersion) != nil {
 		return nil, privatePlanError("calibration_receipt_encode")
 	}
+	return marshalPrivateActivationCalibrationReceipt(receipt)
+}
+
+func encodePrivateActivationCalibrationReceiptForPlan(receipt privateActivationCalibrationExecutionReceipt, planSchemaVersion int) ([]byte, error) {
+	if receipt.SchemaVersion != privateActivationCalibrationReceiptSchemaVersion || !validSHA256(receipt.PlanSHA256) ||
+		validatePrivateActivationCalibrationEnvelope(receipt, planSchemaVersion) != nil {
+		return nil, privatePlanError("calibration_receipt_encode")
+	}
+	return marshalPrivateActivationCalibrationReceipt(receipt)
+}
+
+func validatePrivateActivationCalibrationEnvelope(receipt privateActivationCalibrationExecutionReceipt, planSchemaVersion int) error {
+	switch planSchemaVersion {
+	case PrivatePlanSchemaVersion:
+		if receipt.Contract.Validate() != nil || receipt.Receipt.Validate(receipt.Contract) != nil {
+			return privatePlanError("calibration_receipt_contract")
+		}
+	case LegacyToolQualifiedPrivatePlanSchemaVersion:
+		if receipt.Contract.validateLegacyToolQualified() != nil || receipt.Receipt.validateLegacyToolQualified(receipt.Contract) != nil {
+			return privatePlanError("calibration_receipt_contract")
+		}
+	default:
+		return privatePlanError("calibration_receipt_contract")
+	}
+	return nil
+}
+
+func marshalPrivateActivationCalibrationReceipt(receipt privateActivationCalibrationExecutionReceipt) ([]byte, error) {
 	data, err := json.MarshalIndent(receipt, "", "  ")
 	if err != nil {
 		return nil, privatePlanError("calibration_receipt_encode")

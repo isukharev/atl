@@ -221,6 +221,64 @@ func TestBuildCodexCLICalibrationContractIsDeterministicAndComplete(t *testing.T
 	}
 }
 
+func TestLegacyToolQualifiedCalibrationContractIsFrozenAndReadOnly(t *testing.T) {
+	pricing := Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000}
+	contract, err := buildLegacyToolQualifiedCalibrationContract("test-model", "high", 60, 500_000, pricing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const historicalSHA256 = "9093140f6e1e380694ca0896970e4ab1b4cbfa6adf1a8f725066d531e15bab77"
+	if contract.SHA256 != historicalSHA256 || contract.validateLegacyToolQualified() != nil {
+		t.Fatalf("legacy contract drifted: sha256=%s", contract.SHA256)
+	}
+	if contract.Validate() == nil {
+		t.Fatal("legacy contract became executable as the current contract")
+	}
+	current, err := BuildCodexCLICalibrationContract("test-model", "high", 60, 500_000, pricing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.SHA256 == contract.SHA256 {
+		t.Fatal("current contract lost its explicit skill-read confinement binding")
+	}
+
+	receipt := CodexCLICalibrationReceipt{
+		SchemaVersion: CodexCLICalibrationSchemaVersion, ContractSHA256: contract.SHA256, Passed: true,
+		CommandFamily: "atl_version", CommandExecutions: 1, BrokeredInvocations: 1,
+		GuardAdmissions: 1, GuardATLAdmissions: 1, StdoutBytes: 8,
+		InputTokens: 30, OutputTokens: 10, EstimatedCostMicroUSD: 50, DurationMillis: 1,
+	}
+	if err := receipt.validateLegacyToolQualified(contract); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Validate(contract) == nil {
+		t.Fatal("legacy receipt became valid for current execution")
+	}
+	envelope := privateActivationCalibrationExecutionReceipt{
+		SchemaVersion: privateActivationCalibrationReceiptSchemaVersion,
+		PlanSHA256:    strings.Repeat("a", 64),
+		Contract:      contract,
+		Receipt:       receipt,
+	}
+	if _, err := encodePrivateActivationCalibrationReceiptForPlan(envelope, LegacyToolQualifiedPrivatePlanSchemaVersion); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := encodePrivateActivationCalibrationReceiptForPlan(envelope, PrivatePlanSchemaVersion); err == nil {
+		t.Fatal("legacy receipt crossed into the current plan schema")
+	}
+
+	contractMutation := contract
+	contractMutation.Model = "other-model"
+	if contractMutation.validateLegacyToolQualified() == nil {
+		t.Fatal("mutated legacy contract retained its historical digest")
+	}
+	receiptMutation := receipt
+	receiptMutation.GuardDenials = 1
+	if receiptMutation.validateLegacyToolQualified(contract) == nil {
+		t.Fatal("mutated legacy receipt passed safety validation")
+	}
+}
+
 func TestCodexCLICalibrationContractRejectsPreviousPromptAndSchemaDigest(t *testing.T) {
 	currentPrompt := codexCLICalibrationPrompt
 	currentSchema := codexCLICalibrationSchema

@@ -80,6 +80,76 @@ func TestPrivateActivationStudyPlanExecutesOneBoundFourCellBlock(t *testing.T) {
 	}
 }
 
+func TestPrivateActivationCalibrationReceiptInspectsFrozenSchemaSixPlan(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("synthetic executable scripts are Unix-only")
+	}
+	fixture := newPrivateActivationPlanFixture(t)
+	preview, err := CreatePrivatePlan(context.Background(), fixture.createOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, _, err := loadPrivatePlan(fixture.root, preview.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadRunInputs(RunOptions{SpecPath: filepath.Join(fixture.root, filepath.FromSlash(plan.Items[0].SpecPath))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := buildLegacyToolQualifiedCalibrationContract(loaded.spec.Model, loaded.spec.Reasoning,
+		codexCLICalibrationTimeout(loaded.spec.TimeoutSeconds), plan.StudyContract.Calibration.MaxEstimatedCostMicroUSD, loaded.spec.Pricing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.SchemaVersion = LegacyToolQualifiedPrivatePlanSchemaVersion
+	plan.StudyContract.Calibration.ContractSHA256 = contract.SHA256
+	planData, err := encodePrivatePlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := CodexCLICalibrationReceipt{
+		SchemaVersion: CodexCLICalibrationSchemaVersion, ContractSHA256: contract.SHA256, Passed: true,
+		CommandFamily: "atl_version", CommandExecutions: 1, BrokeredInvocations: 1,
+		GuardAdmissions: 1, GuardATLAdmissions: 1, StdoutBytes: 8,
+		InputTokens: 30, OutputTokens: 10, EstimatedCostMicroUSD: 50, DurationMillis: 1,
+	}
+	envelope := privateActivationCalibrationExecutionReceipt{
+		SchemaVersion: privateActivationCalibrationReceiptSchemaVersion,
+		PlanSHA256:    sha256HexBytes(planData), Contract: contract, Receipt: receipt,
+	}
+	receiptData, err := encodePrivateActivationCalibrationReceiptForPlan(envelope, plan.SchemaVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := privateRandomID("run-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	calibrationRoot := filepath.Join(fixture.root, "runs", runID, "calibration")
+	if err := os.MkdirAll(calibrationRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(calibrationRoot, "execution-receipt.json"), receiptData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	receiptSHA256 := sha256HexBytes(receiptData)
+	if err := validatePrivateActivationCalibrationReceipt(fixture.root, runID, plan, receiptSHA256); err != nil {
+		t.Fatal(err)
+	}
+
+	currentPlan := plan
+	currentPlan.SchemaVersion = PrivatePlanSchemaVersion
+	if err := validatePrivateActivationCalibrationReceipt(fixture.root, runID, currentPlan, receiptSHA256); err == nil {
+		t.Fatal("legacy calibration receipt crossed into the current plan schema")
+	}
+	unsupportedPlan := plan
+	unsupportedPlan.SchemaVersion = LegacyCalibratedPrivatePlanSchemaVersion
+	if err := validatePrivateActivationCalibrationReceipt(fixture.root, runID, unsupportedPlan, receiptSHA256); err == nil {
+		t.Fatal("legacy calibration receipt crossed into an unsupported plan schema")
+	}
+}
+
 func TestPrivateActivationStudyStopsBeforePlanOrRunWhenShellInventoryIsUnavailable(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("synthetic executable scripts are Unix-only")
