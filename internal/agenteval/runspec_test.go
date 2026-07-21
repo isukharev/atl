@@ -1,7 +1,9 @@
 package agenteval
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,6 +117,21 @@ func TestPrivateLiveRunSpecFailsClosed(t *testing.T) {
 	}
 	if err := spec.ValidateAgainstScenario(scenario); err != nil {
 		t.Fatal(err)
+	}
+	artifactSpec := spec
+	artifactSpec.Checks = append([]RunCheck(nil), spec.Checks...)
+	artifactSpec.Checks = append(artifactSpec.Checks, RunCheck{Name: "artifact", Kind: "workspace_file_sha256", Expected: json.RawMessage(
+		`{"path":"generated/report.bin","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)})
+	artifactScenario := scenario
+	artifactScenario.RequiredChecks = append([]string(nil), scenario.RequiredChecks...)
+	artifactScenario.RequiredChecks = append(artifactScenario.RequiredChecks, "artifact")
+	artifactScenario.RequiredSemanticChecks = append([]string(nil), scenario.RequiredSemanticChecks...)
+	artifactScenario.RequiredSemanticChecks = append(artifactScenario.RequiredSemanticChecks, "artifact")
+	if err := artifactSpec.Validate(); err != nil {
+		t.Fatalf("private-live artifact spec validation: %v", err)
+	}
+	if err := artifactSpec.ValidateAgainstScenario(artifactScenario); err != nil {
+		t.Fatalf("private-live artifact scenario validation: %v", err)
 	}
 	for name, mutate := range map[string]func(*RunSpec, *Scenario){
 		"fixture":     func(s *RunSpec, _ *Scenario) { s.FixtureFile = "fixture.json" },
@@ -710,6 +727,133 @@ func TestEvaluateRunChecksBindsContainedWorkspaceJSON(t *testing.T) {
 	invalid.Checks = append(invalid.Checks, check)
 	if err := invalid.Validate(); err == nil {
 		t.Fatal("escaping workspace JSON oracle passed")
+	}
+}
+
+func TestEvaluateRunChecksBindsGeneratedWorkspaceFileSHA256(t *testing.T) {
+	workspace := t.TempDir()
+	artifact := filepath.Join(workspace, "generated", "report.bin")
+	if err := os.MkdirAll(filepath.Dir(artifact), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("reviewed artifact\n")
+	if err := os.WriteFile(artifact, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(content)
+	check := RunCheck{Name: "artifact", Kind: "workspace_file_sha256", Expected: json.RawMessage(fmt.Sprintf(
+		`{"path":"generated/report.bin","sha256":"%x"}`, digest))}
+	result, err := evaluateRunChecks([]RunCheck{check}, []byte(`{}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false)
+	if err != nil || !result["artifact"] {
+		t.Fatalf("result=%v err=%v", result, err)
+	}
+
+	for name, prepare := range map[string]func(*testing.T) (string, [sha256.Size]byte){
+		"missing": func(*testing.T) (string, [sha256.Size]byte) { return "missing.bin", digest },
+		"directory": func(t *testing.T) (string, [sha256.Size]byte) {
+			t.Helper()
+			if err := os.Mkdir(filepath.Join(workspace, "directory"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			return "directory", digest
+		},
+		"oversized": func(t *testing.T) (string, [sha256.Size]byte) {
+			t.Helper()
+			path := filepath.Join(workspace, "oversized.bin")
+			oversized := make([]byte, maxWorkspaceArtifactBytes+1)
+			if err := os.WriteFile(path, oversized, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return "oversized.bin", sha256.Sum256(oversized)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := check
+			path, expectedDigest := prepare(t)
+			candidate.Expected = json.RawMessage(fmt.Sprintf(`{"path":%q,"sha256":"%x"}`, path, expectedDigest))
+			got, err := evaluateRunChecks([]RunCheck{candidate}, []byte(`{}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false)
+			if err != nil || got["artifact"] {
+				t.Fatalf("result=%v err=%v", got, err)
+			}
+		})
+	}
+
+	t.Run("digest mismatch", func(t *testing.T) {
+		candidate := check
+		candidate.Expected = json.RawMessage(`{"path":"generated/report.bin","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}`)
+		got, err := evaluateRunChecks([]RunCheck{candidate}, []byte(`{}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false)
+		if err != nil || got["artifact"] {
+			t.Fatalf("result=%v err=%v", got, err)
+		}
+	})
+
+	t.Run("symlink", func(t *testing.T) {
+		link := filepath.Join(workspace, "artifact-link.bin")
+		if err := os.Symlink("generated/report.bin", link); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		candidate := check
+		candidate.Expected = json.RawMessage(fmt.Sprintf(`{"path":"artifact-link.bin","sha256":"%x"}`, digest))
+		got, err := evaluateRunChecks([]RunCheck{candidate}, []byte(`{}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false)
+		if err != nil || got["artifact"] {
+			t.Fatalf("result=%v err=%v", got, err)
+		}
+	})
+
+	t.Run("intermediate symlink", func(t *testing.T) {
+		link := filepath.Join(workspace, "generated-link")
+		if err := os.Symlink("generated", link); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		candidate := check
+		candidate.Expected = json.RawMessage(fmt.Sprintf(`{"path":"generated-link/report.bin","sha256":"%x"}`, digest))
+		got, err := evaluateRunChecks([]RunCheck{candidate}, []byte(`{}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false)
+		if err != nil || got["artifact"] {
+			t.Fatalf("result=%v err=%v", got, err)
+		}
+	})
+}
+
+func TestRunSpecValidatesWorkspaceFileSHA256Expectation(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	valid := validRunSpec()
+	valid.Checks = append(valid.Checks, RunCheck{Name: "artifact", Kind: "workspace_file_sha256", Expected: json.RawMessage(
+		`{"path":"generated/report.bin","sha256":"` + digest + `"}`)})
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if runCheckClass("workspace_file_sha256") != "semantic" {
+		t.Fatal("workspace_file_sha256 is not classified as a semantic check")
+	}
+
+	for name, expected := range map[string]json.RawMessage{
+		"missing":       nil,
+		"absolute":      json.RawMessage(`{"path":"/tmp/report.bin","sha256":"` + digest + `"}`),
+		"traversal":     json.RawMessage(`{"path":"../report.bin","sha256":"` + digest + `"}`),
+		"unclean":       json.RawMessage(`{"path":"generated/../report.bin","sha256":"` + digest + `"}`),
+		"backslash":     json.RawMessage(`{"path":"generated\\report.bin","sha256":"` + digest + `"}`),
+		"uppercase":     json.RawMessage(`{"path":"report.bin","sha256":"` + strings.ToUpper(digest) + `"}`),
+		"short digest":  json.RawMessage(`{"path":"report.bin","sha256":"abcd"}`),
+		"unknown field": json.RawMessage(`{"path":"report.bin","sha256":"` + digest + `","size":1}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := validRunSpec()
+			spec.Checks = append(spec.Checks, RunCheck{Name: "artifact", Kind: "workspace_file_sha256", Expected: expected})
+			if err := spec.Validate(); err == nil {
+				t.Fatal("invalid workspace artifact expectation passed")
+			}
+		})
+	}
+
+	pointer := validRunSpec()
+	pointer.Checks = append(pointer.Checks, RunCheck{Name: "artifact", Kind: "workspace_file_sha256", Pointer: "/artifact", Expected: valid.Checks[len(valid.Checks)-1].Expected})
+	if err := pointer.Validate(); err == nil {
+		t.Fatal("workspace artifact expectation accepted a final-response pointer")
+	}
+	minimum := validRunSpec()
+	minimum.Checks = append(minimum.Checks, RunCheck{Name: "artifact", Kind: "workspace_file_sha256", Minimum: 1, Expected: valid.Checks[len(valid.Checks)-1].Expected})
+	if err := minimum.Validate(); err == nil {
+		t.Fatal("workspace artifact expectation accepted a minimum")
 	}
 }
 
