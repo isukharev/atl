@@ -352,6 +352,18 @@ go build -o /tmp/agent-eval ./scripts/agent-eval
   --dry-run
 ```
 
+The retained response schema remains the authoritative evaluation contract.
+Provider compatibility may derive a second owner-only schema without replacing
+that file. For Codex, `uniqueItems:false` is a no-op and may be omitted;
+`uniqueItems:true` may be omitted only when an exact `json_equals` check at the
+same JSON pointer already requires a duplicate-free expected array. The local
+check is still evaluated against the final response. Ambiguous nested uses and
+unsupported structural keywords fail before provider execution. Claude Code
+continues to receive the original bytes. This narrow projection follows the
+documented [Structured Outputs schema
+subset](https://developers.openai.com/api/docs/guides/structured-outputs)
+without weakening the shared benchmark oracle.
+
 Every run-spec check is a gate, including variant-only checks that are not in
 the shared scenario oracle. This lets a single-agent and delegated run share
 one correctness contract while separately requiring zero or one delegation.
