@@ -1344,7 +1344,9 @@ lines per call, and eight calls. Cross-run paths, mutable or digest-mismatched
 files, oversized windows, and excess reads fail closed. These admissions use a
 separate `tool_result_read` audit family and never count as an ATL invocation,
 backend request, or capability evidence; the original brokered byte count
-remains the output metric.
+remains the output metric. The pointer lists the instructed sequential offsets
+and explicitly forbids shell assignments or text-processing commands; paging
+does not broaden the Bash allowlist.
 
 Before the model starts, the runner invokes Codex's sandbox command with the
 same filesystem policy. The probe must fail to connect to a live parent-side

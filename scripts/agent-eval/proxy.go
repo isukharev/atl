@@ -817,9 +817,13 @@ func emitBrokeredCLIStdout(data []byte, output io.Writer) error {
 	if len(data) > 0 && data[len(data)-1] != '\n' {
 		lines++
 	}
+	offsets := make([]string, 0, privateCLIResultReadLimit)
+	for offset := 0; offset < lines && len(offsets) < privateCLIResultReadLimit; offset += privateCLIResultReadLines {
+		offsets = append(offsets, strconv.Itoa(offset))
+	}
 	_, err = fmt.Fprintf(output,
-		"The complete output of this reviewed atl invocation (%d bytes, %d lines) is staged at %s. Use the Read tool with limit no greater than %d and continue with offsets as needed.\n",
-		len(data), lines, path, privateCLIResultReadLines)
+		"The complete output of this reviewed atl invocation (%d bytes, %d lines) is staged at %s. Only the Read tool is authorized for this file: use limit=%d and these offsets in order: %s. Do not use Bash, shell assignments, grep, cat, sed, wc, or any other tool on the staged file.\n",
+		len(data), lines, path, privateCLIResultReadLines, strings.Join(offsets, ","))
 	return err
 }
 
