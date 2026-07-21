@@ -283,7 +283,7 @@ func RunCodexCLICalibration(parent context.Context, options CodexCLICalibrationO
 	}
 	broker, err := StartCommandBroker(CommandBrokerConfig{
 		RequestDirectory: requestDir, ResponseDirectory: responseDir,
-		ManifestPath: manifestPath, RealBinary: runOptions.ATLBinary,
+		ManifestPath: manifestPath, RealBinary: runOptions.ATLBinary, WorkingDirectory: workspace,
 		Policy: policy, Environment: flattenEnvironment(brokerEnvironment),
 		MaxStdoutBytes: calibrationOutputLimit, MaxStderrBytes: calibrationOutputLimit,
 		CommandTimeout: brokerTimeout,

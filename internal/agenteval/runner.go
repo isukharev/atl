@@ -709,7 +709,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 				commandBroker, err = StartCommandBroker(CommandBrokerConfig{
 					RequestDirectory: brokerRequestDirectory, ResponseDirectory: brokerResponseDirectory,
 					ManifestPath: brokerManifestPath,
-					RealBinary:   options.ATLBinary, Policy: cliPolicy,
+					RealBinary:   options.ATLBinary, WorkingDirectory: workspace, Policy: cliPolicy,
 					Environment:    flattenEnvironment(brokerEnvironment),
 					MaxStdoutBytes: maxStdout, MaxStderrBytes: 64 << 10, CommandTimeout: brokerTimeout,
 				})

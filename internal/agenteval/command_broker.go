@@ -61,6 +61,7 @@ type CommandBrokerConfig struct {
 	ResponseDirectory string
 	ManifestPath      string
 	RealBinary        string
+	WorkingDirectory  string
 	Policy            CLICommandPolicy
 	Environment       []string
 	MaxStdoutBytes    int64
@@ -80,6 +81,14 @@ type CommandBroker struct {
 }
 
 func StartCommandBroker(config CommandBrokerConfig) (*CommandBroker, error) {
+	if err := requireOwnerOnly("command broker working directory", config.WorkingDirectory, true); err != nil {
+		return nil, err
+	}
+	workingDirectory, err := filepath.EvalSymlinks(config.WorkingDirectory)
+	if err != nil {
+		return nil, fmt.Errorf("resolve command broker working directory: %w", err)
+	}
+	config.WorkingDirectory = workingDirectory
 	if err := validateCommandBrokerConfig(config); err != nil {
 		return nil, err
 	}
@@ -210,6 +219,7 @@ func (b *CommandBroker) processOne(path, id string) CommandBrokerResponse {
 	ctx, cancel := context.WithTimeout(b.ctx, b.config.CommandTimeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, b.config.RealBinary, request.Args...)
+	command.Dir = b.config.WorkingDirectory
 	command.Env = append([]string(nil), b.config.Environment...)
 	stdout := &boundedCommandBuffer{maximum: b.config.MaxStdoutBytes}
 	stderr := &boundedCommandBuffer{maximum: b.config.MaxStderrBytes}
@@ -294,10 +304,13 @@ func validateCommandBrokerConfig(config CommandBrokerConfig) error {
 	if err := requireOwnerOnly("command broker manifest directory", filepath.Dir(config.ManifestPath), true); err != nil {
 		return err
 	}
+	if err := requireOwnerOnly("command broker working directory", config.WorkingDirectory, true); err != nil {
+		return err
+	}
 	if filepath.Clean(config.RequestDirectory) == filepath.Clean(config.ResponseDirectory) ||
 		filepath.Dir(config.ManifestPath) == filepath.Clean(config.RequestDirectory) ||
 		filepath.Dir(config.ManifestPath) == filepath.Clean(config.ResponseDirectory) ||
-		config.RealBinary == "" || !filepath.IsAbs(config.RealBinary) {
+		config.RealBinary == "" || !filepath.IsAbs(config.RealBinary) || !filepath.IsAbs(config.WorkingDirectory) {
 		return fmt.Errorf("command broker paths are invalid")
 	}
 	if err := config.Policy.Validate(); err != nil {

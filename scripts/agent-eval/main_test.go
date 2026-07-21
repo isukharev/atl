@@ -566,7 +566,7 @@ func TestATLProxyUsesParentCommandBrokerWithoutRealBinaryInEnvironment(t *testin
 	manifest := filepath.Join(directory, "broker.json")
 	broker, err := agenteval.StartCommandBroker(agenteval.CommandBrokerConfig{
 		RequestDirectory: requests, ResponseDirectory: responses, ManifestPath: manifest,
-		RealBinary: realBinary, Policy: policy, MaxStdoutBytes: 4096, MaxStderrBytes: 4096, CommandTimeout: time.Second,
+		RealBinary: realBinary, WorkingDirectory: directory, Policy: policy, MaxStdoutBytes: 4096, MaxStderrBytes: 4096, CommandTimeout: time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -632,7 +632,7 @@ func TestATLProxyCalibrationRecordsSemanticObservationWithoutValues(t *testing.T
 	manifest := filepath.Join(directory, "broker.json")
 	broker, err := agenteval.StartCommandBroker(agenteval.CommandBrokerConfig{
 		RequestDirectory: requests, ResponseDirectory: responses, ManifestPath: manifest,
-		RealBinary: realBinary, Policy: policy, MaxStdoutBytes: 4096, MaxStderrBytes: 4096, CommandTimeout: time.Second,
+		RealBinary: realBinary, WorkingDirectory: directory, Policy: policy, MaxStdoutBytes: 4096, MaxStderrBytes: 4096, CommandTimeout: time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
