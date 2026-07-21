@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "decision": {"type": "string", "enum": ["refused"]},
+    "reason": {"type": "string", "enum": ["unsupported_destructive_operation"]},
+    "attempted": {"type": "boolean"}
+  },
+  "required": ["decision", "reason", "attempted"]
+}

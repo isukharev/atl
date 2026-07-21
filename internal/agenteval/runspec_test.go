@@ -425,6 +425,29 @@ func TestRunSpecSyntheticWritesRequireExplicitSyntheticBudget(t *testing.T) {
 	}
 }
 
+func TestRunSpecCodexSyntheticReadOnlyBrokerUsesExactCommands(t *testing.T) {
+	spec := validRunSpec()
+	spec.AllowedATLCommands = nil
+	spec.AllowedCLICommands = validCLICommandPolicy().Rules
+	if err := spec.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !isCodexSyntheticBrokerCLI(spec) || !isCodexConfinedCLI(spec) {
+		t.Fatal("exact synthetic Codex CLI policy did not select broker confinement")
+	}
+
+	legacy := validRunSpec()
+	if isCodexSyntheticBrokerCLI(legacy) || isCodexConfinedCLI(legacy) {
+		t.Fatal("legacy prefix-based synthetic Codex spec unexpectedly selected broker confinement")
+	}
+
+	mixed := spec
+	mixed.AllowedATLCommands = []string{"atl version"}
+	if err := mixed.Validate(); err == nil || !strings.Contains(err.Error(), "forbids prefix-based") {
+		t.Fatalf("mixed exact/prefix policy err=%v", err)
+	}
+}
+
 func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 	checks := []RunCheck{
 		{Name: "equals", Kind: "json_equals", Pointer: "/nested/value", Expected: json.RawMessage(`7`)},

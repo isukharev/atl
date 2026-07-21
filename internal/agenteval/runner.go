@@ -173,7 +173,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 		previewConfinement.RequestDirectory = "/private/requests"
 		previewConfinement.ResponseDirectory = "/private/responses"
 	}
-	if loaded.spec.Provider == "codex" && loaded.spec.EffectiveBackendMode() == BackendModeSynthetic && loaded.spec.EffectiveToolTransport() == "cli" && loaded.spec.AllowSyntheticWrites {
+	if isCodexSyntheticBrokerCLI(loaded.spec) {
 		previewConfinement.GuardMode = "private-cli"
 		previewConfinement.GuardCounterPath = "/private/guard-decisions.jsonl"
 		previewConfinement.WorkspaceReadRoot = "/private/workspace"
@@ -204,7 +204,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 		return RunOutput{Preview: preview, Results: []Result{}}, nil
 	}
 	if loaded.spec.Provider == "codex" && loaded.spec.EffectiveToolTransport() != "mcp" {
-		if loaded.spec.EffectiveBackendMode() != BackendModePrivateLive && (loaded.spec.EffectiveBackendMode() != BackendModeSynthetic || !loaded.spec.AllowSyntheticWrites) {
+		if loaded.spec.EffectiveBackendMode() != BackendModePrivateLive && !isCodexSyntheticBrokerCLI(loaded.spec) {
 			return RunOutput{}, fmt.Errorf("codex synthetic model execution requires tool_transport=mcp; cli transport remains validate/dry-run only")
 		}
 	}
@@ -544,9 +544,10 @@ func ValidateRunSpecFile(path string) (RunSpec, Scenario, error) {
 func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOptions, outputRoot string, repetition int, runtime Runtime, externalProfile ExternalMCPProfile, providerRuntime *providerRuntimeCapsule) (Result, error) {
 	privateCLI := loaded.spec.EffectiveBackendMode() == BackendModePrivateLive && loaded.spec.EffectiveToolTransport() == "cli"
 	codexPrivateCLI := loaded.spec.Provider == "codex" && privateCLI
-	codexSyntheticWriteCLI := loaded.spec.Provider == "codex" && loaded.spec.EffectiveBackendMode() == BackendModeSynthetic && loaded.spec.EffectiveToolTransport() == "cli" && loaded.spec.AllowSyntheticWrites
-	codexBrokerCLI := codexPrivateCLI || codexSyntheticWriteCLI
-	brokerCLI := privateCLI || codexSyntheticWriteCLI
+	codexSyntheticBrokerCLI := isCodexSyntheticBrokerCLI(loaded.spec)
+	codexSyntheticWriteCLI := codexSyntheticBrokerCLI && loaded.spec.AllowSyntheticWrites
+	codexBrokerCLI := codexPrivateCLI || codexSyntheticBrokerCLI
+	brokerCLI := privateCLI || codexSyntheticBrokerCLI
 	claudePrivateCLI := loaded.spec.Provider == "claude-code" && privateCLI
 	if err := validatePathComponentID("scenario id", loaded.scenario.ID); err != nil {
 		return Result{}, err
@@ -631,7 +632,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			return Result{}, err
 		}
 	}
-	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive || codexSyntheticWriteCLI {
+	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive || codexSyntheticBrokerCLI {
 		for _, reader := range []string{"cat", "sed", "wc"} {
 			if err := copyExecutable(options.WrapperExecutable, filepath.Join(wrapperDir, reader)); err != nil {
 				return Result{}, err
@@ -689,7 +690,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		}
 		defer backend.Close()
 		backendEnvironment = backend.Environment()
-		if codexSyntheticWriteCLI {
+		if codexSyntheticBrokerCLI {
 			if err := mkdirPrivate(atlConfigDir); err != nil {
 				return Result{}, err
 			}
@@ -761,7 +762,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			}
 			brokerEnvironment["ATL_CONFIG_DIR"] = atlConfigDir
 			brokerEnvironment["ATL_MIRROR_ROOT"] = filepath.Join(evalDir, "mirror")
-			brokerEnvironment["ATL_EVAL_ALLOW_SYNTHETIC_WRITES"] = "1"
+			if codexSyntheticWriteCLI {
+				brokerEnvironment["ATL_EVAL_ALLOW_SYNTHETIC_WRITES"] = "1"
+			} else {
+				brokerEnvironment["ATL_READ_ONLY"] = "1"
+			}
 		}
 		for _, name := range []string{"LANG", "LC_ALL", "TERM", "TZ"} {
 			if value := os.Getenv(name); value != "" {
@@ -864,7 +869,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 				providerConfinement.AllowedMCPTools = nil
 			}
 		}
-	} else if codexSyntheticWriteCLI {
+	} else if codexSyntheticBrokerCLI {
 		canonicalWorkspace, err = filepath.EvalSymlinks(workspace)
 		if err != nil {
 			return Result{}, fmt.Errorf("resolve synthetic benchmark workspace: %w", err)
@@ -964,11 +969,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	environment["ATL_EVAL_ALLOWED_MCP_TOOLS"] = string(allowedMCPTools)
 	environment["ATL_EVAL_ALLOWED_READ_ROOTS"] = string(allowedReadRoots)
 	environment["ATL_EVAL_SKILL_READ_ROOTS"] = string(allowedSkillReadRoots)
-	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive || codexSyntheticWriteCLI {
+	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive || codexSyntheticBrokerCLI {
 		environment["ATL_EVAL_WORKSPACE_ROOT"] = canonicalWorkspace
 	}
 	environment["PATH"] = wrapperDir
-	if (loaded.spec.Provider != "claude-code" || loaded.spec.EffectiveToolTransport() != "mcp") && !codexSyntheticWriteCLI {
+	if (loaded.spec.Provider != "claude-code" || loaded.spec.EffectiveToolTransport() != "mcp") && !codexSyntheticBrokerCLI {
 		for name, value := range backendEnvironment {
 			environment[name] = value
 		}

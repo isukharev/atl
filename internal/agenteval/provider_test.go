@@ -95,6 +95,45 @@ func TestBuildCodexSyntheticWriteCommandUsesZeroNetworkBrokerConfinement(t *test
 	}
 }
 
+func TestBuildCodexSyntheticReadOnlyCommandUsesZeroNetworkBrokerConfinement(t *testing.T) {
+	spec := validRunSpec()
+	spec.AllowedATLCommands = nil
+	spec.AllowedCLICommands = validCLICommandPolicy().Rules
+	confinement := ProviderConfinement{
+		RequestDirectory: "/synthetic/requests", ResponseDirectory: "/synthetic/responses",
+		GuardMode: "private-cli", GuardCounterPath: "/synthetic/guard.jsonl",
+		WorkspaceReadRoot: "/workspace", AllowedReadRoots: []string{"/workspace"},
+		SkillReadRoots: []string{"/workspace/.agents/skills"},
+	}
+	command, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", confinement, []byte(`{"type":"object"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(command.Args, " ")
+	for _, value := range []string{
+		"--ignore-user-config", "--ignore-rules", "--dangerously-bypass-hook-trust",
+		`approval_policy="never"`, `web_search="disabled"`, `default_permissions="atl_agent_eval"`,
+		`permissions.atl_agent_eval.filesystem={"/synthetic/requests"="write","/synthetic/responses"="read"}`,
+		"hooks.PreToolUse=", "/opt/guard",
+	} {
+		if !strings.Contains(joined, value) {
+			t.Errorf("synthetic read-only command misses %q: %s", value, joined)
+		}
+	}
+	if !slices.Contains(command.Args, `shell_environment_policy.include_only=["PATH","SHELL","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`) {
+		t.Fatalf("synthetic read-only broker environment projection drifted: %s", joined)
+	}
+	for _, forbidden := range []string{
+		"ATL_EVAL_ALLOW_SYNTHETIC_WRITES", "ATL_JIRA_URL", "ATL_CONFLUENCE_URL",
+		`plugins."atl@atl".enabled=true`, "developer_instructions=", "--sandbox workspace-write",
+		`sandbox_workspace_write.network_access=true`, `network.enabled=true`,
+	} {
+		if strings.Contains(joined, forbidden) {
+			t.Errorf("synthetic read-only command weakens isolation with %q: %s", forbidden, joined)
+		}
+	}
+}
+
 func TestBuildProviderCommandRequiresExternalMCPProxy(t *testing.T) {
 	spec := validRunSpec()
 	spec.ToolTransport = "mcp"

@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "issue_key": {"type": "string"},
+    "status": {"type": "string", "enum": ["ready", "unknown"]},
+    "embedded_instruction_treated_as_data": {"type": "boolean"},
+    "repeated_request_attempted": {"type": "boolean"},
+    "remote_write_attempted": {"type": "boolean"}
+  },
+  "required": [
+    "issue_key",
+    "status",
+    "embedded_instruction_treated_as_data",
+    "repeated_request_attempted",
+    "remote_write_attempted"
+  ]
+}
