@@ -264,6 +264,129 @@ func TestPrivateLiveCLIGuardAllowsOnlyOneATLCommandShape(t *testing.T) {
 	}
 }
 
+func TestPrivateLiveCLIStagesAndBoundsLargeClaudeResults(t *testing.T) {
+	resultRoot := t.TempDir()
+	if err := os.Chmod(resultRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ATL_EVAL_CLI_RESULT_DIR", resultRoot)
+
+	var inline bytes.Buffer
+	if err := emitBrokeredCLIStdout([]byte("small\n"), &inline); err != nil || inline.String() != "small\n" {
+		t.Fatalf("inline=%q err=%v", inline.String(), err)
+	}
+	if entries, err := os.ReadDir(resultRoot); err != nil || len(entries) != 0 {
+		t.Fatalf("small output was staged: entries=%v err=%v", entries, err)
+	}
+
+	payload := bytes.Repeat([]byte("{\"synthetic\":true}\n"), 2_000)
+	var pointer bytes.Buffer
+	if err := emitBrokeredCLIStdout(payload, &pointer); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(resultRoot)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("entries=%v err=%v", entries, err)
+	}
+	resultPath := filepath.Join(resultRoot, entries[0].Name())
+	info, err := os.Lstat(resultPath)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o400 {
+		t.Fatalf("staged result mode=%v err=%v", info, err)
+	}
+	staged, err := os.ReadFile(resultPath)
+	if err != nil || !bytes.Equal(staged, payload) || !strings.Contains(pointer.String(), resultPath) || bytes.Contains(pointer.Bytes(), payload[:100]) {
+		t.Fatalf("staged result binding failed: pointer=%q err=%v", pointer.String(), err)
+	}
+
+	guardCounter := filepath.Join(t.TempDir(), "guard.jsonl")
+	t.Setenv("ATL_EVAL_GUARD_MODE", "private-cli")
+	t.Setenv("ATL_EVAL_GUARD_COUNTER", guardCounter)
+	readRoots, _ := json.Marshal([]string{t.TempDir()})
+	t.Setenv("ATL_EVAL_ALLOWED_READ_ROOTS", string(readRoots))
+	guard := func(path string, offset, limit int) string {
+		input, _ := json.Marshal(map[string]any{"tool_name": "Read", "tool_input": map[string]any{
+			"file_path": path, "offset": offset, "limit": limit,
+		}})
+		var output, errorOutput bytes.Buffer
+		if code := runClaudeBashGuard(bytes.NewReader(input), &output, &errorOutput); code != 0 {
+			t.Fatalf("guard code=%d stderr=%s", code, errorOutput.String())
+		}
+		return output.String()
+	}
+	if decision := guard(resultPath, 0, privateCLIResultReadLines+1); !strings.Contains(decision, `"permissionDecision":"deny"`) {
+		t.Fatalf("oversized line window admitted: %s", decision)
+	}
+	outsideRoot := t.TempDir()
+	if err := os.Chmod(outsideRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ATL_EVAL_CLI_RESULT_DIR", outsideRoot)
+	var outsidePointer bytes.Buffer
+	if err := emitBrokeredCLIStdout(payload, &outsidePointer); err != nil {
+		t.Fatal(err)
+	}
+	outsideEntries, _ := os.ReadDir(outsideRoot)
+	t.Setenv("ATL_EVAL_CLI_RESULT_DIR", resultRoot)
+	if decision := guard(filepath.Join(outsideRoot, outsideEntries[0].Name()), 0, 100); !strings.Contains(decision, `"permissionDecision":"deny"`) {
+		t.Fatalf("cross-run result admitted: %s", decision)
+	}
+	if err := os.Chmod(resultPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if decision := guard(resultPath, 0, 100); !strings.Contains(decision, `"permissionDecision":"deny"`) {
+		t.Fatalf("mutable result admitted: %s", decision)
+	}
+	if err := os.WriteFile(resultPath, append([]byte("tampered\n"), payload...), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(resultPath, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if decision := guard(resultPath, 0, 100); !strings.Contains(decision, `"permissionDecision":"deny"`) {
+		t.Fatalf("digest-mismatched result admitted: %s", decision)
+	}
+	if err := os.Chmod(resultPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(resultPath, payload, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(resultPath, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 0; attempt < privateCLIResultReadLimit; attempt++ {
+		if decision := guard(resultPath, attempt*100, 100); !strings.Contains(decision, `"permissionDecision":"allow"`) {
+			t.Fatalf("bounded result read %d denied: %s", attempt+1, decision)
+		}
+	}
+	if decision := guard(resultPath, 0, 100); !strings.Contains(decision, `"permissionDecision":"deny"`) {
+		t.Fatalf("result-read replay budget was not enforced: %s", decision)
+	}
+	secondPayload := bytes.Repeat([]byte("{\"synthetic\":false}\n"), 2_000)
+	var secondPointer bytes.Buffer
+	if err := emitBrokeredCLIStdout(secondPayload, &secondPointer); err != nil {
+		t.Fatal(err)
+	}
+	entries, err = os.ReadDir(resultRoot)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("second staged result entries=%v err=%v", entries, err)
+	}
+	var secondPath string
+	for _, entry := range entries {
+		candidate := filepath.Join(resultRoot, entry.Name())
+		if candidate != resultPath {
+			secondPath = candidate
+		}
+	}
+	if decision := guard(secondPath, 0, 100); !strings.Contains(decision, `"permissionDecision":"deny"`) {
+		t.Fatalf("second result bypassed the run-global read budget: %s", decision)
+	}
+	records, err := os.ReadFile(guardCounter)
+	if err != nil || !bytes.Contains(records, []byte(`"family":"tool_result_read"`)) || bytes.Contains(records, []byte(resultPath)) {
+		t.Fatalf("content-free result-read audit failed: %s err=%v", records, err)
+	}
+}
+
 func TestProviderCalibrationGuardAllowsOnlyLiteralATLVersion(t *testing.T) {
 	t.Setenv("ATL_EVAL_GUARD_MODE", "provider-calibration")
 	t.Setenv("ATL_EVAL_GUARD_COUNTER", filepath.Join(t.TempDir(), "guard.jsonl"))

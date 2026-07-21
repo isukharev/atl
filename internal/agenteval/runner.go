@@ -531,7 +531,9 @@ func ValidateRunSpecFile(path string) (RunSpec, Scenario, error) {
 }
 
 func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOptions, outputRoot string, repetition int, runtime Runtime, externalProfile ExternalMCPProfile, providerRuntime *providerRuntimeCapsule) (Result, error) {
-	codexPrivateCLI := loaded.spec.Provider == "codex" && loaded.spec.EffectiveBackendMode() == BackendModePrivateLive && loaded.spec.ToolTransport == "cli"
+	privateCLI := loaded.spec.EffectiveBackendMode() == BackendModePrivateLive && loaded.spec.ToolTransport == "cli"
+	codexPrivateCLI := loaded.spec.Provider == "codex" && privateCLI
+	claudePrivateCLI := loaded.spec.Provider == "claude-code" && privateCLI
 	if err := validatePathComponentID("scenario id", loaded.scenario.ID); err != nil {
 		return Result{}, err
 	}
@@ -590,7 +592,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	brokerRequestDirectory := ""
 	brokerResponseDirectory := ""
-	if codexPrivateCLI {
+	if privateCLI {
 		brokerRequestDirectory = filepath.Join(evalDir, "command-broker-requests")
 		brokerResponseDirectory = filepath.Join(evalDir, "command-broker-responses")
 		if err := mkdirPrivate(brokerRequestDirectory); err != nil {
@@ -600,6 +602,13 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			return Result{}, err
 		}
 		counterPath = filepath.Join(brokerRequestDirectory, "atl-invocations.jsonl")
+	}
+	cliResultDirectory := ""
+	if claudePrivateCLI {
+		cliResultDirectory = filepath.Join(evalDir, "cli-results")
+		if err := mkdirPrivate(cliResultDirectory); err != nil {
+			return Result{}, err
+		}
 	}
 	probeExecutablePath := ""
 	if codexPrivateCLI {
@@ -677,7 +686,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 				return Result{}, err
 			}
 			defer func() { _ = liveGateway.Close(context.Background()) }()
-			if codexPrivateCLI {
+			if privateCLI {
 				brokerManifestPath = filepath.Join(evalDir, "command-broker.json")
 				brokerTimeout := time.Duration(loaded.spec.TimeoutSeconds) * time.Second
 				if brokerTimeout > 2*time.Minute {
@@ -850,6 +859,9 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	environment["ATL_EVAL_REAL_BINARY"] = options.ATLBinary
 	environment["ATL_EVAL_COUNTER"] = counterPath
 	environment["ATL_EVAL_GUARD_COUNTER"] = guardCounterPath
+	if cliResultDirectory != "" {
+		environment["ATL_EVAL_CLI_RESULT_DIR"] = cliResultDirectory
+	}
 	if loaded.spec.AllowSyntheticWrites {
 		environment["ATL_EVAL_ALLOW_SYNTHETIC_WRITES"] = "1"
 	}
@@ -1380,7 +1392,7 @@ func readGuardDecisionSummary(path string) (guardDecisionSummary, error) {
 		if err := json.Unmarshal(line, &record); err != nil {
 			return guardDecisionSummary{}, fmt.Errorf("decode guard decision record: %w", err)
 		}
-		if record.Family != "" && record.Family != "other" && record.Family != "atl" && record.Family != "skill_read" &&
+		if record.Family != "" && record.Family != "other" && record.Family != "atl" && record.Family != "skill_read" && record.Family != "tool_result_read" &&
 			record.Family != "mcp" && record.Family != "structured_output" && record.Family != "agent" && record.Family != "read" {
 			return guardDecisionSummary{}, fmt.Errorf("invalid guard decision family")
 		}

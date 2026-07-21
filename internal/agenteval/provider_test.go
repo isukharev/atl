@@ -450,6 +450,7 @@ func TestCodexPrivateCLIInstructionsAreScopedToPrivateCLI(t *testing.T) {
 	privateClaudeCLI.Provider = "claude-code"
 	privateClaudeCLI.SkillActivation = ""
 	privateClaudeCLI.Pricing = Pricing{}
+	privateClaudeCLI.AllowedTools = []string{"Bash(atl *)", "Skill"}
 
 	for name, spec := range map[string]RunSpec{
 		"private-claude-cli": privateClaudeCLI,
@@ -476,6 +477,12 @@ func TestCodexPrivateCLIInstructionsAreScopedToPrivateCLI(t *testing.T) {
 			built, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", confinement, []byte(`{"type":"object"}`))
 			if err != nil {
 				t.Fatal(err)
+			}
+			if name == "private-claude-cli" {
+				joined := strings.Join(built.Args, " ")
+				if !strings.Contains(joined, "--tools Bash,Skill,Read") || !strings.Contains(joined, "--allowed-tools Bash(atl *),Skill,Bash(export ATL_READ_ONLY=1),Bash(command -v atl),Read") {
+					t.Fatalf("private Claude CLI did not receive the guarded result reader: %s", joined)
+				}
 			}
 			for _, arg := range built.Args {
 				if strings.HasPrefix(arg, "developer_instructions=") {
