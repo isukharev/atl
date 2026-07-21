@@ -62,6 +62,55 @@ func TestConfTableExtractCLIJSON(t *testing.T) {
 	}
 }
 
+func TestConfTableSummaryCLIJSON(t *testing.T) {
+	cs := newConfServer(t)
+	cs.page = pageJSON("12345", "Private title", 3, confTableCSF)
+
+	out, code := runCLI(t, confEnv(cs.srv), "conf", "table", "summary", "--id", "12345", "--table", "1")
+	if code != exitOK {
+		t.Fatalf("conf table summary: exit %d, want 0 (stdout=%q)", code, out)
+	}
+	var res struct {
+		PageID     string `json:"page_id"`
+		TableCount int    `json:"table_count"`
+		Selected   int    `json:"selected_table"`
+		Tables     []struct {
+			Index                   int `json:"index"`
+			RowCount                int `json:"row_count"`
+			ColumnCount             int `json:"column_count"`
+			RepeatedCellCount       int `json:"repeated_cell_count"`
+			RowspanSourceCellCount  int `json:"rowspan_source_cell_count"`
+			RowspanCoveredCellCount int `json:"rowspan_covered_cell_count"`
+		} `json:"tables"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out)
+	}
+	if res.PageID != "12345" || res.TableCount != 2 || res.Selected != 1 || len(res.Tables) != 1 {
+		t.Fatalf("summary metadata = %+v", res)
+	}
+	first := res.Tables[0]
+	if first.Index != 1 || first.RowCount != 3 || first.ColumnCount != 2 || first.RepeatedCellCount != 1 || first.RowspanSourceCellCount != 1 || first.RowspanCoveredCellCount != 1 {
+		t.Fatalf("first table summary = %+v", first)
+	}
+	for _, forbidden := range []string{"Private title", "Shared note", "https://example.test"} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("content-bearing %q leaked in %s", forbidden, out)
+		}
+	}
+}
+
+func TestConfTableSummaryCLIRejectsInvalidSelection(t *testing.T) {
+	cs := newConfServer(t)
+	cs.page = pageJSON("12345", "Doc", 1, confTableCSF)
+	if _, code := runCLI(t, confEnv(cs.srv), "conf", "table", "summary", "--id", "12345", "--table", "-1"); code != exitUsage {
+		t.Fatalf("negative table exit = %d, want %d", code, exitUsage)
+	}
+	if _, code := runCLI(t, confEnv(cs.srv), "conf", "table", "summary", "--id", "12345", "--table", "3"); code != exitNotFound {
+		t.Fatalf("missing table exit = %d, want %d", code, exitNotFound)
+	}
+}
+
 func TestConfTableExtractCLICSVFormulaSafetyAndRawEscapeHatch(t *testing.T) {
 	const formulaTable = `<table><tbody><tr><th>=Header</th></tr><tr><td>@cmd</td></tr></tbody></table>`
 	for _, tc := range []struct {

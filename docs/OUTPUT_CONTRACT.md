@@ -898,6 +898,36 @@ issue data; the global 250,000 identity safety cap remains in force.
 
 The backend hostname and PAT are never written to the manifest.
 
+`atl conf table summary` returns a bounded content-free table inventory:
+
+```json
+{
+  "page_id": "123456",
+  "table_count": 1,
+  "tables": [{
+    "index": 1,
+    "row_count": 3,
+    "column_count": 2,
+    "header_row_count": 1,
+    "header_cell_count": 2,
+    "expanded_cell_count": 6,
+    "repeated_cell_count": 1,
+    "styled_cell_count": 0,
+    "linked_cell_count": 1,
+    "rowspan_source_cell_count": 1,
+    "rowspan_covered_cell_count": 1,
+    "colspan_source_cell_count": 0,
+    "colspan_covered_cell_count": 0,
+    "warning_count": 0
+  }]
+}
+```
+
+Selecting `--table N` adds `selected_table:N`, limits `tables` to that one
+entry, and keeps the page-wide `table_count`. Every cell count uses the
+expanded rectangular representation. The command never emits page titles,
+cell content, URLs, style values, raw attributes, or warning text.
+
 `atl jira export diff OLD NEW` reads JSONL/JSON/CSV compact exports and reports issue identifiers:
 
 ```json

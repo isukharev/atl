@@ -403,6 +403,7 @@ atl config set render.confluence.page_fields '[{"id":"title"},{"id":"updated","f
 atl config set render.confluence.jira_macros off # default auto; disable page-provided JQL globally
 # View v4 separates # Metadata / # Content / generated Jira queries / # Comments; native
 # comment formatting and page-link target identity remain readable.
+atl conf table summary --id 123456 # bounded shapes/counts without cell content
 atl conf table extract --id 123456 --format json
 atl conf table extract --id 123456 --table 2 --format csv
 atl conf table extract --id 123456 --table 2 --format csv --raw-csv # unsafe in spreadsheets

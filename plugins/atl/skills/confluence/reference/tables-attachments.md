@@ -26,8 +26,14 @@ native CSF before any structural edit.
 ## Table extraction
 
 ```bash
+atl conf table summary --id <page-id-or-same-origin-url> [--table N]
 atl conf table extract --id <page-id-or-same-origin-url> [--table N] --format json|csv|xlsx [--out <file>]
 ```
+
+Start with `table summary` when deciding which table to read or when only
+structural counts are required. Its bounded JSON contains shapes and separate
+rowspan/colspan source and covered-cell counts, but no page title, cell text,
+URLs, style values, raw attributes, or warning text.
 
 `--table` is 1-based; zero selects all tables. XLSX requires `--out`. CSV
 neutralizes cells starting with spreadsheet formula characters. Keep the safe

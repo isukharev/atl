@@ -28,6 +28,7 @@ var allowedCapabilityFamilies = map[string]struct{}{
 	"jira.export": {}, "jira.export.diff": {}, "jira.structure.folders": {}, "jira.structure.rows": {}, "jira.structure.values": {},
 	"confluence.diff": {}, "confluence.search": {}, "confluence.page.resolve": {}, "confluence.page.outline": {}, "confluence.page.section": {},
 	"confluence.table.extract": {},
+	"confluence.table.summary": {},
 	"confluence.plan.create":   {}, "confluence.plan.preview": {}, "confluence.plan.apply": {},
 }
 
@@ -48,6 +49,7 @@ var neutralDataCapability = map[string]string{
 	"confluence.page.outline":  "confluence.page.outline",
 	"confluence.page.section":  "confluence.page.section",
 	"confluence.table.extract": "confluence.table.extract",
+	"confluence.table.summary": "confluence.table.summary",
 }
 
 func validateRunDataCapabilities(spec RunSpec) error {
@@ -188,6 +190,7 @@ matched:
 		{[]string{"jira", "structure", "values"}, "jira.structure.values"},
 		{[]string{"conf", "diff"}, "confluence.diff"}, {[]string{"conf", "search"}, "confluence.search"},
 		{[]string{"conf", "table", "extract"}, "confluence.table.extract"},
+		{[]string{"conf", "table", "summary"}, "confluence.table.summary"},
 		{[]string{"conf", "plan", "create"}, "confluence.plan.create"}, {[]string{"conf", "plan", "preview"}, "confluence.plan.preview"},
 		{[]string{"conf", "plan", "apply"}, "confluence.plan.apply"},
 		{[]string{"conf", "page", "resolve"}, "confluence.page.resolve"}, {[]string{"conf", "page", "outline"}, "confluence.page.outline"},
