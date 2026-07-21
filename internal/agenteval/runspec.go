@@ -329,6 +329,9 @@ func (s RunSpec) Validate() error {
 	if s.AllowSyntheticWrites && transport != "cli" {
 		return fmt.Errorf("allow_synthetic_writes requires cli transport")
 	}
+	if s.AllowSyntheticWrites && s.Provider == "codex" && !isCodexSyntheticBrokerCLI(s) {
+		return fmt.Errorf("codex synthetic writes require exact allowed_cli_commands")
+	}
 	if transport == "cli" && (len(s.AllowedTools) == 0 || len(s.AllowedTools) > 32) {
 		return fmt.Errorf("allowed_tools must contain 1..32 entries for cli transport")
 	}
@@ -348,9 +351,9 @@ func (s RunSpec) Validate() error {
 	if transport == "cli" {
 		switch s.EffectiveBackendMode() {
 		case BackendModeSynthetic:
-			if s.Provider == "codex" && s.AllowSyntheticWrites {
+			if isCodexSyntheticBrokerCLI(s) {
 				if len(s.AllowedATLCommands) != 0 {
-					return fmt.Errorf("confined synthetic codex cli transport forbids prefix-based allowed_atl_commands")
+					return fmt.Errorf("brokered synthetic codex cli transport forbids prefix-based allowed_atl_commands")
 				}
 				if err := (CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: s.AllowedCLICommands}).Validate(); err != nil {
 					return fmt.Errorf("allowed_cli_commands: %w", err)
@@ -514,6 +517,15 @@ func (s RunSpec) Validate() error {
 		return fmt.Errorf("named skill_invocations_min requires Claude Code Skill events")
 	}
 	return nil
+}
+
+// isCodexSyntheticBrokerCLI selects the executable synthetic CLI route without
+// changing legacy prefix-based Codex specs, which remain validation/dry-run
+// controls. Exact structured argv rules are the explicit opt-in to the
+// zero-network host broker for both read-only and mutation scenarios.
+func isCodexSyntheticBrokerCLI(s RunSpec) bool {
+	return s.Provider == "codex" && s.EffectiveBackendMode() == BackendModeSynthetic &&
+		s.EffectiveToolTransport() == "cli" && len(s.AllowedCLICommands) != 0
 }
 
 func isExactProviderCalibrationSpec(s RunSpec) bool {

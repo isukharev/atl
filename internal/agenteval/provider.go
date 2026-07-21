@@ -269,7 +269,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 func isCodexConfinedCLI(spec RunSpec) bool {
 	mode := spec.EffectiveBackendMode()
 	return spec.Provider == "codex" && spec.EffectiveToolTransport() == "cli" &&
-		(mode == BackendModePrivateLive || mode == BackendModeProviderCalibration || mode == BackendModeSynthetic && spec.AllowSyntheticWrites)
+		(mode == BackendModePrivateLive || mode == BackendModeProviderCalibration || isCodexSyntheticBrokerCLI(spec))
 }
 
 func codexPrivateCLIInstructions(spec RunSpec) (string, error) {
@@ -407,7 +407,7 @@ func mcpServerName(spec RunSpec) string {
 func codexDenyNonMCPHook(guardPath string, spec RunSpec, confinement ProviderConfinement) (string, error) {
 	command := guardPath
 	if spec.EffectiveBackendMode() == BackendModePrivateLive || spec.EffectiveBackendMode() == BackendModeProviderCalibration ||
-		spec.EffectiveBackendMode() == BackendModeSynthetic && spec.AllowSyntheticWrites {
+		isCodexSyntheticBrokerCLI(spec) {
 		expectedMode := "mcp-with-skill-read"
 		expectedTools := claudeMCPToolNamesForServer(mcpServerName(spec), spec.AllowedMCPTools)
 		if spec.EffectiveToolTransport() == "cli" {
