@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/agenteval"
 )
@@ -37,10 +39,19 @@ type claudeHookInput struct {
 	ToolInput struct {
 		Command  string `json:"command"`
 		FilePath string `json:"file_path"`
+		Offset   int    `json:"offset"`
+		Limit    int    `json:"limit"`
 	} `json:"tool_input"`
 }
 
+const (
+	privateCLIResultInlineBytes = 24 << 10
+	privateCLIResultReadLines   = 500
+	privateCLIResultReadLimit   = 8
+)
+
 var cliRuleNameRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
+var privateCLIResultNameRE = regexp.MustCompile(`^atl-result-[0-9a-f]{64}\.txt$`)
 
 func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 	data, err := io.ReadAll(io.LimitReader(input, (1<<20)+1))
@@ -112,7 +123,19 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 		reason = "private-live CLI allows only confined skill reads and reviewed atl invocations"
 		switch hook.ToolName {
 		case "Read":
-			allowed, err := allowedPrivateReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
+			allowed, err := allowedPrivateCLIResultRead(hook.ToolInput.FilePath, hook.ToolInput.Offset, hook.ToolInput.Limit,
+				os.Getenv("ATL_EVAL_CLI_RESULT_DIR"), os.Getenv("ATL_EVAL_GUARD_COUNTER"))
+			if err != nil {
+				fmt.Fprintln(errorOutput, "atl evaluation guard could not enforce the read limit")
+				return 2
+			}
+			if allowed {
+				decision = "allow"
+				family = "tool_result_read"
+				reason = "read target is a bounded result of a reviewed atl invocation"
+				break
+			}
+			allowed, err = allowedPrivateReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
 			if err != nil {
 				fmt.Fprintln(errorOutput, "atl evaluation guard could not enforce the read limit")
 				return 2
@@ -407,6 +430,57 @@ func allowedPrivateReadPath(path, rawRoots string) (bool, error) {
 	return allowed, err
 }
 
+func allowedPrivateCLIResultRead(path string, offset, limit int, root, counterPath string) (bool, error) {
+	if path == "" || root == "" {
+		return false, nil
+	}
+	if offset < 0 || limit < 1 || limit > privateCLIResultReadLines {
+		return false, nil
+	}
+	if !filepath.IsAbs(root) || filepath.Clean(root) != root || counterPath == "" {
+		return false, fmt.Errorf("invalid result read policy")
+	}
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return false, nil
+	}
+	canonicalTarget, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return false, nil
+	}
+	relative, err := filepath.Rel(canonicalRoot, canonicalTarget)
+	if err != nil || filepath.Dir(relative) != "." || filepath.IsAbs(relative) || !privateCLIResultNameRE.MatchString(relative) {
+		return false, nil
+	}
+	info, err := os.Lstat(canonicalTarget)
+	if err != nil {
+		return false, nil
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o400 ||
+		info.Size() <= privateCLIResultInlineBytes || info.Size() > 4<<20 {
+		return false, nil
+	}
+	data, err := os.ReadFile(canonicalTarget)
+	if err != nil || int64(len(data)) != info.Size() {
+		return false, nil
+	}
+	contentDigest := sha256.Sum256(data)
+	if relative != fmt.Sprintf("atl-result-%x.txt", contentDigest) {
+		return false, nil
+	}
+	for slot := 1; slot <= privateCLIResultReadLimit; slot++ {
+		marker := filepath.Join(filepath.Dir(counterPath), fmt.Sprintf("result-read-slot-%d", slot))
+		file, openErr := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if openErr == nil {
+			return true, file.Close()
+		}
+		if !os.IsExist(openErr) {
+			return false, openErr
+		}
+	}
+	return false, nil
+}
+
 func resolveAllowedReadPath(path, rawRoots string, requireWorkspace bool) (string, bool, error) {
 	if path == "" {
 		return "", false, nil
@@ -635,12 +709,12 @@ func runATLProxy(args []string) int {
 		if err != nil {
 			return failATLProxy(counterPath, "atl evaluation proxy rejected invalid calibration output")
 		}
-		stdoutBytes, stdoutErr := os.Stdout.Write(response.Stdout)
+		stdoutErr := emitBrokeredCLIStdout(response.Stdout, os.Stdout)
 		stderrBytes, stderrErr := os.Stderr.Write(response.Stderr)
 		if stdoutErr != nil || stderrErr != nil {
 			return failATLProxy(counterPath, "atl evaluation proxy could not emit brokered output")
 		}
-		if err := appendProxyRecord(counterPath, proxyRecord{CommandFamily: commandFamily, CalibrationObservationSHA256: calibrationObservation, StdoutBytes: int64(stdoutBytes), StderrBytes: int64(stderrBytes), ExitCode: response.ExitCode}); err != nil {
+		if err := appendProxyRecord(counterPath, proxyRecord{CommandFamily: commandFamily, CalibrationObservationSHA256: calibrationObservation, StdoutBytes: int64(len(response.Stdout)), StderrBytes: int64(stderrBytes), ExitCode: response.ExitCode}); err != nil {
 			fmt.Fprintln(os.Stderr, "record atl evaluation metric:", err)
 			return 1
 		}
@@ -685,6 +759,68 @@ func runATLProxy(args []string) int {
 		return 1
 	}
 	return exitCode
+}
+
+func emitBrokeredCLIStdout(data []byte, output io.Writer) error {
+	root := os.Getenv("ATL_EVAL_CLI_RESULT_DIR")
+	if len(data) <= privateCLIResultInlineBytes || root == "" || !utf8.Valid(data) {
+		_, err := output.Write(data)
+		return err
+	}
+	if !filepath.IsAbs(root) || filepath.Clean(root) != root {
+		return fmt.Errorf("invalid result staging directory")
+	}
+	info, err := os.Lstat(root)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("invalid result staging directory")
+	}
+	digest := sha256.Sum256(data)
+	path := filepath.Join(root, fmt.Sprintf("atl-result-%x.txt", digest))
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if os.IsExist(err) {
+		existing, readErr := os.ReadFile(path)
+		info, statErr := os.Lstat(path)
+		if readErr != nil || statErr != nil || !bytes.Equal(existing, data) || !info.Mode().IsRegular() || info.Mode().Perm() != 0o400 {
+			return fmt.Errorf("invalid existing staged result")
+		}
+		file = nil
+		err = nil
+	}
+	if err != nil {
+		return err
+	}
+	if file != nil {
+		keep := false
+		defer func() {
+			if !keep {
+				_ = os.Remove(path)
+			}
+		}()
+		if _, err := file.Write(data); err != nil {
+			_ = file.Close()
+			return err
+		}
+		if err := file.Sync(); err != nil {
+			_ = file.Close()
+			return err
+		}
+		if err := file.Chmod(0o400); err != nil {
+			_ = file.Close()
+			return err
+		}
+		if err := file.Close(); err != nil {
+			return err
+		}
+		keep = true
+	}
+	lines := bytes.Count(data, []byte{'\n'})
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		lines++
+	}
+	_, err = fmt.Fprintf(output,
+		"The complete output of this reviewed atl invocation (%d bytes, %d lines) is staged at %s. Use the Read tool with limit no greater than %d and continue with offsets as needed.\n",
+		len(data), lines, path, privateCLIResultReadLines)
+	return err
 }
 
 func calibrationProxyObservation(commandFamily, guardMode string, response agenteval.CommandBrokerResponse) (string, error) {

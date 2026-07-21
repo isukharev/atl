@@ -519,8 +519,9 @@ ambient global/repository `AGENTS.md` files cannot change the reviewed task;
 the copied prompt and selected shipped plugin or skills remain the explicit
 instruction sources. Synthetic CLI-transport Codex specs remain
 validate/dry-run only because its OS sandbox cannot safely reach the host-side
-mock; private-live Codex CLI specs use the reviewed zero-network command broker
-below. Supported model runs inherit
+mock; private-live CLI specs for both providers use the reviewed parent-side
+command broker below. Codex additionally proves its zero-network filesystem
+capsule with a preflight probe. Supported model runs inherit
 `ATL_READ_ONLY=1`, `ATL_NO_UPDATE=1`, and synthetic loopback backend URLs/tokens.
 CLI runs use an `atl` proxy that counts invocations and stdout bytes without retaining
 command arguments; MCP runs count completed typed calls/failures and result bytes
@@ -1320,7 +1321,9 @@ dedicated permission profile extending workspace access without enabling
 command networking. Its filesystem policy grants write access only to an
 owner-only request directory and read access to a separate owner-only response
 directory. The model sandbox cannot reach the disposable loopback gateway,
-source backend, public Internet, or private network directly.
+source backend, public Internet, or private network directly. Claude's guarded
+`atl` shim also uses that broker, so the provider process receives neither the
+real binary nor the disposable backend config.
 
 After the hook and exact-argv shim accept a command, the shim writes a bounded,
 authenticated request. The parent-side broker atomically moves that request out
@@ -1332,6 +1335,16 @@ and the manifest are removed during delivery or run cleanup. Arguments and
 command output are not retained in benchmark results or gateway audit records.
 Gateway bearer authentication, GET/HEAD and route allowlists, response budgets,
 and privacy-safe audit checks still apply after the provider boundary.
+
+When a brokered Claude CLI result exceeds 24 KiB, the shim stages the complete
+UTF-8 output as a mode-0400, content-addressed file in the current owner-private
+run and returns only a pointer plus paging guidance. The hook permits `Read`
+only for that exact directory, filename digest, regular-file mode, at most 500
+lines per call, and eight calls. Cross-run paths, mutable or digest-mismatched
+files, oversized windows, and excess reads fail closed. These admissions use a
+separate `tool_result_read` audit family and never count as an ATL invocation,
+backend request, or capability evidence; the original brokered byte count
+remains the output metric.
 
 Before the model starts, the runner invokes Codex's sandbox command with the
 same filesystem policy. The probe must fail to connect to a live parent-side

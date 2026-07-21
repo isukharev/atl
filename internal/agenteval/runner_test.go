@@ -525,7 +525,16 @@ func TestPrivateLiveCLIProvidersUseGatewayWithoutSourceCredentials(t *testing.T)
 		}
 		upstreamRequests++
 		response.Header().Set("Content-Type", "application/json")
-		_, _ = response.Write([]byte(`[{"id":"summary","name":"Summary","custom":false,"schema":{"type":"string"}}]`))
+		var catalog strings.Builder
+		catalog.WriteByte('[')
+		for index := 0; index < 500; index++ {
+			if index > 0 {
+				catalog.WriteByte(',')
+			}
+			_, _ = fmt.Fprintf(&catalog, `{"id":"field-%03d","name":"Synthetic field %03d","custom":false,"schema":{"type":"string"}}`, index, index)
+		}
+		catalog.WriteByte(']')
+		_, _ = response.Write([]byte(catalog.String()))
 	}))
 	defer upstream.Close()
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
@@ -635,13 +644,8 @@ fi
 if [ "$1" != "-p" ]; then check_runtime; fi
 if [ -z "$ATL_EVAL_CLI_POLICY_FILE" ] || [ "$ATL_EVAL_GUARD_MODE" != "private-cli" ]; then exit 31; fi
 if [ -n "$ATL_JIRA_PAT" ]; then exit 32; fi
-if [ "$1" = "-p" ]; then
-  case "$ATL_CONFIG_DIR" in */atl-agent-eval-live-config-*) ;; *) exit 34;; esac
-  credentials=$(/bin/cat "$ATL_CONFIG_DIR/credentials.json") || exit 35
-  case "$credentials" in *'upstream-secret'*) exit 35;; esac
-else
-  if [ -n "$ATL_CONFIG_DIR" ] || [ -n "$ATL_EVAL_REAL_BINARY" ] || [ -z "$ATL_EVAL_COMMAND_BROKER_FILE" ]; then exit 36; fi
-fi
+if [ -n "$ATL_CONFIG_DIR" ] || [ -n "$ATL_EVAL_REAL_BINARY" ] || [ -z "$ATL_EVAL_COMMAND_BROKER_FILE" ]; then exit 36; fi
+if [ "$1" = "-p" ] && [ -z "$ATL_EVAL_CLI_RESULT_DIR" ]; then exit 37; fi
 no_evidence=""
 for argument do
   if [ "$argument" = "test-model-no-evidence" ]; then no_evidence=1; fi
@@ -735,7 +739,7 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 				stderr, _ := os.ReadFile(filepath.Join(runDir, "agent.stderr"))
 				t.Fatalf("%v; agent stderr=%s", err, stderr)
 			}
-			if len(output.Results) != 1 || output.Results[0].Status != "pass" || output.Results[0].Metrics.BackendRequests != 1 || output.Results[0].Metrics.RemoteWrites != 0 || output.Results[0].HTTPMethods["GET"] != 1 {
+			if len(output.Results) != 1 || output.Results[0].Status != "pass" || output.Results[0].Metrics.BackendRequests != 1 || output.Results[0].Metrics.RemoteWrites != 0 || output.Results[0].HTTPMethods["GET"] != 1 || output.Results[0].Metrics.OutputBytes <= 24<<10 {
 				t.Fatalf("output=%+v", output)
 			}
 			runDir := filepath.Join(tempRepository, "private", "runs", scenario.ID, provider, spec.Variant, "run-01")
@@ -792,6 +796,31 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 				}
 				if _, err := os.Stat(filepath.Join(runDir, ".atl-eval", "command-broker.json")); !os.IsNotExist(err) {
 					t.Fatalf("command broker manifest survived: %v", err)
+				}
+			}
+			if provider == "claude-code" {
+				for _, directory := range []string{"command-broker-requests", "command-broker-responses"} {
+					entries, err := os.ReadDir(filepath.Join(runDir, ".atl-eval", directory))
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, entry := range entries {
+						if strings.HasPrefix(entry.Name(), "request-") || strings.HasPrefix(entry.Name(), "processing-") || strings.HasPrefix(entry.Name(), "response-") {
+							t.Fatalf("transient Claude broker payload survived: %s", entry.Name())
+						}
+					}
+				}
+				if _, err := os.Stat(filepath.Join(runDir, ".atl-eval", "command-broker.json")); !os.IsNotExist(err) {
+					t.Fatalf("Claude command broker manifest survived: %v", err)
+				}
+				resultDirectory := filepath.Join(runDir, ".atl-eval", "cli-results")
+				entries, err := os.ReadDir(resultDirectory)
+				if err != nil || len(entries) != 1 {
+					t.Fatalf("large Claude output was not staged once: entries=%v err=%v", entries, err)
+				}
+				staged, err := os.Lstat(filepath.Join(resultDirectory, entries[0].Name()))
+				if err != nil || !staged.Mode().IsRegular() || staged.Mode().Perm() != 0o400 || staged.Size() <= 24<<10 || !strings.HasPrefix(entries[0].Name(), "atl-result-") {
+					t.Fatalf("invalid staged Claude result: entry=%v info=%v err=%v", entries[0], staged, err)
 				}
 			}
 			if err := filepath.WalkDir(runDir, func(path string, entry os.DirEntry, walkErr error) error {

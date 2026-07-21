@@ -77,6 +77,15 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 			// the reviewed atl prefix.
 			allowedTools = append(allowedTools, "Bash(command -v atl)")
 		}
+		if spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli" &&
+			containsRunString(spec.AllowedTools, "Bash(atl *)") && !containsRunString(toolNames, "Read") {
+			// Large reviewed CLI responses are staged by the benchmark command
+			// broker. Expose Claude's reader for that artifact; the PreToolUse hook
+			// still binds it to the exact runner-owned directory, line window, and
+			// read budget. It is never interface or backend evidence.
+			toolNames = append(toolNames, "Read")
+			allowedTools = append(allowedTools, "Read")
+		}
 		settingSources := "project"
 		if spec.EffectiveBackendMode() == BackendModePrivateLive {
 			settingSources = ""

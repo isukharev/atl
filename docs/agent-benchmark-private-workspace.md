@@ -384,6 +384,16 @@ shell selection and startup state are never projected. The shell remains inside
 the existing hook, filesystem, command-broker, read-only, and GET/HEAD controls;
 MCP surfaces do not opt into these CLI-only feature flags.
 
+Claude Code private CLI cells use the same parent-side command broker, keeping
+the real binary and disposable backend config out of the provider process. If
+an allowed UTF-8 result exceeds 24 KiB, the shim stages it as an immutable,
+content-addressed owner-private file and returns paging instructions. Claude's
+otherwise unavailable `Read` tool is admitted only for that exact run-local
+directory, a digest-matching mode-0400 file, windows of at most 500 lines, and
+eight total reads. The content-free `tool_result_read` audit family is not CLI
+or backend evidence. Cross-run, mutable, digest-mismatched, oversized, and
+replayed reads remain denied.
+
 After the credential-free inventory gate succeeds and before the first
 treatment, a current activation plan runs one backend-free provider/tool-path
 calibration through the same isolated Codex runtime,
