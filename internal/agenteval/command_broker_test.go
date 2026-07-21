@@ -27,9 +27,17 @@ func TestCommandBrokerExecutesOnlyReviewedArgumentsWithinIndependentBudget(t *te
 		}
 	}
 	executions := filepath.Join(root, "executions")
+	workingDirectory := filepath.Join(root, "workspace")
+	if err := os.Mkdir(workingDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workingDirectory, "relative-fixture"), []byte("ok\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	binary := filepath.Join(root, "atl")
 	script := "#!/bin/sh\n" +
 		"if find \"$TEST_REQUEST_DIR\" -name 'processing-*' -o -name 'request-*' | grep -q .; then exit 91; fi\n" +
+		"if [ ! -f relative-fixture ]; then exit 92; fi\n" +
 		"printf '%s\\n' \"$*\" >>\"$TEST_EXECUTIONS\"\n" +
 		"printf 'stdout:%s:%s\\n' \"$1\" \"$TEST_CHILD_CONFIG\"\n" +
 		"printf 'stderr:%s\\n' \"$2\" >&2\n"
@@ -42,7 +50,7 @@ func TestCommandBrokerExecutesOnlyReviewedArgumentsWithinIndependentBudget(t *te
 	}}}
 	broker, err := StartCommandBroker(CommandBrokerConfig{
 		RequestDirectory: requests, ResponseDirectory: responses, ManifestPath: manifest,
-		RealBinary: binary, Policy: policy,
+		RealBinary: binary, WorkingDirectory: workingDirectory, Policy: policy,
 		Environment:    []string{"TEST_REQUEST_DIR=" + requests, "TEST_EXECUTIONS=" + executions, "TEST_CHILD_CONFIG=disposable"},
 		MaxStdoutBytes: 4096, MaxStderrBytes: 4096, CommandTimeout: time.Second,
 	})
@@ -97,7 +105,7 @@ func TestCommandBrokerRejectsForgedCapabilityAndOversizedOutput(t *testing.T) {
 	manifest := filepath.Join(root, "broker.json")
 	broker, err := StartCommandBroker(CommandBrokerConfig{
 		RequestDirectory: requests, ResponseDirectory: responses, ManifestPath: manifest,
-		RealBinary:  binary,
+		RealBinary: binary, WorkingDirectory: root,
 		Policy:      CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: []CLICommandRule{{Name: "fields", Command: []string{"jira", "fields"}, MaxInvocations: 2}}},
 		Environment: []string{"PATH=/usr/bin:/bin"}, MaxStdoutBytes: 8, MaxStderrBytes: 8, CommandTimeout: time.Second,
 	})
@@ -151,7 +159,7 @@ func TestCommandBrokerManifestAndArtifactsArePrivateAndCleaned(t *testing.T) {
 	}
 	manifest := filepath.Join(root, "broker.json")
 	broker, err := StartCommandBroker(CommandBrokerConfig{
-		RequestDirectory: requests, ResponseDirectory: responses, ManifestPath: manifest, RealBinary: binary,
+		RequestDirectory: requests, ResponseDirectory: responses, ManifestPath: manifest, RealBinary: binary, WorkingDirectory: root,
 		Policy:         CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: []CLICommandRule{{Name: "fields", Command: []string{"jira", "fields"}, MaxInvocations: 1}}},
 		MaxStdoutBytes: 8, MaxStderrBytes: 8, CommandTimeout: time.Second,
 	})
@@ -184,6 +192,99 @@ func TestCommandBrokerManifestAndArtifactsArePrivateAndCleaned(t *testing.T) {
 		t.Fatalf("manifest survived close: %v", err)
 	}
 	assertNoCommandBrokerPayloads(t, requests, responses)
+}
+
+func TestCommandBrokerRequiresOwnerOnlyAbsoluteWorkingDirectory(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	requests := filepath.Join(root, "requests")
+	responses := filepath.Join(root, "responses")
+	for _, directory := range []string{requests, responses} {
+		if err := os.Mkdir(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	config := CommandBrokerConfig{
+		RequestDirectory: requests, ResponseDirectory: responses,
+		ManifestPath: filepath.Join(root, "broker.json"), RealBinary: filepath.Join(root, "atl"),
+		Policy:         CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: []CLICommandRule{{Name: "fields", Command: []string{"jira", "fields"}, MaxInvocations: 1}}},
+		MaxStdoutBytes: 8, MaxStderrBytes: 8, CommandTimeout: time.Second,
+	}
+	if _, err := StartCommandBroker(config); err == nil {
+		t.Fatal("missing working directory passed")
+	}
+	config.WorkingDirectory = "."
+	if _, err := StartCommandBroker(config); err == nil {
+		t.Fatal("relative working directory passed")
+	}
+	shared := filepath.Join(root, "shared")
+	if err := os.Mkdir(shared, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config.WorkingDirectory = shared
+	if _, err := StartCommandBroker(config); err == nil {
+		t.Fatal("non-owner-only working directory passed")
+	}
+}
+
+func TestCommandBrokerPinsResolvedWorkingDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink and fake executable assertions are Unix-only")
+	}
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	requests := filepath.Join(root, "requests")
+	responses := filepath.Join(root, "responses")
+	firstParent := filepath.Join(root, "first")
+	secondParent := filepath.Join(root, "second")
+	for _, directory := range []string{requests, responses, firstParent, secondParent} {
+		if err := os.Mkdir(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for parent, marker := range map[string]string{firstParent: "reviewed\n", secondParent: "redirected\n"} {
+		workspace := filepath.Join(parent, "workspace")
+		if err := os.Mkdir(workspace, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(workspace, "marker"), []byte(marker), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ancestor := filepath.Join(root, "current")
+	if err := os.Symlink(firstParent, ancestor); err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(root, "atl")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\ncat marker\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(root, "broker.json")
+	broker, err := StartCommandBroker(CommandBrokerConfig{
+		RequestDirectory: requests, ResponseDirectory: responses, ManifestPath: manifest,
+		RealBinary: binary, WorkingDirectory: filepath.Join(ancestor, "workspace"),
+		Policy:         CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: []CLICommandRule{{Name: "version", Command: []string{"version"}, MaxInvocations: 1}}},
+		Environment:    []string{"PATH=/usr/bin:/bin"},
+		MaxStdoutBytes: 4096, MaxStderrBytes: 4096, CommandTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = broker.Close() })
+	if err := os.Remove(ancestor); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secondParent, ancestor); err != nil {
+		t.Fatal(err)
+	}
+	response, err := CallCommandBroker(manifest, []string{"version"}, false)
+	if err != nil || response.Status != "executed" || string(response.Stdout) != "reviewed\n" {
+		t.Fatalf("response=%+v err=%v", response, err)
+	}
 }
 
 func assertNoCommandBrokerPayloads(t *testing.T, directories ...string) {
