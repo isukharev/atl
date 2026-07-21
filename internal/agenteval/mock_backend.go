@@ -7,11 +7,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync"
 )
 
 const MockFixtureSchemaVersion = 1
+
+var mockQueryNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$`)
 
 type MockFixture struct {
 	SchemaVersion     int         `json:"schema_version"`
@@ -120,7 +123,7 @@ func (f MockFixture) Validate() error {
 			}
 		}
 		for name, value := range mergeMockQueryConstraints(route.QueryContains, route.QueryEquals) {
-			if !identifierRE.MatchString(name) || value == "" || len(value) > 256 || strings.ContainsAny(value, "\r\n\x00") {
+			if !mockQueryNameRE.MatchString(name) || value == "" || len(value) > 256 || strings.ContainsAny(value, "\r\n\x00") {
 				return fmt.Errorf("invalid mock route query constraint")
 			}
 		}

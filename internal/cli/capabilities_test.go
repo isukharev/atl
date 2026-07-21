@@ -53,7 +53,7 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 		{"jira/board-portfolio", []string{"jira.board-portfolio.fields", "jira.board-portfolio.view", "jira.board-portfolio.epic.digest"}},
 		{"jira/batch-analysis", []string{"jira.batch.issue.export"}},
 		{"jira/structure-planning", []string{"jira.structure.rows", "jira.structure.values", "jira.structure.issue.export"}},
-		{"jira/edit", []string{"jira.issue.fields.edit", "jira.issue.field.preview", "jira.issue.field.set", "jira.issue.plan.apply"}},
+		{"jira/edit", []string{"jira.issue.fields.edit", "jira.issue.field.preview", "jira.issue.field.set", "jira.issue.worklog.list", "jira.issue.worklog.add", "jira.issue.plan.apply"}},
 		{"confluence/evidence", []string{"confluence.page.resolve", "confluence.page.outline", "confluence.page.section", "confluence.page.view"}},
 		{"confluence/table-analytics", []string{"confluence.table.extract"}},
 		{"confluence/edit", []string{"confluence.pull", "confluence.diff", "confluence.plan.create", "confluence.plan.preview", "confluence.plan.apply"}},
@@ -175,7 +175,7 @@ func TestCapabilitiesCommandIsOfflineAndSupportsAllOutputModes(t *testing.T) {
 	}
 
 	out, code = runCLI(t, env, "capabilities", "--task", "jira/edit", "--access", "mutating", "-o", "id")
-	if code != exitOK || out != "jira.issue.field.set\njira.issue.plan.apply\n" {
+	if code != exitOK || out != "jira.issue.field.set\njira.issue.worklog.add\njira.issue.plan.apply\n" {
 		t.Fatalf("id exit=%d output=%q", code, out)
 	}
 	if requests != 0 {

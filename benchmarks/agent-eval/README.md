@@ -133,6 +133,7 @@ The realistic matrix currently contains:
 | surface native | `confluence-table-analytics` | selected multi-table extraction, merged cells, links, and safe CSV |
 | surface native | `confluence-mirror-review` | offline semantic diff and snapshot-delta review |
 | surface native | `jira-field-mutation` | reviewed preview/apply and ambiguous-outcome handling on a synthetic backend |
+| surface native | `jira-worklog-reconcile` | baseline-bound non-idempotent POST plus exact post-commit reconciliation without replay |
 | surface native | `confluence-plan-mutation` | guarded plan preview/apply, conflict, and ambiguous outcome on a synthetic backend |
 
 Injection, point-route, and delegation cases remain route-fixed regressions.

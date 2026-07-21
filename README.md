@@ -461,6 +461,7 @@ atl jira issue search --jql 'project = PROJ AND status = "In Progress"' --column
 atl jira issue search --jql 'project = PROJ' --view full
 atl jira issue children PROJ-100 --columns key,summary,status,assignee
 atl capabilities --task jira/portfolio            # bounded quarter/plan route
+atl capabilities --task jira/edit                 # guarded field, worklog, and plan writes
 atl jira board view 5 -o text                  # normalized Kanban/Scrum view
 atl jira sprint current --board 5              # resolve the active sprint
 atl jira structure folders 123                 # discover exact stored subtrees

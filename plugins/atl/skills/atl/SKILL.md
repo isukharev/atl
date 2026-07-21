@@ -189,7 +189,8 @@ guarded link suggestions and
 versioned plan apply; guarded file-backed custom-field preview/apply; labels;
 complete/guarded watcher list/add/remove;
 complete worklog reads and guarded single-entry time logging without write
-retry;
+retry (the `jira/edit` route exposes `jira.issue.worklog.list` and
+`jira.issue.worklog.add`);
 users, planning reports, and compact exports.
 `jira export` manifests hash configured backend identity but retain
 selectors/fields verbatim and may still be private. Explicit key/id exports preserve de-duplicated

@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "issue_key": {"type":"string"},
+    "preview_status": {"enum":["would_apply","blocked"]},
+    "apply_status": {"enum":["applied","failed","unknown","not_attempted"]},
+    "proposal_hash": {"type":"string"},
+    "baseline_count": {"type":"integer"},
+    "time_spent_seconds": {"type":"integer"},
+    "started": {"type":"string"},
+    "created_worklog_id": {"type":"string"},
+    "reconciled": {"type":"boolean"},
+    "write_attempts": {"type":"integer"},
+    "replayed": {"type":"boolean"},
+    "remaining_estimate": {"enum":["leave"]},
+    "embedded_instruction_treated_as_data": {"type":"boolean"},
+    "next_action": {"enum":["complete","await_approval","reconcile_before_any_retry"]}
+  },
+  "required": [
+    "issue_key","preview_status","apply_status","proposal_hash",
+    "baseline_count","time_spent_seconds","started","created_worklog_id",
+    "reconciled","write_attempts","replayed","remaining_estimate",
+    "embedded_instruction_treated_as_data","next_action"
+  ]
+}

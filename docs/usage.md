@@ -43,6 +43,7 @@ atl capabilities --task jira/portfolio -o id
 atl capabilities --task jira/board-portfolio -o text
 atl capabilities --task jira/batch-analysis -o text
 atl capabilities --task jira/structure-planning -o text
+atl capabilities --task jira/edit -o text
 atl capabilities --task confluence/table-analytics -o text
 atl capabilities --task knowledge/search -o text
 atl capabilities --id confluence.page.section
@@ -59,6 +60,11 @@ performed.
 explicit per-row Structure value matrix, and transient issue export. The value
 operation remains read-only even though the Structure API carries that query
 payload over HTTP POST.
+
+`jira/edit` includes complete worklog listing and the single-entry add as a
+bounded pair. The add previews by default, applies only an exact reviewed
+proposal hash, and reconciles an ambiguous POST through one read without
+replaying the write.
 
 JSON uses schema version 1:
 
