@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "id": "confluence.synthetic-table-summary",
+  "category": "surface-native",
+  "task_class": "confluence/table-analytics",
+  "description": "Inventory multiple Confluence table shapes and span semantics through a bounded content-free command.",
+  "data_class": "synthetic",
+  "required_capabilities": ["confluence.table.summary"],
+  "required_checks": [
+    "atl_succeeded",
+    "content_hidden",
+    "guard_clean",
+    "http_exact",
+    "mock_clean",
+    "no_delegation",
+    "page_correct",
+    "shapes_correct",
+    "table_count_correct",
+    "used_atl",
+    "used_atl_twice"
+  ],
+  "required_semantic_checks": [
+    "content_hidden",
+    "page_correct",
+    "shapes_correct",
+    "table_count_correct"
+  ],
+  "required_metrics": [
+    "agent_turns",
+    "tool_calls",
+    "atl_invocations",
+    "delegations",
+    "backend_requests",
+    "duplicate_backend_requests",
+    "output_bytes",
+    "input_tokens",
+    "output_tokens",
+    "main_thread_input_tokens",
+    "main_thread_output_tokens",
+    "estimated_cost_microusd",
+    "duration_millis",
+    "capability_families"
+  ],
+  "budgets": {
+    "max_agent_turns": 6,
+    "max_tool_calls": 4,
+    "max_atl_invocations": 2,
+    "max_delegations": 0,
+    "max_backend_requests": 1,
+    "max_duplicate_backend_requests": 0,
+    "max_remote_writes": 0,
+    "max_output_bytes": 8192,
+    "max_input_tokens": 120000,
+    "max_output_tokens": 4000,
+    "max_main_thread_input_tokens": 120000,
+    "max_main_thread_output_tokens": 4000,
+    "max_estimated_cost_microusd": 5000000,
+    "max_duration_millis": 300000,
+    "allowed_http_methods": ["GET"]
+  }
+}

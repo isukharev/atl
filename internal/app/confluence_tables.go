@@ -28,6 +28,34 @@ type ConfluenceTableExtract struct {
 	Tables     []ConfluenceTable `json:"tables"`
 }
 
+// ConfluenceTableSummary is a bounded, content-free structural inventory of
+// tables on a page. It deliberately excludes page and cell content.
+type ConfluenceTableSummary struct {
+	PageID     string                         `json:"page_id"`
+	TableCount int                            `json:"table_count"`
+	Table      int                            `json:"selected_table,omitempty"`
+	Tables     []ConfluenceTableSummaryRecord `json:"tables"`
+}
+
+// ConfluenceTableSummaryRecord describes one expanded table without exposing
+// cell text, links, style values, raw attributes, or warning text.
+type ConfluenceTableSummaryRecord struct {
+	Index                   int `json:"index"`
+	RowCount                int `json:"row_count"`
+	ColumnCount             int `json:"column_count"`
+	HeaderRowCount          int `json:"header_row_count"`
+	HeaderCellCount         int `json:"header_cell_count"`
+	ExpandedCellCount       int `json:"expanded_cell_count"`
+	RepeatedCellCount       int `json:"repeated_cell_count"`
+	StyledCellCount         int `json:"styled_cell_count"`
+	LinkedCellCount         int `json:"linked_cell_count"`
+	RowspanSourceCellCount  int `json:"rowspan_source_cell_count"`
+	RowspanCoveredCellCount int `json:"rowspan_covered_cell_count"`
+	ColspanSourceCellCount  int `json:"colspan_source_cell_count"`
+	ColspanCoveredCellCount int `json:"colspan_covered_cell_count"`
+	WarningCount            int `json:"warning_count"`
+}
+
 // ConfluenceTable is one expanded table. Index is 1-based in document order.
 type ConfluenceTable struct {
 	Index       int                       `json:"index"`
@@ -94,6 +122,73 @@ func (s *ConfluenceService) ExtractTables(ctx context.Context, id string, table 
 		return nil, err
 	}
 	return ExtractTablesFromCSF(page.ID, page.Title, page.Body, table)
+}
+
+// SummarizeTables fetches a page's native CSF and returns only bounded table
+// structure. table is 1-based; table <= 0 summarizes all tables.
+func (s *ConfluenceService) SummarizeTables(ctx context.Context, id string, table int) (*ConfluenceTableSummary, error) {
+	extract, err := s.ExtractTables(ctx, id, table)
+	if err != nil {
+		return nil, err
+	}
+	return SummarizeConfluenceTables(extract), nil
+}
+
+// SummarizeConfluenceTables removes all content-bearing fields from a table
+// extract and counts structural properties over its expanded representation.
+func SummarizeConfluenceTables(extract *ConfluenceTableExtract) *ConfluenceTableSummary {
+	if extract == nil {
+		return nil
+	}
+	res := &ConfluenceTableSummary{
+		PageID:     extract.PageID,
+		TableCount: extract.TableCount,
+		Table:      extract.Table,
+		Tables:     make([]ConfluenceTableSummaryRecord, 0, len(extract.Tables)),
+	}
+	for _, table := range extract.Tables {
+		record := ConfluenceTableSummaryRecord{
+			Index:        table.Index,
+			RowCount:     table.RowCount,
+			ColumnCount:  table.ColumnCount,
+			WarningCount: len(table.Warnings),
+		}
+		for _, row := range table.Rows {
+			if row.Header {
+				record.HeaderRowCount++
+			}
+			for _, cell := range row.Cells {
+				record.ExpandedCellCount++
+				if cell.Header {
+					record.HeaderCellCount++
+				}
+				if cell.Repeated {
+					record.RepeatedCellCount++
+					if cell.Row != cell.SourceRow {
+						record.RowspanCoveredCellCount++
+					}
+					if cell.Column != cell.SourceColumn {
+						record.ColspanCoveredCellCount++
+					}
+				} else {
+					if cell.Rowspan > 1 {
+						record.RowspanSourceCellCount++
+					}
+					if cell.Colspan > 1 {
+						record.ColspanSourceCellCount++
+					}
+				}
+				if len(cell.Styles) > 0 {
+					record.StyledCellCount++
+				}
+				if len(cell.Links) > 0 {
+					record.LinkedCellCount++
+				}
+			}
+		}
+		res.Tables = append(res.Tables, record)
+	}
+	return res
 }
 
 // ExtractTablesFromCSF extracts all or one table from a CSF body.

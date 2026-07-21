@@ -139,6 +139,7 @@ conf search
 conf space tree
 conf status
 conf table extract
+conf table summary
 conf validate
 completion bash
 completion fish

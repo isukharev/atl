@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -101,6 +103,53 @@ func TestExtractTablesFromCSFSelectsOneTable(t *testing.T) {
 	}
 	if res.Table != 2 || res.TableCount != 2 || len(res.Tables) != 1 || res.Tables[0].Index != 2 {
 		t.Fatalf("selection = %+v", res)
+	}
+}
+
+func TestSummarizeConfluenceTablesCountsExpandedStructureWithoutContent(t *testing.T) {
+	extract, err := ExtractTablesFromCSF("123", "Secret title", []byte(tableExtractCSF), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := SummarizeConfluenceTables(extract)
+	if res.PageID != "123" || res.TableCount != 2 || res.Table != 0 || len(res.Tables) != 2 {
+		t.Fatalf("summary metadata = %+v", res)
+	}
+	want := []ConfluenceTableSummaryRecord{
+		{Index: 1, RowCount: 3, ColumnCount: 3, HeaderRowCount: 1, HeaderCellCount: 3, ExpandedCellCount: 9, RepeatedCellCount: 1, StyledCellCount: 2, LinkedCellCount: 1, RowspanSourceCellCount: 1, RowspanCoveredCellCount: 1},
+		{Index: 2, RowCount: 2, ColumnCount: 2, HeaderRowCount: 1, HeaderCellCount: 2, ExpandedCellCount: 4, RepeatedCellCount: 1, ColspanSourceCellCount: 1, ColspanCoveredCellCount: 1},
+	}
+	if !reflect.DeepEqual(res.Tables, want) {
+		t.Fatalf("summaries = %#v, want %#v", res.Tables, want)
+	}
+	data, err := json.Marshal(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"Secret title", "Shared", "https://example.test", "color", "rowspan\""} {
+		if bytes.Contains(data, []byte(forbidden)) {
+			t.Fatalf("content-bearing %q leaked in %s", forbidden, data)
+		}
+	}
+}
+
+func TestSummarizeConfluenceTablesNil(t *testing.T) {
+	if got := SummarizeConfluenceTables(nil); got != nil {
+		t.Fatalf("summary = %#v, want nil", got)
+	}
+}
+
+func TestSummarizeConfluenceTablesClassifiesCombinedSpanCoordinates(t *testing.T) {
+	const body = `<table><tbody><tr><td rowspan="2" colspan="2">Shared</td><td>A</td></tr><tr><td>B</td></tr></tbody></table>`
+	extract, err := ExtractTablesFromCSF("123", "Doc", []byte(body), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := SummarizeConfluenceTables(extract).Tables[0]
+	if got.RowCount != 2 || got.ColumnCount != 3 || got.ExpandedCellCount != 6 || got.RepeatedCellCount != 3 ||
+		got.RowspanSourceCellCount != 1 || got.RowspanCoveredCellCount != 2 ||
+		got.ColspanSourceCellCount != 1 || got.ColspanCoveredCellCount != 2 {
+		t.Fatalf("combined-span summary = %+v", got)
 	}
 }
 

@@ -1343,6 +1343,22 @@ CSV prefixes cells beginning with `=`, `+`, `-`, `@`, tab, CR, or LF with an
 apostrophe by default so opening untrusted page data in a spreadsheet does not
 execute it as a formula. `--raw-csv` is an explicit unsafe escape hatch.
 
+### `atl conf table summary`
+
+Inventory table structure without emitting page titles, cell text, URLs, style
+values, raw attributes, or warning text. Use this bounded read before choosing
+a table to extract, or when only shapes and structural features are needed.
+
+```bash
+atl conf table summary --id 12345678
+atl conf table summary --id 12345678 --table 2
+```
+
+`--table` is 1-based; zero summarizes every table while preserving the page's
+total `table_count`. Counts use the expanded rectangular representation.
+Rowspan and colspan source cells are separate from the covered positions they
+produce, avoiding an ambiguous combined span count.
+
 ### `atl conf status`
 
 Show which mirrored pages have local edits and which have drifted on the

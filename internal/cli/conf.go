@@ -822,7 +822,35 @@ func confTableCmd() *cobra.Command {
 	extract.Flags().StringVar(&out, "out", "", "optional output file (required for xlsx)")
 	extract.Flags().BoolVar(&rawCSV, "raw-csv", false, "write formula-leading CSV cells verbatim (unsafe in spreadsheets)")
 	_ = extract.RegisterFlagCompletionFunc("format", fixedComp("json", "csv", "xlsx"))
-	c.AddCommand(extract)
+	var summaryID string
+	var summaryTable int
+	summary := &cobra.Command{
+		Use:   "summary",
+		Short: "Summarize page table structure without exposing cell content",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if summaryID == "" {
+				return usageErr("--id is required")
+			}
+			if summaryTable < 0 {
+				return usageErr("--table must be >= 1")
+			}
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			res, err := svc.SummarizeTables(cmd.Context(), summaryID, summaryTable)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, res, func() string {
+				return fmt.Sprintf("%d table(s)", res.TableCount)
+			})
+		},
+	}
+	summary.Flags().StringVar(&summaryID, "id", "", "page id or supported same-origin URL")
+	summary.Flags().IntVar(&summaryTable, "table", 0, "1-based table index to summarize (0 = all tables)")
+	c.AddCommand(extract, summary)
 	return c
 }
 

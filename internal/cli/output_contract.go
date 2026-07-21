@@ -60,6 +60,7 @@ conf search
 conf space tree
 conf status
 conf table extract
+conf table summary
 config show
 environment inspect
 help

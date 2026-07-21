@@ -131,6 +131,7 @@ The realistic matrix currently contains:
 | surface native | `jira-structure-subtree-export` | GET-only hierarchy rows plus ordered explicit batch export |
 | surface native | `jira-structure-deep-values` | deep selected hierarchy plus an explicit row-value matrix and inaccessible evidence |
 | surface native | `confluence-table-analytics` | selected multi-table extraction, merged cells, links, and safe CSV |
+| surface native | `confluence-table-summary` | bounded content-free shapes with explicit rowspan/colspan source and covered counts |
 | surface native | `confluence-mirror-review` | offline semantic diff and snapshot-delta review |
 | surface native | `jira-field-mutation` | reviewed preview/apply and ambiguous-outcome handling on a synthetic backend |
 | surface native | `jira-worklog-reconcile` | baseline-bound non-idempotent POST plus exact post-commit reconciliation without replay |

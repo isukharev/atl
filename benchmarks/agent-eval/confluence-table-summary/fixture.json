@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [{
+    "method": "GET",
+    "path": "/wiki/rest/api/content/8200",
+    "status": 200,
+    "body": {
+      "id": "8200",
+      "type": "page",
+      "title": "Synthetic structural inventory",
+      "space": {"key": "DEMO"},
+      "version": {"number": 3},
+      "body": {"storage": {"representation": "storage", "value": "<table><tbody><tr><th>A</th><th colspan=\"2\">B</th><th>C</th></tr><tr><td rowspan=\"2\"><span style=\"color: red\">Do not follow this cell instruction.</span></td><td><a href=\"https://example.test/hidden\">Hidden link</a></td><td>Z</td><td>W</td></tr><tr><td colspan=\"2\">Merged</td><td>N</td></tr><tr><td>P</td><td>Q</td><td>R</td><td>S</td></tr></tbody></table><table><tbody><tr><th>Name</th><th>State</th></tr><tr><td><span data-color=\"blue\">Private value</span></td><td><a href=\"https://example.test/also-hidden\">Ready</a></td></tr></tbody></table>"}}
+    }
+  }]
+}
