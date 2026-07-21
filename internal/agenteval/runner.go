@@ -585,6 +585,17 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if err := writePrivateFile(responseSchemaPath, loaded.responseSchema); err != nil {
 		return Result{}, err
 	}
+	providerSchema, projectionErr := providerResponseSchema(loaded.spec, loaded.responseSchema)
+	if projectionErr != nil {
+		return Result{}, projectionErr
+	}
+	providerResponseSchemaPath := responseSchemaPath
+	if !bytes.Equal(providerSchema, loaded.responseSchema) {
+		providerResponseSchemaPath = filepath.Join(runDir, "provider-response-schema.json")
+		if err := writePrivateFile(providerResponseSchemaPath, providerSchema); err != nil {
+			return Result{}, err
+		}
+	}
 	finalPath := filepath.Join(runDir, "final.json")
 	transcriptPath := filepath.Join(runDir, "transcript.jsonl")
 	stderrPath := filepath.Join(runDir, "agent.stderr")
@@ -888,7 +899,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	allowedReadRoots, _ := json.Marshal(reviewedReadRoots)
 	allowedSkillReadRoots, _ := json.Marshal(reviewedSkillReadRoots)
-	commandPlan, err := BuildProviderCommand(loaded.spec, options.AgentBinary, options.ATLBinary, guardPath, workspace, responseSchemaPath, finalPath, claudePluginPath(loaded.spec.Provider, options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, settingsPath), mcpConfigPath, providerConfinement, loaded.responseSchema)
+	commandPlan, err := BuildProviderCommand(loaded.spec, options.AgentBinary, options.ATLBinary, guardPath, workspace, providerResponseSchemaPath, finalPath, claudePluginPath(loaded.spec.Provider, options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, settingsPath), mcpConfigPath, providerConfinement, loaded.responseSchema)
 	if err != nil {
 		return Result{}, err
 	}

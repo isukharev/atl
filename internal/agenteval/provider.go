@@ -59,11 +59,12 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 	if err := spec.Validate(); err != nil {
 		return ProviderCommand{}, err
 	}
+	projectedResponseSchema, err := providerResponseSchema(spec, responseSchema)
+	if err != nil {
+		return ProviderCommand{}, err
+	}
 	switch spec.Provider {
 	case "claude-code":
-		if !json.Valid(responseSchema) {
-			return ProviderCommand{}, fmt.Errorf("response schema is not valid JSON")
-		}
 		toolNames := claudeToolNames(spec.AllowedTools)
 		allowedTools := append([]string(nil), spec.AllowedTools...)
 		if containsRunString(spec.AllowedTools, "Bash(atl *)") && !containsRunString(allowedTools, "Bash(export ATL_READ_ONLY=1)") {
@@ -116,7 +117,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 				"--allowed-tools", strings.Join(allowedTools, ","),
 			)
 		}
-		args = append(args, "--json-schema", string(responseSchema))
+		args = append(args, "--json-schema", string(projectedResponseSchema))
 		if spec.ToolTransport == "mcp" {
 			args = append(args, "--mcp-config", mcpConfigPath)
 		}

@@ -60,7 +60,7 @@ func TestRunHeadlessWithFakeProvidersUsesPrivateWrapperAndSyntheticMetrics(t *te
 	}
 	writeJSONTestFile(t, filepath.Join(caseDir, "fixture.json"), fixture)
 	writeTestFile(t, filepath.Join(caseDir, "prompt.md"), "Use atl and return the requested JSON.\n", 0o600)
-	writeTestFile(t, filepath.Join(caseDir, "response.json"), `{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}`, 0o600)
+	writeTestFile(t, filepath.Join(caseDir, "response.json"), `{"type":"object","properties":{"answer":{"type":"string"},"labels":{"type":"array","items":{"type":"string"},"uniqueItems":true}},"required":["answer"],"additionalProperties":false}`, 0o600)
 	rubric := Rubric{SchemaVersion: 1, ID: "synthetic-answer", ScenarioID: scenario.ID, MinimumScoreBPS: 6000, Criteria: []RubricCriterion{{ID: "usefulness", Description: "The answer is useful.", Maximum: 4, Minimum: 2, Weight: 1}}, AllowedFindingIDs: []string{"unclear"}}
 	writeJSONTestFile(t, filepath.Join(caseDir, "rubric.json"), rubric)
 	spec := RunSpec{
@@ -136,7 +136,7 @@ while [ "$#" -gt 0 ]; do
 done
 printf '%s\n' '{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
-printf '%s\n' '{"answer":"ok"}' >"$final"
+printf '%s\n' '{"answer":"ok","labels":["alpha","beta"]}' >"$final"
 `
 	fakeAgentScript = strings.ReplaceAll(fakeAgentScript, "__CODEX_CONTINUITY__", codexContinuity)
 	writeTestFile(t, fakeAgent, fakeAgentScript, 0o700)
@@ -275,6 +275,7 @@ exit 2
 	spec.AllowedTools = nil
 	spec.AllowedATLCommands = nil
 	spec.AllowedMCPTools = []string{"jira_fields"}
+	spec.Checks = append(spec.Checks, RunCheck{Name: "labels_exact", Kind: "json_equals", Pointer: "/labels", Expected: json.RawMessage(`["alpha","beta"]`)})
 	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
 	continuitySession, err := newCodexAuthSession(os.Environ())
 	if err != nil {
@@ -297,6 +298,45 @@ exit 2
 	result = output.Results[0]
 	if result.Metrics.ATLInvocations != 0 || result.Metrics.InterfaceInvocations != 1 || result.Metrics.ToolCalls != 1 || result.Metrics.EstimatedCostMicroUSD != 140 {
 		t.Fatalf("codex metrics=%+v", result.Metrics)
+	}
+	for _, runName := range []string{"run-01", "run-02"} {
+		runDir := filepath.Join(outputRoot, scenario.ID, "codex", "typed-mcp-codex", runName)
+		retained, err := os.ReadFile(filepath.Join(runDir, "response-schema.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		projectedPath := filepath.Join(runDir, "provider-response-schema.json")
+		projected, err := os.ReadFile(projectedPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(retained, []byte("uniqueItems")) || bytes.Contains(projected, []byte("uniqueItems")) {
+			t.Fatalf("schema projection mismatch: retained=%s projected=%s", retained, projected)
+		}
+		info, err := os.Stat(projectedPath)
+		if err != nil || info.Mode().Perm() != 0o600 {
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Fatalf("projected schema mode=%v", info.Mode())
+		}
+	}
+
+	spec.Variant = "typed-mcp-codex-compatible-schema"
+	spec.Repetitions = 1
+	writeTestFile(t, filepath.Join(caseDir, "response.json"), `{"type":"object","properties":{"answer":{"type":"string"},"labels":{"type":"array","items":{"type":"string"}}},"required":["answer"],"additionalProperties":false}`, 0o600)
+	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
+	output, err = RunHeadless(context.Background(), RunOptions{
+		SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,
+		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
+		PluginRoot: pluginRoot, WrapperExecutable: wrapper, providerAuthSession: continuitySession,
+	})
+	if err != nil || len(output.Results) != 1 || output.Results[0].Status != "pass" {
+		t.Fatalf("compatible Codex schema output=%+v err=%v", output, err)
+	}
+	compatibleRunDir := filepath.Join(outputRoot, scenario.ID, "codex", spec.Variant, "run-01")
+	if _, err := os.Stat(filepath.Join(compatibleRunDir, "provider-response-schema.json")); !os.IsNotExist(err) {
+		t.Fatalf("compatible Codex schema created a projected artifact: %v", err)
 	}
 
 	spec.Variant = "typed-mcp-codex-error"
