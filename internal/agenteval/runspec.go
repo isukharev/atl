@@ -326,8 +326,8 @@ func (s RunSpec) Validate() error {
 	if err := validateSkillActivation(s); err != nil {
 		return err
 	}
-	if s.AllowSyntheticWrites && (transport != "cli" || s.Provider != "claude-code") {
-		return fmt.Errorf("allow_synthetic_writes requires Claude Code cli transport")
+	if s.AllowSyntheticWrites && transport != "cli" {
+		return fmt.Errorf("allow_synthetic_writes requires cli transport")
 	}
 	if transport == "cli" && (len(s.AllowedTools) == 0 || len(s.AllowedTools) > 32) {
 		return fmt.Errorf("allowed_tools must contain 1..32 entries for cli transport")
@@ -348,11 +348,20 @@ func (s RunSpec) Validate() error {
 	if transport == "cli" {
 		switch s.EffectiveBackendMode() {
 		case BackendModeSynthetic:
-			if len(s.AllowedATLCommands) == 0 || len(s.AllowedATLCommands) > 32 {
-				return fmt.Errorf("allowed_atl_commands must contain 1..32 entries for synthetic cli transport")
-			}
-			if len(s.AllowedCLICommands) != 0 {
-				return fmt.Errorf("allowed_cli_commands must be empty for synthetic cli transport")
+			if s.Provider == "codex" && s.AllowSyntheticWrites {
+				if len(s.AllowedATLCommands) != 0 {
+					return fmt.Errorf("confined synthetic codex cli transport forbids prefix-based allowed_atl_commands")
+				}
+				if err := (CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: s.AllowedCLICommands}).Validate(); err != nil {
+					return fmt.Errorf("allowed_cli_commands: %w", err)
+				}
+			} else {
+				if len(s.AllowedATLCommands) == 0 || len(s.AllowedATLCommands) > 32 {
+					return fmt.Errorf("allowed_atl_commands must contain 1..32 entries for synthetic cli transport")
+				}
+				if len(s.AllowedCLICommands) != 0 {
+					return fmt.Errorf("allowed_cli_commands must be empty for ordinary synthetic cli transport")
+				}
 			}
 		case BackendModePrivateLive, BackendModeProviderCalibration:
 			if len(s.AllowedATLCommands) != 0 {
@@ -419,6 +428,7 @@ func (s RunSpec) Validate() error {
 	}
 	seenChecks := map[string]struct{}{}
 	requiresSkillInvocation := false
+	requiresNamedSkillInvocation := false
 	for _, check := range s.Checks {
 		if !identifierRE.MatchString(check.Name) {
 			return fmt.Errorf("invalid run check name %q", check.Name)
@@ -451,10 +461,12 @@ func (s RunSpec) Validate() error {
 				return fmt.Errorf("%s check %q is invalid", check.Kind, check.Name)
 			}
 		case "skill_invocations_min":
-			if _, ok := skillInvocationTarget(check.Expected); check.Minimum < 1 || check.Pointer != "" || !ok {
+			target, ok := skillInvocationTarget(check.Expected)
+			if check.Minimum < 1 || check.Pointer != "" || !ok {
 				return fmt.Errorf("skill_invocations_min check %q is invalid", check.Name)
 			}
 			requiresSkillInvocation = true
+			requiresNamedSkillInvocation = requiresNamedSkillInvocation || target != ""
 		case "atl_invocations_max", "interface_invocations_max":
 			if check.Maximum < 1 || check.Minimum != 0 || check.Pointer != "" || len(check.Expected) != 0 {
 				return fmt.Errorf("%s check %q is invalid", check.Kind, check.Name)
@@ -495,8 +507,11 @@ func (s RunSpec) Validate() error {
 			return fmt.Errorf("unsupported run check kind %q", check.Kind)
 		}
 	}
-	if requiresSkillInvocation && (s.Provider != "claude-code" || transport != "cli" || !containsRunString(s.AllowedTools, "Skill")) {
-		return fmt.Errorf("skill_invocations_min requires Claude Code CLI transport with Skill allowed")
+	if requiresSkillInvocation && (transport != "cli" || !containsRunString(s.AllowedTools, "Skill") || s.Provider != "claude-code" && !isCodexConfinedCLI(s)) {
+		return fmt.Errorf("skill_invocations_min requires Claude Code or confined Codex CLI transport with Skill allowed")
+	}
+	if requiresNamedSkillInvocation && s.Provider != "claude-code" {
+		return fmt.Errorf("named skill_invocations_min requires Claude Code Skill events")
 	}
 	return nil
 }

@@ -347,6 +347,7 @@ func TestCalibrationProviderCommandExposesNoBackendConfiguration(t *testing.T) {
 		GuardMode: "provider-calibration", GuardCounterPath: "/private/guard.jsonl",
 		WorkspaceReadRoot: "/private/workspace",
 		AllowedReadRoots:  []string{"/private/skills", "/private/workspace"},
+		SkillReadRoots:    []string{"/private/skills"},
 	}
 	command, err := BuildProviderCommand(spec, "codex", "/private/atl", "/private/guard", "/private/workspace", "/private/schema", "/private/final", "", "", "", confinement, codexCLICalibrationSchema)
 	if err != nil {

@@ -242,6 +242,7 @@ func TestPrivateLiveCLIGuardAllowsOnlyOneATLCommandShape(t *testing.T) {
 		"atl jira epic digest PROJ-1; env",
 		"env ATL_READ_ONLY=1 atl jira epic digest PROJ-1",
 		"/tmp/atl jira epic digest PROJ-1",
+		"env -u ATL_READ_ONLY atl jira epic digest PROJ-1",
 	} {
 		input := `{"tool_name":"Bash","tool_input":{"command":` + strconv.Quote(command) + `}}`
 		var output, errorOutput bytes.Buffer
@@ -262,6 +263,50 @@ func TestPrivateLiveCLIGuardAllowsOnlyOneATLCommandShape(t *testing.T) {
 		if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
 			t.Fatalf("patch=%q code=%d output=%s stderr=%s", patch, code, output.String(), errorOutput.String())
 		}
+	}
+	t.Setenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES", "1")
+	input := `{"tool_name":"Bash","tool_input":{"command":"env -u ATL_READ_ONLY atl conf plan apply plan.json --confirm APPLY --expected-proposal-hash aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`
+	var output, errorOutput bytes.Buffer
+	if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 || !strings.Contains(output.String(), `"permissionDecision":"allow"`) {
+		t.Fatalf("synthetic env shim guard code=%d output=%s stderr=%s", code, output.String(), errorOutput.String())
+	}
+}
+
+func TestPrivateCLIGuardClassifiesOnlySkillRootReadsAsSkillUse(t *testing.T) {
+	workspace := t.TempDir()
+	skillRoot := filepath.Join(workspace, ".agents", "skills")
+	if err := os.MkdirAll(filepath.Join(skillRoot, "confluence"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	skill := filepath.Join(skillRoot, "confluence", "SKILL.md")
+	decoy := filepath.Join(workspace, "README.md")
+	if err := os.WriteFile(skill, []byte("reviewed skill\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(decoy, []byte("ordinary workspace file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	readRoots, _ := json.Marshal([]string{workspace})
+	skillRoots, _ := json.Marshal([]string{skillRoot})
+	counter := filepath.Join(t.TempDir(), "guard.jsonl")
+	t.Setenv("ATL_EVAL_GUARD_MODE", "private-cli")
+	t.Setenv("ATL_EVAL_ALLOWED_READ_ROOTS", string(readRoots))
+	t.Setenv("ATL_EVAL_SKILL_READ_ROOTS", string(skillRoots))
+	t.Setenv("ATL_EVAL_WORKSPACE_ROOT", workspace)
+	t.Setenv("ATL_EVAL_GUARD_COUNTER", counter)
+	for _, target := range []string{skill, decoy} {
+		input := `{"tool_name":"Bash","tool_input":{"command":` + strconv.Quote("sed -n '1,20p' "+target) + `}}`
+		var output, errorOutput bytes.Buffer
+		if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 || !strings.Contains(output.String(), `"permissionDecision":"allow"`) {
+			t.Fatalf("target=%s code=%d output=%s stderr=%s", target, code, output.String(), errorOutput.String())
+		}
+	}
+	data, err := os.ReadFile(counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(data), `"family":"skill_read"`) != 1 || strings.Count(string(data), `"family":"read"`) != 1 {
+		t.Fatalf("guard classifications=%s", data)
 	}
 }
 
@@ -578,6 +623,13 @@ func TestATLProxyUsesParentCommandBrokerWithoutRealBinaryInEnvironment(t *testin
 	t.Setenv("ATL_EVAL_COUNTER", counter)
 	t.Setenv("ATL_EVAL_CLI_POLICY_FILE", policyPath)
 	t.Setenv("ATL_EVAL_COMMAND_BROKER_FILE", manifest)
+	t.Setenv("ATL_READ_ONLY", "")
+	t.Setenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES", "1")
+	if code := runATLProxy([]string{"jira", "fields"}); code == 0 {
+		t.Fatal("broker without synthetic-write authority bypassed read-only policy")
+	}
+	t.Setenv("ATL_READ_ONLY", "1")
+	t.Setenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES", "")
 	var output bytes.Buffer
 	previous := os.Stdout
 	readEnd, writeEnd, err := os.Pipe()
@@ -596,6 +648,100 @@ func TestATLProxyUsesParentCommandBrokerWithoutRealBinaryInEnvironment(t *testin
 	record, err := os.ReadFile(counter)
 	if err != nil || !bytes.Contains(record, []byte(`"command_family":"jira.fields"`)) || bytes.Contains(record, []byte("brokered output")) {
 		t.Fatalf("record=%s err=%v", record, err)
+	}
+}
+
+func TestATLProxyPreservesReadOnlyAcrossWriteAttestedBroker(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable scripts are Unix-only")
+	}
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	requests := filepath.Join(directory, "requests")
+	responses := filepath.Join(directory, "responses")
+	for _, path := range []string{requests, responses} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	executions := filepath.Join(directory, "executions")
+	writes := filepath.Join(directory, "writes")
+	realBinary := filepath.Join(directory, "real-atl")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >>\"$TEST_EXECUTIONS\"\n" +
+		"if [ \"$1\" = \"--read-only\" ]; then exit 8; fi\n" +
+		"printf 'write\\n' >>\"$TEST_WRITES\"\n"
+	if err := os.WriteFile(realBinary, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	policy := agenteval.CLICommandPolicy{SchemaVersion: agenteval.CLICommandPolicySchemaVersion, Rules: []agenteval.CLICommandRule{{
+		Name: "apply", Command: []string{"conf", "plan", "apply"},
+		Positionals: []agenteval.CLIArgumentRule{{Values: []string{"plan.json"}}},
+		Flags: []agenteval.CLIFlagRule{
+			{Name: "--confirm", Values: []string{"APPLY"}, Required: true},
+			{Name: "--expected-proposal-hash", ValueFormat: "sha256", Required: true},
+		},
+		MaxInvocations: 4,
+	}}}
+	policyData, err := agenteval.EncodeCLICommandPolicy(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyPath := filepath.Join(directory, "policy.json")
+	if err := os.WriteFile(policyPath, policyData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(directory, "broker.json")
+	broker, err := agenteval.StartCommandBroker(agenteval.CommandBrokerConfig{
+		RequestDirectory: requests, ResponseDirectory: responses, ManifestPath: manifest,
+		RealBinary: realBinary, WorkingDirectory: directory, Policy: policy,
+		Environment:    []string{"TEST_EXECUTIONS=" + executions, "TEST_WRITES=" + writes},
+		MaxStdoutBytes: 4096, MaxStderrBytes: 4096, CommandTimeout: time.Second,
+		AllowSyntheticWrites: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = broker.Close() })
+	counter := filepath.Join(requests, "counter.jsonl")
+	t.Setenv("ATL_EVAL_REAL_BINARY", "")
+	t.Setenv("ATL_EVAL_COUNTER", counter)
+	t.Setenv("ATL_EVAL_CLI_POLICY_FILE", policyPath)
+	t.Setenv("ATL_EVAL_COMMAND_BROKER_FILE", manifest)
+	t.Setenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES", "1")
+	args := []string{"conf", "plan", "apply", "plan.json", "--confirm", "APPLY", "--expected-proposal-hash", strings.Repeat("a", 64)}
+	t.Setenv("ATL_READ_ONLY", "1")
+	if code := runATLProxy(args); code != 8 {
+		t.Fatalf("read-only brokered mutation code=%d", code)
+	}
+	if _, err := os.Stat(writes); !os.IsNotExist(err) {
+		t.Fatalf("read-only brokered mutation executed a write: %v", err)
+	}
+	t.Setenv("ATL_READ_ONLY", "")
+	if code := runATLProxy(args); code != 8 {
+		t.Fatalf("ordinary brokered mutation without ambient read-only code=%d", code)
+	}
+	if _, err := os.Stat(writes); !os.IsNotExist(err) {
+		t.Fatalf("ordinary brokered mutation without ambient read-only executed a write: %v", err)
+	}
+	if code := runATLProxy(append([]string{"--read-only"}, args...)); code != 8 {
+		t.Fatalf("explicit global read-only brokered mutation code=%d", code)
+	}
+	if _, err := os.Stat(writes); !os.IsNotExist(err) {
+		t.Fatalf("explicit global read-only brokered mutation executed a write: %v", err)
+	}
+	envArgs := append([]string{"-u", "ATL_READ_ONLY", "atl"}, args...)
+	if code := runSyntheticWriteEnv(envArgs); code != 0 {
+		t.Fatalf("explicit synthetic write code=%d", code)
+	}
+	executed, err := os.ReadFile(executions)
+	if err != nil || strings.Count(string(executed), "--read-only conf plan apply ") != 3 || strings.Count(string(executed), "\n") != 4 || strings.Contains(string(executed), "--read-only --read-only") {
+		t.Fatalf("executions=%q err=%v", executed, err)
+	}
+	written, err := os.ReadFile(writes)
+	if err != nil || string(written) != "write\n" {
+		t.Fatalf("writes=%q err=%v", written, err)
 	}
 }
 

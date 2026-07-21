@@ -55,6 +55,46 @@ func TestBuildProviderCommandsAreEphemeralAndReadOnly(t *testing.T) {
 	}
 }
 
+func TestBuildCodexSyntheticWriteCommandUsesZeroNetworkBrokerConfinement(t *testing.T) {
+	spec := validRunSpec()
+	spec.AllowSyntheticWrites = true
+	spec.AllowedATLCommands = nil
+	spec.AllowedCLICommands = validCLICommandPolicy().Rules
+	confinement := ProviderConfinement{
+		RequestDirectory: "/synthetic/requests", ResponseDirectory: "/synthetic/responses",
+		GuardMode: "private-cli", GuardCounterPath: "/synthetic/guard.jsonl",
+		WorkspaceReadRoot: "/workspace", AllowedReadRoots: []string{"/workspace"},
+		SkillReadRoots: []string{"/workspace/.agents/skills"},
+	}
+	command, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", confinement, []byte(`{"type":"object"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(command.Args, " ")
+	for _, value := range []string{
+		"--ignore-user-config", "--ignore-rules", "--dangerously-bypass-hook-trust",
+		`approval_policy="never"`, `web_search="disabled"`, `default_permissions="atl_agent_eval"`,
+		`permissions.atl_agent_eval.filesystem={"/synthetic/requests"="write","/synthetic/responses"="read"}`,
+		"hooks.PreToolUse=", "/opt/guard",
+	} {
+		if !strings.Contains(joined, value) {
+			t.Errorf("synthetic write command misses %q: %s", value, joined)
+		}
+	}
+	if !slices.Contains(command.Args, `shell_environment_policy.include_only=["PATH","SHELL","LANG","LC_ALL","TERM","ATL_EVAL_ALLOW_SYNTHETIC_WRITES","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`) {
+		t.Fatalf("synthetic broker environment projection drifted: %s", joined)
+	}
+	for _, forbidden := range []string{
+		`plugins."atl@atl".enabled=true`, "developer_instructions=",
+		"--sandbox workspace-write",
+		`sandbox_workspace_write.network_access=true`, `features.network_proxy.enabled=false`, `network.enabled=true`,
+	} {
+		if strings.Contains(joined, forbidden) {
+			t.Errorf("synthetic write command weakens isolation with %q: %s", forbidden, joined)
+		}
+	}
+}
+
 func TestBuildProviderCommandRequiresExternalMCPProxy(t *testing.T) {
 	spec := validRunSpec()
 	spec.ToolTransport = "mcp"
@@ -122,7 +162,7 @@ func TestBuildPrivateCodexMCPProjectsOnlyReviewedSkillReadPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(command.Args, " ")
-	want := `shell_environment_policy.include_only=["PATH","LANG","LC_ALL","TERM","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
+	want := `shell_environment_policy.include_only=["PATH","LANG","LC_ALL","TERM","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
 	if !strings.Contains(joined, want) {
 		t.Fatalf("private MCP command misses reviewed read policy: %s", joined)
 	}
@@ -138,7 +178,7 @@ func TestBuildPrivateCodexMCPProjectsOnlyReviewedSkillReadPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	externalWant := `shell_environment_policy.include_only=["PATH","LANG","LC_ALL","TERM","NO_PROXY","no_proxy","ATL_EVAL_EXTERNAL_MCP_TOKEN","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
+	externalWant := `shell_environment_policy.include_only=["PATH","LANG","LC_ALL","TERM","NO_PROXY","no_proxy","ATL_EVAL_EXTERNAL_MCP_TOKEN","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
 	if !slices.Contains(external.Args, externalWant) {
 		t.Fatalf("private external MCP environment projection drifted: %s", strings.Join(external.Args, " "))
 	}
@@ -167,7 +207,7 @@ func TestCodexPrivateHookCommandBindsReviewedPolicyWithoutShellInjection(t *test
 	guard := filepath.Join(guardDir, "guard")
 	writeTestFile(t, guard, "#!/bin/sh\nprintf '%s' \"$ATL_EVAL_WORKSPACE_ROOT\" >"+shellSingleQuote(workspaceCapture)+"\nprintf '%s' \"$ATL_EVAL_ALLOWED_READ_ROOTS\" >"+shellSingleQuote(rootsCapture)+"\nprintf '%s' \"$ATL_EVAL_GUARD_MODE\" >"+shellSingleQuote(modeCapture)+"\nprintf '%s' \"$ATL_EVAL_GUARD_COUNTER\" >"+shellSingleQuote(counterCapture)+"\nprintf '%s' \"$ATL_EVAL_ALLOWED_MCP_TOOLS\" >"+shellSingleQuote(toolsCapture)+"\n", 0o700)
 	tools := []string{"mcp__atl__jira_fields"}
-	confinement := ProviderConfinement{GuardMode: "mcp-with-skill-read", GuardCounterPath: counter, WorkspaceReadRoot: workspace, AllowedReadRoots: []string{skills, workspace}, AllowedMCPTools: tools}
+	confinement := ProviderConfinement{GuardMode: "mcp-with-skill-read", GuardCounterPath: counter, WorkspaceReadRoot: workspace, AllowedReadRoots: []string{skills, workspace}, SkillReadRoots: []string{skills}, AllowedMCPTools: tools}
 	command, err := codexPrivateHookCommand(guard, "mcp-with-skill-read", tools, confinement)
 	if err != nil {
 		t.Fatal(err)
@@ -215,11 +255,14 @@ func TestCodexPrivateHookReadPolicyFailsClosed(t *testing.T) {
 		"duplicate":               func(value *ProviderConfinement) { value.AllowedReadRoots = []string{"/workspace", "/workspace"} },
 		"too many roots":          func(value *ProviderConfinement) { value.AllowedReadRoots = []string{"/skills", "/other", "/workspace"} },
 		"workspace not permitted": func(value *ProviderConfinement) { value.AllowedReadRoots = []string{"/skills"} },
+		"missing skill root":      func(value *ProviderConfinement) { value.SkillReadRoots = nil },
+		"skill root outside":      func(value *ProviderConfinement) { value.SkillReadRoots = []string{"/other"} },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
 			confinement := valid
 			confinement.AllowedReadRoots = append([]string(nil), valid.AllowedReadRoots...)
+			confinement.SkillReadRoots = append([]string(nil), valid.SkillReadRoots...)
 			confinement.AllowedMCPTools = append([]string(nil), valid.AllowedMCPTools...)
 			mutate(&confinement)
 			if _, err := codexPrivateHookCommand("/guard", "mcp-with-skill-read", []string{"mcp__atl__jira_fields"}, confinement); err == nil {
@@ -331,7 +374,7 @@ func TestBuildPrivateCLIProviderCommandsEnforceHooksAndCodexCommandBroker(t *tes
 					t.Errorf("Codex private CLI command misses %q: %s", value, joined)
 				}
 			}
-			if !slices.Contains(command.Args, `shell_environment_policy.include_only=["PATH","SHELL","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`) {
+			if !slices.Contains(command.Args, `shell_environment_policy.include_only=["PATH","SHELL","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`) {
 				t.Fatalf("private CLI environment projection drifted: %s", joined)
 			}
 			if slices.Contains(command.Args, "--ignore-user-config") {
@@ -669,11 +712,11 @@ func privateMCPHookConfinement(server string, tools ...string) ProviderConfineme
 	for index, tool := range tools {
 		qualified[index] = "mcp__" + server + "__" + tool
 	}
-	return ProviderConfinement{GuardMode: "mcp-with-skill-read", GuardCounterPath: "/guard-decisions.jsonl", WorkspaceReadRoot: "/workspace", AllowedReadRoots: []string{"/skills", "/workspace"}, AllowedMCPTools: qualified}
+	return ProviderConfinement{GuardMode: "mcp-with-skill-read", GuardCounterPath: "/guard-decisions.jsonl", WorkspaceReadRoot: "/workspace", AllowedReadRoots: []string{"/skills", "/workspace"}, SkillReadRoots: []string{"/skills"}, AllowedMCPTools: qualified}
 }
 
 func privateCLIHookConfinement() ProviderConfinement {
-	return ProviderConfinement{RequestDirectory: "/private/requests", ResponseDirectory: "/private/responses", GuardMode: "private-cli", GuardCounterPath: "/guard-decisions.jsonl", WorkspaceReadRoot: "/workspace", AllowedReadRoots: []string{"/skills", "/workspace"}}
+	return ProviderConfinement{RequestDirectory: "/private/requests", ResponseDirectory: "/private/responses", GuardMode: "private-cli", GuardCounterPath: "/guard-decisions.jsonl", WorkspaceReadRoot: "/workspace", AllowedReadRoots: []string{"/skills", "/workspace"}, SkillReadRoots: []string{"/skills"}}
 }
 
 func TestParseProviderOutputs(t *testing.T) {

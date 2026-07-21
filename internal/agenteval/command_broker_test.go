@@ -53,11 +53,15 @@ func TestCommandBrokerExecutesOnlyReviewedArgumentsWithinIndependentBudget(t *te
 		RealBinary: binary, WorkingDirectory: workingDirectory, Policy: policy,
 		Environment:    []string{"TEST_REQUEST_DIR=" + requests, "TEST_EXECUTIONS=" + executions, "TEST_CHILD_CONFIG=disposable"},
 		MaxStdoutBytes: 4096, MaxStderrBytes: 4096, CommandTimeout: time.Second,
+		AllowSyntheticWrites: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = broker.Close() })
+	if allowed, err := CommandBrokerAllowsSyntheticWrites(manifest); err != nil || !allowed {
+		t.Fatalf("synthetic write authority=%v err=%v", allowed, err)
+	}
 
 	probe, err := CallCommandBroker(manifest, nil, true)
 	if err != nil || probe.Status != "ready" {
