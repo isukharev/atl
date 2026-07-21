@@ -32,11 +32,12 @@ var (
 )
 
 type CommandBrokerManifest struct {
-	SchemaVersion     int    `json:"schema_version"`
-	RequestDirectory  string `json:"request_directory"`
-	ResponseDirectory string `json:"response_directory"`
-	Capability        string `json:"capability"`
-	TimeoutMillis     int64  `json:"timeout_millis"`
+	SchemaVersion        int    `json:"schema_version"`
+	RequestDirectory     string `json:"request_directory"`
+	ResponseDirectory    string `json:"response_directory"`
+	Capability           string `json:"capability"`
+	TimeoutMillis        int64  `json:"timeout_millis"`
+	AllowSyntheticWrites bool   `json:"allow_synthetic_writes,omitempty"`
 }
 
 type CommandBrokerRequest struct {
@@ -57,16 +58,17 @@ type CommandBrokerResponse struct {
 }
 
 type CommandBrokerConfig struct {
-	RequestDirectory  string
-	ResponseDirectory string
-	ManifestPath      string
-	RealBinary        string
-	WorkingDirectory  string
-	Policy            CLICommandPolicy
-	Environment       []string
-	MaxStdoutBytes    int64
-	MaxStderrBytes    int64
-	CommandTimeout    time.Duration
+	RequestDirectory     string
+	ResponseDirectory    string
+	ManifestPath         string
+	RealBinary           string
+	WorkingDirectory     string
+	Policy               CLICommandPolicy
+	Environment          []string
+	MaxStdoutBytes       int64
+	MaxStderrBytes       int64
+	CommandTimeout       time.Duration
+	AllowSyntheticWrites bool
 }
 
 type CommandBroker struct {
@@ -103,7 +105,7 @@ func StartCommandBroker(config CommandBrokerConfig) (*CommandBroker, error) {
 	manifest := CommandBrokerManifest{
 		SchemaVersion:    CommandBrokerSchemaVersion,
 		RequestDirectory: config.RequestDirectory, ResponseDirectory: config.ResponseDirectory,
-		Capability: capability, TimeoutMillis: clientTimeout.Milliseconds(),
+		Capability: capability, TimeoutMillis: clientTimeout.Milliseconds(), AllowSyntheticWrites: config.AllowSyntheticWrites,
 	}
 	data, err := json.Marshal(manifest)
 	if err != nil {
@@ -344,6 +346,16 @@ func loadCommandBrokerManifest(path string) (CommandBrokerManifest, error) {
 		return CommandBrokerManifest{}, err
 	}
 	return manifest, nil
+}
+
+// CommandBrokerAllowsSyntheticWrites validates the owner-only broker manifest
+// before the confined proxy accepts a write-enabled synthetic invocation.
+func CommandBrokerAllowsSyntheticWrites(path string) (bool, error) {
+	manifest, err := loadCommandBrokerManifest(path)
+	if err != nil {
+		return false, err
+	}
+	return manifest.AllowSyntheticWrites, nil
 }
 
 func validCommandBrokerResponse(response CommandBrokerResponse) bool {

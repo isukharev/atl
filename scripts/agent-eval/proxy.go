@@ -101,14 +101,22 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 			}
 			if allowed {
 				decision = "allow"
-				family = "skill_read"
+				family = "read"
 				reason = "read target is within a reviewed benchmark root"
+				if skillRead, _ := allowedPrivateReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_SKILL_READ_ROOTS")); skillRead {
+					family = "skill_read"
+					reason = "read target is within the reviewed skill root"
+				}
 			}
 		case "Bash":
 			if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS")) {
 				decision = "allow"
-				family = "skill_read"
-				reason = "command contains only confined skill-reader invocations"
+				family = "read"
+				reason = "command contains only confined reader invocations"
+				if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv("ATL_EVAL_SKILL_READ_ROOTS")) {
+					family = "skill_read"
+					reason = "command contains only confined skill-reader invocations"
+				}
 			}
 		default:
 			if allowedMCPGuardTool(hook.ToolName, os.Getenv("ATL_EVAL_ALLOWED_MCP_TOOLS")) {
@@ -120,7 +128,7 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 		return writeGuardDecision(output, errorOutput, decision, family, reason)
 	}
 	if guardMode == "private-cli" {
-		reason = "private-live CLI allows only confined skill reads and reviewed atl invocations"
+		reason = "confined CLI allows only reviewed skill reads and atl invocations"
 		switch hook.ToolName {
 		case "Read":
 			allowed, err := allowedPrivateCLIResultRead(hook.ToolInput.FilePath, hook.ToolInput.Offset, hook.ToolInput.Limit,
@@ -142,15 +150,23 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 			}
 			if allowed {
 				decision = "allow"
-				family = "skill_read"
+				family = "read"
 				reason = "read target is within a reviewed benchmark root"
+				if skillRead, _ := allowedPrivateReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_SKILL_READ_ROOTS")); skillRead {
+					family = "skill_read"
+					reason = "read target is within the reviewed skill root"
+				}
 			}
 		case "Bash":
 			if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS")) {
 				decision = "allow"
-				family = "skill_read"
-				reason = "command contains only confined skill-reader invocations"
-			} else if safePrivateCLICommandShape(hook.ToolInput.Command) {
+				family = "read"
+				reason = "command contains only confined reader invocations"
+				if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv("ATL_EVAL_SKILL_READ_ROOTS")) {
+					family = "skill_read"
+					reason = "command contains only confined skill-reader invocations"
+				}
+			} else if safePrivateCLICommandShape(hook.ToolInput.Command) || os.Getenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES") == "1" && safeSyntheticWriteCLICommandShape(hook.ToolInput.Command) {
 				decision = "allow"
 				family = "atl"
 				reason = "command shape delegates exact argument enforcement to the atl evaluation shim"
@@ -658,14 +674,46 @@ func safePrivateCLICommandShape(command string) bool {
 	return true
 }
 
-func runATLProxy(args []string) int {
+func safeSyntheticWriteCLICommandShape(command string) bool {
+	command = strings.TrimSpace(command)
+	const prefix = "env -u ATL_READ_ONLY "
+	if strings.ContainsAny(command, "\r\n") || !strings.HasPrefix(command, prefix) {
+		return false
+	}
+	command = strings.TrimSpace(strings.TrimPrefix(command, prefix))
+	return strings.HasPrefix(command, "atl ") && !strings.ContainsAny(command, "\x00;&|`><$(){}[]*?!~#")
+}
+
+func runSyntheticWriteEnv(args []string) int {
 	counterPath := os.Getenv("ATL_EVAL_COUNTER")
+	if os.Getenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES") != "1" || len(args) < 4 || args[0] != "-u" || args[1] != "ATL_READ_ONLY" || args[2] != "atl" {
+		return rejectATLProxy(counterPath, "atl evaluation env shim rejected the invocation")
+	}
+	return runATLProxyWithWriteIntent(args[3:], true)
+}
+
+func runATLProxy(args []string) int {
+	return runATLProxyWithWriteIntent(args, false)
+}
+
+func runATLProxyWithWriteIntent(args []string, syntheticWriteIntent bool) int {
+	counterPath := os.Getenv("ATL_EVAL_COUNTER")
+	brokerPath := os.Getenv("ATL_EVAL_COMMAND_BROKER_FILE")
 	allowSyntheticWrites := os.Getenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES") == "1"
-	if os.Getenv("ATL_READ_ONLY") != "1" && (!allowSyntheticWrites || !syntheticBackendsAreLoopback()) {
+	syntheticWriteAuthority := allowSyntheticWrites && syntheticBackendsAreLoopback()
+	brokerAllowsSyntheticWrites := false
+	if allowSyntheticWrites && brokerPath != "" {
+		brokerAllowsWrites, err := agenteval.CommandBrokerAllowsSyntheticWrites(brokerPath)
+		brokerAllowsSyntheticWrites = err == nil && brokerAllowsWrites
+		syntheticWriteAuthority = brokerAllowsSyntheticWrites
+	}
+	if syntheticWriteIntent && !brokerAllowsSyntheticWrites {
+		return rejectATLProxy(counterPath, "atl evaluation proxy rejected untrusted synthetic write intent")
+	}
+	if os.Getenv("ATL_READ_ONLY") != "1" && !syntheticWriteAuthority {
 		return rejectATLProxy(counterPath, "atl evaluation proxy requires ATL_READ_ONLY=1")
 	}
 	realBinary := os.Getenv("ATL_EVAL_REAL_BINARY")
-	brokerPath := os.Getenv("ATL_EVAL_COMMAND_BROKER_FILE")
 	if counterPath == "" || realBinary == "" && brokerPath == "" {
 		return rejectATLProxy(counterPath, "atl evaluation proxy is not configured")
 	}
@@ -695,7 +743,11 @@ func runATLProxy(args []string) int {
 		return rejectATLProxy(counterPath, "atl evaluation proxy rejected command arguments")
 	}
 	if brokerPath != "" {
-		response, err := agenteval.CallCommandBroker(brokerPath, args, false)
+		brokerArgs := args
+		if brokerAllowsSyntheticWrites && !syntheticWriteIntent && (len(args) == 0 || args[0] != "--read-only") {
+			brokerArgs = append([]string{"--read-only"}, args...)
+		}
+		response, err := agenteval.CallCommandBroker(brokerPath, brokerArgs, false)
 		if err != nil {
 			return failATLProxy(counterPath, "atl evaluation proxy could not reach its confined command broker")
 		}

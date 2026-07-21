@@ -362,7 +362,10 @@ oracle. The proxy independently requires both configured backends to be plain
 HTTP loopback origins and rechecks the reviewed command prefixes. Mock routes
 may bind an exact semantic JSON `request_body`, so an allowed PUT with the
 wrong field or value still fails the route oracle. This mode is never valid for
-private-live or MCP runs.
+private-live or MCP runs. Codex write-enabled synthetic specs replace the
+legacy prefixes with exact structured CLI command rules; the model stays in a
+zero-network filesystem sandbox and a host-side broker executes only those
+reviewed commands from the canonical disposable workspace.
 
 For stateful synthetic reconciliation, a route may replace its single
 `status`/`body` with a bounded `responses` array. Matching requests consume the
@@ -453,8 +456,9 @@ needed.
 The `jira-epic-evidence` CLI variant now requires the exact `atl:jira` skill,
 then confines the model to one metadata-only issue-field discovery and one
 compact digest. `skill_invocations_min` accepts an optional JSON-string
-`expected` target; an unrelated installed skill no longer satisfies a targeted
-experiment.
+`expected` target for Claude Code; an unrelated installed skill no longer
+satisfies a targeted experiment. Confined Codex CLI runs can use only the
+untargeted form, which counts audited reads from installed project-skill roots.
 
 A controlled Sonnet comparison used the same synthetic task, prompt, response
 schema, CLI binary, runner, model, and final 11-check safety/correctness spec.
@@ -601,10 +605,12 @@ When a CLI+skill experiment is intended to measure shipped skill guidance, add
 `skill_invocations_min` rather than trusting prompt wording or an installed
 plugin digest alone. The Claude provider counts exact `Skill` tool events; set
 optional `expected` to a JSON string such as `"atl:jira"` when the experiment
-must load one specific skill. The check fails if the model omits it or loads a
-different skill. This is an execution oracle only: skill invocations are not
-added to the public result metrics, and providers without an equivalent event
-cannot satisfy the check.
+must load one specific skill. Confined Codex CLI runs have no equivalent named
+event, so they accept only the untargeted form and count successful
+`skill_read` admissions recorded by the command guard for files under the
+installed project-skill roots. The check fails if the model omits the skill
+read. This is an execution oracle only: skill invocations and guarded reads are
+not added to the public result metrics.
 
 ### Offline durable mirror review
 
@@ -1260,11 +1266,11 @@ with the supervised agentless recipe first.
 
 ### Reviewed CLI command policy
 
-The primary skill-to-Bash-to-CLI path has a stricter private-live run-spec
-contract than synthetic CLI benchmarks. It never accepts the legacy
-`allowed_atl_commands` prefix list. Instead, every allowed invocation declares
-the complete command path, exact positional values, exact flag values, and an
-independent invocation cap:
+The primary skill-to-Bash-to-CLI path has a stricter run-spec contract for
+private-live runs and write-enabled synthetic Codex runs. It never accepts the
+legacy `allowed_atl_commands` prefix list. Instead, every allowed invocation
+declares the complete command path, exact positional values, exact flag values,
+and an independent invocation cap:
 
 ```json
 {
@@ -1297,12 +1303,20 @@ independent invocation cap:
 
 Flag order may vary, but unknown, repeated, missing-required, joined
 `--flag=value`, changed-target, extra-positional, and shell-separator forms are
-rejected. A single leading global `--read-only` is accepted because it can only
+rejected. A flag value that must come from prior command output may declare
+`"value_format":"sha256"` instead of `values`; this accepts only a lowercase
+64-hex digest and cannot be combined with a literal allowlist. A single leading
+global `--read-only` is accepted because it can only
 strengthen the already mandatory process policy; no other global flag is
 implicit. The hook admits path-confined `cat`/`sed`/`wc` skill reads and a small
 newline-only block containing `export ATL_READ_ONLY=1`, `command -v atl`, and
-safe `atl ...` command shapes. Shell operators, substitution, redirection, and
-arbitrary commands remain denied. The shim then loads an
+safe `atl ...` command shapes. Write-enabled synthetic Codex runs additionally
+admit exactly `env -u ATL_READ_ONLY atl ...`; the dedicated `env` shim rejects
+every other form. Ordinary invocations are forced through the host broker with
+an explicit global `--read-only`, even when the model environment has no
+read-only variable; only that audited wrapper removes it for the reviewed
+synthetic apply. Shell operators, substitution, redirection,
+and arbitrary commands remain denied. The shim then loads an
 owner-only policy file outside those roots and matches the actual argv before
 starting the real binary. It reserves the command-family budget before the
 process starts, so concurrent or failed invocations cannot exceed the reviewed
@@ -1329,7 +1343,9 @@ After the hook and exact-argv shim accept a command, the shim writes a bounded,
 authenticated request. The parent-side broker atomically moves that request out
 of the writable directory, independently revalidates the exact argv policy and
 invocation budget, and runs the real `atl` binary with only the disposable
-child config. It returns bounded stdout, stderr, and exit status through the
+child config. For synthetic runs that config directory starts empty and the
+mirror root is disposable, preventing ambient user configuration from changing
+the case. It returns bounded stdout, stderr, and exit status through the
 read-only response directory. Requests are removed before execution; responses
 and the manifest are removed during delivery or run cleanup. Arguments and
 command output are not retained in benchmark results or gateway audit records.

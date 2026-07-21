@@ -211,16 +211,26 @@ machine-local instructions cannot change a comparable run; reviewed prompts
 and shipped skills remain available. Private CLI runs install the snapshotted
 `atl@atl` package in a fresh provider home and preserve the real `atl:` skill
 namespace; synthetic Codex cases continue to use project-skill copies.
-Synthetic CLI-transport Codex specs remain
-validate/dry-run only because its read-only OS sandbox cannot safely reach the
-host-side mock; private-live Codex CLI specs use the separately documented
-zero-network command broker confinement.
+Read-only synthetic CLI-transport Codex specs remain validate/dry-run only
+because their OS sandbox cannot safely reach the host-side mock. Explicit
+synthetic-write Codex specs use the same zero-network command-broker
+confinement as private CLI runs, with an exact structured command policy and a
+canonical disposable workspace. The broker receives a fresh owner-only empty
+ATL config directory and a disposable mirror root, so ambient user config
+cannot affect the run. Backend fixture capabilities remain broker-side and are
+never copied into the model environment.
 
 Synthetic CLI specs inherit `ATL_READ_ONLY=1`. The exceptional
-`allow_synthetic_writes:true` mode is confined to Claude CLI runs against
-loopback-only mock origins and requires exact HTTP method counts, no unexpected
-mock request, a clean guard, an explicit scenario write budget, and a mutating
-method allowlist. Mock routes can bind the exact semantic JSON request body.
+`allow_synthetic_writes:true` mode is confined to CLI runs against loopback-only
+mock origins and requires exact HTTP method counts, no unexpected mock request,
+a clean guard, an explicit scenario write budget, and a mutating method
+allowlist. Codex additionally requires exact structured CLI command rules and
+runs `atl` through the host-side broker while its model sandbox remains
+zero-network. Normal brokered commands are forced through explicit
+`atl --read-only` even when the model environment has no read-only variable;
+only the exact guarded `env -u ATL_READ_ONLY atl ...` apply shape may cross the
+synthetic write boundary. Mock routes can bind the exact
+semantic JSON request body.
 They may also provide a bounded `responses` sequence for repeated reads of one
 route. Only a request satisfying the route constraints consumes the next
 response; exhausting the sequence is unexpected, so a hidden reconciliation
@@ -602,6 +612,10 @@ oracles require all four classifications and a blocked publish decision.
 actually loaded; prompt wording and a recorded plugin digest alone are not
 enough. Any retry, backend request, write, delegation, missing skill load, or
 guard denial fails the run.
+
+Confined Codex CLI variants do not emit Claude's named `Skill` events. Their
+untargeted `skill_invocations_min` oracle instead counts successful audited
+reads from the installed project-skill roots; named targets remain Claude-only.
 
 Validate or preview the new cells without invoking a model:
 

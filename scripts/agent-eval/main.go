@@ -29,6 +29,9 @@ func main() {
 	if base == "cat" || base == "sed" || base == "wc" {
 		os.Exit(runSkillReader(base, os.Args[1:], os.Stdout, os.Stderr))
 	}
+	if base == "env" {
+		os.Exit(runSyntheticWriteEnv(os.Args[1:]))
+	}
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "agent-eval:", err)
 		os.Exit(1)

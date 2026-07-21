@@ -39,9 +39,10 @@ type CLIArgumentRule struct {
 }
 
 type CLIFlagRule struct {
-	Name     string   `json:"name"`
-	Values   []string `json:"values,omitempty"`
-	Required bool     `json:"required,omitempty"`
+	Name        string   `json:"name"`
+	Values      []string `json:"values,omitempty"`
+	ValueFormat string   `json:"value_format,omitempty"`
+	Required    bool     `json:"required,omitempty"`
 }
 
 type CLICommandMatch struct {
@@ -90,10 +91,16 @@ func (p CLICommandPolicy) Validate() error {
 				return fmt.Errorf("cli command rule %q has duplicate flag %q", rule.Name, flag.Name)
 			}
 			seenFlags[flag.Name] = struct{}{}
+			if len(flag.Values) > 0 && flag.ValueFormat != "" {
+				return fmt.Errorf("cli command rule %q flag %q cannot combine values and value_format", rule.Name, flag.Name)
+			}
 			if len(flag.Values) > 0 {
 				if err := validateCLIAllowedValues(flag.Values); err != nil {
 					return fmt.Errorf("cli command rule %q flag %q: %w", rule.Name, flag.Name, err)
 				}
+			}
+			if flag.ValueFormat != "" && flag.ValueFormat != "sha256" {
+				return fmt.Errorf("cli command rule %q flag %q has an invalid value_format", rule.Name, flag.Name)
 			}
 		}
 	}
@@ -214,9 +221,9 @@ func matchCLICommandRule(rule CLICommandRule, args []string) bool {
 				return false
 			}
 			seenFlags[token] = struct{}{}
-			if len(flag.Values) > 0 {
+			if len(flag.Values) > 0 || flag.ValueFormat != "" {
 				index++
-				if index >= len(rest) || !containsCLIString(flag.Values, rest[index]) {
+				if index >= len(rest) || !matchCLIFlagValue(flag, rest[index]) {
 					return false
 				}
 			}
@@ -239,6 +246,13 @@ func matchCLICommandRule(rule CLICommandRule, args []string) bool {
 		}
 	}
 	return true
+}
+
+func matchCLIFlagValue(rule CLIFlagRule, candidate string) bool {
+	if len(rule.Values) > 0 {
+		return containsCLIString(rule.Values, candidate)
+	}
+	return rule.ValueFormat == "sha256" && validSHA256(candidate)
 }
 
 func equalCLIStrings(left, right []string) bool {

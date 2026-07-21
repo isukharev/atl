@@ -23,6 +23,7 @@ type ProviderConfinement struct {
 	GuardCounterPath  string
 	WorkspaceReadRoot string
 	AllowedReadRoots  []string
+	SkillReadRoots    []string
 	AllowedMCPTools   []string
 }
 
@@ -138,18 +139,21 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 				includeOnly = `["PATH","LANG","LC_ALL","TERM","NO_PROXY","no_proxy","ATL_EVAL_EXTERNAL_MCP_TOKEN"]`
 			}
 			if spec.EffectiveBackendMode() == BackendModePrivateLive {
-				includeOnly = `["PATH","LANG","LC_ALL","TERM","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
+				includeOnly = `["PATH","LANG","LC_ALL","TERM","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
 				if spec.EffectiveSurface() == SurfaceExternalMCP {
-					includeOnly = `["PATH","LANG","LC_ALL","TERM","NO_PROXY","no_proxy","ATL_EVAL_EXTERNAL_MCP_TOKEN","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
+					includeOnly = `["PATH","LANG","LC_ALL","TERM","NO_PROXY","no_proxy","ATL_EVAL_EXTERNAL_MCP_TOKEN","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
 				}
 			}
 		}
 		confinedCLI := isCodexConfinedCLI(spec)
+		privateCLI := spec.EffectiveBackendMode() == BackendModePrivateLive || spec.EffectiveBackendMode() == BackendModeProviderCalibration
 		if confinedCLI {
 			sandboxMode = "workspace-write"
-			includeOnly = `["PATH","SHELL","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
+			includeOnly = `["PATH","SHELL","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
+			if spec.EffectiveBackendMode() == BackendModeSynthetic && spec.AllowSyntheticWrites {
+				includeOnly = `["PATH","SHELL","LANG","LC_ALL","TERM","ATL_EVAL_ALLOW_SYNTHETIC_WRITES","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
+			}
 		}
-		privateCLI := confinedCLI
 		args := []string{
 			"exec", "--json", "--ephemeral", "--strict-config",
 			"--skip-git-repo-check",
@@ -173,7 +177,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 			// what that shell can do.
 			args = append(args, "--enable", "shell_tool", "--enable", "unified_exec")
 		}
-		if !privateCLI {
+		if !confinedCLI {
 			args = append(args, "--sandbox", sandboxMode)
 		}
 		args = append(args,
@@ -224,7 +228,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 		}
 		if confinedCLI {
 			if guardPath == "" {
-				return ProviderCommand{}, fmt.Errorf("codex private-live cli transport requires a guard executable")
+				return ProviderCommand{}, fmt.Errorf("codex confined cli transport requires a guard executable")
 			}
 			hookConfig, err := codexDenyNonMCPHook(guardPath, spec, confinement)
 			if err != nil {
@@ -234,18 +238,22 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 			if err != nil {
 				return ProviderCommand{}, err
 			}
-			developerInstructions, err := codexPrivateCLIInstructions(spec)
-			if err != nil {
-				return ProviderCommand{}, err
-			}
 			args = append(args,
 				"--ignore-rules", "--dangerously-bypass-hook-trust",
 				"-c", `approval_policy="never"`,
 				"-c", `web_search="disabled"`,
-				"-c", `plugins."atl@atl".enabled=true`,
-				"-c", `developer_instructions=`+strconv.Quote(developerInstructions),
 				"-c", hookConfig,
 			)
+			if privateCLI {
+				developerInstructions, err := codexPrivateCLIInstructions(spec)
+				if err != nil {
+					return ProviderCommand{}, err
+				}
+				args = append(args,
+					"-c", `plugins."atl@atl".enabled=true`,
+					"-c", `developer_instructions=`+strconv.Quote(developerInstructions),
+				)
+			}
 			args = append(args, confinementArgs...)
 		}
 		if spec.Reasoning != "" {
@@ -260,8 +268,8 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 
 func isCodexConfinedCLI(spec RunSpec) bool {
 	mode := spec.EffectiveBackendMode()
-	return spec.Provider == "codex" && spec.ToolTransport == "cli" &&
-		(mode == BackendModePrivateLive || mode == BackendModeProviderCalibration)
+	return spec.Provider == "codex" && spec.EffectiveToolTransport() == "cli" &&
+		(mode == BackendModePrivateLive || mode == BackendModeProviderCalibration || mode == BackendModeSynthetic && spec.AllowSyntheticWrites)
 }
 
 func codexPrivateCLIInstructions(spec RunSpec) (string, error) {
@@ -352,7 +360,7 @@ func BuildCodexConfinementProbeCommand(agentBinary, workspace, probeExecutable s
 
 func codexConfinementConfigArgs(confinement ProviderConfinement, selectAsDefault bool) ([]string, error) {
 	if !validConfinementDirectory(confinement.RequestDirectory) || !validConfinementDirectory(confinement.ResponseDirectory) || confinement.RequestDirectory == confinement.ResponseDirectory {
-		return nil, fmt.Errorf("codex private-live cli confinement has invalid broker directories")
+		return nil, fmt.Errorf("codex confined cli has invalid broker directories")
 	}
 	profile := "permissions." + codexAgentEvalPermissionProfile
 	settings := []string{
@@ -398,10 +406,11 @@ func mcpServerName(spec RunSpec) string {
 
 func codexDenyNonMCPHook(guardPath string, spec RunSpec, confinement ProviderConfinement) (string, error) {
 	command := guardPath
-	if spec.EffectiveBackendMode() == BackendModePrivateLive || spec.EffectiveBackendMode() == BackendModeProviderCalibration {
+	if spec.EffectiveBackendMode() == BackendModePrivateLive || spec.EffectiveBackendMode() == BackendModeProviderCalibration ||
+		spec.EffectiveBackendMode() == BackendModeSynthetic && spec.AllowSyntheticWrites {
 		expectedMode := "mcp-with-skill-read"
 		expectedTools := claudeMCPToolNamesForServer(mcpServerName(spec), spec.AllowedMCPTools)
-		if spec.ToolTransport == "cli" {
+		if spec.EffectiveToolTransport() == "cli" {
 			expectedMode = "private-cli"
 			expectedTools = nil
 			if spec.EffectiveBackendMode() == BackendModeProviderCalibration {
@@ -425,6 +434,10 @@ func codexPrivateHookCommand(guardPath, expectedMode string, expectedTools []str
 	if err != nil {
 		return "", fmt.Errorf("encode codex private-live hook read policy: %w", err)
 	}
+	skillRoots, err := json.Marshal(confinement.SkillReadRoots)
+	if err != nil {
+		return "", fmt.Errorf("encode codex private-live hook skill read policy: %w", err)
+	}
 	tools, err := json.Marshal(confinement.AllowedMCPTools)
 	if err != nil {
 		return "", fmt.Errorf("encode codex private-live hook tool policy: %w", err)
@@ -434,6 +447,7 @@ func codexPrivateHookCommand(guardPath, expectedMode string, expectedTools []str
 		" ATL_EVAL_ALLOWED_MCP_TOOLS=" + shellSingleQuote(string(tools)) +
 		" ATL_EVAL_WORKSPACE_ROOT=" + shellSingleQuote(confinement.WorkspaceReadRoot) +
 		" ATL_EVAL_ALLOWED_READ_ROOTS=" + shellSingleQuote(string(roots)) +
+		" ATL_EVAL_SKILL_READ_ROOTS=" + shellSingleQuote(string(skillRoots)) +
 		" " + shellSingleQuote(guardPath), nil
 }
 
@@ -459,6 +473,20 @@ func validateCodexPrivateHookPolicy(expectedMode string, expectedTools []string,
 	}
 	if !workspaceAllowed {
 		return fmt.Errorf("codex private-live hook workspace is outside its read roots")
+	}
+	if len(confinement.SkillReadRoots) != 1 || !validCodexHookReadRoot(confinement.SkillReadRoots[0]) {
+		return fmt.Errorf("codex private-live hook requires one explicit skill read root")
+	}
+	skillRootAllowed := false
+	for _, root := range confinement.AllowedReadRoots {
+		relative, err := filepath.Rel(root, confinement.SkillReadRoots[0])
+		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative) {
+			skillRootAllowed = true
+			break
+		}
+	}
+	if !skillRootAllowed {
+		return fmt.Errorf("codex private-live hook skill root is outside its read roots")
 	}
 	return nil
 }

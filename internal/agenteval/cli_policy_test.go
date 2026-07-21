@@ -72,13 +72,15 @@ func TestCLICommandPolicyRejectsAmbiguousAndInvalidRules(t *testing.T) {
 	}
 
 	for name, mutate := range map[string]func(*CLICommandPolicy){
-		"schema":         func(p *CLICommandPolicy) { p.SchemaVersion++ },
-		"no rules":       func(p *CLICommandPolicy) { p.Rules = nil },
-		"duplicate name": func(p *CLICommandPolicy) { p.Rules = append(p.Rules, p.Rules[0]) },
-		"bad command":    func(p *CLICommandPolicy) { p.Rules[0].Command[0] = "../jira" },
-		"bad flag":       func(p *CLICommandPolicy) { p.Rules[0].Flags[0].Name = "quarter" },
-		"bad value":      func(p *CLICommandPolicy) { p.Rules[0].Positionals[0].Values[0] = "PROJ-1\nsecret" },
-		"zero budget":    func(p *CLICommandPolicy) { p.Rules[0].MaxInvocations = 0 },
+		"schema":            func(p *CLICommandPolicy) { p.SchemaVersion++ },
+		"no rules":          func(p *CLICommandPolicy) { p.Rules = nil },
+		"duplicate name":    func(p *CLICommandPolicy) { p.Rules = append(p.Rules, p.Rules[0]) },
+		"bad command":       func(p *CLICommandPolicy) { p.Rules[0].Command[0] = "../jira" },
+		"bad flag":          func(p *CLICommandPolicy) { p.Rules[0].Flags[0].Name = "quarter" },
+		"bad value":         func(p *CLICommandPolicy) { p.Rules[0].Positionals[0].Values[0] = "PROJ-1\nsecret" },
+		"bad value format":  func(p *CLICommandPolicy) { p.Rules[0].Flags[0].ValueFormat = "hex" },
+		"values and format": func(p *CLICommandPolicy) { p.Rules[0].Flags[0].ValueFormat = "sha256" },
+		"zero budget":       func(p *CLICommandPolicy) { p.Rules[0].MaxInvocations = 0 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := validCLICommandPolicy()
@@ -87,6 +89,24 @@ func TestCLICommandPolicyRejectsAmbiguousAndInvalidRules(t *testing.T) {
 				t.Fatal("invalid policy passed")
 			}
 		})
+	}
+}
+
+func TestCLICommandPolicyMatchesSHA256FlagValue(t *testing.T) {
+	policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: []CLICommandRule{{
+		Name: "apply", Command: []string{"conf", "plan", "apply"},
+		Positionals:    []CLIArgumentRule{{Values: []string{"plan.json"}}},
+		Flags:          []CLIFlagRule{{Name: "--expected-proposal-hash", ValueFormat: "sha256", Required: true}},
+		MaxInvocations: 1,
+	}}}
+	valid := strings.Repeat("a", 64)
+	if _, err := policy.Match([]string{"conf", "plan", "apply", "plan.json", "--expected-proposal-hash", valid}); err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range []string{strings.Repeat("a", 63), strings.Repeat("A", 64), strings.Repeat("g", 64)} {
+		if _, err := policy.Match([]string{"conf", "plan", "apply", "plan.json", "--expected-proposal-hash", invalid}); err == nil {
+			t.Fatalf("invalid sha256 %q matched", invalid)
+		}
 	}
 }
 

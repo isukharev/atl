@@ -374,7 +374,7 @@ func TestRunSpecSyntheticWritesRequireExplicitSyntheticBudget(t *testing.T) {
 			s.Repetitions = 1
 		},
 		"mcp": func(s *RunSpec, _ *Scenario) { s.ToolTransport = "mcp" },
-		"codex": func(s *RunSpec, _ *Scenario) {
+		"codex legacy prefix": func(s *RunSpec, _ *Scenario) {
 			s.Provider = "codex"
 			s.Pricing = Pricing{InputMicroUSDPerMillionTokens: 1, OutputMicroUSDPerMillionTokens: 1}
 		},
@@ -394,12 +394,34 @@ func TestRunSpecSyntheticWritesRequireExplicitSyntheticBudget(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := spec
+			candidate.Checks = append([]RunCheck(nil), spec.Checks...)
 			candidateScenario := scenario
 			mutate(&candidate, &candidateScenario)
 			if candidate.Validate() == nil && candidate.ValidateAgainstScenario(candidateScenario) == nil {
 				t.Fatal("unsafe synthetic write spec passed")
 			}
 		})
+	}
+	codex := spec
+	codex.Checks = append([]RunCheck(nil), spec.Checks...)
+	codex.Provider = "codex"
+	codex.Pricing = Pricing{InputMicroUSDPerMillionTokens: 1, OutputMicroUSDPerMillionTokens: 1}
+	codex.AllowedATLCommands = nil
+	codex.AllowedCLICommands = validCLICommandPolicy().Rules
+	if err := codex.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := codex.ValidateAgainstScenario(scenario); err != nil {
+		t.Fatal(err)
+	}
+	codex.AllowedTools = append(codex.AllowedTools, "Skill")
+	codex.Checks = append(codex.Checks, RunCheck{Name: "skill", Kind: "skill_invocations_min", Minimum: 1})
+	if err := codex.Validate(); err != nil {
+		t.Fatalf("confined Codex skill invocation minimum: %v", err)
+	}
+	codex.Checks[len(codex.Checks)-1].Expected = json.RawMessage(`"atl:confluence"`)
+	if err := codex.Validate(); err == nil || !strings.Contains(err.Error(), "named skill_invocations_min") {
+		t.Fatalf("named Codex skill invocation oracle passed: %v", err)
 	}
 }
 
@@ -730,7 +752,7 @@ func TestRunSpecValidatesSkillInvocationMinimum(t *testing.T) {
 	}
 
 	for name, mutate := range map[string]func(*RunSpec){
-		"provider": func(spec *RunSpec) {
+		"unconfined provider": func(spec *RunSpec) {
 			spec.Provider = "codex"
 			spec.Pricing = Pricing{InputMicroUSDPerMillionTokens: 1, OutputMicroUSDPerMillionTokens: 1}
 		},

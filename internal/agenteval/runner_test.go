@@ -360,6 +360,204 @@ exit 0
 	}
 }
 
+func TestCodexSyntheticWriteRunUsesHostBroker(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable scripts are Unix-only")
+	}
+	ambientHome, _ := useSyntheticCodexHome(t)
+	ambientATLConfig := filepath.Join(ambientHome, ".config", "atl")
+	if err := os.MkdirAll(ambientATLConfig, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(ambientATLConfig, "config.json"), `{"read_only":true,"confluence_url":"https://ambient.invalid/wiki"}`, 0o600)
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tempRepository := t.TempDir()
+	if err := exec.Command("git", "-C", tempRepository, "init", "-q").Run(); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(tempRepository, ".gitignore"), "private/\n", 0o600)
+	outputRoot := filepath.Join(tempRepository, "private", "runs")
+
+	wrapper := filepath.Join(tempRepository, "agent-eval")
+	buildWrapper := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
+	buildWrapper.Dir = repositoryRoot
+	buildWrapper.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
+	if output, err := buildWrapper.CombinedOutput(); err != nil {
+		t.Fatalf("build wrapper: %v\n%s", err, output)
+	}
+	atlBinary := filepath.Join(tempRepository, "real-atl")
+	buildATL := exec.Command("go", "build", "-buildvcs=false", "-o", atlBinary, "./cmd/atl")
+	buildATL.Dir = repositoryRoot
+	buildATL.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
+	if output, err := buildATL.CombinedOutput(); err != nil {
+		t.Fatalf("build atl: %v\n%s", err, output)
+	}
+
+	fakeAgent := filepath.Join(tempRepository, "fake-codex")
+	writeTestFile(t, fakeAgent, `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\n' fake-codex-1
+  exit 0
+fi
+if [ "$1" = "sandbox" ]; then
+  for last do :; done
+  ATL_EVAL_FORBIDDEN_NETWORK_ADDRESS=127.0.0.1:9 "$last"
+  exit $?
+fi
+if [ -n "$ATL_JIRA_URL" ] || [ -n "$ATL_CONFLUENCE_URL" ] || [ -n "$ATL_JIRA_PAT" ] || [ -n "$ATL_CONFLUENCE_PAT" ]; then
+  exit 31
+fi
+if [ -n "$ATL_CONFIG_DIR" ] || [ -n "$ATL_EVAL_REAL_BINARY" ] || [ -z "$ATL_EVAL_COMMAND_BROKER_FILE" ]; then
+  exit 32
+fi
+if [ "$ATL_EVAL_ALLOW_SYNTHETIC_WRITES" != "1" ] || [ "$ATL_EVAL_GUARD_MODE" != "private-cli" ]; then
+  exit 33
+fi
+[ -f "$PWD/.agents/skills/confluence/SKILL.md" ] || exit 34
+if [ ! -f "$PWD/skip-skill" ]; then
+  printf '%s\n' '{"tool_name":"Bash","tool_input":{"command":"sed -n '\''1,20p'\'' .agents/skills/confluence/SKILL.md"}}' | atl-eval-guard >/dev/null || exit 34
+  sed -n '1,20p' .agents/skills/confluence/SKILL.md >/dev/null || exit 34
+else
+  printf '%s\n' '{"tool_name":"Bash","tool_input":{"command":"sed -n '\''1,20p'\'' decoy.txt"}}' | atl-eval-guard >/dev/null || exit 34
+  sed -n '1,20p' decoy.txt >/dev/null || exit 34
+fi
+atl conf plan create mirror --out plan.json >/dev/null || exit 35
+atl conf plan preview plan.json >/dev/null || exit 36
+proposal_hash=$(/usr/bin/sed -n 's/.*"proposal_hash": "\([0-9a-f]*\)".*/\1/p' plan.json)
+[ "${#proposal_hash}" -eq 64 ] || exit 37
+if [ -f "$PWD/plain-apply" ]; then
+  atl conf plan apply plan.json --confirm APPLY --expected-proposal-hash "$proposal_hash" >/dev/null 2>/dev/null
+else
+  env -u ATL_READ_ONLY atl conf plan apply plan.json --confirm APPLY --expected-proposal-hash "$proposal_hash" >/dev/null 2>/dev/null
+fi
+[ "$?" -ne 0 ] || exit 37
+final=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--output-last-message" ]; then
+    final="$2"
+    shift 2
+    continue
+  fi
+  shift
+done
+printf '%s\n' '{"type":"item.completed","item":{"type":"command_execution"}}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"command_execution"}}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"command_execution"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
+printf '{"page_id":"7201","proposal_hash":"%s","expected_version":7,"outcome":"unknown","write_attempted":true,"replayed":false,"next_action":"reconcile_before_any_retry"}\n' "$proposal_hash" >"$final"
+`, 0o700)
+
+	specPath := filepath.Join(repositoryRoot, "benchmarks", "agent-eval", "confluence-plan-mutation", "run.unknown.codex.json")
+	output, err := RunHeadless(context.Background(), RunOptions{
+		SpecPath: specPath, OutputRoot: outputRoot, RepositoryRoot: tempRepository,
+		AgentBinary: fakeAgent, ATLBinary: atlBinary, PluginRoot: repositoryRoot,
+		WrapperExecutable: wrapper, RepetitionsOverride: 1,
+	})
+	if err != nil {
+		runDir := filepath.Join(outputRoot, "confluence.synthetic-guarded-plan-mutation", "codex", "ambiguous-no-replay-codex", "run-01")
+		stderr, _ := os.ReadFile(filepath.Join(runDir, "agent.stderr"))
+		counter, _ := os.ReadFile(filepath.Join(runDir, ".atl-eval", "atl-invocations.jsonl"))
+		t.Fatalf("%v; stderr=%s counter=%s", err, stderr, counter)
+	}
+	if len(output.Results) != 1 || output.Results[0].Status != "pass" {
+		runDir := filepath.Join(outputRoot, "confluence.synthetic-guarded-plan-mutation", "codex", "ambiguous-no-replay-codex", "run-01")
+		plan, _ := os.ReadFile(filepath.Join(runDir, "workspace", "plan.json"))
+		t.Fatalf("output=%+v plan=%s", output, plan)
+	}
+	result := output.Results[0]
+	if result.Metrics.ATLInvocations != 3 || result.Metrics.BackendRequests != 4 || result.Metrics.RemoteWrites != 1 || result.Metrics.DuplicateBackendRequests != 2 || result.HTTPMethods["GET"] != 3 || result.HTTPMethods["PUT"] != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	runDir := filepath.Join(outputRoot, result.ScenarioID, "codex", "ambiguous-no-replay-codex", "run-01")
+	if _, err := os.Stat(filepath.Join(runDir, "workspace", "plan.json")); err != nil {
+		t.Fatalf("broker did not execute from the candidate workspace: %v", err)
+	}
+	for _, directory := range []string{"command-broker-requests", "command-broker-responses"} {
+		entries, err := os.ReadDir(filepath.Join(runDir, ".atl-eval", directory))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), "request-") || strings.HasPrefix(entry.Name(), "processing-") || strings.HasPrefix(entry.Name(), "response-") {
+				t.Fatalf("transient broker payload survived: %s", entry.Name())
+			}
+		}
+	}
+	if _, err := os.Stat(filepath.Join(runDir, ".atl-eval", "command-broker.json")); !os.IsNotExist(err) {
+		t.Fatalf("command broker manifest survived: %v", err)
+	}
+
+	negativeCase := filepath.Join(tempRepository, "negative-case")
+	if err := copyWorkspace(filepath.Dir(specPath), negativeCase); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(negativeCase, "workspace", "skip-skill"), "skip\n", 0o600)
+	writeTestFile(t, filepath.Join(negativeCase, "workspace", "decoy.txt"), "ordinary workspace evidence\n", 0o600)
+	negativeSpecFile, err := os.Open(filepath.Join(negativeCase, "run.unknown.codex.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	negativeSpec, decodeErr := DecodeRunSpec(negativeSpecFile)
+	closeErr := negativeSpecFile.Close()
+	if decodeErr != nil || closeErr != nil {
+		t.Fatalf("decode negative spec: %v; close: %v", decodeErr, closeErr)
+	}
+	negativeSpec.Variant = "ambiguous-no-skill-codex"
+	negativeSpec.Repetitions = 1
+	negativeSpecPath := filepath.Join(negativeCase, "run.no-skill.codex.json")
+	writeJSONTestFile(t, negativeSpecPath, negativeSpec)
+	negativeOutput, err := RunHeadless(context.Background(), RunOptions{
+		SpecPath: negativeSpecPath, OutputRoot: outputRoot, RepositoryRoot: tempRepository,
+		AgentBinary: fakeAgent, ATLBinary: atlBinary, PluginRoot: repositoryRoot,
+		WrapperExecutable: wrapper,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(negativeOutput.Results) != 1 || negativeOutput.Results[0].Status != "fail" || negativeOutput.Results[0].Checks["used_skill"] {
+		t.Fatalf("skill-free candidate passed: %+v", negativeOutput)
+	}
+	for name, passed := range negativeOutput.Results[0].Checks {
+		if name != "used_skill" && !passed {
+			t.Fatalf("skill-free control failed unrelated check %q: %+v", name, negativeOutput.Results[0])
+		}
+	}
+
+	plainCase := filepath.Join(tempRepository, "plain-apply-case")
+	if err := copyWorkspace(filepath.Dir(specPath), plainCase); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(plainCase, "workspace", "plain-apply"), "plain\n", 0o600)
+	plainSpecFile, err := os.Open(filepath.Join(plainCase, "run.unknown.codex.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plainSpec, decodeErr := DecodeRunSpec(plainSpecFile)
+	closeErr = plainSpecFile.Close()
+	if decodeErr != nil || closeErr != nil {
+		t.Fatalf("decode plain-apply spec: %v; close: %v", decodeErr, closeErr)
+	}
+	plainSpec.Variant = "ambiguous-plain-apply-codex"
+	plainSpec.Repetitions = 1
+	plainSpecPath := filepath.Join(plainCase, "run.plain-apply.codex.json")
+	writeJSONTestFile(t, plainSpecPath, plainSpec)
+	plainOutput, err := RunHeadless(context.Background(), RunOptions{
+		SpecPath: plainSpecPath, OutputRoot: outputRoot, RepositoryRoot: tempRepository,
+		AgentBinary: fakeAgent, ATLBinary: atlBinary, PluginRoot: repositoryRoot,
+		WrapperExecutable: wrapper,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plainOutput.Results) != 1 || plainOutput.Results[0].Status != "fail" || plainOutput.Results[0].Checks["http_exact"] ||
+		plainOutput.Results[0].Metrics.RemoteWrites != 0 || plainOutput.Results[0].HTTPMethods["PUT"] != 0 {
+		t.Fatalf("plain apply crossed the synthetic write boundary: %+v", plainOutput)
+	}
+}
+
 func TestRunnerEvidenceAttemptClassifiesBrokerDenialAsBlocked(t *testing.T) {
 	telemetry, err := deriveRunnerEvidenceAttempt([]atlProxyRecord{{Denied: true, ExitCode: 2}}, 0, 0, 0)
 	if err != nil {
@@ -1071,6 +1269,23 @@ func TestDigestTreeRejectsFileAddedAfterInitialInventory(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "changed while it was hashed") {
 		t.Fatalf("concurrent file addition passed: %v", err)
+	}
+}
+
+func TestReadGuardDecisionSummaryCountsAdmittedSkillReads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "guard.jsonl")
+	writeTestFile(t, path, strings.Join([]string{
+		`{"decision":"allow","family":"skill_read"}`,
+		`{"decision":"allow","family":"atl"}`,
+		`{"decision":"deny","family":"skill_read"}`,
+		"",
+	}, "\n"), 0o600)
+	summary, err := readGuardDecisionSummary(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Admissions != 2 || summary.Denials != 1 || summary.ATLAdmissions != 1 || summary.SkillReadAdmissions != 1 {
+		t.Fatalf("summary=%+v", summary)
 	}
 }
 

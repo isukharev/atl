@@ -160,14 +160,25 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 		previewConfinement.GuardCounterPath = "/private/guard-decisions.jsonl"
 		previewConfinement.WorkspaceReadRoot = "/private/workspace"
 		previewConfinement.AllowedReadRoots = []string{"/private/workspace"}
+		previewConfinement.SkillReadRoots = []string{"/private/workspace/.agents/skills"}
 		previewConfinement.AllowedMCPTools = claudeMCPToolNamesForServer(mcpServerName(invocationSpec), invocationSpec.AllowedMCPTools)
 		if loaded.spec.ToolTransport == "cli" {
 			previewConfinement.GuardMode = "private-cli"
 			previewConfinement.AllowedReadRoots = []string{"/private/skill-read-root", "/private/workspace"}
+			previewConfinement.SkillReadRoots = []string{"/private/skill-read-root"}
 			previewConfinement.AllowedMCPTools = nil
 		}
 	}
 	if loaded.spec.Provider == "codex" && loaded.spec.EffectiveBackendMode() == BackendModePrivateLive && loaded.spec.ToolTransport == "cli" {
+		previewConfinement.RequestDirectory = "/private/requests"
+		previewConfinement.ResponseDirectory = "/private/responses"
+	}
+	if loaded.spec.Provider == "codex" && loaded.spec.EffectiveBackendMode() == BackendModeSynthetic && loaded.spec.EffectiveToolTransport() == "cli" && loaded.spec.AllowSyntheticWrites {
+		previewConfinement.GuardMode = "private-cli"
+		previewConfinement.GuardCounterPath = "/private/guard-decisions.jsonl"
+		previewConfinement.WorkspaceReadRoot = "/private/workspace"
+		previewConfinement.AllowedReadRoots = []string{"/private/workspace"}
+		previewConfinement.SkillReadRoots = []string{"/private/workspace/.agents/skills"}
 		previewConfinement.RequestDirectory = "/private/requests"
 		previewConfinement.ResponseDirectory = "/private/responses"
 	}
@@ -192,8 +203,8 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 	if options.DryRun {
 		return RunOutput{Preview: preview, Results: []Result{}}, nil
 	}
-	if loaded.spec.Provider == "codex" && loaded.spec.ToolTransport != "mcp" {
-		if loaded.spec.EffectiveBackendMode() != BackendModePrivateLive {
+	if loaded.spec.Provider == "codex" && loaded.spec.EffectiveToolTransport() != "mcp" {
+		if loaded.spec.EffectiveBackendMode() != BackendModePrivateLive && (loaded.spec.EffectiveBackendMode() != BackendModeSynthetic || !loaded.spec.AllowSyntheticWrites) {
 			return RunOutput{}, fmt.Errorf("codex synthetic model execution requires tool_transport=mcp; cli transport remains validate/dry-run only")
 		}
 	}
@@ -531,8 +542,11 @@ func ValidateRunSpecFile(path string) (RunSpec, Scenario, error) {
 }
 
 func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOptions, outputRoot string, repetition int, runtime Runtime, externalProfile ExternalMCPProfile, providerRuntime *providerRuntimeCapsule) (Result, error) {
-	privateCLI := loaded.spec.EffectiveBackendMode() == BackendModePrivateLive && loaded.spec.ToolTransport == "cli"
+	privateCLI := loaded.spec.EffectiveBackendMode() == BackendModePrivateLive && loaded.spec.EffectiveToolTransport() == "cli"
 	codexPrivateCLI := loaded.spec.Provider == "codex" && privateCLI
+	codexSyntheticWriteCLI := loaded.spec.Provider == "codex" && loaded.spec.EffectiveBackendMode() == BackendModeSynthetic && loaded.spec.EffectiveToolTransport() == "cli" && loaded.spec.AllowSyntheticWrites
+	codexBrokerCLI := codexPrivateCLI || codexSyntheticWriteCLI
+	brokerCLI := privateCLI || codexSyntheticWriteCLI
 	claudePrivateCLI := loaded.spec.Provider == "claude-code" && privateCLI
 	if err := validatePathComponentID("scenario id", loaded.scenario.ID); err != nil {
 		return Result{}, err
@@ -592,7 +606,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	brokerRequestDirectory := ""
 	brokerResponseDirectory := ""
-	if privateCLI {
+	if brokerCLI {
 		brokerRequestDirectory = filepath.Join(evalDir, "command-broker-requests")
 		brokerResponseDirectory = filepath.Join(evalDir, "command-broker-responses")
 		if err := mkdirPrivate(brokerRequestDirectory); err != nil {
@@ -611,17 +625,22 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		}
 	}
 	probeExecutablePath := ""
-	if codexPrivateCLI {
+	if codexBrokerCLI {
 		probeExecutablePath = filepath.Join(wrapperDir, confinementProbeName())
 		if err := copyExecutable(options.WrapperExecutable, probeExecutablePath); err != nil {
 			return Result{}, err
 		}
 	}
-	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
+	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive || codexSyntheticWriteCLI {
 		for _, reader := range []string{"cat", "sed", "wc"} {
 			if err := copyExecutable(options.WrapperExecutable, filepath.Join(wrapperDir, reader)); err != nil {
 				return Result{}, err
 			}
+		}
+	}
+	if codexSyntheticWriteCLI {
+		if err := copyExecutable(options.WrapperExecutable, filepath.Join(wrapperDir, "env")); err != nil {
+			return Result{}, err
 		}
 	}
 	settingsPath := filepath.Join(runDir, "claude-settings.json")
@@ -645,9 +664,20 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	var externalCanaries []string
 	var commandBroker *CommandBroker
 	var err error
-	if codexPrivateCLI {
+	if codexBrokerCLI {
 		providerConfinement.RequestDirectory = brokerRequestDirectory
 		providerConfinement.ResponseDirectory = brokerResponseDirectory
+	}
+	if brokerCLI {
+		cliPolicyPath = filepath.Join(evalDir, "cli-policy.json")
+		cliPolicy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: loaded.spec.AllowedCLICommands}
+		policyData, err := EncodeCLICommandPolicy(cliPolicy)
+		if err != nil {
+			return Result{}, err
+		}
+		if err := writePrivateFile(cliPolicyPath, policyData); err != nil {
+			return Result{}, err
+		}
 	}
 	if loaded.spec.EffectiveBackendMode() == BackendModeSynthetic {
 		if loaded.fixture == nil {
@@ -659,6 +689,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		}
 		defer backend.Close()
 		backendEnvironment = backend.Environment()
+		if codexSyntheticWriteCLI {
+			if err := mkdirPrivate(atlConfigDir); err != nil {
+				return Result{}, err
+			}
+		}
 	} else {
 		scratchRoot := options.ScratchRoot
 		atlConfigDir, err = os.MkdirTemp(scratchRoot, "atl-agent-eval-live-config-")
@@ -671,53 +706,12 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		}
 		defer func() { _ = os.RemoveAll(atlConfigDir) }()
 		if loaded.spec.ToolTransport == "cli" {
-			cliPolicyPath = filepath.Join(evalDir, "cli-policy.json")
-			cliPolicy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: loaded.spec.AllowedCLICommands}
-			policyData, err := EncodeCLICommandPolicy(cliPolicy)
-			if err != nil {
-				return Result{}, err
-			}
-			if err := writePrivateFile(cliPolicyPath, policyData); err != nil {
-				return Result{}, err
-			}
 			httpGuardPath = filepath.Join(evalDir, "gateway-audit.jsonl")
 			liveGateway, err = startPrivateCLIGateway(options.LiveConfigDir, atlConfigDir, httpGuardPath, loaded.spec, loaded.scenario)
 			if err != nil {
 				return Result{}, err
 			}
 			defer func() { _ = liveGateway.Close(context.Background()) }()
-			if privateCLI {
-				brokerManifestPath = filepath.Join(evalDir, "command-broker.json")
-				brokerTimeout := time.Duration(loaded.spec.TimeoutSeconds) * time.Second
-				if brokerTimeout > 2*time.Minute {
-					brokerTimeout = 2 * time.Minute
-				}
-				brokerEnvironment := map[string]string{
-					"ATL_READ_ONLY": "1", "ATL_NO_UPDATE": "1",
-					"ATL_CONFIG_DIR": atlConfigDir, "ATL_MIRROR_ROOT": filepath.Join(evalDir, "mirror"),
-					"NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost",
-				}
-				for _, name := range []string{"LANG", "LC_ALL", "TERM", "TZ"} {
-					if value := os.Getenv(name); value != "" {
-						brokerEnvironment[name] = value
-					}
-				}
-				maxStdout := loaded.scenario.Budgets.MaxOutputBytes
-				if maxStdout > 4<<20 {
-					maxStdout = 4 << 20
-				}
-				commandBroker, err = StartCommandBroker(CommandBrokerConfig{
-					RequestDirectory: brokerRequestDirectory, ResponseDirectory: brokerResponseDirectory,
-					ManifestPath: brokerManifestPath,
-					RealBinary:   options.ATLBinary, WorkingDirectory: workspace, Policy: cliPolicy,
-					Environment:    flattenEnvironment(brokerEnvironment),
-					MaxStdoutBytes: maxStdout, MaxStderrBytes: 64 << 10, CommandTimeout: brokerTimeout,
-				})
-				if err != nil {
-					return Result{}, err
-				}
-				defer func() { _ = commandBroker.Close() }()
-			}
 		} else if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
 			headers, canaries, err := resolveExternalMCPHeaders(externalProfile, options.LiveConfigDir)
 			if err != nil {
@@ -747,6 +741,50 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			}
 			backendEnvironment["ATL_EVAL_HTTP_GUARD_FILE"] = httpGuardPath
 		}
+	}
+	if brokerCLI {
+		brokerManifestPath = filepath.Join(evalDir, "command-broker.json")
+		brokerTimeout := time.Duration(loaded.spec.TimeoutSeconds) * time.Second
+		if brokerTimeout > 2*time.Minute {
+			brokerTimeout = 2 * time.Minute
+		}
+		brokerEnvironment := map[string]string{
+			"ATL_NO_UPDATE": "1", "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost",
+		}
+		if privateCLI {
+			brokerEnvironment["ATL_READ_ONLY"] = "1"
+			brokerEnvironment["ATL_CONFIG_DIR"] = atlConfigDir
+			brokerEnvironment["ATL_MIRROR_ROOT"] = filepath.Join(evalDir, "mirror")
+		} else {
+			for name, value := range backendEnvironment {
+				brokerEnvironment[name] = value
+			}
+			brokerEnvironment["ATL_CONFIG_DIR"] = atlConfigDir
+			brokerEnvironment["ATL_MIRROR_ROOT"] = filepath.Join(evalDir, "mirror")
+			brokerEnvironment["ATL_EVAL_ALLOW_SYNTHETIC_WRITES"] = "1"
+		}
+		for _, name := range []string{"LANG", "LC_ALL", "TERM", "TZ"} {
+			if value := os.Getenv(name); value != "" {
+				brokerEnvironment[name] = value
+			}
+		}
+		maxStdout := loaded.scenario.Budgets.MaxOutputBytes
+		if maxStdout > 4<<20 {
+			maxStdout = 4 << 20
+		}
+		cliPolicy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: loaded.spec.AllowedCLICommands}
+		commandBroker, err = StartCommandBroker(CommandBrokerConfig{
+			RequestDirectory: brokerRequestDirectory, ResponseDirectory: brokerResponseDirectory,
+			ManifestPath: brokerManifestPath,
+			RealBinary:   options.ATLBinary, WorkingDirectory: workspace, Policy: cliPolicy,
+			Environment:    flattenEnvironment(brokerEnvironment),
+			MaxStdoutBytes: maxStdout, MaxStderrBytes: 64 << 10, CommandTimeout: brokerTimeout,
+			AllowSyntheticWrites: codexSyntheticWriteCLI,
+		})
+		if err != nil {
+			return Result{}, err
+		}
+		defer func() { _ = commandBroker.Close() }()
 	}
 	mcpConfigPath := claudeMCPConfigPath(loaded.spec, filepath.Join(runDir, "claude-mcp.json"))
 	if mcpConfigPath != "" {
@@ -786,7 +824,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			return Result{}, fmt.Errorf("private codex CLI run has no installed plugin skill root")
 		}
 	}
+	if loaded.spec.Provider == "codex" && !codexPrivateCLI {
+		skillReadRoot = filepath.Join(workspace, ".agents", "skills")
+	}
 	reviewedReadRoots := []string{skillReadRoot, workspace}
+	reviewedSkillReadRoots := []string{skillReadRoot}
 	canonicalWorkspace := ""
 	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
 		canonicalWorkspace, err = filepath.EvalSymlinks(workspace)
@@ -795,12 +837,18 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		}
 		if loaded.spec.Provider == "codex" && !codexPrivateCLI {
 			reviewedReadRoots = []string{canonicalWorkspace}
+			canonicalSkillReadRoot, canonicalErr := filepath.EvalSymlinks(skillReadRoot)
+			if canonicalErr != nil {
+				return Result{}, fmt.Errorf("resolve private benchmark skill read root: %w", canonicalErr)
+			}
+			reviewedSkillReadRoots = []string{canonicalSkillReadRoot}
 		} else {
 			canonicalSkillReadRoot, canonicalErr := filepath.EvalSymlinks(skillReadRoot)
 			if canonicalErr != nil {
 				return Result{}, fmt.Errorf("resolve private benchmark skill read root: %w", canonicalErr)
 			}
 			reviewedReadRoots = []string{canonicalSkillReadRoot, canonicalWorkspace}
+			reviewedSkillReadRoots = []string{canonicalSkillReadRoot}
 		}
 		if loaded.spec.Provider == "codex" {
 			providerConfinement.GuardMode = "mcp-with-skill-read"
@@ -810,18 +858,36 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			providerConfinement.GuardCounterPath = guardCounterPath
 			providerConfinement.WorkspaceReadRoot = canonicalWorkspace
 			providerConfinement.AllowedReadRoots = append([]string(nil), reviewedReadRoots...)
+			providerConfinement.SkillReadRoots = append([]string(nil), reviewedSkillReadRoots...)
 			providerConfinement.AllowedMCPTools = claudeMCPToolNamesForServer(mcpServerName(loaded.spec), loaded.spec.AllowedMCPTools)
 			if codexPrivateCLI {
 				providerConfinement.AllowedMCPTools = nil
 			}
 		}
+	} else if codexSyntheticWriteCLI {
+		canonicalWorkspace, err = filepath.EvalSymlinks(workspace)
+		if err != nil {
+			return Result{}, fmt.Errorf("resolve synthetic benchmark workspace: %w", err)
+		}
+		reviewedReadRoots = []string{canonicalWorkspace}
+		canonicalSkillReadRoot, canonicalErr := filepath.EvalSymlinks(skillReadRoot)
+		if canonicalErr != nil {
+			return Result{}, fmt.Errorf("resolve synthetic benchmark skill read root: %w", canonicalErr)
+		}
+		reviewedSkillReadRoots = []string{canonicalSkillReadRoot}
+		providerConfinement.GuardMode = "private-cli"
+		providerConfinement.GuardCounterPath = guardCounterPath
+		providerConfinement.WorkspaceReadRoot = canonicalWorkspace
+		providerConfinement.AllowedReadRoots = append([]string(nil), reviewedReadRoots...)
+		providerConfinement.SkillReadRoots = append([]string(nil), reviewedSkillReadRoots...)
 	}
 	allowedReadRoots, _ := json.Marshal(reviewedReadRoots)
+	allowedSkillReadRoots, _ := json.Marshal(reviewedSkillReadRoots)
 	commandPlan, err := BuildProviderCommand(loaded.spec, options.AgentBinary, options.ATLBinary, guardPath, workspace, responseSchemaPath, finalPath, claudePluginPath(loaded.spec.Provider, options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, settingsPath), mcpConfigPath, providerConfinement, loaded.responseSchema)
 	if err != nil {
 		return Result{}, err
 	}
-	if codexPrivateCLI {
+	if codexBrokerCLI {
 		if err := runCodexConfinementPreflight(parent, options.AgentBinary, workspace, probeExecutablePath, brokerManifestPath, providerConfinement, providerRuntime); err != nil {
 			return Result{}, err
 		}
@@ -897,11 +963,12 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	allowedMCPTools, _ := json.Marshal(claudeMCPToolNamesForServer(mcpServerName(loaded.spec), loaded.spec.AllowedMCPTools))
 	environment["ATL_EVAL_ALLOWED_MCP_TOOLS"] = string(allowedMCPTools)
 	environment["ATL_EVAL_ALLOWED_READ_ROOTS"] = string(allowedReadRoots)
-	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
+	environment["ATL_EVAL_SKILL_READ_ROOTS"] = string(allowedSkillReadRoots)
+	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive || codexSyntheticWriteCLI {
 		environment["ATL_EVAL_WORKSPACE_ROOT"] = canonicalWorkspace
 	}
 	environment["PATH"] = wrapperDir
-	if loaded.spec.Provider != "claude-code" || loaded.spec.ToolTransport != "mcp" {
+	if (loaded.spec.Provider != "claude-code" || loaded.spec.EffectiveToolTransport() != "mcp") && !codexSyntheticWriteCLI {
 		for name, value := range backendEnvironment {
 			environment[name] = value
 		}
@@ -1080,10 +1147,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			failedATL++
 		}
 	}
-	guardDenials, err := countGuardDenials(guardCounterPath)
+	guardSummary, err := readGuardDecisionSummary(guardCounterPath)
 	if err != nil {
 		return Result{}, err
 	}
+	guardDenials := guardSummary.Denials
 	atlInvocations := len(proxyRecords) + providerMetrics.MCPToolCalls
 	failedATL += providerMetrics.FailedMCPToolCalls
 	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
@@ -1105,7 +1173,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if evidenceReport.Coverage && !evidenceReport.ConsistentWithAudit(evidenceAttempt) {
 		return Result{}, fmt.Errorf("model evidence outcome contradicts audited attempts")
 	}
-	checks, err := evaluateRunChecks(loaded.spec.Checks, final, workspace, atlInvocations, failedATL, unexpected, providerMetrics.SkillToolCalls, providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, guardDenials, methods, httpMethodsObserved)
+	checks, err := evaluateRunChecks(loaded.spec.Checks, final, workspace, atlInvocations, failedATL, unexpected, providerMetrics.SkillToolCalls+guardSummary.SkillReadAdmissions, providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, guardDenials, methods, httpMethodsObserved)
 	if err != nil {
 		return Result{}, err
 	}
@@ -1304,16 +1372,16 @@ func resolveProviderLaunch(plan ProviderCommand) (ProviderCommand, error) {
 func runCodexConfinementPreflight(parent context.Context, agentBinary, workspace, probeExecutable, brokerManifestPath string, confinement ProviderConfinement, providerRuntime *providerRuntimeCapsule) error {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return fmt.Errorf("prepare codex private-live confinement preflight")
+		return fmt.Errorf("prepare codex cli confinement preflight")
 	}
 	defer func() { _ = listener.Close() }()
 	plan, err := BuildCodexConfinementProbeCommand(agentBinary, workspace, probeExecutable, confinement)
 	if err != nil {
-		return fmt.Errorf("prepare codex private-live confinement preflight")
+		return fmt.Errorf("prepare codex cli confinement preflight")
 	}
 	plan, err = resolveProviderLaunch(plan)
 	if err != nil {
-		return fmt.Errorf("prepare codex private-live confinement preflight")
+		return fmt.Errorf("prepare codex cli confinement preflight")
 	}
 	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
 	defer cancel()
@@ -1332,7 +1400,7 @@ func runCodexConfinementPreflight(parent context.Context, agentBinary, workspace
 	environment["ATL_EVAL_FORBIDDEN_NETWORK_ADDRESS"] = listener.Addr().String()
 	command.Env = flattenEnvironment(environment)
 	if err := command.Run(); err != nil {
-		return fmt.Errorf("codex private-live confinement preflight failed before model and backend access")
+		return fmt.Errorf("codex cli confinement preflight failed before model and backend access")
 	}
 	return nil
 }
@@ -1370,9 +1438,10 @@ func countGuardDecisions(path string) (int, int, error) {
 }
 
 type guardDecisionSummary struct {
-	Admissions    int
-	Denials       int
-	ATLAdmissions int
+	Admissions          int
+	Denials             int
+	ATLAdmissions       int
+	SkillReadAdmissions int
 }
 
 func readGuardDecisionSummary(path string) (guardDecisionSummary, error) {
@@ -1401,6 +1470,9 @@ func readGuardDecisionSummary(path string) (guardDecisionSummary, error) {
 			summary.Admissions++
 			if record.Family == "atl" {
 				summary.ATLAdmissions++
+			}
+			if record.Family == "skill_read" {
+				summary.SkillReadAdmissions++
 			}
 		case "deny":
 			summary.Denials++
@@ -1564,7 +1636,11 @@ func max64(a, b int64) int64 {
 }
 
 func commandVersionWithEnvironment(ctx context.Context, binary string, environment []string) (string, error) {
-	command := exec.CommandContext(ctx, binary, "--version")
+	plan, err := resolveProviderLaunch(ProviderCommand{Path: binary, Args: []string{"--version"}})
+	if err != nil {
+		return "", err
+	}
+	command := exec.CommandContext(ctx, plan.Path, plan.Args...)
 	if environment != nil {
 		command.Env = environment
 	}

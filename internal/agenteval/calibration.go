@@ -152,6 +152,7 @@ func BuildCodexCLICalibrationContract(model, reasoning string, timeoutSeconds in
 		GuardMode: "provider-calibration", GuardCounterPath: "/private/guard-decisions.jsonl",
 		WorkspaceReadRoot: "/private/workspace",
 		AllowedReadRoots:  []string{"/private/installed-plugin-skills", "/private/workspace"},
+		SkillReadRoots:    []string{"/private/installed-plugin-skills"},
 	}
 	command, err := BuildProviderCommand(spec, "codex", "/private/atl", "/private/guard", "/private/workspace", "/private/response-schema.json", "/private/final.json", "", "", "", confinement, codexCLICalibrationSchema)
 	if err != nil {
@@ -322,6 +323,7 @@ func RunCodexCLICalibration(parent context.Context, options CodexCLICalibrationO
 		GuardMode: "provider-calibration", GuardCounterPath: guardCounterPath,
 		WorkspaceReadRoot: canonicalWorkspace,
 		AllowedReadRoots:  []string{canonicalSkillRoot, canonicalWorkspace},
+		SkillReadRoots:    []string{canonicalSkillRoot},
 	}
 	if err := runCodexConfinementPreflight(parent, runOptions.AgentBinary, canonicalWorkspace, probePath, manifestPath, confinement, providerRuntime); err != nil {
 		return receipt, err
@@ -361,6 +363,8 @@ func RunCodexCLICalibration(parent context.Context, options CodexCLICalibrationO
 	environment["ATL_EVAL_GUARD_MODE"] = "provider-calibration"
 	allowedRoots, _ := json.Marshal(confinement.AllowedReadRoots)
 	environment["ATL_EVAL_ALLOWED_READ_ROOTS"] = string(allowedRoots)
+	skillRoots, _ := json.Marshal(confinement.SkillReadRoots)
+	environment["ATL_EVAL_SKILL_READ_ROOTS"] = string(skillRoots)
 	environment["ATL_EVAL_WORKSPACE_ROOT"] = canonicalWorkspace
 	command.Env = flattenEnvironment(environment)
 

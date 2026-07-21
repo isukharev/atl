@@ -1007,7 +1007,7 @@ func TestCodexVersionProbeUsesIsolatedRuntimeEnvironment(t *testing.T) {
 	defer func() { _ = capsule.Close() }()
 	marker := filepath.Join(t.TempDir(), "probe-home")
 	binary := filepath.Join(t.TempDir(), "codex")
-	script := "#!/bin/sh\nprintf '%s' \"$HOME\" >" + shellQuote(marker) + "\nprintf '%s\\n' codex-test-1\n"
+	script := "#!/usr/bin/env sh\nprintf '%s' \"$HOME\" >" + shellQuote(marker) + "\nprintf '%s\\n' codex-test-1\n"
 	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
