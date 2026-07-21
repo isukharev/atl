@@ -21,6 +21,12 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 	if family, ok := CapabilityFamilyForMCP("jira_issue_field_get"); !ok || family != "jira.issue.field" {
 		t.Fatalf("MCP field family=%q ok=%t", family, ok)
 	}
+	if family, ok := CapabilityFamilyForCLI([]string{"jira", "issue", "refs", private}); !ok || family != "jira.issue.refs" {
+		t.Fatalf("CLI refs family=%q ok=%t", family, ok)
+	}
+	if family, ok := CapabilityFamilyForMCP("jira_issue_refs"); !ok || family != "jira.issue.refs" {
+		t.Fatalf("MCP refs family=%q ok=%t", family, ok)
+	}
 	if family, ok := CapabilityFamilyForCLI([]string{"jira", "issue", "field", "preview", private, "--from-file", "customfield_1=value.txt"}); !ok || family != "jira.issue.field.preview" {
 		t.Fatalf("CLI field preview family=%q ok=%t", family, ok)
 	}
@@ -92,5 +98,17 @@ func TestCapabilityFamilyValidationFailsClosed(t *testing.T) {
 		if _, err := normalizeCapabilityFamilies(values); err == nil {
 			t.Fatalf("accepted %+v", values)
 		}
+	}
+}
+
+func TestJiraIssueRefsCapabilityFamilyNormalizes(t *testing.T) {
+	metrics, err := normalizeCapabilityFamilies([]CapabilityFamilyMetric{{
+		Family: "jira.issue.refs", Invocations: 1, Successes: 1, OutputBytes: 42,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(metrics) != 1 || metrics[0].Family != "jira.issue.refs" {
+		t.Fatalf("metrics=%+v", metrics)
 	}
 }

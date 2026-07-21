@@ -556,6 +556,26 @@ func TestNeutralPrivateCLIDataCapabilityUsesReviewedSelectorFlags(t *testing.T) 
 	}
 }
 
+func TestNeutralPrivateCLIDataCapabilityClassifiesJiraIssueRefs(t *testing.T) {
+	spec := validRunSpec()
+	spec.BackendMode = BackendModePrivateLive
+	spec.Category = BenchmarkCategoryNeutralCommon
+	spec.Surface = SurfaceCLISkill
+	spec.FixtureFile = ""
+	spec.Repetitions = 1
+	spec.ToolTransport = "cli"
+	spec.AllowedTools = []string{"Bash(atl *)", "Read", "Skill"}
+	spec.AllowedATLCommands = nil
+	spec.AllowedCLICommands = []CLICommandRule{{
+		Name: "refs", Command: []string{"jira", "issue", "refs"}, MaxInvocations: 1,
+		Positionals: []CLIArgumentRule{{Values: []string{"PROJ-1"}}},
+	}}
+	spec.DataCapabilities = []string{"jira.issue.refs"}
+	if err := validateRunDataCapabilities(spec); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestNeutralCommonRequiresGenericMetricsSemanticChecksAndAliases(t *testing.T) {
 	scenario := validScenario()
 	scenario.Category = BenchmarkCategoryNeutralCommon
