@@ -388,11 +388,13 @@ Claude Code private CLI cells use the same parent-side command broker, keeping
 the real binary and disposable backend config out of the provider process. If
 an allowed UTF-8 result exceeds 24 KiB, the shim stages it as an immutable,
 content-addressed owner-private file and returns paging instructions. Claude's
-otherwise unavailable `Read` tool is admitted only for that exact run-local
+runner-exposed `Read` tool is admitted only for that exact run-local
 directory, a digest-matching mode-0400 file, windows of at most 500 lines, and
 eight total reads. The content-free `tool_result_read` audit family is not CLI
 or backend evidence. Cross-run, mutable, digest-mismatched, oversized, and
-replayed reads remain denied.
+replayed reads remain denied. The emitted pointer gives the sequential offsets
+and says explicitly that Bash, assignments, and shell text processors are not
+authorized for staged content.
 
 After the credential-free inventory gate succeeds and before the first
 treatment, a current activation plan runs one backend-free provider/tool-path

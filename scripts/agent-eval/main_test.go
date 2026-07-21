@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -294,7 +295,10 @@ func TestPrivateLiveCLIStagesAndBoundsLargeClaudeResults(t *testing.T) {
 		t.Fatalf("staged result mode=%v err=%v", info, err)
 	}
 	staged, err := os.ReadFile(resultPath)
-	if err != nil || !bytes.Equal(staged, payload) || !strings.Contains(pointer.String(), resultPath) || bytes.Contains(pointer.Bytes(), payload[:100]) {
+	expectedPointer := fmt.Sprintf(
+		"The complete output of this reviewed atl invocation (%d bytes, 2000 lines) is staged at %s. Only the Read tool is authorized for this file: use limit=500 and these offsets in order: 0,500,1000,1500. Do not use Bash, shell assignments, grep, cat, sed, wc, or any other tool on the staged file.\n",
+		len(payload), resultPath)
+	if err != nil || !bytes.Equal(staged, payload) || pointer.String() != expectedPointer {
 		t.Fatalf("staged result binding failed: pointer=%q err=%v", pointer.String(), err)
 	}
 
