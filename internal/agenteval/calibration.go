@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -40,9 +41,13 @@ func (e *CodexCLICalibrationFailure) Error() string {
 }
 
 var (
-	codexCLICalibrationPrompt = []byte("Use the shell tool to run the literal command `atl version` exactly once. Do not run any other command. Copy the version, commit, and build_state string values from its JSON output exactly into the required JSON object; do not infer or invent them.\n")
-	codexCLICalibrationSchema = []byte(`{"type":"object","properties":{"version":{"type":"string","minLength":1},"commit":{"type":"string","minLength":1},"build_state":{"type":"string","enum":["clean","dirty","unknown"]}},"required":["version","commit","build_state"],"additionalProperties":false}`)
+	codexCLICalibrationPrompt            = []byte("Use the shell tool to run the literal command `atl version` exactly once. Do not run any other command. Copy the version, commit, and build_state string values from its JSON output exactly into the required JSON object; do not infer or invent them.\n")
+	codexCLICalibrationSchema            = []byte(`{"type":"object","properties":{"version":{"type":"string","minLength":1},"commit":{"type":"string","minLength":1},"build_state":{"type":"string","enum":["clean","dirty","unknown"]}},"required":["version","commit","build_state"],"additionalProperties":false}`)
+	legacyToolQualifiedCalibrationPrompt = []byte("Use the shell tool to run the literal command `atl version` exactly once. Do not run any other command. Copy the version, commit, and build_state string values from its JSON output exactly into the required JSON object; do not infer or invent them.\n")
+	legacyToolQualifiedCalibrationSchema = []byte(`{"type":"object","properties":{"version":{"type":"string","minLength":1},"commit":{"type":"string","minLength":1},"build_state":{"type":"string","enum":["clean","dirty","unknown"]}},"required":["version","commit","build_state"],"additionalProperties":false}`)
 )
+
+const legacyToolQualifiedCalibrationDeveloperInstructions = "This is an evidence task. Use the literal atl executable through the shell tool to retrieve the evidence required for the answer. Make only the minimum necessary invocation or invocations allowed by the reviewed command policy. Base the answer on the returned evidence; a no-tool answer or an answer based on assumptions is invalid for this benchmark. Never use apply_patch, Edit, Write, or direct filesystem operations to create, inspect, or modify command-broker manifests or request/response files. If evidence retrieval through atl fails, do not invent or use an alternate broker-file protocol; return the failure through the required response schema."
 
 type codexCLICalibrationResponse struct {
 	Version    string `json:"version"`
@@ -108,9 +113,7 @@ type CodexCLICalibrationContract struct {
 }
 
 func (c CodexCLICalibrationContract) Validate() error {
-	if c.SchemaVersion != CodexCLICalibrationSchemaVersion || c.Provider != "codex" || c.Model == "" ||
-		c.TimeoutSeconds < 1 || c.TimeoutSeconds > 300 || c.MaxEstimatedCostMicroUSD < 1 ||
-		c.MaxCommandOutputBytes != calibrationOutputLimit {
+	if !validCodexCLICalibrationContractFields(c) {
 		return fmt.Errorf("invalid codex cli calibration contract")
 	}
 	rebuilt, err := BuildCodexCLICalibrationContract(c.Model, c.Reasoning, c.TimeoutSeconds, c.MaxEstimatedCostMicroUSD, c.Pricing)
@@ -120,8 +123,37 @@ func (c CodexCLICalibrationContract) Validate() error {
 	return nil
 }
 
+func (c CodexCLICalibrationContract) validateLegacyToolQualified() error {
+	if !validCodexCLICalibrationContractFields(c) {
+		return fmt.Errorf("invalid legacy codex cli calibration contract")
+	}
+	rebuilt, err := buildLegacyToolQualifiedCalibrationContract(c.Model, c.Reasoning, c.TimeoutSeconds, c.MaxEstimatedCostMicroUSD, c.Pricing)
+	if err != nil || rebuilt.SHA256 != c.SHA256 {
+		return fmt.Errorf("invalid legacy codex cli calibration contract")
+	}
+	return nil
+}
+
+func validCodexCLICalibrationContractFields(c CodexCLICalibrationContract) bool {
+	return c.SchemaVersion == CodexCLICalibrationSchemaVersion && c.Provider == "codex" && c.Model != "" &&
+		c.TimeoutSeconds >= 1 && c.TimeoutSeconds <= maxCodexCLICalibrationTimeout && c.MaxEstimatedCostMicroUSD >= 1 &&
+		c.MaxCommandOutputBytes == calibrationOutputLimit
+}
+
 func (r CodexCLICalibrationReceipt) Validate(contract CodexCLICalibrationContract) error {
-	if contract.Validate() != nil || r.SchemaVersion != CodexCLICalibrationSchemaVersion || !r.Passed ||
+	return validateCodexCLICalibrationReceipt(r, contract, false)
+}
+
+func (r CodexCLICalibrationReceipt) validateLegacyToolQualified(contract CodexCLICalibrationContract) error {
+	return validateCodexCLICalibrationReceipt(r, contract, true)
+}
+
+func validateCodexCLICalibrationReceipt(r CodexCLICalibrationReceipt, contract CodexCLICalibrationContract, legacyToolQualified bool) error {
+	contractErr := contract.Validate()
+	if legacyToolQualified {
+		contractErr = contract.validateLegacyToolQualified()
+	}
+	if contractErr != nil || r.SchemaVersion != CodexCLICalibrationSchemaVersion || !r.Passed ||
 		r.ContractSHA256 != contract.SHA256 || r.CommandFamily != "atl_version" || r.CommandExecutions != 1 ||
 		r.BrokeredInvocations != 1 || r.GuardAdmissions != 1 || r.GuardATLAdmissions != 1 || r.GuardDenials != 0 || r.BackendRequests != 0 ||
 		r.RemoteWrites != 0 || r.StdoutBytes < 1 || r.StdoutBytes > contract.MaxCommandOutputBytes ||
@@ -138,6 +170,14 @@ func (r CodexCLICalibrationReceipt) Validate(contract CodexCLICalibrationContrac
 // BuildCodexCLICalibrationContract is pure: path placeholders are fixed and no
 // filesystem, provider, environment, or backend state is consulted.
 func BuildCodexCLICalibrationContract(model, reasoning string, timeoutSeconds int, maxEstimatedCostMicroUSD int64, pricing Pricing) (CodexCLICalibrationContract, error) {
+	return buildCodexCLICalibrationContract(model, reasoning, timeoutSeconds, maxEstimatedCostMicroUSD, pricing, false)
+}
+
+func buildLegacyToolQualifiedCalibrationContract(model, reasoning string, timeoutSeconds int, maxEstimatedCostMicroUSD int64, pricing Pricing) (CodexCLICalibrationContract, error) {
+	return buildCodexCLICalibrationContract(model, reasoning, timeoutSeconds, maxEstimatedCostMicroUSD, pricing, true)
+}
+
+func buildCodexCLICalibrationContract(model, reasoning string, timeoutSeconds int, maxEstimatedCostMicroUSD int64, pricing Pricing, legacyToolQualified bool) (CodexCLICalibrationContract, error) {
 	if model == "" || timeoutSeconds < 1 || timeoutSeconds > maxCodexCLICalibrationTimeout || maxEstimatedCostMicroUSD < 1 ||
 		pricing.InputMicroUSDPerMillionTokens < 1 || pricing.OutputMicroUSDPerMillionTokens < 1 {
 		return CodexCLICalibrationContract{}, fmt.Errorf("invalid codex cli calibration inputs")
@@ -154,7 +194,20 @@ func BuildCodexCLICalibrationContract(model, reasoning string, timeoutSeconds in
 		AllowedReadRoots:  []string{"/private/installed-plugin-skills", "/private/workspace"},
 		SkillReadRoots:    []string{"/private/installed-plugin-skills"},
 	}
-	command, err := BuildProviderCommand(spec, "codex", "/private/atl", "/private/guard", "/private/workspace", "/private/response-schema.json", "/private/final.json", "", "", "", confinement, codexCLICalibrationSchema)
+	responseSchema := codexCLICalibrationSchema
+	var command ProviderCommand
+	var err error
+	commandPolicy := calibrationCLICommandPolicy()
+	prompt := codexCLICalibrationPrompt
+	if legacyToolQualified {
+		confinement.SkillReadRoots = nil
+		responseSchema = legacyToolQualifiedCalibrationSchema
+		prompt = legacyToolQualifiedCalibrationPrompt
+		commandPolicy = CLICommandPolicy{SchemaVersion: 1, Rules: []CLICommandRule{{Name: "atl_version", Command: []string{"version"}, MaxInvocations: 1}}}
+		command, err = buildLegacyToolQualifiedCalibrationProviderCommand(model, reasoning, confinement)
+	} else {
+		command, err = BuildProviderCommand(spec, "codex", "/private/atl", "/private/guard", "/private/workspace", "/private/response-schema.json", "/private/final.json", "", "", "", confinement, responseSchema)
+	}
 	if err != nil {
 		return CodexCLICalibrationContract{}, err
 	}
@@ -171,8 +224,8 @@ func BuildCodexCLICalibrationContract(model, reasoning string, timeoutSeconds in
 		Pricing               Pricing          `json:"pricing"`
 		MaxCommandOutputBytes int64            `json:"max_command_output_bytes"`
 	}{
-		SchemaVersion: 1, Prompt: codexCLICalibrationPrompt,
-		ResponseSchema: codexCLICalibrationSchema, CommandPolicy: calibrationCLICommandPolicy(),
+		SchemaVersion: 1, Prompt: prompt,
+		ResponseSchema: responseSchema, CommandPolicy: commandPolicy,
 		ProviderCommand: command, Model: model, Reasoning: reasoning,
 		TimeoutSeconds: timeoutSeconds, CostCapMicroUSD: maxEstimatedCostMicroUSD,
 		Pricing: pricing, MaxCommandOutputBytes: calibrationOutputLimit,
@@ -187,6 +240,59 @@ func BuildCodexCLICalibrationContract(model, reasoning string, timeoutSeconds in
 		TimeoutSeconds: timeoutSeconds, MaxEstimatedCostMicroUSD: maxEstimatedCostMicroUSD,
 		Pricing: pricing, MaxCommandOutputBytes: calibrationOutputLimit,
 	}, nil
+}
+
+func buildLegacyToolQualifiedCalibrationProviderCommand(model, reasoning string, confinement ProviderConfinement) (ProviderCommand, error) {
+	if model == "" || confinement.GuardMode != "provider-calibration" || len(confinement.AllowedMCPTools) != 0 ||
+		!validCodexHookPath(confinement.GuardCounterPath) || !validCodexHookReadRoot(confinement.WorkspaceReadRoot) ||
+		len(confinement.AllowedReadRoots) != 2 || confinement.AllowedReadRoots[0] != "/private/installed-plugin-skills" ||
+		confinement.AllowedReadRoots[1] != confinement.WorkspaceReadRoot || len(confinement.SkillReadRoots) != 0 ||
+		!validConfinementDirectory(confinement.RequestDirectory) || !validConfinementDirectory(confinement.ResponseDirectory) ||
+		confinement.RequestDirectory == confinement.ResponseDirectory {
+		return ProviderCommand{}, fmt.Errorf("invalid legacy codex calibration confinement")
+	}
+	roots, err := json.Marshal(confinement.AllowedReadRoots)
+	if err != nil {
+		return ProviderCommand{}, err
+	}
+	tools, err := json.Marshal(confinement.AllowedMCPTools)
+	if err != nil {
+		return ProviderCommand{}, err
+	}
+	hookCommand := "ATL_EVAL_GUARD_MODE=" + shellSingleQuote(confinement.GuardMode) +
+		" ATL_EVAL_GUARD_COUNTER=" + shellSingleQuote(confinement.GuardCounterPath) +
+		" ATL_EVAL_ALLOWED_MCP_TOOLS=" + shellSingleQuote(string(tools)) +
+		" ATL_EVAL_WORKSPACE_ROOT=" + shellSingleQuote(confinement.WorkspaceReadRoot) +
+		" ATL_EVAL_ALLOWED_READ_ROOTS=" + shellSingleQuote(string(roots)) +
+		" " + shellSingleQuote("/private/guard")
+	hookConfig := `hooks.PreToolUse=[{matcher="^(Bash|apply_patch|Edit|Write|Read|Agent)$",hooks=[{type="command",command=` + strconv.Quote(hookCommand) + `,timeout=5}]}]`
+	args := []string{
+		"exec", "--json", "--ephemeral", "--strict-config", "--skip-git-repo-check", "--model", model,
+	}
+	for _, feature := range []string{"apps", "browser_use", "computer_use", "image_generation", "remote_plugin"} {
+		args = append(args, "--disable", feature)
+	}
+	args = append(args,
+		"--enable", "shell_tool", "--enable", "unified_exec",
+		"-C", "/private/workspace", "--output-schema", "/private/response-schema.json", "--output-last-message", "/private/final.json",
+		"-c", `project_doc_max_bytes=0`,
+		"-c", `shell_environment_policy.inherit="all"`,
+		"-c", `shell_environment_policy.include_only=["PATH","SHELL","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`,
+		"--ignore-rules", "--dangerously-bypass-hook-trust",
+		"-c", `approval_policy="never"`,
+		"-c", `web_search="disabled"`,
+		"-c", `plugins."atl@atl".enabled=true`,
+		"-c", `developer_instructions=`+strconv.Quote(legacyToolQualifiedCalibrationDeveloperInstructions),
+		"-c", hookConfig,
+		"-c", `default_permissions="atl_agent_eval"`,
+		"-c", `permissions.atl_agent_eval.extends=":workspace"`,
+		"-c", `permissions.atl_agent_eval.filesystem={"/private/requests"="write","/private/responses"="read"}`,
+	)
+	if reasoning != "" {
+		args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(reasoning))
+	}
+	args = append(args, "-")
+	return ProviderCommand{Path: "codex", Args: args}, nil
 }
 
 // RunCodexCLICalibration performs one paid, backend-free Codex invocation. It
