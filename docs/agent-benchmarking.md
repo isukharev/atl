@@ -559,8 +559,9 @@ capsule with a preflight probe. Supported model runs inherit
 CLI runs use an `atl` proxy that counts invocations and stdout bytes without retaining
 command arguments; MCP runs count completed typed calls/failures and result bytes
 from the provider event stream. Both paths additionally emit the same fixed
-generic capability families (for example `jira.epic.digest` and
-`confluence.page.section`) with invocation/success/failure/output-byte counts.
+generic capability families (for example `jira.epic.digest`,
+`jira.planning.report`, and `confluence.page.section`) with
+invocation/success/failure/output-byte counts.
 Arguments, selectors, URLs, ids, and response excerpts are never retained.
 An unknown CLI route, MCP tool, denied proxy record, or unsupported provider
 shape makes `coverage.capability_families=false` and suppresses the entire

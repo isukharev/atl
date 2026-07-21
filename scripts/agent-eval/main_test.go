@@ -468,12 +468,19 @@ func TestATLProxyEnforcesExactPrivateCLIArgumentsAndBudget(t *testing.T) {
 	}
 	policy := agenteval.CLICommandPolicy{
 		SchemaVersion: agenteval.CLICommandPolicySchemaVersion,
-		Rules: []agenteval.CLICommandRule{{
-			Name: "jira_digest", Command: []string{"jira", "epic", "digest"},
-			Positionals:    []agenteval.CLIArgumentRule{{Values: []string{"PROJ-1"}}},
-			Flags:          []agenteval.CLIFlagRule{{Name: "--quarter", Values: []string{"2026-Q2"}, Required: true}},
-			MaxInvocations: 1,
-		}},
+		Rules: []agenteval.CLICommandRule{
+			{
+				Name: "jira_digest", Command: []string{"jira", "epic", "digest"},
+				Positionals:    []agenteval.CLIArgumentRule{{Values: []string{"PROJ-1"}}},
+				Flags:          []agenteval.CLIFlagRule{{Name: "--quarter", Values: []string{"2026-Q2"}, Required: true}},
+				MaxInvocations: 1,
+			},
+			{
+				Name: "jira_planning", Command: []string{"jira", "planning", "report"},
+				Flags:          []agenteval.CLIFlagRule{{Name: "--jql", Values: []string{"project = DEMO"}, Required: true}},
+				MaxInvocations: 1,
+			},
+		},
 	}
 	data, err := agenteval.EncodeCLICommandPolicy(policy)
 	if err != nil {
@@ -501,15 +508,18 @@ func TestATLProxyEnforcesExactPrivateCLIArgumentsAndBudget(t *testing.T) {
 	if code := runATLProxy(changed); code == 0 {
 		t.Fatal("changed target passed")
 	}
+	if code := runATLProxy([]string{"jira", "planning", "report", "--jql", "project = DEMO"}); code != 0 {
+		t.Fatalf("planning report invocation code=%d", code)
+	}
 	executed, err := os.ReadFile(executions)
-	if err != nil || string(executed) != "executed\n" {
+	if err != nil || string(executed) != "executed\nexecuted\n" {
 		t.Fatalf("executions=%q err=%v", executed, err)
 	}
 	record, err := os.ReadFile(counter)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(record, []byte(`"command_family":"jira.epic.digest"`)) || bytes.Count(record, []byte(`"denied":true`)) != 2 || bytes.Contains(record, []byte("PROJ-1")) || bytes.Contains(record, []byte("2026-Q2")) {
+	if !bytes.Contains(record, []byte(`"command_family":"jira.epic.digest"`)) || !bytes.Contains(record, []byte(`"command_family":"jira.planning.report"`)) || bytes.Count(record, []byte(`"denied":true`)) != 2 || bytes.Contains(record, []byte("PROJ-1")) || bytes.Contains(record, []byte("2026-Q2")) || bytes.Contains(record, []byte("project = DEMO")) {
 		t.Fatalf("unsafe or incomplete counter record: %s", record)
 	}
 }
