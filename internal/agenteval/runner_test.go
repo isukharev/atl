@@ -426,7 +426,7 @@ else
 fi
 atl conf plan create mirror --out plan.json >/dev/null || exit 35
 atl conf plan preview plan.json >/dev/null || exit 36
-proposal_hash=$(/bin/sed -n 's/.*"proposal_hash": "\([0-9a-f]*\)".*/\1/p' plan.json)
+proposal_hash=$(/usr/bin/sed -n 's/.*"proposal_hash": "\([0-9a-f]*\)".*/\1/p' plan.json)
 [ "${#proposal_hash}" -eq 64 ] || exit 37
 if [ -f "$PWD/plain-apply" ]; then
   atl conf plan apply plan.json --confirm APPLY --expected-proposal-hash "$proposal_hash" >/dev/null 2>/dev/null
