@@ -384,6 +384,16 @@ with one pointer in a contained, regular JSON artifact created inside the
 synthetic workspace. It is forbidden in private-live specs and is useful for
 dynamic review artifacts such as proposal hashes.
 
+`workspace_file_sha256` binds a generated regular workspace file to an inline
+lowercase SHA-256 expectation such as
+`{"path":"report.bin","sha256":"<64 lowercase hex characters>"}`. The path
+must be normalized, relative, and contained. Evaluation rejects missing files,
+directories, symlinks, traversal, and files larger than 16 MiB, then reports
+only the boolean check outcome. Unlike `json_equals_workspace_json`, the
+expected digest is immutable run-spec material, so this check is also valid for
+private-live file-producing commands without exposing artifact bytes to the
+provider or result payload.
+
 Pagination fixtures may repeat one GET/HEAD path when every route has a unique
 query selector. `query_contains` binds semantic query fragments, while
 `query_equals` binds exact cursor or offset values; zero or multiple matching

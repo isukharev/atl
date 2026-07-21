@@ -2,6 +2,7 @@ package agenteval
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -16,13 +19,15 @@ const (
 	LegacyRunSpecSchemaVersion = 5
 	maxRunSpecBytes            = 1 << 20
 	maxRunCostMicroUSD         = 10_000_000
+	maxWorkspaceArtifactBytes  = 16 << 20
 )
 
 var (
-	mcpToolNameRE      = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
-	skillNameRE        = regexp.MustCompile(`^[a-z0-9][a-z0-9:._-]{0,127}$`)
-	neutralATLRouteRE  = regexp.MustCompile(`(?m)(^|[^a-z0-9_-])atl[ \t]+(jira|conf|capabilities|config)([^a-z0-9_-]|$)`)
-	neutralTypedToolRE = regexp.MustCompile(`(^|[^a-z0-9_])(jira|confluence)_[a-z0-9]+(_[a-z0-9]+)*([^a-z0-9_]|$)`)
+	mcpToolNameRE        = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
+	skillNameRE          = regexp.MustCompile(`^[a-z0-9][a-z0-9:._-]{0,127}$`)
+	neutralATLRouteRE    = regexp.MustCompile(`(?m)(^|[^a-z0-9_-])atl[ \t]+(jira|conf|capabilities|config)([^a-z0-9_-]|$)`)
+	neutralTypedToolRE   = regexp.MustCompile(`(^|[^a-z0-9_])(jira|confluence)_[a-z0-9]+(_[a-z0-9]+)*([^a-z0-9_]|$)`)
+	workspaceSHA256HexRE = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
 // RunSpec is intentionally separate from Scenario: scenarios define comparable
@@ -459,6 +464,13 @@ func (s RunSpec) Validate() error {
 			if _, ok := workspaceJSONExpectationFrom(check.Expected); !ok {
 				return fmt.Errorf("json_equals_workspace_json check %q requires a contained JSON file and pointer", check.Name)
 			}
+		case "workspace_file_sha256":
+			if check.Pointer != "" || check.Minimum != 0 {
+				return fmt.Errorf("workspace_file_sha256 check %q does not accept pointer or minimum", check.Name)
+			}
+			if _, ok := workspaceFileSHA256ExpectationFrom(check.Expected); !ok {
+				return fmt.Errorf("workspace_file_sha256 check %q requires a contained file and lowercase SHA-256", check.Name)
+			}
 		case "atl_invocations_min", "interface_invocations_min":
 			if check.Minimum < 1 || check.Pointer != "" || len(check.Expected) != 0 {
 				return fmt.Errorf("%s check %q is invalid", check.Kind, check.Name)
@@ -761,6 +773,9 @@ func evaluateRunChecks(checks []RunCheck, final []byte, workspace string, atlInv
 			actualJSON, _ := json.Marshal(actual)
 			expectedJSON, _ := json.Marshal(expected)
 			results[check.Name] = bytes.Equal(actualJSON, expectedJSON)
+		case "workspace_file_sha256":
+			expectation, _ := workspaceFileSHA256ExpectationFrom(check.Expected)
+			results[check.Name] = workspaceFileMatchesSHA256(workspace, expectation)
 		}
 	}
 	return results, nil
@@ -769,6 +784,40 @@ func evaluateRunChecks(checks []RunCheck, final []byte, workspace string, atlInv
 type workspaceJSONExpectation struct {
 	Path    string `json:"path"`
 	Pointer string `json:"pointer"`
+}
+
+type workspaceFileSHA256Expectation struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+}
+
+func workspaceFileSHA256ExpectationFrom(raw json.RawMessage) (workspaceFileSHA256Expectation, bool) {
+	var value workspaceFileSHA256Expectation
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&value) != nil || decoder.Decode(new(any)) != io.EOF {
+		return workspaceFileSHA256Expectation{}, false
+	}
+	cleanPath := filepath.ToSlash(filepath.Clean(filepath.FromSlash(value.Path)))
+	if value.Path == "" || filepath.IsAbs(filepath.FromSlash(value.Path)) || escapesBase(filepath.FromSlash(value.Path)) ||
+		strings.Contains(value.Path, `\`) || cleanPath != value.Path || !workspaceSHA256HexRE.MatchString(value.SHA256) {
+		return workspaceFileSHA256Expectation{}, false
+	}
+	return value, true
+}
+
+func workspaceFileMatchesSHA256(workspace string, expectation workspaceFileSHA256Expectation) bool {
+	target := filepath.Join(workspace, filepath.FromSlash(expectation.Path))
+	info, err := safepath.StatWithin(workspace, target)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxWorkspaceArtifactBytes {
+		return false
+	}
+	data, err := safepath.ReadFileWithinLimit(workspace, target, maxWorkspaceArtifactBytes)
+	if err != nil {
+		return false
+	}
+	digest := sha256.Sum256(data)
+	return fmt.Sprintf("%x", digest) == expectation.SHA256
 }
 
 func workspaceJSONExpectationFrom(raw json.RawMessage) (workspaceJSONExpectation, bool) {
