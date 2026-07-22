@@ -107,6 +107,7 @@ type liveGatewayState struct {
 type liveGatewayService struct {
 	name       string
 	base       *url.URL
+	downstream *url.URL
 	token      string
 	capability string
 	routes     []LiveGatewayRoute
@@ -166,6 +167,7 @@ func StartLiveGateway(config LiveGatewayConfig) (*LiveGateway, error) {
 			_ = gateway.Close(context.Background())
 			return nil, fmt.Errorf("start live gateway listener: %w", err)
 		}
+		service.downstream = &url.URL{Scheme: "http", Host: listener.Addr().String()}
 		server := &http.Server{
 			Handler:           service,
 			ReadHeaderTimeout: 5 * time.Second,
@@ -357,7 +359,9 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 		s.completeDenied(response, request, route.Name, identity, int64(len(requestBody)), started, "response_read")
 		return
 	}
-	if int64(len(responseBody)) > s.state.config.MaxResponseBytes || !s.state.reserveResponseBytes(int64(len(responseBody))) {
+	responseContentType := upstreamResponse.Header.Get("Content-Type")
+	responseBody, ok = s.reviewGatewayResponseBody(responseBody, responseContentType)
+	if !ok {
 		s.completeDenied(response, request, route.Name, identity, int64(len(requestBody)), started, "response_budget")
 		return
 	}
@@ -370,14 +374,123 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 		http.Error(response, "evaluation gateway audit unavailable", http.StatusBadGateway)
 		return
 	}
-	if contentType := upstreamResponse.Header.Get("Content-Type"); contentType != "" {
-		response.Header().Set("Content-Type", contentType)
+	if responseContentType != "" {
+		response.Header().Set("Content-Type", responseContentType)
 	}
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(upstreamResponse.StatusCode)
 	if request.Method != http.MethodHead {
-		_, _ = response.Write(responseBody)
+		_, _ = response.Write(responseBody) //nolint:gosec // reviewed origin, route, content, and byte budgets bound this proxy response
 	}
+}
+
+func (s *liveGatewayService) reviewGatewayResponseBody(body []byte, contentType string) ([]byte, bool) {
+	if int64(len(body)) > s.state.config.MaxResponseBytes {
+		return nil, false
+	}
+	body = rewriteGatewayJSONURLs(body, contentType, s.base, s.downstream)
+	if int64(len(body)) > s.state.config.MaxResponseBytes || !s.state.reserveResponseBytes(int64(len(body))) {
+		return nil, false
+	}
+	return body, true
+}
+
+// rewriteGatewayJSONURLs keeps backend-provided same-origin resource links
+// usable after the private-live child is bound to a disposable loopback URL.
+// It never widens the gateway: every translated follow-up request must still
+// carry the capability and pass the reviewed route, method, and byte budgets.
+// Foreign origins, paths outside a configured upstream base path, non-JSON
+// bodies, and JSON strings that are not themselves absolute URLs are unchanged.
+func rewriteGatewayJSONURLs(body []byte, contentType string, upstream, downstream *url.URL) []byte {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil || (mediaType != "application/json" && !strings.HasSuffix(mediaType, "+json")) {
+		return body
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return body
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return body
+	}
+	changed := false
+	if text, ok := value.(string); ok {
+		if rewritten, ok := rewriteGatewaySameOriginURL(text, upstream, downstream); ok {
+			value = rewritten
+			changed = true
+		}
+	} else {
+		changed = rewriteGatewayJSONValue(value, upstream, downstream)
+	}
+	if !changed {
+		return body
+	}
+	rewritten, err := json.Marshal(value)
+	if err != nil {
+		return body
+	}
+	return rewritten
+}
+
+func rewriteGatewayJSONValue(value any, upstream, downstream *url.URL) bool {
+	changed := false
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if text, ok := child.(string); ok {
+				if rewritten, ok := rewriteGatewaySameOriginURL(text, upstream, downstream); ok {
+					typed[key] = rewritten
+					changed = true
+				}
+				continue
+			}
+			changed = rewriteGatewayJSONValue(child, upstream, downstream) || changed
+		}
+	case []any:
+		for index, child := range typed {
+			if text, ok := child.(string); ok {
+				if rewritten, ok := rewriteGatewaySameOriginURL(text, upstream, downstream); ok {
+					typed[index] = rewritten
+					changed = true
+				}
+				continue
+			}
+			changed = rewriteGatewayJSONValue(child, upstream, downstream) || changed
+		}
+	}
+	return changed
+}
+
+func rewriteGatewaySameOriginURL(value string, upstream, downstream *url.URL) (string, bool) {
+	parsed, err := url.Parse(value)
+	if err != nil || !parsed.IsAbs() || parsed.Opaque != "" || parsed.User != nil || parsed.RawPath != "" {
+		return value, false
+	}
+	if !strings.EqualFold(parsed.Scheme, upstream.Scheme) || !strings.EqualFold(parsed.Host, upstream.Host) {
+		return value, false
+	}
+	basePath := strings.TrimRight(upstream.Path, "/")
+	downstreamPath := parsed.Path
+	if basePath != "" {
+		switch {
+		case parsed.Path == basePath:
+			downstreamPath = "/"
+		case strings.HasPrefix(parsed.Path, basePath+"/"):
+			downstreamPath = strings.TrimPrefix(parsed.Path, basePath)
+		default:
+			return value, false
+		}
+	}
+	rewritten := *downstream
+	rewritten.Path = downstreamPath
+	rewritten.RawPath = ""
+	rewritten.RawQuery = parsed.RawQuery
+	rewritten.ForceQuery = parsed.ForceQuery
+	rewritten.Fragment = parsed.Fragment
+	return rewritten.String(), true
 }
 
 func reviewedGatewayAtlassianToken(service string, values []string) string {

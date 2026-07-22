@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -129,6 +130,200 @@ func TestLiveGatewayBrokersCredentialsAndWritesPrivateAudit(t *testing.T) {
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode=%v err=%v", info.Mode(), err)
 	}
+}
+
+func TestLiveGatewayRewritesOnlySameOriginJSONResourceURLs(t *testing.T) {
+	var upstreamCalls atomic.Int64
+	var upstreamURL string
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		upstreamCalls.Add(1)
+		if request.Header.Get("Authorization") != "Bearer upstream-secret" {
+			http.Error(response, "missing credential", http.StatusUnauthorized)
+			return
+		}
+		switch request.URL.RequestURI() {
+		case "/jira/rest/api/2/issue/PROJ-1":
+			response.Header().Set("Content-Type", "application/json; charset=utf-8")
+			_ = json.NewEncoder(response).Encode(map[string]any{
+				"content":      upstreamURL + "/jira/secure/attachment/42/file.txt?download=1",
+				"foreign":      "https://other.invalid/secure/attachment/42/file.txt",
+				"outside_base": upstreamURL + "/secure/attachment/42/file.txt",
+				"relative":     "/jira/secure/attachment/42/file.txt",
+				"description":  "see " + upstreamURL + "/jira/secure/attachment/42/file.txt",
+				"nested":       []any{upstreamURL + "/jira/secure/attachment/42/file.txt#preview"},
+			})
+		case "/jira/secure/attachment/42/file.txt?download=1":
+			response.Header().Set("Content-Type", "text/plain")
+			_, _ = io.WriteString(response, upstreamURL+" must remain raw")
+		case "/jira/secure/attachment/42/file.txt":
+			_, _ = io.WriteString(response, "attachment")
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer upstream.Close()
+	upstreamURL = upstream.URL
+
+	auditDir := t.TempDir()
+	if err := os.Chmod(auditDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	auditPath := filepath.Join(auditDir, "audit.jsonl")
+	gateway, err := StartLiveGateway(LiveGatewayConfig{
+		AuditPath: auditPath, MaxRequests: 3, MaxConcurrent: 1,
+		MaxResponseBytes: 4096, MaxTotalResponseBytes: 8192, RequestTimeout: 5 * time.Second,
+		Services: map[string]LiveGatewayServiceConfig{
+			"jira": {
+				BaseURL: upstream.URL + "/jira", Token: "upstream-secret",
+				Routes: []LiveGatewayRoute{
+					{Name: "metadata", PathPrefix: "/rest/api/2/issue/PROJ-1", Exact: true},
+					{Name: "attachment", PathPrefix: "/secure/attachment/42/file.txt", Exact: true, MaxRequests: 2},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gateway.Close(context.Background())
+	endpoint := gateway.Endpoints()["jira"]
+
+	metadataRequest, err := http.NewRequest(http.MethodGet, endpoint.BaseURL+"/rest/api/2/issue/PROJ-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadataRequest.Header.Set("Authorization", "Bearer "+endpoint.Token)
+	metadataResponse, err := http.DefaultClient.Do(metadataRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadataResponse.StatusCode != http.StatusOK {
+		t.Fatalf("metadata status=%d", metadataResponse.StatusCode)
+	}
+	metadataBody, err := io.ReadAll(metadataResponse.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := metadataResponse.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(metadataBody, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	wantContent := endpoint.BaseURL + "/secure/attachment/42/file.txt?download=1"
+	wantNested := endpoint.BaseURL + "/secure/attachment/42/file.txt#preview"
+	if metadata["content"] != wantContent || metadata["foreign"] != "https://other.invalid/secure/attachment/42/file.txt" ||
+		metadata["outside_base"] != upstream.URL+"/secure/attachment/42/file.txt" ||
+		metadata["relative"] != "/jira/secure/attachment/42/file.txt" ||
+		metadata["description"] != "see "+upstream.URL+"/jira/secure/attachment/42/file.txt" ||
+		metadata["nested"].([]any)[0] != wantNested {
+		t.Fatalf("unexpected translated metadata: %#v", metadata)
+	}
+
+	attachmentRequest, err := http.NewRequest(http.MethodGet, metadata["content"].(string), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachmentRequest.Header.Set("Authorization", "Bearer "+endpoint.Token)
+	attachmentResponse, err := http.DefaultClient.Do(attachmentRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attachmentResponse.StatusCode != http.StatusOK {
+		t.Fatalf("attachment status=%d", attachmentResponse.StatusCode)
+	}
+	attachmentBody, err := io.ReadAll(attachmentResponse.Body)
+	if closeErr := attachmentResponse.Body.Close(); err != nil || closeErr != nil {
+		t.Fatalf("read=%v close=%v", err, closeErr)
+	}
+	if string(attachmentBody) != upstream.URL+" must remain raw" || upstreamCalls.Load() != 2 {
+		t.Fatalf("body=%q calls=%d", attachmentBody, upstreamCalls.Load())
+	}
+	if err := gateway.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	audit, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := decodeLiveGatewayAudit(t, audit)
+	if len(records) != 4 || records[1].ResponseBytes != int64(len(metadataBody)) || records[3].ResponseBytes != int64(len(attachmentBody)) {
+		t.Fatalf("response byte audit mismatch: records=%+v metadata=%d attachment=%d", records, len(metadataBody), len(attachmentBody))
+	}
+}
+
+func TestRewriteGatewayJSONURLsPreservesEscapedPathSemantics(t *testing.T) {
+	upstream, err := url.Parse("https://upstream.example/base")
+	if err != nil {
+		t.Fatal(err)
+	}
+	downstream, err := url.Parse("http://127.0.0.1:12345")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "top-level", body: `"https://upstream.example/base/resource"`, want: `"http://127.0.0.1:12345/resource"`},
+		{name: "encoded slash", body: `{"url":"https://upstream.example/base/secure%2Fattachment"}`, want: `{"url":"https://upstream.example/base/secure%2Fattachment"}`},
+		{name: "encoded dot", body: `{"url":"https://upstream.example/base/%2e%2e/admin"}`, want: `{"url":"https://upstream.example/base/%2e%2e/admin"}`},
+		{name: "encoded percent", body: `{"url":"https://upstream.example/base/100%25"}`, want: `{"url":"http://127.0.0.1:12345/100%25"}`},
+		{name: "encoded unicode", body: `{"url":"https://upstream.example/base/%E2%9C%93"}`, want: `{"url":"http://127.0.0.1:12345/%E2%9C%93"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := rewriteGatewayJSONURLs([]byte(test.body), "application/problem+json", upstream, downstream)
+			if string(got) != test.want {
+				t.Fatalf("got %s, want %s", got, test.want)
+			}
+		})
+	}
+}
+
+func TestLiveGatewayBudgetsRewrittenResponseBytes(t *testing.T) {
+	upstream, err := url.Parse("https://u.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	downstream, err := url.Parse("http://" + strings.Repeat("d", 80) + ".invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := []byte(`{"url":"https://u.example/resource"}`)
+	rewritten := rewriteGatewayJSONURLs(original, "application/json", upstream, downstream)
+	if len(rewritten) <= len(original) {
+		t.Fatalf("test requires expansion: original=%d rewritten=%d", len(original), len(rewritten))
+	}
+
+	t.Run("per response", func(t *testing.T) {
+		state := &liveGatewayState{config: LiveGatewayConfig{
+			MaxResponseBytes:      int64(len(rewritten) - 1),
+			MaxTotalResponseBytes: int64(len(rewritten) * 2),
+		}}
+		service := &liveGatewayService{base: upstream, downstream: downstream, state: state}
+		if _, ok := service.reviewGatewayResponseBody(original, "application/json"); ok || state.totalBytes != 0 {
+			t.Fatalf("expanded response passed per-response budget: total=%d", state.totalBytes)
+		}
+	})
+
+	t.Run("total", func(t *testing.T) {
+		state := &liveGatewayState{config: LiveGatewayConfig{
+			MaxResponseBytes:      int64(len(rewritten)),
+			MaxTotalResponseBytes: int64(len(rewritten) - 1),
+		}}
+		service := &liveGatewayService{base: upstream, downstream: downstream, state: state}
+		if _, ok := service.reviewGatewayResponseBody(original, "application/json"); ok || state.totalBytes != 0 {
+			t.Fatalf("expanded response passed total budget: total=%d", state.totalBytes)
+		}
+		state.config.MaxTotalResponseBytes = int64(len(rewritten))
+		got, ok := service.reviewGatewayResponseBody(original, "application/json")
+		if !ok || !bytes.Equal(got, rewritten) || state.totalBytes != int64(len(rewritten)) {
+			t.Fatalf("reviewed response mismatch: ok=%v total=%d got=%s", ok, state.totalBytes, got)
+		}
+	})
 }
 
 func TestLiveGatewayRejectsUnsafeRequestsBeforeUpstream(t *testing.T) {
