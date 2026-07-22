@@ -106,18 +106,32 @@ func TestExtractTablesFromCSFSelectsOneTable(t *testing.T) {
 	}
 }
 
+func TestExtractTablesOriginMarkerIsInternalOnly(t *testing.T) {
+	res, err := ExtractTablesFromCSF("123", "Doc", []byte(`<table><tbody><tr><td>A</td></tr></tbody></table>`), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte(`"origin"`)) {
+		t.Fatalf("internal origin marker leaked into extraction JSON: %s", data)
+	}
+}
+
 func TestSummarizeConfluenceTablesCountsExpandedStructureWithoutContent(t *testing.T) {
 	extract, err := ExtractTablesFromCSF("123", "Secret title", []byte(tableExtractCSF), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	res := SummarizeConfluenceTables(extract)
-	if res.PageID != "123" || res.TableCount != 2 || res.Table != 0 || len(res.Tables) != 2 {
+	if res.PageID != "123" || res.TableCount != 2 || res.Table != 0 || res.ReturnedTableCount != 2 || !res.SelectionReconciled || len(res.Tables) != 2 {
 		t.Fatalf("summary metadata = %+v", res)
 	}
 	want := []ConfluenceTableSummaryRecord{
-		{Index: 1, RowCount: 3, ColumnCount: 3, HeaderRowCount: 1, HeaderCellCount: 3, ExpandedCellCount: 9, RepeatedCellCount: 1, StyledCellCount: 2, LinkedCellCount: 1, RowspanSourceCellCount: 1, RowspanCoveredCellCount: 1},
-		{Index: 2, RowCount: 2, ColumnCount: 2, HeaderRowCount: 1, HeaderCellCount: 2, ExpandedCellCount: 4, RepeatedCellCount: 1, ColspanSourceCellCount: 1, ColspanCoveredCellCount: 1},
+		{Index: 1, RowCount: 3, ColumnCount: 3, Rectangular: true, HeaderRowCount: 1, HeaderCellCount: 3, ExpandedCellCount: 9, OriginCellCount: 8, RepeatedCellCount: 1, CellCountReconciled: true, NonemptyTextCellCount: 9, NonemptyMarkdownCellCount: 9, NonemptyRawCellCount: 2, StyledCellCount: 2, StyleEntryCount: 2, DistinctStyleMarkerCount: 1, LinkedCellCount: 1, RowspanMetadataCellCount: 2, RowspanSourceCellCount: 1, RowspanCoveredCellCount: 1},
+		{Index: 2, RowCount: 2, ColumnCount: 2, Rectangular: true, HeaderRowCount: 1, HeaderCellCount: 2, ExpandedCellCount: 4, OriginCellCount: 3, RepeatedCellCount: 1, CellCountReconciled: true, NonemptyTextCellCount: 4, NonemptyMarkdownCellCount: 4, NonemptyRawCellCount: 2, ColspanMetadataCellCount: 2, ColspanSourceCellCount: 1, ColspanCoveredCellCount: 1},
 	}
 	if !reflect.DeepEqual(res.Tables, want) {
 		t.Fatalf("summaries = %#v, want %#v", res.Tables, want)
@@ -147,9 +161,50 @@ func TestSummarizeConfluenceTablesClassifiesCombinedSpanCoordinates(t *testing.T
 	}
 	got := SummarizeConfluenceTables(extract).Tables[0]
 	if got.RowCount != 2 || got.ColumnCount != 3 || got.ExpandedCellCount != 6 || got.RepeatedCellCount != 3 ||
+		got.OriginCellCount != 3 || got.SyntheticEmptyCellCount != 0 || !got.Rectangular || !got.CellCountReconciled ||
+		got.RowspanMetadataCellCount != 4 || got.ColspanMetadataCellCount != 4 || got.NonemptyRawCellCount != 4 ||
 		got.RowspanSourceCellCount != 1 || got.RowspanCoveredCellCount != 2 ||
 		got.ColspanSourceCellCount != 1 || got.ColspanCoveredCellCount != 2 {
 		t.Fatalf("combined-span summary = %+v", got)
+	}
+}
+
+func TestSummarizeConfluenceTablesDistinguishesOriginsAndSyntheticPadding(t *testing.T) {
+	const body = `<table><tbody><tr><td>A</td><td>B</td></tr><tr><td>C</td></tr></tbody></table>`
+	extract, err := ExtractTablesFromCSF("123", "Doc", []byte(body), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := SummarizeConfluenceTables(extract).Tables[0]
+	if got.ExpandedCellCount != 4 || got.OriginCellCount != 3 || got.RepeatedCellCount != 0 || got.SyntheticEmptyCellCount != 1 || !got.Rectangular || !got.CellCountReconciled {
+		t.Fatalf("summary=%+v", got)
+	}
+}
+
+func TestSummarizeConfluenceTablesCountsStyleEntriesAndDistinctMarkers(t *testing.T) {
+	extract := &ConfluenceTableExtract{TableCount: 1, Tables: []ConfluenceTable{{
+		Index: 1, RowCount: 1, ColumnCount: 3, Rows: []ConfluenceTableRow{{Cells: []ConfluenceTableCell{
+			{origin: true, Styles: map[string]string{"color": "red", "background": "blue"}},
+			{origin: true, Styles: map[string]string{"color": "red"}},
+			{origin: true, Styles: map[string]string{"color": "green"}},
+		}}},
+	}}}
+	got := SummarizeConfluenceTables(extract).Tables[0]
+	if got.StyledCellCount != 3 || got.StyleEntryCount != 4 || got.DistinctStyleMarkerCount != 3 {
+		t.Fatalf("summary=%+v", got)
+	}
+}
+
+func TestSummarizeConfluenceTablesDetectsRaggedInputAndSelectionMismatch(t *testing.T) {
+	extract := &ConfluenceTableExtract{TableCount: 2, Table: 2, Tables: []ConfluenceTable{{
+		Index: 1, RowCount: 2, ColumnCount: 2, Rows: []ConfluenceTableRow{
+			{Cells: []ConfluenceTableCell{{origin: true}, {origin: true}}},
+			{Cells: []ConfluenceTableCell{{origin: true}}},
+		},
+	}}}
+	got := SummarizeConfluenceTables(extract)
+	if got.SelectionReconciled || got.ReturnedTableCount != 1 || got.Tables[0].Rectangular || got.Tables[0].CellCountReconciled {
+		t.Fatalf("summary=%+v", got)
 	}
 }
 

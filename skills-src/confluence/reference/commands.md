@@ -196,7 +196,7 @@ identifier per line.
 | `conf push` | Version-gated write | file/dir, `--dry-run`, `--force`, `--into` |
 | `conf comment list|add` | Comment reads/writes | page id, CSF file |
 | `conf attachment list|get|upload|delete` | Attachments | page/id/name/version/file/into |
-| `conf table summary` | Content-free table inventory | selector, `--table` |
+| `conf table summary` | Content-free table inventory with exact structural/style cardinalities and reconciliation | selector, `--table` |
 | `conf table extract` | Table export | selector, `--format`, `--raw-csv` |
 | `conf me` | Authenticated user | none |
 

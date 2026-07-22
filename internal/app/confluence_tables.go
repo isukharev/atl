@@ -31,29 +31,42 @@ type ConfluenceTableExtract struct {
 // ConfluenceTableSummary is a bounded, content-free structural inventory of
 // tables on a page. It deliberately excludes page and cell content.
 type ConfluenceTableSummary struct {
-	PageID     string                         `json:"page_id"`
-	TableCount int                            `json:"table_count"`
-	Table      int                            `json:"selected_table,omitempty"`
-	Tables     []ConfluenceTableSummaryRecord `json:"tables"`
+	PageID              string                         `json:"page_id"`
+	TableCount          int                            `json:"table_count"`
+	Table               int                            `json:"selected_table,omitempty"`
+	ReturnedTableCount  int                            `json:"returned_table_count"`
+	SelectionReconciled bool                           `json:"selection_reconciled"`
+	Tables              []ConfluenceTableSummaryRecord `json:"tables"`
 }
 
 // ConfluenceTableSummaryRecord describes one expanded table without exposing
 // cell text, links, style values, raw attributes, or warning text.
 type ConfluenceTableSummaryRecord struct {
-	Index                   int `json:"index"`
-	RowCount                int `json:"row_count"`
-	ColumnCount             int `json:"column_count"`
-	HeaderRowCount          int `json:"header_row_count"`
-	HeaderCellCount         int `json:"header_cell_count"`
-	ExpandedCellCount       int `json:"expanded_cell_count"`
-	RepeatedCellCount       int `json:"repeated_cell_count"`
-	StyledCellCount         int `json:"styled_cell_count"`
-	LinkedCellCount         int `json:"linked_cell_count"`
-	RowspanSourceCellCount  int `json:"rowspan_source_cell_count"`
-	RowspanCoveredCellCount int `json:"rowspan_covered_cell_count"`
-	ColspanSourceCellCount  int `json:"colspan_source_cell_count"`
-	ColspanCoveredCellCount int `json:"colspan_covered_cell_count"`
-	WarningCount            int `json:"warning_count"`
+	Index                     int  `json:"index"`
+	RowCount                  int  `json:"row_count"`
+	ColumnCount               int  `json:"column_count"`
+	Rectangular               bool `json:"rectangular"`
+	HeaderRowCount            int  `json:"header_row_count"`
+	HeaderCellCount           int  `json:"header_cell_count"`
+	ExpandedCellCount         int  `json:"expanded_cell_count"`
+	OriginCellCount           int  `json:"origin_cell_count"`
+	RepeatedCellCount         int  `json:"repeated_cell_count"`
+	SyntheticEmptyCellCount   int  `json:"synthetic_empty_cell_count"`
+	CellCountReconciled       bool `json:"cell_count_reconciled"`
+	NonemptyTextCellCount     int  `json:"nonempty_text_cell_count"`
+	NonemptyMarkdownCellCount int  `json:"nonempty_markdown_cell_count"`
+	NonemptyRawCellCount      int  `json:"nonempty_raw_cell_count"`
+	StyledCellCount           int  `json:"styled_cell_count"`
+	StyleEntryCount           int  `json:"style_entry_count"`
+	DistinctStyleMarkerCount  int  `json:"distinct_style_marker_count"`
+	LinkedCellCount           int  `json:"linked_cell_count"`
+	RowspanMetadataCellCount  int  `json:"rowspan_metadata_cell_count"`
+	RowspanSourceCellCount    int  `json:"rowspan_source_cell_count"`
+	RowspanCoveredCellCount   int  `json:"rowspan_covered_cell_count"`
+	ColspanMetadataCellCount  int  `json:"colspan_metadata_cell_count"`
+	ColspanSourceCellCount    int  `json:"colspan_source_cell_count"`
+	ColspanCoveredCellCount   int  `json:"colspan_covered_cell_count"`
+	WarningCount              int  `json:"warning_count"`
 }
 
 // ConfluenceTable is one expanded table. Index is 1-based in document order.
@@ -90,6 +103,7 @@ type ConfluenceTableCell struct {
 	SourceRow    int                   `json:"source_row,omitempty"`
 	SourceColumn int                   `json:"source_column,omitempty"`
 	Raw          map[string]string     `json:"raw,omitempty"`
+	origin       bool
 }
 
 // ConfluenceTableLink preserves ordinary table-cell links.
@@ -141,29 +155,44 @@ func SummarizeConfluenceTables(extract *ConfluenceTableExtract) *ConfluenceTable
 		return nil
 	}
 	res := &ConfluenceTableSummary{
-		PageID:     extract.PageID,
-		TableCount: extract.TableCount,
-		Table:      extract.Table,
-		Tables:     make([]ConfluenceTableSummaryRecord, 0, len(extract.Tables)),
+		PageID:             extract.PageID,
+		TableCount:         extract.TableCount,
+		Table:              extract.Table,
+		ReturnedTableCount: len(extract.Tables),
+		Tables:             make([]ConfluenceTableSummaryRecord, 0, len(extract.Tables)),
 	}
+	res.SelectionReconciled = (extract.Table == 0 && len(extract.Tables) == extract.TableCount) ||
+		(extract.Table > 0 && len(extract.Tables) == 1 && extract.Tables[0].Index == extract.Table && extract.Table <= extract.TableCount)
 	for _, table := range extract.Tables {
 		record := ConfluenceTableSummaryRecord{
 			Index:        table.Index,
 			RowCount:     table.RowCount,
 			ColumnCount:  table.ColumnCount,
+			Rectangular:  table.RowCount == len(table.Rows),
 			WarningCount: len(table.Warnings),
 		}
+		styleMarkers := map[[2]string]struct{}{}
 		for _, row := range table.Rows {
+			if len(row.Cells) != table.ColumnCount {
+				record.Rectangular = false
+			}
 			if row.Header {
 				record.HeaderRowCount++
 			}
 			for _, cell := range row.Cells {
 				record.ExpandedCellCount++
+				switch {
+				case cell.origin:
+					record.OriginCellCount++
+				case cell.Repeated:
+					record.RepeatedCellCount++
+				default:
+					record.SyntheticEmptyCellCount++
+				}
 				if cell.Header {
 					record.HeaderCellCount++
 				}
 				if cell.Repeated {
-					record.RepeatedCellCount++
 					if cell.Row != cell.SourceRow {
 						record.RowspanCoveredCellCount++
 					}
@@ -178,14 +207,37 @@ func SummarizeConfluenceTables(extract *ConfluenceTableExtract) *ConfluenceTable
 						record.ColspanSourceCellCount++
 					}
 				}
+				if cell.Rowspan > 1 {
+					record.RowspanMetadataCellCount++
+				}
+				if cell.Colspan > 1 {
+					record.ColspanMetadataCellCount++
+				}
+				if cell.Text != "" {
+					record.NonemptyTextCellCount++
+				}
+				if cell.Markdown != "" {
+					record.NonemptyMarkdownCellCount++
+				}
+				if len(cell.Raw) > 0 {
+					record.NonemptyRawCellCount++
+				}
 				if len(cell.Styles) > 0 {
 					record.StyledCellCount++
+				}
+				record.StyleEntryCount += len(cell.Styles)
+				for key, value := range cell.Styles {
+					styleMarkers[[2]string{key, value}] = struct{}{}
 				}
 				if len(cell.Links) > 0 {
 					record.LinkedCellCount++
 				}
 			}
 		}
+		record.DistinctStyleMarkerCount = len(styleMarkers)
+		record.CellCountReconciled = record.Rectangular &&
+			record.ExpandedCellCount == record.RowCount*record.ColumnCount &&
+			record.ExpandedCellCount == record.OriginCellCount+record.RepeatedCellCount+record.SyntheticEmptyCellCount
 		res.Tables = append(res.Tables, record)
 	}
 	return res
@@ -328,6 +380,7 @@ func tableCell(row, col int, header bool, n *csf.Node) ConfluenceTableCell {
 		Header:   header,
 		Rowspan:  omitOne(rowspan),
 		Colspan:  omitOne(colspan),
+		origin:   true,
 	}
 	if raw := cellRaw(n); len(raw) > 0 {
 		cell.Raw = raw
@@ -346,6 +399,7 @@ func repeatedCell(src ConfluenceTableCell, row, col int) ConfluenceTableCell {
 	c.Repeated = true
 	c.SourceRow = src.Row
 	c.SourceColumn = src.Column
+	c.origin = false
 	return c
 }
 

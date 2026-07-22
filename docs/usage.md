@@ -1355,9 +1355,14 @@ atl conf table summary --id 12345678 --table 2
 ```
 
 `--table` is 1-based; zero summarizes every table while preserving the page's
-total `table_count`. Counts use the expanded rectangular representation.
-Rowspan and colspan source cells are separate from the covered positions they
-produce, avoiding an ambiguous combined span count.
+total `table_count`. `returned_table_count` and `selection_reconciled` qualify
+that selection. Counts use the expanded rectangular representation and expose
+native origins, span repeats, synthetic padding, direct rowspan/colspan
+metadata, non-empty text/Markdown/raw cells, style entries, and distinct style
+key/value markers without revealing their values. `rectangular` and
+`cell_count_reconciled` make shape/count consistency explicit. Rowspan and
+colspan source cells remain separate from coordinate-covered positions, avoiding
+an ambiguous combined span count.
 
 ### `atl conf status`
 
