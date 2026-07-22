@@ -139,12 +139,49 @@ func TestPrivateCommandRejectsMissingAndExtraArguments(t *testing.T) {
 		{"migrate", "--root", "x", "--confirm", "MIGRATE"}, {"qualify"},
 		{"review"}, {"review", "prepare"}, {"review", "run"}, {"review", "assess"}, {"baseline"}, {"baseline", "set"},
 		{"study"}, {"study", "recover"}, {"study", "reference"}, {"study", "compare"}, {"study", "promote"}, {"study", "unknown"},
-		{"compare"}, {"scorecard"}, {"scorecard", "--root", "x", "extra"},
+		{"compare"}, {"scorecard"}, {"scorecard", "--root", "x", "extra"}, {"checkpoint"},
+		{"checkpoint", "--root", "x", "--confirm", "CHECKPOINT"},
 		{"prune", "--root", "x", "--confirm", "PRUNE"}, {"unknown"},
 	} {
 		if err := runPrivateCommand(args, &bytes.Buffer{}); err == nil {
 			t.Fatalf("runPrivateCommand(%q) succeeded", args)
 		}
+	}
+}
+
+func TestPrivateCheckpointPreviewsAndAppliesExactDigest(t *testing.T) {
+	originalPreview, originalApply := privatePreviewCheckpoint, privateApplyCheckpoint
+	privatePreviewCheckpoint = func(options agenteval.PrivateCheckpointOptions) (agenteval.PrivateCheckpointPreview, error) {
+		if options.Root != "/private" || options.RepositoryRoot != "/repository" || options.Confirm != "" {
+			t.Fatalf("preview options=%+v", options)
+		}
+		return agenteval.PrivateCheckpointPreview{SchemaVersion: 1, CheckpointSHA256: strings.Repeat("a", 64),
+			Checkpoint: agenteval.PrivateDailyCheckpoint{SchemaVersion: 1, UTCDate: "2026-07-22"}}, nil
+	}
+	privateApplyCheckpoint = func(options agenteval.PrivateCheckpointOptions) (agenteval.PrivateCheckpointSummary, error) {
+		if options.ExpectedCheckpointSHA256 != strings.Repeat("a", 64) || options.Confirm != agenteval.PrivateCheckpointConfirmation {
+			t.Fatalf("apply options=%+v", options)
+		}
+		return agenteval.PrivateCheckpointSummary{SchemaVersion: 1, UTCDate: "2026-07-22",
+			CheckpointSHA256: options.ExpectedCheckpointSHA256, Stored: true}, nil
+	}
+	t.Cleanup(func() { privatePreviewCheckpoint, privateApplyCheckpoint = originalPreview, originalApply })
+	var output bytes.Buffer
+	if err := runPrivateCommand([]string{"checkpoint", "--root", "/private", "--repository-root", "/repository"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	var preview agenteval.PrivateCheckpointPreview
+	if err := json.Unmarshal(output.Bytes(), &preview); err != nil || len(preview.CheckpointSHA256) != 64 {
+		t.Fatalf("preview=%+v err=%v", preview, err)
+	}
+	output.Reset()
+	if err := runPrivateCommand([]string{"checkpoint", "--root", "/private", "--repository-root", "/repository",
+		"--expected-checkpoint-sha256", preview.CheckpointSHA256, "--confirm", "CHECKPOINT"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	var summary agenteval.PrivateCheckpointSummary
+	if err := json.Unmarshal(output.Bytes(), &summary); err != nil || !summary.Stored {
+		t.Fatalf("summary=%+v err=%v", summary, err)
 	}
 }
 

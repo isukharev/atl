@@ -118,6 +118,8 @@ echoed into a terminal or CI log.
 | Promote | `private baseline set` | None | Adds an immutable compact baseline and updates `current` | Complete assessed run without panel disagreement and `BASELINE` |
 | Compare | `private compare` | None | Read-only; emits aggregate deltas | Compatible contract/runtime and review mode |
 | Reconcile findings | `private scorecard` | None | Read-only; emits a content-free aggregate scorecard | Canonical owner-only ledger and immutable completed run references |
+| Preview daily checkpoint | `private checkpoint` | None | Read-only; emits canonical content and a domain-separated digest | Healthy workspace, no active run, and valid scorecard |
+| Store daily checkpoint | `private checkpoint` with confirmation | None | Adds one owner-only UTC-day checkpoint | Exact checkpoint SHA-256 and `CHECKPOINT` |
 | Reference study | `private study reference` | None | Adds an immutable compact activation-study reference | Complete four-cell review and `REFERENCE` |
 | Compare study | `private study compare` | None | Read-only; emits privacy-safe treatment metrics, gates, and eligible contrasts | Structurally valid immutable reference |
 | Promote study | `private study promote` | None | Updates the activation-study `current` pointer | Strict promotion eligibility and `PROMOTE` |
@@ -1015,10 +1017,42 @@ binds the canonical ledger and effective immutable results without exposing
 those references. Task classes must belong to the closed public benchmark
 taxonomy; a private custom identifier is rejected instead of echoed.
 
+## Daily checkpoints
+
+Generate a daily checkpoint preview after a stable issue or PR boundary. The
+preview is read-only and combines the public repository commit and dirty flag,
+closed workspace state/counts, current public contract schema versions, and the
+finding scorecard summary/source digest. It contains no run-set, plan, scenario,
+baseline, finding, route, path, prompt, answer, reviewer, or backend identifier.
+An unhealthy workspace, active run, or invalid scorecard blocks the operation.
+
+```sh
+/tmp/agent-eval private checkpoint \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root .
+```
+
+Review the complete preview, then store those exact bytes for the current UTC
+day. Apply recomputes every input under the private workspace lock, so a date,
+repository, workspace, or scorecard change invalidates the preview digest:
+
+```sh
+/tmp/agent-eval private checkpoint \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --expected-checkpoint-sha256 "$REVIEWED_CHECKPOINT_SHA256" \
+  --confirm CHECKPOINT
+```
+
+The checkpoint is written owner-only at
+`reports/checkpoints/YYYY-MM-DD.json`. An identical repeat is idempotent; a
+different checkpoint for the same day is never overwritten. This is durable
+private operating state, not a publishable benchmark result.
+
 Current manifests use schema v4, run specs use schema v7, observations use
 schema v5, results use schema v7, aggregates use schema v6, private plans use
-schema v8, finding ledgers and scorecards use schema v1, current activation
-state uses schema v3, and
+schema v8, finding ledgers, scorecards, and daily checkpoints use schema v1,
+current activation state uses schema v3, and
 review packets use schema v2. Current study references/reports use schema v2
 and require audit attempt metrics plus separate bounded model-report metrics.
 The decoder still accepts workspace-manifest v1 comparisons;
