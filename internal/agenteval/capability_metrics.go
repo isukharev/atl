@@ -27,6 +27,7 @@ var allowedCapabilityFamilies = map[string]struct{}{
 	"atl.config": {}, "atl.capabilities": {}, "jira.fields": {}, "jira.issue.fields": {},
 	"jira.issue.field": {}, "jira.issue.field.preview": {}, "jira.issue.field.set": {}, "jira.issue.refs": {}, "jira.issue.worklog.list": {}, "jira.issue.worklog.add": {}, "jira.issue.search": {}, "jira.issue.batch-read": {}, "jira.epic.digest": {},
 	"jira.board.list": {}, "jira.board.get": {}, "jira.board.config": {}, "jira.board.issues": {}, "jira.board.backlog": {}, "jira.board.view": {}, "jira.board.export": {},
+	"jira.pull": {}, "jira.status": {},
 	"jira.issue.history": {},
 	"jira.field-options": {}, "jira.link-types": {}, "jira.me": {},
 	"jira.sprint.current": {}, "jira.sprint.get": {}, "jira.sprint.issues": {}, "jira.sprint.list": {},
@@ -41,6 +42,7 @@ var allowedCapabilityFamilies = map[string]struct{}{
 	"confluence.page.meta": {}, "confluence.page.history": {}, "confluence.page.view": {}, "confluence.attachment.list": {},
 	"confluence.attachment.get": {}, "confluence.comment.list": {}, "confluence.me": {},
 	"confluence.page.get": {}, "confluence.page.labels.list": {}, "confluence.page.list": {}, "confluence.space.tree": {},
+	"confluence.pull": {}, "confluence.status": {},
 	"confluence.table.extract": {},
 	"confluence.table.summary": {},
 	"confluence.plan.create":   {}, "confluence.plan.preview": {}, "confluence.plan.apply": {},
@@ -217,6 +219,7 @@ matched:
 		{[]string{"jira", "sprint", "current"}, "jira.sprint.current"}, {[]string{"jira", "sprint", "get"}, "jira.sprint.get"},
 		{[]string{"jira", "sprint", "issues"}, "jira.sprint.issues"}, {[]string{"jira", "sprint", "list"}, "jira.sprint.list"},
 		{[]string{"jira", "transitions"}, "jira.transitions"}, {[]string{"jira", "user", "get"}, "jira.user.get"}, {[]string{"jira", "user", "search"}, "jira.user.search"},
+		{[]string{"jira", "pull"}, "jira.pull"}, {[]string{"jira", "status"}, "jira.status"},
 		{[]string{"jira", "export", "diff"}, "jira.export.diff"}, {[]string{"jira", "export"}, "jira.export"},
 		{[]string{"jira", "structure", "get"}, "jira.structure.get"}, {[]string{"jira", "structure", "forest"}, "jira.structure.forest"},
 		{[]string{"jira", "structure", "folders"}, "jira.structure.folders"}, {[]string{"jira", "structure", "rows"}, "jira.structure.rows"},
@@ -235,6 +238,7 @@ matched:
 		{[]string{"conf", "page", "labels", "list"}, "confluence.page.labels.list"},
 		{[]string{"conf", "page", "get"}, "confluence.page.get"}, {[]string{"conf", "page", "list"}, "confluence.page.list"},
 		{[]string{"conf", "space", "tree"}, "confluence.space.tree"}, {[]string{"conf", "me"}, "confluence.me"},
+		{[]string{"conf", "pull"}, "confluence.pull"}, {[]string{"conf", "status"}, "confluence.status"},
 	}
 	for _, pattern := range patterns {
 		if len(args) < len(pattern.path) {
