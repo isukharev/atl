@@ -143,6 +143,92 @@ func TestProviderResponseSchemaLeavesCompatibleCodexBytesUnchanged(t *testing.T)
 	}
 }
 
+func TestProviderResponseSchemaInfersScalarConstTypesForCodex(t *testing.T) {
+	tests := []struct {
+		name     string
+		constant string
+		wantType string
+	}{
+		{name: "string", constant: `"xlsx"`, wantType: "string"},
+		{name: "boolean", constant: `true`, wantType: "boolean"},
+		{name: "integer spelling", constant: `1`, wantType: "number"},
+		{name: "decimal integer spelling", constant: `1.0`, wantType: "number"},
+		{name: "signed zero", constant: `-0`, wantType: "number"},
+		{name: "number", constant: `1.5`, wantType: "number"},
+		{name: "large exponent", constant: `1e1000`, wantType: "number"},
+		{name: "null", constant: `null`, wantType: "null"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			spec := validRunSpec()
+			original := []byte(`{"const":` + test.constant + `}`)
+			originalCopy := bytes.Clone(original)
+			projected, err := providerResponseSchema(spec, original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(original, originalCopy) {
+				t.Fatal("projection mutated the retained schema")
+			}
+			var schema map[string]any
+			decoder := json.NewDecoder(bytes.NewReader(projected))
+			decoder.UseNumber()
+			if err := decoder.Decode(&schema); err != nil {
+				t.Fatal(err)
+			}
+			if schema["type"] != test.wantType {
+				t.Fatalf("type=%v want=%q schema=%s", schema["type"], test.wantType, projected)
+			}
+		})
+	}
+}
+
+func TestProviderResponseSchemaValidatesExistingConstTypes(t *testing.T) {
+	for _, schema := range []string{
+		`{"type":"integer","const":1}`,
+		`{"type":"integer","const":1.0}`,
+		`{"type":"integer","const":-0}`,
+		`{"type":"integer","const":1e0}`,
+		`{"type":"integer","const":1e1000}`,
+		`{"type":["null","string"],"const":"xlsx"}`,
+	} {
+		spec := validRunSpec()
+		projected, err := providerResponseSchema(spec, []byte(schema))
+		if err != nil {
+			t.Fatalf("schema=%s err=%v", schema, err)
+		}
+		if string(projected) != schema {
+			t.Fatalf("compatible typed const changed: %s", projected)
+		}
+	}
+	for _, schema := range []string{
+		`{"type":"integer","const":1.5}`,
+		`{"type":"integer","const":1e-1}`,
+		`{"type":"boolean","const":"xlsx"}`,
+		`{"type":["null","boolean"],"const":"xlsx"}`,
+		`{"type":["string",1],"const":"xlsx"}`,
+		`{"type":["string","bogus"],"const":"xlsx"}`,
+		`{"type":["string","string"],"const":"xlsx"}`,
+		`{"type":[],"const":"xlsx"}`,
+	} {
+		spec := validRunSpec()
+		_, err := providerResponseSchema(spec, []byte(schema))
+		if err == nil || !strings.Contains(err.Error(), "conflicts with its type") {
+			t.Fatalf("schema=%s err=%v", schema, err)
+		}
+	}
+}
+
+func TestProviderResponseSchemaRejectsCompositeConst(t *testing.T) {
+	for _, schema := range []string{`{"const":[]}`, `{"const":{}}`, `{"type":"array","const":[]}`, `{"type":"object","const":{}}`} {
+		spec := validRunSpec()
+		_, err := providerResponseSchema(spec, []byte(schema))
+		if err == nil || !strings.Contains(err.Error(), "must be scalar") {
+			t.Fatalf("schema=%s err=%v", schema, err)
+		}
+	}
+}
+
 func TestProviderResponseSchemaRejectsDuplicateKeys(t *testing.T) {
 	spec := validRunSpec()
 	_, err := providerResponseSchema(spec, []byte(`{"type":"object","type":"array"}`))

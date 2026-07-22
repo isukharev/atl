@@ -60,7 +60,8 @@ func TestRunHeadlessWithFakeProvidersUsesPrivateWrapperAndSyntheticMetrics(t *te
 	}
 	writeJSONTestFile(t, filepath.Join(caseDir, "fixture.json"), fixture)
 	writeTestFile(t, filepath.Join(caseDir, "prompt.md"), "Use atl and return the requested JSON.\n", 0o600)
-	writeTestFile(t, filepath.Join(caseDir, "response.json"), `{"type":"object","properties":{"answer":{"type":"string"},"labels":{"type":"array","items":{"type":"string"},"uniqueItems":true}},"required":["answer"],"additionalProperties":false}`, 0o600)
+	responseSchemaFixture := `{"type":"object","properties":{"answer":{"type":"string"},"labels":{"type":"array","items":{"type":"string"},"uniqueItems":true},"format":{"const":"json"}},"required":["answer"],"additionalProperties":false}`
+	writeTestFile(t, filepath.Join(caseDir, "response.json"), responseSchemaFixture, 0o600)
 	rubric := Rubric{SchemaVersion: 1, ID: "synthetic-answer", ScenarioID: scenario.ID, MinimumScoreBPS: 6000, Criteria: []RubricCriterion{{ID: "usefulness", Description: "The answer is useful.", Maximum: 4, Minimum: 2, Weight: 1}}, AllowedFindingIDs: []string{"unclear"}}
 	writeJSONTestFile(t, filepath.Join(caseDir, "rubric.json"), rubric)
 	spec := RunSpec{
@@ -136,7 +137,7 @@ while [ "$#" -gt 0 ]; do
 done
 printf '%s\n' '{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
-printf '%s\n' '{"answer":"ok","labels":["alpha","beta"]}' >"$final"
+printf '%s\n' '{"answer":"ok","labels":["alpha","beta"],"format":"json"}' >"$final"
 `
 	fakeAgentScript = strings.ReplaceAll(fakeAgentScript, "__CODEX_CONTINUITY__", codexContinuity)
 	writeTestFile(t, fakeAgent, fakeAgentScript, 0o700)
@@ -312,6 +313,22 @@ exit 2
 		}
 		if !bytes.Contains(retained, []byte("uniqueItems")) || bytes.Contains(projected, []byte("uniqueItems")) {
 			t.Fatalf("schema projection mismatch: retained=%s projected=%s", retained, projected)
+		}
+		if string(retained) != responseSchemaFixture {
+			t.Fatalf("retained schema was not byte-identical: %s", retained)
+		}
+		var providerSchema struct {
+			Properties map[string]struct {
+				Type  string `json:"type"`
+				Const string `json:"const"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal(projected, &providerSchema); err != nil {
+			t.Fatalf("decode provider schema: %v", err)
+		}
+		formatSchema := providerSchema.Properties["format"]
+		if formatSchema.Type != "string" || formatSchema.Const != "json" {
+			t.Fatalf("const-only property was not preserved and typed in provider schema: %s", projected)
 		}
 		info, err := os.Stat(projectedPath)
 		if err != nil || info.Mode().Perm() != 0o600 {
