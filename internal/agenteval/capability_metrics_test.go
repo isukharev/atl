@@ -77,12 +77,16 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 		{[]string{"jira", "issue", "history", "PROJ-1", "--field", "status"}, "jira.issue.history"},
 		{[]string{"jira", "planning", "report", "--jql", "project = DEMO"}, "jira.planning.report"},
 		{[]string{"jira", "quality-report", "--jql", "project = DEMO"}, "jira.planning.report"},
+		{[]string{"jira", "pull", "--jql", "project = DEMO", "--into", "mirror"}, "jira.pull"},
+		{[]string{"jira", "status", "mirror", "--remote"}, "jira.status"},
 		{[]string{"conf", "table", "extract", "page.csf", "--format", "json"}, "confluence.table.extract"},
 		{[]string{"conf", "table", "summary", "--id", "123"}, "confluence.table.summary"},
 		{[]string{"conf", "page", "meta", "--id", "123"}, "confluence.page.meta"},
 		{[]string{"conf", "page", "history", "--id", "123"}, "confluence.page.history"},
 		{[]string{"conf", "page", "view", "123"}, "confluence.page.view"},
 		{[]string{"conf", "attachment", "list", "--id", "123"}, "confluence.attachment.list"},
+		{[]string{"conf", "pull", "--id", "123", "--into", "mirror"}, "confluence.pull"},
+		{[]string{"conf", "status", "mirror", "--remote"}, "confluence.status"},
 	} {
 		if family, ok := CapabilityFamilyForCLI(test.args); !ok || family != test.want {
 			t.Fatalf("CLI family=%q ok=%t want=%q", family, ok, test.want)
@@ -188,6 +192,40 @@ func TestJiraBoardReadCapabilityFamiliesFailClosed(t *testing.T) {
 		family, ok := CapabilityFamilyForCLI(args)
 		if ok {
 			t.Fatalf("unknown route classified: args=%q family=%q", args, family)
+		}
+	}
+}
+
+func TestMirrorReadLifecycleCapabilityFamiliesNormalize(t *testing.T) {
+	for _, family := range []string{
+		"confluence.pull",
+		"confluence.status",
+		"jira.pull",
+		"jira.status",
+	} {
+		t.Run(family, func(t *testing.T) {
+			metrics, err := normalizeCapabilityFamilies([]CapabilityFamilyMetric{{
+				Family: family, Invocations: 1, Successes: 1, OutputBytes: 42,
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(metrics) != 1 || metrics[0].Family != family {
+				t.Fatalf("metrics=%+v", metrics)
+			}
+		})
+	}
+}
+
+func TestMirrorReadLifecycleCapabilityFamiliesDoNotClassifyWrites(t *testing.T) {
+	for _, args := range [][]string{
+		{"conf", "push", "mirror/page.csf"},
+		{"jira", "push", "mirror/issue.wiki"},
+		{"conf", "apply", "mirror"},
+		{"jira", "apply", "mirror"},
+	} {
+		if family, ok := CapabilityFamilyForCLI(args); ok {
+			t.Fatalf("write route classified: args=%q family=%q", args, family)
 		}
 	}
 }
