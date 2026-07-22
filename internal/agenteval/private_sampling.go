@@ -199,11 +199,19 @@ func decodePrivateSamplingSpec(data []byte) (PrivateSamplingSpec, []byte, error)
 	if err := spec.validate(); err != nil {
 		return spec, nil, err
 	}
+	canonical, err := encodePrivateSamplingSpec(spec)
+	return spec, canonical, err
+}
+
+func encodePrivateSamplingSpec(spec PrivateSamplingSpec) ([]byte, error) {
+	if err := spec.validate(); err != nil {
+		return nil, err
+	}
 	canonical, err := json.MarshalIndent(spec, "", "  ")
 	if err != nil {
-		return spec, nil, err
+		return nil, err
 	}
-	return spec, append(canonical, '\n'), nil
+	return append(canonical, '\n'), nil
 }
 
 func (spec PrivateSamplingSpec) validate() error {
@@ -246,31 +254,37 @@ func (spec PrivateSamplingSpec) validate() error {
 
 func buildPrivateSamplingAssessment(root, repository string, spec PrivateSamplingSpec, sourceSHA256 string,
 	load privateFindingSourceLoader) (privateSamplingAssessment, error) {
+	assessment, _, _, err := buildPrivateSamplingAssessmentEvidence(root, repository, spec, sourceSHA256, load)
+	return assessment, err
+}
+
+func buildPrivateSamplingAssessmentEvidence(root, repository string, spec PrivateSamplingSpec, sourceSHA256 string,
+	load privateFindingSourceLoader) (privateSamplingAssessment, []Result, []Result, error) {
 	primaryBindings, primaryResults, err := resolvePrivateSamplingRefs(root, repository, spec.Primary, load)
 	if err != nil {
-		return privateSamplingAssessment{}, err
+		return privateSamplingAssessment{}, nil, nil, err
 	}
 	for index := 1; index < len(primaryResults); index++ {
 		if !compatiblePrivateSamplingPrimary(primaryResults[0], primaryResults[index]) ||
 			primaryBindings[0].ContractSHA256 != primaryBindings[index].ContractSHA256 {
-			return privateSamplingAssessment{}, privateSamplingError("primary_incompatible")
+			return privateSamplingAssessment{}, nil, nil, privateSamplingError("primary_incompatible")
 		}
 	}
 	holdoutBindings, holdoutResults, err := resolvePrivateSamplingRefs(root, repository, spec.Holdout, load)
 	if err != nil {
-		return privateSamplingAssessment{}, err
+		return privateSamplingAssessment{}, nil, nil, err
 	}
 	seenPlanDigests := make(map[string]struct{}, len(primaryBindings)+len(holdoutBindings))
 	seenRunIDs := make(map[string]struct{}, len(primaryBindings)+len(holdoutBindings))
 	for _, binding := range append(append([]privateSamplingBinding{}, primaryBindings...), holdoutBindings...) {
 		if _, exists := seenPlanDigests[binding.PlanSHA256]; exists {
-			return privateSamplingAssessment{}, privateSamplingError("duplicate_observation")
+			return privateSamplingAssessment{}, nil, nil, privateSamplingError("duplicate_observation")
 		}
 		if !privateRunIDRE.MatchString(binding.RunID) {
-			return privateSamplingAssessment{}, privateSamplingError("run_identity")
+			return privateSamplingAssessment{}, nil, nil, privateSamplingError("run_identity")
 		}
 		if _, exists := seenRunIDs[binding.RunID]; exists {
-			return privateSamplingAssessment{}, privateSamplingError("duplicate_observation")
+			return privateSamplingAssessment{}, nil, nil, privateSamplingError("duplicate_observation")
 		}
 		seenPlanDigests[binding.PlanSHA256] = struct{}{}
 		seenRunIDs[binding.RunID] = struct{}{}
@@ -278,7 +292,7 @@ func buildPrivateSamplingAssessment(root, repository string, spec PrivateSamplin
 	for index, result := range holdoutResults {
 		if holdoutBindings[index].ContractSHA256 == primaryBindings[0].ContractSHA256 ||
 			!compatiblePrivateSamplingHoldout(primaryResults[0], result) {
-			return privateSamplingAssessment{}, privateSamplingError("holdout_incompatible")
+			return privateSamplingAssessment{}, nil, nil, privateSamplingError("holdout_incompatible")
 		}
 	}
 	primaryOutcome := privateSamplingOutcome(primaryResults)
@@ -290,7 +304,63 @@ func buildPrivateSamplingAssessment(root, repository string, spec PrivateSamplin
 		accepted := privateSamplingAllPass(primaryOutcome) && privateSamplingAllPass(holdoutOutcome)
 		assessment.RegressionAccepted = &accepted
 	}
-	return assessment, nil
+	return assessment, primaryResults, holdoutResults, nil
+}
+
+func loadPrivateSamplingAssessment(root, repository, digest string, load privateFindingSourceLoader) (privateSamplingAssessment, []Result, []Result, error) {
+	if !validSHA256(digest) {
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_digest")
+	}
+	directory := filepath.Join(root, "reports", "sampling")
+	info, err := safepath.StatWithin(root, directory)
+	if err != nil || !info.IsDir() || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o700) {
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_directory")
+	}
+	path := filepath.Join(directory, digest+".json")
+	info, err = safepath.StatWithin(root, path)
+	if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_file")
+	}
+	data, err := safepath.ReadFileWithinLimit(root, path, privateSamplingMaxBytes)
+	if err != nil {
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_read")
+	}
+	var stored privateSamplingAssessment
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&stored); err != nil {
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_decode")
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_decode")
+	}
+	canonical, err := encodePrivateSamplingAssessment(stored)
+	if err != nil || !bytes.Equal(data, canonical) ||
+		sha256HexBytes(append([]byte("atl-private-sampling-assessment-v1\x00"), canonical...)) != digest {
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_contract")
+	}
+	spec := PrivateSamplingSpec{SchemaVersion: PrivateSamplingSchemaVersion, Tier: stored.Tier,
+		Primary: make([]PrivateFindingRunRef, 0, len(stored.Primary)), Holdout: make([]PrivateFindingRunRef, 0, len(stored.Holdout))}
+	for _, binding := range stored.Primary {
+		spec.Primary = append(spec.Primary, binding.Reference)
+	}
+	for _, binding := range stored.Holdout {
+		spec.Holdout = append(spec.Holdout, binding.Reference)
+	}
+	specData, err := encodePrivateSamplingSpec(spec)
+	if err != nil || sha256HexBytes(specData) != stored.SourceSHA256 {
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_source")
+	}
+	rebuilt, primary, holdout, err := buildPrivateSamplingAssessmentEvidence(root, repository, spec, stored.SourceSHA256, load)
+	if err != nil {
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_evidence")
+	}
+	rebuiltData, err := encodePrivateSamplingAssessment(rebuilt)
+	if err != nil || !bytes.Equal(canonical, rebuiltData) {
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_drift")
+	}
+	return stored, primary, holdout, nil
 }
 
 func compatiblePrivateSamplingPrimary(first, candidate Result) bool {

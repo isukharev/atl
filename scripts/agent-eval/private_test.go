@@ -233,7 +233,7 @@ func TestPrivateScorecardEmitsSanitizedReport(t *testing.T) {
 		if options.Root != "/reviewed/private" || options.RepositoryRoot != "/reviewed/repository" {
 			t.Fatalf("options=%+v", options)
 		}
-		return agenteval.PrivateFindingScorecard{SchemaVersion: 1, SourceSHA256: strings.Repeat("a", 64), Reconciled: true,
+		return agenteval.PrivateFindingScorecard{SchemaVersion: agenteval.PrivateFindingScorecardSchemaVersion, SourceSHA256: strings.Repeat("a", 64), Reconciled: true,
 			Findings: 2, LinkedIssues: 2, LinkedPullRequests: 1, Regressions: 1}, nil
 	}
 	t.Cleanup(func() { privateBuildFindingScorecard = original })

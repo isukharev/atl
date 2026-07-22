@@ -117,7 +117,7 @@ echoed into a terminal or CI log.
 | Assess | `private review assess` | None | Records one member; the last member writes one median consensus | Completed bounded review and, for executable panels, a valid no-tools cost receipt |
 | Promote | `private baseline set` | None | Adds an immutable compact baseline and updates `current` | Complete assessed run without panel disagreement and `BASELINE` |
 | Compare | `private compare` | None | Read-only; emits aggregate deltas | Compatible contract/runtime and review mode |
-| Reconcile findings | `private scorecard` | None | Read-only; emits a content-free aggregate scorecard | Canonical owner-only ledger and immutable completed run references |
+| Reconcile findings | `private scorecard` | None | Read-only; emits a content-free aggregate scorecard | Canonical owner-only ledger, acceptance index for fixed findings, and immutable completed run references |
 | Preview sample evidence | `private sample` | None | Read-only; emits closed counts and a domain-separated assessment digest | Canonical owner-only sampling spec and immutable compact baselines |
 | Store sample evidence | `private sample` with confirmation | None | Adds one owner-only immutable assessment | Exact assessment SHA-256 and `ASSESS` |
 | Preview daily checkpoint | `private checkpoint` | None | Read-only; emits canonical content and a domain-separated digest | Healthy workspace, no active run, and valid scorecard |
@@ -1013,11 +1013,27 @@ Generate the scorecard offline:
 The command does not write to the private workspace or contact a model or
 backend. Its deterministic JSON contains only generic task and failure classes,
 closed decision/status/eligibility/evidence counts, explicit metric coverage,
-and quantiles. It omits finding, plan, run, scenario, cell, issue, PR, route,
-path, reviewer, prompt, answer, and backend identifiers. The source digest
-binds the canonical ledger and effective immutable results without exposing
+sampling primary/holdout aggregates, and quantiles. It omits finding, plan,
+run, scenario, assessment, cell, issue, PR, route, path, reviewer, prompt,
+answer, and backend identifiers. The source digest binds the canonical ledger,
+acceptance index, assessments, and effective immutable results without exposing
 those references. Task classes must belong to the closed public benchmark
 taxonomy; a private custom identifier is rejected instead of echoed.
+
+A `fixed` ledger entry requires a canonical owner-only
+`reports/finding-acceptance.v1.json` index following the public
+[schema](../benchmarks/agent-eval/private-finding-acceptance.schema.json) and
+[synthetic example](../benchmarks/agent-eval/private-finding-acceptance.example.json).
+The index entries are strictly sorted by `finding_id` and map every fixed
+finding exactly once to a distinct stored sampling assessment digest. Dangling
+mappings, reuse across findings, mappings for
+non-fixed findings, and missing mappings are rejected. Scorecard generation
+reopens the assessment and every exact baseline, reconstructs its canonical
+bytes, requires an accepted `regression` tier, verifies that the ledger's
+singleton regression belongs to the three-primary cohort, and binds all three
+primary observations to `changed_contract_sha256`. A legacy fixed entry backed
+only by one successful regression therefore fails closed; non-fixed ledgers do
+not require an index.
 
 ## Sampling evidence and holdouts
 
@@ -1076,9 +1092,10 @@ or lifecycle drift invalidates the reviewed digest. The owner-only artifact is
 stored at `reports/sampling/<assessment-sha256>.json`; identical application is
 idempotent, and existing files are never overwritten. The artifact retains
 private exact references for later finding-ledger binding, but the command
-summary does not emit them. Linking a fixed finding to this assessment is a
-separate lifecycle step; until that link exists, the current ledger's singleton
-regression field remains historical evidence rather than an n=3 claim.
+summary does not emit them. Link a fixed finding by adding its finding id and
+the reviewed assessment digest to `reports/finding-acceptance.v1.json`; until
+that link exists, the ledger's singleton regression field remains historical
+evidence rather than an n=3 claim.
 `regression_accepted` is an all-pass regression gate, not a statistical
 significance or comparative-reliability claim.
 
@@ -1116,8 +1133,8 @@ private operating state, not a publishable benchmark result.
 
 Current manifests use schema v4, run specs use schema v7, observations use
 schema v5, results use schema v7, aggregates use schema v6, private plans use
-schema v8, finding ledgers, scorecards, sampling specs/assessments, and daily
-checkpoints use schema v1,
+schema v8, scorecards use schema v2, and finding ledgers, finding-acceptance
+indexes, sampling specs/assessments, and daily checkpoints use schema v1,
 current activation state uses schema v3, and
 review packets use schema v2. Current study references/reports use schema v2
 and require audit attempt metrics plus separate bounded model-report metrics.

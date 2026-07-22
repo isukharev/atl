@@ -66,11 +66,16 @@ Private findings can be reconciled offline through the strict owner-only
 ledger described by
 [`private-finding-ledger.schema.json`](private-finding-ledger.schema.json).
 `private scorecard` validates immutable compact-baseline failure/regression
-surfaces tied back to completed plans and emits only generic cohorts, closed
-counts, explicit coverage, and metric
+surfaces tied back to completed plans. Every `fixed` entry must also have a
+one-to-one binding in the owner-only index described by
+[`private-finding-acceptance.schema.json`](private-finding-acceptance.schema.json)
+to an accepted immutable regression assessment. The scorecard revalidates all
+three primary observations and the holdout before emitting only generic
+cohorts, closed counts, explicit coverage, and metric
 quantiles. The real ledger and scorecard remain private; the committed
-[`private-finding-ledger.example.json`](private-finding-ledger.example.json) is
-synthetic and contains no backend data.
+[`private-finding-ledger.example.json`](private-finding-ledger.example.json) and
+[`private-finding-acceptance.example.json`](private-finding-acceptance.example.json)
+are synthetic and contain no backend data.
 
 Private sample strength is encoded separately with
 [`private-sampling.schema.json`](private-sampling.schema.json): `n=1` is

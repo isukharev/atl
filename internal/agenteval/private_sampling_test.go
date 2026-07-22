@@ -486,6 +486,21 @@ func (fixture *privateSamplingFixture) options() PrivateSamplingOptions {
 	return PrivateSamplingOptions{Root: fixture.root, RepositoryRoot: fixture.repository, Spec: "sample-set"}
 }
 
+func (fixture *privateSamplingFixture) storeAssessment(t *testing.T, spec PrivateSamplingSpec) string {
+	t.Helper()
+	fixture.writeSpec(t, spec)
+	options := fixture.options()
+	preview, _, err := previewPrivateSampling(options, fixture.dependencies())
+	if err != nil {
+		t.Fatal(err)
+	}
+	options.ExpectedAssessmentSHA256, options.Confirm = preview.AssessmentSHA256, PrivateSamplingConfirmation
+	if summary, err := applyPrivateSampling(options, fixture.dependencies()); err != nil || !summary.Stored {
+		t.Fatalf("summary=%+v err=%v", summary, err)
+	}
+	return preview.AssessmentSHA256
+}
+
 func (fixture *privateSamplingFixture) dependencies() privateSamplingDependencies {
 	return privateSamplingDependencies{
 		doctor: func(_, _ string) (PrivateWorkspaceReport, error) {
