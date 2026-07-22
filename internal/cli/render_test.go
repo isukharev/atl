@@ -55,6 +55,9 @@ func TestJiraRenderGolden(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("jira render: exit %d (stdout=%q stderr=%q)", code, out, stderr)
 	}
+	if stderr != "" {
+		t.Fatalf("jira render emitted warning for healthy mirror: %q", stderr)
+	}
 	// Normalize the absolute mirror root (a t.TempDir) so the golden is stable.
 	got := strings.ReplaceAll(out, root, "<ROOT>")
 	assertGolden(t, "jira_render.json", []byte(got))
