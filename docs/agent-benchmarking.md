@@ -359,7 +359,9 @@ that file. For Codex, `uniqueItems:false` is a no-op and may be omitted;
 same JSON pointer already requires a duplicate-free expected array. The local
 check is still evaluated against the final response. Ambiguous nested uses and
 unsupported structural keywords fail before provider execution. Claude Code
-continues to receive the original bytes. This narrow projection follows the
+continues to receive the original bytes. A scalar `const` without `type` gains
+the logically redundant scalar type only in the Codex copy; conflicting or
+composite inference fails closed. This narrow projection follows the
 documented [Structured Outputs schema
 subset](https://developers.openai.com/api/docs/guides/structured-outputs)
 without weakening the shared benchmark oracle.

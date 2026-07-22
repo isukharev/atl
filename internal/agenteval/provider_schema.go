@@ -5,13 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"reflect"
 	"strings"
 )
 
 // providerResponseSchema keeps the retained response schema authoritative while
-// adapting only assertions that a provider cannot represent. Every removed
-// assertion must have a stronger local deterministic check over the same value.
+// adapting only constraints that a provider cannot represent. Every removed
+// assertion must have a stronger local deterministic check over the same value,
+// and every added assertion must already be logically implied by the original.
 func providerResponseSchema(spec RunSpec, original []byte) ([]byte, error) {
 	if !json.Valid(original) {
 		return nil, fmt.Errorf("response schema is not valid JSON")
@@ -43,6 +45,20 @@ func providerResponseSchema(spec RunSpec, original []byte) ([]byte, error) {
 }
 
 func projectCodexSchemaNode(schema map[string]any, pointer string, checks []RunCheck, ambiguous bool, changed *bool) error {
+	if constant, present := schema["const"]; present {
+		inferred, integer, scalar := scalarConstSchemaType(constant)
+		if !scalar {
+			return fmt.Errorf("codex response schema const at %q must be scalar", pointer)
+		}
+		if rawType, typed := schema["type"]; typed {
+			if !schemaTypeAllowsConst(rawType, inferred, integer) {
+				return fmt.Errorf("codex response schema const at %q conflicts with its type", pointer)
+			}
+		} else {
+			schema["type"] = inferred
+			*changed = true
+		}
+	}
 	for _, keyword := range []string{
 		"allOf", "oneOf", "not", "dependentRequired", "dependentSchemas", "dependencies",
 		"if", "then", "else", "patternProperties", "propertyNames", "unevaluatedProperties",
@@ -127,6 +143,69 @@ func projectCodexSchemaNode(schema map[string]any, pointer string, checks []RunC
 		}
 	}
 	return nil
+}
+
+func scalarConstSchemaType(value any) (schemaType string, integer bool, ok bool) {
+	switch value := value.(type) {
+	case nil:
+		return "null", false, true
+	case bool:
+		return "boolean", false, true
+	case string:
+		return "string", false, true
+	case json.Number:
+		return "number", jsonNumberIsInteger(value), true
+	default:
+		return "", false, false
+	}
+}
+
+func jsonNumberIsInteger(value json.Number) bool {
+	text := value.String()
+	if !strings.ContainsAny(text, ".eE") {
+		return true
+	}
+	var number big.Rat
+	if _, ok := number.SetString(text); !ok {
+		return false
+	}
+	return number.IsInt()
+}
+
+func schemaTypeAllowsConst(rawType any, inferred string, integer bool) bool {
+	allows := func(candidate string) bool {
+		return candidate == inferred || inferred == "number" && integer && candidate == "integer"
+	}
+	validType := func(candidate string) bool {
+		switch candidate {
+		case "null", "boolean", "object", "array", "number", "string", "integer":
+			return true
+		default:
+			return false
+		}
+	}
+	switch value := rawType.(type) {
+	case string:
+		return validType(value) && allows(value)
+	case []any:
+		if len(value) == 0 {
+			return false
+		}
+		matched := false
+		seen := map[string]bool{}
+		for _, raw := range value {
+			candidate, ok := raw.(string)
+			if !ok || !validType(candidate) || seen[candidate] {
+				return false
+			}
+			seen[candidate] = true
+			if allows(candidate) {
+				matched = true
+			}
+		}
+		return matched
+	}
+	return false
 }
 
 func hasExactUniqueArrayCheck(checks []RunCheck, pointer string) bool {
