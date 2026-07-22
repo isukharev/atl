@@ -77,8 +77,31 @@ type JiraIssueRefsResult struct {
 	Complete  bool                   `json:"complete"`
 	Truncated bool                   `json:"truncated,omitempty"`
 	Selection JiraIssueRefsSelection `json:"selection"`
+	Summary   JiraIssueRefsSummary   `json:"summary"`
 	Warnings  []string               `json:"warnings,omitempty"`
 	Issues    []JiraIssueRefs        `json:"issues"`
+}
+
+// JiraIssueRefsSummary reconciles the final emitted issue, reference, and
+// provenance-source sets. Reference totals count a reference once per issue;
+// each issue has already deduplicated identical URLs across its sources.
+type JiraIssueRefsSummary struct {
+	IssueCount                  int            `json:"issue_count"`
+	CompleteIssueCount          int            `json:"complete_issue_count"`
+	IncompleteIssueCount        int            `json:"incomplete_issue_count"`
+	ReferenceCount              int            `json:"reference_count"`
+	ReferenceKindCounts         map[string]int `json:"reference_kind_counts"`
+	SourceCount                 int            `json:"source_count"`
+	SourceValueCounts           map[string]int `json:"source_value_counts"`
+	CompleteSourceCount         int            `json:"complete_source_count"`
+	IncompleteSourceCount       int            `json:"incomplete_source_count"`
+	TruncatedSourceCount        int            `json:"truncated_source_count"`
+	CountMatchesIssues          bool           `json:"count_matches_issues"`
+	SelectionCountMatchesIssues bool           `json:"selection_count_matches_issues"`
+	ReferenceCountMatchesKinds  bool           `json:"reference_count_matches_kinds"`
+	IssueSummariesReconciled    bool           `json:"issue_summaries_reconciled"`
+	CompleteMatchesInputs       bool           `json:"complete_matches_inputs"`
+	TruncatedMatchesInputs      bool           `json:"truncated_matches_inputs"`
 }
 
 // JiraIssueRefsSelection qualifies the key/JQL selection independently from
@@ -103,14 +126,30 @@ type JiraIssueRefsSource struct {
 
 // JiraIssueRefs is the refs found in one issue.
 type JiraIssueRefs struct {
-	Key       string                         `json:"key"`
-	Summary   string                         `json:"summary,omitempty"`
-	Type      string                         `json:"type,omitempty"`
-	Complete  bool                           `json:"complete"`
-	Truncated bool                           `json:"truncated,omitempty"`
-	Sources   map[string]JiraIssueRefsSource `json:"sources"`
-	Warnings  []string                       `json:"warnings,omitempty"`
-	Refs      []PlanningRef                  `json:"refs"`
+	Key              string                         `json:"key"`
+	Summary          string                         `json:"summary,omitempty"`
+	Type             string                         `json:"type,omitempty"`
+	Complete         bool                           `json:"complete"`
+	Truncated        bool                           `json:"truncated,omitempty"`
+	Sources          map[string]JiraIssueRefsSource `json:"sources"`
+	ReferenceSummary JiraIssueReferenceSummary      `json:"reference_summary"`
+	Warnings         []string                       `json:"warnings,omitempty"`
+	Refs             []PlanningRef                  `json:"refs"`
+}
+
+// JiraIssueReferenceSummary reconciles one issue's final deduplicated refs and
+// the exact source records that qualified their extraction.
+type JiraIssueReferenceSummary struct {
+	ReferenceCount             int            `json:"reference_count"`
+	ReferenceKindCounts        map[string]int `json:"reference_kind_counts"`
+	SourceCount                int            `json:"source_count"`
+	SourceValueCounts          map[string]int `json:"source_value_counts"`
+	CompleteSourceCount        int            `json:"complete_source_count"`
+	IncompleteSourceCount      int            `json:"incomplete_source_count"`
+	TruncatedSourceCount       int            `json:"truncated_source_count"`
+	ReferenceCountMatchesKinds bool           `json:"reference_count_matches_kinds"`
+	CompleteMatchesSources     bool           `json:"complete_matches_sources"`
+	TruncatedMatchesSources    bool           `json:"truncated_matches_sources"`
 }
 
 // JiraIssueTreeOpts controls normalized epic tree extraction.
@@ -247,6 +286,7 @@ func (s *JiraService) IssueRefs(ctx context.Context, opts JiraIssueRefsOpts) (*J
 	if incompleteIssues > 0 {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("%d issue reference source set(s) incomplete", incompleteIssues))
 	}
+	result.Summary = summarizeJiraIssueRefsResult(result)
 	return result, nil
 }
 
@@ -366,7 +406,110 @@ func (s *JiraService) issueRefsForIssue(ctx context.Context, issue domain.Issue,
 		row.Refs = append(row.Refs, ref)
 	}
 	sort.Slice(row.Refs, func(i, j int) bool { return row.Refs[i].URL < row.Refs[j].URL })
+	row.ReferenceSummary = summarizeJiraIssueReferences(row)
 	return row, nil
+}
+
+func summarizeJiraIssueReferences(row JiraIssueRefs) JiraIssueReferenceSummary {
+	summary := JiraIssueReferenceSummary{
+		ReferenceKindCounts: map[string]int{},
+		SourceValueCounts:   map[string]int{},
+	}
+	for _, ref := range row.Refs {
+		summary.ReferenceCount++
+		summary.ReferenceKindCounts[ref.Kind]++
+	}
+	for sourceName, source := range row.Sources {
+		summary.SourceCount++
+		summary.SourceValueCounts[sourceName] += source.Count
+		if source.Complete {
+			summary.CompleteSourceCount++
+		} else {
+			summary.IncompleteSourceCount++
+		}
+		if source.TextTruncated {
+			summary.TruncatedSourceCount++
+		}
+	}
+	summary.ReferenceCountMatchesKinds = summary.ReferenceCount == intMapTotal(summary.ReferenceKindCounts)
+	summary.CompleteMatchesSources = row.Complete == (summary.IncompleteSourceCount == 0)
+	summary.TruncatedMatchesSources = row.Truncated == (summary.TruncatedSourceCount > 0)
+	return summary
+}
+
+func summarizeJiraIssueRefsResult(result *JiraIssueRefsResult) JiraIssueRefsSummary {
+	summary := JiraIssueRefsSummary{
+		ReferenceKindCounts:      map[string]int{},
+		SourceValueCounts:        map[string]int{},
+		IssueSummariesReconciled: true,
+	}
+	if result == nil {
+		return summary
+	}
+	summary.IssueCount = len(result.Issues)
+	anyIssueTruncated := false
+	for _, issue := range result.Issues {
+		if issue.Complete {
+			summary.CompleteIssueCount++
+		} else {
+			summary.IncompleteIssueCount++
+		}
+		anyIssueTruncated = anyIssueTruncated || issue.Truncated
+		issueSummary := issue.ReferenceSummary
+		summary.ReferenceCount += issueSummary.ReferenceCount
+		for kind, count := range issueSummary.ReferenceKindCounts {
+			summary.ReferenceKindCounts[kind] += count
+		}
+		summary.SourceCount += issueSummary.SourceCount
+		for sourceName, count := range issueSummary.SourceValueCounts {
+			summary.SourceValueCounts[sourceName] += count
+		}
+		summary.CompleteSourceCount += issueSummary.CompleteSourceCount
+		summary.IncompleteSourceCount += issueSummary.IncompleteSourceCount
+		summary.TruncatedSourceCount += issueSummary.TruncatedSourceCount
+		summary.IssueSummariesReconciled = summary.IssueSummariesReconciled && jiraIssueReferenceSummaryEqual(
+			issueSummary, summarizeJiraIssueReferences(issue),
+		)
+	}
+	summary.CountMatchesIssues = result.Count == summary.IssueCount
+	summary.SelectionCountMatchesIssues = result.Selection.Count == summary.IssueCount
+	summary.ReferenceCountMatchesKinds = summary.ReferenceCount == intMapTotal(summary.ReferenceKindCounts)
+	summary.CompleteMatchesInputs = result.Complete == (result.Selection.Complete && summary.IncompleteIssueCount == 0)
+	summary.TruncatedMatchesInputs = result.Truncated == (result.Selection.Truncated || anyIssueTruncated)
+	return summary
+}
+
+func jiraIssueReferenceSummaryEqual(left, right JiraIssueReferenceSummary) bool {
+	return left.ReferenceCount == right.ReferenceCount &&
+		intMapsEqual(left.ReferenceKindCounts, right.ReferenceKindCounts) &&
+		left.SourceCount == right.SourceCount &&
+		intMapsEqual(left.SourceValueCounts, right.SourceValueCounts) &&
+		left.CompleteSourceCount == right.CompleteSourceCount &&
+		left.IncompleteSourceCount == right.IncompleteSourceCount &&
+		left.TruncatedSourceCount == right.TruncatedSourceCount &&
+		left.ReferenceCountMatchesKinds == right.ReferenceCountMatchesKinds &&
+		left.CompleteMatchesSources == right.CompleteMatchesSources &&
+		left.TruncatedMatchesSources == right.TruncatedMatchesSources
+}
+
+func intMapsEqual(left, right map[string]int) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, leftValue := range left {
+		if rightValue, ok := right[key]; !ok || rightValue != leftValue {
+			return false
+		}
+	}
+	return true
+}
+
+func intMapTotal(counts map[string]int) int {
+	total := 0
+	for _, count := range counts {
+		total += count
+	}
+	return total
 }
 
 func issueRefExtraFields(fields []string) []string {

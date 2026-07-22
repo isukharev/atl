@@ -452,7 +452,7 @@ atl jira issue fields PROJ-1 --metadata-only # компактный катало
 atl jira issue fields PROJ-1 --field "Delivery Notes"
 atl jira issue field get PROJ-1 --field "Delivery Notes" --max-bytes 16384 # точечное bounded-чтение
 atl jira issue history PROJ-1 --field "Delivery Notes" --since 2026-04-01 # с детерминированной summary
-atl jira issue refs PROJ-1 --fields "Delivery Notes" # ссылки с признаком полноты
+atl jira issue refs PROJ-1 --fields "Delivery Notes" # ссылки и согласованные агрегаты
 # Календарные даты/кварталы используют timezone текущего пользователя Jira;
 # RFC3339 с явным offset остаётся точным и не требует этого metadata GET.
 # Пропуски/повторы полуночи охватывают весь civil day; пропущенная дата — exit 8.

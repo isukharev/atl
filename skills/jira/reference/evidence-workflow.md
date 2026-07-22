@@ -78,7 +78,11 @@ before treating an empty result as absence. Display names are resolved to
 technical ids before the issue read. A JQL selection also performs one complete
 paginated comment listing per issue, so keep the query narrow and set an
 explicit `--limit`. Inspect the named description/comment/field source and
-`text_truncated` when incomplete.
+`text_truncated` when incomplete. Use top-level `summary` and per-issue
+`reference_summary` for reference totals, per-kind counts, source-value counts,
+and completeness reconciliation instead of manually summing nested arrays.
+Within one issue a URL repeated across sources is counted once; across issues it
+is counted once per issue.
 For history, `complete:false` means absence is unproven. Use `last_changes` for
 the selected field; do not infer recency from array position. Use `summary` for
 cardinality, field buckets, identity uniqueness, fetch/count reconciliation,

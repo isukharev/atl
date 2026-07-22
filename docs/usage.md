@@ -2921,6 +2921,14 @@ field, and each comment body are capped at 128 KiB per value and expose
 the top-level and per-issue `complete` values are true. `-o text` renders the
 same qualification followed by an escaped Markdown table.
 
+Use each issue's `reference_summary` and the top-level `summary` for
+deterministic reference totals, per-kind counts, source-value cardinalities,
+and complete/incomplete/truncated provenance counts. The explicit reconciliation
+booleans prove that those aggregates match the emitted arrays, selection, and
+top-level qualification. A duplicate URL found in several sources is counted
+once within that issue; the same URL on different issues is counted once per
+issue. Do not manually sum `refs` when an aggregate answers the question.
+
 Complete comment qualification costs one paginated comment listing per selected
 issue in addition to the issue selection. Keep JQL narrow and use an explicit
 `--limit`; atl intentionally does not trade this completeness proof for hidden

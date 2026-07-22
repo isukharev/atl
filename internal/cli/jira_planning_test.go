@@ -124,10 +124,20 @@ func TestJiraIssueRefsCLIForKeyAndJQL(t *testing.T) {
 	var one struct {
 		Count    int  `json:"count"`
 		Complete bool `json:"complete"`
-		Issues   []struct {
-			Key      string `json:"key"`
-			Complete bool   `json:"complete"`
-			Refs     []struct {
+		Summary  struct {
+			IssueCount                 int            `json:"issue_count"`
+			ReferenceCount             int            `json:"reference_count"`
+			ReferenceKindCounts        map[string]int `json:"reference_kind_counts"`
+			ReferenceCountMatchesKinds bool           `json:"reference_count_matches_kinds"`
+		} `json:"summary"`
+		Issues []struct {
+			Key              string `json:"key"`
+			Complete         bool   `json:"complete"`
+			ReferenceSummary struct {
+				ReferenceCount int            `json:"reference_count"`
+				SourceCounts   map[string]int `json:"source_value_counts"`
+			} `json:"reference_summary"`
+			Refs []struct {
 				Kind string `json:"kind"`
 				URL  string `json:"url"`
 			} `json:"refs"`
@@ -138,6 +148,12 @@ func TestJiraIssueRefsCLIForKeyAndJQL(t *testing.T) {
 	}
 	if one.Count != 1 || !one.Complete || !one.Issues[0].Complete || one.Issues[0].Key != "PROJ-1" || len(one.Issues[0].Refs) != 2 {
 		t.Fatalf("refs = %+v, want two refs for PROJ-1", one)
+	}
+	if one.Summary.IssueCount != 1 || one.Summary.ReferenceCount != 2 || one.Summary.ReferenceKindCounts["doc"] != 1 || one.Summary.ReferenceKindCounts["design"] != 1 || !one.Summary.ReferenceCountMatchesKinds {
+		t.Fatalf("summary = %+v", one.Summary)
+	}
+	if one.Issues[0].ReferenceSummary.ReferenceCount != 2 || one.Issues[0].ReferenceSummary.SourceCounts["description"] != 1 || one.Issues[0].ReferenceSummary.SourceCounts["comments"] != 1 {
+		t.Fatalf("issue summary = %+v", one.Issues[0].ReferenceSummary)
 	}
 
 	js = newJiraServer(t)
