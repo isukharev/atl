@@ -45,7 +45,8 @@ route once sufficient complete evidence is available. Use exact filters only;
 an unknown task/id is a loud not-found result, not a prompt for fuzzy guessing.
 `capabilities` is local/offline and works without valid config or credentials.
 For `confluence/table-analytics`, prefer the content-free `conf table summary`
-discovery route before extracting a selected table.
+discovery route before extracting a selected table. Its exact structural and
+style cardinalities remove the need to recount content-bearing raw cells.
 
 When the installed plugin exposes `atl` MCP tools, prefer them for transient,
 bounded evidence reads: typed arguments remove shell construction and the

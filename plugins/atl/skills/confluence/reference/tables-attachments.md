@@ -32,8 +32,11 @@ atl conf table extract --id <page-id-or-same-origin-url> [--table N] --format js
 
 Start with `table summary` when deciding which table to read or when only
 structural counts are required. Its bounded JSON contains shapes and separate
-rowspan/colspan source and covered-cell counts, but no page title, cell text,
-URLs, style values, raw attributes, or warning text.
+origin/repeated/padding counts, direct rowspan/colspan metadata plus source and
+covered-cell counts, non-empty text/Markdown/raw counts, style-entry and
+distinct-marker counts, and selection/cell reconciliation. Use these fields
+instead of recounting raw extraction cells. It exposes no page title, cell text,
+URLs, style keys/values, raw attributes, or warning text.
 
 `--table` is 1-based; zero selects all tables. XLSX requires `--out`. CSV
 neutralizes cells starting with spreadsheet formula characters. Keep the safe

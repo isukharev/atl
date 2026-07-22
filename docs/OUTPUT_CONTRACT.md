@@ -904,18 +904,31 @@ The backend hostname and PAT are never written to the manifest.
 {
   "page_id": "123456",
   "table_count": 1,
+  "returned_table_count": 1,
+  "selection_reconciled": true,
   "tables": [{
     "index": 1,
     "row_count": 3,
     "column_count": 2,
+    "rectangular": true,
     "header_row_count": 1,
     "header_cell_count": 2,
     "expanded_cell_count": 6,
+    "origin_cell_count": 5,
     "repeated_cell_count": 1,
+    "synthetic_empty_cell_count": 0,
+    "cell_count_reconciled": true,
+    "nonempty_text_cell_count": 6,
+    "nonempty_markdown_cell_count": 6,
+    "nonempty_raw_cell_count": 2,
     "styled_cell_count": 0,
+    "style_entry_count": 0,
+    "distinct_style_marker_count": 0,
     "linked_cell_count": 1,
+    "rowspan_metadata_cell_count": 2,
     "rowspan_source_cell_count": 1,
     "rowspan_covered_cell_count": 1,
+    "colspan_metadata_cell_count": 0,
     "colspan_source_cell_count": 0,
     "colspan_covered_cell_count": 0,
     "warning_count": 0
@@ -924,9 +937,22 @@ The backend hostname and PAT are never written to the manifest.
 ```
 
 Selecting `--table N` adds `selected_table:N`, limits `tables` to that one
-entry, and keeps the page-wide `table_count`. Every cell count uses the
-expanded rectangular representation. The command never emits page titles,
-cell content, URLs, style values, raw attributes, or warning text.
+entry, and keeps the page-wide `table_count`; `returned_table_count` and
+`selection_reconciled` make that relationship explicit. Every cell count uses
+the expanded representation. `origin_cell_count` counts native `th`/`td`
+origins, `repeated_cell_count` counts span-covered copies, and
+`synthetic_empty_cell_count` counts rectangular padding. A true
+`cell_count_reconciled` proves those three counts equal `expanded_cell_count`
+and the reported row/column shape.
+
+Direct `rowspan_metadata_cell_count` / `colspan_metadata_cell_count` count every
+expanded cell carrying that span metadata, including covered copies; the
+existing source and row/column-covered counts retain their coordinate-based
+semantics. Non-empty text, Markdown, and raw-attribute counts are separate.
+`style_entry_count` sums style-object entries, while
+`distinct_style_marker_count` counts distinct key/value pairs. Only the counts
+are emitted: the command never emits page titles, cell content, URLs, style
+keys/values, raw attributes, or warning text.
 
 `atl jira export diff OLD NEW` reads JSONL/JSON/CSV compact exports and reports issue identifiers:
 

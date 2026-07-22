@@ -74,23 +74,30 @@ func TestConfTableSummaryCLIJSON(t *testing.T) {
 		PageID     string `json:"page_id"`
 		TableCount int    `json:"table_count"`
 		Selected   int    `json:"selected_table"`
+		Returned   int    `json:"returned_table_count"`
+		Reconciled bool   `json:"selection_reconciled"`
 		Tables     []struct {
-			Index                   int `json:"index"`
-			RowCount                int `json:"row_count"`
-			ColumnCount             int `json:"column_count"`
-			RepeatedCellCount       int `json:"repeated_cell_count"`
-			RowspanSourceCellCount  int `json:"rowspan_source_cell_count"`
-			RowspanCoveredCellCount int `json:"rowspan_covered_cell_count"`
+			Index                   int  `json:"index"`
+			RowCount                int  `json:"row_count"`
+			ColumnCount             int  `json:"column_count"`
+			OriginCellCount         int  `json:"origin_cell_count"`
+			RepeatedCellCount       int  `json:"repeated_cell_count"`
+			NonemptyRawCellCount    int  `json:"nonempty_raw_cell_count"`
+			RowspanMetadataCount    int  `json:"rowspan_metadata_cell_count"`
+			RowspanSourceCellCount  int  `json:"rowspan_source_cell_count"`
+			RowspanCoveredCellCount int  `json:"rowspan_covered_cell_count"`
+			Rectangular             bool `json:"rectangular"`
+			CellCountReconciled     bool `json:"cell_count_reconciled"`
 		} `json:"tables"`
 	}
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("decode output: %v\n%s", err, out)
 	}
-	if res.PageID != "12345" || res.TableCount != 2 || res.Selected != 1 || len(res.Tables) != 1 {
+	if res.PageID != "12345" || res.TableCount != 2 || res.Selected != 1 || res.Returned != 1 || !res.Reconciled || len(res.Tables) != 1 {
 		t.Fatalf("summary metadata = %+v", res)
 	}
 	first := res.Tables[0]
-	if first.Index != 1 || first.RowCount != 3 || first.ColumnCount != 2 || first.RepeatedCellCount != 1 || first.RowspanSourceCellCount != 1 || first.RowspanCoveredCellCount != 1 {
+	if first.Index != 1 || first.RowCount != 3 || first.ColumnCount != 2 || first.OriginCellCount != 5 || first.RepeatedCellCount != 1 || first.NonemptyRawCellCount != 2 || first.RowspanMetadataCount != 2 || first.RowspanSourceCellCount != 1 || first.RowspanCoveredCellCount != 1 || !first.Rectangular || !first.CellCountReconciled {
 		t.Fatalf("first table summary = %+v", first)
 	}
 	for _, forbidden := range []string{"Private title", "Shared note", "https://example.test"} {
