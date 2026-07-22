@@ -339,7 +339,7 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 	if contentType != "" {
 		upstreamRequest.Header.Set("Content-Type", contentType)
 	}
-	if token := request.Header.Get("X-Atlassian-Token"); token == "no-check" {
+	if token := reviewedGatewayAtlassianToken(s.name, request.Header.Values("X-Atlassian-Token")); token != "" {
 		upstreamRequest.Header.Set("X-Atlassian-Token", token)
 	}
 	upstreamResponse, err := s.state.upstreamHTTP.Do(upstreamRequest) //nolint:gosec // request origin is pinned above
@@ -378,6 +378,21 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 	if request.Method != http.MethodHead {
 		_, _ = response.Write(responseBody)
 	}
+}
+
+func reviewedGatewayAtlassianToken(service string, values []string) string {
+	if len(values) != 1 {
+		return ""
+	}
+	switch values[0] {
+	case "no-check":
+		return values[0]
+	case "nocheck":
+		if service == "confluence" {
+			return values[0]
+		}
+	}
+	return ""
 }
 
 func (s *liveGatewayService) completeDenied(response http.ResponseWriter, request *http.Request, route, identity string, requestBytes int64, started time.Time, reason string) {
