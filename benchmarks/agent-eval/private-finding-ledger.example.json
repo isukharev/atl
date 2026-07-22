@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "finding_id": "finding-001",
+      "failure": {
+        "plan_id": "pln-11111111111111111111111111111111",
+        "surface": "cli-skill",
+        "baseline": "failure-capture"
+      },
+      "failure_class": "model",
+      "product_issue": 123,
+      "pull_request": 124,
+      "changed_contract_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "regression": {
+        "plan_id": "pln-22222222222222222222222222222222",
+        "surface": "cli-skill",
+        "baseline": "regression-capture"
+      },
+      "decision": "fixed"
+    }
+  ]
+}

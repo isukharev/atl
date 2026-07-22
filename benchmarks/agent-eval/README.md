@@ -62,6 +62,16 @@ deterministically correct answers, review answers blind to surface identity,
 and report per-class macro summaries plus a Pareto view rather than one total
 score.
 
+Private findings can be reconciled offline through the strict owner-only
+ledger described by
+[`private-finding-ledger.schema.json`](private-finding-ledger.schema.json).
+`private scorecard` validates immutable compact-baseline failure/regression
+surfaces tied back to completed plans and emits only generic cohorts, closed
+counts, explicit coverage, and metric
+quantiles. The real ledger and scorecard remain private; the committed
+[`private-finding-ledger.example.json`](private-finding-ledger.example.json) is
+synthetic and contains no backend data.
+
 ## Public synthetic suite
 
 ### Skill discovery routing contract

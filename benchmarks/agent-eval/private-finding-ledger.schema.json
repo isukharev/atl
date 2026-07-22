@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/isukharev/atl/benchmarks/agent-eval/private-finding-ledger.schema.json",
+  "title": "ATL private agent-evaluation finding ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "entries"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "finding_id",
+        "failure",
+        "failure_class",
+        "product_issue",
+        "decision"
+      ],
+      "properties": {
+        "finding_id": {
+          "$ref": "#/$defs/id"
+        },
+        "failure": {
+          "$ref": "#/$defs/runRef"
+        },
+        "failure_class": {
+          "enum": [
+            "model",
+            "contract-preflight",
+            "transport-vpn",
+            "backend-drift",
+            "unsupported-capability",
+            "safety",
+            "qualitative",
+            "harness"
+          ]
+        },
+        "product_issue": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pull_request": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "changed_contract_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "regression": {
+          "$ref": "#/$defs/runRef"
+        },
+        "decision": {
+          "enum": ["fixed", "accepted", "unsupported", "deferred", "investigate"]
+        }
+      },
+      "dependentRequired": {
+        "pull_request": ["changed_contract_sha256"],
+        "changed_contract_sha256": ["pull_request"]
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "decision": {
+                "const": "fixed"
+              }
+            },
+            "required": ["decision"]
+          },
+          "then": {
+            "required": ["pull_request", "changed_contract_sha256", "regression"]
+          }
+        }
+      ]
+    },
+    "runRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan_id", "surface", "baseline"],
+      "properties": {
+        "plan_id": {
+          "type": "string",
+          "pattern": "^pln-[0-9a-f]{32}$"
+        },
+        "surface": {
+          "enum": ["cli-skill", "atl-mcp", "external-mcp"]
+        },
+        "baseline": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$",
+          "not": {
+            "const": "current"
+          }
+        }
+      }
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}
