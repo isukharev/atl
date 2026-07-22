@@ -25,7 +25,7 @@ var mcpCapabilityFamilies = map[string]string{
 
 var allowedCapabilityFamilies = map[string]struct{}{
 	"atl.config": {}, "atl.capabilities": {}, "jira.fields": {}, "jira.issue.fields": {},
-	"jira.issue.field": {}, "jira.issue.field.preview": {}, "jira.issue.field.set": {}, "jira.issue.refs": {}, "jira.issue.worklog.list": {}, "jira.issue.worklog.add": {}, "jira.issue.search": {}, "jira.issue.batch-read": {}, "jira.epic.digest": {}, "jira.board.view": {},
+	"jira.issue.field": {}, "jira.issue.field.preview": {}, "jira.issue.field.set": {}, "jira.issue.refs": {}, "jira.issue.worklog.list": {}, "jira.issue.worklog.add": {}, "jira.issue.search": {}, "jira.issue.batch-read": {}, "jira.epic.digest": {}, "jira.board.list": {}, "jira.board.view": {},
 	"jira.planning.report": {},
 	"jira.export":          {}, "jira.export.diff": {}, "jira.structure.folders": {}, "jira.structure.rows": {}, "jira.structure.values": {},
 	"confluence.diff": {}, "confluence.search": {}, "confluence.page.resolve": {}, "confluence.page.outline": {}, "confluence.page.section": {},
@@ -188,7 +188,7 @@ matched:
 		{[]string{"jira", "issue", "worklog", "list"}, "jira.issue.worklog.list"},
 		{[]string{"jira", "issue", "worklog", "add"}, "jira.issue.worklog.add"},
 		{[]string{"jira", "issue", "field", "get"}, "jira.issue.field"}, {[]string{"jira", "issue", "fields"}, "jira.issue.fields"}, {[]string{"jira", "issue", "refs"}, "jira.issue.refs"}, {[]string{"jira", "epic", "digest"}, "jira.epic.digest"},
-		{[]string{"jira", "issue", "search"}, "jira.issue.search"}, {[]string{"jira", "board", "view"}, "jira.board.view"}, {[]string{"jira", "fields"}, "jira.fields"},
+		{[]string{"jira", "issue", "search"}, "jira.issue.search"}, {[]string{"jira", "board", "list"}, "jira.board.list"}, {[]string{"jira", "board", "view"}, "jira.board.view"}, {[]string{"jira", "fields"}, "jira.fields"},
 		{[]string{"jira", "planning", "report"}, "jira.planning.report"}, {[]string{"jira", "quality-report"}, "jira.planning.report"},
 		{[]string{"jira", "export", "diff"}, "jira.export.diff"}, {[]string{"jira", "export"}, "jira.export"},
 		{[]string{"jira", "structure", "folders"}, "jira.structure.folders"}, {[]string{"jira", "structure", "rows"}, "jira.structure.rows"},

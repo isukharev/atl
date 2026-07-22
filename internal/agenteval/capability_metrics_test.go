@@ -59,6 +59,9 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 		{[]string{"jira", "structure", "folders", "42"}, "jira.structure.folders"},
 		{[]string{"jira", "structure", "rows", "42"}, "jira.structure.rows"},
 		{[]string{"jira", "structure", "values", "42", "--rows", "100"}, "jira.structure.values"},
+		{[]string{"jira", "board", "list", "--project", "DEMO"}, "jira.board.list"},
+		{[]string{"--read-only", "--config-dir", "/tmp/config", "jira", "board", "list", "--limit", "20"}, "jira.board.list"},
+		{[]string{"jira", "board", "view", "42", "--scope", "all"}, "jira.board.view"},
 		{[]string{"jira", "issue", "worklog", "list", "PROJ-1"}, "jira.issue.worklog.list"},
 		{[]string{"jira", "issue", "worklog", "add", "PROJ-1", "--time", "30m"}, "jira.issue.worklog.add"},
 		{[]string{"jira", "planning", "report", "--jql", "project = DEMO"}, "jira.planning.report"},
@@ -123,6 +126,18 @@ func TestJiraPlanningReportCapabilityFamilyNormalizes(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(metrics) != 1 || metrics[0].Family != "jira.planning.report" {
+		t.Fatalf("metrics=%+v", metrics)
+	}
+}
+
+func TestJiraBoardListCapabilityFamilyNormalizes(t *testing.T) {
+	metrics, err := normalizeCapabilityFamilies([]CapabilityFamilyMetric{{
+		Family: "jira.board.list", Invocations: 1, Successes: 1, OutputBytes: 42,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(metrics) != 1 || metrics[0].Family != "jira.board.list" {
 		t.Fatalf("metrics=%+v", metrics)
 	}
 }
