@@ -449,6 +449,12 @@ requires atl's one reconciliation read, reports `unknown`, and forbids replay.
 All variants require an exact `atl:jira` Skill event and a structured answer;
 the rubric scores the review boundary, proposal binding, ambiguity handling,
 actionability, and concision without retaining proposed field content.
+The current corpus provides semantically equivalent Codex and Claude Code
+specs for all three variants. Codex commands are constrained by exact argv and
+one-invocation rules. Execution success and the reported structured outcome
+remain independent oracles, so a response that misreports an observed apply is
+retained as a deterministic model failure rather than rewritten from runner
+telemetry.
 The reviewed Claude Code baseline passed 3/3 in every variant and scored
 10,000 bps on all nine answers. Median trajectories were one atl invocation /
 two GETs for preview, two invocations / four GETs / one PUT for apply, and two
@@ -471,6 +477,14 @@ after a 409, or an unavailable reconciliation read after an ambiguous 5xx. The
 method oracle remains `GET=1` for preview and `GET=3,PUT=1` for every approved
 variant. Sequence exhaustion, a second PUT, a different body, a copied/wrong
 proposal hash, an extra command, or replay makes the run fail.
+
+Codex and Claude Code have current specs for preview, apply, conflict, and
+ambiguous outcomes with shared fixtures, schemas, budgets, and semantic
+checks. The Codex write route admits only the exact guarded
+`env -u ATL_READ_ONLY atl ...` shape before revalidating argv in the broker;
+shell separators, exit-code suffixes, substitutions, redirects, and additional
+commands are denied before any interface attempt. Provider-native prompt and
+skill-event mechanics are not treated as semantic outcome differences.
 
 The reviewed Claude Code baseline passed 3/3 for preview, reviewed apply,
 version-conflict-no-replay, and ambiguous-no-replay; all twelve answers scored

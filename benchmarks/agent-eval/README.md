@@ -263,6 +263,16 @@ synthetic server error, performs the built-in reconciliation read, and must not
 replay the write. All three variants require the exact `atl:jira` skill and
 exact method counts; the write fixtures additionally reject any JSON body other
 than the reviewed field/value pair.
+
+Both mutation families now carry Codex and Claude Code specs for every state:
+three Jira field variants and four Confluence plan variants. The providers
+share fixtures, response schemas, budgets, and semantic checks; Codex uses an
+exact structured argv policy for each operation, while provider-native skill
+evidence remains mechanical. A successful or failed command observation does
+not overwrite the model response: reporting the wrong outcome fails the
+semantic oracle. Reviewed writes also reject exit-code probes, separators,
+substitutions, redirects, and command suffixes in the pre-tool guard before an
+interface or backend attempt can occur.
 The first reviewed Claude Code baseline passed 3/3 for preview, apply, and
 ambiguous-no-replay; all nine answers scored 10,000 bps. Stable trajectory
 medians were respectively `GET=2`, `GET=4/PUT=1`, and `GET=5/PUT=1`.

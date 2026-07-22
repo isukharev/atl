@@ -160,6 +160,138 @@ func TestRepositoryStructureAndTableV2ProviderParityIsZeroWrite(t *testing.T) {
 	}
 }
 
+func TestRepositoryMutationOutcomeProviderParity(t *testing.T) {
+	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
+	tests := []struct {
+		directory string
+		variant   string
+	}{
+		{directory: "jira-field-mutation", variant: "preview"},
+		{directory: "jira-field-mutation", variant: "apply"},
+		{directory: "jira-field-mutation", variant: "unknown"},
+		{directory: "confluence-plan-mutation", variant: "preview"},
+		{directory: "confluence-plan-mutation", variant: "apply"},
+		{directory: "confluence-plan-mutation", variant: "conflict"},
+		{directory: "confluence-plan-mutation", variant: "unknown"},
+	}
+	for _, test := range tests {
+		t.Run(test.directory+"/"+test.variant, func(t *testing.T) {
+			claude := loadRepositoryRunSpec(t, filepath.Join(root, test.directory, "run."+test.variant+".claude.json"))
+			codex := loadRepositoryRunSpec(t, filepath.Join(root, test.directory, "run."+test.variant+".codex.json"))
+			if claude.Provider != "claude-code" || claude.Model != "claude-opus-4-8" ||
+				codex.Provider != "codex" || codex.Model != "gpt-5.6-luna" {
+				t.Fatalf("provider/model parity drifted: claude=%s/%s codex=%s/%s", claude.Provider, claude.Model, codex.Provider, codex.Model)
+			}
+			if claude.Variant != strings.TrimSuffix(codex.Variant, "-codex") || claude.ScenarioFile != codex.ScenarioFile || claude.FixtureFile != codex.FixtureFile ||
+				claude.ResponseSchemaFile != codex.ResponseSchemaFile || claude.QualitativeRubricFile != codex.QualitativeRubricFile ||
+				claude.WorkspaceTemplate != codex.WorkspaceTemplate || claude.Category != codex.Category || claude.Surface != codex.Surface ||
+				claude.Reasoning != codex.Reasoning || claude.Repetitions != codex.Repetitions || claude.TimeoutSeconds != codex.TimeoutSeconds ||
+				claude.MaxEstimatedCostMicroUSD != codex.MaxEstimatedCostMicroUSD || claude.AllowSyntheticWrites != codex.AllowSyntheticWrites {
+				t.Fatalf("shared mutation contract drifted: claude=%+v codex=%+v", claude, codex)
+			}
+			claudeSemantic, err := semanticRunChecks(claude.Checks)
+			if err != nil {
+				t.Fatal(err)
+			}
+			codexSemantic, err := semanticRunChecks(codex.Checks)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !equalPrivateComparisonJSON(claudeSemantic, codexSemantic) {
+				t.Fatalf("semantic mutation checks drifted: claude=%+v codex=%+v", claudeSemantic, codexSemantic)
+			}
+			if len(codex.AllowedATLCommands) != 0 {
+				t.Fatal("Codex mutation spec retained prefix-based command authority")
+			}
+			policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: codex.AllowedCLICommands}
+			if err := policy.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			for _, rule := range policy.Rules {
+				if rule.MaxInvocations != 1 {
+					t.Fatalf("command %q permits %d invocations", rule.Name, rule.MaxInvocations)
+				}
+			}
+		})
+	}
+}
+
+func TestRepositoryMutationOutcomeReportCannotOverrideObservedSuccess(t *testing.T) {
+	root := filepath.Join("..", "..", "benchmarks", "agent-eval", "jira-field-mutation")
+	spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.apply.claude.json"))
+	final := []byte(`{"issue_key":"PROJ-1","field_id":"customfield_12000","expected_updated":"2026-07-15T09:30:00.000+0000","proposal_hash":"6aa69ce56ee417153cbaa0df68b82e9eb7530111e6878f5758111ce73b144a66","outcome":"would_apply","write_attempted":true,"replayed":false,"next_action":"complete"}`)
+	checks, err := evaluateRunChecks(spec.Checks, final, "", 2, 0, 0, 1, map[string]int{"atl:jira": 1}, 0, 0, map[string]int{"GET": 4, "PUT": 1}, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !checks["atl_outcome_expected"] || checks["outcome_correct"] {
+		t.Fatalf("execution/report disagreement was not isolated: %+v", checks)
+	}
+
+	scenarioFile, err := os.Open(filepath.Join(root, "scenario.v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenario, decodeErr := DecodeScenario(scenarioFile)
+	closeErr := scenarioFile.Close()
+	if decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	coverage := make(map[string]bool, len(scenario.RequiredMetrics)+1)
+	for _, metric := range scenario.RequiredMetrics {
+		coverage[metric] = true
+	}
+	coverage["remote_writes"] = true
+	result, err := Evaluate(scenario, Observation{
+		SchemaVersion: ObservationSchemaVersion,
+		ScenarioID:    scenario.ID,
+		Variant:       spec.Variant,
+		Surface:       spec.Surface,
+		Runtime:       Runtime{Provider: "deterministic", ATLVersion: "test"},
+		Metrics: InputMetrics{
+			AgentTurns: 1, ToolCalls: 2, ATLInvocations: 2, OutputBytes: int64(len(final)),
+			InputTokens: 1, OutputTokens: 1, MainThreadInputTokens: 1, MainThreadOutputTokens: 1,
+			EstimatedCostMicroUSD: 1, DurationMillis: 1,
+		},
+		Coverage: coverage, HTTPMethods: map[string]int{"GET": 4, "PUT": 1}, Checks: checks,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "fail" || !containsViolation(result.Violations, "required_check_failed", "outcome_correct") {
+		t.Fatalf("misreported successful execution did not fail deterministically: %+v", result)
+	}
+}
+
+func loadRepositoryRunSpec(t *testing.T, path string) RunSpec {
+	t.Helper()
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, decodeErr := DecodeRunSpec(file)
+	closeErr := file.Close()
+	if decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	return spec
+}
+
+func containsViolation(violations []Violation, code, subject string) bool {
+	for _, violation := range violations {
+		if violation.Code == code && violation.Subject == subject {
+			return true
+		}
+	}
+	return false
+}
+
 func TestRepositoryClaudeCorpusUsesReviewedOpus48HighCohort(t *testing.T) {
 	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
 	claudeRuns := 0
