@@ -15,6 +15,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path"
@@ -130,6 +131,7 @@ func StartLiveGateway(config LiveGatewayConfig) (*LiveGateway, error) {
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
+	transport.DialContext = singleStackGatewayDialContext(transport.DialContext, net.DefaultResolver)
 	state := &liveGatewayState{
 		config: config, audit: audit, hmacKey: key,
 		concurrency: make(chan struct{}, config.MaxConcurrent), routeRequests: map[string]int{},
@@ -179,6 +181,56 @@ func StartLiveGateway(config LiveGatewayConfig) (*LiveGateway, error) {
 		go func() { _ = server.Serve(listener) }()
 	}
 	return gateway, nil
+}
+
+type gatewayIPResolver interface {
+	LookupIPAddr(context.Context, string) ([]net.IPAddr, error)
+}
+
+func singleStackGatewayDialContext(
+	dial func(context.Context, string, string) (net.Conn, error),
+	resolver gatewayIPResolver,
+) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		return dial(ctx, gatewayDialNetwork(ctx, resolver, network, address), address)
+	}
+}
+
+func gatewayDialNetwork(ctx context.Context, resolver gatewayIPResolver, network, address string) string {
+	if network != "tcp" {
+		return network
+	}
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return network
+	}
+	if ip, err := netip.ParseAddr(host); err == nil {
+		if ip.Is4() {
+			return "tcp4"
+		}
+		return "tcp6"
+	}
+	addresses, err := resolver.LookupIPAddr(ctx, host)
+	if err != nil || len(addresses) == 0 {
+		return network
+	}
+	var ipv4, ipv6 bool
+	for _, address := range addresses {
+		switch {
+		case address.IP.To4() != nil:
+			ipv4 = true
+		case address.IP.To16() != nil:
+			ipv6 = true
+		}
+	}
+	switch {
+	case ipv4 && !ipv6:
+		return "tcp4"
+	case ipv6 && !ipv4:
+		return "tcp6"
+	default:
+		return network
+	}
 }
 
 func (g *LiveGateway) Endpoints() map[string]LiveGatewayEndpoint {

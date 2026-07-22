@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +16,59 @@ import (
 	"testing"
 	"time"
 )
+
+func TestSingleStackGatewayDialContextSelectsOnlyResolvedFamily(t *testing.T) {
+	lookupErr := errors.New("lookup failed")
+	tests := []struct {
+		name      string
+		network   string
+		address   string
+		addresses []net.IPAddr
+		lookupErr error
+		want      string
+		lookups   int
+	}{
+		{name: "IPv4 literal", network: "tcp", address: "192.0.2.1:443", want: "tcp4"},
+		{name: "IPv6 literal", network: "tcp", address: "[2001:db8::1]:443", want: "tcp6"},
+		{name: "zoned IPv6 literal", network: "tcp", address: "[fe80::1%eth0]:443", want: "tcp6"},
+		{name: "IPv4 only DNS", network: "tcp", address: "example.test:443", addresses: []net.IPAddr{{IP: net.ParseIP("192.0.2.1")}}, want: "tcp4", lookups: 1},
+		{name: "IPv6 only DNS", network: "tcp", address: "example.test:443", addresses: []net.IPAddr{{IP: net.ParseIP("2001:db8::1")}}, want: "tcp6", lookups: 1},
+		{name: "mixed DNS", network: "tcp", address: "example.test:443", addresses: []net.IPAddr{{IP: net.ParseIP("192.0.2.1")}, {IP: net.ParseIP("2001:db8::1")}}, want: "tcp", lookups: 1},
+		{name: "empty DNS", network: "tcp", address: "example.test:443", want: "tcp", lookups: 1},
+		{name: "resolution failure", network: "tcp", address: "example.test:443", lookupErr: lookupErr, want: "tcp", lookups: 1},
+		{name: "malformed address", network: "tcp", address: "example.test", want: "tcp"},
+		{name: "explicit IPv4 family", network: "tcp4", address: "example.test:443", want: "tcp4"},
+		{name: "explicit IPv6 family", network: "tcp6", address: "example.test:443", want: "tcp6"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolver := &stubGatewayResolver{addresses: test.addresses, err: test.lookupErr}
+			var gotNetwork, gotAddress string
+			dialErr := errors.New("dial stopped")
+			dial := singleStackGatewayDialContext(func(_ context.Context, network, address string) (net.Conn, error) {
+				gotNetwork, gotAddress = network, address
+				return nil, dialErr
+			}, resolver)
+			if _, err := dial(context.Background(), test.network, test.address); !errors.Is(err, dialErr) {
+				t.Fatalf("dial error = %v, want %v", err, dialErr)
+			}
+			if gotNetwork != test.want || gotAddress != test.address || resolver.lookups != test.lookups {
+				t.Fatalf("network=%q address=%q lookups=%d, want network=%q address=%q lookups=%d", gotNetwork, gotAddress, resolver.lookups, test.want, test.address, test.lookups)
+			}
+		})
+	}
+}
+
+type stubGatewayResolver struct {
+	addresses []net.IPAddr
+	err       error
+	lookups   int
+}
+
+func (r *stubGatewayResolver) LookupIPAddr(context.Context, string) ([]net.IPAddr, error) {
+	r.lookups++
+	return r.addresses, r.err
+}
 
 func TestLiveGatewayBrokersCredentialsAndWritesPrivateAudit(t *testing.T) {
 	var upstreamCalls atomic.Int64
