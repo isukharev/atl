@@ -32,6 +32,7 @@ const (
 	codexPrivateCLIInstructionsText           = "This is an evidence task. Use the literal atl executable through the shell tool to retrieve the evidence required for the answer. Make only the minimum necessary invocation or invocations allowed by the reviewed command policy. Base the answer on the returned evidence; a no-tool answer or an answer based on assumptions is invalid for this benchmark. Never use apply_patch, Edit, Write, or direct filesystem operations to create, inspect, or modify command-broker manifests or request/response files. If evidence retrieval through atl fails, do not invent or use an alternate broker-file protocol; return the failure through the required response schema."
 	codexPrivateCLIInstructionsReinforcedTail = ", then use the literal atl executable through the shell tool to retrieve the evidence required for the answer. Make only the minimum necessary invocation or invocations allowed by the reviewed command policy. Base the answer on the returned evidence; a no-tool answer or an answer based on assumptions is invalid for this benchmark. Never use apply_patch, Edit, Write, or direct filesystem operations to create, inspect, or modify command-broker manifests or request/response files. If evidence retrieval through atl fails, do not invent or use an alternate broker-file protocol; return the failure through the required response schema."
 	maxProviderPromptBytes                    = 1 << 20
+	claudeExternalMCPProxyDenial              = "Error: Streamable HTTP error: Error POSTing to endpoint: external MCP proxy denied request"
 )
 
 type ProviderMetrics struct {
@@ -808,7 +809,7 @@ func countClaudeMCPResults(event map[string]any, mcpToolUseIDs map[string]string
 			if strings.HasPrefix(result, "Error: No such tool available:") {
 				continue
 			}
-			if !isClaudeMCPServerError(result) {
+			if !isClaudeMCPServerError(result) && result != claudeExternalMCPProxyDenial {
 				return 0, 0, 0, nil, false, fmt.Errorf("claude MCP result has an unsupported client-side shape")
 			}
 		default:
