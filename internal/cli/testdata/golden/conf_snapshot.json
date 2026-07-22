@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "service": "confluence",
+  "remote_requested": false,
+  "complete": true,
+  "reconciled": true,
+  "local": {
+    "present": 1,
+    "clean": 0,
+    "locally_edited": 1,
+    "tracked": 1,
+    "untracked": 0,
+    "non_canonical": 0,
+    "reconciled": true
+  },
+  "native": {
+    "total": 1,
+    "unchanged": 0,
+    "added": 0,
+    "removed": 0,
+    "modified": 1,
+    "malformed": 0,
+    "missing_baseline": 0,
+    "baseline_mismatch": 0,
+    "unreadable": 0,
+    "baseline_present": 1,
+    "baseline_missing": 0,
+    "baseline_unreadable": 0,
+    "baseline_valid": 1,
+    "baseline_invalid": 0,
+    "reconciled": true
+  },
+  "validation": {
+    "total": 1,
+    "present": 1,
+    "absent": 0,
+    "valid": 1,
+    "invalid": 0,
+    "unreadable": 0,
+    "reconciled": true
+  },
+  "render": {
+    "expected": 1,
+    "present": 1,
+    "missing": 0,
+    "current": 1,
+    "legacy": 0,
+    "missing_marker": 0,
+    "unsupported": 0,
+    "unreadable": 0,
+    "state_recorded": 0,
+    "state_missing": 1,
+    "renderer_compatible": true,
+    "reconciled": true
+  },
+  "remote": {
+    "requested": false,
+    "eligible": 1,
+    "attempted": 0,
+    "not_attempted": 1,
+    "checked": 0,
+    "in_sync": 0,
+    "drifted": 0,
+    "unavailable": 0,
+    "reconciled": true
+  }
+}

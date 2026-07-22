@@ -428,6 +428,43 @@ sidecar patches under the shared `.atl/state.lock`; cross-service state
 contention is retried for a brief fixed window, then fails closed and cannot
 lose unrelated entries.
 
+`atl conf snapshot [DIR]` emits the content-free aggregate contract
+`{schema_version:1,service:"confluence",remote_requested,complete,reconciled,
+local,native,validation,render,remote}`. It intentionally omits root/target,
+page identity, title, path, hashes, validation messages, and body/view bytes.
+The offline default requires no config or credentials and performs no network
+or filesystem writes.
+
+`local` partitions `present` into `clean|locally_edited` and
+`tracked|untracked`, with `non_canonical` as an explicit untracked subset.
+`native` repeats the closed `conf diff` state cardinalities and separately
+partitions baselines into `baseline_present|baseline_missing|
+baseline_unreadable`, then present baselines into
+`baseline_valid|baseline_invalid`. `validation` partitions every native target
+into present/absent candidates and every present candidate into valid/invalid;
+`unreadable` qualifies inspection failures without exposing their text.
+
+`render` partitions every present native page into present/missing/unreadable
+views, then present views into `current|legacy|missing_marker|unsupported`.
+Recorded/missing view-state counts form a second exact partition.
+`renderer_compatible` is false for unsupported/future or unreadable views. It
+is only a format-compatibility statement, not proof that rendering would
+preserve edits, and never causes an automatic render. With `--remote`, `remote`
+partitions all present local pages into attempted/not-attempted; attempted pages
+must be an eligible tracked canonical subset. It then partitions attempts into
+checked/unavailable and checked results into in-sync/drifted. One metadata probe
+is started per attempted page with generic
+replay-safe transport retries disabled; ordinary same-origin redirect policy
+still applies. Without `--remote`, all pages remain not attempted.
+
+Every nested `reconciled` proves its declared equations and top-level
+`reconciled` requires all of them. `complete` is evidence availability, not a
+health or publish decision: it becomes false for incomplete native comparison,
+unreadable views, or requested unavailable remote evidence. Corrupt baseline
+evidence preserves the qualified stdout contract and exit `8`. Any incomplete
+local evidence stops before remote configuration, credential resolution, or the
+first probe.
+
 `atl conf diff [file.csf|DIR]` is an offline, lock-free comparison with
 `schema_version:1`. Its top-level contract is
 `{schema_version,root,target,complete,summary,pages}`. Pages are sorted by path

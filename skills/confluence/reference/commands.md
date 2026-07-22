@@ -187,6 +187,7 @@ identifier per line.
 | `conf pull` | Mirror pages | selector; complete delta via `--incremental`, first-run RFC3339 `--since`, `--max-pages`; assets/comments/Jira macros/render flags |
 | `conf render` | Regenerate Markdown offline | path, render flags, `--into` |
 | `conf status` | Dirty/drift state | path, `--remote` |
+| `conf snapshot` | Exact content-free mirror/baseline/validation/render/drift cardinalities | path, `--remote` |
 | `conf diff` | Offline baseline → candidate semantics; `baseline_mismatch` is corrupt sync evidence | file/dir, `--into`; JSON for evidence |
 | `conf plan create` | Freeze a private deterministic batch | file/dir, `--into`, required `--out` |
 | `conf plan preview` | Complete read-only local/remote preflight | plan; works under `ATL_READ_ONLY` |

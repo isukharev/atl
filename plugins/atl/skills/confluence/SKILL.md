@@ -76,6 +76,9 @@ Run `atl conf status <existing-root> --remote` first. Preserve and reconcile a
 locally edited mirror before any pull. Re-pull a clean remote-drifted mirror
 before editing; a clean non-drifted mirror is already a valid base. A transient
 view that becomes an edit request must be discarded in favor of a fresh pull.
+For aggregate mirror-health questions, prefer `conf snapshot` so atl supplies
+the exact local/baseline/validation/render/drift counts and reconciliation;
+expand with `conf diff` only when page identities or detailed deltas are needed.
 
 If a workflow profile exists, load only preferences, Confluence render defaults,
 and active config. Profile root/render values are memory, not runtime. Present
@@ -97,10 +100,12 @@ For an offline directory review, start with:
 
 ```bash
 export ATL_READ_ONLY=1
+atl conf snapshot <DIR>
 atl conf diff <DIR> -o text
 ```
 
-The root-relative table labels each entry `semantic`, `byte-only`, `none`, or
+Use the content-free snapshot alone for exact health cardinalities. The
+root-relative diff table labels each entry `semantic`, `byte-only`, `none`, or
 `n/a`. Request JSON only for block hashes, feature deltas, byte windows,
 canonical paths, or validation details. The command can emit useful evidence
 and still exit 8 for `baseline_mismatch`; preserve the candidate, do not retry

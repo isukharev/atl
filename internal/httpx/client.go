@@ -396,7 +396,11 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 	}
 	var lastErr error
 	skipBackoff := false
-	for attempt := 0; attempt <= maxRetries; attempt++ {
+	retries := maxRetries
+	if domain.SingleAttempt(ctx) {
+		retries = 0
+	}
+	for attempt := 0; attempt <= retries; attempt++ {
 		if attempt > 0 && !skipBackoff {
 			if !sleep(ctx, backoff(attempt)) {
 				return nil, ctx.Err()
@@ -640,7 +644,11 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 	}
 	var lastErr error
 	skipBackoff := false
-	for attempt := 0; attempt <= maxRetries; attempt++ {
+	retries := maxRetries
+	if domain.SingleAttempt(ctx) {
+		retries = 0
+	}
+	for attempt := 0; attempt <= retries; attempt++ {
 		if attempt > 0 && !skipBackoff {
 			if !sleep(ctx, backoff(attempt)) {
 				return nil, ctx.Err()

@@ -46,6 +46,7 @@ Each item in a real `atl conf push` reports one of:
 ## Pre-push checklist
 
 1. `atl conf validate <file.csf>` → no `error`-severity problems.
-2. `atl conf status ~/.atl/<workspace>/ --remote` → not unexpectedly `remote_drifted`.
+2. `atl conf snapshot ~/.atl/<workspace>/ --remote` → `complete:true`,
+   `reconciled:true`, and no unexpected local/remote/render/baseline failures.
 3. `atl conf push --dry-run <file>` → diff and `removed_fragments` look intended.
 4. `atl conf push <file>` → confirm `pushed: true`.

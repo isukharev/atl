@@ -46,6 +46,9 @@ an unknown task/id is a loud not-found result, not a prompt for fuzzy guessing.
 For `confluence/table-analytics`, prefer the content-free `conf table summary`
 discovery route before extracting a selected table. Its exact structural and
 style cardinalities remove the need to recount content-bearing raw cells.
+For durable Confluence mirror health, prefer the content-free `conf snapshot`
+route before expanding individual pages with `conf diff`; use its reconciled
+cardinalities instead of manually joining status, validation, and render rows.
 
 When the installed plugin exposes `atl` MCP tools, prefer them for transient,
 bounded evidence reads: typed arguments remove shell construction and the

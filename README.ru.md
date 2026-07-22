@@ -373,6 +373,10 @@ atl conf push mirror/DOCS/acme-adr/acme-adr.csf
 # Статус синхронизации
 atl conf status mirror --remote
 
+# Точные счётчики mirror/baseline/validation/render без содержимого (по умолчанию офлайн)
+ATL_READ_ONLY=1 atl conf snapshot mirror
+ATL_READ_ONLY=1 atl conf snapshot mirror --remote # один single-attempt metadata probe на tracked-страницу
+
 # Для нескольких страниц: зафиксируйте набор, сделайте preview и примените точный план.
 atl conf plan create mirror/DOCS/ --out .atl-private/docs-plan.json
 ATL_READ_ONLY=1 atl conf plan preview .atl-private/docs-plan.json
