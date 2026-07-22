@@ -102,8 +102,13 @@ atl jira issue history KEY-123 --field 'Delivery Notes' --since 2026-07-01
 ```
 
 Require top-level and named-source completeness before claiming a link/change
-is absent. Use `jira epic digest` instead when an epic question spans children,
-status narrative, comments, history, and refs.
+is absent. For refs, use top-level `summary` and per-issue
+`reference_summary` for total/per-kind references and source-value counts; do
+not manually add the nested arrays. The reconciliation booleans make count and
+completeness disagreements explicit. A repeated URL is deduplicated within one
+issue but counted once per issue across a multi-issue selection. Use
+`jira epic digest` instead when an epic question spans children, status
+narrative, comments, history, and refs.
 
 ### 5. Escalate only when bounded reads are insufficient
 

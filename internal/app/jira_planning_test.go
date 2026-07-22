@@ -130,6 +130,16 @@ func TestIssueRefsSupportsKeyAndJQL(t *testing.T) {
 	if one.Count != 1 || !one.Complete || !one.Selection.Complete || !one.Issues[0].Complete || one.Issues[0].Key != "PROJ-2" || len(one.Issues[0].Refs) != 2 {
 		t.Fatalf("one refs = %+v, want two refs for PROJ-2", one)
 	}
+	if one.Summary.IssueCount != 1 || one.Summary.ReferenceCount != 2 || one.Summary.ReferenceKindCounts["doc"] != 1 || one.Summary.ReferenceKindCounts["design"] != 1 || one.Summary.SourceValueCounts["description"] != 1 || one.Summary.SourceValueCounts["comments"] != 1 {
+		t.Fatalf("one summary = %+v", one.Summary)
+	}
+	if !one.Summary.CountMatchesIssues || !one.Summary.SelectionCountMatchesIssues || !one.Summary.ReferenceCountMatchesKinds || !one.Summary.IssueSummariesReconciled || !one.Summary.CompleteMatchesInputs || !one.Summary.TruncatedMatchesInputs {
+		t.Fatalf("one reconciliation = %+v", one.Summary)
+	}
+	issueSummary := one.Issues[0].ReferenceSummary
+	if issueSummary.ReferenceCount != 2 || issueSummary.SourceCount != 2 || issueSummary.CompleteSourceCount != 2 || issueSummary.IncompleteSourceCount != 0 || !issueSummary.ReferenceCountMatchesKinds || !issueSummary.CompleteMatchesSources || !issueSummary.TruncatedMatchesSources {
+		t.Fatalf("issue summary = %+v", issueSummary)
+	}
 
 	all, err := svc.IssueRefs(context.Background(), JiraIssueRefsOpts{JQL: "project = PROJ", Limit: 10})
 	if err != nil {
@@ -137,6 +147,43 @@ func TestIssueRefsSupportsKeyAndJQL(t *testing.T) {
 	}
 	if all.Count != 2 || !all.Complete || all.Issues[0].Key != "PROJ-1" || all.Issues[1].Key != "PROJ-2" {
 		t.Fatalf("all refs = %+v, want sorted issue rows", all.Issues)
+	}
+	if all.Summary.IssueCount != 2 || all.Summary.CompleteIssueCount != 2 || all.Summary.ReferenceCount != 2 || !all.Summary.IssueSummariesReconciled {
+		t.Fatalf("all summary = %+v", all.Summary)
+	}
+}
+
+func TestIssueRefsSummaryCountsDeduplicatedReferencesOncePerIssue(t *testing.T) {
+	shared := "https://docs.example.com/spec"
+	tracker := qualifiedRefsTracker{
+		issues: []domain.Issue{{Key: "PROJ-1", Body: shared}, {Key: "PROJ-2", Body: shared}},
+		comments: map[string][]domain.Comment{"PROJ-1": {
+			{Body: shared},
+			{Body: "https://figma.com/file/abc"},
+		}, "PROJ-2": {}},
+	}
+	result, err := (&JiraService{tr: tracker}).IssueRefs(context.Background(), JiraIssueRefsOpts{JQL: "project = PROJ", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Issues[0].Refs) != 2 || len(result.Issues[1].Refs) != 1 || result.Summary.ReferenceCount != 3 || result.Summary.ReferenceKindCounts["doc"] != 2 || result.Summary.ReferenceKindCounts["design"] != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	if intMapTotal(result.Summary.ReferenceKindCounts) != result.Summary.ReferenceCount || !result.Summary.ReferenceCountMatchesKinds {
+		t.Fatalf("summary=%+v", result.Summary)
+	}
+}
+
+func TestIssueRefsSummaryReconcilesEmptySelection(t *testing.T) {
+	result, err := (&JiraService{tr: qualifiedRefsTracker{}}).IssueRefs(context.Background(), JiraIssueRefsOpts{JQL: "project = NONE", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Complete || result.Count != 0 || result.Summary.IssueCount != 0 || result.Summary.ReferenceCount != 0 || len(result.Summary.ReferenceKindCounts) != 0 || len(result.Summary.SourceValueCounts) != 0 {
+		t.Fatalf("result=%+v", result)
+	}
+	if !result.Summary.CountMatchesIssues || !result.Summary.SelectionCountMatchesIssues || !result.Summary.ReferenceCountMatchesKinds || !result.Summary.IssueSummariesReconciled || !result.Summary.CompleteMatchesInputs || !result.Summary.TruncatedMatchesInputs {
+		t.Fatalf("summary=%+v", result.Summary)
 	}
 }
 
@@ -297,6 +344,9 @@ func TestIssueRefsJQLLimitQualifiesSelectionTruncation(t *testing.T) {
 	if result.Complete || !result.Truncated || result.Selection.Complete || !result.Selection.Truncated || len(result.Warnings) == 0 {
 		t.Fatalf("result=%+v", result)
 	}
+	if !result.Summary.CountMatchesIssues || !result.Summary.SelectionCountMatchesIssues || !result.Summary.CompleteMatchesInputs || !result.Summary.TruncatedMatchesInputs {
+		t.Fatalf("summary=%+v", result.Summary)
+	}
 }
 
 func TestIssueRefsExactLimitAtBackendExhaustionIsComplete(t *testing.T) {
@@ -328,6 +378,12 @@ func TestIssueRefsMarksRecoverableCommentAndFieldTruncationPartial(t *testing.T)
 	issue := result.Issues[0]
 	if result.Complete || !result.Truncated || issue.Complete || !issue.Truncated || issue.Sources["comments"].Complete || !issue.Sources["field.customfield_10001"].TextTruncated {
 		t.Fatalf("result=%+v issue=%+v", result, issue)
+	}
+	if result.Summary.IncompleteIssueCount != 1 || result.Summary.IncompleteSourceCount != 2 || result.Summary.TruncatedSourceCount != 1 || !result.Summary.CompleteMatchesInputs || !result.Summary.TruncatedMatchesInputs || !result.Summary.IssueSummariesReconciled {
+		t.Fatalf("summary=%+v", result.Summary)
+	}
+	if issue.ReferenceSummary.IncompleteSourceCount != 2 || issue.ReferenceSummary.TruncatedSourceCount != 1 || !issue.ReferenceSummary.CompleteMatchesSources || !issue.ReferenceSummary.TruncatedMatchesSources {
+		t.Fatalf("issue summary=%+v", issue.ReferenceSummary)
 	}
 	if len(issue.Refs) != 1 || issue.Refs[0].URL != "https://docs.example.com/comment" {
 		t.Fatalf("refs=%+v", issue.Refs)

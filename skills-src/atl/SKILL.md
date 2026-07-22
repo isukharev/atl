@@ -182,7 +182,7 @@ value-free metadata and compact named issue-field inspection; qualified, filtera
 history with explicit completeness, deterministic cardinality/consistency summary, and
 last-field-change metadata;
 transient multi-key export to artifact-only stdout; deterministic epic evidence
-digest and standalone refs with per-source completeness;
+digest and standalone refs with reconciled per-kind/per-source aggregates;
 check/attachments/refs/tree. For a report
 or quarter review, route through the Jira skill's one-hop
 `reference/evidence-workflow.md` and stop once sufficient complete evidence is

@@ -1020,6 +1020,24 @@ deterministic, provenance-qualified artifact references per issue:
     "limit": 100,
     "complete": true
   },
+  "summary": {
+    "issue_count": 1,
+    "complete_issue_count": 1,
+    "incomplete_issue_count": 0,
+    "reference_count": 1,
+    "reference_kind_counts": {"doc": 1},
+    "source_count": 2,
+    "source_value_counts": {"comments": 2, "description": 1},
+    "complete_source_count": 2,
+    "incomplete_source_count": 0,
+    "truncated_source_count": 0,
+    "count_matches_issues": true,
+    "selection_count_matches_issues": true,
+    "reference_count_matches_kinds": true,
+    "issue_summaries_reconciled": true,
+    "complete_matches_inputs": true,
+    "truncated_matches_inputs": true
+  },
   "issues": [
     {
       "key": "PROJ-1",
@@ -1029,6 +1047,18 @@ deterministic, provenance-qualified artifact references per issue:
       "sources": {
         "comments": {"complete": true, "count": 2},
         "description": {"complete": true, "count": 1}
+      },
+      "reference_summary": {
+        "reference_count": 1,
+        "reference_kind_counts": {"doc": 1},
+        "source_count": 2,
+        "source_value_counts": {"comments": 2, "description": 1},
+        "complete_source_count": 2,
+        "incomplete_source_count": 0,
+        "truncated_source_count": 0,
+        "reference_count_matches_kinds": true,
+        "complete_matches_sources": true,
+        "truncated_matches_sources": true
       },
       "refs": [
         {
@@ -1049,6 +1079,18 @@ input-value `count`, optional `text_truncated`, and a bounded warning. Comments
 come from the complete paginated comment endpoint; a recoverable comment-source
 failure may retain embedded comments but marks that source and the issue
 incomplete.
+
+Each issue's additive `reference_summary` is derived from its final emitted
+`sources` and deduplicated `refs`. `reference_count` therefore counts a URL once
+per issue even if several narrative sources contained it, and always equals the
+sum of `reference_kind_counts` when `reference_count_matches_kinds:true`.
+`source_value_counts` preserves the existing source names and sums their input
+value counts. The top-level `summary` combines those issue summaries, reports
+complete/incomplete/truncated source and issue cardinalities, and exposes exact
+reconciliation with top-level `count`, `selection`, `complete`, and `truncated`.
+References repeated by different issues are counted once for each issue; atl
+does not assert that cross-issue URLs represent one evidence use. Consumers
+should use these deterministic aggregates instead of recounting nested arrays.
 
 `--fields` selectors are resolved once through the shared Jira field catalog:
 technical ids remain direct, while exact case-insensitive display names map to
