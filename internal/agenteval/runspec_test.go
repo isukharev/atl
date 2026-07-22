@@ -585,8 +585,8 @@ func TestNeutralCommonRunSpecBindsDeclaredDataCapabilities(t *testing.T) {
 	bad = spec
 	bad.AllowedATLCommands = append([]string(nil), spec.AllowedATLCommands...)
 	bad.AllowedATLCommands = append(bad.AllowedATLCommands, "atl conf page view")
-	if err := bad.Validate(); err == nil || !strings.Contains(err.Error(), "unknown") {
-		t.Fatalf("unknown or richer route passed: %v", err)
+	if err := bad.Validate(); err == nil || !strings.Contains(err.Error(), "unclassified") {
+		t.Fatalf("unclassified or richer route passed: %v", err)
 	}
 }
 

@@ -26,10 +26,12 @@ var mcpCapabilityFamilies = map[string]string{
 var allowedCapabilityFamilies = map[string]struct{}{
 	"atl.config": {}, "atl.capabilities": {}, "jira.fields": {}, "jira.issue.fields": {},
 	"jira.issue.field": {}, "jira.issue.field.preview": {}, "jira.issue.field.set": {}, "jira.issue.refs": {}, "jira.issue.worklog.list": {}, "jira.issue.worklog.add": {}, "jira.issue.search": {}, "jira.issue.batch-read": {}, "jira.epic.digest": {}, "jira.board.list": {}, "jira.board.view": {},
+	"jira.issue.history":   {},
 	"jira.planning.report": {},
 	"jira.export":          {}, "jira.export.diff": {}, "jira.structure.get": {}, "jira.structure.forest": {}, "jira.structure.folders": {},
 	"jira.structure.rows": {}, "jira.structure.values": {}, "jira.structure.pull-issues": {}, "jira.structure.export": {}, "jira.structure.view": {},
 	"confluence.diff": {}, "confluence.search": {}, "confluence.page.resolve": {}, "confluence.page.outline": {}, "confluence.page.section": {},
+	"confluence.page.meta": {}, "confluence.page.history": {}, "confluence.page.view": {}, "confluence.attachment.list": {},
 	"confluence.table.extract": {},
 	"confluence.table.summary": {},
 	"confluence.plan.create":   {}, "confluence.plan.preview": {}, "confluence.plan.apply": {},
@@ -188,6 +190,7 @@ matched:
 		{[]string{"jira", "issue", "field", "preview"}, "jira.issue.field.preview"}, {[]string{"jira", "issue", "field", "set"}, "jira.issue.field.set"},
 		{[]string{"jira", "issue", "worklog", "list"}, "jira.issue.worklog.list"},
 		{[]string{"jira", "issue", "worklog", "add"}, "jira.issue.worklog.add"},
+		{[]string{"jira", "issue", "history"}, "jira.issue.history"},
 		{[]string{"jira", "issue", "field", "get"}, "jira.issue.field"}, {[]string{"jira", "issue", "fields"}, "jira.issue.fields"}, {[]string{"jira", "issue", "refs"}, "jira.issue.refs"}, {[]string{"jira", "epic", "digest"}, "jira.epic.digest"},
 		{[]string{"jira", "issue", "search"}, "jira.issue.search"}, {[]string{"jira", "board", "list"}, "jira.board.list"}, {[]string{"jira", "board", "view"}, "jira.board.view"}, {[]string{"jira", "fields"}, "jira.fields"},
 		{[]string{"jira", "planning", "report"}, "jira.planning.report"}, {[]string{"jira", "quality-report"}, "jira.planning.report"},
@@ -203,6 +206,8 @@ matched:
 		{[]string{"conf", "plan", "apply"}, "confluence.plan.apply"},
 		{[]string{"conf", "page", "resolve"}, "confluence.page.resolve"}, {[]string{"conf", "page", "outline"}, "confluence.page.outline"},
 		{[]string{"conf", "page", "section"}, "confluence.page.section"},
+		{[]string{"conf", "page", "meta"}, "confluence.page.meta"}, {[]string{"conf", "page", "history"}, "confluence.page.history"},
+		{[]string{"conf", "page", "view"}, "confluence.page.view"}, {[]string{"conf", "attachment", "list"}, "confluence.attachment.list"},
 	}
 	for _, pattern := range patterns {
 		if len(args) < len(pattern.path) {
