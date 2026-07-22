@@ -53,6 +53,7 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 		{"jira/board-portfolio", []string{"jira.board-portfolio.fields", "jira.board-portfolio.view", "jira.board-portfolio.epic.digest"}},
 		{"jira/batch-analysis", []string{"jira.batch.issue.export"}},
 		{"jira/structure-planning", []string{"jira.structure.rows", "jira.structure.values", "jira.structure.issue.export"}},
+		{"jira/mirror", []string{"jira.mirror.snapshot"}},
 		{"jira/edit", []string{"jira.issue.fields.edit", "jira.issue.field.preview", "jira.issue.field.set", "jira.issue.worklog.list", "jira.issue.worklog.add", "jira.issue.plan.apply"}},
 		{"confluence/evidence", []string{"confluence.page.resolve", "confluence.page.outline", "confluence.page.section", "confluence.page.view"}},
 		{"confluence/table-analytics", []string{"confluence.table.summary", "confluence.table.extract"}},

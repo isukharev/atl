@@ -46,6 +46,27 @@ func TestBaseBodyExtMissing(t *testing.T) {
 	if _, ok := m.BaseBodyExt("nope", ".wiki"); ok {
 		t.Fatal("BaseBodyExt on a missing id must report ok=false")
 	}
+	if _, present, err := m.ReadBaseBodyExt("nope", ".wiki"); err != nil || present {
+		t.Fatalf("ReadBaseBodyExt missing = present %t, err %v", present, err)
+	}
+}
+
+func TestReadBaseBodyExtPreservesUnreadableEvidence(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, ".atl", "base")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.wiki")
+	if err := os.WriteFile(outside, []byte("body"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(base, "PROJ-1.wiki")); err != nil {
+		t.Fatal(err)
+	}
+	if _, present, err := New(root).ReadBaseBodyExt("PROJ-1", ".wiki"); err == nil || present {
+		t.Fatalf("ReadBaseBodyExt symlink = present %t, err %v", present, err)
+	}
 }
 
 // A hostile/compromised backend controls the issue key. The ext-aware base

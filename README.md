@@ -485,6 +485,8 @@ atl jira pull --jql 'project = PROJ AND status = Open' --assets
 # Choose how much the .md view shows: minimal | default | full (see docs/usage.md)
 atl jira pull --jql 'project = PROJ' --render-profile full
 atl jira render mirror-jira --render-profile default   # re-render offline, no re-pull
+ATL_READ_ONLY=1 atl jira snapshot mirror-jira          # exact content-free mirror health counts
+ATL_READ_ONLY=1 atl jira snapshot mirror-jira --remote # one single-attempt GET per eligible issue
 atl manifest create --root mirror-jira --service jira --selector 'jql=project = PROJ'
 # Pull/render refuse unknown future .md formats; render warns for every unreadable snapshot.
 # Typed custom fields (readable metadata/date/list rendering) and identity-checked epic children

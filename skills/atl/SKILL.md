@@ -50,6 +50,9 @@ style cardinalities remove the need to recount content-bearing raw cells.
 For durable Confluence mirror health, prefer the content-free `conf snapshot`
 route before expanding individual pages with `conf diff`; use its reconciled
 cardinalities instead of manually joining status, validation, and render rows.
+For durable Jira mirror health, use the same content-free pattern with
+`jira snapshot`; its exact baseline/raw-snapshot/pending/render buckets are the
+preflight before identity-bearing `jira status` or issue-level repair.
 
 When the installed plugin exposes `atl` MCP tools, prefer them for transient,
 bounded evidence reads: typed arguments remove shell construction and the

@@ -213,6 +213,7 @@ jira sprint get
 jira sprint issues
 jira sprint list
 jira sprint remove
+jira snapshot
 jira status
 jira structure export
 jira structure folders

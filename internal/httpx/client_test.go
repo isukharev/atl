@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -126,6 +127,45 @@ func TestSingleAttemptContextDisablesReplaySafeRetries(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&hits); got != 1 {
 		t.Fatalf("single-attempt request used %d HTTP attempts, want 1", got)
+	}
+}
+
+func TestSingleAttemptContextDoesNotFollowRedirect(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		if r.URL.Path == "/first" {
+			http.Redirect(w, r, "/second", http.StatusFound)
+			return
+		}
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok", "test")
+	_, err := c.Do(domain.WithSingleAttempt(context.Background()), http.MethodGet, "/first", nil, nil)
+	if err == nil {
+		t.Fatal("single-attempt redirect unexpectedly succeeded")
+	}
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Fatalf("single-attempt redirect used %d HTTP attempts, want 1", got)
+	}
+}
+
+func TestRedactedHTTPTraceOmitsRequestIdentity(t *testing.T) {
+	var trace bytes.Buffer
+	SetTrace(&trace)
+	t.Cleanup(func() { SetTrace(nil) })
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok", "test")
+	ctx := domain.WithRedactedHTTPTrace(context.Background())
+	if _, err := c.Do(ctx, http.MethodGet, "/rest/api/2/issue/PRIVATE-9", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := trace.String(); strings.Contains(got, "PRIVATE-9") || strings.Contains(got, "/rest/api") || !strings.Contains(got, "<redacted>") {
+		t.Fatalf("redacted trace=%q", got)
 	}
 }
 

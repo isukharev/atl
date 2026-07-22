@@ -115,6 +115,7 @@ jira sprint current
 jira sprint get
 jira sprint issues
 jira sprint list
+jira snapshot
 jira status
 jira structure export
 jira structure folders
