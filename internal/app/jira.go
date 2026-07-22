@@ -345,13 +345,20 @@ func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, er
 		if !strings.HasPrefix(a.MediaType, "image/") {
 			continue
 		}
-		rc, name, err := s.tr.DownloadAttachment(ctx, key, a.ID)
+		// ListAttachments already resolved both the server filename and the
+		// attachment's same-origin download path. Stream that exact path instead
+		// of resolving the attachment by id again, which would repeat the issue
+		// metadata request once per image.
+		if a.DownPath == "" {
+			continue
+		}
+		rc, err := s.tr.StreamAttachment(ctx, a.DownPath)
 		if err != nil {
 			continue
 		}
 		// name is a server-supplied attachment filename: reduce to a safe base
 		// name and confine the write to dir so it cannot escape via "../".
-		safeName, ok := safepath.Base(name)
+		safeName, ok := safepath.Base(a.Title)
 		if !ok {
 			rc.Close()
 			continue

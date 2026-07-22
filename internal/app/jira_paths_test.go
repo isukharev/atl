@@ -16,18 +16,38 @@ import (
 // implemented; any unexpected call panics with a nil-method dispatch.
 type partialTracker struct {
 	domain.Tracker
-	atts   []domain.Attachment
-	data   []byte
-	name   string
-	issues []domain.Issue
+	atts          []domain.Attachment
+	data          []byte
+	name          string
+	issues        []domain.Issue
+	listCalls     *int
+	streamCalls   *int
+	downloadCalls *int
+	streamPath    *string
 }
 
 func (t partialTracker) ListAttachments(context.Context, string) ([]domain.Attachment, error) {
+	if t.listCalls != nil {
+		(*t.listCalls)++
+	}
 	return t.atts, nil
 }
 
 func (t partialTracker) DownloadAttachment(context.Context, string, string) (io.ReadCloser, string, error) {
+	if t.downloadCalls != nil {
+		(*t.downloadCalls)++
+	}
 	return io.NopCloser(bytes.NewReader(t.data)), t.name, nil
+}
+
+func (t partialTracker) StreamAttachment(_ context.Context, path string) (io.ReadCloser, error) {
+	if t.streamCalls != nil {
+		(*t.streamCalls)++
+	}
+	if t.streamPath != nil {
+		*t.streamPath = path
+	}
+	return io.NopCloser(bytes.NewReader(t.data)), nil
 }
 
 func (t partialTracker) UploadAttachment(_ context.Context, _ string, filename string, data io.Reader, _ int64) (*domain.Attachment, error) {
@@ -67,9 +87,8 @@ func TestJiraImagesRejectsTraversalFilename(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "mirror")
 	s := &JiraService{tr: partialTracker{
-		atts: []domain.Attachment{{ID: "1", MediaType: "image/png"}},
+		atts: []domain.Attachment{{ID: "1", Title: "../../../../tmp/atl-evil.png", MediaType: "image/png", DownPath: "/secure/attachment/1/atl-evil.png"}},
 		data: []byte("evil"),
-		name: "../../../../tmp/atl-evil.png",
 	}}
 	if _, err := s.Images(context.Background(), "PROJ-1", dir); err != nil {
 		t.Logf("Images returned %v (acceptable: rejected)", err)
@@ -78,6 +97,44 @@ func TestJiraImagesRejectsTraversalFilename(t *testing.T) {
 	escaped := filepath.Clean(filepath.Join(root, "..", "..", "..", "..", "tmp", "atl-evil.png"))
 	if _, err := os.Stat(escaped); err == nil {
 		t.Fatalf("attachment escaped to %s", escaped)
+	}
+}
+
+func TestJiraImagesStreamsListedAttachmentWithoutRefetch(t *testing.T) {
+	dir := t.TempDir()
+	listCalls, streamCalls, downloadCalls := 0, 0, 0
+	streamPath := ""
+	s := &JiraService{tr: partialTracker{
+		atts: []domain.Attachment{
+			{ID: "1", Title: "shot.png", MediaType: "image/png", DownPath: "/secure/attachment/1/shot.png"},
+			{ID: "2", Title: "notes.txt", MediaType: "text/plain", DownPath: "/secure/attachment/2/notes.txt"},
+		},
+		data:          []byte("png bytes"),
+		listCalls:     &listCalls,
+		streamCalls:   &streamCalls,
+		downloadCalls: &downloadCalls,
+		streamPath:    &streamPath,
+	}}
+
+	paths, err := s.Images(context.Background(), "PROJ-1", dir)
+	if err != nil {
+		t.Fatalf("Images: %v", err)
+	}
+	if listCalls != 1 || streamCalls != 1 || downloadCalls != 0 {
+		t.Fatalf("calls: list=%d stream=%d download=%d, want 1/1/0", listCalls, streamCalls, downloadCalls)
+	}
+	if streamPath != "/secure/attachment/1/shot.png" {
+		t.Fatalf("stream path = %q, want listed attachment path", streamPath)
+	}
+	if len(paths) != 1 || filepath.Base(paths[0]) != "shot.png" {
+		t.Fatalf("paths = %v, want one shot.png", paths)
+	}
+	got, err := os.ReadFile(paths[0])
+	if err != nil {
+		t.Fatalf("read image: %v", err)
+	}
+	if string(got) != "png bytes" {
+		t.Fatalf("image bytes = %q, want png bytes", got)
 	}
 }
 
