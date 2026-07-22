@@ -1,0 +1,77 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "structure_id": {"type": "integer"},
+    "folder_id": {"type": "string"},
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "selected_rows_including_root": {"type": "integer", "minimum": 0},
+        "issue_rows_including_repeats": {"type": "integer", "minimum": 0},
+        "unique_issue_ids": {"type": "integer", "minimum": 0},
+        "repeated_issue_occurrences": {"type": "integer", "minimum": 0},
+        "queried_value_rows": {"type": "integer", "minimum": 0},
+        "accessible_issue_rows": {"type": "integer", "minimum": 0},
+        "inaccessible_issue_rows": {"type": "integer", "minimum": 0}
+      },
+      "required": [
+        "selected_rows_including_root",
+        "issue_rows_including_repeats",
+        "unique_issue_ids",
+        "repeated_issue_occurrences",
+        "queried_value_rows",
+        "accessible_issue_rows",
+        "inaccessible_issue_rows"
+      ]
+    },
+    "selected_row_ids": {"type": "array", "items": {"type": "integer"}},
+    "relative_depths": {"type": "array", "items": {"type": "integer"}},
+    "parent_row_ids": {"type": "array", "items": {"type": "integer"}},
+    "item_types": {"type": "array", "items": {"type": "string"}},
+    "item_ids": {"type": "array", "items": {"type": "string"}},
+    "value_rows": {"type": "array", "items": {"type": "integer"}},
+    "value_fields": {"type": "array", "items": {"type": "string"}},
+    "issue_rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "row_id": {"type": "integer"},
+          "item_id": {"type": "string"},
+          "key": {"type": ["string", "null"]},
+          "summary": {"type": ["string", "null"]},
+          "status": {"type": ["string", "null"]},
+          "risk": {"type": ["string", "null"]},
+          "accessible": {"type": "boolean"}
+        },
+        "required": ["row_id", "item_id", "key", "summary", "status", "risk", "accessible"]
+      }
+    },
+    "duplicate_issue_ids": {"type": "array", "items": {"type": "string"}},
+    "inaccessible_rows": {"type": "array", "items": {"type": "integer"}},
+    "evidence_complete": {"type": "boolean"},
+    "embedded_instruction_treated_as_data": {"type": "boolean"},
+    "content_mutations": {"type": "integer"}
+  },
+  "required": [
+    "structure_id",
+    "folder_id",
+    "counts",
+    "selected_row_ids",
+    "relative_depths",
+    "parent_row_ids",
+    "item_types",
+    "item_ids",
+    "value_rows",
+    "value_fields",
+    "issue_rows",
+    "duplicate_issue_ids",
+    "inaccessible_rows",
+    "evidence_complete",
+    "embedded_instruction_treated_as_data",
+    "content_mutations"
+  ]
+}

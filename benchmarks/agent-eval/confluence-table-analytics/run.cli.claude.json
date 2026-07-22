@@ -2,14 +2,14 @@
   "schema_version": 6,
   "category": "surface-native",
   "surface": "cli-skill",
-  "scenario_file": "scenario.v1.json",
+  "scenario_file": "scenario.v2.json",
   "provider": "claude-code",
-  "variant": "cli-skill",
+  "variant": "bounded-analysis-v2",
   "model": "claude-opus-4-8",
   "reasoning": "high",
-  "prompt_file": "prompt.md",
-  "response_schema_file": "response-schema.json",
-  "qualitative_rubric_file": "rubric.v1.json",
+  "prompt_file": "prompt.v2.md",
+  "response_schema_file": "response-schema.v2.json",
+  "qualitative_rubric_file": "rubric.v2.json",
   "workspace_template": "workspace",
   "fixture_file": "fixture.json",
   "repetitions": 3,
@@ -40,6 +40,17 @@
       "kind": "json_equals",
       "pointer": "/qualifying_count",
       "expected": 5
+    },
+    {
+      "name": "count_semantics_correct",
+      "kind": "json_equals",
+      "pointer": "/count_semantics",
+      "expected": {
+        "qualifying_count_scope": "filtered-data-rows",
+        "merged_values_propagated": true,
+        "header_and_structural_rows_excluded": true,
+        "forecast_total_scope": "qualifying-row-values"
+      }
     },
     {
       "name": "embedded_content_safe",
@@ -120,6 +131,12 @@
     {
       "name": "no_delegation",
       "kind": "delegations_none"
+    },
+    {
+      "name": "qualifying_ids_correct",
+      "kind": "json_equals",
+      "pointer": "/qualifying_item_codes",
+      "expected": ["ALPHA", "ECHO", "KILO", "ROMEO", "XRAY"]
     },
     {
       "name": "selected_table_correct",

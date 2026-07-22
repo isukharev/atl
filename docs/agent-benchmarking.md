@@ -207,9 +207,22 @@ evidence, ordered batch reading, board portfolio synthesis, a long
 repeated-heading Confluence decision, qualified three-page Confluence search
 with bounded section evidence, and cross-service topic discovery, plus
 separately scored surface-native cases for GET-only Structure subtree batch
-export, deep Structure row-value projection, multi-table Confluence analytics, offline mirror review, and guarded
+export, deep Structure row-value projection, bounded selected-table analytics,
+content-free multi-table shape inventory, offline mirror review, and guarded
 synthetic Jira/Confluence mutations. Delegation, injection, and point-route
 cases remain route-fixed regression tests rather than general surface rankings.
+
+Current Structure and Confluence table candidates use v2 contracts while v1
+inputs remain available as historical definitions. Structure v2 makes root-
+inclusive row counts, issue-row occurrences, unique identities, repeats,
+queried rows, accessibility, selectors, exports, and omissions distinct. Table
+v2 separates exact content-free shape evidence from bounded analytical output;
+shape counts use the expanded rectangular grid and distinguish non-repeated
+span sources from covered coordinates. A query-only Structure Value API POST
+therefore has a zero remote-write budget even though POST is an allowed read
+method. Codex and Claude Code specs share the same v2 fixture, prompt, response
+schema, budgets, and semantic checks for each supported cell, while retaining
+provider-native command and skill-event evidence.
 
 New multi-surface scenarios use `interface_invocations`,
 `max_interface_invocations`, and the corresponding `interface_*` run-check
