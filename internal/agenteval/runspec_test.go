@@ -503,6 +503,15 @@ func TestPrivateLiveWritesRequireExactReviewedBoundaries(t *testing.T) {
 	if err := spec.ValidateAgainstScenario(scenario); err != nil {
 		t.Fatal(err)
 	}
+	partitioned, partitionedScenario := build()
+	partitioned.AllowedGatewayRoutes["jira"][0].PathPrefix = "/rest/api/2/issue"
+	partitioned.AllowedGatewayRoutes["jira"][0].Exact = true
+	if err := partitioned.Validate(); err != nil {
+		t.Fatalf("method-partitioned exact routes: %v", err)
+	}
+	if err := partitioned.ValidateAgainstScenario(partitionedScenario); err != nil {
+		t.Fatalf("method-partitioned exact routes against scenario: %v", err)
+	}
 	for name, mutate := range map[string]func(*RunSpec, *Scenario){
 		"legacy schema": func(s *RunSpec, _ *Scenario) { s.SchemaVersion = LegacyRunSpecSchemaVersion },
 		"mcp":           func(s *RunSpec, _ *Scenario) { s.ToolTransport = "mcp" },

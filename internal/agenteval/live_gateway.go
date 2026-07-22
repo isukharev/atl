@@ -229,7 +229,7 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 		reject(http.StatusBadRequest, "", "method_override")
 		return
 	}
-	route, ok := matchLiveGatewayRoute(request.URL, s.routes)
+	route, ok := matchLiveGatewayRoute(request.URL, request.Method, s.routes)
 	if !ok {
 		reject(http.StatusForbidden, "", "route")
 		return
@@ -400,7 +400,8 @@ func validateLiveGatewayRoutes(routes []LiveGatewayRoute) error {
 		return fmt.Errorf("live gateway requires 1..64 routes per service")
 	}
 	seenRoutes := map[string]struct{}{}
-	seenPrefixes := map[string]struct{}{}
+	seenPrefixExact := map[string]bool{}
+	seenPrefixMethods := map[string]map[string]struct{}{}
 	for _, route := range routes {
 		if !identifierRE.MatchString(route.Name) || len(route.Name) > 64 || route.PathPrefix == "/" || route.PathPrefix == "" || route.PathPrefix[0] != '/' || path.Clean(route.PathPrefix) != route.PathPrefix || strings.Contains(route.PathPrefix, "//") {
 			return fmt.Errorf("live gateway route is invalid")
@@ -408,11 +409,7 @@ func validateLiveGatewayRoutes(routes []LiveGatewayRoute) error {
 		if _, exists := seenRoutes[route.Name]; exists {
 			return fmt.Errorf("live gateway route names must be unique per service")
 		}
-		if _, exists := seenPrefixes[route.PathPrefix]; exists {
-			return fmt.Errorf("live gateway route prefixes must be unique per service")
-		}
 		seenRoutes[route.Name] = struct{}{}
-		seenPrefixes[route.PathPrefix] = struct{}{}
 		if route.MaxRequests < 0 || route.MaxRequests > 1000 || route.MaxRequestBytes < 0 || route.MaxRequestBytes > 16<<20 {
 			return fmt.Errorf("live gateway route budgets are invalid")
 		}
@@ -428,6 +425,26 @@ func validateLiveGatewayRoutes(routes []LiveGatewayRoute) error {
 		}
 		if len(route.Methods) > 6 {
 			return fmt.Errorf("live gateway route methods are invalid")
+		}
+		if exact, exists := seenPrefixExact[route.PathPrefix]; exists {
+			if exact != route.Exact {
+				return fmt.Errorf("live gateway routes sharing a prefix must use the same exactness")
+			}
+			if !route.Exact {
+				return fmt.Errorf("live gateway routes may share only an exact path")
+			}
+		}
+		seenPrefixExact[route.PathPrefix] = route.Exact
+		prefixMethods := seenPrefixMethods[route.PathPrefix]
+		if prefixMethods == nil {
+			prefixMethods = map[string]struct{}{}
+			seenPrefixMethods[route.PathPrefix] = prefixMethods
+		}
+		for _, method := range effectiveRouteMethods(route) {
+			if _, exists := prefixMethods[method]; exists {
+				return fmt.Errorf("live gateway route prefix methods must be disjoint per service")
+			}
+			prefixMethods[method] = struct{}{}
 		}
 		mutating := routeHasMutatingMethod(route)
 		if mutating && (!route.Exact || route.MaxRequests < 1 || route.MaxRequestBytes < 1) {
@@ -505,7 +522,7 @@ func (s *liveGatewayState) writeAudit(record LiveGatewayAuditRecord) error {
 	return nil
 }
 
-func matchLiveGatewayRoute(requestURL *url.URL, routes []LiveGatewayRoute) (LiveGatewayRoute, bool) {
+func matchLiveGatewayRoute(requestURL *url.URL, method string, routes []LiveGatewayRoute) (LiveGatewayRoute, bool) {
 	if requestURL == nil || requestURL.RawPath != "" || requestURL.Path == "" || requestURL.Path[0] != '/' || path.Clean(requestURL.Path) != requestURL.Path || strings.Contains(requestURL.Path, "//") {
 		return LiveGatewayRoute{}, false
 	}
@@ -527,7 +544,7 @@ func matchLiveGatewayRoute(requestURL *url.URL, routes []LiveGatewayRoute) (Live
 			matches = matches || strings.HasSuffix(prefix, "/") && strings.HasPrefix(requestURL.Path, prefix) || strings.HasPrefix(requestURL.Path, prefix+"/")
 		}
 		if matches {
-			if len(prefix) > bestLength {
+			if len(prefix) > bestLength || len(prefix) == bestLength && !routeAllowsMethod(best, method) && routeAllowsMethod(route, method) {
 				best = route
 				bestLength = len(prefix)
 			}
