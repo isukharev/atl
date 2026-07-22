@@ -75,17 +75,25 @@ func LoadExternalMCPProfile(path, repositoryRoot string) (ExternalMCPProfile, er
 }
 
 func loadExternalMCPProfileForWorkspace(path, repositoryRoot, privateWorkspaceRoot string) (ExternalMCPProfile, error) {
-	if err := requireOwnerOnly("external MCP profile directory", filepath.Dir(path), true); err != nil {
-		return ExternalMCPProfile{}, err
-	}
-	if err := requireOwnerOnly("external MCP profile", path, false); err != nil {
-		return ExternalMCPProfile{}, err
-	}
-	before, err := os.Lstat(path)
+	profilePath, err := filepath.Abs(path)
 	if err != nil {
 		return ExternalMCPProfile{}, err
 	}
-	profilePath, err := filepath.EvalSymlinks(path)
+	if err := requireOwnerOnly("external MCP profile directory", filepath.Dir(profilePath), true); err != nil {
+		return ExternalMCPProfile{}, err
+	}
+	if err := requireOwnerOnly("external MCP profile", profilePath, false); err != nil {
+		return ExternalMCPProfile{}, err
+	}
+	before, err := os.Lstat(profilePath)
+	if err != nil {
+		return ExternalMCPProfile{}, err
+	}
+	profilePath, err = filepath.EvalSymlinks(profilePath)
+	if err != nil {
+		return ExternalMCPProfile{}, err
+	}
+	repositoryRoot, err = filepath.Abs(repositoryRoot)
 	if err != nil {
 		return ExternalMCPProfile{}, err
 	}

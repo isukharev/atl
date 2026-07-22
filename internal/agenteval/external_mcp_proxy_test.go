@@ -871,3 +871,24 @@ func TestLoadExternalMCPProfileRequiresOwnerOnlyOutsideRepository(t *testing.T) 
 		t.Fatal("profile with duplicate JSON key passed")
 	}
 }
+
+func TestLoadExternalMCPProfileAcceptsRelativeRepositoryRoot(t *testing.T) {
+	fixture := newExternalMCPFixture(t, false, false)
+	defer fixture.server.Close()
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	profilePath := filepath.Join(directory, "profile.json")
+	data, _ := json.Marshal(fixture.profile)
+	if err := os.WriteFile(profilePath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadExternalMCPProfile(profilePath, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.UpstreamURL != fixture.profile.UpstreamURL {
+		t.Fatalf("loaded profile mismatch")
+	}
+}
