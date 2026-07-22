@@ -922,6 +922,15 @@ an external MCP run is bound to the same set through its owner-reviewed profile.
 Expected private facts may live in the ignored run spec; never copy them into a
 public fixture or PR.
 
+A private-live CLI negative-path scenario may replace
+`interface_all_succeeded` with both `interface_failures_equals` and
+`cli_exit_codes_equal`. The latter is an exact ordered array of audited process
+exit codes, for example `[8]` for one expected check refusal. Validation
+requires at least one non-zero code and an exact match between the number of
+non-zero codes and the declared failure count. This does not relax the required
+semantic result, guard, interface-use, or HTTP-method checks; MCP surfaces
+cannot claim CLI exit-code evidence.
+
 This contract is run-spec schema v7. Schema-v6 specs remain readable but cannot
 use the reviewed-write fields or enter a current activation study; v5 remains
 readable but lacks the calibrated evidence contract and cannot enter a current

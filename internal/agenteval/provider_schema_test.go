@@ -38,7 +38,7 @@ func TestProviderResponseSchemaProjectsCodexUniqueItemsWithExactLocalCheck(t *te
 		t.Fatalf("projection changed the supported array contract: %#v", labels)
 	}
 
-	checks, err := evaluateRunChecks(spec.Checks, []byte(`{"answer":"ok","labels":["alpha","alpha"]}`), "", 0, 0, 0, 0, nil, 0, 0, nil, false)
+	checks, err := evaluateRunChecks(spec.Checks, []byte(`{"answer":"ok","labels":["alpha","alpha"]}`), "", 0, 0, 0, 0, nil, 0, 0, nil, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
