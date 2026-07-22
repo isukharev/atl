@@ -1969,7 +1969,7 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 		if !plan.QualitativeRequired || validatePrivateQualitativeReviewPanelContract(*plan.QualitativeReviewPanel) != nil {
 			return privatePlanError("qualitative_panel")
 		}
-		if len(plan.QualitativeReviewPanel.Executions) != 0 && plan.SchemaVersion != PrivatePlanSchemaVersion {
+		if len(plan.QualitativeReviewPanel.Executions) != 0 && plan.SchemaVersion != PrivatePlanSchemaVersion && plan.SchemaVersion != LegacyExecutableReviewPrivatePlanSchemaVersion {
 			return privatePlanError("qualitative_panel")
 		}
 		if len(plan.QualitativeReviewPanel.Executions) != 0 {

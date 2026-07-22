@@ -706,6 +706,45 @@ func TestPrivatePlanBindsQualitativePanelBeforeExecution(t *testing.T) {
 	assertPrivatePlanError(t, err, "doctor")
 }
 
+func TestLegacyExecutableReviewPlanRemainsReadable(t *testing.T) {
+	fixture := newPrivatePlanTestFixture(t, false, false)
+	panel := testPrivateQualitativePanel()
+	for _, reviewer := range panel.Reviewers {
+		panel.Executions = append(panel.Executions, PrivateReviewerExecution{
+			ReviewerID: reviewer.ID, Reasoning: "high", TimeoutSeconds: 60,
+			Pricing: Pricing{InputMicroUSDPerMillionTokens: 1, OutputMicroUSDPerMillionTokens: 2}, MaxEstimatedCostMicroUSD: 100,
+		})
+	}
+	manifestPath := filepath.Join(fixture.root, PrivateWorkspaceManifestName)
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := DecodePrivateWorkspaceManifest(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.RunSets[0].QualitativeReviewPanel = panel
+	manifest.RunSets[0].QualitativeReviewRequired = false
+	manifest.RunSets[0].ReviewerReserveMicroUSD = 300
+	data, err = EncodePrivateWorkspaceManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writePrivateFile(manifestPath, data); err != nil {
+		t.Fatal(err)
+	}
+	preview := fixture.createPlan(t)
+	plan, _, err := loadPrivatePlan(fixture.root, preview.PlanID)
+	if err != nil || plan.QualitativeReviewPanel == nil || len(plan.QualitativeReviewPanel.Executions) != 3 {
+		t.Fatalf("plan=%+v err=%v", plan, err)
+	}
+	plan.SchemaVersion = LegacyExecutableReviewPrivatePlanSchemaVersion
+	if err := validatePrivatePlan(plan, plan.PlanID); err != nil {
+		t.Fatalf("legacy executable-review plan was not readable: %v", err)
+	}
+}
+
 func TestPrivatePlanNeutralPanelRequiresBlindAssignment(t *testing.T) {
 	fixture := newPrivatePlanTestFixture(t, false, false)
 	runSet := PrivateWorkspaceRunSet{Alias: "portfolio", SpecPaths: []string{"cases/portfolio/run.mcp.json"}, QualitativeReviewPanel: testPrivateQualitativePanel()}

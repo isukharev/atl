@@ -1083,7 +1083,7 @@ func inspectPrivateWorkspaceSpecs(root string, manifest PrivateWorkspaceManifest
 			if manifest.SchemaVersion == LegacyActivationWorkspaceSchemaVersion {
 				err = validateLegacyPrivateActivationStudy(paths...)
 			} else {
-				_, err = ValidatePrivateActivationStudy(paths...)
+				_, err = validateReadablePrivateActivationStudy(paths...)
 			}
 			if err != nil {
 				specsOK = false

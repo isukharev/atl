@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -188,6 +189,21 @@ func TestValidatePrivateActivationStudyLoadsOneCaseDirectory(t *testing.T) {
 		t.Fatal("activation study without bounded evidence outcome passed")
 	}
 	writeTestFile(t, filepath.Join(directory, "response.json"), `{"type":"object","properties":{"complete":{"type":"boolean"},"evidence_outcome":{"type":"object","properties":{"state":{"type":"string","enum":["none","unavailable","blocked","failed","partial","succeeded"]}},"required":["state"],"additionalProperties":false}},"required":["complete","evidence_outcome"],"additionalProperties":false}`, 0o600)
+	for _, path := range paths {
+		var spec RunSpec
+		data, readErr := os.ReadFile(path)
+		if readErr != nil || json.Unmarshal(data, &spec) != nil {
+			t.Fatalf("read activation spec %s: %v", filepath.Base(path), readErr)
+		}
+		spec.SchemaVersion = LegacyRunSpecSchemaVersion
+		writeJSONTestFile(t, path, spec)
+	}
+	if _, err := validateReadablePrivateActivationStudy(paths...); err != nil {
+		t.Fatalf("read-compatible legacy activation study: %v", err)
+	}
+	if _, err := ValidatePrivateActivationStudy(paths...); err == nil || !strings.Contains(err.Error(), "legacy run spec") {
+		t.Fatalf("current activation planning accepted legacy specs: %v", err)
+	}
 
 	otherDirectory := filepath.Join(t.TempDir(), "case")
 	if err := copyWorkspace(directory, otherDirectory); err != nil {

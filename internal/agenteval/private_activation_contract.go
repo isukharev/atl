@@ -83,6 +83,14 @@ func (c PrivateActivationStudyContract) Treatment(skillActivation string) (Priva
 // case directory so identical relative RunSpec references cannot resolve to
 // different task material.
 func ValidatePrivateActivationStudy(paths ...string) (PrivateActivationStudyContract, error) {
+	return validatePrivateActivationStudySpecs(true, paths...)
+}
+
+func validateReadablePrivateActivationStudy(paths ...string) (PrivateActivationStudyContract, error) {
+	return validatePrivateActivationStudySpecs(false, paths...)
+}
+
+func validatePrivateActivationStudySpecs(requireCurrent bool, paths ...string) (PrivateActivationStudyContract, error) {
 	if len(paths) != 4 {
 		return PrivateActivationStudyContract{}, fmt.Errorf("private activation study requires exactly four run specs")
 	}
@@ -105,8 +113,11 @@ func ValidatePrivateActivationStudy(paths ...string) (PrivateActivationStudyCont
 		if err := validateEvidenceOutcomeResponseSchema(loaded.responseSchema); err != nil {
 			return PrivateActivationStudyContract{}, fmt.Errorf("private activation study run %d has no bounded evidence outcome: %w", index+1, err)
 		}
-		if loaded.spec.SchemaVersion != RunSpecSchemaVersion {
+		if requireCurrent && loaded.spec.SchemaVersion != RunSpecSchemaVersion {
 			return PrivateActivationStudyContract{}, fmt.Errorf("private activation study run %d uses a legacy run spec", index+1)
+		}
+		if !requireCurrent && loaded.spec.SchemaVersion != RunSpecSchemaVersion && loaded.spec.SchemaVersion != LegacyRunSpecSchemaVersion {
+			return PrivateActivationStudyContract{}, fmt.Errorf("private activation study run %d uses an unsupported run spec", index+1)
 		}
 		specs = append(specs, loaded.spec)
 	}
