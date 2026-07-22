@@ -139,11 +139,35 @@ func TestPrivateCommandRejectsMissingAndExtraArguments(t *testing.T) {
 		{"migrate", "--root", "x", "--confirm", "MIGRATE"}, {"qualify"},
 		{"review"}, {"review", "prepare"}, {"review", "run"}, {"review", "assess"}, {"baseline"}, {"baseline", "set"},
 		{"study"}, {"study", "recover"}, {"study", "reference"}, {"study", "compare"}, {"study", "promote"}, {"study", "unknown"},
-		{"compare"}, {"prune", "--root", "x", "--confirm", "PRUNE"}, {"unknown"},
+		{"compare"}, {"scorecard"}, {"scorecard", "--root", "x", "extra"},
+		{"prune", "--root", "x", "--confirm", "PRUNE"}, {"unknown"},
 	} {
 		if err := runPrivateCommand(args, &bytes.Buffer{}); err == nil {
 			t.Fatalf("runPrivateCommand(%q) succeeded", args)
 		}
+	}
+}
+
+func TestPrivateScorecardEmitsSanitizedReport(t *testing.T) {
+	original := privateBuildFindingScorecard
+	privateBuildFindingScorecard = func(options agenteval.PrivateFindingScorecardOptions) (agenteval.PrivateFindingScorecard, error) {
+		if options.Root != "/reviewed/private" || options.RepositoryRoot != "/reviewed/repository" {
+			t.Fatalf("options=%+v", options)
+		}
+		return agenteval.PrivateFindingScorecard{SchemaVersion: 1, SourceSHA256: strings.Repeat("a", 64), Reconciled: true,
+			Findings: 2, LinkedIssues: 2, LinkedPullRequests: 1, Regressions: 1}, nil
+	}
+	t.Cleanup(func() { privateBuildFindingScorecard = original })
+	var output bytes.Buffer
+	if err := runPrivateCommand([]string{"scorecard", "--root", "/reviewed/private", "--repository-root", "/reviewed/repository"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	var report agenteval.PrivateFindingScorecard
+	if err := json.Unmarshal(output.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if !report.Reconciled || report.Findings != 2 || report.LinkedPullRequests != 1 {
+		t.Fatalf("report=%+v", report)
 	}
 }
 

@@ -59,7 +59,8 @@ non-empty unmarked directory is never adopted or chmodded implicitly.
 - `plans/` contains immutable, expiring, hash-bound approvals.
 - `runs/` contains raw candidate attempts and remains private.
 - `baselines/` contains compact promoted evidence and an atomic current pointer.
-- `reports/` contains private offline comparisons.
+- `reports/` contains private offline comparisons and the owner-maintained
+  finding ledger.
 - `.ephemeral/` is bounded scratch space. Cleanup is attempted on every ordinary
   return; failure fails the run closed and leaves reviewable residue rather than
   hiding it. Crash or cleanup residue is never reused and blocks doctor until
@@ -116,6 +117,7 @@ echoed into a terminal or CI log.
 | Assess | `private review assess` | None | Records one member; the last member writes one median consensus | Completed bounded review and, for executable panels, a valid no-tools cost receipt |
 | Promote | `private baseline set` | None | Adds an immutable compact baseline and updates `current` | Complete assessed run without panel disagreement and `BASELINE` |
 | Compare | `private compare` | None | Read-only; emits aggregate deltas | Compatible contract/runtime and review mode |
+| Reconcile findings | `private scorecard` | None | Read-only; emits a content-free aggregate scorecard | Canonical owner-only ledger and immutable completed run references |
 | Reference study | `private study reference` | None | Adds an immutable compact activation-study reference | Complete four-cell review and `REFERENCE` |
 | Compare study | `private study compare` | None | Read-only; emits privacy-safe treatment metrics, gates, and eligible contrasts | Structurally valid immutable reference |
 | Promote study | `private study promote` | None | Updates the activation-study `current` pointer | Strict promotion eligibility and `PROMOTE` |
@@ -969,9 +971,54 @@ pooled even when every other rubric and runtime field matches. The digest is an
 internal grouping key and is omitted from aggregate JSON because a short answer
 mapping may be dictionary-guessable.
 
+## Finding ledger and scorecard
+
+Keep the machine-readable finding ledger at
+`reports/finding-ledger.v1.json`. The public
+[schema](../benchmarks/agent-eval/private-finding-ledger.schema.json) and
+[synthetic example](../benchmarks/agent-eval/private-finding-ledger.example.json)
+describe its closed fields. The real file is private, owner-only, canonical
+JSON: entries are sorted by `finding_id`; free-form titles, rationale, excerpts,
+paths, URLs, and backend identifiers are not allowed.
+
+Each entry binds one exact compact-baseline failure surface to a closed
+root-cause class, a public product issue, an optional PR and changed-contract
+digest, an optional exact compact-baseline regression surface, and a closed
+decision. The plan id, surface, and exact baseline alias must resolve to one
+tree-hash-validated baseline manifest whose plan digest matches the completed
+lifecycle. The mutable `current` pointer is not accepted. Activation-study
+cells are not accepted yet; they require a separate adapter over immutable
+study references. `fixed` requires a PR, contract digest, and a distinct
+compatible regression whose effective result is
+supported and passing. The changed-contract digest must equal the regression
+plan's contract digest and differ from the failure plan's contract digest.
+Completed-plan loading rechecks lifecycle state and pruning, while baseline
+loading rechecks the compact tree, result hashes, and assessed result contract.
+Reusing one failure surface for multiple findings, selecting an ambiguous
+surface, or comparing different
+scenario/runtime/prompt/review contracts fails closed.
+
+Generate the scorecard offline:
+
+```sh
+/tmp/agent-eval private scorecard \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root .
+```
+
+The command does not write to the private workspace or contact a model or
+backend. Its deterministic JSON contains only generic task and failure classes,
+closed decision/status/eligibility/evidence counts, explicit metric coverage,
+and quantiles. It omits finding, plan, run, scenario, cell, issue, PR, route,
+path, reviewer, prompt, answer, and backend identifiers. The source digest
+binds the canonical ledger and effective immutable results without exposing
+those references. Task classes must belong to the closed public benchmark
+taxonomy; a private custom identifier is rejected instead of echoed.
+
 Current manifests use schema v4, run specs use schema v7, observations use
 schema v5, results use schema v7, aggregates use schema v6, private plans use
-schema v8, current activation state uses schema v3, and
+schema v8, finding ledgers and scorecards use schema v1, current activation
+state uses schema v3, and
 review packets use schema v2. Current study references/reports use schema v2
 and require audit attempt metrics plus separate bounded model-report metrics.
 The decoder still accepts workspace-manifest v1 comparisons;
