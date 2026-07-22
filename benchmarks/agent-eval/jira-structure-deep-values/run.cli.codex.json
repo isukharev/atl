@@ -3,9 +3,9 @@
   "scenario_file": "scenario.v2.json",
   "category": "surface-native",
   "surface": "cli-skill",
-  "provider": "claude-code",
+  "provider": "codex",
   "variant": "structure-deep-values-v2",
-  "model": "claude-opus-4-8",
+  "model": "gpt-5.6-luna",
   "reasoning": "high",
   "prompt_file": "prompt.v2.md",
   "response_schema_file": "response-schema.v2.json",
@@ -15,12 +15,12 @@
   "repetitions": 3,
   "timeout_seconds": 300,
   "max_estimated_cost_microusd": 10000000,
-  "pricing": {"input_microusd_per_million_tokens":5000000,"output_microusd_per_million_tokens":25000000},
+  "pricing": {"input_microusd_per_million_tokens":1000000,"output_microusd_per_million_tokens":6000000},
   "allowed_tools": ["Bash(atl *)", "Skill"],
-  "allowed_atl_commands": [
-    "atl capabilities",
-    "atl jira structure rows",
-    "atl jira structure values"
+  "allowed_cli_commands": [
+    {"name":"capabilities","command":["capabilities"],"flags":[{"name":"--task","values":["jira/structure-planning"],"required":true}],"max_invocations":1},
+    {"name":"structure_rows","command":["jira","structure","rows"],"positionals":[{"values":["88"]}],"flags":[{"name":"--folder-id","values":["q4"],"required":true}],"max_invocations":1},
+    {"name":"structure_values","command":["jira","structure","values"],"positionals":[{"values":["88"]}],"flags":[{"name":"--rows","values":["410,411,412,413,414,415,416,417,418"],"required":true},{"name":"--fields","values":["key,summary,status,customfield_12345"],"required":true}],"max_invocations":1}
   ],
   "checks": [
     {"name":"atl_succeeded","kind":"atl_all_succeeded"},
@@ -43,7 +43,7 @@
     {"name":"structure_correct","kind":"json_equals","pointer":"/structure_id","expected":88},
     {"name":"used_atl","kind":"atl_invocations_min","minimum":3},
     {"name":"used_atl_three_times","kind":"atl_invocations_max","maximum":3},
-    {"name":"used_skill","kind":"skill_invocations_min","minimum":1,"expected":"atl:jira"},
+    {"name":"used_skill","kind":"skill_invocations_min","minimum":1},
     {"name":"value_fields_correct","kind":"json_equals","pointer":"/value_fields","expected":["key","summary","status","customfield_12345"]},
     {"name":"value_rows_correct","kind":"json_equals","pointer":"/value_rows","expected":[410,411,412,413,414,415,416,417,418]},
     {"name":"values_correct","kind":"json_equals","pointer":"/issue_rows","expected":[

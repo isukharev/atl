@@ -19,6 +19,147 @@ func TestRepositoryBenchmarkCorpusContract(t *testing.T) {
 	}
 }
 
+func TestRepositoryStructureAndTableV2ChecksRejectSemanticDrift(t *testing.T) {
+	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
+	tests := []struct {
+		name      string
+		directory string
+		check     string
+		correct   string
+		drifted   string
+	}{
+		{
+			name:      "Structure subtree counts",
+			directory: "jira-structure-subtree-export",
+			check:     "counts_correct",
+			correct:   `{"counts":{"selected_rows_including_root":5,"issue_rows_including_repeats":4,"unique_issue_ids":3,"repeated_issue_occurrences":1,"export_selectors_including_repeats":4,"exported_unique_issue_ids":2,"omitted_unique_issue_ids":1}}`,
+			drifted:   `{"counts":{"selected_rows_including_root":4,"issue_rows_including_repeats":4,"unique_issue_ids":3,"repeated_issue_occurrences":1,"export_selectors_including_repeats":4,"exported_unique_issue_ids":2,"omitted_unique_issue_ids":1}}`,
+		},
+		{
+			name:      "Structure value accessibility counts",
+			directory: "jira-structure-deep-values",
+			check:     "counts_correct",
+			correct:   `{"counts":{"selected_rows_including_root":9,"issue_rows_including_repeats":5,"unique_issue_ids":4,"repeated_issue_occurrences":1,"queried_value_rows":9,"accessible_issue_rows":4,"inaccessible_issue_rows":1}}`,
+			drifted:   `{"counts":{"selected_rows_including_root":9,"issue_rows_including_repeats":5,"unique_issue_ids":5,"repeated_issue_occurrences":0,"queried_value_rows":9,"accessible_issue_rows":4,"inaccessible_issue_rows":1}}`,
+		},
+		{
+			name:      "Confluence expanded grid semantics",
+			directory: "confluence-table-summary",
+			check:     "count_semantics_correct",
+			correct:   `{"count_semantics":{"table_count_scope":"page-wide","row_count_scope":"expanded-rows-including-headers","cell_count_scope":"expanded-rectangular-grid","repeated_cell_scope":"span-covered-coordinates","span_source_scope":"non-repeated-source-cells","combined_span_coverage":"counted-on-each-covered-axis"}}`,
+			drifted:   `{"count_semantics":{"table_count_scope":"selected-only","row_count_scope":"expanded-rows-including-headers","cell_count_scope":"expanded-rectangular-grid","repeated_cell_scope":"span-covered-coordinates","span_source_scope":"non-repeated-source-cells","combined_span_coverage":"counted-on-each-covered-axis"}}`,
+		},
+		{
+			name:      "Confluence qualifying identifiers",
+			directory: "confluence-table-analytics",
+			check:     "qualifying_ids_correct",
+			correct:   `{"qualifying_item_codes":["ALPHA","ECHO","KILO","ROMEO","XRAY"]}`,
+			drifted:   `{"qualifying_item_codes":["ALPHA","ECHO","KILO","ROMEO"]}`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(root, test.directory, "run.cli.claude.json")
+			file, err := os.Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			spec, decodeErr := DecodeRunSpec(file)
+			closeErr := file.Close()
+			if decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			if closeErr != nil {
+				t.Fatal(closeErr)
+			}
+
+			for label, final := range map[string]string{"correct": test.correct, "drifted": test.drifted} {
+				checks, err := evaluateRunChecks(spec.Checks, []byte(final), "", 0, 0, 0, 0, nil, 0, 0, nil, false, nil)
+				if err != nil {
+					t.Fatalf("%s: %v", label, err)
+				}
+				if got := checks[test.check]; got != (label == "correct") {
+					t.Fatalf("%s check %q=%v", label, test.check, got)
+				}
+			}
+		})
+	}
+}
+
+func TestRepositoryStructureAndTableV2ProviderParityIsZeroWrite(t *testing.T) {
+	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
+	for _, directory := range []string{
+		"jira-structure-deep-values",
+		"jira-structure-subtree-export",
+		"confluence-table-analytics",
+		"confluence-table-summary",
+	} {
+		t.Run(directory, func(t *testing.T) {
+			scenarioFile, err := os.Open(filepath.Join(root, directory, "scenario.v2.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			scenario, decodeErr := DecodeScenario(scenarioFile)
+			closeErr := scenarioFile.Close()
+			if decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			if closeErr != nil {
+				t.Fatal(closeErr)
+			}
+			if scenario.Budgets.MaxRemoteWrites != 0 {
+				t.Fatalf("v2 scenario permits %d remote writes", scenario.Budgets.MaxRemoteWrites)
+			}
+
+			specs := make(map[string]RunSpec, 2)
+			for _, provider := range []string{"claude", "codex"} {
+				path := filepath.Join(root, directory, "run.cli."+provider+".json")
+				file, err := os.Open(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				spec, decodeErr := DecodeRunSpec(file)
+				closeErr := file.Close()
+				if decodeErr != nil {
+					t.Fatal(decodeErr)
+				}
+				if closeErr != nil {
+					t.Fatal(closeErr)
+				}
+				if spec.ScenarioFile != "scenario.v2.json" || spec.ResponseSchemaFile != "response-schema.v2.json" || spec.QualitativeRubricFile != "rubric.v2.json" {
+					t.Fatalf("%s spec escaped the v2 contract: %+v", provider, spec)
+				}
+				specs[provider] = spec
+			}
+
+			claude, codex := specs["claude"], specs["codex"]
+			if claude.Provider != "claude-code" || claude.Model != "claude-opus-4-8" ||
+				codex.Provider != "codex" || codex.Model != "gpt-5.6-luna" {
+				t.Fatalf("provider/model parity drifted: claude=%s/%s codex=%s/%s", claude.Provider, claude.Model, codex.Provider, codex.Model)
+			}
+			if claude.PromptFile != codex.PromptFile || claude.FixtureFile != codex.FixtureFile ||
+				claude.ResponseSchemaFile != codex.ResponseSchemaFile || claude.QualitativeRubricFile != codex.QualitativeRubricFile ||
+				claude.WorkspaceTemplate != codex.WorkspaceTemplate || claude.Category != codex.Category || claude.Surface != codex.Surface ||
+				claude.Reasoning != codex.Reasoning || claude.Repetitions != codex.Repetitions || claude.TimeoutSeconds != codex.TimeoutSeconds ||
+				claude.MaxEstimatedCostMicroUSD != codex.MaxEstimatedCostMicroUSD {
+				t.Fatalf("shared provider contract drifted: claude=%+v codex=%+v", claude, codex)
+			}
+			claudeSemantic, err := semanticRunChecks(claude.Checks)
+			if err != nil {
+				t.Fatal(err)
+			}
+			codexSemantic, err := semanticRunChecks(codex.Checks)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !equalPrivateComparisonJSON(claudeSemantic, codexSemantic) {
+				t.Fatalf("semantic checks drifted: claude=%+v codex=%+v", claudeSemantic, codexSemantic)
+			}
+		})
+	}
+}
+
 func TestRepositoryClaudeCorpusUsesReviewedOpus48HighCohort(t *testing.T) {
 	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
 	claudeRuns := 0

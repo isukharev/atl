@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "id": "confluence-table-summary-v2-answer",
+  "scenario_id": "confluence.synthetic-table-summary-v2",
+  "minimum_score_bps": 8500,
+  "criteria": [
+    {
+      "id": "structural_accuracy",
+      "description": "Every expanded shape and span source/covered count matches the bounded inventory.",
+      "maximum": 4,
+      "minimum": 4,
+      "weight": 35
+    },
+    {
+      "id": "count_semantics",
+      "description": "The answer explicitly preserves page-wide table selection, header-inclusive rows, expanded-grid cells, non-repeated span sources, and per-axis covered coordinates.",
+      "maximum": 4,
+      "minimum": 4,
+      "weight": 25
+    },
+    {
+      "id": "privacy",
+      "description": "The answer exposes no page or cell content, URL, style value, raw attribute, or warning text.",
+      "maximum": 4,
+      "minimum": 4,
+      "weight": 20
+    },
+    {
+      "id": "bounded_route",
+      "description": "Only capability discovery and the content-free summary route are used.",
+      "maximum": 4,
+      "minimum": 3,
+      "weight": 10
+    },
+    {
+      "id": "concision",
+      "description": "The response contains only the requested structural result.",
+      "maximum": 4,
+      "minimum": 3,
+      "weight": 10
+    }
+  ],
+  "allowed_finding_ids": [
+    "ambiguous_count",
+    "content_exposure",
+    "incorrect_shape",
+    "poor_structure",
+    "unsupported_claim",
+    "verbose"
+  ]
+}

@@ -128,10 +128,10 @@ The realistic matrix currently contains:
 | neutral common | `confluence-long-decision` | long rich page, repeated heading, and superseded evidence |
 | neutral common | `confluence-paginated-search-evidence` | three qualified search pages, distractor rejection, and bounded section provenance |
 | neutral common | `cross-service-neutral-discovery` | bounded topic discovery across Jira and Confluence with distractors |
-| surface native | `jira-structure-subtree-export` | GET-only hierarchy rows plus ordered explicit batch export |
-| surface native | `jira-structure-deep-values` | deep selected hierarchy plus an explicit row-value matrix and inaccessible evidence |
-| surface native | `confluence-table-analytics` | selected multi-table extraction, merged cells, links, and safe CSV |
-| surface native | `confluence-table-summary` | bounded content-free shapes with explicit rowspan/colspan source and covered counts |
+| surface native | `jira-structure-subtree-export` | GET-only hierarchy rows plus explicit row/identity/repeat counts and ordered batch export |
+| surface native | `jira-structure-deep-values` | deep selected hierarchy plus explicit row/accessibility counts and a query-only POST value matrix |
+| surface native | `confluence-table-analytics` | bounded selected-table analysis with explicit filter/count/sum semantics, merged cells, links, and safe CSV |
+| surface native | `confluence-table-summary` | content-free shapes with explicit expanded-grid and rowspan/colspan source/covered semantics |
 | surface native | `confluence-mirror-review` | offline semantic diff and snapshot-delta review |
 | surface native | `jira-field-mutation` | reviewed preview/apply and ambiguous-outcome handling on a synthetic backend |
 | surface native | `jira-worklog-reconcile` | baseline-bound non-idempotent POST plus exact post-commit reconciliation without replay |
@@ -142,6 +142,18 @@ The realistic matrix currently contains:
 Injection, point-route, and delegation cases remain route-fixed regressions.
 Surface-native mutation and mirror cases are scored only for their supported
 CLI workflow and are not used to claim a general surface winner.
+
+The Structure and Confluence table cells retain their original v1 contracts as
+historical inputs and run current candidates against v2 contracts. V2 reports
+row occurrences separately from unique identities, defines repeated
+occurrences as occurrences after the first, and distinguishes selected,
+queried, exported, and omitted populations. Table v2 keeps exact content-free
+shape inventory separate from bounded selected-table analysis and states that
+shape cell counts use the expanded rectangular grid. Query-only Structure
+Value API POST requests remain mechanically zero-write. Both Codex and Claude
+Code have equivalent current fixtures, core prompts, response schemas, budgets,
+and semantic checks for these cells; provider-native command and skill-event
+evidence remains transport-specific.
 
 Build `atl`, choose one exact provider/model spec, and write transcripts only to
 a private ignored path or outside the worktree:
