@@ -681,7 +681,44 @@ func safeReviewedWriteCLICommandShape(command string) bool {
 		return false
 	}
 	command = strings.TrimSpace(strings.TrimPrefix(command, prefix))
-	return strings.HasPrefix(command, "atl ") && !strings.ContainsAny(command, "\x00;&|`><$(){}[]*?!~#")
+	if !strings.HasPrefix(command, "atl ") {
+		return false
+	}
+
+	// The exact argv broker is the authority for which atl invocation may run,
+	// but this outer hook must first prove that the shell will execute only one
+	// command. Structured field values need JSON punctuation, so admit it only
+	// while single-quoted, where the shell treats every byte as inert data.
+	// Double quotes remain deliberately narrow because substitutions are active
+	// there, and unmatched quotes fail closed.
+	var quote byte
+	for i := 0; i < len(command); i++ {
+		c := command[i]
+		if c < 0x20 || c == 0x7f {
+			return false
+		}
+		switch quote {
+		case '\'':
+			if c == '\'' {
+				quote = 0
+			}
+		case '"':
+			switch {
+			case c == '"':
+				quote = 0
+			case strings.ContainsRune("\\`$(){}[]", rune(c)):
+				return false
+			}
+		default:
+			switch {
+			case c == '\'' || c == '"':
+				quote = c
+			case strings.ContainsRune("\\;&|`><$(){}[]*?!~#", rune(c)):
+				return false
+			}
+		}
+	}
+	return quote == 0
 }
 
 func runReviewedWriteEnv(args []string) int {
