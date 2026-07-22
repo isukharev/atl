@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	CLICommandPolicySchemaVersion = 1
-	maxCLICommandPolicyBytes      = 1 << 20
+	CLICommandPolicySchemaVersion       = 2
+	LegacyCLICommandPolicySchemaVersion = 1
+	maxCLICommandPolicyBytes            = 1 << 20
 )
 
 var (
@@ -43,6 +44,7 @@ type CLIFlagRule struct {
 	Values      []string `json:"values,omitempty"`
 	ValueFormat string   `json:"value_format,omitempty"`
 	Required    bool     `json:"required,omitempty"`
+	Occurrences int      `json:"occurrences,omitempty"`
 }
 
 type CLICommandMatch struct {
@@ -51,7 +53,7 @@ type CLICommandMatch struct {
 }
 
 func (p CLICommandPolicy) Validate() error {
-	if p.SchemaVersion != CLICommandPolicySchemaVersion {
+	if p.SchemaVersion != CLICommandPolicySchemaVersion && p.SchemaVersion != LegacyCLICommandPolicySchemaVersion {
 		return fmt.Errorf("unsupported cli command policy schema_version %d", p.SchemaVersion)
 	}
 	if len(p.Rules) == 0 || len(p.Rules) > 64 {
@@ -91,6 +93,15 @@ func (p CLICommandPolicy) Validate() error {
 				return fmt.Errorf("cli command rule %q has duplicate flag %q", rule.Name, flag.Name)
 			}
 			seenFlags[flag.Name] = struct{}{}
+			if p.SchemaVersion == LegacyCLICommandPolicySchemaVersion && flag.Occurrences != 0 {
+				return fmt.Errorf("cli command rule %q flag %q occurrences require schema_version %d", rule.Name, flag.Name, CLICommandPolicySchemaVersion)
+			}
+			if flag.Occurrences < 0 || flag.Occurrences > 32 {
+				return fmt.Errorf("cli command rule %q flag %q has invalid occurrences", rule.Name, flag.Name)
+			}
+			if flag.Occurrences > 1 && (!flag.Required || len(flag.Values) != flag.Occurrences) {
+				return fmt.Errorf("cli command rule %q flag %q repeated occurrences require the same number of exact values and required=true", rule.Name, flag.Name)
+			}
 			if len(flag.Values) > 0 && flag.ValueFormat != "" {
 				return fmt.Errorf("cli command rule %q flag %q cannot combine values and value_format", rule.Name, flag.Name)
 			}
@@ -204,7 +215,8 @@ func matchCLICommandRule(rule CLICommandRule, args []string) bool {
 	for _, flag := range rule.Flags {
 		flagRules[flag.Name] = flag
 	}
-	seenFlags := map[string]struct{}{}
+	seenFlags := map[string]int{}
+	seenFlagValues := map[string]map[string]struct{}{}
 	var positionals []string
 	rest := args[len(rule.Command):]
 	for index := 0; index < len(rest); index++ {
@@ -217,14 +229,27 @@ func matchCLICommandRule(rule CLICommandRule, args []string) bool {
 			if !exists {
 				return false
 			}
-			if _, duplicate := seenFlags[token]; duplicate {
+			maximum := 1
+			if flag.Occurrences > 0 {
+				maximum = flag.Occurrences
+			}
+			if seenFlags[token] >= maximum {
 				return false
 			}
-			seenFlags[token] = struct{}{}
+			seenFlags[token]++
 			if len(flag.Values) > 0 || flag.ValueFormat != "" {
 				index++
 				if index >= len(rest) || !matchCLIFlagValue(flag, rest[index]) {
 					return false
+				}
+				if maximum > 1 {
+					if seenFlagValues[token] == nil {
+						seenFlagValues[token] = map[string]struct{}{}
+					}
+					if _, duplicate := seenFlagValues[token][rest[index]]; duplicate {
+						return false
+					}
+					seenFlagValues[token][rest[index]] = struct{}{}
 				}
 			}
 			continue
@@ -240,8 +265,12 @@ func matchCLICommandRule(rule CLICommandRule, args []string) bool {
 		}
 	}
 	for _, flag := range rule.Flags {
-		_, present := seenFlags[flag.Name]
-		if flag.Required && !present {
+		count := seenFlags[flag.Name]
+		expected := flag.Occurrences
+		if expected == 0 && flag.Required {
+			expected = 1
+		}
+		if expected > 0 && count != expected {
 			return false
 		}
 	}

@@ -166,7 +166,7 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 					family = "skill_read"
 					reason = "command contains only confined skill-reader invocations"
 				}
-			} else if safePrivateCLICommandShape(hook.ToolInput.Command) || os.Getenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES") == "1" && safeSyntheticWriteCLICommandShape(hook.ToolInput.Command) {
+			} else if safePrivateCLICommandShape(hook.ToolInput.Command) || reviewedWriteEnvironmentEnabled() && safeReviewedWriteCLICommandShape(hook.ToolInput.Command) {
 				decision = "allow"
 				family = "atl"
 				reason = "command shape delegates exact argument enforcement to the atl evaluation shim"
@@ -674,7 +674,7 @@ func safePrivateCLICommandShape(command string) bool {
 	return true
 }
 
-func safeSyntheticWriteCLICommandShape(command string) bool {
+func safeReviewedWriteCLICommandShape(command string) bool {
 	command = strings.TrimSpace(command)
 	const prefix = "env -u ATL_READ_ONLY "
 	if strings.ContainsAny(command, "\r\n") || !strings.HasPrefix(command, prefix) {
@@ -684,33 +684,37 @@ func safeSyntheticWriteCLICommandShape(command string) bool {
 	return strings.HasPrefix(command, "atl ") && !strings.ContainsAny(command, "\x00;&|`><$(){}[]*?!~#")
 }
 
-func runSyntheticWriteEnv(args []string) int {
+func runReviewedWriteEnv(args []string) int {
 	counterPath := os.Getenv("ATL_EVAL_COUNTER")
-	if os.Getenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES") != "1" || len(args) < 4 || args[0] != "-u" || args[1] != "ATL_READ_ONLY" || args[2] != "atl" {
+	if !reviewedWriteEnvironmentEnabled() || len(args) < 4 || args[0] != "-u" || args[1] != "ATL_READ_ONLY" || args[2] != "atl" {
 		return rejectATLProxy(counterPath, "atl evaluation env shim rejected the invocation")
 	}
 	return runATLProxyWithWriteIntent(args[3:], true)
+}
+
+func reviewedWriteEnvironmentEnabled() bool {
+	return os.Getenv("ATL_EVAL_ALLOW_REVIEWED_WRITES") == "1" || os.Getenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES") == "1"
 }
 
 func runATLProxy(args []string) int {
 	return runATLProxyWithWriteIntent(args, false)
 }
 
-func runATLProxyWithWriteIntent(args []string, syntheticWriteIntent bool) int {
+func runATLProxyWithWriteIntent(args []string, reviewedWriteIntent bool) int {
 	counterPath := os.Getenv("ATL_EVAL_COUNTER")
 	brokerPath := os.Getenv("ATL_EVAL_COMMAND_BROKER_FILE")
-	allowSyntheticWrites := os.Getenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES") == "1"
-	syntheticWriteAuthority := allowSyntheticWrites && syntheticBackendsAreLoopback()
-	brokerAllowsSyntheticWrites := false
-	if allowSyntheticWrites && brokerPath != "" {
-		brokerAllowsWrites, err := agenteval.CommandBrokerAllowsSyntheticWrites(brokerPath)
-		brokerAllowsSyntheticWrites = err == nil && brokerAllowsWrites
-		syntheticWriteAuthority = brokerAllowsSyntheticWrites
+	allowReviewedWrites := reviewedWriteEnvironmentEnabled()
+	reviewedWriteAuthority := os.Getenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES") == "1" && syntheticBackendsAreLoopback()
+	brokerAllowsReviewedWrites := false
+	if allowReviewedWrites && brokerPath != "" {
+		brokerAllowsWrites, err := agenteval.CommandBrokerAllowsReviewedWrites(brokerPath)
+		brokerAllowsReviewedWrites = err == nil && brokerAllowsWrites
+		reviewedWriteAuthority = brokerAllowsReviewedWrites
 	}
-	if syntheticWriteIntent && !brokerAllowsSyntheticWrites {
-		return rejectATLProxy(counterPath, "atl evaluation proxy rejected untrusted synthetic write intent")
+	if reviewedWriteIntent && !brokerAllowsReviewedWrites {
+		return rejectATLProxy(counterPath, "atl evaluation proxy rejected untrusted reviewed write intent")
 	}
-	if os.Getenv("ATL_READ_ONLY") != "1" && !syntheticWriteAuthority {
+	if os.Getenv("ATL_READ_ONLY") != "1" && !reviewedWriteAuthority {
 		return rejectATLProxy(counterPath, "atl evaluation proxy requires ATL_READ_ONLY=1")
 	}
 	realBinary := os.Getenv("ATL_EVAL_REAL_BINARY")
@@ -744,7 +748,7 @@ func runATLProxyWithWriteIntent(args []string, syntheticWriteIntent bool) int {
 	}
 	if brokerPath != "" {
 		brokerArgs := args
-		if brokerAllowsSyntheticWrites && !syntheticWriteIntent && (len(args) == 0 || args[0] != "--read-only") {
+		if brokerAllowsReviewedWrites && !reviewedWriteIntent && (len(args) == 0 || args[0] != "--read-only") {
 			brokerArgs = append([]string{"--read-only"}, args...)
 		}
 		response, err := agenteval.CallCommandBroker(brokerPath, brokerArgs, false)

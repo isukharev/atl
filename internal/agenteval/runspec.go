@@ -15,11 +15,12 @@ import (
 )
 
 const (
-	RunSpecSchemaVersion       = 6
-	LegacyRunSpecSchemaVersion = 5
-	maxRunSpecBytes            = 1 << 20
-	maxRunCostMicroUSD         = 10_000_000
-	maxWorkspaceArtifactBytes  = 16 << 20
+	RunSpecSchemaVersion              = 7
+	LegacyRunSpecSchemaVersion        = 6
+	LegacyPromptChannelRunSpecVersion = 5
+	maxRunSpecBytes                   = 1 << 20
+	maxRunCostMicroUSD                = 10_000_000
+	maxWorkspaceArtifactBytes         = 16 << 20
 )
 
 var (
@@ -33,38 +34,41 @@ var (
 // RunSpec is intentionally separate from Scenario: scenarios define comparable
 // budgets, while run specs define one provider invocation and may remain local.
 type RunSpec struct {
-	SchemaVersion            int                           `json:"schema_version"`
-	BackendMode              string                        `json:"backend_mode,omitempty"`
-	Category                 string                        `json:"category,omitempty"`
-	Surface                  string                        `json:"surface,omitempty"`
-	ScenarioFile             string                        `json:"scenario_file"`
-	Provider                 string                        `json:"provider"`
-	Variant                  string                        `json:"variant"`
-	Model                    string                        `json:"model"`
-	Reasoning                string                        `json:"reasoning,omitempty"`
-	PromptFile               string                        `json:"prompt_file"`
-	ResponseSchemaFile       string                        `json:"response_schema_file"`
-	QualitativeRubricFile    string                        `json:"qualitative_rubric_file"`
-	WorkspaceTemplate        string                        `json:"workspace_template"`
-	FixtureFile              string                        `json:"fixture_file"`
-	Repetitions              int                           `json:"repetitions"`
-	TimeoutSeconds           int                           `json:"timeout_seconds"`
-	MaxEstimatedCostMicroUSD int64                         `json:"max_estimated_cost_microusd"`
-	Pricing                  Pricing                       `json:"pricing"`
-	ToolTransport            string                        `json:"tool_transport,omitempty"`
-	SkillActivation          string                        `json:"skill_activation,omitempty"`
-	AllowedTools             []string                      `json:"allowed_tools"`
-	AllowedATLCommands       []string                      `json:"allowed_atl_commands"`
-	AllowedCLICommands       []CLICommandRule              `json:"allowed_cli_commands,omitempty"`
-	AllowedMCPTools          []string                      `json:"allowed_mcp_tools,omitempty"`
-	DataCapabilities         []string                      `json:"data_capabilities,omitempty"`
-	AllowedGatewayRoutes     map[string][]LiveGatewayRoute `json:"allowed_gateway_routes,omitempty"`
-	GatewayMaxResponseBytes  int64                         `json:"gateway_max_response_bytes,omitempty"`
-	GatewayMaxTotalBytes     int64                         `json:"gateway_max_total_response_bytes,omitempty"`
-	AllowSyntheticWrites     bool                          `json:"allow_synthetic_writes,omitempty"`
-	Checks                   []RunCheck                    `json:"checks"`
-	mcpServerURL             string
-	mcpBearerTokenEnv        string
+	SchemaVersion               int                           `json:"schema_version"`
+	BackendMode                 string                        `json:"backend_mode,omitempty"`
+	Category                    string                        `json:"category,omitempty"`
+	Surface                     string                        `json:"surface,omitempty"`
+	ScenarioFile                string                        `json:"scenario_file"`
+	Provider                    string                        `json:"provider"`
+	Variant                     string                        `json:"variant"`
+	Model                       string                        `json:"model"`
+	Reasoning                   string                        `json:"reasoning,omitempty"`
+	PromptFile                  string                        `json:"prompt_file"`
+	ResponseSchemaFile          string                        `json:"response_schema_file"`
+	QualitativeRubricFile       string                        `json:"qualitative_rubric_file"`
+	WorkspaceTemplate           string                        `json:"workspace_template"`
+	FixtureFile                 string                        `json:"fixture_file"`
+	Repetitions                 int                           `json:"repetitions"`
+	TimeoutSeconds              int                           `json:"timeout_seconds"`
+	MaxEstimatedCostMicroUSD    int64                         `json:"max_estimated_cost_microusd"`
+	Pricing                     Pricing                       `json:"pricing"`
+	ToolTransport               string                        `json:"tool_transport,omitempty"`
+	SkillActivation             string                        `json:"skill_activation,omitempty"`
+	AllowedTools                []string                      `json:"allowed_tools"`
+	AllowedATLCommands          []string                      `json:"allowed_atl_commands"`
+	AllowedCLICommands          []CLICommandRule              `json:"allowed_cli_commands,omitempty"`
+	AllowedMCPTools             []string                      `json:"allowed_mcp_tools,omitempty"`
+	DataCapabilities            []string                      `json:"data_capabilities,omitempty"`
+	AllowedGatewayRoutes        map[string][]LiveGatewayRoute `json:"allowed_gateway_routes,omitempty"`
+	GatewayMaxResponseBytes     int64                         `json:"gateway_max_response_bytes,omitempty"`
+	GatewayMaxTotalBytes        int64                         `json:"gateway_max_total_response_bytes,omitempty"`
+	GatewayMaxRequestBytes      int64                         `json:"gateway_max_request_bytes,omitempty"`
+	GatewayMaxTotalRequestBytes int64                         `json:"gateway_max_total_request_bytes,omitempty"`
+	AllowSyntheticWrites        bool                          `json:"allow_synthetic_writes,omitempty"`
+	AllowLiveWrites             bool                          `json:"allow_live_writes,omitempty"`
+	Checks                      []RunCheck                    `json:"checks"`
+	mcpServerURL                string
+	mcpBearerTokenEnv           string
 }
 
 const (
@@ -231,7 +235,7 @@ func DecodeRunSpec(r io.Reader) (RunSpec, error) {
 }
 
 func (s RunSpec) Validate() error {
-	if s.SchemaVersion != RunSpecSchemaVersion && s.SchemaVersion != LegacyRunSpecSchemaVersion {
+	if s.SchemaVersion != RunSpecSchemaVersion && s.SchemaVersion != LegacyRunSpecSchemaVersion && s.SchemaVersion != LegacyPromptChannelRunSpecVersion {
 		return fmt.Errorf("unsupported run spec schema_version %d", s.SchemaVersion)
 	}
 	if s.Provider != "claude-code" && s.Provider != "codex" {
@@ -274,6 +278,9 @@ func (s RunSpec) Validate() error {
 		if s.AllowSyntheticWrites {
 			return fmt.Errorf("allow_synthetic_writes is valid only for synthetic runs")
 		}
+		if s.AllowLiveWrites && s.SchemaVersion != RunSpecSchemaVersion {
+			return fmt.Errorf("allow_live_writes requires current run spec schema")
+		}
 		if s.FixtureFile != "" {
 			return fmt.Errorf("fixture_file must be empty for private-live runs")
 		}
@@ -284,7 +291,7 @@ func (s RunSpec) Validate() error {
 			return fmt.Errorf("private-live runs require an explicit cli or mcp tool_transport")
 		}
 	case BackendModeProviderCalibration:
-		if s.SchemaVersion != RunSpecSchemaVersion || s.Provider != "codex" || s.AllowSyntheticWrites || s.FixtureFile != "" || s.Repetitions != 1 || s.ToolTransport != "cli" {
+		if s.SchemaVersion != RunSpecSchemaVersion || s.Provider != "codex" || s.AllowSyntheticWrites || s.AllowLiveWrites || s.FixtureFile != "" || s.Repetitions != 1 || s.ToolTransport != "cli" {
 			return fmt.Errorf("provider-calibration requires one read-only codex cli invocation without a fixture")
 		}
 		if s.SkillActivation != "" || len(s.DataCapabilities) != 0 {
@@ -333,6 +340,9 @@ func (s RunSpec) Validate() error {
 	}
 	if s.AllowSyntheticWrites && transport != "cli" {
 		return fmt.Errorf("allow_synthetic_writes requires cli transport")
+	}
+	if s.AllowLiveWrites && (s.EffectiveBackendMode() != BackendModePrivateLive || transport != "cli") {
+		return fmt.Errorf("allow_live_writes requires private-live cli transport")
 	}
 	if s.AllowSyntheticWrites && s.Provider == "codex" && !isCodexSyntheticBrokerCLI(s) {
 		return fmt.Errorf("codex synthetic writes require exact allowed_cli_commands")
@@ -394,7 +404,14 @@ func (s RunSpec) Validate() error {
 				if s.GatewayMaxResponseBytes < 1 || s.GatewayMaxResponseBytes > 64<<20 || s.GatewayMaxTotalBytes < s.GatewayMaxResponseBytes || s.GatewayMaxTotalBytes > 256<<20 {
 					return fmt.Errorf("private-live cli gateway response budgets are invalid")
 				}
-			} else if len(s.AllowedGatewayRoutes) != 0 || s.GatewayMaxResponseBytes != 0 || s.GatewayMaxTotalBytes != 0 {
+				if s.AllowLiveWrites {
+					if s.GatewayMaxRequestBytes < 1 || s.GatewayMaxRequestBytes > 16<<20 || s.GatewayMaxTotalRequestBytes < s.GatewayMaxRequestBytes || s.GatewayMaxTotalRequestBytes > 64<<20 {
+						return fmt.Errorf("private-live cli gateway request budgets are invalid")
+					}
+				} else if s.GatewayMaxRequestBytes != 0 || s.GatewayMaxTotalRequestBytes != 0 {
+					return fmt.Errorf("read-only private-live runs forbid gateway request-body budgets")
+				}
+			} else if len(s.AllowedGatewayRoutes) != 0 || s.GatewayMaxResponseBytes != 0 || s.GatewayMaxTotalBytes != 0 || s.GatewayMaxRequestBytes != 0 || s.GatewayMaxTotalRequestBytes != 0 {
 				return fmt.Errorf("provider-calibration forbids a backend gateway policy")
 			}
 		}
@@ -418,7 +435,7 @@ func (s RunSpec) Validate() error {
 	if transport == "cli" && len(s.AllowedMCPTools) != 0 {
 		return fmt.Errorf("allowed_mcp_tools must be empty for cli transport")
 	}
-	if (s.EffectiveBackendMode() != BackendModePrivateLive || transport != "cli") && (len(s.AllowedGatewayRoutes) != 0 || s.GatewayMaxResponseBytes != 0 || s.GatewayMaxTotalBytes != 0) {
+	if (s.EffectiveBackendMode() != BackendModePrivateLive || transport != "cli") && (len(s.AllowedGatewayRoutes) != 0 || s.GatewayMaxResponseBytes != 0 || s.GatewayMaxTotalBytes != 0 || s.GatewayMaxRequestBytes != 0 || s.GatewayMaxTotalRequestBytes != 0) {
 		return fmt.Errorf("gateway policy is only valid for private-live cli transport")
 	}
 	seenMCPTools := map[string]struct{}{}
@@ -559,6 +576,42 @@ func containsRunString(values []string, candidate string) bool {
 	return false
 }
 
+func validateLiveWriteGatewayPolicy(services map[string][]LiveGatewayRoute, budgets Budgets) error {
+	allowedMethods := make(map[string]struct{}, len(budgets.AllowedHTTPMethods))
+	for _, method := range budgets.AllowedHTTPMethods {
+		allowedMethods[method] = struct{}{}
+	}
+	totalRequests := 0
+	totalWrites := 0
+	for _, routes := range services {
+		for _, route := range routes {
+			if len(route.Methods) == 0 || route.MaxRequests < 1 {
+				return fmt.Errorf("live-write gateway routes require explicit methods and request budgets")
+			}
+			mutating := routeHasMutatingMethod(route)
+			for _, method := range route.Methods {
+				if _, ok := allowedMethods[method]; !ok {
+					return fmt.Errorf("live-write gateway method %s is outside the scenario allowlist", method)
+				}
+				if mutating && !isMutatingHTTPMethod(method) {
+					return fmt.Errorf("live-write gateway routes cannot mix read and mutating methods")
+				}
+			}
+			totalRequests += route.MaxRequests
+			if mutating {
+				totalWrites += route.MaxRequests
+			}
+		}
+	}
+	if totalRequests > budgets.MaxBackendRequests {
+		return fmt.Errorf("live-write gateway route budgets exceed max_backend_requests")
+	}
+	if totalWrites != budgets.MaxRemoteWrites {
+		return fmt.Errorf("live-write gateway mutation budgets must equal max_remote_writes")
+	}
+	return nil
+}
+
 func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 	if err := scenario.Validate(); err != nil {
 		return err
@@ -587,8 +640,15 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 		if scenario.DataClass != "private-local" {
 			return fmt.Errorf("private-live runs require scenario data_class=private-local")
 		}
-		if scenario.Budgets.MaxRemoteWrites != 0 {
-			return fmt.Errorf("private-live runs require max_remote_writes=0")
+		if s.AllowLiveWrites {
+			if scenario.Budgets.MaxRemoteWrites < 1 {
+				return fmt.Errorf("live-write private runs require a positive max_remote_writes")
+			}
+			if err := validateLiveWriteGatewayPolicy(s.AllowedGatewayRoutes, scenario.Budgets); err != nil {
+				return err
+			}
+		} else if scenario.Budgets.MaxRemoteWrites != 0 {
+			return fmt.Errorf("read-only private-live runs require max_remote_writes=0")
 		}
 		if scenario.Budgets.MaxDelegations != 0 {
 			return fmt.Errorf("private-live runs do not allow delegation")
@@ -606,9 +666,18 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 				}
 			}
 		}
-		for _, method := range scenario.Budgets.AllowedHTTPMethods {
-			if method != "GET" && method != "HEAD" {
-				return fmt.Errorf("private-live allowed_http_methods may contain only GET and HEAD")
+		if !s.AllowLiveWrites {
+			for _, routes := range s.AllowedGatewayRoutes {
+				for _, route := range routes {
+					if routeHasMutatingMethod(route) {
+						return fmt.Errorf("read-only private-live gateway routes may contain only GET and HEAD")
+					}
+				}
+			}
+			for _, method := range scenario.Budgets.AllowedHTTPMethods {
+				if method != "GET" && method != "HEAD" {
+					return fmt.Errorf("read-only private-live allowed_http_methods may contain only GET and HEAD")
+				}
 			}
 		}
 		requiredSuccess := false
@@ -643,6 +712,15 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 		for kind, present := range requiredKinds {
 			if !present {
 				return fmt.Errorf("private-live runs require a %s check", kind)
+			}
+		}
+		if s.AllowLiveWrites {
+			hasExactMethods := false
+			for _, check := range s.Checks {
+				hasExactMethods = hasExactMethods || check.Kind == "http_methods_equal"
+			}
+			if !hasExactMethods {
+				return fmt.Errorf("live-write private runs require a http_methods_equal check")
 			}
 		}
 	}

@@ -30,7 +30,7 @@ func main() {
 		os.Exit(runSkillReader(base, os.Args[1:], os.Stdout, os.Stderr))
 	}
 	if base == "env" {
-		os.Exit(runSyntheticWriteEnv(os.Args[1:]))
+		os.Exit(runReviewedWriteEnv(os.Args[1:]))
 	}
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "agent-eval:", err)

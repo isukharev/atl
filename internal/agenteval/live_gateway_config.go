@@ -41,12 +41,14 @@ func startPrivateCLIGateway(sourceDir, childDir, auditPath string, spec RunSpec,
 		AuditPath: auditPath, Services: services,
 		MaxRequests: scenario.Budgets.MaxBackendRequests, MaxConcurrent: 1,
 		MaxResponseBytes: spec.GatewayMaxResponseBytes, MaxTotalResponseBytes: spec.GatewayMaxTotalBytes,
+		MaxRequestBytes: spec.GatewayMaxRequestBytes, MaxTotalRequestBytes: spec.GatewayMaxTotalRequestBytes,
+		MaxWrites:      scenario.Budgets.MaxRemoteWrites,
 		RequestTimeout: timeout,
 	})
 	if err != nil {
 		return nil, err
 	}
-	if err := writeLiveGatewayChildConfig(childDir, inputs.config, gateway.Endpoints()); err != nil {
+	if err := writeLiveGatewayChildConfig(childDir, inputs.config, gateway.Endpoints(), !spec.AllowLiveWrites); err != nil {
 		_ = gateway.Close(context.Background())
 		return nil, err
 	}
@@ -84,7 +86,7 @@ func decodeSingleJSONObject(data []byte, target any) error {
 	return nil
 }
 
-func writeLiveGatewayChildConfig(directory string, source map[string]json.RawMessage, endpoints map[string]LiveGatewayEndpoint) error {
+func writeLiveGatewayChildConfig(directory string, source map[string]json.RawMessage, endpoints map[string]LiveGatewayEndpoint, readOnly bool) error {
 	if err := mkdirPrivate(directory); err != nil {
 		return err
 	}
@@ -96,7 +98,10 @@ func writeLiveGatewayChildConfig(directory string, source map[string]json.RawMes
 	for _, service := range []string{"jira", "confluence"} {
 		delete(child, service+"_url")
 	}
-	child["read_only"] = json.RawMessage("true")
+	child["read_only"] = json.RawMessage("false")
+	if readOnly {
+		child["read_only"] = json.RawMessage("true")
+	}
 	credentials := map[string]string{}
 	for service, endpoint := range endpoints {
 		encoded, err := json.Marshal(endpoint.BaseURL)

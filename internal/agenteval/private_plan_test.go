@@ -107,6 +107,79 @@ func TestCreatePrivatePlanRejectsRunSetAboveWorkspaceCostBudget(t *testing.T) {
 	assertPrivatePlanNoRuntimeInvocation(t, fixture)
 }
 
+func TestPrivatePlanRequiresDedicatedLiveWriteConsentAndRunConfirmation(t *testing.T) {
+	fixture := newPrivatePlanTestFixture(t, true, false)
+	caseRoot := filepath.Join(fixture.root, "cases", "portfolio")
+	var spec RunSpec
+	readPrivatePlanTestJSON(t, filepath.Join(caseRoot, "run.cli.json"), &spec)
+	var scenario Scenario
+	readPrivatePlanTestJSON(t, filepath.Join(caseRoot, "scenario.json"), &scenario)
+	scenario.Budgets.MaxBackendRequests = 1
+	scenario.Budgets.MaxRemoteWrites = 1
+	scenario.Budgets.AllowedHTTPMethods = []string{"POST"}
+	scenario.RequiredChecks = append(scenario.RequiredChecks, "methods")
+	spec.AllowLiveWrites = true
+	spec.AllowedCLICommands = []CLICommandRule{{Name: "create", Command: []string{"jira", "issue", "create"}, Flags: []CLIFlagRule{
+		{Name: "--project", Values: []string{"TEST"}, Required: true},
+		{Name: "--type", Values: []string{"Task"}, Required: true},
+		{Name: "--summary", Values: []string{"reviewed fixture"}, Required: true},
+	}, MaxInvocations: 1}}
+	spec.AllowedGatewayRoutes = map[string][]LiveGatewayRoute{"jira": {
+		{Name: "create", PathPrefix: "/rest/api/2/issue", Exact: true, Methods: []string{"POST"}, MaxRequests: 1, MaxRequestBytes: 1 << 20},
+	}}
+	spec.GatewayMaxRequestBytes = 1 << 20
+	spec.GatewayMaxTotalRequestBytes = 1 << 20
+	spec.Checks = append(spec.Checks, RunCheck{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"POST":1}`)})
+	writeJSONTestFile(t, filepath.Join(caseRoot, "scenario.json"), scenario)
+	writeJSONTestFile(t, filepath.Join(caseRoot, "run.cli.json"), spec)
+	manifestPath := filepath.Join(fixture.root, PrivateWorkspaceManifestName)
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := DecodePrivateWorkspaceManifest(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.RunSets[0].SpecPaths = []string{"cases/portfolio/run.cli.json"}
+	manifestData, err := EncodePrivateWorkspaceManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writePrivateFile(manifestPath, manifestData); err != nil {
+		t.Fatal(err)
+	}
+	if report, err := DoctorPrivateWorkspace(fixture.root, fixture.repository); err != nil || !report.Healthy {
+		t.Fatalf("doctor report=%+v err=%v", report, err)
+	}
+	options := fixture.createOptions()
+	if _, err := CreatePrivatePlan(context.Background(), options); err == nil {
+		t.Fatal("ordinary consent authorized live writes")
+	} else {
+		assertPrivatePlanError(t, err, "live_write_consent")
+	}
+	options.Consent.LiveWritesApproved = true
+	if _, err := CreatePrivatePlan(context.Background(), options); err == nil {
+		t.Fatal("ordinary confirmation authorized live writes")
+	} else {
+		assertPrivatePlanError(t, err, "live_write_consent")
+	}
+	options.Confirm = PrivatePlanLiveWriteConsentConfirmation
+	preview, err := CreatePrivatePlan(context.Background(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preview.LiveWritesAuthorized || preview.MaxRemoteWrites != 1 {
+		t.Fatalf("preview=%+v", preview)
+	}
+	execute := fixture.executeOptions(preview)
+	if _, err := ExecutePrivatePlan(context.Background(), execute); err == nil {
+		t.Fatal("ordinary run confirmation authorized live writes")
+	} else {
+		assertPrivatePlanError(t, err, "live_write_approval")
+	}
+}
+
 func TestCreatePrivatePlanSerializesWorkspaceMutation(t *testing.T) {
 	fixture := newPrivatePlanTestFixture(t, false, false)
 	lock, err := acquirePrivateWorkspaceLock(fixture.root)

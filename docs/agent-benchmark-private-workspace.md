@@ -108,8 +108,8 @@ echoed into a terminal or CI log.
 | Preview migration | `private migrate` | None | Read-only manifest projection | Healthy, quiescent schema-v3 workspace |
 | Apply migration | `private migrate` with confirmation | None | Installs the exact schema-v4 candidate, then removes the v3 manifest | Exact migration SHA-256 and `MIGRATE` |
 | Qualify Codex CLI | `private qualify` | None; one synthetic loopback Responses request | Temporary owner-only runtime removed on return | Exact native binary, model, and reasoning setting |
-| Plan | `private plan` | None | Writes one immutable plan | Data-boundary flags and `CONSENT` |
-| Execute | `private run` | Reviewed model and read-only backend routes | Writes one candidate run | Exact plan SHA-256 and `RUN` |
+| Plan | `private plan` | None | Writes one immutable plan | Data-boundary flags and `CONSENT`; reviewed live writes additionally require `--approve-live-writes` and `CONSENT-WRITES` |
+| Execute | `private run` | Reviewed model and reviewed backend routes | Writes one candidate run | Exact plan SHA-256 and `RUN`; a write-bound plan requires `RUN-WRITES` |
 | Recover study | `private study recover` | None | Closes an interrupted study without replaying the provider after the operator establishes provider-process quiescence | Exact plan SHA-256 and `PROVIDER_STOPPED_RECOVER` |
 | Prepare review | `private review prepare` | None | Copies one result, answer, rubric, and hash-bound template into an owner-only packet | Completed plan and explicit surface; every panel member before assessment |
 | Run review | `private review run` | One reviewed model request; no backend or model tools | Commits one terminal attempt and content-free receipt | Complete executable roster, exact plan hash, reviewer binary, and `RUN-REVIEW` |
@@ -144,7 +144,7 @@ go build -o /tmp/agent-eval ./scripts/agent-eval
 Edit the generated private manifest locally. Current schema v4 gives each run set a
 `kind`: `comparison` accepts one to three unique surfaces, while
 `activation-study` requires exactly four otherwise-identical Codex
-`private-live` `cli-skill` v6 specs carrying `implicit`, `explicit`, `developer`,
+`private-live` `cli-skill` v7 specs carrying `implicit`, `explicit`, `developer`,
 and `combined` once each. An omitted kind is the legacy comparison form. Runtime
 bindings are environment-variable names, never literal paths or credentials.
 Keep provider-specific profiles outside the repository as required by the
@@ -338,7 +338,7 @@ before persisting a plan, and execution repeats it before consuming that plan.
 
 ## Review, run, and assess
 
-A v7 plan binds the exact comparison or activation-study contract and execution
+A v8 plan binds the exact comparison or activation-study contract and execution
 identity: case inputs, ordered surfaces, skill activation and private
 prompt-contract digest, ATL and wrapper binaries, plugin/skill tree, agent
 runtime and tool-availability qualification contract/result, repository commit,
@@ -521,12 +521,13 @@ treatments collected under separate legacy plans are descriptive compatibility
 observations only: they do not acquire the study's ordering, shared state, or
 causal gates and must not be used to estimate channel effects or interaction.
 
-Run-spec schema v6 carries the four treatments and reserves the internal
-provider-calibration contract. Existing v5 activation specs remain readable
-but cannot enter a current calibrated study. Existing v4 `implicit` and
+Run-spec schema v7 carries the four treatments, reviewed live-write boundary,
+and internal provider-calibration contract. Existing v6 activation specs remain
+readable but cannot enter a current calibrated study. Existing v5 activation
+specs and v4 `implicit` and
 `explicit` specs retain their meanings when deliberately migrated. Legacy v3
 specs that named a skill through provider instructions are not silently mapped
-to `developer`; create and review a new activation-bound v6 spec and baseline.
+to `developer`; create and review a new activation-bound v7 spec and baseline.
 Legacy prompt-bound result v5/private-plan v2 artifacts retain only
 `implicit`/`explicit`; result v3/v4 and private-plan v1 remain readable under
 their earlier rules. None can be silently reclassified into a new treatment.
@@ -617,6 +618,51 @@ REVIEWED_AGENT_BINARY=/absolute/path/to/reviewed-native-agent
   --agent-binary "$REVIEWED_AGENT_BINARY" \
   --confirm RUN
 ```
+
+Read-only plans remain the default and cannot gain write authority at execution
+time. A private-live CLI comparison may opt into reviewed writes only in a
+current run spec with `allow_live_writes:true`, positive scenario write and
+request-body budgets, exact mutating gateway paths and methods, exact structured
+CLI arguments, and an `http_methods_equal` oracle. The child provider still
+starts with `ATL_READ_ONLY=1`; only the literal guarded form
+`env -u ATL_READ_ONLY atl ...` may ask the owner-only broker to execute one of
+those exact argv rules. The broker owns the real config, and the model receives
+only disposable loopback gateway capabilities.
+
+Create and later edit operations belong in separate immutable plans. The create
+plan may authorize only its exact collection endpoint; once the new identifier
+is known and reviewed, a fresh plan must bind every edit or artifact route to
+that exact identifier. Never replace an unknown identifier with a prefix or
+wildcard. A write plan uses distinct confirmations:
+
+```sh
+/tmp/agent-eval private plan \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --run-set "$REVIEWED_WRITE_RUN_SET" \
+  --repository-root . \
+  --atl-binary "$PWD/atl" \
+  --plugin-root . \
+  --agent-binary "$REVIEWED_AGENT_BINARY" \
+  --consent-expires "$REVIEWED_CONSENT_EXPIRY" \
+  --approve-provider-data \
+  --approve-live-writes \
+  --confirm CONSENT-WRITES
+
+/tmp/agent-eval private run \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --plan "$REVIEWED_PLAN_ID" \
+  --expected-plan-sha256 "$REVIEWED_PLAN_SHA256" \
+  --repository-root . \
+  --atl-binary "$PWD/atl" \
+  --plugin-root . \
+  --agent-binary "$REVIEWED_AGENT_BINARY" \
+  --confirm RUN-WRITES
+```
+
+Mutation and request budgets are consumed before forwarding and are never
+restored for retries. If the upstream may have committed but the response or
+audit completion fails, the attempt is terminal and ambiguous: reconcile it
+read-only outside that plan and do not replay the write.
 
 If execution crashes after its state is persisted, the same series remains
 blocked. First establish outside atl that the provider process and any children
@@ -920,9 +966,9 @@ pooled even when every other rubric and runtime field matches. The digest is an
 internal grouping key and is omitted from aggregate JSON because a short answer
 mapping may be dictionary-guessable.
 
-Current manifests use schema v4, run specs use schema v6, observations use
+Current manifests use schema v4, run specs use schema v7, observations use
 schema v5, results use schema v7, aggregates use schema v6, private plans use
-schema v7, current activation state uses schema v3, and
+schema v8, current activation state uses schema v3, and
 review packets use schema v2. Current study references/reports use schema v2
 and require audit attempt metrics plus separate bounded model-report metrics.
 The decoder still accepts workspace-manifest v1 comparisons;
@@ -933,7 +979,7 @@ as read-only legacy artifacts; attemptless result schema v6; prompt-bound
 result schema v5; result schema v3/v4; and outer private-plan schema v1/v2/v3
 for earlier comparison lifecycle inspection and retention. Legacy activation
 reference schema v1 remains readable and compare-only, but is never promotable.
-Create a fresh schema v4 run set, v7 plan, and consent for a causal study. Older
+Create a fresh schema v4 run set, v8 plan, and consent for a causal study. Older
 binaries reject the new artifacts rather than accepting them under a misleading
 old version.
 

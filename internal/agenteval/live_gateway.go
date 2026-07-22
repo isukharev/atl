@@ -1,6 +1,7 @@
 package agenteval
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -11,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -35,6 +37,9 @@ type LiveGatewayConfig struct {
 	MaxConcurrent         int
 	MaxResponseBytes      int64
 	MaxTotalResponseBytes int64
+	MaxRequestBytes       int64
+	MaxTotalRequestBytes  int64
+	MaxWrites             int
 	RequestTimeout        time.Duration
 }
 
@@ -45,8 +50,12 @@ type LiveGatewayServiceConfig struct {
 }
 
 type LiveGatewayRoute struct {
-	Name       string `json:"name"`
-	PathPrefix string `json:"path_prefix"`
+	Name            string   `json:"name"`
+	PathPrefix      string   `json:"path_prefix"`
+	Exact           bool     `json:"exact,omitempty"`
+	Methods         []string `json:"methods,omitempty"`
+	MaxRequests     int      `json:"max_requests,omitempty"`
+	MaxRequestBytes int64    `json:"max_request_bytes,omitempty"`
 }
 
 type LiveGatewayEndpoint struct {
@@ -65,6 +74,7 @@ type LiveGatewayAuditRecord struct {
 	Reason        string `json:"reason,omitempty"`
 	StatusClass   string `json:"status_class,omitempty"`
 	ResponseBytes int64  `json:"response_bytes,omitempty"`
+	RequestBytes  int64  `json:"request_bytes,omitempty"`
 	DurationMS    int64  `json:"duration_ms,omitempty"`
 }
 
@@ -78,16 +88,19 @@ type LiveGateway struct {
 }
 
 type liveGatewayState struct {
-	config       LiveGatewayConfig
-	audit        *os.File
-	hmacKey      []byte
-	mu           sync.Mutex
-	sequence     int64
-	requests     int
-	totalBytes   int64
-	auditBytes   int64
-	concurrency  chan struct{}
-	upstreamHTTP *http.Client
+	config            LiveGatewayConfig
+	audit             *os.File
+	hmacKey           []byte
+	mu                sync.Mutex
+	sequence          int64
+	requests          int
+	totalBytes        int64
+	totalRequestBytes int64
+	writes            int
+	routeRequests     map[string]int
+	auditBytes        int64
+	concurrency       chan struct{}
+	upstreamHTTP      *http.Client
 }
 
 type liveGatewayService struct {
@@ -119,7 +132,7 @@ func StartLiveGateway(config LiveGatewayConfig) (*LiveGateway, error) {
 	transport.Proxy = nil
 	state := &liveGatewayState{
 		config: config, audit: audit, hmacKey: key,
-		concurrency: make(chan struct{}, config.MaxConcurrent),
+		concurrency: make(chan struct{}, config.MaxConcurrent), routeRequests: map[string]int{},
 		upstreamHTTP: &http.Client{
 			Transport: transport,
 			Timeout:   config.RequestTimeout,
@@ -200,7 +213,7 @@ func (g *LiveGateway) Close(ctx context.Context) error {
 
 func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	started := time.Now()
-	identity := s.state.requestIdentity(s.name, request.Method, request.URL.RequestURI())
+	identity := s.state.requestIdentity(s.name, request.Method, request.URL.RequestURI(), nil)
 	reject := func(status int, route, reason string) {
 		_ = s.state.writeAudit(LiveGatewayAuditRecord{
 			Phase: "preflight", Service: s.name, Route: route, Method: request.Method,
@@ -212,16 +225,8 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 		reject(http.StatusUnauthorized, "", "ingress_auth")
 		return
 	}
-	if request.Method != http.MethodGet && request.Method != http.MethodHead {
-		reject(http.StatusMethodNotAllowed, "", "method")
-		return
-	}
 	if hasGatewayMethodOverride(request) {
 		reject(http.StatusBadRequest, "", "method_override")
-		return
-	}
-	if !gatewayRequestBodyEmpty(request) {
-		reject(http.StatusBadRequest, "", "request_body")
 		return
 	}
 	route, ok := matchLiveGatewayRoute(request.URL, s.routes)
@@ -229,20 +234,39 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 		reject(http.StatusForbidden, "", "route")
 		return
 	}
-	if !s.state.reserveRequest() {
-		reject(http.StatusTooManyRequests, route, "request_budget")
+	if !routeAllowsMethod(route, request.Method) {
+		reject(http.StatusMethodNotAllowed, route.Name, "method")
+		return
+	}
+	requestBody, err := readGatewayRequestBody(request, route.MaxRequestBytes)
+	if err != nil {
+		reject(http.StatusRequestEntityTooLarge, route.Name, "request_body")
+		return
+	}
+	if (request.Method == http.MethodGet || request.Method == http.MethodHead) && len(requestBody) != 0 {
+		reject(http.StatusBadRequest, route.Name, "request_body")
+		return
+	}
+	contentType, ok := reviewedGatewayContentType(request.Header.Get("Content-Type"), len(requestBody))
+	if !ok {
+		reject(http.StatusBadRequest, route.Name, "content_type")
+		return
+	}
+	identity = s.state.requestIdentity(s.name, request.Method, request.URL.RequestURI(), requestBody)
+	if ok, reason := s.state.reserveRequest(s.name, route, request.Method, int64(len(requestBody))); !ok {
+		reject(http.StatusTooManyRequests, route.Name, reason)
 		return
 	}
 	select {
 	case s.state.concurrency <- struct{}{}:
 		defer func() { <-s.state.concurrency }()
 	default:
-		reject(http.StatusTooManyRequests, route, "concurrency")
+		reject(http.StatusTooManyRequests, route.Name, "concurrency")
 		return
 	}
 	if err := s.state.writeAudit(LiveGatewayAuditRecord{
-		Phase: "preflight", Service: s.name, Route: route, Method: request.Method,
-		RequestHMAC: identity, Decision: "forward",
+		Phase: "preflight", Service: s.name, Route: route.Name, Method: request.Method,
+		RequestHMAC: identity, RequestBytes: int64(len(requestBody)), Decision: "forward",
 	}); err != nil {
 		http.Error(response, "evaluation gateway audit unavailable", http.StatusBadGateway)
 		return
@@ -252,37 +276,43 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 	defer cancel()
 	// target inherits the validated, pinned scheme+host from s.base; only the
 	// route-allowlisted path and query come from the loopback request.
-	upstreamRequest, err := http.NewRequestWithContext(ctx, request.Method, target.String(), nil) //nolint:gosec // not an attacker-controlled origin
+	upstreamRequest, err := http.NewRequestWithContext(ctx, request.Method, target.String(), bytes.NewReader(requestBody)) //nolint:gosec // not an attacker-controlled origin
 	if err != nil {
-		s.completeDenied(response, request, route, identity, started, "request")
+		s.completeDenied(response, request, route.Name, identity, int64(len(requestBody)), started, "request")
 		return
 	}
 	upstreamRequest.Header.Set("Authorization", "Bearer "+s.token)
 	upstreamRequest.Header.Set("Accept", "application/json")
 	upstreamRequest.Header.Set("User-Agent", "atl-agent-eval-gateway")
+	if contentType != "" {
+		upstreamRequest.Header.Set("Content-Type", contentType)
+	}
+	if token := request.Header.Get("X-Atlassian-Token"); token == "no-check" {
+		upstreamRequest.Header.Set("X-Atlassian-Token", token)
+	}
 	upstreamResponse, err := s.state.upstreamHTTP.Do(upstreamRequest) //nolint:gosec // request origin is pinned above
 	if err != nil {
-		s.completeDenied(response, request, route, identity, started, "transport")
+		s.completeDenied(response, request, route.Name, identity, int64(len(requestBody)), started, "transport")
 		return
 	}
 	defer upstreamResponse.Body.Close()
 	if upstreamResponse.StatusCode >= 300 && upstreamResponse.StatusCode < 400 {
-		s.completeDenied(response, request, route, identity, started, "redirect")
+		s.completeDenied(response, request, route.Name, identity, int64(len(requestBody)), started, "redirect")
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(upstreamResponse.Body, s.state.config.MaxResponseBytes+1))
+	responseBody, err := io.ReadAll(io.LimitReader(upstreamResponse.Body, s.state.config.MaxResponseBytes+1))
 	if err != nil {
-		s.completeDenied(response, request, route, identity, started, "response_read")
+		s.completeDenied(response, request, route.Name, identity, int64(len(requestBody)), started, "response_read")
 		return
 	}
-	if int64(len(body)) > s.state.config.MaxResponseBytes || !s.state.reserveResponseBytes(int64(len(body))) {
-		s.completeDenied(response, request, route, identity, started, "response_budget")
+	if int64(len(responseBody)) > s.state.config.MaxResponseBytes || !s.state.reserveResponseBytes(int64(len(responseBody))) {
+		s.completeDenied(response, request, route.Name, identity, int64(len(requestBody)), started, "response_budget")
 		return
 	}
 	record := LiveGatewayAuditRecord{
-		Phase: "complete", Service: s.name, Route: route, Method: request.Method,
+		Phase: "complete", Service: s.name, Route: route.Name, Method: request.Method,
 		RequestHMAC: identity, Decision: "allow", StatusClass: gatewayStatusClass(upstreamResponse.StatusCode),
-		ResponseBytes: int64(len(body)), DurationMS: time.Since(started).Milliseconds(),
+		RequestBytes: int64(len(requestBody)), ResponseBytes: int64(len(responseBody)), DurationMS: time.Since(started).Milliseconds(),
 	}
 	if err := s.state.writeAudit(record); err != nil {
 		http.Error(response, "evaluation gateway audit unavailable", http.StatusBadGateway)
@@ -293,15 +323,15 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 	}
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(upstreamResponse.StatusCode)
-	if request.Method == http.MethodGet {
-		_, _ = response.Write(body)
+	if request.Method != http.MethodHead {
+		_, _ = response.Write(responseBody)
 	}
 }
 
-func (s *liveGatewayService) completeDenied(response http.ResponseWriter, request *http.Request, route, identity string, started time.Time, reason string) {
+func (s *liveGatewayService) completeDenied(response http.ResponseWriter, request *http.Request, route, identity string, requestBytes int64, started time.Time, reason string) {
 	_ = s.state.writeAudit(LiveGatewayAuditRecord{
 		Phase: "complete", Service: s.name, Route: route, Method: request.Method,
-		RequestHMAC: identity, Decision: "deny", Reason: reason,
+		RequestHMAC: identity, RequestBytes: requestBytes, Decision: "deny", Reason: reason,
 		DurationMS: time.Since(started).Milliseconds(),
 	})
 	http.Error(response, "evaluation gateway upstream request failed", http.StatusBadGateway)
@@ -316,6 +346,11 @@ func validateLiveGatewayConfig(config LiveGatewayConfig) error {
 	}
 	if config.MaxResponseBytes < 1 || config.MaxResponseBytes > 64<<20 || config.MaxTotalResponseBytes < config.MaxResponseBytes || config.MaxTotalResponseBytes > 256<<20 {
 		return fmt.Errorf("live gateway response budgets are invalid")
+	}
+	if config.MaxWrites < 0 || config.MaxWrites > config.MaxRequests || config.MaxRequestBytes < 0 || config.MaxRequestBytes > 16<<20 ||
+		config.MaxTotalRequestBytes < config.MaxRequestBytes || config.MaxTotalRequestBytes > 64<<20 ||
+		(config.MaxWrites == 0) != (config.MaxRequestBytes == 0 && config.MaxTotalRequestBytes == 0) {
+		return fmt.Errorf("live gateway write and request-body budgets are invalid")
 	}
 	if config.RequestTimeout < time.Second || config.RequestTimeout > 2*time.Minute {
 		return fmt.Errorf("live gateway request timeout is invalid")
@@ -378,18 +413,56 @@ func validateLiveGatewayRoutes(routes []LiveGatewayRoute) error {
 		}
 		seenRoutes[route.Name] = struct{}{}
 		seenPrefixes[route.PathPrefix] = struct{}{}
+		if route.MaxRequests < 0 || route.MaxRequests > 1000 || route.MaxRequestBytes < 0 || route.MaxRequestBytes > 16<<20 {
+			return fmt.Errorf("live gateway route budgets are invalid")
+		}
+		seenMethods := map[string]struct{}{}
+		for _, method := range route.Methods {
+			if method != http.MethodGet && method != http.MethodHead && method != http.MethodPost && method != http.MethodPut && method != http.MethodPatch && method != http.MethodDelete {
+				return fmt.Errorf("live gateway route method is invalid")
+			}
+			if _, exists := seenMethods[method]; exists {
+				return fmt.Errorf("live gateway route methods must be unique")
+			}
+			seenMethods[method] = struct{}{}
+		}
+		if len(route.Methods) > 6 {
+			return fmt.Errorf("live gateway route methods are invalid")
+		}
+		mutating := routeHasMutatingMethod(route)
+		if mutating && (!route.Exact || route.MaxRequests < 1 || route.MaxRequestBytes < 1) {
+			return fmt.Errorf("mutating live gateway routes require exact paths and positive request budgets")
+		}
+		if !mutating && route.MaxRequestBytes != 0 {
+			return fmt.Errorf("read-only live gateway routes forbid request bodies")
+		}
 	}
 	return nil
 }
 
-func (s *liveGatewayState) reserveRequest() bool {
+func (s *liveGatewayState) reserveRequest(service string, route LiveGatewayRoute, method string, requestBytes int64) (bool, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.requests >= s.config.MaxRequests {
-		return false
+		return false, "request_budget"
+	}
+	key := service + "\x00" + route.Name
+	if route.MaxRequests > 0 && s.routeRequests[key] >= route.MaxRequests {
+		return false, "route_budget"
+	}
+	if requestBytes < 0 || requestBytes > s.config.MaxRequestBytes || s.totalRequestBytes+requestBytes > s.config.MaxTotalRequestBytes && requestBytes > 0 {
+		return false, "request_body_budget"
+	}
+	if isMutatingHTTPMethod(method) {
+		if s.writes >= s.config.MaxWrites {
+			return false, "write_budget"
+		}
+		s.writes++
 	}
 	s.requests++
-	return true
+	s.routeRequests[key]++
+	s.totalRequestBytes += requestBytes
+	return true, ""
 }
 
 func (s *liveGatewayState) reserveResponseBytes(count int64) bool {
@@ -402,9 +475,10 @@ func (s *liveGatewayState) reserveResponseBytes(count int64) bool {
 	return true
 }
 
-func (s *liveGatewayState) requestIdentity(service, method, requestURI string) string {
+func (s *liveGatewayState) requestIdentity(service, method, requestURI string, body []byte) string {
 	mac := hmac.New(sha256.New, s.hmacKey)
-	_, _ = mac.Write([]byte(service + "\x00" + method + "\x00" + requestURI))
+	bodySHA256 := sha256.Sum256(body)
+	_, _ = mac.Write([]byte(service + "\x00" + method + "\x00" + requestURI + "\x00" + hex.EncodeToString(bodySHA256[:])))
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
@@ -431,42 +505,97 @@ func (s *liveGatewayState) writeAudit(record LiveGatewayAuditRecord) error {
 	return nil
 }
 
-func matchLiveGatewayRoute(requestURL *url.URL, routes []LiveGatewayRoute) (string, bool) {
+func matchLiveGatewayRoute(requestURL *url.URL, routes []LiveGatewayRoute) (LiveGatewayRoute, bool) {
 	if requestURL == nil || requestURL.RawPath != "" || requestURL.Path == "" || requestURL.Path[0] != '/' || path.Clean(requestURL.Path) != requestURL.Path || strings.Contains(requestURL.Path, "//") {
-		return "", false
+		return LiveGatewayRoute{}, false
 	}
 	query, err := url.ParseQuery(requestURL.RawQuery)
 	if err != nil {
-		return "", false
+		return LiveGatewayRoute{}, false
 	}
 	for key := range query {
 		if strings.EqualFold(key, "_method") {
-			return "", false
+			return LiveGatewayRoute{}, false
 		}
 	}
-	bestName := ""
+	best := LiveGatewayRoute{}
 	bestLength := -1
 	for _, route := range routes {
 		prefix := route.PathPrefix
-		if requestURL.Path == prefix || strings.HasSuffix(prefix, "/") && strings.HasPrefix(requestURL.Path, prefix) || strings.HasPrefix(requestURL.Path, prefix+"/") {
+		matches := requestURL.Path == prefix
+		if !route.Exact {
+			matches = matches || strings.HasSuffix(prefix, "/") && strings.HasPrefix(requestURL.Path, prefix) || strings.HasPrefix(requestURL.Path, prefix+"/")
+		}
+		if matches {
 			if len(prefix) > bestLength {
-				bestName = route.Name
+				best = route
 				bestLength = len(prefix)
 			}
 		}
 	}
-	return bestName, bestLength >= 0
+	return best, bestLength >= 0
 }
 
-func gatewayRequestBodyEmpty(request *http.Request) bool {
-	if request.ContentLength > 0 || len(request.TransferEncoding) != 0 {
-		return false
+func effectiveRouteMethods(route LiveGatewayRoute) []string {
+	if len(route.Methods) == 0 {
+		return []string{http.MethodGet, http.MethodHead}
 	}
+	return route.Methods
+}
+
+func routeAllowsMethod(route LiveGatewayRoute, method string) bool {
+	for _, allowed := range effectiveRouteMethods(route) {
+		if allowed == method {
+			return true
+		}
+	}
+	return false
+}
+
+func routeHasMutatingMethod(route LiveGatewayRoute) bool {
+	for _, method := range effectiveRouteMethods(route) {
+		if isMutatingHTTPMethod(method) {
+			return true
+		}
+	}
+	return false
+}
+
+func isMutatingHTTPMethod(method string) bool {
+	return method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions
+}
+
+func readGatewayRequestBody(request *http.Request, maxBytes int64) ([]byte, error) {
 	if request.Body == nil || request.Body == http.NoBody {
-		return true
+		return nil, nil
 	}
-	data, err := io.ReadAll(io.LimitReader(request.Body, 1))
-	return err == nil && len(data) == 0
+	if maxBytes < 0 || request.ContentLength > maxBytes || maxBytes == 0 && (request.ContentLength != 0 || len(request.TransferEncoding) != 0) {
+		return nil, fmt.Errorf("request body exceeds route budget")
+	}
+	data, err := io.ReadAll(io.LimitReader(request.Body, maxBytes+1))
+	if err != nil || int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("request body exceeds route budget")
+	}
+	return data, nil
+}
+
+func reviewedGatewayContentType(header string, bodyBytes int) (string, bool) {
+	if header == "" {
+		return "", bodyBytes == 0
+	}
+	mediaType, parameters, err := mime.ParseMediaType(header)
+	if err != nil {
+		return "", false
+	}
+	switch strings.ToLower(mediaType) {
+	case "application/json":
+		return header, true
+	case "multipart/form-data":
+		boundary := parameters["boundary"]
+		return header, boundary != "" && len(boundary) <= 200
+	default:
+		return "", false
+	}
 }
 
 func hasGatewayMethodOverride(request *http.Request) bool {

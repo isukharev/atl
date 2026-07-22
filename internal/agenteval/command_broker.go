@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	CommandBrokerSchemaVersion = 1
+	CommandBrokerSchemaVersion = 2
 	maxCommandBrokerFileBytes  = 8 << 20
 	commandBrokerPollInterval  = 10 * time.Millisecond
 )
@@ -38,6 +38,7 @@ type CommandBrokerManifest struct {
 	Capability           string `json:"capability"`
 	TimeoutMillis        int64  `json:"timeout_millis"`
 	AllowSyntheticWrites bool   `json:"allow_synthetic_writes,omitempty"`
+	AllowReviewedWrites  bool   `json:"allow_reviewed_writes,omitempty"`
 }
 
 type CommandBrokerRequest struct {
@@ -69,6 +70,7 @@ type CommandBrokerConfig struct {
 	MaxStderrBytes       int64
 	CommandTimeout       time.Duration
 	AllowSyntheticWrites bool
+	AllowReviewedWrites  bool
 }
 
 type CommandBroker struct {
@@ -106,6 +108,7 @@ func StartCommandBroker(config CommandBrokerConfig) (*CommandBroker, error) {
 		SchemaVersion:    CommandBrokerSchemaVersion,
 		RequestDirectory: config.RequestDirectory, ResponseDirectory: config.ResponseDirectory,
 		Capability: capability, TimeoutMillis: clientTimeout.Milliseconds(), AllowSyntheticWrites: config.AllowSyntheticWrites,
+		AllowReviewedWrites: config.AllowReviewedWrites,
 	}
 	data, err := json.Marshal(manifest)
 	if err != nil {
@@ -356,6 +359,16 @@ func CommandBrokerAllowsSyntheticWrites(path string) (bool, error) {
 		return false, err
 	}
 	return manifest.AllowSyntheticWrites, nil
+}
+
+// CommandBrokerAllowsReviewedWrites validates the owner-only broker manifest
+// and returns the exact reviewed-write authority carried by its capability.
+func CommandBrokerAllowsReviewedWrites(path string) (bool, error) {
+	manifest, err := loadCommandBrokerManifest(path)
+	if err != nil {
+		return false, err
+	}
+	return manifest.AllowReviewedWrites || manifest.AllowSyntheticWrites, nil
 }
 
 func validCommandBrokerResponse(response CommandBrokerResponse) bool {
