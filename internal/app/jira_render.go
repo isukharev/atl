@@ -220,6 +220,7 @@ func jiraSnapshotFiles(root, target string) ([]string, error) {
 		return nil, fmt.Errorf("%w: render target %q is outside mirror root %q", domain.ErrUsage, target, root)
 	}
 	physicalTarget := filepath.Join(walkRoot, relTarget)
+	internalStateDir := filepath.Join(walkRoot, ".atl")
 	var out []string
 	err = filepath.WalkDir(physicalTarget, func(path string, d os.DirEntry, werr error) error {
 		if werr != nil {
@@ -229,6 +230,9 @@ func jiraSnapshotFiles(root, target string) ([]string, error) {
 			return fmt.Errorf("%w: refusing descendant symlink in Jira mirror: %s", domain.ErrCheckFailed, path)
 		}
 		if d.IsDir() {
+			if path == internalStateDir {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		name := d.Name()
