@@ -1355,11 +1355,12 @@ implicit. The hook admits path-confined `cat`/`sed`/`wc` skill reads and a small
 newline-only block containing `export ATL_READ_ONLY=1`, `command -v atl`, and
 safe `atl ...` command shapes. Reviewed synthetic or private-live CLI write runs
 additionally admit exactly `env -u ATL_READ_ONLY atl ...`; the dedicated `env`
-shim rejects every other form. Ordinary invocations are forced through the host broker with
-an explicit global `--read-only`, even when the model environment has no
-read-only variable; only that audited wrapper removes it for the reviewed
-mutation. Shell operators, substitution, redirection,
-and arbitrary commands remain denied. The shim then loads an
+shim rejects every other form before ATL interface accounting; model-originated
+invalid Bash requests are still counted and denied by the outer hook. Ordinary
+invocations are forced through the host broker with an explicit global
+`--read-only`, even when the model environment has no read-only variable; only
+that audited wrapper removes it for the reviewed mutation. Shell operators,
+substitution, redirection, and arbitrary commands remain denied. The shim then loads an
 owner-only policy file outside those roots and matches the actual argv before
 starting the real binary. It reserves the command-family budget before the
 process starts, so concurrent or failed invocations cannot exceed the reviewed

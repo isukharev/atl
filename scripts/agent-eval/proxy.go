@@ -722,9 +722,14 @@ func safeReviewedWriteCLICommandShape(command string) bool {
 }
 
 func runReviewedWriteEnv(args []string) int {
-	counterPath := os.Getenv("ATL_EVAL_COUNTER")
 	if !reviewedWriteEnvironmentEnabled() || len(args) < 4 || args[0] != "-u" || args[1] != "ATL_READ_ONLY" || args[2] != "atl" {
-		return rejectATLProxy(counterPath, "atl evaluation env shim rejected the invocation")
+		// Provider runtimes may probe an env executable while initializing their
+		// shell. That is not a model ATL interface attempt: model-originated Bash
+		// commands are already audited by the outer hook. Keep the shim fail-closed
+		// without polluting the ATL proxy counter; only the exact reviewed form
+		// below enters policy, broker, and interface accounting.
+		fmt.Fprintln(os.Stderr, "atl evaluation env shim rejected the invocation")
+		return 2
 	}
 	return runATLProxyWithWriteIntent(args[3:], true)
 }

@@ -777,6 +777,28 @@ func TestATLProxyPreservesReadOnlyAcrossWriteAttestedBroker(t *testing.T) {
 	if err != nil || string(written) != "write\n" {
 		t.Fatalf("writes=%q err=%v", written, err)
 	}
+	records, err := os.ReadFile(counter)
+	if err != nil || bytes.Count(records, []byte{'\n'}) != 4 {
+		t.Fatalf("proxy records=%q err=%v", records, err)
+	}
+}
+
+func TestReviewedWriteEnvRejectsProviderProbeWithoutATLAttempt(t *testing.T) {
+	counter := filepath.Join(t.TempDir(), "counter.jsonl")
+	t.Setenv("ATL_EVAL_COUNTER", counter)
+	t.Setenv("ATL_EVAL_ALLOW_REVIEWED_WRITES", "1")
+	for _, args := range [][]string{
+		nil,
+		{"--version"},
+		{"-u", "ATL_READ_ONLY", "env", "jira", "fields"},
+	} {
+		if code := runReviewedWriteEnv(args); code != 2 {
+			t.Fatalf("args=%q code=%d, want 2", args, code)
+		}
+	}
+	if _, err := os.Stat(counter); !os.IsNotExist(err) {
+		t.Fatalf("provider env probe created an ATL attempt counter: %v", err)
+	}
 }
 
 func TestATLProxyCalibrationRecordsSemanticObservationWithoutValues(t *testing.T) {
