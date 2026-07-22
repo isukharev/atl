@@ -1374,6 +1374,9 @@ budgets, and a positive global write budget. The gateway forwards only the
 reviewed body, a safe content type, and the exact Atlassian no-check header;
 ambient cookies and other headers are stripped. The upstream origin is pinned,
 redirects are rejected, and per-response plus total byte budgets are enforced.
+Separate routes may share one exact path only when their method sets are
+disjoint, allowing a bounded read/write/read guard cycle without broadening the
+resource target; overlaps or mixed exactness fail validation.
 Any gateway denial or an incomplete forward/completion audit pair fails the
 run. A possibly committed write with an incomplete response is ambiguous and
 must be reconciled read-only, never replayed.

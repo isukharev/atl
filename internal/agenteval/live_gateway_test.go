@@ -214,6 +214,69 @@ func TestLiveGatewayForwardsOnlyExactBudgetedReviewedWrite(t *testing.T) {
 	}
 }
 
+func TestLiveGatewayPartitionsOneExactPathByMethod(t *testing.T) {
+	var upstreamCalls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		upstreamCalls.Add(1)
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"ok":true}`)
+	}))
+	defer upstream.Close()
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	routes := []LiveGatewayRoute{
+		{Name: "resource_read", PathPrefix: "/rest/api/resource/42", Exact: true, Methods: []string{"GET"}, MaxRequests: 1},
+		{Name: "resource_write", PathPrefix: "/rest/api/resource/42", Exact: true, Methods: []string{"PUT"}, MaxRequests: 1, MaxRequestBytes: 64},
+	}
+	gateway, err := StartLiveGateway(LiveGatewayConfig{
+		AuditPath:   filepath.Join(directory, "audit.jsonl"),
+		Services:    map[string]LiveGatewayServiceConfig{"jira": {BaseURL: upstream.URL, Token: "token", Routes: routes}},
+		MaxRequests: 2, MaxConcurrent: 1, MaxWrites: 1, MaxRequestBytes: 64, MaxTotalRequestBytes: 64,
+		MaxResponseBytes: 1024, MaxTotalResponseBytes: 2048, RequestTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gateway.Close(context.Background())
+	endpoint := gateway.Endpoints()["jira"]
+	for _, method := range []string{http.MethodGet, http.MethodPut} {
+		var body io.Reader
+		if method == http.MethodPut {
+			body = strings.NewReader(`{"updated":true}`)
+		}
+		request, requestErr := http.NewRequest(method, endpoint.BaseURL+"/rest/api/resource/42", body)
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		request.Header.Set("Authorization", "Bearer "+endpoint.Token)
+		if method == http.MethodPut {
+			request.Header.Set("Content-Type", "application/json")
+		}
+		response, callErr := http.DefaultClient.Do(request)
+		if callErr != nil {
+			t.Fatal(callErr)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("%s status=%d", method, response.StatusCode)
+		}
+	}
+	if upstreamCalls.Load() != 2 {
+		t.Fatalf("upstream calls=%d, want 2", upstreamCalls.Load())
+	}
+	for _, invalid := range [][]LiveGatewayRoute{
+		append(append([]LiveGatewayRoute(nil), routes...), LiveGatewayRoute{Name: "overlap", PathPrefix: "/rest/api/resource/42", Exact: true, Methods: []string{"GET"}, MaxRequests: 1}),
+		{routes[0], LiveGatewayRoute{Name: "mixed_exactness", PathPrefix: "/rest/api/resource/42", Methods: []string{"PUT"}, MaxRequests: 1, MaxRequestBytes: 64}},
+		{{Name: "prefix_read", PathPrefix: "/rest/api/resource", Methods: []string{"GET"}, MaxRequests: 1}, {Name: "prefix_write", PathPrefix: "/rest/api/resource", Methods: []string{"PUT"}, MaxRequests: 1, MaxRequestBytes: 64}},
+	} {
+		if err := validateLiveGatewayRoutes(invalid); err == nil {
+			t.Fatalf("invalid shared-prefix routes validated: %+v", invalid)
+		}
+	}
+}
+
 func TestLiveGatewayRejectsReviewedWriteBodyAndBudgetBeforeUpstream(t *testing.T) {
 	var upstreamCalls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
