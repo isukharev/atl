@@ -1386,6 +1386,39 @@ Flags:
 | `[DIR]` | mirror root directory (default `mirror`) |
 | `--remote` | also check remote for drift (one API call per page) |
 
+### `atl conf snapshot`
+
+Return exact, content-free health cardinalities for a durable Confluence mirror.
+The offline default needs no backend URL, PAT, or config and performs no writes.
+
+```bash
+ATL_READ_ONLY=1 atl conf snapshot
+ATL_READ_ONLY=1 atl conf snapshot my-mirror
+ATL_READ_ONLY=1 atl conf snapshot my-mirror --remote
+```
+
+The JSON partitions local clean/edited and tracked/untracked pages, every native
+diff state, baseline presence/validity, candidate CSF validity, and derived-view
+marker state. Current, known legacy, missing-marker, unsupported/future,
+missing, and unreadable views remain distinct. `renderer_compatible` reports
+only whether this binary understands the observed format; it does not prove a
+view has no edits, and the command never rewrites that view.
+
+Every section has a `reconciled` flag and the top-level flag requires all
+partitions to agree. `complete:false` means some requested evidence is not
+usable (for example malformed or corrupt native state, an unreadable derived
+view, or a failed requested remote probe); it is separate from arithmetic
+reconciliation. Any incomplete local evidence stops before remote setup or
+probing. A corrupt baseline still emits the qualified snapshot and returns exit
+`8`, even when `--remote` was requested.
+
+`--remote` starts one metadata probe per eligible canonical tracked page and
+disables the transport's automatic replay-safe retries for it. The ordinary
+same-origin redirect policy still applies. Untracked/non-canonical pages remain `not_attempted`;
+failures increment `unavailable` and never `in_sync`. The output never includes
+page ids, titles, paths, hashes, validation text, or native/derived content. Use
+`conf diff` only when page-level identity or exact change evidence is required.
+
 ### `atl conf diff`
 
 Compare the exact last-synced native `.csf` baseline with one current page or

@@ -21,6 +21,20 @@ On an existing root, run remote status before pulling. Preserve local edits;
 refresh only a clean remote-drifted mirror. Mirror identity and view state live
 under the nearest `.atl`; never edit or copy that state by hand.
 
+When the question asks for health counts rather than page identities, start
+with the aggregate snapshot instead of recounting status/diff rows:
+
+```bash
+atl conf snapshot <absolute-root>
+# add --remote only when current drift evidence is required
+```
+
+The default is offline and content-free. Require top-level and nested
+`reconciled:true`; treat `complete:false` as unavailable evidence, not as an
+arithmetic failure. A qualified exit 8 for corrupt baseline evidence remains
+actionable stdout and must not be retried. Use `conf diff` only to expand exact
+page-level change evidence.
+
 ## Complete historical bootstrap
 
 ```bash

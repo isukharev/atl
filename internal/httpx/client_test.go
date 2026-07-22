@@ -112,6 +112,40 @@ func TestRetryOn5xxThenSuccess(t *testing.T) {
 	}
 }
 
+func TestSingleAttemptContextDisablesReplaySafeRetries(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok", "test")
+	_, err := c.Do(domain.WithSingleAttempt(context.Background()), http.MethodGet, "/x", nil, nil)
+	if err == nil {
+		t.Fatal("single-attempt request unexpectedly succeeded")
+	}
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Fatalf("single-attempt request used %d HTTP attempts, want 1", got)
+	}
+}
+
+func TestSingleAttemptContextDisablesStreamRetries(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok", "test")
+	_, err := c.GetStream(domain.WithSingleAttempt(context.Background()), "/x")
+	if err == nil {
+		t.Fatal("single-attempt stream unexpectedly succeeded")
+	}
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Fatalf("single-attempt stream used %d HTTP attempts, want 1", got)
+	}
+}
+
 func TestNo4xxRetry(t *testing.T) {
 	var hits int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

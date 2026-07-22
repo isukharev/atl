@@ -369,6 +369,10 @@ atl conf push mirror/DOCS/acme-adr/acme-adr.csf
 # Check sync status
 atl conf status mirror --remote
 
+# Exact content-free mirror/baseline/validation/render counts (offline by default)
+ATL_READ_ONLY=1 atl conf snapshot mirror
+ATL_READ_ONLY=1 atl conf snapshot mirror --remote # one single-attempt metadata probe per eligible tracked page
+
 # For several edited pages: freeze the exact reviewed set, preview, then apply.
 atl conf plan create mirror/DOCS/ --out .atl-private/docs-plan.json
 ATL_READ_ONLY=1 atl conf plan preview .atl-private/docs-plan.json

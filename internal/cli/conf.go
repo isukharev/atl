@@ -83,7 +83,7 @@ func newConfCmd() *cobra.Command {
 	c := &cobra.Command{Use: "conf", Short: "Confluence: mirror, read, validate, push (native storage format)"}
 	c.AddCommand(
 		confSearchCmd(), confSpaceCmd(), confPageCmd(), confBlogCmd(),
-		confPullCmd(), confRenderCmd(), confStatusCmd(), confDiffCmd(), confPlanCmd(), confValidateCmd(), confEditCmd(), confApplyCmd(), confPushCmd(), confTableCmd(), confCommentCmd(),
+		confPullCmd(), confRenderCmd(), confStatusCmd(), confSnapshotCmd(), confDiffCmd(), confPlanCmd(), confValidateCmd(), confEditCmd(), confApplyCmd(), confPushCmd(), confTableCmd(), confCommentCmd(),
 		confAttachmentCmd(), confMeCmd(),
 	)
 	return c
@@ -907,6 +907,55 @@ func confStatusCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&remote, "remote", false, "also check remote drift (one request per page)")
+	return cmd
+}
+
+func confSnapshotCmd() *cobra.Command {
+	var remote bool
+	cmd := &cobra.Command{
+		Use:   "snapshot [DIR]",
+		Short: "Summarize mirror, baseline, validation, render, and drift health without content",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := mirrorRootDefault("mirror")
+			if len(args) == 1 {
+				dir = args[0]
+			}
+			var (
+				result      *app.ConfluenceMirrorSnapshot
+				snapshotErr error
+			)
+			if remote {
+				preflight, preflightErr := app.PreflightConfluenceMirrorRemoteSnapshot(dir)
+				if preflight == nil || preflightErr != nil || !preflight.Complete || !preflight.Reconciled {
+					result, snapshotErr = preflight, preflightErr
+				} else {
+					svc, err := confService()
+					if err != nil {
+						return err
+					}
+					result, snapshotErr = svc.SnapshotMirror(cmd.Context(), dir, true)
+				}
+			} else {
+				result, snapshotErr = app.SnapshotConfluenceMirror(dir)
+			}
+			if result != nil {
+				emitErr := emit(cmd, result, func() string {
+					return fmt.Sprintf(
+						"complete=%t reconciled=%t total=%d present=%d edited=%d baseline_mismatch=%d invalid=%d render_unsupported=%d remote_drifted=%d remote_unavailable=%d",
+						result.Complete, result.Reconciled, result.Native.Total, result.Local.Present,
+						result.Local.LocallyEdited, result.Native.BaselineMismatch, result.Validation.Invalid,
+						result.Render.Unsupported, result.Remote.Drifted, result.Remote.Unavailable,
+					)
+				})
+				if snapshotErr == nil {
+					return emitErr
+				}
+			}
+			return snapshotErr
+		},
+	}
+	cmd.Flags().BoolVar(&remote, "remote", false, "also check remote drift (one single-attempt metadata probe per eligible tracked page)")
 	return cmd
 }
 

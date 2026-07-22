@@ -53,6 +53,7 @@ type ConfluencePageDiff struct {
 	Blocks          []ConfluenceBlockChange  `json:"blocks,omitempty"`
 	Features        []ConfluenceFeatureDelta `json:"features,omitempty"`
 	ByteEvidence    *ConfluenceByteEvidence  `json:"byte_evidence,omitempty"`
+	tracked         bool
 }
 
 type ConfluenceDiffSide struct {
@@ -234,7 +235,7 @@ func confluenceDiffTargets(m *mirror.Mirror, target string) ([]confluenceDiffTar
 }
 
 func confluenceDiffPage(m *mirror.Mirror, target confluenceDiffTarget) (ConfluencePageDiff, error) {
-	page := ConfluencePageDiff{Path: target.path, State: "unreadable"}
+	page := ConfluencePageDiff{Path: target.path, State: "unreadable", tracked: target.state != nil}
 	if target.state != nil {
 		page.ID = target.state.ID
 	}

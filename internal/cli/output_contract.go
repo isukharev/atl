@@ -57,6 +57,7 @@ conf pull
 conf push
 conf render
 conf search
+conf snapshot
 conf space tree
 conf status
 conf table extract
