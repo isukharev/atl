@@ -66,7 +66,12 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 		{[]string{"jira", "structure", "view", "snapshot.json"}, "jira.structure.view"},
 		{[]string{"jira", "board", "list", "--project", "DEMO"}, "jira.board.list"},
 		{[]string{"--read-only", "--config-dir", "/tmp/config", "jira", "board", "list", "--limit", "20"}, "jira.board.list"},
+		{[]string{"jira", "board", "get", "42"}, "jira.board.get"},
+		{[]string{"jira", "board", "config", "42"}, "jira.board.config"},
+		{[]string{"jira", "board", "issues", "42", "--limit", "10"}, "jira.board.issues"},
+		{[]string{"jira", "board", "backlog", "42", "--limit", "10"}, "jira.board.backlog"},
 		{[]string{"jira", "board", "view", "42", "--scope", "all"}, "jira.board.view"},
+		{[]string{"jira", "board", "export", "42", "--scope", "board", "--out", "snapshot.json"}, "jira.board.export"},
 		{[]string{"jira", "issue", "worklog", "list", "PROJ-1"}, "jira.issue.worklog.list"},
 		{[]string{"jira", "issue", "worklog", "add", "PROJ-1", "--time", "30m"}, "jira.issue.worklog.add"},
 		{[]string{"jira", "issue", "history", "PROJ-1", "--field", "status"}, "jira.issue.history"},
@@ -149,6 +154,41 @@ func TestJiraBoardListCapabilityFamilyNormalizes(t *testing.T) {
 	}
 	if len(metrics) != 1 || metrics[0].Family != "jira.board.list" {
 		t.Fatalf("metrics=%+v", metrics)
+	}
+}
+
+func TestJiraBoardReadCapabilityFamiliesNormalize(t *testing.T) {
+	for _, family := range []string{
+		"jira.board.get",
+		"jira.board.config",
+		"jira.board.issues",
+		"jira.board.backlog",
+		"jira.board.export",
+	} {
+		t.Run(family, func(t *testing.T) {
+			metrics, err := normalizeCapabilityFamilies([]CapabilityFamilyMetric{{
+				Family: family, Invocations: 1, Successes: 1, OutputBytes: 42,
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(metrics) != 1 || metrics[0].Family != family {
+				t.Fatalf("metrics=%+v", metrics)
+			}
+		})
+	}
+}
+
+func TestJiraBoardReadCapabilityFamiliesFailClosed(t *testing.T) {
+	for _, args := range [][]string{
+		{"jira", "board", "inspect", "42"},
+		{"jira", "board", "configuration", "42"},
+		{"jira", "boards", "get", "42"},
+	} {
+		family, ok := CapabilityFamilyForCLI(args)
+		if ok {
+			t.Fatalf("unknown route classified: args=%q family=%q", args, family)
+		}
 	}
 }
 

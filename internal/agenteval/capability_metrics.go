@@ -25,7 +25,8 @@ var mcpCapabilityFamilies = map[string]string{
 
 var allowedCapabilityFamilies = map[string]struct{}{
 	"atl.config": {}, "atl.capabilities": {}, "jira.fields": {}, "jira.issue.fields": {},
-	"jira.issue.field": {}, "jira.issue.field.preview": {}, "jira.issue.field.set": {}, "jira.issue.refs": {}, "jira.issue.worklog.list": {}, "jira.issue.worklog.add": {}, "jira.issue.search": {}, "jira.issue.batch-read": {}, "jira.epic.digest": {}, "jira.board.list": {}, "jira.board.view": {},
+	"jira.issue.field": {}, "jira.issue.field.preview": {}, "jira.issue.field.set": {}, "jira.issue.refs": {}, "jira.issue.worklog.list": {}, "jira.issue.worklog.add": {}, "jira.issue.search": {}, "jira.issue.batch-read": {}, "jira.epic.digest": {},
+	"jira.board.list": {}, "jira.board.get": {}, "jira.board.config": {}, "jira.board.issues": {}, "jira.board.backlog": {}, "jira.board.view": {}, "jira.board.export": {},
 	"jira.issue.history": {},
 	"jira.field-options": {}, "jira.link-types": {}, "jira.me": {},
 	"jira.sprint.current": {}, "jira.sprint.get": {}, "jira.sprint.issues": {}, "jira.sprint.list": {},
@@ -206,7 +207,11 @@ matched:
 		{[]string{"jira", "issue", "images"}, "jira.issue.images"}, {[]string{"jira", "issue", "tree"}, "jira.issue.tree"},
 		{[]string{"jira", "issue", "view"}, "jira.issue.view"}, {[]string{"jira", "issue", "get"}, "jira.issue.get"},
 		{[]string{"jira", "issue", "field", "get"}, "jira.issue.field"}, {[]string{"jira", "issue", "fields"}, "jira.issue.fields"}, {[]string{"jira", "issue", "refs"}, "jira.issue.refs"}, {[]string{"jira", "epic", "digest"}, "jira.epic.digest"},
-		{[]string{"jira", "issue", "search"}, "jira.issue.search"}, {[]string{"jira", "board", "list"}, "jira.board.list"}, {[]string{"jira", "board", "view"}, "jira.board.view"}, {[]string{"jira", "fields"}, "jira.fields"},
+		{[]string{"jira", "issue", "search"}, "jira.issue.search"},
+		{[]string{"jira", "board", "list"}, "jira.board.list"}, {[]string{"jira", "board", "get"}, "jira.board.get"},
+		{[]string{"jira", "board", "config"}, "jira.board.config"}, {[]string{"jira", "board", "issues"}, "jira.board.issues"},
+		{[]string{"jira", "board", "backlog"}, "jira.board.backlog"}, {[]string{"jira", "board", "view"}, "jira.board.view"},
+		{[]string{"jira", "board", "export"}, "jira.board.export"}, {[]string{"jira", "fields"}, "jira.fields"},
 		{[]string{"jira", "planning", "report"}, "jira.planning.report"}, {[]string{"jira", "quality-report"}, "jira.planning.report"},
 		{[]string{"jira", "field-options"}, "jira.field-options"}, {[]string{"jira", "link-types"}, "jira.link-types"}, {[]string{"jira", "me"}, "jira.me"},
 		{[]string{"jira", "sprint", "current"}, "jira.sprint.current"}, {[]string{"jira", "sprint", "get"}, "jira.sprint.get"},
