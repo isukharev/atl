@@ -269,6 +269,74 @@ func TestLiveGatewayForwardsOnlyExactBudgetedReviewedWrite(t *testing.T) {
 	}
 }
 
+func TestLiveGatewayForwardsOnlyReviewedAtlassianTokens(t *testing.T) {
+	tests := []struct {
+		name    string
+		service string
+		tokens  []string
+		want    string
+	}{
+		{name: "Confluence documented token", service: "confluence", tokens: []string{"nocheck"}, want: "nocheck"},
+		{name: "Confluence shared token", service: "confluence", tokens: []string{"no-check"}, want: "no-check"},
+		{name: "Jira shared token", service: "jira", tokens: []string{"no-check"}, want: "no-check"},
+		{name: "Confluence token on Jira", service: "jira", tokens: []string{"nocheck"}},
+		{name: "unsupported spelling", service: "confluence", tokens: []string{"NoCheck"}},
+		{name: "duplicate values", service: "confluence", tokens: []string{"nocheck", "nocheck"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var got string
+			upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				got = request.Header.Get("X-Atlassian-Token")
+				response.WriteHeader(http.StatusNoContent)
+			}))
+			defer upstream.Close()
+			directory := t.TempDir()
+			if err := os.Chmod(directory, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			gateway, err := StartLiveGateway(LiveGatewayConfig{
+				AuditPath: filepath.Join(directory, "audit.jsonl"),
+				Services: map[string]LiveGatewayServiceConfig{test.service: {
+					BaseURL: upstream.URL, Token: "upstream-secret",
+					Routes: []LiveGatewayRoute{{Name: "upload", PathPrefix: "/upload", Exact: true, Methods: []string{http.MethodPost}, MaxRequests: 1, MaxRequestBytes: 16}},
+				}},
+				MaxRequests: 1, MaxConcurrent: 1, MaxWrites: 1, MaxRequestBytes: 16, MaxTotalRequestBytes: 16,
+				MaxResponseBytes: 1024, MaxTotalResponseBytes: 1024, RequestTimeout: 5 * time.Second,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := gateway.Close(context.Background()); err != nil {
+					t.Error(err)
+				}
+			}()
+			endpoint := gateway.Endpoints()[test.service]
+			request, err := http.NewRequest(http.MethodPost, endpoint.BaseURL+"/upload", strings.NewReader(`{}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Header.Set("Authorization", "Bearer "+endpoint.Token)
+			request.Header.Set("Content-Type", "application/json")
+			for _, token := range test.tokens {
+				request.Header.Add("X-Atlassian-Token", token)
+			}
+			response, err := http.DefaultClient.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _ = io.Copy(io.Discard, response.Body)
+			if err := response.Body.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if response.StatusCode != http.StatusNoContent || got != test.want {
+				t.Fatalf("status=%d token=%q, want status=%d token=%q", response.StatusCode, got, http.StatusNoContent, test.want)
+			}
+		})
+	}
+}
+
 func TestLiveGatewayPartitionsOneExactPathByMethod(t *testing.T) {
 	var upstreamCalls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
