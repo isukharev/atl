@@ -26,7 +26,10 @@ import (
 	"time"
 )
 
-const maxLiveGatewayAuditBytes = 4 << 20
+const (
+	maxLiveGatewayAuditBytes = 4 << 20
+	gatewayOriginRootPrefix  = "/.atl-agent-eval-origin"
+)
 
 // LiveGatewayConfig describes an evaluation-only credential boundary. The
 // upstream tokens must remain in the parent runner; Endpoints returns only
@@ -92,6 +95,9 @@ type liveGatewayState struct {
 	config            LiveGatewayConfig
 	audit             *os.File
 	hmacKey           []byte
+	handlerMu         sync.Mutex
+	closing           bool
+	handlers          sync.WaitGroup
 	mu                sync.Mutex
 	sequence          int64
 	requests          int
@@ -245,12 +251,23 @@ func (g *LiveGateway) Endpoints() map[string]LiveGatewayEndpoint {
 
 func (g *LiveGateway) Close(ctx context.Context) error {
 	g.closeOnce.Do(func() {
+		if g.state != nil {
+			g.state.handlerMu.Lock()
+			g.state.closing = true
+			g.state.handlerMu.Unlock()
+		}
 		for _, server := range g.servers {
-			if err := server.Shutdown(ctx); err != nil && g.closeErr == nil {
-				g.closeErr = err
+			if err := server.Shutdown(ctx); err != nil {
+				if g.closeErr == nil {
+					g.closeErr = err
+				}
+				if closeErr := server.Close(); closeErr != nil && g.closeErr == nil {
+					g.closeErr = closeErr
+				}
 			}
 		}
 		if g.state != nil && g.state.audit != nil {
+			g.state.handlers.Wait()
 			if err := g.state.audit.Sync(); err != nil && g.closeErr == nil {
 				g.closeErr = err
 			}
@@ -266,6 +283,11 @@ func (g *LiveGateway) Close(ctx context.Context) error {
 }
 
 func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	if !s.state.beginHandler() {
+		http.Error(response, "evaluation gateway is closing", http.StatusServiceUnavailable)
+		return
+	}
+	defer s.state.handlers.Done()
 	started := time.Now()
 	identity := s.state.requestIdentity(s.name, request.Method, request.URL.RequestURI(), nil)
 	reject := func(status int, route, reason string) {
@@ -283,7 +305,12 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 		reject(http.StatusBadRequest, "", "method_override")
 		return
 	}
-	route, ok := matchLiveGatewayRoute(request.URL, request.Method, s.routes)
+	reviewedURL, originRoot, ok := s.reviewGatewayRequestURL(request.URL, request.Method)
+	if !ok {
+		reject(http.StatusForbidden, "", "route")
+		return
+	}
+	route, ok := matchLiveGatewayRoute(reviewedURL, request.Method, s.routes)
 	if !ok {
 		reject(http.StatusForbidden, "", "route")
 		return
@@ -325,7 +352,7 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 		http.Error(response, "evaluation gateway audit unavailable", http.StatusBadGateway)
 		return
 	}
-	target := gatewayUpstreamURL(s.base, request.URL)
+	target := gatewayUpstreamURL(s.base, reviewedURL, originRoot)
 	ctx, cancel := context.WithTimeout(request.Context(), s.state.config.RequestTimeout)
 	defer cancel()
 	// target inherits the validated, pinned scheme+host from s.base; only the
@@ -384,11 +411,21 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 	}
 }
 
+func (s *liveGatewayState) beginHandler() bool {
+	s.handlerMu.Lock()
+	defer s.handlerMu.Unlock()
+	if s.closing {
+		return false
+	}
+	s.handlers.Add(1)
+	return true
+}
+
 func (s *liveGatewayService) reviewGatewayResponseBody(body []byte, contentType string) ([]byte, bool) {
 	if int64(len(body)) > s.state.config.MaxResponseBytes {
 		return nil, false
 	}
-	body = rewriteGatewayJSONURLs(body, contentType, s.base, s.downstream)
+	body = rewriteGatewayJSONURLs(body, contentType, s.base, s.downstream, s.originRootProxyPath)
 	if int64(len(body)) > s.state.config.MaxResponseBytes || !s.state.reserveResponseBytes(int64(len(body))) {
 		return nil, false
 	}
@@ -399,9 +436,11 @@ func (s *liveGatewayService) reviewGatewayResponseBody(body []byte, contentType 
 // usable after the private-live child is bound to a disposable loopback URL.
 // It never widens the gateway: every translated follow-up request must still
 // carry the capability and pass the reviewed route, method, and byte budgets.
-// Foreign origins, paths outside a configured upstream base path, non-JSON
-// bodies, and JSON strings that are not themselves absolute URLs are unchanged.
-func rewriteGatewayJSONURLs(body []byte, contentType string, upstream, downstream *url.URL) []byte {
+// Same-origin paths outside a configured upstream base path receive a
+// path-and-query-bound HMAC marker so the child cannot forge another origin-root
+// target. Foreign origins, non-JSON bodies, and JSON strings that are not
+// themselves absolute URLs are unchanged.
+func rewriteGatewayJSONURLs(body []byte, contentType string, upstream, downstream *url.URL, originRootPath func(string, string) string) []byte {
 	mediaType, _, err := mime.ParseMediaType(contentType)
 	if err != nil || (mediaType != "application/json" && !strings.HasSuffix(mediaType, "+json")) {
 		return body
@@ -418,12 +457,12 @@ func rewriteGatewayJSONURLs(body []byte, contentType string, upstream, downstrea
 	}
 	changed := false
 	if text, ok := value.(string); ok {
-		if rewritten, ok := rewriteGatewaySameOriginURL(text, upstream, downstream); ok {
+		if rewritten, ok := rewriteGatewaySameOriginURL(text, upstream, downstream, originRootPath); ok {
 			value = rewritten
 			changed = true
 		}
 	} else {
-		changed = rewriteGatewayJSONValue(value, upstream, downstream)
+		changed = rewriteGatewayJSONValue(value, upstream, downstream, originRootPath)
 	}
 	if !changed {
 		return body
@@ -435,36 +474,36 @@ func rewriteGatewayJSONURLs(body []byte, contentType string, upstream, downstrea
 	return rewritten
 }
 
-func rewriteGatewayJSONValue(value any, upstream, downstream *url.URL) bool {
+func rewriteGatewayJSONValue(value any, upstream, downstream *url.URL, originRootPath func(string, string) string) bool {
 	changed := false
 	switch typed := value.(type) {
 	case map[string]any:
 		for key, child := range typed {
 			if text, ok := child.(string); ok {
-				if rewritten, ok := rewriteGatewaySameOriginURL(text, upstream, downstream); ok {
+				if rewritten, ok := rewriteGatewaySameOriginURL(text, upstream, downstream, originRootPath); ok {
 					typed[key] = rewritten
 					changed = true
 				}
 				continue
 			}
-			changed = rewriteGatewayJSONValue(child, upstream, downstream) || changed
+			changed = rewriteGatewayJSONValue(child, upstream, downstream, originRootPath) || changed
 		}
 	case []any:
 		for index, child := range typed {
 			if text, ok := child.(string); ok {
-				if rewritten, ok := rewriteGatewaySameOriginURL(text, upstream, downstream); ok {
+				if rewritten, ok := rewriteGatewaySameOriginURL(text, upstream, downstream, originRootPath); ok {
 					typed[index] = rewritten
 					changed = true
 				}
 				continue
 			}
-			changed = rewriteGatewayJSONValue(child, upstream, downstream) || changed
+			changed = rewriteGatewayJSONValue(child, upstream, downstream, originRootPath) || changed
 		}
 	}
 	return changed
 }
 
-func rewriteGatewaySameOriginURL(value string, upstream, downstream *url.URL) (string, bool) {
+func rewriteGatewaySameOriginURL(value string, upstream, downstream *url.URL, originRootPath func(string, string) string) (string, bool) {
 	parsed, err := url.Parse(value)
 	if err != nil || !parsed.IsAbs() || parsed.Opaque != "" || parsed.User != nil || parsed.RawPath != "" {
 		return value, false
@@ -481,7 +520,10 @@ func rewriteGatewaySameOriginURL(value string, upstream, downstream *url.URL) (s
 		case strings.HasPrefix(parsed.Path, basePath+"/"):
 			downstreamPath = strings.TrimPrefix(parsed.Path, basePath)
 		default:
-			return value, false
+			if originRootPath == nil {
+				return value, false
+			}
+			downstreamPath = originRootPath(parsed.Path, parsed.RawQuery)
 		}
 	}
 	rewritten := *downstream
@@ -491,6 +533,44 @@ func rewriteGatewaySameOriginURL(value string, upstream, downstream *url.URL) (s
 	rewritten.ForceQuery = parsed.ForceQuery
 	rewritten.Fragment = parsed.Fragment
 	return rewritten.String(), true
+}
+
+func (s *liveGatewayService) originRootProxyPath(upstreamPath, rawQuery string) string {
+	signature := s.originRootSignature(upstreamPath, rawQuery)
+	return gatewayOriginRootPrefix + "/" + hex.EncodeToString(signature) + upstreamPath
+}
+
+func (s *liveGatewayService) originRootSignature(upstreamPath, rawQuery string) []byte {
+	mac := hmac.New(sha256.New, s.state.hmacKey)
+	_, _ = mac.Write([]byte("origin-root\x00" + s.name + "\x00" + upstreamPath + "\x00" + rawQuery))
+	return mac.Sum(nil)
+}
+
+func (s *liveGatewayService) reviewGatewayRequestURL(requestURL *url.URL, method string) (*url.URL, bool, bool) {
+	if requestURL == nil || !strings.HasPrefix(requestURL.Path, gatewayOriginRootPrefix) {
+		return requestURL, false, true
+	}
+	if method != http.MethodGet || requestURL.RawPath != "" {
+		return nil, false, false
+	}
+	rest := strings.TrimPrefix(requestURL.Path, gatewayOriginRootPrefix+"/")
+	separator := strings.IndexByte(rest, '/')
+	if separator != sha256.Size*2 || separator == len(rest)-1 {
+		return nil, false, false
+	}
+	received, err := hex.DecodeString(rest[:separator])
+	if err != nil || len(received) != sha256.Size {
+		return nil, false, false
+	}
+	upstreamPath := rest[separator:]
+	expected := s.originRootSignature(upstreamPath, requestURL.RawQuery)
+	if subtle.ConstantTimeCompare(received, expected) != 1 {
+		return nil, false, false
+	}
+	reviewed := *requestURL
+	reviewed.Path = upstreamPath
+	reviewed.RawPath = ""
+	return &reviewed, true, true
 }
 
 func reviewedGatewayAtlassianToken(service string, values []string) string {
@@ -583,7 +663,7 @@ func validateLiveGatewayRoutes(routes []LiveGatewayRoute) error {
 	seenPrefixExact := map[string]bool{}
 	seenPrefixMethods := map[string]map[string]struct{}{}
 	for _, route := range routes {
-		if !identifierRE.MatchString(route.Name) || len(route.Name) > 64 || route.PathPrefix == "/" || route.PathPrefix == "" || route.PathPrefix[0] != '/' || path.Clean(route.PathPrefix) != route.PathPrefix || strings.Contains(route.PathPrefix, "//") {
+		if !identifierRE.MatchString(route.Name) || len(route.Name) > 64 || route.PathPrefix == "/" || route.PathPrefix == "" || route.PathPrefix[0] != '/' || path.Clean(route.PathPrefix) != route.PathPrefix || strings.Contains(route.PathPrefix, "//") || strings.HasPrefix(route.PathPrefix, gatewayOriginRootPrefix) {
 			return fmt.Errorf("live gateway route is invalid")
 		}
 		if _, exists := seenRoutes[route.Name]; exists {
@@ -809,9 +889,13 @@ func validGatewayAuthorization(header, capability string) bool {
 	return len(header) == len(want) && subtle.ConstantTimeCompare([]byte(header), []byte(want)) == 1
 }
 
-func gatewayUpstreamURL(base, incoming *url.URL) *url.URL {
+func gatewayUpstreamURL(base, incoming *url.URL, originRoot bool) *url.URL {
 	target := *base
-	target.Path = strings.TrimRight(base.Path, "/") + incoming.Path
+	if originRoot {
+		target.Path = incoming.Path
+	} else {
+		target.Path = strings.TrimRight(base.Path, "/") + incoming.Path
+	}
 	target.RawPath = ""
 	target.RawQuery = incoming.RawQuery
 	return &target

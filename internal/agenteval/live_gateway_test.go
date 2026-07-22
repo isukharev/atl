@@ -145,14 +145,14 @@ func TestLiveGatewayRewritesOnlySameOriginJSONResourceURLs(t *testing.T) {
 		case "/jira/rest/api/2/issue/PROJ-1":
 			response.Header().Set("Content-Type", "application/json; charset=utf-8")
 			_ = json.NewEncoder(response).Encode(map[string]any{
-				"content":      upstreamURL + "/jira/secure/attachment/42/file.txt?download=1",
-				"foreign":      "https://other.invalid/secure/attachment/42/file.txt",
-				"outside_base": upstreamURL + "/secure/attachment/42/file.txt",
-				"relative":     "/jira/secure/attachment/42/file.txt",
-				"description":  "see " + upstreamURL + "/jira/secure/attachment/42/file.txt",
-				"nested":       []any{upstreamURL + "/jira/secure/attachment/42/file.txt#preview"},
+				"content":     upstreamURL + "/secure/attachment/42/file.txt?download=1",
+				"within_base": upstreamURL + "/jira/secure/attachment/42/file.txt",
+				"foreign":     "https://other.invalid/secure/attachment/42/file.txt",
+				"relative":    "/jira/secure/attachment/42/file.txt",
+				"description": "see " + upstreamURL + "/secure/attachment/42/file.txt",
+				"nested":      []any{upstreamURL + "/jira/secure/attachment/42/file.txt#preview"},
 			})
-		case "/jira/secure/attachment/42/file.txt?download=1":
+		case "/secure/attachment/42/file.txt?download=1":
 			response.Header().Set("Content-Type", "text/plain")
 			_, _ = io.WriteString(response, upstreamURL+" must remain raw")
 		case "/jira/secure/attachment/42/file.txt":
@@ -180,6 +180,12 @@ func TestLiveGatewayRewritesOnlySameOriginJSONResourceURLs(t *testing.T) {
 					{Name: "attachment", PathPrefix: "/secure/attachment/42/file.txt", Exact: true, MaxRequests: 2},
 				},
 			},
+			"confluence": {
+				BaseURL: upstream.URL + "/jira", Token: "other-upstream-secret",
+				Routes: []LiveGatewayRoute{
+					{Name: "attachment", PathPrefix: "/secure/attachment/42/file.txt", Exact: true, MaxRequests: 1},
+				},
+			},
 		},
 	})
 	if err != nil {
@@ -187,6 +193,7 @@ func TestLiveGatewayRewritesOnlySameOriginJSONResourceURLs(t *testing.T) {
 	}
 	defer gateway.Close(context.Background())
 	endpoint := gateway.Endpoints()["jira"]
+	otherEndpoint := gateway.Endpoints()["confluence"]
 
 	metadataRequest, err := http.NewRequest(http.MethodGet, endpoint.BaseURL+"/rest/api/2/issue/PROJ-1", nil)
 	if err != nil {
@@ -211,12 +218,17 @@ func TestLiveGatewayRewritesOnlySameOriginJSONResourceURLs(t *testing.T) {
 	if err := json.Unmarshal(metadataBody, &metadata); err != nil {
 		t.Fatal(err)
 	}
-	wantContent := endpoint.BaseURL + "/secure/attachment/42/file.txt?download=1"
+	contentURL, err := url.Parse(metadata["content"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantWithinBase := endpoint.BaseURL + "/secure/attachment/42/file.txt"
 	wantNested := endpoint.BaseURL + "/secure/attachment/42/file.txt#preview"
-	if metadata["content"] != wantContent || metadata["foreign"] != "https://other.invalid/secure/attachment/42/file.txt" ||
-		metadata["outside_base"] != upstream.URL+"/secure/attachment/42/file.txt" ||
+	if contentURL.Scheme != "http" || contentURL.Host != strings.TrimPrefix(endpoint.BaseURL, "http://") ||
+		!strings.HasPrefix(contentURL.Path, gatewayOriginRootPrefix+"/") || contentURL.Query().Get("download") != "1" ||
+		metadata["within_base"] != wantWithinBase || metadata["foreign"] != "https://other.invalid/secure/attachment/42/file.txt" ||
 		metadata["relative"] != "/jira/secure/attachment/42/file.txt" ||
-		metadata["description"] != "see "+upstream.URL+"/jira/secure/attachment/42/file.txt" ||
+		metadata["description"] != "see "+upstream.URL+"/secure/attachment/42/file.txt" ||
 		metadata["nested"].([]any)[0] != wantNested {
 		t.Fatalf("unexpected translated metadata: %#v", metadata)
 	}
@@ -240,6 +252,62 @@ func TestLiveGatewayRewritesOnlySameOriginJSONResourceURLs(t *testing.T) {
 	if string(attachmentBody) != upstream.URL+" must remain raw" || upstreamCalls.Load() != 2 {
 		t.Fatalf("body=%q calls=%d", attachmentBody, upstreamCalls.Load())
 	}
+
+	for name, mutate := range map[string]func(*url.URL){
+		"query tamper": func(candidate *url.URL) { candidate.RawQuery = "download=2" },
+		"path tamper":  func(candidate *url.URL) { candidate.Path = strings.Replace(candidate.Path, "file.txt", "other.txt", 1) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := *contentURL
+			mutate(&candidate)
+			request, requestErr := http.NewRequest(http.MethodGet, candidate.String(), nil)
+			if requestErr != nil {
+				t.Fatal(requestErr)
+			}
+			request.Header.Set("Authorization", "Bearer "+endpoint.Token)
+			response, requestErr := http.DefaultClient.Do(request)
+			if requestErr != nil {
+				t.Fatal(requestErr)
+			}
+			_ = response.Body.Close()
+			if response.StatusCode != http.StatusForbidden || upstreamCalls.Load() != 2 {
+				t.Fatalf("status=%d upstream calls=%d", response.StatusCode, upstreamCalls.Load())
+			}
+		})
+	}
+	otherBase, err := url.Parse(otherEndpoint.BaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceReplay := *contentURL
+	serviceReplay.Scheme = otherBase.Scheme
+	serviceReplay.Host = otherBase.Host
+	replayRequest, err := http.NewRequest(http.MethodGet, serviceReplay.String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayRequest.Header.Set("Authorization", "Bearer "+otherEndpoint.Token)
+	replayResponse, err := http.DefaultClient.Do(replayRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = replayResponse.Body.Close()
+	if replayResponse.StatusCode != http.StatusForbidden || upstreamCalls.Load() != 2 {
+		t.Fatalf("cross-service replay status=%d upstream calls=%d", replayResponse.StatusCode, upstreamCalls.Load())
+	}
+	postRequest, err := http.NewRequest(http.MethodPost, contentURL.String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	postRequest.Header.Set("Authorization", "Bearer "+endpoint.Token)
+	postResponse, err := http.DefaultClient.Do(postRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = postResponse.Body.Close()
+	if postResponse.StatusCode != http.StatusForbidden || upstreamCalls.Load() != 2 {
+		t.Fatalf("signed origin-root write status=%d upstream calls=%d", postResponse.StatusCode, upstreamCalls.Load())
+	}
 	if err := gateway.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +316,17 @@ func TestLiveGatewayRewritesOnlySameOriginJSONResourceURLs(t *testing.T) {
 		t.Fatal(err)
 	}
 	records := decodeLiveGatewayAudit(t, audit)
-	if len(records) != 4 || records[1].ResponseBytes != int64(len(metadataBody)) || records[3].ResponseBytes != int64(len(attachmentBody)) {
+	var completed []LiveGatewayAuditRecord
+	var denied int
+	for _, record := range records {
+		if record.Phase == "complete" && record.Decision == "allow" {
+			completed = append(completed, record)
+		}
+		if record.Decision == "deny" {
+			denied++
+		}
+	}
+	if len(completed) != 2 || denied != 4 || completed[0].ResponseBytes != int64(len(metadataBody)) || completed[1].ResponseBytes != int64(len(attachmentBody)) {
 		t.Fatalf("response byte audit mismatch: records=%+v metadata=%d attachment=%d", records, len(metadataBody), len(attachmentBody))
 	}
 }
@@ -275,7 +353,7 @@ func TestRewriteGatewayJSONURLsPreservesEscapedPathSemantics(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := rewriteGatewayJSONURLs([]byte(test.body), "application/problem+json", upstream, downstream)
+			got := rewriteGatewayJSONURLs([]byte(test.body), "application/problem+json", upstream, downstream, nil)
 			if string(got) != test.want {
 				t.Fatalf("got %s, want %s", got, test.want)
 			}
@@ -293,7 +371,7 @@ func TestLiveGatewayBudgetsRewrittenResponseBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	original := []byte(`{"url":"https://u.example/resource"}`)
-	rewritten := rewriteGatewayJSONURLs(original, "application/json", upstream, downstream)
+	rewritten := rewriteGatewayJSONURLs(original, "application/json", upstream, downstream, nil)
 	if len(rewritten) <= len(original) {
 		t.Fatalf("test requires expansion: original=%d rewritten=%d", len(original), len(rewritten))
 	}
@@ -786,6 +864,57 @@ func TestLiveGatewayEnforcesConcurrencyBeforeUpstream(t *testing.T) {
 	}
 }
 
+func TestLiveGatewayCloseWaitsForHandlersBeforeKeyTeardown(t *testing.T) {
+	started := make(chan struct{})
+	upstreamDone := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		close(started)
+		<-request.Context().Done()
+		close(upstreamDone)
+	}))
+	defer upstream.Close()
+	gateway, _ := startTestLiveGateway(t, upstream.URL, 1, 1024, 1024)
+	endpoint := gateway.Endpoints()["jira"]
+	clientDone := make(chan struct{})
+	go func() {
+		defer close(clientDone)
+		request, err := http.NewRequest(http.MethodGet, endpoint.BaseURL+"/rest/api/2/field", nil)
+		if err != nil {
+			return
+		}
+		request.Header.Set("Authorization", "Bearer "+endpoint.Token)
+		response, err := http.DefaultClient.Do(request)
+		if err == nil {
+			_ = response.Body.Close()
+		}
+	}()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("upstream request did not start")
+	}
+	closeContext, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := gateway.Close(closeContext); err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("close error=%v", err)
+	}
+	select {
+	case <-upstreamDone:
+	default:
+		t.Fatal("gateway key teardown raced an active upstream handler")
+	}
+	for _, value := range gateway.state.hmacKey {
+		if value != 0 {
+			t.Fatal("gateway HMAC key was not cleared after handler shutdown")
+		}
+	}
+	select {
+	case <-clientDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("gateway client did not stop")
+	}
+}
+
 func TestLiveGatewayEnforcesRequestAndAuditBoundaries(t *testing.T) {
 	var upstreamCalls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
@@ -849,6 +978,11 @@ func TestLiveGatewayRejectsUnsafeConfiguration(t *testing.T) {
 		"invalid route": func(config *LiveGatewayConfig) {
 			service := config.Services["jira"]
 			service.Routes[0].PathPrefix = "/rest/../admin"
+			config.Services["jira"] = service
+		},
+		"reserved origin root route": func(config *LiveGatewayConfig) {
+			service := config.Services["jira"]
+			service.Routes[0].PathPrefix = gatewayOriginRootPrefix + "/resource"
 			config.Services["jira"] = service
 		},
 		"response budget": func(config *LiveGatewayConfig) { config.MaxTotalResponseBytes = 1 },
