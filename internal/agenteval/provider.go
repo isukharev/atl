@@ -151,7 +151,9 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 		if confinedCLI {
 			sandboxMode = "workspace-write"
 			includeOnly = `["PATH","SHELL","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
-			if spec.EffectiveBackendMode() == BackendModeSynthetic && spec.AllowSyntheticWrites {
+			if spec.EffectiveBackendMode() == BackendModePrivateLive && spec.AllowLiveWrites {
+				includeOnly = `["PATH","SHELL","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_ALLOW_REVIEWED_WRITES","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
+			} else if spec.EffectiveBackendMode() == BackendModeSynthetic && spec.AllowSyntheticWrites {
 				includeOnly = `["PATH","SHELL","LANG","LC_ALL","TERM","ATL_EVAL_ALLOW_SYNTHETIC_WRITES","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
 			}
 		}

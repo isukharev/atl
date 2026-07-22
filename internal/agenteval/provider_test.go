@@ -416,6 +416,24 @@ func TestBuildPrivateCLIProviderCommandsEnforceHooksAndCodexCommandBroker(t *tes
 			if !slices.Contains(command.Args, `shell_environment_policy.include_only=["PATH","SHELL","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`) {
 				t.Fatalf("private CLI environment projection drifted: %s", joined)
 			}
+			if strings.Contains(joined, "ATL_EVAL_ALLOW_REVIEWED_WRITES") {
+				t.Fatalf("private read-only CLI received reviewed write capability: %s", joined)
+			}
+			reviewedWriteSpec := spec
+			reviewedWriteSpec.AllowLiveWrites = true
+			reviewedWriteSpec.AllowedGatewayRoutes = map[string][]LiveGatewayRoute{"jira": {
+				{Name: "issue_read", PathPrefix: "/rest/api/2/issue/PROJ-1", Exact: true, Methods: []string{"GET"}, MaxRequests: 1},
+				{Name: "issue_write", PathPrefix: "/rest/api/2/issue/PROJ-1", Exact: true, Methods: []string{"PUT"}, MaxRequests: 1, MaxRequestBytes: 1 << 20},
+			}}
+			reviewedWriteSpec.GatewayMaxRequestBytes = 1 << 20
+			reviewedWriteSpec.GatewayMaxTotalRequestBytes = 1 << 20
+			reviewedWriteCommand, err := BuildProviderCommand(reviewedWriteSpec, provider, "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "/plugin", "/settings", "", confinement, []byte(`{"type":"object"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Contains(reviewedWriteCommand.Args, `shell_environment_policy.include_only=["PATH","SHELL","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_ALLOW_REVIEWED_WRITES","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`) {
+				t.Fatalf("private reviewed-write CLI environment projection drifted: %s", strings.Join(reviewedWriteCommand.Args, " "))
+			}
 			if slices.Contains(command.Args, "--ignore-user-config") {
 				t.Errorf("Codex private CLI ignored its fresh isolated installed-plugin config: %s", joined)
 			}
