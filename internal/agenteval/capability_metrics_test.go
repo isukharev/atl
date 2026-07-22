@@ -56,9 +56,14 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 		{[]string{"jira", "export", "--ids=1,2", "--out", "-"}, "jira.issue.batch-read"},
 		{[]string{"jira", "export", "--jql", "project = DEMO", "--out", "-"}, "jira.export"},
 		{[]string{"jira", "export", "diff", "old.jsonl", "new.jsonl"}, "jira.export.diff"},
+		{[]string{"jira", "structure", "get", "42"}, "jira.structure.get"},
+		{[]string{"jira", "structure", "forest", "42"}, "jira.structure.forest"},
 		{[]string{"jira", "structure", "folders", "42"}, "jira.structure.folders"},
 		{[]string{"jira", "structure", "rows", "42"}, "jira.structure.rows"},
 		{[]string{"jira", "structure", "values", "42", "--rows", "100"}, "jira.structure.values"},
+		{[]string{"jira", "structure", "pull-issues", "42", "--root", "100"}, "jira.structure.pull-issues"},
+		{[]string{"jira", "structure", "export", "42", "--format", "json", "--out", "snapshot.json"}, "jira.structure.export"},
+		{[]string{"jira", "structure", "view", "snapshot.json"}, "jira.structure.view"},
 		{[]string{"jira", "board", "list", "--project", "DEMO"}, "jira.board.list"},
 		{[]string{"--read-only", "--config-dir", "/tmp/config", "jira", "board", "list", "--limit", "20"}, "jira.board.list"},
 		{[]string{"jira", "board", "view", "42", "--scope", "all"}, "jira.board.view"},
@@ -139,5 +144,30 @@ func TestJiraBoardListCapabilityFamilyNormalizes(t *testing.T) {
 	}
 	if len(metrics) != 1 || metrics[0].Family != "jira.board.list" {
 		t.Fatalf("metrics=%+v", metrics)
+	}
+}
+
+func TestJiraStructureCapabilityFamiliesNormalize(t *testing.T) {
+	for _, family := range []string{
+		"jira.structure.get",
+		"jira.structure.forest",
+		"jira.structure.folders",
+		"jira.structure.rows",
+		"jira.structure.values",
+		"jira.structure.pull-issues",
+		"jira.structure.export",
+		"jira.structure.view",
+	} {
+		t.Run(family, func(t *testing.T) {
+			metrics, err := normalizeCapabilityFamilies([]CapabilityFamilyMetric{{
+				Family: family, Invocations: 1, Successes: 1, OutputBytes: 42,
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(metrics) != 1 || metrics[0].Family != family {
+				t.Fatalf("metrics=%+v", metrics)
+			}
+		})
 	}
 }
