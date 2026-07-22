@@ -80,12 +80,16 @@ paginated comment listing per issue, so keep the query narrow and set an
 explicit `--limit`. Inspect the named description/comment/field source and
 `text_truncated` when incomplete.
 For history, `complete:false` means absence is unproven. Use `last_changes` for
-the selected field; do not infer recency from array position. For date-only
+the selected field; do not infer recency from array position. Use `summary` for
+cardinality, field buckets, identity uniqueness, fetch/count reconciliation,
+and chronological checks instead of recounting the raw array. A false
+`chronological_comparable` makes `chronological_ascending` null, and a true
+`fetched_matches_total` does not override `complete:false`. For date-only
 periods, retain `boundary_time_zone` and the canonical instant fields as part of
 the evidence. One current-user GET is expected per top-level history/digest
-command; a digest reuses it. Midnight gaps/folds are represented by the complete
-real civil-day interval, while a fully skipped date fails closed. Explicit-offset
-RFC3339 bounds skip the lookup. Exit 8 on an
+command; a digest reuses it. Midnight gaps/folds are represented by the
+complete real civil-day interval, while a fully skipped date fails closed.
+Explicit-offset RFC3339 bounds skip the lookup. Exit 8 on an
 unsupported matching timestamp means recency is unknowable, not that no change
 exists.
 

@@ -53,8 +53,67 @@ func TestHistoryFilteredByResolvedFieldAndInclusiveDates(t *testing.T) {
 	if len(result.LastChanges) != 1 || result.LastChanges[0].HistoryID != "2" || result.LastChanges[0].To != "second" {
 		t.Fatalf("last_changes=%+v", result.LastChanges)
 	}
+	if result.Summary.HistoryCount != 2 || result.Summary.ItemCount != 2 || !result.Summary.CountMatchesHistory || !result.Summary.FetchedMatchesTotal || !result.Summary.ChronologicalComparable || result.Summary.ChronologicalAscending == nil || !*result.Summary.ChronologicalAscending {
+		t.Fatalf("summary=%+v", result.Summary)
+	}
+	if result.Summary.DistinctItemFieldCount != 1 || len(result.Summary.Fields) != 1 || result.Summary.Fields[0].Field != "Delivery Notes" || result.Summary.Fields[0].Count != 2 {
+		t.Fatalf("summary fields=%+v", result.Summary.Fields)
+	}
 	if tracker.timeZoneCalls != 1 || result.Filters.BoundaryTimeZone != "UTC" || result.Filters.SinceInstant != "2026-04-01T00:00:00Z" || result.Filters.UntilExclusiveInstant != "2026-05-01T00:00:00Z" {
 		t.Fatalf("timezone calls=%d filters=%+v", tracker.timeZoneCalls, result.Filters)
+	}
+}
+
+func TestSummarizeJiraHistoryReportsCardinalityConsistencyAndUnknownOrdering(t *testing.T) {
+	result := &JiraHistoryResult{
+		Total: 5, Fetched: 2, Count: 3,
+		History: []domain.ChangelogEntry{
+			{ID: "duplicate", Author: "Jane", Created: "2026-04-02T10:00:00Z", Items: []domain.ChangelogItem{
+				{Field: "Status", FieldID: "status", From: "Open", To: "Done"},
+				{Field: "priority", FieldID: "priority", To: "High"},
+			}},
+			{ID: "duplicate", Created: "not-a-time", Items: []domain.ChangelogItem{{FieldID: "assignee", From: "Jane"}}},
+		},
+	}
+
+	summary := summarizeJiraHistory(result)
+	if summary.HistoryCount != 2 || summary.HistoryIDNonemptyCount != 2 || summary.HistoryIDsUnique {
+		t.Fatalf("identity summary=%+v", summary)
+	}
+	if summary.AuthorNonemptyCount != 1 || summary.TimestampNonemptyCount != 2 || summary.ChronologicalComparable || summary.ChronologicalAscending != nil {
+		t.Fatalf("ordering summary=%+v", summary)
+	}
+	if summary.EntriesWithItems != 2 || summary.MultiItemEntryCount != 1 || summary.ItemCount != 3 || summary.ItemFieldNonemptyCount != 2 {
+		t.Fatalf("entry summary=%+v", summary)
+	}
+	if summary.ItemsWithFromCount != 2 || summary.ItemsWithToCount != 2 || summary.StatusItemCount != 1 || summary.DistinctItemFieldCount != 3 {
+		t.Fatalf("item summary=%+v", summary)
+	}
+	if summary.CountMatchesHistory || summary.FetchedMatchesTotal {
+		t.Fatalf("consistency summary=%+v", summary)
+	}
+	if len(summary.Fields) != 3 || summary.Fields[0].FieldID != "assignee" || summary.Fields[1].Field != "priority" || summary.Fields[2].Field != "Status" || summary.Fields[2].WithFrom != 1 || summary.Fields[2].WithTo != 1 {
+		t.Fatalf("field summary=%+v", summary.Fields)
+	}
+}
+
+func TestSummarizeJiraHistoryEmptyHistoryIsComparableAndAscending(t *testing.T) {
+	summary := summarizeJiraHistory(&JiraHistoryResult{})
+	if !summary.HistoryIDsUnique || !summary.ChronologicalComparable || summary.ChronologicalAscending == nil || !*summary.ChronologicalAscending || summary.Fields == nil {
+		t.Fatalf("summary=%+v", summary)
+	}
+}
+
+func TestSummarizeJiraHistoryReportsDescendingAndCoalescesNameOnlyFields(t *testing.T) {
+	summary := summarizeJiraHistory(&JiraHistoryResult{Count: 2, History: []domain.ChangelogEntry{
+		{ID: "2", Created: "2026-04-02T10:00:00Z", Items: []domain.ChangelogItem{{Field: "Priority", To: "High"}}},
+		{ID: "1", Created: "2026-04-01T10:00:00Z", Items: []domain.ChangelogItem{{Field: "priority", From: "Low"}}},
+	}})
+	if !summary.ChronologicalComparable || summary.ChronologicalAscending == nil || *summary.ChronologicalAscending {
+		t.Fatalf("ordering summary=%+v", summary)
+	}
+	if summary.DistinctItemFieldCount != 1 || len(summary.Fields) != 1 || summary.Fields[0].Count != 2 || summary.Fields[0].WithFrom != 1 || summary.Fields[0].WithTo != 1 {
+		t.Fatalf("field summary=%+v", summary.Fields)
 	}
 }
 

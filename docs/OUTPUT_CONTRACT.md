@@ -1335,10 +1335,24 @@ remain valid without an extra field-catalog request.
 
 `atl jira issue history <KEY>` emits
 `{key,complete,source,total,fetched,count,partial_reason?,filters,history,
-last_changes?}`. Each history item preserves both `field` and `field_id` when
-Jira supplies them. `complete:true` means every entry advertised by the chosen
-backend representation was consumed; `complete:false` always carries a reason
-and must not be interpreted as proof that an omitted change did not happen.
+summary,last_changes?}`. Each history item preserves both `field` and `field_id`
+when Jira supplies them. `summary` is derived from the final filtered `history`
+array without another backend request. It contains entry/item totals, non-empty
+identity/author/timestamp/field counts, emitted non-empty `from`/`to` member
+counts, status-item count, multi-item-entry count, stable per-field buckets, and
+the `count_matches_history` / `fetched_matches_total` consistency checks. Field
+buckets use the case-insensitive technical id when available and otherwise the
+trimmed case-insensitive display name, then sort by id/name. Thus
+`distinct_item_field_count == len(summary.fields)`.
+
+`summary.chronological_comparable` is false if any emitted timestamp cannot be
+parsed. In that state `chronological_ascending` is JSON `null`, rather than a
+misleading false; otherwise it is true for a non-decreasing sequence (including
+an empty history) or false for an out-of-order sequence. A true
+`fetched_matches_total` alone is not proof of completeness: only top-level
+`complete:true` means every entry advertised by the chosen backend
+representation was consumed. `complete:false` always carries a reason and must
+not be interpreted as proof that an omitted change did not happen.
 `source` is `paginated`, `embedded`, or `legacy`. Repeatable exact `--field`
 selectors and inclusive `--since`/`--until` boundaries are applied locally
 after the qualified read. A date-only boundary adds

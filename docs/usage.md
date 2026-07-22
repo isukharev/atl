@@ -2723,10 +2723,17 @@ filters locally; `fetched` and `total` describe the pre-filter read, while
 
 JSON includes `complete`, `source`, optional `partial_reason`, field ids beside
 display names, and `last_changes` for selected fields within the requested time
-window. Treat `complete:false` as incomplete evidence rather than absence of a
-change. If a matching selected change has an unsupported server timestamp, atl
-returns exit 8 because it cannot order `last_changes` safely. `-o text` renders
-a completeness line followed by an escaped Markdown table.
+window. The additive `summary` object computes deterministic entry/item totals,
+non-empty metadata counts, distinct and per-field buckets, status changes, id
+uniqueness, count/fetch reconciliation, and chronological ordering from that
+same filtered array without another request. If any timestamp is not
+comparable, `chronological_comparable` is false and
+`chronological_ascending` is `null`. `fetched_matches_total:true` does not
+replace the top-level completeness qualification. Treat `complete:false` as
+incomplete evidence rather than absence of a change. If a matching selected
+change has an unsupported server timestamp, atl returns exit 8 because it
+cannot order `last_changes` safely. `-o text` renders a completeness line
+followed by an escaped Markdown table.
 
 ### `atl jira epic digest`
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -36,6 +37,39 @@ type JiraFieldLastChange struct {
 	To        string `json:"to,omitempty"`
 }
 
+type JiraHistoryFieldSummary struct {
+	FieldID  string `json:"field_id,omitempty"`
+	Field    string `json:"field"`
+	Count    int    `json:"count"`
+	WithFrom int    `json:"with_from"`
+	WithTo   int    `json:"with_to"`
+}
+
+// JiraHistorySummary carries deterministic cardinality and consistency facts
+// for the filtered History array. ChronologicalAscending is nil when one or
+// more timestamps cannot be compared, so unknown ordering is never reported as
+// false ordering.
+type JiraHistorySummary struct {
+	HistoryCount            int                       `json:"history_count"`
+	HistoryIDNonemptyCount  int                       `json:"history_id_nonempty_count"`
+	HistoryIDsUnique        bool                      `json:"history_ids_unique"`
+	AuthorNonemptyCount     int                       `json:"author_nonempty_count"`
+	TimestampNonemptyCount  int                       `json:"timestamp_nonempty_count"`
+	ChronologicalComparable bool                      `json:"chronological_comparable"`
+	ChronologicalAscending  *bool                     `json:"chronological_ascending"`
+	EntriesWithItems        int                       `json:"entries_with_items"`
+	MultiItemEntryCount     int                       `json:"multi_item_entry_count"`
+	ItemCount               int                       `json:"item_count"`
+	ItemFieldNonemptyCount  int                       `json:"item_field_nonempty_count"`
+	DistinctItemFieldCount  int                       `json:"distinct_item_field_count"`
+	ItemsWithFromCount      int                       `json:"items_with_from_count"`
+	ItemsWithToCount        int                       `json:"items_with_to_count"`
+	StatusItemCount         int                       `json:"status_item_count"`
+	CountMatchesHistory     bool                      `json:"count_matches_history"`
+	FetchedMatchesTotal     bool                      `json:"fetched_matches_total"`
+	Fields                  []JiraHistoryFieldSummary `json:"fields"`
+}
+
 type JiraHistoryResult struct {
 	Key           string                  `json:"key"`
 	Complete      bool                    `json:"complete"`
@@ -46,6 +80,7 @@ type JiraHistoryResult struct {
 	PartialReason string                  `json:"partial_reason,omitempty"`
 	Filters       JiraHistoryFilters      `json:"filters"`
 	History       []domain.ChangelogEntry `json:"history"`
+	Summary       JiraHistorySummary      `json:"summary"`
 	LastChanges   []JiraFieldLastChange   `json:"last_changes,omitempty"`
 }
 
@@ -150,7 +185,131 @@ func (s *JiraService) HistoryFiltered(ctx context.Context, key string, opts Jira
 			result.LastChanges = append(result.LastChanges, change)
 		}
 	}
+	result.Summary = summarizeJiraHistory(result)
 	return result, nil
+}
+
+func summarizeJiraHistory(result *JiraHistoryResult) JiraHistorySummary {
+	summary := JiraHistorySummary{
+		HistoryIDsUnique:        true,
+		ChronologicalComparable: true,
+		Fields:                  []JiraHistoryFieldSummary{},
+	}
+	if result == nil {
+		ascending := true
+		summary.ChronologicalAscending = &ascending
+		return summary
+	}
+
+	summary.HistoryCount = len(result.History)
+	summary.CountMatchesHistory = result.Count == summary.HistoryCount
+	summary.FetchedMatchesTotal = result.Fetched == result.Total
+
+	ids := make(map[string]struct{}, len(result.History))
+	fields := make(map[string]*JiraHistoryFieldSummary)
+	ascending := true
+	var previous time.Time
+	havePrevious := false
+	for _, entry := range result.History {
+		if entry.ID != "" {
+			summary.HistoryIDNonemptyCount++
+		}
+		if _, exists := ids[entry.ID]; exists {
+			summary.HistoryIDsUnique = false
+		} else {
+			ids[entry.ID] = struct{}{}
+		}
+		if entry.Author != "" {
+			summary.AuthorNonemptyCount++
+		}
+		if entry.Created != "" {
+			summary.TimestampNonemptyCount++
+		}
+		created, err := parseJiraHistoryTime(entry.Created)
+		if err != nil {
+			summary.ChronologicalComparable = false
+		} else {
+			if havePrevious && created.Before(previous) {
+				ascending = false
+			}
+			previous = created
+			havePrevious = true
+		}
+
+		if len(entry.Items) > 0 {
+			summary.EntriesWithItems++
+		}
+		if len(entry.Items) > 1 {
+			summary.MultiItemEntryCount++
+		}
+		for _, item := range entry.Items {
+			summary.ItemCount++
+			if item.Field != "" {
+				summary.ItemFieldNonemptyCount++
+			}
+			if item.From != "" {
+				summary.ItemsWithFromCount++
+			}
+			if item.To != "" {
+				summary.ItemsWithToCount++
+			}
+			if strings.EqualFold(strings.TrimSpace(item.FieldID), "status") || strings.EqualFold(strings.TrimSpace(item.Field), "status") {
+				summary.StatusItemCount++
+			}
+
+			field, fieldID := strings.TrimSpace(item.Field), strings.TrimSpace(item.FieldID)
+			identity := "name:" + strings.ToLower(field)
+			if fieldID != "" {
+				identity = "id:" + strings.ToLower(fieldID)
+			} else if field == "" {
+				continue
+			}
+			bucket, ok := fields[identity]
+			if !ok {
+				bucket = &JiraHistoryFieldSummary{FieldID: fieldID, Field: field}
+				fields[identity] = bucket
+			} else if bucket.Field == "" && field != "" {
+				bucket.Field = field
+			}
+			bucket.Count++
+			if item.From != "" {
+				bucket.WithFrom++
+			}
+			if item.To != "" {
+				bucket.WithTo++
+			}
+		}
+	}
+	if summary.ChronologicalComparable {
+		summary.ChronologicalAscending = &ascending
+	}
+
+	summary.Fields = make([]JiraHistoryFieldSummary, 0, len(fields))
+	for _, field := range fields {
+		summary.Fields = append(summary.Fields, *field)
+	}
+	sort.Slice(summary.Fields, func(i, j int) bool {
+		leftID, rightID := strings.ToLower(summary.Fields[i].FieldID), strings.ToLower(summary.Fields[j].FieldID)
+		if leftID != rightID {
+			if leftID == "" {
+				return false
+			}
+			if rightID == "" {
+				return true
+			}
+			return leftID < rightID
+		}
+		left, right := strings.ToLower(summary.Fields[i].Field), strings.ToLower(summary.Fields[j].Field)
+		if left != right {
+			return left < right
+		}
+		if summary.Fields[i].Field != summary.Fields[j].Field {
+			return summary.Fields[i].Field < summary.Fields[j].Field
+		}
+		return summary.Fields[i].FieldID < summary.Fields[j].FieldID
+	})
+	summary.DistinctItemFieldCount = len(summary.Fields)
+	return summary
 }
 
 func selectedHistoryField(defs []domain.FieldDef, item domain.ChangelogItem) (domain.FieldDef, bool) {

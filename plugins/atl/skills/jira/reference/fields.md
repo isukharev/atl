@@ -17,12 +17,15 @@ Jira rejects unknown field ids, status names, and link types — discover the va
   compact values. Use `--raw` only when compact projection is insufficient and
   private transport/user data is acceptable. Metadata-only conflicts with raw.
 - `atl jira issue history <KEY> --field "Exact Name"` → complete/partial
-  provenance plus the selected field's `last_changes`. Time flags are local
-  post-read filters. Date-only values use one observed Jira current-user IANA
-  timezone lookup and expose the resolved UTC interval. Midnight gaps/folds
-  cover the complete real civil day and a fully skipped date fails closed;
-  explicit-offset RFC3339 values need no lookup. Never interpret
-  `complete:false` as absence of evidence.
+  provenance plus deterministic `summary` counts and the selected field's
+  `last_changes`. Read summary cardinalities and consistency fields instead of
+  manually recounting `history`; `chronological_ascending:null` means the
+  sequence was not comparable. Time flags are local post-read filters.
+  Date-only values use one observed Jira current-user IANA timezone lookup and
+  expose the resolved UTC interval. Midnight gaps/folds cover the complete real
+  civil day and a fully skipped date fails closed; explicit-offset RFC3339
+  values need no lookup. Never interpret `complete:false` as absence of
+  evidence.
   An unsupported timestamp on a matching selected change fails closed because
   `last_changes` cannot be ordered safely.
 - `atl jira field-options --project PROJ --type Bug --field priority` → `{ "options": [ ... ] }`

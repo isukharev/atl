@@ -33,6 +33,34 @@
       ]
     }
   ],
+  "summary": {
+    "history_count": 1,
+    "history_id_nonempty_count": 1,
+    "history_ids_unique": true,
+    "author_nonempty_count": 0,
+    "timestamp_nonempty_count": 1,
+    "chronological_comparable": true,
+    "chronological_ascending": true,
+    "entries_with_items": 1,
+    "multi_item_entry_count": 0,
+    "item_count": 1,
+    "item_field_nonempty_count": 1,
+    "distinct_item_field_count": 1,
+    "items_with_from_count": 0,
+    "items_with_to_count": 1,
+    "status_item_count": 0,
+    "count_matches_history": true,
+    "fetched_matches_total": true,
+    "fields": [
+      {
+        "field_id": "customfield_10001",
+        "field": "Delivery Notes",
+        "count": 1,
+        "with_from": 0,
+        "with_to": 1
+      }
+    ]
+  },
   "last_changes": [
     {
       "field_id": "customfield_10001",
