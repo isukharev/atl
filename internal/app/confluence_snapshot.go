@@ -133,7 +133,7 @@ func (s *ConfluenceService) SnapshotMirror(ctx context.Context, dir string, chec
 	if s.store == nil {
 		return result, fmt.Errorf("%w: remote mirror snapshot requires a configured Confluence backend", domain.ErrConfig)
 	}
-	probeContext := domain.WithSingleAttempt(ctx)
+	probeContext := domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(ctx))
 	for _, local := range locals {
 		if local.Meta.ID == "" || local.TrackedElsewhere || local.Synced == nil {
 			continue

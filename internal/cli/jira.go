@@ -52,7 +52,7 @@ func wikiBody(cmd *cobra.Command, fromFile, fromMD string) ([]byte, error) {
 
 func newJiraCmd() *cobra.Command {
 	c := &cobra.Command{Use: "jira", Short: "Jira: read/search/pull issues, edit via commands (native wiki)"}
-	cmds := []*cobra.Command{jiraIssueCmd(), jiraEpicCmd(), jiraPullCmd(), jiraRenderCmd(), jiraApplyCmd(), jiraStatusCmd(), jiraPushCmd(), jiraExportCmd(), jiraPlanningCmd(), jiraQualityReportCmd(), jiraMeCmd(), jiraUserCmd(), jiraBoardCmd(), jiraSprintCmd(), jiraStructureCmd()}
+	cmds := []*cobra.Command{jiraIssueCmd(), jiraEpicCmd(), jiraPullCmd(), jiraRenderCmd(), jiraApplyCmd(), jiraStatusCmd(), jiraSnapshotCmd(), jiraPushCmd(), jiraExportCmd(), jiraPlanningCmd(), jiraQualityReportCmd(), jiraMeCmd(), jiraUserCmd(), jiraBoardCmd(), jiraSprintCmd(), jiraStructureCmd()}
 	cmds = append(cmds, jiraMetaCmds()...)
 	c.AddCommand(cmds...)
 	return c
@@ -1274,6 +1274,55 @@ func jiraStatusCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&remote, "remote", false, "also check remote drift (one request per issue)")
+	return cmd
+}
+
+func jiraSnapshotCmd() *cobra.Command {
+	var remote bool
+	cmd := &cobra.Command{
+		Use:   "snapshot [DIR]",
+		Short: "Summarize Jira mirror, baseline, raw snapshot, pending, render, and drift health without content",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := mirrorRootDefault("mirror-jira")
+			if len(args) == 1 {
+				dir = args[0]
+			}
+			var (
+				result      *app.JiraMirrorSnapshot
+				snapshotErr error
+			)
+			if remote {
+				preflight, preflightErr := app.PreflightJiraMirrorRemoteSnapshot(dir)
+				if preflight == nil || preflightErr != nil || !preflight.Complete || !preflight.Reconciled {
+					result, snapshotErr = preflight, preflightErr
+				} else {
+					svc, err := jiraService()
+					if err != nil {
+						return err
+					}
+					result, snapshotErr = svc.SnapshotMirror(cmd.Context(), dir, true)
+				}
+			} else {
+				result, snapshotErr = app.SnapshotJiraMirror(dir)
+			}
+			if result != nil {
+				emitErr := emit(cmd, result, func() string {
+					return fmt.Sprintf(
+						"complete=%t reconciled=%t total=%d present=%d edited=%d baseline_mismatch=%d snapshot_invalid=%d pending_unbound=%d render_unsupported=%d remote_drifted=%d remote_unavailable=%d",
+						result.Complete, result.Reconciled, result.Native.Total, result.Local.Present, result.Local.LocallyEdited,
+						result.Native.BaselineMismatch, result.Snapshot.Invalid+result.Snapshot.KeyMismatched,
+						result.Pending.Unbound, result.Render.Unsupported, result.Remote.Drifted, result.Remote.Unavailable,
+					)
+				})
+				if snapshotErr == nil {
+					return emitErr
+				}
+			}
+			return snapshotErr
+		},
+	}
+	cmd.Flags().BoolVar(&remote, "remote", false, "also check remote drift (one single-attempt issue probe per eligible tracked issue)")
 	return cmd
 }
 

@@ -453,9 +453,10 @@ preserve edits, and never causes an automatic render. With `--remote`, `remote`
 partitions all present local pages into attempted/not-attempted; attempted pages
 must be an eligible tracked canonical subset. It then partitions attempts into
 checked/unavailable and checked results into in-sync/drifted. One metadata probe
-is started per attempted page with generic
-replay-safe transport retries disabled; ordinary same-origin redirect policy
-still applies. Without `--remote`, all pages remain not attempted.
+is started per attempted page with generic replay-safe transport retries
+disabled. Redirect responses are not followed because a second hop would exceed
+the one-attempt bound; they count as unavailable. Without `--remote`, all pages
+remain not attempted.
 
 Every nested `reconciled` proves its declared equations and top-level
 `reconciled` requires all of them. `complete` is evidence availability, not a
@@ -567,6 +568,36 @@ pending; `synced` is false for a `.wiki` with no sidecar entry (never-synced —
 identifies the latter. They and `remote_error` appear only with `--remote` and are
 `omitempty`. `local_error` is independent of `--remote` and reports a broken
 pending-to-mirror binding such as a missing or moved `.wiki`.
+
+`atl jira snapshot [DIR] [--remote]` emits the content-free aggregate contract
+`{schema_version:1,service:"jira",remote_requested,complete,reconciled,local,
+native,snapshot,pending,render,remote}`. It intentionally omits root/target,
+issue identity, path, hashes, field identity, diagnostic text, and native/raw/
+derived content. The offline default requires no config or credentials and
+performs no locks, pending-transaction recovery, network, or filesystem writes.
+
+`local` partitions every `.wiki` as clean/edited and canonical
+tracked/untracked, with non-canonical copies counted inside untracked. `native`
+partitions present and tracked-but-removed substrates by unchanged, modified,
+removed, untracked, non-canonical,
+missing baseline, baseline mismatch, or unreadable baseline, and independently
+reconciles baseline present/missing/unreadable plus valid/invalid. `snapshot`
+reconciles expected sibling raw snapshots through present/missing,
+readable/unreadable, valid/invalid, and key-matched/mismatched buckets.
+`pending` partitions stable records into valid/invalid/unreadable and
+bound/unbound, and reports only aggregate field-edit and active-transaction
+counts. `render` reconciles expected views through present/missing/unreadable,
+current/legacy/missing-marker/unsupported format, and recorded/missing view
+state. `renderer_compatible` describes marker readability/compatibility only;
+it does not claim the view is unedited or safe to overwrite.
+
+With `--remote`, local preflight runs before backend setup. Any qualified local
+integrity failure emits the aggregate, returns exit `8`, and performs no request.
+Eligible canonical issues with valid baselines then receive at most one
+single-attempt GET each; redirect responses are not followed and count as
+unavailable. `attempted = checked + unavailable`, `checked = in_sync + drifted`,
+and local `present = attempted + not_attempted`; unavailable never means in-sync
+and makes `complete:false`. No form of this command mutates the mirror or backend.
 
 `atl jira push <file.wiki|DIR> [--apply] [--force] [--into ROOT]` emits `{ "items": [ ... ] }`, one
 item per file: `{ "path", "key", "pushed", "dry_run"?, "skipped"?, "remote_drifted"?,

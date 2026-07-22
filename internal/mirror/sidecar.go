@@ -256,8 +256,15 @@ func (m *Mirror) BaseBody(id string) ([]byte, bool) {
 // baseline. BaseBody intentionally keeps its historical best-effort contract;
 // integrity-sensitive offline analysis should use this method instead.
 func (m *Mirror) ReadBaseBody(id string) ([]byte, bool, error) {
+	return m.ReadBaseBodyExt(id, ".csf")
+}
+
+// ReadBaseBodyExt reads a pristine last-synced body under a caller-selected
+// extension while preserving missing versus unreadable evidence. It is the
+// integrity-sensitive counterpart to BaseBodyExt.
+func (m *Mirror) ReadBaseBodyExt(id, ext string) ([]byte, bool, error) {
 	dir := filepath.Join(m.Root, ".atl", "base")
-	target := filepath.Join(dir, safepath.Segment(id)+".csf")
+	target := filepath.Join(dir, safepath.Segment(id)+ext)
 	if !safepath.Within(dir, target) {
 		return nil, false, fmt.Errorf("refusing unsafe base path for id %q", id)
 	}

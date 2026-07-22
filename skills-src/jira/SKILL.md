@@ -97,10 +97,15 @@ root applies, with `mirror-jira` as fallback. An existing mirror file's nearest
 `.atl` is authoritative for edit/apply/push. Do not redirect it to profile
 memory; pull a fresh copy into a newly approved root instead.
 
-Run `jira status <existing-root> --remote` before editing or pulling over an
-existing mirror. Preserve locally edited work. Re-pull a clean remote-drifted
-mirror; a clean non-drifted mirror is already a valid base. A transient view
-that becomes an edit request must be discarded in favor of a fresh pull.
+Run `jira snapshot <existing-root> --remote` first for exact content-free
+baseline/raw-snapshot/pending/render/drift cardinalities. Require reconciled
+output and treat `complete:false`, unavailable probes, invalid binding, or exit
+`8` as a stop signal. Expand with identity-bearing
+`jira status <existing-root> --remote` only when repair or per-issue selection
+needs it.
+Preserve locally edited work. Re-pull a clean remote-drifted mirror; a clean
+non-drifted mirror is already a valid base. A transient view that becomes an
+edit request must be discarded in favor of a fresh pull.
 
 Profile root/render values are memory, not runtime. Load only relevant Jira
 preferences/render defaults and active config. Present conflicts and obtain

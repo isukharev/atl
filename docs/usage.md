@@ -1413,8 +1413,9 @@ probing. A corrupt baseline still emits the qualified snapshot and returns exit
 `8`, even when `--remote` was requested.
 
 `--remote` starts one metadata probe per eligible canonical tracked page and
-disables the transport's automatic replay-safe retries for it. The ordinary
-same-origin redirect policy still applies. Untracked/non-canonical pages remain `not_attempted`;
+disables the transport's automatic replay-safe retries for it. Redirect
+responses are not followed and count as unavailable because a second hop would
+exceed the one-attempt bound. Untracked/non-canonical pages remain `not_attempted`;
 failures increment `unavailable` and never `in_sync`. The output never includes
 page ids, titles, paths, hashes, validation text, or native/derived content. Use
 `conf diff` only when page-level identity or exact change evidence is required.
@@ -3114,6 +3115,43 @@ sidecar, so `locally_edited` + `synced:false` means "never-synced"), and, with
 from its stored base), optional `field_drifted`, or `remote_error` (the remote could not be checked — an uncheckable issue
 is never reported in-sync). Drift needs a baseline: an issue with no base copy is
 never reported drifted.
+
+### `atl jira snapshot`
+
+Return exact, content-free health cardinalities for a durable Jira mirror. The
+offline default needs no backend URL, PAT, or config and performs no lock,
+transaction recovery, filesystem write, or network request.
+
+```bash
+ATL_READ_ONLY=1 atl jira snapshot
+ATL_READ_ONLY=1 atl jira snapshot my-jira-mirror
+ATL_READ_ONLY=1 atl jira snapshot my-jira-mirror --remote
+```
+
+The JSON partitions local clean/edited and canonical tracked/untracked issue
+substrates (including tracked-but-removed entries), wiki baseline presence and integrity, sibling raw-snapshot
+presence/readability/key binding, pending-record validity/binding, and derived
+view marker state. Current, known legacy, missing-marker, unsupported/future,
+missing, and unreadable Markdown views remain distinct. The aggregate emits no
+issue key/id, path, hash, field id, diagnostic text, wiki/raw-snapshot content,
+or derived-view bytes.
+
+`complete` means every inspected byte source needed for a trustworthy snapshot
+was readable, internally valid, and stably bound; it does not mean the mirror
+is clean. `reconciled` means every documented partition adds up exactly. A
+baseline mismatch, malformed/misbound raw snapshot, invalid/unbound pending
+record, active pending transaction, or unreadable source returns the qualified
+snapshot with exit `8`. Missing optional/legacy evidence remains an explicit
+count rather than silently reading as present.
+
+`--remote` first completes that local preflight before loading backend config or
+credentials. A failed preflight makes zero requests. Otherwise each eligible
+canonical tracked issue with a valid baseline receives at most one GET attempt;
+generic replay-safe retries are disabled and redirect responses are not
+followed. Remote `attempted = checked + unavailable`, `checked = in_sync +
+drifted`, and local `present = attempted + not_attempted`. A redirect or other
+unavailable probe sets `complete:false` and never counts as in-sync. The command
+never writes or repairs mirror state.
 
 ### `atl jira apply`
 

@@ -77,6 +77,20 @@ func tracef(format string, a ...any) {
 	}
 }
 
+func traceRequestURL(ctx context.Context, u *neturl.URL) string {
+	if domain.RedactedHTTPTrace(ctx) {
+		return "<redacted>"
+	}
+	return traceURL(u)
+}
+
+func traceResponsePath(ctx context.Context, path string) string {
+	if domain.RedactedHTTPTrace(ctx) {
+		return "<redacted>"
+	}
+	return path
+}
+
 // Client is a per-backend HTTP client (one for Confluence, one for Jira).
 type Client struct {
 	base       string
@@ -129,6 +143,13 @@ func NewWithScheduler(base, token, version string, scheduler *Scheduler) *Client
 		}
 		if len(via) > 0 && via[0].URL.Scheme == "https" && req.URL.Scheme == "http" {
 			return fmt.Errorf("refusing https→http redirect to %q", req.URL.Host)
+		}
+		// A caller that requested one transport attempt must never turn one
+		// logical probe into a second request by following even a safe redirect.
+		// ErrUseLastResponse returns the 3xx response to the normal classifier
+		// without issuing the redirected request.
+		if len(via) > 0 && domain.SingleAttempt(via[0].Context()) {
+			return http.ErrUseLastResponse
 		}
 		return nil
 	}
@@ -314,7 +335,7 @@ func (c *Client) ResolveGET(ctx context.Context, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	tracef("→ GET %s\n", traceURL(req.URL))
+	tracef("→ GET %s\n", traceRequestURL(ctx, req.URL))
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		if resp != nil && resp.Body != nil {
@@ -327,7 +348,7 @@ func (c *Client) ResolveGET(ctx context.Context, path string) (string, error) {
 	if resp.Request != nil && resp.Request.URL != nil {
 		finalURL = resp.Request.URL
 	}
-	tracef("← %d %s\n", resp.StatusCode, finalURL.Path)
+	tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, finalURL.Path))
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return finalURL.String(), nil
 	}
@@ -364,13 +385,13 @@ func (c *Client) DoStreamSized(ctx context.Context, method, path string, r io.Re
 	if contentLength >= 0 {
 		req.ContentLength = contentLength
 	}
-	tracef("→ %s %s\n", method, traceURL(req.URL))
+	tracef("→ %s %s\n", method, traceRequestURL(ctx, req.URL))
 	resp, err := c.dl.Do(req)
 	if err != nil {
-		tracef("× %s %s (transport error: %s)\n", method, traceURL(req.URL), transportErrorCategory(err))
+		tracef("× %s %s (transport error: %s)\n", method, traceRequestURL(ctx, req.URL), transportErrorCategory(err))
 		return nil, transportError(method, req.URL, err)
 	}
-	tracef("← %d %s\n", resp.StatusCode, req.URL.Path)
+	tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
 	data, err := readBody(resp.Body, jsonBodyCap)
 	resp.Body.Close()
 	if err != nil {
@@ -411,10 +432,10 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 		if err != nil {
 			return nil, err
 		}
-		tracef("→ %s %s\n", method, traceURL(req.URL))
+		tracef("→ %s %s\n", method, traceRequestURL(ctx, req.URL))
 		resp, err := c.hc.Do(req)
 		if err != nil {
-			tracef("× %s %s (transport error: %s)\n", method, traceURL(req.URL), transportErrorCategory(err))
+			tracef("× %s %s (transport error: %s)\n", method, traceRequestURL(ctx, req.URL), transportErrorCategory(err))
 			safeErr := transportError(method, req.URL, err)
 			// A committed-but-lost write can double-execute or turn success into a
 			// misleading conflict/not-found; only replay-safe reads retry here.
@@ -424,7 +445,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 			lastErr = safeErr
 			continue // network error → retry
 		}
-		tracef("← %d %s\n", resp.StatusCode, req.URL.Path)
+		tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
 		retryable := replaySafe(method) &&
 			(resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500)
 		retryDelay := time.Duration(0)
@@ -663,15 +684,15 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 			cancel()
 			return nil, err
 		}
-		tracef("→ GET %s\n", traceURL(req.URL))
+		tracef("→ GET %s\n", traceRequestURL(ctx, req.URL))
 		resp, err := c.dl.Do(req)
 		if err != nil {
 			cancel()
-			tracef("× GET %s (transport error: %s)\n", traceURL(req.URL), transportErrorCategory(err))
+			tracef("× GET %s (transport error: %s)\n", traceRequestURL(ctx, req.URL), transportErrorCategory(err))
 			lastErr = transportError(http.MethodGet, req.URL, err)
 			continue // GET is idempotent → retry
 		}
-		tracef("← %d %s\n", resp.StatusCode, req.URL.Path)
+		tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return newIdleReader(resp.Body, downloadIdleTimeout, cancel), nil
 		}

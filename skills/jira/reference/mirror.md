@@ -22,6 +22,8 @@ Use a mirror for editing, repeatable offline reads, raw fields, or attachments:
 
 ```bash
 export ATL_READ_ONLY=1
+atl jira snapshot <existing-root> --remote
+# expand identities only when repair or issue selection requires them
 atl jira status <existing-root> --remote
 atl jira pull --jql '<narrow JQL>' --into <absolute-root> --limit 0
 # add --assets, --fields, or --render-profile full only when needed
@@ -46,6 +48,14 @@ explicit root wins; otherwise use `ATL_MIRROR_ROOT`, nearest `.atl`, then the
 derived staging view regenerated on pull/render. `.json` is a raw snapshot,
 never an edit surface. Sidecars/bases under `.atl` establish dirty/drift
 evidence. A pre-sidecar mirror is never-synced until re-pulled.
+
+Use `jira snapshot [ROOT] [--remote]` for the first health decision. It emits
+only exact reconciled counts for local/native baselines, raw snapshots, pending
+records, render markers/view state, and optional drift. It never locks,
+recovers, repairs, or writes. Offline mode needs no config or PAT. Remote mode
+preflights locally, then performs at most one single-attempt GET per eligible
+canonical issue. Stop on exit `8`, `complete:false`, `reconciled:false`, or any
+unavailable probe; use `jira status` only to identify entries for repair.
 
 `--assets` streams image attachments into the issue asset directory and links
 them from `.md`; failures are counted/warned and do not expose local paths in
