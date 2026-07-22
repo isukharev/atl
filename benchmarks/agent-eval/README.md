@@ -72,6 +72,14 @@ quantiles. The real ledger and scorecard remain private; the committed
 [`private-finding-ledger.example.json`](private-finding-ledger.example.json) is
 synthetic and contains no backend data.
 
+Private sample strength is encoded separately with
+[`private-sampling.schema.json`](private-sampling.schema.json): `n=1` is
+calibration only, `n=3` plus a distinct same-class holdout is regression
+acceptance, and `n>=10` plus holdout evidence is reserved for explicitly
+reviewed high-cost decisions. `private sample` validates exact immutable
+compact baselines and emits only closed counts and digests; it does not run a
+model, contact a backend, or publish per-run identities.
+
 At stable private issue/PR boundaries, `private checkpoint` can preview and
 then digest-bind one owner-only UTC-day summary of repository provenance,
 workspace counts, public schema versions, and the scorecard. It is an offline

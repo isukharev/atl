@@ -118,6 +118,8 @@ echoed into a terminal or CI log.
 | Promote | `private baseline set` | None | Adds an immutable compact baseline and updates `current` | Complete assessed run without panel disagreement and `BASELINE` |
 | Compare | `private compare` | None | Read-only; emits aggregate deltas | Compatible contract/runtime and review mode |
 | Reconcile findings | `private scorecard` | None | Read-only; emits a content-free aggregate scorecard | Canonical owner-only ledger and immutable completed run references |
+| Preview sample evidence | `private sample` | None | Read-only; emits closed counts and a domain-separated assessment digest | Canonical owner-only sampling spec and immutable compact baselines |
+| Store sample evidence | `private sample` with confirmation | None | Adds one owner-only immutable assessment | Exact assessment SHA-256 and `ASSESS` |
 | Preview daily checkpoint | `private checkpoint` | None | Read-only; emits canonical content and a domain-separated digest | Healthy workspace, no active run, and valid scorecard |
 | Store daily checkpoint | `private checkpoint` with confirmation | None | Adds one owner-only UTC-day checkpoint | Exact checkpoint SHA-256 and `CHECKPOINT` |
 | Reference study | `private study reference` | None | Adds an immutable compact activation-study reference | Complete four-cell review and `REFERENCE` |
@@ -1017,6 +1019,69 @@ binds the canonical ledger and effective immutable results without exposing
 those references. Task classes must belong to the closed public benchmark
 taxonomy; a private custom identifier is rejected instead of echoed.
 
+## Sampling evidence and holdouts
+
+Sampling tiers describe evidence strength; they are not interchangeable:
+
+- `calibration` is exactly one primary observation. It verifies a path or
+  estimates a result but cannot close a finding.
+- `regression` is exactly three mutually distinct primary observations plus at
+  least one holdout observation. All primary and holdout results must be
+  supported and passing for `regression_accepted` to be true.
+- `decision` is at least ten mutually distinct primary observations plus
+  holdout evidence. It supports an explicitly reviewed high-cost decision but
+  never makes that product decision automatically.
+
+Store a canonical owner-only spec at
+`cases/sampling/<alias>.v1.json`, following the public
+[schema](../benchmarks/agent-eval/private-sampling.schema.json) and
+[synthetic example](../benchmarks/agent-eval/private-sampling.example.json).
+References are sorted and select exact immutable compact baselines; `current`
+is forbidden.
+Primary observations must share the exact scenario, runtime, surface, prompt,
+and compact-baseline contract. A holdout preserves public task class, data
+class, category, runtime, surface, and execution variant while using a
+different scenario and a distinct case-bound plan contract; where a prompt
+contract is recorded, it must differ too. Duplicate plan ids, plan digests, or
+completed run ids are rejected across both groups.
+
+Preview the assessment offline:
+
+```sh
+/tmp/agent-eval private sample \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --spec sample-set
+```
+
+The preview does not write, execute a model, contact a backend, or invoke an
+external helper. Its output contains only the tier, source/assessment digests,
+closed primary and holdout status/eligibility counts, evidence readiness, and
+the regression gate when applicable. Plan, run, scenario, baseline, path,
+provider-backend, prompt, answer, and fixture identities remain private.
+
+After reviewing the exact digest, store the assessment:
+
+```sh
+/tmp/agent-eval private sample \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root . \
+  --spec sample-set \
+  --expected-assessment-sha256 "$REVIEWED_ASSESSMENT_SHA256" \
+  --confirm ASSESS
+```
+
+Apply locks the workspace and recomputes every input. Spec, baseline, result,
+or lifecycle drift invalidates the reviewed digest. The owner-only artifact is
+stored at `reports/sampling/<assessment-sha256>.json`; identical application is
+idempotent, and existing files are never overwritten. The artifact retains
+private exact references for later finding-ledger binding, but the command
+summary does not emit them. Linking a fixed finding to this assessment is a
+separate lifecycle step; until that link exists, the current ledger's singleton
+regression field remains historical evidence rather than an n=3 claim.
+`regression_accepted` is an all-pass regression gate, not a statistical
+significance or comparative-reliability claim.
+
 ## Daily checkpoints
 
 Generate a daily checkpoint preview after a stable issue or PR boundary. The
@@ -1051,7 +1116,8 @@ private operating state, not a publishable benchmark result.
 
 Current manifests use schema v4, run specs use schema v7, observations use
 schema v5, results use schema v7, aggregates use schema v6, private plans use
-schema v8, finding ledgers, scorecards, and daily checkpoints use schema v1,
+schema v8, finding ledgers, scorecards, sampling specs/assessments, and daily
+checkpoints use schema v1,
 current activation state uses schema v3, and
 review packets use schema v2. Current study references/reports use schema v2
 and require audit attempt metrics plus separate bounded model-report metrics.

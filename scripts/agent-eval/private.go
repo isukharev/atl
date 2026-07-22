@@ -16,10 +16,12 @@ var privateQualifyCodexCLI = agenteval.QualifyCodexCLIToolAvailability
 var privateBuildFindingScorecard = agenteval.BuildPrivateFindingScorecard
 var privatePreviewCheckpoint = agenteval.PreviewPrivateCheckpoint
 var privateApplyCheckpoint = agenteval.ApplyPrivateCheckpoint
+var privatePreviewSampling = agenteval.PreviewPrivateSampling
+var privateApplySampling = agenteval.ApplyPrivateSampling
 
 func runPrivateCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("private requires init, doctor, status, migrate, qualify, plan, run, review, study, baseline, compare, scorecard, checkpoint, or prune")
+		return fmt.Errorf("private requires init, doctor, status, migrate, qualify, plan, run, review, study, baseline, compare, scorecard, sample, checkpoint, or prune")
 	}
 	switch args[0] {
 	case "init":
@@ -336,6 +338,34 @@ func runPrivateCommand(args []string, out io.Writer) error {
 			return err
 		}
 		return writePrivateJSON(out, report)
+	case "sample":
+		flags := privateFlagSet("private sample")
+		var root, repositoryRoot, spec, expected, confirm string
+		flags.StringVar(&root, "root", "", "workspace root")
+		flags.StringVar(&repositoryRoot, "repository-root", ".", "repository root")
+		flags.StringVar(&spec, "spec", "", "generic sampling spec alias")
+		flags.StringVar(&expected, "expected-assessment-sha256", "", "reviewed sampling assessment digest")
+		flags.StringVar(&confirm, "confirm", "", "must be ASSESS")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 || root == "" || spec == "" || (expected == "") != (confirm == "") {
+			return fmt.Errorf("private sample requires root, spec, and either no apply flags or both reviewed digest and confirmation")
+		}
+		options := agenteval.PrivateSamplingOptions{Root: root, RepositoryRoot: repositoryRoot, Spec: spec,
+			ExpectedAssessmentSHA256: expected, Confirm: confirm}
+		if expected == "" {
+			preview, err := privatePreviewSampling(options)
+			if err != nil {
+				return err
+			}
+			return writePrivateJSON(out, preview)
+		}
+		summary, err := privateApplySampling(options)
+		if err != nil {
+			return err
+		}
+		return writePrivateJSON(out, summary)
 	case "checkpoint":
 		flags := privateFlagSet("private checkpoint")
 		var root, repositoryRoot, expected, confirm string
