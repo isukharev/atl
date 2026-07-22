@@ -68,6 +68,56 @@ func TestClaudeBashGuardAllowsOnlyReviewedSingleATLCommands(t *testing.T) {
 	}
 }
 
+func TestReviewedWriteGuardRejectsShellCompositionBeforeInterfaceAttempt(t *testing.T) {
+	const exact = "env -u ATL_READ_ONLY atl conf plan apply plan.json --confirm APPLY --expected-proposal-hash 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	tests := []struct {
+		name    string
+		command string
+		want    string
+	}{
+		{name: "exact", command: exact, want: "allow"},
+		{name: "exit code suffix", command: exact + "; echo EXIT_CODE=$?", want: "deny"},
+		{name: "and suffix", command: exact + " && echo done", want: "deny"},
+		{name: "or suffix", command: exact + " || echo failed", want: "deny"},
+		{name: "newline suffix", command: exact + "\necho done", want: "deny"},
+		{name: "pipe", command: exact + " | tee result", want: "deny"},
+		{name: "redirect", command: exact + " > result", want: "deny"},
+		{name: "substitution", command: exact + " $(echo extra)", want: "deny"},
+		{name: "backticks", command: exact + " `echo extra`", want: "deny"},
+		{name: "comment suffix", command: exact + " # accepted", want: "deny"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			guardCounter := filepath.Join(directory, "guard.jsonl")
+			interfaceCounter := filepath.Join(directory, "interface.jsonl")
+			t.Setenv("ATL_EVAL_GUARD_MODE", "private-cli")
+			t.Setenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES", "1")
+			t.Setenv("ATL_EVAL_GUARD_COUNTER", guardCounter)
+			t.Setenv("ATL_EVAL_COUNTER", interfaceCounter)
+			input := `{"tool_name":"Bash","tool_input":{"command":` + strconv.Quote(test.command) + `}}`
+			var output, errorOutput bytes.Buffer
+			if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 {
+				t.Fatalf("code=%d stderr=%s", code, errorOutput.String())
+			}
+			var decision struct {
+				Hook struct {
+					Decision string `json:"permissionDecision"`
+				} `json:"hookSpecificOutput"`
+			}
+			if err := json.Unmarshal(output.Bytes(), &decision); err != nil {
+				t.Fatal(err)
+			}
+			if decision.Hook.Decision != test.want {
+				t.Fatalf("decision=%q want=%q output=%s", decision.Hook.Decision, test.want, output.String())
+			}
+			if _, err := os.Stat(interfaceCounter); !os.IsNotExist(err) {
+				t.Fatalf("pre-tool guard created an interface attempt: %v", err)
+			}
+		})
+	}
+}
+
 func TestClaudeBashGuardEmitsPreToolDecision(t *testing.T) {
 	t.Setenv("ATL_EVAL_ALLOWED_COMMANDS", `["atl jira issue fields"]`)
 	counter := t.TempDir() + "/guard.jsonl"
