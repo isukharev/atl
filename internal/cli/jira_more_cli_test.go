@@ -62,12 +62,21 @@ func TestJiraIssueHistory_EmitsChangelog(t *testing.T) {
 		Complete bool                    `json:"complete"`
 		Source   string                  `json:"source"`
 		History  []domain.ChangelogEntry `json:"history"`
+		Summary  struct {
+			HistoryCount    int  `json:"history_count"`
+			ItemCount       int  `json:"item_count"`
+			StatusItemCount int  `json:"status_item_count"`
+			IDsUnique       bool `json:"history_ids_unique"`
+		} `json:"summary"`
 	}
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("decode history: %v\n%s", err, out)
 	}
 	if !res.Complete || res.Source != "paginated" || len(res.History) != 1 || res.History[0].Author != "Jane" || len(res.History[0].Items) != 1 || res.History[0].Items[0].FieldID != "status" || res.History[0].Items[0].To != "Done" {
 		t.Fatalf("history = %+v, want one Jane status→Done entry", res.History)
+	}
+	if res.Summary.HistoryCount != 1 || res.Summary.ItemCount != 1 || res.Summary.StatusItemCount != 1 || !res.Summary.IDsUnique {
+		t.Fatalf("summary = %+v, want one unique status item", res.Summary)
 	}
 	// A capable DC backend uses the complete paginated sub-resource.
 	var saw bool

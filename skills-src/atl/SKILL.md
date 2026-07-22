@@ -179,7 +179,8 @@ deterministic offline render/apply.
 **Jira additions:** typed `render.jira.field_views` (including opt-in editable
 rich-text sections with explicit pending state) and opt-in `epic_children` views;
 value-free metadata and compact named issue-field inspection; qualified, filterable issue
-history with explicit completeness and last-field-change metadata;
+history with explicit completeness, deterministic cardinality/consistency summary, and
+last-field-change metadata;
 transient multi-key export to artifact-only stdout; deterministic epic evidence
 digest and standalone refs with per-source completeness;
 check/attachments/refs/tree. For a report
