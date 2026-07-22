@@ -626,8 +626,11 @@ request-body budgets, exact mutating gateway paths and methods, exact structured
 CLI arguments, and an `http_methods_equal` oracle. The child provider still
 starts with `ATL_READ_ONLY=1`; only the literal guarded form
 `env -u ATL_READ_ONLY atl ...` may ask the owner-only broker to execute one of
-those exact argv rules. The broker owns the real config, and the model receives
-only disposable loopback gateway capabilities.
+those exact argv rules. Shell-single-quote structured JSON object or array flag
+values so the outer one-command guard can treat their punctuation as inert
+data; unquoted or double-quoted structured punctuation fails closed before the
+exact argv broker. The broker owns the real config, and the model receives only
+disposable loopback gateway capabilities.
 
 Create and later edit operations belong in separate immutable plans. The create
 plan may authorize only its exact collection endpoint; once the new identifier

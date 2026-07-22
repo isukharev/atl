@@ -265,10 +265,34 @@ func TestPrivateLiveCLIGuardAllowsOnlyOneATLCommandShape(t *testing.T) {
 		}
 	}
 	t.Setenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES", "1")
-	input := `{"tool_name":"Bash","tool_input":{"command":"env -u ATL_READ_ONLY atl conf plan apply plan.json --confirm APPLY --expected-proposal-hash aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`
-	var output, errorOutput bytes.Buffer
-	if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 || !strings.Contains(output.String(), `"permissionDecision":"allow"`) {
-		t.Fatalf("synthetic env shim guard code=%d output=%s stderr=%s", code, output.String(), errorOutput.String())
+	for _, command := range []string{
+		"env -u ATL_READ_ONLY atl conf plan apply plan.json --confirm APPLY --expected-proposal-hash aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		`env -u ATL_READ_ONLY atl jira issue create --field 'priority={"name":"High"}'`,
+		`env -u ATL_READ_ONLY atl jira issue create --field 'labels=["docs","infra"]'`,
+	} {
+		input := `{"tool_name":"Bash","tool_input":{"command":` + strconv.Quote(command) + `}}`
+		var output, errorOutput bytes.Buffer
+		if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 || !strings.Contains(output.String(), `"permissionDecision":"allow"`) {
+			t.Fatalf("synthetic env shim guard command=%q code=%d output=%s stderr=%s", command, code, output.String(), errorOutput.String())
+		}
+	}
+	for _, command := range []string{
+		`env -u ATL_READ_ONLY atl jira issue create --field priority={"name":"High"}`,
+		`env -u ATL_READ_ONLY atl jira issue create --field labels=["docs"]`,
+		`env -u ATL_READ_ONLY atl jira issue create --field "priority={\"name\":\"High\"}"`,
+		`env -u ATL_READ_ONLY atl jira issue create --field 'priority={"name":"High"}' ; env`,
+		`env -u ATL_READ_ONLY atl jira issue create --field 'priority={"name":"High"}' | env`,
+		`env -u ATL_READ_ONLY atl jira issue create --field 'priority={"name":"High"}' > result`,
+		`env -u ATL_READ_ONLY atl jira issue create --field 'priority={"name":"High"}`,
+		`env -u ATL_READ_ONLY atl jira issue create --field "priority=$(env)"`,
+		"env -u ATL_READ_ONLY atl jira issue create --field 'priority={\"name\":\"High\"}' $(env)",
+		"env -u ATL_READ_ONLY atl jira issue create --field 'priority={\"name\":\"High\"}'\nenv",
+	} {
+		input := `{"tool_name":"Bash","tool_input":{"command":` + strconv.Quote(command) + `}}`
+		var output, errorOutput bytes.Buffer
+		if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
+			t.Fatalf("synthetic env shim guard command=%q code=%d output=%s stderr=%s", command, code, output.String(), errorOutput.String())
+		}
 	}
 }
 
