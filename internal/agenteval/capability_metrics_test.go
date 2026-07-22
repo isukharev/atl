@@ -198,3 +198,78 @@ func TestEvidenceReadCapabilityFamiliesNormalize(t *testing.T) {
 		})
 	}
 }
+
+func TestRemainingReadCapabilityFamiliesClassifyAndNormalize(t *testing.T) {
+	for _, test := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"jira", "field-options", "--project", "DEMO", "--type", "Task", "--field", "priority"}, "jira.field-options"},
+		{[]string{"jira", "link-types"}, "jira.link-types"},
+		{[]string{"jira", "me"}, "jira.me"},
+		{[]string{"jira", "sprint", "current", "--board", "42"}, "jira.sprint.current"},
+		{[]string{"jira", "sprint", "get", "7"}, "jira.sprint.get"},
+		{[]string{"jira", "sprint", "issues", "7", "--limit", "5"}, "jira.sprint.issues"},
+		{[]string{"jira", "sprint", "list", "--board", "42"}, "jira.sprint.list"},
+		{[]string{"jira", "transitions", "--key", "DEMO-1"}, "jira.transitions"},
+		{[]string{"jira", "user", "get", "example"}, "jira.user.get"},
+		{[]string{"jira", "user", "search", "Example", "--limit", "5"}, "jira.user.search"},
+		{[]string{"jira", "issue", "attachment", "get", "DEMO-1", "--id", "7"}, "jira.issue.attachment.get"},
+		{[]string{"jira", "issue", "attachment", "list", "DEMO-1"}, "jira.issue.attachment.list"},
+		{[]string{"jira", "issue", "check", "DEMO-1"}, "jira.issue.check"},
+		{[]string{"jira", "issue", "children", "DEMO-1"}, "jira.issue.children"},
+		{[]string{"jira", "issue", "comment", "list", "DEMO-1"}, "jira.issue.comment.list"},
+		{[]string{"jira", "issue", "get", "DEMO-1"}, "jira.issue.get"},
+		{[]string{"jira", "issue", "images", "DEMO-1", "--into", "."}, "jira.issue.images"},
+		{[]string{"jira", "issue", "link", "list", "DEMO-1"}, "jira.issue.link.list"},
+		{[]string{"jira", "issue", "tree", "--jql", "project = DEMO"}, "jira.issue.tree"},
+		{[]string{"jira", "issue", "view", "DEMO-1"}, "jira.issue.view"},
+		{[]string{"jira", "issue", "watchers", "list", "DEMO-1"}, "jira.issue.watchers.list"},
+		{[]string{"conf", "attachment", "get", "--id", "123", "--name", "file.bin"}, "confluence.attachment.get"},
+		{[]string{"conf", "comment", "list", "--id", "123"}, "confluence.comment.list"},
+		{[]string{"conf", "me"}, "confluence.me"},
+		{[]string{"conf", "page", "get", "--id", "123"}, "confluence.page.get"},
+		{[]string{"conf", "page", "labels", "list", "--id", "123"}, "confluence.page.labels.list"},
+		{[]string{"conf", "page", "list", "--space", "DEMO"}, "confluence.page.list"},
+		{[]string{"conf", "space", "tree", "DEMO"}, "confluence.space.tree"},
+	} {
+		t.Run(test.want, func(t *testing.T) {
+			family, ok := CapabilityFamilyForCLI(test.args)
+			if !ok || family != test.want {
+				t.Fatalf("family=%q ok=%t want=%q", family, ok, test.want)
+			}
+			metrics, err := normalizeCapabilityFamilies([]CapabilityFamilyMetric{{
+				Family: family, Invocations: 1, Successes: 1, OutputBytes: 42,
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(metrics) != 1 || metrics[0].Family != test.want {
+				t.Fatalf("metrics=%+v", metrics)
+			}
+		})
+	}
+}
+
+func TestRemainingReadCapabilityFamiliesDoNotClassifyWriteSiblings(t *testing.T) {
+	for _, args := range [][]string{
+		{"jira", "sprint", "add", "7", "DEMO-1"},
+		{"jira", "sprint", "remove", "DEMO-1"},
+		{"jira", "issue", "attachment", "upload", "DEMO-1", "file.bin"},
+		{"jira", "issue", "comment", "add", "DEMO-1", "--from-file", "body.txt"},
+		{"jira", "issue", "comment", "delete", "DEMO-1", "7"},
+		{"jira", "issue", "link", "add", "DEMO-1", "--to", "DEMO-2"},
+		{"jira", "issue", "link", "delete", "7"},
+		{"jira", "issue", "watchers", "add", "DEMO-1", "example"},
+		{"jira", "issue", "watchers", "remove", "DEMO-1", "example"},
+		{"conf", "attachment", "upload", "--id", "123", "file.bin"},
+		{"conf", "attachment", "delete", "--id", "123", "--attachment", "7"},
+		{"conf", "comment", "add", "--id", "123", "--from-file", "body.csf"},
+		{"conf", "page", "labels", "add", "--id", "123", "example"},
+		{"conf", "page", "labels", "remove", "--id", "123", "example"},
+	} {
+		if family, ok := CapabilityFamilyForCLI(args); ok {
+			t.Fatalf("write sibling classified as %q for %q", family, args)
+		}
+	}
+}
