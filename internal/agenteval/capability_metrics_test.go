@@ -69,10 +69,15 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 		{[]string{"jira", "board", "view", "42", "--scope", "all"}, "jira.board.view"},
 		{[]string{"jira", "issue", "worklog", "list", "PROJ-1"}, "jira.issue.worklog.list"},
 		{[]string{"jira", "issue", "worklog", "add", "PROJ-1", "--time", "30m"}, "jira.issue.worklog.add"},
+		{[]string{"jira", "issue", "history", "PROJ-1", "--field", "status"}, "jira.issue.history"},
 		{[]string{"jira", "planning", "report", "--jql", "project = DEMO"}, "jira.planning.report"},
 		{[]string{"jira", "quality-report", "--jql", "project = DEMO"}, "jira.planning.report"},
 		{[]string{"conf", "table", "extract", "page.csf", "--format", "json"}, "confluence.table.extract"},
 		{[]string{"conf", "table", "summary", "--id", "123"}, "confluence.table.summary"},
+		{[]string{"conf", "page", "meta", "--id", "123"}, "confluence.page.meta"},
+		{[]string{"conf", "page", "history", "--id", "123"}, "confluence.page.history"},
+		{[]string{"conf", "page", "view", "123"}, "confluence.page.view"},
+		{[]string{"conf", "attachment", "list", "--id", "123"}, "confluence.attachment.list"},
 	} {
 		if family, ok := CapabilityFamilyForCLI(test.args); !ok || family != test.want {
 			t.Fatalf("CLI family=%q ok=%t want=%q", family, ok, test.want)
@@ -157,6 +162,28 @@ func TestJiraStructureCapabilityFamiliesNormalize(t *testing.T) {
 		"jira.structure.pull-issues",
 		"jira.structure.export",
 		"jira.structure.view",
+	} {
+		t.Run(family, func(t *testing.T) {
+			metrics, err := normalizeCapabilityFamilies([]CapabilityFamilyMetric{{
+				Family: family, Invocations: 1, Successes: 1, OutputBytes: 42,
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(metrics) != 1 || metrics[0].Family != family {
+				t.Fatalf("metrics=%+v", metrics)
+			}
+		})
+	}
+}
+
+func TestEvidenceReadCapabilityFamiliesNormalize(t *testing.T) {
+	for _, family := range []string{
+		"jira.issue.history",
+		"confluence.page.meta",
+		"confluence.page.history",
+		"confluence.page.view",
+		"confluence.attachment.list",
 	} {
 		t.Run(family, func(t *testing.T) {
 			metrics, err := normalizeCapabilityFamilies([]CapabilityFamilyMetric{{
