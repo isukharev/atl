@@ -72,6 +72,11 @@ quantiles. The real ledger and scorecard remain private; the committed
 [`private-finding-ledger.example.json`](private-finding-ledger.example.json) is
 synthetic and contains no backend data.
 
+At stable private issue/PR boundaries, `private checkpoint` can preview and
+then digest-bind one owner-only UTC-day summary of repository provenance,
+workspace counts, public schema versions, and the scorecard. It is an offline
+private lifecycle artifact and is never part of this public corpus.
+
 ## Public synthetic suite
 
 ### Skill discovery routing contract

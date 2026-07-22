@@ -1195,14 +1195,24 @@ func writePrivatePlanState(path string, s privatePlanState) error {
 	return writePrivateFile(path, append(data, '\n'))
 }
 func privateRepositoryIdentity(root string) (string, bool, error) {
-	c := exec.Command("git", "-C", root, "rev-parse", "HEAD")
+	c := privateReadOnlyGitCommand(root, "rev-parse", "HEAD")
 	out, err := c.Output()
 	if err != nil {
 		return "", false, err
 	}
-	d := exec.Command("git", "-C", root, "status", "--porcelain")
+	d := privateReadOnlyGitCommand(root, "status", "--porcelain", "--untracked-files=normal")
 	dirtyOut, err := d.Output()
 	return strings.TrimSpace(string(out)), len(dirtyOut) > 0, err
+}
+
+// privateReadOnlyGitCommand prevents repository inspection from refreshing the
+// index or invoking a configured filesystem-monitor helper. This is used by
+// preview paths whose contract forbids local writes and external helpers.
+func privateReadOnlyGitCommand(root string, arguments ...string) *exec.Cmd {
+	gitArguments := []string{"--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-C", root}
+	command := exec.Command("git", append(gitArguments, arguments...)...)
+	command.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	return command
 }
 func privateFileDigest(path string) (string, error) {
 	f, err := os.Open(path)

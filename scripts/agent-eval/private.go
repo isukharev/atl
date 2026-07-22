@@ -14,10 +14,12 @@ import (
 
 var privateQualifyCodexCLI = agenteval.QualifyCodexCLIToolAvailability
 var privateBuildFindingScorecard = agenteval.BuildPrivateFindingScorecard
+var privatePreviewCheckpoint = agenteval.PreviewPrivateCheckpoint
+var privateApplyCheckpoint = agenteval.ApplyPrivateCheckpoint
 
 func runPrivateCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("private requires init, doctor, status, migrate, qualify, plan, run, review, study, baseline, compare, scorecard, or prune")
+		return fmt.Errorf("private requires init, doctor, status, migrate, qualify, plan, run, review, study, baseline, compare, scorecard, checkpoint, or prune")
 	}
 	switch args[0] {
 	case "init":
@@ -334,6 +336,33 @@ func runPrivateCommand(args []string, out io.Writer) error {
 			return err
 		}
 		return writePrivateJSON(out, report)
+	case "checkpoint":
+		flags := privateFlagSet("private checkpoint")
+		var root, repositoryRoot, expected, confirm string
+		flags.StringVar(&root, "root", "", "workspace root")
+		flags.StringVar(&repositoryRoot, "repository-root", ".", "repository root")
+		flags.StringVar(&expected, "expected-checkpoint-sha256", "", "reviewed checkpoint digest")
+		flags.StringVar(&confirm, "confirm", "", "must be CHECKPOINT")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 || root == "" || (expected == "") != (confirm == "") {
+			return fmt.Errorf("private checkpoint requires root and either no apply flags or both reviewed digest and confirmation")
+		}
+		options := agenteval.PrivateCheckpointOptions{Root: root, RepositoryRoot: repositoryRoot,
+			ExpectedCheckpointSHA256: expected, Confirm: confirm}
+		if expected == "" {
+			preview, err := privatePreviewCheckpoint(options)
+			if err != nil {
+				return err
+			}
+			return writePrivateJSON(out, preview)
+		}
+		summary, err := privateApplyCheckpoint(options)
+		if err != nil {
+			return err
+		}
+		return writePrivateJSON(out, summary)
 	case "prune":
 		flags := privateFlagSet("private prune")
 		var root, repositoryRoot, expected, confirm string
