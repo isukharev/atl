@@ -1164,7 +1164,9 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		return Result{}, err
 	}
 	var failedATL int
+	cliExitCodes := make([]int, 0, len(proxyRecords))
 	for _, record := range proxyRecords {
+		cliExitCodes = append(cliExitCodes, record.ExitCode)
 		if record.ExitCode != 0 {
 			failedATL++
 		}
@@ -1181,6 +1183,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		failedATL = externalFailures
 		guardDenials += externalDenials
 		proxyRecords = nil
+		cliExitCodes = nil
 		providerMetrics.MCPToolCalls = externalCalls
 		providerMetrics.FailedMCPToolCalls = externalFailures
 	}
@@ -1195,7 +1198,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if evidenceReport.Coverage && !evidenceReport.ConsistentWithAudit(evidenceAttempt) {
 		return Result{}, fmt.Errorf("model evidence outcome contradicts audited attempts")
 	}
-	checks, err := evaluateRunChecks(loaded.spec.Checks, final, workspace, atlInvocations, failedATL, unexpected, providerMetrics.SkillToolCalls+guardSummary.SkillReadAdmissions, providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, guardDenials, methods, httpMethodsObserved)
+	checks, err := evaluateRunChecks(loaded.spec.Checks, final, workspace, atlInvocations, failedATL, unexpected, providerMetrics.SkillToolCalls+guardSummary.SkillReadAdmissions, providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, guardDenials, methods, httpMethodsObserved, cliExitCodes)
 	if err != nil {
 		return Result{}, err
 	}

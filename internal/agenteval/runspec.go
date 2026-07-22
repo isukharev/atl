@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/isukharev/atl/internal/safepath"
@@ -511,6 +512,10 @@ func (s RunSpec) Validate() error {
 			if _, ok := expectedATLFailureCount(check.Expected); check.Minimum != 0 || check.Pointer != "" || !ok {
 				return fmt.Errorf("%s check %q requires a non-negative integer expected value", check.Kind, check.Name)
 			}
+		case "cli_exit_codes_equal":
+			if _, ok := expectedCLIExitCodes(check.Expected); transport != "cli" || check.Minimum != 0 || check.Pointer != "" || !ok {
+				return fmt.Errorf("cli_exit_codes_equal check %q requires CLI transport and an exact exit-code array", check.Name)
+			}
 		case "mock_no_unexpected":
 			if check.Minimum != 0 || check.Pointer != "" || len(check.Expected) != 0 {
 				return fmt.Errorf("mock_no_unexpected check %q is invalid", check.Name)
@@ -682,6 +687,8 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 		}
 		requiredSuccess := false
 		requiredInvocation := false
+		var expectedExitCodes []int
+		expectedFailures := -1
 		requiredKinds := map[string]bool{"guard_no_denials": false, "delegations_none": false}
 		if s.EffectiveSurface() != SurfaceExternalMCP {
 			requiredKinds["http_methods_observed"] = false
@@ -699,12 +706,26 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 			if check.Kind == "atl_all_succeeded" || check.Kind == "interface_all_succeeded" {
 				requiredSuccess = true
 			}
+			if check.Kind == "cli_exit_codes_equal" {
+				expectedExitCodes, _ = expectedCLIExitCodes(check.Expected)
+			}
+			if check.Kind == "atl_failures_equals" || check.Kind == "interface_failures_equals" {
+				expectedFailures, _ = expectedATLFailureCount(check.Expected)
+			}
 			if check.Kind == "atl_invocations_min" || check.Kind == "interface_invocations_min" {
 				requiredInvocation = true
 			}
 		}
 		if !requiredSuccess {
-			return fmt.Errorf("private-live runs require an interface_all_succeeded or atl_all_succeeded check")
+			nonzero := 0
+			for _, code := range expectedExitCodes {
+				if code != 0 {
+					nonzero++
+				}
+			}
+			if len(expectedExitCodes) == 0 || nonzero == 0 || expectedFailures != nonzero {
+				return fmt.Errorf("private-live negative paths require exact non-zero CLI exit codes and a matching failure count")
+			}
 		}
 		if !requiredInvocation {
 			return fmt.Errorf("private-live runs require an interface_invocations_min or atl_invocations_min check")
@@ -783,7 +804,7 @@ func escapesBase(path string) bool {
 	return clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
 
-func evaluateRunChecks(checks []RunCheck, final []byte, workspace string, atlInvocations, failedATL, unexpectedRequests, skillInvocations int, skillInvocationsByName map[string]int, delegations, guardDenials int, httpMethods map[string]int, httpMethodsObserved bool) (map[string]bool, error) {
+func evaluateRunChecks(checks []RunCheck, final []byte, workspace string, atlInvocations, failedATL, unexpectedRequests, skillInvocations int, skillInvocationsByName map[string]int, delegations, guardDenials int, httpMethods map[string]int, httpMethodsObserved bool, cliExitCodes []int) (map[string]bool, error) {
 	var document any
 	if err := json.Unmarshal(final, &document); err != nil {
 		return nil, fmt.Errorf("decode structured final response: %w", err)
@@ -807,6 +828,9 @@ func evaluateRunChecks(checks []RunCheck, final []byte, workspace string, atlInv
 		case "atl_failures_equals", "interface_failures_equals":
 			expected, _ := expectedATLFailureCount(check.Expected)
 			results[check.Name] = failedATL == expected
+		case "cli_exit_codes_equal":
+			expected, _ := expectedCLIExitCodes(check.Expected)
+			results[check.Name] = slices.Equal(cliExitCodes, expected)
 		case "mock_no_unexpected":
 			results[check.Name] = unexpectedRequests == 0
 		case "delegations_min":
@@ -990,6 +1014,23 @@ func expectedATLFailureCount(raw json.RawMessage) (int, bool) {
 	var expected int
 	if err := json.Unmarshal(raw, &expected); err != nil || expected < 0 {
 		return 0, false
+	}
+	return expected, true
+}
+
+func expectedCLIExitCodes(raw json.RawMessage) ([]int, bool) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, false
+	}
+	var expected []int
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	if decoder.Decode(&expected) != nil || decoder.Decode(new(any)) != io.EOF || len(expected) == 0 || len(expected) > maxContractListEntries {
+		return nil, false
+	}
+	for _, code := range expected {
+		if code < 0 || code > 255 {
+			return nil, false
+		}
 	}
 	return expected, true
 }

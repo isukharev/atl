@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -512,6 +513,36 @@ func TestPrivateLiveWritesRequireExactReviewedBoundaries(t *testing.T) {
 	if err := partitioned.ValidateAgainstScenario(partitionedScenario); err != nil {
 		t.Fatalf("method-partitioned exact routes against scenario: %v", err)
 	}
+	negative, negativeScenario := build()
+	negative.Checks = slices.DeleteFunc(negative.Checks, func(check RunCheck) bool {
+		return check.Kind == "atl_all_succeeded" || check.Kind == "interface_all_succeeded"
+	})
+	negative.Checks = append(negative.Checks,
+		RunCheck{Name: "expected_failure", Kind: "interface_failures_equals", Expected: json.RawMessage(`1`)},
+		RunCheck{Name: "exit_codes", Kind: "cli_exit_codes_equal", Expected: json.RawMessage(`[8]`)},
+	)
+	negativeScenario.RequiredChecks = slices.DeleteFunc(negativeScenario.RequiredChecks, func(name string) bool { return name == "atl_succeeded" })
+	negativeScenario.RequiredChecks = append(negativeScenario.RequiredChecks, "expected_failure", "exit_codes")
+	if err := negative.Validate(); err != nil {
+		t.Fatalf("negative-path run spec: %v", err)
+	}
+	if err := negative.ValidateAgainstScenario(negativeScenario); err != nil {
+		t.Fatalf("negative-path run spec against scenario: %v", err)
+	}
+	for name, mutate := range map[string]func(*RunSpec){
+		"zero only":           func(s *RunSpec) { s.Checks[len(s.Checks)-1].Expected = json.RawMessage(`[0]`) },
+		"wrong failure count": func(s *RunSpec) { s.Checks[len(s.Checks)-2].Expected = json.RawMessage(`2`) },
+		"missing exit oracle": func(s *RunSpec) { s.Checks = s.Checks[:len(s.Checks)-1] },
+	} {
+		t.Run("negative "+name, func(t *testing.T) {
+			candidate := negative
+			candidate.Checks = append([]RunCheck(nil), negative.Checks...)
+			mutate(&candidate)
+			if candidate.Validate() == nil && candidate.ValidateAgainstScenario(negativeScenario) == nil {
+				t.Fatal("unsafe negative private-live contract passed")
+			}
+		})
+	}
 	for name, mutate := range map[string]func(*RunSpec, *Scenario){
 		"legacy schema": func(s *RunSpec, _ *Scenario) { s.SchemaVersion = LegacyRunSpecSchemaVersion },
 		"mcp":           func(s *RunSpec, _ *Scenario) { s.ToolTransport = "mcp" },
@@ -581,12 +612,13 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 		{Name: "bounded_interface", Kind: "interface_invocations_max", Maximum: 2},
 		{Name: "interface_failures", Kind: "interface_failures_equals", Expected: json.RawMessage(`1`)},
 		{Name: "expected_fail_closed", Kind: "atl_failures_equals", Expected: json.RawMessage(`1`)},
+		{Name: "exit_codes", Kind: "cli_exit_codes_equal", Expected: json.RawMessage(`[0,8]`)},
 		{Name: "routes", Kind: "mock_no_unexpected"},
 		{Name: "delegated", Kind: "delegations_min", Minimum: 1},
 		{Name: "guarded", Kind: "guard_no_denials"},
 		{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":2,"PUT":1}`)},
 	}
-	result, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), "", 2, 1, 0, 1, map[string]int{"atl:jira": 1}, 1, 0, map[string]int{"GET": 2, "PUT": 1}, true)
+	result, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), "", 2, 1, 0, 1, map[string]int{"atl:jira": 1}, 1, 0, map[string]int{"GET": 2, "PUT": 1}, true, []int{0, 8})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -595,7 +627,7 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 			t.Errorf("check %s failed", name)
 		}
 	}
-	over, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), "", 3, 0, 0, 1, map[string]int{"atl:confluence": 1}, 1, 0, map[string]int{"GET": 3}, true)
+	over, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), "", 3, 0, 0, 1, map[string]int{"atl:confluence": 1}, 1, 0, map[string]int{"GET": 3}, true, []int{0, 0, 0})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -611,6 +643,9 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 	if over["expected_fail_closed"] {
 		t.Fatal("atl_failures_equals accepted the wrong failure count")
 	}
+	if over["exit_codes"] {
+		t.Fatal("cli_exit_codes_equal accepted different ordered exit codes")
+	}
 	if !over["used_skill"] {
 		t.Fatal("skill_invocations_min rejected an unqualified Skill invocation")
 	}
@@ -620,7 +655,7 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 	if over["methods"] {
 		t.Fatal("http_methods_equal accepted a different method map")
 	}
-	success, err := evaluateRunChecks([]RunCheck{{Name: "interface_succeeded", Kind: "interface_all_succeeded"}}, []byte(`{}`), "", 1, 0, 0, 0, nil, 0, 0, nil, false)
+	success, err := evaluateRunChecks([]RunCheck{{Name: "interface_succeeded", Kind: "interface_all_succeeded"}}, []byte(`{}`), "", 1, 0, 0, 0, nil, 0, 0, nil, false, []int{0})
 	if err != nil || !success["interface_succeeded"] {
 		t.Fatalf("interface success alias result=%v err=%v", success, err)
 	}
@@ -812,11 +847,11 @@ func TestEvaluateRunChecksBindsContainedWorkspaceJSON(t *testing.T) {
 		Name: "proposal", Kind: "json_equals_workspace_json", Pointer: "/proposal_hash",
 		Expected: json.RawMessage(`{"path":"plan.json","pointer":"/proposal_hash"}`),
 	}
-	result, err := evaluateRunChecks([]RunCheck{check}, []byte(`{"proposal_hash":"abc"}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false)
+	result, err := evaluateRunChecks([]RunCheck{check}, []byte(`{"proposal_hash":"abc"}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false, nil)
 	if err != nil || !result["proposal"] {
 		t.Fatalf("result=%v err=%v", result, err)
 	}
-	result, err = evaluateRunChecks([]RunCheck{check}, []byte(`{"proposal_hash":"wrong"}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false)
+	result, err = evaluateRunChecks([]RunCheck{check}, []byte(`{"proposal_hash":"wrong"}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false, nil)
 	if err != nil || result["proposal"] {
 		t.Fatalf("mismatch result=%v err=%v", result, err)
 	}
@@ -847,7 +882,7 @@ func TestEvaluateRunChecksBindsGeneratedWorkspaceFileSHA256(t *testing.T) {
 	digest := sha256.Sum256(content)
 	check := RunCheck{Name: "artifact", Kind: "workspace_file_sha256", Expected: json.RawMessage(fmt.Sprintf(
 		`{"path":"generated/report.bin","sha256":"%x"}`, digest))}
-	result, err := evaluateRunChecks([]RunCheck{check}, []byte(`{}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false)
+	result, err := evaluateRunChecks([]RunCheck{check}, []byte(`{}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false, nil)
 	if err != nil || !result["artifact"] {
 		t.Fatalf("result=%v err=%v", result, err)
 	}
@@ -875,7 +910,7 @@ func TestEvaluateRunChecksBindsGeneratedWorkspaceFileSHA256(t *testing.T) {
 			candidate := check
 			path, expectedDigest := prepare(t)
 			candidate.Expected = json.RawMessage(fmt.Sprintf(`{"path":%q,"sha256":"%x"}`, path, expectedDigest))
-			got, err := evaluateRunChecks([]RunCheck{candidate}, []byte(`{}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false)
+			got, err := evaluateRunChecks([]RunCheck{candidate}, []byte(`{}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false, nil)
 			if err != nil || got["artifact"] {
 				t.Fatalf("result=%v err=%v", got, err)
 			}
@@ -885,7 +920,7 @@ func TestEvaluateRunChecksBindsGeneratedWorkspaceFileSHA256(t *testing.T) {
 	t.Run("digest mismatch", func(t *testing.T) {
 		candidate := check
 		candidate.Expected = json.RawMessage(`{"path":"generated/report.bin","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}`)
-		got, err := evaluateRunChecks([]RunCheck{candidate}, []byte(`{}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false)
+		got, err := evaluateRunChecks([]RunCheck{candidate}, []byte(`{}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false, nil)
 		if err != nil || got["artifact"] {
 			t.Fatalf("result=%v err=%v", got, err)
 		}
@@ -898,7 +933,7 @@ func TestEvaluateRunChecksBindsGeneratedWorkspaceFileSHA256(t *testing.T) {
 		}
 		candidate := check
 		candidate.Expected = json.RawMessage(fmt.Sprintf(`{"path":"artifact-link.bin","sha256":"%x"}`, digest))
-		got, err := evaluateRunChecks([]RunCheck{candidate}, []byte(`{}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false)
+		got, err := evaluateRunChecks([]RunCheck{candidate}, []byte(`{}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false, nil)
 		if err != nil || got["artifact"] {
 			t.Fatalf("result=%v err=%v", got, err)
 		}
@@ -911,7 +946,7 @@ func TestEvaluateRunChecksBindsGeneratedWorkspaceFileSHA256(t *testing.T) {
 		}
 		candidate := check
 		candidate.Expected = json.RawMessage(fmt.Sprintf(`{"path":"generated-link/report.bin","sha256":"%x"}`, digest))
-		got, err := evaluateRunChecks([]RunCheck{candidate}, []byte(`{}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false)
+		got, err := evaluateRunChecks([]RunCheck{candidate}, []byte(`{}`), workspace, 0, 0, 0, 0, nil, 0, 0, nil, false, nil)
 		if err != nil || got["artifact"] {
 			t.Fatalf("result=%v err=%v", got, err)
 		}
