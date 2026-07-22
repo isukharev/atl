@@ -17,7 +17,7 @@ import (
 
 const (
 	PrivateFindingLedgerSchemaVersion    = 1
-	PrivateFindingScorecardSchemaVersion = 1
+	PrivateFindingScorecardSchemaVersion = 2
 	PrivateFindingLedgerRelativePath     = "reports/finding-ledger.v1.json"
 	privateFindingLedgerMaxBytes         = 4 << 20
 )
@@ -69,24 +69,32 @@ type PrivateFindingScorecardOptions struct {
 }
 
 type PrivateFindingScorecard struct {
-	SchemaVersion      int                            `json:"schema_version"`
-	SourceSHA256       string                         `json:"source_sha256"`
-	Reconciled         bool                           `json:"reconciled"`
-	Findings           int                            `json:"findings"`
-	LinkedIssues       int                            `json:"linked_issues"`
-	LinkedPullRequests int                            `json:"linked_pull_requests"`
-	Regressions        int                            `json:"regressions"`
-	Decisions          PrivateFindingDecisionCounts   `json:"decisions"`
-	Groups             []PrivateFindingScorecardGroup `json:"groups"`
+	SchemaVersion       int                            `json:"schema_version"`
+	SourceSHA256        string                         `json:"source_sha256"`
+	Reconciled          bool                           `json:"reconciled"`
+	Findings            int                            `json:"findings"`
+	LinkedIssues        int                            `json:"linked_issues"`
+	LinkedPullRequests  int                            `json:"linked_pull_requests"`
+	Regressions         int                            `json:"regressions"`
+	SamplingAssessments int                            `json:"sampling_assessments"`
+	Decisions           PrivateFindingDecisionCounts   `json:"decisions"`
+	Groups              []PrivateFindingScorecardGroup `json:"groups"`
 }
 
 type PrivateFindingScorecardGroup struct {
-	TaskClass    string                       `json:"task_class"`
-	FailureClass string                       `json:"failure_class"`
-	Findings     int                          `json:"findings"`
-	Decisions    PrivateFindingDecisionCounts `json:"decisions"`
-	Failure      PrivateFindingOutcome        `json:"failure"`
-	Regression   PrivateFindingOutcome        `json:"regression"`
+	TaskClass    string                        `json:"task_class"`
+	FailureClass string                        `json:"failure_class"`
+	Findings     int                           `json:"findings"`
+	Decisions    PrivateFindingDecisionCounts  `json:"decisions"`
+	Failure      PrivateFindingOutcome         `json:"failure"`
+	Regression   PrivateFindingOutcome         `json:"regression"`
+	Sampling     PrivateFindingSamplingOutcome `json:"sampling"`
+}
+
+type PrivateFindingSamplingOutcome struct {
+	Assessments int                   `json:"assessments"`
+	Primary     PrivateFindingOutcome `json:"primary"`
+	Holdout     PrivateFindingOutcome `json:"holdout"`
 }
 
 type PrivateFindingDecisionCounts struct {
@@ -141,10 +149,12 @@ type PrivateFindingMetrics struct {
 type privateFindingSourceLoader func(root, repository, planID string) (PrivateBaselineSource, error)
 
 type privateFindingResolved struct {
-	entry      PrivateFindingEntry
-	failure    Result
-	regression *Result
-	digests    []string
+	entry           PrivateFindingEntry
+	failure         Result
+	regression      *Result
+	samplingPrimary []Result
+	samplingHoldout []Result
+	digests         []string
 }
 
 // BuildPrivateFindingScorecard validates an owner-private finding ledger and
@@ -170,6 +180,10 @@ func buildPrivateFindingScorecard(options PrivateFindingScorecardOptions, load p
 	ledger, canonical, err := decodePrivateFindingLedger(data)
 	if err != nil || !bytes.Equal(data, canonical) {
 		return PrivateFindingScorecard{}, privateFindingError("ledger_contract")
+	}
+	acceptance, acceptanceCanonical, err := loadPrivateFindingAcceptance(root, ledger)
+	if err != nil {
+		return PrivateFindingScorecard{}, err
 	}
 	resolved := make([]privateFindingResolved, 0, len(ledger.Entries))
 	seenRefs := map[string]struct{}{}
@@ -223,10 +237,34 @@ func buildPrivateFindingScorecard(options PrivateFindingScorecardOptions, load p
 				failureSource.ContractSHA256 == entry.ChangedContractSHA256 {
 				return PrivateFindingScorecard{}, privateFindingError("fixed_contract")
 			}
+			assessmentDigest, exists := acceptance[entry.FindingID]
+			if !exists {
+				return PrivateFindingScorecard{}, privateFindingError("fixed_acceptance")
+			}
+			assessment, primary, holdout, assessmentErr := loadPrivateSamplingAssessment(root, repository, assessmentDigest, load)
+			if assessmentErr != nil || assessment.Tier != PrivateSamplingTierRegression || assessment.RegressionAccepted == nil ||
+				!*assessment.RegressionAccepted || len(primary) != 3 || len(holdout) == 0 {
+				return PrivateFindingScorecard{}, privateFindingError("fixed_assessment")
+			}
+			regressionPresent := false
+			for _, binding := range assessment.Primary {
+				if binding.ContractSHA256 != entry.ChangedContractSHA256 {
+					return PrivateFindingScorecard{}, privateFindingError("fixed_assessment_contract")
+				}
+				if entry.Regression != nil && binding.Reference == *entry.Regression {
+					regressionPresent = true
+				}
+			}
+			if !regressionPresent {
+				return PrivateFindingScorecard{}, privateFindingError("fixed_assessment_regression")
+			}
+			item.samplingPrimary = primary
+			item.samplingHoldout = holdout
+			item.digests = append(item.digests, assessmentDigest)
 		}
 		resolved = append(resolved, item)
 	}
-	return aggregatePrivateFindingScorecard(canonical, resolved), nil
+	return aggregatePrivateFindingScorecard(canonical, acceptanceCanonical, resolved), nil
 }
 
 func decodePrivateFindingLedger(data []byte) (PrivateFindingLedger, []byte, error) {
@@ -376,17 +414,22 @@ func privateFailureClassMatchesResult(class string, result Result) bool {
 	}
 }
 
-func aggregatePrivateFindingScorecard(ledger []byte, resolved []privateFindingResolved) PrivateFindingScorecard {
+func aggregatePrivateFindingScorecard(ledger, acceptance []byte, resolved []privateFindingResolved) PrivateFindingScorecard {
 	type groupKey struct{ taskClass, failureClass string }
 	type groupValues struct {
-		entries     []privateFindingResolved
-		failures    []Result
-		regressions []Result
+		entries         []privateFindingResolved
+		failures        []Result
+		regressions     []Result
+		samplingPrimary []Result
+		samplingHoldout []Result
+		samplingCount   int
 	}
 	groups := map[groupKey]*groupValues{}
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("atl-private-finding-scorecard-v1\x00"))
+	_, _ = hash.Write([]byte("atl-private-finding-scorecard-v2\x00"))
 	_, _ = hash.Write(ledger)
+	_, _ = hash.Write([]byte{0})
+	_, _ = hash.Write(acceptance)
 	report := PrivateFindingScorecard{SchemaVersion: PrivateFindingScorecardSchemaVersion, Reconciled: true, Findings: len(resolved)}
 	issues := map[int]struct{}{}
 	pullRequests := map[int]struct{}{}
@@ -402,6 +445,9 @@ func aggregatePrivateFindingScorecard(ledger []byte, resolved []privateFindingRe
 		if item.regression != nil {
 			report.Regressions++
 		}
+		if len(item.samplingPrimary) > 0 {
+			report.SamplingAssessments++
+		}
 		addPrivateFindingDecision(&report.Decisions, item.entry.Decision)
 		key := groupKey{item.failure.TaskClass, item.entry.FailureClass}
 		group := groups[key]
@@ -413,6 +459,11 @@ func aggregatePrivateFindingScorecard(ledger []byte, resolved []privateFindingRe
 		group.failures = append(group.failures, item.failure)
 		if item.regression != nil {
 			group.regressions = append(group.regressions, *item.regression)
+		}
+		if len(item.samplingPrimary) > 0 {
+			group.samplingCount++
+			group.samplingPrimary = append(group.samplingPrimary, item.samplingPrimary...)
+			group.samplingHoldout = append(group.samplingHoldout, item.samplingHoldout...)
 		}
 	}
 	report.LinkedIssues = len(issues)
@@ -431,7 +482,9 @@ func aggregatePrivateFindingScorecard(ledger []byte, resolved []privateFindingRe
 	for _, key := range keys {
 		values := groups[key]
 		group := PrivateFindingScorecardGroup{TaskClass: key.taskClass, FailureClass: key.failureClass, Findings: len(values.entries),
-			Failure: privateFindingOutcome(values.failures), Regression: privateFindingOutcome(values.regressions)}
+			Failure: privateFindingOutcome(values.failures), Regression: privateFindingOutcome(values.regressions),
+			Sampling: PrivateFindingSamplingOutcome{Assessments: values.samplingCount,
+				Primary: privateFindingOutcome(values.samplingPrimary), Holdout: privateFindingOutcome(values.samplingHoldout)}}
 		for _, item := range values.entries {
 			addPrivateFindingDecision(&group.Decisions, item.entry.Decision)
 		}
