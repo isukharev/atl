@@ -139,13 +139,55 @@ func TestPrivateCommandRejectsMissingAndExtraArguments(t *testing.T) {
 		{"migrate", "--root", "x", "--confirm", "MIGRATE"}, {"qualify"},
 		{"review"}, {"review", "prepare"}, {"review", "run"}, {"review", "assess"}, {"baseline"}, {"baseline", "set"},
 		{"study"}, {"study", "recover"}, {"study", "reference"}, {"study", "compare"}, {"study", "promote"}, {"study", "unknown"},
-		{"compare"}, {"scorecard"}, {"scorecard", "--root", "x", "extra"}, {"checkpoint"},
+		{"compare"}, {"scorecard"}, {"scorecard", "--root", "x", "extra"}, {"sample"},
+		{"sample", "--root", "x", "--spec", "sample", "--confirm", "ASSESS"}, {"checkpoint"},
 		{"checkpoint", "--root", "x", "--confirm", "CHECKPOINT"},
 		{"prune", "--root", "x", "--confirm", "PRUNE"}, {"unknown"},
 	} {
 		if err := runPrivateCommand(args, &bytes.Buffer{}); err == nil {
 			t.Fatalf("runPrivateCommand(%q) succeeded", args)
 		}
+	}
+}
+
+func TestPrivateSamplePreviewsAndAppliesExactDigest(t *testing.T) {
+	originalPreview, originalApply := privatePreviewSampling, privateApplySampling
+	privatePreviewSampling = func(options agenteval.PrivateSamplingOptions) (agenteval.PrivateSamplingPreview, error) {
+		if options.Root != "/private" || options.RepositoryRoot != "/repository" || options.Spec != "sample-set" || options.Confirm != "" {
+			t.Fatalf("preview options=%+v", options)
+		}
+		accepted := true
+		return agenteval.PrivateSamplingPreview{SchemaVersion: 1, Tier: agenteval.PrivateSamplingTierRegression,
+			SourceSHA256: strings.Repeat("b", 64), AssessmentSHA256: strings.Repeat("a", 64), EvidenceReady: true,
+			RegressionAccepted: &accepted, Primary: agenteval.PrivateSamplingOutcome{Observed: 3},
+			Holdout: agenteval.PrivateSamplingOutcome{Observed: 1}}, nil
+	}
+	privateApplySampling = func(options agenteval.PrivateSamplingOptions) (agenteval.PrivateSamplingSummary, error) {
+		if options.Spec != "sample-set" || options.ExpectedAssessmentSHA256 != strings.Repeat("a", 64) ||
+			options.Confirm != agenteval.PrivateSamplingConfirmation {
+			t.Fatalf("apply options=%+v", options)
+		}
+		return agenteval.PrivateSamplingSummary{PrivateSamplingPreview: agenteval.PrivateSamplingPreview{
+			SchemaVersion: 1, Tier: agenteval.PrivateSamplingTierRegression, AssessmentSHA256: options.ExpectedAssessmentSHA256,
+			EvidenceReady: true}, Stored: true}, nil
+	}
+	t.Cleanup(func() { privatePreviewSampling, privateApplySampling = originalPreview, originalApply })
+	var output bytes.Buffer
+	if err := runPrivateCommand([]string{"sample", "--root", "/private", "--repository-root", "/repository", "--spec", "sample-set"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	var preview agenteval.PrivateSamplingPreview
+	if err := json.Unmarshal(output.Bytes(), &preview); err != nil || preview.Primary.Observed != 3 || preview.RegressionAccepted == nil {
+		t.Fatalf("preview=%+v err=%v", preview, err)
+	}
+	output.Reset()
+	if err := runPrivateCommand([]string{"sample", "--root", "/private", "--repository-root", "/repository", "--spec", "sample-set",
+		"--expected-assessment-sha256", preview.AssessmentSHA256, "--confirm", "ASSESS"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	var summary agenteval.PrivateSamplingSummary
+	if err := json.Unmarshal(output.Bytes(), &summary); err != nil || !summary.Stored {
+		t.Fatalf("summary=%+v err=%v", summary, err)
 	}
 }
 

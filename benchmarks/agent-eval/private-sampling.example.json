@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "tier": "regression",
+  "primary": [
+    {
+      "plan_id": "pln-11111111111111111111111111111111",
+      "surface": "cli-skill",
+      "baseline": "regression-01"
+    },
+    {
+      "plan_id": "pln-22222222222222222222222222222222",
+      "surface": "cli-skill",
+      "baseline": "regression-02"
+    },
+    {
+      "plan_id": "pln-33333333333333333333333333333333",
+      "surface": "cli-skill",
+      "baseline": "regression-03"
+    }
+  ],
+  "holdout": [
+    {
+      "plan_id": "pln-44444444444444444444444444444444",
+      "surface": "cli-skill",
+      "baseline": "holdout-01"
+    }
+  ]
+}
