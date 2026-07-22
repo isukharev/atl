@@ -708,7 +708,7 @@ func TestATLProxyPreservesReadOnlyAcrossWriteAttestedBroker(t *testing.T) {
 		RealBinary: realBinary, WorkingDirectory: directory, Policy: policy,
 		Environment:    []string{"TEST_EXECUTIONS=" + executions, "TEST_WRITES=" + writes},
 		MaxStdoutBytes: 4096, MaxStderrBytes: 4096, CommandTimeout: time.Second,
-		AllowSyntheticWrites: true,
+		AllowReviewedWrites: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -719,7 +719,7 @@ func TestATLProxyPreservesReadOnlyAcrossWriteAttestedBroker(t *testing.T) {
 	t.Setenv("ATL_EVAL_COUNTER", counter)
 	t.Setenv("ATL_EVAL_CLI_POLICY_FILE", policyPath)
 	t.Setenv("ATL_EVAL_COMMAND_BROKER_FILE", manifest)
-	t.Setenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES", "1")
+	t.Setenv("ATL_EVAL_ALLOW_REVIEWED_WRITES", "1")
 	args := []string{"conf", "plan", "apply", "plan.json", "--confirm", "APPLY", "--expected-proposal-hash", strings.Repeat("a", 64)}
 	t.Setenv("ATL_READ_ONLY", "1")
 	if code := runATLProxy(args); code != 8 {
@@ -742,8 +742,8 @@ func TestATLProxyPreservesReadOnlyAcrossWriteAttestedBroker(t *testing.T) {
 		t.Fatalf("explicit global read-only brokered mutation executed a write: %v", err)
 	}
 	envArgs := append([]string{"-u", "ATL_READ_ONLY", "atl"}, args...)
-	if code := runSyntheticWriteEnv(envArgs); code != 0 {
-		t.Fatalf("explicit synthetic write code=%d", code)
+	if code := runReviewedWriteEnv(envArgs); code != 0 {
+		t.Fatalf("explicit reviewed write code=%d", code)
 	}
 	executed, err := os.ReadFile(executions)
 	if err != nil || strings.Count(string(executed), "--read-only conf plan apply ") != 3 || strings.Count(string(executed), "\n") != 4 || strings.Contains(string(executed), "--read-only --read-only") {

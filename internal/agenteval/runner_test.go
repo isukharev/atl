@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1491,4 +1492,118 @@ func writeJSONTestFile(t *testing.T, path string, value any) {
 		t.Fatal(err)
 	}
 	writeTestFile(t, path, string(data), 0o600)
+}
+
+func TestPrivateLiveCLIReviewedWriteStaysBehindBrokerAndGateway(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable scripts are Unix-only")
+	}
+	var upstreamCalls int
+	var upstreamBody string
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		data, _ := io.ReadAll(request.Body)
+		upstreamBody = string(data)
+		if request.Method != http.MethodPost || request.URL.Path != "/jira/rest/api/2/issue" || request.Header.Get("Authorization") != "Bearer upstream-secret" {
+			http.Error(response, "unexpected", http.StatusBadRequest)
+			return
+		}
+		upstreamCalls++
+		response.Header().Set("Content-Type", "application/json")
+		response.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(response, `{"key":"TEST-1"}`)
+	}))
+	defer upstream.Close()
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := exec.Command("git", "-C", root, "init", "-q").Run(); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(root, ".gitignore"), "private/\nruns/\nscratch/\n", 0o600)
+	caseDir := filepath.Join(root, "private", "write")
+	workspace := filepath.Join(caseDir, "workspace")
+	if err := os.MkdirAll(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(workspace, "body.txt"), "synthetic body\n", 0o600)
+	scenario := validScenario()
+	scenario.ID = "jira.private-write"
+	scenario.Category = BenchmarkCategoryRouteFixed
+	scenario.DataClass = "private-local"
+	scenario.RequiredChecks = []string{"answer", "atl_succeeded", "guard_clean", "http_observed", "no_delegation", "used_atl", "methods"}
+	scenario.RequiredSemanticChecks = []string{"answer"}
+	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests", "remote_writes"}
+	scenario.Budgets = Budgets{MaxAgentTurns: 2, MaxToolCalls: 2, MaxATLInvocations: 1, MaxInterfaceInvocations: 1,
+		MaxBackendRequests: 1, MaxRemoteWrites: 1, MaxOutputBytes: 1 << 20, MaxInputTokens: 1000, MaxOutputTokens: 1000,
+		MaxMainThreadInputTokens: 1000, MaxMainThreadOutputTokens: 1000, MaxEstimatedCostMicroUSD: 10_000_000,
+		MaxDurationMillis: 30_000, AllowedHTTPMethods: []string{"POST"}}
+	writeJSONTestFile(t, filepath.Join(caseDir, "scenario.json"), scenario)
+	writeTestFile(t, filepath.Join(caseDir, "prompt.md"), "Create the exact reviewed fixture.\n", 0o600)
+	writeTestFile(t, filepath.Join(caseDir, "response.json"), `{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}`, 0o600)
+	writeJSONTestFile(t, filepath.Join(caseDir, "rubric.json"), Rubric{SchemaVersion: 1, ID: "private-write", ScenarioID: scenario.ID,
+		MinimumScoreBPS: 5000, Criteria: []RubricCriterion{{ID: "grounded", Description: "Grounded.", Maximum: 4, Minimum: 2, Weight: 1}}, AllowedFindingIDs: []string{"missing"}})
+	spec := RunSpec{SchemaVersion: RunSpecSchemaVersion, BackendMode: BackendModePrivateLive, Category: BenchmarkCategoryRouteFixed,
+		ScenarioFile: "scenario.json", Provider: "claude-code", Variant: "reviewed-write", Model: "test-model",
+		PromptFile: "prompt.md", ResponseSchemaFile: "response.json", QualitativeRubricFile: "rubric.json", WorkspaceTemplate: "workspace",
+		Repetitions: 1, TimeoutSeconds: 30, MaxEstimatedCostMicroUSD: 10_000_000, ToolTransport: "cli",
+		AllowedTools: []string{"Bash(atl *)", "Read"}, AllowLiveWrites: true,
+		AllowedCLICommands: []CLICommandRule{{Name: "create", Command: []string{"jira", "issue", "create"}, Flags: []CLIFlagRule{
+			{Name: "--project", Values: []string{"TEST"}, Required: true}, {Name: "--type", Values: []string{"Task"}, Required: true},
+			{Name: "--summary", Values: []string{"reviewed fixture"}, Required: true}, {Name: "--from-file", Values: []string{"body.txt"}, Required: true},
+		}, MaxInvocations: 1}},
+		AllowedGatewayRoutes:    map[string][]LiveGatewayRoute{"jira": {{Name: "create", PathPrefix: "/rest/api/2/issue", Exact: true, Methods: []string{"POST"}, MaxRequests: 1, MaxRequestBytes: 1 << 20}}},
+		GatewayMaxResponseBytes: 1 << 20, GatewayMaxTotalBytes: 1 << 20, GatewayMaxRequestBytes: 1 << 20, GatewayMaxTotalRequestBytes: 1 << 20,
+		Checks: []RunCheck{{Name: "answer", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`"ok"`)},
+			{Name: "atl_succeeded", Kind: "interface_all_succeeded"}, {Name: "guard_clean", Kind: "guard_no_denials"},
+			{Name: "http_observed", Kind: "http_methods_observed"}, {Name: "no_delegation", Kind: "delegations_none"},
+			{Name: "used_atl", Kind: "interface_invocations_min", Minimum: 1}, {Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"POST":1}`)}},
+	}
+	specPath := filepath.Join(caseDir, "run.json")
+	writeJSONTestFile(t, specPath, spec)
+	liveConfig := filepath.Join(t.TempDir(), "config")
+	if err := os.Mkdir(liveConfig, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(liveConfig, "config.json"), `{"jira_url":`+quotedJSON(t, upstream.URL+"/jira")+`}`, 0o600)
+	writeTestFile(t, filepath.Join(liveConfig, "credentials.json"), `{"jira":"upstream-secret"}`, 0o600)
+	pluginRoot := filepath.Join(root, "plugin")
+	writeTestPluginTrees(t, pluginRoot, "test", "Synthetic skill.")
+	fakeAgent := filepath.Join(root, "fake-claude")
+	writeTestFile(t, fakeAgent, `#!/bin/sh
+if [ "$1" = "--version" ]; then echo fake-claude-1; exit 0; fi
+[ "$ATL_READ_ONLY" = "1" ] || exit 31
+[ -z "$ATL_CONFIG_DIR" ] || exit 32
+env -u ATL_READ_ONLY atl jira issue create --project TEST --type Task --summary 'reviewed fixture' --from-file body.txt >/dev/null || exit 33
+printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}'
+printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":0.0001,"usage":{"input_tokens":100,"output_tokens":20},"structured_output":{"answer":"ok"}}'
+`, 0o700)
+	wrapper := filepath.Join(root, "agent-eval")
+	buildWrapper := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
+	buildWrapper.Dir = repositoryRoot
+	buildWrapper.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
+	if output, err := buildWrapper.CombinedOutput(); err != nil {
+		t.Fatalf("build wrapper: %v\n%s", err, output)
+	}
+	atlBinary := filepath.Join(root, "atl")
+	buildATL := exec.Command("go", "build", "-buildvcs=false", "-o", atlBinary, "./cmd/atl")
+	buildATL.Dir = repositoryRoot
+	buildATL.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
+	if output, err := buildATL.CombinedOutput(); err != nil {
+		t.Fatalf("build atl: %v\n%s", err, output)
+	}
+	scratch := filepath.Join(root, "scratch")
+	if err := os.Mkdir(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	output, err := RunHeadless(context.Background(), RunOptions{SpecPath: specPath, OutputRoot: filepath.Join(root, "private", "runs"), RepositoryRoot: root,
+		AgentBinary: fakeAgent, ATLBinary: atlBinary, PluginRoot: pluginRoot, WrapperExecutable: wrapper, LiveConfigDir: liveConfig, ScratchRoot: scratch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upstreamCalls != 1 || !strings.Contains(upstreamBody, `"summary":"reviewed fixture"`) || len(output.Results) != 1 || output.Results[0].Status != "pass" ||
+		output.Results[0].Metrics.RemoteWrites != 1 || output.Results[0].HTTPMethods["POST"] != 1 {
+		t.Fatalf("calls=%d body=%q output=%+v", upstreamCalls, upstreamBody, output)
+	}
 }

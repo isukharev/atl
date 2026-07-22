@@ -546,6 +546,8 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	codexPrivateCLI := loaded.spec.Provider == "codex" && privateCLI
 	codexSyntheticBrokerCLI := isCodexSyntheticBrokerCLI(loaded.spec)
 	codexSyntheticWriteCLI := codexSyntheticBrokerCLI && loaded.spec.AllowSyntheticWrites
+	privateLiveWriteCLI := privateCLI && loaded.spec.AllowLiveWrites
+	reviewedWriteCLI := codexSyntheticWriteCLI || privateLiveWriteCLI
 	codexBrokerCLI := codexPrivateCLI || codexSyntheticBrokerCLI
 	brokerCLI := privateCLI || codexSyntheticBrokerCLI
 	claudePrivateCLI := loaded.spec.Provider == "claude-code" && privateCLI
@@ -650,7 +652,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			}
 		}
 	}
-	if codexSyntheticWriteCLI {
+	if reviewedWriteCLI {
 		if err := copyExecutable(options.WrapperExecutable, filepath.Join(wrapperDir, "env")); err != nil {
 			return Result{}, err
 		}
@@ -764,7 +766,9 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			"ATL_NO_UPDATE": "1", "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost",
 		}
 		if privateCLI {
-			brokerEnvironment["ATL_READ_ONLY"] = "1"
+			if !privateLiveWriteCLI {
+				brokerEnvironment["ATL_READ_ONLY"] = "1"
+			}
 			brokerEnvironment["ATL_CONFIG_DIR"] = atlConfigDir
 			brokerEnvironment["ATL_MIRROR_ROOT"] = filepath.Join(evalDir, "mirror")
 		} else {
@@ -796,6 +800,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			Environment:    flattenEnvironment(brokerEnvironment),
 			MaxStdoutBytes: maxStdout, MaxStderrBytes: 64 << 10, CommandTimeout: brokerTimeout,
 			AllowSyntheticWrites: codexSyntheticWriteCLI,
+			AllowReviewedWrites:  reviewedWriteCLI,
 		})
 		if err != nil {
 			return Result{}, err
@@ -932,9 +937,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if providerRuntime != nil {
 		environment = providerRuntime.Environment()
 	}
-	if !loaded.spec.AllowSyntheticWrites {
-		environment["ATL_READ_ONLY"] = "1"
-	}
+	environment["ATL_READ_ONLY"] = "1"
 	environment["ATL_NO_UPDATE"] = "1"
 	environment["ATL_CONFIG_DIR"] = atlConfigDir
 	environment["ATL_MIRROR_ROOT"] = filepath.Join(evalDir, "mirror")
@@ -946,6 +949,9 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	if loaded.spec.AllowSyntheticWrites {
 		environment["ATL_EVAL_ALLOW_SYNTHETIC_WRITES"] = "1"
+	}
+	if reviewedWriteCLI {
+		environment["ATL_EVAL_ALLOW_REVIEWED_WRITES"] = "1"
 	}
 	if cliPolicyPath != "" {
 		environment["ATL_EVAL_CLI_POLICY_FILE"] = cliPolicyPath
@@ -1557,6 +1563,7 @@ func readLiveGatewayRecords(path string) (map[string]int, int, bool, error) {
 	identities := map[string]int{}
 	forwarded := map[string]int{}
 	completed := map[string]int{}
+	requestBytes := map[string]int64{}
 	var allowed int
 	var sequence int64
 	for _, line := range bytes.Split(data, []byte{'\n'}) {
@@ -1570,7 +1577,9 @@ func readLiveGatewayRecords(path string) (map[string]int, int, bool, error) {
 			return nil, 0, false, fmt.Errorf("decode private-live gateway audit")
 		}
 		sequence++
-		if record.Sequence != sequence || (record.Service != "jira" && record.Service != "confluence") || (record.Method != "GET" && record.Method != "HEAD") || len(record.RequestHMAC) != 64 {
+		if record.Sequence != sequence || (record.Service != "jira" && record.Service != "confluence") ||
+			(record.Method != "GET" && record.Method != "HEAD" && record.Method != "POST" && record.Method != "PUT" && record.Method != "PATCH" && record.Method != "DELETE") ||
+			len(record.RequestHMAC) != 64 || record.RequestBytes < 0 {
 			return nil, 0, false, fmt.Errorf("invalid private-live gateway audit record")
 		}
 		if _, err := hex.DecodeString(record.RequestHMAC); err != nil {
@@ -1583,8 +1592,12 @@ func readLiveGatewayRecords(path string) (map[string]int, int, bool, error) {
 				return nil, 0, false, fmt.Errorf("invalid private-live gateway forward record")
 			}
 			forwarded[identity]++
+			if previous, exists := requestBytes[identity]; exists && previous != record.RequestBytes {
+				return nil, 0, false, fmt.Errorf("invalid private-live gateway request-byte binding")
+			}
+			requestBytes[identity] = record.RequestBytes
 		case "complete:allow":
-			if record.Route == "" || record.Reason != "" || len(record.StatusClass) != 3 || record.StatusClass[1:] != "xx" || record.ResponseBytes < 0 {
+			if record.Route == "" || record.Reason != "" || len(record.StatusClass) != 3 || record.StatusClass[1:] != "xx" || record.ResponseBytes < 0 || requestBytes[identity] != record.RequestBytes {
 				return nil, 0, false, fmt.Errorf("invalid private-live gateway completion record")
 			}
 			completed[identity]++

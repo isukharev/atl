@@ -110,6 +110,55 @@ func TestCLICommandPolicyMatchesSHA256FlagValue(t *testing.T) {
 	}
 }
 
+func TestCLICommandPolicyMatchesExactRepeatedFlagValues(t *testing.T) {
+	policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: []CLICommandRule{{
+		Name: "create", Command: []string{"jira", "issue", "create"},
+		Flags: []CLIFlagRule{{
+			Name: "--field", Values: []string{"customfield_10001=Platform A", "customfield_10002=Research Group"}, Required: true, Occurrences: 2,
+		}},
+		MaxInvocations: 1,
+	}}}
+	if _, err := policy.Match([]string{"jira", "issue", "create", "--field", "customfield_10002=Research Group", "--field", "customfield_10001=Platform A"}); err != nil {
+		t.Fatal(err)
+	}
+	for name, args := range map[string][]string{
+		"missing":   {"jira", "issue", "create", "--field", "customfield_10001=Platform A"},
+		"duplicate": {"jira", "issue", "create", "--field", "customfield_10001=Platform A", "--field", "customfield_10001=Platform A"},
+		"changed":   {"jira", "issue", "create", "--field", "customfield_10001=Platform A", "--field", "customfield_10002=Another Group"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := policy.Match(args); err == nil {
+				t.Fatal("command outside the exact repeated-value policy matched")
+			}
+		})
+	}
+}
+
+func TestCLICommandPolicyRepeatedFlagsRequireCurrentSchemaAndExactValues(t *testing.T) {
+	for name, mutate := range map[string]func(*CLICommandPolicy){
+		"legacy schema": func(p *CLICommandPolicy) { p.SchemaVersion = LegacyCLICommandPolicySchemaVersion },
+		"not required":  func(p *CLICommandPolicy) { p.Rules[0].Flags[0].Required = false },
+		"value count":   func(p *CLICommandPolicy) { p.Rules[0].Flags[0].Values = p.Rules[0].Flags[0].Values[:1] },
+		"too many":      func(p *CLICommandPolicy) { p.Rules[0].Flags[0].Occurrences = 33 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: []CLICommandRule{{
+				Name: "create", Command: []string{"jira", "issue", "create"},
+				Flags: []CLIFlagRule{{Name: "--field", Values: []string{"a=1", "b=2"}, Required: true, Occurrences: 2}}, MaxInvocations: 1,
+			}}}
+			mutate(&candidate)
+			if err := candidate.Validate(); err == nil {
+				t.Fatal("invalid repeated flag policy passed")
+			}
+		})
+	}
+	legacy := validCLICommandPolicy()
+	legacy.SchemaVersion = LegacyCLICommandPolicySchemaVersion
+	if err := legacy.Validate(); err != nil {
+		t.Fatalf("legacy policy without repeated flags: %v", err)
+	}
+}
+
 func TestCLICommandPolicyFileIsStrictAndOwnerOnly(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "policy.json")

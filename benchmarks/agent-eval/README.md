@@ -102,10 +102,10 @@ semantic task, oracle, and data-capability contracts;
 surface-native cases are reported separately rather than scored as failures on
 interfaces that do not expose the capability.
 
-Run-spec schema v6 retains the mandatory `data_capabilities` contract for
-neutral-common comparisons and models the complete private Codex CLI
-prompt-channel treatment. Committed synthetic specs need only the version bump
-from v4. A Codex `private-live` `cli-skill` spec must additionally choose
+Run-spec schema v7 retains the mandatory `data_capabilities` contract for
+neutral-common comparisons, models the complete private Codex CLI prompt-channel
+treatment, and adds reviewed private-live writes. Existing v6 synthetic specs
+remain readable. A current Codex `private-live` `cli-skill` spec must additionally choose
 `skill_activation:"implicit"`, `"explicit"`, `"developer"`, or `"combined"`;
 that field is rejected on all other cells. Run `validate-comparison-set` before
 any model or backend is contacted.
@@ -113,7 +113,7 @@ any model or backend is contacted.
 Private-workspace manifest schema v4 makes the lifecycle explicit. A
 `kind:"comparison"` run set keeps one to three unique surfaces; an omitted kind
 is the legacy comparison form. A `kind:"activation-study"` run set contains
-exactly four otherwise-identical Codex `private-live` `cli-skill` v6 specs, one
+exactly four otherwise-identical Codex `private-live` `cli-skill` v7 specs, one
 for each activation treatment, plus a mandatory blinded three- or five-member
 review panel, an explicit reviewer cost reserve, and a separate offline
 provider/tool-path calibration cap.
@@ -240,7 +240,8 @@ route. Only a request satisfying the route constraints consumes the next
 response; exhausting the sequence is unexpected, so a hidden reconciliation
 retry or write replay fails the mock oracle.
 This permits write-path model evaluation without granting any route to a real
-backend; private-live specs remain strictly GET/HEAD-only.
+backend. Private-live remains read-only by default; its separately reviewed
+CLI-only write mode is described below.
 
 `jira-field-mutation` uses that boundary for one generic custom field. Its
 preview-only variant exercises the dedicated GET-only `jira issue field
@@ -322,10 +323,13 @@ Real Jira/Confluence model runs are supported, but their scenario, prompt,
 expected facts, transcripts, answers, reviews, and backend configuration do not
 belong in this directory. Keep them in a maintainer-selected private directory
 outside the repository and use `backend_mode:"private-live"` with
-`--live-config-dir`. The runner requires one repetition, zero writes and
-delegations, private filesystem modes, and either typed MCP under the
-GET/HEAD-only transport guard or exact-argv CLI execution through the local
-credential gateway. CLI cases additionally bind route and response-byte
+`--live-config-dir`. The runner requires one repetition, zero delegations,
+private filesystem modes, and either typed MCP under the GET/HEAD-only transport
+guard or exact-argv CLI execution through the local credential gateway.
+Ordinary private-live runs require zero writes. A current CLI spec may instead
+set `allow_live_writes:true`; it then requires positive remote-write and
+request-body budgets, exact mutating paths and methods, per-route request caps,
+and an exact HTTP-method oracle. CLI cases additionally bind route and response-byte
 budgets; source backend credentials never enter the provider process. Claude
 Code uses loopback ingress. Codex keeps command networking disabled, grants
 write access only to an owner-only broker request directory, and receives
@@ -333,7 +337,14 @@ results through a separate read-only response directory. A parent-side broker
 revalidates exact argv and invocation budgets before running `atl` against the
 disposable gateway. A pre-model probe verifies that direct loopback networking
 is blocked and the broker is ready; gateway method/route/byte controls remain
-independent mandatory layers.
+independent mandatory layers. A reviewed-write child still inherits
+`ATL_READ_ONLY=1`; only `env -u ATL_READ_ONLY atl ...` can carry write intent to
+the broker, where exact argv values and occurrence counts are revalidated.
+Read-only commands in the same run are forced back through `atl --read-only`.
+Create and edit lifecycles use separate expiring private plans so an identifier
+returned by create can be reviewed and bound as an exact edit path; unknown
+identifiers never authorize prefixes or wildcards. Planning and execution use
+the dedicated `CONSENT-WRITES` and `RUN-WRITES` confirmations.
 
 See [the private-live procedure](../../docs/agent-benchmarking.md#private-live-model-in-the-loop-check)
 for the transport/security contract and the

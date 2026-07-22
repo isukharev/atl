@@ -134,7 +134,7 @@ func runPrivateCommand(args []string, out io.Writer) error {
 	case "plan":
 		flags := privateFlagSet("private plan")
 		var root, repositoryRoot, runSet, atlBinary, pluginRoot, agentBinary, expiresAt, confirm string
-		var approveProvider, approveExternal bool
+		var approveProvider, approveExternal, approveLiveWrites bool
 		flags.StringVar(&root, "root", "", "owner-private workspace root")
 		flags.StringVar(&repositoryRoot, "repository-root", ".", "repository root")
 		flags.StringVar(&runSet, "run-set", "", "generic private run-set alias")
@@ -142,9 +142,10 @@ func runPrivateCommand(args []string, out io.Writer) error {
 		flags.StringVar(&pluginRoot, "plugin-root", ".", "plugin root")
 		flags.StringVar(&agentBinary, "agent-binary", "", "reviewed single-file native Claude Code or Codex executable")
 		flags.StringVar(&expiresAt, "consent-expires", "", "RFC3339 consent expiry")
-		flags.StringVar(&confirm, "confirm", "", "must be CONSENT")
+		flags.StringVar(&confirm, "confirm", "", "must be CONSENT or CONSENT-WRITES for an approved live-write plan")
 		flags.BoolVar(&approveProvider, "approve-provider-data", false, "approve reviewed evidence delivery to the provider")
 		flags.BoolVar(&approveExternal, "approve-external-upstream", false, "approve the reviewed external MCP trust boundary")
+		flags.BoolVar(&approveLiveWrites, "approve-live-writes", false, "approve the exact reviewed private-live write policy")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -155,7 +156,7 @@ func runPrivateCommand(args []string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		preview, err := agenteval.CreatePrivatePlan(context.Background(), agenteval.PrivatePlanCreateOptions{Root: root, RepositoryRoot: repositoryRoot, RunSetAlias: runSet, ATLBinary: atlBinary, PluginRoot: pluginRoot, AgentBinary: agentBinary, WrapperExecutable: wrapper, Consent: agenteval.PrivatePlanConsent{ExpiresAt: expiresAt, ProviderDataApproved: approveProvider, ExternalUpstreamApproved: approveExternal}, Confirm: confirm})
+		preview, err := agenteval.CreatePrivatePlan(context.Background(), agenteval.PrivatePlanCreateOptions{Root: root, RepositoryRoot: repositoryRoot, RunSetAlias: runSet, ATLBinary: atlBinary, PluginRoot: pluginRoot, AgentBinary: agentBinary, WrapperExecutable: wrapper, Consent: agenteval.PrivatePlanConsent{ExpiresAt: expiresAt, ProviderDataApproved: approveProvider, ExternalUpstreamApproved: approveExternal, LiveWritesApproved: approveLiveWrites}, Confirm: confirm})
 		if err != nil {
 			return err
 		}
@@ -170,7 +171,7 @@ func runPrivateCommand(args []string, out io.Writer) error {
 		flags.StringVar(&atlBinary, "atl-binary", "", "atl executable")
 		flags.StringVar(&pluginRoot, "plugin-root", ".", "plugin root")
 		flags.StringVar(&agentBinary, "agent-binary", "", "reviewed single-file native agent executable")
-		flags.StringVar(&confirm, "confirm", "", "must be RUN")
+		flags.StringVar(&confirm, "confirm", "", "must be RUN or RUN-WRITES for an approved live-write plan")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}

@@ -132,6 +132,178 @@ func TestLiveGatewayRejectsUnsafeRequestsBeforeUpstream(t *testing.T) {
 	}
 }
 
+func TestLiveGatewayForwardsOnlyExactBudgetedReviewedWrite(t *testing.T) {
+	var upstreamCalls atomic.Int64
+	var upstreamBody, upstreamAuthorization, upstreamContentType, upstreamCookie, upstreamUnreviewedHeader string
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		upstreamCalls.Add(1)
+		data, _ := io.ReadAll(request.Body)
+		upstreamBody = string(data)
+		upstreamAuthorization = request.Header.Get("Authorization")
+		upstreamContentType = request.Header.Get("Content-Type")
+		upstreamCookie = request.Header.Get("Cookie")
+		upstreamUnreviewedHeader = request.Header.Get("X-Unreviewed")
+		response.Header().Set("Content-Type", "application/json")
+		response.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(response, `{"created":true}`)
+	}))
+	defer upstream.Close()
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	auditPath := filepath.Join(directory, "audit.jsonl")
+	gateway, err := StartLiveGateway(LiveGatewayConfig{
+		AuditPath: auditPath,
+		Services: map[string]LiveGatewayServiceConfig{"jira": {
+			BaseURL: upstream.URL, Token: "upstream-secret",
+			Routes: []LiveGatewayRoute{{Name: "create", PathPrefix: "/rest/api/2/issue", Exact: true, Methods: []string{"POST"}, MaxRequests: 1, MaxRequestBytes: 64}},
+		}},
+		MaxRequests: 1, MaxConcurrent: 1, MaxWrites: 1, MaxRequestBytes: 64, MaxTotalRequestBytes: 64,
+		MaxResponseBytes: 1024, MaxTotalResponseBytes: 1024, RequestTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := gateway.Endpoints()["jira"]
+	call := func(path string, body string) int {
+		request, requestErr := http.NewRequest(http.MethodPost, endpoint.BaseURL+path, strings.NewReader(body))
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		request.Header.Set("Authorization", "Bearer "+endpoint.Token)
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Cookie", "ambient=secret")
+		request.Header.Set("X-Unreviewed", "secret")
+		response, callErr := http.DefaultClient.Do(request)
+		if callErr != nil {
+			t.Fatal(callErr)
+		}
+		_, _ = io.Copy(io.Discard, response.Body)
+		_ = response.Body.Close()
+		return response.StatusCode
+	}
+	body := `{"summary":"reviewed fixture"}`
+	if status := call("/rest/api/2/issue", body); status != http.StatusCreated {
+		t.Fatalf("write status=%d", status)
+	}
+	methods, duplicates, observed, err := readLiveGatewayRecords(auditPath)
+	if err != nil || !observed || duplicates != 0 || methods["POST"] != 1 {
+		t.Fatalf("write methods=%v duplicates=%d observed=%t err=%v", methods, duplicates, observed, err)
+	}
+	if status := call("/rest/api/2/issue/other", body); status < 400 {
+		t.Fatalf("non-exact route status=%d", status)
+	}
+	if upstreamCalls.Load() != 1 || upstreamBody != body || upstreamAuthorization != "Bearer upstream-secret" || upstreamContentType != "application/json" || upstreamCookie != "" || upstreamUnreviewedHeader != "" {
+		t.Fatalf("calls=%d body=%q auth=%q content-type=%q cookie=%q unreviewed=%q", upstreamCalls.Load(), upstreamBody, upstreamAuthorization, upstreamContentType, upstreamCookie, upstreamUnreviewedHeader)
+	}
+	if err := gateway.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	audit, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"reviewed fixture", "/rest/api/2/issue", "upstream-secret", endpoint.Token} {
+		if bytes.Contains(audit, []byte(forbidden)) {
+			t.Fatalf("write audit leaked %q: %s", forbidden, audit)
+		}
+	}
+	if _, _, _, err := readLiveGatewayRecords(auditPath); err == nil || !strings.Contains(err.Error(), "denied") {
+		t.Fatalf("denied request was not retained as terminal safety evidence: %v", err)
+	}
+}
+
+func TestLiveGatewayRejectsReviewedWriteBodyAndBudgetBeforeUpstream(t *testing.T) {
+	var upstreamCalls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		upstreamCalls.Add(1)
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+	start := func(t *testing.T) (*LiveGateway, LiveGatewayEndpoint) {
+		t.Helper()
+		directory := t.TempDir()
+		if err := os.Chmod(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		gateway, err := StartLiveGateway(LiveGatewayConfig{
+			AuditPath: filepath.Join(directory, "audit.jsonl"),
+			Services: map[string]LiveGatewayServiceConfig{"jira": {BaseURL: upstream.URL, Token: "token", Routes: []LiveGatewayRoute{
+				{Name: "create", PathPrefix: "/rest/api/2/issue", Exact: true, Methods: []string{"POST"}, MaxRequests: 1, MaxRequestBytes: 4},
+			}}},
+			MaxRequests: 1, MaxConcurrent: 1, MaxWrites: 1, MaxRequestBytes: 4, MaxTotalRequestBytes: 4,
+			MaxResponseBytes: 16, MaxTotalResponseBytes: 16, RequestTimeout: 5 * time.Second,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return gateway, gateway.Endpoints()["jira"]
+	}
+	t.Run("oversize", func(t *testing.T) {
+		gateway, endpoint := start(t)
+		defer gateway.Close(context.Background())
+		request, _ := http.NewRequest(http.MethodPost, endpoint.BaseURL+"/rest/api/2/issue", strings.NewReader("12345"))
+		request.Header.Set("Authorization", "Bearer "+endpoint.Token)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode < 400 {
+			t.Fatalf("oversize status=%d", response.StatusCode)
+		}
+	})
+	t.Run("method", func(t *testing.T) {
+		gateway, endpoint := start(t)
+		defer gateway.Close(context.Background())
+		request, _ := http.NewRequest(http.MethodPut, endpoint.BaseURL+"/rest/api/2/issue", strings.NewReader("1234"))
+		request.Header.Set("Authorization", "Bearer "+endpoint.Token)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode < 400 {
+			t.Fatalf("method status=%d", response.StatusCode)
+		}
+	})
+	t.Run("content type", func(t *testing.T) {
+		gateway, endpoint := start(t)
+		defer gateway.Close(context.Background())
+		request, _ := http.NewRequest(http.MethodPost, endpoint.BaseURL+"/rest/api/2/issue", strings.NewReader("1234"))
+		request.Header.Set("Authorization", "Bearer "+endpoint.Token)
+		request.Header.Set("Content-Type", "text/plain")
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode < 400 {
+			t.Fatalf("content-type status=%d", response.StatusCode)
+		}
+	})
+	if upstreamCalls.Load() != 0 {
+		t.Fatalf("upstream observed %d rejected writes", upstreamCalls.Load())
+	}
+}
+
+func TestReviewedGatewayContentTypeAllowsOnlyJSONAndMultipart(t *testing.T) {
+	for _, header := range []string{"application/json", "application/json; charset=utf-8", "multipart/form-data; boundary=reviewed"} {
+		if forwarded, ok := reviewedGatewayContentType(header, 1); !ok || forwarded != header {
+			t.Fatalf("reviewed content type %q rejected", header)
+		}
+	}
+	for _, header := range []string{"", "text/plain", "multipart/form-data", "application/x-www-form-urlencoded"} {
+		if _, ok := reviewedGatewayContentType(header, 1); ok {
+			t.Fatalf("unreviewed content type %q accepted", header)
+		}
+	}
+	if forwarded, ok := reviewedGatewayContentType("", 0); !ok || forwarded != "" {
+		t.Fatal("empty-body request did not accept an absent content type")
+	}
+}
+
 func TestLiveGatewayBlocksRedirectsAndResponseBudget(t *testing.T) {
 	var redirectTargetCalls atomic.Int64
 	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {

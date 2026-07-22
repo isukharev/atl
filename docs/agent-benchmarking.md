@@ -420,8 +420,9 @@ Structure Value API, whose query payload uses HTTP POST. Its folder-label and
 explicit row-value queries are synthetic loopback-only, bind exact request
 bodies, and allow no mutation route. Generic telemetry remains deliberately
 conservative: it counts those non-safe transport methods as `remote_writes`
-and the shared endpoint as one duplicate request. Private-live runs remain
-GET/HEAD-only.
+and the shared endpoint as one duplicate request. Ordinary private-live and all
+private-live MCP runs remain GET/HEAD-only. Reviewed private-live mutations are
+CLI-only and use the stricter boundary below.
 
 ### Guarded Jira field mutation
 
@@ -840,8 +841,10 @@ Use this mode only when the maintainer has approved sending the selected real
 Jira/Confluence evidence to the configured model provider. The provider will
 receive the prompt, MCP responses or CLI output selected by the model, and the
 final answer.
-It does not receive a general shell, filesystem reader, raw REST client, mirror
-writer, or mutation tool. Codex may use runner-provided `cat`, `sed -n`, and
+It does not receive a general shell, filesystem reader, raw REST client, or
+mirror writer. Read-only runs expose no mutation authority. A separately
+approved CLI write run exposes only its exact structured commands through the
+owner-side broker and exact gateway routes. Codex may use runner-provided `cat`, `sed -n`, and
 `wc -l` shims solely for installed skill/workspace files; both the hook and the
 shim independently resolve every path inside the reviewed roots.
 
@@ -858,7 +861,7 @@ A private run spec differs from a synthetic spec in these fields:
 
 ```json
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "backend_mode": "private-live",
   "category": "neutral-common",
   "surface": "atl-mcp",
@@ -908,7 +911,7 @@ A private run spec differs from a synthetic spec in these fields:
 }
 ```
 
-Its private scenario must use `data_class:"private-local"`, exactly one
+An ordinary private scenario must use `data_class:"private-local"`, exactly one
 repetition, zero delegations and writes, positive invocation/request limits,
 an explicit `allowed_http_methods` containing only `GET`/`HEAD`, and name
 `complete` in both `required_checks` and `required_semantic_checks`. Start with
@@ -919,14 +922,14 @@ an external MCP run is bound to the same set through its owner-reviewed profile.
 Expected private facts may live in the ignored run spec; never copy them into a
 public fixture or PR.
 
-This contract is run-spec schema v6. Specs already on v3/v4 retain their
-semantic capability declarations and require a version bump; v5 remains
+This contract is run-spec schema v7. Schema-v6 specs remain readable but cannot
+use the reviewed-write fields or enter a current activation study; v5 remains
 readable but lacks the calibrated evidence contract and cannot enter a current
 activation study. A Codex `private-live`
 `cli-skill` spec must declare exactly one of `skill_activation:"implicit"`,
 `"explicit"`, `"developer"`, or `"combined"`; the field is forbidden on MCP,
 Claude Code, and synthetic cells. Existing v4 `implicit` and `explicit` specs
-retain those meanings when deliberately migrated to v6. A legacy v3 spec that
+retain those meanings when deliberately migrated to v7. A legacy v3 spec that
 named a skill only in provider instructions is not silently relabeled
 `developer`: review the intended treatment, create a v6 spec, and start a new
 activation-bound baseline.
@@ -959,7 +962,7 @@ The `cli-skill` surface also pins the built-in `shell_tool` and `unified_exec`
 features on and supplies a fixed `/bin/sh` inside the isolated capsule. It does
 not inherit the operator's interactive `SHELL` or startup files. This only makes
 the reviewed local route available: the hook, custom filesystem profile,
-one-command broker policy, read-only environment, and GET/HEAD gateway still
+one-command broker policy, inherited read-only environment, and reviewed gateway still
 decide what may execute. MCP surfaces do not enable this CLI-only feature pair.
 
 Before shell execution, a mode-neutral provider instruction requires evidence
@@ -1026,13 +1029,13 @@ reclassified as `developer` or `combined`.
 Private-workspace manifest schema v4 provides two run-set kinds. A
 `comparison` contains one to three unique surfaces and keeps any Codex CLI member
 implicit-only. An `activation-study` contains exactly four otherwise-identical
-Codex `private-live` `cli-skill` v6 specs, one per treatment, in one case
+Codex `private-live` `cli-skill` v7 specs, one per treatment, in one case
 directory. It requires a blinded `criterion-median-v1` panel with exactly three
 or five reviewers, a positive explicit `reviewer_reserve_microusd`, and a
 separate backend-free provider-calibration cap. An executable panel may mix
 Codex and Claude Code reviewers and binds every slot's model, reasoning,
 timeout, pricing, and cap before candidate execution. Current private plans use
-schema v7; schema-v6 plans remain readable for manual review but cannot execute
+schema v8; schema-v7/v6 plans remain readable for manual review but cannot execute
 automated reviewer slots. Activation-study execution state uses
 calibrated schema v3 rather than the
 legacy per-surface state.
@@ -1284,11 +1287,17 @@ Code uses parent-loopback ingress. For Codex, the child config and gateway stay
 parent-side behind a command broker; the model receives neither the upstream
 origin/PAT nor the disposable gateway credential.
 
-`ATL_READ_ONLY=1` blocks mutations at the CLI policy, the MCP inventory contains
-only explicit read tools, and an independent HTTP transport guard rejects every
-method except GET/HEAD before network I/O. That guard records only method plus a
+By default, `ATL_READ_ONLY=1` blocks mutations at the CLI policy, the MCP
+inventory contains only explicit read tools, and the HTTP transport guard rejects
+every method except GET/HEAD before network I/O. A reviewed-write CLI child still
+inherits `ATL_READ_ONLY=1`; only the literal
+`env -u ATL_READ_ONLY atl ...` form can request write intent from the broker.
+The broker revalidates exact argv and the gateway independently binds exact
+mutating paths, explicit methods, request counts, body-byte budgets, and total
+write count. That guard records only method plus a
 SHA-256 request identity, allowing exact request and duplicate-read counts
-without retaining URLs, JQL/CQL, ids, headers, or bodies.
+without retaining URLs, JQL/CQL, ids, headers, or bodies. The body digest is
+included in the private request HMAC but body bytes are not retained.
 
 One repetition and concurrency one are mandatory. A failed or denied MCP call,
 missing HTTP audit, attempted native tool, unobserved required metric, or method
@@ -1333,21 +1342,23 @@ and an independent invocation cap:
 }
 ```
 
-Flag order may vary, but unknown, repeated, missing-required, joined
+Flag order may vary, but unknown, unreviewed repeated, missing-required, joined
 `--flag=value`, changed-target, extra-positional, and shell-separator forms are
-rejected. A flag value that must come from prior command output may declare
+rejected. An exactly repeated flag can set `"occurrences":N`, `required:true`,
+and exactly N distinct literal `values`; every value must appear once, in any
+order. A flag value that must come from prior command output may declare
 `"value_format":"sha256"` instead of `values`; this accepts only a lowercase
 64-hex digest and cannot be combined with a literal allowlist. A single leading
 global `--read-only` is accepted because it can only
 strengthen the already mandatory process policy; no other global flag is
 implicit. The hook admits path-confined `cat`/`sed`/`wc` skill reads and a small
 newline-only block containing `export ATL_READ_ONLY=1`, `command -v atl`, and
-safe `atl ...` command shapes. Write-enabled synthetic Codex runs additionally
-admit exactly `env -u ATL_READ_ONLY atl ...`; the dedicated `env` shim rejects
-every other form. Ordinary invocations are forced through the host broker with
+safe `atl ...` command shapes. Reviewed synthetic or private-live CLI write runs
+additionally admit exactly `env -u ATL_READ_ONLY atl ...`; the dedicated `env`
+shim rejects every other form. Ordinary invocations are forced through the host broker with
 an explicit global `--read-only`, even when the model environment has no
 read-only variable; only that audited wrapper removes it for the reviewed
-synthetic apply. Shell operators, substitution, redirection,
+mutation. Shell operators, substitution, redirection,
 and arbitrary commands remain denied. The shim then loads an
 owner-only policy file outside those roots and matches the actual argv before
 starting the real binary. It reserves the command-family budget before the
@@ -1356,10 +1367,15 @@ cap. Metrics retain the generic rule name, exit status, and byte counts, never
 the private arguments.
 
 The route policy is evaluated after ingress authentication and before any
-upstream request. Only GET/HEAD without a body are accepted; the upstream
-origin is pinned, redirects are rejected, and per-response plus total byte
-budgets are enforced. Any gateway denial or an incomplete forward/completion
-audit pair fails the run.
+upstream request. Read-only routes accept only GET/HEAD without a body. Mutating
+routes require exact paths, explicit methods, positive per-route request/body
+budgets, and a positive global write budget. The gateway forwards only the
+reviewed body, a safe content type, and the exact Atlassian no-check header;
+ambient cookies and other headers are stripped. The upstream origin is pinned,
+redirects are rejected, and per-response plus total byte budgets are enforced.
+Any gateway denial or an incomplete forward/completion audit pair fails the
+run. A possibly committed write with an incomplete response is ambiguous and
+must be reconciled read-only, never replayed.
 
 Claude Code receives only the reviewed `Bash(atl *)`, confined `Read`, and
 shipped `Skill` surfaces and loads no ambient setting sources. Codex uses a

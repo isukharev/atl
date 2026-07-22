@@ -114,7 +114,7 @@ func ValidatePrivateActivationStudy(paths ...string) (PrivateActivationStudyCont
 }
 
 // BuildPrivateActivationStudyContract validates and canonically binds one
-// complete 2x2 activation study. It accepts exactly one v6 Codex private-live
+// complete 2x2 activation study. It accepts exactly one current Codex private-live
 // CLI-skill run for each treatment and rejects every non-treatment difference.
 func BuildPrivateActivationStudyContract(specs []RunSpec) (PrivateActivationStudyContract, error) {
 	if len(specs) != 4 {

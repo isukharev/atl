@@ -145,7 +145,17 @@ func TestPrivateLiveRunSpecFailsClosed(t *testing.T) {
 		"public data":  func(_ *RunSpec, sc *Scenario) { sc.DataClass = "synthetic" },
 		"write budget": func(_ *RunSpec, sc *Scenario) { sc.Budgets.MaxRemoteWrites = 1 },
 		"write method": func(_ *RunSpec, sc *Scenario) { sc.Budgets.AllowedHTTPMethods = []string{"GET", "POST"} },
-		"delegation":   func(_ *RunSpec, sc *Scenario) { sc.Budgets.MaxDelegations = 1 },
+		"write route": func(s *RunSpec, _ *Scenario) {
+			s.ToolTransport = "cli"
+			s.AllowedTools = []string{"Bash(atl *)"}
+			s.AllowedATLCommands = nil
+			s.AllowedMCPTools = nil
+			s.AllowedCLICommands = []CLICommandRule{{Name: "fields", Command: []string{"jira", "fields"}, MaxInvocations: 1}}
+			s.AllowedGatewayRoutes = map[string][]LiveGatewayRoute{"jira": {{Name: "write", PathPrefix: "/rest/api/2/issue/TEST-1", Exact: true, Methods: []string{"PUT"}, MaxRequests: 1, MaxRequestBytes: 1024}}}
+			s.GatewayMaxResponseBytes = 1024
+			s.GatewayMaxTotalBytes = 1024
+		},
+		"delegation": func(_ *RunSpec, sc *Scenario) { sc.Budgets.MaxDelegations = 1 },
 		"mock oracle": func(s *RunSpec, _ *Scenario) {
 			s.Checks = append(s.Checks, RunCheck{Name: "mock", Kind: "mock_no_unexpected"})
 		},
@@ -439,6 +449,91 @@ func TestRunSpecSyntheticWritesRequireExplicitSyntheticBudget(t *testing.T) {
 	codex.Checks[len(codex.Checks)-1].Expected = json.RawMessage(`"atl:confluence"`)
 	if err := codex.Validate(); err == nil || !strings.Contains(err.Error(), "named skill_invocations_min") {
 		t.Fatalf("named Codex skill invocation oracle passed: %v", err)
+	}
+}
+
+func TestPrivateLiveWritesRequireExactReviewedBoundaries(t *testing.T) {
+	build := func() (RunSpec, Scenario) {
+		scenario := validScenario()
+		scenario.DataClass = "private-local"
+		scenario.RequiredChecks = []string{"answer_correct", "used_atl", "http_observed", "guard_clean", "no_delegation", "atl_succeeded", "methods"}
+		scenario.Budgets.MaxRemoteWrites = 1
+		scenario.Budgets.MaxDelegations = 0
+		scenario.Budgets.MaxBackendRequests = 3
+		scenario.Budgets.MaxATLInvocations = 2
+		scenario.Budgets.MaxEstimatedCostMicroUSD = 10_000_000
+		scenario.Budgets.AllowedHTTPMethods = []string{"GET", "POST"}
+		spec := validRunSpec()
+		spec.BackendMode = BackendModePrivateLive
+		spec.FixtureFile = ""
+		spec.Repetitions = 1
+		spec.ToolTransport = "cli"
+		spec.SkillActivation = SkillActivationImplicit
+		spec.AllowedTools = []string{"Bash(atl *)", "Read"}
+		spec.AllowedATLCommands = nil
+		spec.AllowedCLICommands = []CLICommandRule{{Name: "create", Command: []string{"jira", "issue", "create"}, Flags: []CLIFlagRule{
+			{Name: "--project", Values: []string{"TEST"}, Required: true},
+			{Name: "--type", Values: []string{"Task"}, Required: true},
+			{Name: "--summary", Values: []string{"reviewed fixture"}, Required: true},
+			{Name: "--from-file", Values: []string{"body.txt"}, Required: true},
+		}, MaxInvocations: 1}}
+		spec.AllowedGatewayRoutes = map[string][]LiveGatewayRoute{"jira": {
+			{Name: "metadata", PathPrefix: "/rest/api/2/issue/createmeta", Methods: []string{"GET"}, MaxRequests: 2},
+			{Name: "create", PathPrefix: "/rest/api/2/issue", Exact: true, Methods: []string{"POST"}, MaxRequests: 1, MaxRequestBytes: 1 << 20},
+		}}
+		spec.GatewayMaxResponseBytes = 1 << 20
+		spec.GatewayMaxTotalBytes = 3 << 20
+		spec.GatewayMaxRequestBytes = 1 << 20
+		spec.GatewayMaxTotalRequestBytes = 1 << 20
+		spec.AllowLiveWrites = true
+		spec.MaxEstimatedCostMicroUSD = scenario.Budgets.MaxEstimatedCostMicroUSD
+		spec.Checks = append(spec.Checks,
+			RunCheck{Name: "http_observed", Kind: "http_methods_observed"},
+			RunCheck{Name: "guard_clean", Kind: "guard_no_denials"},
+			RunCheck{Name: "no_delegation", Kind: "delegations_none"},
+			RunCheck{Name: "atl_succeeded", Kind: "atl_all_succeeded"},
+			RunCheck{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":2,"POST":1}`)},
+		)
+		return spec, scenario
+	}
+	spec, scenario := build()
+	if err := spec.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := spec.ValidateAgainstScenario(scenario); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*RunSpec, *Scenario){
+		"legacy schema": func(s *RunSpec, _ *Scenario) { s.SchemaVersion = LegacyRunSpecSchemaVersion },
+		"mcp":           func(s *RunSpec, _ *Scenario) { s.ToolTransport = "mcp" },
+		"zero writes":   func(_ *RunSpec, sc *Scenario) { sc.Budgets.MaxRemoteWrites = 0 },
+		"non-exact write route": func(s *RunSpec, _ *Scenario) {
+			s.AllowedGatewayRoutes["jira"][1].Exact = false
+		},
+		"unreviewed method": func(s *RunSpec, _ *Scenario) {
+			s.AllowedGatewayRoutes["jira"][1].Methods = []string{"PUT"}
+		},
+		"mixed route": func(s *RunSpec, _ *Scenario) {
+			s.AllowedGatewayRoutes["jira"][1].Methods = []string{"GET", "POST"}
+		},
+		"route write budget": func(s *RunSpec, _ *Scenario) {
+			s.AllowedGatewayRoutes["jira"][1].MaxRequests = 2
+		},
+		"missing request budget": func(s *RunSpec, _ *Scenario) {
+			s.GatewayMaxRequestBytes = 0
+			s.GatewayMaxTotalRequestBytes = 0
+		},
+		"missing exact methods oracle": func(s *RunSpec, _ *Scenario) {
+			s.Checks = s.Checks[:len(s.Checks)-1]
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate, candidateScenario := build()
+			mutate(&candidate, &candidateScenario)
+			if candidate.Validate() == nil && candidate.ValidateAgainstScenario(candidateScenario) == nil {
+				t.Fatal("unsafe private live-write spec passed")
+			}
+		})
 	}
 }
 
