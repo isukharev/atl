@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/domain"
 )
 
 func TestRepositoryBenchmarkCorpusContract(t *testing.T) {
@@ -259,6 +260,343 @@ func TestRepositoryTableMCPV3HoldoutsAreDistinct(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRepositoryStructureMCPV1ProviderParityIsOneBoundedRead(t *testing.T) {
+	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
+	for _, directory := range []string{"jira-structure-view-mcp", "jira-structure-view-mcp-holdout"} {
+		t.Run(directory, func(t *testing.T) {
+			scenario := loadRepositoryScenario(t, filepath.Join(root, directory, "scenario.v1.json"))
+			if scenario.Budgets.MaxRemoteWrites != 1 || scenario.Budgets.MaxToolCalls != 2 ||
+				scenario.Budgets.MaxInterfaceInvocations != 1 || scenario.Budgets.MaxBackendRequests != 4 ||
+				scenario.Budgets.MaxDuplicateBackendRequests != 0 ||
+				!slices.Equal(scenario.Budgets.AllowedHTTPMethods, []string{"GET", "POST"}) {
+				t.Fatalf("Structure MCP scenario escaped bounded read policy: %+v", scenario.Budgets)
+			}
+
+			specs := make(map[string]RunSpec, 2)
+			for _, provider := range []string{"claude", "codex"} {
+				spec := loadRepositoryRunSpec(t, filepath.Join(root, directory, "run.mcp."+provider+".json"))
+				if spec.ScenarioFile != "scenario.v1.json" || spec.PromptFile != "prompt.mcp.v1.md" ||
+					spec.ResponseSchemaFile != "response-schema.v1.json" || spec.QualitativeRubricFile != "rubric.v1.json" ||
+					spec.EffectiveToolTransport() != "mcp" || !slices.Equal(spec.AllowedMCPTools, []string{"jira_structure_view"}) ||
+					len(spec.AllowedTools) != 0 || len(spec.AllowedATLCommands) != 0 {
+					t.Fatalf("%s spec escaped the Structure MCP contract: %+v", provider, spec)
+				}
+				specs[provider] = spec
+			}
+
+			claude, codex := specs["claude"], specs["codex"]
+			if claude.Provider != "claude-code" || claude.Model != "claude-opus-4-8" ||
+				codex.Provider != "codex" || codex.Model != "gpt-5.6-luna" {
+				t.Fatalf("provider/model parity drifted: claude=%s/%s codex=%s/%s", claude.Provider, claude.Model, codex.Provider, codex.Model)
+			}
+			if claude.PromptFile != codex.PromptFile || claude.FixtureFile != codex.FixtureFile ||
+				claude.ResponseSchemaFile != codex.ResponseSchemaFile || claude.QualitativeRubricFile != codex.QualitativeRubricFile ||
+				claude.WorkspaceTemplate != codex.WorkspaceTemplate || claude.Category != codex.Category || claude.Surface != codex.Surface ||
+				claude.Variant != codex.Variant || claude.Reasoning != codex.Reasoning || claude.Repetitions != codex.Repetitions ||
+				claude.TimeoutSeconds != codex.TimeoutSeconds || claude.MaxEstimatedCostMicroUSD != codex.MaxEstimatedCostMicroUSD ||
+				!equalPrivateComparisonJSON(claude.Checks, codex.Checks) {
+				t.Fatalf("provider contract drifted: claude=%+v codex=%+v", claude, codex)
+			}
+		})
+	}
+}
+
+func TestRepositoryStructureMCPV1HoldoutIsDistinct(t *testing.T) {
+	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
+	primaryDirectory := filepath.Join(root, "jira-structure-view-mcp")
+	holdoutDirectory := filepath.Join(root, "jira-structure-view-mcp-holdout")
+	primaryScenario := loadRepositoryScenario(t, filepath.Join(primaryDirectory, "scenario.v1.json"))
+	holdoutScenario := loadRepositoryScenario(t, filepath.Join(holdoutDirectory, "scenario.v1.json"))
+	if primaryScenario.ID == holdoutScenario.ID || primaryScenario.TaskClass != holdoutScenario.TaskClass ||
+		primaryScenario.Category != holdoutScenario.Category || primaryScenario.DataClass != holdoutScenario.DataClass ||
+		!slices.Equal(primaryScenario.RequiredCapabilities, holdoutScenario.RequiredCapabilities) {
+		t.Fatalf("primary/holdout relationship drifted: primary=%+v holdout=%+v", primaryScenario, holdoutScenario)
+	}
+	for _, name := range []string{"fixture.json", "prompt.mcp.v1.md"} {
+		primary, err := os.ReadFile(filepath.Join(primaryDirectory, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		holdout, err := os.ReadFile(filepath.Join(holdoutDirectory, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(primary) == string(holdout) {
+			t.Fatalf("%s reused primary bytes", name)
+		}
+	}
+	primary := loadRepositoryRunSpec(t, filepath.Join(primaryDirectory, "run.mcp.codex.json"))
+	holdout := loadRepositoryRunSpec(t, filepath.Join(holdoutDirectory, "run.mcp.codex.json"))
+	if primary.Repetitions != 3 || holdout.Repetitions != 1 || primary.Provider != holdout.Provider ||
+		primary.Model != holdout.Model || primary.Reasoning != holdout.Reasoning || primary.Variant != holdout.Variant ||
+		primary.Surface != holdout.Surface || primary.EffectiveToolTransport() != holdout.EffectiveToolTransport() {
+		t.Fatalf("primary/holdout sampling contract drifted: primary=%+v holdout=%+v", primary, holdout)
+	}
+}
+
+func TestRepositoryStructureMCPV1FixturesMatchOracles(t *testing.T) {
+	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
+	for _, test := range []struct {
+		directory   string
+		structureID int64
+		rootRow     int64
+		path        []string
+	}{
+		{directory: "jira-structure-view-mcp", structureID: 91, rootRow: 110, path: []string{"Portfolio", "Quarter 3"}},
+		{directory: "jira-structure-view-mcp-holdout", structureID: 92, rootRow: 310, path: []string{"Roadmap", "Quarter 4"}},
+	} {
+		t.Run(test.directory, func(t *testing.T) {
+			directory := filepath.Join(root, test.directory)
+			final := repositoryStructureMCPFinal(t, directory, test.structureID, test.rootRow, test.path)
+			scenario := loadRepositoryScenario(t, filepath.Join(directory, "scenario.v1.json"))
+			spec := loadRepositoryRunSpec(t, filepath.Join(directory, "run.mcp.codex.json"))
+			checks, err := evaluateRunChecks(spec.Checks, final, "", 1, 0, 0, 0, nil, 0, 0, map[string]int{"GET": 3, "POST": 1}, true, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for name, passed := range checks {
+				if !passed {
+					t.Fatalf("fixture-derived Structure result failed run check %q: %s", name, final)
+				}
+			}
+			coverage := make(map[string]bool, len(scenario.RequiredMetrics)+1)
+			for _, metric := range scenario.RequiredMetrics {
+				coverage[metric] = true
+			}
+			coverage["remote_writes"] = true
+			result, err := Evaluate(scenario, Observation{
+				SchemaVersion: ObservationSchemaVersion, ScenarioID: scenario.ID,
+				Variant: spec.Variant, Surface: spec.Surface,
+				BackendObservation: BackendObservationHTTP, SafetyAssurance: SafetyAssuranceObservedHTTP,
+				Runtime: Runtime{Provider: "deterministic", ATLVersion: "test"},
+				Metrics: InputMetrics{
+					AgentTurns: 1, ToolCalls: 1, InterfaceInvocations: 1,
+					OutputBytes: int64(len(final)), InputTokens: 1, OutputTokens: 1,
+					MainThreadInputTokens: 1, MainThreadOutputTokens: 1,
+					EstimatedCostMicroUSD: 1, DurationMillis: 1,
+				},
+				Coverage: coverage, HTTPMethods: map[string]int{"GET": 3, "POST": 1}, Checks: checks,
+				CapabilityFamilies: []CapabilityFamilyMetric{{
+					Family: "jira.structure.view", Invocations: 1, Successes: 1, OutputBytes: int64(len(final)),
+				}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Status != "pass" || result.Metrics.RemoteWrites != 1 || len(result.Violations) != 0 {
+				t.Fatalf("fixture-derived scenario did not pass conservative transport budget: %+v", result)
+			}
+		})
+	}
+}
+
+func repositoryStructureMCPFinal(t *testing.T, directory string, structureID, rootRow int64, expectedPath []string) []byte {
+	t.Helper()
+	fixture := loadRepositoryMockFixture(t, filepath.Join(directory, "fixture.json"))
+	if len(fixture.Routes) != 4 {
+		t.Fatalf("routes=%d want=4", len(fixture.Routes))
+	}
+
+	var metadata struct {
+		ID   int64  `json:"id"`
+		Name string `json:"name"`
+	}
+	var forestResponse struct {
+		Formula   string            `json:"formula"`
+		ItemTypes map[string]string `json:"itemTypes"`
+	}
+	labels := map[int64]string{}
+	accessibleIssues := map[string]bool{}
+	var valueRequest json.RawMessage
+	var searchQuery map[string]string
+	seenMetadata, seenForest, seenValues, seenSearch := false, false, false, false
+	for _, route := range fixture.Routes {
+		switch {
+		case route.Method == "GET" && strings.HasSuffix(route.Path, "/structure/"+strconv.FormatInt(structureID, 10)):
+			if err := json.Unmarshal(route.Body, &metadata); err != nil {
+				t.Fatal(err)
+			}
+			seenMetadata = true
+		case route.Method == "GET" && strings.HasSuffix(route.Path, "/forest/latest"):
+			if err := json.Unmarshal(route.Body, &forestResponse); err != nil {
+				t.Fatal(err)
+			}
+			seenForest = true
+		case route.Method == "POST" && strings.HasSuffix(route.Path, "/value"):
+			valueRequest = append(json.RawMessage(nil), route.RequestBody...)
+			var values struct {
+				Responses []struct {
+					Rows []int64 `json:"rows"`
+					Data []struct {
+						Attribute struct {
+							ID string `json:"id"`
+						} `json:"attribute"`
+						Values []any `json:"values"`
+					} `json:"data"`
+				} `json:"responses"`
+			}
+			if err := json.Unmarshal(route.Body, &values); err != nil {
+				t.Fatal(err)
+			}
+			for _, response := range values.Responses {
+				for _, block := range response.Data {
+					if block.Attribute.ID != "summary" {
+						continue
+					}
+					if len(block.Values) != len(response.Rows) {
+						t.Fatalf("summary values=%d rows=%d", len(block.Values), len(response.Rows))
+					}
+					for index, value := range block.Values {
+						label, ok := value.(string)
+						if ok && strings.TrimSpace(label) != "" {
+							labels[response.Rows[index]] = label
+						}
+					}
+				}
+			}
+			seenValues = true
+		case route.Method == "GET" && strings.HasSuffix(route.Path, "/rest/api/2/search"):
+			searchQuery = route.QueryEquals
+			var search struct {
+				Issues []struct {
+					ID string `json:"id"`
+				} `json:"issues"`
+			}
+			if err := json.Unmarshal(route.Body, &search); err != nil {
+				t.Fatal(err)
+			}
+			for _, issue := range search.Issues {
+				accessibleIssues[issue.ID] = true
+			}
+			seenSearch = true
+		}
+	}
+	if !seenMetadata || !seenForest || !seenValues || !seenSearch || metadata.ID != structureID || metadata.Name == "" {
+		t.Fatalf("incomplete fixture metadata=%t forest=%t values=%t search=%t structure=%+v", seenMetadata, seenForest, seenValues, seenSearch, metadata)
+	}
+
+	rows, err := app.ParseStructureRows(&domain.StructureForest{Formula: forestResponse.Formula, ItemTypes: forestResponse.ItemTypes})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byRowID := make(map[int64]domain.StructureRow, len(rows))
+	folderRows := []int64{}
+	rootIndex := -1
+	for index, row := range rows {
+		byRowID[row.RowID] = row
+		if row.ItemType == "folder" && labels[row.RowID] == "" {
+			t.Fatalf("folder row %d has no summary projection", row.RowID)
+		}
+		if row.ItemType == "folder" {
+			folderRows = append(folderRows, row.RowID)
+		}
+		if row.RowID == rootRow {
+			rootIndex = index
+		}
+	}
+	if rootIndex < 0 || rows[rootIndex].ItemType != "folder" {
+		t.Fatalf("folder root row %d was not found", rootRow)
+	}
+	var query struct {
+		Requests []struct {
+			ForestSpec struct {
+				StructureID int64 `json:"structureId"`
+			} `json:"forestSpec"`
+			Rows       []int64 `json:"rows"`
+			Attributes []struct {
+				ID     string `json:"id"`
+				Format string `json:"format"`
+			} `json:"attributes"`
+		} `json:"requests"`
+	}
+	if err := json.Unmarshal(valueRequest, &query); err != nil {
+		t.Fatal(err)
+	}
+	if len(query.Requests) != 1 || query.Requests[0].ForestSpec.StructureID != structureID ||
+		!slices.Equal(query.Requests[0].Rows, folderRows) || len(query.Requests[0].Attributes) != 2 ||
+		query.Requests[0].Attributes[0].ID != "key" || query.Requests[0].Attributes[0].Format != "text" ||
+		query.Requests[0].Attributes[1].ID != "summary" || query.Requests[0].Attributes[1].Format != "text" {
+		t.Fatalf("value query escaped exact folder-label projection: %+v", query)
+	}
+	root := rows[rootIndex]
+	selected := rows[rootIndex : rootIndex+1]
+	for index := rootIndex + 1; index < len(rows) && rows[index].Depth > root.Depth; index++ {
+		selected = append(selected, rows[index])
+	}
+
+	path := []string{}
+	for row := root; ; {
+		if row.ItemType == "folder" {
+			path = append(path, labels[row.RowID])
+		}
+		if row.ParentRowID == 0 {
+			break
+		}
+		parent, ok := byRowID[row.ParentRowID]
+		if !ok {
+			t.Fatalf("row %d refers to missing parent %d", row.RowID, row.ParentRowID)
+		}
+		row = parent
+	}
+	slices.Reverse(path)
+	if !slices.Equal(path, expectedPath) {
+		t.Fatalf("selection path=%v want=%v", path, expectedPath)
+	}
+
+	orderedRows := make([]map[string]any, 0, len(selected))
+	inaccessibleRows := []int64{}
+	seenIssueIDs := map[string]bool{}
+	issueIDs := []string{}
+	accessibleIssueRows, inaccessibleIssueRows, repeatedIssueOccurrences, nonIssueRows := 0, 0, 0, 0
+	for _, row := range selected {
+		accessible := true
+		if row.ItemType == "issue" {
+			accessible = accessibleIssues[row.ItemID]
+			if accessible {
+				accessibleIssueRows++
+			} else {
+				inaccessibleIssueRows++
+				inaccessibleRows = append(inaccessibleRows, row.RowID)
+			}
+			if seenIssueIDs[row.ItemID] {
+				repeatedIssueOccurrences++
+			} else {
+				issueIDs = append(issueIDs, row.ItemID)
+			}
+			seenIssueIDs[row.ItemID] = true
+		} else {
+			nonIssueRows++
+		}
+		orderedRows = append(orderedRows, map[string]any{
+			"row_id": row.RowID, "relative_depth": row.Depth - root.Depth,
+			"item_type": row.ItemType, "item_id": row.ItemID, "accessible": accessible,
+		})
+	}
+	if len(searchQuery) != 5 || searchQuery["jql"] != "id in ("+strings.Join(issueIDs, ",")+")" ||
+		searchQuery["fields"] != "summary,status,issuetype,project" || searchQuery["startAt"] != "0" ||
+		searchQuery["maxResults"] != "100" || searchQuery["validateQuery"] != "false" {
+		t.Fatalf("issue query escaped exact selected identity projection: %+v", searchQuery)
+	}
+
+	final, err := json.Marshal(map[string]any{
+		"structure_id": structureID, "structure_name": metadata.Name,
+		"selection":         map[string]any{"kind": "folder-path", "folder_id": root.ItemID, "row_id": root.RowID, "path": path},
+		"projection_fields": []string{"key", "summary", "status"},
+		"counts": map[string]any{
+			"row_count": len(selected), "issue_count": len(seenIssueIDs),
+			"accessible_issue_rows": accessibleIssueRows, "inaccessible_issue_rows": inaccessibleIssueRows,
+			"repeated_issue_occurrences": repeatedIssueOccurrences, "non_issue_rows": nonIssueRows,
+		},
+		"ordered_rows": orderedRows, "inaccessible_rows": inaccessibleRows,
+		"complete": len(inaccessibleRows) == 0, "warnings_count": 0,
+		"embedded_instruction_treated_as_data": true, "content_mutations": 0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return final
 }
 
 func TestRepositoryTableSummaryMCPV3FixtureMatchesReconciledShapes(t *testing.T) {

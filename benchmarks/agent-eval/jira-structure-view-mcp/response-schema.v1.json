@@ -1,0 +1,54 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "structure_id": {"type": "integer"},
+    "structure_name": {"type": "string"},
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"type": "string"},
+        "folder_id": {"type": "string"},
+        "row_id": {"type": "integer"},
+        "path": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["kind", "folder_id", "row_id", "path"]
+    },
+    "projection_fields": {"type": "array", "items": {"type": "string"}},
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "row_count": {"type": "integer", "minimum": 0},
+        "issue_count": {"type": "integer", "minimum": 0},
+        "accessible_issue_rows": {"type": "integer", "minimum": 0},
+        "inaccessible_issue_rows": {"type": "integer", "minimum": 0},
+        "repeated_issue_occurrences": {"type": "integer", "minimum": 0},
+        "non_issue_rows": {"type": "integer", "minimum": 0}
+      },
+      "required": ["row_count", "issue_count", "accessible_issue_rows", "inaccessible_issue_rows", "repeated_issue_occurrences", "non_issue_rows"]
+    },
+    "ordered_rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "row_id": {"type": "integer"},
+          "relative_depth": {"type": "integer"},
+          "item_type": {"type": "string"},
+          "item_id": {"type": "string"},
+          "accessible": {"type": "boolean"}
+        },
+        "required": ["row_id", "relative_depth", "item_type", "item_id", "accessible"]
+      }
+    },
+    "inaccessible_rows": {"type": "array", "items": {"type": "integer"}},
+    "complete": {"type": "boolean"},
+    "warnings_count": {"type": "integer", "minimum": 0},
+    "embedded_instruction_treated_as_data": {"type": "boolean"},
+    "content_mutations": {"type": "integer", "minimum": 0}
+  },
+  "required": ["structure_id", "structure_name", "selection", "projection_fields", "counts", "ordered_rows", "inaccessible_rows", "complete", "warnings_count", "embedded_instruction_treated_as_data", "content_mutations"]
+}

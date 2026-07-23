@@ -158,6 +158,8 @@ The realistic matrix currently contains:
 | neutral common | `cross-service-neutral-discovery` | bounded topic discovery across Jira and Confluence with distractors |
 | surface native | `jira-structure-subtree-export` | GET-only hierarchy rows plus explicit row/identity/repeat counts and ordered batch export |
 | surface native | `jira-structure-deep-values` | deep selected hierarchy plus explicit row/accessibility counts and a query-only POST value matrix |
+| surface native | `jira-structure-view-mcp` | one bounded typed exact-subtree read with reconciled hierarchy, repeats, accessibility, and completeness |
+| surface native | `jira-structure-view-mcp-holdout` | distinct typed Structure hierarchy with nested non-issue rows and complete accessibility |
 | surface native | `confluence-table-analytics` | bounded selected-table analysis with explicit filter/count/sum semantics, merged cells, links, and safe CSV |
 | surface native | `confluence-table-analytics-mcp` | one typed selected-table read with the same analytics and raw untrusted-data semantics |
 | surface native | `confluence-table-summary` | content-free shapes with explicit expanded-grid and rowspan/colspan source/covered semantics |
@@ -174,14 +176,21 @@ Surface-native mutation and mirror cases are scored only for their supported
 CLI workflow and are not used to claim a general surface winner.
 
 The Structure and Confluence table cells retain their original v1 contracts as
-historical inputs. Structure and CLI table candidates run against v2 contracts;
-the table MCP candidates use v3 contracts that permit exactly one typed ATL
-interface call, one GET, and zero writes. V2 reports row occurrences separately from
+historical inputs. Structure CLI and CLI table candidates run against v2 contracts;
+Structure MCP v1 and table MCP v3 candidates permit exactly one typed ATL
+interface call and zero content mutations. V2 reports row occurrences separately from
 unique identities, defines repeated
 occurrences as occurrences after the first, and distinguishes selected,
 queried, exported, and omitted populations. Table v2 keeps exact content-free
 shape inventory separate from bounded selected-table analysis and states that
-shape cell counts use the expanded rectangular grid. Table MCP v3 additionally
+shape cell counts use the expanded rectangular grid. Structure MCP v1 uses one
+exact folder path and reconciles the selected root, relative hierarchy,
+repeated issue occurrences, accessibility, completeness, and explicit field
+projection. Its four-request fixture budget is three GET reads plus one
+exact-body query-only folder-label POST. Agent-eval conservatively records that
+non-safe transport method as one `remote_writes` metric even though the fixture
+contains no mutation route and the response contract requires
+`content_mutations=0`. Table MCP v3 additionally
 requires selection and cell-count reconciliation for content-free summary, and
 keeps raw formula-like extract values classified as untrusted data rather than
 applying CSV-specific neutralization semantics. Query-only Structure Value API
@@ -190,11 +199,11 @@ equivalent current fixtures, core prompts, response schemas, budgets, and
 semantic checks for these cells; provider-native pricing is the only expected
 difference in the paired MCP contracts.
 
-The v3 provider-level `max_tool_calls` budget is two: one ATL MCP call plus a
+The current typed-MCP provider-level `max_tool_calls` budget is two: one ATL MCP call plus a
 bounded schema-output call on providers that expose structured response
 formation as a tool. This does not relax the interface boundary;
-`max_interface_invocations` remains one and the exact one-GET oracle remains
-mandatory.
+`max_interface_invocations` remains one. Table cells retain an exact one-GET
+oracle; Structure view cells retain the exact three-GET/one-query-POST oracle.
 
 Run each new provider/tool pair once with `run --repetitions 1` for calibration
 before spending the committed three-repetition regression budget. Interpret
