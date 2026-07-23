@@ -138,7 +138,10 @@ id-first field buckets, incomplete pagination, and the `comparable:false` /
 `ascending:null` ordering state. Both are read-only CLI-skill cases with paired
 Codex and Claude Code run specs. The Claude command prefix ends with the
 standard `--` option terminator, so an admitted trailing token becomes an
-invalid extra positional rather than a flag override.
+invalid extra positional rather than a flag override. Primary and holdout keep
+one execution variant while retaining distinct scenario, prompt, fixture, and
+task-contract identities, so attested n=3-plus-holdout sampling can compare
+like with like.
 
 Validate and inventory the complete corpus before spending model budget:
 

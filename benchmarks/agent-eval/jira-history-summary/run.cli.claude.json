@@ -4,7 +4,7 @@
   "category": "surface-native",
   "surface": "cli-skill",
   "provider": "claude-code",
-  "variant": "history-summary-filtered-v1",
+  "variant": "history-summary-v1",
   "model": "claude-opus-4-8",
   "reasoning": "high",
   "prompt_file": "prompt.claude.v1.md",
