@@ -80,10 +80,12 @@ type StructureExportResult struct {
 
 // StructureSnapshotOpts controls the normalized, agent-facing Structure view.
 type StructureSnapshotOpts struct {
-	Root       string
-	Attributes []string
-	BatchSize  int
-	View       string
+	Root        string
+	Attributes  []string
+	BatchSize   int
+	MaxRows     int
+	MaxScanRows int
+	View        string
 	StructureFolderSelector
 }
 
@@ -103,6 +105,16 @@ type StructureSnapshotMetadata struct {
 	ID       int64  `json:"id"`
 	Name     string `json:"name"`
 	ReadOnly bool   `json:"read_only,omitempty"`
+}
+
+// StructureMetadataResult is the compact, value-free Structure identity used
+// by bounded transports that must not expose owner, permission, or saved-view
+// objects returned by the plugin metadata endpoint.
+type StructureMetadataResult struct {
+	SchemaVersion int    `json:"schema_version"`
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	ReadOnly      bool   `json:"read_only"`
 }
 
 // StructureSnapshot is a consistent normalized forest/value snapshot.
@@ -214,6 +226,12 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 	if id <= 0 {
 		return nil, fmt.Errorf("%w: structure id must be positive", domain.ErrUsage)
 	}
+	if opts.MaxRows < 0 {
+		return nil, fmt.Errorf("%w: max rows must be positive", domain.ErrUsage)
+	}
+	if opts.MaxScanRows < 0 {
+		return nil, fmt.Errorf("%w: max scan rows must be positive", domain.ErrUsage)
+	}
 	if err := validateStructureSelector(opts.Root, opts.StructureFolderSelector); err != nil {
 		return nil, err
 	}
@@ -242,6 +260,12 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 		return nil, err
 	}
 	forestRowCount := len(rows)
+	if opts.MaxScanRows > 0 && forestRowCount > opts.MaxScanRows {
+		return nil, fmt.Errorf("%w: Structure forest exceeds max scan rows; use the CLI for larger forests", domain.ErrCheckFailed)
+	}
+	if selectorCount(opts.StructureFolderSelector) == 0 && strings.TrimSpace(opts.Root) == "" && opts.MaxRows > 0 && forestRowCount > opts.MaxRows {
+		return nil, fmt.Errorf("%w: selected Structure view exceeds max rows; select an exact subtree or raise the bound", domain.ErrCheckFailed)
+	}
 	folderLabels, labelsComplete, warnings := s.structureFolderLabelsChecked(ctx, id, rows)
 	var selection *StructureSelection
 	if selectorCount(opts.StructureFolderSelector) > 0 {
@@ -257,6 +281,9 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 			rows = filtered
 			rootResolved = true
 		}
+	}
+	if opts.MaxRows > 0 && len(rows) > opts.MaxRows {
+		return nil, fmt.Errorf("%w: selected Structure view exceeds max rows; select an exact subtree or raise the bound", domain.ErrCheckFailed)
 	}
 	issueIDs := structureIssueIDs(rows)
 	issueFields := make([]string, 0, len(attributes))

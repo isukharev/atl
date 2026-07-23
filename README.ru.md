@@ -53,7 +53,7 @@ Help и shell completion остаются доступны в read-only режи
   и [SECURITY.md](SECURITY.md).
 - **Удобен для скриптов** — JSON в stdout, логи и ошибки в stderr, без интерактивных
   запросов, чёткие коды выхода.
-- **Типизированный read-only MCP** — `atl mcp serve` предоставляет агентам одиннадцать
+- **Типизированный read-only MCP** — `atl mcp serve` предоставляет агентам тринадцать
   ограниченных Jira/Confluence evidence-tools без записи, shell, raw REST и произвольных файлов.
 - **Один статический бинарник** — `CGO_ENABLED=0`, запускается везде, где работает Go 1.26.
 
@@ -164,7 +164,7 @@ codex plugin add atl@atl
 проверяемый приватный профиль только по явно разрешённым примерам. После setup Codex сможет
 использовать те же встроенные скиллы по мере необходимости. Плагин также запускает
 типизированную read-only MCP-поверхность бинарника; после установки и настройки `atl`
-начните новую сессию. Девять tools, их лимиты и standalone setup описаны в
+начните новую сессию. Тринадцать tools, их лимиты и standalone setup описаны в
 [docs/mcp.md](docs/mcp.md).
 
 Метаданные скиллов декларируют взаимоисключающие discovery-границы: для
@@ -210,8 +210,10 @@ atl capabilities --task knowledge/search -o text
 
 Для transient evidence из Jira/Confluence установленные плагины могут вызывать
 те же application services через типизированные MCP tools без конструирования
-shell-команд. CLI остаётся для durable mirror, Structure, export, diff/plan и
-всех guarded writes; MCP v1 по конструкции допускает только remote read.
+shell-команд. Для bounded transient-анализа Structure используйте typed tools
+metadata/view; raw forest/values Structure, durable mirror, export, diff/plan и
+все guarded writes остаются в CLI. MCP v1 по конструкции допускает только
+remote read.
 
 Поверх справочных скиллов плагин включает workflow-рецепты — сквозные процессы со встроенным
 подтверждением перед созданием чего-либо:

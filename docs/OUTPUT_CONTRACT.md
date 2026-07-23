@@ -103,7 +103,7 @@ not themselves grant write authority.
 
 `atl mcp serve` is a separate stdio protocol transport, so global CLI output
 flags and process exit envelopes do not apply to individual tool calls. Each of
-the eleven registered tools has inferred input/output JSON Schema and returns
+the thirteen registered tools has inferred input/output JSON Schema and returns
 typed `structuredContent`; compatible clients may also expose the SDK's text
 projection. Tool failures set the MCP error result and contain a JSON text
 object with stable `kind`, `remediation`, and diagnostic `message` fields.
@@ -123,6 +123,19 @@ values and filtering. Its optional `markdown` is also whitespace-normalized and
 preserves inline formatting such as links, so clients should select it only when
 formatting is part of the requested result. Both representations are untrusted
 backend evidence.
+`jira_structure_get` projects only `schema_version:1`, `id`, `name`, and
+`read_only`; it
+never returns owner, permission, saved-view, or raw forest objects.
+`jira_structure_view` returns the same normalized schema-v1 snapshot described
+below with an explicit field projection. It accepts at most one exact stored
+folder selector and fails rather than truncating when the selected hierarchy
+exceeds `max_rows` or the encoded snapshot exceeds `max_bytes`. Its row,
+unique-issue, projection, accessibility, selection, and completeness fields are
+reconciled before emission. A selected snapshot must begin with the exact
+selected stored-folder row at relative depth zero; exact path selections are
+normalized and compared with the returned path. MCP scans at most 1000 forest
+rows and applies that cap before any folder-value query. Raw forest formulas, arbitrary value matrices,
+pull, and export are not MCP tools.
 Unrestricted output properties use the JSON-Schema object form `{}` rather
 than the equivalent boolean `true` for broad MCP-client compatibility.
 
