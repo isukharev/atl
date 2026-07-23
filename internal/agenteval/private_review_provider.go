@@ -361,8 +361,15 @@ func (p *privateReviewProxy) Observation() privateReviewProxyObservation {
 }
 
 func (p *privateReviewProxy) ServeHTTP(w http.ResponseWriter, incoming *http.Request) {
-	if incoming.Method == http.MethodHead && incoming.URL.Path == "/" && p.provider == "claude-code" {
+	if p.isClaudeAuxiliaryProbe(incoming) {
 		p.mu.Lock()
+		if p.observation.AuxiliaryRequests != 0 {
+			p.observation.Unexpected = true
+			p.mu.Unlock()
+			p.abortProvider()
+			http.Error(w, "single auxiliary request already consumed", http.StatusBadRequest)
+			return
+		}
 		p.observation.AuxiliaryRequests++
 		p.mu.Unlock()
 		w.WriteHeader(http.StatusOK)
@@ -433,6 +440,14 @@ func (p *privateReviewProxy) ServeHTTP(w http.ResponseWriter, incoming *http.Req
 		return
 	}
 	p.forward(w, incoming, encoded, true)
+}
+
+func (p *privateReviewProxy) isClaudeAuxiliaryProbe(request *http.Request) bool {
+	if p.provider != "claude-code" || request.Method != http.MethodHead ||
+		request.ContentLength != 0 || len(request.TransferEncoding) != 0 {
+		return false
+	}
+	return request.RequestURI == "/" || request.RequestURI == "/api/hello"
 }
 
 func (p *privateReviewProxy) modelPath(path string) bool {
