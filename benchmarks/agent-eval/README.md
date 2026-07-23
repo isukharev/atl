@@ -86,9 +86,10 @@ adds an explicit `private-live` or `synthetic-root` assessment source.
 Synthetic evidence may supplement a private-live chain. Ledger v2 can also
 represent a synthetic-only chain whose failure is a failed n=1 calibration and
 whose fixed regression is an accepted n=3-plus-distinct-holdout assessment.
-Exact before/after task, prompt, execution, executable, and skill transitions
-must match the receipt-backed identities, while the acceptance entry binds the
-regression assessment and its non-empty prompt-contract digest.
+Exact before/after task, prompt, execution, ATL executable, runner executable,
+and skill transitions must match the receipt-backed identities, while the
+acceptance entry binds the regression assessment and its non-empty
+prompt-contract digest. Agent executable drift remains incompatible.
 
 Private sample strength is encoded separately with
 [`private-sampling.schema.json`](private-sampling.schema.json): `n=1` is
