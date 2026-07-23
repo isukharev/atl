@@ -107,6 +107,8 @@ func TestRepositoryJiraPortfolioDiscoveryFixturesDriveProviderOracles(t *testing
 
 			for _, provider := range []string{"codex", "claude"} {
 				spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli."+provider+".json"))
+				scenario := loadRepositoryScenario(t, filepath.Join(root, spec.ScenarioFile))
+				assertJiraPortfolioDiscoveryTransportBudget(t, scenario, spec, methods)
 				assertJiraPortfolioDiscoveryCommandPolicy(
 					t, root, spec, test.promptCommands, test.claudeCommands, test.codexCommands,
 				)
@@ -127,6 +129,78 @@ func TestRepositoryJiraPortfolioDiscoveryFixturesDriveProviderOracles(t *testing
 			}
 		})
 	}
+}
+
+func assertJiraPortfolioDiscoveryTransportBudget(t *testing.T, scenario Scenario, spec RunSpec, methods map[string]int) {
+	t.Helper()
+	if scenario.Budgets.MaxRemoteWrites != 1 {
+		t.Fatalf("Structure value read requires exactly one transport-level remote write budget, got %d", scenario.Budgets.MaxRemoteWrites)
+	}
+	if !slices.Contains(scenario.RequiredMetrics, "remote_writes") {
+		t.Fatal("Structure value read must require observed remote_writes coverage")
+	}
+	coverage := make(map[string]bool, len(scenario.RequiredMetrics)+2)
+	for _, metric := range scenario.RequiredMetrics {
+		coverage[metric] = true
+	}
+	coverage["backend_requests"] = true
+	coverage["duplicate_backend_requests"] = true
+	coverage["remote_writes"] = true
+	checks := make(map[string]bool, len(spec.Checks))
+	for _, check := range spec.Checks {
+		checks[check.Name] = true
+	}
+	observation := Observation{
+		SchemaVersion:      ObservationSchemaVersion,
+		ScenarioID:         scenario.ID,
+		Variant:            spec.Variant,
+		Surface:            SurfaceCLISkill,
+		Eligibility:        EligibilitySupported,
+		BackendObservation: BackendObservationHTTP,
+		SafetyAssurance:    SafetyAssuranceObservedHTTP,
+		Runtime: Runtime{
+			Provider:             spec.Provider,
+			Model:                spec.Model,
+			Reasoning:            spec.Reasoning,
+			ATLVersion:           "benchmark-contract",
+			PromptContractSHA256: strings.Repeat("a", 64),
+		},
+		Metrics: InputMetrics{
+			AgentTurns: 1, ToolCalls: 5, ATLInvocations: 3,
+			OutputBytes: 4096, InputTokens: 1000, OutputTokens: 100,
+			MainThreadInputTokens: 1000, MainThreadOutputTokens: 100,
+			EstimatedCostMicroUSD: 1000, DurationMillis: 1000,
+		},
+		Coverage:    coverage,
+		HTTPMethods: methods,
+		Checks:      checks,
+		CapabilityFamilies: []CapabilityFamilyMetric{
+			{Family: "jira.structure.folders", Invocations: 1, Successes: 1, OutputBytes: 1},
+		},
+	}
+	result, err := Evaluate(scenario, observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "pass" || result.Metrics.RemoteWrites != 1 {
+		t.Fatalf("read-semantic Structure POST was not accepted exactly once: %+v", result)
+	}
+
+	zeroBudget := scenario
+	zeroBudget.Budgets.MaxRemoteWrites = 0
+	result, err = Evaluate(zeroBudget, observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "fail" {
+		t.Fatalf("zero transport-write budget unexpectedly accepted Structure POST: %+v", result)
+	}
+	for _, violation := range result.Violations {
+		if violation.Code == "budget_exceeded" && violation.Subject == "remote_writes" && violation.Observed == 1 {
+			return
+		}
+	}
+	t.Fatalf("zero budget did not produce the expected remote_writes violation: %+v", result.Violations)
 }
 
 func TestRepositoryJiraPortfolioDiscoverySamplingPairIdentity(t *testing.T) {
