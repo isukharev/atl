@@ -56,11 +56,13 @@ preflight before identity-bearing `jira status` or issue-level repair.
 
 When the installed plugin exposes `atl` MCP tools, prefer them for transient,
 bounded evidence reads: typed arguments remove shell construction and the
-server registers no mutation or filesystem tool. Load
-[mcp.md](reference/mcp.md) for its exact thirteen-tool route and CLI fallback
-boundary. Use bounded Structure metadata/view through MCP; continue using the
-CLI for raw Structure forest/values, durable mirrors, exports,
-diff/plan/status, attachments, and every guarded write.
+server registers no mutation or arbitrary-filesystem tool. Load
+[mcp.md](reference/mcp.md) for its exact fifteen-tool route and CLI fallback
+boundary. Use bounded Structure metadata/view through MCP. For content-free
+health counts of an existing durable mirror, use the no-argument mirror snapshot
+tool only when the owner has configured `ATL_MIRROR_ROOT`. Continue using the
+CLI for raw Structure forest/values, mirror content/status/diff, exports,
+diff/plan, attachments, and every guarded write.
 
 ## Mental model
 

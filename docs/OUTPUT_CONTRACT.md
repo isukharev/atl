@@ -103,7 +103,7 @@ not themselves grant write authority.
 
 `atl mcp serve` is a separate stdio protocol transport, so global CLI output
 flags and process exit envelopes do not apply to individual tool calls. Each of
-the thirteen registered tools has inferred input/output JSON Schema and returns
+the fifteen registered tools has inferred input/output JSON Schema and returns
 typed `structuredContent`; compatible clients may also expose the SDK's text
 projection. Tool failures set the MCP error result and contain a JSON text
 object with stable `kind`, `remediation`, and diagnostic `message` fields.
@@ -136,6 +136,14 @@ selected stored-folder row at relative depth zero; exact path selections are
 normalized and compared with the returned path. MCP scans at most 1000 forest
 rows and applies that cap before any folder-value query. Raw forest formulas, arbitrary value matrices,
 pull, and export are not MCP tools.
+`jira_mirror_snapshot` and `confluence_mirror_snapshot` accept an empty object
+only. They inspect the exact canonical mirror root selected by
+`ATL_MIRROR_ROOT`, require a real `.atl` directory, perform no backend request,
+and return the existing fixed-shape Jira or Confluence snapshot contract without
+paths, item identities, or content. Local integrity findings are represented by
+the returned `complete` and reconciled bucket fields whenever a snapshot can be
+formed; root/configuration failures remain classified tool errors. Both always
+return `remote_requested:false`.
 Unrestricted output properties use the JSON-Schema object form `{}` rather
 than the equivalent boolean `true` for broad MCP-client compatibility.
 

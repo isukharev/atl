@@ -27,6 +27,9 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 	if family, ok := CapabilityFamilyForMCP("jira_structure_view"); !ok || family != "jira.structure.view" {
 		t.Fatalf("MCP Structure view family=%q ok=%t", family, ok)
 	}
+	if family, ok := CapabilityFamilyForMCP("jira_mirror_snapshot"); !ok || family != "jira.mirror.snapshot" {
+		t.Fatalf("MCP Jira mirror snapshot family=%q ok=%t", family, ok)
+	}
 	if family, ok := CapabilityFamilyForCLI([]string{"jira", "issue", "refs", private}); !ok || family != "jira.issue.refs" {
 		t.Fatalf("CLI refs family=%q ok=%t", family, ok)
 	}
@@ -54,6 +57,9 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 	if family, ok := CapabilityFamilyForMCP("confluence_table_extract"); !ok || family != "confluence.table.extract" {
 		t.Fatalf("MCP Confluence table extract family=%q ok=%t", family, ok)
 	}
+	if family, ok := CapabilityFamilyForMCP("confluence_mirror_snapshot"); !ok || family != "confluence.mirror.snapshot" {
+		t.Fatalf("MCP Confluence mirror snapshot family=%q ok=%t", family, ok)
+	}
 	if family, ok := CapabilityFamilyForCLI([]string{"conf", "diff", private, "--into", "mirror"}); !ok || family != "confluence.diff" {
 		t.Fatalf("CLI Confluence diff family=%q ok=%t", family, ok)
 	}
@@ -76,6 +82,8 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 		{[]string{"jira", "structure", "pull-issues", "42", "--root", "100"}, "jira.structure.pull-issues"},
 		{[]string{"jira", "structure", "export", "42", "--format", "json", "--out", "snapshot.json"}, "jira.structure.export"},
 		{[]string{"jira", "structure", "view", "snapshot.json"}, "jira.structure.view"},
+		{[]string{"jira", "snapshot"}, "jira.mirror.snapshot"},
+		{[]string{"conf", "snapshot"}, "confluence.mirror.snapshot"},
 		{[]string{"jira", "board", "list", "--project", "DEMO"}, "jira.board.list"},
 		{[]string{"--read-only", "--config-dir", "/tmp/config", "jira", "board", "list", "--limit", "20"}, "jira.board.list"},
 		{[]string{"jira", "board", "get", "42"}, "jira.board.get"},

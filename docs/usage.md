@@ -105,14 +105,16 @@ execute a mutating entry.
 
 ### `atl mcp serve`
 
-Run the typed remote-read-only agent tool surface over MCP stdio:
+Run the typed read-only agent tool surface over MCP stdio:
 
 ```bash
 atl mcp serve
 ```
 
-The process registers thirteen explicit Jira/Confluence evidence tools and no
-mutation, shell, arbitrary-file, mirror-write, or raw-REST tool. Stdout is
+The process registers fifteen explicit Jira/Confluence evidence tools and no
+mutation, shell, arbitrary-file, mirror-write, or raw-REST tool. Two no-argument
+tools inspect only an explicit valid `ATL_MIRROR_ROOT`, offline, and return
+content-free mirror health counts. Stdout is
 reserved for protocol frames, startup skips self-update, and tool errors expose
 the same stable `kind`/`remediation` classes as CLI JSON. Install through the
 Claude Code/Codex plugin or see [mcp.md](mcp.md) for the exact tools, bounds,
@@ -178,7 +180,7 @@ usage error (`2`) — fix the input rather than re-running setup.
 
 | variable | effect |
 |---|---|
-| `ATL_MIRROR_ROOT` | default mirror root for `conf pull`, `conf status`, `conf diff`, and `jira pull` (so a workspace fixes one location without re-passing `--into`; an explicit `--into` still overrides it) |
+| `ATL_MIRROR_ROOT` | default mirror root for `conf pull`, `conf status`, `conf diff`, and `jira pull`; required by the no-argument MCP mirror snapshot tools, which validate an existing `.atl` directory and never accept a model-supplied path (an explicit CLI `--into` still overrides it) |
 
 Mirror writes are contained beneath the selected root even when a checkout
 contains descendant symlinks. Mirror listings used by `status` and directory

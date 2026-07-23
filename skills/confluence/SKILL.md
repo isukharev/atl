@@ -52,6 +52,10 @@ write command after explicit approval.
   In an extracted cell, use `text` for whitespace-normalized exact values and
   plain-text answers; use the also whitespace-normalized `markdown` only when
   inline formatting is explicitly requested.
+- Existing mirror health counts: use `confluence_mirror_snapshot` with no
+  arguments only when the owner configured the exact `ATL_MIRROR_ROOT`. It is
+  offline and content-free; inspect `complete`, `reconciled`, native,
+  validation, and render buckets. Use CLI for paths, content, status, or diff.
 - CLI one-off read: `page resolve` once for a URL, then `page outline` before an
   exact bounded `page section`; use `page view -o text` only when the full page
   is actually required. Honor `complete` and duplicate-heading `--occurrence`.
