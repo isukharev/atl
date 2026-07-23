@@ -32,7 +32,10 @@ When the plugin exposes typed `atl` MCP tools, use the equivalent transient
 route without shell: call `confluence_search` and `jira_issue_search` once,
 freeze only complete candidate pages, then use `jira_issue_field_get` plus
 `confluence_page_outline` and `confluence_page_section` for the selected
-evidence. Reuse a numeric Confluence result id directly. Do not mix MCP and CLI
+evidence. When the selected evidence is tabular, use
+`confluence_table_summary` and then `confluence_table_extract` for one exact
+table instead of reading a broader section. Reuse a numeric Confluence result
+id directly. Do not mix MCP and CLI
 reads merely to repeat already complete evidence; fall back to the CLI workflow
 below when MCP is unavailable or the task needs an operation outside its
 read-only surface.

@@ -103,7 +103,7 @@ not themselves grant write authority.
 
 `atl mcp serve` is a separate stdio protocol transport, so global CLI output
 flags and process exit envelopes do not apply to individual tool calls. Each of
-the nine registered tools has inferred input/output JSON Schema and returns
+the eleven registered tools has inferred input/output JSON Schema and returns
 typed `structuredContent`; compatible clients may also expose the SDK's text
 projection. Tool failures set the MCP error result and contain a JSON text
 object with stable `kind`, `remediation`, and diagnostic `message` fields.
@@ -113,6 +113,11 @@ paths, query values, and response bodies.
 `confluence_search` returns the same qualified schema-v1 search envelope as
 the CLI, including top-level `complete`, `truncated`, optional
 `partial_reason`, and `next_cursor`; candidate page bodies are not included.
+`confluence_table_summary` returns the content-free structural summary contract.
+`confluence_table_extract` requires one positive table index and returns exactly
+that expanded table. Both reject an encoded result larger than `max_bytes`
+instead of clipping cells or silently returning a partial structure. Their
+error messages do not repeat CSF parser text or malformed cell content.
 Unrestricted output properties use the JSON-Schema object form `{}` rather
 than the equivalent boolean `true` for broad MCP-client compatibility.
 

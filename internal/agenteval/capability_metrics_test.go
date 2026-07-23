@@ -42,6 +42,12 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 	if family, ok := CapabilityFamilyForMCP("confluence_search"); !ok || family != "confluence.search" {
 		t.Fatalf("MCP Confluence search family=%q ok=%t", family, ok)
 	}
+	if family, ok := CapabilityFamilyForMCP("confluence_table_summary"); !ok || family != "confluence.table.summary" {
+		t.Fatalf("MCP Confluence table summary family=%q ok=%t", family, ok)
+	}
+	if family, ok := CapabilityFamilyForMCP("confluence_table_extract"); !ok || family != "confluence.table.extract" {
+		t.Fatalf("MCP Confluence table extract family=%q ok=%t", family, ok)
+	}
 	if family, ok := CapabilityFamilyForCLI([]string{"conf", "diff", private, "--into", "mirror"}); !ok || family != "confluence.diff" {
 		t.Fatalf("CLI Confluence diff family=%q ok=%t", family, ok)
 	}
