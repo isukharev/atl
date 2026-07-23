@@ -19,7 +19,8 @@ Jira rejects unknown field ids, status names, and link types — discover the va
   provenance plus deterministic `summary` counts and the selected field's
   `last_changes`. Read summary cardinalities and consistency fields instead of
   manually recounting `history`; omit `--summary-only` only when individual
-  raw changes are required. `chronological_ascending:null` means the
+  raw changes are required, because an explicit false value is rejected.
+  `chronological_ascending:null` means the
   sequence was not comparable. Time flags are local post-read filters.
   Date-only values use one observed Jira current-user IANA timezone lookup and
   expose the resolved UTC interval. Midnight gaps/folds cover the complete real

@@ -92,7 +92,9 @@ omit it only when individual history rows are required. A false
 `chronological_comparable` makes `chronological_ascending` null, and a true
 `fetched_matches_total` does not override `complete:false`. For date-only
 periods, retain `boundary_time_zone` and the canonical instant fields as part of
-the evidence. One current-user GET is expected per top-level history/digest
+the evidence. An explicit `--summary-only=false` is rejected before backend
+access; omit the flag instead when raw rows are required. One current-user GET
+is expected per top-level history/digest
 command; a digest reuses it. Midnight gaps/folds are represented by the
 complete real civil-day interval, while a fully skipped date fails closed.
 Explicit-offset RFC3339 bounds skip the lookup. Exit 8 on an

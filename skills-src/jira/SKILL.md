@@ -98,7 +98,8 @@ absence. Prefer transient batch export for several known keys over shell loops.
 For changelog arithmetic or consistency checks, add `--summary-only` so the
 model receives provenance, filters, deterministic facts, and selected-field
 `last_changes` without raw history rows. Omit it only when individual changes
-are themselves required evidence.
+are themselves required evidence. Never append `--summary-only=false`: atl
+rejects an explicit false value before backend access.
 
 ## Fix mirror identity before durable work
 

@@ -1553,6 +1553,9 @@ the projection neither repeats nor broadens the backend request. Its text
 renderer contains deterministic facts and field buckets plus bounded
 `last_changes` for explicitly selected fields, never the raw history rows.
 Omitting the flag preserves the full JSON and text output byte contract.
+An explicitly supplied false value, including a later duplicate override, is
+rejected with exit 2 before backend access; callers must omit the flag to
+request the full raw-history contract.
 
 `jira epic digest` exposes the same fields under `period`. A quarter is resolved
 once in the Jira current-user calendar and the resulting zone is passed into

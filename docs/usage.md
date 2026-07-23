@@ -2788,6 +2788,8 @@ source totals, `filters`, `summary`, and selected-field `last_changes`; it does
 not add another backend request. Its text form contains bounded deterministic
 facts, field buckets, and any selected-field last changes rather than raw
 changelog rows. Without this flag, the JSON and text contracts are unchanged.
+An explicit false form such as `--summary-only=false` is a usage error before
+backend access. Omit the flag when raw history is intentionally required.
 
 ### `atl jira epic digest`
 
