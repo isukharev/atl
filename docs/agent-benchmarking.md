@@ -255,6 +255,12 @@ ceiling qualifier and terminal punctuation of each risk sentence instead of
 accepting shortened evidence. The historical neutral comparison remains
 unchanged.
 
+The semantic run-check kind `json_string_equals_optional_period` is deliberately
+narrow: its expected value is a canonical non-empty string without a terminal
+full stop, and the observed value may be either that exact string or that string
+plus one full stop. It does not fold case, trim whitespace, remove qualifiers,
+or accept a second punctuation mark.
+
 New multi-surface scenarios use `interface_invocations`,
 `max_interface_invocations`, and the corresponding `interface_*` run-check
 aliases. Existing `atl_invocations` contracts remain valid; when the generic

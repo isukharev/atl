@@ -166,7 +166,8 @@ func semanticRunChecks(checks []RunCheck) ([]RunCheck, error) {
 
 func runCheckClass(kind string) string {
 	switch kind {
-	case "json_equals", "json_present", "json_equals_workspace_json", "workspace_file_sha256":
+	case "json_equals", "json_string_equals_optional_period", "json_present",
+		"json_equals_workspace_json", "workspace_file_sha256":
 		return "semantic"
 	case "atl_invocations_min", "atl_invocations_max", "atl_all_succeeded", "atl_failures_equals",
 		"interface_invocations_min", "interface_invocations_max", "interface_all_succeeded", "interface_failures_equals",
