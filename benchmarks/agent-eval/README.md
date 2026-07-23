@@ -195,6 +195,8 @@ The realistic matrix currently contains:
 | surface native | `jira-structure-view-mcp-holdout` | distinct typed Structure hierarchy with nested non-issue rows and complete accessibility |
 | surface native | `confluence-page-evidence-mcp` | outline-first selection of one approved repeated-heading section through three bounded typed calls |
 | surface native | `confluence-page-evidence-holdout` | distinct three-occurrence page topology with different current evidence |
+| surface native | `confluence-paginated-search-evidence-mcp` | terminal three-page search followed by ordered outline/section evidence for every current record |
+| surface native | `confluence-paginated-search-evidence-holdout` | distinct two-page pagination and repeated-heading topology with different current controls |
 | surface native | `confluence-table-analytics` | bounded selected-table analysis with explicit filter/count/sum semantics, merged cells, links, and safe CSV |
 | surface native | `confluence-table-analytics-mcp` | one typed selected-table read with the same analytics and raw untrusted-data semantics |
 | surface native | `confluence-table-summary` | content-free shapes with explicit expanded-grid and rowspan/colspan source/covered semantics |
@@ -752,6 +754,18 @@ heading topology from two occurrences to three, and all approved values while
 preserving the same response, route, completeness, and safety semantics.
 These sample sizes are regression and generalization gates, not a fine-grained
 provider latency or reliability comparison.
+
+`confluence-paginated-search-evidence` retains the historical neutral CLI/MCP
+comparison. The current surface-native `confluence-paginated-search-evidence-mcp`
+contract adds provider-paired Codex Luna/high and Claude Code Opus/high runs at
+n=3. It requires three qualified search pages to reach terminal completeness,
+then outline and bounded-section calls for the three selected current records
+in ascending id order. Exact capability-family and sequence oracles require
+nine successful typed calls, nine GETs, three intentional repeated page
+targets, and zero writes. Its distinct n=1 holdout changes the query, facts,
+candidate identities, pagination from three pages to two, selected-source count,
+and repeated-heading structure while preserving the same closed response
+schema and completeness/safety semantics.
 
 `confluence-decision-brief` is the longer synthesis cell. Three pages contribute
 an objective, two open risks, and an approved decision that supersedes a draft

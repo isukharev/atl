@@ -233,6 +233,15 @@ model, and pricing differ in a paired MCP cell. Execute n=1 calibration before
 the n=3 regression configuration by passing `run --repetitions 1`, and require
 a distinct same-class holdout before accepting the regression result.
 
+The surface-native paginated Confluence search cohort applies the same sampling
+rule to multi-step typed navigation. Its primary provider pair traverses three
+qualified search pages and then reads three outline/section pairs in exact
+order; the distinct holdout uses two search pages, two selected sources, and a
+different repeated-heading topology. Both contracts require qualified terminal
+pagination, bounded evidence, exact capability-family counts and sequence,
+GET-only transport, and zero writes. This supplements rather than replaces the
+historical neutral CLI/MCP comparison.
+
 New multi-surface scenarios use `interface_invocations`,
 `max_interface_invocations`, and the corresponding `interface_*` run-check
 aliases. Existing `atl_invocations` contracts remain valid; when the generic
