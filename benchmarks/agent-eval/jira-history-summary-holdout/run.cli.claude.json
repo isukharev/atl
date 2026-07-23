@@ -7,7 +7,7 @@
   "variant": "history-summary-partial-holdout-v1",
   "model": "claude-opus-4-8",
   "reasoning": "high",
-  "prompt_file": "prompt.v1.md",
+  "prompt_file": "prompt.claude.v1.md",
   "response_schema_file": "response-schema.v1.json",
   "qualitative_rubric_file": "rubric.v1.json",
   "workspace_template": "workspace",
@@ -22,7 +22,7 @@
   "allowed_tools": ["Bash(atl *)", "Skill"],
   "allowed_atl_commands": [
     "atl capabilities --task jira/evidence",
-    "atl jira issue history RV-9 --summary-only"
+    "atl jira issue history RV-9 --summary-only --"
   ],
   "checks": [
     {"name": "atl_succeeded", "kind": "atl_all_succeeded"},

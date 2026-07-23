@@ -136,7 +136,9 @@ from the model context. The primary separates filtered, fetched, and total
 cardinality plus missing and duplicate non-empty ids. The holdout preserves
 id-first field buckets, incomplete pagination, and the `comparable:false` /
 `ascending:null` ordering state. Both are read-only CLI-skill cases with paired
-Codex and Claude Code run specs.
+Codex and Claude Code run specs. The Claude command prefix ends with the
+standard `--` option terminator, so an admitted trailing token becomes an
+invalid extra positional rather than a flag override.
 
 Validate and inventory the complete corpus before spending model budget:
 
