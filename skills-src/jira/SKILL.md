@@ -35,7 +35,10 @@ If the plugin exposes typed MCP, prefer `jira_fields`, `jira_issue_search`,
 `jira_epic_digest`, `jira_board_view`, `jira_structure_get`, and
 `jira_structure_view` for bounded transient reads. Use `jira_mirror_snapshot`
 with no arguments only for offline content-free health counts of the exact
-owner-configured `ATL_MIRROR_ROOT`. They cannot write. For a
+owner-configured `ATL_MIRROR_ROOT`. They cannot write. The catalog, search,
+digest, and board tools default to a 256 KiB encoded-result bound (1 KiB through
+1 MiB allowed); narrow selection before raising `max_bytes`, and never treat an
+oversize failure as clipped evidence. For a
 Structure view, use explicit fields and at most one exact folder selector;
 honor emitted-row/byte bounds, the 1000-row forest scan cap, and completeness.
 Use CLI for mirror content/status/diff, raw Structure
