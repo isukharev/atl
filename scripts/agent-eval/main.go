@@ -40,7 +40,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | inventory CORPUS_ROOT | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | run options | private COMMAND options")
+		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | inventory CORPUS_ROOT | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | aggregate-root ROOT | run options | private COMMAND options")
 	}
 	switch args[0] {
 	case "private":
@@ -141,6 +141,15 @@ func run(args []string) error {
 			results = append(results, result)
 		}
 		aggregate, err := agenteval.AggregateResults(results)
+		if err != nil {
+			return err
+		}
+		return writeJSON(aggregate)
+	case "aggregate-root":
+		if len(args) != 2 {
+			return fmt.Errorf("aggregate-root requires exactly one marked synthetic output root")
+		}
+		aggregate, err := agenteval.AggregateSyntheticOutputRoot(args[1])
 		if err != nil {
 			return err
 		}

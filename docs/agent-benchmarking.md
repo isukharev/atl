@@ -260,6 +260,7 @@ observation, and combine comparable result files into p50/p90 groups:
 go run ./scripts/agent-eval validate internal/cli/testdata/agent-eval/*.json
 go run ./scripts/agent-eval evaluate scenario.json observation.json >result.json
 go run ./scripts/agent-eval aggregate runs/*.result.json >aggregate.json
+go run ./scripts/agent-eval aggregate-root marked-synthetic-runs >aggregate.json
 ```
 
 Aggregation separates providers, exact models, agent versions, variants,
@@ -268,6 +269,21 @@ and skill activation. The private prompt-contract digest is deliberately not
 serialized into or used as a visible aggregate dimension. Compare baseline and
 candidate within one such runtime group; do not compare raw turns or dollar
 estimates across providers.
+
+Use `aggregate-root` for a complete current synthetic run root created by the
+runner. It validates the owner-only root marker, requires empty scratch state,
+inventories every contiguous `run-NN/result.json` slot, and rejects symlinks,
+unsafe permissions, private-local data, non-public task classes, or mixed
+cohort identities. Its schema-v1 envelope contains the existing aggregate plus
+the result/cohort counts and a domain-separated SHA-256 digest of the exact
+relative result slots and bytes. A second byte pass and final inventory reject
+sources changed during aggregation. The command fails closed where owner-only
+access cannot be established (currently Windows), is read-only, and emits no
+source paths. It does not replace the separate marked lifecycle and scorecard
+for private-live evidence. Aggregate output still contains benchmark
+identities; keep it private until the normal privacy and leak review. Keep
+explicit-path `aggregate` for reviewed historical or deliberately selected
+result sets.
 
 ### Qualitative answer review
 

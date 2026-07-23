@@ -18,7 +18,7 @@ import (
 )
 
 func TestRunRejectsMissingAndUnknownCommands(t *testing.T) {
-	for _, args := range [][]string{nil, {"unknown"}, {"evaluate"}, {"aggregate"}, {"inventory"}, {"inventory", "one", "two"}, {"validate-pair"}, {"validate-pair", "one.json"}} {
+	for _, args := range [][]string{nil, {"unknown"}, {"evaluate"}, {"aggregate"}, {"aggregate-root"}, {"aggregate-root", "one", "two"}, {"inventory"}, {"inventory", "one", "two"}, {"validate-pair"}, {"validate-pair", "one.json"}} {
 		if err := run(args); err == nil {
 			t.Fatalf("run(%v) succeeded", args)
 		}
@@ -28,6 +28,76 @@ func TestRunRejectsMissingAndUnknownCommands(t *testing.T) {
 	}
 	if err := run([]string{"validate", "does-not-exist.json"}); err == nil || !strings.Contains(err.Error(), "does-not-exist") {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestRunAggregateRootEmitsCompleteSyntheticEnvelope(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("aggregate-root fails closed until owner-only ACLs can be verified")
+	}
+	scenario := agenteval.Scenario{
+		SchemaVersion: agenteval.ScenarioSchemaVersion,
+		ID:            "jira.cli-evidence", TaskClass: "jira/evidence",
+		Description:          "Collect bounded synthetic evidence.",
+		DataClass:            "synthetic",
+		RequiredCapabilities: []string{"jira.issue.fields"},
+		RequiredChecks:       []string{"answer_correct"},
+		RequiredMetrics:      []string{"backend_requests", "output_bytes"},
+		Budgets: agenteval.Budgets{
+			MaxBackendRequests: 2, MaxOutputBytes: 1024, AllowedHTTPMethods: []string{"GET"},
+		},
+	}
+	observation := agenteval.Observation{
+		SchemaVersion: agenteval.ObservationSchemaVersion,
+		ScenarioID:    scenario.ID,
+		Variant:       "baseline",
+		Runtime:       agenteval.Runtime{Provider: "codex", Model: "test-model", Reasoning: "high", ATLVersion: "test-atl"},
+		Metrics:       agenteval.InputMetrics{OutputBytes: 128},
+		Coverage:      map[string]bool{"backend_requests": true, "output_bytes": true},
+		HTTPMethods:   map[string]int{"GET": 1},
+		Checks:        map[string]bool{"answer_correct": true},
+	}
+	result, err := agenteval.Evaluate(scenario, observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(t.TempDir(), "runs")
+	if _, err := agenteval.PreparePrivateOutputRoot(root, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	runDirectory := filepath.Join(root, scenario.ID, "codex", "baseline", "run-01")
+	if err := os.MkdirAll(runDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runDirectory, "result.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	previous := os.Stdout
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = writeEnd
+	codeErr := run([]string{"aggregate-root", root})
+	_ = writeEnd.Close()
+	os.Stdout = previous
+	var output bytes.Buffer
+	_, _ = io.Copy(&output, readEnd)
+	_ = readEnd.Close()
+	if codeErr != nil {
+		t.Fatal(codeErr)
+	}
+	var aggregate agenteval.SyntheticRootAggregate
+	if err := json.Unmarshal(output.Bytes(), &aggregate); err != nil {
+		t.Fatalf("output=%s err=%v", output.Bytes(), err)
+	}
+	if aggregate.SchemaVersion != agenteval.SyntheticRootAggregateSchemaVersion || aggregate.Results != 1 || aggregate.Cohorts != 1 || len(aggregate.SourceSHA256) != 64 {
+		t.Fatalf("aggregate=%+v", aggregate)
 	}
 }
 
