@@ -33,10 +33,12 @@ write command after explicit approval.
 
 If the plugin exposes typed MCP, prefer `jira_fields`, `jira_issue_search`,
 `jira_epic_digest`, `jira_board_view`, `jira_structure_get`, and
-`jira_structure_view` for bounded transient reads. They cannot write. For a
+`jira_structure_view` for bounded transient reads. Use `jira_mirror_snapshot`
+with no arguments only for offline content-free health counts of the exact
+owner-configured `ATL_MIRROR_ROOT`. They cannot write. For a
 Structure view, use explicit fields and at most one exact folder selector;
 honor emitted-row/byte bounds, the 1000-row forest scan cap, and completeness.
-Use CLI for mirrors, raw Structure
+Use CLI for mirror content/status/diff, raw Structure
 forest/values, exports/attachments, operations absent from MCP, and every
 mutation.
 

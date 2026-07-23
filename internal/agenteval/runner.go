@@ -605,6 +605,14 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if err := mkdirPrivate(evalDir); err != nil {
 		return Result{}, err
 	}
+	mirrorRoot := filepath.Join(evalDir, "mirror")
+	if loaded.spec.EffectiveBackendMode() == BackendModeSynthetic && loaded.spec.EffectiveSurface() == SurfaceATLMCP {
+		resolvedMirrorRoot, rootErr := syntheticMCPMirrorRoot(workspace, mirrorRoot)
+		if rootErr != nil {
+			return Result{}, rootErr
+		}
+		mirrorRoot = resolvedMirrorRoot
+	}
 	counterPath := filepath.Join(evalDir, "atl-invocations.jsonl")
 	guardCounterPath := filepath.Join(evalDir, "guard-decisions.jsonl")
 	wrapperDir := filepath.Join(runDir, "bin")
@@ -770,13 +778,13 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 				brokerEnvironment["ATL_READ_ONLY"] = "1"
 			}
 			brokerEnvironment["ATL_CONFIG_DIR"] = atlConfigDir
-			brokerEnvironment["ATL_MIRROR_ROOT"] = filepath.Join(evalDir, "mirror")
+			brokerEnvironment["ATL_MIRROR_ROOT"] = mirrorRoot
 		} else {
 			for name, value := range backendEnvironment {
 				brokerEnvironment[name] = value
 			}
 			brokerEnvironment["ATL_CONFIG_DIR"] = atlConfigDir
-			brokerEnvironment["ATL_MIRROR_ROOT"] = filepath.Join(evalDir, "mirror")
+			brokerEnvironment["ATL_MIRROR_ROOT"] = mirrorRoot
 			if codexSyntheticWriteCLI {
 				brokerEnvironment["ATL_EVAL_ALLOW_SYNTHETIC_WRITES"] = "1"
 			} else {
@@ -813,7 +821,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			"ATL_READ_ONLY":   "1",
 			"ATL_NO_UPDATE":   "1",
 			"ATL_CONFIG_DIR":  atlConfigDir,
-			"ATL_MIRROR_ROOT": filepath.Join(evalDir, "mirror"),
+			"ATL_MIRROR_ROOT": mirrorRoot,
 		}
 		for name, value := range backendEnvironment {
 			mcpEnvironment[name] = value
@@ -940,7 +948,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	environment["ATL_READ_ONLY"] = "1"
 	environment["ATL_NO_UPDATE"] = "1"
 	environment["ATL_CONFIG_DIR"] = atlConfigDir
-	environment["ATL_MIRROR_ROOT"] = filepath.Join(evalDir, "mirror")
+	environment["ATL_MIRROR_ROOT"] = mirrorRoot
 	environment["ATL_EVAL_REAL_BINARY"] = options.ATLBinary
 	environment["ATL_EVAL_COUNTER"] = counterPath
 	environment["ATL_EVAL_GUARD_COUNTER"] = guardCounterPath
@@ -2015,6 +2023,38 @@ func writeClaudeExternalMCPConfig(path, endpoint, capability string) error {
 		return err
 	}
 	return writePrivateFile(path, append(data, '\n'))
+}
+
+// syntheticMCPMirrorRoot binds typed-MCP runs to a copied fixture mirror when
+// one exists. The candidate is fixed by the harness rather than supplied by the
+// model, and both the root and marker must remain real directories contained in
+// the copied workspace. Other runs retain the existing isolated fallback.
+func syntheticMCPMirrorRoot(workspace, fallback string) (string, error) {
+	candidate := filepath.Join(workspace, "mirror")
+	info, err := os.Lstat(candidate)
+	if errors.Is(err, os.ErrNotExist) {
+		return fallback, nil
+	}
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("synthetic MCP fixture mirror is not a real directory")
+	}
+	workspaceReal, err := filepath.EvalSymlinks(workspace)
+	if err != nil {
+		return "", fmt.Errorf("resolve synthetic MCP workspace: %w", err)
+	}
+	candidateReal, err := filepath.EvalSymlinks(candidate)
+	if err != nil {
+		return "", fmt.Errorf("resolve synthetic MCP fixture mirror: %w", err)
+	}
+	rel, err := filepath.Rel(workspaceReal, candidateReal)
+	if err != nil || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("synthetic MCP fixture mirror escapes the copied workspace")
+	}
+	marker, err := os.Lstat(filepath.Join(candidateReal, ".atl"))
+	if err != nil || !marker.IsDir() || marker.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("synthetic MCP fixture mirror has no real .atl directory")
+	}
+	return candidateReal, nil
 }
 
 func writeClaudeMCPConfig(path, atlBinary string, environment map[string]string) error {

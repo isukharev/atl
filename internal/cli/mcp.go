@@ -10,7 +10,7 @@ import (
 func newMCPCommand() *cobra.Command {
 	group := &cobra.Command{
 		Use:   "mcp",
-		Short: "Serve the typed remote-read-only agent tool surface",
+		Short: "Serve the typed read-only agent tool surface",
 	}
 	serve := &cobra.Command{
 		Use:   "serve",

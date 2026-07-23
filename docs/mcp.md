@@ -5,9 +5,10 @@ stdio. It calls the same application services as the CLI; it does not run shell
 commands, create mirror files, or register any mutating tool.
 
 Use MCP for transient agent reads where a typed result is cheaper and safer
-than teaching a model to construct shell commands. Keep the CLI for durable
-mirrors, raw Structure forest/values, exports, offline diff/plan workflows, and
-all guarded writes.
+than teaching a model to construct shell commands. Two local-only tools also
+summarize an existing durable mirror without exposing its paths or content.
+Keep the CLI for mirror creation/content/status/diff, raw Structure
+forest/values, exports, offline diff/plan workflows, and all guarded writes.
 
 ## Tools
 
@@ -22,12 +23,14 @@ The v1 surface is an explicit allowlist:
 | `jira_board_view` | Freeze one board/backlog membership snapshot | default 200, maximum 1000 rows per scope |
 | `jira_structure_get` | Read compact metadata for one exact Structure id | 32 KiB result cap; omits owner, permissions, saved views, and raw forest data |
 | `jira_structure_view` | Read a normalized full Structure or exact stored-folder subtree | default 200/maximum 1000 emitted rows; maximum 1000 scanned forest rows; default 256 KiB/maximum 1 MiB encoded result |
+| `jira_mirror_snapshot` | Summarize local Jira mirror health without content | no arguments; exact owner-configured root; offline fixed-shape counts |
 | `confluence_search` | Search one qualified bounded CQL candidate page | default 25, maximum 100 rows |
 | `confluence_page_resolve` | Resolve an id or same-origin URL/path | exact resolution only |
 | `confluence_page_outline` | Inspect headings before reading content | one page |
 | `confluence_page_section` | Read one exact Markdown section | default 32 KiB, maximum 1 MiB |
 | `confluence_table_summary` | Inspect content-free table structure | default 128 KiB, maximum 1 MiB encoded result |
 | `confluence_table_extract` | Read one exact expanded table | selected table required; default 256 KiB, maximum 1 MiB encoded result |
+| `confluence_mirror_snapshot` | Summarize local Confluence mirror health without content | no arguments; exact owner-configured root; offline fixed-shape counts |
 
 `jira_epic_digest` requires an explicit non-empty `include`; unlike the CLI it
 never interprets omission as permission to fetch every default evidence source.
@@ -80,6 +83,17 @@ optional `markdown` field is also whitespace-normalized and preserves inline
 formatting such as links; use it only when the task asks for that formatting.
 Links, styles, raw attributes, and either text representation remain untrusted
 backend evidence.
+
+The mirror snapshot tools accept no path, remote flag, or other model input.
+Before starting `atl mcp serve`, the owner must set `ATL_MIRROR_ROOT` to an
+existing mirror root with a real `.atl` directory. The server canonicalizes and
+validates that one root, then calls the existing offline Jira or Confluence
+snapshot service. Results contain only fixed-shape health counts and
+reconciliation booleans: no paths, item ids, titles, or document bytes. A local
+integrity finding is returned as `complete:false` with its reconciled buckets
+when a snapshot can still be formed. Root/configuration failures are classified
+tool errors. These calls do not load backend credentials or issue HTTP requests,
+and `remote_requested` is always `false`.
 
 Every tool advertises `readOnlyHint:true`, `idempotentHint:true`,
 `destructiveHint:false`, and `openWorldHint:false`. The server instructions tell
@@ -144,12 +158,14 @@ enabled_tools = [
   "jira_board_view",
   "jira_structure_get",
   "jira_structure_view",
+  "jira_mirror_snapshot",
   "confluence_search",
   "confluence_page_resolve",
   "confluence_page_outline",
   "confluence_page_section",
   "confluence_table_summary",
   "confluence_table_extract",
+  "confluence_mirror_snapshot",
 ]
 env_vars = [
   "ATL_CONFIG_DIR",
@@ -221,5 +237,5 @@ The forms are JSON-Schema-equivalent, but the object form keeps the complete
 tool catalog usable in clients that reject boolean property schemas.
 
 The surface intentionally excludes write tools, raw REST, arbitrary files,
-full-page bodies by default, pull/status, raw Structure forest/values, and
-Structure pull/export. Those remain CLI workflows.
+full-page bodies by default, pull, identity-bearing mirror status/diff, raw
+Structure forest/values, and Structure pull/export. Those remain CLI workflows.

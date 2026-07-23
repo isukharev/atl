@@ -1643,3 +1643,63 @@ printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":
 		t.Fatalf("calls=%d body=%q output=%+v", upstreamCalls, upstreamBody, output)
 	}
 }
+
+func TestSyntheticMCPMirrorRootUsesOnlyContainedRealFixture(t *testing.T) {
+	workspace := t.TempDir()
+	fallback := filepath.Join(t.TempDir(), "isolated-mirror")
+	if got, err := syntheticMCPMirrorRoot(workspace, fallback); err != nil || got != fallback {
+		t.Fatalf("absent fixture got=%q err=%v", got, err)
+	}
+
+	candidate := filepath.Join(workspace, "mirror")
+	if err := os.MkdirAll(filepath.Join(candidate, ".atl"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := syntheticMCPMirrorRoot(workspace, fallback); err != nil || got != want {
+		t.Fatalf("contained fixture got=%q want=%q err=%v", got, want, err)
+	}
+}
+
+func TestSyntheticMCPMirrorRootRejectsUnsafeFixture(t *testing.T) {
+	tests := map[string]func(*testing.T, string){
+		"mirror file": func(t *testing.T, workspace string) {
+			writeTestFile(t, filepath.Join(workspace, "mirror"), "not a directory", 0o600)
+		},
+		"missing marker": func(t *testing.T, workspace string) {
+			if err := os.Mkdir(filepath.Join(workspace, "mirror"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"marker symlink": func(t *testing.T, workspace string) {
+			mirror := filepath.Join(workspace, "mirror")
+			if err := os.Mkdir(mirror, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(t.TempDir(), filepath.Join(mirror, ".atl")); err != nil {
+				t.Skipf("symlink unavailable: %v", err)
+			}
+		},
+		"mirror symlink": func(t *testing.T, workspace string) {
+			outside := t.TempDir()
+			if err := os.Mkdir(filepath.Join(outside, ".atl"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(outside, filepath.Join(workspace, "mirror")); err != nil {
+				t.Skipf("symlink unavailable: %v", err)
+			}
+		},
+	}
+	for name, setup := range tests {
+		t.Run(name, func(t *testing.T) {
+			workspace := t.TempDir()
+			setup(t, workspace)
+			if got, err := syntheticMCPMirrorRoot(workspace, filepath.Join(t.TempDir(), "fallback")); err == nil || got != "" {
+				t.Fatalf("unsafe fixture got=%q err=%v", got, err)
+			}
+		})
+	}
+}

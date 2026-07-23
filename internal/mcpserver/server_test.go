@@ -19,6 +19,7 @@ import (
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
+	"github.com/isukharev/atl/internal/mirror"
 )
 
 func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
@@ -34,10 +35,11 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
+		"confluence_mirror_snapshot",
 		"confluence_page_outline", "confluence_page_resolve", "confluence_page_section", "confluence_search",
 		"confluence_table_extract", "confluence_table_summary",
 		"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_search",
-		"jira_structure_get", "jira_structure_view",
+		"jira_mirror_snapshot", "jira_structure_get", "jira_structure_view",
 	}
 	got := make([]string, 0, len(listed.Tools))
 	for _, tool := range listed.Tools {
@@ -88,6 +90,12 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		if (tool.Name == "jira_structure_get" || tool.Name == "jira_structure_view") && !schemaRequired(input, "structure_id") {
 			t.Errorf("tool %s must require structure_id: %#v", tool.Name, tool.InputSchema)
 		}
+		if tool.Name == "jira_mirror_snapshot" || tool.Name == "confluence_mirror_snapshot" {
+			properties, _ := input["properties"].(map[string]any)
+			if len(properties) != 0 || schemaRequired(input, "path") || schemaRequired(input, "remote") {
+				t.Errorf("tool %s must accept no model-controlled input: %#v", tool.Name, tool.InputSchema)
+			}
+		}
 		if tool.OutputSchema == nil {
 			t.Errorf("tool %s has no output schema", tool.Name)
 		}
@@ -107,6 +115,23 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 				}
 			}
 		}
+		if tool.Name == "jira_mirror_snapshot" || tool.Name == "confluence_mirror_snapshot" {
+			output, _ := tool.OutputSchema.(map[string]any)
+			for _, required := range []string{"schema_version", "service", "remote_requested", "complete", "reconciled", "local", "native", "render", "remote"} {
+				if !schemaRequired(output, required) {
+					t.Errorf("tool %s output must require %s: %#v", tool.Name, required, tool.OutputSchema)
+				}
+			}
+			serviceFields := []string{"validation"}
+			if tool.Name == "jira_mirror_snapshot" {
+				serviceFields = []string{"snapshot", "pending"}
+			}
+			for _, required := range serviceFields {
+				if !schemaRequired(output, required) {
+					t.Errorf("tool %s output must require %s: %#v", tool.Name, required, tool.OutputSchema)
+				}
+			}
+		}
 		if path, ok := booleanPropertySchema(tool.OutputSchema, "outputSchema"); ok {
 			t.Errorf("tool %s exposes client-incompatible boolean property schema at %s", tool.Name, path)
 		}
@@ -114,6 +139,136 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 	sort.Strings(got)
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("tools=%v want=%v", got, want)
+	}
+}
+
+func TestMirrorSnapshotToolsAreOfflineContentFreeAndPathless(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".atl"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Jira: func() (JiraReader, error) {
+			return nil, fmt.Errorf("Jira backend must not be resolved")
+		},
+		Confluence: func() (ConfluenceReader, error) {
+			return nil, fmt.Errorf("Confluence backend must not be resolved")
+		},
+		MirrorRoot: func() (string, error) { return root, nil },
+	}))
+	defer closeSessions()
+
+	for _, test := range []struct {
+		tool, service string
+	}{
+		{tool: "jira_mirror_snapshot", service: "jira"},
+		{tool: "confluence_mirror_snapshot", service: "confluence"},
+	} {
+		result := callToolOK(t, client, test.tool, map[string]any{})
+		content, ok := result.StructuredContent.(map[string]any)
+		if !ok || content["service"] != test.service || content["remote_requested"] != false || content["complete"] != true || content["reconciled"] != true {
+			t.Fatalf("%s content=%#v", test.tool, result.StructuredContent)
+		}
+		encoded, err := json.Marshal(result.StructuredContent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(encoded, []byte(root)) || bytes.Contains(encoded, []byte("backend must not be resolved")) {
+			t.Fatalf("%s leaked local or backend detail: %s", test.tool, encoded)
+		}
+	}
+}
+
+func TestMirrorSnapshotReturnsReconciledHealthWhenLocalCheckFails(t *testing.T) {
+	root := t.TempDir()
+	privateID := "SYNTHETIC-PRIVATE-ID"
+	privateBody := "SYNTHETIC-PRIVATE-BODY"
+	m := mirror.New(root)
+	if err := m.Write(filepath.Join(root, "SPACE"), "private-title", &domain.Resource{
+		ID: privateID, Title: "private-title", SpaceKey: "SPACE", Version: 1, Body: []byte("<p>" + privateBody + "</p>"),
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".atl", "base", privateID+".csf"), []byte("<p>other</p>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Confluence: func() (ConfluenceReader, error) {
+			return nil, fmt.Errorf("Confluence backend must not be resolved")
+		},
+		MirrorRoot: func() (string, error) { return root, nil },
+	}))
+	defer closeSessions()
+	result := callToolOK(t, client, "confluence_mirror_snapshot", map[string]any{})
+	content, ok := result.StructuredContent.(map[string]any)
+	native, nativeOK := content["native"].(map[string]any)
+	if !ok || !nativeOK || content["complete"] != false || content["reconciled"] != true || native["baseline_mismatch"] != float64(1) {
+		t.Fatalf("content=%#v", result.StructuredContent)
+	}
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{root, privateID, privateBody, "private-title", "backend must not be resolved"} {
+		if bytes.Contains(encoded, []byte(forbidden)) {
+			t.Fatalf("snapshot leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestMirrorSnapshotRootFailsClosedWithoutPathDisclosure(t *testing.T) {
+	privateRoot := filepath.Join(t.TempDir(), "PRIVATE-MIRROR-NAME")
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		MirrorRoot: func() (string, error) { return privateRoot, nil },
+	}))
+	defer closeSessions()
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: "jira_mirror_snapshot", Arguments: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || result.StructuredContent != nil || bytes.Contains(encoded, []byte(privateRoot)) || bytes.Contains(encoded, []byte("PRIVATE-MIRROR-NAME")) {
+		t.Fatalf("mirror root error leaked configuration: %s", encoded)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content=%T", result.Content[0])
+	}
+	var got toolError
+	if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "configuration_error" || got.Remediation != "complete_configuration" {
+		t.Fatalf("classified error=%+v decode=%v", got, err)
+	}
+}
+
+func TestMirrorSnapshotToolsRejectModelSuppliedProperties(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".atl"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		MirrorRoot: func() (string, error) { return root, nil },
+	}))
+	defer closeSessions()
+	for _, args := range []map[string]any{{"path": root}, {"remote": true}} {
+		result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: "jira_mirror_snapshot", Arguments: args})
+		if err == nil || result != nil || strings.Contains(err.Error(), root) {
+			t.Fatalf("model-controlled mirror arguments were not rejected safely: args=%v result=%+v err=%v", args, result, err)
+		}
+	}
+}
+
+func TestMirrorRootRejectsSymlinkMarker(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, ".atl")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	_, err := mirrorRoot(Dependencies{MirrorRoot: func() (string, error) { return root, nil }})
+	if !errors.Is(err, domain.ErrConfig) || strings.Contains(err.Error(), root) || strings.Contains(err.Error(), outside) {
+		t.Fatalf("err=%v", err)
 	}
 }
 

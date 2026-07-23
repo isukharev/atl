@@ -13,15 +13,17 @@ version gate. Its sweet spot is work where content should be **part of the agent
 
 ## Durable CLI vs transient MCP
 
-The atl plugin includes its own typed remote-read-only MCP surface for bounded
-Jira/Confluence evidence. If the user also has the Atlassian (Rovo) MCP server,
+The atl plugin includes its own typed read-only MCP surface for bounded
+Jira/Confluence evidence and content-free offline mirror health. If the user
+also has the Atlassian (Rovo) MCP server,
 treat all three routes as complementary:
 
 - Use the atl CLI/mirror for durable files, raw Structure forest/values,
   Structure export, offline diff/plan, attachments, scripts, and every guarded
   write.
-- Use atl MCP for one real-time bounded read when its thirteen typed tools cover
-  the task and content must not be persisted to disk.
+- Use atl MCP for one real-time bounded read or one no-argument offline mirror
+  snapshot when its fifteen typed tools cover the task. The snapshot reads only
+  an owner-configured `ATL_MIRROR_ROOT` and exposes no paths or content.
 - Use an independently configured Atlassian/Rovo MCP when its OAuth scope or a
   capability absent from atl is specifically required.
 

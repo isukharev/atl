@@ -518,12 +518,14 @@ binary.
 
 ### `internal/mcpserver`
 
-The stdio MCP transport registers a closed remote-read-only tool inventory and
-calls `JiraService`/`ConfluenceService` methods directly. It never shells back
-into Cobra. Production dependencies are lazy per service/tool call so a missing
-Jira configuration does not suppress Confluence tools, and vice versa. The
-server shares `internal/diagnostic` classifications with CLI errors while MCP
-and CLI retain their transport-specific envelopes.
+The stdio MCP transport registers a closed read-only tool inventory and calls
+application services directly. It never shells back into Cobra. Remote
+dependencies are lazy per service/tool call so a missing Jira configuration
+does not suppress Confluence tools, and vice versa. Local mirror snapshots have
+a separate lazy dependency: an explicit owner-configured root, validated before
+the existing offline content-free snapshot services run. The server shares
+`internal/diagnostic` classifications with CLI errors while MCP and CLI retain
+their transport-specific envelopes.
 
 The explicit registration list is the security boundary. There is no generic
 command dispatcher, raw REST tool, mutation, arbitrary filesystem access, or

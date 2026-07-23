@@ -183,11 +183,12 @@ that interview or inspect sample content unless they opt in; technical setup rem
 without it.
 
 The installed Claude Code/Codex plugin also bundles `atl mcp serve`, a typed
-remote-read-only evidence surface. It uses the same configured host-scoped
-credentials, never copies them into plugin files, and becomes available after
-starting a new agent session with `atl` on `PATH`. Its absence does not make CLI
-setup incomplete; use the CLI fallback and report a plugin/binary version skew
-instead of inventing raw REST calls.
+read-only evidence surface. Remote tools use the same configured host-scoped
+credentials, while the two offline mirror snapshot tools use only an explicit
+`ATL_MIRROR_ROOT`; neither configuration is copied into plugin files. The
+surface becomes available after starting a new agent session with `atl` on
+`PATH`. Its absence does not make CLI setup incomplete; use the CLI fallback and
+report a plugin/binary version skew instead of inventing raw REST calls.
 
 ## Version skew
 
