@@ -188,7 +188,6 @@ func encodePrivateCheckpoint(checkpoint PrivateDailyCheckpoint) ([]byte, error) 
 	if checkpoint.SchemaVersion != PrivateCheckpointSchemaVersion || !privateGitCommitRE.MatchString(checkpoint.Repository.Commit) ||
 		checkpoint.UTCDate == "" || checkpoint.Scorecard.Findings < 0 || checkpoint.Scorecard.LinkedIssues < 0 ||
 		checkpoint.Scorecard.LinkedPullRequests < 0 || checkpoint.Scorecard.Regressions < 0 ||
-		checkpoint.Scorecard.LinkedIssues > checkpoint.Scorecard.Findings || checkpoint.Scorecard.LinkedPullRequests > checkpoint.Scorecard.Findings ||
 		checkpoint.Scorecard.Regressions > checkpoint.Scorecard.Findings || !validPrivateCheckpointDecisions(checkpoint.Scorecard) ||
 		!validPrivateCheckpointWorkspace(checkpoint.Workspace) ||
 		!validSHA256(checkpoint.Scorecard.SourceSHA256) ||

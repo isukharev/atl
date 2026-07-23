@@ -62,6 +62,64 @@ func TestPrivateCheckpointBindsSelectedFindingLedgerVersion(t *testing.T) {
 	}
 }
 
+func TestPrivateCheckpointAcceptsMultipleLinksPerFinding(t *testing.T) {
+	fixture := newPrivateCheckpointFixture(t)
+	fixture.scorecard.LedgerSchemaVersion = PrivateFindingLedgerV2SchemaVersion
+	fixture.scorecard.Findings = 1
+	fixture.scorecard.LinkedIssues = 2
+	fixture.scorecard.LinkedPullRequests = 3
+	fixture.scorecard.Regressions = 1
+	fixture.scorecard.Decisions = PrivateFindingDecisionCounts{Fixed: 1}
+	preview, err := previewPrivateCheckpoint(fixture.options(), fixture.dependencies())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Checkpoint.Scorecard.Findings != 1 ||
+		preview.Checkpoint.Scorecard.LinkedIssues != 2 ||
+		preview.Checkpoint.Scorecard.LinkedPullRequests != 3 {
+		t.Fatalf("scorecard=%+v", preview.Checkpoint.Scorecard)
+	}
+	encoded, err := encodePrivateCheckpoint(preview.Checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, identity := range []string{"finding-", "issue-", "pull-"} {
+		if bytes.Contains(encoded, []byte(identity)) {
+			t.Fatalf("identity %q leaked in %s", identity, encoded)
+		}
+	}
+}
+
+func TestPrivateCheckpointRejectsInvalidAggregateCounts(t *testing.T) {
+	fixture := newPrivateCheckpointFixture(t)
+	preview, err := previewPrivateCheckpoint(fixture.options(), fixture.dependencies())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(*PrivateDailyCheckpoint)
+	}{
+		{"negative findings", func(value *PrivateDailyCheckpoint) { value.Scorecard.Findings = -1 }},
+		{"negative issues", func(value *PrivateDailyCheckpoint) { value.Scorecard.LinkedIssues = -1 }},
+		{"negative pull requests", func(value *PrivateDailyCheckpoint) { value.Scorecard.LinkedPullRequests = -1 }},
+		{"negative regressions", func(value *PrivateDailyCheckpoint) { value.Scorecard.Regressions = -1 }},
+		{"too many regressions", func(value *PrivateDailyCheckpoint) {
+			value.Scorecard.Regressions = value.Scorecard.Findings + 1
+		}},
+		{"decision mismatch", func(value *PrivateDailyCheckpoint) { value.Scorecard.Decisions.Fixed++ }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			checkpoint := preview.Checkpoint
+			test.mutate(&checkpoint)
+			if _, err := encodePrivateCheckpoint(checkpoint); !errors.Is(err, ErrPrivateCheckpointRejected) {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
+
 func TestPrivateCheckpointRepositoryInspectionIsReadOnlyAndTracksDrift(t *testing.T) {
 	repository := newPrivateCheckpointRepository(t)
 	helperDirectory := t.TempDir()
