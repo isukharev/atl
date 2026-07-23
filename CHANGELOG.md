@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Aligned the Jira history primary and holdout execution variants so the
+  attested sampling lifecycle can accept their distinct n=3-plus-holdout
+  evidence without weakening compatibility checks.
 - Aligned the Jira history benchmark's required client-skill activation with
   its prompt authority by permitting only the exact advertised skill file and
   capability-routed reference while continuing to forbid broad discovery.

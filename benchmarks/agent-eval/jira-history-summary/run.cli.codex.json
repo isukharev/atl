@@ -4,7 +4,7 @@
   "category": "surface-native",
   "surface": "cli-skill",
   "provider": "codex",
-  "variant": "history-summary-filtered-v1",
+  "variant": "history-summary-v1",
   "model": "gpt-5.6-luna",
   "reasoning": "high",
   "prompt_file": "prompt.v1.md",

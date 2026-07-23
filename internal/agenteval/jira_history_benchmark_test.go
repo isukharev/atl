@@ -152,6 +152,43 @@ func TestRepositoryJiraHistorySummaryFixturesDriveProviderOracles(t *testing.T) 
 	}
 }
 
+func TestRepositoryJiraHistorySummarySamplingPairIdentity(t *testing.T) {
+	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
+	primaryRoot := filepath.Join(root, "jira-history-summary")
+	holdoutRoot := filepath.Join(root, "jira-history-summary-holdout")
+	primaryScenario := loadRepositoryScenario(t, filepath.Join(primaryRoot, "scenario.v1.json"))
+	holdoutScenario := loadRepositoryScenario(t, filepath.Join(holdoutRoot, "scenario.v1.json"))
+	if primaryScenario.ID == holdoutScenario.ID ||
+		primaryScenario.TaskClass != holdoutScenario.TaskClass ||
+		primaryScenario.DataClass != holdoutScenario.DataClass {
+		t.Fatalf("primary/holdout scenario identity is not distinct-compatible: primary=%+v holdout=%+v", primaryScenario, holdoutScenario)
+	}
+
+	for _, provider := range []string{"codex", "claude"} {
+		primary := loadRepositoryRunSpec(t, filepath.Join(primaryRoot, "run.cli."+provider+".json"))
+		holdout := loadRepositoryRunSpec(t, filepath.Join(holdoutRoot, "run.cli."+provider+".json"))
+		if primary.Variant != holdout.Variant ||
+			primary.Provider != holdout.Provider ||
+			primary.Model != holdout.Model ||
+			primary.Reasoning != holdout.Reasoning ||
+			primary.EffectiveCategory() != holdout.EffectiveCategory() ||
+			primary.EffectiveSurface() != holdout.EffectiveSurface() {
+			t.Fatalf("%s primary/holdout execution identity drifted: primary=%+v holdout=%+v", provider, primary, holdout)
+		}
+		primaryPrompt, err := os.ReadFile(filepath.Join(primaryRoot, primary.PromptFile))
+		if err != nil {
+			t.Fatal(err)
+		}
+		holdoutPrompt, err := os.ReadFile(filepath.Join(holdoutRoot, holdout.PromptFile))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Equal(primaryPrompt, holdoutPrompt) {
+			t.Fatalf("%s holdout does not have a distinct prompt contract", provider)
+		}
+	}
+}
+
 func historyBenchmarkFinal(t *testing.T, result *app.JiraHistorySummaryResult, countField string) []byte {
 	t.Helper()
 	summary := result.Summary
