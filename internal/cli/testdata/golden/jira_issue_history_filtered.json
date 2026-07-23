@@ -36,7 +36,9 @@
   "summary": {
     "history_count": 1,
     "history_id_nonempty_count": 1,
+    "history_id_missing_count": 0,
     "history_ids_unique": true,
+    "history_nonempty_ids_unique": true,
     "author_nonempty_count": 0,
     "timestamp_nonempty_count": 1,
     "chronological_comparable": true,

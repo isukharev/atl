@@ -1497,12 +1497,18 @@ remain valid without an extra field-catalog request.
 summary,last_changes?}`. Each history item preserves both `field` and `field_id`
 when Jira supplies them. `summary` is derived from the final filtered `history`
 array without another backend request. It contains entry/item totals, non-empty
-identity/author/timestamp/field counts, emitted non-empty `from`/`to` member
+identity/author/timestamp/field counts, explicit `history_id_missing_count` and
+`history_nonempty_ids_unique` facts, emitted non-empty `from`/`to` member
 counts, status-item count, multi-item-entry count, stable per-field buckets, and
 the `count_matches_history` / `fetched_matches_total` consistency checks. Field
 buckets use the case-insensitive technical id when available and otherwise the
 trimmed case-insensitive display name, then sort by id/name. Thus
 `distinct_item_field_count == len(summary.fields)`.
+
+`history_ids_unique` retains its original compatibility semantics over every
+emitted id value, including empty values. Use `history_id_missing_count` to
+measure absent ids and `history_nonempty_ids_unique` to detect duplicate
+non-empty ids without conflating the two conditions.
 
 `summary.chronological_comparable` is false if any emitted timestamp cannot be
 parsed. In that state `chronological_ascending` is JSON `null`, rather than a
