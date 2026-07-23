@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/jira/rest/api/2/search",
+      "query_contains": {
+        "jql": "project=RF"
+      },
+      "status": 200,
+      "body": {
+        "startAt": 0,
+        "maxResults": 2,
+        "total": 3,
+        "issues": [
+          {
+            "id": "7001",
+            "key": "RF-7",
+            "fields": {
+              "summary": "Synthetic first reference set",
+              "issuetype": {"name": "Task"},
+              "description": "Shared spec https://docs.example.com/shared and design https://figma.com/file/holdout"
+            }
+          },
+          {
+            "id": "8001",
+            "key": "RF-8",
+            "fields": {
+              "summary": "Synthetic second reference set",
+              "issuetype": {"name": "Story"},
+              "description": "Shared spec https://docs.example.com/shared"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/api/2/issue/RF-7/comment",
+      "query_equals": {
+        "maxResults": "100",
+        "startAt": "0"
+      },
+      "status": 200,
+      "body": {
+        "startAt": 0,
+        "total": 0,
+        "comments": []
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/api/2/issue/RF-8/comment",
+      "query_equals": {
+        "maxResults": "100",
+        "startAt": "0"
+      },
+      "status": 200,
+      "body": {
+        "startAt": 0,
+        "total": 1,
+        "comments": [
+          {
+            "id": "801",
+            "body": "Discussion https://workspace.slack.com/archives/holdout and repeated spec https://docs.example.com/shared"
+          }
+        ]
+      }
+    }
+  ]
+}

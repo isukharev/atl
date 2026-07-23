@@ -1,0 +1,42 @@
+{
+  "schema_version": 6,
+  "scenario_file": "scenario.v1.json",
+  "category": "surface-native",
+  "surface": "cli-skill",
+  "provider": "claude-code",
+  "variant": "jira-reference-summary-v1",
+  "model": "claude-opus-4-8",
+  "reasoning": "high",
+  "prompt_file": "prompt.claude.v1.md",
+  "response_schema_file": "response-schema.v1.json",
+  "qualitative_rubric_file": "rubric.v1.json",
+  "workspace_template": "workspace",
+  "fixture_file": "fixture.json",
+  "repetitions": 1,
+  "timeout_seconds": 300,
+  "max_estimated_cost_microusd": 5000000,
+  "pricing": {
+    "input_microusd_per_million_tokens": 5000000,
+    "output_microusd_per_million_tokens": 25000000
+  },
+  "allowed_tools": ["Bash(atl *)", "Skill"],
+  "allowed_atl_commands": [
+    "atl capabilities --task jira/evidence",
+    "atl jira issue refs --jql project=RF --limit 2 --"
+  ],
+  "checks": [
+    {"name": "atl_succeeded", "kind": "atl_all_succeeded"},
+    {"name": "complete_correct", "kind": "json_equals", "pointer": "/complete", "expected": false},
+    {"name": "guard_clean", "kind": "guard_no_denials"},
+    {"name": "http_exact", "kind": "http_methods_equal", "expected": {"GET": 3}},
+    {"name": "issues_correct", "kind": "json_equals", "pointer": "/issues", "expected": [{"key":"RF-7","complete":true,"truncated":false,"reference_count":2,"reference_kind_counts":[{"name":"design","count":1},{"name":"doc","count":1}],"source_count":2,"source_value_counts":[{"name":"comments","count":0},{"name":"description","count":1}],"complete_source_count":2,"incomplete_source_count":0,"truncated_source_count":0,"reconciliation":{"reference_count_matches_kinds":true,"complete_matches_sources":true,"truncated_matches_sources":true}},{"key":"RF-8","complete":true,"truncated":false,"reference_count":2,"reference_kind_counts":[{"name":"chat","count":1},{"name":"doc","count":1}],"source_count":2,"source_value_counts":[{"name":"comments","count":1},{"name":"description","count":1}],"complete_source_count":2,"incomplete_source_count":0,"truncated_source_count":0,"reconciliation":{"reference_count_matches_kinds":true,"complete_matches_sources":true,"truncated_matches_sources":true}}]},
+    {"name": "mock_clean", "kind": "mock_no_unexpected"},
+    {"name": "no_delegation", "kind": "delegations_none"},
+    {"name": "selection_correct", "kind": "json_equals", "pointer": "/selection", "expected": {"mode":"jql","count":2,"limit":2,"complete":false,"truncated":true}},
+    {"name": "summary_correct", "kind": "json_equals", "pointer": "/summary", "expected": {"issue_count":2,"complete_issue_count":2,"incomplete_issue_count":0,"reference_count":4,"reference_kind_counts":[{"name":"chat","count":1},{"name":"design","count":1},{"name":"doc","count":2}],"source_count":4,"source_value_counts":[{"name":"comments","count":1},{"name":"description","count":2}],"complete_source_count":4,"incomplete_source_count":0,"truncated_source_count":0,"reconciliation":{"count_matches_issues":true,"selection_count_matches_issues":true,"reference_count_matches_kinds":true,"issue_summaries_reconciled":true,"complete_matches_inputs":true,"truncated_matches_inputs":true}}},
+    {"name": "truncated_correct", "kind": "json_equals", "pointer": "/truncated", "expected": true},
+    {"name": "used_atl", "kind": "atl_invocations_min", "minimum": 2},
+    {"name": "used_atl_twice", "kind": "atl_invocations_max", "maximum": 2},
+    {"name": "used_skill", "kind": "skill_invocations_min", "minimum": 1, "expected": "atl:jira"}
+  ]
+}
