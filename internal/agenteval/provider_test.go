@@ -805,7 +805,7 @@ func TestParseProviderOutputs(t *testing.T) {
 	codex := strings.Join([]string{
 		`{"type":"item.completed","item":{"type":"error","message":"reviewed invocation warning"}}`,
 		`{"type":"item.completed","item":{"type":"command_execution"}}`,
-		`{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}`,
+		`{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}`,
 		`{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":25,"output_tokens":30}}`,
 	}, "\n")
 	metrics, final, err = ParseProviderOutput("codex", []byte(codex), []byte(`{"answer":"ok"}`))
@@ -845,13 +845,13 @@ func TestProviderCapabilitySequencePreservesEventOrder(t *testing.T) {
 	}
 
 	codexLines := []string{}
-	for _, tool := range []string{
+	for index, tool := range []string{
 		"confluence_page_resolve",
 		"confluence_page_outline",
 		"confluence_page_section",
 	} {
 		codexLines = append(codexLines,
-			`{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"`+tool+`","status":"completed","result":{}}}`,
+			`{"type":"item.completed","item":{"id":"mcp-`+strconv.Itoa(index+1)+`","type":"mcp_tool_call","server":"atl","tool":"`+tool+`","status":"completed","result":{}}}`,
 		)
 	}
 	codex, _, err := ParseProviderOutput(
@@ -881,6 +881,20 @@ func TestProviderCapabilityCoverageFailsClosedOnIncompleteEvents(t *testing.T) {
 			`{"type":"user","tool_use_result":{"content":[]},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","is_error":false,"content":"{}"}]}}`,
 			`{"type":"result","structured_output":{"answer":"ok"}}`,
 		}, "\n"),
+		"unknown result id": strings.Join([]string{
+			`{"type":"user","tool_use_result":{"content":[]},"message":{"content":[{"type":"tool_result","tool_use_id":"unknown","is_error":false,"content":"{}"}]}}`,
+			`{"type":"result","structured_output":{"answer":"ok"}}`,
+		}, "\n"),
+		"missing result status": strings.Join([]string{
+			`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}`,
+			`{"type":"user","tool_use_result":{"content":[]},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","content":"{}"}]}}`,
+			`{"type":"result","structured_output":{"answer":"ok"}}`,
+		}, "\n"),
+		"non-boolean result status": strings.Join([]string{
+			`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}`,
+			`{"type":"user","tool_use_result":{"content":[]},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","is_error":"false","content":"{}"}]}}`,
+			`{"type":"result","structured_output":{"answer":"ok"}}`,
+		}, "\n"),
 	}
 	for name, transcript := range claudeCases {
 		t.Run("Claude "+name, func(t *testing.T) {
@@ -895,9 +909,11 @@ func TestProviderCapabilityCoverageFailsClosedOnIncompleteEvents(t *testing.T) {
 	}
 
 	codexCases := map[string]string{
-		"missing status": `{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","result":{}}}`,
-		"unknown status": `{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"unknown","result":{}}}`,
-		"wrong server":   `{"type":"item.completed","item":{"type":"mcp_tool_call","server":"other","tool":"jira_fields","status":"completed","result":{}}}`,
+		"missing id":     `{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{}}}`,
+		"missing result": `{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed"}}`,
+		"missing status": `{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","result":{}}}`,
+		"unknown status": `{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"unknown","result":{}}}`,
+		"wrong server":   `{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"other","tool":"jira_fields","status":"completed","result":{}}}`,
 	}
 	for name, transcript := range codexCases {
 		t.Run("Codex "+name, func(t *testing.T) {
@@ -909,6 +925,35 @@ func TestProviderCapabilityCoverageFailsClosedOnIncompleteEvents(t *testing.T) {
 				t.Fatalf("incomplete Codex capability telemetry passed: %+v", metrics)
 			}
 		})
+	}
+
+	duplicateCodexID := strings.Join([]string{
+		`{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{}}}`,
+		`{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{}}}`,
+	}, "\n")
+	metrics, _, err := ParseProviderOutput("codex", []byte(duplicateCodexID), []byte(`{"answer":"ok"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.CapabilityFamilyCoverage {
+		t.Fatalf("duplicate Codex capability id passed: %+v", metrics)
+	}
+}
+
+func TestClaudeNonMCPResultsDoNotInvalidateCapabilityTelemetry(t *testing.T) {
+	transcript := strings.Join([]string{
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"skill-1","name":"Skill","input":{"skill":"atl:jira"}}]}}`,
+		`{"type":"user","tool_use_result":{"content":[]},"message":{"content":[{"type":"tool_result","tool_use_id":"skill-1","is_error":false,"content":"loaded"}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}`,
+		`{"type":"user","tool_use_result":{"content":[]},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","is_error":false,"content":"{}"}]}}`,
+		`{"type":"result","structured_output":{"answer":"ok"}}`,
+	}, "\n")
+	metrics, _, err := ParseProviderOutput("claude-code", []byte(transcript), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 1 || metrics.CapabilityFamilies[0].Family != "jira.fields" {
+		t.Fatalf("known non-MCP result changed capability coverage: %+v", metrics)
 	}
 }
 
@@ -962,7 +1007,7 @@ func TestClaudeUnknownMCPResultShapeFailsClosed(t *testing.T) {
 
 func TestUnknownMCPToolSuppressesCapabilityAttribution(t *testing.T) {
 	transcript := strings.Join([]string{
-		`{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"synthetic_sensitive_lookup","status":"completed","result":{"value":"SYNTHETIC-SENSITIVE-123"}}}`,
+		`{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"synthetic_sensitive_lookup","status":"completed","result":{"value":"SYNTHETIC-SENSITIVE-123"}}}`,
 		`{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}`,
 	}, "\n")
 	metrics, _, err := ParseProviderOutput("codex", []byte(transcript), []byte(`{"answer":"ok"}`))
