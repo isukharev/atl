@@ -159,10 +159,12 @@ func aggregateSyntheticOutputRootWithHooks(root string, afterInitialInventory, a
 		if err != nil || !syntheticReceiptMatchesResult(receipt, result, data, slot.scenario, slot.provider, slot.variant, slot.repetition) {
 			return SyntheticRootAggregate{}, rejectSyntheticRoot("invalid_receipt")
 		}
-		if previous, exists := scenarioTasks[slot.scenario]; exists && previous != receipt.TaskContractSHA256 {
-			return SyntheticRootAggregate{}, rejectSyntheticRoot("mixed_contract")
+		if result.EffectiveCategory() == BenchmarkCategoryNeutralCommon {
+			if previous, exists := scenarioTasks[slot.scenario]; exists && previous != receipt.TaskContractSHA256 {
+				return SyntheticRootAggregate{}, rejectSyntheticRoot("mixed_contract")
+			}
+			scenarioTasks[slot.scenario] = receipt.TaskContractSHA256
 		}
-		scenarioTasks[slot.scenario] = receipt.TaskContractSHA256
 		cohortPath := path.Join(slot.scenario, slot.provider, slot.variant)
 		identity := syntheticCohortIdentity{
 			taskClass: result.TaskClass,
@@ -260,6 +262,10 @@ func aggregateSyntheticOutputRootWithHooks(root string, afterInitialInventory, a
 }
 
 func syntheticRootInventory(root *os.Root) ([]syntheticRootEntry, []syntheticResultSlot, error) {
+	return syntheticRootInventoryWithLimit(root, maxSyntheticRootResults)
+}
+
+func syntheticRootInventoryWithLimit(root *os.Root, maxResults int) ([]syntheticRootEntry, []syntheticResultSlot, error) {
 	var entries []syntheticRootEntry
 	var slots []syntheticResultSlot
 	runs := map[string]map[int]syntheticRunInventory{}
@@ -379,9 +385,6 @@ func syntheticRootInventory(root *os.Root) ([]syntheticRootEntry, []syntheticRes
 	if !markerSeen {
 		return nil, nil, rejectSyntheticRoot("invalid_marker")
 	}
-	if len(slots) > maxSyntheticRootResults {
-		return nil, nil, rejectSyntheticRoot("bounds")
-	}
 	for _, complete := range scenarioDirectories {
 		if !complete {
 			return nil, nil, rejectSyntheticRoot("incomplete_cohort")
@@ -413,6 +416,9 @@ func syntheticRootInventory(root *os.Root) ([]syntheticRootEntry, []syntheticRes
 				scenario: parts[0], provider: parts[1], variant: parts[2], repetition: run,
 				info: files.resultInfo, receiptInfo: files.receiptInfo,
 			})
+			if len(slots) > maxResults {
+				return nil, nil, rejectSyntheticRoot("bounds")
+			}
 		}
 	}
 	if len(slots) == 0 {

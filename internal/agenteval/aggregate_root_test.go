@@ -277,7 +277,22 @@ func TestAggregateSyntheticOutputRootBindsTaskAndExecutionContracts(t *testing.T
 		})
 	}
 
+	routeFixedRoot := newSyntheticOutputRoot(t)
+	writeSyntheticRootResult(t, routeFixedRoot, 1, result)
+	routeFixedPair := result
+	routeFixedPair.Runtime.Provider = "claude-code"
+	routeFixedPair.Runtime.AgentVersion = "other-agent"
+	routeFixedPair.Runtime.Model = "claude-test"
+	writeSyntheticRootResult(t, routeFixedRoot, 1, routeFixedPair)
+	routeReceipt := readSyntheticRootReceipt(t, routeFixedRoot, routeFixedPair, 1)
+	routeReceipt.TaskContractSHA256 = strings.Repeat("6", 64)
+	writeSyntheticRootReceiptTest(t, routeFixedRoot, routeReceipt)
+	if aggregate, err := AggregateSyntheticOutputRoot(routeFixedRoot); err != nil || aggregate.Results != 2 || aggregate.Cohorts != 2 {
+		t.Fatalf("route-fixed aggregate=%+v err=%v", aggregate, err)
+	}
+
 	root := newSyntheticOutputRoot(t)
+	result.Category = BenchmarkCategoryNeutralCommon
 	writeSyntheticRootResult(t, root, 1, result)
 	paired := result
 	paired.Runtime.Provider = "claude-code"
@@ -288,10 +303,26 @@ func TestAggregateSyntheticOutputRootBindsTaskAndExecutionContracts(t *testing.T
 		t.Fatalf("provider-paired aggregate=%+v err=%v", aggregate, err)
 	}
 	receipt := readSyntheticRootReceipt(t, root, paired, 1)
-	receipt.TaskContractSHA256 = strings.Repeat("6", 64)
+	receipt.TaskContractSHA256 = strings.Repeat("7", 64)
 	writeSyntheticRootReceiptTest(t, root, receipt)
 	_, err := AggregateSyntheticOutputRoot(root)
 	assertClosedSyntheticRootError(t, err, "mixed_contract", root, result.ScenarioID)
+}
+
+func TestSyntheticRootInventoryEnforcesResultLimitAfterBuildingSlots(t *testing.T) {
+	requireSyntheticRootPermissionChecks(t)
+	root := newSyntheticOutputRoot(t)
+	result := syntheticRootTestResult(t)
+	for run := 1; run <= 3; run++ {
+		writeSyntheticRootResultForCohort(t, root, run, 3, result)
+	}
+	handle, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handle.Close()
+	_, _, err = syntheticRootInventoryWithLimit(handle, 2)
+	assertClosedSyntheticRootError(t, err, "bounds", root, result.ScenarioID)
 }
 
 func TestAggregateSyntheticOutputRootRejectsEmptyAndChangedInventory(t *testing.T) {

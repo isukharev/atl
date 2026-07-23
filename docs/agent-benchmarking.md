@@ -289,9 +289,12 @@ digests. The runner rechecks executable bytes and the plugin/skill identity
 after all repetitions, then writes receipts atomically; an interrupted,
 budget-truncated, or drifting run root therefore remains incomplete.
 
-Missing or differing prompt, task, execution, executable, result, or repetition
-identities fail closed. These digests guard comparison but are not emitted in
-aggregate groups. The schema-v2 envelope contains the existing aggregate plus
+Missing identities fail closed. Task, execution, executable, and prompt drift
+within a repeated cohort fails closed; `neutral-common` variants for one
+scenario must additionally share the provider-neutral task digest.
+`route-fixed` and `surface-native` variants are not promoted to cross-variant
+comparability. These digests guard comparison but are not emitted in aggregate
+groups. The schema-v2 envelope contains the existing aggregate plus
 the result/cohort counts and a domain-separated SHA-256 digest of the exact
 relative result and receipt slots and bytes. A second byte pass and final
 inventory reject sources changed during aggregation. The command fails closed
