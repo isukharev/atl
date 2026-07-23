@@ -46,7 +46,7 @@ mutation.
 
 For an unfamiliar goal, run `atl capabilities --task jira/evidence`,
 `jira/portfolio`, `jira/board-portfolio`, `jira/batch-analysis`,
-`jira/structure-planning`, `jira/edit`, or the cross-service
+`jira/structure-planning`, `jira/mirror`, `jira/edit`, or the cross-service
 `knowledge/search` route, then load
 exactly the returned reference. A
 capability route does not grant write authority.

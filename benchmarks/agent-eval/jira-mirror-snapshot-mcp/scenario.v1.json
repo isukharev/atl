@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "jira.synthetic-mirror-snapshot-mcp-v1",
+  "category": "surface-native",
+  "task_class": "jira/mirror",
+  "description": "Read one content-free Jira mirror health snapshot with incomplete raw/render evidence through one offline typed MCP call.",
+  "data_class": "synthetic",
+  "required_capabilities": ["jira.mirror.snapshot"],
+  "required_checks": ["bounded_interface", "complete_correct", "guard_clean", "http_exact", "interface_succeeded", "local_correct", "mock_clean", "native_correct", "no_delegation", "pending_correct", "reconciled_correct", "remote_correct", "remote_request_correct", "render_correct", "schema_correct", "service_correct", "snapshot_correct", "used_interface"],
+  "required_semantic_checks": ["complete_correct", "local_correct", "native_correct", "pending_correct", "reconciled_correct", "remote_correct", "remote_request_correct", "render_correct", "schema_correct", "service_correct", "snapshot_correct"],
+  "required_metrics": ["agent_turns", "tool_calls", "interface_invocations", "delegations", "backend_requests", "duplicate_backend_requests", "output_bytes", "input_tokens", "output_tokens", "main_thread_input_tokens", "main_thread_output_tokens", "estimated_cost_microusd", "duration_millis", "capability_families"],
+  "budgets": {"max_agent_turns": 4, "max_tool_calls": 2, "max_atl_invocations": 0, "max_interface_invocations": 1, "max_delegations": 0, "max_backend_requests": 0, "max_duplicate_backend_requests": 0, "max_remote_writes": 0, "max_output_bytes": 32768, "max_input_tokens": 120000, "max_output_tokens": 5000, "max_main_thread_input_tokens": 120000, "max_main_thread_output_tokens": 5000, "max_estimated_cost_microusd": 5000000, "max_duration_millis": 300000, "allowed_http_methods": []}
+}

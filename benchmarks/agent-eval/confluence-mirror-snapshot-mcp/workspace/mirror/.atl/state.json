@@ -1,0 +1,28 @@
+{
+  "pages": {
+    "7101": {
+      "id": "7101",
+      "version": 4,
+      "hash": "de1d9e9d684a634c23228816e825580d8ffd82d0f3cc29c76c18d02c60a5ca99",
+      "path": "OPS/rollout-plan.csf"
+    },
+    "7102": {
+      "id": "7102",
+      "version": 4,
+      "hash": "39d1e99beb9b7813c94cf7efb12e8ffa12d5ad583d9cdbfee7e3afebcca3e369",
+      "path": "OPS/policy-format.csf"
+    },
+    "7103": {
+      "id": "7103",
+      "version": 4,
+      "hash": "e69ca3a1c36ac69dc9e107e77ab554e8f3386ec647dd1d6fb24db09cd1d6de23",
+      "path": "OPS/stable-runbook.csf"
+    },
+    "7104": {
+      "id": "7104",
+      "version": 4,
+      "hash": "401cd143da0b5d4113f97e5a220811fb0f8b53b0c7b44259e0597dcd4c51dd11",
+      "path": "OPS/baseline-drift.csf"
+    }
+  }
+}

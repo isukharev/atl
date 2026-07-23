@@ -193,7 +193,9 @@ atl capabilities --task confluence/edit -o text
 atl capabilities --task jira/board-portfolio -o text
 atl capabilities --task jira/batch-analysis -o text
 atl capabilities --task jira/structure-planning -o text
+atl capabilities --task jira/mirror -o text
 atl capabilities --task confluence/table-analytics -o text
+atl capabilities --task confluence/mirror -o text
 atl capabilities --task knowledge/search -o text
 ```
 
