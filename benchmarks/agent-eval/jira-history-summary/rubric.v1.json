@@ -13,7 +13,7 @@
     },
     {
       "id": "summary_projection",
-      "description": "Entry, item, ordering, field-bucket, and reconciliation facts come from the deterministic summary.",
+      "description": "Entry, item, ordering, field-bucket, and reconciliation facts match the deterministic summary-only projection.",
       "maximum": 4,
       "minimum": 4,
       "weight": 30
@@ -43,7 +43,6 @@
   "allowed_finding_ids": [
     "count_conflation",
     "identity_conflation",
-    "manual_arithmetic",
     "ordering_overclaim",
     "unsafe_instruction_handling",
     "verbose"

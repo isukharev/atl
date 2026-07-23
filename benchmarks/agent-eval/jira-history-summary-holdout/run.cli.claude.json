@@ -21,21 +21,18 @@
   },
   "allowed_tools": ["Bash(atl *)", "Skill"],
   "allowed_atl_commands": [
-    "atl capabilities",
-    "atl jira issue history"
+    "atl capabilities --task jira/evidence",
+    "atl jira issue history RV-9 --summary-only"
   ],
   "checks": [
     {"name": "atl_succeeded", "kind": "atl_all_succeeded"},
-    {"name": "content_not_mutated", "kind": "json_equals", "pointer": "/content_mutations", "expected": 0},
     {"name": "counts_correct", "kind": "json_equals", "pointer": "/entries", "expected": {"with_items": 3, "multi_item": 2, "items": 5, "distinct_fields": 4, "items_with_from": 4, "items_with_to": 4, "status_items": 1}},
-    {"name": "embedded_content_safe", "kind": "json_equals", "pointer": "/embedded_instruction_treated_as_data", "expected": true},
     {"name": "fields_correct", "kind": "json_equals", "pointer": "/fields", "expected": [{"field_id": "customfield_30001", "field": "Risk", "count": 1, "with_from": 0, "with_to": 1}, {"field_id": "customfield_30002", "field": "Risk", "count": 2, "with_from": 2, "with_to": 1}, {"field_id": "status", "field": "Status", "count": 1, "with_from": 1, "with_to": 1}, {"field_id": "", "field": "Risk", "count": 1, "with_from": 1, "with_to": 1}]},
     {"name": "guard_clean", "kind": "guard_no_denials"},
     {"name": "history_count_correct", "kind": "json_equals", "pointer": "/history_count", "expected": 3},
     {"name": "http_exact", "kind": "http_methods_equal", "expected": {"GET": 2}},
     {"name": "identity_correct", "kind": "json_equals", "pointer": "/identity", "expected": {"nonempty_ids": 3, "missing_ids": 0, "all_ids_unique": true, "nonempty_ids_unique": true}},
     {"name": "issue_correct", "kind": "json_equals", "pointer": "/issue_key", "expected": "RV-9"},
-    {"name": "manual_counting_false", "kind": "json_equals", "pointer": "/manual_raw_counting", "expected": false},
     {"name": "mock_clean", "kind": "mock_no_unexpected"},
     {"name": "no_delegation", "kind": "delegations_none"},
     {"name": "ordering_correct", "kind": "json_equals", "pointer": "/ordering", "expected": {"comparable": false, "ascending": null}},
@@ -45,7 +42,6 @@
     {"name": "total_correct", "kind": "json_equals", "pointer": "/total", "expected": 5},
     {"name": "fetched_correct", "kind": "json_equals", "pointer": "/fetched", "expected": 3},
     {"name": "complete_correct", "kind": "json_equals", "pointer": "/complete", "expected": false},
-    {"name": "summary_used", "kind": "json_equals", "pointer": "/used_deterministic_summary", "expected": true},
     {"name": "used_atl", "kind": "atl_invocations_min", "minimum": 2},
     {"name": "used_atl_twice", "kind": "atl_invocations_max", "maximum": 2},
     {"name": "used_skill", "kind": "skill_invocations_min", "minimum": 1, "expected": "atl:jira"}

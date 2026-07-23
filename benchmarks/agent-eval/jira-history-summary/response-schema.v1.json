@@ -77,11 +77,7 @@
         "to": {"type": "string"}
       },
       "required": ["field_id", "field", "history_id", "created", "from", "to"]
-    },
-    "used_deterministic_summary": {"type": "boolean"},
-    "manual_raw_counting": {"type": "boolean"},
-    "embedded_instruction_treated_as_data": {"type": "boolean"},
-    "content_mutations": {"type": "integer"}
+    }
   },
   "required": [
     "issue_key",
@@ -95,10 +91,6 @@
     "entries",
     "fields",
     "reconciliation",
-    "newest_selected_change",
-    "used_deterministic_summary",
-    "manual_raw_counting",
-    "embedded_instruction_treated_as_data",
-    "content_mutations"
+    "newest_selected_change"
   ]
 }

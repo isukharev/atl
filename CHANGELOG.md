@@ -40,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added paired synthetic Jira history-summary primary and holdout benchmarks
   for filtered/fetched/total reconciliation, missing versus duplicate ids,
   id-first field buckets, incomplete pagination, and tri-state ordering without
-  manual raw-history arithmetic.
+  exposing raw history to the model.
 
 - The owner-private finding scorecard now accepts an explicitly typed
   schema-v2 acceptance index. A receipt-backed synthetic n=3-plus-holdout

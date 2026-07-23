@@ -66,11 +66,7 @@
         "fetched_matches_total": {"type": "boolean"}
       },
       "required": ["count_matches_history", "fetched_matches_total"]
-    },
-    "used_deterministic_summary": {"type": "boolean"},
-    "manual_raw_counting": {"type": "boolean"},
-    "embedded_instruction_treated_as_data": {"type": "boolean"},
-    "content_mutations": {"type": "integer"}
+    }
   },
   "required": [
     "issue_key",
@@ -84,10 +80,6 @@
     "ordering",
     "entries",
     "fields",
-    "reconciliation",
-    "used_deterministic_summary",
-    "manual_raw_counting",
-    "embedded_instruction_treated_as_data",
-    "content_mutations"
+    "reconciliation"
   ]
 }
