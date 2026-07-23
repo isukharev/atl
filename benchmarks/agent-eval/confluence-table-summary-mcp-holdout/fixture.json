@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [{
+    "method": "GET",
+    "path": "/wiki/rest/api/content/8300",
+    "status": 200,
+    "body": {
+      "id": "8300",
+      "type": "page",
+      "title": "Synthetic holdout inventory",
+      "space": {"key": "DEMO"},
+      "version": {"number": 4},
+      "body": {"storage": {"representation": "storage", "value": "<table><tbody><tr><th rowspan=\"2\" colspan=\"2\"><span style=\"color: green\">Cluster</span></th><th>Target</th><th>Status</th></tr><tr><th>Value</th><th>Gate</th></tr><tr><td>A</td><td>B</td><td colspan=\"2\">Ready</td></tr><tr><td rowspan=\"2\">Team</td><td><span data-color=\"orange\">X</span></td><td><a href=\"https://example.test/holdout/one\">12</a></td><td>On</td></tr><tr><td colspan=\"2\">Y</td><td>Off</td></tr></tbody></table><table><tbody><tr><th>First</th><th>Second</th><th>Third</th></tr><tr><td><span style=\"color: purple\">Left</span></td><td><a href=\"https://example.test/holdout/two\">Middle</a></td></tr></tbody></table><table><tbody><tr><td>Solo</td></tr></tbody></table>"}}
+    }
+  }]
+}

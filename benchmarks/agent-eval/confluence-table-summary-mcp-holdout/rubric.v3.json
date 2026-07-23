@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "confluence-table-summary-mcp-holdout-v3-answer",
+  "scenario_id": "confluence.synthetic-table-summary-mcp-holdout-v3",
+  "minimum_score_bps": 8500,
+  "criteria": [
+    {"id": "structural_accuracy", "description": "Every holdout shape, combined span, synthetic padding, and expanded-grid partition matches the bounded inventory.", "maximum": 4, "minimum": 4, "weight": 35},
+    {"id": "reconciliation", "description": "Page-wide selection, returned-table count, rectangularity, and per-table cell partitions reconcile explicitly.", "maximum": 4, "minimum": 4, "weight": 25},
+    {"id": "privacy", "description": "The answer exposes no page or cell content, URL, style value, raw attribute, or warning text.", "maximum": 4, "minimum": 4, "weight": 20},
+    {"id": "bounded_route", "description": "Exactly one typed content-free summary call is used.", "maximum": 4, "minimum": 4, "weight": 10},
+    {"id": "concision", "description": "The response contains only the requested structural result.", "maximum": 4, "minimum": 3, "weight": 10}
+  ],
+  "allowed_finding_ids": ["ambiguous_count", "content_exposure", "incorrect_shape", "poor_structure", "unsupported_claim", "verbose"]
+}

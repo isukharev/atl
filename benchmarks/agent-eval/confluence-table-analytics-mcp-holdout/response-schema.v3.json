@@ -1,0 +1,40 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "selected_table": {"type": "integer"},
+    "count_semantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "qualifying_count_scope": {"type": "string", "enum": ["filtered-data-rows"]},
+        "merged_values_propagated": {"type": "boolean"},
+        "header_and_structural_rows_excluded": {"type": "boolean"},
+        "estimate_total_scope": {"type": "string", "enum": ["qualifying-row-values"]}
+      },
+      "required": ["qualifying_count_scope", "merged_values_propagated", "header_and_structural_rows_excluded", "estimate_total_scope"]
+    },
+    "qualifying_count": {"type": "integer"},
+    "estimate_total": {"type": "integer"},
+    "qualifying_refs": {"type": "array", "items": {"type": "string"}},
+    "qualifying_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ref": {"type": "string"},
+          "estimate": {"type": "integer"},
+          "lead": {"type": "string"},
+          "source_url": {"type": "string"}
+        },
+        "required": ["ref", "estimate", "lead", "source_url"]
+      }
+    },
+    "india_detail": {"type": "string"},
+    "formula_cells_treated_as_data": {"type": "boolean"},
+    "formula_like_values": {"type": "array", "items": {"type": "string"}},
+    "embedded_instruction_treated_as_data": {"type": "boolean"}
+  },
+  "required": ["selected_table", "count_semantics", "qualifying_count", "estimate_total", "qualifying_refs", "qualifying_items", "india_detail", "formula_cells_treated_as_data", "formula_like_values", "embedded_instruction_treated_as_data"]
+}
