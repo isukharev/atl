@@ -211,6 +211,11 @@ func TestJiraIssueHistory_SummaryOnlyRejectsFalseBeforeBackendRead(t *testing.T)
 			}
 		})
 	}
+
+	stdout, code := runCLI(t, nil, "jira", "issue", "history", "ENG-1", "--summary-only=false")
+	if code != exitUsage || stdout != "" {
+		t.Fatalf("false summary-only without configured service exit=%d stdout=%s", code, stdout)
+	}
 }
 
 func TestJiraIssueHistory_SummaryOnlyPreservesPartialAndUnknownOrdering(t *testing.T) {
