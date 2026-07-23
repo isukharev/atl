@@ -25,11 +25,15 @@ func TestPrivateCheckpointPreviewIsDeterministicContentFreeAndReadOnly(t *testin
 	if !bytes.Equal(before, after) {
 		t.Fatalf("preview mutated workspace\nbefore=%s\nafter=%s", before, after)
 	}
-	if preview.SchemaVersion != 1 || len(preview.CheckpointSHA256) != 64 || preview.Checkpoint.UTCDate != "2026-07-22" ||
+	if preview.SchemaVersion != PrivateCheckpointSchemaVersion || len(preview.CheckpointSHA256) != 64 || preview.Checkpoint.UTCDate != "2026-07-22" ||
 		preview.Checkpoint.Repository.Commit != strings.Repeat("a", 40) || !preview.Checkpoint.Repository.Dirty ||
 		preview.Checkpoint.Workspace.Counts.CompletedRuns != 7 || preview.Checkpoint.Scorecard.Findings != 3 ||
+		preview.Checkpoint.Coverage.Assessments != 2 || preview.Checkpoint.Coverage.PrimaryObservations != 6 ||
+		preview.Checkpoint.Coverage.HoldoutObservations != 2 ||
 		preview.Checkpoint.Contracts.Ledger != PrivateFindingLedgerSchemaVersion ||
-		preview.Checkpoint.Contracts.Scorecard != PrivateFindingScorecardSchemaVersion {
+		preview.Checkpoint.Contracts.Scorecard != PrivateFindingScorecardSchemaVersion ||
+		preview.Checkpoint.Contracts.CoverageIndex != PrivateCoverageIndexSchemaVersion ||
+		preview.Checkpoint.Contracts.CoverageScorecard != PrivateCoverageScorecardSchemaVersion {
 		t.Fatalf("preview=%+v", preview)
 	}
 	encoded, err := encodePrivateCheckpoint(preview.Checkpoint)
@@ -108,6 +112,10 @@ func TestPrivateCheckpointRejectsInvalidAggregateCounts(t *testing.T) {
 			value.Scorecard.Regressions = value.Scorecard.Findings + 1
 		}},
 		{"decision mismatch", func(value *PrivateDailyCheckpoint) { value.Scorecard.Decisions.Fixed++ }},
+		{"negative coverage assessments", func(value *PrivateDailyCheckpoint) { value.Coverage.Assessments = -1 }},
+		{"coverage group mismatch", func(value *PrivateDailyCheckpoint) { value.Coverage.Groups++ }},
+		{"coverage primary mismatch", func(value *PrivateDailyCheckpoint) { value.Coverage.PrimaryObservations++ }},
+		{"coverage holdout too small", func(value *PrivateDailyCheckpoint) { value.Coverage.HoldoutObservations = 1 }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -243,6 +251,15 @@ func TestPrivateCheckpointPreviewIntegratesCompletedPlanBaselineAndLedger(t *tes
 	if err := os.WriteFile(filepath.Join(fixture.root, PrivateFindingLedgerRelativePath), append(ledgerData, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	samplingFixture := &privateSamplingFixture{
+		root: fixture.root, repository: fixture.repository, sources: map[string]PrivateBaselineSource{},
+	}
+	if err := os.MkdirAll(filepath.Join(fixture.root, "cases", "sampling"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	coverageAssessment := addPrivateCoverageAssessment(t, samplingFixture, "checkpoint", "jira.coverage-primary",
+		"jira.coverage-holdout", "jira.issue.refs", "1")
+	writePrivateCoverageIndex(t, fixture.root, []string{coverageAssessment})
 	if report := InspectPrivateWorkspace(fixture.root, fixture.repository); !report.Healthy {
 		t.Fatalf("workspace report=%+v", report)
 	}
@@ -309,6 +326,16 @@ func TestPrivateCheckpointFailsClosedOnStateDigestAndPathControls(t *testing.T) 
 			report := fixture.report
 			report.Counts.ActiveRuns = 1
 			return report, nil
+		}
+		if _, err := previewPrivateCheckpoint(fixture.options(), dependencies); !errors.Is(err, ErrPrivateCheckpointRejected) {
+			t.Fatalf("err=%v", err)
+		}
+	})
+	t.Run("coverage scorecard", func(t *testing.T) {
+		fixture := newPrivateCheckpointFixture(t)
+		dependencies := fixture.dependencies()
+		dependencies.coverage = func(PrivateCoverageScorecardOptions) (PrivateCoverageScorecard, error) {
+			return PrivateCoverageScorecard{}, ErrPrivateCoverageIndexRejected
 		}
 		if _, err := previewPrivateCheckpoint(fixture.options(), dependencies); !errors.Is(err, ErrPrivateCheckpointRejected) {
 			t.Fatalf("err=%v", err)
@@ -400,6 +427,7 @@ type privateCheckpointFixture struct {
 	root, repository string
 	report           PrivateWorkspaceReport
 	scorecard        PrivateFindingScorecard
+	coverage         PrivateCoverageScorecard
 }
 
 func newPrivateCheckpointFixture(t *testing.T) privateCheckpointFixture {
@@ -419,7 +447,11 @@ func newPrivateCheckpointFixture(t *testing.T) privateCheckpointFixture {
 		scorecard: PrivateFindingScorecard{SchemaVersion: PrivateFindingScorecardSchemaVersion,
 			LedgerSchemaVersion: PrivateFindingLedgerSchemaVersion, SourceSHA256: strings.Repeat("b", 64),
 			Reconciled: true, Findings: 3, LinkedIssues: 2, LinkedPullRequests: 1, Regressions: 1,
-			Decisions: PrivateFindingDecisionCounts{Fixed: 1, Investigate: 2}}}
+			Decisions: PrivateFindingDecisionCounts{Fixed: 1, Investigate: 2}},
+		coverage: PrivateCoverageScorecard{SchemaVersion: PrivateCoverageScorecardSchemaVersion,
+			SourceSHA256: strings.Repeat("c", 64), Reconciled: true, Assessments: 2,
+			PrimaryObservations: 6, HoldoutObservations: 2,
+			Groups: []PrivateCoverageScorecardGroup{{}, {}}}}
 }
 
 func (f privateCheckpointFixture) options() PrivateCheckpointOptions {
@@ -430,6 +462,7 @@ func (f privateCheckpointFixture) dependencies() privateCheckpointDependencies {
 	return privateCheckpointDependencies{
 		doctor:     func(_, _ string) (PrivateWorkspaceReport, error) { return f.report, nil },
 		scorecard:  func(PrivateFindingScorecardOptions) (PrivateFindingScorecard, error) { return f.scorecard, nil },
+		coverage:   func(PrivateCoverageScorecardOptions) (PrivateCoverageScorecard, error) { return f.coverage, nil },
 		repository: func(string) (string, bool, error) { return strings.Repeat("a", 40), true, nil },
 	}
 }

@@ -14,6 +14,7 @@ import (
 
 var privateQualifyCodexCLI = agenteval.QualifyCodexCLIToolAvailability
 var privateBuildFindingScorecard = agenteval.BuildPrivateFindingScorecard
+var privateBuildCoverageScorecard = agenteval.BuildPrivateCoverageScorecard
 var privatePreviewCheckpoint = agenteval.PreviewPrivateCheckpoint
 var privateApplyCheckpoint = agenteval.ApplyPrivateCheckpoint
 var privatePreviewSampling = agenteval.PreviewPrivateSampling
@@ -21,7 +22,7 @@ var privateApplySampling = agenteval.ApplyPrivateSampling
 
 func runPrivateCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("private requires init, doctor, status, migrate, qualify, plan, run, review, study, baseline, compare, scorecard, sample, checkpoint, or prune")
+		return fmt.Errorf("private requires init, doctor, status, migrate, qualify, plan, run, review, study, baseline, compare, scorecard, coverage-scorecard, sample, checkpoint, or prune")
 	}
 	switch args[0] {
 	case "init":
@@ -334,6 +335,24 @@ func runPrivateCommand(args []string, out io.Writer) error {
 			return fmt.Errorf("private scorecard requires root and no positional arguments")
 		}
 		report, err := privateBuildFindingScorecard(agenteval.PrivateFindingScorecardOptions{Root: root, RepositoryRoot: repositoryRoot})
+		if err != nil {
+			return err
+		}
+		return writePrivateJSON(out, report)
+	case "coverage-scorecard":
+		flags := privateFlagSet("private coverage-scorecard")
+		var root, repositoryRoot string
+		flags.StringVar(&root, "root", "", "workspace root")
+		flags.StringVar(&repositoryRoot, "repository-root", ".", "repository root")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 || root == "" {
+			return fmt.Errorf("private coverage-scorecard requires root and no positional arguments")
+		}
+		report, err := privateBuildCoverageScorecard(agenteval.PrivateCoverageScorecardOptions{
+			Root: root, RepositoryRoot: repositoryRoot,
+		})
 		if err != nil {
 			return err
 		}

@@ -91,6 +91,22 @@ and skill transitions must match the receipt-backed identities, while the
 acceptance entry binds the regression assessment and its non-empty
 prompt-contract digest. Agent executable drift remains incompatible.
 
+Accepted clean coverage without a preceding finding uses a separate owner-only
+index described by
+[`private-coverage-index.schema.json`](private-coverage-index.schema.json).
+`private coverage-scorecard` resolves only the exact sorted assessment digests
+selected by that index. Every entry must be an accepted immutable synthetic
+`regression` assessment with three passing primary observations and at least
+one distinct passing holdout. Unindexed historical assessments are ignored;
+two entries that resolve to the same generic task, capability, surface, and
+provider/model/reasoning cohort are rejected instead of double-counted. The
+report contains only the closed benchmark taxonomy, correctness and safety
+counts, explicit metric coverage, and call, duplicate, token, cost, and latency
+quantiles. It never emits scenario, root, assessment, prompt, path, backend, or
+content identifiers. Runtime labels are fail-closed to the public paired
+cohorts `codex`/`gpt-5.6-luna`/`high` and
+`claude-code`/`claude-opus-4-8`/`high`.
+
 Private sample strength is encoded separately with
 [`private-sampling.schema.json`](private-sampling.schema.json): `n=1` is
 calibration only, `n=3` plus a distinct same-class holdout is regression
@@ -107,8 +123,10 @@ upgrade historical result-only roots or create a separate finding lifecycle.
 
 At stable private issue/PR boundaries, `private checkpoint` can preview and
 then digest-bind one owner-only UTC-day summary of repository provenance,
-workspace counts, public schema versions, and the scorecard. It is an offline
-private lifecycle artifact and is never part of this public corpus.
+workspace counts, public schema versions, the finding scorecard, and the active
+coverage scorecard. Checkpoint schema v2 requires the coverage index and binds
+its source digest and observation counts. It is an offline private lifecycle
+artifact and is never part of this public corpus.
 
 ## Public synthetic suite
 
