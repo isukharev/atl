@@ -100,7 +100,7 @@ export ATL_READ_ONLY=1
 atl jira issue fields KEY-123 --metadata-only
 atl jira issue field get KEY-123 --field 'Delivery Notes'
 atl jira issue refs KEY-123 --fields 'Delivery Notes'
-atl jira issue history KEY-123 --field 'Delivery Notes' --since 2026-07-01
+atl jira issue history KEY-123 --field 'Delivery Notes' --since 2026-07-01 --summary-only
 ```
 
 Require top-level and named-source completeness before claiming a link/change

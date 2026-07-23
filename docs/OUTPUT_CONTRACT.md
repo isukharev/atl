@@ -1546,6 +1546,14 @@ unknowable and the command fails closed with exit 8 instead of emitting
 misleading metadata. `-o text` is a status line and a structurally escaped
 Markdown table.
 
+With `--summary-only`, the command performs the same qualified read and emits
+`{key,complete,source,total,fetched,count,partial_reason?,filters,summary,
+last_changes?}`. The raw top-level `history` member is absent by construction;
+the projection neither repeats nor broadens the backend request. Its text
+renderer contains deterministic facts and field buckets plus bounded
+`last_changes` for explicitly selected fields, never the raw history rows.
+Omitting the flag preserves the full JSON and text output byte contract.
+
 `jira epic digest` exposes the same fields under `period`. A quarter is resolved
 once in the Jira current-user calendar and the resulting zone is passed into
 the nested history filter, so a digest adds at most one current-user GET rather

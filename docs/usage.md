@@ -2747,6 +2747,7 @@ entry is present.
 atl jira issue history PROJ-1
 atl jira issue history PROJ-1 --field "Delivery Notes" --since 2026-04-01
 atl jira issue history PROJ-1 --field status --until 2026-06-30T23:59:59Z
+atl jira issue history PROJ-1 --summary-only
 ```
 
 Repeatable `--field` accepts an exact id or case-insensitive display name and
@@ -2780,6 +2781,13 @@ incomplete evidence rather than absence of a change. If a matching selected
 change has an unsupported server timestamp, atl returns exit 8 because it
 cannot order `last_changes` safely. `-o text` renders a completeness line
 followed by an escaped Markdown table.
+
+`--summary-only` performs the same qualified read and filtering but omits the
+raw top-level `history` member. JSON keeps `key`, provenance/completeness,
+source totals, `filters`, `summary`, and selected-field `last_changes`; it does
+not add another backend request. Its text form contains bounded deterministic
+facts, field buckets, and any selected-field last changes rather than raw
+changelog rows. Without this flag, the JSON and text contracts are unchanged.
 
 ### `atl jira epic digest`
 

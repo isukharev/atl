@@ -96,6 +96,10 @@ field separately.
 Use a narrow ordered IssueList projection for search/children/boards. Preserve
 pagination cursors and `complete:false`; an empty partial result never proves
 absence. Prefer transient batch export for several known keys over shell loops.
+For changelog arithmetic or consistency checks, add `--summary-only` so the
+model receives provenance, filters, deterministic facts, and selected-field
+`last_changes` without raw history rows. Omit it only when individual changes
+are themselves required evidence.
 
 ## Fix mirror identity before durable work
 

@@ -192,7 +192,8 @@ deterministic offline render/apply.
 rich-text sections with explicit pending state) and opt-in `epic_children` views;
 value-free metadata and compact named issue-field inspection; qualified, filterable issue
 history with explicit completeness, deterministic cardinality/consistency summary
-including separate missing/duplicate identity facts, and last-field-change metadata;
+including separate missing/duplicate identity facts, a summary-only projection
+without raw changelog rows, and last-field-change metadata;
 transient multi-key export to artifact-only stdout; deterministic epic evidence
 digest and standalone refs with reconciled per-kind/per-source aggregates;
 check/attachments/refs/tree. For a report

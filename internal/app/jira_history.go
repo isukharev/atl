@@ -86,6 +86,43 @@ type JiraHistoryResult struct {
 	LastChanges   []JiraFieldLastChange   `json:"last_changes,omitempty"`
 }
 
+// JiraHistorySummaryResult is the bounded projection for consumers that need
+// deterministic changelog facts without the raw History array. LastChanges is
+// present only for explicitly selected fields, just as it is on the full
+// result.
+type JiraHistorySummaryResult struct {
+	Key           string                `json:"key"`
+	Complete      bool                  `json:"complete"`
+	Source        string                `json:"source"`
+	Total         int                   `json:"total"`
+	Fetched       int                   `json:"fetched"`
+	Count         int                   `json:"count"`
+	PartialReason string                `json:"partial_reason,omitempty"`
+	Filters       JiraHistoryFilters    `json:"filters"`
+	Summary       JiraHistorySummary    `json:"summary"`
+	LastChanges   []JiraFieldLastChange `json:"last_changes,omitempty"`
+}
+
+// JiraHistorySummaryProjection removes the raw changelog while preserving its
+// provenance, filters, deterministic summary, and selected-field recency.
+func JiraHistorySummaryProjection(result *JiraHistoryResult) *JiraHistorySummaryResult {
+	if result == nil {
+		return nil
+	}
+	return &JiraHistorySummaryResult{
+		Key:           result.Key,
+		Complete:      result.Complete,
+		Source:        result.Source,
+		Total:         result.Total,
+		Fetched:       result.Fetched,
+		Count:         result.Count,
+		PartialReason: result.PartialReason,
+		Filters:       result.Filters,
+		Summary:       result.Summary,
+		LastChanges:   result.LastChanges,
+	}
+}
+
 type jiraHistoryBoundary struct {
 	time time.Time
 }
@@ -506,4 +543,47 @@ func JiraHistoryMarkdown(result *JiraHistoryResult) string {
 		status += " · partial: " + result.PartialReason
 	}
 	return status + "\n\n" + MarkdownTable([]string{"Created", "Author", "Field", "From", "To"}, rows)
+}
+
+func JiraHistorySummaryMarkdown(result *JiraHistorySummaryResult) string {
+	if result == nil {
+		return ""
+	}
+	status := fmt.Sprintf("Complete: %t · source: %s · fetched: %d/%d · matched entries: %d", result.Complete, result.Source, result.Fetched, result.Total, result.Count)
+	if result.PartialReason != "" {
+		status += " · partial: " + result.PartialReason
+	}
+
+	ascending := "unknown"
+	if result.Summary.ChronologicalAscending != nil {
+		ascending = fmt.Sprintf("%t", *result.Summary.ChronologicalAscending)
+	}
+	facts := [][]string{
+		{"History entries", fmt.Sprintf("%d", result.Summary.HistoryCount)},
+		{"Items", fmt.Sprintf("%d", result.Summary.ItemCount)},
+		{"Distinct fields", fmt.Sprintf("%d", result.Summary.DistinctItemFieldCount)},
+		{"Missing history ids", fmt.Sprintf("%d", result.Summary.HistoryIDMissingCount)},
+		{"Non-empty ids unique", fmt.Sprintf("%t", result.Summary.HistoryNonemptyIDsUnique)},
+		{"Chronologically comparable", fmt.Sprintf("%t", result.Summary.ChronologicalComparable)},
+		{"Chronologically ascending", ascending},
+		{"Count matches history", fmt.Sprintf("%t", result.Summary.CountMatchesHistory)},
+		{"Fetched matches total", fmt.Sprintf("%t", result.Summary.FetchedMatchesTotal)},
+	}
+	sections := []string{status, MarkdownTable([]string{"Fact", "Value"}, facts)}
+
+	if len(result.Summary.Fields) > 0 {
+		rows := make([][]string, 0, len(result.Summary.Fields))
+		for _, field := range result.Summary.Fields {
+			rows = append(rows, []string{field.FieldID, field.Field, fmt.Sprintf("%d", field.Count), fmt.Sprintf("%d", field.WithFrom), fmt.Sprintf("%d", field.WithTo)})
+		}
+		sections = append(sections, MarkdownTable([]string{"Field ID", "Field", "Count", "With from", "With to"}, rows))
+	}
+	if len(result.LastChanges) > 0 {
+		rows := make([][]string, 0, len(result.LastChanges))
+		for _, change := range result.LastChanges {
+			rows = append(rows, []string{change.FieldID, change.Field, change.Created, change.HistoryID, change.From, change.To})
+		}
+		sections = append(sections, MarkdownTable([]string{"Field ID", "Field", "Created", "History ID", "From", "To"}, rows))
+	}
+	return strings.Join(sections, "\n\n")
 }

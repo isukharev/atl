@@ -1,0 +1,61 @@
+{
+  "key": "ENG-1",
+  "complete": true,
+  "source": "paginated",
+  "total": 2,
+  "fetched": 2,
+  "count": 1,
+  "filters": {
+    "fields": [
+      {
+        "id": "customfield_10001",
+        "name": "Delivery Notes",
+        "custom": true,
+        "schema": "string"
+      }
+    ],
+    "since": "2026-04-01",
+    "boundary_time_zone": "UTC",
+    "boundary_time_zone_source": "jira_current_user",
+    "since_instant": "2026-04-01T00:00:00Z"
+  },
+  "summary": {
+    "history_count": 1,
+    "history_id_nonempty_count": 1,
+    "history_id_missing_count": 0,
+    "history_ids_unique": true,
+    "history_nonempty_ids_unique": true,
+    "author_nonempty_count": 0,
+    "timestamp_nonempty_count": 1,
+    "chronological_comparable": true,
+    "chronological_ascending": true,
+    "entries_with_items": 1,
+    "multi_item_entry_count": 0,
+    "item_count": 1,
+    "item_field_nonempty_count": 1,
+    "distinct_item_field_count": 1,
+    "items_with_from_count": 0,
+    "items_with_to_count": 1,
+    "status_item_count": 0,
+    "count_matches_history": true,
+    "fetched_matches_total": true,
+    "fields": [
+      {
+        "field_id": "customfield_10001",
+        "field": "Delivery Notes",
+        "count": 1,
+        "with_from": 0,
+        "with_to": 1
+      }
+    ]
+  },
+  "last_changes": [
+    {
+      "field_id": "customfield_10001",
+      "field": "Delivery Notes",
+      "created": "2026-04-01T12:00:00.000+0000",
+      "history_id": "101",
+      "to": "current"
+    }
+  ]
+}
