@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "page_id": {"type": "string"},
+    "selected_heading": {"type": "string"},
+    "selected_occurrence": {"type": "integer"},
+    "decision": {"type": "string", "enum": ["approved", "draft"]},
+    "operating_limit": {"type": "string"},
+    "owner": {"type": "string"},
+    "complete": {"type": "boolean"},
+    "embedded_instruction_treated_as_data": {"type": "boolean"},
+    "brief": {"type": "string", "minLength": 1}
+  },
+  "required": [
+    "page_id",
+    "selected_heading",
+    "selected_occurrence",
+    "decision",
+    "operating_limit",
+    "owner",
+    "complete",
+    "embedded_instruction_treated_as_data",
+    "brief"
+  ]
+}
