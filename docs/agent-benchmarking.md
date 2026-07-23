@@ -242,6 +242,16 @@ pagination, bounded evidence, exact capability-family counts and sequence,
 GET-only transport, and zero writes. This supplements rather than replaces the
 historical neutral CLI/MCP comparison.
 
+The surface-native cross-service discovery cohort applies that policy to a
+different topology: one Jira candidate search, one Confluence candidate search,
+one outline-selected page section, and one exact Jira field expansion. Its
+primary n=3 pair and distinct n=1 repeated-leaf holdout share a byte-identical
+closed response schema and exact five-family route. Both require five typed
+calls, six GETs, one intentional repeated page target, and zero writes. The
+exact invocation oracle also checks each normalized typed-tool argument object;
+observed arguments exist only during evaluation and are omitted from stored
+observations and results. The historical neutral comparison remains unchanged.
+
 New multi-surface scenarios use `interface_invocations`,
 `max_interface_invocations`, and the corresponding `interface_*` run-check
 aliases. Existing `atl_invocations` contracts remain valid; when the generic
@@ -845,6 +855,17 @@ valid because the model reused the system `description` id directly; using a
 display name may consume the sixth allowed request. Treat this one run as
 directional evidence for the bounded tool contract, not a stable speed or cost
 claim.
+
+The newer `cross-service-discovery-mcp` and
+`cross-service-discovery-mcp-holdout` cells preserve that historical baseline
+and add current provider-paired regression coverage. Both force the same
+Jira-first five-call sequence and resolve `Description` by display name, so the
+deterministic contract is exactly six GETs rather than permitting the
+model-dependent five-or-six request route. The n=3 primary uses a unique page
+heading; the n=1 holdout changes every identity and fact and requires the second
+same-named leaf under an explicit structural parent. Exact route-family,
+sequence, invocation-argument, completeness, provenance, hostile-content, and
+zero-write checks must all pass before efficiency metrics are interpreted.
 
 ## Deterministic contract budgets
 

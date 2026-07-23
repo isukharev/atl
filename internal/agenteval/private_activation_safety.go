@@ -71,7 +71,7 @@ func privateActivationSafetyCheckKind(kind string) bool {
 	switch kind {
 	case "guard_no_denials", "http_methods_observed", "http_methods_equal", "delegations_none",
 		"atl_invocations_max", "interface_invocations_max", "mock_no_unexpected",
-		"capability_families_equal", "capability_sequence_equal":
+		"capability_families_equal", "capability_sequence_equal", "mcp_invocations_equal":
 		return true
 	default:
 		return false

@@ -555,6 +555,16 @@ func (s RunSpec) Validate() error {
 			if _, ok := expectedCapabilitySequence(check.Expected); check.Minimum != 0 || check.Maximum != 0 || check.Pointer != "" || !ok {
 				return fmt.Errorf("capability_sequence_equal check %q requires a bounded ordered family array", check.Name)
 			}
+		case "mcp_invocations_equal":
+			expected, ok := expectedMCPInvocations(check.Expected)
+			if s.EffectiveSurface() != SurfaceATLMCP ||
+				check.Minimum != 0 ||
+				check.Maximum != 0 ||
+				check.Pointer != "" ||
+				!ok ||
+				!invocationToolsAllowed(expected, s.AllowedMCPTools) {
+				return fmt.Errorf("mcp_invocations_equal check %q requires an exact bounded ATL MCP tool-and-arguments array", check.Name)
+			}
 		default:
 			return fmt.Errorf("unsupported run check kind %q", check.Kind)
 		}
@@ -842,6 +852,30 @@ func evaluateRunChecksWithCapabilities(
 	capabilityFamiliesObserved bool,
 	capabilitySequence []string,
 ) (map[string]bool, error) {
+	return evaluateRunChecksWithMCPInvocations(
+		checks, final, workspace, atlInvocations, failedATL, unexpectedRequests,
+		skillInvocations, skillInvocationsByName, delegations, guardDenials,
+		httpMethods, httpMethodsObserved, cliExitCodes, capabilityFamilies,
+		capabilityFamiliesObserved, capabilitySequence, nil, false,
+	)
+}
+
+func evaluateRunChecksWithMCPInvocations(
+	checks []RunCheck,
+	final []byte,
+	workspace string,
+	atlInvocations, failedATL, unexpectedRequests, skillInvocations int,
+	skillInvocationsByName map[string]int,
+	delegations, guardDenials int,
+	httpMethods map[string]int,
+	httpMethodsObserved bool,
+	cliExitCodes []int,
+	capabilityFamilies []CapabilityFamilyMetric,
+	capabilityFamiliesObserved bool,
+	capabilitySequence []string,
+	mcpInvocations []MCPInvocation,
+	mcpInvocationsObserved bool,
+) (map[string]bool, error) {
 	var document any
 	if err := json.Unmarshal(final, &document); err != nil {
 		return nil, fmt.Errorf("decode structured final response: %w", err)
@@ -887,6 +921,9 @@ func evaluateRunChecksWithCapabilities(
 		case "capability_sequence_equal":
 			expected, _ := expectedCapabilitySequence(check.Expected)
 			results[check.Name] = capabilityFamiliesObserved && slices.Equal(expected, capabilitySequence)
+		case "mcp_invocations_equal":
+			expected, _ := expectedMCPInvocations(check.Expected)
+			results[check.Name] = mcpInvocationsObserved && equalMCPInvocations(expected, mcpInvocations)
 		case "json_present":
 			_, ok := resolveJSONPointer(document, check.Pointer)
 			results[check.Name] = ok

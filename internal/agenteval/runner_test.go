@@ -112,10 +112,10 @@ if [ "$1" = "-p" ]; then
       echo synthetic backend credentials leaked into the provider environment >&2
       exit 33
     fi
-    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}'
+    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields","input":{}}]}}'
     printf '%s\n' '{"type":"user","tool_use_result":{"content":[{"type":"text","text":"synthetic"}]},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","is_error":false,"content":"{\"fields\":[]}"}]}}'
     if [ "$missing_telemetry" = "1" ]; then
-      printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-missing","name":"mcp__atl__jira_fields"}]}}'
+      printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-missing","name":"mcp__atl__jira_fields","input":{}}]}}'
     fi
     printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":0.00014,"usage":{"input_tokens":100,"output_tokens":20},"structured_output":{"answer":"ok"}}'
     exit 0
@@ -146,7 +146,7 @@ while [ "$#" -gt 0 ]; do
   fi
   shift
 done
-printf '%s\n' '{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}'
+printf '%s\n' '{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","arguments":{},"status":"completed","result":{"fields":[]}}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
 printf '%s\n' '{"answer":"ok","labels":["alpha","beta"],"format":"json"}' >"$final"
 `
@@ -227,6 +227,9 @@ exit 2
 	}, RunCheck{
 		Name: "route_ordered", Kind: "capability_sequence_equal",
 		Expected: json.RawMessage(`["jira.fields"]`),
+	}, RunCheck{
+		Name: "route_arguments", Kind: "mcp_invocations_equal",
+		Expected: json.RawMessage(`[{"tool":"jira_fields","arguments":{}}]`),
 	})
 	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
 	output, err = RunHeadless(context.Background(), RunOptions{
@@ -252,6 +255,13 @@ exit 2
 	}
 	if !result.Coverage["capability_families"] || len(result.CapabilityFamilies) != 1 || result.CapabilityFamilies[0].Family != "jira.fields" {
 		t.Fatalf("families=%+v coverage=%+v", result.CapabilityFamilies, result.Coverage)
+	}
+	resultData, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(resultData, []byte(`"arguments":`)) {
+		t.Fatalf("stored result exposed transient MCP arguments: %s", resultData)
 	}
 	wrongRoute := spec
 	wrongRoute.Variant = "typed-mcp-wrong-route"
@@ -295,7 +305,8 @@ exit 2
 		missingOutput.Results[0].Status != "fail" ||
 		missingOutput.Results[0].Coverage["capability_families"] ||
 		missingOutput.Results[0].Checks["route_exact"] ||
-		missingOutput.Results[0].Checks["route_ordered"] {
+		missingOutput.Results[0].Checks["route_ordered"] ||
+		missingOutput.Results[0].Checks["route_arguments"] {
 		t.Fatalf("missing provider telemetry passed: %+v", missingOutput)
 	}
 	cliReceipt := readSyntheticRunReceiptTest(t, filepath.Join(outputRoot, scenario.ID, "claude-code", "baseline", "run-01", syntheticRunReceiptFileName))
@@ -506,6 +517,9 @@ exit 2
 	spec.AllowedTools = []string{"Bash(atl *)", "Skill"}
 	spec.AllowedATLCommands = []string{"atl version"}
 	spec.AllowedMCPTools = nil
+	spec.Checks = slices.DeleteFunc(spec.Checks, func(check RunCheck) bool {
+		return check.Kind == "mcp_invocations_equal"
+	})
 	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
 	startedMarker := filepath.Join(tempRepository, "provider-started")
 	writeTestFile(t, fakeAgent, strings.ReplaceAll(`#!/bin/sh

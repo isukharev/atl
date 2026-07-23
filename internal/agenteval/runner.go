@@ -1304,12 +1304,13 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if !familyCoverage {
 		capabilityFamilies = nil
 	}
-	checks, err := evaluateRunChecksWithCapabilities(
+	checks, err := evaluateRunChecksWithMCPInvocations(
 		loaded.spec.Checks, final, workspace, atlInvocations, failedATL, unexpected,
 		providerMetrics.SkillToolCalls+guardSummary.SkillReadAdmissions,
 		providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, guardDenials,
 		methods, httpMethodsObserved, cliExitCodes, capabilityFamilies, familyCoverage,
-		capabilitySequence,
+		capabilitySequence, providerMetrics.MCPInvocations,
+		familyCoverage && providerMetrics.MCPInvocationCoverage,
 	)
 	if err != nil {
 		return Result{}, err

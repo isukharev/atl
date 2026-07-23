@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"path/filepath"
 	"strconv"
@@ -54,6 +55,8 @@ type ProviderMetrics struct {
 	CapabilityFamilies       []CapabilityFamilyMetric
 	CapabilityFamilySequence []string
 	CapabilityFamilyCoverage bool
+	MCPInvocations           []MCPInvocation
+	MCPInvocationCoverage    bool
 	Coverage                 map[string]bool
 }
 
@@ -545,7 +548,10 @@ func ParseProviderOutput(provider string, transcript, finalFile []byte) (Provide
 }
 
 func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
-	metrics := ProviderMetrics{Coverage: map[string]bool{}, CapabilityFamilyCoverage: true, SkillToolCallsByName: map[string]int{}}
+	metrics := ProviderMetrics{
+		Coverage: map[string]bool{}, CapabilityFamilyCoverage: true,
+		MCPInvocationCoverage: true, SkillToolCallsByName: map[string]int{},
+	}
 	claudeToolUseIDs := map[string]struct{}{}
 	mcpToolUseIDs := map[string]string{}
 	claudeToolResultIDs := map[string]struct{}{}
@@ -554,8 +560,8 @@ func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 64<<10), 4<<20)
 	for scanner.Scan() {
-		var event map[string]any
-		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+		event, err := decodeProviderEvent(scanner.Bytes())
+		if err != nil {
 			return ProviderMetrics{}, nil, fmt.Errorf("decode Claude event: %w", err)
 		}
 		if event["type"] == "assistant" {
@@ -567,6 +573,7 @@ func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
 				metrics.SkillToolCallsByName[name] += count
 			}
 			metrics.CapabilityFamilyCoverage = metrics.CapabilityFamilyCoverage && counts.MCPComplete
+			metrics.MCPInvocationCoverage = metrics.MCPInvocationCoverage && counts.MCPInvocationsComplete
 			for _, id := range counts.ToolUseIDs {
 				if id == "" {
 					continue
@@ -580,6 +587,11 @@ func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
 			for _, use := range counts.MCPUses {
 				if use.Family != "" {
 					metrics.CapabilityFamilySequence = append(metrics.CapabilityFamilySequence, use.Family)
+				}
+				if use.Invocation.Tool != "" {
+					metrics.MCPInvocations = append(metrics.MCPInvocations, use.Invocation)
+				} else {
+					metrics.MCPInvocationCoverage = false
 				}
 				if use.ID == "" {
 					metrics.CapabilityFamilyCoverage = false
@@ -679,6 +691,7 @@ func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
 	}
 	if len(mcpToolUseIDs) != 0 {
 		metrics.CapabilityFamilyCoverage = false
+		metrics.MCPInvocationCoverage = false
 	}
 	if !metrics.Coverage["input_tokens"] && metrics.Coverage["main_thread_input_tokens"] {
 		metrics.InputTokens = metrics.MainThreadInputTokens
@@ -693,15 +706,18 @@ func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
 }
 
 func parseCodexOutput(data []byte) (ProviderMetrics, error) {
-	metrics := ProviderMetrics{Coverage: map[string]bool{"tool_calls": true, "delegations": true}, CapabilityFamilyCoverage: true}
+	metrics := ProviderMetrics{
+		Coverage:                 map[string]bool{"tool_calls": true, "delegations": true},
+		CapabilityFamilyCoverage: true, MCPInvocationCoverage: true,
+	}
 	families := map[string]CapabilityFamilyMetric{}
 	completedMCPItemIDs := map[string]struct{}{}
 	pendingMCPItems := map[string]codexMCPItemIdentity{}
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 64<<10), 4<<20)
 	for scanner.Scan() {
-		var event map[string]any
-		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+		event, err := decodeProviderEvent(scanner.Bytes())
+		if err != nil {
 			return ProviderMetrics{}, fmt.Errorf("decode Codex event: %w", err)
 		}
 		switch event["type"] {
@@ -714,12 +730,16 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 			id, idKnown := item["id"].(string)
 			server, serverKnown := item["server"].(string)
 			tool, toolKnown := item["tool"].(string)
+			invocation, invocationKnown := newMCPInvocation(tool, item["arguments"])
 			identityComplete := idKnown && id != "" && serverKnown && server != "" && toolKnown && tool != ""
 			if !identityComplete {
 				metrics.CapabilityFamilyCoverage = false
 				continue
 			}
-			identity := codexMCPItemIdentity{Server: server, Tool: tool}
+			if !invocationKnown {
+				metrics.MCPInvocationCoverage = false
+			}
+			identity := codexMCPItemIdentity{Server: server, Tool: tool, Arguments: string(invocation.Arguments)}
 			if event["type"] == "item.started" {
 				if _, duplicate := pendingMCPItems[id]; duplicate {
 					metrics.CapabilityFamilyCoverage = false
@@ -733,14 +753,19 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 				family, known := CapabilityFamilyForMCP(tool)
 				if server != "atl" || !known {
 					metrics.CapabilityFamilyCoverage = false
+					metrics.MCPInvocationCoverage = false
 				} else {
 					metrics.CapabilityFamilySequence = append(metrics.CapabilityFamilySequence, family)
+					if invocationKnown {
+						metrics.MCPInvocations = append(metrics.MCPInvocations, invocation)
+					}
 				}
 				continue
 			}
 			pending, exists := pendingMCPItems[id]
 			if !exists || pending != identity {
 				metrics.CapabilityFamilyCoverage = false
+				metrics.MCPInvocationCoverage = false
 			}
 		case "item.completed":
 			if item, ok := event["item"].(map[string]any); ok {
@@ -781,19 +806,24 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 						}
 					}
 					tool, _ := item["tool"].(string)
+					invocation, invocationKnown := newMCPInvocation(tool, item["arguments"])
 					family, known := CapabilityFamilyForMCP(tool)
 					server, serverKnown := item["server"].(string)
 					pending, started := pendingMCPItems[id]
 					if started {
-						if pending != (codexMCPItemIdentity{Server: server, Tool: tool}) {
+						if pending != (codexMCPItemIdentity{Server: server, Tool: tool, Arguments: string(invocation.Arguments)}) {
 							idValid = false
 							metrics.CapabilityFamilyCoverage = false
+							metrics.MCPInvocationCoverage = false
 						}
 						delete(pendingMCPItems, id)
 					}
 					if !known || !serverKnown || server != "atl" || !idValid || !statusValid || !resultComplete {
 						metrics.CapabilityFamilyCoverage = false
 					} else {
+						if !invocationKnown {
+							metrics.MCPInvocationCoverage = false
+						}
 						failed := status == "failed"
 						var size int64
 						if result, ok := item["result"]; ok {
@@ -804,6 +834,9 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 						mergeCapabilityFamily(families, family, failed, size)
 						if !started {
 							metrics.CapabilityFamilySequence = append(metrics.CapabilityFamilySequence, family)
+							if invocationKnown {
+								metrics.MCPInvocations = append(metrics.MCPInvocations, invocation)
+							}
 						}
 					}
 				}
@@ -831,6 +864,7 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 			item, _ := event["item"].(map[string]any)
 			if kind, _ := item["type"].(string); kind == "mcp_tool_call" {
 				metrics.CapabilityFamilyCoverage = false
+				metrics.MCPInvocationCoverage = false
 			}
 		}
 	}
@@ -839,35 +873,54 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 	}
 	if len(pendingMCPItems) != 0 {
 		metrics.CapabilityFamilyCoverage = false
+		metrics.MCPInvocationCoverage = false
 	}
 	metrics.CapabilityFamilies = capabilityFamilySlice(families)
 	return metrics, nil
 }
 
+func decodeProviderEvent(line []byte) (map[string]any, error) {
+	var event map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(line))
+	decoder.UseNumber()
+	if err := decoder.Decode(&event); err != nil {
+		return nil, err
+	}
+	if event == nil || decoder.Decode(new(any)) != io.EOF {
+		return nil, fmt.Errorf("expected one JSON object")
+	}
+	return event, nil
+}
+
 type codexMCPItemIdentity struct {
-	Server string
-	Tool   string
+	Server    string
+	Tool      string
+	Arguments string
 }
 
 type claudeToolCallCounts struct {
-	Total       int
-	Skill       int
-	Delegations int
-	SkillNames  map[string]int
-	ToolUseIDs  []string
-	MCPUses     []claudeMCPToolUse
-	MCPComplete bool
+	Total                  int
+	Skill                  int
+	Delegations            int
+	SkillNames             map[string]int
+	ToolUseIDs             []string
+	MCPUses                []claudeMCPToolUse
+	MCPComplete            bool
+	MCPInvocationsComplete bool
 }
 
 type claudeMCPToolUse struct {
-	ID     string
-	Family string
+	ID         string
+	Family     string
+	Invocation MCPInvocation
 }
 
 func countClaudeToolCalls(event map[string]any) claudeToolCallCounts {
 	message, _ := event["message"].(map[string]any)
 	content, _ := message["content"].([]any)
-	counts := claudeToolCallCounts{SkillNames: map[string]int{}, MCPComplete: true}
+	counts := claudeToolCallCounts{
+		SkillNames: map[string]int{}, MCPComplete: true, MCPInvocationsComplete: true,
+	}
 	for _, value := range content {
 		block, _ := value.(map[string]any)
 		if block["type"] == "tool_use" {
@@ -888,13 +941,21 @@ func countClaudeToolCalls(event map[string]any) claudeToolCallCounts {
 			}
 			if strings.HasPrefix(name, "mcp__") {
 				family := ""
+				invocation := MCPInvocation{}
 				if strings.HasPrefix(name, "mcp__atl__") {
-					family, _ = CapabilityFamilyForMCP(strings.TrimPrefix(name, "mcp__atl__"))
+					tool := strings.TrimPrefix(name, "mcp__atl__")
+					family, _ = CapabilityFamilyForMCP(tool)
+					invocation, _ = newMCPInvocation(tool, block["input"])
 				}
 				if id == "" || family == "" {
 					counts.MCPComplete = false
 				}
-				counts.MCPUses = append(counts.MCPUses, claudeMCPToolUse{ID: id, Family: family})
+				if invocation.Tool == "" {
+					counts.MCPInvocationsComplete = false
+				}
+				counts.MCPUses = append(counts.MCPUses, claudeMCPToolUse{
+					ID: id, Family: family, Invocation: invocation,
+				})
 			}
 		}
 	}
@@ -1012,8 +1073,15 @@ func jsonInt64(value any) (int64, bool) {
 }
 
 func jsonFloat64(value any) (float64, bool) {
-	number, ok := value.(float64)
-	return number, ok && number >= 0
+	switch number := value.(type) {
+	case float64:
+		return number, number >= 0
+	case json.Number:
+		value, err := number.Float64()
+		return value, err == nil && value >= 0
+	default:
+		return 0, false
+	}
 }
 
 func formatMicroUSD(value int64) string {
