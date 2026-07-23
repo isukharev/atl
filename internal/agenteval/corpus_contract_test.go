@@ -282,6 +282,36 @@ func TestRepositoryStructureDeepValuesV2PassesConservativeQueryPOSTBudget(t *tes
 	}
 }
 
+func TestRepositoryStructureDeepValuesV2PromptPermitsProviderNativeSkillActivation(t *testing.T) {
+	root := filepath.Join("..", "..", "benchmarks", "agent-eval", "jira-structure-deep-values")
+	spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli.codex.json"))
+	hasSkillGate := false
+	for _, check := range spec.Checks {
+		if check.Kind == "skill_invocations_min" {
+			hasSkillGate = true
+			break
+		}
+	}
+	if !hasSkillGate {
+		t.Fatal("Codex CLI benchmark lost its skill-activation gate")
+	}
+	prompt, err := os.ReadFile(filepath.Join(root, spec.PromptFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lower := strings.ToLower(string(prompt))
+	for _, forbidden := range []string{"do not inspect skill", "do not read skill", "must not count as remote writes"} {
+		if strings.Contains(lower, forbidden) {
+			t.Fatalf("Codex CLI prompt conflicts with its measured contract: %q", forbidden)
+		}
+	}
+	for _, required := range []string{"provider-native mechanism", "exact advertised skill file", "routed reference", "two transport-level `remote_writes`", "zero content mutation"} {
+		if !strings.Contains(lower, required) {
+			t.Fatalf("Codex CLI prompt omits reviewed activation/transport guidance: %q", required)
+		}
+	}
+}
+
 func TestRepositoryTableMCPV3ProviderParityIsOneRead(t *testing.T) {
 	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
 	for _, directory := range []string{
