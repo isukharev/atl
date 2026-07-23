@@ -856,6 +856,7 @@ func countClaudeMCPResults(
 		case map[string]any:
 		case string:
 			if strings.HasPrefix(result, "Error: No such tool available:") {
+				complete = false
 				continue
 			}
 			if !isClaudeMCPServerError(result) && result != claudeExternalMCPProxyDenial {

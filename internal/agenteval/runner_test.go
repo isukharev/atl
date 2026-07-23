@@ -102,12 +102,21 @@ if [ "$1" = "-p" ]; then
     fi
   done
   if [ "$mcp" = "1" ]; then
+    missing_telemetry=0
+    for arg in "$@"; do
+      if [ "$arg" = "claude-test-missing-telemetry" ]; then
+        missing_telemetry=1
+      fi
+    done
     if [ -n "$ATL_JIRA_PAT" ] || [ -n "$ATL_CONFLUENCE_PAT" ]; then
       echo synthetic backend credentials leaked into the provider environment >&2
       exit 33
     fi
     printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}'
     printf '%s\n' '{"type":"user","tool_use_result":{"content":[{"type":"text","text":"synthetic"}]},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","is_error":false,"content":"{\"fields\":[]}"}]}}'
+    if [ "$missing_telemetry" = "1" ]; then
+      printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-missing","name":"mcp__atl__jira_fields"}]}}'
+    fi
     printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":0.00014,"usage":{"input_tokens":100,"output_tokens":20},"structured_output":{"answer":"ok"}}'
     exit 0
   fi
@@ -268,6 +277,26 @@ exit 2
 		wrongOutput.Results[0].Status != "fail" ||
 		wrongOutput.Results[0].Checks["route_exact"] {
 		t.Fatalf("wrong executable capability route passed: %+v", wrongOutput)
+	}
+	missingTelemetry := spec
+	missingTelemetry.Variant = "typed-mcp-missing-telemetry"
+	missingTelemetry.Model = "claude-test-missing-telemetry"
+	writeJSONTestFile(t, filepath.Join(caseDir, "run-missing-telemetry.json"), missingTelemetry)
+	missingOutput, err := RunHeadless(context.Background(), RunOptions{
+		SpecPath:       filepath.Join(caseDir, "run-missing-telemetry.json"),
+		OutputRoot:     filepath.Join(tempRepository, "private", "missing-telemetry"),
+		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
+		PluginRoot: pluginRoot, WrapperExecutable: wrapper,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missingOutput.Results) != 1 ||
+		missingOutput.Results[0].Status != "fail" ||
+		missingOutput.Results[0].Coverage["capability_families"] ||
+		missingOutput.Results[0].Checks["route_exact"] ||
+		missingOutput.Results[0].Checks["route_ordered"] {
+		t.Fatalf("missing provider telemetry passed: %+v", missingOutput)
 	}
 	cliReceipt := readSyntheticRunReceiptTest(t, filepath.Join(outputRoot, scenario.ID, "claude-code", "baseline", "run-01", syntheticRunReceiptFileName))
 	mcpReceipt := readSyntheticRunReceiptTest(t, filepath.Join(outputRoot, scenario.ID, "claude-code", "typed-mcp", "run-01", syntheticRunReceiptFileName))

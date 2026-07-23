@@ -1273,7 +1273,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		familyValues[value.Family] = existing
 	}
 	capabilitySequence = append(capabilitySequence, providerMetrics.CapabilityFamilySequence...)
-	if providerMetrics.MCPToolCalls > 0 && !providerMetrics.CapabilityFamilyCoverage {
+	if !providerMetrics.CapabilityFamilyCoverage {
 		familyCoverage = false
 	}
 	providerMetrics.DurationMillis = duration

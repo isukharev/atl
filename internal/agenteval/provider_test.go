@@ -926,7 +926,7 @@ func TestClaudeClientSideMissingToolIsNotCountedAsATLInvocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.ToolCalls != 3 || metrics.MCPToolCalls != 2 || metrics.FailedMCPToolCalls != 2 || metrics.MCPToolOutputBytes != int64(len("server error")+len("classified server error")) {
+	if metrics.ToolCalls != 3 || metrics.MCPToolCalls != 2 || metrics.FailedMCPToolCalls != 2 || metrics.MCPToolOutputBytes != int64(len("server error")+len("classified server error")) || metrics.CapabilityFamilyCoverage {
 		t.Fatalf("metrics=%+v", metrics)
 	}
 }
