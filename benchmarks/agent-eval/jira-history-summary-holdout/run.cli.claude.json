@@ -1,0 +1,49 @@
+{
+  "schema_version": 6,
+  "scenario_file": "scenario.v1.json",
+  "category": "surface-native",
+  "surface": "cli-skill",
+  "provider": "claude-code",
+  "variant": "history-summary-partial-holdout-v1",
+  "model": "claude-opus-4-8",
+  "reasoning": "high",
+  "prompt_file": "prompt.claude.v1.md",
+  "response_schema_file": "response-schema.v1.json",
+  "qualitative_rubric_file": "rubric.v1.json",
+  "workspace_template": "workspace",
+  "fixture_file": "fixture.json",
+  "repetitions": 1,
+  "timeout_seconds": 300,
+  "max_estimated_cost_microusd": 5000000,
+  "pricing": {
+    "input_microusd_per_million_tokens": 5000000,
+    "output_microusd_per_million_tokens": 25000000
+  },
+  "allowed_tools": ["Bash(atl *)", "Skill"],
+  "allowed_atl_commands": [
+    "atl capabilities --task jira/evidence",
+    "atl jira issue history RV-9 --summary-only --"
+  ],
+  "checks": [
+    {"name": "atl_succeeded", "kind": "atl_all_succeeded"},
+    {"name": "counts_correct", "kind": "json_equals", "pointer": "/entries", "expected": {"with_items": 3, "multi_item": 2, "items": 5, "distinct_fields": 4, "items_with_from": 4, "items_with_to": 4, "status_items": 1}},
+    {"name": "fields_correct", "kind": "json_equals", "pointer": "/fields", "expected": [{"field_id": "customfield_30001", "field": "Risk", "count": 1, "with_from": 0, "with_to": 1}, {"field_id": "customfield_30002", "field": "Risk", "count": 2, "with_from": 2, "with_to": 1}, {"field_id": "status", "field": "Status", "count": 1, "with_from": 1, "with_to": 1}, {"field_id": "", "field": "Risk", "count": 1, "with_from": 1, "with_to": 1}]},
+    {"name": "guard_clean", "kind": "guard_no_denials"},
+    {"name": "history_count_correct", "kind": "json_equals", "pointer": "/history_count", "expected": 3},
+    {"name": "http_exact", "kind": "http_methods_equal", "expected": {"GET": 2}},
+    {"name": "identity_correct", "kind": "json_equals", "pointer": "/identity", "expected": {"nonempty_ids": 3, "missing_ids": 0, "all_ids_unique": true, "nonempty_ids_unique": true}},
+    {"name": "issue_correct", "kind": "json_equals", "pointer": "/issue_key", "expected": "RV-9"},
+    {"name": "mock_clean", "kind": "mock_no_unexpected"},
+    {"name": "no_delegation", "kind": "delegations_none"},
+    {"name": "ordering_correct", "kind": "json_equals", "pointer": "/ordering", "expected": {"comparable": false, "ascending": null}},
+    {"name": "partial_reason_correct", "kind": "json_equals", "pointer": "/partial_reason", "expected": "Jira changelog pagination made no forward progress"},
+    {"name": "provenance_correct", "kind": "json_equals", "pointer": "/reconciliation", "expected": {"count_matches_history": true, "fetched_matches_total": false}},
+    {"name": "source_correct", "kind": "json_equals", "pointer": "/source", "expected": "paginated"},
+    {"name": "total_correct", "kind": "json_equals", "pointer": "/total", "expected": 5},
+    {"name": "fetched_correct", "kind": "json_equals", "pointer": "/fetched", "expected": 3},
+    {"name": "complete_correct", "kind": "json_equals", "pointer": "/complete", "expected": false},
+    {"name": "used_atl", "kind": "atl_invocations_min", "minimum": 2},
+    {"name": "used_atl_twice", "kind": "atl_invocations_max", "maximum": 2},
+    {"name": "used_skill", "kind": "skill_invocations_min", "minimum": 1, "expected": "atl:jira"}
+  ]
+}

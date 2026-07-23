@@ -199,6 +199,7 @@ func TestJiraIssueHistory_SummaryOnlyRejectsFalseBeforeBackendRead(t *testing.T)
 	for _, args := range [][]string{
 		{"jira", "issue", "history", "ENG-1", "--summary-only=false"},
 		{"jira", "issue", "history", "ENG-1", "--summary-only", "--summary-only=false"},
+		{"jira", "issue", "history", "ENG-1", "--summary-only", "--", "--summary-only=false"},
 	} {
 		t.Run(strings.Join(args[4:], "_"), func(t *testing.T) {
 			js := newJiraServer(t)

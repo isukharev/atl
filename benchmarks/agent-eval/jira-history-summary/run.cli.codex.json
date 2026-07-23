@@ -1,0 +1,80 @@
+{
+  "schema_version": 6,
+  "scenario_file": "scenario.v1.json",
+  "category": "surface-native",
+  "surface": "cli-skill",
+  "provider": "codex",
+  "variant": "history-summary-filtered-v1",
+  "model": "gpt-5.6-luna",
+  "reasoning": "high",
+  "prompt_file": "prompt.v1.md",
+  "response_schema_file": "response-schema.v1.json",
+  "qualitative_rubric_file": "rubric.v1.json",
+  "workspace_template": "workspace",
+  "fixture_file": "fixture.json",
+  "repetitions": 3,
+  "timeout_seconds": 300,
+  "max_estimated_cost_microusd": 5000000,
+  "pricing": {
+    "input_microusd_per_million_tokens": 1000000,
+    "output_microusd_per_million_tokens": 6000000
+  },
+  "allowed_tools": ["Bash(atl *)", "Skill"],
+  "allowed_cli_commands": [
+    {
+      "name": "capabilities",
+      "command": ["capabilities"],
+      "flags": [
+        {
+          "name": "--task",
+          "values": ["jira/evidence"],
+          "required": true
+        }
+      ],
+      "max_invocations": 1
+    },
+    {
+      "name": "jira_history",
+      "command": ["jira", "issue", "history"],
+      "positionals": [
+        {
+          "values": ["QZ-42"]
+        }
+      ],
+      "flags": [
+        {
+          "name": "--field",
+          "values": ["customfield_20001"],
+          "required": true
+        },
+        {
+          "name": "--summary-only",
+          "required": true
+        }
+      ],
+      "max_invocations": 1
+    }
+  ],
+  "checks": [
+    {"name": "atl_succeeded", "kind": "atl_all_succeeded"},
+    {"name": "counts_correct", "kind": "json_equals", "pointer": "/entries", "expected": {"with_items": 3, "multi_item": 1, "items": 4, "distinct_fields": 1, "items_with_from": 3, "items_with_to": 4}},
+    {"name": "fields_correct", "kind": "json_equals", "pointer": "/fields", "expected": [{"field_id": "customfield_20001", "field": "Forecast", "count": 4, "with_from": 3, "with_to": 4}]},
+    {"name": "fetched_correct", "kind": "json_equals", "pointer": "/fetched", "expected": 4},
+    {"name": "filtered_count_correct", "kind": "json_equals", "pointer": "/filtered_history_count", "expected": 3},
+    {"name": "guard_clean", "kind": "guard_no_denials"},
+    {"name": "http_exact", "kind": "http_methods_equal", "expected": {"GET": 1}},
+    {"name": "identity_correct", "kind": "json_equals", "pointer": "/identity", "expected": {"nonempty_ids": 2, "missing_ids": 1, "all_ids_unique": false, "nonempty_ids_unique": false}},
+    {"name": "issue_correct", "kind": "json_equals", "pointer": "/issue_key", "expected": "QZ-42"},
+    {"name": "last_change_correct", "kind": "json_equals", "pointer": "/newest_selected_change", "expected": {"field_id": "customfield_20001", "field": "customfield_20001", "history_id": "801", "created": "2026-06-03T09:00:00.000+0000", "from": "9", "to": "10"}},
+    {"name": "mock_clean", "kind": "mock_no_unexpected"},
+    {"name": "no_delegation", "kind": "delegations_none"},
+    {"name": "ordering_correct", "kind": "json_equals", "pointer": "/ordering", "expected": {"comparable": true, "ascending": true}},
+    {"name": "provenance_correct", "kind": "json_equals", "pointer": "/complete", "expected": true},
+    {"name": "reconciliation_correct", "kind": "json_equals", "pointer": "/reconciliation", "expected": {"count_matches_history": true, "fetched_matches_total": true}},
+    {"name": "source_correct", "kind": "json_equals", "pointer": "/source", "expected": "paginated"},
+    {"name": "total_correct", "kind": "json_equals", "pointer": "/total", "expected": 4},
+    {"name": "used_atl", "kind": "atl_invocations_min", "minimum": 2},
+    {"name": "used_atl_twice", "kind": "atl_invocations_max", "maximum": 2},
+    {"name": "used_skill", "kind": "skill_invocations_min", "minimum": 1}
+  ]
+}
