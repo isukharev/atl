@@ -76,6 +76,13 @@ quantiles. The real ledger and scorecard remain private; the committed
 [`private-finding-ledger.example.json`](private-finding-ledger.example.json) and
 [`private-finding-acceptance.example.json`](private-finding-acceptance.example.json)
 are synthetic and contain no backend data.
+The versioned
+[`private-finding-acceptance-v2.schema.json`](private-finding-acceptance-v2.schema.json)
+adds an explicit `private-live` or `synthetic-root` assessment source. A
+synthetic assessment remains supplementary: the fixed finding must retain its
+canonical private-live failure and regression, and the synthetic primary must
+match that regression's tested system and task identity, including an exact
+non-empty prompt-contract digest bound by the owner-reviewed acceptance entry.
 
 Private sample strength is encoded separately with
 [`private-sampling.schema.json`](private-sampling.schema.json): `n=1` is

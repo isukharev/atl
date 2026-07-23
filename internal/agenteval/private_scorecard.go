@@ -17,7 +17,7 @@ import (
 
 const (
 	PrivateFindingLedgerSchemaVersion    = 1
-	PrivateFindingScorecardSchemaVersion = 2
+	PrivateFindingScorecardSchemaVersion = 3
 	PrivateFindingLedgerRelativePath     = "reports/finding-ledger.v1.json"
 	privateFindingLedgerMaxBytes         = 4 << 20
 )
@@ -237,34 +237,82 @@ func buildPrivateFindingScorecard(options PrivateFindingScorecardOptions, load p
 				failureSource.ContractSHA256 == entry.ChangedContractSHA256 {
 				return PrivateFindingScorecard{}, privateFindingError("fixed_contract")
 			}
-			assessmentDigest, exists := acceptance[entry.FindingID]
+			acceptanceBinding, exists := acceptance[entry.FindingID]
 			if !exists {
 				return PrivateFindingScorecard{}, privateFindingError("fixed_acceptance")
 			}
-			assessment, primary, holdout, assessmentErr := loadPrivateSamplingAssessment(root, repository, assessmentDigest, load)
-			if assessmentErr != nil || assessment.Tier != PrivateSamplingTierRegression || assessment.RegressionAccepted == nil ||
-				!*assessment.RegressionAccepted || len(primary) != 3 || len(holdout) == 0 {
-				return PrivateFindingScorecard{}, privateFindingError("fixed_assessment")
-			}
-			regressionPresent := false
-			for _, binding := range assessment.Primary {
-				if binding.ContractSHA256 != entry.ChangedContractSHA256 {
-					return PrivateFindingScorecard{}, privateFindingError("fixed_assessment_contract")
+			switch acceptanceBinding.AssessmentSource {
+			case PrivateFindingAcceptanceSourcePrivateLive:
+				assessment, primary, holdout, assessmentErr := loadPrivateSamplingAssessment(
+					root, repository, acceptanceBinding.AssessmentSHA256, load,
+				)
+				if assessmentErr != nil || assessment.Tier != PrivateSamplingTierRegression ||
+					assessment.RegressionAccepted == nil || !*assessment.RegressionAccepted ||
+					len(primary) != 3 || len(holdout) == 0 {
+					return PrivateFindingScorecard{}, privateFindingError("fixed_assessment")
 				}
-				if entry.Regression != nil && binding.Reference == *entry.Regression {
-					regressionPresent = true
+				regressionPresent := false
+				for _, binding := range assessment.Primary {
+					if binding.ContractSHA256 != entry.ChangedContractSHA256 {
+						return PrivateFindingScorecard{}, privateFindingError("fixed_assessment_contract")
+					}
+					if entry.Regression != nil && binding.Reference == *entry.Regression {
+						regressionPresent = true
+					}
 				}
+				if !regressionPresent {
+					return PrivateFindingScorecard{}, privateFindingError("fixed_assessment_regression")
+				}
+				item.samplingPrimary = primary
+				item.samplingHoldout = holdout
+			case PrivateFindingAcceptanceSourceSyntheticRoot:
+				assessment, primary, holdout, assessmentErr := loadPrivateSyntheticSamplingAssessment(
+					root, acceptanceBinding.AssessmentSHA256,
+				)
+				if assessmentErr != nil || assessment.Tier != PrivateSamplingTierRegression ||
+					assessment.RegressionAccepted == nil || !*assessment.RegressionAccepted ||
+					len(primary) != 3 || len(holdout) == 0 {
+					return PrivateFindingScorecard{}, privateFindingError("fixed_assessment")
+				}
+				for _, result := range primary {
+					if item.regression == nil || !compatiblePrivateSyntheticFindingEvidence(
+						*item.regression, result, acceptanceBinding.PromptContractSHA256,
+					) {
+						return PrivateFindingScorecard{}, privateFindingError("fixed_assessment_regression")
+					}
+				}
+				item.samplingPrimary = primary
+				item.samplingHoldout = holdout
+			default:
+				return PrivateFindingScorecard{}, privateFindingError("fixed_acceptance")
 			}
-			if !regressionPresent {
-				return PrivateFindingScorecard{}, privateFindingError("fixed_assessment_regression")
-			}
-			item.samplingPrimary = primary
-			item.samplingHoldout = holdout
-			item.digests = append(item.digests, assessmentDigest)
+			item.digests = append(item.digests, acceptanceBinding.AssessmentSHA256)
 		}
 		resolved = append(resolved, item)
 	}
 	return aggregatePrivateFindingScorecard(canonical, acceptanceCanonical, resolved), nil
+}
+
+func compatiblePrivateSyntheticFindingEvidence(regression, synthetic Result, promptContractSHA256 string) bool {
+	if regression.DataClass != "private-local" || synthetic.DataClass != "synthetic" ||
+		regression.ScenarioID != synthetic.ScenarioID ||
+		regression.TaskClass != synthetic.TaskClass ||
+		regression.EffectiveCategory() != synthetic.EffectiveCategory() ||
+		regression.Variant != synthetic.Variant ||
+		regression.EffectiveSurface() != synthetic.EffectiveSurface() ||
+		regression.Runtime.Provider != synthetic.Runtime.Provider ||
+		regression.Runtime.AgentVersion != synthetic.Runtime.AgentVersion ||
+		regression.Runtime.Model != synthetic.Runtime.Model ||
+		regression.Runtime.Reasoning != synthetic.Runtime.Reasoning ||
+		regression.Runtime.ATLVersion != synthetic.Runtime.ATLVersion ||
+		regression.Runtime.PluginVersion != synthetic.Runtime.PluginVersion ||
+		regression.Runtime.SkillDigest != synthetic.Runtime.SkillDigest ||
+		regression.Runtime.SkillActivation != synthetic.Runtime.SkillActivation ||
+		!validSHA256(promptContractSHA256) ||
+		promptContractSHA256 != synthetic.Runtime.PromptContractSHA256 {
+		return false
+	}
+	return true
 }
 
 func decodePrivateFindingLedger(data []byte) (PrivateFindingLedger, []byte, error) {
@@ -426,7 +474,7 @@ func aggregatePrivateFindingScorecard(ledger, acceptance []byte, resolved []priv
 	}
 	groups := map[groupKey]*groupValues{}
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("atl-private-finding-scorecard-v2\x00"))
+	_, _ = hash.Write([]byte("atl-private-finding-scorecard-v3\x00"))
 	_, _ = hash.Write(ledger)
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(acceptance)

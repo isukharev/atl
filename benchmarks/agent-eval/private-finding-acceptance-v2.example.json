@@ -1,0 +1,11 @@
+{
+  "schema_version": 2,
+  "entries": [
+    {
+      "finding_id": "finding-001",
+      "assessment_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "assessment_source": "synthetic-root",
+      "prompt_contract_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  ]
+}
