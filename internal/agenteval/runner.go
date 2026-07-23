@@ -1989,14 +1989,13 @@ func writeClaudeGuardSettings(path, guardPath, serverName string, reviewedMCPToo
 	if len(reviewedMCPTools) > 0 {
 		// Headless dontAsk sessions cannot approve project-like MCP configs
 		// interactively. Approve only the single generated server name and grant
-		// only the run spec's exact dynamic tool names. Passing the same names to
-		// Claude's --tools/--allowed-tools CLI filters hides dynamic MCP tools in
-		// current releases before discovery completes.
+		// only the run spec's exact dynamic tool names. The provider command uses
+		// an empty built-in --tools inventory; MCP names stay in settings because
+		// --allowed-tools is a permission filter rather than an inventory filter.
 		settings["enabledMcpjsonServers"] = []string{serverName}
 		// Keep plugin workflow guidance available to CLI-skill runs, but remove
-		// the Skill built-in from typed-MCP model discovery. Current Claude Code
-		// cannot combine --tools filtering with dynamic MCP discovery; the exact
-		// permission deny is therefore paired with the global fail-closed hook.
+		// the Skill built-in from typed-MCP permissions as a second control. The
+		// matcher-less hook remains the global fail-closed boundary.
 		settings["permissions"] = map[string]any{"allow": reviewedMCPTools, "deny": []string{"Skill"}}
 	}
 	data, err := json.Marshal(settings)

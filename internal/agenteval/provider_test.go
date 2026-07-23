@@ -351,8 +351,11 @@ func TestBuildClaudeMCPCommandDisablesBuiltinsAndUsesQualifiedAllowlist(t *testi
 	}
 	tools, toolsOK := providerArgument(command.Args, "--tools")
 	allowed, allowedOK := providerArgument(command.Args, "--allowed-tools")
-	if toolsOK || allowedOK {
+	if !toolsOK || tools != "" || allowedOK {
 		t.Errorf("Claude MCP tool boundary tools=%q allowed=%q: %s", tools, allowed, joined)
+	}
+	if schema, ok := providerArgument(command.Args, "--json-schema"); !ok || schema != `{"type":"object"}` {
+		t.Errorf("Claude MCP structured output schema=%q present=%t: %s", schema, ok, joined)
 	}
 }
 

@@ -97,13 +97,12 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 			if atlBinary == "" || guardPath == "" || mcpConfigPath == "" {
 				return ProviderCommand{}, fmt.Errorf("claude mcp transport requires atl, guard, and MCP config paths")
 			}
-			// Claude's --tools flag configures the built-in tool set, but supplying
-			// it (including an empty value or MCP-qualified names) can hide tools
-			// discovered from a connected MCP server. Omit both CLI tool filters for
-			// MCP runs; dontAsk plus the exact private-settings permission list
-			// remains the execution boundary for built-ins and dynamic tools alike.
+			// Current Claude Code documents --tools as a built-in-only inventory
+			// filter that does not affect MCP discovery. Pass an explicit empty
+			// inventory so the model never sees a built-in fallback route. Dynamic
+			// MCP permissions remain in the generated private settings, and the
+			// matcher-less guard independently fails closed on every tool call.
 			toolNames = nil
-			allowedTools = claudeMCPToolNamesForServer(mcpServerName(spec), spec.AllowedMCPTools)
 		}
 		args := []string{
 			"-p", "--output-format", "stream-json", "--verbose",
@@ -112,9 +111,9 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 			"--permission-mode", "dontAsk", "--strict-mcp-config", "--no-chrome",
 			"--setting-sources", settingSources,
 		}
+		args = append(args, "--tools", strings.Join(toolNames, ","))
 		if spec.ToolTransport != "mcp" {
 			args = append(args,
-				"--tools", strings.Join(toolNames, ","),
 				"--allowed-tools", strings.Join(allowedTools, ","),
 			)
 		}
