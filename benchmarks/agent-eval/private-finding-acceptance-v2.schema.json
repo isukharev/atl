@@ -38,8 +38,32 @@
         },
         "assessment_source": {
           "enum": ["private-live", "synthetic-root"]
+        },
+        "prompt_contract_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "assessment_source": {
+                "const": "synthetic-root"
+              }
+            },
+            "required": ["assessment_source"]
+          },
+          "then": {
+            "required": ["prompt_contract_sha256"]
+          },
+          "else": {
+            "not": {
+              "required": ["prompt_contract_sha256"]
+            }
+          }
+        }
+      ]
     }
   }
 }

@@ -1044,8 +1044,10 @@ cohort and binds all three primary plan contracts to
 Synthetic-root sampling supplements rather than replaces that canonical
 private-live regression. Its primary must match the regression's scenario,
 public task class, category, variant, surface, provider, agent/model/reasoning,
-ATL runtime, and plugin/skill identity; a bound private-live prompt contract
-must also match. Exact receipt-backed executable identities remain inside the
+ATL runtime, and plugin/skill identity. The owner-reviewed v2 acceptance entry
+must bind a non-empty prompt-contract digest, and the synthetic primary must
+match it exactly; private-live entries reject that synthetic-only binding.
+Exact receipt-backed executable identities remain inside the
 assessment. `changed_contract_sha256` continues to identify the private-live
 regression plan contract: a synthetic task digest is never substituted for
 that change identity. A fixed entry backed only by one successful regression

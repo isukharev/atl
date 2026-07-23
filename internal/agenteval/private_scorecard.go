@@ -275,7 +275,9 @@ func buildPrivateFindingScorecard(options PrivateFindingScorecardOptions, load p
 					return PrivateFindingScorecard{}, privateFindingError("fixed_assessment")
 				}
 				for _, result := range primary {
-					if item.regression == nil || !compatiblePrivateSyntheticFindingEvidence(*item.regression, result) {
+					if item.regression == nil || !compatiblePrivateSyntheticFindingEvidence(
+						*item.regression, result, acceptanceBinding.PromptContractSHA256,
+					) {
 						return PrivateFindingScorecard{}, privateFindingError("fixed_assessment_regression")
 					}
 				}
@@ -291,7 +293,7 @@ func buildPrivateFindingScorecard(options PrivateFindingScorecardOptions, load p
 	return aggregatePrivateFindingScorecard(canonical, acceptanceCanonical, resolved), nil
 }
 
-func compatiblePrivateSyntheticFindingEvidence(regression, synthetic Result) bool {
+func compatiblePrivateSyntheticFindingEvidence(regression, synthetic Result, promptContractSHA256 string) bool {
 	if regression.DataClass != "private-local" || synthetic.DataClass != "synthetic" ||
 		regression.ScenarioID != synthetic.ScenarioID ||
 		regression.TaskClass != synthetic.TaskClass ||
@@ -305,11 +307,12 @@ func compatiblePrivateSyntheticFindingEvidence(regression, synthetic Result) boo
 		regression.Runtime.ATLVersion != synthetic.Runtime.ATLVersion ||
 		regression.Runtime.PluginVersion != synthetic.Runtime.PluginVersion ||
 		regression.Runtime.SkillDigest != synthetic.Runtime.SkillDigest ||
-		regression.Runtime.SkillActivation != synthetic.Runtime.SkillActivation {
+		regression.Runtime.SkillActivation != synthetic.Runtime.SkillActivation ||
+		!validSHA256(promptContractSHA256) ||
+		promptContractSHA256 != synthetic.Runtime.PromptContractSHA256 {
 		return false
 	}
-	return regression.Runtime.PromptContractSHA256 == "" ||
-		regression.Runtime.PromptContractSHA256 == synthetic.Runtime.PromptContractSHA256
+	return true
 }
 
 func decodePrivateFindingLedger(data []byte) (PrivateFindingLedger, []byte, error) {

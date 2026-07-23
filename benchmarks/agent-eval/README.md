@@ -81,7 +81,8 @@ The versioned
 adds an explicit `private-live` or `synthetic-root` assessment source. A
 synthetic assessment remains supplementary: the fixed finding must retain its
 canonical private-live failure and regression, and the synthetic primary must
-match that regression's tested system and task identity.
+match that regression's tested system and task identity, including an exact
+non-empty prompt-contract digest bound by the owner-reviewed acceptance entry.
 
 Private sample strength is encoded separately with
 [`private-sampling.schema.json`](private-sampling.schema.json): `n=1` is

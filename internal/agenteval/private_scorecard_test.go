@@ -102,7 +102,8 @@ func TestPrivateFindingScorecardAcceptsCompatibleAttestedSyntheticSampling(t *te
 	writePrivateFindingAcceptanceV2(t, fixture.root, PrivateFindingAcceptanceV2Index{
 		SchemaVersion: 2, Entries: []PrivateFindingAcceptanceV2Entry{{
 			FindingID: "finding-001", AssessmentSHA256: assessment,
-			AssessmentSource: PrivateFindingAcceptanceSourceSyntheticRoot,
+			AssessmentSource:     PrivateFindingAcceptanceSourceSyntheticRoot,
+			PromptContractSHA256: strings.Repeat("6", 64),
 		}},
 	})
 	report, err := buildPrivateFindingScorecard(
@@ -125,6 +126,7 @@ func TestPrivateFindingScorecardAcceptsCompatibleAttestedSyntheticSampling(t *te
 	for _, private := range []string{
 		"finding-001", assessment, primary.Root, primary.SourceSHA256,
 		holdout.Root, holdout.SourceSHA256, regressionResult.ScenarioID,
+		strings.Repeat("6", 64),
 	} {
 		if bytes.Contains(encoded, []byte(private)) {
 			t.Fatalf("private value %q leaked in %s", private, encoded)
@@ -163,9 +165,10 @@ func TestPrivateFindingScorecardAcceptsTypedPrivateLiveAssessment(t *testing.T) 
 	}
 	writePrivateFindingAcceptanceV2(t, candidate.fixture.root, PrivateFindingAcceptanceV2Index{
 		SchemaVersion: 2, Entries: []PrivateFindingAcceptanceV2Entry{{
-			FindingID:        candidate.ledger.Entries[0].FindingID,
-			AssessmentSHA256: candidate.assessment,
-			AssessmentSource: PrivateFindingAcceptanceSourceSyntheticRoot,
+			FindingID:            candidate.ledger.Entries[0].FindingID,
+			AssessmentSHA256:     candidate.assessment,
+			AssessmentSource:     PrivateFindingAcceptanceSourceSyntheticRoot,
+			PromptContractSHA256: strings.Repeat("6", 64),
 		}},
 	})
 	if _, err := buildPrivateFindingScorecard(
@@ -184,6 +187,7 @@ func TestPrivateFindingScorecardRejectsMismatchedSyntheticAcceptance(t *testing.
 		{"scenario", func(result *Result) { result.ScenarioID = "jira.other-primary" }},
 		{"atl runtime", func(result *Result) { result.Runtime.ATLVersion = "other-atl" }},
 		{"model", func(result *Result) { result.Runtime.Model = "other-model" }},
+		{"prompt contract", func(result *Result) { result.Runtime.PromptContractSHA256 = strings.Repeat("a", 64) }},
 		{"surface", func(result *Result) { result.Surface = SurfaceCLISkill }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -197,10 +201,11 @@ func TestPrivateFindingScorecardRejectsMismatchedSyntheticAcceptance(t *testing.
 			regression := fixture.addResult(t, 1, "regression-capture", regressionResult, strings.Repeat("1", 64))
 			failure := fixture.addResult(t, 9, "failure-capture", failureResult, strings.Repeat("3", 64))
 			synthetic := regressionResult
+			synthetic.Runtime.PromptContractSHA256 = strings.Repeat("6", 64)
 			test.mutate(&synthetic)
 			primary := addSyntheticFindingRoot(t, fixture, "primary-finding-synthetic-runs",
 				synthetic, synthetic.ScenarioID, 3, strings.Repeat("4", 64),
-				strings.Repeat("5", 64), strings.Repeat("6", 64))
+				strings.Repeat("5", 64), synthetic.Runtime.PromptContractSHA256)
 			holdout := addSyntheticFindingRoot(t, fixture, "holdout-finding-synthetic-runs",
 				synthetic, "jira.holdout-evidence", 1, strings.Repeat("7", 64),
 				strings.Repeat("8", 64), strings.Repeat("9", 64))
@@ -216,7 +221,8 @@ func TestPrivateFindingScorecardRejectsMismatchedSyntheticAcceptance(t *testing.
 			writePrivateFindingAcceptanceV2(t, fixture.root, PrivateFindingAcceptanceV2Index{
 				SchemaVersion: 2, Entries: []PrivateFindingAcceptanceV2Entry{{
 					FindingID: "finding-001", AssessmentSHA256: assessment,
-					AssessmentSource: PrivateFindingAcceptanceSourceSyntheticRoot,
+					AssessmentSource:     PrivateFindingAcceptanceSourceSyntheticRoot,
+					PromptContractSHA256: strings.Repeat("6", 64),
 				}},
 			})
 			if _, err := buildPrivateFindingScorecard(
@@ -226,6 +232,45 @@ func TestPrivateFindingScorecardRejectsMismatchedSyntheticAcceptance(t *testing.
 				t.Fatalf("err=%v", err)
 			}
 		})
+	}
+}
+
+func TestPrivateFindingScorecardRejectsSyntheticAcceptanceWithoutPromptBinding(t *testing.T) {
+	fixture := newPrivateSamplingFixture(t)
+	regressionResult := privateSamplingResult(t, "jira.primary-evidence", true)
+	regressionResult.Surface = SurfaceATLMCP
+	regressionResult.Runtime.Provider = "codex"
+	failureResult := privateSamplingResult(t, "jira.primary-evidence", false)
+	failureResult.Surface = SurfaceATLMCP
+	failureResult.Runtime.Provider = "codex"
+	regression := fixture.addResult(t, 1, "regression-capture", regressionResult, strings.Repeat("1", 64))
+	failure := fixture.addResult(t, 9, "failure-capture", failureResult, strings.Repeat("3", 64))
+	primary := addSyntheticFindingRoot(t, fixture, "primary-finding-synthetic-runs",
+		regressionResult, regressionResult.ScenarioID, 3, strings.Repeat("4", 64),
+		strings.Repeat("5", 64), strings.Repeat("6", 64))
+	holdout := addSyntheticFindingRoot(t, fixture, "holdout-finding-synthetic-runs",
+		regressionResult, "jira.holdout-evidence", 1, strings.Repeat("7", 64),
+		strings.Repeat("8", 64), strings.Repeat("9", 64))
+	assessment := fixture.storeSyntheticAssessment(t, PrivateSyntheticSamplingSpec{
+		SchemaVersion: 2, Tier: PrivateSamplingTierRegression, Primary: primary,
+		Holdout: []PrivateSyntheticSamplingRootRef{holdout},
+	})
+	writePrivateFindingLedger(t, fixture.root, PrivateFindingLedger{SchemaVersion: 1, Entries: []PrivateFindingEntry{{
+		FindingID: "finding-001", Failure: failure, FailureClass: PrivateFailureModel,
+		ProductIssue: 123, PullRequest: 456, ChangedContractSHA256: strings.Repeat("1", 64),
+		Regression: &regression, Decision: PrivateFindingDecisionFixed,
+	}}})
+	writePrivateFindingAcceptanceV2(t, fixture.root, PrivateFindingAcceptanceV2Index{
+		SchemaVersion: 2, Entries: []PrivateFindingAcceptanceV2Entry{{
+			FindingID: "finding-001", AssessmentSHA256: assessment,
+			AssessmentSource: PrivateFindingAcceptanceSourceSyntheticRoot,
+		}},
+	})
+	if _, err := buildPrivateFindingScorecard(
+		PrivateFindingScorecardOptions{Root: fixture.root, RepositoryRoot: fixture.repository},
+		fixture.dependencies().load,
+	); !errors.Is(err, ErrPrivateFindingLedgerRejected) {
+		t.Fatalf("err=%v", err)
 	}
 }
 
@@ -465,11 +510,18 @@ func TestPrivateFindingAcceptanceV2IndexFailsClosed(t *testing.T) {
 	}{
 		{"unknown source", []PrivateFindingAcceptanceV2Entry{
 			{FindingID: "finding-001", AssessmentSHA256: strings.Repeat("1", 64), AssessmentSource: "future"},
-			{FindingID: "finding-002", AssessmentSHA256: strings.Repeat("2", 64), AssessmentSource: PrivateFindingAcceptanceSourceSyntheticRoot},
+			{FindingID: "finding-002", AssessmentSHA256: strings.Repeat("2", 64), AssessmentSource: PrivateFindingAcceptanceSourceSyntheticRoot,
+				PromptContractSHA256: strings.Repeat("3", 64)},
 		}},
 		{"reused assessment across sources", []PrivateFindingAcceptanceV2Entry{
 			{FindingID: "finding-001", AssessmentSHA256: strings.Repeat("1", 64), AssessmentSource: PrivateFindingAcceptanceSourcePrivateLive},
-			{FindingID: "finding-002", AssessmentSHA256: strings.Repeat("1", 64), AssessmentSource: PrivateFindingAcceptanceSourceSyntheticRoot},
+			{FindingID: "finding-002", AssessmentSHA256: strings.Repeat("1", 64), AssessmentSource: PrivateFindingAcceptanceSourceSyntheticRoot,
+				PromptContractSHA256: strings.Repeat("3", 64)},
+		}},
+		{"private live with synthetic prompt binding", []PrivateFindingAcceptanceV2Entry{
+			{FindingID: "finding-001", AssessmentSHA256: strings.Repeat("1", 64), AssessmentSource: PrivateFindingAcceptanceSourcePrivateLive,
+				PromptContractSHA256: strings.Repeat("3", 64)},
+			{FindingID: "finding-002", AssessmentSHA256: strings.Repeat("2", 64), AssessmentSource: PrivateFindingAcceptanceSourcePrivateLive},
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -770,6 +822,7 @@ func TestPrivateFindingAcceptanceV2PublicExampleMatchesGoContract(t *testing.T) 
 	index, canonical, err := decodePrivateFindingAcceptanceV2(data)
 	if err != nil || index.SchemaVersion != PrivateFindingAcceptanceV2SchemaVersion ||
 		len(index.Entries) != 1 || index.Entries[0].AssessmentSource != PrivateFindingAcceptanceSourceSyntheticRoot ||
+		!validSHA256(index.Entries[0].PromptContractSHA256) ||
 		!bytes.Equal(data, canonical) {
 		t.Fatalf("index=%+v canonical=%t err=%v", index, bytes.Equal(data, canonical), err)
 	}

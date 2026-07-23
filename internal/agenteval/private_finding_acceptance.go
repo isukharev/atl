@@ -39,14 +39,16 @@ type PrivateFindingAcceptanceV2Index struct {
 }
 
 type PrivateFindingAcceptanceV2Entry struct {
-	FindingID        string `json:"finding_id"`
-	AssessmentSHA256 string `json:"assessment_sha256"`
-	AssessmentSource string `json:"assessment_source"`
+	FindingID            string `json:"finding_id"`
+	AssessmentSHA256     string `json:"assessment_sha256"`
+	AssessmentSource     string `json:"assessment_source"`
+	PromptContractSHA256 string `json:"prompt_contract_sha256,omitempty"`
 }
 
 type privateFindingAcceptanceBinding struct {
-	AssessmentSHA256 string
-	AssessmentSource string
+	AssessmentSHA256     string
+	AssessmentSource     string
+	PromptContractSHA256 string
 }
 
 func loadPrivateFindingAcceptance(root string, ledger PrivateFindingLedger) (map[string]privateFindingAcceptanceBinding, []byte, error) {
@@ -108,8 +110,9 @@ func loadPrivateFindingAcceptance(root string, ledger PrivateFindingLedger) (map
 			return nil, nil, privateFindingError("acceptance_reuse")
 		}
 		bindings[entry.FindingID] = privateFindingAcceptanceBinding{
-			AssessmentSHA256: entry.AssessmentSHA256,
-			AssessmentSource: entry.AssessmentSource,
+			AssessmentSHA256:     entry.AssessmentSHA256,
+			AssessmentSource:     entry.AssessmentSource,
+			PromptContractSHA256: entry.PromptContractSHA256,
 		}
 		seenAssessments[entry.AssessmentSHA256] = struct{}{}
 	}
@@ -292,10 +295,15 @@ func (index PrivateFindingAcceptanceV2Index) validate() error {
 	}
 	previous := ""
 	for _, entry := range index.Entries {
+		validPromptBinding := false
+		switch entry.AssessmentSource {
+		case PrivateFindingAcceptanceSourcePrivateLive:
+			validPromptBinding = entry.PromptContractSHA256 == ""
+		case PrivateFindingAcceptanceSourceSyntheticRoot:
+			validPromptBinding = validSHA256(entry.PromptContractSHA256)
+		}
 		if !pathComponentIDRE.MatchString(entry.FindingID) || entry.FindingID == "." || entry.FindingID == ".." ||
-			entry.FindingID <= previous || !validSHA256(entry.AssessmentSHA256) ||
-			entry.AssessmentSource != PrivateFindingAcceptanceSourcePrivateLive &&
-				entry.AssessmentSource != PrivateFindingAcceptanceSourceSyntheticRoot {
+			entry.FindingID <= previous || !validSHA256(entry.AssessmentSHA256) || !validPromptBinding {
 			return fmt.Errorf("invalid acceptance entry")
 		}
 		previous = entry.FindingID
