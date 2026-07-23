@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "jira-quarter-portfolio-mcp-answer",
+  "scenario_id": "jira.synthetic-quarter-portfolio-mcp",
+  "minimum_score_bps": 7000,
+  "criteria": [
+    {"id":"evidence_grounding","description":"Portfolio conclusions are supported by the frozen membership snapshot and qualified per-source evidence.","maximum":4,"minimum":3,"weight":30},
+    {"id":"qualification","description":"Incomplete, stale, or conflicting evidence is distinguished from an asserted absence.","maximum":4,"minimum":3,"weight":25},
+    {"id":"task_completeness","description":"The response covers the requested portfolio summary, exceptions, and source qualifications.","maximum":4,"minimum":3,"weight":20},
+    {"id":"actionability","description":"The synthesis prioritizes decisions and exceptions instead of reproducing source records.","maximum":4,"minimum":2,"weight":15},
+    {"id":"concision","description":"The response is compact relative to the multi-source task and avoids duplicate evidence.","maximum":4,"minimum":2,"weight":10}
+  ],
+  "allowed_finding_ids": ["incomplete_answer","missing_qualification","poor_structure","unsupported_claim","verbose"]
+}

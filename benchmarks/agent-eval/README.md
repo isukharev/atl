@@ -729,6 +729,21 @@ MCP calls, fifteen GETs, two duplicate request targets, zero writes, and zero
 guard denials in one provider turn. It validates safety and route feasibility,
 not a cross-provider speed/token claim.
 
+`jira-quarter-portfolio-mcp` keeps that historical cell intact and defines the
+current provider-paired regression contract. Codex and Claude Code receive the
+same synthetic fixture, outcome prompt, schema, rubric, route budgets, and exact
+normalized MCP invocations. The primary requires eight typed calls, fifteen
+GETs, two duplicate request targets, and zero writes across field discovery,
+one frozen board snapshot, ascending per-epic history digests, and bounded
+Confluence evidence. Its distinct
+`jira-quarter-portfolio-mcp-holdout` companion varies field identities,
+portfolio shape, page evidence, and expected conclusions while retaining the
+same reasoning class; it requires six typed calls, eleven GETs, one duplicate
+request target, and zero writes. Use n=1 for calibration, n=3 for primary
+regression acceptance, and the one-run holdout as the generalization check.
+Exact invocation arguments are a transient mechanical oracle and are not
+included in retained aggregate observations.
+
 A directly comparable three-run Claude Code pair held the exact agent, model,
 reasoning, `atl`, plugin, skill digest, fixture, and oracle constant. Both
 variants passed 3/3 with fifteen GETs, two duplicate targets, and zero writes:

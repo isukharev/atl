@@ -241,6 +241,16 @@ mechanical oracles rather than prompt-only guidance. An extra argument, changed
 selector or cap, reordered field projection, or non-empty mirror argument
 therefore fails even when the returned answer happens to match.
 
+The current provider-paired Jira quarter-portfolio cell extends that exact
+argument oracle across a longer cross-service workflow. The primary cohort
+freezes one board snapshot, reads ascending per-epic history and bounded page
+sections, and accepts only its declared eight-call, fifteen-GET, zero-write
+route. A distinct holdout changes field identities, portfolio membership, and
+evidence while preserving the task class; its six-call, eleven-GET route catches
+solutions fitted only to the primary fixture. Calibrate each provider at n=1,
+use the primary n=3 cohort as the regression gate, and require the holdout pass
+before treating the product behavior as generalized.
+
 The surface-native paginated Confluence search cohort applies the same sampling
 rule to multi-step typed navigation. Its primary provider pair traverses three
 qualified search pages and then reads three outline/section pairs in exact
