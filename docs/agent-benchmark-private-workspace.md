@@ -1135,6 +1135,8 @@ Current manifests use schema v4, run specs use schema v7, observations use
 schema v5, results use schema v8, aggregates use schema v6, private plans use
 schema v8, scorecards use schema v2, and finding ledgers, finding-acceptance
 indexes, sampling specs/assessments, and daily checkpoints use schema v1,
+synthetic run receipts use schema v1 and complete synthetic-root aggregates use
+schema v2,
 current activation state uses schema v3, and
 review packets use schema v2. Current study references/reports use schema v2
 and require audit attempt metrics plus separate bounded model-report metrics.

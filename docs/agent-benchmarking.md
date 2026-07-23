@@ -272,20 +272,42 @@ estimates across providers.
 
 Use `aggregate-root` for a complete current synthetic run root created by the
 runner. It validates the owner-only root marker, requires empty scratch state,
-inventories every contiguous `run-NN/result.json` slot, and rejects symlinks,
-unsafe permissions, private-local data, non-public task classes, or mixed
-cohort identities. Current synthetic results must carry the runner-computed
-prompt-contract digest; missing or differing prompt identities fail closed.
-The digest guards comparison but is not emitted in aggregate groups. The
-schema-v1 envelope contains the existing aggregate plus the result/cohort
-counts and a domain-separated SHA-256 digest of the exact relative result slots
-and bytes. A second byte pass and final inventory reject sources changed during
-aggregation. The command fails closed where owner-only access cannot be
-established (currently Windows), is read-only, and emits no source paths. It
-does not replace the separate marked lifecycle and scorecard for private-live
-evidence. Aggregate output still contains benchmark identities; keep it private
-until the normal privacy and leak review. Keep explicit-path `aggregate` for
-reviewed historical or deliberately selected result sets.
+inventories every contiguous `run-NN/result.json` plus
+`run-NN/run-receipt.json` pair, and rejects symlinks, unsafe permissions,
+private-local data, non-public task classes, incomplete planned repetitions, or
+mixed cohort identities. Current synthetic results must carry the
+runner-computed prompt-contract digest.
+
+Receipt schema v1 separately binds a provider-neutral task contract and the
+provider-specific execution contract. The task digest covers the validated
+scenario and budgets, exact core prompt and response schema, rubric, synthetic
+fixture, semantic checks, data capabilities, write intent, and the exact copied
+initial workspace tree. The execution digest covers the effective run policy,
+task digest, projected provider schema, model/runtime identity, plugin/skill and
+prompt identities, and exact agent, ATL, and evaluation-wrapper executable
+digests. The runner rechecks executable bytes and the plugin/skill identity
+after all repetitions, then writes receipts atomically; an interrupted,
+budget-truncated, or drifting run root therefore remains incomplete.
+
+Missing identities fail closed. Task, execution, executable, and prompt drift
+within a repeated cohort fails closed; `neutral-common` variants for one
+scenario must additionally share the provider-neutral task digest.
+`route-fixed` and `surface-native` variants are not promoted to cross-variant
+comparability. These digests guard comparison but are not emitted in aggregate
+groups. The schema-v2 envelope contains the existing aggregate plus
+the result/cohort counts and a domain-separated SHA-256 digest of the exact
+relative result and receipt slots and bytes. A second byte pass and final
+inventory reject sources changed during aggregation. The command fails closed
+where owner-only access cannot be established (currently Windows), is
+read-only, emits no source paths, and accepts at most 4,096 complete results per
+root. Hashes provide owner-private provenance, not third-party signatures.
+
+This command does not replace the separate marked lifecycle and scorecard for
+private-live evidence. Aggregate output still contains benchmark identities;
+keep it private until the normal privacy and leak review. Result-only roots
+created before receipt schema v1 remain explicit historical evidence: use
+reviewed explicit-path `aggregate`; never synthesize receipts or silently
+upgrade them.
 
 ### Qualitative answer review
 

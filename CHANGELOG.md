@@ -28,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Current synthetic agent-evaluation runs now retain an owner-only schema-v1
+  receipt that binds the provider-neutral task inputs, effective execution
+  policy, model/runtime and plugin/skill/prompt identities, exact agent/ATL/
+  wrapper executable bytes, planned repetitions, and exact result bytes.
+  Complete-root aggregation advances to schema v2, requires one matching
+  receipt per result, rejects incomplete or drifting cohorts, double-reads both
+  artifacts, and keeps all receipt digests out of aggregate groups. Historical
+  result-only roots remain available only through reviewed explicit-path
+  aggregation and are never silently upgraded.
+
 - Synthetic agent-evaluation results now bind the exact core/effective prompt
   channels with a provider-neutral contract digest. Result schema v8 permits
   that identity for synthetic runs, complete-root aggregation requires it and

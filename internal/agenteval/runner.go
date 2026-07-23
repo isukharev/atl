@@ -147,6 +147,10 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 	if err != nil {
 		return RunOutput{}, err
 	}
+	attestation, err := newSyntheticRunAttestation(loaded.spec, options.AgentBinary, options.ATLBinary, options.WrapperExecutable)
+	if err != nil {
+		return RunOutput{}, err
+	}
 	invocationSpec := loaded.spec
 	invocationSpec.MaxEstimatedCostMicroUSD = perRepetitionCostCap(loaded.spec)
 	if invocationSpec.EffectiveSurface() == SurfaceExternalMCP {
@@ -258,6 +262,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 	}
 
 	results := make([]Result, 0, loaded.spec.Repetitions)
+	receipts := make([]SyntheticRunReceipt, 0, loaded.spec.Repetitions)
 	var totalCost int64
 	var budgetExhausted bool
 	for repetition := 1; repetition <= loaded.spec.Repetitions; repetition++ {
@@ -270,12 +275,13 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 				return RunOutput{}, err
 			}
 		}
+		var receipt SyntheticRunReceipt
 		result, runErr := runHeadlessOnce(ctx, perRun, options, outputRoot, repetition, Runtime{
 			Provider: loaded.spec.Provider, AgentVersion: agentVersion,
 			Model: loaded.spec.Model, Reasoning: loaded.spec.Reasoning,
 			ATLVersion: atlVersion, PluginVersion: pluginVersion, SkillDigest: skillDigest,
 			SkillActivation: loaded.spec.SkillActivationIdentity(), PromptContractSHA256: loaded.promptContractSHA256,
-		}, externalProfile, providerRuntime)
+		}, externalProfile, providerRuntime, attestation, &receipt)
 		if providerRuntime != nil {
 			runErr = errors.Join(runErr, providerRuntime.Close())
 		}
@@ -283,12 +289,29 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 			return RunOutput{}, fmt.Errorf("repetition %d: %w", repetition, runErr)
 		}
 		results = append(results, result)
+		if attestation != nil {
+			receipts = append(receipts, receipt)
+		}
 		if result.Coverage["estimated_cost_microusd"] {
 			totalCost += result.Metrics.EstimatedCostMicroUSD
 			if result.Metrics.EstimatedCostMicroUSD > perRun.spec.MaxEstimatedCostMicroUSD || totalCost > loaded.spec.MaxEstimatedCostMicroUSD {
 				budgetExhausted = true
 				break
 			}
+		}
+	}
+	if err := attestation.verifyExecutables(options.AgentBinary, options.ATLBinary, options.WrapperExecutable); err != nil {
+		return RunOutput{}, err
+	}
+	if attestation != nil {
+		finalPluginVersion, finalSkillDigest, err := pluginIdentity(options.PluginRoot, loaded.spec.Provider)
+		if err != nil || finalPluginVersion != pluginVersion || finalSkillDigest != skillDigest {
+			return RunOutput{}, fmt.Errorf("synthetic run plugin changed during execution")
+		}
+	}
+	for _, receipt := range receipts {
+		if err := writeSyntheticRunReceipt(outputRoot, receipt); err != nil {
+			return RunOutput{}, err
 		}
 	}
 	return RunOutput{Preview: preview, Results: results, EstimatedCostMicroUSDTotal: totalCost, BudgetExhausted: budgetExhausted}, nil
@@ -541,7 +564,7 @@ func ValidateRunSpecFile(path string) (RunSpec, Scenario, error) {
 	return loaded.spec, loaded.scenario, nil
 }
 
-func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOptions, outputRoot string, repetition int, runtime Runtime, externalProfile ExternalMCPProfile, providerRuntime *providerRuntimeCapsule) (Result, error) {
+func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOptions, outputRoot string, repetition int, runtime Runtime, externalProfile ExternalMCPProfile, providerRuntime *providerRuntimeCapsule, attestation *syntheticRunAttestation, receipt *SyntheticRunReceipt) (Result, error) {
 	privateCLI := loaded.spec.EffectiveBackendMode() == BackendModePrivateLive && loaded.spec.EffectiveToolTransport() == "cli"
 	codexPrivateCLI := loaded.spec.Provider == "codex" && privateCLI
 	codexSyntheticBrokerCLI := isCodexSyntheticBrokerCLI(loaded.spec)
@@ -551,6 +574,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	codexBrokerCLI := codexPrivateCLI || codexSyntheticBrokerCLI
 	brokerCLI := privateCLI || codexSyntheticBrokerCLI
 	claudePrivateCLI := loaded.spec.Provider == "claude-code" && privateCLI
+	var err error
 	if err := validatePathComponentID("scenario id", loaded.scenario.ID); err != nil {
 		return Result{}, err
 	}
@@ -574,6 +598,13 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if err := copyWorkspace(loaded.workspace, workspace); err != nil {
 		return Result{}, err
 	}
+	taskContractSHA256 := ""
+	if attestation != nil {
+		taskContractSHA256, err = syntheticTaskContractSHA256(loaded, workspace)
+		if err != nil {
+			return Result{}, err
+		}
+	}
 	if shouldInstallCodexBenchmarkSkills(loaded.spec) {
 		_, skillRoot, err := providerPluginLayout(options.PluginRoot, loaded.spec.Provider)
 		if err != nil {
@@ -590,6 +621,13 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	providerSchema, projectionErr := providerResponseSchema(loaded.spec, loaded.responseSchema)
 	if projectionErr != nil {
 		return Result{}, projectionErr
+	}
+	executionContractSHA256 := ""
+	if attestation != nil {
+		executionContractSHA256, err = syntheticExecutionContractSHA256(attestation, taskContractSHA256, runtime, providerSchema)
+		if err != nil {
+			return Result{}, err
+		}
 	}
 	providerResponseSchemaPath := responseSchemaPath
 	if !bytes.Equal(providerSchema, loaded.responseSchema) {
@@ -685,7 +723,6 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	externalAuditPath := ""
 	var externalCanaries []string
 	var commandBroker *CommandBroker
-	var err error
 	if codexBrokerCLI {
 		providerConfinement.RequestDirectory = brokerRequestDirectory
 		providerConfinement.ResponseDirectory = brokerResponseDirectory
@@ -1320,6 +1357,15 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if err := writePrivateFile(resultPath, encoded); err != nil {
 		return Result{}, err
 	}
+	if attestation != nil {
+		if receipt == nil {
+			return Result{}, fmt.Errorf("synthetic run receipt destination is missing")
+		}
+		*receipt, err = newSyntheticRunReceipt(attestation, loaded, runtime, repetition, taskContractSHA256, executionContractSHA256, encoded)
+		if err != nil {
+			return Result{}, err
+		}
+	}
 	return result, nil
 }
 
@@ -1757,9 +1803,17 @@ func digestTree(root string) (string, error) {
 }
 
 func digestTreeWithHook(root string, afterInitialInventory func()) (string, error) {
+	return digestTreeWithPolicy(root, afterInitialInventory, 4<<20, "atl-tree-digest-v3\x00", "skill tree")
+}
+
+func digestWorkspaceTree(root string) (string, error) {
+	return digestTreeWithPolicy(root, nil, maxWorkspaceBytes, "atl-workspace-tree-digest-v1\x00", "workspace tree")
+}
+
+func digestTreeWithPolicy(root string, afterInitialInventory func(), maxFileBytes int64, domain, name string) (string, error) {
 	rootInfo, err := os.Lstat(root)
 	if err != nil || rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
-		return "", fmt.Errorf("skill tree root is not a plain directory")
+		return "", fmt.Errorf("%s root is not a plain directory", name)
 	}
 	rootHandle, err := os.OpenRoot(root)
 	if err != nil {
@@ -1768,7 +1822,7 @@ func digestTreeWithHook(root string, afterInitialInventory func()) (string, erro
 	defer func() { _ = rootHandle.Close() }()
 	openedRootInfo, err := rootHandle.Stat(".")
 	if err != nil || !openedRootInfo.IsDir() || !os.SameFile(rootInfo, openedRootInfo) {
-		return "", fmt.Errorf("skill tree root changed while it was opened")
+		return "", fmt.Errorf("%s root changed while it was opened", name)
 	}
 	files, err := digestTreeInventory(rootHandle)
 	if err != nil {
@@ -1778,7 +1832,7 @@ func digestTreeWithHook(root string, afterInitialInventory func()) (string, erro
 		afterInitialInventory()
 	}
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("atl-tree-digest-v3\x00"))
+	_, _ = hash.Write([]byte(domain))
 	var length [8]byte
 	for _, treeFile := range files {
 		file, err := rootHandle.Open(treeFile.path)
@@ -1788,16 +1842,16 @@ func digestTreeWithHook(root string, afterInitialInventory func()) (string, erro
 		openedInfo, statErr := file.Stat()
 		if statErr != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(treeFile.info, openedInfo) {
 			_ = file.Close()
-			return "", fmt.Errorf("skill tree changed while it was hashed")
+			return "", fmt.Errorf("%s changed while it was hashed", name)
 		}
-		data, readErr := ioReadAllLimit(file, 4<<20)
+		data, readErr := ioReadAllLimit(file, maxFileBytes)
 		finalInfo, finalStatErr := file.Stat()
 		closeErr := file.Close()
 		if readErr != nil {
 			return "", readErr
 		}
 		if finalStatErr != nil || !os.SameFile(openedInfo, finalInfo) || finalInfo.Size() != int64(len(data)) || !finalInfo.ModTime().Equal(openedInfo.ModTime()) {
-			return "", fmt.Errorf("skill tree changed while it was hashed")
+			return "", fmt.Errorf("%s changed while it was hashed", name)
 		}
 		if closeErr != nil {
 			return "", closeErr
@@ -1816,7 +1870,7 @@ func digestTreeWithHook(root string, afterInitialInventory func()) (string, erro
 	}
 	finalRootInfo, err := os.Lstat(root)
 	if err != nil || finalRootInfo.Mode()&os.ModeSymlink != 0 || !finalRootInfo.IsDir() || !os.SameFile(openedRootInfo, finalRootInfo) {
-		return "", fmt.Errorf("skill tree root changed while it was hashed")
+		return "", fmt.Errorf("%s root changed while it was hashed", name)
 	}
 	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
