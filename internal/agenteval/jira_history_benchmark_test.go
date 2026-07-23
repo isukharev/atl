@@ -237,6 +237,20 @@ func assertHistorySummaryOnlyCommandPolicy(t *testing.T, root string, spec RunSp
 	if !bytes.Contains(prompt, []byte("`"+expectedPromptCommand+"`")) {
 		t.Fatalf("%s prompt does not contain its exact reviewed command %q", spec.Provider, expectedPromptCommand)
 	}
+	lowerPrompt := strings.ToLower(string(prompt))
+	for _, required := range []string{
+		"exact advertised skill file",
+		"routed reference named by",
+		"do not search for skills",
+		"inspect unrelated",
+	} {
+		if !strings.Contains(lowerPrompt, required) {
+			t.Fatalf("%s prompt omits bounded activation guidance %q", spec.Provider, required)
+		}
+	}
+	if strings.Contains(lowerPrompt, "do not inspect skill or repository files") {
+		t.Fatalf("%s prompt still forbids its required skill activation", spec.Provider)
+	}
 	switch spec.Provider {
 	case "codex":
 		policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: spec.AllowedCLICommands}
