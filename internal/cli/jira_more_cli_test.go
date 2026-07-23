@@ -114,6 +114,84 @@ func TestJiraIssueHistory_FiltersByFieldNameAndTime(t *testing.T) {
 	if code != exitOK || !strings.Contains(text, "Complete: true") || !strings.Contains(text, "| Created | Author | Field | From | To |") {
 		t.Fatalf("text exit=%d output=%s", code, text)
 	}
+
+	requestsBefore := len(js.requests())
+	summaryOut, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "history", "ENG-1", "--field", "Delivery Notes", "--since", "2026-04-01", "--summary-only")
+	if code != exitOK {
+		t.Fatalf("summary-only filtered history: exit=%d output=%s", code, summaryOut)
+	}
+	var summaryResult struct {
+		Filters struct {
+			Since        string            `json:"since"`
+			SinceInstant string            `json:"since_instant"`
+			Fields       []domain.FieldDef `json:"fields"`
+		} `json:"filters"`
+		Summary struct {
+			HistoryCount int `json:"history_count"`
+			ItemCount    int `json:"item_count"`
+		} `json:"summary"`
+		LastChanges []struct {
+			FieldID   string `json:"field_id"`
+			HistoryID string `json:"history_id"`
+			To        string `json:"to"`
+		} `json:"last_changes"`
+	}
+	if err := json.Unmarshal([]byte(summaryOut), &summaryResult); err != nil {
+		t.Fatalf("decode summary-only filtered history: %v\n%s", err, summaryOut)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(summaryOut), &envelope); err != nil {
+		t.Fatalf("decode summary-only envelope: %v", err)
+	}
+	if _, exists := envelope["history"]; exists {
+		t.Fatalf("summary-only filtered output contains raw history: %s", summaryOut)
+	}
+	if summaryResult.Filters.Since != "2026-04-01" || summaryResult.Filters.SinceInstant != "2026-04-01T00:00:00Z" ||
+		len(summaryResult.Filters.Fields) != 1 || summaryResult.Filters.Fields[0].ID != "customfield_10001" ||
+		summaryResult.Summary.HistoryCount != 1 || summaryResult.Summary.ItemCount != 1 ||
+		len(summaryResult.LastChanges) != 1 || summaryResult.LastChanges[0].FieldID != "customfield_10001" ||
+		summaryResult.LastChanges[0].HistoryID != "101" || summaryResult.LastChanges[0].To != "current" {
+		t.Fatalf("summary-only filtered result=%+v", summaryResult)
+	}
+	if delta := len(js.requests()) - requestsBefore; delta != 3 {
+		t.Fatalf("summary-only filtered request delta=%d, want timezone + fields + changelog", delta)
+	}
+}
+
+func TestJiraIssueHistory_SummaryOnlyOmitsRawHistoryWithoutAnotherRequest(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/issue/ENG-1/changelog", http.StatusOK,
+		`{"startAt":0,"maxResults":100,"total":1,"values":[{"id":"100","author":{"displayName":"Jane"},"created":"2026-06-01","items":[{"field":"Status","fieldId":"status","fromString":"Open","toString":"Done"}]}]}`)
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "history", "ENG-1", "--summary-only")
+	if code != exitOK {
+		t.Fatalf("summary-only history: exit %d, want 0 (stdout=%q)", code, out)
+	}
+	var res map[string]any
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("decode summary-only history: %v\n%s", err, out)
+	}
+	if _, exists := res["history"]; exists {
+		t.Fatalf("summary-only output contains raw history member: %s", out)
+	}
+	summary, ok := res["summary"].(map[string]any)
+	if !ok || summary["history_count"] != float64(1) || summary["item_count"] != float64(1) || summary["status_item_count"] != float64(1) {
+		t.Fatalf("summary=%v, want one status item", res["summary"])
+	}
+	if res["complete"] != true || res["source"] != "paginated" || res["count"] != float64(1) {
+		t.Fatalf("provenance=%v", res)
+	}
+	if requests := js.requests(); len(requests) != 1 || requests[0].path != "/rest/api/2/issue/ENG-1/changelog" {
+		t.Fatalf("summary-only requests=%+v, want one changelog read", requests)
+	}
+
+	text, code := runCLI(t, jiraEnv(js.srv), "-o", "text", "jira", "issue", "history", "ENG-1", "--summary-only")
+	if code != exitOK || !strings.Contains(text, "History entries") || !strings.Contains(text, "Non-empty ids unique") {
+		t.Fatalf("summary-only text exit=%d output=%s", code, text)
+	}
+	if strings.Contains(text, "Jane") || strings.Contains(text, "Open") || strings.Contains(text, "Done") {
+		t.Fatalf("summary-only text contains raw history row values: %s", text)
+	}
 }
 
 func TestJiraIssueCommentList_EmitsAndID(t *testing.T) {

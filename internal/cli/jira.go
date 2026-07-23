@@ -448,6 +448,7 @@ func jiraIssueCmd() *cobra.Command {
 
 	var historyFields []string
 	var historySince, historyUntil string
+	var historySummaryOnly bool
 	history := &cobra.Command{
 		Use:   "history <KEY>",
 		Short: "Show an issue's changelog (who changed what, when)",
@@ -463,12 +464,17 @@ func jiraIssueCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if historySummaryOnly {
+				summary := app.JiraHistorySummaryProjection(result)
+				return emit(cmd, summary, func() string { return app.JiraHistorySummaryMarkdown(summary) })
+			}
 			return emit(cmd, result, func() string { return app.JiraHistoryMarkdown(result) })
 		},
 	}
 	history.Flags().StringArrayVar(&historyFields, "field", nil, "exact field id or display name to include (repeatable)")
 	history.Flags().StringVar(&historySince, "since", "", "include changes at/after date (Jira user zone) or explicit timestamp")
 	history.Flags().StringVar(&historyUntil, "until", "", "include changes through date (Jira user zone) or explicit timestamp")
+	history.Flags().BoolVar(&historySummaryOnly, "summary-only", false, "omit raw history and emit its deterministic summary projection")
 
 	comment := jiraCommentCmd()
 	link := jiraLinkCmd()

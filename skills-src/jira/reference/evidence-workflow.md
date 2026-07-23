@@ -68,7 +68,7 @@ If a non-epic issue needs a time-qualified field check, avoid a digest:
 ```sh
 export ATL_READ_ONLY=1
 atl jira issue history PROJ-2 \
-  --field 'Delivery Notes' --since 2026-04-01 --until 2026-06-30
+  --field 'Delivery Notes' --since 2026-04-01 --until 2026-06-30 --summary-only
 atl jira issue refs PROJ-2 --fields 'Delivery Notes'
 ```
 
@@ -85,7 +85,9 @@ is counted once per issue.
 For history, `complete:false` means absence is unproven. Use `last_changes` for
 the selected field; do not infer recency from array position. Use `summary` for
 cardinality, field buckets, identity uniqueness, fetch/count reconciliation,
-and chronological checks instead of recounting the raw array. A false
+and chronological checks instead of recounting the raw array. Prefer
+`--summary-only` when those facts and selected-field recency are sufficient;
+omit it only when individual history rows are required. A false
 `chronological_comparable` makes `chronological_ascending` null, and a true
 `fetched_matches_total` does not override `complete:false`. For date-only
 periods, retain `boundary_time_zone` and the canonical instant fields as part of

@@ -459,6 +459,7 @@ atl jira issue fields PROJ-1 --metadata-only # lower-token field inventory, no v
 atl jira issue fields PROJ-1 --field "Delivery Notes"
 atl jira issue field get PROJ-1 --field "Delivery Notes" --max-bytes 16384 # bounded exact expansion
 atl jira issue history PROJ-1 --field "Delivery Notes" --since 2026-04-01 # summary separates missing and duplicate ids
+atl jira issue history PROJ-1 --summary-only # deterministic facts without raw changelog rows
 atl jira issue refs PROJ-1 --fields "Delivery Notes" # qualified links + reconciled aggregates
 # Calendar dates/quarters use one observed Jira current-user timezone lookup;
 # RFC3339 with an explicit offset stays exact and skips that lookup.

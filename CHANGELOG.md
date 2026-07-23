@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `atl jira issue history --summary-only` now emits the same provenance,
+  filters, deterministic summary, and selected-field `last_changes` without
+  the raw changelog array or another backend request. Its text view is a
+  bounded summary rather than raw history rows.
+
 - The owner-private finding scorecard now accepts an explicitly typed
   schema-v2 acceptance index. A receipt-backed synthetic n=3-plus-holdout
   assessment may supplement a mandatory compatible private-live regression,

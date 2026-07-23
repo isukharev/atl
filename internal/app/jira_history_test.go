@@ -277,6 +277,42 @@ func TestJiraHistoryMarkdownEscapesTableValues(t *testing.T) {
 	}
 }
 
+func TestJiraHistorySummaryProjectionPreservesFactsAndOmitsRawHistory(t *testing.T) {
+	ascending := false
+	full := &JiraHistoryResult{
+		Key: "PROJ-1", Complete: false, Source: "embedded", Total: 8, Fetched: 3, Count: 2,
+		PartialReason: "bounded fallback",
+		Filters:       JiraHistoryFilters{Since: "2026-04-01", SinceInstant: "2026-04-01T00:00:00Z"},
+		History:       []domain.ChangelogEntry{{ID: "raw-id", Author: "raw author"}},
+		Summary: JiraHistorySummary{
+			HistoryCount: 2, ItemCount: 3, DistinctItemFieldCount: 1,
+			HistoryIDMissingCount: 1, HistoryNonemptyIDsUnique: true,
+			ChronologicalComparable: true, ChronologicalAscending: &ascending,
+			Fields: []JiraHistoryFieldSummary{{FieldID: "status", Field: "Status", Count: 3}},
+		},
+		LastChanges: []JiraFieldLastChange{{FieldID: "status", Field: "Status", HistoryID: "last-id", To: "Done"}},
+	}
+
+	projected := JiraHistorySummaryProjection(full)
+	if projected == nil || projected.Key != full.Key || projected.Complete != full.Complete ||
+		projected.PartialReason != full.PartialReason || projected.Filters.SinceInstant != full.Filters.SinceInstant ||
+		projected.Summary.HistoryCount != 2 || len(projected.Summary.Fields) != 1 ||
+		len(projected.LastChanges) != 1 || projected.LastChanges[0].HistoryID != "last-id" {
+		t.Fatalf("projection=%+v", projected)
+	}
+	if JiraHistorySummaryProjection(nil) != nil {
+		t.Fatal("nil result must produce nil projection")
+	}
+
+	text := JiraHistorySummaryMarkdown(projected)
+	if !containsAll(text, "Complete: false", "partial: bounded fallback", "History entries", "Missing history ids", "status", "last-id") {
+		t.Fatalf("text=%q", text)
+	}
+	if strings.Contains(text, "raw-id") || strings.Contains(text, "raw author") {
+		t.Fatalf("summary text leaked raw history row: %q", text)
+	}
+}
+
 func containsAll(value string, needles ...string) bool {
 	for _, needle := range needles {
 		if !strings.Contains(value, needle) {
