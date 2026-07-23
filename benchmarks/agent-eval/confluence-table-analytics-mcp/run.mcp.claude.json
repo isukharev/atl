@@ -30,6 +30,7 @@
     {"name": "guard_clean", "kind": "guard_no_denials"},
     {"name": "http_exact", "kind": "http_methods_equal", "expected": {"GET": 1}},
     {"name": "interface_succeeded", "kind": "interface_all_succeeded"},
+    {"name": "route_arguments", "kind": "mcp_invocations_equal", "expected": [{"tool": "confluence_table_extract", "arguments": {"reference": "8100", "table": 2, "max_bytes": 98304}}]},
     {"name": "items_correct", "kind": "json_equals", "pointer": "/qualifying_items", "expected": [
       {"code": "ALPHA", "evidence_url": "https://example.test/evidence/alpha", "forecast": 92, "owner": "Rowan"},
       {"code": "ECHO", "evidence_url": "https://example.test/evidence/echo", "forecast": 88, "owner": "Avery"},

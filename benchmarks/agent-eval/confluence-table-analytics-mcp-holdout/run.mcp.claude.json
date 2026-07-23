@@ -85,6 +85,20 @@
       "kind": "interface_all_succeeded"
     },
     {
+      "name": "route_arguments",
+      "kind": "mcp_invocations_equal",
+      "expected": [
+        {
+          "tool": "confluence_table_extract",
+          "arguments": {
+            "reference": "8400",
+            "table": 3,
+            "max_bytes": 98304
+          }
+        }
+      ]
+    },
+    {
       "name": "items_correct",
       "kind": "json_equals",
       "pointer": "/qualifying_items",

@@ -374,6 +374,166 @@ func TestRepositoryTableMCPV3ProviderParityIsOneRead(t *testing.T) {
 	}
 }
 
+func TestRepositorySingleCallMCPCellsAttestExactArguments(t *testing.T) {
+	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
+	tests := []struct {
+		directory string
+		tool      string
+		arguments map[string]any
+		mutated   map[string]any
+	}{
+		{
+			directory: "confluence-table-summary-mcp",
+			tool:      "confluence_table_summary",
+			arguments: map[string]any{"reference": "8200", "max_bytes": 65536},
+			mutated:   map[string]any{"reference": "8200", "max_bytes": 65535},
+		},
+		{
+			directory: "confluence-table-summary-mcp-holdout",
+			tool:      "confluence_table_summary",
+			arguments: map[string]any{"reference": "8300", "max_bytes": 65536},
+			mutated:   map[string]any{"reference": "8200", "max_bytes": 65536},
+		},
+		{
+			directory: "confluence-table-analytics-mcp",
+			tool:      "confluence_table_extract",
+			arguments: map[string]any{"reference": "8100", "table": 2, "max_bytes": 98304},
+			mutated:   map[string]any{"reference": "8100", "table": 1, "max_bytes": 98304},
+		},
+		{
+			directory: "confluence-table-analytics-mcp-holdout",
+			tool:      "confluence_table_extract",
+			arguments: map[string]any{"reference": "8400", "table": 3, "max_bytes": 98304},
+			mutated:   map[string]any{"reference": "8400", "table": 3, "max_bytes": 98305},
+		},
+		{
+			directory: "jira-structure-view-mcp",
+			tool:      "jira_structure_view",
+			arguments: map[string]any{
+				"structure_id": 91, "fields": []string{"key", "summary", "status"},
+				"folder_path": "Portfolio / Quarter 3", "max_rows": 50, "max_bytes": 65536,
+			},
+			mutated: map[string]any{
+				"structure_id": 91, "fields": []string{"key", "status", "summary"},
+				"folder_path": "Portfolio / Quarter 3", "max_rows": 50, "max_bytes": 65536,
+			},
+		},
+		{
+			directory: "jira-structure-view-mcp-holdout",
+			tool:      "jira_structure_view",
+			arguments: map[string]any{
+				"structure_id": 92, "fields": []string{"key", "summary", "status"},
+				"folder_path": "Roadmap / Quarter 4", "max_rows": 50, "max_bytes": 65536,
+			},
+			mutated: map[string]any{
+				"structure_id": 92, "fields": []string{"key", "summary", "status"},
+				"folder_path": "Roadmap", "max_rows": 50, "max_bytes": 65536,
+			},
+		},
+		{
+			directory: "confluence-mirror-snapshot-mcp",
+			tool:      "confluence_mirror_snapshot",
+			arguments: map[string]any{},
+			mutated:   map[string]any{"remote": true},
+		},
+		{
+			directory: "confluence-mirror-snapshot-mcp-holdout",
+			tool:      "confluence_mirror_snapshot",
+			arguments: map[string]any{},
+			mutated:   map[string]any{"path": "mirror"},
+		},
+		{
+			directory: "jira-mirror-snapshot-mcp",
+			tool:      "jira_mirror_snapshot",
+			arguments: map[string]any{},
+			mutated:   map[string]any{"remote": true},
+		},
+		{
+			directory: "jira-mirror-snapshot-mcp-holdout",
+			tool:      "jira_mirror_snapshot",
+			arguments: map[string]any{},
+			mutated:   map[string]any{"path": "mirror"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.directory, func(t *testing.T) {
+			var providerChecks []RunCheck
+			for _, provider := range []string{"claude", "codex"} {
+				spec := loadRepositoryRunSpec(t, filepath.Join(root, test.directory, "run.mcp."+provider+".json"))
+				invocations := repositoryExpectedMCPInvocations(t, spec)
+				want, ok := newMCPInvocation(test.tool, test.arguments)
+				if !ok || len(invocations) != 1 || !equalMCPInvocations(invocations, []MCPInvocation{want}) {
+					t.Fatalf("%s exact arguments=%+v want=%+v", provider, invocations, want)
+				}
+				if providerChecks == nil {
+					providerChecks = spec.Checks
+				} else if !equalPrivateComparisonJSON(providerChecks, spec.Checks) {
+					t.Fatalf("provider checks drifted: claude=%+v codex=%+v", providerChecks, spec.Checks)
+				}
+			}
+
+			spec := loadRepositoryRunSpec(t, filepath.Join(root, test.directory, "run.mcp.codex.json"))
+			exact := repositoryExpectedMCPInvocations(t, spec)
+			mutated, ok := newMCPInvocation(test.tool, test.mutated)
+			if !ok {
+				t.Fatal("invalid mutated invocation fixture")
+			}
+			routeCheck := repositoryMCPInvocationCheck(t, spec)
+			for name, invocations := range map[string][]MCPInvocation{
+				"exact":   exact,
+				"mutated": {mutated},
+			} {
+				results, err := evaluateRunChecksWithMCPInvocations(
+					[]RunCheck{routeCheck}, []byte(`{}`), "", 1, 0, 0, 0,
+					nil, 0, 0, nil, false, nil, nil, false, nil,
+					invocations, true,
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := results[routeCheck.Name]; got != (name == "exact") {
+					t.Fatalf("%s route check=%t", name, got)
+				}
+			}
+		})
+	}
+}
+
+func repositoryMCPInvocationCheck(t *testing.T, spec RunSpec) RunCheck {
+	t.Helper()
+	for _, check := range spec.Checks {
+		if check.Kind == "mcp_invocations_equal" {
+			return check
+		}
+	}
+	t.Fatal("run spec has no exact MCP invocation check")
+	return RunCheck{}
+}
+
+func repositoryExpectedMCPInvocations(t *testing.T, spec RunSpec) []MCPInvocation {
+	t.Helper()
+	check := repositoryMCPInvocationCheck(t, spec)
+	invocations, ok := expectedMCPInvocations(check.Expected)
+	if !ok {
+		t.Fatal("exact MCP invocation check did not decode")
+	}
+	return invocations
+}
+
+func evaluateRepositoryRunChecksWithExpectedMCP(
+	t *testing.T,
+	spec RunSpec,
+	final []byte,
+	httpMethods map[string]int,
+) (map[string]bool, error) {
+	t.Helper()
+	return evaluateRunChecksWithMCPInvocations(
+		spec.Checks, final, "", 1, 0, 0, 0,
+		nil, 0, 0, httpMethods, true, nil, nil, false, nil,
+		repositoryExpectedMCPInvocations(t, spec), true,
+	)
+}
+
 func TestRepositoryTableMCPV3HoldoutsAreDistinct(t *testing.T) {
 	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
 	for _, primaryDirectory := range []string{"confluence-table-analytics-mcp", "confluence-table-summary-mcp"} {
@@ -502,7 +662,9 @@ func TestRepositoryStructureMCPV1FixturesMatchOracles(t *testing.T) {
 			final := repositoryStructureMCPFinal(t, directory, test.structureID, test.rootRow, test.path)
 			scenario := loadRepositoryScenario(t, filepath.Join(directory, "scenario.v1.json"))
 			spec := loadRepositoryRunSpec(t, filepath.Join(directory, "run.mcp.codex.json"))
-			checks, err := evaluateRunChecks(spec.Checks, final, "", 1, 0, 0, 0, nil, 0, 0, map[string]int{"GET": 3, "POST": 1}, true, nil)
+			checks, err := evaluateRepositoryRunChecksWithExpectedMCP(
+				t, spec, final, map[string]int{"GET": 3, "POST": 1},
+			)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -662,7 +824,7 @@ func TestRepositoryMirrorSnapshotMCPV1FixturesMatchContentFreeOracles(t *testing
 
 			scenario := loadRepositoryScenario(t, filepath.Join(directory, "scenario.v1.json"))
 			spec := loadRepositoryRunSpec(t, filepath.Join(directory, "run.mcp.codex.json"))
-			checks, err := evaluateRunChecks(spec.Checks, final, "", 1, 0, 0, 0, nil, 0, 0, map[string]int{}, true, nil)
+			checks, err := evaluateRepositoryRunChecksWithExpectedMCP(t, spec, final, map[string]int{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1237,7 +1399,7 @@ func TestRepositoryTableSummaryMCPV3FixtureMatchesReconciledShapes(t *testing.T)
 		t.Fatal(err)
 	}
 	spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.mcp.codex.json"))
-	checks, err := evaluateRunChecks(spec.Checks, final, "", 1, 0, 0, 0, nil, 0, 0, map[string]int{"GET": 1}, true, nil)
+	checks, err := evaluateRepositoryRunChecksWithExpectedMCP(t, spec, final, map[string]int{"GET": 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1396,7 +1558,7 @@ func TestRepositoryTableAnalyticsMCPV3FixtureMatchesOracle(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.mcp.codex.json"))
-	checks, err := evaluateRunChecks(spec.Checks, final, "", 1, 0, 0, 0, nil, 0, 0, map[string]int{"GET": 1}, true, nil)
+	checks, err := evaluateRepositoryRunChecksWithExpectedMCP(t, spec, final, map[string]int{"GET": 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1589,7 +1751,7 @@ func assertRepositorySummaryRunChecks(t *testing.T, root string, summary *app.Co
 func assertRepositoryRunChecks(t *testing.T, root string, final []byte, label string) {
 	t.Helper()
 	spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.mcp.codex.json"))
-	checks, err := evaluateRunChecks(spec.Checks, final, "", 1, 0, 0, 0, nil, 0, 0, map[string]int{"GET": 1}, true, nil)
+	checks, err := evaluateRepositoryRunChecksWithExpectedMCP(t, spec, final, map[string]int{"GET": 1})
 	if err != nil {
 		t.Fatal(err)
 	}

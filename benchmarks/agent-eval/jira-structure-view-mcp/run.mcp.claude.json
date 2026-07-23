@@ -38,6 +38,7 @@
     ]},
     {"name": "http_exact", "kind": "http_methods_equal", "expected": {"GET": 3, "POST": 1}},
     {"name": "interface_succeeded", "kind": "interface_all_succeeded"},
+    {"name": "route_arguments", "kind": "mcp_invocations_equal", "expected": [{"tool": "jira_structure_view", "arguments": {"structure_id": 91, "fields": ["key", "summary", "status"], "folder_path": "Portfolio / Quarter 3", "max_rows": 50, "max_bytes": 65536}}]},
     {"name": "mock_clean", "kind": "mock_no_unexpected"},
     {"name": "no_delegation", "kind": "delegations_none"},
     {"name": "projection_correct", "kind": "json_equals", "pointer": "/projection_fields", "expected": ["key", "summary", "status"]},

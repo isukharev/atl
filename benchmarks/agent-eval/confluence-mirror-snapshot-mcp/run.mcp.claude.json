@@ -26,6 +26,7 @@
     {"name": "guard_clean", "kind": "guard_no_denials"},
     {"name": "http_exact", "kind": "http_methods_equal", "expected": {}},
     {"name": "interface_succeeded", "kind": "interface_all_succeeded"},
+    {"name": "route_arguments", "kind": "mcp_invocations_equal", "expected": [{"tool": "confluence_mirror_snapshot", "arguments": {}}]},
     {"name": "local_correct", "kind": "json_equals", "pointer": "/local", "expected": {"present": 4, "clean": 2, "locally_edited": 2, "tracked": 4, "untracked": 0, "non_canonical": 0, "reconciled": true}},
     {"name": "mock_clean", "kind": "mock_no_unexpected"},
     {"name": "native_correct", "kind": "json_equals", "pointer": "/native", "expected": {"total": 4, "unchanged": 1, "added": 0, "removed": 0, "modified": 2, "malformed": 0, "missing_baseline": 0, "baseline_mismatch": 1, "unreadable": 0, "baseline_present": 4, "baseline_missing": 0, "baseline_unreadable": 0, "baseline_valid": 4, "baseline_invalid": 0, "reconciled": true}},

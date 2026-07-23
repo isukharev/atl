@@ -26,6 +26,7 @@
     {"name": "guard_clean", "kind": "guard_no_denials"},
     {"name": "http_exact", "kind": "http_methods_equal", "expected": {}},
     {"name": "interface_succeeded", "kind": "interface_all_succeeded"},
+    {"name": "route_arguments", "kind": "mcp_invocations_equal", "expected": [{"tool": "jira_mirror_snapshot", "arguments": {}}]},
     {"name": "local_correct", "kind": "json_equals", "pointer": "/local", "expected": {"present": 2, "clean": 0, "locally_edited": 2, "tracked": 0, "untracked": 2, "non_canonical": 0, "reconciled": true}},
     {"name": "mock_clean", "kind": "mock_no_unexpected"},
     {"name": "native_correct", "kind": "json_equals", "pointer": "/native", "expected": {"total": 2, "unchanged": 0, "modified": 0, "removed": 0, "untracked": 2, "non_canonical": 0, "missing_baseline": 0, "baseline_mismatch": 0, "unreadable": 0, "baseline_present": 0, "baseline_missing": 2, "baseline_unreadable": 0, "baseline_valid": 0, "baseline_invalid": 0, "reconciled": true}},
