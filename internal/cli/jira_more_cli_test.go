@@ -195,6 +195,29 @@ func TestJiraIssueHistory_SummaryOnlyOmitsRawHistoryWithoutAnotherRequest(t *tes
 	}
 }
 
+func TestJiraIssueHistory_SummaryOnlyRejectsFalseBeforeBackendRead(t *testing.T) {
+	for _, args := range [][]string{
+		{"jira", "issue", "history", "ENG-1", "--summary-only=false"},
+		{"jira", "issue", "history", "ENG-1", "--summary-only", "--summary-only=false"},
+	} {
+		t.Run(strings.Join(args[4:], "_"), func(t *testing.T) {
+			js := newJiraServer(t)
+			stdout, stderr, code := runCLIFull(t, jiraEnv(js.srv), args...)
+			if code != exitUsage || stdout != "" || stderr != "" {
+				t.Fatalf("false summary-only exit=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			if requests := js.requests(); len(requests) != 0 {
+				t.Fatalf("false summary-only reached backend: %+v", requests)
+			}
+		})
+	}
+
+	stdout, code := runCLI(t, nil, "jira", "issue", "history", "ENG-1", "--summary-only=false")
+	if code != exitUsage || stdout != "" {
+		t.Fatalf("false summary-only without configured service exit=%d stdout=%s", code, stdout)
+	}
+}
+
 func TestJiraIssueHistory_SummaryOnlyPreservesPartialAndUnknownOrdering(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/api/2/issue/ENG-1/changelog", http.StatusNotFound, `{}`)

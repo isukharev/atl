@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Rejected explicit false values for `jira issue history --summary-only`
+  before backend access, so a trailing boolean override cannot restore raw
+  history after a reviewed summary-only command prefix.
+
 - Initialized the shared owner-only activation output root before backend-free
   Codex calibration writes its artifacts, so a successful calibration can hand
   the same marked root to the first treatment without being rejected as a

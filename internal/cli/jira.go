@@ -454,6 +454,9 @@ func jiraIssueCmd() *cobra.Command {
 		Short: "Show an issue's changelog (who changed what, when)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("summary-only") && !historySummaryOnly {
+				return usageErr("--summary-only cannot be false; omit the flag to request raw history")
+			}
 			svc, err := jiraService()
 			if err != nil {
 				return err
