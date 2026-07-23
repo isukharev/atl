@@ -1191,7 +1191,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		methods, unexpected, duplicateRequests = backend.Summary()
 		httpMethodsObserved = true
 	} else if liveGateway != nil {
-		methods, duplicateRequests, httpMethodsObserved, err = readLiveGatewayRecords(httpGuardPath)
+		methods, duplicateRequests, httpMethodsObserved, err = closeAndReadLiveGatewayRecords(liveGateway)
 		if err != nil {
 			return Result{}, err
 		}
@@ -1624,8 +1624,12 @@ func readLiveGatewayRecords(path string) (map[string]int, int, bool, error) {
 		return map[string]int{}, 0, false, nil
 	}
 	if err != nil {
-		return nil, 0, false, err
+		return nil, 0, false, fmt.Errorf("read private-live gateway audit")
 	}
+	return parseLiveGatewayRecords(data)
+}
+
+func parseLiveGatewayRecords(data []byte) (map[string]int, int, bool, error) {
 	methods := map[string]int{}
 	identities := map[string]int{}
 	forwarded := map[string]int{}
@@ -1697,6 +1701,20 @@ func readLiveGatewayRecords(path string) (map[string]int, int, bool, error) {
 		}
 	}
 	return methods, duplicates, true, nil
+}
+
+func closeAndReadLiveGatewayRecords(gateway *LiveGateway) (map[string]int, int, bool, error) {
+	if gateway == nil {
+		return nil, 0, false, fmt.Errorf("private-live gateway is unavailable")
+	}
+	if err := gateway.Close(context.Background()); err != nil {
+		return nil, 0, false, fmt.Errorf("close private-live gateway: %w", err)
+	}
+	data, err := gateway.auditEvidence()
+	if err != nil {
+		return nil, 0, false, errLiveGatewayAuditUnavailable
+	}
+	return parseLiveGatewayRecords(data)
 }
 
 func estimateCost(inputTokens, outputTokens int64, pricing Pricing) (int64, error) {

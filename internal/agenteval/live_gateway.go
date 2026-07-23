@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -20,6 +21,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -30,6 +32,8 @@ const (
 	maxLiveGatewayAuditBytes = 4 << 20
 	gatewayOriginRootPrefix  = "/.atl-agent-eval-origin"
 )
+
+var errLiveGatewayAuditUnavailable = errors.New("live gateway audit unavailable")
 
 // LiveGatewayConfig describes an evaluation-only credential boundary. The
 // upstream tokens must remain in the parent runner; Endpoints returns only
@@ -106,6 +110,10 @@ type liveGatewayState struct {
 	writes            int
 	routeRequests     map[string]int
 	auditBytes        int64
+	auditExpected     []byte
+	auditUnhealthy    bool
+	auditCaptured     bool
+	auditSnapshot     []byte
 	concurrency       chan struct{}
 	upstreamHTTP      *http.Client
 }
@@ -125,11 +133,11 @@ func StartLiveGateway(config LiveGatewayConfig) (*LiveGateway, error) {
 		return nil, err
 	}
 	if err := requireOwnerOnly("live gateway audit directory", filepath.Dir(config.AuditPath), true); err != nil {
-		return nil, err
+		return nil, errLiveGatewayAuditUnavailable
 	}
-	audit, err := os.OpenFile(config.AuditPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	audit, err := os.OpenFile(config.AuditPath, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("create live gateway audit: %w", err)
+		return nil, errLiveGatewayAuditUnavailable
 	}
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
@@ -268,11 +276,19 @@ func (g *LiveGateway) Close(ctx context.Context) error {
 		}
 		if g.state != nil && g.state.audit != nil {
 			g.state.handlers.Wait()
-			if err := g.state.audit.Sync(); err != nil && g.closeErr == nil {
-				g.closeErr = err
+			if err := g.state.audit.Sync(); err != nil {
+				g.state.markAuditUnhealthy()
 			}
-			if err := g.state.audit.Close(); err != nil && g.closeErr == nil {
-				g.closeErr = err
+			g.state.captureAuditEvidence()
+			if err := g.state.audit.Close(); err != nil {
+				g.state.markAuditUnhealthy()
+			}
+			if err := g.state.auditHealthError(); err != nil {
+				if g.closeErr == nil {
+					g.closeErr = err
+				} else {
+					g.closeErr = errors.Join(g.closeErr, err)
+				}
 			}
 			for index := range g.state.hmacKey {
 				g.state.hmacKey[index] = 0
@@ -334,17 +350,18 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 		return
 	}
 	identity = s.state.requestIdentity(s.name, request.Method, request.URL.RequestURI(), requestBody)
-	if ok, reason := s.state.reserveRequest(s.name, route, request.Method, int64(len(requestBody))); !ok {
-		reject(http.StatusTooManyRequests, route.Name, reason)
-		return
-	}
 	select {
 	case s.state.concurrency <- struct{}{}:
-		defer func() { <-s.state.concurrency }()
 	default:
 		reject(http.StatusTooManyRequests, route.Name, "concurrency")
 		return
 	}
+	if ok, reason := s.state.reserveRequest(s.name, route, request.Method, int64(len(requestBody))); !ok {
+		<-s.state.concurrency
+		reject(http.StatusTooManyRequests, route.Name, reason)
+		return
+	}
+	defer func() { <-s.state.concurrency }()
 	if err := s.state.writeAudit(LiveGatewayAuditRecord{
 		Phase: "preflight", Service: s.name, Route: route.Name, Method: request.Method,
 		RequestHMAC: identity, RequestBytes: int64(len(requestBody)), Decision: "forward",
@@ -762,24 +779,100 @@ func (s *liveGatewayState) requestIdentity(service, method, requestURI string, b
 func (s *liveGatewayState) writeAudit(record LiveGatewayAuditRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.sequence++
-	record.Sequence = s.sequence
+	if s.auditUnhealthy {
+		return errLiveGatewayAuditUnavailable
+	}
+	nextSequence := s.sequence + 1
+	record.Sequence = nextSequence
 	data, err := json.Marshal(record)
 	if err != nil {
-		return err
+		s.auditUnhealthy = true
+		return errLiveGatewayAuditUnavailable
 	}
 	data = append(data, '\n')
 	if s.auditBytes+int64(len(data)) > maxLiveGatewayAuditBytes {
-		return fmt.Errorf("live gateway audit budget exceeded")
+		s.auditUnhealthy = true
+		return errLiveGatewayAuditUnavailable
 	}
-	if _, err := s.audit.Write(data); err != nil {
-		return err
+	written, err := s.audit.Write(data)
+	if err != nil || written != len(data) {
+		s.auditUnhealthy = true
+		return errLiveGatewayAuditUnavailable
 	}
 	if err := s.audit.Sync(); err != nil {
-		return err
+		s.auditUnhealthy = true
+		return errLiveGatewayAuditUnavailable
 	}
+	s.auditExpected = append(s.auditExpected, data...)
+	s.sequence = nextSequence
 	s.auditBytes += int64(len(data))
 	return nil
+}
+
+func (s *liveGatewayState) markAuditUnhealthy() {
+	s.mu.Lock()
+	s.auditUnhealthy = true
+	s.mu.Unlock()
+}
+
+func (s *liveGatewayState) auditHealthError() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.auditUnhealthy {
+		return errLiveGatewayAuditUnavailable
+	}
+	return nil
+}
+
+func (s *liveGatewayState) captureAuditEvidence() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.auditUnhealthy {
+		return
+	}
+	openedInfo, err := s.audit.Stat()
+	if err != nil {
+		s.auditUnhealthy = true
+		return
+	}
+	if openedInfo.Size() != s.auditBytes || int64(len(s.auditExpected)) != s.auditBytes {
+		s.auditUnhealthy = true
+		return
+	}
+	pathInfo, err := os.Lstat(s.config.AuditPath)
+	if err != nil || pathInfo.Mode()&os.ModeSymlink != 0 || !pathInfo.Mode().IsRegular() ||
+		runtime.GOOS != "windows" && pathInfo.Mode().Perm()&0o077 != 0 ||
+		!os.SameFile(openedInfo, pathInfo) {
+		s.auditUnhealthy = true
+		return
+	}
+	if _, err := s.audit.Seek(0, io.SeekStart); err != nil {
+		s.auditUnhealthy = true
+		return
+	}
+	data, err := io.ReadAll(io.LimitReader(s.audit, maxLiveGatewayAuditBytes+1))
+	if err != nil || len(data) > maxLiveGatewayAuditBytes ||
+		int64(len(data)) != s.auditBytes || !bytes.Equal(data, s.auditExpected) {
+		s.auditUnhealthy = true
+		return
+	}
+	s.auditSnapshot = make([]byte, len(data))
+	copy(s.auditSnapshot, data)
+	s.auditCaptured = true
+}
+
+func (g *LiveGateway) auditEvidence() ([]byte, error) {
+	if g == nil || g.state == nil {
+		return nil, errLiveGatewayAuditUnavailable
+	}
+	g.state.mu.Lock()
+	defer g.state.mu.Unlock()
+	if g.state.auditUnhealthy || !g.state.auditCaptured {
+		return nil, errLiveGatewayAuditUnavailable
+	}
+	evidence := make([]byte, len(g.state.auditSnapshot))
+	copy(evidence, g.state.auditSnapshot)
+	return evidence, nil
 }
 
 func matchLiveGatewayRoute(requestURL *url.URL, method string, routes []LiveGatewayRoute) (LiveGatewayRoute, bool) {
