@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "confluence.synthetic-table-summary-mcp-holdout-v3",
+  "category": "surface-native",
+  "task_class": "confluence/table-analytics",
+  "description": "Hold out a distinct multi-table structural inventory with combined spans and synthetic padding behind one typed content-free MCP read.",
+  "data_class": "synthetic",
+  "required_capabilities": ["confluence.table.summary"],
+  "required_checks": ["bounded_interface", "content_hidden", "count_semantics_correct", "guard_clean", "http_exact", "interface_succeeded", "mock_clean", "no_delegation", "page_correct", "reconciliation_correct", "returned_table_count_correct", "shapes_correct", "table_count_correct", "used_interface"],
+  "required_semantic_checks": ["content_hidden", "count_semantics_correct", "page_correct", "reconciliation_correct", "returned_table_count_correct", "shapes_correct", "table_count_correct"],
+  "required_metrics": ["agent_turns", "tool_calls", "interface_invocations", "delegations", "backend_requests", "duplicate_backend_requests", "output_bytes", "input_tokens", "output_tokens", "main_thread_input_tokens", "main_thread_output_tokens", "estimated_cost_microusd", "duration_millis", "capability_families"],
+  "budgets": {
+    "max_agent_turns": 4,
+    "max_tool_calls": 2,
+    "max_atl_invocations": 0,
+    "max_interface_invocations": 1,
+    "max_delegations": 0,
+    "max_backend_requests": 1,
+    "max_duplicate_backend_requests": 0,
+    "max_remote_writes": 0,
+    "max_output_bytes": 16384,
+    "max_input_tokens": 120000,
+    "max_output_tokens": 4000,
+    "max_main_thread_input_tokens": 120000,
+    "max_main_thread_output_tokens": 4000,
+    "max_estimated_cost_microusd": 5000000,
+    "max_duration_millis": 300000,
+    "allowed_http_methods": ["GET"]
+  }
+}

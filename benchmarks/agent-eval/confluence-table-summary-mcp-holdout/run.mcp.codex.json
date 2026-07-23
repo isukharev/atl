@@ -1,0 +1,173 @@
+{
+  "schema_version": 6,
+  "category": "surface-native",
+  "surface": "atl-mcp",
+  "scenario_file": "scenario.v3.json",
+  "provider": "codex",
+  "variant": "typed-mcp-v3",
+  "model": "gpt-5.6-luna",
+  "reasoning": "high",
+  "prompt_file": "prompt.mcp.v3.md",
+  "response_schema_file": "response-schema.v3.json",
+  "qualitative_rubric_file": "rubric.v3.json",
+  "workspace_template": "workspace",
+  "fixture_file": "fixture.json",
+  "repetitions": 1,
+  "timeout_seconds": 300,
+  "max_estimated_cost_microusd": 5000000,
+  "pricing": {
+    "input_microusd_per_million_tokens": 1000000,
+    "output_microusd_per_million_tokens": 6000000
+  },
+  "tool_transport": "mcp",
+  "allowed_tools": [],
+  "allowed_atl_commands": [],
+  "allowed_mcp_tools": [
+    "confluence_table_summary"
+  ],
+  "checks": [
+    {
+      "name": "bounded_interface",
+      "kind": "interface_invocations_max",
+      "maximum": 1
+    },
+    {
+      "name": "content_hidden",
+      "kind": "json_equals",
+      "pointer": "/content_exposed",
+      "expected": false
+    },
+    {
+      "name": "count_semantics_correct",
+      "kind": "json_equals",
+      "pointer": "/count_semantics",
+      "expected": {
+        "table_count_scope": "page-wide",
+        "row_count_scope": "expanded-rows-including-headers",
+        "cell_count_scope": "expanded-rectangular-grid",
+        "repeated_cell_scope": "span-covered-coordinates",
+        "span_source_scope": "non-repeated-source-cells",
+        "combined_span_coverage": "counted-on-each-covered-axis"
+      }
+    },
+    {
+      "name": "guard_clean",
+      "kind": "guard_no_denials"
+    },
+    {
+      "name": "http_exact",
+      "kind": "http_methods_equal",
+      "expected": {
+        "GET": 1
+      }
+    },
+    {
+      "name": "interface_succeeded",
+      "kind": "interface_all_succeeded"
+    },
+    {
+      "name": "mock_clean",
+      "kind": "mock_no_unexpected"
+    },
+    {
+      "name": "no_delegation",
+      "kind": "delegations_none"
+    },
+    {
+      "name": "page_correct",
+      "kind": "json_equals",
+      "pointer": "/page_id",
+      "expected": "8300"
+    },
+    {
+      "name": "reconciliation_correct",
+      "kind": "json_equals",
+      "pointer": "/selection_reconciled",
+      "expected": true
+    },
+    {
+      "name": "returned_table_count_correct",
+      "kind": "json_equals",
+      "pointer": "/returned_table_count",
+      "expected": 3
+    },
+    {
+      "name": "shapes_correct",
+      "kind": "json_equals",
+      "pointer": "/tables",
+      "expected": [
+        {
+          "index": 1,
+          "row_count": 5,
+          "column_count": 4,
+          "rectangular": true,
+          "header_row_count": 2,
+          "header_cell_count": 8,
+          "expanded_cell_count": 20,
+          "origin_cell_count": 14,
+          "repeated_cell_count": 6,
+          "synthetic_empty_cell_count": 0,
+          "cell_count_reconciled": true,
+          "styled_cell_count": 5,
+          "linked_cell_count": 1,
+          "rowspan_source_cell_count": 2,
+          "rowspan_covered_cell_count": 3,
+          "colspan_source_cell_count": 3,
+          "colspan_covered_cell_count": 4,
+          "warning_count": 0
+        },
+        {
+          "index": 2,
+          "row_count": 2,
+          "column_count": 3,
+          "rectangular": true,
+          "header_row_count": 1,
+          "header_cell_count": 3,
+          "expanded_cell_count": 6,
+          "origin_cell_count": 5,
+          "repeated_cell_count": 0,
+          "synthetic_empty_cell_count": 1,
+          "cell_count_reconciled": true,
+          "styled_cell_count": 1,
+          "linked_cell_count": 1,
+          "rowspan_source_cell_count": 0,
+          "rowspan_covered_cell_count": 0,
+          "colspan_source_cell_count": 0,
+          "colspan_covered_cell_count": 0,
+          "warning_count": 0
+        },
+        {
+          "index": 3,
+          "row_count": 1,
+          "column_count": 1,
+          "rectangular": true,
+          "header_row_count": 0,
+          "header_cell_count": 0,
+          "expanded_cell_count": 1,
+          "origin_cell_count": 1,
+          "repeated_cell_count": 0,
+          "synthetic_empty_cell_count": 0,
+          "cell_count_reconciled": true,
+          "styled_cell_count": 0,
+          "linked_cell_count": 0,
+          "rowspan_source_cell_count": 0,
+          "rowspan_covered_cell_count": 0,
+          "colspan_source_cell_count": 0,
+          "colspan_covered_cell_count": 0,
+          "warning_count": 0
+        }
+      ]
+    },
+    {
+      "name": "table_count_correct",
+      "kind": "json_equals",
+      "pointer": "/table_count",
+      "expected": 3
+    },
+    {
+      "name": "used_interface",
+      "kind": "interface_invocations_min",
+      "minimum": 1
+    }
+  ]
+}
