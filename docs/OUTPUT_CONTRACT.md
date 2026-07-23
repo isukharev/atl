@@ -1771,7 +1771,7 @@ searches Jira issues:
 ```json
 {
   "schema_version": 1,
-  "structure": {"id": 123, "name": "Planning"},
+  "structure": {"id": 123, "name": "Planning", "read_only": false},
   "forest_version": {"signature": 10, "version": 2},
   "folders": [{
     "folder_id": "100",
@@ -1787,8 +1787,10 @@ searches Jira issues:
 }
 ```
 
-`-o id` emits stable folder item ids, not row ids. Missing/partial labels keep
-technical ids and statistics, set `complete:false`, and add bounded warnings.
+`structure.read_only` is always present, including when it is `false`, so a
+known mutable Structure is not confused with missing metadata. `-o id` emits
+stable folder item ids, not row ids. Missing/partial labels keep technical ids
+and statistics, set `complete:false`, and add bounded warnings.
 
 `atl jira structure rows <ID>` returns a parsed read-only view of a Tempo Structure forest:
 
@@ -1838,7 +1840,7 @@ always present; when there are no reported gaps it is `[]`.
 ```json
 {
   "schema_version": 1,
-  "structure": {"id": 123, "name": "Quarter plan"},
+  "structure": {"id": 123, "name": "Quarter plan", "read_only": true},
   "forest_version": {"signature": 55, "version": 7},
   "projection": {
     "kind": "jira-fields-v1",

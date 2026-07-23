@@ -100,6 +100,22 @@ func TestRenderStructureSnapshotIsCompactAndStreamFriendly(t *testing.T) {
 	}
 }
 
+func TestStructureSnapshotMetadataPreservesBothReadOnlyStates(t *testing.T) {
+	for _, readOnly := range []bool{false, true} {
+		encoded, err := json.Marshal(StructureSnapshotMetadata{ID: 123, Name: "Plan", ReadOnly: readOnly})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := `"read_only":false`
+		if readOnly {
+			want = `"read_only":true`
+		}
+		if !strings.Contains(string(encoded), want) {
+			t.Fatalf("read_only=%t encoded as %s, want explicit boolean", readOnly, encoded)
+		}
+	}
+}
+
 func TestStructureSnapshotValuesNeverJoinNonIssueNumericCollision(t *testing.T) {
 	issues := map[string]JiraIssueSnapshot{"10001": {Key: "PROJ-1", ID: "10001", Fields: map[string]any{"summary": "Issue"}}}
 	row := domain.StructureRow{RowID: 7, ItemType: "folder", ItemID: "10001"}

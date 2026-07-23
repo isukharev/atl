@@ -155,6 +155,8 @@ shell/workspace configuration implicitly.
   wiki markup; do not paste Markdown and expect conversion.
 - Structure commands are read-only inspection tools. Prefer stable
   `structure folders` → `--folder-id`; fuzzy `--root` is explicit fuzzy intent.
+  Normalized folder/view snapshots always expose `structure.read_only` as an
+  explicit boolean, including `false`; do not infer it from field presence.
 - Never expose private Jira exports, queries, bodies, user objects, verbose
   traces, or raw benchmark transcripts in a public repository.
 

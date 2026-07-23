@@ -104,7 +104,7 @@ type StructureProjection struct {
 type StructureSnapshotMetadata struct {
 	ID       int64  `json:"id"`
 	Name     string `json:"name"`
-	ReadOnly bool   `json:"read_only,omitempty"`
+	ReadOnly bool   `json:"read_only"`
 }
 
 // StructureMetadataResult is the compact, value-free Structure identity used
