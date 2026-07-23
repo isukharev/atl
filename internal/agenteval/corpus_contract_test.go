@@ -92,13 +92,13 @@ func TestRepositoryStructureAndTableV2ChecksRejectSemanticDrift(t *testing.T) {
 	}
 }
 
-func TestRepositoryStructureAndTableV2ProviderParityIsZeroWrite(t *testing.T) {
+func TestRepositoryStructureAndTableV2ProviderParityKeepsTransportBudgets(t *testing.T) {
 	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
-	for _, directory := range []string{
-		"jira-structure-deep-values",
-		"jira-structure-subtree-export",
-		"confluence-table-analytics",
-		"confluence-table-summary",
+	for directory, wantRemoteWrites := range map[string]int{
+		"jira-structure-deep-values":    2,
+		"jira-structure-subtree-export": 0,
+		"confluence-table-analytics":    0,
+		"confluence-table-summary":      0,
 	} {
 		t.Run(directory, func(t *testing.T) {
 			scenarioFile, err := os.Open(filepath.Join(root, directory, "scenario.v2.json"))
@@ -113,8 +113,8 @@ func TestRepositoryStructureAndTableV2ProviderParityIsZeroWrite(t *testing.T) {
 			if closeErr != nil {
 				t.Fatal(closeErr)
 			}
-			if scenario.Budgets.MaxRemoteWrites != 0 {
-				t.Fatalf("v2 scenario permits %d remote writes", scenario.Budgets.MaxRemoteWrites)
+			if scenario.Budgets.MaxRemoteWrites != wantRemoteWrites {
+				t.Fatalf("v2 scenario remote-write budget=%d want=%d", scenario.Budgets.MaxRemoteWrites, wantRemoteWrites)
 			}
 
 			specs := make(map[string]RunSpec, 2)
@@ -162,6 +162,123 @@ func TestRepositoryStructureAndTableV2ProviderParityIsZeroWrite(t *testing.T) {
 				t.Fatalf("semantic checks drifted: claude=%+v codex=%+v", claudeSemantic, codexSemantic)
 			}
 		})
+	}
+}
+
+func TestRepositoryStructureDeepValuesV2PassesConservativeQueryPOSTBudget(t *testing.T) {
+	root := filepath.Join("..", "..", "benchmarks", "agent-eval", "jira-structure-deep-values")
+	scenario := loadRepositoryScenario(t, filepath.Join(root, "scenario.v2.json"))
+	spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli.codex.json"))
+	fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
+	httpMethods := make(map[string]int)
+	requestIdentities := make(map[string]int)
+	duplicateRequests := 0
+	postIndex := 0
+	for _, route := range fixture.Routes {
+		httpMethods[route.Method]++
+		identity, err := json.Marshal(struct {
+			Method        string            `json:"method"`
+			Path          string            `json:"path"`
+			QueryContains map[string]string `json:"query_contains,omitempty"`
+			QueryEquals   map[string]string `json:"query_equals,omitempty"`
+		}{route.Method, route.Path, route.QueryContains, route.QueryEquals})
+		if err != nil {
+			t.Fatal(err)
+		}
+		requestIdentities[string(identity)]++
+		if requestIdentities[string(identity)] > 1 {
+			duplicateRequests++
+		}
+		if route.Method != "POST" {
+			continue
+		}
+		if route.Path != "/jira/rest/structure/2.0/value" || len(route.QueryContains) != 0 || len(route.QueryEquals) != 0 || len(route.RequestBody) == 0 {
+			t.Fatalf("query-only POST route is not exactly selector-bound: %+v", route)
+		}
+		var query struct {
+			Requests []struct {
+				ForestSpec struct {
+					StructureID int64 `json:"structureId"`
+				} `json:"forestSpec"`
+				Rows       []int64 `json:"rows"`
+				Attributes []struct {
+					ID     string `json:"id"`
+					Format string `json:"format"`
+				} `json:"attributes"`
+			} `json:"requests"`
+		}
+		if err := json.Unmarshal(route.RequestBody, &query); err != nil || len(query.Requests) != 1 || query.Requests[0].ForestSpec.StructureID != 88 {
+			t.Fatalf("query-only POST body is not a single Structure value request: body=%s err=%v", route.RequestBody, err)
+		}
+		attributeIDs := make([]string, len(query.Requests[0].Attributes))
+		for index, attribute := range query.Requests[0].Attributes {
+			if attribute.Format != "text" {
+				t.Fatalf("query-only POST attribute %q format=%q", attribute.ID, attribute.Format)
+			}
+			attributeIDs[index] = attribute.ID
+		}
+		var wantRows []int64
+		var wantAttributes []string
+		switch postIndex {
+		case 0:
+			wantRows = []int64{400, 410, 411, 417, 500}
+			wantAttributes = []string{"key", "summary"}
+		case 1:
+			wantRows = []int64{410, 411, 412, 413, 414, 415, 416, 417, 418}
+			wantAttributes = []string{"key", "summary", "status", "customfield_12345"}
+		default:
+			t.Fatalf("unexpected third query-only POST")
+		}
+		if !slices.Equal(query.Requests[0].Rows, wantRows) || !slices.Equal(attributeIDs, wantAttributes) {
+			t.Fatalf("query-only POST %d shape drifted: rows=%v attributes=%v", postIndex+1, query.Requests[0].Rows, attributeIDs)
+		}
+		postIndex++
+	}
+	if httpMethods["GET"] != 1 || httpMethods["POST"] != 2 || len(httpMethods) != 2 || postIndex != 2 || duplicateRequests != 1 {
+		t.Fatalf("fixture requests: methods=%v posts=%d duplicates=%d", httpMethods, postIndex, duplicateRequests)
+	}
+	derivedChecks, err := evaluateRunChecks(spec.Checks, []byte(`{"content_mutations":0}`), "", 3, 0, 0, 1,
+		map[string]int{"atl:jira": 1}, 0, 0, httpMethods, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !derivedChecks["http_exact"] || !derivedChecks["content_not_mutated"] {
+		t.Fatalf("fixture-derived run checks: http_exact=%v content_not_mutated=%v", derivedChecks["http_exact"], derivedChecks["content_not_mutated"])
+	}
+
+	checks := make(map[string]bool, len(spec.Checks))
+	for _, check := range spec.Checks {
+		checks[check.Name] = true
+	}
+	checks["http_exact"] = derivedChecks["http_exact"]
+	checks["content_not_mutated"] = derivedChecks["content_not_mutated"]
+	coverage := make(map[string]bool, len(scenario.RequiredMetrics)+1)
+	for _, metric := range scenario.RequiredMetrics {
+		coverage[metric] = true
+	}
+	coverage["remote_writes"] = true
+	result, err := Evaluate(scenario, Observation{
+		SchemaVersion: ObservationSchemaVersion, ScenarioID: scenario.ID,
+		Variant: spec.Variant, Surface: spec.Surface,
+		BackendObservation: BackendObservationHTTP, SafetyAssurance: SafetyAssuranceObservedHTTP,
+		Runtime: Runtime{Provider: "deterministic", ATLVersion: "test"},
+		Metrics: InputMetrics{
+			AgentTurns: 1, ToolCalls: 3, ATLInvocations: 3, DuplicateBackendRequests: duplicateRequests,
+			OutputBytes: 1, InputTokens: 1, OutputTokens: 1,
+			MainThreadInputTokens: 1, MainThreadOutputTokens: 1,
+			EstimatedCostMicroUSD: 1, DurationMillis: 1,
+		},
+		Coverage: coverage, HTTPMethods: httpMethods, Checks: checks,
+		CapabilityFamilies: []CapabilityFamilyMetric{{
+			Family: "jira.structure.values", Invocations: 2, Successes: 2, OutputBytes: 1,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "pass" || result.Metrics.BackendRequests != 3 || result.Metrics.RemoteWrites != 2 ||
+		result.Metrics.DuplicateBackendRequests != 1 || len(result.Violations) != 0 {
+		t.Fatalf("fixture-derived scenario did not pass conservative transport budget: %+v", result)
 	}
 }
 

@@ -442,9 +442,10 @@ Structure Value API, whose query payload uses HTTP POST. Its folder-label and
 explicit row-value queries are synthetic loopback-only, bind exact request
 bodies, and allow no mutation route. Generic telemetry remains deliberately
 conservative: it counts those non-safe transport methods as `remote_writes`
-and the shared endpoint as one duplicate request. Ordinary private-live and all
-private-live MCP runs remain GET/HEAD-only. Reviewed private-live mutations are
-CLI-only and use the stricter boundary below.
+and the shared endpoint as one duplicate request. The v2 scenario therefore
+budgets exactly two transport writes while retaining a zero-content-mutation
+oracle. Ordinary private-live and all private-live MCP runs remain GET/HEAD-only.
+Reviewed private-live mutations are CLI-only and use the stricter boundary below.
 
 ### Guarded Jira field mutation
 

@@ -194,7 +194,8 @@ contains no mutation route and the response contract requires
 requires selection and cell-count reconciliation for content-free summary, and
 keeps raw formula-like extract values classified as untrusted data rather than
 applying CSV-specific neutralization semantics. Query-only Structure Value API
-POST requests remain mechanically zero-write. Both Codex and Claude Code have
+POST requests remain zero content mutation while each is conservatively counted
+as one transport-level `remote_writes` metric. Both Codex and Claude Code have
 equivalent current fixtures, core prompts, response schemas, budgets, and
 semantic checks for these cells; provider-native pricing is the only expected
 difference in the paired MCP contracts.
