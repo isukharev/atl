@@ -482,7 +482,7 @@ atl capabilities --task jira/portfolio            # bounded-маршрут кв�
 atl capabilities --task jira/edit                 # guarded-запись полей, worklog и планов
 atl jira board view 5 -o text                  # нормализованный вид Kanban/Scrum
 atl jira sprint current --board 5              # активный спринт
-atl jira structure folders 123                 # точные сохранённые поддеревья
+atl jira structure folders 123                 # точные поддеревья; пустые labels остаются явными
 atl jira structure view 123 --folder-id 100 -o text
 atl jira planning report --jql 'project = PROJ' --limit 100
 atl jira quality-report --jql 'project = PROJ' # compatibility alias

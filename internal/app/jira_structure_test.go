@@ -283,6 +283,30 @@ func TestBuildStructureFoldersCalculatesPathsAndOccurrenceStats(t *testing.T) {
 	}
 }
 
+func TestStructureFolderJSONPreservesEmptyIdentityFields(t *testing.T) {
+	folders := buildStructureFolders(
+		[]domain.StructureRow{{RowID: 10, Depth: 0, ItemType: "folder", ItemID: "f-root"}},
+		map[int64]string{},
+	)
+	encoded, err := json.Marshal(folders)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []struct {
+		Name           *string `json:"name"`
+		ParentFolderID *string `json:"parent_folder_id"`
+		Path           []string
+	}
+	if err := json.Unmarshal(encoded, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name == nil || *got[0].Name != "" ||
+		got[0].ParentFolderID == nil || *got[0].ParentFolderID != "" ||
+		len(got[0].Path) != 1 || got[0].Path[0] != "folder:f-root" {
+		t.Fatalf("folders=%s", encoded)
+	}
+}
+
 func TestSelectStructureFolderIsExactFailClosedAndRelative(t *testing.T) {
 	rows := []domain.StructureRow{
 		{RowID: 10, Depth: 0, ItemType: "folder", ItemID: "f-root"},

@@ -396,10 +396,16 @@ func TestJiraStructureFoldersReportsPartialLabels(t *testing.T) {
 		Complete bool     `json:"complete"`
 		Warnings []string `json:"warnings"`
 		Folders  []struct {
-			Path []string `json:"path"`
+			Name           *string  `json:"name"`
+			ParentFolderID *string  `json:"parent_folder_id"`
+			Path           []string `json:"path"`
 		} `json:"folders"`
 	}
-	if err := json.Unmarshal([]byte(out), &got); err != nil || got.Complete || len(got.Warnings) != 1 || len(got.Folders) != 2 || got.Folders[1].Path[0] != "folder:b" {
+	if err := json.Unmarshal([]byte(out), &got); err != nil || got.Complete || len(got.Warnings) != 1 || len(got.Folders) != 2 ||
+		got.Folders[0].ParentFolderID == nil || *got.Folders[0].ParentFolderID != "" ||
+		got.Folders[1].Name == nil || *got.Folders[1].Name != "" ||
+		got.Folders[1].ParentFolderID == nil || *got.Folders[1].ParentFolderID != "" ||
+		got.Folders[1].Path[0] != "folder:b" {
 		t.Fatalf("partial=%+v err=%v", got, err)
 	}
 }

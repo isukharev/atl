@@ -1788,9 +1788,13 @@ searches Jira issues:
 ```
 
 `structure.read_only` is always present, including when it is `false`, so a
-known mutable Structure is not confused with missing metadata. `-o id` emits
-stable folder item ids, not row ids. Missing/partial labels keep technical ids
-and statistics, set `complete:false`, and add bounded warnings.
+known mutable Structure is not confused with missing metadata. Folder `name`
+and `parent_folder_id` are also always present strings: a missing label is
+`name:""` while `path` uses the stable `folder:<id>` fallback, and a root folder
+has `parent_folder_id:""`. Consumers must not substitute the fallback path into
+the empty semantic name. `-o id` emits stable folder item ids, not row ids.
+Missing/partial labels keep technical ids and statistics, set `complete:false`,
+and add bounded warnings.
 
 `atl jira structure rows <ID>` returns a parsed read-only view of a Tempo Structure forest:
 

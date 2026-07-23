@@ -158,6 +158,9 @@ shell/workspace configuration implicitly.
   `structure folders` → `--folder-id`; fuzzy `--root` is explicit fuzzy intent.
   Normalized folder/view snapshots always expose `structure.read_only` as an
   explicit boolean, including `false`; do not infer it from field presence.
+  Folder discovery also preserves `name:""` for a missing label and
+  `parent_folder_id:""` for a root; keep the separate `folder:<id>` path
+  fallback as technical identity instead of copying it into `name`.
 - Never expose private Jira exports, queries, bodies, user objects, verbose
   traces, or raw benchmark transcripts in a public repository.
 
