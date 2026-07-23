@@ -186,6 +186,10 @@ exit 2
 	if result.Metrics.ATLInvocations != 0 || result.Metrics.InterfaceInvocations != 1 || result.Metrics.BackendRequests != 0 || result.Metrics.EstimatedCostMicroUSD != 140 {
 		t.Fatalf("metrics=%+v", result.Metrics)
 	}
+	syntheticPromptDigest := result.Runtime.PromptContractSHA256
+	if !validSHA256(syntheticPromptDigest) || !output.Preview.PromptContractBound {
+		t.Fatalf("synthetic prompt identity result=%+v preview=%+v", result.Runtime, output.Preview)
+	}
 	transcript := filepath.Join(outputRoot, scenario.ID, "claude-code", "baseline", "run-01", "transcript.jsonl")
 	info, err := os.Stat(transcript)
 	if err != nil || info.Mode().Perm() != 0o600 {
@@ -225,6 +229,9 @@ exit 2
 	result = output.Results[0]
 	if result.Metrics.ATLInvocations != 0 || result.Metrics.InterfaceInvocations != 1 || result.Metrics.ToolCalls != 1 || result.Metrics.EstimatedCostMicroUSD != 140 {
 		t.Fatalf("claude MCP metrics=%+v", result.Metrics)
+	}
+	if result.Runtime.PromptContractSHA256 != syntheticPromptDigest || !output.Preview.PromptContractBound {
+		t.Fatalf("provider-neutral synthetic prompt identity result=%+v preview=%+v", result.Runtime, output.Preview)
 	}
 	if !result.Coverage["capability_families"] || len(result.CapabilityFamilies) != 1 || result.CapabilityFamilies[0].Family != "jira.fields" {
 		t.Fatalf("families=%+v coverage=%+v", result.CapabilityFamilies, result.Coverage)
@@ -306,6 +313,10 @@ exit 2
 	result = output.Results[0]
 	if result.Metrics.ATLInvocations != 0 || result.Metrics.InterfaceInvocations != 1 || result.Metrics.ToolCalls != 1 || result.Metrics.EstimatedCostMicroUSD != 140 {
 		t.Fatalf("codex metrics=%+v", result.Metrics)
+	}
+	if result.Runtime.PromptContractSHA256 != syntheticPromptDigest || output.Results[1].Runtime.PromptContractSHA256 != syntheticPromptDigest ||
+		!output.Preview.PromptContractBound {
+		t.Fatalf("provider/repetition prompt identity output=%+v", output)
 	}
 	for _, runName := range []string{"run-01", "run-02"} {
 		runDir := filepath.Join(outputRoot, scenario.ID, "codex", "typed-mcp-codex", runName)

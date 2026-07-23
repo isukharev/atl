@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Synthetic agent-evaluation results now bind the exact core/effective prompt
+  channels with a provider-neutral contract digest. Result schema v8 permits
+  that identity for synthetic runs, complete-root aggregation requires it and
+  rejects prompt drift, and aggregate output continues to omit the digest.
+  Promptless evidence result v7 remains readable for historical explicit-path
+  aggregation.
+
 - Private Codex activation studies now qualify the exact native agent/model
   shell inventory through one credential-free loopback Responses request before
   persisting a plan and again before consuming it. Missing, ambiguous, or
@@ -133,9 +140,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   boundaries, and excessive criterion ranges are retained as disagreement and
   block baseline promotion. The explicit legacy single-review workflow remains
   available, but singleton and panel baselines are intentionally incompatible.
-  Current panel artifacts use result schema v7, review schema v2, and aggregate
-  schema v6; attemptless result v6, legacy prompt-bound result v5, singleton result v3, panel result
-  v4, and review v1 artifacts remain readable.
+  Current panel artifacts use result schema v8, review schema v2, and aggregate
+  schema v6; promptless evidence result v7, attemptless result v6, legacy
+  prompt-bound result v5, singleton result v3, panel result v4, and review v1
+  artifacts remain readable.
   Baseline comparison and aggregate grouping now keep different blind
   assignments separate for both singleton and panel reviews.
 

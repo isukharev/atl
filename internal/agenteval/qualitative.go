@@ -772,6 +772,8 @@ func AssessQualitativeReviewSet(result Result, resultBytes, finalBytes []byte, r
 		// panel must not demote v5 to the pre-prompt panel schema or promote it to
 		// the current four-arm contract.
 		result.SchemaVersion = LegacyPromptBoundResultSchemaVersion
+	case LegacyEvidenceResultSchemaVersion:
+		result.SchemaVersion = LegacyEvidenceResultSchemaVersion
 	case ResultSchemaVersion:
 		result.SchemaVersion = ResultSchemaVersion
 	}

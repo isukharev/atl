@@ -113,11 +113,15 @@ func aggregateSyntheticOutputRootWithHooks(root string, afterInitialInventory, a
 			return SyntheticRootAggregate{}, rejectSyntheticRoot("bounds")
 		}
 		result, err := DecodeResult(bytes.NewReader(data))
-		if err != nil || result.SchemaVersion != ResultSchemaVersion || result.Qualitative != nil || result.QualitativeReviewSet != nil {
+		if err != nil || result.SchemaVersion != ResultSchemaVersion ||
+			result.Qualitative != nil || result.QualitativeReviewSet != nil {
 			return SyntheticRootAggregate{}, rejectSyntheticRoot("invalid_result")
 		}
 		if result.DataClass != "synthetic" {
 			return SyntheticRootAggregate{}, rejectSyntheticRoot("private_data")
+		}
+		if result.Runtime.PromptContractSHA256 == "" {
+			return SyntheticRootAggregate{}, rejectSyntheticRoot("invalid_result")
 		}
 		if _, public := publicCorpusTaskClasses[result.TaskClass]; !public {
 			return SyntheticRootAggregate{}, rejectSyntheticRoot("non_public_task_class")

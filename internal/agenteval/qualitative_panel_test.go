@@ -401,6 +401,26 @@ func TestPanelAssessmentPreservesLegacyPromptBoundResultV5(t *testing.T) {
 	}
 }
 
+func TestPanelAssessmentPreservesLegacyEvidenceResultV7(t *testing.T) {
+	result, _, final, rubric := panelFixture(t)
+	result.SchemaVersion = LegacyEvidenceResultSchemaVersion
+	resultBytes, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviews := panelReviews(t, result, resultBytes, final, rubric, [][2]int{{4, 4}, {4, 4}, {4, 4}}, nil)
+	assessed, err := AssessQualitativeReviewSet(result, resultBytes, final, rubric, panelPolicy(9999), reviews)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assessed.SchemaVersion != LegacyEvidenceResultSchemaVersion {
+		t.Fatalf("legacy evidence provenance changed: version=%d", assessed.SchemaVersion)
+	}
+	if err := assessed.Validate(); err != nil {
+		t.Fatalf("assessed legacy evidence result is invalid: %v", err)
+	}
+}
+
 func TestAggregateQualitativeReviewSetSeparatesContractsAndCountsConsensus(t *testing.T) {
 	result, resultBytes, final, rubric := panelFixture(t)
 	passingReviews := panelReviews(t, result, resultBytes, final, rubric, [][2]int{{4, 4}, {4, 4}, {4, 4}}, nil)

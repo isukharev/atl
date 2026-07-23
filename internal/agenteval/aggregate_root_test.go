@@ -91,6 +91,7 @@ func TestAggregateSyntheticOutputRootRejectsUnsafeOrIncompleteRoots(t *testing.T
 			name: "private data",
 			mutate: func(t *testing.T, root string, value Result) {
 				value.DataClass = "private-local"
+				value.Runtime.PromptContractSHA256 = ""
 				writeSyntheticRootResult(t, root, 1, value)
 			},
 			code: "private_data",
@@ -148,6 +149,14 @@ func TestAggregateSyntheticOutputRootRejectsUnsafeOrIncompleteRoots(t *testing.T
 			code: "scratch_residue",
 		},
 		{
+			name: "missing prompt identity",
+			mutate: func(t *testing.T, root string, value Result) {
+				value.Runtime.PromptContractSHA256 = ""
+				writeSyntheticRootResult(t, root, 1, value)
+			},
+			code: "invalid_result",
+		},
+		{
 			name: "malformed result",
 			mutate: func(t *testing.T, root string, _ Result) {
 				writePrivateTestFile(t, syntheticRootResultPath(root, result, 1), []byte("{"))
@@ -158,6 +167,14 @@ func TestAggregateSyntheticOutputRootRejectsUnsafeOrIncompleteRoots(t *testing.T
 			name: "mixed runtime",
 			mutate: func(t *testing.T, root string, value Result) {
 				value.Runtime.Model = "other-model"
+				writeSyntheticRootResult(t, root, 2, value)
+			},
+			code: "mixed_contract",
+		},
+		{
+			name: "mixed prompt contract",
+			mutate: func(t *testing.T, root string, value Result) {
+				value.Runtime.PromptContractSHA256 = strings.Repeat("b", 64)
 				writeSyntheticRootResult(t, root, 2, value)
 			},
 			code: "mixed_contract",
@@ -267,6 +284,7 @@ func syntheticRootTestResult(t *testing.T) Result {
 	observation := validObservation()
 	observation.Runtime = Runtime{
 		Provider: "codex", AgentVersion: "test-agent", Model: "gpt-test", Reasoning: "high", ATLVersion: "test-atl",
+		PromptContractSHA256: strings.Repeat("a", 64),
 	}
 	result, err := Evaluate(scenario, observation)
 	if err != nil {

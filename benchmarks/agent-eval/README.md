@@ -407,7 +407,7 @@ over-budget. The deterministic MCP test additionally verifies the exact
 four-GET, zero-write trajectory with technical-id reuse and that the expansion alone recovers the
 marker.
 
-Observation schema v5, result schema v7, and aggregate schema v6 retain the
+Observation schema v5, result schema v8, and aggregate schema v6 retain the
 `capability_families` contract introduced in v3, using a
 closed generic vocabulary shared by CLI and MCP. Each entry contains only
 invocations, successes, failures, and output bytes. Treat the section as

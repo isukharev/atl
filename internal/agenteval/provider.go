@@ -319,14 +319,19 @@ func effectiveProviderPrompt(spec RunSpec, core []byte) ([]byte, error) {
 }
 
 func providerPromptContractSHA256(spec RunSpec, core, effective []byte) (string, error) {
-	if spec.SkillActivationIdentity() == "" {
+	activation := spec.SkillActivationIdentity()
+	if activation == "" && spec.EffectiveBackendMode() != BackendModeSynthetic {
 		return "", nil
 	}
-	developerInstructions, err := codexPrivateCLIInstructions(spec)
-	if err != nil {
-		return "", err
+	developerInstructions := ""
+	if activation != "" {
+		var err error
+		developerInstructions, err = codexPrivateCLIInstructions(spec)
+		if err != nil {
+			return "", err
+		}
 	}
-	return promptContractSHA256(spec.SkillActivationIdentity(), core, effective, developerInstructions)
+	return promptContractSHA256(activation, core, effective, developerInstructions)
 }
 
 func promptContractSHA256(skillActivation string, core, effective []byte, developerInstructions string) (string, error) {
