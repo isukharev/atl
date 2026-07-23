@@ -2,7 +2,8 @@
   "schema_version": 1,
   "structure": {
     "id": 123,
-    "name": "Plan"
+    "name": "Plan",
+    "read_only": false
   },
   "forest_version": {
     "signature": 55,

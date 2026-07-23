@@ -237,7 +237,7 @@ func TestJiraStructureExportCLIWritesCSV(t *testing.T) {
 
 func TestJiraStructureViewCLIEmitsNormalizedMarkdownAndIDs(t *testing.T) {
 	js := newJiraServer(t)
-	js.route(http.MethodGet, "/rest/structure/2.0/structure/123", http.StatusOK, `{"id":123,"name":"Quarter plan"}`)
+	js.route(http.MethodGet, "/rest/structure/2.0/structure/123", http.StatusOK, `{"id":123,"name":"Quarter plan","readOnly":true}`)
 	js.route(http.MethodGet, "/rest/structure/2.0/forest/latest", http.StatusOK, `{
 		"formula":"100:0:1/root,101:1:10001",
 		"itemTypes":{"1":"folder"},
@@ -340,7 +340,7 @@ func TestJiraStructureViewCountsIssuesAfterRootFiltering(t *testing.T) {
 
 func TestJiraStructureFoldersIsFastStableDiscovery(t *testing.T) {
 	js := newJiraServer(t)
-	js.route(http.MethodGet, "/rest/structure/2.0/structure/123", http.StatusOK, `{"id":123,"name":"Plan"}`)
+	js.route(http.MethodGet, "/rest/structure/2.0/structure/123", http.StatusOK, `{"id":123,"name":"Plan","readOnly":false}`)
 	js.route(http.MethodGet, "/rest/structure/2.0/forest/latest", http.StatusOK, `{
 		"formula":"100:0:1/f-root,101:1:10001,102:1:1/f-child,103:2:10001,104:2:10002",
 		"itemTypes":{"1":"folder"},"version":{"signature":55,"version":7}

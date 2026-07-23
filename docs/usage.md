@@ -3581,6 +3581,9 @@ atl jira structure export 123 --fields summary --format csv --out raw.csv --raw-
 `view` is the recommended agent read path. It joins the hierarchy's stable item
 identities with compact Jira issue fields; stored folders receive best-effort
 labels, while calculated grouping/generator rows keep honest technical labels.
+The nested Structure identity always includes `read_only:true|false`; `false`
+is explicit rather than omitted, so agents can distinguish known mutability
+from missing metadata.
 JSON is the default, `-o text` is a Markdown table, and `-o id` emits row ids.
 The default projection is `key,summary,status,assignee`;
 `--fields` accepts Jira field ids and replaces that list. `--view NAME` selects
