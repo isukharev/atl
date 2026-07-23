@@ -45,6 +45,39 @@ func (r scanBoundStructureReader) StructureValues(context.Context, int64, []int6
 	return &domain.StructureValues{InaccessibleRows: []int64{}}, nil
 }
 
+type valueRootStructureReader struct{}
+
+func (valueRootStructureReader) GetStructure(context.Context, int64) (*domain.Structure, error) {
+	return &domain.Structure{ID: 1, Name: "Synthetic"}, nil
+}
+
+func (valueRootStructureReader) StructureForest(context.Context, int64) (*domain.StructureForest, error) {
+	return &domain.StructureForest{
+		Formula: "10:0:10001,11:1:10002,12:0:10003",
+		Version: domain.StructureVersion{Version: 1},
+	}, nil
+}
+
+func (valueRootStructureReader) StructureValues(context.Context, int64, []int64, []string) (*domain.StructureValues, error) {
+	return &domain.StructureValues{InaccessibleRows: []int64{}}, nil
+}
+
+type valueRootTracker struct {
+	domain.Tracker
+	searchCalls int
+	queries     []string
+}
+
+func (t *valueRootTracker) Search(_ context.Context, jql string, _ []string, _ int, _ string) ([]domain.Issue, string, error) {
+	t.searchCalls++
+	t.queries = append(t.queries, jql)
+	return []domain.Issue{
+		{ID: "10001", Key: "PROJ-1", Fields: map[string]any{"summary": "Selected root"}},
+		{ID: "10002", Key: "PROJ-2", Fields: map[string]any{"summary": "Selected child"}},
+		{ID: "10003", Key: "PROJ-3", Fields: map[string]any{"summary": "Other root"}},
+	}, "", nil
+}
+
 func TestNormalizeStructureValueRowsMapsAttributeMatrix(t *testing.T) {
 	values := &domain.StructureValues{Responses: []map[string]any{{
 		"rows": []any{float64(100), float64(101)},
@@ -208,6 +241,106 @@ func TestStructureSnapshotEnforcesScanBoundBeforeFolderValueQuery(t *testing.T) 
 	}
 	if valuesCalls != 0 {
 		t.Fatalf("StructureValues calls = %d, want none before scan bound", valuesCalls)
+	}
+}
+
+func TestStructureSnapshotResolvesValueRootBeforeSelectedRowBound(t *testing.T) {
+	for _, root := range []string{"PROJ-1", "Selected root"} {
+		t.Run(root, func(t *testing.T) {
+			tracker := &valueRootTracker{}
+			svc := &JiraService{tr: tracker, structure: valueRootStructureReader{}}
+
+			got, err := svc.StructureSnapshot(t.Context(), 1, StructureSnapshotOpts{
+				Attributes:  []string{"key", "summary"},
+				Root:        root,
+				MaxRows:     2,
+				MaxScanRows: 3,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.RowCount != 2 || got.Rows[0].Values["key"] != "PROJ-1" || got.Rows[1].Values["key"] != "PROJ-2" {
+				t.Fatalf("selected rows = %+v, want the two-row value-selected subtree", got.Rows)
+			}
+			if tracker.searchCalls != 1 {
+				t.Fatalf("Search calls = %d, want one bounded value expansion", tracker.searchCalls)
+			}
+		})
+	}
+}
+
+func TestStructureSnapshotIdentityRootExpandsOnlySelectedIssueIDs(t *testing.T) {
+	tracker := &valueRootTracker{}
+	svc := &JiraService{tr: tracker, structure: valueRootStructureReader{}}
+
+	got, err := svc.StructureSnapshot(t.Context(), 1, StructureSnapshotOpts{
+		Attributes:  []string{"key"},
+		Root:        "10001",
+		MaxRows:     2,
+		MaxScanRows: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RowCount != 2 || tracker.searchCalls != 1 || len(tracker.queries) != 1 {
+		t.Fatalf("result rows=%d Search calls=%d queries=%v", got.RowCount, tracker.searchCalls, tracker.queries)
+	}
+	if strings.Contains(tracker.queries[0], "10003") {
+		t.Fatalf("identity-selected issue query includes unselected id: %s", tracker.queries[0])
+	}
+}
+
+func TestStructureSnapshotValueRootScansBeyondSelectedRowBound(t *testing.T) {
+	tracker := &valueRootTracker{}
+	svc := &JiraService{tr: tracker, structure: valueRootStructureReader{}}
+
+	got, err := svc.StructureSnapshot(t.Context(), 1, StructureSnapshotOpts{
+		Attributes:  []string{"key"},
+		Root:        "PROJ-3",
+		MaxRows:     1,
+		MaxScanRows: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RowCount != 1 || got.Rows[0].Values["key"] != "PROJ-3" {
+		t.Fatalf("selected rows = %+v, want the last scan-bounded root", got.Rows)
+	}
+}
+
+func TestStructureSnapshotEnforcesSelectedRowBoundAfterValueRootResolution(t *testing.T) {
+	tracker := &valueRootTracker{}
+	svc := &JiraService{tr: tracker, structure: valueRootStructureReader{}}
+
+	_, err := svc.StructureSnapshot(t.Context(), 1, StructureSnapshotOpts{
+		Attributes:  []string{"key"},
+		Root:        "PROJ-1",
+		MaxRows:     1,
+		MaxScanRows: 3,
+	})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "exceeds max rows") {
+		t.Fatalf("error = %v, want selected-row check failure", err)
+	}
+	if tracker.searchCalls != 1 {
+		t.Fatalf("Search calls = %d, want one bounded value expansion", tracker.searchCalls)
+	}
+}
+
+func TestStructureSnapshotEnforcesScanBoundBeforeValueRootExpansion(t *testing.T) {
+	tracker := &valueRootTracker{}
+	svc := &JiraService{tr: tracker, structure: valueRootStructureReader{}}
+
+	_, err := svc.StructureSnapshot(t.Context(), 1, StructureSnapshotOpts{
+		Attributes:  []string{"key"},
+		Root:        "PROJ-1",
+		MaxRows:     2,
+		MaxScanRows: 2,
+	})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "exceeds max scan rows") {
+		t.Fatalf("error = %v, want scan-bound check failure", err)
+	}
+	if tracker.searchCalls != 0 {
+		t.Fatalf("Search calls = %d, want none before scan bound", tracker.searchCalls)
 	}
 }
 

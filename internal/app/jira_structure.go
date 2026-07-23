@@ -282,7 +282,11 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 			rootResolved = true
 		}
 	}
-	if opts.MaxRows > 0 && len(rows) > opts.MaxRows {
+	// Identity and stored-folder selectors are resolved from the forest before
+	// issue expansion, so their selected output can be bounded immediately.
+	// A value-based root still needs the scan-bounded issue projection below;
+	// enforce MaxRows after that exact subtree is known.
+	if rootResolved && opts.MaxRows > 0 && len(rows) > opts.MaxRows {
 		return nil, fmt.Errorf("%w: selected Structure view exceeds max rows; select an exact subtree or raise the bound", domain.ErrCheckFailed)
 	}
 	issueIDs := structureIssueIDs(rows)
@@ -313,6 +317,9 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 		rows = FilterStructureRows(rows, root, valueText)
 		if len(rows) == 0 {
 			return nil, fmt.Errorf("%w: structure root %q was not found", domain.ErrUsage, root)
+		}
+		if opts.MaxRows > 0 && len(rows) > opts.MaxRows {
+			return nil, fmt.Errorf("%w: selected Structure view exceeds max rows; select an exact subtree or raise the bound", domain.ErrCheckFailed)
 		}
 	}
 	// Completeness describes the emitted selection. Folder labels outside a
