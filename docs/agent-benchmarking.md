@@ -561,11 +561,15 @@ cohort with reviewed standard token pricing. Model, effort, or pricing changes
 create a new cohort; existing aggregates and baselines remain historical and
 must not be rewritten or pooled across that boundary.
 
-The runner creates a fresh private workspace per repetition. Claude Code CLI
-runs load the repository plugin explicitly and receive an `atl`-only Bash
-allow-rule plus a `PreToolUse` guard. The guard accepts a bounded command block
-separated only by newlines or the exact list operators `;`/`&&`; every `atl`
-command independently matches a run-spec
+The runner creates a fresh private workspace per repetition. Synthetic typed-MCP
+runs expose only the reviewed MCP inventory: they neither install the Codex
+client skills into the workspace nor load the Claude Code plugin. This keeps the
+task instructions aligned with the guard that rejects every non-MCP model tool.
+CLI and private-live surfaces retain their separately reviewed client
+instructions. Claude Code CLI runs load the repository plugin explicitly and
+receive an `atl`-only Bash allow-rule plus a `PreToolUse` guard. The guard
+accepts a bounded command block separated only by newlines or the exact list
+operators `;`/`&&`; every `atl` command independently matches a run-spec
 `allowed_atl_commands` prefix and crosses the accounting proxy. The exact
 leading `export ATL_READ_ONLY=1` and one `command -v atl` preflight line are
 also accepted. Other operators, substitutions, redirections, and
@@ -575,7 +579,7 @@ set and guard also admit the exact statements
 `export ATL_READ_ONLY=1` and `command -v atl`. They do not admit arbitrary
 exports or any other standalone shell command; the benchmark process already
 inherits `ATL_READ_ONLY=1`, so these statements cannot weaken its policy.
-Synthetic Codex cases get the generated skills in `.agents/skills` for a
+Synthetic Codex CLI cases get the generated skills in `.agents/skills` for a
 reviewable ephemeral read-only command preview. Private-live CLI cases instead
 install the snapshotted Codex plugin through its local marketplace, preserving
 the shipped namespace. Both providers support MCP transport.

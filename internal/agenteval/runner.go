@@ -182,7 +182,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 		previewConfinement.RequestDirectory = "/private/requests"
 		previewConfinement.ResponseDirectory = "/private/responses"
 	}
-	previewCommand, err := BuildProviderCommand(invocationSpec, providerPreviewBinary(loaded.spec.Provider), "<atl-binary>", "<guard>", "<workspace>", "<response-schema>", "<final-response>", pluginPreviewPath(options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, "<guard-settings>"), claudeMCPConfigPath(loaded.spec, "<mcp-config>"), previewConfinement, loaded.responseSchema)
+	previewCommand, err := BuildProviderCommand(invocationSpec, providerPreviewBinary(loaded.spec.Provider), "<atl-binary>", "<guard>", "<workspace>", "<response-schema>", "<final-response>", pluginPreviewPath(loaded.spec, options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, "<guard-settings>"), claudeMCPConfigPath(loaded.spec, "<mcp-config>"), previewConfinement, loaded.responseSchema)
 	if err != nil {
 		return RunOutput{}, err
 	}
@@ -574,7 +574,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if err := copyWorkspace(loaded.workspace, workspace); err != nil {
 		return Result{}, err
 	}
-	if loaded.spec.Provider == "codex" && !codexPrivateCLI {
+	if shouldInstallCodexBenchmarkSkills(loaded.spec) {
 		_, skillRoot, err := providerPluginLayout(options.PluginRoot, loaded.spec.Provider)
 		if err != nil {
 			return Result{}, err
@@ -904,7 +904,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	allowedReadRoots, _ := json.Marshal(reviewedReadRoots)
 	allowedSkillReadRoots, _ := json.Marshal(reviewedSkillReadRoots)
-	commandPlan, err := BuildProviderCommand(loaded.spec, options.AgentBinary, options.ATLBinary, guardPath, workspace, providerResponseSchemaPath, finalPath, claudePluginPath(loaded.spec.Provider, options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, settingsPath), mcpConfigPath, providerConfinement, loaded.responseSchema)
+	commandPlan, err := BuildProviderCommand(loaded.spec, options.AgentBinary, options.ATLBinary, guardPath, workspace, providerResponseSchemaPath, finalPath, claudePluginPath(loaded.spec, options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, settingsPath), mcpConfigPath, providerConfinement, loaded.responseSchema)
 	if err != nil {
 		return Result{}, err
 	}
@@ -2039,8 +2039,15 @@ func writeClaudeMCPConfig(path, atlBinary string, environment map[string]string)
 func shellSingleQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
-func claudePluginPath(provider, root string) string {
-	if provider == "claude-code" {
+func isSyntheticTypedMCP(spec RunSpec) bool {
+	return spec.EffectiveBackendMode() == BackendModeSynthetic && spec.EffectiveToolTransport() == "mcp"
+}
+func shouldInstallCodexBenchmarkSkills(spec RunSpec) bool {
+	privateCLI := spec.EffectiveBackendMode() == BackendModePrivateLive && spec.EffectiveToolTransport() == "cli"
+	return spec.Provider == "codex" && !privateCLI && !isSyntheticTypedMCP(spec)
+}
+func claudePluginPath(spec RunSpec, root string) string {
+	if spec.Provider == "claude-code" && !isSyntheticTypedMCP(spec) {
 		return root
 	}
 	return ""
@@ -2057,8 +2064,8 @@ func claudeMCPConfigPath(spec RunSpec, path string) string {
 	}
 	return ""
 }
-func pluginPreviewPath(root string) string {
-	if root == "" {
+func pluginPreviewPath(spec RunSpec, root string) string {
+	if claudePluginPath(spec, root) == "" {
 		return ""
 	}
 	return "<plugin-root>"
