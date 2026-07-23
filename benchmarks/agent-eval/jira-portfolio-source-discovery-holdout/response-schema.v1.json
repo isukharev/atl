@@ -1,0 +1,88 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "boards": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "count": {"type": "integer"},
+        "next_cursor": {"type": "string"},
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {"type": "integer"},
+              "name": {"type": "string"},
+              "type": {"type": "string"},
+              "project_key": {"type": "string"}
+            },
+            "required": ["id", "name", "type", "project_key"]
+          }
+        }
+      },
+      "required": ["count", "next_cursor", "items"]
+    },
+    "structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "integer"},
+        "name": {"type": "string"},
+        "read_only": {"type": "boolean"},
+        "complete": {"type": "boolean"},
+        "warning_count": {"type": "integer"},
+        "forest_signature": {"type": "integer"},
+        "forest_version": {"type": "integer"},
+        "folder_count": {"type": "integer"},
+        "folders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "folder_id": {"type": "string"},
+              "row_id": {"type": "integer"},
+              "name": {"type": "string"},
+              "path": {"type": "array", "items": {"type": "string"}},
+              "depth": {"type": "integer"},
+              "parent_folder_id": {"type": "string"},
+              "descendant_rows": {"type": "integer"},
+              "issue_rows": {"type": "integer"},
+              "unique_issues": {"type": "integer"},
+              "subfolders": {"type": "integer"},
+              "max_relative_depth": {"type": "integer"}
+            },
+            "required": [
+              "folder_id",
+              "row_id",
+              "name",
+              "path",
+              "depth",
+              "parent_folder_id",
+              "descendant_rows",
+              "issue_rows",
+              "unique_issues",
+              "subfolders",
+              "max_relative_depth"
+            ]
+          }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "read_only",
+        "complete",
+        "warning_count",
+        "forest_signature",
+        "forest_version",
+        "folder_count",
+        "folders"
+      ]
+    }
+  },
+  "required": ["boards", "structure"]
+}
