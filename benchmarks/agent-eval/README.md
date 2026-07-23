@@ -768,7 +768,9 @@ historical v1 candidates remain available.
 The current `confluence-page-evidence-mcp` v2 typed-MCP contract pairs Codex Luna/high and Claude Code
 Opus/high at n=3, limits them to exactly one resolve, outline, and section
 call in that order through exact capability-family set and sequence oracles,
-and expects two GETs plus one intentional repeated page target. The distinct n=1
+binds the resolved reference, page identity, heading occurrence, and byte cap
+through an exact invocation oracle, and expects two GETs plus one intentional
+repeated page target. The distinct n=1
 `confluence-page-evidence-holdout` changes the page identity, structural paths,
 heading topology from two occurrences to three, and all approved values while
 preserving the same response, route, completeness, and safety semantics.
@@ -782,10 +784,12 @@ n=3. It requires three qualified search pages to reach terminal completeness,
 then outline and bounded-section calls for the three selected current records
 in ascending id order. Exact capability-family and sequence oracles require
 nine successful typed calls, nine GETs, three intentional repeated page
-targets, and zero writes. Its distinct n=1 holdout changes the query, facts,
-candidate identities, pagination from three pages to two, selected-source count,
-and repeated-heading structure while preserving the same closed response
-schema and completeness/safety semantics.
+targets, and zero writes. An exact invocation oracle also binds every query,
+limit, continuation cursor, page identity, heading occurrence, and byte cap.
+Its distinct n=1 holdout changes the query, facts, candidate identities,
+pagination from three pages to two, selected-source count, and repeated-heading
+structure while preserving the same closed response schema and
+completeness/safety semantics.
 
 `cross-service-neutral-discovery` likewise remains the historical neutral
 comparison. The current surface-native `cross-service-discovery-mcp` contract

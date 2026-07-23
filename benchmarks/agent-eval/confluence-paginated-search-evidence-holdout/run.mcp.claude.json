@@ -36,6 +36,14 @@
     {"name":"no_delegation","kind":"delegations_none"},
     {"name":"pagination_correct","kind":"json_equals","pointer":"/search_pages","expected":[{"start":0,"result_ids":["9401","9402","9403"],"complete":false,"next_start":3},{"start":3,"result_ids":["9404","9405"],"complete":true,"next_start":null}]},
     {"name":"query_exact","kind":"json_equals","pointer":"/query","expected":"text ~ \"Nimbus access rotation\""},
+    {"name":"route_arguments","kind":"mcp_invocations_equal","expected":[
+      {"tool":"confluence_search","arguments":{"cql":"text ~ \"Nimbus access rotation\"","limit":20}},
+      {"tool":"confluence_search","arguments":{"cql":"text ~ \"Nimbus access rotation\"","limit":20,"cursor":"3"}},
+      {"tool":"confluence_page_outline","arguments":{"reference":"9401"}},
+      {"tool":"confluence_page_section","arguments":{"reference":"9401","heading":"Active guardrail","occurrence":1,"max_bytes":32768}},
+      {"tool":"confluence_page_outline","arguments":{"reference":"9404"}},
+      {"tool":"confluence_page_section","arguments":{"reference":"9404","heading":"Approval","occurrence":2,"max_bytes":32768}}
+    ]},
     {"name":"route_exact","kind":"capability_families_equal","expected":[{"family":"confluence.page.outline","invocations":2,"successes":2,"failures":0},{"family":"confluence.page.section","invocations":2,"successes":2,"failures":0},{"family":"confluence.search","invocations":2,"successes":2,"failures":0}]},
     {"name":"route_ordered","kind":"capability_sequence_equal","expected":["confluence.search","confluence.search","confluence.page.outline","confluence.page.section","confluence.page.outline","confluence.page.section"]},
     {"name":"source_complete","kind":"json_equals","pointer":"/source_complete","expected":{"search":true,"sections":true}},

@@ -44,6 +44,11 @@
     {"name": "owner_correct", "kind": "json_equals", "pointer": "/owner", "expected": "Reliability"},
     {"name": "page_correct", "kind": "json_equals", "pointer": "/page_id", "expected": "7001"},
     {"name": "path_correct", "kind": "json_equals", "pointer": "/selected_path", "expected": ["Current decision", "Decision"]},
+    {"name": "route_arguments", "kind": "mcp_invocations_equal", "expected": [
+      {"tool": "confluence_page_resolve", "arguments": {"reference": "/wiki/spaces/DEMO/pages/7001/Synthetic-rollout-decision"}},
+      {"tool": "confluence_page_outline", "arguments": {"reference": "7001"}},
+      {"tool": "confluence_page_section", "arguments": {"reference": "7001", "heading": "Decision", "occurrence": 2, "max_bytes": 32768}}
+    ]},
     {"name": "route_exact", "kind": "capability_families_equal", "expected": [
       {"family": "confluence.page.outline", "invocations": 1, "successes": 1, "failures": 0},
       {"family": "confluence.page.resolve", "invocations": 1, "successes": 1, "failures": 0},

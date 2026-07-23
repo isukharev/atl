@@ -275,16 +275,23 @@ func TestRepositoryConfluencePaginatedSearchFixturesDriveProviderOracles(t *test
 			capabilityFamilies := confluencePaginatedSearchCapabilityFamilies(
 				len(test.searchPages), len(test.sources),
 			)
+			mcpInvocations := confluencePaginatedSearchMCPInvocations(
+				t, test.query, test.limit, test.searchPages, test.sources,
+			)
 			scenario := loadRepositoryScenario(t, filepath.Join(root, test.scenarioFile))
 			for _, runFile := range []string{test.codexRun, test.claudeRun} {
 				spec := loadRepositoryRunSpec(t, filepath.Join(root, runFile))
 				assertConfluencePaginatedSearchTransportContract(
 					t, scenario, spec, test.expectedRequests, test.expectedDuplicates, len(test.expectedSequence),
 				)
+				if declared := repositoryExpectedMCPInvocations(t, spec); !equalMCPInvocations(declared, mcpInvocations) {
+					t.Fatalf("%s exact invocation contract drifted: declared=%+v fixture=%+v", spec.Provider, declared, mcpInvocations)
+				}
 				assertConfluencePaginatedSearchSchemaMatchesFinal(t, root, spec, final)
-				results, checkErr := evaluateRunChecksWithCapabilities(
+				results, checkErr := evaluateRunChecksWithMCPInvocations(
 					spec.Checks, final, "", len(test.expectedSequence), 0, unexpected, 0,
 					nil, 0, 0, methods, true, nil, capabilityFamilies, true, test.expectedSequence,
+					mcpInvocations, true,
 				)
 				if checkErr != nil {
 					t.Fatal(checkErr)
@@ -295,7 +302,7 @@ func TestRepositoryConfluencePaginatedSearchFixturesDriveProviderOracles(t *test
 					}
 				}
 				assertConfluencePaginatedSearchRouteMutationsFail(
-					t, spec, final, methods, capabilityFamilies, test.expectedSequence,
+					t, spec, final, methods, capabilityFamilies, test.expectedSequence, mcpInvocations,
 				)
 			}
 		})
@@ -336,9 +343,29 @@ func TestRepositoryConfluencePaginatedSearchSamplingPairIdentity(t *testing.T) {
 	if bytes.Equal(primaryFixture, holdoutFixture) {
 		t.Fatal("holdout does not exercise distinct fixture data")
 	}
+	primaryPromptContract, err := os.ReadFile(filepath.Join(primaryRoot, "prompt.mcp.v2.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	holdoutPromptContract, err := os.ReadFile(filepath.Join(holdoutRoot, "prompt.mcp.v1.md"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	for name, prompt := range map[string][]byte{
+		"primary": primaryPromptContract,
+		"holdout": holdoutPromptContract,
+	} {
+		normalizedPrompt := strings.Join(strings.Fields(string(prompt)), " ")
+		for _, fragment := range []string{
+			"omit `cursor` on the first search call",
+			"passing the returned next start as the string `cursor`",
+			"as `occurrence` (including `1` for a unique heading)",
+			"`max_bytes=32768`",
+		} {
+			if !strings.Contains(normalizedPrompt, fragment) {
+				t.Fatalf("%s prompt no longer binds exact invocation representation: missing %q", name, fragment)
+			}
+		}
 	}
 	for _, fragment := range []string{
 		"two leaf headings named `Approval`",
@@ -494,6 +521,7 @@ func assertConfluencePaginatedSearchRouteMutationsFail(
 	methods map[string]int,
 	capabilityFamilies []CapabilityFamilyMetric,
 	capabilitySequence []string,
+	mcpInvocations []MCPInvocation,
 ) {
 	t.Helper()
 	mutatedFamilies := slices.Clone(capabilityFamilies)
@@ -503,9 +531,10 @@ func assertConfluencePaginatedSearchRouteMutationsFail(
 		last := len(mutatedSequence) - 1
 		mutatedSequence[0], mutatedSequence[last] = mutatedSequence[last], mutatedSequence[0]
 	}
-	results, err := evaluateRunChecksWithCapabilities(
+	results, err := evaluateRunChecksWithMCPInvocations(
 		spec.Checks, final, "", len(capabilitySequence), 0, 0, 0,
 		nil, 0, 0, methods, true, nil, mutatedFamilies, true, mutatedSequence,
+		mcpInvocations, true,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -513,4 +542,86 @@ func assertConfluencePaginatedSearchRouteMutationsFail(
 	if results["route_exact"] || results["route_ordered"] {
 		t.Fatalf("mutated route passed: exact=%v ordered=%v", results["route_exact"], results["route_ordered"])
 	}
+	for _, test := range []struct {
+		name   string
+		mutate func([]MCPInvocation)
+	}{
+		{name: "cursor", mutate: func(values []MCPInvocation) {
+			var arguments map[string]any
+			if err := json.Unmarshal(values[1].Arguments, &arguments); err != nil {
+				t.Fatal(err)
+			}
+			arguments["cursor"] = "wrong"
+			values[1] = mustMCPInvocation(t, values[1].Tool, arguments)
+		}},
+		{name: "selector", mutate: func(values []MCPInvocation) {
+			last := len(values) - 1
+			var arguments map[string]any
+			if err := json.Unmarshal(values[last].Arguments, &arguments); err != nil {
+				t.Fatal(err)
+			}
+			occurrence, ok := arguments["occurrence"].(float64)
+			if !ok {
+				t.Fatalf("unexpected occurrence argument: %+v", arguments)
+			}
+			arguments["occurrence"] = occurrence + 1
+			values[last] = mustMCPInvocation(t, values[last].Tool, arguments)
+		}},
+		{name: "cap", mutate: func(values []MCPInvocation) {
+			last := len(values) - 1
+			var arguments map[string]any
+			if err := json.Unmarshal(values[last].Arguments, &arguments); err != nil {
+				t.Fatal(err)
+			}
+			arguments["max_bytes"] = 16384
+			values[last] = mustMCPInvocation(t, values[last].Tool, arguments)
+		}},
+		{name: "order", mutate: func(values []MCPInvocation) {
+			values[0], values[1] = values[1], values[0]
+		}},
+	} {
+		t.Run("route-arguments-"+test.name, func(t *testing.T) {
+			mutated := slices.Clone(mcpInvocations)
+			test.mutate(mutated)
+			results, err := evaluateRunChecksWithMCPInvocations(
+				spec.Checks, final, "", len(capabilitySequence), 0, 0, 0,
+				nil, 0, 0, methods, true, nil, capabilityFamilies, true, capabilitySequence,
+				mutated, true,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if results["route_arguments"] {
+				t.Fatal("mutated MCP invocation arguments passed route_arguments")
+			}
+		})
+	}
+}
+
+func confluencePaginatedSearchMCPInvocations(
+	t *testing.T,
+	query string,
+	limit int,
+	searchPages []confluencePaginatedSearchPageExpectation,
+	sources []confluencePaginatedSearchSourceExpectation,
+) []MCPInvocation {
+	t.Helper()
+	invocations := make([]MCPInvocation, 0, len(searchPages)+2*len(sources))
+	for index, page := range searchPages {
+		arguments := map[string]any{"cql": query, "limit": limit}
+		if index > 0 {
+			arguments["cursor"] = strconv.Itoa(page.start)
+		}
+		invocations = append(invocations, mustMCPInvocation(t, "confluence_search", arguments))
+	}
+	for _, source := range sources {
+		invocations = append(invocations,
+			mustMCPInvocation(t, "confluence_page_outline", map[string]any{"reference": source.pageID}),
+			mustMCPInvocation(t, "confluence_page_section", map[string]any{
+				"reference": source.pageID, "heading": source.heading,
+				"occurrence": source.occurrence, "max_bytes": 32768,
+			}),
+		)
+	}
+	return invocations
 }
