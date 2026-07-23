@@ -251,6 +251,7 @@ func inspectConfluenceMirror(dir string) (*ConfluenceMirrorSnapshot, []*mirror.L
 			result.Render.Missing++
 		case readErr != nil:
 			result.Render.Unreadable++
+			diffErr = moreSevereErr(diffErr, fmt.Errorf("%w: one or more Confluence derived views are unreadable", domain.ErrCheckFailed))
 		default:
 			result.Render.Present++
 			switch confluenceViewMarkerClass(body) {

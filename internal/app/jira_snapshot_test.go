@@ -39,6 +39,18 @@ func TestJiraMirrorSnapshotIsContentFreeAndReconciled(t *testing.T) {
 	}
 }
 
+func TestJiraMirrorSnapshotStoresOnlyBaselineHashForRemoteDrift(t *testing.T) {
+	_, _, root, _ := setupPulled(t, "baseline body")
+
+	result, evidence, err := inspectJiraMirror(root)
+	if err != nil || result == nil || len(evidence) != 1 || !evidence[0].eligible {
+		t.Fatalf("snapshot=%+v evidence=%+v err=%v", result, evidence, err)
+	}
+	if evidence[0].baselineSHA256 != mirror.Hash([]byte("baseline body")) {
+		t.Fatalf("baseline hash=%q", evidence[0].baselineSHA256)
+	}
+}
+
 func TestJiraMirrorSnapshotEmptyMirrorReconciles(t *testing.T) {
 	result, err := SnapshotJiraMirror(t.TempDir())
 	if err != nil {
@@ -271,15 +283,31 @@ func TestJiraMirrorRemoteSnapshotRejectsMismatchedIssueIdentity(t *testing.T) {
 }
 
 func TestJiraMirrorRemoteSnapshotUsesOneSingleAttemptProbe(t *testing.T) {
-	_, _, root, _ := setupPulled(t, "base")
-	tracker := &jiraSnapshotTracker{body: "base"}
-	result, err := (&JiraService{tr: tracker}).SnapshotMirror(context.Background(), root, true)
-	if err != nil {
-		t.Fatal(err)
+	tests := map[string]struct {
+		localBody  string
+		remoteBody string
+	}{
+		"baseline":      {remoteBody: "base"},
+		"dirty current": {localBody: "local edit", remoteBody: "local edit"},
 	}
-	if tracker.calls != 1 || !tracker.singleAttempt || result.Remote.Attempted != 1 || result.Remote.Checked != 1 ||
-		result.Remote.InSync != 1 || result.Remote.Drifted != 0 || result.Remote.Unavailable != 0 || !result.Remote.Reconciled {
-		t.Fatalf("calls=%d single=%t snapshot=%+v", tracker.calls, tracker.singleAttempt, result)
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, _, root, wikiPath := setupPulled(t, "base")
+			if test.localBody != "" {
+				if err := os.WriteFile(wikiPath, []byte(test.localBody), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			tracker := &jiraSnapshotTracker{body: test.remoteBody}
+			result, err := (&JiraService{tr: tracker}).SnapshotMirror(context.Background(), root, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tracker.calls != 1 || !tracker.singleAttempt || result.Remote.Attempted != 1 || result.Remote.Checked != 1 ||
+				result.Remote.InSync != 1 || result.Remote.Drifted != 0 || result.Remote.Unavailable != 0 || !result.Remote.Reconciled {
+				t.Fatalf("calls=%d single=%t snapshot=%+v", tracker.calls, tracker.singleAttempt, result)
+			}
+		})
 	}
 }
 

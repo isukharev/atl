@@ -114,11 +114,11 @@ type JiraMirrorRemoteSummary struct {
 }
 
 type jiraMirrorLocalEvidence struct {
-	local     *mirror.LocalWiki
-	canonical bool
-	baseline  []byte
-	eligible  bool
-	pending   *JiraPendingFields
+	local          *mirror.LocalWiki
+	canonical      bool
+	baselineSHA256 string
+	eligible       bool
+	pending        *JiraPendingFields
 }
 
 // SnapshotJiraMirror inspects a mirror without config, credentials, network
@@ -172,8 +172,8 @@ func (s *JiraService) SnapshotMirror(ctx context.Context, dir string, checkRemot
 			continue
 		}
 		result.Remote.Checked++
-		drifted := mirror.Hash([]byte(issue.Body)) != mirror.Hash(evidence.baseline) &&
-			mirror.Hash([]byte(issue.Body)) != evidence.local.Current
+		remoteBodySHA256 := mirror.Hash([]byte(issue.Body))
+		drifted := remoteBodySHA256 != evidence.baselineSHA256 && remoteBodySHA256 != evidence.local.Current
 		if evidence.pending != nil {
 			for _, field := range evidence.pending.Fields {
 				remote, valid := jiraSnapshotStringField(issue.Fields, field.ID)
@@ -258,7 +258,7 @@ func inspectJiraMirror(dir string) (*JiraMirrorSnapshot, []*jiraMirrorLocalEvide
 				result.Complete = false
 				snapshotErr = moreSevereErr(snapshotErr, fmt.Errorf("%w: one or more Jira mirror baselines do not match tracked state", domain.ErrCheckFailed))
 			default:
-				item.baseline = base
+				item.baselineSHA256 = mirror.Hash(base)
 				item.eligible = true
 				result.Remote.Eligible++
 				result.Native.BaselinePresent++
