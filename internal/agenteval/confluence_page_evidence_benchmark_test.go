@@ -163,16 +163,23 @@ func TestRepositoryConfluencePageEvidenceFixturesDriveProviderOracles(t *testing
 				{Family: "confluence.page.resolve", Invocations: 1, Successes: 1, OutputBytes: 1},
 				{Family: "confluence.page.section", Invocations: 1, Successes: 1, OutputBytes: 1},
 			}
+			mcpInvocations := confluencePageEvidenceMCPInvocations(
+				t, test.reference, test.pageID, test.heading, test.occurrence,
+			)
 
 			scenario := loadRepositoryScenario(t, filepath.Join(root, test.scenarioFile))
 			for _, runFile := range []string{test.codexRun, test.claudeRun} {
 				spec := loadRepositoryRunSpec(t, filepath.Join(root, runFile))
 				assertConfluencePageEvidenceTransportContract(t, scenario, spec)
+				if declared := repositoryExpectedMCPInvocations(t, spec); !equalMCPInvocations(declared, mcpInvocations) {
+					t.Fatalf("%s exact invocation contract drifted: declared=%+v fixture=%+v", spec.Provider, declared, mcpInvocations)
+				}
 				assertConfluencePageEvidenceSchemaMatchesFinal(t, root, spec, final)
-				checks, err := evaluateRunChecksWithCapabilities(
+				checks, err := evaluateRunChecksWithMCPInvocations(
 					spec.Checks, final, "", 3, 0, unexpected, 0,
 					nil, 0, 0, methods, true, nil, capabilityFamilies, true,
 					[]string{"confluence.page.resolve", "confluence.page.outline", "confluence.page.section"},
+					mcpInvocations, true,
 				)
 				if err != nil {
 					t.Fatal(err)
@@ -182,7 +189,9 @@ func TestRepositoryConfluencePageEvidenceFixturesDriveProviderOracles(t *testing
 						t.Fatalf("%s fixture-derived final failed run check %q", spec.Provider, name)
 					}
 				}
-				assertConfluencePageEvidenceCheckMutationFails(t, spec, final, methods, capabilityFamilies)
+				assertConfluencePageEvidenceCheckMutationFails(
+					t, spec, final, methods, capabilityFamilies, mcpInvocations,
+				)
 			}
 		})
 	}
@@ -324,18 +333,22 @@ func assertConfluencePageEvidenceCheckMutationFails(
 	final []byte,
 	methods map[string]int,
 	capabilityFamilies []CapabilityFamilyMetric,
+	mcpInvocations []MCPInvocation,
 ) {
 	t.Helper()
 	checks := slices.Clone(spec.Checks)
+	foundOccurrenceCheck := false
 	for index := range checks {
 		if checks[index].Name != "occurrence_correct" {
 			continue
 		}
+		foundOccurrenceCheck = true
 		checks[index].Expected = json.RawMessage(`99`)
-		results, err := evaluateRunChecksWithCapabilities(
+		results, err := evaluateRunChecksWithMCPInvocations(
 			checks, final, "", 3, 0, 0, 0,
 			nil, 0, 0, methods, true, nil, capabilityFamilies, true,
 			[]string{"confluence.page.resolve", "confluence.page.outline", "confluence.page.section"},
+			mcpInvocations, true,
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -343,7 +356,81 @@ func assertConfluencePageEvidenceCheckMutationFails(
 		if results["occurrence_correct"] {
 			t.Fatal("mutated heading occurrence passed occurrence_correct")
 		}
-		return
+		break
 	}
-	t.Fatal("occurrence_correct check not found")
+	if !foundOccurrenceCheck {
+		t.Fatal("occurrence_correct check not found")
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func([]MCPInvocation)
+	}{
+		{name: "reference", mutate: func(values []MCPInvocation) {
+			values[1] = mustMCPInvocation(t, values[1].Tool, map[string]any{"reference": "7999"})
+		}},
+		{name: "occurrence", mutate: func(values []MCPInvocation) {
+			var arguments map[string]any
+			if err := json.Unmarshal(values[2].Arguments, &arguments); err != nil {
+				t.Fatal(err)
+			}
+			occurrence, ok := arguments["occurrence"].(float64)
+			if !ok {
+				t.Fatalf("unexpected occurrence argument: %+v", arguments)
+			}
+			arguments["occurrence"] = occurrence + 1
+			values[2] = mustMCPInvocation(t, values[2].Tool, arguments)
+		}},
+		{name: "cap", mutate: func(values []MCPInvocation) {
+			var arguments map[string]any
+			if err := json.Unmarshal(values[2].Arguments, &arguments); err != nil {
+				t.Fatal(err)
+			}
+			arguments["max_bytes"] = 16384
+			values[2] = mustMCPInvocation(t, values[2].Tool, arguments)
+		}},
+		{name: "order", mutate: func(values []MCPInvocation) {
+			values[0], values[1] = values[1], values[0]
+		}},
+	} {
+		t.Run("route-arguments-"+test.name, func(t *testing.T) {
+			mutated := slices.Clone(mcpInvocations)
+			test.mutate(mutated)
+			results, err := evaluateRunChecksWithMCPInvocations(
+				spec.Checks, final, "", 3, 0, 0, 0,
+				nil, 0, 0, methods, true, nil, capabilityFamilies, true,
+				[]string{"confluence.page.resolve", "confluence.page.outline", "confluence.page.section"},
+				mutated, true,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if results["route_arguments"] {
+				t.Fatal("mutated MCP invocation arguments passed route_arguments")
+			}
+		})
+	}
+}
+
+func confluencePageEvidenceMCPInvocations(
+	t *testing.T,
+	reference, pageID, heading string,
+	occurrence int,
+) []MCPInvocation {
+	t.Helper()
+	return []MCPInvocation{
+		mustMCPInvocation(t, "confluence_page_resolve", map[string]any{"reference": reference}),
+		mustMCPInvocation(t, "confluence_page_outline", map[string]any{"reference": pageID}),
+		mustMCPInvocation(t, "confluence_page_section", map[string]any{
+			"reference": pageID, "heading": heading, "occurrence": occurrence, "max_bytes": 32768,
+		}),
+	}
+}
+
+func mustMCPInvocation(t *testing.T, tool string, arguments any) MCPInvocation {
+	t.Helper()
+	invocation, ok := newMCPInvocation(tool, arguments)
+	if !ok {
+		t.Fatalf("invalid test MCP invocation %s: %+v", tool, arguments)
+	}
+	return invocation
 }

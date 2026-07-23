@@ -36,6 +36,17 @@
     {"name":"no_delegation","kind":"delegations_none"},
     {"name":"pagination_correct","kind":"json_equals","pointer":"/search_pages","expected":[{"start":0,"result_ids":["9301","9302"],"complete":false,"next_start":2},{"start":2,"result_ids":["9303","9304"],"complete":false,"next_start":4},{"start":4,"result_ids":["9305"],"complete":true,"next_start":null}]},
     {"name":"query_exact","kind":"json_equals","pointer":"/query","expected":"text ~ \"Quartz signal rollout\""},
+    {"name":"route_arguments","kind":"mcp_invocations_equal","expected":[
+      {"tool":"confluence_search","arguments":{"cql":"text ~ \"Quartz signal rollout\"","limit":25}},
+      {"tool":"confluence_search","arguments":{"cql":"text ~ \"Quartz signal rollout\"","limit":25,"cursor":"2"}},
+      {"tool":"confluence_search","arguments":{"cql":"text ~ \"Quartz signal rollout\"","limit":25,"cursor":"4"}},
+      {"tool":"confluence_page_outline","arguments":{"reference":"9301"}},
+      {"tool":"confluence_page_section","arguments":{"reference":"9301","heading":"Current control","occurrence":1,"max_bytes":32768}},
+      {"tool":"confluence_page_outline","arguments":{"reference":"9304"}},
+      {"tool":"confluence_page_section","arguments":{"reference":"9304","heading":"Current control","occurrence":1,"max_bytes":32768}},
+      {"tool":"confluence_page_outline","arguments":{"reference":"9305"}},
+      {"tool":"confluence_page_section","arguments":{"reference":"9305","heading":"Current control","occurrence":1,"max_bytes":32768}}
+    ]},
     {"name":"route_exact","kind":"capability_families_equal","expected":[{"family":"confluence.page.outline","invocations":3,"successes":3,"failures":0},{"family":"confluence.page.section","invocations":3,"successes":3,"failures":0},{"family":"confluence.search","invocations":3,"successes":3,"failures":0}]},
     {"name":"route_ordered","kind":"capability_sequence_equal","expected":["confluence.search","confluence.search","confluence.search","confluence.page.outline","confluence.page.section","confluence.page.outline","confluence.page.section","confluence.page.outline","confluence.page.section"]},
     {"name":"source_complete","kind":"json_equals","pointer":"/source_complete","expected":{"search":true,"sections":true}},

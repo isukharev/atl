@@ -247,8 +247,12 @@ qualified search pages and then reads three outline/section pairs in exact
 order; the distinct holdout uses two search pages, two selected sources, and a
 different repeated-heading topology. Both contracts require qualified terminal
 pagination, bounded evidence, exact capability-family counts and sequence,
-GET-only transport, and zero writes. This supplements rather than replaces the
-historical neutral CLI/MCP comparison.
+GET-only transport, and zero writes. Their exact invocation oracle binds every
+query, page limit, continuation cursor, selected page, repeated-heading
+occurrence, and byte cap. The bounded page-evidence primary/holdout pair applies
+the same oracle to its resolve, outline, and section chain. Observed arguments
+are evaluated in memory and omitted from stored observations and results. This
+supplements rather than replaces the historical neutral CLI/MCP comparison.
 
 The surface-native cross-service discovery cohort applies that policy to a
 different topology: one Jira candidate search, one Confluence candidate search,
