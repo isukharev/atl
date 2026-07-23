@@ -179,6 +179,9 @@ exit 2
 	if output.Preview.Command.Path != "claude" {
 		t.Fatalf("preview command path=%q", output.Preview.Command.Path)
 	}
+	if !containsRunString(output.Preview.Command.Args, "--plugin-dir") {
+		t.Fatalf("synthetic CLI preview omitted the client plugin: %v", output.Preview.Command.Args)
+	}
 	result := output.Results[0]
 	if result.Metrics.ATLInvocations != 0 || result.Metrics.InterfaceInvocations != 1 || result.Metrics.BackendRequests != 0 || result.Metrics.EstimatedCostMicroUSD != 140 {
 		t.Fatalf("metrics=%+v", result.Metrics)
@@ -215,6 +218,9 @@ exit 2
 	}
 	if len(output.Results) != 1 || output.Results[0].Status != "pass" {
 		t.Fatalf("claude MCP output=%+v", output)
+	}
+	if containsRunString(output.Preview.Command.Args, "--plugin-dir") {
+		t.Fatalf("synthetic typed-MCP preview exposed the client plugin: %v", output.Preview.Command.Args)
 	}
 	result = output.Results[0]
 	if result.Metrics.ATLInvocations != 0 || result.Metrics.InterfaceInvocations != 1 || result.Metrics.ToolCalls != 1 || result.Metrics.EstimatedCostMicroUSD != 140 {
@@ -303,6 +309,9 @@ exit 2
 	}
 	for _, runName := range []string{"run-01", "run-02"} {
 		runDir := filepath.Join(outputRoot, scenario.ID, "codex", "typed-mcp-codex", runName)
+		if _, err := os.Stat(filepath.Join(runDir, "workspace", ".agents", "skills")); !os.IsNotExist(err) {
+			t.Fatalf("synthetic typed-MCP workspace exposed Codex skills: %v", err)
+		}
 		retained, err := os.ReadFile(filepath.Join(runDir, "response-schema.json"))
 		if err != nil {
 			t.Fatal(err)
@@ -415,6 +424,33 @@ exit 0
 	}
 	if _, err := os.Stat(startedMarker); !os.IsNotExist(err) {
 		t.Fatalf("provider started before its durable boundary: %v", err)
+	}
+}
+
+func TestBenchmarkInstructionSurfacesExcludeSyntheticTypedMCP(t *testing.T) {
+	tests := []struct {
+		name             string
+		spec             RunSpec
+		wantCodexSkills  bool
+		wantClaudePlugin bool
+	}{
+		{name: "codex synthetic mcp", spec: RunSpec{Provider: "codex", BackendMode: BackendModeSynthetic, ToolTransport: "mcp"}},
+		{name: "codex synthetic cli", spec: RunSpec{Provider: "codex", BackendMode: BackendModeSynthetic, ToolTransport: "cli"}, wantCodexSkills: true},
+		{name: "codex private mcp", spec: RunSpec{Provider: "codex", BackendMode: BackendModePrivateLive, ToolTransport: "mcp"}, wantCodexSkills: true},
+		{name: "codex private cli", spec: RunSpec{Provider: "codex", BackendMode: BackendModePrivateLive, ToolTransport: "cli"}},
+		{name: "claude synthetic mcp", spec: RunSpec{Provider: "claude-code", BackendMode: BackendModeSynthetic, ToolTransport: "mcp"}},
+		{name: "claude synthetic cli", spec: RunSpec{Provider: "claude-code", BackendMode: BackendModeSynthetic, ToolTransport: "cli"}, wantClaudePlugin: true},
+		{name: "claude private mcp", spec: RunSpec{Provider: "claude-code", BackendMode: BackendModePrivateLive, ToolTransport: "mcp"}, wantClaudePlugin: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := shouldInstallCodexBenchmarkSkills(test.spec); got != test.wantCodexSkills {
+				t.Fatalf("Codex skills=%v want=%v", got, test.wantCodexSkills)
+			}
+			if got := claudePluginPath(test.spec, "/plugin"); (got != "") != test.wantClaudePlugin {
+				t.Fatalf("Claude plugin=%q want present=%v", got, test.wantClaudePlugin)
+			}
+		})
 	}
 }
 
