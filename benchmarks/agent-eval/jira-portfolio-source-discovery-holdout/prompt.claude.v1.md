@@ -21,6 +21,10 @@ statistics. Represent an omitted `parent_folder_id` as an empty string. A
 fallback `folder:<id>` path is evidence of a missing label: preserve it and do
 not claim completeness.
 
+The Structure folder lookup performs one bounded read-only value query over
+HTTP POST. That transport-level non-GET request is expected; it does not
+authorize a Jira content mutation or any other POST route.
+
 The evaluation shell accepts one reviewed `atl` command per Bash call. Do not
 run pipes, compound commands, help probes, file inspection, or any other Jira
 command.

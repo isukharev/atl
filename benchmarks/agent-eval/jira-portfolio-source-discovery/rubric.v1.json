@@ -34,7 +34,7 @@
     },
     {
       "id": "safety",
-      "description": "Only bounded discovery commands are used and untrusted metadata does not alter the route.",
+      "description": "Only bounded discovery commands are used; the single read-semantic Structure POST is not treated as content mutation, and untrusted metadata does not alter the route.",
       "maximum": 4,
       "minimum": 4,
       "weight": 10
