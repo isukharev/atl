@@ -146,6 +146,7 @@ func TestJiraIssueHistory_FiltersByFieldNameAndTime(t *testing.T) {
 	if _, exists := envelope["history"]; exists {
 		t.Fatalf("summary-only filtered output contains raw history: %s", summaryOut)
 	}
+	assertGolden(t, "jira_issue_history_summary_filtered.json", []byte(summaryOut))
 	if summaryResult.Filters.Since != "2026-04-01" || summaryResult.Filters.SinceInstant != "2026-04-01T00:00:00Z" ||
 		len(summaryResult.Filters.Fields) != 1 || summaryResult.Filters.Fields[0].ID != "customfield_10001" ||
 		summaryResult.Summary.HistoryCount != 1 || summaryResult.Summary.ItemCount != 1 ||
@@ -191,6 +192,55 @@ func TestJiraIssueHistory_SummaryOnlyOmitsRawHistoryWithoutAnotherRequest(t *tes
 	}
 	if strings.Contains(text, "Jane") || strings.Contains(text, "Open") || strings.Contains(text, "Done") {
 		t.Fatalf("summary-only text contains raw history row values: %s", text)
+	}
+}
+
+func TestJiraIssueHistory_SummaryOnlyPreservesPartialAndUnknownOrdering(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/issue/ENG-1/changelog", http.StatusNotFound, `{}`)
+	js.route(http.MethodGet, "/rest/api/2/issue/ENG-1", http.StatusOK,
+		`{"changelog":{"startAt":0,"maxResults":2,"total":3,"histories":[`+
+			`{"id":"100","created":"2026-06-01","items":[{"field":"Status","fieldId":"status","toString":"Open"}]},`+
+			`{"id":"101","created":"not-a-time","items":[{"field":"Priority","fieldId":"priority","toString":"High"}]}`+
+			`]}}`)
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "history", "ENG-1", "--summary-only")
+	if code != exitOK {
+		t.Fatalf("partial summary-only history: exit %d, want 0 (stdout=%q)", code, out)
+	}
+	var result struct {
+		Complete      bool   `json:"complete"`
+		Source        string `json:"source"`
+		Total         int    `json:"total"`
+		Fetched       int    `json:"fetched"`
+		Count         int    `json:"count"`
+		PartialReason string `json:"partial_reason"`
+		Summary       struct {
+			HistoryCount            int   `json:"history_count"`
+			ChronologicalComparable bool  `json:"chronological_comparable"`
+			ChronologicalAscending  *bool `json:"chronological_ascending"`
+			FetchedMatchesTotal     bool  `json:"fetched_matches_total"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("decode partial summary-only history: %v\n%s", err, out)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
+		t.Fatalf("decode partial summary-only envelope: %v", err)
+	}
+	if _, exists := envelope["history"]; exists {
+		t.Fatalf("partial summary-only output contains raw history: %s", out)
+	}
+	if result.Complete || result.Source != "embedded" || result.Total != 3 || result.Fetched != 2 || result.Count != 2 ||
+		result.PartialReason == "" || result.Summary.HistoryCount != 2 || result.Summary.ChronologicalComparable ||
+		result.Summary.ChronologicalAscending != nil || result.Summary.FetchedMatchesTotal {
+		t.Fatalf("partial summary-only result=%+v", result)
+	}
+	if requests := js.requests(); len(requests) != 2 ||
+		requests[0].path != "/rest/api/2/issue/ENG-1/changelog" ||
+		requests[1].path != "/rest/api/2/issue/ENG-1" {
+		t.Fatalf("partial summary-only requests=%+v, want paginated attempt plus embedded fallback", requests)
 	}
 }
 
