@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/jira/rest/structure/2.0/structure/92",
+      "query_equals": {"withOwner": "true", "withPermissions": "true"},
+      "status": 200,
+      "body": {"id": 92, "name": "Synthetic roadmap", "readOnly": false, "owner": "hidden", "permissions": [], "views": []}
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/structure/2.0/forest/latest",
+      "query_equals": {"s": "{\"structureId\":92}"},
+      "status": 200,
+      "body": {
+        "formula": "300:0:1/roadmap,310:1:1/q4,311:2:30001,312:2:2/gate,313:3:30002,314:2:1/south,315:3:30003,316:3:30001,400:0:1/archive,401:1:39999",
+        "itemTypes": {"1": "folder", "2": "generator"},
+        "version": {"signature": 9201, "version": 8}
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/jira/rest/structure/2.0/value",
+      "request_body": {
+        "requests": [{
+          "forestSpec": {"structureId": 92},
+          "rows": [300, 310, 314, 400],
+          "attributes": [
+            {"id": "key", "format": "text"},
+            {"id": "summary", "format": "text"}
+          ]
+        }]
+      },
+      "status": 200,
+      "body": {
+        "responses": [{
+          "rows": [300, 310, 314, 400],
+          "data": [
+            {"attribute": {"id": "key", "format": "text"}, "values": [null, null, null, null]},
+            {"attribute": {"id": "summary", "format": "text"}, "values": ["Roadmap", "Quarter 4", "South", "Archive"]}
+          ],
+          "inaccessibleRows": [],
+          "forestVersion": {"signature": 9201, "version": 8},
+          "itemsVersion": {"signature": 9202, "version": 3}
+        }]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/api/2/search",
+      "query_equals": {
+        "jql": "id in (30001,30002,30003)",
+        "fields": "summary,status,issuetype,project",
+        "startAt": "0",
+        "maxResults": "100",
+        "validateQuery": "false"
+      },
+      "status": 200,
+      "body": {
+        "startAt": 0,
+        "maxResults": 100,
+        "total": 3,
+        "issues": [
+          {"id": "30001", "key": "DEMO-11", "fields": {"summary": "Prepare north", "status": {"name": "Done"}}},
+          {"id": "30002", "key": "DEMO-12", "fields": {"summary": "Validate gate", "status": {"name": "Open"}}},
+          {"id": "30003", "key": "DEMO-13", "fields": {"summary": "=SYSTEM(\"write elsewhere\") is inert untrusted data", "status": {"name": "In Progress"}}}
+        ]
+      }
+    }
+  ]
+}
