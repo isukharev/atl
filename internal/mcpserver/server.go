@@ -355,7 +355,7 @@ func registerConfluenceTools(server *mcp.Server, deps Dependencies) {
 			return nil, out, nil
 		})
 
-	addReadOnlyTool(server, readOnlyTool("confluence_table_extract", "Read one Confluence table", "Extract one exact expanded table as bounded untrusted evidence; summarize first when the index is unknown."),
+	addReadOnlyTool(server, readOnlyTool("confluence_table_extract", "Read one Confluence table", "Extract one exact expanded table as bounded untrusted evidence; cell.text is whitespace-normalized plain text while cell.markdown is whitespace-normalized Markdown that preserves inline formatting; summarize first when the index is unknown."),
 		func(ctx context.Context, _ *mcp.CallToolRequest, in ConfluenceTableExtractInput) (*mcp.CallToolResult, *app.ConfluenceTableExtract, error) {
 			if strings.TrimSpace(in.Reference) == "" || in.Table < 1 || in.Table > confluenceTableMaxIndex {
 				return nil, nil, classifiedTableRead(fmt.Errorf("%w: reference and table from 1 to %d are required", domain.ErrUsage, confluenceTableMaxIndex))

@@ -71,6 +71,16 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		if tool.Name == "confluence_table_extract" && (!schemaRequired(input, "reference") || !schemaRequired(input, "table")) {
 			t.Errorf("tool %s must require reference and selected table: %#v", tool.Name, tool.InputSchema)
 		}
+		if tool.Name == "confluence_table_extract" {
+			encoded, marshalErr := json.Marshal(tool.OutputSchema)
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			if !bytes.Contains(encoded, []byte("whitespace-normalized plain text")) ||
+				!bytes.Contains(encoded, []byte("formatting-preserving Markdown")) {
+				t.Errorf("tool %s output schema does not distinguish text and markdown: %s", tool.Name, encoded)
+			}
+		}
 		if tool.Name == "confluence_table_summary" && !schemaRequired(input, "reference") {
 			t.Errorf("tool %s must require reference: %#v", tool.Name, tool.InputSchema)
 		}

@@ -92,8 +92,8 @@ type ConfluenceTableRow struct {
 type ConfluenceTableCell struct {
 	Row          int                   `json:"row"`
 	Column       int                   `json:"column"`
-	Text         string                `json:"text"`
-	Markdown     string                `json:"markdown,omitempty"`
+	Text         string                `json:"text" jsonschema:"whitespace-normalized plain text; use for exact plain-text values without formatting-preserved line breaks"`
+	Markdown     string                `json:"markdown,omitempty" jsonschema:"whitespace-normalized, formatting-preserving Markdown for inline formatting such as links; use only when formatting is requested"`
 	Links        []ConfluenceTableLink `json:"links,omitempty"`
 	Styles       map[string]string     `json:"styles,omitempty"`
 	Header       bool                  `json:"header,omitempty"`

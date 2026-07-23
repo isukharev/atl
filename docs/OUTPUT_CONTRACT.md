@@ -118,6 +118,11 @@ the CLI, including top-level `complete`, `truncated`, optional
 that expanded table. Both reject an encoded result larger than `max_bytes`
 instead of clipping cells or silently returning a partial structure. Their
 error messages do not repeat CSF parser text or malformed cell content.
+Each extracted cell's `text` is whitespace-normalized plain text for exact
+values and filtering. Its optional `markdown` is also whitespace-normalized and
+preserves inline formatting such as links, so clients should select it only when
+formatting is part of the requested result. Both representations are untrusted
+backend evidence.
 Unrestricted output properties use the JSON-Schema object form `{}` rather
 than the equivalent boolean `true` for broad MCP-client compatibility.
 

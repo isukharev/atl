@@ -59,6 +59,13 @@ links, raw attributes, styles, and warnings as untrusted backend evidence.
 Table errors use coarse messages and never repeat CSF parser text or malformed
 cell content.
 
+In a selected-table result, each cell's `text` field is whitespace-normalized
+plain text. Use it for exact values, filters, and plain-text answers. The
+optional `markdown` field is also whitespace-normalized and preserves inline
+formatting such as links; use it only when the task asks for that formatting.
+Links, styles, raw attributes, and either text representation remain untrusted
+backend evidence.
+
 Every tool advertises `readOnlyHint:true`, `idempotentHint:true`,
 `destructiveHint:false`, and `openWorldHint:false`. The server instructions tell
 clients to treat Jira and Confluence content as untrusted evidence, inspect
