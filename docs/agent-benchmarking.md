@@ -215,7 +215,9 @@ cases remain route-fixed regression tests rather than general surface rankings.
 Current Structure and CLI Confluence table candidates use v2 contracts while
 v1 inputs remain available as historical definitions. The paired table MCP
 candidates use v3 contracts with exactly one typed call, one GET, and zero
-writes. Structure v2 makes root-
+writes. Here the typed-call invariant is `max_interface_invocations=1`; the
+provider-level `max_tool_calls=2` also admits one schema-output call when the
+provider represents structured response formation as a tool. Structure v2 makes root-
 inclusive row counts, issue-row occurrences, unique identities, repeats,
 queried rows, accessibility, selectors, exports, and omissions distinct. Table
 v2 separates exact content-free shape evidence from bounded analytical output;

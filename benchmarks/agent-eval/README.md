@@ -175,8 +175,8 @@ CLI workflow and are not used to claim a general surface winner.
 
 The Structure and Confluence table cells retain their original v1 contracts as
 historical inputs. Structure and CLI table candidates run against v2 contracts;
-the table MCP candidates use v3 contracts that permit exactly one typed tool
-call, one GET, and zero writes. V2 reports row occurrences separately from
+the table MCP candidates use v3 contracts that permit exactly one typed ATL
+interface call, one GET, and zero writes. V2 reports row occurrences separately from
 unique identities, defines repeated
 occurrences as occurrences after the first, and distinguishes selected,
 queried, exported, and omitted populations. Table v2 keeps exact content-free
@@ -189,6 +189,12 @@ POST requests remain mechanically zero-write. Both Codex and Claude Code have
 equivalent current fixtures, core prompts, response schemas, budgets, and
 semantic checks for these cells; provider-native pricing is the only expected
 difference in the paired MCP contracts.
+
+The v3 provider-level `max_tool_calls` budget is two: one ATL MCP call plus a
+bounded schema-output call on providers that expose structured response
+formation as a tool. This does not relax the interface boundary;
+`max_interface_invocations` remains one and the exact one-GET oracle remains
+mandatory.
 
 Run each new provider/tool pair once with `run --repetitions 1` for calibration
 before spending the committed three-repetition regression budget. Interpret
