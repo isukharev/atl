@@ -865,6 +865,42 @@ func TestProviderCapabilitySequencePreservesEventOrder(t *testing.T) {
 	if !codex.CapabilityFamilyCoverage || !slices.Equal(codex.CapabilityFamilySequence, want) {
 		t.Fatalf("Codex capability sequence=%v coverage=%v", codex.CapabilityFamilySequence, codex.CapabilityFamilyCoverage)
 	}
+
+	codexStartedOrder := []string{
+		"confluence_page_section",
+		"confluence_page_outline",
+		"confluence_page_resolve",
+	}
+	codexCompletionOrder := []string{
+		"confluence_page_resolve",
+		"confluence_page_outline",
+		"confluence_page_section",
+	}
+	codexLines = nil
+	for _, tool := range codexStartedOrder {
+		codexLines = append(codexLines,
+			`{"type":"item.started","item":{"id":"`+tool+`","type":"mcp_tool_call","server":"atl","tool":"`+tool+`"}}`,
+		)
+	}
+	for _, tool := range codexCompletionOrder {
+		codexLines = append(codexLines,
+			`{"type":"item.completed","item":{"id":"`+tool+`","type":"mcp_tool_call","server":"atl","tool":"`+tool+`","status":"completed","result":{}}}`,
+		)
+	}
+	codex, _, err = ParseProviderOutput(
+		"codex", []byte(strings.Join(codexLines, "\n")), []byte(`{"answer":"ok"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStartedOrder := []string{
+		"confluence.page.section",
+		"confluence.page.outline",
+		"confluence.page.resolve",
+	}
+	if !codex.CapabilityFamilyCoverage || !slices.Equal(codex.CapabilityFamilySequence, wantStartedOrder) {
+		t.Fatalf("Codex start-order capability sequence=%v coverage=%v", codex.CapabilityFamilySequence, codex.CapabilityFamilyCoverage)
+	}
 }
 
 func TestProviderCapabilityCoverageFailsClosedOnIncompleteEvents(t *testing.T) {
@@ -918,6 +954,7 @@ func TestProviderCapabilityCoverageFailsClosedOnIncompleteEvents(t *testing.T) {
 		"wrong server":         `{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"other","tool":"jira_fields","status":"completed","result":{}}}`,
 		"unmatched start":      `{"type":"item.started","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields"}}`,
 		"update without start": `{"type":"item.updated","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields"}}`,
+		"unknown lifecycle":    `{"type":"item.failed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields"}}`,
 		"mismatched completion": strings.Join([]string{
 			`{"type":"item.started","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields"}}`,
 			`{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_issue_search","status":"completed","result":{}}}`,
@@ -929,7 +966,7 @@ func TestProviderCapabilityCoverageFailsClosedOnIncompleteEvents(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 0 || len(metrics.CapabilityFamilySequence) != 0 {
+			if metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 0 {
 				t.Fatalf("incomplete Codex capability telemetry passed: %+v", metrics)
 			}
 		})

@@ -730,6 +730,12 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 					continue
 				}
 				pendingMCPItems[id] = identity
+				family, known := CapabilityFamilyForMCP(tool)
+				if server != "atl" || !known {
+					metrics.CapabilityFamilyCoverage = false
+				} else {
+					metrics.CapabilityFamilySequence = append(metrics.CapabilityFamilySequence, family)
+				}
 				continue
 			}
 			pending, exists := pendingMCPItems[id]
@@ -777,7 +783,8 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 					tool, _ := item["tool"].(string)
 					family, known := CapabilityFamilyForMCP(tool)
 					server, serverKnown := item["server"].(string)
-					if pending, started := pendingMCPItems[id]; started {
+					pending, started := pendingMCPItems[id]
+					if started {
 						if pending != (codexMCPItemIdentity{Server: server, Tool: tool}) {
 							idValid = false
 							metrics.CapabilityFamilyCoverage = false
@@ -795,7 +802,9 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 							}
 						}
 						mergeCapabilityFamily(families, family, failed, size)
-						metrics.CapabilityFamilySequence = append(metrics.CapabilityFamilySequence, family)
+						if !started {
+							metrics.CapabilityFamilySequence = append(metrics.CapabilityFamilySequence, family)
+						}
 					}
 				}
 			}
@@ -818,6 +827,11 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 			}
 		case "turn.failed", "error":
 			return ProviderMetrics{}, fmt.Errorf("codex run reported a failure event")
+		default:
+			item, _ := event["item"].(map[string]any)
+			if kind, _ := item["type"].(string); kind == "mcp_tool_call" {
+				metrics.CapabilityFamilyCoverage = false
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
