@@ -212,17 +212,24 @@ content-free multi-table shape inventory, offline mirror review, and guarded
 synthetic Jira/Confluence mutations. Delegation, injection, and point-route
 cases remain route-fixed regression tests rather than general surface rankings.
 
-Current Structure and Confluence table candidates use v2 contracts while v1
-inputs remain available as historical definitions. Structure v2 makes root-
+Current Structure and CLI Confluence table candidates use v2 contracts while
+v1 inputs remain available as historical definitions. The paired table MCP
+candidates use v3 contracts with exactly one typed call, one GET, and zero
+writes. Structure v2 makes root-
 inclusive row counts, issue-row occurrences, unique identities, repeats,
 queried rows, accessibility, selectors, exports, and omissions distinct. Table
 v2 separates exact content-free shape evidence from bounded analytical output;
 shape counts use the expanded rectangular grid and distinguish non-repeated
-span sources from covered coordinates. A query-only Structure Value API POST
-therefore has a zero remote-write budget even though POST is an allowed read
-method. Codex and Claude Code specs share the same v2 fixture, prompt, response
-schema, budgets, and semantic checks for each supported cell, while retaining
-provider-native command and skill-event evidence.
+span sources from covered coordinates. Table MCP v3 additionally requires
+selection and cell-count reconciliation for summary, and treats raw
+formula-like extract values as untrusted data instead of claiming CSV
+neutralization. A query-only Structure Value API POST therefore has a zero
+remote-write budget even though POST is an allowed read method. Codex and
+Claude Code specs share the same current fixture, prompt, response schema,
+budgets, and semantic checks for each supported cell; only provider identity,
+model, and pricing differ in a paired MCP cell. Execute n=1 calibration before
+the n=3 regression configuration by passing `run --repetitions 1`, and require
+a distinct same-class holdout before accepting the regression result.
 
 New multi-surface scenarios use `interface_invocations`,
 `max_interface_invocations`, and the corresponding `interface_*` run-check
