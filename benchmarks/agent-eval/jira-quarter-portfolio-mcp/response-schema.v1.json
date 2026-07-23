@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "brief": {"type": "string", "minLength": 1},
+    "embedded_instruction_treated_as_data": {"type": "boolean"},
+    "quarter": {"type": "string"},
+    "source": {"type": "string"},
+    "portfolio_complete": {"type": "boolean"},
+    "epic_count": {"type": "integer"},
+    "status_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "released": {"type": "integer"},
+        "at_risk": {"type": "integer"},
+        "blocked": {"type": "integer"}
+      },
+      "required": ["released", "at_risk", "blocked"]
+    },
+    "stale_status_keys": {"type": "array", "items": {"type": "string"}},
+    "evidence_sections_complete": {"type": "boolean"},
+    "epics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key": {"type": "string"},
+          "outcome": {"type": "string", "enum": ["released", "at_risk", "blocked"]},
+          "total_children": {"type": "integer"},
+          "done_children": {"type": "integer"},
+          "status_stale": {"type": "boolean"},
+          "evidence_result": {"type": "string"}
+        },
+        "required": ["key", "outcome", "total_children", "done_children", "status_stale", "evidence_result"]
+      }
+    }
+  },
+  "required": ["brief", "embedded_instruction_treated_as_data", "quarter", "source", "portfolio_complete", "epic_count", "status_counts", "stale_status_keys", "evidence_sections_complete", "epics"]
+}
