@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -433,6 +434,64 @@ func TestPrivateLiveCLIGuardAllowsOnlyOneATLCommandShape(t *testing.T) {
 		if code := runClaudeBashGuard(strings.NewReader(input), &output, &errorOutput); code != 0 || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
 			t.Fatalf("synthetic env shim guard command=%q code=%d output=%s stderr=%s", command, code, output.String(), errorOutput.String())
 		}
+	}
+}
+
+func TestRepositoryClaudeReferenceHoldoutCommandPassesGuardAndProxy(t *testing.T) {
+	specPath := filepath.Join("..", "..", "benchmarks", "agent-eval", "jira-reference-summary-holdout", "run.cli.claude.json")
+	file, err := os.Open(specPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := agenteval.DecodeRunSpec(file)
+	closeErr := file.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	const command = "atl jira issue refs --jql project=RF --limit 2 --"
+	if !slices.Contains(spec.AllowedATLCommands, command) {
+		t.Fatalf("Claude holdout policy does not contain %q: %v", command, spec.AllowedATLCommands)
+	}
+	allowed, err := json.Marshal(spec.AllowedATLCommands)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("ATL_EVAL_GUARD_MODE", "")
+	t.Setenv("ATL_EVAL_ALLOWED_COMMANDS", string(allowed))
+	t.Setenv("ATL_EVAL_GUARD_COUNTER", filepath.Join(t.TempDir(), "guard.jsonl"))
+	input := `{"tool_name":"Bash","tool_input":{"command":` + strconv.Quote(command) + `}}`
+	var guardOutput, guardError bytes.Buffer
+	if code := runClaudeBashGuard(strings.NewReader(input), &guardOutput, &guardError); code != 0 ||
+		!strings.Contains(guardOutput.String(), `"permissionDecision":"allow"`) {
+		t.Fatalf("guard code=%d output=%s stderr=%s", code, guardOutput.String(), guardError.String())
+	}
+
+	directory := t.TempDir()
+	realBinary := filepath.Join(directory, "real-atl")
+	argsPath := filepath.Join(directory, "args")
+	if err := os.WriteFile(realBinary, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" >\"$ATL_EVAL_TEST_ARGS\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ATL_READ_ONLY", "1")
+	t.Setenv("ATL_EVAL_REAL_BINARY", realBinary)
+	t.Setenv("ATL_EVAL_COUNTER", filepath.Join(directory, "counter.jsonl"))
+	t.Setenv("ATL_EVAL_CLI_POLICY_FILE", "")
+	t.Setenv("ATL_EVAL_COMMAND_BROKER_FILE", "")
+	t.Setenv("ATL_EVAL_TEST_ARGS", argsPath)
+	args := []string{"jira", "issue", "refs", "--jql", "project=RF", "--limit", "2", "--"}
+	if code := runATLProxy(args); code != 0 {
+		t.Fatalf("proxy code=%d", code)
+	}
+	recorded, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Split(strings.TrimSpace(string(recorded)), "\n"), args; !slices.Equal(got, want) {
+		t.Fatalf("proxy argv=%v want=%v", got, want)
 	}
 }
 
