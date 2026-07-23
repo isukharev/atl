@@ -171,7 +171,7 @@ func runCheckClass(kind string) string {
 	case "atl_invocations_min", "atl_invocations_max", "atl_all_succeeded", "atl_failures_equals",
 		"interface_invocations_min", "interface_invocations_max", "interface_all_succeeded", "interface_failures_equals",
 		"skill_invocations_min", "mock_no_unexpected", "delegations_min", "delegations_none",
-		"guard_no_denials", "http_methods_observed", "http_methods_equal":
+		"guard_no_denials", "http_methods_observed", "http_methods_equal", "capability_families_equal":
 		return "mechanical"
 	default:
 		return ""

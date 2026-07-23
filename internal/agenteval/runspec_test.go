@@ -1011,6 +1011,94 @@ func TestRunSpecValidatesExpectedHTTPMethods(t *testing.T) {
 	}
 }
 
+func TestRunSpecValidatesExactCapabilityFamilies(t *testing.T) {
+	expected := json.RawMessage(`[
+		{"family":"confluence.page.outline","invocations":1,"successes":1,"failures":0},
+		{"family":"confluence.page.resolve","invocations":1,"successes":1,"failures":0},
+		{"family":"confluence.page.section","invocations":1,"successes":1,"failures":0}
+	]`)
+	valid := validRunSpec()
+	valid.Checks = append(valid.Checks, RunCheck{
+		Name: "route_exact", Kind: "capability_families_equal", Expected: expected,
+	})
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if runCheckClass("capability_families_equal") != "mechanical" {
+		t.Fatal("capability_families_equal is not classified as a mechanical check")
+	}
+
+	observed := []CapabilityFamilyMetric{
+		{Family: "confluence.page.resolve", Invocations: 1, Successes: 1, OutputBytes: 7},
+		{Family: "confluence.page.section", Invocations: 1, Successes: 1, OutputBytes: 11},
+		{Family: "confluence.page.outline", Invocations: 1, Successes: 1, OutputBytes: 9},
+	}
+	checks, err := evaluateRunChecksWithCapabilities(
+		valid.Checks[len(valid.Checks)-1:], []byte(`{}`), "", 3, 0, 0, 0,
+		nil, 0, 0, map[string]int{"GET": 2}, true, nil, observed, true,
+	)
+	if err != nil || !checks["route_exact"] {
+		t.Fatalf("exact capability route result=%v err=%v", checks, err)
+	}
+
+	tests := []struct {
+		name     string
+		observed []CapabilityFamilyMetric
+		coverage bool
+	}{
+		{name: "uncovered", observed: observed, coverage: false},
+		{name: "missing", observed: observed[:2], coverage: true},
+		{name: "repeated", observed: []CapabilityFamilyMetric{
+			{Family: "confluence.page.outline", Invocations: 1, Successes: 1},
+			{Family: "confluence.page.resolve", Invocations: 1, Successes: 1},
+			{Family: "confluence.page.section", Invocations: 2, Successes: 2},
+		}, coverage: true},
+		{name: "failed", observed: []CapabilityFamilyMetric{
+			{Family: "confluence.page.outline", Invocations: 1, Successes: 1},
+			{Family: "confluence.page.resolve", Invocations: 1, Successes: 1},
+			{Family: "confluence.page.section", Invocations: 1, Failures: 1},
+		}, coverage: true},
+		{name: "extra", observed: append(slices.Clone(observed),
+			CapabilityFamilyMetric{Family: "confluence.search", Invocations: 1, Successes: 1},
+		), coverage: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			checks, err := evaluateRunChecksWithCapabilities(
+				valid.Checks[len(valid.Checks)-1:], []byte(`{}`), "", 3, 0, 0, 0,
+				nil, 0, 0, map[string]int{"GET": 2}, true, nil, test.observed, test.coverage,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if checks["route_exact"] {
+				t.Fatal("non-exact capability route passed")
+			}
+		})
+	}
+
+	for _, invalid := range []json.RawMessage{
+		nil,
+		json.RawMessage(`null`),
+		json.RawMessage(`[]`),
+		json.RawMessage(`{}`),
+		json.RawMessage(`[{"family":"unknown","invocations":1,"successes":1,"failures":0}]`),
+		json.RawMessage(`[{"family":"jira.fields","invocations":0,"successes":0,"failures":0}]`),
+		json.RawMessage(`[{"family":"jira.fields","invocations":1,"successes":0,"failures":0}]`),
+		json.RawMessage(`[{"family":"jira.fields","invocations":1,"successes":1,"failures":0,"output_bytes":1}]`),
+		json.RawMessage(`[{"family":"jira.issue.search","invocations":1,"successes":1,"failures":0},{"family":"jira.fields","invocations":1,"successes":1,"failures":0}]`),
+		json.RawMessage(`[{"family":"jira.fields","invocations":1,"successes":1,"failures":0},{"family":"jira.fields","invocations":1,"successes":1,"failures":0}]`),
+	} {
+		spec := validRunSpec()
+		spec.Checks = append(spec.Checks, RunCheck{
+			Name: "route_exact", Kind: "capability_families_equal", Expected: invalid,
+		})
+		if err := spec.Validate(); err == nil {
+			t.Fatalf("invalid capability oracle passed: %s", invalid)
+		}
+	}
+}
+
 func TestRunSpecValidatesExpectedATLFailureCount(t *testing.T) {
 	for name, expected := range map[string]json.RawMessage{
 		"missing":  nil,

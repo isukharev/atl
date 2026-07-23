@@ -1243,10 +1243,6 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if evidenceReport.Coverage && !evidenceReport.ConsistentWithAudit(evidenceAttempt) {
 		return Result{}, fmt.Errorf("model evidence outcome contradicts audited attempts")
 	}
-	checks, err := evaluateRunChecks(loaded.spec.Checks, final, workspace, atlInvocations, failedATL, unexpected, providerMetrics.SkillToolCalls+guardSummary.SkillReadAdmissions, providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, guardDenials, methods, httpMethodsObserved, cliExitCodes)
-	if err != nil {
-		return Result{}, err
-	}
 	var outputBytes int64
 	familyValues := map[string]CapabilityFamilyMetric{}
 	familyCoverage := true
@@ -1304,6 +1300,15 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	capabilityFamilies := capabilityFamilySlice(familyValues)
 	if !familyCoverage {
 		capabilityFamilies = nil
+	}
+	checks, err := evaluateRunChecksWithCapabilities(
+		loaded.spec.Checks, final, workspace, atlInvocations, failedATL, unexpected,
+		providerMetrics.SkillToolCalls+guardSummary.SkillReadAdmissions,
+		providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, guardDenials,
+		methods, httpMethodsObserved, cliExitCodes, capabilityFamilies, familyCoverage,
+	)
+	if err != nil {
+		return Result{}, err
 	}
 	backendObservation, safetyAssurance := BackendObservationHTTP, SafetyAssuranceObservedHTTP
 	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {

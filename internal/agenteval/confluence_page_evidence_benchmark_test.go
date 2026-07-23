@@ -26,6 +26,7 @@ func TestRepositoryConfluencePageEvidenceFixturesDriveProviderOracles(t *testing
 		occurrence        int
 		headingCount      int
 		pageID            string
+		selectedPath      []string
 		limit             string
 		owner             string
 		rejectedFragments []string
@@ -41,6 +42,7 @@ func TestRepositoryConfluencePageEvidenceFixturesDriveProviderOracles(t *testing
 			occurrence:   2,
 			headingCount: 2,
 			pageID:       "7001",
+			selectedPath: []string{"Current decision", "Decision"},
 			limit:        "95 percent",
 			owner:        "Reliability",
 			rejectedFragments: []string{
@@ -59,6 +61,7 @@ func TestRepositoryConfluencePageEvidenceFixturesDriveProviderOracles(t *testing
 			occurrence:   3,
 			headingCount: 3,
 			pageID:       "7002",
+			selectedPath: []string{"Current control", "Approval"},
 			limit:        "30 minutes",
 			owner:        "Continuity",
 			rejectedFragments: []string{
@@ -105,16 +108,23 @@ func TestRepositoryConfluencePageEvidenceFixturesDriveProviderOracles(t *testing
 				t.Fatalf("outline identity/completeness drifted: %+v", outline)
 			}
 			occurrences := 0
+			var selectedPath []string
 			for _, item := range outline.Headings {
 				if item.Title == test.heading {
 					occurrences++
 					if item.Occurrence != occurrences {
 						t.Fatalf("non-contiguous heading occurrences: %+v", outline.Headings)
 					}
+					if item.Occurrence == test.occurrence {
+						selectedPath = slices.Clone(item.Path)
+					}
 				}
 			}
 			if occurrences != test.headingCount {
 				t.Fatalf("heading count=%d want=%d: %+v", occurrences, test.headingCount, outline.Headings)
+			}
+			if !slices.Equal(selectedPath, test.selectedPath) {
+				t.Fatalf("selected occurrence is not structurally observable: got=%v want=%v", selectedPath, test.selectedPath)
 			}
 
 			section, err := service.PageSection(context.Background(), resolved.ID, app.ConfluencePageSectionOpts{
@@ -126,7 +136,8 @@ func TestRepositoryConfluencePageEvidenceFixturesDriveProviderOracles(t *testing
 			if !section.Complete || section.Truncated ||
 				section.ID != test.pageID ||
 				section.Heading != test.heading ||
-				section.Occurrence != test.occurrence {
+				section.Occurrence != test.occurrence ||
+				!slices.Equal(section.Path, test.selectedPath) {
 				t.Fatalf("selected section drifted: %+v", section)
 			}
 			for _, required := range []string{"Approved", test.limit, test.owner} {
@@ -147,15 +158,20 @@ func TestRepositoryConfluencePageEvidenceFixturesDriveProviderOracles(t *testing
 				t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
 			}
 			final := confluencePageEvidenceBenchmarkFinal(t, section, test.limit, test.owner)
+			capabilityFamilies := []CapabilityFamilyMetric{
+				{Family: "confluence.page.outline", Invocations: 1, Successes: 1, OutputBytes: 1},
+				{Family: "confluence.page.resolve", Invocations: 1, Successes: 1, OutputBytes: 1},
+				{Family: "confluence.page.section", Invocations: 1, Successes: 1, OutputBytes: 1},
+			}
 
 			scenario := loadRepositoryScenario(t, filepath.Join(root, test.scenarioFile))
 			for _, runFile := range []string{test.codexRun, test.claudeRun} {
 				spec := loadRepositoryRunSpec(t, filepath.Join(root, runFile))
 				assertConfluencePageEvidenceTransportContract(t, scenario, spec)
 				assertConfluencePageEvidenceSchemaMatchesFinal(t, root, spec, final)
-				checks, err := evaluateRunChecks(
+				checks, err := evaluateRunChecksWithCapabilities(
 					spec.Checks, final, "", 3, 0, unexpected, 0,
-					nil, 0, 0, methods, true, nil,
+					nil, 0, 0, methods, true, nil, capabilityFamilies, true,
 				)
 				if err != nil {
 					t.Fatal(err)
@@ -165,7 +181,7 @@ func TestRepositoryConfluencePageEvidenceFixturesDriveProviderOracles(t *testing
 						t.Fatalf("%s fixture-derived final failed run check %q", spec.Provider, name)
 					}
 				}
-				assertConfluencePageEvidenceCheckMutationFails(t, spec, final, methods)
+				assertConfluencePageEvidenceCheckMutationFails(t, spec, final, methods, capabilityFamilies)
 			}
 		})
 	}
@@ -245,6 +261,7 @@ func confluencePageEvidenceBenchmarkFinal(
 	final := map[string]any{
 		"page_id":                              section.ID,
 		"selected_heading":                     section.Heading,
+		"selected_path":                        section.Path,
 		"selected_occurrence":                  section.Occurrence,
 		"decision":                             "approved",
 		"operating_limit":                      limit,
@@ -305,6 +322,7 @@ func assertConfluencePageEvidenceCheckMutationFails(
 	spec RunSpec,
 	final []byte,
 	methods map[string]int,
+	capabilityFamilies []CapabilityFamilyMetric,
 ) {
 	t.Helper()
 	checks := slices.Clone(spec.Checks)
@@ -313,9 +331,9 @@ func assertConfluencePageEvidenceCheckMutationFails(
 			continue
 		}
 		checks[index].Expected = json.RawMessage(`99`)
-		results, err := evaluateRunChecks(
+		results, err := evaluateRunChecksWithCapabilities(
 			checks, final, "", 3, 0, 0, 0,
-			nil, 0, 0, methods, true, nil,
+			nil, 0, 0, methods, true, nil, capabilityFamilies, true,
 		)
 		if err != nil {
 			t.Fatal(err)

@@ -4,6 +4,10 @@
   "properties": {
     "page_id": {"type": "string"},
     "selected_heading": {"type": "string"},
+    "selected_path": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
     "selected_occurrence": {"type": "integer"},
     "decision": {"type": "string", "enum": ["approved", "draft"]},
     "operating_limit": {"type": "string"},
@@ -15,6 +19,7 @@
   "required": [
     "page_id",
     "selected_heading",
+    "selected_path",
     "selected_occurrence",
     "decision",
     "operating_limit",

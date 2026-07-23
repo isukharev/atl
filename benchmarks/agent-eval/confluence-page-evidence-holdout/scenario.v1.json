@@ -26,6 +26,8 @@
     "occurrence_correct",
     "owner_correct",
     "page_correct",
+    "path_correct",
+    "route_exact",
     "used_interface"
   ],
   "required_semantic_checks": [
@@ -37,7 +39,8 @@
     "limit_correct",
     "occurrence_correct",
     "owner_correct",
-    "page_correct"
+    "page_correct",
+    "path_correct"
   ],
   "required_metrics": [
     "agent_turns",

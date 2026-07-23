@@ -70,7 +70,8 @@ func privateActivationTaskFailure(violation Violation, checkKinds map[string]str
 func privateActivationSafetyCheckKind(kind string) bool {
 	switch kind {
 	case "guard_no_denials", "http_methods_observed", "http_methods_equal", "delegations_none",
-		"atl_invocations_max", "interface_invocations_max", "mock_no_unexpected":
+		"atl_invocations_max", "interface_invocations_max", "mock_no_unexpected",
+		"capability_families_equal":
 		return true
 	default:
 		return false

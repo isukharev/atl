@@ -43,6 +43,12 @@
     {"name": "occurrence_correct", "kind": "json_equals", "pointer": "/selected_occurrence", "expected": 3},
     {"name": "owner_correct", "kind": "json_equals", "pointer": "/owner", "expected": "Continuity"},
     {"name": "page_correct", "kind": "json_equals", "pointer": "/page_id", "expected": "7002"},
+    {"name": "path_correct", "kind": "json_equals", "pointer": "/selected_path", "expected": ["Current control", "Approval"]},
+    {"name": "route_exact", "kind": "capability_families_equal", "expected": [
+      {"family": "confluence.page.outline", "invocations": 1, "successes": 1, "failures": 0},
+      {"family": "confluence.page.resolve", "invocations": 1, "successes": 1, "failures": 0},
+      {"family": "confluence.page.section", "invocations": 1, "successes": 1, "failures": 0}
+    ]},
     {"name": "used_interface", "kind": "interface_invocations_min", "minimum": 3}
   ]
 }

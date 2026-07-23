@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -211,6 +212,10 @@ exit 2
 	spec.AllowedTools = nil
 	spec.AllowedATLCommands = nil
 	spec.AllowedMCPTools = []string{"jira_fields"}
+	spec.Checks = append(spec.Checks, RunCheck{
+		Name: "route_exact", Kind: "capability_families_equal",
+		Expected: json.RawMessage(`[{"family":"jira.fields","invocations":1,"successes":1,"failures":0}]`),
+	})
 	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
 	output, err = RunHeadless(context.Background(), RunOptions{
 		SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,
@@ -235,6 +240,27 @@ exit 2
 	}
 	if !result.Coverage["capability_families"] || len(result.CapabilityFamilies) != 1 || result.CapabilityFamilies[0].Family != "jira.fields" {
 		t.Fatalf("families=%+v coverage=%+v", result.CapabilityFamilies, result.Coverage)
+	}
+	wrongRoute := spec
+	wrongRoute.Variant = "typed-mcp-wrong-route"
+	wrongRoute.Checks = slices.Clone(spec.Checks)
+	wrongRoute.Checks[len(wrongRoute.Checks)-1].Expected = json.RawMessage(
+		`[{"family":"jira.issue.search","invocations":1,"successes":1,"failures":0}]`,
+	)
+	writeJSONTestFile(t, filepath.Join(caseDir, "run-wrong-route.json"), wrongRoute)
+	wrongOutput, err := RunHeadless(context.Background(), RunOptions{
+		SpecPath:       filepath.Join(caseDir, "run-wrong-route.json"),
+		OutputRoot:     filepath.Join(tempRepository, "private", "wrong-route"),
+		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
+		PluginRoot: pluginRoot, WrapperExecutable: wrapper,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wrongOutput.Results) != 1 ||
+		wrongOutput.Results[0].Status != "fail" ||
+		wrongOutput.Results[0].Checks["route_exact"] {
+		t.Fatalf("wrong executable capability route passed: %+v", wrongOutput)
 	}
 	cliReceipt := readSyntheticRunReceiptTest(t, filepath.Join(outputRoot, scenario.ID, "claude-code", "baseline", "run-01", syntheticRunReceiptFileName))
 	mcpReceipt := readSyntheticRunReceiptTest(t, filepath.Join(outputRoot, scenario.ID, "claude-code", "typed-mcp", "run-01", syntheticRunReceiptFileName))
