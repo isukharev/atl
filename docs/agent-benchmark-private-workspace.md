@@ -977,29 +977,37 @@ mapping may be dictionary-guessable.
 
 ## Finding ledger and scorecard
 
-Keep the machine-readable finding ledger at
-`reports/finding-ledger.v1.json`. The public
+Keep exactly one machine-readable finding ledger: the legacy
+`reports/finding-ledger.v1.json`, or `reports/finding-ledger.v2.json`. Keeping
+both is ambiguous and rejected. The public v1
 [schema](../benchmarks/agent-eval/private-finding-ledger.schema.json) and
-[synthetic example](../benchmarks/agent-eval/private-finding-ledger.example.json)
-describe its closed fields. The real file is private, owner-only, canonical
+[example](../benchmarks/agent-eval/private-finding-ledger.example.json), and the
+v2 [schema](../benchmarks/agent-eval/private-finding-ledger-v2.schema.json) and
+[example](../benchmarks/agent-eval/private-finding-ledger-v2.example.json),
+describe their closed fields. The real file is private, owner-only, canonical
 JSON: entries are sorted by `finding_id`; free-form titles, rationale, excerpts,
 paths, URLs, and backend identifiers are not allowed.
 
-Each entry binds one exact compact-baseline failure surface to a closed
-root-cause class, a public product issue, an optional PR and changed-contract
+V1 binds one exact compact-baseline failure surface to a closed root-cause
+class, one public product issue, an optional PR and changed-plan-contract
 digest, an optional exact compact-baseline regression surface, and a closed
-decision. The plan id, surface, and exact baseline alias must resolve to one
-tree-hash-validated baseline manifest whose plan digest matches the completed
-lifecycle. The mutable `current` pointer is not accepted. Activation-study
-cells are not accepted yet; they require a separate adapter over immutable
-study references. `fixed` requires a PR, contract digest, and a distinct
-compatible regression whose effective result is
-supported and passing. The changed-contract digest must equal the regression
-plan's contract digest and differ from the failure plan's contract digest.
-Completed-plan loading rechecks lifecycle state and pruning, while baseline
-loading rechecks the compact tree, result hashes, and assessed result contract.
-Reusing one failure surface for multiple findings, selecting an ambiguous
-surface, or comparing different
+decision. V2 keeps that path compatible, allows sorted public issue/PR lists,
+and adds an explicit evidence-source union: both failure and regression are
+either `private-live` compact baselines or stored `synthetic-root` assessments.
+Mixed-source chains are rejected. Every declared contract transition records
+an exact before/after digest and must match an observed attested identity
+change; undeclared or extra changes fail closed.
+
+For private-live evidence, the plan id, surface, and exact baseline alias must
+resolve to one tree-hash-validated baseline manifest whose plan digest matches
+the completed lifecycle. The mutable `current` pointer is not accepted.
+Activation-study cells are not accepted yet; they require a separate adapter
+over immutable study references. A `fixed` private-live entry requires a PR,
+plan-contract transition, and a distinct compatible regression whose effective
+result is supported and passing. Completed-plan loading rechecks lifecycle
+state and pruning, while baseline loading rechecks the compact tree, result
+hashes, and assessed result contract. Reusing one failure surface for multiple
+findings, selecting an ambiguous surface, or comparing incompatible
 scenario/runtime/prompt/review contracts fails closed.
 
 Generate the scorecard offline:
@@ -1041,18 +1049,32 @@ still requires the ledger's singleton regression to belong to the primary
 cohort and binds all three primary plan contracts to
 `changed_contract_sha256`.
 
-Synthetic-root sampling supplements rather than replaces that canonical
-private-live regression. Its primary must match the regression's scenario,
-public task class, category, variant, surface, provider, agent/model/reasoning,
-ATL runtime, and plugin/skill identity. The owner-reviewed v2 acceptance entry
-must bind a non-empty prompt-contract digest, and the synthetic primary must
-match it exactly; private-live entries reject that synthetic-only binding.
-Exact receipt-backed executable identities remain inside the
-assessment. `changed_contract_sha256` continues to identify the private-live
-regression plan contract: a synthetic task digest is never substituted for
-that change identity. A fixed entry backed only by one successful regression
-therefore fails closed, and a synthetic assessment cannot create a
-synthetic-only fixed finding. Non-fixed ledgers do not require an index.
+For a v1 or private-live v2 chain, synthetic-root sampling may supplement but
+does not replace the canonical compact-baseline regression. Its primary must
+match the regression's scenario, public task class, category, variant, surface,
+provider, agent/model/reasoning, ATL runtime, and plugin/skill identity. The
+owner-reviewed v2 acceptance entry binds a non-empty prompt-contract digest,
+and the synthetic primary must match it exactly.
+
+A synthetic-only v2 chain instead binds its failure to a stored schema-v2
+`calibration` assessment with exactly one supported failing primary observation
+and no holdout. Its fixed regression must be a different stored schema-v2
+`regression` assessment with exactly three passing primary observations, at
+least one distinct passing holdout, and `regression_accepted: true`. Failure and
+regression roots and source digests must be disjoint. Their scenario, public
+task class, data class, category, surface, provider, agent/model/reasoning,
+plugin, skill activation, agent executable, and wrapper executable remain
+compatible. Prompt, task, execution, ATL executable, and skill digests may
+change only through exact sorted before/after transitions; any change requires
+an execution-contract transition, and a variant change additionally requires
+task- and execution-contract transitions. An ATL runtime-version change
+requires an ATL-executable transition.
+
+The fixed acceptance entry must select `synthetic-root`, name exactly the
+ledger's regression assessment, and bind its primary prompt-contract digest.
+Scorecard construction reopens every assessment and receipt-backed root,
+requires exact canonical evidence again after resolution, and rejects alias or
+source reuse. Non-fixed ledgers do not require an index.
 
 ## Sampling evidence and holdouts
 
@@ -1178,10 +1200,10 @@ private operating state, not a publishable benchmark result.
 
 Current manifests use schema v4, run specs use schema v7, observations use
 schema v5, results use schema v8, aggregates use schema v6, private plans use
-schema v8, scorecards use schema v3, finding ledgers, legacy finding-acceptance
-indexes, private-live sampling specs/assessments, and daily checkpoints use
-schema v1, typed-source finding-acceptance indexes and attested synthetic-root
-sampling specs/assessments use schema v2,
+schema v8, scorecards use schema v3, legacy finding ledgers, legacy
+finding-acceptance indexes, private-live sampling specs/assessments, and daily
+checkpoints use schema v1; typed-source finding ledgers and acceptance indexes
+and attested synthetic-root sampling specs/assessments use schema v2,
 synthetic run receipts use schema v1 and complete synthetic-root aggregates use
 schema v2,
 current activation state uses schema v3, and

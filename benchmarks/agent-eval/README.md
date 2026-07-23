@@ -63,26 +63,32 @@ and report per-class macro summaries plus a Pareto view rather than one total
 score.
 
 Private findings can be reconciled offline through the strict owner-only
-ledger described by
-[`private-finding-ledger.schema.json`](private-finding-ledger.schema.json).
-`private scorecard` validates immutable compact-baseline failure/regression
-surfaces tied back to completed plans. Every `fixed` entry must also have a
-one-to-one binding in the owner-only index described by
+legacy ledger described by
+[`private-finding-ledger.schema.json`](private-finding-ledger.schema.json), or
+the typed-source
+[`private-finding-ledger-v2.schema.json`](private-finding-ledger-v2.schema.json).
+`private scorecard` validates immutable compact-baseline surfaces tied back to
+completed plans or complete stored synthetic-root assessments. Every `fixed`
+entry must also have a one-to-one binding in the owner-only index described by
 [`private-finding-acceptance.schema.json`](private-finding-acceptance.schema.json)
 to an accepted immutable regression assessment. The scorecard revalidates all
 three primary observations and the holdout before emitting only generic
 cohorts, closed counts, explicit coverage, and metric
-quantiles. The real ledger and scorecard remain private; the committed
+quantiles. The real ledger and scorecard remain private. The committed
 [`private-finding-ledger.example.json`](private-finding-ledger.example.json) and
+[`private-finding-ledger-v2.example.json`](private-finding-ledger-v2.example.json),
+plus
 [`private-finding-acceptance.example.json`](private-finding-acceptance.example.json)
 are synthetic and contain no backend data.
 The versioned
 [`private-finding-acceptance-v2.schema.json`](private-finding-acceptance-v2.schema.json)
-adds an explicit `private-live` or `synthetic-root` assessment source. A
-synthetic assessment remains supplementary: the fixed finding must retain its
-canonical private-live failure and regression, and the synthetic primary must
-match that regression's tested system and task identity, including an exact
-non-empty prompt-contract digest bound by the owner-reviewed acceptance entry.
+adds an explicit `private-live` or `synthetic-root` assessment source.
+Synthetic evidence may supplement a private-live chain. Ledger v2 can also
+represent a synthetic-only chain whose failure is a failed n=1 calibration and
+whose fixed regression is an accepted n=3-plus-distinct-holdout assessment.
+Exact before/after task, prompt, execution, executable, and skill transitions
+must match the receipt-backed identities, while the acceptance entry binds the
+regression assessment and its non-empty prompt-contract digest.
 
 Private sample strength is encoded separately with
 [`private-sampling.schema.json`](private-sampling.schema.json): `n=1` is
