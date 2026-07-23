@@ -299,8 +299,8 @@ the result/cohort counts and a domain-separated SHA-256 digest of the exact
 relative result and receipt slots and bytes. A second byte pass and final
 inventory reject sources changed during aggregation. The command fails closed
 where owner-only access cannot be established (currently Windows), is
-read-only, and emits no source paths. Hashes provide owner-private provenance,
-not third-party signatures.
+read-only, emits no source paths, and accepts at most 4,096 complete results per
+root. Hashes provide owner-private provenance, not third-party signatures.
 
 This command does not replace the separate marked lifecycle and scorecard for
 private-live evidence. Aggregate output still contains benchmark identities;
