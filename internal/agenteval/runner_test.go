@@ -215,6 +215,9 @@ exit 2
 	spec.Checks = append(spec.Checks, RunCheck{
 		Name: "route_exact", Kind: "capability_families_equal",
 		Expected: json.RawMessage(`[{"family":"jira.fields","invocations":1,"successes":1,"failures":0}]`),
+	}, RunCheck{
+		Name: "route_ordered", Kind: "capability_sequence_equal",
+		Expected: json.RawMessage(`["jira.fields"]`),
 	})
 	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
 	output, err = RunHeadless(context.Background(), RunOptions{
@@ -244,9 +247,13 @@ exit 2
 	wrongRoute := spec
 	wrongRoute.Variant = "typed-mcp-wrong-route"
 	wrongRoute.Checks = slices.Clone(spec.Checks)
-	wrongRoute.Checks[len(wrongRoute.Checks)-1].Expected = json.RawMessage(
-		`[{"family":"jira.issue.search","invocations":1,"successes":1,"failures":0}]`,
-	)
+	for index := range wrongRoute.Checks {
+		if wrongRoute.Checks[index].Name == "route_exact" {
+			wrongRoute.Checks[index].Expected = json.RawMessage(
+				`[{"family":"jira.issue.search","invocations":1,"successes":1,"failures":0}]`,
+			)
+		}
+	}
 	writeJSONTestFile(t, filepath.Join(caseDir, "run-wrong-route.json"), wrongRoute)
 	wrongOutput, err := RunHeadless(context.Background(), RunOptions{
 		SpecPath:       filepath.Join(caseDir, "run-wrong-route.json"),

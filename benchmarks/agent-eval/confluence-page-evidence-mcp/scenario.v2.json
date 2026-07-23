@@ -28,6 +28,7 @@
     "page_correct",
     "path_correct",
     "route_exact",
+    "route_ordered",
     "used_interface"
   ],
   "required_semantic_checks": [

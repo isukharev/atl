@@ -799,7 +799,7 @@ func TestParseProviderOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.AgentTurns != 2 || metrics.ToolCalls != 3 || metrics.SkillToolCalls != 1 || metrics.SkillToolCallsByName["atl:jira"] != 1 || metrics.Delegations != 1 || metrics.MCPToolCalls != 1 || metrics.FailedMCPToolCalls != 0 || metrics.MCPToolOutputBytes != 7 || !metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 1 || metrics.CapabilityFamilies[0].Family != "jira.fields" || metrics.CapabilityFamilies[0].OutputBytes != 7 || !metrics.Coverage["delegations"] || metrics.MainThreadInputTokens != 120 || metrics.MainThreadOutputTokens != 30 || metrics.InputTokens != 80 || metrics.OutputTokens != 18 || metrics.EstimatedCostMicroUSD != 250_000 || string(final) != `{"answer":"ok"}` {
+	if metrics.AgentTurns != 2 || metrics.ToolCalls != 3 || metrics.SkillToolCalls != 1 || metrics.SkillToolCallsByName["atl:jira"] != 1 || metrics.Delegations != 1 || metrics.MCPToolCalls != 1 || metrics.FailedMCPToolCalls != 0 || metrics.MCPToolOutputBytes != 7 || !metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 1 || metrics.CapabilityFamilies[0].Family != "jira.fields" || metrics.CapabilityFamilies[0].OutputBytes != 7 || !slices.Equal(metrics.CapabilityFamilySequence, []string{"jira.fields"}) || !metrics.Coverage["delegations"] || metrics.MainThreadInputTokens != 120 || metrics.MainThreadOutputTokens != 30 || metrics.InputTokens != 80 || metrics.OutputTokens != 18 || metrics.EstimatedCostMicroUSD != 250_000 || string(final) != `{"answer":"ok"}` {
 		t.Fatalf("metrics=%+v final=%s", metrics, final)
 	}
 	codex := strings.Join([]string{
@@ -812,8 +812,103 @@ func TestParseProviderOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.AgentTurns != 1 || metrics.ToolCalls != 2 || metrics.MCPToolCalls != 1 || metrics.MCPToolOutputBytes == 0 || !metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 1 || metrics.CapabilityFamilies[0].Family != "jira.fields" || metrics.InputTokens != 100 || metrics.MainThreadInputTokens != 100 || metrics.OutputTokens != 30 || metrics.MainThreadOutputTokens != 30 || string(final) != `{"answer":"ok"}` {
+	if metrics.AgentTurns != 1 || metrics.ToolCalls != 2 || metrics.MCPToolCalls != 1 || metrics.MCPToolOutputBytes == 0 || !metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 1 || metrics.CapabilityFamilies[0].Family != "jira.fields" || !slices.Equal(metrics.CapabilityFamilySequence, []string{"jira.fields"}) || metrics.InputTokens != 100 || metrics.MainThreadInputTokens != 100 || metrics.OutputTokens != 30 || metrics.MainThreadOutputTokens != 30 || string(final) != `{"answer":"ok"}` {
 		t.Fatalf("metrics=%+v final=%s", metrics, final)
+	}
+}
+
+func TestProviderCapabilitySequencePreservesEventOrder(t *testing.T) {
+	want := []string{
+		"confluence.page.resolve",
+		"confluence.page.outline",
+		"confluence.page.section",
+	}
+	claudeLines := make([]string, 0, len(want)*2+1)
+	for index, tool := range []string{
+		"confluence_page_resolve",
+		"confluence_page_outline",
+		"confluence_page_section",
+	} {
+		id := "mcp-" + strconv.Itoa(index+1)
+		claudeLines = append(claudeLines,
+			`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"`+id+`","name":"mcp__atl__`+tool+`"}]}}`,
+			`{"type":"user","tool_use_result":{"content":[]},"message":{"content":[{"type":"tool_result","tool_use_id":"`+id+`","is_error":false,"content":"{}"}]}}`,
+		)
+	}
+	claudeLines = append(claudeLines, `{"type":"result","structured_output":{"answer":"ok"}}`)
+	claude, _, err := ParseProviderOutput("claude-code", []byte(strings.Join(claudeLines, "\n")), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !claude.CapabilityFamilyCoverage || !slices.Equal(claude.CapabilityFamilySequence, want) {
+		t.Fatalf("Claude capability sequence=%v coverage=%v", claude.CapabilityFamilySequence, claude.CapabilityFamilyCoverage)
+	}
+
+	codexLines := []string{}
+	for _, tool := range []string{
+		"confluence_page_resolve",
+		"confluence_page_outline",
+		"confluence_page_section",
+	} {
+		codexLines = append(codexLines,
+			`{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"`+tool+`","status":"completed","result":{}}}`,
+		)
+	}
+	codex, _, err := ParseProviderOutput(
+		"codex", []byte(strings.Join(codexLines, "\n")), []byte(`{"answer":"ok"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !codex.CapabilityFamilyCoverage || !slices.Equal(codex.CapabilityFamilySequence, want) {
+		t.Fatalf("Codex capability sequence=%v coverage=%v", codex.CapabilityFamilySequence, codex.CapabilityFamilyCoverage)
+	}
+}
+
+func TestProviderCapabilityCoverageFailsClosedOnIncompleteEvents(t *testing.T) {
+	claudeCases := map[string]string{
+		"missing result": strings.Join([]string{
+			`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}`,
+			`{"type":"result","structured_output":{"answer":"ok"}}`,
+		}, "\n"),
+		"missing id": strings.Join([]string{
+			`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__atl__jira_fields"}]}}`,
+			`{"type":"result","structured_output":{"answer":"ok"}}`,
+		}, "\n"),
+		"duplicate id": strings.Join([]string{
+			`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}`,
+			`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_issue_search"}]}}`,
+			`{"type":"user","tool_use_result":{"content":[]},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","is_error":false,"content":"{}"}]}}`,
+			`{"type":"result","structured_output":{"answer":"ok"}}`,
+		}, "\n"),
+	}
+	for name, transcript := range claudeCases {
+		t.Run("Claude "+name, func(t *testing.T) {
+			metrics, _, err := ParseProviderOutput("claude-code", []byte(transcript), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if metrics.CapabilityFamilyCoverage {
+				t.Fatalf("incomplete Claude capability telemetry passed: %+v", metrics)
+			}
+		})
+	}
+
+	codexCases := map[string]string{
+		"missing status": `{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","result":{}}}`,
+		"unknown status": `{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"unknown","result":{}}}`,
+		"wrong server":   `{"type":"item.completed","item":{"type":"mcp_tool_call","server":"other","tool":"jira_fields","status":"completed","result":{}}}`,
+	}
+	for name, transcript := range codexCases {
+		t.Run("Codex "+name, func(t *testing.T) {
+			metrics, _, err := ParseProviderOutput("codex", []byte(transcript), []byte(`{"answer":"ok"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 0 || len(metrics.CapabilityFamilySequence) != 0 {
+				t.Fatalf("incomplete Codex capability telemetry passed: %+v", metrics)
+			}
+		})
 	}
 }
 

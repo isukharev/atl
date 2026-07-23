@@ -439,8 +439,13 @@ value is a non-empty, sorted array of closed capability family names with exact
 capability telemetry and rejects missing, extra, repeated, failed, or unknown
 families. It deliberately ignores output byte counts, which remain measured
 metrics rather than route identity, and does not retain tool arguments or
-content. Use it with interface, HTTP, guard, and fixture oracles when an
-allowlist alone cannot prove that every required bounded read occurred.
+content. `capability_sequence_equal` complements it with an exact ordered array
+of the same closed family names. Provider parsing marks capability coverage
+incomplete on missing or duplicate Claude tool-use ids, unresolved tool
+results, unknown tools, non-ATL Codex servers, and missing or unknown Codex
+completion statuses; either route oracle then fails closed. Use both with
+interface, HTTP, guard, and fixture oracles when an allowlist alone cannot
+prove that every required bounded read occurred in the required order.
 
 Synthetic CLI runs inherit `ATL_READ_ONLY=1` by default. A Codex synthetic CLI
 spec with exact structured `allowed_cli_commands` opts into the executable

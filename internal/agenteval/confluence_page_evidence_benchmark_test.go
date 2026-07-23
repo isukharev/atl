@@ -172,6 +172,7 @@ func TestRepositoryConfluencePageEvidenceFixturesDriveProviderOracles(t *testing
 				checks, err := evaluateRunChecksWithCapabilities(
 					spec.Checks, final, "", 3, 0, unexpected, 0,
 					nil, 0, 0, methods, true, nil, capabilityFamilies, true,
+					[]string{"confluence.page.resolve", "confluence.page.outline", "confluence.page.section"},
 				)
 				if err != nil {
 					t.Fatal(err)
@@ -334,6 +335,7 @@ func assertConfluencePageEvidenceCheckMutationFails(
 		results, err := evaluateRunChecksWithCapabilities(
 			checks, final, "", 3, 0, 0, 0,
 			nil, 0, 0, methods, true, nil, capabilityFamilies, true,
+			[]string{"confluence.page.resolve", "confluence.page.outline", "confluence.page.section"},
 		)
 		if err != nil {
 			t.Fatal(err)

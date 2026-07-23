@@ -49,6 +49,11 @@
       {"family": "confluence.page.resolve", "invocations": 1, "successes": 1, "failures": 0},
       {"family": "confluence.page.section", "invocations": 1, "successes": 1, "failures": 0}
     ]},
+    {"name": "route_ordered", "kind": "capability_sequence_equal", "expected": [
+      "confluence.page.resolve",
+      "confluence.page.outline",
+      "confluence.page.section"
+    ]},
     {"name": "used_interface", "kind": "interface_invocations_min", "minimum": 3}
   ]
 }

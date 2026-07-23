@@ -551,6 +551,10 @@ func (s RunSpec) Validate() error {
 			if _, ok := expectedCapabilityFamilies(check.Expected); check.Minimum != 0 || check.Maximum != 0 || check.Pointer != "" || !ok {
 				return fmt.Errorf("capability_families_equal check %q requires a sorted bounded exact family-count array", check.Name)
 			}
+		case "capability_sequence_equal":
+			if _, ok := expectedCapabilitySequence(check.Expected); check.Minimum != 0 || check.Maximum != 0 || check.Pointer != "" || !ok {
+				return fmt.Errorf("capability_sequence_equal check %q requires a bounded ordered family array", check.Name)
+			}
 		default:
 			return fmt.Errorf("unsupported run check kind %q", check.Kind)
 		}
@@ -820,6 +824,7 @@ func evaluateRunChecks(checks []RunCheck, final []byte, workspace string, atlInv
 		checks, final, workspace, atlInvocations, failedATL, unexpectedRequests,
 		skillInvocations, skillInvocationsByName, delegations, guardDenials,
 		httpMethods, httpMethodsObserved, cliExitCodes, nil, false,
+		nil,
 	)
 }
 
@@ -835,6 +840,7 @@ func evaluateRunChecksWithCapabilities(
 	cliExitCodes []int,
 	capabilityFamilies []CapabilityFamilyMetric,
 	capabilityFamiliesObserved bool,
+	capabilitySequence []string,
 ) (map[string]bool, error) {
 	var document any
 	if err := json.Unmarshal(final, &document); err != nil {
@@ -878,6 +884,9 @@ func evaluateRunChecksWithCapabilities(
 		case "capability_families_equal":
 			expected, _ := expectedCapabilityFamilies(check.Expected)
 			results[check.Name] = capabilityFamiliesObserved && equalCapabilityFamilyExpectations(expected, capabilityFamilies)
+		case "capability_sequence_equal":
+			expected, _ := expectedCapabilitySequence(check.Expected)
+			results[check.Name] = capabilityFamiliesObserved && slices.Equal(expected, capabilitySequence)
 		case "json_present":
 			_, ok := resolveJSONPointer(document, check.Pointer)
 			results[check.Name] = ok
@@ -963,6 +972,30 @@ func equalCapabilityFamilyExpectations(expected []capabilityFamilyExpectation, o
 		}
 	}
 	return true
+}
+
+func expectedCapabilitySequence(raw json.RawMessage) ([]string, bool) {
+	if len(raw) == 0 {
+		return nil, false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	var expected []string
+	if err := decoder.Decode(&expected); err != nil {
+		return nil, false
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, false
+	}
+	if len(expected) == 0 || len(expected) > 64 {
+		return nil, false
+	}
+	for _, family := range expected {
+		if _, known := allowedCapabilityFamilies[family]; !known {
+			return nil, false
+		}
+	}
+	return expected, true
 }
 
 type workspaceJSONExpectation struct {

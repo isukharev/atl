@@ -1245,6 +1245,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	var outputBytes int64
 	familyValues := map[string]CapabilityFamilyMetric{}
+	capabilitySequence := make([]string, 0, len(proxyRecords)+len(providerMetrics.CapabilityFamilySequence))
 	familyCoverage := true
 	for _, record := range proxyRecords {
 		outputBytes += record.StdoutBytes
@@ -1253,6 +1254,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			continue
 		}
 		mergeCapabilityFamily(familyValues, record.CommandFamily, record.ExitCode != 0, record.StdoutBytes)
+		capabilitySequence = append(capabilitySequence, record.CommandFamily)
 	}
 	outputBytes += providerMetrics.MCPToolOutputBytes
 	providerFamilies := providerMetrics.CapabilityFamilies
@@ -1270,6 +1272,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		existing.OutputBytes += value.OutputBytes
 		familyValues[value.Family] = existing
 	}
+	capabilitySequence = append(capabilitySequence, providerMetrics.CapabilityFamilySequence...)
 	if providerMetrics.MCPToolCalls > 0 && !providerMetrics.CapabilityFamilyCoverage {
 		familyCoverage = false
 	}
@@ -1306,6 +1309,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		providerMetrics.SkillToolCalls+guardSummary.SkillReadAdmissions,
 		providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, guardDenials,
 		methods, httpMethodsObserved, cliExitCodes, capabilityFamilies, familyCoverage,
+		capabilitySequence,
 	)
 	if err != nil {
 		return Result{}, err

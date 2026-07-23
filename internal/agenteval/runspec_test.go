@@ -1035,7 +1035,7 @@ func TestRunSpecValidatesExactCapabilityFamilies(t *testing.T) {
 	}
 	checks, err := evaluateRunChecksWithCapabilities(
 		valid.Checks[len(valid.Checks)-1:], []byte(`{}`), "", 3, 0, 0, 0,
-		nil, 0, 0, map[string]int{"GET": 2}, true, nil, observed, true,
+		nil, 0, 0, map[string]int{"GET": 2}, true, nil, observed, true, nil,
 	)
 	if err != nil || !checks["route_exact"] {
 		t.Fatalf("exact capability route result=%v err=%v", checks, err)
@@ -1066,7 +1066,7 @@ func TestRunSpecValidatesExactCapabilityFamilies(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			checks, err := evaluateRunChecksWithCapabilities(
 				valid.Checks[len(valid.Checks)-1:], []byte(`{}`), "", 3, 0, 0, 0,
-				nil, 0, 0, map[string]int{"GET": 2}, true, nil, test.observed, test.coverage,
+				nil, 0, 0, map[string]int{"GET": 2}, true, nil, test.observed, test.coverage, nil,
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -1095,6 +1095,82 @@ func TestRunSpecValidatesExactCapabilityFamilies(t *testing.T) {
 		})
 		if err := spec.Validate(); err == nil {
 			t.Fatalf("invalid capability oracle passed: %s", invalid)
+		}
+	}
+}
+
+func TestRunSpecValidatesExactCapabilitySequence(t *testing.T) {
+	expected := json.RawMessage(`[
+		"confluence.page.resolve",
+		"confluence.page.outline",
+		"confluence.page.section"
+	]`)
+	valid := validRunSpec()
+	valid.Checks = append(valid.Checks, RunCheck{
+		Name: "route_ordered", Kind: "capability_sequence_equal", Expected: expected,
+	})
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if runCheckClass("capability_sequence_equal") != "mechanical" {
+		t.Fatal("capability_sequence_equal is not classified as a mechanical check")
+	}
+	families := []CapabilityFamilyMetric{
+		{Family: "confluence.page.outline", Invocations: 1, Successes: 1},
+		{Family: "confluence.page.resolve", Invocations: 1, Successes: 1},
+		{Family: "confluence.page.section", Invocations: 1, Successes: 1},
+	}
+	for name, test := range map[string]struct {
+		sequence []string
+		coverage bool
+		want     bool
+	}{
+		"exact": {
+			sequence: []string{"confluence.page.resolve", "confluence.page.outline", "confluence.page.section"},
+			coverage: true, want: true,
+		},
+		"wrong order": {
+			sequence: []string{"confluence.page.section", "confluence.page.outline", "confluence.page.resolve"},
+			coverage: true,
+		},
+		"missing": {
+			sequence: []string{"confluence.page.resolve", "confluence.page.section"},
+			coverage: true,
+		},
+		"uncovered": {
+			sequence: []string{"confluence.page.resolve", "confluence.page.outline", "confluence.page.section"},
+			coverage: false,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			checks, err := evaluateRunChecksWithCapabilities(
+				valid.Checks[len(valid.Checks)-1:], []byte(`{}`), "", 3, 0, 0, 0,
+				nil, 0, 0, map[string]int{"GET": 2}, true, nil,
+				families, test.coverage, test.sequence,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if checks["route_ordered"] != test.want {
+				t.Fatalf("route_ordered=%v want=%v", checks["route_ordered"], test.want)
+			}
+		})
+	}
+	for _, invalid := range []json.RawMessage{
+		nil,
+		json.RawMessage(`null`),
+		json.RawMessage(`[]`),
+		json.RawMessage(`{}`),
+		json.RawMessage(`["unknown"]`),
+		json.RawMessage(`["jira.fields",1]`),
+		json.RawMessage(`["jira.fields"] true`),
+	} {
+		spec := validRunSpec()
+		spec.Checks = append(spec.Checks, RunCheck{
+			Name: "route_ordered", Kind: "capability_sequence_equal", Expected: invalid,
+		})
+		if err := spec.Validate(); err == nil {
+			t.Fatalf("invalid capability sequence oracle passed: %s", invalid)
 		}
 	}
 }

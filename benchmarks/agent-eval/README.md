@@ -745,8 +745,8 @@ values, explicit completeness, no denied guard action, and zero writes. Its
 historical v1 candidates remain available.
 The current `confluence-page-evidence-mcp` v2 typed-MCP contract pairs Codex Luna/high and Claude Code
 Opus/high at n=3, limits them to exactly one resolve, outline, and section
-call through an exact capability-family oracle, and expects two GETs plus one
-intentional repeated page target. The distinct n=1
+call in that order through exact capability-family set and sequence oracles,
+and expects two GETs plus one intentional repeated page target. The distinct n=1
 `confluence-page-evidence-holdout` changes the page identity, structural paths,
 heading topology from two occurrences to three, and all approved values while
 preserving the same response, route, completeness, and safety semantics.
