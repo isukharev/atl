@@ -59,6 +59,87 @@ func TestPrivateFindingScorecardReconcilesSyntheticOnlyFixedChain(t *testing.T) 
 	}
 }
 
+func TestPrivateFindingScorecardReconcilesFailureAgainstRegressionHoldout(t *testing.T) {
+	fixture := newPrivateSamplingFixture(t)
+	failureResult := privateSamplingResult(t, "jira.holdout-evidence", false)
+	failureResult.Runtime.Provider = "codex"
+	regressionResult := privateSamplingResult(t, "jira.primary-evidence", true)
+	regressionResult.Runtime.Provider = "codex"
+
+	failureRoot := addSyntheticFindingRoot(
+		t, fixture, "failure-holdout-synthetic-runs", failureResult,
+		"jira.holdout-evidence", 1, strings.Repeat("1", 64),
+		strings.Repeat("2", 64), strings.Repeat("3", 64),
+	)
+	failureAssessment := fixture.storeSyntheticAssessment(t, PrivateSyntheticSamplingSpec{
+		SchemaVersion: PrivateSyntheticSamplingSchemaVersion,
+		Tier:          PrivateSamplingTierCalibration,
+		Primary:       failureRoot,
+	})
+	primary := addSyntheticFindingRoot(
+		t, fixture, "primary-fixed-synthetic-runs", regressionResult,
+		"jira.primary-evidence", 3, strings.Repeat("4", 64),
+		strings.Repeat("5", 64), strings.Repeat("6", 64),
+	)
+	holdout := addSyntheticFindingRoot(
+		t, fixture, "holdout-fixed-synthetic-runs", regressionResult,
+		"jira.holdout-evidence", 1, strings.Repeat("7", 64),
+		strings.Repeat("8", 64), strings.Repeat("9", 64),
+	)
+	regressionAssessment := fixture.storeSyntheticAssessment(t, PrivateSyntheticSamplingSpec{
+		SchemaVersion: PrivateSyntheticSamplingSchemaVersion,
+		Tier:          PrivateSamplingTierRegression,
+		Primary:       primary,
+		Holdout:       []PrivateSyntheticSamplingRootRef{holdout},
+	})
+	ledger := PrivateFindingLedgerV2{
+		SchemaVersion: PrivateFindingLedgerV2SchemaVersion,
+		Entries: []PrivateFindingEntryV2{{
+			FindingID: "finding-holdout-001",
+			Failure: PrivateFindingEvidenceRef{
+				Source: PrivateFindingAcceptanceSourceSyntheticRoot, AssessmentSHA256: failureAssessment,
+			},
+			FailureClass:  PrivateFailureHarness,
+			ProductIssues: []int{101},
+			PullRequests:  []int{201},
+			ChangedContracts: []PrivateFindingContractTransition{
+				{Kind: PrivateFindingContractExecution, BeforeSHA256: strings.Repeat("2", 64), AfterSHA256: strings.Repeat("8", 64)},
+				{Kind: PrivateFindingContractPrompt, BeforeSHA256: strings.Repeat("3", 64), AfterSHA256: strings.Repeat("9", 64)},
+				{Kind: PrivateFindingContractTask, BeforeSHA256: strings.Repeat("1", 64), AfterSHA256: strings.Repeat("7", 64)},
+			},
+			Regression: &PrivateFindingEvidenceRef{
+				Source: PrivateFindingAcceptanceSourceSyntheticRoot, AssessmentSHA256: regressionAssessment,
+			},
+			Decision: PrivateFindingDecisionFixed,
+		}},
+	}
+	acceptance := PrivateFindingAcceptanceV2Index{
+		SchemaVersion: PrivateFindingAcceptanceV2SchemaVersion,
+		Entries: []PrivateFindingAcceptanceV2Entry{{
+			FindingID:            ledger.Entries[0].FindingID,
+			AssessmentSHA256:     regressionAssessment,
+			AssessmentSource:     PrivateFindingAcceptanceSourceSyntheticRoot,
+			PromptContractSHA256: strings.Repeat("6", 64),
+		}},
+	}
+	writePrivateFindingLedgerV2(t, fixture.root, ledger)
+	writePrivateFindingAcceptanceV2(t, fixture.root, acceptance)
+
+	report, err := buildPrivateFindingScorecard(
+		PrivateFindingScorecardOptions{Root: fixture.root, RepositoryRoot: fixture.repository},
+		fixture.dependencies().load,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Findings != 1 || report.Regressions != 1 || len(report.Groups) != 1 ||
+		report.Groups[0].Regression.Observed != 1 || report.Groups[0].Regression.Statuses.Pass != 1 ||
+		report.Groups[0].Sampling.Primary.Observed != 3 ||
+		report.Groups[0].Sampling.Holdout.Observed != 1 {
+		t.Fatalf("report=%+v", report)
+	}
+}
+
 func TestPrivateFindingScorecardAcceptsPrivateLiveLedgerV2(t *testing.T) {
 	fixture := newPrivateFindingFixture(t)
 	planID := "pln-11111111111111111111111111111111"
@@ -325,6 +406,43 @@ func TestPrivateFindingSyntheticSkillTransitionFailsClosed(t *testing.T) {
 		failure, malformed, []PrivateFindingContractTransition{execution, skill},
 	) {
 		t.Fatal("malformed runtime skill digest accepted")
+	}
+}
+
+func TestPrivateFindingSyntheticRegressionMatchFailsClosed(t *testing.T) {
+	failure := privateSyntheticSamplingCohort{
+		ScenarioID: "jira.holdout-evidence", TaskClass: "jira/evidence",
+		DataClass: "synthetic", Category: BenchmarkCategoryRouteFixed,
+		Variant: "summary-v1", Surface: SurfaceCLISkill,
+		Runtime: Runtime{
+			Provider: "codex", AgentVersion: "agent-v1", Model: "model-v1",
+			Reasoning: "high", ATLVersion: "atl-v1", PluginVersion: "plugin-v1",
+			SkillDigest: "sha256:" + strings.Repeat("1", 64), SkillActivation: "exact",
+			PromptContractSHA256: strings.Repeat("2", 64),
+		},
+		TaskContractSHA256: strings.Repeat("3", 64), ExecutionContractSHA256: strings.Repeat("4", 64),
+		AgentExecutableSHA256: strings.Repeat("5", 64), ATLExecutableSHA256: strings.Repeat("6", 64),
+		WrapperExecutableSHA256: strings.Repeat("7", 64),
+	}
+	fixed := failure
+	assessment := privateSyntheticSamplingAssessment{
+		Primary: privateSyntheticSamplingBinding{Cohort: fixed, Observations: 3},
+		Holdout: []privateSyntheticSamplingBinding{{Cohort: fixed, Observations: 1}},
+	}
+	primary := []Result{{Status: "pass"}, {Status: "pass"}, {Status: "pass"}}
+	holdout := []Result{{Status: "pass"}}
+	if _, ok := matchPrivateSyntheticFindingRegression(failure, assessment, primary, holdout, nil); ok {
+		t.Fatal("ambiguous primary and holdout match accepted")
+	}
+	assessment.Primary.Cohort.ScenarioID = "jira.primary-evidence"
+	assessment.Holdout[0].Cohort.ScenarioID = "jira.other-holdout"
+	if _, ok := matchPrivateSyntheticFindingRegression(failure, assessment, primary, holdout, nil); ok {
+		t.Fatal("missing compatible cohort accepted")
+	}
+	assessment.Holdout[0].Cohort = fixed
+	assessment.Holdout[0].Observations = 2
+	if _, ok := matchPrivateSyntheticFindingRegression(failure, assessment, primary, holdout, nil); ok {
+		t.Fatal("inconsistent holdout observation count accepted")
 	}
 }
 

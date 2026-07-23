@@ -1071,6 +1071,14 @@ task- and execution-contract transitions. An ATL runtime-version change
 requires an ATL-executable transition. Runner executable drift requires its
 own transition; it is never inferred from an ATL or task change.
 
+The failed calibration may match either the regression primary or one
+regression holdout, but the match must be unique and satisfy the same exact
+identity and transition rules. The scorecard reports only that matched cohort
+as the finding's regression result; its sampling section still reports the
+full three-run primary and distinct holdout acceptance gate. Zero or multiple
+compatible cohorts fail closed, so this does not permit favorable-result
+selection or weaken the regression tier.
+
 The fixed acceptance entry must select `synthetic-root`, name exactly the
 ledger's regression assessment, and bind its primary prompt-contract digest.
 Scorecard construction reopens every assessment and receipt-backed root,

@@ -396,12 +396,16 @@ func resolvePrivateSyntheticFinding(root string, entry privateFindingLedgerEntry
 		return privateFindingResolved{}, privateFindingError("regression_assessment")
 	}
 	if !disjointPrivateSyntheticAssessments(failureAssessment, regressionAssessment) ||
-		!compatiblePrivateSyntheticFindingTransition(
-			failureAssessment.Primary.Cohort, regressionAssessment.Primary.Cohort, entry.ChangedContracts,
-		) {
+		len(primary) != regressionAssessment.Primary.Observations {
 		return privateFindingResolved{}, privateFindingError("regression_incompatible")
 	}
-	item.regressions = primary
+	matchedRegression, matched := matchPrivateSyntheticFindingRegression(
+		failureAssessment.Primary.Cohort, regressionAssessment, primary, holdout, entry.ChangedContracts,
+	)
+	if !matched {
+		return privateFindingResolved{}, privateFindingError("regression_incompatible")
+	}
+	item.regressions = matchedRegression
 	item.samplingPrimary, item.samplingHoldout = primary, holdout
 	item.digests = append(item.digests, entry.Regression.AssessmentSHA256)
 	item.synthetic = append(item.synthetic, privateSyntheticFindingSnapshot{
@@ -419,6 +423,44 @@ func resolvePrivateSyntheticFinding(root string, entry privateFindingLedgerEntry
 	}
 	item.digests = append(item.digests, binding.AssessmentSHA256)
 	return item, nil
+}
+
+func matchPrivateSyntheticFindingRegression(
+	failure privateSyntheticSamplingCohort,
+	assessment privateSyntheticSamplingAssessment,
+	primary, holdout []Result,
+	transitions []PrivateFindingContractTransition,
+) ([]Result, bool) {
+	type candidate struct {
+		cohort  privateSyntheticSamplingCohort
+		results []Result
+	}
+	candidates := []candidate{{cohort: assessment.Primary.Cohort, results: primary}}
+	offset := 0
+	for _, binding := range assessment.Holdout {
+		if binding.Observations <= 0 || offset+binding.Observations > len(holdout) {
+			return nil, false
+		}
+		candidates = append(candidates, candidate{
+			cohort:  binding.Cohort,
+			results: holdout[offset : offset+binding.Observations],
+		})
+		offset += binding.Observations
+	}
+	if offset != len(holdout) {
+		return nil, false
+	}
+	var matched []Result
+	for _, candidate := range candidates {
+		if !compatiblePrivateSyntheticFindingTransition(failure, candidate.cohort, transitions) {
+			continue
+		}
+		if matched != nil || len(candidate.results) == 0 {
+			return nil, false
+		}
+		matched = candidate.results
+	}
+	return matched, matched != nil
 }
 
 func compatiblePrivateSyntheticFindingTransition(
