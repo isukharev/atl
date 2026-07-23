@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The owner-private finding scorecard now accepts an explicitly typed
+  schema-v2 acceptance index. A receipt-backed synthetic n=3-plus-holdout
+  assessment may supplement a mandatory compatible private-live regression,
+  while the canonical failure, regression plan contract, and finding decision
+  remain unchanged. Scorecard schema advances to v3; legacy schema-v1
+  private-live acceptance indexes remain supported.
+
 - Owner-private sampling can now assess current attested synthetic runner roots
   without inventing private plan identities. Schema-v2 specs bind complete
   single-cohort roots by source digest, enforce n=1 calibration, n=3 plus a

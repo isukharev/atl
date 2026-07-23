@@ -1020,20 +1020,37 @@ acceptance index, assessments, and effective immutable results without exposing
 those references. Task classes must belong to the closed public benchmark
 taxonomy; a private custom identifier is rejected instead of echoed.
 
-A `fixed` ledger entry requires a canonical owner-only
-`reports/finding-acceptance.v1.json` index following the public
+A `fixed` ledger entry requires one canonical owner-only acceptance index.
+The legacy private-live-only form is
+`reports/finding-acceptance.v1.json`, following the public
 [schema](../benchmarks/agent-eval/private-finding-acceptance.schema.json) and
 [synthetic example](../benchmarks/agent-eval/private-finding-acceptance.example.json).
+The typed-source form is `reports/finding-acceptance.v2.json`, following its
+[schema](../benchmarks/agent-eval/private-finding-acceptance-v2.schema.json)
+and [example](../benchmarks/agent-eval/private-finding-acceptance-v2.example.json).
+V2 entries declare either `private-live` or `synthetic-root`; keeping both
+index versions is ambiguous and rejected.
 The index entries are strictly sorted by `finding_id` and map every fixed
 finding exactly once to a distinct stored sampling assessment digest. Dangling
 mappings, reuse across findings, mappings for
 non-fixed findings, and missing mappings are rejected. Scorecard generation
-reopens the assessment and every exact baseline, reconstructs its canonical
-bytes, requires an accepted `regression` tier, verifies that the ledger's
-singleton regression belongs to the three-primary cohort, and binds all three
-primary observations to `changed_contract_sha256`. A legacy fixed entry backed
-only by one successful regression therefore fails closed; non-fixed ledgers do
-not require an index.
+reopens the selected assessment and every exact evidence source, reconstructs
+its canonical bytes, and requires an accepted `regression` tier with three
+primary observations and at least one distinct holdout. Private-live sampling
+still requires the ledger's singleton regression to belong to the primary
+cohort and binds all three primary plan contracts to
+`changed_contract_sha256`.
+
+Synthetic-root sampling supplements rather than replaces that canonical
+private-live regression. Its primary must match the regression's scenario,
+public task class, category, variant, surface, provider, agent/model/reasoning,
+ATL runtime, and plugin/skill identity; a bound private-live prompt contract
+must also match. Exact receipt-backed executable identities remain inside the
+assessment. `changed_contract_sha256` continues to identify the private-live
+regression plan contract: a synthetic task digest is never substituted for
+that change identity. A fixed entry backed only by one successful regression
+therefore fails closed, and a synthetic assessment cannot create a
+synthetic-only fixed finding. Non-fixed ledgers do not require an index.
 
 ## Sampling evidence and holdouts
 
@@ -1081,7 +1098,7 @@ at least ten primary runs plus a distinct holdout. Provider, model, reasoning,
 ATL, plugin, skill, surface, execution variant, and exact executable identities
 must remain compatible; historical result-only roots, multi-cohort roots, and
 changed or partial roots fail closed. A `.v1.json` and `.v2.json` with the same
-alias are ambiguous and rejected. This extends sampling evidence only: it does
+alias are ambiguous and rejected. This extends sampling evidence only and does
 not create a second finding ledger or automatically accept a fixed finding.
 
 Preview the assessment offline:
@@ -1116,11 +1133,12 @@ The owner-only artifact is stored at
 `reports/sampling/<assessment-sha256>.json`; identical application is
 idempotent, and existing files are never overwritten. The artifact retains
 private exact references for later finding-ledger binding, but the command
-summary does not emit them. Schema-v1 private-live assessments may be linked to
-a fixed finding by adding its finding id and the reviewed assessment digest to
-`reports/finding-acceptance.v1.json`; until that link exists, the ledger's
-singleton regression field remains historical evidence rather than an n=3
-claim. Schema-v2 synthetic-root assessments are not accepted by that index yet.
+summary does not emit them. Link a private-live assessment with the legacy
+acceptance index or an explicitly typed v2 entry. Link a synthetic-root
+assessment only through a v2 `synthetic-root` entry and only alongside the
+compatible mandatory private-live regression described above. Until that link
+exists, the ledger's singleton regression field remains historical evidence
+rather than an n=3 claim.
 `regression_accepted` is an all-pass regression gate, not a statistical
 significance or comparative-reliability claim.
 
@@ -1158,9 +1176,10 @@ private operating state, not a publishable benchmark result.
 
 Current manifests use schema v4, run specs use schema v7, observations use
 schema v5, results use schema v8, aggregates use schema v6, private plans use
-schema v8, scorecards use schema v2, finding ledgers, finding-acceptance
+schema v8, scorecards use schema v3, finding ledgers, legacy finding-acceptance
 indexes, private-live sampling specs/assessments, and daily checkpoints use
-schema v1, attested synthetic-root sampling specs/assessments use schema v2,
+schema v1, typed-source finding-acceptance indexes and attested synthetic-root
+sampling specs/assessments use schema v2,
 synthetic run receipts use schema v1 and complete synthetic-root aggregates use
 schema v2,
 current activation state uses schema v3, and

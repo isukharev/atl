@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/isukharev/atl/benchmarks/agent-eval/private-finding-acceptance-v2.schema.json",
+  "title": "ATL private finding acceptance index with typed assessment sources",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "entries"],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "entries": {
+      "type": "array",
+      "description": "Entries must be strictly sorted by finding_id; each finding and assessment digest may appear only once.",
+      "minItems": 1,
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["finding_id", "assessment_sha256", "assessment_source"],
+      "properties": {
+        "finding_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+        },
+        "assessment_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "assessment_source": {
+          "enum": ["private-live", "synthetic-root"]
+        }
+      }
+    }
+  }
+}
