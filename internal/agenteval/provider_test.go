@@ -850,8 +850,10 @@ func TestProviderCapabilitySequencePreservesEventOrder(t *testing.T) {
 		"confluence_page_outline",
 		"confluence_page_section",
 	} {
+		id := "mcp-" + strconv.Itoa(index+1)
 		codexLines = append(codexLines,
-			`{"type":"item.completed","item":{"id":"mcp-`+strconv.Itoa(index+1)+`","type":"mcp_tool_call","server":"atl","tool":"`+tool+`","status":"completed","result":{}}}`,
+			`{"type":"item.started","item":{"id":"`+id+`","type":"mcp_tool_call","server":"atl","tool":"`+tool+`"}}`,
+			`{"type":"item.completed","item":{"id":"`+id+`","type":"mcp_tool_call","server":"atl","tool":"`+tool+`","status":"completed","result":{}}}`,
 		)
 	}
 	codex, _, err := ParseProviderOutput(
@@ -909,11 +911,17 @@ func TestProviderCapabilityCoverageFailsClosedOnIncompleteEvents(t *testing.T) {
 	}
 
 	codexCases := map[string]string{
-		"missing id":     `{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{}}}`,
-		"missing result": `{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed"}}`,
-		"missing status": `{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","result":{}}}`,
-		"unknown status": `{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"unknown","result":{}}}`,
-		"wrong server":   `{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"other","tool":"jira_fields","status":"completed","result":{}}}`,
+		"missing id":           `{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{}}}`,
+		"missing result":       `{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed"}}`,
+		"missing status":       `{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","result":{}}}`,
+		"unknown status":       `{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"unknown","result":{}}}`,
+		"wrong server":         `{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"other","tool":"jira_fields","status":"completed","result":{}}}`,
+		"unmatched start":      `{"type":"item.started","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields"}}`,
+		"update without start": `{"type":"item.updated","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields"}}`,
+		"mismatched completion": strings.Join([]string{
+			`{"type":"item.started","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields"}}`,
+			`{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_issue_search","status":"completed","result":{}}}`,
+		}, "\n"),
 	}
 	for name, transcript := range codexCases {
 		t.Run("Codex "+name, func(t *testing.T) {
