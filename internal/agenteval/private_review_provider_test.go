@@ -87,6 +87,92 @@ func TestPrivateReviewProxyStripsCodexAndClaudeTools(t *testing.T) {
 	}
 }
 
+func TestPrivateReviewProxyAcceptsOneExactClaudeAuxiliaryProbe(t *testing.T) {
+	for _, path := range []string{"/", "/api/hello"} {
+		t.Run(path, func(t *testing.T) {
+			var upstreamCalls atomic.Int64
+			upstream := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				upstreamCalls.Add(1)
+			}))
+			defer upstream.Close()
+			proxy, listener, server, err := startPrivateReviewProxy("claude-code", "review-model", "high", upstream.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			defer server.Close()
+
+			request, _ := http.NewRequest(http.MethodHead, "http://"+listener.Addr().String()+path, nil)
+			response, err := http.DefaultClient.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = response.Body.Close()
+			observation := proxy.Observation()
+			if response.StatusCode != http.StatusOK || upstreamCalls.Load() != 0 ||
+				observation.AuxiliaryRequests != 1 || observation.Unexpected {
+				t.Fatalf("status=%d calls=%d observation=%+v", response.StatusCode, upstreamCalls.Load(), observation)
+			}
+
+			response, err = http.DefaultClient.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = response.Body.Close()
+			observation = proxy.Observation()
+			if response.StatusCode != http.StatusBadRequest || upstreamCalls.Load() != 0 ||
+				observation.AuxiliaryRequests != 1 || !observation.Unexpected {
+				t.Fatalf("repeat status=%d calls=%d observation=%+v", response.StatusCode, upstreamCalls.Load(), observation)
+			}
+		})
+	}
+}
+
+func TestPrivateReviewProxyRejectsClaudeAuxiliaryProbeNearMisses(t *testing.T) {
+	tests := []struct {
+		name, provider, method, path string
+		body                         io.Reader
+		contentLength                int64
+	}{
+		{name: "provider", provider: "codex", method: http.MethodHead, path: "/api/hello"},
+		{name: "method", provider: "claude-code", method: http.MethodGet, path: "/api/hello"},
+		{name: "path", provider: "claude-code", method: http.MethodHead, path: "/api/hello/"},
+		{name: "encoded path", provider: "claude-code", method: http.MethodHead, path: "/api/%68ello"},
+		{name: "query", provider: "claude-code", method: http.MethodHead, path: "/api/hello?capabilities=1"},
+		{name: "empty query", provider: "claude-code", method: http.MethodHead, path: "/api/hello?"},
+		{name: "body", provider: "claude-code", method: http.MethodHead, path: "/api/hello",
+			body: strings.NewReader("unexpected"), contentLength: 10},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var upstreamCalls atomic.Int64
+			upstream := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				upstreamCalls.Add(1)
+			}))
+			defer upstream.Close()
+			proxy, listener, server, err := startPrivateReviewProxy(test.provider, "review-model", "high", upstream.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			defer server.Close()
+
+			request, _ := http.NewRequest(test.method, "http://"+listener.Addr().String()+test.path, test.body)
+			request.ContentLength = test.contentLength
+			response, err := http.DefaultClient.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = response.Body.Close()
+			observation := proxy.Observation()
+			if response.StatusCode != http.StatusBadRequest || upstreamCalls.Load() != 0 ||
+				observation.AuxiliaryRequests != 0 || !observation.Unexpected {
+				t.Fatalf("status=%d calls=%d observation=%+v", response.StatusCode, upstreamCalls.Load(), observation)
+			}
+		})
+	}
+}
+
 func TestPrivateReviewProxyRejectsToolOutputAndSecondRequest(t *testing.T) {
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\"}}\n\n")
