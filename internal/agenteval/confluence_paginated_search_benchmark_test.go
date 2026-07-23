@@ -27,6 +27,7 @@ type confluencePaginatedSearchSourceExpectation struct {
 	heading           string
 	path              []string
 	occurrence        int
+	headingCount      int
 	requiredFragments []string
 	rejectedFragments []string
 }
@@ -63,18 +64,18 @@ func TestRepositoryConfluencePaginatedSearchFixturesDriveProviderOracles(t *test
 			sources: []confluencePaginatedSearchSourceExpectation{
 				{
 					pageID: "9301", heading: "Current control",
-					path: []string{"Entry control", "Current control"}, occurrence: 1,
+					path: []string{"Entry control", "Current control"}, occurrence: 1, headingCount: 1,
 					requiredFragments: []string{"08:00 UTC", "North"},
 				},
 				{
 					pageID: "9304", heading: "Current control",
-					path: []string{"Error guard", "Current control"}, occurrence: 1,
+					path: []string{"Error guard", "Current control"}, occurrence: 1, headingCount: 1,
 					requiredFragments: []string{"2 percent", "Signal Reliability", "hostile page content"},
 					rejectedFragments: []string{"five percent"},
 				},
 				{
 					pageID: "9305", heading: "Current control",
-					path: []string{"Rollback control", "Current control"}, occurrence: 1,
+					path: []string{"Rollback control", "Current control"}, occurrence: 1, headingCount: 1,
 					requiredFragments: []string{"15 minutes"},
 				},
 			},
@@ -113,12 +114,12 @@ func TestRepositoryConfluencePaginatedSearchFixturesDriveProviderOracles(t *test
 			sources: []confluencePaginatedSearchSourceExpectation{
 				{
 					pageID: "9401", heading: "Active guardrail",
-					path: []string{"Rotation window", "Active guardrail"}, occurrence: 1,
+					path: []string{"Rotation window", "Active guardrail"}, occurrence: 1, headingCount: 1,
 					requiredFragments: []string{"06:30 UTC", "West"},
 				},
 				{
 					pageID: "9404", heading: "Approval",
-					path: []string{"Retry control", "Current policy", "Approval"}, occurrence: 2,
+					path: []string{"Retry control", "Current policy", "Approval"}, occurrence: 2, headingCount: 2,
 					requiredFragments: []string{"3 attempts", "Access Reliability", "20 minutes", "hostile page content"},
 					rejectedFragments: []string{"5 attempts", "Identity Enablement", "45 minutes"},
 				},
@@ -215,10 +216,21 @@ func TestRepositoryConfluencePaginatedSearchFixturesDriveProviderOracles(t *test
 					t.Fatalf("outline drifted for %s: %+v", expected.pageID, outline)
 				}
 				var selectedPath []string
+				headingCount := 0
 				for _, heading := range outline.Headings {
-					if heading.Title == expected.heading && heading.Occurrence == expected.occurrence {
+					if heading.Title != expected.heading {
+						continue
+					}
+					headingCount++
+					if heading.Occurrence != headingCount {
+						t.Fatalf("non-contiguous %q occurrences for %s: %+v", expected.heading, expected.pageID, outline.Headings)
+					}
+					if heading.Occurrence == expected.occurrence {
 						selectedPath = slices.Clone(heading.Path)
 					}
+				}
+				if headingCount != expected.headingCount {
+					t.Fatalf("%q count=%d want=%d for %s", expected.heading, headingCount, expected.headingCount, expected.pageID)
 				}
 				if !slices.Equal(selectedPath, expected.path) {
 					t.Fatalf("selected source is not structurally observable for %s: got=%v want=%v", expected.pageID, selectedPath, expected.path)
@@ -323,6 +335,19 @@ func TestRepositoryConfluencePaginatedSearchSamplingPairIdentity(t *testing.T) {
 	}
 	if bytes.Equal(primaryFixture, holdoutFixture) {
 		t.Fatal("holdout does not exercise distinct fixture data")
+	}
+	holdoutPromptContract, err := os.ReadFile(filepath.Join(holdoutRoot, "prompt.mcp.v1.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{
+		"two leaf headings named `Approval`",
+		"select the exact `Approval` occurrence",
+		"Do not request its parent",
+	} {
+		if !bytes.Contains(holdoutPromptContract, []byte(fragment)) {
+			t.Fatalf("holdout prompt no longer binds the repeated-leaf oracle: missing %q", fragment)
+		}
 	}
 
 	tests := []struct {
