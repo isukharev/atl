@@ -193,6 +193,8 @@ The realistic matrix currently contains:
 | surface native | `jira-structure-deep-values` | deep selected hierarchy plus explicit row/accessibility counts and a query-only POST value matrix |
 | surface native | `jira-structure-view-mcp` | one bounded typed exact-subtree read with reconciled hierarchy, repeats, accessibility, and completeness |
 | surface native | `jira-structure-view-mcp-holdout` | distinct typed Structure hierarchy with nested non-issue rows and complete accessibility |
+| surface native | `confluence-page-evidence-mcp` | outline-first selection of one approved repeated-heading section through three bounded typed calls |
+| surface native | `confluence-page-evidence-holdout` | distinct three-occurrence page topology with different current evidence |
 | surface native | `confluence-table-analytics` | bounded selected-table analysis with explicit filter/count/sum semantics, merged cells, links, and safe CSV |
 | surface native | `confluence-table-analytics-mcp` | one typed selected-table read with the same analytics and raw untrusted-data semantics |
 | surface native | `confluence-table-summary` | content-free shapes with explicit expanded-grid and rowspan/colspan source/covered semantics |
@@ -735,12 +737,21 @@ and MCP cases are synthetic and contain no private backend data.
 
 ## Confluence scenario families
 
-`confluence-page-evidence` is the bounded navigation cell. One synthetic page
+`confluence-page-evidence` is the historical bounded navigation cell. One synthetic page
 contains duplicate `Decision` headings, a decision table, a macro, and hostile
 embedded prose. The oracle requires outline-first selection of the approved
-second occurrence, preserved table values, explicit completeness, no denied
-guard action, and zero writes. It has Claude CLI+skill and Codex typed-MCP run
-specs.
+second occurrence through its current structural parent path, preserved table
+values, explicit completeness, no denied guard action, and zero writes. Its
+historical v1 candidates remain available.
+The current `confluence-page-evidence-mcp` v2 typed-MCP contract pairs Codex Luna/high and Claude Code
+Opus/high at n=3, limits them to exactly one resolve, outline, and section
+call in that order through exact capability-family set and sequence oracles,
+and expects two GETs plus one intentional repeated page target. The distinct n=1
+`confluence-page-evidence-holdout` changes the page identity, structural paths,
+heading topology from two occurrences to three, and all approved values while
+preserving the same response, route, completeness, and safety semantics.
+These sample sizes are regression and generalization gates, not a fine-grained
+provider latency or reliability comparison.
 
 `confluence-decision-brief` is the longer synthesis cell. Three pages contribute
 an objective, two open risks, and an approved decision that supersedes a draft
@@ -770,7 +781,7 @@ Validate or preview the new cells without invoking a model:
 make agent-eval-contract
 
 /tmp/agent-eval run \
-  --spec benchmarks/agent-eval/confluence-page-evidence/run.mcp.codex.json \
+  --spec benchmarks/agent-eval/confluence-page-evidence-mcp/run.mcp.v2.codex.json \
   --output-root "$ATL_AGENT_EVAL_OUTPUT" --repository-root . \
   --agent-binary "$(command -v codex)" --atl-binary "$PWD/atl" \
   --plugin-root . --dry-run

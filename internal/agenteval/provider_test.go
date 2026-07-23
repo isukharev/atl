@@ -799,21 +799,206 @@ func TestParseProviderOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.AgentTurns != 2 || metrics.ToolCalls != 3 || metrics.SkillToolCalls != 1 || metrics.SkillToolCallsByName["atl:jira"] != 1 || metrics.Delegations != 1 || metrics.MCPToolCalls != 1 || metrics.FailedMCPToolCalls != 0 || metrics.MCPToolOutputBytes != 7 || !metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 1 || metrics.CapabilityFamilies[0].Family != "jira.fields" || metrics.CapabilityFamilies[0].OutputBytes != 7 || !metrics.Coverage["delegations"] || metrics.MainThreadInputTokens != 120 || metrics.MainThreadOutputTokens != 30 || metrics.InputTokens != 80 || metrics.OutputTokens != 18 || metrics.EstimatedCostMicroUSD != 250_000 || string(final) != `{"answer":"ok"}` {
+	if metrics.AgentTurns != 2 || metrics.ToolCalls != 3 || metrics.SkillToolCalls != 1 || metrics.SkillToolCallsByName["atl:jira"] != 1 || metrics.Delegations != 1 || metrics.MCPToolCalls != 1 || metrics.FailedMCPToolCalls != 0 || metrics.MCPToolOutputBytes != 7 || !metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 1 || metrics.CapabilityFamilies[0].Family != "jira.fields" || metrics.CapabilityFamilies[0].OutputBytes != 7 || !slices.Equal(metrics.CapabilityFamilySequence, []string{"jira.fields"}) || !metrics.Coverage["delegations"] || metrics.MainThreadInputTokens != 120 || metrics.MainThreadOutputTokens != 30 || metrics.InputTokens != 80 || metrics.OutputTokens != 18 || metrics.EstimatedCostMicroUSD != 250_000 || string(final) != `{"answer":"ok"}` {
 		t.Fatalf("metrics=%+v final=%s", metrics, final)
 	}
 	codex := strings.Join([]string{
 		`{"type":"item.completed","item":{"type":"error","message":"reviewed invocation warning"}}`,
 		`{"type":"item.completed","item":{"type":"command_execution"}}`,
-		`{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}`,
+		`{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}`,
 		`{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":25,"output_tokens":30}}`,
 	}, "\n")
 	metrics, final, err = ParseProviderOutput("codex", []byte(codex), []byte(`{"answer":"ok"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.AgentTurns != 1 || metrics.ToolCalls != 2 || metrics.MCPToolCalls != 1 || metrics.MCPToolOutputBytes == 0 || !metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 1 || metrics.CapabilityFamilies[0].Family != "jira.fields" || metrics.InputTokens != 100 || metrics.MainThreadInputTokens != 100 || metrics.OutputTokens != 30 || metrics.MainThreadOutputTokens != 30 || string(final) != `{"answer":"ok"}` {
+	if metrics.AgentTurns != 1 || metrics.ToolCalls != 2 || metrics.MCPToolCalls != 1 || metrics.MCPToolOutputBytes == 0 || !metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 1 || metrics.CapabilityFamilies[0].Family != "jira.fields" || !slices.Equal(metrics.CapabilityFamilySequence, []string{"jira.fields"}) || metrics.InputTokens != 100 || metrics.MainThreadInputTokens != 100 || metrics.OutputTokens != 30 || metrics.MainThreadOutputTokens != 30 || string(final) != `{"answer":"ok"}` {
 		t.Fatalf("metrics=%+v final=%s", metrics, final)
+	}
+}
+
+func TestProviderCapabilitySequencePreservesEventOrder(t *testing.T) {
+	want := []string{
+		"confluence.page.resolve",
+		"confluence.page.outline",
+		"confluence.page.section",
+	}
+	claudeLines := make([]string, 0, len(want)*2+1)
+	for index, tool := range []string{
+		"confluence_page_resolve",
+		"confluence_page_outline",
+		"confluence_page_section",
+	} {
+		id := "mcp-" + strconv.Itoa(index+1)
+		claudeLines = append(claudeLines,
+			`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"`+id+`","name":"mcp__atl__`+tool+`"}]}}`,
+			`{"type":"user","tool_use_result":{"content":[]},"message":{"content":[{"type":"tool_result","tool_use_id":"`+id+`","is_error":false,"content":"{}"}]}}`,
+		)
+	}
+	claudeLines = append(claudeLines, `{"type":"result","structured_output":{"answer":"ok"}}`)
+	claude, _, err := ParseProviderOutput("claude-code", []byte(strings.Join(claudeLines, "\n")), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !claude.CapabilityFamilyCoverage || !slices.Equal(claude.CapabilityFamilySequence, want) {
+		t.Fatalf("Claude capability sequence=%v coverage=%v", claude.CapabilityFamilySequence, claude.CapabilityFamilyCoverage)
+	}
+
+	codexLines := []string{}
+	for index, tool := range []string{
+		"confluence_page_resolve",
+		"confluence_page_outline",
+		"confluence_page_section",
+	} {
+		id := "mcp-" + strconv.Itoa(index+1)
+		codexLines = append(codexLines,
+			`{"type":"item.started","item":{"id":"`+id+`","type":"mcp_tool_call","server":"atl","tool":"`+tool+`"}}`,
+			`{"type":"item.completed","item":{"id":"`+id+`","type":"mcp_tool_call","server":"atl","tool":"`+tool+`","status":"completed","result":{}}}`,
+		)
+	}
+	codex, _, err := ParseProviderOutput(
+		"codex", []byte(strings.Join(codexLines, "\n")), []byte(`{"answer":"ok"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !codex.CapabilityFamilyCoverage || !slices.Equal(codex.CapabilityFamilySequence, want) {
+		t.Fatalf("Codex capability sequence=%v coverage=%v", codex.CapabilityFamilySequence, codex.CapabilityFamilyCoverage)
+	}
+
+	codexStartedOrder := []string{
+		"confluence_page_section",
+		"confluence_page_outline",
+		"confluence_page_resolve",
+	}
+	codexCompletionOrder := []string{
+		"confluence_page_resolve",
+		"confluence_page_outline",
+		"confluence_page_section",
+	}
+	codexLines = nil
+	for _, tool := range codexStartedOrder {
+		codexLines = append(codexLines,
+			`{"type":"item.started","item":{"id":"`+tool+`","type":"mcp_tool_call","server":"atl","tool":"`+tool+`"}}`,
+		)
+	}
+	for _, tool := range codexCompletionOrder {
+		codexLines = append(codexLines,
+			`{"type":"item.completed","item":{"id":"`+tool+`","type":"mcp_tool_call","server":"atl","tool":"`+tool+`","status":"completed","result":{}}}`,
+		)
+	}
+	codex, _, err = ParseProviderOutput(
+		"codex", []byte(strings.Join(codexLines, "\n")), []byte(`{"answer":"ok"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStartedOrder := []string{
+		"confluence.page.section",
+		"confluence.page.outline",
+		"confluence.page.resolve",
+	}
+	if !codex.CapabilityFamilyCoverage || !slices.Equal(codex.CapabilityFamilySequence, wantStartedOrder) {
+		t.Fatalf("Codex start-order capability sequence=%v coverage=%v", codex.CapabilityFamilySequence, codex.CapabilityFamilyCoverage)
+	}
+}
+
+func TestProviderCapabilityCoverageFailsClosedOnIncompleteEvents(t *testing.T) {
+	claudeCases := map[string]string{
+		"missing result": strings.Join([]string{
+			`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}`,
+			`{"type":"result","structured_output":{"answer":"ok"}}`,
+		}, "\n"),
+		"missing id": strings.Join([]string{
+			`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__atl__jira_fields"}]}}`,
+			`{"type":"result","structured_output":{"answer":"ok"}}`,
+		}, "\n"),
+		"duplicate id": strings.Join([]string{
+			`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}`,
+			`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_issue_search"}]}}`,
+			`{"type":"user","tool_use_result":{"content":[]},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","is_error":false,"content":"{}"}]}}`,
+			`{"type":"result","structured_output":{"answer":"ok"}}`,
+		}, "\n"),
+		"unknown result id": strings.Join([]string{
+			`{"type":"user","tool_use_result":{"content":[]},"message":{"content":[{"type":"tool_result","tool_use_id":"unknown","is_error":false,"content":"{}"}]}}`,
+			`{"type":"result","structured_output":{"answer":"ok"}}`,
+		}, "\n"),
+		"missing result status": strings.Join([]string{
+			`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}`,
+			`{"type":"user","tool_use_result":{"content":[]},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","content":"{}"}]}}`,
+			`{"type":"result","structured_output":{"answer":"ok"}}`,
+		}, "\n"),
+		"non-boolean result status": strings.Join([]string{
+			`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}`,
+			`{"type":"user","tool_use_result":{"content":[]},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","is_error":"false","content":"{}"}]}}`,
+			`{"type":"result","structured_output":{"answer":"ok"}}`,
+		}, "\n"),
+	}
+	for name, transcript := range claudeCases {
+		t.Run("Claude "+name, func(t *testing.T) {
+			metrics, _, err := ParseProviderOutput("claude-code", []byte(transcript), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if metrics.CapabilityFamilyCoverage {
+				t.Fatalf("incomplete Claude capability telemetry passed: %+v", metrics)
+			}
+		})
+	}
+
+	codexCases := map[string]string{
+		"missing id":           `{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{}}}`,
+		"missing result":       `{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed"}}`,
+		"missing status":       `{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","result":{}}}`,
+		"unknown status":       `{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"unknown","result":{}}}`,
+		"wrong server":         `{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"other","tool":"jira_fields","status":"completed","result":{}}}`,
+		"unmatched start":      `{"type":"item.started","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields"}}`,
+		"update without start": `{"type":"item.updated","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields"}}`,
+		"unknown lifecycle":    `{"type":"item.failed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields"}}`,
+		"mismatched completion": strings.Join([]string{
+			`{"type":"item.started","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields"}}`,
+			`{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_issue_search","status":"completed","result":{}}}`,
+		}, "\n"),
+	}
+	for name, transcript := range codexCases {
+		t.Run("Codex "+name, func(t *testing.T) {
+			metrics, _, err := ParseProviderOutput("codex", []byte(transcript), []byte(`{"answer":"ok"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 0 {
+				t.Fatalf("incomplete Codex capability telemetry passed: %+v", metrics)
+			}
+		})
+	}
+
+	duplicateCodexID := strings.Join([]string{
+		`{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{}}}`,
+		`{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{}}}`,
+	}, "\n")
+	metrics, _, err := ParseProviderOutput("codex", []byte(duplicateCodexID), []byte(`{"answer":"ok"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.CapabilityFamilyCoverage {
+		t.Fatalf("duplicate Codex capability id passed: %+v", metrics)
+	}
+}
+
+func TestClaudeNonMCPResultsDoNotInvalidateCapabilityTelemetry(t *testing.T) {
+	transcript := strings.Join([]string{
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"skill-1","name":"Skill","input":{"skill":"atl:jira"}}]}}`,
+		`{"type":"user","tool_use_result":{"content":[]},"message":{"content":[{"type":"tool_result","tool_use_id":"skill-1","is_error":false,"content":"loaded"}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}`,
+		`{"type":"user","tool_use_result":{"content":[]},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","is_error":false,"content":"{}"}]}}`,
+		`{"type":"result","structured_output":{"answer":"ok"}}`,
+	}, "\n")
+	metrics, _, err := ParseProviderOutput("claude-code", []byte(transcript), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !metrics.CapabilityFamilyCoverage || len(metrics.CapabilityFamilies) != 1 || metrics.CapabilityFamilies[0].Family != "jira.fields" {
+		t.Fatalf("known non-MCP result changed capability coverage: %+v", metrics)
 	}
 }
 
@@ -831,7 +1016,7 @@ func TestClaudeClientSideMissingToolIsNotCountedAsATLInvocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.ToolCalls != 3 || metrics.MCPToolCalls != 2 || metrics.FailedMCPToolCalls != 2 || metrics.MCPToolOutputBytes != int64(len("server error")+len("classified server error")) {
+	if metrics.ToolCalls != 3 || metrics.MCPToolCalls != 2 || metrics.FailedMCPToolCalls != 2 || metrics.MCPToolOutputBytes != int64(len("server error")+len("classified server error")) || metrics.CapabilityFamilyCoverage {
 		t.Fatalf("metrics=%+v", metrics)
 	}
 }
@@ -867,7 +1052,7 @@ func TestClaudeUnknownMCPResultShapeFailsClosed(t *testing.T) {
 
 func TestUnknownMCPToolSuppressesCapabilityAttribution(t *testing.T) {
 	transcript := strings.Join([]string{
-		`{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"synthetic_sensitive_lookup","status":"completed","result":{"value":"SYNTHETIC-SENSITIVE-123"}}}`,
+		`{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"synthetic_sensitive_lookup","status":"completed","result":{"value":"SYNTHETIC-SENSITIVE-123"}}}`,
 		`{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}`,
 	}, "\n")
 	metrics, _, err := ParseProviderOutput("codex", []byte(transcript), []byte(`{"answer":"ok"}`))

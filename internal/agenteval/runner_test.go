@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -101,12 +102,21 @@ if [ "$1" = "-p" ]; then
     fi
   done
   if [ "$mcp" = "1" ]; then
+    missing_telemetry=0
+    for arg in "$@"; do
+      if [ "$arg" = "claude-test-missing-telemetry" ]; then
+        missing_telemetry=1
+      fi
+    done
     if [ -n "$ATL_JIRA_PAT" ] || [ -n "$ATL_CONFLUENCE_PAT" ]; then
       echo synthetic backend credentials leaked into the provider environment >&2
       exit 33
     fi
     printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}'
     printf '%s\n' '{"type":"user","tool_use_result":{"content":[{"type":"text","text":"synthetic"}]},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","is_error":false,"content":"{\"fields\":[]}"}]}}'
+    if [ "$missing_telemetry" = "1" ]; then
+      printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-missing","name":"mcp__atl__jira_fields"}]}}'
+    fi
     printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":0.00014,"usage":{"input_tokens":100,"output_tokens":20},"structured_output":{"answer":"ok"}}'
     exit 0
   fi
@@ -136,7 +146,7 @@ while [ "$#" -gt 0 ]; do
   fi
   shift
 done
-printf '%s\n' '{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}'
+printf '%s\n' '{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
 printf '%s\n' '{"answer":"ok","labels":["alpha","beta"],"format":"json"}' >"$final"
 `
@@ -211,6 +221,13 @@ exit 2
 	spec.AllowedTools = nil
 	spec.AllowedATLCommands = nil
 	spec.AllowedMCPTools = []string{"jira_fields"}
+	spec.Checks = append(spec.Checks, RunCheck{
+		Name: "route_exact", Kind: "capability_families_equal",
+		Expected: json.RawMessage(`[{"family":"jira.fields","invocations":1,"successes":1,"failures":0}]`),
+	}, RunCheck{
+		Name: "route_ordered", Kind: "capability_sequence_equal",
+		Expected: json.RawMessage(`["jira.fields"]`),
+	})
 	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
 	output, err = RunHeadless(context.Background(), RunOptions{
 		SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,
@@ -235,6 +252,51 @@ exit 2
 	}
 	if !result.Coverage["capability_families"] || len(result.CapabilityFamilies) != 1 || result.CapabilityFamilies[0].Family != "jira.fields" {
 		t.Fatalf("families=%+v coverage=%+v", result.CapabilityFamilies, result.Coverage)
+	}
+	wrongRoute := spec
+	wrongRoute.Variant = "typed-mcp-wrong-route"
+	wrongRoute.Checks = slices.Clone(spec.Checks)
+	for index := range wrongRoute.Checks {
+		if wrongRoute.Checks[index].Name == "route_exact" {
+			wrongRoute.Checks[index].Expected = json.RawMessage(
+				`[{"family":"jira.issue.search","invocations":1,"successes":1,"failures":0}]`,
+			)
+		}
+	}
+	writeJSONTestFile(t, filepath.Join(caseDir, "run-wrong-route.json"), wrongRoute)
+	wrongOutput, err := RunHeadless(context.Background(), RunOptions{
+		SpecPath:       filepath.Join(caseDir, "run-wrong-route.json"),
+		OutputRoot:     filepath.Join(tempRepository, "private", "wrong-route"),
+		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
+		PluginRoot: pluginRoot, WrapperExecutable: wrapper,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wrongOutput.Results) != 1 ||
+		wrongOutput.Results[0].Status != "fail" ||
+		wrongOutput.Results[0].Checks["route_exact"] {
+		t.Fatalf("wrong executable capability route passed: %+v", wrongOutput)
+	}
+	missingTelemetry := spec
+	missingTelemetry.Variant = "typed-mcp-missing-telemetry"
+	missingTelemetry.Model = "claude-test-missing-telemetry"
+	writeJSONTestFile(t, filepath.Join(caseDir, "run-missing-telemetry.json"), missingTelemetry)
+	missingOutput, err := RunHeadless(context.Background(), RunOptions{
+		SpecPath:       filepath.Join(caseDir, "run-missing-telemetry.json"),
+		OutputRoot:     filepath.Join(tempRepository, "private", "missing-telemetry"),
+		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
+		PluginRoot: pluginRoot, WrapperExecutable: wrapper,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missingOutput.Results) != 1 ||
+		missingOutput.Results[0].Status != "fail" ||
+		missingOutput.Results[0].Coverage["capability_families"] ||
+		missingOutput.Results[0].Checks["route_exact"] ||
+		missingOutput.Results[0].Checks["route_ordered"] {
+		t.Fatalf("missing provider telemetry passed: %+v", missingOutput)
 	}
 	cliReceipt := readSyntheticRunReceiptTest(t, filepath.Join(outputRoot, scenario.ID, "claude-code", "baseline", "run-01", syntheticRunReceiptFileName))
 	mcpReceipt := readSyntheticRunReceiptTest(t, filepath.Join(outputRoot, scenario.ID, "claude-code", "typed-mcp", "run-01", syntheticRunReceiptFileName))
@@ -907,7 +969,7 @@ if [ -n "$no_evidence" ]; then
   exit 0
 fi
 printf '%s\n' '{"method":"GET","request_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' >"$ATL_EVAL_HTTP_GUARD_FILE"
-printf '%s\n' '{"type":"item.completed","item":{"type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}'
+printf '%s\n' '{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
 printf '%s\n' '{"answer":"ok"}' >"$final"
 `, 0o700)

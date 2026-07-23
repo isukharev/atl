@@ -52,6 +52,7 @@ type ProviderMetrics struct {
 	MCPToolOutputBytes       int64
 	CommandExecutions        int
 	CapabilityFamilies       []CapabilityFamilyMetric
+	CapabilityFamilySequence []string
 	CapabilityFamilyCoverage bool
 	Coverage                 map[string]bool
 }
@@ -545,7 +546,9 @@ func ParseProviderOutput(provider string, transcript, finalFile []byte) (Provide
 
 func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
 	metrics := ProviderMetrics{Coverage: map[string]bool{}, CapabilityFamilyCoverage: true, SkillToolCallsByName: map[string]int{}}
+	claudeToolUseIDs := map[string]struct{}{}
 	mcpToolUseIDs := map[string]string{}
+	claudeToolResultIDs := map[string]struct{}{}
 	families := map[string]CapabilityFamilyMetric{}
 	var final []byte
 	scanner := bufio.NewScanner(bytes.NewReader(data))
@@ -563,14 +566,39 @@ func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
 			for name, count := range counts.SkillNames {
 				metrics.SkillToolCallsByName[name] += count
 			}
-			for id, family := range counts.MCPIDs {
-				mcpToolUseIDs[id] = family
+			metrics.CapabilityFamilyCoverage = metrics.CapabilityFamilyCoverage && counts.MCPComplete
+			for _, id := range counts.ToolUseIDs {
+				if id == "" {
+					continue
+				}
+				if _, exists := claudeToolUseIDs[id]; exists {
+					metrics.CapabilityFamilyCoverage = false
+					continue
+				}
+				claudeToolUseIDs[id] = struct{}{}
+			}
+			for _, use := range counts.MCPUses {
+				if use.Family != "" {
+					metrics.CapabilityFamilySequence = append(metrics.CapabilityFamilySequence, use.Family)
+				}
+				if use.ID == "" {
+					metrics.CapabilityFamilyCoverage = false
+					continue
+				}
+				if use.Family == "" {
+					metrics.CapabilityFamilyCoverage = false
+				}
+				if _, exists := claudeToolResultIDs[use.ID]; exists {
+					metrics.CapabilityFamilyCoverage = false
+					continue
+				}
+				mcpToolUseIDs[use.ID] = use.Family
 			}
 			metrics.Coverage["tool_calls"] = true
 			metrics.Coverage["delegations"] = true
 		}
 		if event["type"] == "user" {
-			calls, failed, outputBytes, attributed, complete, err := countClaudeMCPResults(event, mcpToolUseIDs)
+			calls, failed, outputBytes, attributed, complete, err := countClaudeMCPResults(event, claudeToolUseIDs, mcpToolUseIDs, claudeToolResultIDs)
 			if err != nil {
 				return ProviderMetrics{}, nil, err
 			}
@@ -649,6 +677,9 @@ func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
 	if len(bytes.TrimSpace(final)) == 0 {
 		return ProviderMetrics{}, nil, fmt.Errorf("claude final response is empty")
 	}
+	if len(mcpToolUseIDs) != 0 {
+		metrics.CapabilityFamilyCoverage = false
+	}
 	if !metrics.Coverage["input_tokens"] && metrics.Coverage["main_thread_input_tokens"] {
 		metrics.InputTokens = metrics.MainThreadInputTokens
 		metrics.Coverage["input_tokens"] = true
@@ -664,6 +695,8 @@ func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {
 func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 	metrics := ProviderMetrics{Coverage: map[string]bool{"tool_calls": true, "delegations": true}, CapabilityFamilyCoverage: true}
 	families := map[string]CapabilityFamilyMetric{}
+	completedMCPItemIDs := map[string]struct{}{}
+	pendingMCPItems := map[string]codexMCPItemIdentity{}
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 64<<10), 4<<20)
 	for scanner.Scan() {
@@ -672,6 +705,43 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 			return ProviderMetrics{}, fmt.Errorf("decode Codex event: %w", err)
 		}
 		switch event["type"] {
+		case "item.started", "item.updated":
+			item, _ := event["item"].(map[string]any)
+			kind, _ := item["type"].(string)
+			if kind != "mcp_tool_call" {
+				continue
+			}
+			id, idKnown := item["id"].(string)
+			server, serverKnown := item["server"].(string)
+			tool, toolKnown := item["tool"].(string)
+			identityComplete := idKnown && id != "" && serverKnown && server != "" && toolKnown && tool != ""
+			if !identityComplete {
+				metrics.CapabilityFamilyCoverage = false
+				continue
+			}
+			identity := codexMCPItemIdentity{Server: server, Tool: tool}
+			if event["type"] == "item.started" {
+				if _, duplicate := pendingMCPItems[id]; duplicate {
+					metrics.CapabilityFamilyCoverage = false
+					continue
+				}
+				if _, completed := completedMCPItemIDs[id]; completed {
+					metrics.CapabilityFamilyCoverage = false
+					continue
+				}
+				pendingMCPItems[id] = identity
+				family, known := CapabilityFamilyForMCP(tool)
+				if server != "atl" || !known {
+					metrics.CapabilityFamilyCoverage = false
+				} else {
+					metrics.CapabilityFamilySequence = append(metrics.CapabilityFamilySequence, family)
+				}
+				continue
+			}
+			pending, exists := pendingMCPItems[id]
+			if !exists || pending != identity {
+				metrics.CapabilityFamilyCoverage = false
+			}
 		case "item.completed":
 			if item, ok := event["item"].(map[string]any); ok {
 				kind, _ := item["type"].(string)
@@ -686,7 +756,23 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 				}
 				if kind == "mcp_tool_call" {
 					metrics.MCPToolCalls++
-					if status, _ := item["status"].(string); status == "failed" {
+					id, idKnown := item["id"].(string)
+					idValid := idKnown && id != ""
+					if idValid {
+						if _, duplicate := completedMCPItemIDs[id]; duplicate {
+							idValid = false
+						} else {
+							completedMCPItemIDs[id] = struct{}{}
+						}
+					}
+					status, statusKnown := item["status"].(string)
+					statusValid := statusKnown && (status == "completed" || status == "failed")
+					_, resultPresent := item["result"]
+					resultComplete := status != "completed" || resultPresent
+					if !idValid || !statusValid || !resultComplete {
+						metrics.CapabilityFamilyCoverage = false
+					}
+					if status != "completed" {
 						metrics.FailedMCPToolCalls++
 					}
 					if result, ok := item["result"]; ok {
@@ -696,13 +782,19 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 					}
 					tool, _ := item["tool"].(string)
 					family, known := CapabilityFamilyForMCP(tool)
-					if !known {
+					server, serverKnown := item["server"].(string)
+					pending, started := pendingMCPItems[id]
+					if started {
+						if pending != (codexMCPItemIdentity{Server: server, Tool: tool}) {
+							idValid = false
+							metrics.CapabilityFamilyCoverage = false
+						}
+						delete(pendingMCPItems, id)
+					}
+					if !known || !serverKnown || server != "atl" || !idValid || !statusValid || !resultComplete {
 						metrics.CapabilityFamilyCoverage = false
 					} else {
-						failed := false
-						if status, _ := item["status"].(string); status == "failed" {
-							failed = true
-						}
+						failed := status == "failed"
 						var size int64
 						if result, ok := item["result"]; ok {
 							if data, err := json.Marshal(result); err == nil {
@@ -710,6 +802,9 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 							}
 						}
 						mergeCapabilityFamily(families, family, failed, size)
+						if !started {
+							metrics.CapabilityFamilySequence = append(metrics.CapabilityFamilySequence, family)
+						}
 					}
 				}
 			}
@@ -732,13 +827,26 @@ func parseCodexOutput(data []byte) (ProviderMetrics, error) {
 			}
 		case "turn.failed", "error":
 			return ProviderMetrics{}, fmt.Errorf("codex run reported a failure event")
+		default:
+			item, _ := event["item"].(map[string]any)
+			if kind, _ := item["type"].(string); kind == "mcp_tool_call" {
+				metrics.CapabilityFamilyCoverage = false
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return ProviderMetrics{}, err
 	}
+	if len(pendingMCPItems) != 0 {
+		metrics.CapabilityFamilyCoverage = false
+	}
 	metrics.CapabilityFamilies = capabilityFamilySlice(families)
 	return metrics, nil
+}
+
+type codexMCPItemIdentity struct {
+	Server string
+	Tool   string
 }
 
 type claudeToolCallCounts struct {
@@ -746,18 +854,27 @@ type claudeToolCallCounts struct {
 	Skill       int
 	Delegations int
 	SkillNames  map[string]int
-	MCPIDs      map[string]string
+	ToolUseIDs  []string
+	MCPUses     []claudeMCPToolUse
+	MCPComplete bool
+}
+
+type claudeMCPToolUse struct {
+	ID     string
+	Family string
 }
 
 func countClaudeToolCalls(event map[string]any) claudeToolCallCounts {
 	message, _ := event["message"].(map[string]any)
 	content, _ := message["content"].([]any)
-	counts := claudeToolCallCounts{SkillNames: map[string]int{}, MCPIDs: map[string]string{}}
+	counts := claudeToolCallCounts{SkillNames: map[string]int{}, MCPComplete: true}
 	for _, value := range content {
 		block, _ := value.(map[string]any)
 		if block["type"] == "tool_use" {
 			counts.Total++
 			name, _ := block["name"].(string)
+			id, _ := block["id"].(string)
+			counts.ToolUseIDs = append(counts.ToolUseIDs, id)
 			if name == "Skill" {
 				counts.Skill++
 				input, _ := block["input"].(map[string]any)
@@ -770,20 +887,26 @@ func countClaudeToolCalls(event map[string]any) claudeToolCallCounts {
 				counts.Delegations++
 			}
 			if strings.HasPrefix(name, "mcp__") {
-				if id, _ := block["id"].(string); id != "" {
-					family := ""
-					if strings.HasPrefix(name, "mcp__atl__") {
-						family, _ = CapabilityFamilyForMCP(strings.TrimPrefix(name, "mcp__atl__"))
-					}
-					counts.MCPIDs[id] = family
+				family := ""
+				if strings.HasPrefix(name, "mcp__atl__") {
+					family, _ = CapabilityFamilyForMCP(strings.TrimPrefix(name, "mcp__atl__"))
 				}
+				if id == "" || family == "" {
+					counts.MCPComplete = false
+				}
+				counts.MCPUses = append(counts.MCPUses, claudeMCPToolUse{ID: id, Family: family})
 			}
 		}
 	}
 	return counts
 }
 
-func countClaudeMCPResults(event map[string]any, mcpToolUseIDs map[string]string) (int, int, int64, []CapabilityFamilyMetric, bool, error) {
+func countClaudeMCPResults(
+	event map[string]any,
+	claudeToolUseIDs map[string]struct{},
+	mcpToolUseIDs map[string]string,
+	claudeToolResultIDs map[string]struct{},
+) (int, int, int64, []CapabilityFamilyMetric, bool, error) {
 	message, _ := event["message"].(map[string]any)
 	content, _ := message["content"].([]any)
 	var calls int
@@ -797,10 +920,24 @@ func countClaudeMCPResults(event map[string]any, mcpToolUseIDs map[string]string
 			continue
 		}
 		id, _ := block["tool_use_id"].(string)
+		if id == "" {
+			complete = false
+			continue
+		}
+		if _, duplicate := claudeToolResultIDs[id]; duplicate {
+			complete = false
+			continue
+		}
+		claudeToolResultIDs[id] = struct{}{}
+		if _, known := claudeToolUseIDs[id]; !known {
+			complete = false
+			continue
+		}
 		family, ok := mcpToolUseIDs[id]
 		if !ok {
 			continue
 		}
+		delete(mcpToolUseIDs, id)
 		// Claude emits this exact string class when its client cannot resolve a
 		// requested tool while an MCP server is still starting. The attempt is
 		// already a model tool call, but it never reached atl. Actual MCP
@@ -811,6 +948,7 @@ func countClaudeMCPResults(event map[string]any, mcpToolUseIDs map[string]string
 		case map[string]any:
 		case string:
 			if strings.HasPrefix(result, "Error: No such tool available:") {
+				complete = false
 				continue
 			}
 			if !isClaudeMCPServerError(result) && result != claudeExternalMCPProxyDenial {
@@ -820,7 +958,11 @@ func countClaudeMCPResults(event map[string]any, mcpToolUseIDs map[string]string
 			return 0, 0, 0, nil, false, fmt.Errorf("claude MCP result is missing its provider envelope")
 		}
 		calls++
-		if isError, _ := block["is_error"].(bool); isError {
+		isError, statusKnown := block["is_error"].(bool)
+		if !statusKnown {
+			complete = false
+			failed++
+		} else if isError {
 			failed++
 		}
 		var resultBytes int64
@@ -837,8 +979,9 @@ func countClaudeMCPResults(event map[string]any, mcpToolUseIDs map[string]string
 		}
 		if family == "" {
 			complete = false
+		} else if !statusKnown {
+			complete = false
 		} else {
-			isError, _ := block["is_error"].(bool)
 			mergeCapabilityFamily(families, family, isError, resultBytes)
 		}
 	}

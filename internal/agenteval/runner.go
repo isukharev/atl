@@ -1243,12 +1243,9 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if evidenceReport.Coverage && !evidenceReport.ConsistentWithAudit(evidenceAttempt) {
 		return Result{}, fmt.Errorf("model evidence outcome contradicts audited attempts")
 	}
-	checks, err := evaluateRunChecks(loaded.spec.Checks, final, workspace, atlInvocations, failedATL, unexpected, providerMetrics.SkillToolCalls+guardSummary.SkillReadAdmissions, providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, guardDenials, methods, httpMethodsObserved, cliExitCodes)
-	if err != nil {
-		return Result{}, err
-	}
 	var outputBytes int64
 	familyValues := map[string]CapabilityFamilyMetric{}
+	capabilitySequence := make([]string, 0, len(proxyRecords)+len(providerMetrics.CapabilityFamilySequence))
 	familyCoverage := true
 	for _, record := range proxyRecords {
 		outputBytes += record.StdoutBytes
@@ -1257,6 +1254,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			continue
 		}
 		mergeCapabilityFamily(familyValues, record.CommandFamily, record.ExitCode != 0, record.StdoutBytes)
+		capabilitySequence = append(capabilitySequence, record.CommandFamily)
 	}
 	outputBytes += providerMetrics.MCPToolOutputBytes
 	providerFamilies := providerMetrics.CapabilityFamilies
@@ -1274,7 +1272,8 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		existing.OutputBytes += value.OutputBytes
 		familyValues[value.Family] = existing
 	}
-	if providerMetrics.MCPToolCalls > 0 && !providerMetrics.CapabilityFamilyCoverage {
+	capabilitySequence = append(capabilitySequence, providerMetrics.CapabilityFamilySequence...)
+	if !providerMetrics.CapabilityFamilyCoverage {
 		familyCoverage = false
 	}
 	providerMetrics.DurationMillis = duration
@@ -1304,6 +1303,16 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	capabilityFamilies := capabilityFamilySlice(familyValues)
 	if !familyCoverage {
 		capabilityFamilies = nil
+	}
+	checks, err := evaluateRunChecksWithCapabilities(
+		loaded.spec.Checks, final, workspace, atlInvocations, failedATL, unexpected,
+		providerMetrics.SkillToolCalls+guardSummary.SkillReadAdmissions,
+		providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, guardDenials,
+		methods, httpMethodsObserved, cliExitCodes, capabilityFamilies, familyCoverage,
+		capabilitySequence,
+	)
+	if err != nil {
+		return Result{}, err
 	}
 	backendObservation, safetyAssurance := BackendObservationHTTP, SafetyAssuranceObservedHTTP
 	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
