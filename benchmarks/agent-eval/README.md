@@ -255,7 +255,9 @@ exact built `atl mcp serve` binary and grants execution only to
 `allowed_mcp_tools`. Claude receives a private explicit config under
 `--strict-mcp-config`, exact qualified `mcp__atl__...` permission rules, and a
 global pre-tool guard that allows only those reviewed MCP names plus required
-structured output; every built-in fallback is denied. The generated settings
+structured output. An explicit empty built-in `--tools` inventory removes
+fallback routes without filtering dynamic MCP discovery; the guard remains an
+independent fail-closed control. The generated settings
 also remove `Skill` from typed-MCP model discovery so a shared neutral prompt
 cannot accidentally choose CLI workflow guidance; the hook remains the
 fail-closed boundary for every other built-in.
