@@ -17,6 +17,7 @@ import (
 
 	"github.com/isukharev/atl/internal/agenteval"
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
 	"github.com/isukharev/atl/internal/mirror"
@@ -642,6 +643,58 @@ func TestToolErrorsDoNotExposeBackendPathOrBody(t *testing.T) {
 	got = toolError{}
 	if !errors.As(transport, &got) || got.Kind != "transport_error" || got.Message != "backend transport failed (dns)" {
 		t.Fatalf("transport error=%v", transport)
+	}
+}
+
+func TestToolErrorsRedactSecureURLConfigurationDetails(t *testing.T) {
+	const privateHost = "configured-backend.private.example"
+	secureErr := config.CheckSecureURL("http://" + privateHost)
+	if secureErr == nil {
+		t.Fatal("insecure backend URL passed validation")
+	}
+	err := classified(fmt.Errorf("%w: %w", domain.ErrUsage, secureErr))
+	var got toolError
+	if !errors.As(err, &got) {
+		t.Fatalf("error=%T %v", err, err)
+	}
+	encoded := got.Error()
+	if got.Kind != "usage_error" || got.Remediation != "fix_request" ||
+		got.Message != "backend URL is not approved for authenticated reads" ||
+		strings.Contains(encoded, privateHost) || strings.Contains(encoded, "http") {
+		t.Fatalf("classified secure URL error=%s", encoded)
+	}
+
+	safeUsage := classified(fmt.Errorf("%w: max_rows must be at least 1", domain.ErrUsage))
+	got = toolError{}
+	if !errors.As(safeUsage, &got) || got.Message != "usage error: max_rows must be at least 1" {
+		t.Fatalf("safe usage guidance was not preserved: %v", safeUsage)
+	}
+}
+
+func TestProductionDependenciesRedactSecureBackendURLs(t *testing.T) {
+	const privateHost = "configured-backend.private.example"
+	t.Setenv("ATL_ALLOW_INSECURE", "")
+	t.Setenv("ATL_CONFLUENCE_URL", "http://"+privateHost)
+	t.Setenv("ATL_JIRA_URL", "http://"+privateHost)
+
+	deps := ProductionDependencies("test")
+	for name, resolve := range map[string]func() error{
+		"confluence": func() error { _, err := deps.Confluence(); return err },
+		"jira":       func() error { _, err := deps.Jira(); return err },
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := classified(resolve())
+			var got toolError
+			if !errors.As(err, &got) {
+				t.Fatalf("error=%T %v", err, err)
+			}
+			encoded := got.Error()
+			if got.Kind != "usage_error" || got.Remediation != "fix_request" ||
+				got.Message != "backend URL is not approved for authenticated reads" ||
+				strings.Contains(encoded, privateHost) || strings.Contains(encoded, "http") {
+				t.Fatalf("production dependency error=%s", encoded)
+			}
+		})
 	}
 }
 

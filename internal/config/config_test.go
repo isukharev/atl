@@ -48,6 +48,8 @@ func TestCheckSecureURL(t *testing.T) {
 	for _, u := range bad {
 		if err := CheckSecureURL(u); err == nil {
 			t.Errorf("CheckSecureURL(%q) = nil, want error", u)
+		} else if !IsSecureURLError(err) {
+			t.Errorf("CheckSecureURL(%q) error is not identifiable for boundary redaction: %v", u, err)
 		}
 	}
 }

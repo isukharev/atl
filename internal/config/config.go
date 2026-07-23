@@ -5,6 +5,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -15,6 +16,22 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/safepath"
 )
+
+type secureURLError struct {
+	message string
+}
+
+func (e *secureURLError) Error() string {
+	return e.message
+}
+
+// IsSecureURLError reports whether err came from backend URL transport-safety
+// validation. Callers at privacy boundaries can redact its configuration
+// details while local CLI diagnostics retain the original actionable text.
+func IsSecureURLError(err error) bool {
+	var target *secureURLError
+	return errors.As(err, &target)
+}
 
 // Config holds non-secret settings.
 type Config struct {
@@ -145,12 +162,15 @@ func saveConfigBytes(c *Config) error {
 func CheckSecureURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("invalid URL %q: %v", raw, err)
+		return &secureURLError{message: fmt.Sprintf("invalid URL %q: %v", raw, err)}
 	}
 	if u.Scheme == "https" || isLoopbackHost(u.Hostname()) || os.Getenv("ATL_ALLOW_INSECURE") != "" {
 		return nil
 	}
-	return fmt.Errorf("refusing to send the PAT over %q to %q (use https, or set ATL_ALLOW_INSECURE=1 to override)", u.Scheme, u.Host)
+	return &secureURLError{message: fmt.Sprintf(
+		"refusing to send the PAT over %q to %q (use https, or set ATL_ALLOW_INSECURE=1 to override)",
+		u.Scheme, u.Host,
+	)}
 }
 
 func isLoopbackHost(host string) bool {
