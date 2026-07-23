@@ -27,6 +27,7 @@
     {"name": "guard_clean", "kind": "guard_no_denials"},
     {"name": "http_exact", "kind": "http_methods_equal", "expected": {"GET": 1}},
     {"name": "interface_succeeded", "kind": "interface_all_succeeded"},
+    {"name": "route_arguments", "kind": "mcp_invocations_equal", "expected": [{"tool": "confluence_table_summary", "arguments": {"reference": "8200", "max_bytes": 65536}}]},
     {"name": "mock_clean", "kind": "mock_no_unexpected"},
     {"name": "no_delegation", "kind": "delegations_none"},
     {"name": "page_correct", "kind": "json_equals", "pointer": "/page_id", "expected": "8200"},

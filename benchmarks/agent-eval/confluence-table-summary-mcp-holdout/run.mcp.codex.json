@@ -66,6 +66,19 @@
       "kind": "interface_all_succeeded"
     },
     {
+      "name": "route_arguments",
+      "kind": "mcp_invocations_equal",
+      "expected": [
+        {
+          "tool": "confluence_table_summary",
+          "arguments": {
+            "reference": "8300",
+            "max_bytes": 65536
+          }
+        }
+      ]
+    },
+    {
       "name": "mock_clean",
       "kind": "mock_no_unexpected"
     },

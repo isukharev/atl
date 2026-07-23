@@ -233,6 +233,14 @@ model, and pricing differ in a paired MCP cell. Execute n=1 calibration before
 the n=3 regression configuration by passing `run --repetitions 1`, and require
 a distinct same-class holdout before accepting the regression result.
 
+The current provider-paired single-call table summary, selected-table extract,
+Structure view, and offline Jira/Confluence mirror cells also bind the complete
+normalized MCP invocation object. Selectors, ordered field arrays, row and byte
+caps, and the required empty object for pathless offline snapshots are
+mechanical oracles rather than prompt-only guidance. An extra argument, changed
+selector or cap, reordered field projection, or non-empty mirror argument
+therefore fails even when the returned answer happens to match.
+
 The surface-native paginated Confluence search cohort applies the same sampling
 rule to multi-step typed navigation. Its primary provider pair traverses three
 qualified search pages and then reads three outline/section pairs in exact
