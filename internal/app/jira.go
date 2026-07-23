@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -348,17 +349,30 @@ func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, er
 		// ListAttachments already resolved both the server filename and the
 		// attachment's same-origin download path. Stream that exact path instead
 		// of resolving the attachment by id again, which would repeat the issue
-		// metadata request once per image.
-		if a.DownPath == "" {
+		// metadata request once per image. Compatible transports may omit the
+		// direct path, so retain the attachment-id operation as a narrow fallback.
+		name := a.Title
+		var (
+			rc  io.ReadCloser
+			err error
+		)
+		if a.DownPath != "" {
+			rc, err = s.tr.StreamAttachment(ctx, a.DownPath)
+		} else if a.ID != "" {
+			var fallbackName string
+			rc, fallbackName, err = s.tr.DownloadAttachment(ctx, key, a.ID)
+			if fallbackName != "" {
+				name = fallbackName
+			}
+		} else {
 			continue
 		}
-		rc, err := s.tr.StreamAttachment(ctx, a.DownPath)
 		if err != nil {
 			continue
 		}
 		// name is a server-supplied attachment filename: reduce to a safe base
 		// name and confine the write to dir so it cannot escape via "../".
-		safeName, ok := safepath.Base(a.Title)
+		safeName, ok := safepath.Base(name)
 		if !ok {
 			rc.Close()
 			continue
