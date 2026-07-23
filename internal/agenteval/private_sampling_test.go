@@ -63,6 +63,213 @@ func TestPrivateSamplingPublicExampleMatchesGoContract(t *testing.T) {
 	}
 }
 
+func TestPrivateSyntheticSamplingPublicExampleMatchesGoContract(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "benchmarks", "agent-eval", "private-synthetic-sampling.example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, canonical, err := decodePrivateSyntheticSamplingSpec(data)
+	if err != nil || spec.SchemaVersion != PrivateSyntheticSamplingSchemaVersion ||
+		spec.Tier != PrivateSamplingTierRegression || len(spec.Holdout) != 1 ||
+		!bytes.Equal(data, canonical) {
+		t.Fatalf("spec=%+v canonical=%t err=%v", spec, bytes.Equal(data, canonical), err)
+	}
+	var schema any
+	schemaData, err := os.ReadFile(filepath.Join("..", "..", "benchmarks", "agent-eval", "private-synthetic-sampling.schema.json"))
+	if err != nil || json.Unmarshal(schemaData, &schema) != nil {
+		t.Fatalf("public schema is invalid JSON: %v", err)
+	}
+}
+
+func TestPrivateSyntheticSamplingUsesCanonicalPreviewAndApplyLifecycle(t *testing.T) {
+	fixture := newPrivateSamplingFixture(t)
+	primary := fixture.addSyntheticRoot(t, "primary-synthetic-runs", "jira.synthetic-primary", 3, true,
+		strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64))
+	holdout := fixture.addSyntheticRoot(t, "holdout-synthetic-runs", "jira.synthetic-holdout", 1, true,
+		strings.Repeat("4", 64), strings.Repeat("5", 64), strings.Repeat("6", 64))
+	fixture.writeSyntheticSpec(t, PrivateSyntheticSamplingSpec{
+		SchemaVersion: PrivateSyntheticSamplingSchemaVersion, Tier: PrivateSamplingTierRegression,
+		Primary: primary, Holdout: []PrivateSyntheticSamplingRootRef{holdout},
+	})
+	before := privateCheckpointTree(t, fixture.root)
+	preview, assessment, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := privateCheckpointTree(t, fixture.root)
+	if !bytes.Equal(before, after) {
+		t.Fatalf("preview mutated workspace\nbefore=%s\nafter=%s", before, after)
+	}
+	if preview.SchemaVersion != PrivateSyntheticSamplingSchemaVersion ||
+		preview.Tier != PrivateSamplingTierRegression || !preview.EvidenceReady ||
+		preview.RegressionAccepted == nil || !*preview.RegressionAccepted ||
+		preview.Primary.Observed != 3 || preview.Primary.Statuses.Pass != 3 ||
+		preview.Holdout.Observed != 1 || preview.Holdout.Statuses.Pass != 1 ||
+		!validSHA256(preview.SourceSHA256) || !validSHA256(preview.AssessmentSHA256) {
+		t.Fatalf("preview=%+v", preview)
+	}
+	encoded, err := json.Marshal(preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, private := range []string{
+		primary.Root, primary.SourceSHA256, holdout.Root, holdout.SourceSHA256,
+		"jira.synthetic-primary", "jira.synthetic-holdout", fixture.root,
+	} {
+		if bytes.Contains(encoded, []byte(private)) {
+			t.Fatalf("private value %q leaked in %s", private, encoded)
+		}
+	}
+	options := fixture.options()
+	options.ExpectedAssessmentSHA256, options.Confirm = preview.AssessmentSHA256, PrivateSamplingConfirmation
+	first, err := applyPrivateSampling(options, fixture.dependencies())
+	if err != nil || !first.Stored {
+		t.Fatalf("first=%+v err=%v", first, err)
+	}
+	path := filepath.Join(fixture.root, "reports", "sampling", preview.AssessmentSHA256+".json")
+	stored, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(stored, assessment) {
+		t.Fatalf("stored assessment drift: %v", err)
+	}
+	second, err := applyPrivateSampling(options, fixture.dependencies())
+	if err != nil || second.Stored {
+		t.Fatalf("second=%+v err=%v", second, err)
+	}
+	loaded, loadedPrimary, loadedHoldout, err := loadPrivateSyntheticSamplingAssessment(fixture.root, preview.AssessmentSHA256)
+	if err != nil || loaded.SchemaVersion != 2 || len(loadedPrimary) != 3 || len(loadedHoldout) != 1 {
+		t.Fatalf("loaded=%+v primary=%d holdout=%d err=%v", loaded, len(loadedPrimary), len(loadedHoldout), err)
+	}
+	primaryMarker := filepath.Join(fixture.root, "reports", privateSyntheticRootDirectory, primary.Root, privateOutputRootMarker)
+	if err := os.WriteFile(primaryMarker, []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := loadPrivateSyntheticSamplingAssessment(fixture.root, preview.AssessmentSHA256); !errors.Is(err, ErrPrivateSamplingRejected) {
+		t.Fatalf("changed root load err=%v", err)
+	}
+}
+
+func TestPrivateSyntheticSamplingRejectsUnattestedDriftingAndIncompatibleRoots(t *testing.T) {
+	t.Run("wrong source digest", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		primary := fixture.addSyntheticRoot(t, "primary-synthetic-runs", "jira.synthetic-primary", 1, true,
+			strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64))
+		primary.SourceSHA256 = strings.Repeat("9", 64)
+		fixture.writeSyntheticSpec(t, PrivateSyntheticSamplingSpec{
+			SchemaVersion: 2, Tier: PrivateSamplingTierCalibration, Primary: primary,
+		})
+		fixture.previewMustReject(t)
+	})
+	t.Run("regression cardinality", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		primary := fixture.addSyntheticRoot(t, "primary-synthetic-runs", "jira.synthetic-primary", 2, true,
+			strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64))
+		holdout := fixture.addSyntheticRoot(t, "holdout-synthetic-runs", "jira.synthetic-holdout", 1, true,
+			strings.Repeat("4", 64), strings.Repeat("5", 64), strings.Repeat("6", 64))
+		fixture.writeSyntheticSpec(t, PrivateSyntheticSamplingSpec{
+			SchemaVersion: 2, Tier: PrivateSamplingTierRegression, Primary: primary,
+			Holdout: []PrivateSyntheticSamplingRootRef{holdout},
+		})
+		fixture.previewMustReject(t)
+	})
+	t.Run("reused task contract", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		primary := fixture.addSyntheticRoot(t, "primary-synthetic-runs", "jira.synthetic-primary", 3, true,
+			strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64))
+		holdout := fixture.addSyntheticRoot(t, "holdout-synthetic-runs", "jira.synthetic-holdout", 1, true,
+			strings.Repeat("1", 64), strings.Repeat("5", 64), strings.Repeat("6", 64))
+		fixture.writeSyntheticSpec(t, PrivateSyntheticSamplingSpec{
+			SchemaVersion: 2, Tier: PrivateSamplingTierRegression, Primary: primary,
+			Holdout: []PrivateSyntheticSamplingRootRef{holdout},
+		})
+		fixture.previewMustReject(t)
+	})
+	t.Run("ambiguous spec versions", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		primary := fixture.addSyntheticRoot(t, "primary-synthetic-runs", "jira.synthetic-primary", 1, true,
+			strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64))
+		fixture.writeSyntheticSpec(t, PrivateSyntheticSamplingSpec{
+			SchemaVersion: 2, Tier: PrivateSamplingTierCalibration, Primary: primary,
+		})
+		fixture.writeSpec(t, PrivateSamplingSpec{
+			SchemaVersion: 1, Tier: PrivateSamplingTierCalibration,
+			Primary: []PrivateFindingRunRef{fixture.addResult(t, 1, "primary-01",
+				privateSamplingResult(t, "jira.primary-evidence", true), strings.Repeat("1", 64))},
+		})
+		fixture.previewMustReject(t)
+	})
+	t.Run("root symlink", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("owner-only synthetic roots fail closed on Windows")
+		}
+		fixture := newPrivateSamplingFixture(t)
+		outside := newSyntheticOutputRoot(t)
+		result := privateSyntheticSamplingResult(t, "jira.synthetic-primary", strings.Repeat("3", 64), true)
+		writeSyntheticRootResultForCohort(t, outside, 1, 1, result)
+		aggregate, err := AggregateSyntheticOutputRoot(outside)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parent := filepath.Join(fixture.root, "reports", privateSyntheticRootDirectory)
+		if err := os.MkdirAll(parent, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(parent, "linked-root")); err != nil {
+			t.Fatal(err)
+		}
+		fixture.writeSyntheticSpec(t, PrivateSyntheticSamplingSpec{
+			SchemaVersion: 2, Tier: PrivateSamplingTierCalibration,
+			Primary: PrivateSyntheticSamplingRootRef{Root: "linked-root", SourceSHA256: aggregate.SourceSHA256},
+		})
+		fixture.previewMustReject(t)
+	})
+}
+
+func TestPrivateSyntheticSamplingRevalidatesTheCompleteRootSet(t *testing.T) {
+	fixture := newPrivateSamplingFixture(t)
+	primary := fixture.addSyntheticRoot(t, "primary-synthetic-runs", "jira.synthetic-primary", 3, true,
+		strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64))
+	holdout := fixture.addSyntheticRoot(t, "holdout-synthetic-runs", "jira.synthetic-holdout", 1, true,
+		strings.Repeat("4", 64), strings.Repeat("5", 64), strings.Repeat("6", 64))
+	spec := PrivateSyntheticSamplingSpec{
+		SchemaVersion: 2, Tier: PrivateSamplingTierRegression, Primary: primary,
+		Holdout: []PrivateSyntheticSamplingRootRef{holdout},
+	}
+	specData, err := encodePrivateSyntheticSamplingSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	primaryMarker := filepath.Join(fixture.root, "reports", privateSyntheticRootDirectory, primary.Root, privateOutputRootMarker)
+	_, _, _, err = buildPrivateSyntheticSamplingAssessmentWithHook(
+		fixture.root, spec, sha256HexBytes(specData),
+		func() {
+			if writeErr := os.WriteFile(primaryMarker, []byte("changed\n"), 0o600); writeErr != nil {
+				t.Fatal(writeErr)
+			}
+		},
+	)
+	if !errors.Is(err, ErrPrivateSamplingRejected) {
+		t.Fatalf("changed complete root set err=%v", err)
+	}
+}
+
+func TestPrivateSamplingSpecReadRejectsConcurrentVersionCreation(t *testing.T) {
+	fixture := newPrivateSamplingFixture(t)
+	fixture.writeSpec(t, PrivateSamplingSpec{
+		SchemaVersion: 1, Tier: PrivateSamplingTierCalibration,
+		Primary: []PrivateFindingRunRef{fixture.addResult(t, 1, "primary-01",
+			privateSamplingResult(t, "jira.primary-evidence", true), strings.Repeat("1", 64))},
+	})
+	directory := filepath.Join(fixture.root, "cases", "sampling")
+	_, _, err := readPrivateSamplingSpecWithHook(fixture.root, directory, "sample-set", func() {
+		if writeErr := os.WriteFile(fixture.syntheticSpecPath(), []byte("{}\n"), 0o600); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+	})
+	if !errors.Is(err, ErrPrivateSamplingRejected) {
+		t.Fatalf("concurrent second version err=%v", err)
+	}
+}
+
 func TestPrivateSamplingPreviewUsesWorkspaceDoctor(t *testing.T) {
 	repository := t.TempDir()
 	root := filepath.Join(t.TempDir(), "private")
@@ -568,6 +775,10 @@ func (fixture *privateSamplingFixture) specPath() string {
 	return filepath.Join(fixture.root, "cases", "sampling", "sample-set.v1.json")
 }
 
+func (fixture *privateSamplingFixture) syntheticSpecPath() string {
+	return filepath.Join(fixture.root, "cases", "sampling", "sample-set.v2.json")
+}
+
 func (fixture *privateSamplingFixture) rewriteManifestPlanSHA(t *testing.T, ref PrivateFindingRunRef, source PrivateBaselineSource) {
 	t.Helper()
 	path := filepath.Join(fixture.root, "baselines", source.ContractSHA256, ref.Baseline, "baseline.v1.json")
@@ -608,6 +819,51 @@ func (fixture *privateSamplingFixture) writeRawSpec(t *testing.T, spec PrivateSa
 	fixture.writeSpec(t, spec)
 }
 
+func (fixture *privateSamplingFixture) writeSyntheticSpec(t *testing.T, spec PrivateSyntheticSamplingSpec) {
+	t.Helper()
+	data, err := encodePrivateSyntheticSamplingSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fixture.syntheticSpecPath(), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(fixture.syntheticSpecPath(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (fixture *privateSamplingFixture) addSyntheticRoot(t *testing.T, alias, scenarioID string, repetitions int, pass bool,
+	taskSHA256, executionSHA256, promptSHA256 string) PrivateSyntheticSamplingRootRef {
+	t.Helper()
+	parent := filepath.Join(fixture.root, "reports", privateSyntheticRootDirectory)
+	root := filepath.Join(parent, alias)
+	for _, directory := range []string{parent, root, filepath.Join(root, ".ephemeral")} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, privateOutputRootMarker), []byte(privateOutputRootMarkerContents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for run := 1; run <= repetitions; run++ {
+		result := privateSyntheticSamplingResult(t, scenarioID, promptSHA256, pass)
+		writeSyntheticRootResultForCohort(t, root, run, repetitions, result)
+		receipt := readSyntheticRootReceipt(t, root, result, run)
+		receipt.TaskContractSHA256 = taskSHA256
+		receipt.ExecutionContractSHA256 = executionSHA256
+		writeSyntheticRootReceiptTest(t, root, receipt)
+	}
+	aggregate, err := AggregateSyntheticOutputRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return PrivateSyntheticSamplingRootRef{Root: alias, SourceSHA256: aggregate.SourceSHA256}
+}
+
 func (fixture *privateSamplingFixture) previewMustReject(t *testing.T) {
 	t.Helper()
 	if _, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies()); !errors.Is(err, ErrPrivateSamplingRejected) {
@@ -633,5 +889,26 @@ func privateSamplingCodexResult(t *testing.T, scenarioID, promptSHA256 string) R
 	result.Runtime.Provider = "codex"
 	result.Runtime.SkillActivation = SkillActivationImplicit
 	result.Runtime.PromptContractSHA256 = promptSHA256
+	return result
+}
+
+func privateSyntheticSamplingResult(t *testing.T, scenarioID, promptSHA256 string, pass bool) Result {
+	t.Helper()
+	scenario := validScenario()
+	scenario.ID = scenarioID
+	observation := validObservation()
+	observation.ScenarioID = scenarioID
+	observation.Runtime = Runtime{
+		Provider: "codex", AgentVersion: "test-agent", Model: "gpt-test", Reasoning: "high",
+		ATLVersion: "test-atl", PluginVersion: "test-plugin", SkillDigest: strings.Repeat("7", 64),
+		PromptContractSHA256: promptSHA256,
+	}
+	if !pass {
+		observation.Checks["answer_correct"] = false
+	}
+	result, err := Evaluate(scenario, observation)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return result
 }

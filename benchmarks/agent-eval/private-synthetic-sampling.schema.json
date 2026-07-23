@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/isukharev/atl/benchmarks/agent-eval/private-synthetic-sampling.schema.json",
+  "title": "ATL private attested synthetic-root sampling specification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "tier", "primary"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "tier": {"enum": ["calibration", "regression", "decision"]},
+    "primary": {"$ref": "#/$defs/root_ref"},
+    "holdout": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/root_ref"}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"tier": {"const": "calibration"}}, "required": ["tier"]},
+      "then": {"properties": {"holdout": {"maxItems": 0}}}
+    },
+    {
+      "if": {"properties": {"tier": {"enum": ["regression", "decision"]}}, "required": ["tier"]},
+      "then": {"required": ["holdout"], "properties": {"holdout": {"minItems": 1}}}
+    }
+  ],
+  "$defs": {
+    "root_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "source_sha256"],
+      "properties": {
+        "root": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$",
+          "not": {"const": "current"}
+        },
+        "source_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

@@ -84,6 +84,12 @@ acceptance, and `n>=10` plus holdout evidence is reserved for explicitly
 reviewed high-cost decisions. `private sample` validates exact immutable
 compact baselines and emits only closed counts and digests; it does not run a
 model, contact a backend, or publish per-run identities.
+The same command accepts schema-v2
+[`private-synthetic-sampling.schema.json`](private-synthetic-sampling.schema.json)
+specs for current, attested, owner-only single-cohort runner roots. These specs
+bind each complete root by source digest and derive sample counts and
+primary/holdout compatibility from exact results and receipts. They do not
+upgrade historical result-only roots or create a separate finding lifecycle.
 
 At stable private issue/PR boundaries, `private checkpoint` can preview and
 then digest-bind one owner-only UTC-day summary of repository provenance,

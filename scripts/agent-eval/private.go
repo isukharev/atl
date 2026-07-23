@@ -343,7 +343,7 @@ func runPrivateCommand(args []string, out io.Writer) error {
 		var root, repositoryRoot, spec, expected, confirm string
 		flags.StringVar(&root, "root", "", "workspace root")
 		flags.StringVar(&repositoryRoot, "repository-root", ".", "repository root")
-		flags.StringVar(&spec, "spec", "", "generic sampling spec alias")
+		flags.StringVar(&spec, "spec", "", "sampling spec alias")
 		flags.StringVar(&expected, "expected-assessment-sha256", "", "reviewed sampling assessment digest")
 		flags.StringVar(&confirm, "confirm", "", "must be ASSESS")
 		if err := flags.Parse(args[1:]); err != nil {

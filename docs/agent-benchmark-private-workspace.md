@@ -1061,6 +1061,29 @@ different scenario and a distinct case-bound plan contract; where a prompt
 contract is recorded, it must differ too. Duplicate plan ids, plan digests, or
 completed run ids are rejected across both groups.
 
+Fresh synthetic runner evidence uses the same command and reviewed assessment
+lifecycle with a schema-v2 spec at `cases/sampling/<alias>.v2.json`, following
+the public
+[schema](../benchmarks/agent-eval/private-synthetic-sampling.schema.json) and
+[example](../benchmarks/agent-eval/private-synthetic-sampling.example.json).
+Place each complete marked runner root at
+`reports/synthetic-roots/<root-alias>` with owner-only modes and record the
+schema-v2 complete-root `source_sha256` in the spec. The primary reference is
+one single-cohort root; each holdout reference is another single-cohort root.
+The evaluator reopens every result and schema-v1 receipt, verifies the complete
+root digest, and derives the observation count from the planned, contiguous
+cohort rather than trusting a declared sample size.
+
+Synthetic calibration therefore requires a one-run primary root. Regression
+requires a three-run primary root plus at least one observation from a
+different holdout scenario and task/prompt contract. Decision evidence requires
+at least ten primary runs plus a distinct holdout. Provider, model, reasoning,
+ATL, plugin, skill, surface, execution variant, and exact executable identities
+must remain compatible; historical result-only roots, multi-cohort roots, and
+changed or partial roots fail closed. A `.v1.json` and `.v2.json` with the same
+alias are ambiguous and rejected. This extends sampling evidence only: it does
+not create a second finding ledger or automatically accept a fixed finding.
+
 Preview the assessment offline:
 
 ```sh
@@ -1088,14 +1111,16 @@ After reviewing the exact digest, store the assessment:
 ```
 
 Apply locks the workspace and recomputes every input. Spec, baseline, result,
-or lifecycle drift invalidates the reviewed digest. The owner-only artifact is
-stored at `reports/sampling/<assessment-sha256>.json`; identical application is
+receipt, complete-root, or lifecycle drift invalidates the reviewed digest.
+The owner-only artifact is stored at
+`reports/sampling/<assessment-sha256>.json`; identical application is
 idempotent, and existing files are never overwritten. The artifact retains
 private exact references for later finding-ledger binding, but the command
-summary does not emit them. Link a fixed finding by adding its finding id and
-the reviewed assessment digest to `reports/finding-acceptance.v1.json`; until
-that link exists, the ledger's singleton regression field remains historical
-evidence rather than an n=3 claim.
+summary does not emit them. Schema-v1 private-live assessments may be linked to
+a fixed finding by adding its finding id and the reviewed assessment digest to
+`reports/finding-acceptance.v1.json`; until that link exists, the ledger's
+singleton regression field remains historical evidence rather than an n=3
+claim. Schema-v2 synthetic-root assessments are not accepted by that index yet.
 `regression_accepted` is an all-pass regression gate, not a statistical
 significance or comparative-reliability claim.
 
@@ -1133,8 +1158,9 @@ private operating state, not a publishable benchmark result.
 
 Current manifests use schema v4, run specs use schema v7, observations use
 schema v5, results use schema v8, aggregates use schema v6, private plans use
-schema v8, scorecards use schema v2, and finding ledgers, finding-acceptance
-indexes, sampling specs/assessments, and daily checkpoints use schema v1,
+schema v8, scorecards use schema v2, finding ledgers, finding-acceptance
+indexes, private-live sampling specs/assessments, and daily checkpoints use
+schema v1, attested synthetic-root sampling specs/assessments use schema v2,
 synthetic run receipts use schema v1 and complete synthetic-root aggregates use
 schema v2,
 current activation state uses schema v3, and

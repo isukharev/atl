@@ -1,0 +1,14 @@
+{
+  "schema_version": 2,
+  "tier": "regression",
+  "primary": {
+    "root": "jira-evidence-primary",
+    "source_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "holdout": [
+    {
+      "root": "jira-evidence-holdout",
+      "source_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  ]
+}

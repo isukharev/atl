@@ -112,14 +112,12 @@ func previewPrivateSampling(options PrivateSamplingOptions, dependencies private
 		(runtime.GOOS != "windows" && info.Mode().Perm() != 0o700) {
 		return PrivateSamplingPreview{}, nil, privateSamplingError("spec_directory")
 	}
-	specPath := filepath.Join(specDirectory, options.Spec+".v1.json")
-	info, err := safepath.StatWithin(root, specPath)
-	if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
-		return PrivateSamplingPreview{}, nil, privateSamplingError("spec_file")
-	}
-	data, err := safepath.ReadFileWithinLimit(root, specPath, privateSamplingMaxBytes)
+	specVersion, data, err := readPrivateSamplingSpec(root, specDirectory, options.Spec)
 	if err != nil {
-		return PrivateSamplingPreview{}, nil, privateSamplingError("spec_read")
+		return PrivateSamplingPreview{}, nil, err
+	}
+	if specVersion == PrivateSyntheticSamplingSchemaVersion {
+		return previewPrivateSyntheticSampling(root, data)
 	}
 	spec, canonical, err := decodePrivateSamplingSpec(data)
 	if err != nil || !bytes.Equal(data, canonical) {
@@ -138,6 +136,102 @@ func previewPrivateSampling(options PrivateSamplingOptions, dependencies private
 		SourceSHA256: assessment.SourceSHA256, AssessmentSHA256: digest, EvidenceReady: assessment.EvidenceReady,
 		RegressionAccepted: assessment.RegressionAccepted, Primary: assessment.PrimaryOutcome, Holdout: assessment.HoldoutOutcome}
 	return preview, assessmentData, nil
+}
+
+func readPrivateSamplingSpec(root, directory, alias string) (int, []byte, error) {
+	return readPrivateSamplingSpecWithHook(root, directory, alias, nil)
+}
+
+func readPrivateSamplingSpecWithHook(root, directory, alias string, afterRead func()) (int, []byte, error) {
+	directoryInfo, err := safepath.StatWithin(root, directory)
+	if err != nil || !directoryInfo.IsDir() ||
+		(runtime.GOOS != "windows" && directoryInfo.Mode().Perm() != 0o700) {
+		return 0, nil, privateSamplingError("spec_directory")
+	}
+	handle, err := os.OpenRoot(directory)
+	if err != nil {
+		return 0, nil, privateSamplingError("spec_directory")
+	}
+	defer func() { _ = handle.Close() }()
+	openedDirectory, err := handle.Stat(".")
+	if err != nil || !openedDirectory.IsDir() || !os.SameFile(directoryInfo, openedDirectory) ||
+		!sameSyntheticRootInfo(directoryInfo, openedDirectory) {
+		return 0, nil, privateSamplingError("spec_directory")
+	}
+	legacyName, syntheticName := alias+".v1.json", alias+".v2.json"
+	legacyBefore, legacyExists, err := privateSamplingSpecEntry(handle, legacyName)
+	if err != nil {
+		return 0, nil, err
+	}
+	syntheticBefore, syntheticExists, err := privateSamplingSpecEntry(handle, syntheticName)
+	if err != nil {
+		return 0, nil, err
+	}
+	if legacyExists == syntheticExists {
+		if legacyExists {
+			return 0, nil, privateSamplingError("spec_ambiguous")
+		}
+		return 0, nil, privateSamplingError("spec_file")
+	}
+	version, name, before := PrivateSamplingSchemaVersion, legacyName, legacyBefore
+	if syntheticExists {
+		version, name, before = PrivateSyntheticSamplingSchemaVersion, syntheticName, syntheticBefore
+	}
+	file, err := handle.Open(name)
+	if err != nil {
+		return 0, nil, privateSamplingError("spec_read")
+	}
+	opened, statErr := file.Stat()
+	if statErr != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) ||
+		!sameSyntheticRootInfo(before, opened) {
+		_ = file.Close()
+		return 0, nil, privateSamplingError("spec_file")
+	}
+	data, readErr := ioReadAllLimit(file, privateSamplingMaxBytes)
+	final, finalErr := file.Stat()
+	closeErr := file.Close()
+	if readErr != nil {
+		return 0, nil, privateSamplingError("spec_read")
+	}
+	if finalErr != nil || closeErr != nil || !os.SameFile(opened, final) ||
+		!sameSyntheticRootInfo(opened, final) || final.Size() != int64(len(data)) {
+		return 0, nil, privateSamplingError("spec_file")
+	}
+	if afterRead != nil {
+		afterRead()
+	}
+	legacyAfter, legacyStillExists, err := privateSamplingSpecEntry(handle, legacyName)
+	if err != nil {
+		return 0, nil, err
+	}
+	syntheticAfter, syntheticStillExists, err := privateSamplingSpecEntry(handle, syntheticName)
+	if err != nil {
+		return 0, nil, err
+	}
+	if legacyExists != legacyStillExists || syntheticExists != syntheticStillExists ||
+		legacyExists && (!os.SameFile(legacyBefore, legacyAfter) || !sameSyntheticRootInfo(legacyBefore, legacyAfter)) ||
+		syntheticExists && (!os.SameFile(syntheticBefore, syntheticAfter) || !sameSyntheticRootInfo(syntheticBefore, syntheticAfter)) {
+		return 0, nil, privateSamplingError("spec_file")
+	}
+	finalDirectory, err := handle.Stat(".")
+	ambientDirectory, ambientErr := safepath.StatWithin(root, directory)
+	if err != nil || ambientErr != nil ||
+		!os.SameFile(openedDirectory, finalDirectory) || !sameSyntheticRootInfo(openedDirectory, finalDirectory) ||
+		!os.SameFile(openedDirectory, ambientDirectory) || !sameSyntheticRootInfo(openedDirectory, ambientDirectory) {
+		return 0, nil, privateSamplingError("spec_directory")
+	}
+	return version, data, nil
+}
+
+func privateSamplingSpecEntry(root *os.Root, name string) (os.FileInfo, bool, error) {
+	info, err := root.Lstat(name)
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
+		return nil, false, privateSamplingError("spec_file")
+	}
+	return info, true, nil
 }
 
 func ApplyPrivateSampling(options PrivateSamplingOptions) (PrivateSamplingSummary, error) {

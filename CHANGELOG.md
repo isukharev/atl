@@ -28,6 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Owner-private sampling can now assess current attested synthetic runner roots
+  without inventing private plan identities. Schema-v2 specs bind complete
+  single-cohort roots by source digest, enforce n=1 calibration, n=3 plus a
+  distinct holdout for regression, and n>=10 plus holdout for reviewed
+  decisions, while reusing the existing content-free preview and immutable
+  review-before-apply lifecycle. Legacy private-live sampling remains
+  byte-compatible.
+
 - Current synthetic agent-evaluation runs now retain an owner-only schema-v1
   receipt that binds the provider-neutral task inputs, effective execution
   policy, model/runtime and plugin/skill/prompt identities, exact agent/ATL/
