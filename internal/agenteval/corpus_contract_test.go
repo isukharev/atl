@@ -180,7 +180,7 @@ func TestRepositoryTableMCPV3ProviderParityIsOneRead(t *testing.T) {
 			if closeErr != nil {
 				t.Fatal(closeErr)
 			}
-			if scenario.Budgets.MaxRemoteWrites != 0 || scenario.Budgets.MaxBackendRequests != 1 ||
+			if scenario.Budgets.MaxRemoteWrites != 0 || scenario.Budgets.MaxToolCalls != 2 || scenario.Budgets.MaxBackendRequests != 1 ||
 				scenario.Budgets.MaxInterfaceInvocations != 1 || len(scenario.Budgets.AllowedHTTPMethods) != 1 ||
 				scenario.Budgets.AllowedHTTPMethods[0] != "GET" {
 				t.Fatalf("v3 scenario escaped one-read policy: %+v", scenario.Budgets)
