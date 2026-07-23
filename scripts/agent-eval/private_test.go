@@ -139,7 +139,8 @@ func TestPrivateCommandRejectsMissingAndExtraArguments(t *testing.T) {
 		{"migrate", "--root", "x", "--confirm", "MIGRATE"}, {"qualify"},
 		{"review"}, {"review", "prepare"}, {"review", "run"}, {"review", "assess"}, {"baseline"}, {"baseline", "set"},
 		{"study"}, {"study", "recover"}, {"study", "reference"}, {"study", "compare"}, {"study", "promote"}, {"study", "unknown"},
-		{"compare"}, {"scorecard"}, {"scorecard", "--root", "x", "extra"}, {"sample"},
+		{"compare"}, {"scorecard"}, {"scorecard", "--root", "x", "extra"},
+		{"coverage-scorecard"}, {"coverage-scorecard", "--root", "x", "extra"}, {"sample"},
 		{"sample", "--root", "x", "--spec", "sample", "--confirm", "ASSESS"}, {"checkpoint"},
 		{"checkpoint", "--root", "x", "--confirm", "CHECKPOINT"},
 		{"prune", "--root", "x", "--confirm", "PRUNE"}, {"unknown"},
@@ -197,14 +198,14 @@ func TestPrivateCheckpointPreviewsAndAppliesExactDigest(t *testing.T) {
 		if options.Root != "/private" || options.RepositoryRoot != "/repository" || options.Confirm != "" {
 			t.Fatalf("preview options=%+v", options)
 		}
-		return agenteval.PrivateCheckpointPreview{SchemaVersion: 1, CheckpointSHA256: strings.Repeat("a", 64),
-			Checkpoint: agenteval.PrivateDailyCheckpoint{SchemaVersion: 1, UTCDate: "2026-07-22"}}, nil
+		return agenteval.PrivateCheckpointPreview{SchemaVersion: agenteval.PrivateCheckpointSchemaVersion, CheckpointSHA256: strings.Repeat("a", 64),
+			Checkpoint: agenteval.PrivateDailyCheckpoint{SchemaVersion: agenteval.PrivateCheckpointSchemaVersion, UTCDate: "2026-07-22"}}, nil
 	}
 	privateApplyCheckpoint = func(options agenteval.PrivateCheckpointOptions) (agenteval.PrivateCheckpointSummary, error) {
 		if options.ExpectedCheckpointSHA256 != strings.Repeat("a", 64) || options.Confirm != agenteval.PrivateCheckpointConfirmation {
 			t.Fatalf("apply options=%+v", options)
 		}
-		return agenteval.PrivateCheckpointSummary{SchemaVersion: 1, UTCDate: "2026-07-22",
+		return agenteval.PrivateCheckpointSummary{SchemaVersion: agenteval.PrivateCheckpointSchemaVersion, UTCDate: "2026-07-22",
 			CheckpointSHA256: options.ExpectedCheckpointSHA256, Stored: true}, nil
 	}
 	t.Cleanup(func() { privatePreviewCheckpoint, privateApplyCheckpoint = originalPreview, originalApply })
@@ -246,6 +247,34 @@ func TestPrivateScorecardEmitsSanitizedReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !report.Reconciled || report.Findings != 2 || report.LinkedPullRequests != 1 {
+		t.Fatalf("report=%+v", report)
+	}
+}
+
+func TestPrivateCoverageScorecardEmitsSanitizedReport(t *testing.T) {
+	original := privateBuildCoverageScorecard
+	privateBuildCoverageScorecard = func(options agenteval.PrivateCoverageScorecardOptions) (agenteval.PrivateCoverageScorecard, error) {
+		if options.Root != "/reviewed/private" || options.RepositoryRoot != "/reviewed/repository" {
+			t.Fatalf("options=%+v", options)
+		}
+		return agenteval.PrivateCoverageScorecard{
+			SchemaVersion: agenteval.PrivateCoverageScorecardSchemaVersion,
+			SourceSHA256:  strings.Repeat("a", 64), Reconciled: true,
+			Assessments: 2, PrimaryObservations: 6, HoldoutObservations: 2,
+		}, nil
+	}
+	t.Cleanup(func() { privateBuildCoverageScorecard = original })
+	var output bytes.Buffer
+	if err := runPrivateCommand([]string{"coverage-scorecard", "--root", "/reviewed/private",
+		"--repository-root", "/reviewed/repository"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	var report agenteval.PrivateCoverageScorecard
+	if err := json.Unmarshal(output.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if !report.Reconciled || report.Assessments != 2 || report.PrimaryObservations != 6 ||
+		report.HoldoutObservations != 2 {
 		t.Fatalf("report=%+v", report)
 	}
 }

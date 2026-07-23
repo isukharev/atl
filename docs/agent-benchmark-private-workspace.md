@@ -59,8 +59,9 @@ non-empty unmarked directory is never adopted or chmodded implicitly.
 - `plans/` contains immutable, expiring, hash-bound approvals.
 - `runs/` contains raw candidate attempts and remains private.
 - `baselines/` contains compact promoted evidence and an atomic current pointer.
-- `reports/` contains private offline comparisons and the owner-maintained
-  finding ledger.
+- `reports/` contains private offline comparisons, immutable sampling
+  assessments, the owner-maintained finding ledger, and the active accepted
+  coverage index.
 - `.ephemeral/` is bounded scratch space. Cleanup is attempted on every ordinary
   return; failure fails the run closed and leaves reviewable residue rather than
   hiding it. Crash or cleanup residue is never reused and blocks doctor until
@@ -1176,17 +1177,59 @@ regression remains historical evidence rather than an n=3 claim.
 `regression_accepted` is an all-pass regression gate, not a statistical
 significance or comparative-reliability claim.
 
+## Accepted coverage scorecard
+
+The finding ledger remains a failure-to-decision lifecycle. Do not add a
+synthetic finding merely to make an otherwise clean accepted cohort visible.
+Instead, select the currently accepted clean evidence in the owner-only
+canonical index `reports/sampling-coverage.v1.json`, following the public
+[schema](../benchmarks/agent-eval/private-coverage-index.schema.json) and
+[synthetic example](../benchmarks/agent-eval/private-coverage-index.example.json).
+The index contains only exact assessment digests, strictly sorted. Stored
+assessments that are not selected remain historical and are not counted.
+
+Generate the active coverage scorecard offline:
+
+```sh
+/tmp/agent-eval private coverage-scorecard \
+  --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \
+  --repository-root .
+```
+
+Every selected digest must reopen as one immutable, accepted schema-v2
+synthetic `regression` assessment with exactly three passing primary
+observations and at least one distinct passing holdout. The command reopens the
+receipt-backed roots again after resolving the complete index and fails closed
+on any index or evidence drift. Two selected assessments with the same generic
+task class, category, surface, provider/model/reasoning class, and exact closed
+capability-family set are ambiguous current coverage and are rejected rather
+than double-counted.
+
+The deterministic report contains only the closed public task, category,
+surface, provider/model/reasoning, and capability-family taxonomy. Primary and
+holdout outcomes separately report correctness, eligibility, backend
+observation, safety assurance, and explicitly covered call, duplicate request,
+transport-level remote-write, token, cost, and latency quantiles. A write count
+is derived from observed HTTP methods; for example, a bounded query-only POST
+is still visible as a transport-level write metric and is not a claim of
+content mutation. Scenario, root, assessment, executable, prompt, path,
+backend, answer, and fixture identities are omitted. Runtime labels are
+fail-closed to the public paired cohorts `codex`/`gpt-5.6-luna`/`high` and
+`claude-code`/`claude-opus-4-8`/`high`.
+
 ## Daily checkpoints
 
 Generate a daily checkpoint preview after a stable issue or PR boundary. The
 preview is read-only and combines the public repository commit and dirty flag,
 closed workspace state/counts, current public contract schema versions, and the
-finding scorecard summary/source digest. It contains no run-set, plan, scenario,
-baseline, finding, route, path, prompt, answer, reviewer, or backend identifier.
+finding and accepted-coverage scorecard summaries/source digests. It contains
+no run-set, plan, scenario, baseline, finding, route, path, prompt, answer,
+reviewer, or backend identifier.
 Linked issue and PR values are aggregate unique counts only; with ledger v2
 they may exceed the finding count because one finding may bind several public
 changes.
-An unhealthy workspace, active run, or invalid scorecard blocks the operation.
+An unhealthy workspace, active run, missing coverage index, or invalid
+scorecard blocks the operation.
 
 ```sh
 /tmp/agent-eval private checkpoint \
@@ -1196,7 +1239,8 @@ An unhealthy workspace, active run, or invalid scorecard blocks the operation.
 
 Review the complete preview, then store those exact bytes for the current UTC
 day. Apply recomputes every input under the private workspace lock, so a date,
-repository, workspace, or scorecard change invalidates the preview digest:
+repository, workspace, finding scorecard, or coverage scorecard change
+invalidates the preview digest:
 
 ```sh
 /tmp/agent-eval private checkpoint \
@@ -1213,10 +1257,11 @@ private operating state, not a publishable benchmark result.
 
 Current manifests use schema v4, run specs use schema v7, observations use
 schema v5, results use schema v8, aggregates use schema v6, private plans use
-schema v8, scorecards use schema v3, legacy finding ledgers, legacy
-finding-acceptance indexes, private-live sampling specs/assessments, and daily
-checkpoints use schema v1; typed-source finding ledgers and acceptance indexes
-and attested synthetic-root sampling specs/assessments use schema v2,
+schema v8, finding scorecards use schema v3, coverage indexes and scorecards use
+schema v1, legacy finding ledgers, legacy finding-acceptance indexes, and
+private-live sampling specs/assessments use schema v1; daily checkpoints,
+typed-source finding ledgers and acceptance indexes, and attested synthetic-root
+sampling specs/assessments use schema v2,
 synthetic run receipts use schema v1 and complete synthetic-root aggregates use
 schema v2,
 current activation state uses schema v3, and

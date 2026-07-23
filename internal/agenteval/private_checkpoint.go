@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	PrivateCheckpointSchemaVersion = 1
+	PrivateCheckpointSchemaVersion = 2
 	PrivateCheckpointConfirmation  = "CHECKPOINT"
 )
 
@@ -34,6 +34,7 @@ type PrivateDailyCheckpoint struct {
 	Repository    PrivateCheckpointRepository `json:"repository"`
 	Workspace     PrivateCheckpointWorkspace  `json:"workspace"`
 	Scorecard     PrivateCheckpointScorecard  `json:"scorecard"`
+	Coverage      PrivateCheckpointCoverage   `json:"coverage"`
 	Contracts     PrivateCheckpointContracts  `json:"contracts"`
 }
 
@@ -56,13 +57,23 @@ type PrivateCheckpointScorecard struct {
 	Decisions          PrivateFindingDecisionCounts `json:"decisions"`
 }
 
+type PrivateCheckpointCoverage struct {
+	SourceSHA256        string `json:"source_sha256"`
+	Assessments         int    `json:"assessments"`
+	Groups              int    `json:"groups"`
+	PrimaryObservations int    `json:"primary_observations"`
+	HoldoutObservations int    `json:"holdout_observations"`
+}
+
 type PrivateCheckpointContracts struct {
-	Workspace int `json:"workspace"`
-	RunSpec   int `json:"run_spec"`
-	Result    int `json:"result"`
-	Aggregate int `json:"aggregate"`
-	Ledger    int `json:"finding_ledger"`
-	Scorecard int `json:"finding_scorecard"`
+	Workspace         int `json:"workspace"`
+	RunSpec           int `json:"run_spec"`
+	Result            int `json:"result"`
+	Aggregate         int `json:"aggregate"`
+	Ledger            int `json:"finding_ledger"`
+	Scorecard         int `json:"finding_scorecard"`
+	CoverageIndex     int `json:"coverage_index"`
+	CoverageScorecard int `json:"coverage_scorecard"`
 }
 
 type PrivateCheckpointPreview struct {
@@ -81,11 +92,15 @@ type PrivateCheckpointSummary struct {
 type privateCheckpointDependencies struct {
 	doctor     func(root, repository string) (PrivateWorkspaceReport, error)
 	scorecard  func(PrivateFindingScorecardOptions) (PrivateFindingScorecard, error)
+	coverage   func(PrivateCoverageScorecardOptions) (PrivateCoverageScorecard, error)
 	repository func(root string) (string, bool, error)
 }
 
 func defaultPrivateCheckpointDependencies() privateCheckpointDependencies {
-	return privateCheckpointDependencies{doctor: DoctorPrivateWorkspace, scorecard: BuildPrivateFindingScorecard, repository: privateRepositoryIdentity}
+	return privateCheckpointDependencies{
+		doctor: DoctorPrivateWorkspace, scorecard: BuildPrivateFindingScorecard,
+		coverage: BuildPrivateCoverageScorecard, repository: privateRepositoryIdentity,
+	}
 }
 
 func PreviewPrivateCheckpoint(options PrivateCheckpointOptions) (PrivateCheckpointPreview, error) {
@@ -105,6 +120,11 @@ func previewPrivateCheckpoint(options PrivateCheckpointOptions, dependencies pri
 	if err != nil || !scorecard.Reconciled || scorecard.SchemaVersion != PrivateFindingScorecardSchemaVersion || !validSHA256(scorecard.SourceSHA256) {
 		return PrivateCheckpointPreview{}, privateCheckpointError("scorecard")
 	}
+	coverage, err := dependencies.coverage(PrivateCoverageScorecardOptions{Root: root, RepositoryRoot: repository})
+	if err != nil || !coverage.Reconciled || coverage.SchemaVersion != PrivateCoverageScorecardSchemaVersion ||
+		!validSHA256(coverage.SourceSHA256) {
+		return PrivateCheckpointPreview{}, privateCheckpointError("coverage")
+	}
 	commit, dirty, err := dependencies.repository(repository)
 	if err != nil || !privateGitCommitRE.MatchString(commit) {
 		return PrivateCheckpointPreview{}, privateCheckpointError("repository")
@@ -121,15 +141,20 @@ func previewPrivateCheckpoint(options PrivateCheckpointOptions, dependencies pri
 		Scorecard: PrivateCheckpointScorecard{SourceSHA256: scorecard.SourceSHA256, Findings: scorecard.Findings,
 			LinkedIssues: scorecard.LinkedIssues, LinkedPullRequests: scorecard.LinkedPullRequests,
 			Regressions: scorecard.Regressions, Decisions: scorecard.Decisions},
+		Coverage: PrivateCheckpointCoverage{
+			SourceSHA256: coverage.SourceSHA256, Assessments: coverage.Assessments, Groups: len(coverage.Groups),
+			PrimaryObservations: coverage.PrimaryObservations, HoldoutObservations: coverage.HoldoutObservations,
+		},
 		Contracts: PrivateCheckpointContracts{Workspace: PrivateWorkspaceSchemaVersion, RunSpec: RunSpecSchemaVersion,
 			Result: ResultSchemaVersion, Aggregate: AggregateSchemaVersion, Ledger: scorecard.LedgerSchemaVersion,
-			Scorecard: PrivateFindingScorecardSchemaVersion},
+			Scorecard: PrivateFindingScorecardSchemaVersion, CoverageIndex: PrivateCoverageIndexSchemaVersion,
+			CoverageScorecard: PrivateCoverageScorecardSchemaVersion},
 	}
 	data, err := encodePrivateCheckpoint(checkpoint)
 	if err != nil {
 		return PrivateCheckpointPreview{}, privateCheckpointError("contract")
 	}
-	digest := sha256HexBytes(append([]byte("atl-private-daily-checkpoint-v1\x00"), data...))
+	digest := sha256HexBytes(append([]byte("atl-private-daily-checkpoint-v2\x00"), data...))
 	return PrivateCheckpointPreview{SchemaVersion: PrivateCheckpointSchemaVersion, CheckpointSHA256: digest, Checkpoint: checkpoint}, nil
 }
 
@@ -189,6 +214,7 @@ func encodePrivateCheckpoint(checkpoint PrivateDailyCheckpoint) ([]byte, error) 
 		checkpoint.UTCDate == "" || checkpoint.Scorecard.Findings < 0 || checkpoint.Scorecard.LinkedIssues < 0 ||
 		checkpoint.Scorecard.LinkedPullRequests < 0 || checkpoint.Scorecard.Regressions < 0 ||
 		checkpoint.Scorecard.Regressions > checkpoint.Scorecard.Findings || !validPrivateCheckpointDecisions(checkpoint.Scorecard) ||
+		!validPrivateCheckpointCoverage(checkpoint.Coverage) ||
 		!validPrivateCheckpointWorkspace(checkpoint.Workspace) ||
 		!validSHA256(checkpoint.Scorecard.SourceSHA256) ||
 		(checkpoint.Contracts.Ledger != PrivateFindingLedgerSchemaVersion &&
@@ -197,7 +223,9 @@ func encodePrivateCheckpoint(checkpoint PrivateDailyCheckpoint) ([]byte, error) 
 		checkpoint.Contracts.RunSpec != RunSpecSchemaVersion ||
 		checkpoint.Contracts.Result != ResultSchemaVersion ||
 		checkpoint.Contracts.Aggregate != AggregateSchemaVersion ||
-		checkpoint.Contracts.Scorecard != PrivateFindingScorecardSchemaVersion {
+		checkpoint.Contracts.Scorecard != PrivateFindingScorecardSchemaVersion ||
+		checkpoint.Contracts.CoverageIndex != PrivateCoverageIndexSchemaVersion ||
+		checkpoint.Contracts.CoverageScorecard != PrivateCoverageScorecardSchemaVersion {
 		return nil, privateCheckpointError("contract")
 	}
 	parsed, err := time.Parse(time.DateOnly, checkpoint.UTCDate)
@@ -209,6 +237,13 @@ func encodePrivateCheckpoint(checkpoint PrivateDailyCheckpoint) ([]byte, error) 
 		return nil, err
 	}
 	return append(data, '\n'), nil
+}
+
+func validPrivateCheckpointCoverage(coverage PrivateCheckpointCoverage) bool {
+	return validSHA256(coverage.SourceSHA256) &&
+		coverage.Assessments > 0 && coverage.Groups == coverage.Assessments &&
+		coverage.PrimaryObservations == coverage.Assessments*3 &&
+		coverage.HoldoutObservations >= coverage.Assessments
 }
 
 func validPrivateCheckpointDecisions(scorecard PrivateCheckpointScorecard) bool {
