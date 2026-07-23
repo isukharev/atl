@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -34,6 +35,7 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 	}
 	want := []string{
 		"confluence_page_outline", "confluence_page_resolve", "confluence_page_section", "confluence_search",
+		"confluence_table_extract", "confluence_table_summary",
 		"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_search",
 	}
 	got := make([]string, 0, len(listed.Tools))
@@ -65,6 +67,12 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 			if !strings.Contains(description, "without a Markdown # prefix") {
 				t.Errorf("tool %s heading guidance is ambiguous: %#v", tool.Name, heading)
 			}
+		}
+		if tool.Name == "confluence_table_extract" && (!schemaRequired(input, "reference") || !schemaRequired(input, "table")) {
+			t.Errorf("tool %s must require reference and selected table: %#v", tool.Name, tool.InputSchema)
+		}
+		if tool.Name == "confluence_table_summary" && !schemaRequired(input, "reference") {
+			t.Errorf("tool %s must require reference: %#v", tool.Name, tool.InputSchema)
 		}
 		if tool.OutputSchema == nil {
 			t.Errorf("tool %s has no output schema", tool.Name)
@@ -319,6 +327,16 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	callToolOK(t, client, "confluence_page_section", map[string]any{
 		"reference": "42", "heading": "Results", "occurrence": 2,
 	})
+	summary := callToolOK(t, client, "confluence_table_summary", map[string]any{"reference": "42", "table": 2})
+	summaryContent, ok := summary.StructuredContent.(map[string]any)
+	if !ok || summaryContent["selection_reconciled"] != true {
+		t.Fatalf("table summary=%#v", summary.StructuredContent)
+	}
+	extract := callToolOK(t, client, "confluence_table_extract", map[string]any{"reference": "42", "table": 2, "max_bytes": 4096})
+	extractContent, ok := extract.StructuredContent.(map[string]any)
+	if !ok || extractContent["selected_table"] != float64(2) {
+		t.Fatalf("table extract=%#v", extract.StructuredContent)
+	}
 
 	if j.fieldOpts.Custom != "true" || j.fieldOpts.NameLike != "Outcome" {
 		t.Fatalf("field opts=%+v", j.fieldOpts)
@@ -340,6 +358,9 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	}
 	if c.searchCQL != "space=DOCS" || c.searchLimit != 25 || c.searchCursor != "25" {
 		t.Fatalf("confluence search cql=%q limit=%d cursor=%q", c.searchCQL, c.searchLimit, c.searchCursor)
+	}
+	if c.tableSummaryReference != "42" || c.tableSummaryIndex != 2 || c.tableExtractReference != "42" || c.tableExtractIndex != 2 {
+		t.Fatalf("confluence table calls=%+v", c)
 	}
 }
 
@@ -403,6 +424,10 @@ func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{"identity"}, "projection": "brief"}},
 		{name: "confluence_search", args: map[string]any{"cql": "space=DOCS", "limit": 101}},
 		{name: "confluence_page_section", args: map[string]any{"reference": "1", "heading": "Results", "max_bytes": 1048577}},
+		{name: "confluence_table_summary", args: map[string]any{"reference": "1", "table": -1}},
+		{name: "confluence_table_summary", args: map[string]any{"reference": "1", "max_bytes": 1023}},
+		{name: "confluence_table_extract", args: map[string]any{"reference": "1", "table": 0}},
+		{name: "confluence_table_extract", args: map[string]any{"reference": "1", "table": 1, "max_bytes": 1048577}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -423,6 +448,100 @@ func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 			}
 			if got.Kind != "usage_error" || got.Remediation != "fix_request" {
 				t.Fatalf("classified error=%+v", got)
+			}
+		})
+	}
+}
+
+func TestConfluenceTableOutputBoundFailsWithoutLeakingContent(t *testing.T) {
+	reader := &recordingConfluenceReader{tableText: "PRIVATE-MARKER-" + strings.Repeat("x", 4<<10)}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Confluence: func() (ConfluenceReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: "confluence_table_extract", Arguments: map[string]any{
+		"reference": "42", "table": 1, "max_bytes": 1024,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || len(result.Content) != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok || strings.Contains(text.Text, "PRIVATE-MARKER") {
+		t.Fatalf("error content=%#v", result.Content)
+	}
+	var got toolError
+	if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "check_failed" {
+		t.Fatalf("error=%+v decode=%v", got, err)
+	}
+}
+
+func TestConfluenceTableToolsRejectUnreconciledApplicationResults(t *testing.T) {
+	for _, test := range []struct {
+		name, tool, mode string
+		args             map[string]any
+	}{
+		{name: "summary selection", tool: "confluence_table_summary", args: map[string]any{"reference": "42"}, mode: "summary-selection"},
+		{name: "summary rectangular", tool: "confluence_table_summary", args: map[string]any{"reference": "42"}, mode: "summary-rectangular"},
+		{name: "summary cell count", tool: "confluence_table_summary", args: map[string]any{"reference": "42"}, mode: "summary-cell-count"},
+		{name: "extract selection", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract"},
+		{name: "extract dimensions", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-dimensions"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &invalidConfluenceTableReader{recordingConfluenceReader: &recordingConfluenceReader{}, mode: test.mode}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Confluence: func() (ConfluenceReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: test.tool, Arguments: test.args})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+				t.Fatalf("result=%+v", result)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "check_failed" {
+				t.Fatalf("error=%+v decode=%v", got, err)
+			}
+		})
+	}
+}
+
+func TestConfluenceTableErrorsNeverExposeParserContent(t *testing.T) {
+	marker := "SYNTHETIC-SECRET-ENTITY"
+	_, parserErr := app.ExtractTablesFromCSF("42", "Synthetic", []byte("<table><tr><td>&"+marker+";</td></tr></table>"), 1)
+	if parserErr == nil || !strings.Contains(parserErr.Error(), marker) {
+		t.Fatalf("test fixture must produce a content-bearing parser error: %v", parserErr)
+	}
+	for _, tool := range []string{"confluence_table_summary", "confluence_table_extract"} {
+		t.Run(tool, func(t *testing.T) {
+			reader := &recordingConfluenceReader{tableErr: parserErr}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Confluence: func() (ConfluenceReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+			args := map[string]any{"reference": "42"}
+			if tool == "confluence_table_extract" {
+				args["table"] = 1
+			}
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: tool, Arguments: args})
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil || bytes.Contains(encoded, []byte(marker)) {
+				t.Fatalf("result leaked parser content: %s", encoded)
 			}
 		})
 	}
@@ -455,6 +574,36 @@ func TestToolCancellationPropagatesToApplicationContext(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("client call did not return after cancellation")
+	}
+}
+
+func TestConfluenceTableCancellationPropagatesToApplicationContext(t *testing.T) {
+	reader := &cancellingConfluenceReader{started: make(chan struct{}), canceled: make(chan struct{})}
+	server := New("test", Dependencies{Confluence: func() (ConfluenceReader, error) { return reader, nil }})
+	client, closeSessions := connectTestClient(t, server)
+	defer closeSessions()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = client.CallTool(ctx, &mcp.CallToolParams{Name: "confluence_table_summary", Arguments: map[string]any{"reference": "42"}})
+	}()
+	select {
+	case <-reader.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("table tool handler did not start")
+	}
+	cancel()
+	select {
+	case <-reader.canceled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("table application context was not canceled")
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("table client call did not return after cancellation")
 	}
 }
 
@@ -497,6 +646,11 @@ func callToolOK(t *testing.T, client *mcp.ClientSession, name string, args map[s
 }
 
 type cancellingJiraReader struct {
+	started  chan struct{}
+	canceled chan struct{}
+}
+
+type cancellingConfluenceReader struct {
 	started  chan struct{}
 	canceled chan struct{}
 }
@@ -551,6 +705,15 @@ type recordingConfluenceReader struct {
 	searchLimit                                          int
 	resolveReference, outlineReference, sectionReference string
 	sectionOpts                                          app.ConfluencePageSectionOpts
+	tableSummaryReference, tableExtractReference         string
+	tableSummaryIndex, tableExtractIndex                 int
+	tableText                                            string
+	tableErr                                             error
+}
+
+type invalidConfluenceTableReader struct {
+	*recordingConfluenceReader
+	mode string
 }
 
 func (r *recordingConfluenceReader) SearchQualified(_ context.Context, cql string, limit int, cursor string) (*app.ConfluenceSearchResult, error) {
@@ -573,6 +736,54 @@ func (r *recordingConfluenceReader) PageSection(_ context.Context, reference str
 	return &app.ConfluencePageSectionResult{Path: []string{}}, nil
 }
 
+func (r *recordingConfluenceReader) SummarizeTables(_ context.Context, reference string, table int) (*app.ConfluenceTableSummary, error) {
+	r.tableSummaryReference, r.tableSummaryIndex = reference, table
+	if r.tableErr != nil {
+		return nil, r.tableErr
+	}
+	tables := []app.ConfluenceTableSummaryRecord{{Index: table, RowCount: 1, ColumnCount: 1, Rectangular: true, CellCountReconciled: true}}
+	if table == 0 {
+		tables = []app.ConfluenceTableSummaryRecord{{Index: 1, RowCount: 1, ColumnCount: 1, Rectangular: true, CellCountReconciled: true},
+			{Index: 2, RowCount: 1, ColumnCount: 1, Rectangular: true, CellCountReconciled: true}}
+	}
+	return &app.ConfluenceTableSummary{PageID: "42", TableCount: 2, Table: table, ReturnedTableCount: len(tables),
+		SelectionReconciled: true, Tables: tables}, nil
+}
+
+func (r *invalidConfluenceTableReader) SummarizeTables(ctx context.Context, reference string, table int) (*app.ConfluenceTableSummary, error) {
+	result, err := r.recordingConfluenceReader.SummarizeTables(ctx, reference, table)
+	switch r.mode {
+	case "summary-selection":
+		result.SelectionReconciled = false
+	case "summary-rectangular":
+		result.Tables[0].Rectangular = false
+	case "summary-cell-count":
+		result.Tables[0].CellCountReconciled = false
+	}
+	return result, err
+}
+
+func (r *invalidConfluenceTableReader) ExtractTables(ctx context.Context, reference string, table int) (*app.ConfluenceTableExtract, error) {
+	result, err := r.recordingConfluenceReader.ExtractTables(ctx, reference, table)
+	switch r.mode {
+	case "extract":
+		result.Tables = append(result.Tables, result.Tables[0])
+	case "extract-dimensions":
+		result.Tables[0].RowCount++
+	}
+	return result, err
+}
+
+func (r *recordingConfluenceReader) ExtractTables(_ context.Context, reference string, table int) (*app.ConfluenceTableExtract, error) {
+	r.tableExtractReference, r.tableExtractIndex = reference, table
+	if r.tableErr != nil {
+		return nil, r.tableErr
+	}
+	return &app.ConfluenceTableExtract{PageID: "42", TableCount: 2, Table: table, Tables: []app.ConfluenceTable{{Index: table,
+		RowCount: 1, ColumnCount: 1, Rows: []app.ConfluenceTableRow{{Index: 1,
+			Cells: []app.ConfluenceTableCell{{Row: 1, Column: 1, Text: r.tableText}}}}}}}, nil
+}
+
 func (r *cancellingJiraReader) FieldCatalog(ctx context.Context, _ app.JiraFieldCatalogOpts) (*app.JiraFieldCatalogResult, error) {
 	close(r.started)
 	<-ctx.Done()
@@ -593,5 +804,32 @@ func (*cancellingJiraReader) EpicDigest(context.Context, string, app.JiraEpicDig
 }
 
 func (*cancellingJiraReader) BoardSnapshot(context.Context, int, app.BoardSnapshotOpts) (*app.BoardSnapshot, error) {
+	panic("unexpected call")
+}
+
+func (r *cancellingConfluenceReader) SummarizeTables(ctx context.Context, _ string, _ int) (*app.ConfluenceTableSummary, error) {
+	close(r.started)
+	<-ctx.Done()
+	close(r.canceled)
+	return nil, ctx.Err()
+}
+
+func (*cancellingConfluenceReader) SearchQualified(context.Context, string, int, string) (*app.ConfluenceSearchResult, error) {
+	panic("unexpected call")
+}
+
+func (*cancellingConfluenceReader) ResolvePageReference(context.Context, string) (*app.ConfluencePageResolution, error) {
+	panic("unexpected call")
+}
+
+func (*cancellingConfluenceReader) PageOutline(context.Context, string) (*app.ConfluencePageOutlineResult, error) {
+	panic("unexpected call")
+}
+
+func (*cancellingConfluenceReader) PageSection(context.Context, string, app.ConfluencePageSectionOpts) (*app.ConfluencePageSectionResult, error) {
+	panic("unexpected call")
+}
+
+func (*cancellingConfluenceReader) ExtractTables(context.Context, string, int) (*app.ConfluenceTableExtract, error) {
 	panic("unexpected call")
 }

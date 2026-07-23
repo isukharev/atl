@@ -53,7 +53,7 @@ Help и shell completion остаются доступны в read-only режи
   и [SECURITY.md](SECURITY.md).
 - **Удобен для скриптов** — JSON в stdout, логи и ошибки в stderr, без интерактивных
   запросов, чёткие коды выхода.
-- **Типизированный read-only MCP** — `atl mcp serve` предоставляет агентам девять
+- **Типизированный read-only MCP** — `atl mcp serve` предоставляет агентам одиннадцать
   ограниченных Jira/Confluence evidence-tools без записи, shell, raw REST и произвольных файлов.
 - **Один статический бинарник** — `CGO_ENABLED=0`, запускается везде, где работает Go 1.26.
 
