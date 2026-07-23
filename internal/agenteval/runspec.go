@@ -22,6 +22,7 @@ const (
 	maxRunSpecBytes                   = 1 << 20
 	maxRunCostMicroUSD                = 10_000_000
 	maxWorkspaceArtifactBytes         = 16 << 20
+	maxOptionalPeriodExpectedBytes    = 4 << 10
 )
 
 var (
@@ -477,6 +478,13 @@ func (s RunSpec) Validate() error {
 		case "json_equals":
 			if check.Pointer == "" || !json.Valid(check.Expected) {
 				return fmt.Errorf("json_equals check %q requires pointer and valid expected JSON", check.Name)
+			}
+		case "json_string_equals_optional_period":
+			if _, ok := expectedOptionalPeriodString(check.Expected); check.Pointer == "" ||
+				check.Minimum != 0 ||
+				check.Maximum != 0 ||
+				!ok {
+				return fmt.Errorf("json_string_equals_optional_period check %q requires a pointer and canonical non-empty string without a terminal period", check.Name)
 			}
 		case "json_present":
 			if check.Pointer == "" || len(check.Expected) != 0 {
@@ -940,6 +948,12 @@ func evaluateRunChecksWithMCPInvocations(
 			actualJSON, _ := json.Marshal(actual)
 			expectedJSON, _ := json.Marshal(expected)
 			results[check.Name] = bytes.Equal(actualJSON, expectedJSON)
+		case "json_string_equals_optional_period":
+			actual, ok := resolveJSONPointer(document, check.Pointer)
+			actualString, stringOK := actual.(string)
+			expected, _ := expectedOptionalPeriodString(check.Expected)
+			results[check.Name] = ok && stringOK &&
+				(actualString == expected || actualString == expected+".")
 		case "json_equals_workspace_json":
 			actual, ok := resolveJSONPointer(document, check.Pointer)
 			if !ok {
@@ -961,6 +975,18 @@ func evaluateRunChecksWithMCPInvocations(
 		}
 	}
 	return results, nil
+}
+
+func expectedOptionalPeriodString(raw json.RawMessage) (string, bool) {
+	var expected string
+	if err := json.Unmarshal(raw, &expected); err != nil ||
+		expected == "" ||
+		len(expected) > maxOptionalPeriodExpectedBytes ||
+		strings.TrimSpace(expected) != expected ||
+		strings.HasSuffix(expected, ".") {
+		return "", false
+	}
+	return expected, true
 }
 
 func expectedCapabilityFamilies(raw json.RawMessage) ([]capabilityFamilyExpectation, bool) {

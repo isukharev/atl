@@ -520,6 +520,25 @@ func assertCrossServiceDiscoveryShortenedEvidenceFails(
 		t.Fatal(err)
 	}
 	limit, _ := shortened["rollout_limit"].(string)
+	shortened["rollout_limit"] = limit + "."
+	withPeriod, err := json.Marshal(shortened)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, err := evaluateRunChecksWithMCPInvocations(
+		spec.Checks, withPeriod, "", 5, 0, 0, 0,
+		nil, 0, 0, methods, true, nil, families, true, sequence,
+		invocations, true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, passed := range results {
+		if !passed {
+			t.Fatalf("optional-period evidence failed check %q", name)
+		}
+	}
+
 	shortened["rollout_limit"] = strings.TrimPrefix(limit, "Up to ")
 	risks, _ := shortened["open_risks"].([]any)
 	if len(risks) != 1 {
@@ -531,7 +550,7 @@ func assertCrossServiceDiscoveryShortenedEvidenceFails(
 	if err != nil {
 		t.Fatal(err)
 	}
-	results, err := evaluateRunChecksWithMCPInvocations(
+	results, err = evaluateRunChecksWithMCPInvocations(
 		spec.Checks, mutated, "", 5, 0, 0, 0,
 		nil, 0, 0, methods, true, nil, families, true, sequence,
 		invocations, true,

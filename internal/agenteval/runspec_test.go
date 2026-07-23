@@ -661,6 +661,74 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 	}
 }
 
+func TestRunSpecValidatesOptionalTerminalPeriodStringCheck(t *testing.T) {
+	check := RunCheck{
+		Name: "qualified_limit", Kind: "json_string_equals_optional_period",
+		Pointer: "/limit", Expected: json.RawMessage(`"Up to 40 percent"`),
+	}
+	valid := validRunSpec()
+	valid.Checks = append(valid.Checks, check)
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if runCheckClass(check.Kind) != "semantic" ||
+		privateActivationSafetyCheckKind(check.Kind) {
+		t.Fatal("optional-period string check is not classified as semantic")
+	}
+
+	tests := []struct {
+		name  string
+		final string
+		want  bool
+	}{
+		{name: "canonical", final: `{"limit":"Up to 40 percent"}`, want: true},
+		{name: "one period", final: `{"limit":"Up to 40 percent."}`, want: true},
+		{name: "missing qualifier", final: `{"limit":"40 percent"}`},
+		{name: "different case", final: `{"limit":"up to 40 percent"}`},
+		{name: "different value", final: `{"limit":"Up to 30 percent"}`},
+		{name: "two periods", final: `{"limit":"Up to 40 percent.."}`},
+		{name: "non-string", final: `{"limit":40}`},
+		{name: "missing", final: `{}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			results, err := evaluateRunChecks(
+				[]RunCheck{check}, []byte(test.final), "", 0, 0, 0, 0,
+				nil, 0, 0, nil, false, nil,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if results[check.Name] != test.want {
+				t.Fatalf("result=%v want %v", results[check.Name], test.want)
+			}
+		})
+	}
+
+	overlongExpected, err := json.Marshal(strings.Repeat("x", maxOptionalPeriodExpectedBytes+1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalidChecks := []RunCheck{
+		{Name: "missing_pointer", Kind: check.Kind, Expected: check.Expected},
+		{Name: "missing_expected", Kind: check.Kind, Pointer: check.Pointer},
+		{Name: "empty", Kind: check.Kind, Pointer: check.Pointer, Expected: json.RawMessage(`""`)},
+		{Name: "non_string", Kind: check.Kind, Pointer: check.Pointer, Expected: json.RawMessage(`40`)},
+		{Name: "leading_space", Kind: check.Kind, Pointer: check.Pointer, Expected: json.RawMessage(`" Up to 40 percent"`)},
+		{Name: "terminal_period", Kind: check.Kind, Pointer: check.Pointer, Expected: json.RawMessage(`"Up to 40 percent."`)},
+		{Name: "minimum", Kind: check.Kind, Pointer: check.Pointer, Expected: check.Expected, Minimum: 1},
+		{Name: "maximum", Kind: check.Kind, Pointer: check.Pointer, Expected: check.Expected, Maximum: 1},
+		{Name: "overlong", Kind: check.Kind, Pointer: check.Pointer, Expected: overlongExpected},
+	}
+	for _, invalid := range invalidChecks {
+		spec := validRunSpec()
+		spec.Checks = append(spec.Checks, invalid)
+		if err := spec.Validate(); err == nil {
+			t.Fatalf("invalid check passed: %+v", invalid)
+		}
+	}
+}
+
 func TestRunSpecCategoryAndSurfaceDefaultsAndCompatibility(t *testing.T) {
 	legacy := validRunSpec()
 	if legacy.EffectiveCategory() != BenchmarkCategoryRouteFixed || legacy.EffectiveSurface() != SurfaceCLISkill {

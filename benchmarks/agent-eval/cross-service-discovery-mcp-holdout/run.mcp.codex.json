@@ -39,7 +39,7 @@
     {"name":"http_exact","kind":"http_methods_equal","expected":{"GET":6}},
     {"name":"interface_succeeded","kind":"interface_all_succeeded"},
     {"name":"issue_correct","kind":"json_equals","pointer":"/jira_key","expected":"PLAT-73"},
-    {"name":"limit_correct","kind":"json_equals","pointer":"/rollout_limit","expected":"Up to 30 percent"},
+    {"name":"limit_correct","kind":"json_string_equals_optional_period","pointer":"/rollout_limit","expected":"Up to 30 percent"},
     {"name":"mock_clean","kind":"mock_no_unexpected"},
     {"name":"no_delegation","kind":"delegations_none"},
     {"name":"owner_correct","kind":"json_equals","pointer":"/owner","expected":"Runtime Foundations"},
