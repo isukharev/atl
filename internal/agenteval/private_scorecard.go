@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/isukharev/atl/internal/safepath"
 )
@@ -424,6 +425,8 @@ func compatiblePrivateSyntheticFindingTransition(
 	failure, regression privateSyntheticSamplingCohort,
 	transitions []PrivateFindingContractTransition,
 ) bool {
+	failureSkillDigest, failureSkillOK := privateFindingSkillDigest(failure.Runtime.SkillDigest)
+	regressionSkillDigest, regressionSkillOK := privateFindingSkillDigest(regression.Runtime.SkillDigest)
 	if failure.ScenarioID != regression.ScenarioID ||
 		failure.TaskClass != regression.TaskClass ||
 		failure.DataClass != regression.DataClass ||
@@ -435,7 +438,8 @@ func compatiblePrivateSyntheticFindingTransition(
 		failure.Runtime.Reasoning != regression.Runtime.Reasoning ||
 		failure.Runtime.PluginVersion != regression.Runtime.PluginVersion ||
 		failure.Runtime.SkillActivation != regression.Runtime.SkillActivation ||
-		failure.AgentExecutableSHA256 != regression.AgentExecutableSHA256 {
+		failure.AgentExecutableSHA256 != regression.AgentExecutableSHA256 ||
+		!failureSkillOK || !regressionSkillOK {
 		return false
 	}
 	observed := map[string]PrivateFindingContractTransition{}
@@ -451,7 +455,7 @@ func compatiblePrivateSyntheticFindingTransition(
 	add(PrivateFindingContractExecution, failure.ExecutionContractSHA256, regression.ExecutionContractSHA256)
 	add(PrivateFindingContractATLBinary, failure.ATLExecutableSHA256, regression.ATLExecutableSHA256)
 	add(PrivateFindingContractRunner, failure.WrapperExecutableSHA256, regression.WrapperExecutableSHA256)
-	add(PrivateFindingContractSkill, failure.Runtime.SkillDigest, regression.Runtime.SkillDigest)
+	add(PrivateFindingContractSkill, failureSkillDigest, regressionSkillDigest)
 	if len(observed) > 0 {
 		if _, exists := observed[PrivateFindingContractExecution]; !exists {
 			return false
@@ -479,6 +483,14 @@ func compatiblePrivateSyntheticFindingTransition(
 		}
 	}
 	return true
+}
+
+func privateFindingSkillDigest(value string) (string, bool) {
+	if value == "" {
+		return "", true
+	}
+	value = strings.TrimPrefix(value, "sha256:")
+	return value, validSHA256(value)
 }
 
 func disjointPrivateSyntheticAssessments(
