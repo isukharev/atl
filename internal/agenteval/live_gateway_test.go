@@ -862,6 +862,73 @@ func TestLiveGatewayEnforcesConcurrencyBeforeUpstream(t *testing.T) {
 	if status := <-first; status != http.StatusOK {
 		t.Fatalf("first status=%d", status)
 	}
+	if status := call(); status != http.StatusOK || upstreamCalls.Load() != 2 {
+		t.Fatalf("post-concurrency status=%d calls=%d", status, upstreamCalls.Load())
+	}
+}
+
+func TestLiveGatewayConcurrencyDenialConsumesNoWriteBudgets(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var upstreamCalls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		if upstreamCalls.Add(1) == 1 {
+			close(started)
+			<-release
+		}
+		_, _ = io.WriteString(response, `{}`)
+	}))
+	defer upstream.Close()
+	auditDir := t.TempDir()
+	if err := os.Chmod(auditDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const issuePath = "/rest/api/2/issue/PROJ-1"
+	gateway, err := StartLiveGateway(LiveGatewayConfig{
+		AuditPath:   filepath.Join(auditDir, "audit.jsonl"),
+		MaxRequests: 2, MaxConcurrent: 1, MaxWrites: 2,
+		MaxRequestBytes: 2, MaxTotalRequestBytes: 4,
+		MaxResponseBytes: 1024, MaxTotalResponseBytes: 2048, RequestTimeout: 5 * time.Second,
+		Services: map[string]LiveGatewayServiceConfig{
+			"jira": {
+				BaseURL: upstream.URL, Token: "upstream-secret",
+				Routes: []LiveGatewayRoute{{
+					Name: "issue_write", PathPrefix: issuePath, Exact: true,
+					Methods: []string{http.MethodPut}, MaxRequests: 2, MaxRequestBytes: 2,
+				}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gateway.Close(context.Background())
+	endpoint := gateway.Endpoints()["jira"]
+	call := func() int {
+		request, _ := http.NewRequest(http.MethodPut, endpoint.BaseURL+issuePath, strings.NewReader(`{}`))
+		request.Header.Set("Authorization", "Bearer "+endpoint.Token)
+		request.Header.Set("Content-Type", "application/json")
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			return 0
+		}
+		_, _ = io.Copy(io.Discard, response.Body)
+		_ = response.Body.Close()
+		return response.StatusCode
+	}
+	first := make(chan int, 1)
+	go func() { first <- call() }()
+	<-started
+	if status := call(); status != http.StatusTooManyRequests || upstreamCalls.Load() != 1 {
+		t.Fatalf("concurrent status=%d calls=%d", status, upstreamCalls.Load())
+	}
+	close(release)
+	if status := <-first; status != http.StatusOK {
+		t.Fatalf("first status=%d", status)
+	}
+	if status := call(); status != http.StatusOK || upstreamCalls.Load() != 2 {
+		t.Fatalf("post-concurrency status=%d calls=%d", status, upstreamCalls.Load())
+	}
 }
 
 func TestLiveGatewayCloseWaitsForHandlersBeforeKeyTeardown(t *testing.T) {
@@ -953,7 +1020,132 @@ func TestLiveGatewayEnforcesRequestAndAuditBoundaries(t *testing.T) {
 	if status := request(); status != http.StatusBadGateway || upstreamCalls.Load() != 1 {
 		t.Fatalf("audit failure status=%d calls=%d", status, upstreamCalls.Load())
 	}
-	_ = gateway.Close(context.Background())
+	if err := gateway.Close(context.Background()); !errors.Is(err, errLiveGatewayAuditUnavailable) {
+		t.Fatalf("close audit error=%v, want latched failure", err)
+	}
+}
+
+func TestLiveGatewayAuditCapFailsCloseAndEvidenceIngestion(t *testing.T) {
+	var upstreamCalls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		upstreamCalls.Add(1)
+		_, _ = io.WriteString(response, `{}`)
+	}))
+	defer upstream.Close()
+	gateway, _ := startTestLiveGateway(t, upstream.URL, 1, 1024, 1024)
+	endpoint := gateway.Endpoints()["jira"]
+
+	gateway.state.mu.Lock()
+	gateway.state.auditBytes = maxLiveGatewayAuditBytes
+	gateway.state.mu.Unlock()
+
+	request, _ := http.NewRequest(http.MethodGet, endpoint.BaseURL+"/rest/api/2/field", nil)
+	request.Header.Set("Authorization", "Bearer "+endpoint.Token)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, response.Body)
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusBadGateway || upstreamCalls.Load() != 0 {
+		t.Fatalf("audit-cap status=%d calls=%d", response.StatusCode, upstreamCalls.Load())
+	}
+	if _, _, _, err := closeAndReadLiveGatewayRecords(gateway); !errors.Is(err, errLiveGatewayAuditUnavailable) {
+		t.Fatalf("evidence ingestion error=%v, want latched audit failure", err)
+	}
+	if err := gateway.state.writeAudit(LiveGatewayAuditRecord{}); !errors.Is(err, errLiveGatewayAuditUnavailable) {
+		t.Fatalf("subsequent audit error=%v, want latched failure", err)
+	}
+}
+
+func TestLiveGatewayMissingAuditPathFailsClosed(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(response, `{}`)
+	}))
+	defer upstream.Close()
+	gateway, auditPath := startTestLiveGateway(t, upstream.URL, 1, 1024, 1024)
+	gateway.state.config.AuditPath = auditPath + ".missing"
+	if _, _, _, err := closeAndReadLiveGatewayRecords(gateway); !errors.Is(err, errLiveGatewayAuditUnavailable) {
+		t.Fatalf("missing-path evidence error=%v, want bound audit failure", err)
+	}
+}
+
+func TestLiveGatewaySameFileTruncationFailsClosed(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(response, `{}`)
+	}))
+	defer upstream.Close()
+	gateway, auditPath := startTestLiveGateway(t, upstream.URL, 1, 1024, 1024)
+	endpoint := gateway.Endpoints()["jira"]
+	request, _ := http.NewRequest(http.MethodGet, endpoint.BaseURL+"/rest/api/2/field", nil)
+	request.Header.Set("Authorization", "Bearer "+endpoint.Token)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, response.Body)
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("request status=%d", response.StatusCode)
+	}
+	if err := os.Truncate(auditPath, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := closeAndReadLiveGatewayRecords(gateway); !errors.Is(err, errLiveGatewayAuditUnavailable) {
+		t.Fatalf("truncated evidence error=%v, want content-bound audit failure", err)
+	}
+}
+
+func TestLiveGatewaySameLengthTamperingFailsClosed(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(response, `{}`)
+	}))
+	defer upstream.Close()
+	gateway, auditPath := startTestLiveGateway(t, upstream.URL, 1, 1024, 1024)
+	endpoint := gateway.Endpoints()["jira"]
+	request, _ := http.NewRequest(http.MethodGet, endpoint.BaseURL+"/rest/api/2/field", nil)
+	request.Header.Set("Authorization", "Bearer "+endpoint.Token)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, response.Body)
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("request status=%d", response.StatusCode)
+	}
+	data, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := []byte(`"request_hmac":"`)
+	offset := bytes.Index(data, marker)
+	if offset < 0 {
+		t.Fatalf("audit has no request identity: %s", data)
+	}
+	offset += len(marker)
+	replacement := byte('0')
+	if data[offset] == replacement {
+		replacement = '1'
+	}
+	file, err := os.OpenFile(auditPath, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteAt([]byte{replacement}, int64(offset)); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := closeAndReadLiveGatewayRecords(gateway); !errors.Is(err, errLiveGatewayAuditUnavailable) {
+		t.Fatalf("tampered evidence error=%v, want content-bound audit failure", err)
+	}
 }
 
 func TestLiveGatewayRejectsUnsafeConfiguration(t *testing.T) {
@@ -999,8 +1191,8 @@ func TestLiveGatewayRejectsUnsafeConfiguration(t *testing.T) {
 	if err := os.WriteFile(base.AuditPath, []byte("existing"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := StartLiveGateway(base); err == nil {
-		t.Fatal("pre-existing audit path passed")
+	if _, err := StartLiveGateway(base); err == nil || strings.Contains(err.Error(), base.AuditPath) {
+		t.Fatalf("pre-existing audit error=%v", err)
 	}
 }
 
