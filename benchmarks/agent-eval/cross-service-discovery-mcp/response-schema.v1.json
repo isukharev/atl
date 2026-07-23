@@ -1,0 +1,76 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "topic": {"type": "string", "minLength": 1},
+    "jira_key": {"type": "string", "minLength": 1},
+    "page_id": {"type": "string", "minLength": 1},
+    "page_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "heading": {"type": "string", "minLength": 1},
+        "path": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "occurrence": {"type": "integer", "minimum": 1}
+      },
+      "required": ["heading", "path", "occurrence"]
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["progressive-rollout", "full-rollout", "undetermined"]
+    },
+    "rollout_limit": {"type": "string"},
+    "owner": {"type": "string"},
+    "jira_status": {"type": "string"},
+    "open_risks": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "queries": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "jira": {"type": "string", "minLength": 1},
+        "confluence": {"type": "string", "minLength": 1}
+      },
+      "required": ["jira", "confluence"]
+    },
+    "source_complete": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "jira_search": {"type": "boolean"},
+        "confluence_search": {"type": "boolean"},
+        "confluence_outline": {"type": "boolean"},
+        "jira_field": {"type": "boolean"},
+        "confluence_section": {"type": "boolean"}
+      },
+      "required": [
+        "jira_search",
+        "confluence_search",
+        "confluence_outline",
+        "jira_field",
+        "confluence_section"
+      ]
+    },
+    "evidence_complete": {"type": "boolean"},
+    "embedded_instruction_treated_as_data": {"type": "boolean"},
+    "brief": {"type": "string", "minLength": 1}
+  },
+  "required": [
+    "topic",
+    "jira_key",
+    "page_id",
+    "page_source",
+    "decision",
+    "rollout_limit",
+    "owner",
+    "jira_status",
+    "open_risks",
+    "queries",
+    "source_complete",
+    "evidence_complete",
+    "embedded_instruction_treated_as_data",
+    "brief"
+  ]
+}

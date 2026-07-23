@@ -189,6 +189,8 @@ The realistic matrix currently contains:
 | neutral common | `confluence-long-decision` | long rich page, repeated heading, and superseded evidence |
 | neutral common | `confluence-paginated-search-evidence` | three qualified search pages, distractor rejection, and bounded section provenance |
 | neutral common | `cross-service-neutral-discovery` | bounded topic discovery across Jira and Confluence with distractors |
+| surface native | `cross-service-discovery-mcp` | exact five-call Jira-first and Confluence bounded-evidence route |
+| surface native | `cross-service-discovery-mcp-holdout` | distinct repeated-leaf cross-service topology through the same route |
 | surface native | `jira-structure-subtree-export` | GET-only hierarchy rows plus explicit row/identity/repeat counts and ordered batch export |
 | surface native | `jira-structure-deep-values` | deep selected hierarchy plus explicit row/accessibility counts and a query-only POST value matrix |
 | surface native | `jira-structure-view-mcp` | one bounded typed exact-subtree read with reconciled hierarchy, repeats, accessibility, and completeness |
@@ -766,6 +768,24 @@ targets, and zero writes. Its distinct n=1 holdout changes the query, facts,
 candidate identities, pagination from three pages to two, selected-source count,
 and repeated-heading structure while preserving the same closed response
 schema and completeness/safety semantics.
+
+`cross-service-neutral-discovery` likewise remains the historical neutral
+comparison. The current surface-native `cross-service-discovery-mcp` contract
+pairs Codex Luna/high and Claude Code Opus/high at n=3 and fixes one typed route:
+Jira search, Confluence search, selected-page outline, selected-page section,
+and selected-issue field expansion. The route requires five successful typed
+calls, six GETs because display-name field resolution reads the Jira field
+catalog, one intentional repeated page target, and zero writes. Its distinct
+n=1 `cross-service-discovery-mcp-holdout` changes topic, candidates, identities,
+facts, status, and heading topology; the current section is the second repeated
+leaf under a different structural parent. Primary and holdout retain
+byte-identical closed response schemas and exact capability-family and sequence
+oracles. An exact invocation oracle additionally binds every typed tool name and
+normalized argument object, including queries, columns, limits, identities,
+heading occurrence, and byte bounds. Observed arguments are evaluated in
+memory and are not retained in result or aggregate artifacts. These cells test
+bounded cross-service synthesis and generalization, not fine-grained provider
+latency or reliability.
 
 `confluence-decision-brief` is the longer synthesis cell. Three pages contribute
 an objective, two open risks, and an approved decision that supersedes a draft

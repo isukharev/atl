@@ -843,6 +843,9 @@ func TestProviderCapabilitySequencePreservesEventOrder(t *testing.T) {
 	if !claude.CapabilityFamilyCoverage || !slices.Equal(claude.CapabilityFamilySequence, want) {
 		t.Fatalf("Claude capability sequence=%v coverage=%v", claude.CapabilityFamilySequence, claude.CapabilityFamilyCoverage)
 	}
+	if claude.MCPInvocationCoverage {
+		t.Fatal("Claude invocation arguments were reported covered when the events omitted them")
+	}
 
 	codexLines := []string{}
 	for index, tool := range []string{
@@ -864,6 +867,9 @@ func TestProviderCapabilitySequencePreservesEventOrder(t *testing.T) {
 	}
 	if !codex.CapabilityFamilyCoverage || !slices.Equal(codex.CapabilityFamilySequence, want) {
 		t.Fatalf("Codex capability sequence=%v coverage=%v", codex.CapabilityFamilySequence, codex.CapabilityFamilyCoverage)
+	}
+	if codex.MCPInvocationCoverage {
+		t.Fatal("Codex invocation arguments were reported covered when the events omitted them")
 	}
 
 	codexStartedOrder := []string{
@@ -900,6 +906,50 @@ func TestProviderCapabilitySequencePreservesEventOrder(t *testing.T) {
 	}
 	if !codex.CapabilityFamilyCoverage || !slices.Equal(codex.CapabilityFamilySequence, wantStartedOrder) {
 		t.Fatalf("Codex start-order capability sequence=%v coverage=%v", codex.CapabilityFamilySequence, codex.CapabilityFamilyCoverage)
+	}
+}
+
+func TestProviderMCPInvocationSequencePreservesCanonicalArguments(t *testing.T) {
+	expected := []MCPInvocation{
+		{Tool: "jira_issue_search", Arguments: json.RawMessage(`{"columns":["key","status"],"jql":"project = DEMO","large_id":9007199254740993,"limit":10}`)},
+		{Tool: "confluence_page_section", Arguments: json.RawMessage(`{"heading":"Decision","max_bytes":32768,"occurrence":2,"reference":"42"}`)},
+	}
+	claude := strings.Join([]string{
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_issue_search","input":{"limit":10,"large_id":9007199254740993,"jql":"project = DEMO","columns":["key","status"]}}]}}`,
+		`{"type":"user","tool_use_result":{},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","is_error":false,"content":"{}"}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-2","name":"mcp__atl__confluence_page_section","input":{"reference":"42","occurrence":2,"heading":"Decision","max_bytes":32768}}]}}`,
+		`{"type":"user","tool_use_result":{},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-2","is_error":false,"content":"{}"}]}}`,
+		`{"type":"result","structured_output":{"answer":"ok"}}`,
+	}, "\n")
+	claudeMetrics, _, err := ParseProviderOutput("claude-code", []byte(claude), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !claudeMetrics.MCPInvocationCoverage ||
+		!equalMCPInvocations(expected, claudeMetrics.MCPInvocations) {
+		t.Fatalf("Claude invocations=%+v coverage=%v", claudeMetrics.MCPInvocations, claudeMetrics.MCPInvocationCoverage)
+	}
+
+	codex := strings.Join([]string{
+		`{"type":"item.started","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_issue_search","arguments":{"limit":10,"large_id":9007199254740993,"jql":"project = DEMO","columns":["key","status"]}}}`,
+		`{"type":"item.started","item":{"id":"mcp-2","type":"mcp_tool_call","server":"atl","tool":"confluence_page_section","arguments":{"reference":"42","occurrence":2,"heading":"Decision","max_bytes":32768}}}`,
+		`{"type":"item.completed","item":{"id":"mcp-2","type":"mcp_tool_call","server":"atl","tool":"confluence_page_section","arguments":{"max_bytes":32768,"heading":"Decision","occurrence":2,"reference":"42"},"status":"completed","result":{}}}`,
+		`{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_issue_search","arguments":{"columns":["key","status"],"jql":"project = DEMO","large_id":9007199254740993,"limit":10},"status":"completed","result":{}}}`,
+	}, "\n")
+	codexMetrics, _, err := ParseProviderOutput("codex", []byte(codex), []byte(`{"answer":"ok"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !codexMetrics.MCPInvocationCoverage ||
+		!equalMCPInvocations(expected, codexMetrics.MCPInvocations) {
+		t.Fatalf("Codex invocations=%+v coverage=%v", codexMetrics.MCPInvocations, codexMetrics.MCPInvocationCoverage)
+	}
+
+	rounded := slices.Clone(expected)
+	rounded[0].Arguments = json.RawMessage(`{"columns":["key","status"],"jql":"project = DEMO","large_id":9007199254740992,"limit":10}`)
+	if equalMCPInvocations(rounded, claudeMetrics.MCPInvocations) ||
+		equalMCPInvocations(rounded, codexMetrics.MCPInvocations) {
+		t.Fatal("provider arguments lost integer precision above 2^53")
 	}
 }
 

@@ -1175,6 +1175,70 @@ func TestRunSpecValidatesExactCapabilitySequence(t *testing.T) {
 	}
 }
 
+func TestRunSpecValidatesExactMCPInvocations(t *testing.T) {
+	expected := json.RawMessage(`[
+		{"tool":"jira_issue_search","arguments":{"jql":"project = DEMO","columns":["key","status"],"limit":10}},
+		{"tool":"confluence_page_section","arguments":{"reference":"42","heading":"Decision","occurrence":2,"max_bytes":32768}}
+	]`)
+	valid := validRunSpec()
+	valid.ToolTransport = "mcp"
+	valid.Surface = SurfaceATLMCP
+	valid.AllowedTools = nil
+	valid.AllowedATLCommands = nil
+	valid.AllowedMCPTools = []string{"jira_issue_search", "confluence_page_section"}
+	valid.Checks = append(valid.Checks, RunCheck{
+		Name: "route_arguments", Kind: "mcp_invocations_equal", Expected: expected,
+	})
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if runCheckClass("mcp_invocations_equal") != "mechanical" ||
+		!privateActivationSafetyCheckKind("mcp_invocations_equal") {
+		t.Fatal("mcp_invocations_equal is not classified as a mechanical safety check")
+	}
+
+	observed, ok := expectedMCPInvocations(expected)
+	if !ok {
+		t.Fatal("valid invocation expectation did not decode")
+	}
+	checks, err := evaluateRunChecksWithMCPInvocations(
+		valid.Checks[len(valid.Checks)-1:], []byte(`{}`), "", 2, 0, 0, 0,
+		nil, 0, 0, map[string]int{"GET": 2}, true, nil, nil, true, nil,
+		observed, true,
+	)
+	if err != nil || !checks["route_arguments"] {
+		t.Fatalf("exact invocation result=%v err=%v", checks, err)
+	}
+	mutated := slices.Clone(observed)
+	mutated[1].Arguments = json.RawMessage(`{"heading":"Decision","max_bytes":32768,"occurrence":1,"reference":"42"}`)
+	checks, err = evaluateRunChecksWithMCPInvocations(
+		valid.Checks[len(valid.Checks)-1:], []byte(`{}`), "", 2, 0, 0, 0,
+		nil, 0, 0, map[string]int{"GET": 2}, true, nil, nil, true, nil,
+		mutated, true,
+	)
+	if err != nil || checks["route_arguments"] {
+		t.Fatalf("mutated invocation result=%v err=%v", checks, err)
+	}
+
+	for _, invalid := range []json.RawMessage{
+		nil,
+		json.RawMessage(`null`),
+		json.RawMessage(`[]`),
+		json.RawMessage(`[{"tool":"jira_issue_search","arguments":null}]`),
+		json.RawMessage(`[{"tool":"jira_issue_search","arguments":[]}]`),
+		json.RawMessage(`[{"tool":"not_allowed","arguments":{}}]`),
+		json.RawMessage(`[{"tool":"jira_issue_search","arguments":{},"extra":true}]`),
+		json.RawMessage(`[{"tool":"jira_issue_search","tool":"confluence_page_section","arguments":{}}]`),
+	} {
+		spec := valid
+		spec.Checks = slices.Clone(valid.Checks)
+		spec.Checks[len(spec.Checks)-1].Expected = invalid
+		if err := spec.Validate(); err == nil {
+			t.Fatalf("invalid MCP invocation oracle passed: %s", invalid)
+		}
+	}
+}
+
 func TestRunSpecValidatesExpectedATLFailureCount(t *testing.T) {
 	for name, expected := range map[string]json.RawMessage{
 		"missing":  nil,
