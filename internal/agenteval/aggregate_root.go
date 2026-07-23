@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	SyntheticRootAggregateSchemaVersion = 1
+	SyntheticRootAggregateSchemaVersion = 2
 	maxSyntheticRootEntries             = 65_536
 	maxSyntheticRootResults             = 4_096
 	maxSyntheticRootResultBytes         = 256 << 20
@@ -39,11 +39,14 @@ type syntheticRootEntry struct {
 }
 
 type syntheticResultSlot struct {
-	path     string
-	scenario string
-	provider string
-	variant  string
-	info     fs.FileInfo
+	path        string
+	receiptPath string
+	scenario    string
+	provider    string
+	variant     string
+	repetition  int
+	info        fs.FileInfo
+	receiptInfo fs.FileInfo
 }
 
 type syntheticCohortIdentity struct {
@@ -52,6 +55,19 @@ type syntheticCohortIdentity struct {
 	category  string
 	surface   string
 	runtime   Runtime
+	task      string
+	execution string
+	agent     string
+	atl       string
+	wrapper   string
+	runs      int
+}
+
+type syntheticRunInventory struct {
+	resultPath  string
+	resultInfo  fs.FileInfo
+	receiptPath string
+	receiptInfo fs.FileInfo
 }
 
 // AggregateSyntheticOutputRoot inventories and aggregates one complete marked
@@ -97,11 +113,13 @@ func aggregateSyntheticOutputRootWithHooks(root string, afterInitialInventory, a
 	}
 
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("atl-agent-eval-synthetic-root-v1\x00"))
+	_, _ = hash.Write([]byte("atl-agent-eval-synthetic-root-v2\x00"))
 	var length [8]byte
 	results := make([]Result, 0, len(slots))
 	cohorts := map[string]syntheticCohortIdentity{}
+	scenarioTasks := map[string]string{}
 	resultDigests := make(map[string][sha256.Size]byte, len(slots))
+	receiptDigests := make(map[string][sha256.Size]byte, len(slots))
 	totalBytes := int64(0)
 	for _, slot := range slots {
 		data, err := readSyntheticRootFile(rootHandle, syntheticRootEntry{path: slot.path, info: slot.info}, maxContractBytes)
@@ -129,6 +147,22 @@ func aggregateSyntheticOutputRootWithHooks(root string, afterInitialInventory, a
 		if result.ScenarioID != slot.scenario || result.Runtime.Provider != slot.provider || result.Variant != slot.variant {
 			return SyntheticRootAggregate{}, rejectSyntheticRoot("identity_mismatch")
 		}
+		receiptData, err := readSyntheticRootFile(rootHandle, syntheticRootEntry{path: slot.receiptPath, info: slot.receiptInfo}, maxSyntheticRunReceiptBytes)
+		if err != nil {
+			return SyntheticRootAggregate{}, rejectSyntheticRoot("invalid_receipt")
+		}
+		totalBytes += int64(len(receiptData))
+		if totalBytes > maxSyntheticRootResultBytes {
+			return SyntheticRootAggregate{}, rejectSyntheticRoot("bounds")
+		}
+		receipt, err := decodeSyntheticRunReceiptBytes(receiptData)
+		if err != nil || !syntheticReceiptMatchesResult(receipt, result, data, slot.scenario, slot.provider, slot.variant, slot.repetition) {
+			return SyntheticRootAggregate{}, rejectSyntheticRoot("invalid_receipt")
+		}
+		if previous, exists := scenarioTasks[slot.scenario]; exists && previous != receipt.TaskContractSHA256 {
+			return SyntheticRootAggregate{}, rejectSyntheticRoot("mixed_contract")
+		}
+		scenarioTasks[slot.scenario] = receipt.TaskContractSHA256
 		cohortPath := path.Join(slot.scenario, slot.provider, slot.variant)
 		identity := syntheticCohortIdentity{
 			taskClass: result.TaskClass,
@@ -136,6 +170,12 @@ func aggregateSyntheticOutputRootWithHooks(root string, afterInitialInventory, a
 			category:  result.EffectiveCategory(),
 			surface:   result.EffectiveSurface(),
 			runtime:   result.Runtime,
+			task:      receipt.TaskContractSHA256,
+			execution: receipt.ExecutionContractSHA256,
+			agent:     receipt.AgentExecutableSHA256,
+			atl:       receipt.ATLExecutableSHA256,
+			wrapper:   receipt.WrapperExecutableSHA256,
+			runs:      receipt.Repetitions,
 		}
 		if previous, exists := cohorts[cohortPath]; exists && previous != identity {
 			return SyntheticRootAggregate{}, rejectSyntheticRoot("mixed_contract")
@@ -143,14 +183,25 @@ func aggregateSyntheticOutputRootWithHooks(root string, afterInitialInventory, a
 		cohorts[cohortPath] = identity
 		results = append(results, result)
 		resultDigests[slot.path] = sha256.Sum256(data)
+		receiptDigests[slot.receiptPath] = sha256.Sum256(receiptData)
 
-		relative := []byte(slot.path)
-		binary.BigEndian.PutUint64(length[:], uint64(len(relative)))
-		_, _ = hash.Write(length[:])
-		_, _ = hash.Write(relative)
-		binary.BigEndian.PutUint64(length[:], uint64(len(data)))
-		_, _ = hash.Write(length[:])
-		_, _ = hash.Write(data)
+		for _, artifact := range []struct {
+			path string
+			data []byte
+		}{{slot.path, data}, {slot.receiptPath, receiptData}} {
+			relative := []byte(artifact.path)
+			binary.BigEndian.PutUint64(length[:], uint64(len(relative)))
+			_, _ = hash.Write(length[:])
+			_, _ = hash.Write(relative)
+			binary.BigEndian.PutUint64(length[:], uint64(len(artifact.data)))
+			_, _ = hash.Write(length[:])
+			_, _ = hash.Write(artifact.data)
+		}
+	}
+	for cohortPath, identity := range cohorts {
+		if lenRunsForSyntheticCohort(slots, cohortPath) != identity.runs {
+			return SyntheticRootAggregate{}, rejectSyntheticRoot("incomplete_cohort")
+		}
 	}
 
 	aggregate, err := AggregateResults(results)
@@ -175,13 +226,18 @@ func aggregateSyntheticOutputRootWithHooks(root string, afterInitialInventory, a
 	if err != nil || string(finalMarker) != privateOutputRootMarkerContents {
 		return SyntheticRootAggregate{}, rejectSyntheticRoot("changed_during_read")
 	}
-	if len(finalSlots) != len(resultDigests) {
+	if len(finalSlots) != len(resultDigests) || len(finalSlots) != len(receiptDigests) {
 		return SyntheticRootAggregate{}, rejectSyntheticRoot("changed_during_read")
 	}
 	for _, slot := range finalSlots {
 		data, err := readSyntheticRootFile(rootHandle, syntheticRootEntry{path: slot.path, info: slot.info}, maxContractBytes)
 		expected, exists := resultDigests[slot.path]
 		if err != nil || !exists || sha256.Sum256(data) != expected {
+			return SyntheticRootAggregate{}, rejectSyntheticRoot("changed_during_read")
+		}
+		receiptData, err := readSyntheticRootFile(rootHandle, syntheticRootEntry{path: slot.receiptPath, info: slot.receiptInfo}, maxSyntheticRunReceiptBytes)
+		expectedReceipt, exists := receiptDigests[slot.receiptPath]
+		if err != nil || !exists || sha256.Sum256(receiptData) != expectedReceipt {
 			return SyntheticRootAggregate{}, rejectSyntheticRoot("changed_during_read")
 		}
 	}
@@ -206,7 +262,7 @@ func aggregateSyntheticOutputRootWithHooks(root string, afterInitialInventory, a
 func syntheticRootInventory(root *os.Root) ([]syntheticRootEntry, []syntheticResultSlot, error) {
 	var entries []syntheticRootEntry
 	var slots []syntheticResultSlot
-	runs := map[string]map[int]bool{}
+	runs := map[string]map[int]syntheticRunInventory{}
 	scenarioDirectories := map[string]bool{}
 	providerDirectories := map[string]bool{}
 	variantDirectories := map[string]bool{}
@@ -281,12 +337,12 @@ func syntheticRootInventory(root *os.Root) ([]syntheticRootEntry, []syntheticRes
 				return rejectSyntheticRoot("invalid_layout")
 			}
 			if runs[cohortPath] == nil {
-				runs[cohortPath] = map[int]bool{}
+				runs[cohortPath] = map[int]syntheticRunInventory{}
 			}
 			if _, duplicate := runs[cohortPath][run]; duplicate {
 				return rejectSyntheticRoot("invalid_layout")
 			}
-			runs[cohortPath][run] = false
+			runs[cohortPath][run] = syntheticRunInventory{}
 			variantDirectories[cohortPath] = true
 			return nil
 		}
@@ -297,13 +353,23 @@ func syntheticRootInventory(root *os.Root) ([]syntheticRootEntry, []syntheticRes
 			if len(parts) != 5 || !info.Mode().IsRegular() || runs[cohortPath] == nil {
 				return rejectSyntheticRoot("invalid_layout")
 			}
-			if runs[cohortPath][run] {
+			runFiles, exists := runs[cohortPath][run]
+			if !exists || runFiles.resultPath != "" {
 				return rejectSyntheticRoot("invalid_layout")
 			}
-			runs[cohortPath][run] = true
-			slots = append(slots, syntheticResultSlot{
-				path: entryPath, scenario: parts[0], provider: parts[1], variant: parts[2], info: info,
-			})
+			runFiles.resultPath, runFiles.resultInfo = entryPath, info
+			runs[cohortPath][run] = runFiles
+		}
+		if parts[len(parts)-1] == syntheticRunReceiptFileName {
+			if len(parts) != 5 || !info.Mode().IsRegular() || runs[cohortPath] == nil {
+				return rejectSyntheticRoot("invalid_layout")
+			}
+			runFiles, exists := runs[cohortPath][run]
+			if !exists || runFiles.receiptPath != "" {
+				return rejectSyntheticRoot("invalid_layout")
+			}
+			runFiles.receiptPath, runFiles.receiptInfo = entryPath, info
+			runs[cohortPath][run] = runFiles
 		}
 		return nil
 	})
@@ -333,9 +399,20 @@ func syntheticRootInventory(root *os.Root) ([]syntheticRootEntry, []syntheticRes
 	}
 	for _, cohortRuns := range runs {
 		for run := 1; run <= len(cohortRuns); run++ {
-			if complete, exists := cohortRuns[run]; !exists || !complete {
+			if files, exists := cohortRuns[run]; !exists || files.resultPath == "" || files.receiptPath == "" {
 				return nil, nil, rejectSyntheticRoot("incomplete_cohort")
 			}
+		}
+	}
+	for cohortPath, cohortRuns := range runs {
+		parts := strings.Split(cohortPath, "/")
+		for run := 1; run <= len(cohortRuns); run++ {
+			files := cohortRuns[run]
+			slots = append(slots, syntheticResultSlot{
+				path: files.resultPath, receiptPath: files.receiptPath,
+				scenario: parts[0], provider: parts[1], variant: parts[2], repetition: run,
+				info: files.resultInfo, receiptInfo: files.receiptInfo,
+			})
 		}
 	}
 	if len(slots) == 0 {
@@ -344,6 +421,16 @@ func syntheticRootInventory(root *os.Root) ([]syntheticRootEntry, []syntheticRes
 	sort.Slice(entries, func(i, j int) bool { return entries[i].path < entries[j].path })
 	sort.Slice(slots, func(i, j int) bool { return slots[i].path < slots[j].path })
 	return entries, slots, nil
+}
+
+func lenRunsForSyntheticCohort(slots []syntheticResultSlot, cohortPath string) int {
+	count := 0
+	for _, slot := range slots {
+		if path.Join(slot.scenario, slot.provider, slot.variant) == cohortPath {
+			count++
+		}
+	}
+	return count
 }
 
 func parseSyntheticRunDirectory(name string) (int, bool) {

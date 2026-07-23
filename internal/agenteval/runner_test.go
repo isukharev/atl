@@ -236,6 +236,32 @@ exit 2
 	if !result.Coverage["capability_families"] || len(result.CapabilityFamilies) != 1 || result.CapabilityFamilies[0].Family != "jira.fields" {
 		t.Fatalf("families=%+v coverage=%+v", result.CapabilityFamilies, result.Coverage)
 	}
+	cliReceipt := readSyntheticRunReceiptTest(t, filepath.Join(outputRoot, scenario.ID, "claude-code", "baseline", "run-01", syntheticRunReceiptFileName))
+	mcpReceipt := readSyntheticRunReceiptTest(t, filepath.Join(outputRoot, scenario.ID, "claude-code", "typed-mcp", "run-01", syntheticRunReceiptFileName))
+	if cliReceipt.TaskContractSHA256 != mcpReceipt.TaskContractSHA256 ||
+		cliReceipt.ExecutionContractSHA256 == mcpReceipt.ExecutionContractSHA256 {
+		t.Fatalf("synthetic receipts do not separate task and execution identity: cli=%+v mcp=%+v", cliReceipt, mcpReceipt)
+	}
+	aggregate, err := AggregateSyntheticOutputRoot(outputRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aggregate.Results != 2 || aggregate.Cohorts != 2 {
+		t.Fatalf("aggregate=%+v", aggregate)
+	}
+	aggregateData, err := json.Marshal(aggregate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, digest := range []string{
+		cliReceipt.TaskContractSHA256, cliReceipt.ExecutionContractSHA256,
+		cliReceipt.AgentExecutableSHA256, cliReceipt.ATLExecutableSHA256,
+		cliReceipt.WrapperExecutableSHA256, cliReceipt.ResultSHA256,
+	} {
+		if bytes.Contains(aggregateData, []byte(digest)) {
+			t.Fatalf("aggregate exposed private receipt digest %q", digest)
+		}
+	}
 	mcpConfigPath := filepath.Join(outputRoot, scenario.ID, "claude-code", "typed-mcp", "run-01", "claude-mcp.json")
 	mcpConfigInfo, err := os.Stat(mcpConfigPath)
 	if err != nil || mcpConfigInfo.Mode().Perm() != 0o600 {
@@ -436,6 +462,23 @@ exit 0
 	if _, err := os.Stat(startedMarker); !os.IsNotExist(err) {
 		t.Fatalf("provider started before its durable boundary: %v", err)
 	}
+}
+
+func readSyntheticRunReceiptTest(t *testing.T, path string) SyntheticRunReceipt {
+	t.Helper()
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, decodeErr := DecodeSyntheticRunReceipt(file)
+	closeErr := file.Close()
+	if decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	return receipt
 }
 
 func TestBenchmarkInstructionSurfacesExcludeSyntheticTypedMCP(t *testing.T) {

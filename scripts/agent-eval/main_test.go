@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -77,6 +78,22 @@ func TestRunAggregateRootEmitsCompleteSyntheticEnvelope(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(runDirectory, "result.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resultDigest := sha256.Sum256(data)
+	receipt := agenteval.SyntheticRunReceipt{
+		SchemaVersion: agenteval.SyntheticRunReceiptSchemaVersion,
+		ScenarioID:    scenario.ID, Provider: "codex", Variant: "baseline",
+		Repetition: 1, Repetitions: 1,
+		TaskContractSHA256: strings.Repeat("b", 64), ExecutionContractSHA256: strings.Repeat("c", 64),
+		AgentExecutableSHA256: strings.Repeat("d", 64), ATLExecutableSHA256: strings.Repeat("e", 64),
+		WrapperExecutableSHA256: strings.Repeat("f", 64), ResultSHA256: fmt.Sprintf("%x", resultDigest),
+	}
+	receiptData, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runDirectory, "run-receipt.json"), receiptData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
