@@ -245,7 +245,7 @@ func TestPrivateFindingSyntheticTransitionAllowsExactAttestedVariantAndBinaryCha
 		Runtime: Runtime{
 			Provider: "codex", AgentVersion: "agent-v1", Model: "model-v1",
 			Reasoning: "high", ATLVersion: "atl-old", PluginVersion: "plugin-v1",
-			SkillDigest: strings.Repeat("1", 64), SkillActivation: "exact",
+			SkillDigest: "sha256:" + strings.Repeat("1", 64), SkillActivation: "exact",
 			PromptContractSHA256: strings.Repeat("2", 64),
 		},
 		TaskContractSHA256: strings.Repeat("3", 64), ExecutionContractSHA256: strings.Repeat("4", 64),
@@ -256,7 +256,7 @@ func TestPrivateFindingSyntheticTransitionAllowsExactAttestedVariantAndBinaryCha
 	regression.Variant = "summary-v1"
 	regression.Runtime.ATLVersion = "atl-v2"
 	regression.Runtime.PromptContractSHA256 = strings.Repeat("8", 64)
-	regression.Runtime.SkillDigest = strings.Repeat("9", 64)
+	regression.Runtime.SkillDigest = "sha256:" + strings.Repeat("9", 64)
 	regression.TaskContractSHA256 = strings.Repeat("a", 64)
 	regression.ExecutionContractSHA256 = strings.Repeat("b", 64)
 	regression.ATLExecutableSHA256 = strings.Repeat("c", 64)
@@ -266,11 +266,65 @@ func TestPrivateFindingSyntheticTransitionAllowsExactAttestedVariantAndBinaryCha
 		{Kind: PrivateFindingContractExecution, BeforeSHA256: failure.ExecutionContractSHA256, AfterSHA256: regression.ExecutionContractSHA256},
 		{Kind: PrivateFindingContractPrompt, BeforeSHA256: failure.Runtime.PromptContractSHA256, AfterSHA256: regression.Runtime.PromptContractSHA256},
 		{Kind: PrivateFindingContractRunner, BeforeSHA256: failure.WrapperExecutableSHA256, AfterSHA256: regression.WrapperExecutableSHA256},
-		{Kind: PrivateFindingContractSkill, BeforeSHA256: failure.Runtime.SkillDigest, AfterSHA256: regression.Runtime.SkillDigest},
+		{Kind: PrivateFindingContractSkill, BeforeSHA256: strings.Repeat("1", 64), AfterSHA256: strings.Repeat("9", 64)},
 		{Kind: PrivateFindingContractTask, BeforeSHA256: failure.TaskContractSHA256, AfterSHA256: regression.TaskContractSHA256},
 	}
 	if !compatiblePrivateSyntheticFindingTransition(failure, regression, transitions) {
 		t.Fatal("exact attested transition rejected")
+	}
+}
+
+func TestPrivateFindingSyntheticSkillTransitionFailsClosed(t *testing.T) {
+	failure := privateSyntheticSamplingCohort{
+		ScenarioID: "jira.primary-evidence", TaskClass: "jira/evidence",
+		DataClass: "synthetic", Category: BenchmarkCategoryRouteFixed,
+		Variant: "summary-v1", Surface: SurfaceCLISkill,
+		Runtime: Runtime{
+			Provider: "codex", AgentVersion: "agent-v1", Model: "model-v1",
+			Reasoning: "high", ATLVersion: "atl-v1", PluginVersion: "plugin-v1",
+			SkillDigest: "sha256:" + strings.Repeat("1", 64), SkillActivation: "exact",
+			PromptContractSHA256: strings.Repeat("2", 64),
+		},
+		TaskContractSHA256: strings.Repeat("3", 64), ExecutionContractSHA256: strings.Repeat("4", 64),
+		AgentExecutableSHA256: strings.Repeat("5", 64), ATLExecutableSHA256: strings.Repeat("6", 64),
+		WrapperExecutableSHA256: strings.Repeat("7", 64),
+	}
+	regression := failure
+	regression.Runtime.SkillDigest = "sha256:" + strings.Repeat("8", 64)
+	regression.ExecutionContractSHA256 = strings.Repeat("9", 64)
+	execution := PrivateFindingContractTransition{
+		Kind:         PrivateFindingContractExecution,
+		BeforeSHA256: failure.ExecutionContractSHA256,
+		AfterSHA256:  regression.ExecutionContractSHA256,
+	}
+	skill := PrivateFindingContractTransition{
+		Kind:         PrivateFindingContractSkill,
+		BeforeSHA256: strings.Repeat("1", 64),
+		AfterSHA256:  strings.Repeat("8", 64),
+	}
+	if !compatiblePrivateSyntheticFindingTransition(
+		failure, regression, []PrivateFindingContractTransition{execution, skill},
+	) {
+		t.Fatal("exact canonical skill transition rejected")
+	}
+	if compatiblePrivateSyntheticFindingTransition(
+		failure, regression, []PrivateFindingContractTransition{execution},
+	) {
+		t.Fatal("undeclared skill transition accepted")
+	}
+	wrong := skill
+	wrong.AfterSHA256 = strings.Repeat("a", 64)
+	if compatiblePrivateSyntheticFindingTransition(
+		failure, regression, []PrivateFindingContractTransition{execution, wrong},
+	) {
+		t.Fatal("incorrect skill transition accepted")
+	}
+	malformed := regression
+	malformed.Runtime.SkillDigest = "sha256:not-a-digest"
+	if compatiblePrivateSyntheticFindingTransition(
+		failure, malformed, []PrivateFindingContractTransition{execution, skill},
+	) {
+		t.Fatal("malformed runtime skill digest accepted")
 	}
 }
 
