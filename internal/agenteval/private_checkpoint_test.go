@@ -28,6 +28,7 @@ func TestPrivateCheckpointPreviewIsDeterministicContentFreeAndReadOnly(t *testin
 	if preview.SchemaVersion != 1 || len(preview.CheckpointSHA256) != 64 || preview.Checkpoint.UTCDate != "2026-07-22" ||
 		preview.Checkpoint.Repository.Commit != strings.Repeat("a", 40) || !preview.Checkpoint.Repository.Dirty ||
 		preview.Checkpoint.Workspace.Counts.CompletedRuns != 7 || preview.Checkpoint.Scorecard.Findings != 3 ||
+		preview.Checkpoint.Contracts.Ledger != PrivateFindingLedgerSchemaVersion ||
 		preview.Checkpoint.Contracts.Scorecard != PrivateFindingScorecardSchemaVersion {
 		t.Fatalf("preview=%+v", preview)
 	}
@@ -43,6 +44,21 @@ func TestPrivateCheckpointPreviewIsDeterministicContentFreeAndReadOnly(t *testin
 	second, err := previewPrivateCheckpoint(fixture.options(), fixture.dependencies())
 	if err != nil || second.CheckpointSHA256 != preview.CheckpointSHA256 {
 		t.Fatalf("second=%+v err=%v", second, err)
+	}
+}
+
+func TestPrivateCheckpointBindsSelectedFindingLedgerVersion(t *testing.T) {
+	fixture := newPrivateCheckpointFixture(t)
+	fixture.scorecard.LedgerSchemaVersion = PrivateFindingLedgerV2SchemaVersion
+	preview, err := previewPrivateCheckpoint(fixture.options(), fixture.dependencies())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Checkpoint.Contracts.Ledger != PrivateFindingLedgerV2SchemaVersion {
+		t.Fatalf("contracts=%+v", preview.Checkpoint.Contracts)
+	}
+	if _, err := encodePrivateCheckpoint(preview.Checkpoint); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -342,7 +358,8 @@ func newPrivateCheckpointFixture(t *testing.T) privateCheckpointFixture {
 	return privateCheckpointFixture{root: root, repository: t.TempDir(),
 		report: PrivateWorkspaceReport{SchemaVersion: 1, Healthy: true, State: "needs_review",
 			Counts: PrivateWorkspaceCounts{RunSets: 4, SpecReferences: 8, ValidSpecs: 8, IncompleteRuns: 2, CompletedRuns: 7}},
-		scorecard: PrivateFindingScorecard{SchemaVersion: PrivateFindingScorecardSchemaVersion, SourceSHA256: strings.Repeat("b", 64),
+		scorecard: PrivateFindingScorecard{SchemaVersion: PrivateFindingScorecardSchemaVersion,
+			LedgerSchemaVersion: PrivateFindingLedgerSchemaVersion, SourceSHA256: strings.Repeat("b", 64),
 			Reconciled: true, Findings: 3, LinkedIssues: 2, LinkedPullRequests: 1, Regressions: 1,
 			Decisions: PrivateFindingDecisionCounts{Fixed: 1, Investigate: 2}}}
 }

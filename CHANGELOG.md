@@ -38,6 +38,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The owner-private finding ledger now has an optional schema-v2 source union
+  for complete synthetic-only finding chains. A fixed chain must bind an
+  immutable failed n=1 calibration, an accepted n=3-plus-distinct-holdout
+  regression, exact before/after contract transitions, public issue/PR links,
+  and the existing owner-reviewed acceptance index. Legacy ledger bytes and
+  the content-free scorecard v3 output remain compatible.
+
 - `atl jira issue history --summary-only` now emits the same provenance,
   filters, deterministic summary, and selected-field `last_changes` without
   the raw changelog array or another backend request. Its text view is a

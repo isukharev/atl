@@ -122,7 +122,7 @@ func previewPrivateCheckpoint(options PrivateCheckpointOptions, dependencies pri
 			LinkedIssues: scorecard.LinkedIssues, LinkedPullRequests: scorecard.LinkedPullRequests,
 			Regressions: scorecard.Regressions, Decisions: scorecard.Decisions},
 		Contracts: PrivateCheckpointContracts{Workspace: PrivateWorkspaceSchemaVersion, RunSpec: RunSpecSchemaVersion,
-			Result: ResultSchemaVersion, Aggregate: AggregateSchemaVersion, Ledger: PrivateFindingLedgerSchemaVersion,
+			Result: ResultSchemaVersion, Aggregate: AggregateSchemaVersion, Ledger: scorecard.LedgerSchemaVersion,
 			Scorecard: PrivateFindingScorecardSchemaVersion},
 	}
 	data, err := encodePrivateCheckpoint(checkpoint)
@@ -191,9 +191,14 @@ func encodePrivateCheckpoint(checkpoint PrivateDailyCheckpoint) ([]byte, error) 
 		checkpoint.Scorecard.LinkedIssues > checkpoint.Scorecard.Findings || checkpoint.Scorecard.LinkedPullRequests > checkpoint.Scorecard.Findings ||
 		checkpoint.Scorecard.Regressions > checkpoint.Scorecard.Findings || !validPrivateCheckpointDecisions(checkpoint.Scorecard) ||
 		!validPrivateCheckpointWorkspace(checkpoint.Workspace) ||
-		!validSHA256(checkpoint.Scorecard.SourceSHA256) || checkpoint.Contracts != (PrivateCheckpointContracts{
-		Workspace: PrivateWorkspaceSchemaVersion, RunSpec: RunSpecSchemaVersion, Result: ResultSchemaVersion,
-		Aggregate: AggregateSchemaVersion, Ledger: PrivateFindingLedgerSchemaVersion, Scorecard: PrivateFindingScorecardSchemaVersion}) {
+		!validSHA256(checkpoint.Scorecard.SourceSHA256) ||
+		(checkpoint.Contracts.Ledger != PrivateFindingLedgerSchemaVersion &&
+			checkpoint.Contracts.Ledger != PrivateFindingLedgerV2SchemaVersion) ||
+		checkpoint.Contracts.Workspace != PrivateWorkspaceSchemaVersion ||
+		checkpoint.Contracts.RunSpec != RunSpecSchemaVersion ||
+		checkpoint.Contracts.Result != ResultSchemaVersion ||
+		checkpoint.Contracts.Aggregate != AggregateSchemaVersion ||
+		checkpoint.Contracts.Scorecard != PrivateFindingScorecardSchemaVersion {
 		return nil, privateCheckpointError("contract")
 	}
 	parsed, err := time.Parse(time.DateOnly, checkpoint.UTCDate)

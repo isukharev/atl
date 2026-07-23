@@ -52,8 +52,12 @@ type privateFindingAcceptanceBinding struct {
 }
 
 func loadPrivateFindingAcceptance(root string, ledger PrivateFindingLedger) (map[string]privateFindingAcceptanceBinding, []byte, error) {
+	return loadPrivateFindingAcceptanceForEntries(root, normalizePrivateFindingLedger(ledger))
+}
+
+func loadPrivateFindingAcceptanceForEntries(root string, ledgerEntries []privateFindingLedgerEntry) (map[string]privateFindingAcceptanceBinding, []byte, error) {
 	fixed := make(map[string]struct{})
-	for _, entry := range ledger.Entries {
+	for _, entry := range ledgerEntries {
 		if entry.Decision == PrivateFindingDecisionFixed {
 			fixed[entry.FindingID] = struct{}{}
 		}
