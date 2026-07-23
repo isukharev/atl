@@ -785,7 +785,9 @@ normalized argument object, including queries, columns, limits, identities,
 heading occurrence, and byte bounds. Observed arguments are evaluated in
 memory and are not retained in result or aggregate artifacts. These cells test
 bounded cross-service synthesis and generalization, not fine-grained provider
-latency or reliability.
+latency or reliability. Their answer contract preserves the complete rollout
+ceiling qualifier and complete risk sentence; shortening either is not treated
+as an equivalent exact answer.
 
 `confluence-decision-brief` is the longer synthesis cell. Three pages contribute
 an objective, two open risks, and an approved decision that supersedes a draft

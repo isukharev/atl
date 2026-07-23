@@ -30,5 +30,9 @@ completeness evidence returned by the interface. Set `evidence_complete` only
 when both searches, the selected outline, and both selected expansions are
 complete. Return only
 evidence explicitly labelled as an open risk; rollout gates belong in the
-brief, not the risk list. Sort `open_risks` alphabetically, include a concise
-grounded `brief`, and return only the requested structured response.
+brief, not the risk list. Preserve source meaning in the standalone fields:
+write `rollout_limit` in sentence case as the complete ceiling phrase,
+including its `Up to` qualifier, and copy each open risk as its complete
+sentence, including terminal punctuation. Do not shorten either. Sort
+`open_risks` alphabetically, include a concise grounded `brief`, and return
+only the requested structured response.
