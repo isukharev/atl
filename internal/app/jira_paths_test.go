@@ -24,6 +24,8 @@ type partialTracker struct {
 	streamCalls   *int
 	downloadCalls *int
 	streamPath    *string
+	downloadKey   *string
+	downloadID    *string
 }
 
 func (t partialTracker) ListAttachments(context.Context, string) ([]domain.Attachment, error) {
@@ -33,9 +35,15 @@ func (t partialTracker) ListAttachments(context.Context, string) ([]domain.Attac
 	return t.atts, nil
 }
 
-func (t partialTracker) DownloadAttachment(context.Context, string, string) (io.ReadCloser, string, error) {
+func (t partialTracker) DownloadAttachment(_ context.Context, key, id string) (io.ReadCloser, string, error) {
 	if t.downloadCalls != nil {
 		(*t.downloadCalls)++
+	}
+	if t.downloadKey != nil {
+		*t.downloadKey = key
+	}
+	if t.downloadID != nil {
+		*t.downloadID = id
 	}
 	return io.NopCloser(bytes.NewReader(t.data)), t.name, nil
 }
@@ -141,6 +149,7 @@ func TestJiraImagesStreamsListedAttachmentWithoutRefetch(t *testing.T) {
 func TestJiraImagesFallsBackToAttachmentIDWithoutDirectPath(t *testing.T) {
 	dir := t.TempDir()
 	listCalls, streamCalls, downloadCalls := 0, 0, 0
+	downloadKey, downloadID := "", ""
 	s := &JiraService{tr: partialTracker{
 		atts: []domain.Attachment{
 			{ID: "1", Title: "listed.png", MediaType: "image/png"},
@@ -151,6 +160,8 @@ func TestJiraImagesFallsBackToAttachmentIDWithoutDirectPath(t *testing.T) {
 		listCalls:     &listCalls,
 		streamCalls:   &streamCalls,
 		downloadCalls: &downloadCalls,
+		downloadKey:   &downloadKey,
+		downloadID:    &downloadID,
 	}}
 
 	paths, err := s.Images(context.Background(), "PROJ-1", dir)
@@ -159,6 +170,9 @@ func TestJiraImagesFallsBackToAttachmentIDWithoutDirectPath(t *testing.T) {
 	}
 	if listCalls != 1 || streamCalls != 0 || downloadCalls != 1 {
 		t.Fatalf("calls: list=%d stream=%d download=%d, want 1/0/1", listCalls, streamCalls, downloadCalls)
+	}
+	if downloadKey != "PROJ-1" || downloadID != "1" {
+		t.Fatalf("fallback target = %q/%q, want PROJ-1/1", downloadKey, downloadID)
 	}
 	if len(paths) != 1 || filepath.Base(paths[0]) != "resolved.png" {
 		t.Fatalf("paths = %v, want one resolved.png", paths)
