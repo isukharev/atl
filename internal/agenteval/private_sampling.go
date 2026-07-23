@@ -112,9 +112,29 @@ func previewPrivateSampling(options PrivateSamplingOptions, dependencies private
 		(runtime.GOOS != "windows" && info.Mode().Perm() != 0o700) {
 		return PrivateSamplingPreview{}, nil, privateSamplingError("spec_directory")
 	}
-	specPath := filepath.Join(specDirectory, options.Spec+".v1.json")
-	info, err := safepath.StatWithin(root, specPath)
-	if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
+	legacySpecPath := filepath.Join(specDirectory, options.Spec+".v1.json")
+	syntheticSpecPath := filepath.Join(specDirectory, options.Spec+".v2.json")
+	legacyInfo, legacyErr := safepath.StatWithin(root, legacySpecPath)
+	syntheticInfo, syntheticErr := safepath.StatWithin(root, syntheticSpecPath)
+	legacyExists, syntheticExists := legacyErr == nil, syntheticErr == nil
+	if (legacyErr != nil && !os.IsNotExist(legacyErr)) || (syntheticErr != nil && !os.IsNotExist(syntheticErr)) {
+		return PrivateSamplingPreview{}, nil, privateSamplingError("spec_file")
+	}
+	if legacyExists && syntheticExists {
+		return PrivateSamplingPreview{}, nil, privateSamplingError("spec_ambiguous")
+	}
+	if syntheticExists {
+		if !syntheticInfo.Mode().IsRegular() || !privateWorkspaceFileMode(syntheticInfo.Mode()) {
+			return PrivateSamplingPreview{}, nil, privateSamplingError("spec_file")
+		}
+		data, readErr := safepath.ReadFileWithinLimit(root, syntheticSpecPath, privateSamplingMaxBytes)
+		if readErr != nil {
+			return PrivateSamplingPreview{}, nil, privateSamplingError("spec_read")
+		}
+		return previewPrivateSyntheticSampling(root, data)
+	}
+	specPath := legacySpecPath
+	if !legacyExists || !legacyInfo.Mode().IsRegular() || !privateWorkspaceFileMode(legacyInfo.Mode()) {
 		return PrivateSamplingPreview{}, nil, privateSamplingError("spec_file")
 	}
 	data, err := safepath.ReadFileWithinLimit(root, specPath, privateSamplingMaxBytes)

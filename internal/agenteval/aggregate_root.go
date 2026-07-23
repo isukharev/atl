@@ -70,6 +70,16 @@ type syntheticRunInventory struct {
 	receiptInfo fs.FileInfo
 }
 
+type syntheticRunEvidence struct {
+	Result  Result
+	Receipt SyntheticRunReceipt
+}
+
+type syntheticOutputRootEvidence struct {
+	root         fs.FileInfo
+	observations []syntheticRunEvidence
+}
+
 // AggregateSyntheticOutputRoot inventories and aggregates one complete marked
 // synthetic output root. Errors expose only a closed reason code so a rejected
 // private root cannot leak paths or result identities.
@@ -78,6 +88,16 @@ func AggregateSyntheticOutputRoot(root string) (SyntheticRootAggregate, error) {
 }
 
 func aggregateSyntheticOutputRootWithHooks(root string, afterInitialInventory, afterPrimaryRead func()) (SyntheticRootAggregate, error) {
+	return aggregateSyntheticOutputRoot(root, afterInitialInventory, afterPrimaryRead, nil)
+}
+
+func loadSyntheticOutputRootEvidence(root string) (SyntheticRootAggregate, syntheticOutputRootEvidence, error) {
+	var evidence syntheticOutputRootEvidence
+	aggregate, err := aggregateSyntheticOutputRoot(root, nil, nil, &evidence)
+	return aggregate, evidence, err
+}
+
+func aggregateSyntheticOutputRoot(root string, afterInitialInventory, afterPrimaryRead func(), evidenceOut *syntheticOutputRootEvidence) (SyntheticRootAggregate, error) {
 	rootInfo, err := os.Lstat(root)
 	if err != nil || rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
 		return SyntheticRootAggregate{}, rejectSyntheticRoot("invalid_root")
@@ -116,6 +136,7 @@ func aggregateSyntheticOutputRootWithHooks(root string, afterInitialInventory, a
 	_, _ = hash.Write([]byte("atl-agent-eval-synthetic-root-v2\x00"))
 	var length [8]byte
 	results := make([]Result, 0, len(slots))
+	evidence := make([]syntheticRunEvidence, 0, len(slots))
 	cohorts := map[string]syntheticCohortIdentity{}
 	scenarioTasks := map[string]string{}
 	resultDigests := make(map[string][sha256.Size]byte, len(slots))
@@ -184,6 +205,7 @@ func aggregateSyntheticOutputRootWithHooks(root string, afterInitialInventory, a
 		}
 		cohorts[cohortPath] = identity
 		results = append(results, result)
+		evidence = append(evidence, syntheticRunEvidence{Result: result, Receipt: receipt})
 		resultDigests[slot.path] = sha256.Sum256(data)
 		receiptDigests[slot.receiptPath] = sha256.Sum256(receiptData)
 
@@ -252,13 +274,18 @@ func aggregateSyntheticOutputRootWithHooks(root string, afterInitialInventory, a
 		!os.SameFile(openedRootInfo, finalRootInfo) || !sameSyntheticRootInfo(openedRootInfo, finalRootInfo) {
 		return SyntheticRootAggregate{}, rejectSyntheticRoot("changed_during_read")
 	}
-	return SyntheticRootAggregate{
+	output := SyntheticRootAggregate{
 		SchemaVersion: SyntheticRootAggregateSchemaVersion,
 		SourceSHA256:  hex.EncodeToString(hash.Sum(nil)),
 		Results:       len(results),
 		Cohorts:       len(aggregate.Groups),
 		Aggregate:     aggregate,
-	}, nil
+	}
+	if evidenceOut != nil {
+		evidenceOut.root = openedRootInfo
+		evidenceOut.observations = evidence
+	}
+	return output, nil
 }
 
 func syntheticRootInventory(root *os.Root) ([]syntheticRootEntry, []syntheticResultSlot, error) {
