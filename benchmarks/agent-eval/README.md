@@ -130,6 +130,14 @@ These cases exercise the shipped `atl` skills and binary against a deterministic
 local Jira/Confluence HTTP fixture. They use generic data, never a maintainer's
 backend or credentials.
 
+The Jira history-summary primary and holdout cases exercise the deterministic
+projection instead of asking a model to aggregate raw changelog arrays. The
+primary separates filtered, fetched, and total cardinality plus missing and
+duplicate non-empty ids. The holdout preserves id-first field buckets,
+incomplete pagination, and the `comparable:false` / `ascending:null` ordering
+state. Both are read-only CLI-skill cases with paired Codex and Claude Code run
+specs.
+
 Validate and inventory the complete corpus before spending model budget:
 
 ```sh

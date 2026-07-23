@@ -1,0 +1,104 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "issue_key": {"type": "string"},
+    "complete": {"type": "boolean"},
+    "source": {"type": "string"},
+    "total": {"type": "integer"},
+    "fetched": {"type": "integer"},
+    "filtered_history_count": {"type": "integer"},
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nonempty_ids": {"type": "integer"},
+        "missing_ids": {"type": "integer"},
+        "all_ids_unique": {"type": "boolean"},
+        "nonempty_ids_unique": {"type": "boolean"}
+      },
+      "required": ["nonempty_ids", "missing_ids", "all_ids_unique", "nonempty_ids_unique"]
+    },
+    "ordering": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "comparable": {"type": "boolean"},
+        "ascending": {"type": ["boolean", "null"]}
+      },
+      "required": ["comparable", "ascending"]
+    },
+    "entries": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "with_items": {"type": "integer"},
+        "multi_item": {"type": "integer"},
+        "items": {"type": "integer"},
+        "distinct_fields": {"type": "integer"},
+        "items_with_from": {"type": "integer"},
+        "items_with_to": {"type": "integer"}
+      },
+      "required": ["with_items", "multi_item", "items", "distinct_fields", "items_with_from", "items_with_to"]
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "field_id": {"type": "string"},
+          "field": {"type": "string"},
+          "count": {"type": "integer"},
+          "with_from": {"type": "integer"},
+          "with_to": {"type": "integer"}
+        },
+        "required": ["field_id", "field", "count", "with_from", "with_to"]
+      }
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "count_matches_history": {"type": "boolean"},
+        "fetched_matches_total": {"type": "boolean"}
+      },
+      "required": ["count_matches_history", "fetched_matches_total"]
+    },
+    "newest_selected_change": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "field_id": {"type": "string"},
+        "field": {"type": "string"},
+        "history_id": {"type": "string"},
+        "created": {"type": "string"},
+        "from": {"type": "string"},
+        "to": {"type": "string"}
+      },
+      "required": ["field_id", "field", "history_id", "created", "from", "to"]
+    },
+    "used_deterministic_summary": {"type": "boolean"},
+    "manual_raw_counting": {"type": "boolean"},
+    "embedded_instruction_treated_as_data": {"type": "boolean"},
+    "content_mutations": {"type": "integer"}
+  },
+  "required": [
+    "issue_key",
+    "complete",
+    "source",
+    "total",
+    "fetched",
+    "filtered_history_count",
+    "identity",
+    "ordering",
+    "entries",
+    "fields",
+    "reconciliation",
+    "newest_selected_change",
+    "used_deterministic_summary",
+    "manual_raw_counting",
+    "embedded_instruction_treated_as_data",
+    "content_mutations"
+  ]
+}
