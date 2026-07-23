@@ -13,7 +13,8 @@ import (
 const (
 	ScenarioSchemaVersion                = 1
 	ObservationSchemaVersion             = 5
-	ResultSchemaVersion                  = 7
+	ResultSchemaVersion                  = 8
+	LegacyEvidenceResultSchemaVersion    = 7
 	LegacyAttemptlessResultSchemaVersion = 6
 	LegacyPromptBoundResultSchemaVersion = 5
 	PanelResultSchemaVersion             = 4

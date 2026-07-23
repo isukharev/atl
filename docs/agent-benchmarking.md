@@ -249,7 +249,7 @@ denominator: drift says nothing about whether the surface supports the task.
 Neutral and surface-native efficiency/quality summaries use
 only supported deterministically valid runs; route-fixed historical aggregation
 keeps its compatibility behavior. Current observations use schema v5 and
-results use schema v7. Older result records without eligibility remain
+results use schema v8. Older result records without eligibility remain
 supported through the documented result decoders; observation inputs must be
 migrated explicitly before evaluation.
 
@@ -274,16 +274,18 @@ Use `aggregate-root` for a complete current synthetic run root created by the
 runner. It validates the owner-only root marker, requires empty scratch state,
 inventories every contiguous `run-NN/result.json` slot, and rejects symlinks,
 unsafe permissions, private-local data, non-public task classes, or mixed
-cohort identities. Its schema-v1 envelope contains the existing aggregate plus
-the result/cohort counts and a domain-separated SHA-256 digest of the exact
-relative result slots and bytes. A second byte pass and final inventory reject
-sources changed during aggregation. The command fails closed where owner-only
-access cannot be established (currently Windows), is read-only, and emits no
-source paths. It does not replace the separate marked lifecycle and scorecard
-for private-live evidence. Aggregate output still contains benchmark
-identities; keep it private until the normal privacy and leak review. Keep
-explicit-path `aggregate` for reviewed historical or deliberately selected
-result sets.
+cohort identities. Current synthetic results must carry the runner-computed
+prompt-contract digest; missing or differing prompt identities fail closed.
+The digest guards comparison but is not emitted in aggregate groups. The
+schema-v1 envelope contains the existing aggregate plus the result/cohort
+counts and a domain-separated SHA-256 digest of the exact relative result slots
+and bytes. A second byte pass and final inventory reject sources changed during
+aggregation. The command fails closed where owner-only access cannot be
+established (currently Windows), is read-only, and emits no source paths. It
+does not replace the separate marked lifecycle and scorecard for private-live
+evidence. Aggregate output still contains benchmark identities; keep it private
+until the normal privacy and leak review. Keep explicit-path `aggregate` for
+reviewed historical or deliberately selected result sets.
 
 ### Qualitative answer review
 
@@ -338,10 +340,11 @@ panel results are deliberately comparison-incompatible rather than silently
 migrated. See [Private agent-benchmark workspace](agent-benchmark-private-workspace.md)
 for the panel manifest and operator flow.
 
-Current assessments emit result schema v7, review schema v2, and aggregate
-schema v6. Current decoders retain read compatibility with attemptless result
-schema v6, prompt-bound result schema v5, panel result schema v4, singleton result schema v3, and
-reviewer-id-free review schema v1.
+Current assessments emit result schema v8, review schema v2, and aggregate
+schema v6. Current decoders retain read compatibility with promptless evidence
+result schema v7, attemptless result schema v6, prompt-bound result schema v5,
+panel result schema v4, singleton result schema v3, and reviewer-id-free review
+schema v1.
 
 For `neutral-common`, `--blind-assignment` is mandatory. It is a bounded private
 file that maps randomized answer labels to candidates for the reviewer. Only
@@ -1087,12 +1090,14 @@ owner-private plan/result artifacts. Low-level dry-run reports only
 `prompt_contract_bound:true`; the digest is intentionally omitted from preview
 and aggregate JSON because a short private prompt may be guessable. Baseline
 comparison nevertheless requires both the exact digest and treatment to match.
-Result schema v7 carries both fields; aggregate schema v6 carries activation as
-a grouping/runtime dimension but deliberately omits the digest. Legacy result
-v5 and private-plan v2 artifacts retain only their bound `implicit`/`explicit`
-identities and cannot contain the new treatments. Result v3/v4 and private-plan
-v1 artifacts remain readable under their earlier legacy rules. None is silently
-reclassified as `developer` or `combined`.
+Result schema v8 carries both fields and also binds every synthetic runner
+result to its exact provider-neutral prompt contract. Aggregate schema v6 uses
+the digest to reject mixed cohorts but deliberately omits it from output; it
+carries activation as a visible grouping/runtime dimension. Promptless
+evidence result v7, prompt-bound result v5, and private-plan v2 artifacts remain
+readable under their explicit legacy rules. Result v3/v4 and private-plan v1
+artifacts remain readable as well. None is silently reclassified as
+`developer` or `combined`.
 
 Private-workspace manifest schema v4 provides two run-set kinds. A
 `comparison` contains one to three unique surfaces and keeps any Codex CLI member

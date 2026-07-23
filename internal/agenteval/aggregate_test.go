@@ -1,6 +1,7 @@
 package agenteval
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -191,6 +192,52 @@ func TestResultPromptIdentityKeepsExplicitLegacySchemasReadableAndCurrentFailClo
 	current.SchemaVersion = ResultSchemaVersion + 1
 	if err := current.Validate(); err == nil || !strings.Contains(err.Error(), "unsupported result schema_version") {
 		t.Fatalf("future result schema passed: %v", err)
+	}
+}
+
+func TestResultPromptIdentityAllowsOnlyCurrentSyntheticContracts(t *testing.T) {
+	result, err := Evaluate(validScenario(), validObservation())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result.EvidenceAttempt, err = NewEvidenceAttemptTelemetry(true, EvidenceAttemptCounts{Attempts: 1, Admitted: 1, Succeeded: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result.EvidenceReport = EvidenceOutcomeReport{Coverage: true, State: EvidenceAttemptStateSucceeded}
+	result.Runtime.PromptContractSHA256 = strings.Repeat("a", 64)
+	if err := result.Validate(); err != nil {
+		t.Fatalf("current synthetic result rejected prompt identity: %v", err)
+	}
+	invalidActivation := result
+	invalidActivation.Runtime.SkillActivation = SkillActivationImplicit
+	if err := invalidActivation.Validate(); err == nil || !strings.Contains(err.Error(), "cannot claim") {
+		t.Fatalf("synthetic result accepted activation treatment: %v", err)
+	}
+	aggregate, err := AggregateResults([]Result{result})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(aggregate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte(result.Runtime.PromptContractSHA256)) || bytes.Contains(encoded, []byte("prompt_contract_sha256")) {
+		t.Fatalf("aggregate exposed synthetic prompt identity: %s", encoded)
+	}
+	drifted := result
+	drifted.Runtime.PromptContractSHA256 = strings.Repeat("b", 64)
+	if _, err := AggregateResults([]Result{result, drifted}); err == nil || !strings.Contains(err.Error(), "prompt contract") {
+		t.Fatalf("synthetic prompt drift passed: %v", err)
+	}
+	legacy := result
+	legacy.SchemaVersion = LegacyEvidenceResultSchemaVersion
+	if err := legacy.Validate(); err == nil || !strings.Contains(err.Error(), "outside private codex cli-skill") {
+		t.Fatalf("legacy synthetic result accepted prompt identity: %v", err)
+	}
+	legacy.Runtime.PromptContractSHA256 = ""
+	if err := legacy.Validate(); err != nil {
+		t.Fatalf("legacy promptless synthetic result became unreadable: %v", err)
 	}
 }
 

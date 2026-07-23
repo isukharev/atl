@@ -51,11 +51,14 @@ func TestRunAggregateRootEmitsCompleteSyntheticEnvelope(t *testing.T) {
 		SchemaVersion: agenteval.ObservationSchemaVersion,
 		ScenarioID:    scenario.ID,
 		Variant:       "baseline",
-		Runtime:       agenteval.Runtime{Provider: "codex", Model: "test-model", Reasoning: "high", ATLVersion: "test-atl"},
-		Metrics:       agenteval.InputMetrics{OutputBytes: 128},
-		Coverage:      map[string]bool{"backend_requests": true, "output_bytes": true},
-		HTTPMethods:   map[string]int{"GET": 1},
-		Checks:        map[string]bool{"answer_correct": true},
+		Runtime: agenteval.Runtime{
+			Provider: "codex", Model: "test-model", Reasoning: "high", ATLVersion: "test-atl",
+			PromptContractSHA256: strings.Repeat("a", 64),
+		},
+		Metrics:     agenteval.InputMetrics{OutputBytes: 128},
+		Coverage:    map[string]bool{"backend_requests": true, "output_bytes": true},
+		HTTPMethods: map[string]int{"GET": 1},
+		Checks:      map[string]bool{"answer_correct": true},
 	}
 	result, err := agenteval.Evaluate(scenario, observation)
 	if err != nil {

@@ -712,8 +712,18 @@ func TestProviderPromptContractBindsEveryStableChannel(t *testing.T) {
 	}
 
 	nonActivation := validRunSpec()
-	if got, err := providerPromptContractSHA256(nonActivation, core, core); err != nil || got != "" {
-		t.Fatalf("non-activation digest=%q err=%v", got, err)
+	syntheticDigest, err := providerPromptContractSHA256(nonActivation, core, core)
+	if err != nil || !validSHA256(syntheticDigest) {
+		t.Fatalf("synthetic digest=%q err=%v", syntheticDigest, err)
+	}
+	changedSyntheticDigest, err := providerPromptContractSHA256(nonActivation, []byte("changed core\n"), []byte("changed core\n"))
+	if err != nil || changedSyntheticDigest == syntheticDigest {
+		t.Fatalf("changed synthetic digest=%q original=%q err=%v", changedSyntheticDigest, syntheticDigest, err)
+	}
+	privateNonActivation := nonActivation
+	privateNonActivation.BackendMode = BackendModePrivateLive
+	if got, err := providerPromptContractSHA256(privateNonActivation, core, core); err != nil || got != "" {
+		t.Fatalf("private non-activation digest=%q err=%v", got, err)
 	}
 }
 

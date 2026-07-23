@@ -295,7 +295,8 @@ func deterministicValidForEfficiency(result Result) bool {
 }
 
 func (r Result) Validate() error {
-	if r.SchemaVersion != ResultSchemaVersion && r.SchemaVersion != LegacyAttemptlessResultSchemaVersion && r.SchemaVersion != LegacyPromptBoundResultSchemaVersion &&
+	if r.SchemaVersion != ResultSchemaVersion && r.SchemaVersion != LegacyEvidenceResultSchemaVersion &&
+		r.SchemaVersion != LegacyAttemptlessResultSchemaVersion && r.SchemaVersion != LegacyPromptBoundResultSchemaVersion &&
 		r.SchemaVersion != PanelResultSchemaVersion && r.SchemaVersion != LegacyResultSchemaVersion {
 		return fmt.Errorf("unsupported result schema_version %d", r.SchemaVersion)
 	}
@@ -305,12 +306,17 @@ func (r Result) Validate() error {
 	if r.SchemaVersion < LegacyPromptBoundResultSchemaVersion && (r.Runtime.SkillActivation != "" || r.Runtime.PromptContractSHA256 != "") {
 		return fmt.Errorf("legacy result cannot contain prompt contract identity")
 	}
-	if r.SchemaVersion == LegacyPromptBoundResultSchemaVersion || r.SchemaVersion == LegacyAttemptlessResultSchemaVersion || r.SchemaVersion == ResultSchemaVersion {
+	if r.SchemaVersion == LegacyPromptBoundResultSchemaVersion || r.SchemaVersion == LegacyAttemptlessResultSchemaVersion ||
+		r.SchemaVersion == LegacyEvidenceResultSchemaVersion || r.SchemaVersion == ResultSchemaVersion {
 		activationCell := r.DataClass == "private-local" && r.EffectiveSurface() == SurfaceCLISkill && r.Runtime.Provider == "codex"
+		syntheticPromptCell := r.SchemaVersion == ResultSchemaVersion && r.DataClass == "synthetic"
 		if activationCell && (r.Runtime.SkillActivation == "" || r.Runtime.PromptContractSHA256 == "") {
 			return fmt.Errorf("private codex cli-skill result requires prompt contract identity")
 		}
-		if !activationCell && (r.Runtime.SkillActivation != "" || r.Runtime.PromptContractSHA256 != "") {
+		if syntheticPromptCell && r.Runtime.SkillActivation != "" {
+			return fmt.Errorf("synthetic result cannot claim a skill activation treatment")
+		}
+		if !activationCell && !syntheticPromptCell && (r.Runtime.SkillActivation != "" || r.Runtime.PromptContractSHA256 != "") {
 			return fmt.Errorf("result prompt contract identity is outside private codex cli-skill")
 		}
 		if r.SchemaVersion == LegacyPromptBoundResultSchemaVersion &&
@@ -318,7 +324,7 @@ func (r Result) Validate() error {
 			return fmt.Errorf("legacy prompt-bound result has unsupported skill activation")
 		}
 	}
-	if r.SchemaVersion != ResultSchemaVersion && (r.EvidenceAttempt != (EvidenceAttemptTelemetry{}) || r.EvidenceReport != (EvidenceOutcomeReport{})) {
+	if r.SchemaVersion < LegacyEvidenceResultSchemaVersion && (r.EvidenceAttempt != (EvidenceAttemptTelemetry{}) || r.EvidenceReport != (EvidenceOutcomeReport{})) {
 		return fmt.Errorf("legacy result cannot contain evidence attempt contracts")
 	}
 	if err := r.EvidenceAttempt.Validate(); err != nil {
