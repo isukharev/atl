@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 
 	"github.com/isukharev/atl/internal/safepath"
@@ -157,6 +158,11 @@ func validPrivateSyntheticSamplingRootRef(ref PrivateSyntheticSamplingRootRef) b
 }
 
 func buildPrivateSyntheticSamplingAssessment(root string, spec PrivateSyntheticSamplingSpec, sourceSHA256 string) (privateSyntheticSamplingAssessment, []Result, []Result, error) {
+	return buildPrivateSyntheticSamplingAssessmentWithHook(root, spec, sourceSHA256, nil)
+}
+
+func buildPrivateSyntheticSamplingAssessmentWithHook(root string, spec PrivateSyntheticSamplingSpec, sourceSHA256 string,
+	afterInitialCollection func()) (privateSyntheticSamplingAssessment, []Result, []Result, error) {
 	primaryBinding, primaryResults, err := resolvePrivateSyntheticSamplingRoot(root, spec.Primary)
 	if err != nil {
 		return privateSyntheticSamplingAssessment{}, nil, nil, err
@@ -198,7 +204,36 @@ func buildPrivateSyntheticSamplingAssessment(root string, spec PrivateSyntheticS
 		accepted := privateSamplingAllPass(primaryOutcome) && privateSamplingAllPass(holdoutOutcome)
 		assessment.RegressionAccepted = &accepted
 	}
+	if afterInitialCollection != nil {
+		afterInitialCollection()
+	}
+	if err := revalidatePrivateSyntheticSamplingRoots(root, spec, primaryBinding, primaryResults, holdoutBindings, holdoutResults); err != nil {
+		return privateSyntheticSamplingAssessment{}, nil, nil, err
+	}
 	return assessment, primaryResults, holdoutResults, nil
+}
+
+func revalidatePrivateSyntheticSamplingRoots(root string, spec PrivateSyntheticSamplingSpec,
+	primaryBinding privateSyntheticSamplingBinding, primaryResults []Result,
+	holdoutBindings []privateSyntheticSamplingBinding, holdoutResults []Result) error {
+	verifiedPrimary, verifiedPrimaryResults, err := resolvePrivateSyntheticSamplingRoot(root, spec.Primary)
+	if err != nil || verifiedPrimary != primaryBinding || !reflect.DeepEqual(verifiedPrimaryResults, primaryResults) {
+		return privateSamplingError("synthetic_root_drift")
+	}
+	offset := 0
+	for index, ref := range spec.Holdout {
+		verified, results, resolveErr := resolvePrivateSyntheticSamplingRoot(root, ref)
+		count := holdoutBindings[index].Observations
+		if resolveErr != nil || verified != holdoutBindings[index] || offset+count > len(holdoutResults) ||
+			!reflect.DeepEqual(results, holdoutResults[offset:offset+count]) {
+			return privateSamplingError("synthetic_root_drift")
+		}
+		offset += count
+	}
+	if offset != len(holdoutResults) {
+		return privateSamplingError("synthetic_root_drift")
+	}
+	return nil
 }
 
 func loadPrivateSyntheticSamplingAssessment(root, digest string) (privateSyntheticSamplingAssessment, []Result, []Result, error) {
@@ -258,8 +293,8 @@ func loadPrivateSyntheticSamplingAssessment(root, digest string) (privateSynthet
 
 func resolvePrivateSyntheticSamplingRoot(root string, ref PrivateSyntheticSamplingRootRef) (privateSyntheticSamplingBinding, []Result, error) {
 	parent := filepath.Join(root, "reports", privateSyntheticRootDirectory)
-	info, err := safepath.StatWithin(root, parent)
-	if err != nil || !info.IsDir() || runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
+	parentBefore, err := safepath.StatWithin(root, parent)
+	if err != nil || !parentBefore.IsDir() || runtime.GOOS != "windows" && parentBefore.Mode().Perm() != 0o700 {
 		return privateSyntheticSamplingBinding{}, nil, privateSamplingError("synthetic_root_directory")
 	}
 	rootPath := filepath.Join(parent, ref.Root)
@@ -269,12 +304,15 @@ func resolvePrivateSyntheticSamplingRoot(root string, ref PrivateSyntheticSampli
 	}
 	aggregate, loaded, err := loadSyntheticOutputRootEvidence(rootPath)
 	containedAfter, containedErr := safepath.StatWithin(root, rootPath)
+	parentAfter, parentErr := safepath.StatWithin(root, parent)
 	if err != nil || aggregate.SchemaVersion != SyntheticRootAggregateSchemaVersion ||
 		aggregate.SourceSHA256 != ref.SourceSHA256 || aggregate.Cohorts != 1 ||
 		len(aggregate.Aggregate.Groups) != 1 || len(loaded.observations) != aggregate.Results ||
 		len(loaded.observations) == 0 || containedErr != nil || !containedAfter.IsDir() ||
 		!os.SameFile(containedBefore, loaded.root) || !os.SameFile(containedAfter, loaded.root) ||
-		!sameSyntheticRootInfo(containedBefore, loaded.root) || !sameSyntheticRootInfo(containedAfter, loaded.root) {
+		!sameSyntheticRootInfo(containedBefore, loaded.root) || !sameSyntheticRootInfo(containedAfter, loaded.root) ||
+		parentErr != nil || !parentAfter.IsDir() || !os.SameFile(parentBefore, parentAfter) ||
+		!sameSyntheticRootInfo(parentBefore, parentAfter) {
 		return privateSyntheticSamplingBinding{}, nil, privateSamplingError("synthetic_root")
 	}
 	first := loaded.observations[0]
@@ -302,9 +340,10 @@ func resolvePrivateSyntheticSamplingRoot(root string, ref PrivateSyntheticSampli
 
 func (cohort privateSyntheticSamplingCohort) validate() error {
 	if validatePathComponentID("scenario id", cohort.ScenarioID) != nil ||
-		cohort.DataClass != "synthetic" || cohort.Category == "" ||
+		cohort.DataClass != "synthetic" || !validBenchmarkCategory(cohort.Category) ||
 		validatePathComponentID("run variant", cohort.Variant) != nil ||
-		cohort.Surface == "" || cohort.Runtime.Provider != "codex" && cohort.Runtime.Provider != "claude-code" ||
+		!validResultSurface(cohort.Surface) || cohort.Runtime.Provider != "codex" && cohort.Runtime.Provider != "claude-code" ||
+		cohort.Runtime.validate() != nil ||
 		cohort.Runtime.PromptContractSHA256 == "" {
 		return fmt.Errorf("invalid synthetic cohort")
 	}

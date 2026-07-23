@@ -224,6 +224,52 @@ func TestPrivateSyntheticSamplingRejectsUnattestedDriftingAndIncompatibleRoots(t
 	})
 }
 
+func TestPrivateSyntheticSamplingRevalidatesTheCompleteRootSet(t *testing.T) {
+	fixture := newPrivateSamplingFixture(t)
+	primary := fixture.addSyntheticRoot(t, "primary-synthetic-runs", "jira.synthetic-primary", 3, true,
+		strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64))
+	holdout := fixture.addSyntheticRoot(t, "holdout-synthetic-runs", "jira.synthetic-holdout", 1, true,
+		strings.Repeat("4", 64), strings.Repeat("5", 64), strings.Repeat("6", 64))
+	spec := PrivateSyntheticSamplingSpec{
+		SchemaVersion: 2, Tier: PrivateSamplingTierRegression, Primary: primary,
+		Holdout: []PrivateSyntheticSamplingRootRef{holdout},
+	}
+	specData, err := encodePrivateSyntheticSamplingSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	primaryMarker := filepath.Join(fixture.root, "reports", privateSyntheticRootDirectory, primary.Root, privateOutputRootMarker)
+	_, _, _, err = buildPrivateSyntheticSamplingAssessmentWithHook(
+		fixture.root, spec, sha256HexBytes(specData),
+		func() {
+			if writeErr := os.WriteFile(primaryMarker, []byte("changed\n"), 0o600); writeErr != nil {
+				t.Fatal(writeErr)
+			}
+		},
+	)
+	if !errors.Is(err, ErrPrivateSamplingRejected) {
+		t.Fatalf("changed complete root set err=%v", err)
+	}
+}
+
+func TestPrivateSamplingSpecReadRejectsConcurrentVersionCreation(t *testing.T) {
+	fixture := newPrivateSamplingFixture(t)
+	fixture.writeSpec(t, PrivateSamplingSpec{
+		SchemaVersion: 1, Tier: PrivateSamplingTierCalibration,
+		Primary: []PrivateFindingRunRef{fixture.addResult(t, 1, "primary-01",
+			privateSamplingResult(t, "jira.primary-evidence", true), strings.Repeat("1", 64))},
+	})
+	directory := filepath.Join(fixture.root, "cases", "sampling")
+	_, _, err := readPrivateSamplingSpecWithHook(fixture.root, directory, "sample-set", func() {
+		if writeErr := os.WriteFile(fixture.syntheticSpecPath(), []byte("{}\n"), 0o600); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+	})
+	if !errors.Is(err, ErrPrivateSamplingRejected) {
+		t.Fatalf("concurrent second version err=%v", err)
+	}
+}
+
 func TestPrivateSamplingPreviewUsesWorkspaceDoctor(t *testing.T) {
 	repository := t.TempDir()
 	root := filepath.Join(t.TempDir(), "private")
