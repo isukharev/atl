@@ -77,7 +77,8 @@ func TestSummarizeJiraHistoryReportsCardinalityConsistencyAndUnknownOrdering(t *
 	}
 
 	summary := summarizeJiraHistory(result)
-	if summary.HistoryCount != 2 || summary.HistoryIDNonemptyCount != 2 || summary.HistoryIDsUnique {
+	if summary.HistoryCount != 2 || summary.HistoryIDNonemptyCount != 2 || summary.HistoryIDMissingCount != 0 ||
+		summary.HistoryIDsUnique || summary.HistoryNonemptyIDsUnique {
 		t.Fatalf("identity summary=%+v", summary)
 	}
 	if summary.AuthorNonemptyCount != 1 || summary.TimestampNonemptyCount != 2 || summary.ChronologicalComparable || summary.ChronologicalAscending != nil {
@@ -99,8 +100,23 @@ func TestSummarizeJiraHistoryReportsCardinalityConsistencyAndUnknownOrdering(t *
 
 func TestSummarizeJiraHistoryEmptyHistoryIsComparableAndAscending(t *testing.T) {
 	summary := summarizeJiraHistory(&JiraHistoryResult{})
-	if !summary.HistoryIDsUnique || !summary.ChronologicalComparable || summary.ChronologicalAscending == nil || !*summary.ChronologicalAscending || summary.Fields == nil {
+	if !summary.HistoryIDsUnique || !summary.HistoryNonemptyIDsUnique || !summary.ChronologicalComparable || summary.ChronologicalAscending == nil || !*summary.ChronologicalAscending || summary.Fields == nil {
 		t.Fatalf("summary=%+v", summary)
+	}
+}
+
+func TestSummarizeJiraHistorySeparatesMissingAndDuplicateNonemptyIDs(t *testing.T) {
+	summary := summarizeJiraHistory(&JiraHistoryResult{History: []domain.ChangelogEntry{
+		{}, {}, {ID: "duplicate"}, {ID: "duplicate"},
+	}})
+	if summary.HistoryIDNonemptyCount != 2 || summary.HistoryIDMissingCount != 2 ||
+		summary.HistoryIDsUnique || summary.HistoryNonemptyIDsUnique {
+		t.Fatalf("identity summary=%+v", summary)
+	}
+
+	missingOnly := summarizeJiraHistory(&JiraHistoryResult{History: []domain.ChangelogEntry{{}, {}}})
+	if missingOnly.HistoryIDMissingCount != 2 || missingOnly.HistoryIDsUnique || !missingOnly.HistoryNonemptyIDsUnique {
+		t.Fatalf("missing-only identity summary=%+v", missingOnly)
 	}
 }
 

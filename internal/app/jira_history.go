@@ -50,24 +50,26 @@ type JiraHistoryFieldSummary struct {
 // more timestamps cannot be compared, so unknown ordering is never reported as
 // false ordering.
 type JiraHistorySummary struct {
-	HistoryCount            int                       `json:"history_count"`
-	HistoryIDNonemptyCount  int                       `json:"history_id_nonempty_count"`
-	HistoryIDsUnique        bool                      `json:"history_ids_unique"`
-	AuthorNonemptyCount     int                       `json:"author_nonempty_count"`
-	TimestampNonemptyCount  int                       `json:"timestamp_nonempty_count"`
-	ChronologicalComparable bool                      `json:"chronological_comparable"`
-	ChronologicalAscending  *bool                     `json:"chronological_ascending"`
-	EntriesWithItems        int                       `json:"entries_with_items"`
-	MultiItemEntryCount     int                       `json:"multi_item_entry_count"`
-	ItemCount               int                       `json:"item_count"`
-	ItemFieldNonemptyCount  int                       `json:"item_field_nonempty_count"`
-	DistinctItemFieldCount  int                       `json:"distinct_item_field_count"`
-	ItemsWithFromCount      int                       `json:"items_with_from_count"`
-	ItemsWithToCount        int                       `json:"items_with_to_count"`
-	StatusItemCount         int                       `json:"status_item_count"`
-	CountMatchesHistory     bool                      `json:"count_matches_history"`
-	FetchedMatchesTotal     bool                      `json:"fetched_matches_total"`
-	Fields                  []JiraHistoryFieldSummary `json:"fields"`
+	HistoryCount             int                       `json:"history_count"`
+	HistoryIDNonemptyCount   int                       `json:"history_id_nonempty_count"`
+	HistoryIDMissingCount    int                       `json:"history_id_missing_count"`
+	HistoryIDsUnique         bool                      `json:"history_ids_unique"`
+	HistoryNonemptyIDsUnique bool                      `json:"history_nonempty_ids_unique"`
+	AuthorNonemptyCount      int                       `json:"author_nonempty_count"`
+	TimestampNonemptyCount   int                       `json:"timestamp_nonempty_count"`
+	ChronologicalComparable  bool                      `json:"chronological_comparable"`
+	ChronologicalAscending   *bool                     `json:"chronological_ascending"`
+	EntriesWithItems         int                       `json:"entries_with_items"`
+	MultiItemEntryCount      int                       `json:"multi_item_entry_count"`
+	ItemCount                int                       `json:"item_count"`
+	ItemFieldNonemptyCount   int                       `json:"item_field_nonempty_count"`
+	DistinctItemFieldCount   int                       `json:"distinct_item_field_count"`
+	ItemsWithFromCount       int                       `json:"items_with_from_count"`
+	ItemsWithToCount         int                       `json:"items_with_to_count"`
+	StatusItemCount          int                       `json:"status_item_count"`
+	CountMatchesHistory      bool                      `json:"count_matches_history"`
+	FetchedMatchesTotal      bool                      `json:"fetched_matches_total"`
+	Fields                   []JiraHistoryFieldSummary `json:"fields"`
 }
 
 type JiraHistoryResult struct {
@@ -191,9 +193,10 @@ func (s *JiraService) HistoryFiltered(ctx context.Context, key string, opts Jira
 
 func summarizeJiraHistory(result *JiraHistoryResult) JiraHistorySummary {
 	summary := JiraHistorySummary{
-		HistoryIDsUnique:        true,
-		ChronologicalComparable: true,
-		Fields:                  []JiraHistoryFieldSummary{},
+		HistoryIDsUnique:         true,
+		HistoryNonemptyIDsUnique: true,
+		ChronologicalComparable:  true,
+		Fields:                   []JiraHistoryFieldSummary{},
 	}
 	if result == nil {
 		ascending := true
@@ -206,6 +209,7 @@ func summarizeJiraHistory(result *JiraHistoryResult) JiraHistorySummary {
 	summary.FetchedMatchesTotal = result.Fetched == result.Total
 
 	ids := make(map[string]struct{}, len(result.History))
+	nonemptyIDs := make(map[string]struct{}, len(result.History))
 	fields := make(map[string]*JiraHistoryFieldSummary)
 	ascending := true
 	var previous time.Time
@@ -213,6 +217,13 @@ func summarizeJiraHistory(result *JiraHistoryResult) JiraHistorySummary {
 	for _, entry := range result.History {
 		if entry.ID != "" {
 			summary.HistoryIDNonemptyCount++
+			if _, exists := nonemptyIDs[entry.ID]; exists {
+				summary.HistoryNonemptyIDsUnique = false
+			} else {
+				nonemptyIDs[entry.ID] = struct{}{}
+			}
+		} else {
+			summary.HistoryIDMissingCount++
 		}
 		if _, exists := ids[entry.ID]; exists {
 			summary.HistoryIDsUnique = false

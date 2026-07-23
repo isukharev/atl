@@ -2764,7 +2764,8 @@ JSON includes `complete`, `source`, optional `partial_reason`, field ids beside
 display names, and `last_changes` for selected fields within the requested time
 window. The additive `summary` object computes deterministic entry/item totals,
 non-empty metadata counts, distinct and per-field buckets, status changes, id
-uniqueness, count/fetch reconciliation, and chronological ordering from that
+uniqueness, separate missing-id and non-empty-id uniqueness facts, count/fetch
+reconciliation, and chronological ordering from that
 same filtered array without another request. If any timestamp is not
 comparable, `chronological_comparable` is false and
 `chronological_ascending` is `null`. `fetched_matches_total:true` does not
