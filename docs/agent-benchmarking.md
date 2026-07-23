@@ -250,7 +250,10 @@ closed response schema and exact five-family route. Both require five typed
 calls, six GETs, one intentional repeated page target, and zero writes. The
 exact invocation oracle also checks each normalized typed-tool argument object;
 observed arguments exist only during evaluation and are omitted from stored
-observations and results. The historical neutral comparison remains unchanged.
+observations and results. Exact answer checks preserve the complete rollout
+ceiling qualifier and terminal punctuation of each risk sentence instead of
+accepting shortened evidence. The historical neutral comparison remains
+unchanged.
 
 New multi-surface scenarios use `interface_invocations`,
 `max_interface_invocations`, and the corresponding `interface_*` run-check
