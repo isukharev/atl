@@ -138,6 +138,40 @@ func TestJiraImagesStreamsListedAttachmentWithoutRefetch(t *testing.T) {
 	}
 }
 
+func TestJiraImagesFallsBackToAttachmentIDWithoutDirectPath(t *testing.T) {
+	dir := t.TempDir()
+	listCalls, streamCalls, downloadCalls := 0, 0, 0
+	s := &JiraService{tr: partialTracker{
+		atts: []domain.Attachment{
+			{ID: "1", Title: "listed.png", MediaType: "image/png"},
+			{Title: "missing-identity.png", MediaType: "image/png"},
+		},
+		data:          []byte("fallback bytes"),
+		name:          "resolved.png",
+		listCalls:     &listCalls,
+		streamCalls:   &streamCalls,
+		downloadCalls: &downloadCalls,
+	}}
+
+	paths, err := s.Images(context.Background(), "PROJ-1", dir)
+	if err != nil {
+		t.Fatalf("Images: %v", err)
+	}
+	if listCalls != 1 || streamCalls != 0 || downloadCalls != 1 {
+		t.Fatalf("calls: list=%d stream=%d download=%d, want 1/0/1", listCalls, streamCalls, downloadCalls)
+	}
+	if len(paths) != 1 || filepath.Base(paths[0]) != "resolved.png" {
+		t.Fatalf("paths = %v, want one resolved.png", paths)
+	}
+	got, err := os.ReadFile(paths[0])
+	if err != nil {
+		t.Fatalf("read image: %v", err)
+	}
+	if string(got) != "fallback bytes" {
+		t.Fatalf("image bytes = %q, want fallback bytes", got)
+	}
+}
+
 func TestJiraDownloadAttachmentWritesAnyAttachment(t *testing.T) {
 	dir := t.TempDir()
 	s := &JiraService{tr: partialTracker{
