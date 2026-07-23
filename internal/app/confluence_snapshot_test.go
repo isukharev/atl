@@ -141,40 +141,60 @@ func TestConfluenceMirrorSnapshotStopsBeforeRemoteOnBaselineMismatch(t *testing.
 }
 
 func TestConfluenceMirrorSnapshotIncompleteLocalEvidenceStopsRemote(t *testing.T) {
-	tests := map[string]func(*testing.T, string, string){
-		"missing baseline": func(t *testing.T, root, _ string) {
-			if err := os.Remove(filepath.Join(root, ".atl", "base", "211.csf")); err != nil {
-				t.Fatal(err)
-			}
+	tests := map[string]struct {
+		mutate       func(*testing.T, string, string)
+		wantCheckErr bool
+	}{
+		"missing baseline": {
+			mutate: func(t *testing.T, root, _ string) {
+				if err := os.Remove(filepath.Join(root, ".atl", "base", "211.csf")); err != nil {
+					t.Fatal(err)
+				}
+			},
 		},
-		"malformed candidate": func(t *testing.T, _, path string) {
-			if err := os.WriteFile(path, []byte(`<p>`), 0o644); err != nil {
-				t.Fatal(err)
-			}
+		"malformed candidate": {
+			mutate: func(t *testing.T, _, path string) {
+				if err := os.WriteFile(path, []byte(`<p>`), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
 		},
-		"unreadable view": func(t *testing.T, _, path string) {
-			mdPath := strings.TrimSuffix(path, ".csf") + ".md"
-			if err := os.Remove(mdPath); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.Mkdir(mdPath, 0o755); err != nil {
-				t.Fatal(err)
-			}
+		"unreadable view": {
+			mutate: func(t *testing.T, _, path string) {
+				mdPath := strings.TrimSuffix(path, ".csf") + ".md"
+				if err := os.Remove(mdPath); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(mdPath, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantCheckErr: true,
 		},
 	}
-	for name, mutate := range tests {
+	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
 			path := writeDiffPage(t, root, "211", "local-block", `<p>body</p>`)
-			mutate(t, root, path)
+			test.mutate(t, root, path)
 			store := &snapshotMetaStore{meta: map[string]*domain.PageMeta{"211": {ID: "211", Version: 3}}}
 			got, err := (&ConfluenceService{store: store}).SnapshotMirror(context.Background(), root, true)
-			if err != nil {
-				t.Fatalf("snapshot err=%v", err)
+			if errors.Is(err, domain.ErrCheckFailed) != test.wantCheckErr {
+				t.Fatalf("snapshot err=%v want_check_failed=%t", err, test.wantCheckErr)
 			}
-			if got == nil || got.Complete || !got.Remote.Requested || got.Remote.Attempted != 0 ||
+			if got == nil || got.Complete || !got.Reconciled || !got.Remote.Requested || got.Remote.Attempted != 0 ||
 				got.Remote.NotAttempted != 1 || len(store.calls) != 0 {
 				t.Fatalf("snapshot=%+v calls=%v", got, store.calls)
+			}
+			if test.wantCheckErr {
+				if got.Render.Unreadable != 1 {
+					t.Fatalf("unreadable render summary=%+v", got.Render)
+				}
+				for _, private := range []string{root, "211", "local-block"} {
+					if strings.Contains(err.Error(), private) {
+						t.Fatalf("content-free snapshot error leaked %q: %v", private, err)
+					}
+				}
 			}
 		})
 	}
