@@ -38,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Daily checkpoints now accept content-free aggregate issue and PR counts above
+  the finding count when a schema-v2 ledger binds multiple public changes to
+  one finding. Negative counts, regression over-count, and decision mismatch
+  remain fail-closed.
+
 - The owner-private finding ledger now has an optional schema-v2 source union
   for complete synthetic-only finding chains. A fixed chain must bind an
   immutable failed n=1 calibration, an accepted n=3-plus-distinct-holdout

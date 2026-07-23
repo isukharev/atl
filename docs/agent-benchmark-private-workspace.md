@@ -1175,6 +1175,9 @@ preview is read-only and combines the public repository commit and dirty flag,
 closed workspace state/counts, current public contract schema versions, and the
 finding scorecard summary/source digest. It contains no run-set, plan, scenario,
 baseline, finding, route, path, prompt, answer, reviewer, or backend identifier.
+Linked issue and PR values are aggregate unique counts only; with ledger v2
+they may exceed the finding count because one finding may bind several public
+changes.
 An unhealthy workspace, active run, or invalid scorecard blocks the operation.
 
 ```sh
