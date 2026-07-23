@@ -980,6 +980,9 @@ func classifiedMirrorRead(err error) error {
 }
 
 func safeToolMessage(err error) string {
+	if config.IsSecureURLError(err) {
+		return "backend URL is not approved for authenticated reads"
+	}
 	var apiErr *httpx.APIError
 	if errors.As(err, &apiErr) {
 		return fmt.Sprintf("backend returned HTTP %d", apiErr.Status)
