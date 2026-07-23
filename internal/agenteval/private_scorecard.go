@@ -435,8 +435,7 @@ func compatiblePrivateSyntheticFindingTransition(
 		failure.Runtime.Reasoning != regression.Runtime.Reasoning ||
 		failure.Runtime.PluginVersion != regression.Runtime.PluginVersion ||
 		failure.Runtime.SkillActivation != regression.Runtime.SkillActivation ||
-		failure.AgentExecutableSHA256 != regression.AgentExecutableSHA256 ||
-		failure.WrapperExecutableSHA256 != regression.WrapperExecutableSHA256 {
+		failure.AgentExecutableSHA256 != regression.AgentExecutableSHA256 {
 		return false
 	}
 	observed := map[string]PrivateFindingContractTransition{}
@@ -451,6 +450,7 @@ func compatiblePrivateSyntheticFindingTransition(
 	add(PrivateFindingContractTask, failure.TaskContractSHA256, regression.TaskContractSHA256)
 	add(PrivateFindingContractExecution, failure.ExecutionContractSHA256, regression.ExecutionContractSHA256)
 	add(PrivateFindingContractATLBinary, failure.ATLExecutableSHA256, regression.ATLExecutableSHA256)
+	add(PrivateFindingContractRunner, failure.WrapperExecutableSHA256, regression.WrapperExecutableSHA256)
 	add(PrivateFindingContractSkill, failure.Runtime.SkillDigest, regression.Runtime.SkillDigest)
 	if len(observed) > 0 {
 		if _, exists := observed[PrivateFindingContractExecution]; !exists {

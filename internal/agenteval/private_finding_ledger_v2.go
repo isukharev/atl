@@ -21,6 +21,7 @@ const (
 	PrivateFindingContractTask      = "task-contract"
 	PrivateFindingContractExecution = "execution-contract"
 	PrivateFindingContractATLBinary = "atl-executable"
+	PrivateFindingContractRunner    = "runner-executable"
 	PrivateFindingContractSkill     = "skill-digest"
 )
 
@@ -290,7 +291,8 @@ func validPrivateFindingTransitions(transitions []PrivateFindingContractTransiti
 func validPrivateFindingContractKind(kind string) bool {
 	switch kind {
 	case PrivateFindingContractPlan, PrivateFindingContractPrompt, PrivateFindingContractTask,
-		PrivateFindingContractExecution, PrivateFindingContractATLBinary, PrivateFindingContractSkill:
+		PrivateFindingContractExecution, PrivateFindingContractATLBinary, PrivateFindingContractRunner,
+		PrivateFindingContractSkill:
 		return true
 	default:
 		return false

@@ -1063,12 +1063,13 @@ and no holdout. Its fixed regression must be a different stored schema-v2
 least one distinct passing holdout, and `regression_accepted: true`. Failure and
 regression roots and source digests must be disjoint. Their scenario, public
 task class, data class, category, surface, provider, agent/model/reasoning,
-plugin, skill activation, agent executable, and wrapper executable remain
-compatible. Prompt, task, execution, ATL executable, and skill digests may
-change only through exact sorted before/after transitions; any change requires
-an execution-contract transition, and a variant change additionally requires
+plugin, skill activation, and agent executable remain compatible. Prompt, task,
+execution, ATL executable, runner executable, and skill digests may change only
+through exact sorted before/after transitions; any change requires an
+execution-contract transition, and a variant change additionally requires
 task- and execution-contract transitions. An ATL runtime-version change
-requires an ATL-executable transition.
+requires an ATL-executable transition. Runner executable drift requires its
+own transition; it is never inferred from an ATL or task change.
 
 The fixed acceptance entry must select `synthetic-root`, name exactly the
 ledger's regression assessment, and bind its primary prompt-contract digest.
@@ -1159,10 +1160,11 @@ idempotent, and existing files are never overwritten. The artifact retains
 private exact references for later finding-ledger binding, but the command
 summary does not emit them. Link a private-live assessment with the legacy
 acceptance index or an explicitly typed v2 entry. Link a synthetic-root
-assessment only through a v2 `synthetic-root` entry and only alongside the
-compatible mandatory private-live regression described above. Until that link
-exists, the ledger's singleton regression field remains historical evidence
-rather than an n=3 claim.
+assessment through a v2 `synthetic-root` acceptance entry. It may supplement a
+compatible private-live regression, or serve as the regression in a
+same-source synthetic-only ledger-v2 chain with an immutable failed calibration
+and exact contract transitions. Until that link exists, a ledger singleton
+regression remains historical evidence rather than an n=3 claim.
 `regression_accepted` is an all-pass regression gate, not a statistical
 significance or comparative-reliability claim.
 
