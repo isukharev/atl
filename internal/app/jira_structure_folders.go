@@ -33,10 +33,10 @@ type StructureFolderStats struct {
 type StructureFolder struct {
 	FolderID       string               `json:"folder_id"`
 	RowID          int64                `json:"row_id"`
-	Name           string               `json:"name,omitempty"`
+	Name           string               `json:"name"`
 	Path           []string             `json:"path"`
 	Depth          int                  `json:"depth"`
-	ParentFolderID string               `json:"parent_folder_id,omitempty"`
+	ParentFolderID string               `json:"parent_folder_id"`
 	Stats          StructureFolderStats `json:"stats"`
 }
 

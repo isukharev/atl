@@ -478,7 +478,7 @@ atl capabilities --task jira/portfolio            # bounded quarter/plan route
 atl capabilities --task jira/edit                 # guarded field, worklog, and plan writes
 atl jira board view 5 -o text                  # normalized Kanban/Scrum view
 atl jira sprint current --board 5              # resolve the active sprint
-atl jira structure folders 123                 # discover exact stored subtrees
+atl jira structure folders 123                 # discover exact stored subtrees; empty labels stay explicit
 atl jira structure view 123 --folder-id 100 -o text
 atl jira planning report --jql 'project = PROJ' --limit 100
 atl jira quality-report --jql 'project = PROJ' # compatibility alias

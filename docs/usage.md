@@ -3584,6 +3584,10 @@ labels, while calculated grouping/generator rows keep honest technical labels.
 The nested Structure identity always includes `read_only:true|false`; `false`
 is explicit rather than omitted, so agents can distinguish known mutability
 from missing metadata.
+Folder discovery likewise always emits string `name` and `parent_folder_id`
+fields. An unavailable label remains `name:""` while `path` uses
+`folder:<id>` as a stable technical fallback; root folders use
+`parent_folder_id:""`.
 JSON is the default, `-o text` is a Markdown table, and `-o id` emits row ids.
 The default projection is `key,summary,status,assignee`;
 `--fields` accepts Jira field ids and replaces that list. `--view NAME` selects
