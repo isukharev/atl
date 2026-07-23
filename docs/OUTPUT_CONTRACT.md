@@ -110,6 +110,12 @@ object with stable `kind`, `remediation`, and diagnostic `message` fields.
 For transport/API failures, `message` is deliberately coarse and omits backend
 paths, query values, and response bodies.
 
+`jira_fields`, `jira_issue_search`, `jira_epic_digest`, and `jira_board_view`
+reject a final encoded result larger than `max_bytes` (default 256 KiB,
+minimum 1 KiB, maximum 1 MiB). Row/source limits and compact projections remain
+independent semantic bounds; exceeding the byte bound is an explicit
+`check_failed` result and never silently clips the typed output.
+
 `confluence_search` returns the same qualified schema-v1 search envelope as
 the CLI, including top-level `complete`, `truncated`, optional
 `partial_reason`, and `next_cursor`; candidate page bodies are not included.

@@ -16,11 +16,11 @@ The v1 surface is an explicit allowlist:
 
 | Tool | Purpose | Important bound |
 |---|---|---|
-| `jira_fields` | Discover field ids without issue values | explicit catalog completeness and counts |
-| `jira_issue_search` | Read one compact IssueList page | default 50, maximum 1000 rows |
+| `jira_fields` | Discover field ids without issue values | explicit catalog completeness/counts; default 256 KiB, maximum 1 MiB encoded result |
+| `jira_issue_search` | Read one compact IssueList page | default 50/maximum 1000 rows; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_issue_field_get` | Expand one exact compact field with issue/update provenance | default 16 KiB, maximum 128 KiB encoded value |
-| `jira_epic_digest` | Aggregate selected qualified epic evidence | `projection:compact` bounds synthesis context |
-| `jira_board_view` | Freeze one board/backlog membership snapshot | default 200, maximum 1000 rows per scope |
+| `jira_epic_digest` | Aggregate selected qualified epic evidence | `projection:compact`; default 256 KiB/maximum 1 MiB encoded result |
+| `jira_board_view` | Freeze one board/backlog membership snapshot | default 200/maximum 1000 rows per scope; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_structure_get` | Read compact metadata for one exact Structure id | 32 KiB result cap; omits owner, permissions, saved views, and raw forest data |
 | `jira_structure_view` | Read a normalized full Structure or exact stored-folder subtree | default 200/maximum 1000 emitted rows; maximum 1000 scanned forest rows; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_mirror_snapshot` | Summarize local Jira mirror health without content | no arguments; exact owner-configured root; offline fixed-shape counts |
@@ -44,6 +44,12 @@ digest with `projection:"full"`.
 definitions. Treat an empty match as evidence of absence only when
 `complete:true`; a successful tool call or non-empty match is not itself a
 completeness signal.
+
+`jira_fields`, `jira_issue_search`, `jira_epic_digest`, and `jira_board_view`
+also enforce the final encoded result through `max_bytes` (default 256 KiB,
+minimum 1 KiB, maximum 1 MiB). They fail explicitly instead of clipping field
+definitions, rows, digest evidence, or board membership. Narrow filters,
+columns, included sources, or rows before raising the byte bound.
 
 Use `jira_structure_get` only when compact identity/read-only metadata is
 enough. Use `jira_structure_view` for normalized hierarchy evidence with an

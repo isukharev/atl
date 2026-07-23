@@ -705,9 +705,15 @@ func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 		name string
 		args map[string]any
 	}{
+		{name: "jira_fields", args: map[string]any{"max_bytes": 1023}},
+		{name: "jira_fields", args: map[string]any{"max_bytes": 1048577}},
 		{name: "jira_issue_search", args: map[string]any{"jql": "project=PROJ", "limit": 1001}},
+		{name: "jira_issue_search", args: map[string]any{"jql": "project=PROJ", "max_bytes": 1023}},
+		{name: "jira_issue_search", args: map[string]any{"jql": "project=PROJ", "max_bytes": 1048577}},
 		{name: "jira_issue_field_get", args: map[string]any{"key": "PROJ-1", "field": "Delivery Notes", "max_bytes": 128}},
 		{name: "jira_board_view", args: map[string]any{"board_id": 1, "limit": 1001}},
+		{name: "jira_board_view", args: map[string]any{"board_id": 1, "max_bytes": 1023}},
+		{name: "jira_board_view", args: map[string]any{"board_id": 1, "max_bytes": 1048577}},
 		{name: "jira_structure_get", args: map[string]any{"structure_id": 0}},
 		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "max_rows": 1001}},
 		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "max_bytes": 1023}},
@@ -720,6 +726,8 @@ func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{}}},
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{"confluence"}}},
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{"identity"}, "projection": "brief"}},
+		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{"identity"}, "max_bytes": 1023}},
+		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{"identity"}, "max_bytes": 1048577}},
 		{name: "confluence_search", args: map[string]any{"cql": "space=DOCS", "limit": 101}},
 		{name: "confluence_page_section", args: map[string]any{"reference": "1", "heading": "Results", "max_bytes": 1048577}},
 		{name: "confluence_table_summary", args: map[string]any{"reference": "1", "table": -1}},
@@ -746,6 +754,55 @@ func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 			}
 			if got.Kind != "usage_error" || got.Remediation != "fix_request" {
 				t.Fatalf("classified error=%+v", got)
+			}
+		})
+	}
+}
+
+func TestJiraEvidenceOutputBoundsFailWithoutLeakingContent(t *testing.T) {
+	const privateMarker = "PRIVATE-JIRA-EVIDENCE-MARKER"
+	reader := &oversizedJiraReader{
+		recordingJiraReader: &recordingJiraReader{},
+		payload:             privateMarker + strings.Repeat("x", 4<<10),
+	}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Jira: func() (JiraReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+
+	tests := []struct {
+		name string
+		args map[string]any
+	}{
+		{name: "jira_fields", args: map[string]any{"max_bytes": 1024}},
+		{name: "jira_issue_search", args: map[string]any{"jql": "project=PROJ", "max_bytes": 1024}},
+		{name: "jira_epic_digest", args: map[string]any{
+			"key": "PROJ-1", "include": []string{"identity"}, "projection": "full", "max_bytes": 1024,
+		}},
+		{name: "jira_board_view", args: map[string]any{"board_id": 1, "max_bytes": 1024}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: test.name, Arguments: test.args})
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil || bytes.Contains(encoded, []byte(privateMarker)) {
+				t.Fatalf("oversize result leaked or succeeded: %s", encoded)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+				got.Kind != "check_failed" || got.Remediation != "review_failed_check" ||
+				!strings.Contains(got.Message, "exceeds max_bytes") {
+				t.Fatalf("classified error=%+v decode=%v", got, err)
 			}
 		})
 	}
@@ -1050,6 +1107,46 @@ type recordingJiraReader struct {
 type invalidStructureReader struct {
 	*recordingJiraReader
 	mode string
+}
+
+type oversizedJiraReader struct {
+	*recordingJiraReader
+	payload string
+}
+
+func (r *oversizedJiraReader) FieldCatalog(_ context.Context, _ app.JiraFieldCatalogOpts) (*app.JiraFieldCatalogResult, error) {
+	return &app.JiraFieldCatalogResult{
+		SchemaVersion: 1, Source: "test", Complete: true,
+		Fields: []domain.FieldDef{{ID: "customfield_1", Name: r.payload, Custom: true}},
+	}, nil
+}
+
+func (r *oversizedJiraReader) SearchIssueListView(_ context.Context, _ string, _ []string, _ string, _ int, _ string) (*app.IssueList, error) {
+	return &app.IssueList{
+		SchemaVersion: 1,
+		Source:        app.IssueListSource{Kind: "jql"},
+		Selection:     map[string]any{},
+		Projection:    app.IssueListProjection{Columns: []string{"key", "summary"}, Fields: []string{"summary"}, Ordering: "backend"},
+		Rows:          []app.IssueListRow{{Key: "PROJ-1", Position: 1, Values: map[string]any{"summary": r.payload}}},
+		Page:          app.IssueListPage{Count: 1, Complete: true},
+	}, nil
+}
+
+func (r *oversizedJiraReader) EpicDigest(_ context.Context, _ string, _ app.JiraEpicDigestOpts) (*app.JiraEpicDigestResult, error) {
+	return &app.JiraEpicDigestResult{
+		SchemaVersion: 1, Includes: []string{"identity"},
+		Sources: map[string]app.JiraDigestSource{"identity": {Complete: true, Count: 1}},
+		Epic:    app.JiraDigestIdentity{Key: "PROJ-1", Summary: r.payload},
+	}, nil
+}
+
+func (r *oversizedJiraReader) BoardSnapshot(_ context.Context, _ int, _ app.BoardSnapshotOpts) (*app.BoardSnapshot, error) {
+	return &app.BoardSnapshot{
+		SchemaVersion: 1, Board: &domain.BoardConfiguration{Columns: []domain.BoardColumn{}},
+		Projection: app.BoardProjection{Columns: []string{"key", "summary"}, Fields: []string{"summary"}, Ordering: "backend"},
+		Rows:       []app.BoardSnapshotRow{{Key: "PROJ-1", Position: 1, Values: map[string]any{"summary": r.payload}}},
+		RowCount:   1, Complete: true,
+	}, nil
 }
 
 func (r *recordingJiraReader) IssueFieldEvidence(_ context.Context, key string, opts app.JiraIssueFieldEvidenceOpts) (*app.JiraIssueFieldEvidenceResult, error) {

@@ -41,6 +41,9 @@ const (
 	jiraStructureFieldIDMaxBytes          = 256
 	jiraStructureFolderIDMaxBytes         = 256
 	jiraStructureFolderPathMaxBytes       = 4 << 10
+	jiraEvidenceDefaultMaxBytes           = 256 << 10
+	jiraEvidenceMinMaxBytes               = 1 << 10
+	jiraEvidenceMaxMaxBytes               = 1 << 20
 )
 
 type JiraReader interface {
@@ -124,14 +127,16 @@ type JiraFieldsInput struct {
 	IDLike   string `json:"id_like,omitempty" jsonschema:"case-insensitive substring of the technical id"`
 	Schema   string `json:"schema,omitempty" jsonschema:"exact Jira schema type"`
 	Custom   *bool  `json:"custom,omitempty" jsonschema:"when set, select only custom or system fields"`
+	MaxBytes int    `json:"max_bytes,omitempty" jsonschema:"maximum encoded result bytes from 1024 to 1048576; default 262144"`
 }
 
 type JiraIssueSearchInput struct {
-	JQL     string   `json:"jql" jsonschema:"bounded JQL selection; required"`
-	Columns []string `json:"columns,omitempty" jsonschema:"ordered field ids or supported columns"`
-	View    string   `json:"view,omitempty" jsonschema:"named Jira list view; explicit columns win"`
-	Limit   int      `json:"limit,omitempty" jsonschema:"page size from 1 to 1000; default 50"`
-	Cursor  string   `json:"cursor,omitempty" jsonschema:"opaque pagination cursor from a previous result"`
+	JQL      string   `json:"jql" jsonschema:"bounded JQL selection; required"`
+	Columns  []string `json:"columns,omitempty" jsonschema:"ordered field ids or supported columns"`
+	View     string   `json:"view,omitempty" jsonschema:"named Jira list view; explicit columns win"`
+	Limit    int      `json:"limit,omitempty" jsonschema:"page size from 1 to 1000; default 50"`
+	Cursor   string   `json:"cursor,omitempty" jsonschema:"opaque pagination cursor from a previous result"`
+	MaxBytes int      `json:"max_bytes,omitempty" jsonschema:"maximum encoded result bytes from 1024 to 1048576; default 262144"`
 }
 
 type JiraIssueFieldGetInput struct {
@@ -153,15 +158,17 @@ type JiraEpicDigestInput struct {
 	CommentLimit int      `json:"comment_limit,omitempty" jsonschema:"maximum newest comments; default and maximum 50"`
 	HistoryLimit int      `json:"history_limit,omitempty" jsonschema:"maximum newest matching history entries; default and maximum 500"`
 	Projection   string   `json:"projection,omitempty" jsonschema:"output projection: full or compact; compact is recommended for synthesis"`
+	MaxBytes     int      `json:"max_bytes,omitempty" jsonschema:"maximum encoded result bytes from 1024 to 1048576; default 262144"`
 }
 
 type JiraBoardViewInput struct {
-	BoardID int      `json:"board_id" jsonschema:"positive Jira Agile board id"`
-	Scope   string   `json:"scope,omitempty" jsonschema:"all, board, or backlog; default all"`
-	Columns []string `json:"columns,omitempty" jsonschema:"ordered field ids or supported board columns"`
-	View    string   `json:"view,omitempty" jsonschema:"named board list view; explicit columns win"`
-	JQL     string   `json:"jql,omitempty" jsonschema:"optional bounded board refinement"`
-	Limit   int      `json:"limit,omitempty" jsonschema:"maximum issues per scope from 1 to 1000; default 200"`
+	BoardID  int      `json:"board_id" jsonschema:"positive Jira Agile board id"`
+	Scope    string   `json:"scope,omitempty" jsonschema:"all, board, or backlog; default all"`
+	Columns  []string `json:"columns,omitempty" jsonschema:"ordered field ids or supported board columns"`
+	View     string   `json:"view,omitempty" jsonschema:"named board list view; explicit columns win"`
+	JQL      string   `json:"jql,omitempty" jsonschema:"optional bounded board refinement"`
+	Limit    int      `json:"limit,omitempty" jsonschema:"maximum issues per scope from 1 to 1000; default 200"`
+	MaxBytes int      `json:"max_bytes,omitempty" jsonschema:"maximum encoded result bytes from 1024 to 1048576; default 262144"`
 }
 
 type JiraStructureGetInput struct {
@@ -215,6 +222,10 @@ type MirrorSnapshotInput struct{}
 func registerJiraTools(server *mcp.Server, deps Dependencies) {
 	addReadOnlyTool(server, readOnlyTool("jira_fields", "Discover Jira field ids", "List value-free Jira field definitions with explicit catalog completeness and source/filtered counts."),
 		func(ctx context.Context, _ *mcp.CallToolRequest, in JiraFieldsInput) (*mcp.CallToolResult, *app.JiraFieldCatalogResult, error) {
+			maxBytes, err := boundedJiraEvidenceBytes(in.MaxBytes)
+			if err != nil {
+				return nil, nil, classified(err)
+			}
 			jira, err := jiraReader(deps)
 			if err != nil {
 				return nil, nil, classified(err)
@@ -224,6 +235,9 @@ func registerJiraTools(server *mcp.Server, deps Dependencies) {
 				custom = fmt.Sprintf("%t", *in.Custom)
 			}
 			out, err := jira.FieldCatalog(ctx, app.JiraFieldCatalogOpts{ID: in.ID, NameLike: in.NameLike, IDLike: in.IDLike, Schema: in.Schema, Custom: custom})
+			if err == nil {
+				err = boundedJiraEvidenceOutput(out, maxBytes)
+			}
 			return nil, out, classified(err)
 		})
 
@@ -236,11 +250,18 @@ func registerJiraTools(server *mcp.Server, deps Dependencies) {
 			if err != nil {
 				return nil, nil, classified(err)
 			}
+			maxBytes, err := boundedJiraEvidenceBytes(in.MaxBytes)
+			if err != nil {
+				return nil, nil, classified(err)
+			}
 			jira, err := jiraReader(deps)
 			if err != nil {
 				return nil, nil, classified(err)
 			}
 			out, err := jira.SearchIssueListView(ctx, in.JQL, in.Columns, in.View, limit, in.Cursor)
+			if err == nil {
+				err = boundedJiraEvidenceOutput(out, maxBytes)
+			}
 			return nil, out, classified(err)
 		})
 
@@ -289,6 +310,10 @@ func registerJiraTools(server *mcp.Server, deps Dependencies) {
 			if err != nil {
 				return nil, nil, classified(err)
 			}
+			maxBytes, err := boundedJiraEvidenceBytes(in.MaxBytes)
+			if err != nil {
+				return nil, nil, classified(err)
+			}
 			jira, err := jiraReader(deps)
 			if err != nil {
 				return nil, nil, classified(err)
@@ -301,6 +326,9 @@ func registerJiraTools(server *mcp.Server, deps Dependencies) {
 			if err == nil {
 				out, err = app.ProjectJiraEpicDigest(out, in.Projection)
 			}
+			if err == nil {
+				err = boundedJiraEvidenceOutput(out, maxBytes)
+			}
 			return nil, out, classified(err)
 		})
 
@@ -310,11 +338,18 @@ func registerJiraTools(server *mcp.Server, deps Dependencies) {
 			if err != nil {
 				return nil, nil, classified(err)
 			}
+			maxBytes, err := boundedJiraEvidenceBytes(in.MaxBytes)
+			if err != nil {
+				return nil, nil, classified(err)
+			}
 			jira, err := jiraReader(deps)
 			if err != nil {
 				return nil, nil, classified(err)
 			}
 			out, err := jira.BoardSnapshot(ctx, in.BoardID, app.BoardSnapshotOpts{Scope: in.Scope, Columns: in.Columns, View: in.View, JQL: in.JQL, Limit: limit})
+			if err == nil {
+				err = boundedJiraEvidenceOutput(out, maxBytes)
+			}
 			return nil, out, classified(err)
 		})
 
@@ -873,6 +908,35 @@ func validateSelectedTableExtract(extract *app.ConfluenceTableExtract, table int
 				return fmt.Errorf("%w: selected table cells are not reconciled", domain.ErrCheckFailed)
 			}
 		}
+	}
+	return nil
+}
+
+func boundedJiraEvidenceBytes(value int) (int, error) {
+	bounded, err := boundedDefault(value, jiraEvidenceDefaultMaxBytes, jiraEvidenceMaxMaxBytes, "max_bytes")
+	if err != nil {
+		return 0, err
+	}
+	if bounded < jiraEvidenceMinMaxBytes {
+		return 0, fmt.Errorf("%w: max_bytes must be at least %d", domain.ErrUsage, jiraEvidenceMinMaxBytes)
+	}
+	return bounded, nil
+}
+
+func boundedJiraEvidenceOutput(value any, maxBytes int) error {
+	if value == nil {
+		return fmt.Errorf("%w: Jira evidence result is unavailable", domain.ErrCheckFailed)
+	}
+	reflected := reflect.ValueOf(value)
+	if reflected.Kind() == reflect.Pointer && reflected.IsNil() {
+		return fmt.Errorf("%w: Jira evidence result is unavailable", domain.ErrCheckFailed)
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("%w: encode Jira evidence result", domain.ErrCheckFailed)
+	}
+	if len(encoded) > maxBytes {
+		return fmt.Errorf("%w: Jira evidence result exceeds max_bytes; narrow the selection or raise the bound", domain.ErrCheckFailed)
 	}
 	return nil
 }
