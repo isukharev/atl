@@ -53,7 +53,7 @@
     "max_delegations": 0,
     "max_backend_requests": 3,
     "max_duplicate_backend_requests": 1,
-    "max_remote_writes": 0,
+    "max_remote_writes": 2,
     "max_output_bytes": 65536,
     "max_input_tokens": 300000,
     "max_output_tokens": 12000,
