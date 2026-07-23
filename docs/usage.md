@@ -44,14 +44,18 @@ atl capabilities --task jira/board-portfolio -o text
 atl capabilities --task jira/batch-analysis -o text
 atl capabilities --task jira/structure-planning -o text
 atl capabilities --task jira/edit -o text
+atl capabilities --task jira/mirror -o text
 atl capabilities --task confluence/table-analytics -o text
+atl capabilities --task confluence/mirror -o text
 atl capabilities --task knowledge/search -o text
 atl capabilities --id confluence.page.section
 ```
 
 Supported task classes are `jira/evidence`, `jira/portfolio`,
-`jira/board-portfolio`, `jira/batch-analysis`, `jira/structure-planning`, `jira/edit`, `confluence/evidence`,
-`confluence/table-analytics`, `confluence/edit`, and `knowledge/search`. Exact `--service` and `--access
+`jira/board-portfolio`, `jira/batch-analysis`, `jira/structure-planning`,
+`jira/edit`, `jira/mirror`, `confluence/evidence`,
+`confluence/table-analytics`, `confluence/edit`, `confluence/mirror`, and
+`knowledge/search`. Exact `--service` and `--access
 read-only|mutating` filters can narrow the result. An unknown task or capability
 id exits 4; an invalid service/access value exits 2. No fuzzy classification is
 performed.

@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [{"method": "GET", "path": "/jira/unused-mirror-holdout", "status": 200, "body": {"unused": "holdout"}}]
+}

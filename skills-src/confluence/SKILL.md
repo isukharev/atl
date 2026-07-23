@@ -11,7 +11,7 @@ default. Durable document markers may use LF or CRLF; atl normalizes only the
 marker line and never treats whole-document newline conversion as neutral.
 
 For an unfamiliar goal, run `atl capabilities --task confluence/evidence`,
-`confluence/table-analytics`, `confluence/edit`, or the cross-service
+`confluence/table-analytics`, `confluence/mirror`, `confluence/edit`, or the cross-service
 `knowledge/search` route, then load exactly the
 reference named by the result. A
 capability route does not grant write authority.

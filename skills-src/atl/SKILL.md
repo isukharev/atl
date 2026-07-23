@@ -35,8 +35,10 @@ atl capabilities --task jira/evidence
 ```
 
 The closed task classes are `jira/evidence`, `jira/portfolio`,
-`jira/board-portfolio`, `jira/batch-analysis`, `jira/structure-planning`, `jira/edit`, `confluence/evidence`,
-`confluence/table-analytics`, `confluence/edit`, and `knowledge/search`. The result is a small ordered set
+`jira/board-portfolio`, `jira/batch-analysis`, `jira/structure-planning`,
+`jira/edit`, `jira/mirror`, `confluence/evidence`,
+`confluence/table-analytics`, `confluence/edit`, `confluence/mirror`, and
+`knowledge/search`. The result is a small ordered set
 of stable capability ids with the real command path, backend access class,
 supported output modes, evidence/completeness semantics, and one focused skill
 reference. Load only the named focused skill/reference, then stop expanding the

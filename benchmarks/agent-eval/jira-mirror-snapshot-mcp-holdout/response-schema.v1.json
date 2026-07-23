@@ -1,0 +1,81 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "service": {"type": "string", "const": "jira"},
+    "remote_requested": {"type": "boolean"},
+    "complete": {"type": "boolean"},
+    "reconciled": {"type": "boolean"},
+    "local": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "present": {"type": "integer", "minimum": 0}, "clean": {"type": "integer", "minimum": 0},
+        "locally_edited": {"type": "integer", "minimum": 0}, "tracked": {"type": "integer", "minimum": 0},
+        "untracked": {"type": "integer", "minimum": 0}, "non_canonical": {"type": "integer", "minimum": 0},
+        "reconciled": {"type": "boolean"}
+      },
+      "required": ["present", "clean", "locally_edited", "tracked", "untracked", "non_canonical", "reconciled"]
+    },
+    "native": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "total": {"type": "integer", "minimum": 0}, "unchanged": {"type": "integer", "minimum": 0},
+        "modified": {"type": "integer", "minimum": 0}, "removed": {"type": "integer", "minimum": 0},
+        "untracked": {"type": "integer", "minimum": 0}, "non_canonical": {"type": "integer", "minimum": 0},
+        "missing_baseline": {"type": "integer", "minimum": 0}, "baseline_mismatch": {"type": "integer", "minimum": 0},
+        "unreadable": {"type": "integer", "minimum": 0}, "baseline_present": {"type": "integer", "minimum": 0},
+        "baseline_missing": {"type": "integer", "minimum": 0}, "baseline_unreadable": {"type": "integer", "minimum": 0},
+        "baseline_valid": {"type": "integer", "minimum": 0}, "baseline_invalid": {"type": "integer", "minimum": 0},
+        "reconciled": {"type": "boolean"}
+      },
+      "required": ["total", "unchanged", "modified", "removed", "untracked", "non_canonical", "missing_baseline", "baseline_mismatch", "unreadable", "baseline_present", "baseline_missing", "baseline_unreadable", "baseline_valid", "baseline_invalid", "reconciled"]
+    },
+    "snapshot": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "expected": {"type": "integer", "minimum": 0}, "present": {"type": "integer", "minimum": 0},
+        "missing": {"type": "integer", "minimum": 0}, "readable": {"type": "integer", "minimum": 0},
+        "unreadable": {"type": "integer", "minimum": 0}, "valid": {"type": "integer", "minimum": 0},
+        "invalid": {"type": "integer", "minimum": 0}, "key_matched": {"type": "integer", "minimum": 0},
+        "key_mismatched": {"type": "integer", "minimum": 0}, "reconciled": {"type": "boolean"}
+      },
+      "required": ["expected", "present", "missing", "readable", "unreadable", "valid", "invalid", "key_matched", "key_mismatched", "reconciled"]
+    },
+    "pending": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "total": {"type": "integer", "minimum": 0}, "valid": {"type": "integer", "minimum": 0},
+        "invalid": {"type": "integer", "minimum": 0}, "unreadable": {"type": "integer", "minimum": 0},
+        "bound": {"type": "integer", "minimum": 0}, "unbound": {"type": "integer", "minimum": 0},
+        "field_edits": {"type": "integer", "minimum": 0}, "active_transactions": {"type": "integer", "minimum": 0},
+        "reconciled": {"type": "boolean"}
+      },
+      "required": ["total", "valid", "invalid", "unreadable", "bound", "unbound", "field_edits", "active_transactions", "reconciled"]
+    },
+    "render": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "expected": {"type": "integer", "minimum": 0}, "present": {"type": "integer", "minimum": 0},
+        "missing": {"type": "integer", "minimum": 0}, "current": {"type": "integer", "minimum": 0},
+        "legacy": {"type": "integer", "minimum": 0}, "missing_marker": {"type": "integer", "minimum": 0},
+        "unsupported": {"type": "integer", "minimum": 0}, "unreadable": {"type": "integer", "minimum": 0},
+        "state_recorded": {"type": "integer", "minimum": 0}, "state_missing": {"type": "integer", "minimum": 0},
+        "renderer_compatible": {"type": "boolean"}, "reconciled": {"type": "boolean"}
+      },
+      "required": ["expected", "present", "missing", "current", "legacy", "missing_marker", "unsupported", "unreadable", "state_recorded", "state_missing", "renderer_compatible", "reconciled"]
+    },
+    "remote": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "requested": {"type": "boolean"}, "eligible": {"type": "integer", "minimum": 0},
+        "attempted": {"type": "integer", "minimum": 0}, "not_attempted": {"type": "integer", "minimum": 0},
+        "checked": {"type": "integer", "minimum": 0}, "in_sync": {"type": "integer", "minimum": 0},
+        "drifted": {"type": "integer", "minimum": 0}, "unavailable": {"type": "integer", "minimum": 0},
+        "reconciled": {"type": "boolean"}
+      },
+      "required": ["requested", "eligible", "attempted", "not_attempted", "checked", "in_sync", "drifted", "unavailable", "reconciled"]
+    }
+  },
+  "required": ["schema_version", "service", "remote_requested", "complete", "reconciled", "local", "native", "snapshot", "pending", "render", "remote"]
+}

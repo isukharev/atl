@@ -1,0 +1,15 @@
+{
+  "pages": {
+    "HOLD-7": {
+      "id": "HOLD-7",
+      "version": 0,
+      "hash": "e7f1f591b9eb7f07e6789c9cf7a8e9c579f9437f2c0511acb17e93b276d7b2e4",
+      "path": "HOLD/HOLD-7.wiki"
+    }
+  },
+  "views": {
+    "HOLD-7": {
+      "sections": ["description", "metadata"]
+    }
+  }
+}

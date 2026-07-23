@@ -57,7 +57,8 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 		{"jira/edit", []string{"jira.issue.fields.edit", "jira.issue.field.preview", "jira.issue.field.set", "jira.issue.worklog.list", "jira.issue.worklog.add", "jira.issue.plan.apply"}},
 		{"confluence/evidence", []string{"confluence.page.resolve", "confluence.page.outline", "confluence.page.section", "confluence.page.view"}},
 		{"confluence/table-analytics", []string{"confluence.table.summary", "confluence.table.extract"}},
-		{"confluence/edit", []string{"confluence.pull", "confluence.mirror.snapshot", "confluence.diff", "confluence.plan.create", "confluence.plan.preview", "confluence.plan.apply"}},
+		{"confluence/mirror", []string{"confluence.mirror.snapshot"}},
+		{"confluence/edit", []string{"confluence.pull", "confluence.diff", "confluence.plan.create", "confluence.plan.preview", "confluence.plan.apply"}},
 		{"knowledge/search", []string{"knowledge.jira.search", "knowledge.confluence.search", "knowledge.jira.field", "knowledge.confluence.outline", "knowledge.confluence.section"}},
 	}
 	root := newRoot()

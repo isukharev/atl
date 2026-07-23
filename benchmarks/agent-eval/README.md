@@ -164,6 +164,10 @@ The realistic matrix currently contains:
 | surface native | `confluence-table-analytics-mcp` | one typed selected-table read with the same analytics and raw untrusted-data semantics |
 | surface native | `confluence-table-summary` | content-free shapes with explicit expanded-grid and rowspan/colspan source/covered semantics |
 | surface native | `confluence-table-summary-mcp` | one typed content-free inventory with selection and cell-count reconciliation |
+| surface native | `jira-mirror-snapshot-mcp` | one offline typed content-free Jira mirror health snapshot with incomplete raw/render evidence |
+| surface native | `jira-mirror-snapshot-mcp-holdout` | distinct offline Jira mirror with mixed tracked and untracked substrates |
+| surface native | `confluence-mirror-snapshot-mcp` | one offline typed content-free Confluence mirror health snapshot with baseline drift |
+| surface native | `confluence-mirror-snapshot-mcp-holdout` | distinct offline Confluence mirror with a missing derived view |
 | surface native | `confluence-mirror-review` | offline semantic diff and snapshot-delta review |
 | surface native | `jira-field-mutation` | reviewed preview/apply and ambiguous-outcome handling on a synthetic backend |
 | surface native | `jira-worklog-reconcile` | baseline-bound non-idempotent POST plus exact post-commit reconciliation without replay |
@@ -205,6 +209,14 @@ bounded schema-output call on providers that expose structured response
 formation as a tool. This does not relax the interface boundary;
 `max_interface_invocations` remains one. Table cells retain an exact one-GET
 oracle; Structure view cells retain the exact three-GET/one-query-POST oracle.
+Mirror snapshot MCP cells are stricter offline reads: they allow one no-argument
+typed interface call, zero ATL CLI invocations, zero HTTP methods, zero backend
+requests, and zero writes. Their closed response schemas expose only fixed
+health buckets and reconciliation flags, never paths, resource identities, or
+content. A locally incomplete snapshot is still a successful typed result with
+`complete:false`; fixture-derived tests keep every expected bucket tied to the
+synthetic mirror rather than a manually maintained answer. Each service has a
+primary `n=3` cell and a distinct `n=1` holdout workspace.
 
 Run each new provider/tool pair once with `run --repetitions 1` for calibration
 before spending the committed three-repetition regression budget. Interpret

@@ -1,8 +1,11 @@
 package agenteval
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -537,6 +540,411 @@ func TestRepositoryStructureMCPV1FixturesMatchOracles(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRepositoryMirrorSnapshotMCPV1ProviderParityIsOffline(t *testing.T) {
+	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
+	for _, test := range []struct {
+		directory   string
+		tool        string
+		repetitions int
+	}{
+		{directory: "jira-mirror-snapshot-mcp", tool: "jira_mirror_snapshot", repetitions: 3},
+		{directory: "jira-mirror-snapshot-mcp-holdout", tool: "jira_mirror_snapshot", repetitions: 1},
+		{directory: "confluence-mirror-snapshot-mcp", tool: "confluence_mirror_snapshot", repetitions: 3},
+		{directory: "confluence-mirror-snapshot-mcp-holdout", tool: "confluence_mirror_snapshot", repetitions: 1},
+	} {
+		t.Run(test.directory, func(t *testing.T) {
+			directory := filepath.Join(root, test.directory)
+			scenario := loadRepositoryScenario(t, filepath.Join(directory, "scenario.v1.json"))
+			if scenario.Budgets.MaxRemoteWrites != 0 || scenario.Budgets.MaxToolCalls != 2 ||
+				scenario.Budgets.MaxATLInvocations != 0 || scenario.Budgets.MaxInterfaceInvocations != 1 ||
+				scenario.Budgets.MaxDelegations != 0 || scenario.Budgets.MaxBackendRequests != 0 ||
+				scenario.Budgets.MaxDuplicateBackendRequests != 0 || len(scenario.Budgets.AllowedHTTPMethods) != 0 {
+				t.Fatalf("mirror snapshot scenario escaped offline read policy: %+v", scenario.Budgets)
+			}
+			fixture := loadRepositoryMockFixture(t, filepath.Join(directory, "fixture.json"))
+			if len(fixture.Routes) == 0 {
+				t.Fatal("fixture must retain an inert route so zero backend requests are observable")
+			}
+
+			claude := loadRepositoryRunSpec(t, filepath.Join(directory, "run.mcp.claude.json"))
+			codex := loadRepositoryRunSpec(t, filepath.Join(directory, "run.mcp.codex.json"))
+			for provider, spec := range map[string]RunSpec{"claude": claude, "codex": codex} {
+				if spec.ScenarioFile != "scenario.v1.json" || spec.PromptFile != "prompt.mcp.v1.md" ||
+					spec.ResponseSchemaFile != "response-schema.v1.json" || spec.QualitativeRubricFile != "rubric.v1.json" ||
+					spec.EffectiveToolTransport() != "mcp" || !slices.Equal(spec.AllowedMCPTools, []string{test.tool}) ||
+					len(spec.AllowedTools) != 0 || len(spec.AllowedATLCommands) != 0 || spec.Repetitions != test.repetitions {
+					t.Fatalf("%s spec escaped the mirror MCP contract: %+v", provider, spec)
+				}
+			}
+			if claude.Provider != "claude-code" || claude.Model != "claude-opus-4-8" ||
+				codex.Provider != "codex" || codex.Model != "gpt-5.6-luna" {
+				t.Fatalf("provider/model parity drifted: claude=%s/%s codex=%s/%s", claude.Provider, claude.Model, codex.Provider, codex.Model)
+			}
+			if claude.PromptFile != codex.PromptFile || claude.FixtureFile != codex.FixtureFile ||
+				claude.ResponseSchemaFile != codex.ResponseSchemaFile || claude.QualitativeRubricFile != codex.QualitativeRubricFile ||
+				claude.WorkspaceTemplate != codex.WorkspaceTemplate || claude.Category != codex.Category || claude.Surface != codex.Surface ||
+				claude.Variant != codex.Variant || claude.Reasoning != codex.Reasoning || claude.Repetitions != codex.Repetitions ||
+				claude.TimeoutSeconds != codex.TimeoutSeconds || claude.MaxEstimatedCostMicroUSD != codex.MaxEstimatedCostMicroUSD ||
+				!equalPrivateComparisonJSON(claude.Checks, codex.Checks) {
+				t.Fatalf("provider contract drifted: claude=%+v codex=%+v", claude, codex)
+			}
+		})
+	}
+}
+
+func TestRepositoryMirrorSnapshotMCPV1HoldoutsAreDistinct(t *testing.T) {
+	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
+	for _, primaryName := range []string{"jira-mirror-snapshot-mcp", "confluence-mirror-snapshot-mcp"} {
+		t.Run(primaryName, func(t *testing.T) {
+			primaryDirectory := filepath.Join(root, primaryName)
+			holdoutDirectory := filepath.Join(root, primaryName+"-holdout")
+			primaryScenario := loadRepositoryScenario(t, filepath.Join(primaryDirectory, "scenario.v1.json"))
+			holdoutScenario := loadRepositoryScenario(t, filepath.Join(holdoutDirectory, "scenario.v1.json"))
+			if primaryScenario.ID == holdoutScenario.ID || primaryScenario.TaskClass != holdoutScenario.TaskClass ||
+				primaryScenario.Category != holdoutScenario.Category || primaryScenario.DataClass != holdoutScenario.DataClass ||
+				!slices.Equal(primaryScenario.RequiredCapabilities, holdoutScenario.RequiredCapabilities) {
+				t.Fatalf("primary/holdout relationship drifted: primary=%+v holdout=%+v", primaryScenario, holdoutScenario)
+			}
+			for _, name := range []string{"fixture.json", "prompt.mcp.v1.md"} {
+				primary, err := os.ReadFile(filepath.Join(primaryDirectory, name))
+				if err != nil {
+					t.Fatal(err)
+				}
+				holdout, err := os.ReadFile(filepath.Join(holdoutDirectory, name))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(primary) == string(holdout) {
+					t.Fatalf("%s reused primary bytes", name)
+				}
+			}
+			if repositoryTreeDigest(t, filepath.Join(primaryDirectory, "workspace")) == repositoryTreeDigest(t, filepath.Join(holdoutDirectory, "workspace")) {
+				t.Fatal("holdout reused the primary workspace tree")
+			}
+			primary := loadRepositoryRunSpec(t, filepath.Join(primaryDirectory, "run.mcp.codex.json"))
+			holdout := loadRepositoryRunSpec(t, filepath.Join(holdoutDirectory, "run.mcp.codex.json"))
+			if primary.Repetitions != 3 || holdout.Repetitions != 1 || primary.Provider != holdout.Provider ||
+				primary.Model != holdout.Model || primary.Reasoning != holdout.Reasoning || primary.Variant != holdout.Variant ||
+				primary.Surface != holdout.Surface || primary.EffectiveToolTransport() != holdout.EffectiveToolTransport() {
+				t.Fatalf("primary/holdout sampling contract drifted: primary=%+v holdout=%+v", primary, holdout)
+			}
+		})
+	}
+}
+
+func TestRepositoryMirrorSnapshotMCPV1FixturesMatchContentFreeOracles(t *testing.T) {
+	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
+	for _, test := range []struct {
+		directory string
+		service   string
+		family    string
+		complete  bool
+	}{
+		{directory: "jira-mirror-snapshot-mcp", service: "jira", family: "jira.mirror.snapshot", complete: false},
+		{directory: "jira-mirror-snapshot-mcp-holdout", service: "jira", family: "jira.mirror.snapshot", complete: true},
+		{directory: "confluence-mirror-snapshot-mcp", service: "confluence", family: "confluence.mirror.snapshot", complete: false},
+		{directory: "confluence-mirror-snapshot-mcp-holdout", service: "confluence", family: "confluence.mirror.snapshot", complete: true},
+	} {
+		t.Run(test.directory, func(t *testing.T) {
+			directory := filepath.Join(root, test.directory)
+			workspace := filepath.Join(directory, "workspace")
+			final, complete, snapshotErr := repositoryMirrorSnapshotFinal(t, test.service, filepath.Join(workspace, "mirror"))
+			if complete != test.complete || (snapshotErr != nil) == test.complete {
+				t.Fatalf("snapshot completeness/error contract drifted: complete=%t err=%v", complete, snapshotErr)
+			}
+			for _, forbidden := range []string{workspace, ".wiki", ".csf", "SYN-1", "HOLD-7"} {
+				if strings.Contains(string(final), forbidden) {
+					t.Fatalf("content-free snapshot leaked %q: %s", forbidden, final)
+				}
+			}
+
+			scenario := loadRepositoryScenario(t, filepath.Join(directory, "scenario.v1.json"))
+			spec := loadRepositoryRunSpec(t, filepath.Join(directory, "run.mcp.codex.json"))
+			checks, err := evaluateRunChecks(spec.Checks, final, "", 1, 0, 0, 0, nil, 0, 0, map[string]int{}, true, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for name, passed := range checks {
+				if !passed {
+					t.Fatalf("fixture-derived mirror result failed run check %q: %s", name, final)
+				}
+			}
+			coverage := make(map[string]bool, len(scenario.RequiredMetrics)+1)
+			for _, metric := range scenario.RequiredMetrics {
+				coverage[metric] = true
+			}
+			coverage["remote_writes"] = true
+			result, err := Evaluate(scenario, Observation{
+				SchemaVersion: ObservationSchemaVersion, ScenarioID: scenario.ID,
+				Variant: spec.Variant, Surface: spec.Surface,
+				BackendObservation: BackendObservationHTTP, SafetyAssurance: SafetyAssuranceObservedHTTP,
+				Runtime: Runtime{Provider: "deterministic", ATLVersion: "test"},
+				Metrics: InputMetrics{
+					AgentTurns: 1, ToolCalls: 1, InterfaceInvocations: 1,
+					OutputBytes: int64(len(final)), InputTokens: 1, OutputTokens: 1,
+					MainThreadInputTokens: 1, MainThreadOutputTokens: 1,
+					EstimatedCostMicroUSD: 1, DurationMillis: 1,
+				},
+				Coverage: coverage, HTTPMethods: map[string]int{}, Checks: checks,
+				CapabilityFamilies: []CapabilityFamilyMetric{{
+					Family: test.family, Invocations: 1, Successes: 1, OutputBytes: int64(len(final)),
+				}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Status != "pass" || result.Metrics.BackendRequests != 0 || result.Metrics.RemoteWrites != 0 || len(result.Violations) != 0 {
+				t.Fatalf("fixture-derived offline scenario did not pass: %+v", result)
+			}
+		})
+	}
+}
+
+func TestRepositoryMirrorSnapshotMCPV1SchemasStayClosedAndContentFree(t *testing.T) {
+	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
+	for _, test := range []struct {
+		directory string
+		service   string
+	}{
+		{directory: "jira-mirror-snapshot-mcp", service: "jira"},
+		{directory: "jira-mirror-snapshot-mcp-holdout", service: "jira"},
+		{directory: "confluence-mirror-snapshot-mcp", service: "confluence"},
+		{directory: "confluence-mirror-snapshot-mcp-holdout", service: "confluence"},
+	} {
+		t.Run(test.directory, func(t *testing.T) {
+			directory := filepath.Join(root, test.directory)
+			final, _, _ := repositoryMirrorSnapshotFinal(t, test.service, filepath.Join(directory, "workspace", "mirror"))
+			var output map[string]any
+			if err := json.Unmarshal(final, &output); err != nil {
+				t.Fatal(err)
+			}
+			schemaBytes, err := os.ReadFile(filepath.Join(directory, "response-schema.v1.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var schema map[string]any
+			if err := json.Unmarshal(schemaBytes, &schema); err != nil {
+				t.Fatal(err)
+			}
+			if err := validateRepositoryContentFreeSchema(schema, output, "$"); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestRepositoryMirrorSnapshotMCPV1SchemaMutationsAreRejected(t *testing.T) {
+	directory := filepath.Join("..", "..", "benchmarks", "agent-eval", "jira-mirror-snapshot-mcp")
+	final, _, _ := repositoryMirrorSnapshotFinal(t, "jira", filepath.Join(directory, "workspace", "mirror"))
+	baseSchema, err := os.ReadFile(filepath.Join(directory, "response-schema.v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(map[string]any, map[string]any)
+	}{
+		{
+			name: "nested required omission",
+			mutate: func(schema, _ map[string]any) {
+				local := schema["properties"].(map[string]any)["local"].(map[string]any)
+				required := local["required"].([]any)
+				local["required"] = slices.DeleteFunc(required, func(value any) bool { return value == "present" })
+			},
+		},
+		{
+			name: "matched path property",
+			mutate: func(schema, output map[string]any) {
+				local := schema["properties"].(map[string]any)["local"].(map[string]any)
+				local["properties"].(map[string]any)["mirror_path"] = map[string]any{"type": "string"}
+				local["required"] = append(local["required"].([]any), "mirror_path")
+				output["local"].(map[string]any)["mirror_path"] = "/synthetic"
+			},
+		},
+		{
+			name: "nested type drift",
+			mutate: func(schema, _ map[string]any) {
+				local := schema["properties"].(map[string]any)["local"].(map[string]any)
+				local["properties"].(map[string]any)["present"].(map[string]any)["type"] = "string"
+			},
+		},
+		{
+			name: "fractional integer output",
+			mutate: func(_ map[string]any, output map[string]any) {
+				output["local"].(map[string]any)["present"] = 1.5
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var schema map[string]any
+			if err := json.Unmarshal(baseSchema, &schema); err != nil {
+				t.Fatal(err)
+			}
+			var output map[string]any
+			if err := json.Unmarshal(final, &output); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(schema, output)
+			if err := validateRepositoryContentFreeSchema(schema, output, "$"); err == nil {
+				t.Fatal("mutated response schema passed the closed content-free contract")
+			}
+		})
+	}
+}
+
+var repositoryMirrorSnapshotAllowedProperties = map[string]struct{}{
+	"schema_version": {}, "service": {}, "remote_requested": {}, "complete": {}, "reconciled": {},
+	"local": {}, "native": {}, "snapshot": {}, "pending": {}, "validation": {}, "render": {}, "remote": {},
+	"present": {}, "clean": {}, "locally_edited": {}, "tracked": {}, "untracked": {}, "non_canonical": {},
+	"total": {}, "unchanged": {}, "added": {}, "removed": {}, "modified": {}, "malformed": {},
+	"missing_baseline": {}, "baseline_mismatch": {}, "unreadable": {}, "baseline_present": {},
+	"baseline_missing": {}, "baseline_unreadable": {}, "baseline_valid": {}, "baseline_invalid": {},
+	"expected": {}, "missing": {}, "readable": {}, "valid": {}, "invalid": {}, "key_matched": {},
+	"key_mismatched": {}, "bound": {}, "unbound": {}, "field_edits": {}, "active_transactions": {},
+	"current": {}, "legacy": {}, "missing_marker": {}, "unsupported": {}, "state_recorded": {},
+	"state_missing": {}, "renderer_compatible": {}, "requested": {}, "eligible": {}, "attempted": {},
+	"not_attempted": {}, "checked": {}, "in_sync": {}, "drifted": {}, "unavailable": {}, "absent": {},
+}
+
+func validateRepositoryContentFreeSchema(schema map[string]any, output any, pointer string) error {
+	typeName, ok := schema["type"].(string)
+	if !ok {
+		return fmt.Errorf("%s schema has no type", pointer)
+	}
+	switch typeName {
+	case "object":
+		value, ok := output.(map[string]any)
+		if !ok {
+			return fmt.Errorf("%s app output is not an object", pointer)
+		}
+		properties, ok := schema["properties"].(map[string]any)
+		if !ok {
+			return fmt.Errorf("%s properties is not an object", pointer)
+		}
+		additional, ok := schema["additionalProperties"].(bool)
+		if !ok || additional {
+			return fmt.Errorf("%s object schema is not closed", pointer)
+		}
+		propertyNames := sortedRepositoryMapKeys(properties)
+		if outputNames := sortedRepositoryMapKeys(value); !slices.Equal(propertyNames, outputNames) {
+			return fmt.Errorf("%s schema fields=%v app fields=%v", pointer, propertyNames, outputNames)
+		}
+		requiredValues, ok := schema["required"].([]any)
+		if !ok || len(requiredValues) != len(propertyNames) {
+			return fmt.Errorf("%s required=%v properties=%v", pointer, schema["required"], propertyNames)
+		}
+		required := make([]string, len(requiredValues))
+		for index, item := range requiredValues {
+			name, ok := item.(string)
+			if !ok {
+				return fmt.Errorf("%s required field %d is not a string", pointer, index)
+			}
+			required[index] = name
+		}
+		slices.Sort(required)
+		if !slices.Equal(required, propertyNames) {
+			return fmt.Errorf("%s required=%v properties=%v", pointer, required, propertyNames)
+		}
+		for name, child := range properties {
+			if _, allowed := repositoryMirrorSnapshotAllowedProperties[name]; !allowed {
+				return fmt.Errorf("%s exposes unreviewed property %q", pointer, name)
+			}
+			childSchema, ok := child.(map[string]any)
+			if !ok {
+				return fmt.Errorf("%s/%s property schema is not an object", pointer, name)
+			}
+			if err := validateRepositoryContentFreeSchema(childSchema, value[name], pointer+"/"+name); err != nil {
+				return err
+			}
+		}
+	case "integer":
+		number, ok := output.(float64)
+		if !ok || math.IsNaN(number) || math.IsInf(number, 0) || math.Trunc(number) != number {
+			return fmt.Errorf("%s app output is not an integer", pointer)
+		}
+	case "string":
+		if _, ok := output.(string); !ok {
+			return fmt.Errorf("%s app output is not a string", pointer)
+		}
+	case "boolean":
+		if _, ok := output.(bool); !ok {
+			return fmt.Errorf("%s app output is not a boolean", pointer)
+		}
+	default:
+		return fmt.Errorf("%s uses unsupported schema type %q", pointer, typeName)
+	}
+	return nil
+}
+
+func sortedRepositoryMapKeys[V any](values map[string]V) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+func repositoryMirrorSnapshotFinal(t *testing.T, service, workspace string) ([]byte, bool, error) {
+	t.Helper()
+	var value any
+	var complete bool
+	var snapshotErr error
+	switch service {
+	case "jira":
+		snapshot, err := app.SnapshotJiraMirror(workspace)
+		if snapshot == nil {
+			t.Fatalf("Jira mirror snapshot is nil: %v", err)
+		}
+		value, complete, snapshotErr = snapshot, snapshot.Complete, err
+	case "confluence":
+		snapshot, err := app.SnapshotConfluenceMirror(workspace)
+		if snapshot == nil {
+			t.Fatalf("Confluence mirror snapshot is nil: %v", err)
+		}
+		value, complete, snapshotErr = snapshot, snapshot.Complete, err
+	default:
+		t.Fatalf("unsupported mirror service %q", service)
+	}
+	final, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return final, complete, snapshotErr
+}
+
+func repositoryTreeDigest(t *testing.T, root string) [sha256.Size]byte {
+	t.Helper()
+	hasher := sha256.New()
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		_, _ = hasher.Write([]byte(filepath.ToSlash(relative)))
+		_, _ = hasher.Write([]byte{0})
+		_, _ = hasher.Write(data)
+		_, _ = hasher.Write([]byte{0})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var digest [sha256.Size]byte
+	copy(digest[:], hasher.Sum(nil))
+	return digest
 }
 
 func repositoryStructureMCPFinal(t *testing.T, directory string, structureID, rootRow int64, expectedPath []string) []byte {
