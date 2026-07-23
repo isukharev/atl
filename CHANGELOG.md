@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Aligned the Jira history benchmark's required client-skill activation with
+  its prompt authority by permitting only the exact advertised skill file and
+  capability-routed reference while continuing to forbid broad discovery.
 - Rejected explicit false values for `jira issue history --summary-only`
   before backend access, so a trailing boolean override cannot restore raw
   history after a reviewed summary-only command prefix.
