@@ -1,0 +1,89 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "page_id": {"type": "string"},
+    "table_count": {"type": "integer"},
+    "selected_table": {"type": ["integer", "null"]},
+    "returned_table_count": {"type": "integer"},
+    "selection_reconciled": {"type": "boolean"},
+    "count_semantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "table_count_scope": {"type": "string", "enum": ["page-wide"]},
+        "row_count_scope": {"type": "string", "enum": ["expanded-rows-including-headers"]},
+        "cell_count_scope": {"type": "string", "enum": ["expanded-rectangular-grid"]},
+        "repeated_cell_scope": {"type": "string", "enum": ["span-covered-coordinates"]},
+        "span_source_scope": {"type": "string", "enum": ["non-repeated-source-cells"]},
+        "combined_span_coverage": {"type": "string", "enum": ["counted-on-each-covered-axis"]}
+      },
+      "required": [
+        "table_count_scope",
+        "row_count_scope",
+        "cell_count_scope",
+        "repeated_cell_scope",
+        "span_source_scope",
+        "combined_span_coverage"
+      ]
+    },
+    "tables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "index": {"type": "integer"},
+          "row_count": {"type": "integer"},
+          "column_count": {"type": "integer"},
+          "rectangular": {"type": "boolean"},
+          "header_row_count": {"type": "integer"},
+          "header_cell_count": {"type": "integer"},
+          "expanded_cell_count": {"type": "integer"},
+          "origin_cell_count": {"type": "integer"},
+          "repeated_cell_count": {"type": "integer"},
+          "synthetic_empty_cell_count": {"type": "integer"},
+          "cell_count_reconciled": {"type": "boolean"},
+          "styled_cell_count": {"type": "integer"},
+          "linked_cell_count": {"type": "integer"},
+          "rowspan_source_cell_count": {"type": "integer"},
+          "rowspan_covered_cell_count": {"type": "integer"},
+          "colspan_source_cell_count": {"type": "integer"},
+          "colspan_covered_cell_count": {"type": "integer"},
+          "warning_count": {"type": "integer"}
+        },
+        "required": [
+          "index",
+          "row_count",
+          "column_count",
+          "rectangular",
+          "header_row_count",
+          "header_cell_count",
+          "expanded_cell_count",
+          "origin_cell_count",
+          "repeated_cell_count",
+          "synthetic_empty_cell_count",
+          "cell_count_reconciled",
+          "styled_cell_count",
+          "linked_cell_count",
+          "rowspan_source_cell_count",
+          "rowspan_covered_cell_count",
+          "colspan_source_cell_count",
+          "colspan_covered_cell_count",
+          "warning_count"
+        ]
+      }
+    },
+    "content_exposed": {"type": "boolean"}
+  },
+  "required": [
+    "page_id",
+    "table_count",
+    "selected_table",
+    "returned_table_count",
+    "selection_reconciled",
+    "count_semantics",
+    "tables",
+    "content_exposed"
+  ]
+}

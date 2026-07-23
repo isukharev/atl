@@ -159,7 +159,9 @@ The realistic matrix currently contains:
 | surface native | `jira-structure-subtree-export` | GET-only hierarchy rows plus explicit row/identity/repeat counts and ordered batch export |
 | surface native | `jira-structure-deep-values` | deep selected hierarchy plus explicit row/accessibility counts and a query-only POST value matrix |
 | surface native | `confluence-table-analytics` | bounded selected-table analysis with explicit filter/count/sum semantics, merged cells, links, and safe CSV |
+| surface native | `confluence-table-analytics-mcp` | one typed selected-table read with the same analytics and raw untrusted-data semantics |
 | surface native | `confluence-table-summary` | content-free shapes with explicit expanded-grid and rowspan/colspan source/covered semantics |
+| surface native | `confluence-table-summary-mcp` | one typed content-free inventory with selection and cell-count reconciliation |
 | surface native | `confluence-mirror-review` | offline semantic diff and snapshot-delta review |
 | surface native | `jira-field-mutation` | reviewed preview/apply and ambiguous-outcome handling on a synthetic backend |
 | surface native | `jira-worklog-reconcile` | baseline-bound non-idempotent POST plus exact post-commit reconciliation without replay |
@@ -172,16 +174,26 @@ Surface-native mutation and mirror cases are scored only for their supported
 CLI workflow and are not used to claim a general surface winner.
 
 The Structure and Confluence table cells retain their original v1 contracts as
-historical inputs and run current candidates against v2 contracts. V2 reports
-row occurrences separately from unique identities, defines repeated
+historical inputs. Structure and CLI table candidates run against v2 contracts;
+the table MCP candidates use v3 contracts that permit exactly one typed tool
+call, one GET, and zero writes. V2 reports row occurrences separately from
+unique identities, defines repeated
 occurrences as occurrences after the first, and distinguishes selected,
 queried, exported, and omitted populations. Table v2 keeps exact content-free
 shape inventory separate from bounded selected-table analysis and states that
-shape cell counts use the expanded rectangular grid. Query-only Structure
-Value API POST requests remain mechanically zero-write. Both Codex and Claude
-Code have equivalent current fixtures, core prompts, response schemas, budgets,
-and semantic checks for these cells; provider-native command and skill-event
-evidence remains transport-specific.
+shape cell counts use the expanded rectangular grid. Table MCP v3 additionally
+requires selection and cell-count reconciliation for content-free summary, and
+keeps raw formula-like extract values classified as untrusted data rather than
+applying CSV-specific neutralization semantics. Query-only Structure Value API
+POST requests remain mechanically zero-write. Both Codex and Claude Code have
+equivalent current fixtures, core prompts, response schemas, budgets, and
+semantic checks for these cells; provider-native pricing is the only expected
+difference in the paired MCP contracts.
+
+Run each new provider/tool pair once with `run --repetitions 1` for calibration
+before spending the committed three-repetition regression budget. Interpret
+n=3 only with a distinct same-class holdout; reserve n>=10 for an explicitly
+reviewed product decision, not routine provider ranking.
 
 Build `atl`, choose one exact provider/model spec, and write transcripts only to
 a private ignored path or outside the worktree:
