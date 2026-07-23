@@ -21,6 +21,12 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 	if family, ok := CapabilityFamilyForMCP("jira_issue_field_get"); !ok || family != "jira.issue.field" {
 		t.Fatalf("MCP field family=%q ok=%t", family, ok)
 	}
+	if family, ok := CapabilityFamilyForMCP("jira_structure_get"); !ok || family != "jira.structure.get" {
+		t.Fatalf("MCP Structure metadata family=%q ok=%t", family, ok)
+	}
+	if family, ok := CapabilityFamilyForMCP("jira_structure_view"); !ok || family != "jira.structure.view" {
+		t.Fatalf("MCP Structure view family=%q ok=%t", family, ok)
+	}
 	if family, ok := CapabilityFamilyForCLI([]string{"jira", "issue", "refs", private}); !ok || family != "jira.issue.refs" {
 		t.Fatalf("CLI refs family=%q ok=%t", family, ok)
 	}

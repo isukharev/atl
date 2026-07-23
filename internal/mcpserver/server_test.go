@@ -37,6 +37,7 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		"confluence_page_outline", "confluence_page_resolve", "confluence_page_section", "confluence_search",
 		"confluence_table_extract", "confluence_table_summary",
 		"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_search",
+		"jira_structure_get", "jira_structure_view",
 	}
 	got := make([]string, 0, len(listed.Tools))
 	for _, tool := range listed.Tools {
@@ -84,8 +85,27 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		if tool.Name == "confluence_table_summary" && !schemaRequired(input, "reference") {
 			t.Errorf("tool %s must require reference: %#v", tool.Name, tool.InputSchema)
 		}
+		if (tool.Name == "jira_structure_get" || tool.Name == "jira_structure_view") && !schemaRequired(input, "structure_id") {
+			t.Errorf("tool %s must require structure_id: %#v", tool.Name, tool.InputSchema)
+		}
 		if tool.OutputSchema == nil {
 			t.Errorf("tool %s has no output schema", tool.Name)
+		}
+		if tool.Name == "jira_structure_get" {
+			output, _ := tool.OutputSchema.(map[string]any)
+			for _, required := range []string{"schema_version", "id", "name", "read_only"} {
+				if !schemaRequired(output, required) {
+					t.Errorf("tool %s output must require %s: %#v", tool.Name, required, tool.OutputSchema)
+				}
+			}
+		}
+		if tool.Name == "jira_structure_view" {
+			output, _ := tool.OutputSchema.(map[string]any)
+			for _, required := range []string{"schema_version", "structure", "projection", "rows", "row_count", "issue_count", "complete", "inaccessible_rows", "warnings"} {
+				if !schemaRequired(output, required) {
+					t.Errorf("tool %s output must require %s: %#v", tool.Name, required, tool.OutputSchema)
+				}
+			}
 		}
 		if path, ok := booleanPropertySchema(tool.OutputSchema, "outputSchema"); ok {
 			t.Errorf("tool %s exposes client-incompatible boolean property schema at %s", tool.Name, path)
@@ -331,6 +351,19 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	callToolOK(t, client, "jira_board_view", map[string]any{
 		"board_id": 7, "scope": "backlog", "columns": []string{"key"}, "view": "compact", "jql": "labels=x",
 	})
+	metadata := callToolOK(t, client, "jira_structure_get", map[string]any{"structure_id": 9})
+	metadataContent, ok := metadata.StructuredContent.(map[string]any)
+	if !ok || metadataContent["schema_version"] != float64(1) || metadataContent["id"] != float64(9) ||
+		metadataContent["name"] != "Synthetic Structure" || metadataContent["read_only"] != false || metadataContent["owner"] != nil {
+		t.Fatalf("Structure metadata=%#v", metadata.StructuredContent)
+	}
+	view := callToolOK(t, client, "jira_structure_view", map[string]any{
+		"structure_id": 9, "fields": []string{"key", "summary"}, "folder_id": "folder-a", "max_rows": 10, "max_bytes": 4096,
+	})
+	viewContent, ok := view.StructuredContent.(map[string]any)
+	if !ok || viewContent["row_count"] != float64(2) || viewContent["complete"] != true {
+		t.Fatalf("Structure view=%#v", view.StructuredContent)
+	}
 	callToolOK(t, client, "confluence_search", map[string]any{"cql": "space=DOCS", "cursor": "25"})
 	callToolOK(t, client, "confluence_page_resolve", map[string]any{"reference": "/x/Abc"})
 	callToolOK(t, client, "confluence_page_outline", map[string]any{"reference": "42"})
@@ -363,6 +396,11 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	if j.boardID != 7 || j.boardOpts.Scope != "backlog" || j.boardOpts.Limit != 200 || j.boardOpts.JQL != "labels=x" {
 		t.Fatalf("board id=%d opts=%+v", j.boardID, j.boardOpts)
 	}
+	if j.structureID != 9 || j.structureViewID != 9 || j.structureOpts.MaxRows != 10 ||
+		j.structureOpts.MaxScanRows != jiraStructureViewMaxMaxRows || j.structureOpts.BatchSize != 100 ||
+		j.structureOpts.FolderID != "folder-a" || strings.Join(j.structureOpts.Attributes, ",") != "key,summary" {
+		t.Fatalf("Structure calls=%+v", j)
+	}
 	if c.resolveReference != "/x/Abc" || c.outlineReference != "42" || c.sectionReference != "42" || c.sectionOpts.Heading != "Results" || c.sectionOpts.Occurrence != 2 || c.sectionOpts.MaxBytes != 32<<10 {
 		t.Fatalf("confluence=%+v", c)
 	}
@@ -371,6 +409,40 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	}
 	if c.tableSummaryReference != "42" || c.tableSummaryIndex != 2 || c.tableExtractReference != "42" || c.tableExtractIndex != 2 {
 		t.Fatalf("confluence table calls=%+v", c)
+	}
+}
+
+func TestJiraStructureViewSupportsFullAndExactFolderSelections(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args map[string]any
+		kind string
+	}{
+		{name: "full", args: map[string]any{}, kind: ""},
+		{name: "folder id", args: map[string]any{"folder_id": "folder-a"}, kind: "folder-id"},
+		{name: "folder row", args: map[string]any{"folder_row": 10}, kind: "folder-row"},
+		{name: "folder path", args: map[string]any{"folder_path": "Plans/Quarter"}, kind: "folder-path"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &recordingJiraReader{}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Jira: func() (JiraReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+			args := map[string]any{"structure_id": 9, "fields": []string{"key"}}
+			for key, value := range test.args {
+				args[key] = value
+			}
+			result := callToolOK(t, client, "jira_structure_view", args)
+			content, ok := result.StructuredContent.(map[string]any)
+			if !ok {
+				t.Fatalf("content=%#v", result.StructuredContent)
+			}
+			selection, selected := content["selection"].(map[string]any)
+			if test.kind == "" && selected || test.kind != "" && (!selected || selection["kind"] != test.kind) {
+				t.Fatalf("selection=%#v want kind %q", content["selection"], test.kind)
+			}
+		})
 	}
 }
 
@@ -428,6 +500,14 @@ func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 		{name: "jira_issue_search", args: map[string]any{"jql": "project=PROJ", "limit": 1001}},
 		{name: "jira_issue_field_get", args: map[string]any{"key": "PROJ-1", "field": "Delivery Notes", "max_bytes": 128}},
 		{name: "jira_board_view", args: map[string]any{"board_id": 1, "limit": 1001}},
+		{name: "jira_structure_get", args: map[string]any{"structure_id": 0}},
+		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "max_rows": 1001}},
+		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "max_bytes": 1023}},
+		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "folder_id": "a", "folder_row": 2}},
+		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "fields": []string{"key", "key"}}},
+		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "fields": []string{strings.Repeat("x", jiraStructureFieldIDMaxBytes+1)}}},
+		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "folder_path": strings.Repeat("x", jiraStructureFolderPathMaxBytes+1)}},
+		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "folder_path": "Plans//Quarter"}},
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{"comments"}, "comment_limit": 51}},
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{}}},
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{"confluence"}}},
@@ -486,6 +566,83 @@ func TestConfluenceTableOutputBoundFailsWithoutLeakingContent(t *testing.T) {
 	var got toolError
 	if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "check_failed" {
 		t.Fatalf("error=%+v decode=%v", got, err)
+	}
+}
+
+func TestJiraStructureOutputBoundFailsWithoutLeakingContent(t *testing.T) {
+	reader := &recordingJiraReader{structureText: "PRIVATE-MARKER-" + strings.Repeat("x", 4<<10)}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Jira: func() (JiraReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: "jira_structure_view", Arguments: map[string]any{
+		"structure_id": 9, "fields": []string{"summary"}, "max_bytes": 1024,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || len(result.Content) != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok || strings.Contains(text.Text, "PRIVATE-MARKER") {
+		t.Fatalf("error content=%#v", result.Content)
+	}
+	var got toolError
+	if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "check_failed" {
+		t.Fatalf("error=%+v decode=%v", got, err)
+	}
+}
+
+func TestJiraStructureMetadataBoundFailsWithoutLeakingContent(t *testing.T) {
+	reader := &recordingJiraReader{structureName: "PRIVATE-MARKER-" + strings.Repeat("x", jiraStructureMetadataMaxBytes)}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Jira: func() (JiraReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: "jira_structure_get", Arguments: map[string]any{"structure_id": 9}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || len(result.Content) != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok || strings.Contains(text.Text, "PRIVATE-MARKER") {
+		t.Fatalf("error content=%#v", result.Content)
+	}
+}
+
+func TestJiraStructureViewRejectsUnreconciledApplicationResults(t *testing.T) {
+	for _, mode := range []string{"row-count", "selection", "wrong-root", "second-root", "wrong-path", "projection", "completeness"} {
+		t.Run(mode, func(t *testing.T) {
+			reader := &invalidStructureReader{recordingJiraReader: &recordingJiraReader{}, mode: mode}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Jira: func() (JiraReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+			args := map[string]any{"structure_id": 9, "folder_id": "folder-a"}
+			if mode == "wrong-path" {
+				delete(args, "folder_id")
+				args["folder_path"] = "Plans/Quarter"
+			}
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: "jira_structure_view", Arguments: args})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+				t.Fatalf("result=%+v", result)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "check_failed" {
+				t.Fatalf("error=%+v decode=%v", got, err)
+			}
+		})
 	}
 }
 
@@ -676,6 +833,15 @@ type recordingJiraReader struct {
 	digestOpts                          app.JiraEpicDigestOpts
 	boardID                             int
 	boardOpts                           app.BoardSnapshotOpts
+	structureID, structureViewID        int64
+	structureOpts                       app.StructureSnapshotOpts
+	structureText                       string
+	structureName                       string
+}
+
+type invalidStructureReader struct {
+	*recordingJiraReader
+	mode string
 }
 
 func (r *recordingJiraReader) IssueFieldEvidence(_ context.Context, key string, opts app.JiraIssueFieldEvidenceOpts) (*app.JiraIssueFieldEvidenceResult, error) {
@@ -708,6 +874,75 @@ func (r *recordingJiraReader) BoardSnapshot(_ context.Context, id int, opts app.
 		Board:      &domain.BoardConfiguration{Columns: []domain.BoardColumn{}},
 		Projection: app.BoardProjection{Columns: []string{}, Fields: []string{}}, Rows: []app.BoardSnapshotRow{},
 	}, nil
+}
+
+func (r *recordingJiraReader) Structure(_ context.Context, id int64) (*domain.Structure, error) {
+	r.structureID = id
+	name := r.structureName
+	if name == "" {
+		name = "Synthetic Structure"
+	}
+	return &domain.Structure{ID: id, Name: name, Owner: map[string]any{"private": "must-not-project"}}, nil
+}
+
+func (r *recordingJiraReader) StructureSnapshot(_ context.Context, id int64, opts app.StructureSnapshotOpts) (*app.StructureSnapshot, error) {
+	r.structureViewID, r.structureOpts = id, opts
+	issueValues := make(map[string]any, len(opts.Attributes))
+	for _, field := range opts.Attributes {
+		issueValues[field] = nil
+	}
+	if r.structureText != "" {
+		issueValues[opts.Attributes[0]] = r.structureText
+	}
+	var selection *app.StructureSelection
+	switch {
+	case opts.FolderID != "":
+		selection = &app.StructureSelection{Kind: "folder-id", FolderID: opts.FolderID, RowID: 10, Path: []string{"Synthetic"}}
+	case opts.FolderRow != 0:
+		selection = &app.StructureSelection{Kind: "folder-row", FolderID: "folder-a", RowID: opts.FolderRow, Path: []string{"Synthetic"}}
+	case opts.FolderPath != "":
+		selection = &app.StructureSelection{Kind: "folder-path", FolderID: "folder-a", RowID: 10, Path: strings.Split(opts.FolderPath, "/")}
+	}
+	rows := []app.StructureSnapshotRow{{RowID: 10, ItemType: "issue", ItemID: "10001", Accessible: true, Values: issueValues}}
+	if selection != nil {
+		folderValues := make(map[string]any, len(opts.Attributes))
+		for _, field := range opts.Attributes {
+			folderValues[field] = nil
+		}
+		zero, one := 0, 1
+		rows = []app.StructureSnapshotRow{
+			{RowID: selection.RowID, ItemType: "folder", ItemID: selection.FolderID, Accessible: true, RelativeDepth: &zero, Values: folderValues},
+			{RowID: selection.RowID + 1, Depth: 1, ParentRowID: selection.RowID, ItemType: "issue", ItemID: "10001", Accessible: true, RelativeDepth: &one, Values: issueValues},
+		}
+	}
+	return &app.StructureSnapshot{
+		SchemaVersion: 1, Structure: app.StructureSnapshotMetadata{ID: id, Name: "Synthetic Structure"},
+		Projection: app.StructureProjection{Kind: "jira-fields-v1", Source: "explicit", Attributes: append([]string(nil), opts.Attributes...)},
+		Rows:       rows,
+		RowCount:   len(rows), IssueCount: 1, Complete: true, InaccessibleRows: []int64{}, Selection: selection, Warnings: []string{},
+	}, nil
+}
+
+func (r *invalidStructureReader) StructureSnapshot(ctx context.Context, id int64, opts app.StructureSnapshotOpts) (*app.StructureSnapshot, error) {
+	result, err := r.recordingJiraReader.StructureSnapshot(ctx, id, opts)
+	switch r.mode {
+	case "row-count":
+		result.RowCount++
+	case "selection":
+		result.Selection = nil
+	case "wrong-root":
+		result.Rows[0].ItemID = "another-folder"
+	case "second-root":
+		zero := 0
+		result.Rows[1].RelativeDepth = &zero
+	case "wrong-path":
+		result.Selection.Path = []string{"Another", "Path"}
+	case "projection":
+		delete(result.Rows[0].Values, opts.Attributes[0])
+	case "completeness":
+		result.Complete = false
+	}
+	return result, err
 }
 
 type recordingConfluenceReader struct {
@@ -814,6 +1049,14 @@ func (*cancellingJiraReader) EpicDigest(context.Context, string, app.JiraEpicDig
 }
 
 func (*cancellingJiraReader) BoardSnapshot(context.Context, int, app.BoardSnapshotOpts) (*app.BoardSnapshot, error) {
+	panic("unexpected call")
+}
+
+func (*cancellingJiraReader) Structure(context.Context, int64) (*domain.Structure, error) {
+	panic("unexpected call")
+}
+
+func (*cancellingJiraReader) StructureSnapshot(context.Context, int64, app.StructureSnapshotOpts) (*app.StructureSnapshot, error) {
 	panic("unexpected call")
 }
 

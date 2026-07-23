@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -8,6 +9,41 @@ import (
 
 	"github.com/isukharev/atl/internal/domain"
 )
+
+type boundedStructureReader struct{}
+
+func (boundedStructureReader) GetStructure(context.Context, int64) (*domain.Structure, error) {
+	return &domain.Structure{ID: 1, Name: "Synthetic"}, nil
+}
+
+func (boundedStructureReader) StructureForest(context.Context, int64) (*domain.StructureForest, error) {
+	return &domain.StructureForest{Formula: "10:0:10001,11:0:10002", Version: domain.StructureVersion{Version: 1}}, nil
+}
+
+func (boundedStructureReader) StructureValues(context.Context, int64, []int64, []string) (*domain.StructureValues, error) {
+	return &domain.StructureValues{InaccessibleRows: []int64{}}, nil
+}
+
+type scanBoundStructureReader struct {
+	valuesCalls *int
+}
+
+func (scanBoundStructureReader) GetStructure(context.Context, int64) (*domain.Structure, error) {
+	return &domain.Structure{ID: 1, Name: "Synthetic"}, nil
+}
+
+func (scanBoundStructureReader) StructureForest(context.Context, int64) (*domain.StructureForest, error) {
+	return &domain.StructureForest{
+		Formula:   "10:0:1/root,11:1:10001,12:0:1/other",
+		ItemTypes: map[string]string{"1": "folder"},
+		Version:   domain.StructureVersion{Version: 1},
+	}, nil
+}
+
+func (r scanBoundStructureReader) StructureValues(context.Context, int64, []int64, []string) (*domain.StructureValues, error) {
+	(*r.valuesCalls)++
+	return &domain.StructureValues{InaccessibleRows: []int64{}}, nil
+}
 
 func TestNormalizeStructureValueRowsMapsAttributeMatrix(t *testing.T) {
 	values := &domain.StructureValues{Responses: []map[string]any{{
@@ -118,6 +154,44 @@ func TestStructureExportRawCSVRequiresCSVFormat(t *testing.T) {
 	_, err := svc.StructureExport(t.Context(), 1, StructureExportOpts{Format: "json", Out: "out.json", RawCSV: true})
 	if !errors.Is(err, domain.ErrUsage) {
 		t.Fatalf("error = %v, want usage", err)
+	}
+}
+
+func TestStructureSnapshotRejectsInvalidMaxRowsBeforeBackendAccess(t *testing.T) {
+	svc := &JiraService{}
+	_, err := svc.StructureSnapshot(t.Context(), 1, StructureSnapshotOpts{MaxRows: -1})
+	if !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("error = %v, want usage", err)
+	}
+}
+
+func TestStructureSnapshotRejectsInvalidMaxScanRowsBeforeBackendAccess(t *testing.T) {
+	svc := &JiraService{}
+	_, err := svc.StructureSnapshot(t.Context(), 1, StructureSnapshotOpts{MaxScanRows: -1})
+	if !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("error = %v, want usage", err)
+	}
+}
+
+func TestStructureSnapshotEnforcesMaxRowsBeforeIssueExpansion(t *testing.T) {
+	svc := &JiraService{structure: boundedStructureReader{}}
+	_, err := svc.StructureSnapshot(t.Context(), 1, StructureSnapshotOpts{Attributes: []string{"key"}, MaxRows: 1})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "exceeds max rows") {
+		t.Fatalf("error = %v, want bounded check failure", err)
+	}
+}
+
+func TestStructureSnapshotEnforcesScanBoundBeforeFolderValueQuery(t *testing.T) {
+	valuesCalls := 0
+	svc := &JiraService{structure: scanBoundStructureReader{valuesCalls: &valuesCalls}}
+	_, err := svc.StructureSnapshot(t.Context(), 1, StructureSnapshotOpts{
+		Attributes: []string{"key"}, MaxRows: 2, MaxScanRows: 2, StructureFolderSelector: StructureFolderSelector{FolderID: "root"},
+	})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "exceeds max scan rows") {
+		t.Fatalf("error = %v, want bounded scan failure", err)
+	}
+	if valuesCalls != 0 {
+		t.Fatalf("StructureValues calls = %d, want none before scan bound", valuesCalls)
 	}
 }
 

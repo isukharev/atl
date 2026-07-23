@@ -32,9 +32,13 @@ the block-level export. Remove the exported policy only for the exact reviewed
 write command after explicit approval.
 
 If the plugin exposes typed MCP, prefer `jira_fields`, `jira_issue_search`,
-`jira_epic_digest`, and `jira_board_view` for bounded transient reads. They
-cannot write. Use CLI for mirrors, Structure, exports/attachments, operations
-absent from MCP, and every mutation.
+`jira_epic_digest`, `jira_board_view`, `jira_structure_get`, and
+`jira_structure_view` for bounded transient reads. They cannot write. For a
+Structure view, use explicit fields and at most one exact folder selector;
+honor emitted-row/byte bounds, the 1000-row forest scan cap, and completeness.
+Use CLI for mirrors, raw Structure
+forest/values, exports/attachments, operations absent from MCP, and every
+mutation.
 
 ## Choose exactly one route
 

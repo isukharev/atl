@@ -52,7 +52,7 @@ Confluence durable-view marker checks accept either LF or CRLF line endings.
   and [SECURITY.md](SECURITY.md).
 - **Scripting-friendly** — JSON to stdout, logs/errors to stderr, no interactive prompts,
   well-defined exit codes.
-- **Typed read-only MCP** — `atl mcp serve` gives agents eleven bounded Jira/Confluence
+- **Typed read-only MCP** — `atl mcp serve` gives agents thirteen bounded Jira/Confluence
   evidence tools with no write, shell, raw REST, or arbitrary-file surface.
 - **Single static binary** — `CGO_ENABLED=0`, runs anywhere Go 1.26 runs.
 
@@ -161,7 +161,7 @@ install/configure the `atl` CLI. Optionally invoke `$onboarding` afterward to bu
 private workflow profile from explicitly approved examples. After setup, Codex can invoke the same
 shared skills when relevant. The plugin also starts the binary's typed read-only MCP surface;
 begin a new session after installing/configuring `atl`. See [docs/mcp.md](docs/mcp.md)
-for its eleven tools, bounds, and standalone setup.
+for its thirteen tools, bounds, and standalone setup.
 
 Shipped skill metadata declares mutually exclusive intended discovery
 boundaries. Focused workflows, cross-service discovery, direct
@@ -205,8 +205,10 @@ projection is read-only even though Tempo transports its query payload by POST.
 
 For transient Jira/Confluence evidence, the installed plugins can call the same
 application services through typed MCP tools instead of constructing shell
-commands. Use the CLI for durable mirrors, Structure, exports, diff/plan, and
-all guarded writes; the MCP v1 surface is remote-read-only by construction.
+commands. Use the typed Structure metadata/view tools for bounded transient
+hierarchy evidence; keep raw Structure forest/values, durable mirrors, exports,
+diff/plan, and all guarded writes on the CLI. The MCP v1 surface is
+remote-read-only by construction.
 
 On top of those references, the plugin ships workflow recipes — end-to-end processes with
 built-in approval gates before anything is created:

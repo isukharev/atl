@@ -6,8 +6,8 @@ commands, create mirror files, or register any mutating tool.
 
 Use MCP for transient agent reads where a typed result is cheaper and safer
 than teaching a model to construct shell commands. Keep the CLI for durable
-mirrors, Structure, exports, offline diff/plan workflows, and all guarded
-writes.
+mirrors, raw Structure forest/values, exports, offline diff/plan workflows, and
+all guarded writes.
 
 ## Tools
 
@@ -20,6 +20,8 @@ The v1 surface is an explicit allowlist:
 | `jira_issue_field_get` | Expand one exact compact field with issue/update provenance | default 16 KiB, maximum 128 KiB encoded value |
 | `jira_epic_digest` | Aggregate selected qualified epic evidence | `projection:compact` bounds synthesis context |
 | `jira_board_view` | Freeze one board/backlog membership snapshot | default 200, maximum 1000 rows per scope |
+| `jira_structure_get` | Read compact metadata for one exact Structure id | 32 KiB result cap; omits owner, permissions, saved views, and raw forest data |
+| `jira_structure_view` | Read a normalized full Structure or exact stored-folder subtree | default 200/maximum 1000 emitted rows; maximum 1000 scanned forest rows; default 256 KiB/maximum 1 MiB encoded result |
 | `confluence_search` | Search one qualified bounded CQL candidate page | default 25, maximum 100 rows |
 | `confluence_page_resolve` | Resolve an id or same-origin URL/path | exact resolution only |
 | `confluence_page_outline` | Inspect headings before reading content | one page |
@@ -39,6 +41,19 @@ digest with `projection:"full"`.
 definitions. Treat an empty match as evidence of absence only when
 `complete:true`; a successful tool call or non-empty match is not itself a
 completeness signal.
+
+Use `jira_structure_get` only when compact identity/read-only metadata is
+enough. Use `jira_structure_view` for normalized hierarchy evidence with an
+explicit ordered `fields` projection. Omit all folder selectors for a bounded
+full view, or pass exactly one of `folder_id`, `folder_row`, or `folder_path`
+for an exact stored-folder subtree. The tool fails rather than truncating when
+the selection exceeds `max_rows` or `max_bytes`. It also rejects forests above
+1000 rows before querying folder values, even when the requested subtree would
+be smaller; use the CLI for larger forests. Narrow the subtree before raising
+an emitted-row or byte bound. `complete:false`, `inaccessible_rows`, and `warnings` are
+evidence, not permission to probe raw forest/value endpoints. Raw formulas,
+arbitrary value matrices, issue pull, file export, and mutations remain
+unavailable through MCP.
 
 `confluence_search` requires explicit CQL and returns the same qualified
 schema-v1 page as `conf search`: `query`, bounded candidate metadata, `count`,
@@ -127,6 +142,8 @@ enabled_tools = [
   "jira_issue_field_get",
   "jira_epic_digest",
   "jira_board_view",
+  "jira_structure_get",
+  "jira_structure_view",
   "confluence_search",
   "confluence_page_resolve",
   "confluence_page_outline",
@@ -178,6 +195,14 @@ one expected duplicate page target, zero writes, and a 10,000-bps qualitative
 review. It is evidence for the bounded `confluence_search` addition, not a
 claim that every search workflow should use MCP.
 
+A bounded Structure route starts with metadata only when identity must be
+confirmed, then requests one normalized selection:
+
+```text
+jira_structure_get
+  -> jira_structure_view (explicit fields and at most one exact folder selector)
+```
+
 ## Protocol and operations
 
 `atl mcp serve` is a long-running stdio process. Stdout is reserved for MCP
@@ -195,7 +220,6 @@ unrestricted property as the object schema `{}` instead of boolean `true`.
 The forms are JSON-Schema-equivalent, but the object form keeps the complete
 tool catalog usable in clients that reject boolean property schemas.
 
-The first surface intentionally excludes write tools, raw REST, arbitrary
-files, full-page bodies by default, pull/status, and Structure. Those remain CLI
-workflows until a measured agent scenario justifies a typed contract with the
-same safety and context bounds.
+The surface intentionally excludes write tools, raw REST, arbitrary files,
+full-page bodies by default, pull/status, raw Structure forest/values, and
+Structure pull/export. Those remain CLI workflows.
