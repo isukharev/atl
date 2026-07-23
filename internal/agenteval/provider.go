@@ -1005,8 +1005,12 @@ func countClaudeMCPResults(
 		// responses carry an object; current Claude releases may wrap a
 		// classified server error as "Error: {<atl envelope>}". Unknown shapes
 		// fail closed so a provider change cannot silently undercount.
+		var providerStatus bool
+		var providerStatusKnown bool
+		var providerShapeComplete bool
 		switch result := event["tool_use_result"].(type) {
 		case map[string]any:
+			providerStatus, providerStatusKnown, providerShapeComplete = claudeMCPProviderErrorStatus(result)
 		case string:
 			if strings.HasPrefix(result, "Error: No such tool available:") {
 				complete = false
@@ -1019,7 +1023,20 @@ func countClaudeMCPResults(
 			return 0, 0, 0, nil, false, fmt.Errorf("claude MCP result is missing its provider envelope")
 		}
 		calls++
-		isError, statusKnown := block["is_error"].(bool)
+		rawStatus, blockStatusPresent := block["is_error"]
+		isError, statusKnown := rawStatus.(bool)
+		if blockStatusPresent && !statusKnown {
+			isError = true
+		} else if statusKnown && providerStatusKnown && isError != providerStatus {
+			statusKnown = false
+			isError = true
+		} else if !blockStatusPresent && providerStatusKnown {
+			isError = providerStatus
+			statusKnown = true
+		}
+		if providerStatusKnown && !providerShapeComplete {
+			complete = false
+		}
 		if !statusKnown {
 			complete = false
 			failed++
@@ -1047,6 +1064,38 @@ func countClaudeMCPResults(
 		}
 	}
 	return calls, failed, outputBytes, capabilityFamilySlice(families), complete, nil
+}
+
+func claudeMCPProviderErrorStatus(envelope map[string]any) (bool, bool, bool) {
+	if value, exists := envelope["isError"]; exists {
+		status, ok := value.(bool)
+		if !ok {
+			return false, false, false
+		}
+		for key, item := range envelope {
+			switch key {
+			case "isError":
+			case "content":
+				if _, known := item.(string); !known {
+					return status, true, false
+				}
+			case "structuredContent":
+				if structured, known := item.(map[string]any); !known || structured == nil {
+					return status, true, false
+				}
+			default:
+				return status, true, false
+			}
+		}
+		return status, true, true
+	}
+	if len(envelope) != 2 {
+		return false, false, false
+	}
+	content, contentKnown := envelope["content"].(string)
+	structured, structuredKnown := envelope["structuredContent"].(map[string]any)
+	known := contentKnown && content != "" && structuredKnown && structured != nil
+	return false, known, known
 }
 
 func isClaudeMCPServerError(value string) bool {

@@ -1052,6 +1052,60 @@ func TestClaudeNonMCPResultsDoNotInvalidateCapabilityTelemetry(t *testing.T) {
 	}
 }
 
+func TestClaudeStructuredMCPResultWithoutLegacyStatusIsSuccessful(t *testing.T) {
+	transcript := strings.Join([]string{
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields","input":{}}]}}`,
+		`{"type":"user","tool_use_result":{"content":"{}","structuredContent":{"schema_version":1}},"message":{"content":[{"type":"tool_result","tool_use_id":"mcp-1","content":"{}"}]}}`,
+		`{"type":"result","num_turns":1,"duration_ms":1,"total_cost_usd":0,"usage":{"input_tokens":1,"output_tokens":1},"structured_output":{"answer":"ok"}}`,
+	}, "\n")
+	metrics, _, err := ParseProviderOutput("claude-code", []byte(transcript), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.MCPToolCalls != 1 || metrics.FailedMCPToolCalls != 0 ||
+		!metrics.CapabilityFamilyCoverage || !metrics.MCPInvocationCoverage {
+		t.Fatalf("metrics=%+v", metrics)
+	}
+}
+
+func TestClaudeAmbiguousOrContradictoryMCPStatusFailsClosed(t *testing.T) {
+	tests := []struct {
+		name, providerEnvelope, resultBlock string
+		wantFailed                          int
+		wantCoverage                        bool
+	}{
+		{name: "text only", providerEnvelope: `{"content":"{}"}`,
+			resultBlock: `{"type":"tool_result","tool_use_id":"mcp-1","content":"{}"}`, wantFailed: 1},
+		{name: "extra key", providerEnvelope: `{"content":"{}","structuredContent":{},"future":true}`,
+			resultBlock: `{"type":"tool_result","tool_use_id":"mcp-1","content":"{}"}`, wantFailed: 1},
+		{name: "explicit error", providerEnvelope: `{"isError":true}`,
+			resultBlock: `{"type":"tool_result","tool_use_id":"mcp-1","content":"failed"}`, wantFailed: 1, wantCoverage: true},
+		{name: "contradictory", providerEnvelope: `{"isError":true}`,
+			resultBlock: `{"type":"tool_result","tool_use_id":"mcp-1","is_error":false,"content":"failed"}`, wantFailed: 1},
+		{name: "malformed legacy status", providerEnvelope: `{"content":"{}","structuredContent":{}}`,
+			resultBlock: `{"type":"tool_result","tool_use_id":"mcp-1","is_error":"false","content":"{}"}`, wantFailed: 1},
+		{name: "explicit success with extra key", providerEnvelope: `{"isError":false,"future":true}`,
+			resultBlock: `{"type":"tool_result","tool_use_id":"mcp-1","content":"{}"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			transcript := strings.Join([]string{
+				`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields","input":{}}]}}`,
+				`{"type":"user","tool_use_result":` + test.providerEnvelope + `,"message":{"content":[` + test.resultBlock + `]}}`,
+				`{"type":"result","num_turns":1,"duration_ms":1,"total_cost_usd":0,"usage":{"input_tokens":1,"output_tokens":1},"structured_output":{"answer":"blocked"}}`,
+			}, "\n")
+			metrics, _, err := ParseProviderOutput("claude-code", []byte(transcript), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if metrics.MCPToolCalls != 1 || metrics.FailedMCPToolCalls != test.wantFailed ||
+				metrics.CapabilityFamilyCoverage != test.wantCoverage {
+				t.Fatalf("metrics=%+v", metrics)
+			}
+		})
+	}
+}
+
 func TestClaudeClientSideMissingToolIsNotCountedAsATLInvocation(t *testing.T) {
 	transcript := strings.Join([]string{
 		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"mcp-1","name":"mcp__atl__jira_fields"}]}}`,
