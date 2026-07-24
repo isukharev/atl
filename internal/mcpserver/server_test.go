@@ -919,7 +919,7 @@ func TestSyntheticPartialAuthorizationThroughMCPStopsAtForbiddenSection(t *testi
 				t.Fatalf("error content=%q: %v", text.Text, err)
 			}
 			if got.Kind != "forbidden" || got.Remediation != "request_access" ||
-				got.Message != "backend returned HTTP 403" {
+				got.Message != "Confluence page section access is forbidden" {
 				t.Fatalf("classified error=%+v", got)
 			}
 			methods, unexpected, duplicates := backend.Summary()
@@ -1004,7 +1004,7 @@ func TestSyntheticStaleCandidateThroughMCPStopsAtNotFoundSection(t *testing.T) {
 				t.Fatalf("error content=%q: %v", text.Text, err)
 			}
 			if got.Kind != "not_found" || got.Remediation != "verify_identifier_or_access" ||
-				got.Message != "backend returned HTTP 404" {
+				got.Message != "Confluence page, section, or heading was not found" {
 				t.Fatalf("classified error=%+v", got)
 			}
 			methods, unexpected, duplicates := backend.Summary()
@@ -2131,6 +2131,139 @@ func TestConfluenceTableSelectionErrorIsDistinctAndContentFree(t *testing.T) {
 	}
 }
 
+func TestConfluenceSectionSelectionErrorsAreDistinctAndContentFree(t *testing.T) {
+	const marker = "SYNTHETIC-SECTION-SELECTION-SECRET"
+	heading := "Heading " + marker
+	// Both fixtures reproduce exactly what the application layer returns: the
+	// typed selection error wrapped in the heading-bearing human message.
+	ambiguous := fmt.Errorf("%w: Confluence heading %q occurs %d times; pass --occurrence 1..%d",
+		&app.ConfluenceSectionSelectionError{Available: 3}, heading, 3, 3)
+	stale := fmt.Errorf("%w: Confluence heading %q has %d occurrence(s), not %d",
+		&app.ConfluenceSectionSelectionError{Requested: 5, Available: 2}, heading, 2, 5)
+	for _, test := range []struct {
+		name, kind, message  string
+		args                 map[string]any
+		err                  error
+		requested, available int
+	}{
+		{
+			name: "ambiguous", kind: "check_failed", err: ambiguous, requested: 0, available: 3,
+			args:    map[string]any{"reference": "42", "heading": heading},
+			message: "Confluence heading selection is ambiguous; available occurrence count is 3, so select an occurrence from 1 to 3",
+		},
+		{
+			name: "out of range", kind: "not_found", err: stale, requested: 5, available: 2,
+			args:    map[string]any{"reference": "42", "heading": heading, "occurrence": 5},
+			message: "selected Confluence heading occurrence 5 is out of range; available occurrence count is 2",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var typed *app.ConfluenceSectionSelectionError
+			if !errors.As(test.err, &typed) || typed.Requested != test.requested || typed.Available != test.available {
+				t.Fatalf("test fixture must carry a typed selection error: %v", test.err)
+			}
+			reader := &recordingConfluenceReader{sectionErr: test.err}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Confluence: func() (ConfluenceReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name: "confluence_page_section", Arguments: test.args,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+				t.Fatalf("result=%+v", result)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+				got.Kind != test.kind || got.Remediation != "outline_then_select_section" || got.Message != test.message {
+				t.Fatalf("error=%+v decode=%v", got, err)
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, forbidden := range []string{marker, "Heading ", "--occurrence", "occurrence(s)"} {
+				if bytes.Contains(encoded, []byte(forbidden)) {
+					t.Fatalf("selection error leaked %q: %s", forbidden, encoded)
+				}
+			}
+		})
+	}
+}
+
+func TestConfluenceSectionOtherErrorsStayStaticAndUnremediated(t *testing.T) {
+	const marker = "SYNTHETIC-SECTION-PROSE-SECRET"
+	for _, test := range []struct {
+		name, kind, remediation, message string
+		err                              error
+	}{
+		{
+			name: "missing heading", kind: "not_found", remediation: "verify_identifier_or_access",
+			message: "Confluence page, section, or heading was not found",
+			err:     fmt.Errorf("%w: Confluence heading %q was not found", domain.ErrNotFound, "Heading "+marker),
+		},
+		{
+			name: "structural check failure", kind: "check_failed", remediation: "review_failed_check",
+			message: "Confluence page section result failed validation",
+			err: fmt.Errorf("%w: page %s CSF cannot be inspected structurally: %v",
+				domain.ErrCheckFailed, "PAGE-"+marker, errors.New("backend detail "+marker)),
+		},
+		{
+			name: "configuration failure", kind: "configuration_error", remediation: "complete_configuration",
+			message: "Confluence page section service is not configured",
+			err:     fmt.Errorf("%w: backend %s is not configured", domain.ErrConfig, "https://backend.invalid/"+marker),
+		},
+		{
+			name: "unexpected failure", kind: "unexpected_error", remediation: "inspect_error",
+			message: "Confluence page section read failed",
+			err:     errors.New("unexpected backend detail " + marker),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &recordingConfluenceReader{sectionErr: test.err}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Confluence: func() (ConfluenceReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name:      "confluence_page_section",
+				Arguments: map[string]any{"reference": "42", "heading": "Heading " + marker},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+				t.Fatalf("result=%+v", result)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+				got.Kind != test.kind || got.Remediation != test.remediation || got.Message != test.message {
+				t.Fatalf("error=%+v decode=%v", got, err)
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, forbidden := range []string{marker, "PAGE-", "https://", "backend.invalid"} {
+				if bytes.Contains(encoded, []byte(forbidden)) {
+					t.Fatalf("page-section error leaked %q: %s", forbidden, encoded)
+				}
+			}
+		})
+	}
+}
+
 func TestConfluenceTableGenericNotFoundStaysUnchanged(t *testing.T) {
 	notFound := fmt.Errorf("%w: page SYNTHETIC-MISSING-PAGE-SECRET", domain.ErrNotFound)
 	for _, tool := range []string{"confluence_table_summary", "confluence_table_extract"} {
@@ -2484,6 +2617,7 @@ type recordingConfluenceReader struct {
 	tableSummaryIndex, tableExtractIndex                 int
 	tableText                                            string
 	tableErr                                             error
+	sectionErr                                           error
 }
 
 type invalidConfluenceTableReader struct {
@@ -2514,6 +2648,9 @@ func (r *recordingConfluenceReader) PageOutline(_ context.Context, reference str
 
 func (r *recordingConfluenceReader) PageSection(_ context.Context, reference string, opts app.ConfluencePageSectionOpts) (*app.ConfluencePageSectionResult, error) {
 	r.sectionReference, r.sectionOpts = reference, opts
+	if r.sectionErr != nil {
+		return nil, r.sectionErr
+	}
 	return &app.ConfluencePageSectionResult{Path: []string{}}, nil
 }
 

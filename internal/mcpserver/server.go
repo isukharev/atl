@@ -490,14 +490,14 @@ func registerConfluenceTools(server *mcp.Server, deps Dependencies) {
 		func(ctx context.Context, _ *mcp.CallToolRequest, in ConfluenceSectionInput) (*mcp.CallToolResult, *app.ConfluencePageSectionResult, error) {
 			maxBytes, err := boundedDefault(in.MaxBytes, 32<<10, 1<<20, "max_bytes")
 			if err != nil {
-				return nil, nil, classified(err)
+				return nil, nil, classifiedSectionRead(err)
 			}
 			confluence, err := confluenceReader(deps)
 			if err != nil {
-				return nil, nil, classified(err)
+				return nil, nil, classifiedSectionRead(err)
 			}
 			out, err := confluence.PageSection(ctx, in.Reference, app.ConfluencePageSectionOpts{Heading: in.Heading, Occurrence: in.Occurrence, MaxBytes: maxBytes})
-			return nil, out, classified(err)
+			return nil, out, classifiedSectionRead(err)
 		})
 
 	addReadOnlyTool(server, readOnlyTool("confluence_table_summary", "Inspect Confluence table structure", "Return a bounded content-free structural inventory before selecting table content."),
@@ -1126,6 +1126,47 @@ func classifiedTableRead(err error) error {
 		message = "Confluence table result failed validation"
 	case "output_limit_exceeded":
 		message = "Confluence table result exceeds the selected output bound"
+	case "api_error", "transport_error":
+		message = safeToolMessage(err)
+	}
+	return toolError{Kind: kind, Remediation: remediation, Message: message}
+}
+
+func classifiedSectionRead(err error) error {
+	if err == nil {
+		return nil
+	}
+	kind, remediation := diagnostic.Classify(err)
+	// Ambiguous and out-of-range heading selections are recoverable by the
+	// caller, so they get a distinct remediation and count-only message. Only
+	// the typed application error qualifies — never a string match — and it
+	// carries no heading, page reference, or backend text.
+	var selection *app.ConfluenceSectionSelectionError
+	typed := errors.As(err, &selection)
+	message := "Confluence page section read failed"
+	switch kind {
+	case "usage_error":
+		message = "invalid Confluence page section request"
+	case "configuration_error":
+		message = "Confluence page section service is not configured"
+	case "authentication_failed":
+		message = "Confluence page section authentication failed"
+	case "forbidden":
+		message = "Confluence page section access is forbidden"
+	case "not_found":
+		message = "Confluence page, section, or heading was not found"
+		if typed && selection.Requested > 0 {
+			remediation = "outline_then_select_section"
+			message = fmt.Sprintf("selected Confluence heading occurrence %d is out of range; available occurrence count is %d", selection.Requested, selection.Available)
+		}
+	case "check_failed":
+		message = "Confluence page section result failed validation"
+		if typed && selection.Requested == 0 {
+			remediation = "outline_then_select_section"
+			message = fmt.Sprintf("Confluence heading selection is ambiguous; available occurrence count is %d, so select an occurrence from 1 to %d", selection.Available, selection.Available)
+		}
+	case "output_limit_exceeded":
+		message = "Confluence page section result exceeds the selected output bound"
 	case "api_error", "transport_error":
 		message = safeToolMessage(err)
 	}

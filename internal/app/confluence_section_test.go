@@ -107,6 +107,66 @@ func TestConfluencePageSectionTruncatesAtBlockBoundary(t *testing.T) {
 	}
 }
 
+func TestConfluenceSectionSelectionErrorCarriesCountsOnly(t *testing.T) {
+	ambiguous := &ConfluenceSectionSelectionError{Available: 3}
+	if ambiguous.Error() != domain.ErrCheckFailed.Error() || ambiguous.Unwrap() != domain.ErrCheckFailed {
+		t.Fatalf("ambiguous error=%q unwrap=%v", ambiguous.Error(), ambiguous.Unwrap())
+	}
+	stale := &ConfluenceSectionSelectionError{Requested: 4, Available: 2}
+	if stale.Error() != domain.ErrNotFound.Error() || stale.Unwrap() != domain.ErrNotFound {
+		t.Fatalf("stale error=%q unwrap=%v", stale.Error(), stale.Unwrap())
+	}
+}
+
+func TestConfluencePageSectionSelectionErrorsAreTypedAndPreserveMessages(t *testing.T) {
+	for _, test := range []struct {
+		name                 string
+		opts                 ConfluencePageSectionOpts
+		requested, available int
+		sentinel, other      error
+		message              string
+	}{
+		{
+			name: "ambiguous", opts: ConfluencePageSectionOpts{Heading: "Delivery Notes"},
+			requested: 0, available: 2, sentinel: domain.ErrCheckFailed, other: domain.ErrNotFound,
+			message: `check failed: Confluence heading "Delivery Notes" occurs 2 times; pass --occurrence 1..2`,
+		},
+		{
+			name: "out of range", opts: ConfluencePageSectionOpts{Heading: "Delivery Notes", Occurrence: 5},
+			requested: 5, available: 2, sentinel: domain.ErrNotFound, other: domain.ErrCheckFailed,
+			message: `not found: Confluence heading "Delivery Notes" has 2 occurrence(s), not 5`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := sectionService().PageSection(context.Background(), "42", test.opts)
+			var selection *ConfluenceSectionSelectionError
+			if !errors.As(err, &selection) {
+				t.Fatalf("error = %#v, want *ConfluenceSectionSelectionError", err)
+			}
+			if selection.Requested != test.requested || selection.Available != test.available {
+				t.Fatalf("selection=%+v", selection)
+			}
+			if !errors.Is(err, test.sentinel) || errors.Is(err, test.other) {
+				t.Fatalf("sentinel mapping lost: %v", err)
+			}
+			if err.Error() != test.message {
+				t.Fatalf("message=%q want %q", err.Error(), test.message)
+			}
+		})
+	}
+}
+
+func TestConfluencePageSectionMissingHeadingStaysUntyped(t *testing.T) {
+	_, err := sectionService().PageSection(context.Background(), "42", ConfluencePageSectionOpts{Heading: "Missing"})
+	var selection *ConfluenceSectionSelectionError
+	if errors.As(err, &selection) {
+		t.Fatalf("zero-match error must not be a selection error: %#v", selection)
+	}
+	if !errors.Is(err, domain.ErrNotFound) || err.Error() != `not found: Confluence heading "Missing" was not found` {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestConfluencePageSectionValidatesSelection(t *testing.T) {
 	service := sectionService()
 	for _, opts := range []ConfluencePageSectionOpts{{}, {Heading: "Missing"}, {Heading: "Overview", Occurrence: -1}, {Heading: "Overview", MaxBytes: confluenceSectionMaxBytes + 1}} {

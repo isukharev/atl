@@ -117,6 +117,14 @@ page/table absence retains `verify_identifier_or_access` and the generic safe
 message. This distinction changes neither CLI exit code 4 nor successful table
 schemas.
 
+An ambiguous Confluence section selection remains `kind:"check_failed"` and an
+out-of-range positive occurrence remains `kind:"not_found"`. Both use
+`remediation:"outline_then_select_section"` and a diagnostic containing only
+requested/available integer counts. Genuine page/heading absence and other
+section failures retain their ordinary classification and a generic safe
+message. The typed distinction changes neither the existing CLI error text and
+exit codes nor successful outline/section schemas.
+
 `jira_fields`, `jira_issue_search`, `jira_epic_digest`, and `jira_board_view`
 reject a final encoded result larger than `max_bytes` (default 256 KiB,
 minimum 1 KiB, maximum 1 MiB). Row/source limits and compact projections remain
