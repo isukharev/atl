@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "confluence-synthetic-rate-limit-mcp-answer",
+  "scenario_id": "confluence.synthetic-rate-limit-mcp",
+  "minimum_score_bps": 8000,
+  "criteria": [
+    {"id":"rate_limit_boundary","description":"The exhausted read rate limit is reported without another agent-level invocation, query broadening, or claims from unavailable content.","maximum":4,"minimum":4,"weight":45},
+    {"id":"qualification","description":"The rate-limited source remains incomplete evidence and the decision remains undetermined.","maximum":4,"minimum":4,"weight":30},
+    {"id":"grounding","description":"The requested topic and exact query are retained.","maximum":4,"minimum":3,"weight":15},
+    {"id":"concision","description":"The answer is concise and excludes fixture-body prose.","maximum":4,"minimum":3,"weight":10}
+  ],
+  "allowed_finding_ids": ["incomplete_answer", "missing_qualification", "unsupported_claim", "verbose"]
+}

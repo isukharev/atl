@@ -1,0 +1,37 @@
+{
+  "schema_version":6,"category":"surface-native","surface":"atl-mcp",
+  "scenario_file":"scenario.v1.json","provider":"claude-code","variant":"confluence-rate-limit-mcp-v1",
+  "model":"claude-opus-4-8","reasoning":"high","prompt_file":"prompt.mcp.v1.md",
+  "response_schema_file":"response-schema.v1.json","qualitative_rubric_file":"rubric.v1.json",
+  "workspace_template":"workspace","fixture_file":"fixture.json","repetitions":3,
+  "timeout_seconds":450,"max_estimated_cost_microusd":6000000,
+  "pricing":{"input_microusd_per_million_tokens":5000000,"output_microusd_per_million_tokens":25000000},
+  "tool_transport":"mcp","allowed_tools":[],"allowed_atl_commands":[],
+  "allowed_mcp_tools":["confluence_search"],
+  "checks":[
+    {"name":"access_qualified","kind":"json_array_min_items","pointer":"/access_limitations","minimum":1},
+    {"name":"bounded_interface","kind":"interface_invocations_max","maximum":1},
+    {"name":"brief_present","kind":"json_present","pointer":"/brief"},
+    {"name":"decision_undetermined","kind":"json_equals","pointer":"/decision","expected":"undetermined"},
+    {"name":"evidence_incomplete","kind":"json_equals","pointer":"/evidence_complete","expected":false},
+    {"name":"expected_failure","kind":"interface_failures_equals","expected":1},
+    {"name":"facts_present","kind":"json_array_min_items","pointer":"/observed_facts","minimum":1},
+    {"name":"guard_clean","kind":"guard_no_denials"},
+    {"name":"http_exact","kind":"http_methods_equal","expected":{"GET":4}},
+    {"name":"mock_clean","kind":"mock_no_unexpected"},
+    {"name":"no_agent_retry","kind":"json_equals","pointer":"/no_agent_retry","expected":true},
+    {"name":"no_delegation","kind":"delegations_none"},
+    {"name":"query_exact","kind":"json_equals","pointer":"/query","expected":"siteSearch ~ \"Amber quota decision\""},
+    {"name":"route_arguments","kind":"mcp_invocations_equal","expected":[
+      {"tool":"confluence_search","arguments":{"cql":"siteSearch ~ \"Amber quota decision\"","limit":10,"max_bytes":131072}}
+    ]},
+    {"name":"route_exact","kind":"capability_families_equal","expected":[
+      {"family":"confluence.search","invocations":1,"successes":0,"failures":1}
+    ]},
+    {"name":"route_ordered","kind":"capability_sequence_equal","expected":["confluence.search"]},
+    {"name":"source_claims_empty","kind":"json_equals","pointer":"/source_claims","expected":[]},
+    {"name":"source_status_exact","kind":"json_equals","pointer":"/source_status","expected":{"confluence_search":"rate_limited"}},
+    {"name":"topic_correct","kind":"json_equals","pointer":"/topic","expected":"Amber quota decision"},
+    {"name":"used_interface","kind":"interface_invocations_min","minimum":1}
+  ]
+}

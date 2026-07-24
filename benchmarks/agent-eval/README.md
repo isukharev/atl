@@ -235,6 +235,8 @@ The realistic matrix currently contains:
 | surface native | `cross-service-partial-authorization-mcp-holdout` | distinct forbidden-section topology through the same no-retry incomplete-evidence contract |
 | surface native | `confluence-stale-not-found-mcp` | complete bounded search followed by one exact missing section and qualified stop |
 | surface native | `confluence-stale-not-found-mcp-holdout` | distinct stale-candidate topology through the same no-retry not-found contract |
+| surface native | `confluence-rate-limit-mcp` | one agent-level search whose four bounded transport attempts exhaust HTTP 429 without amplification or claims |
+| surface native | `confluence-rate-limit-mcp-holdout` | distinct query through the same one-invocation exhausted-rate-limit contract |
 | surface native | `jira-structure-subtree-export` | GET-only hierarchy rows plus explicit row/identity/repeat counts and ordered batch export |
 | surface native | `jira-structure-deep-values` | deep selected hierarchy plus explicit row/accessibility counts and a query-only POST value matrix |
 | surface native | `jira-structure-view-mcp` | one bounded typed exact-subtree read with reconciled hierarchy, repeats, accessibility, and completeness |
@@ -923,6 +925,18 @@ accessible search identity while marking evidence incomplete, the decision
 undetermined, and missing-section claims empty. Its distinct n=1 holdout
 changes topic, page, heading, and fixture marker without changing the
 byte-identical closed response schema or failure topology.
+
+`confluence-rate-limit-mcp` separates transport retries from agent request
+amplification. One exact `confluence_search` MCP invocation owns four bounded
+replay-safe GET attempts (the initial request plus the configured three
+retries), all returning HTTP 429. The backend duplicate metric is therefore
+exactly three by design, while the invocation and capability oracles remain
+exactly one. A second tool call, changed query, failure-as-success, available
+source claim, or determined decision fails the contract. The answer must retain
+the exact query, report `rate_limited`, keep evidence incomplete and the
+decision undetermined, and expose no unavailable body content. Its distinct
+n=1 holdout changes the topic, query, and fixture marker while retaining the
+byte-identical response schema and one-invocation/four-attempt topology.
 
 `confluence-decision-brief` is the longer synthesis cell. Three pages contribute
 an objective, two open risks, and an approved decision that supersedes a draft
