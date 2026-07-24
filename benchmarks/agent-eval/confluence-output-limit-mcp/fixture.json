@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/search",
+      "query_equals": {"cql": "siteSearch ~ \"Silver retention decision\""},
+      "status": 200,
+      "body": {
+        "results": [
+          {
+            "content": {"id":"9701","type":"page","title":"Silver retention decision alpha","space":{"key":"OPS"},"version":{"number":7,"when":"2026-07-20T08:00:00.000Z"}},
+            "excerpt": "PRIMARY_OUTPUT_LIMIT_PAYLOAD candidate alpha contains synthetic rejected source material repeated to make the otherwise valid encoded result exceed the selected byte boundary. It must never be exposed or interpreted as partial evidence."
+          },
+          {
+            "content": {"id":"9702","type":"page","title":"Silver retention decision beta","space":{"key":"OPS"},"version":{"number":6,"when":"2026-07-20T08:10:00.000Z"}},
+            "excerpt": "PRIMARY_OUTPUT_LIMIT_PAYLOAD candidate beta contains synthetic rejected source material repeated to make the otherwise valid encoded result exceed the selected byte boundary. It must never be exposed or interpreted as partial evidence."
+          },
+          {
+            "content": {"id":"9703","type":"page","title":"Silver retention decision gamma","space":{"key":"OPS"},"version":{"number":5,"when":"2026-07-20T08:20:00.000Z"}},
+            "excerpt": "PRIMARY_OUTPUT_LIMIT_PAYLOAD candidate gamma contains synthetic rejected source material repeated to make the otherwise valid encoded result exceed the selected byte boundary. It must never be exposed or interpreted as partial evidence."
+          },
+          {
+            "content": {"id":"9704","type":"page","title":"Silver retention decision delta","space":{"key":"OPS"},"version":{"number":4,"when":"2026-07-20T08:30:00.000Z"}},
+            "excerpt": "PRIMARY_OUTPUT_LIMIT_PAYLOAD candidate delta contains synthetic rejected source material repeated to make the otherwise valid encoded result exceed the selected byte boundary. It must never be exposed or interpreted as partial evidence."
+          },
+          {
+            "content": {"id":"9705","type":"page","title":"Silver retention decision epsilon","space":{"key":"OPS"},"version":{"number":3,"when":"2026-07-20T08:40:00.000Z"}},
+            "excerpt": "PRIMARY_OUTPUT_LIMIT_PAYLOAD candidate epsilon contains synthetic rejected source material repeated to make the otherwise valid encoded result exceed the selected byte boundary. It must never be exposed or interpreted as partial evidence."
+          }
+        ],
+        "size": 5,
+        "totalCount": 5,
+        "_links": {}
+      }
+    }
+  ]
+}

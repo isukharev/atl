@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "topic": {"type": "string", "minLength": 1},
+    "query": {"type": "string", "minLength": 1},
+    "selected_max_bytes": {"type": "integer", "const": 1024},
+    "source_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "confluence_search": {"type": "string", "enum": ["output_limit_exceeded"]}
+      },
+      "required": ["confluence_search"]
+    },
+    "evidence_complete": {"type": "boolean"},
+    "decision": {"type": "string", "enum": ["undetermined"]},
+    "observed_facts": {
+      "type": "array", "minItems": 1, "maxItems": 1,
+      "items": {"type": "string", "enum": ["selected_bound_rejected_complete_result"]}
+    },
+    "source_claims": {
+      "type": "array", "maxItems": 0,
+      "items": {"type": "string"}
+    },
+    "access_limitations": {
+      "type": "array", "minItems": 1, "maxItems": 1,
+      "items": {"type": "string", "enum": ["no_result_returned"]}
+    },
+    "no_agent_retry": {"type": "boolean"},
+    "bound_raised": {"type": "boolean"},
+    "partial_result_used": {"type": "boolean"},
+    "brief": {"type": "string", "enum": ["output_bound_prevented_grounded_decision"]}
+  },
+  "required": [
+    "topic", "query", "selected_max_bytes", "source_status",
+    "evidence_complete", "decision", "observed_facts", "source_claims",
+    "access_limitations", "no_agent_retry", "bound_raised",
+    "partial_result_used", "brief"
+  ]
+}

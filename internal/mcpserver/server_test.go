@@ -1300,6 +1300,74 @@ func TestConfluenceSearchRateLimitIsClassifiedAfterBoundedReadRetries(t *testing
 	}
 }
 
+func TestConfluenceOutputLimitUsesBenchmarkFixturesWithoutLeakingContent(t *testing.T) {
+	tests := []struct {
+		name, directory, query, bodyMarker string
+	}{
+		{"primary", "confluence-output-limit-mcp", `siteSearch ~ "Silver retention decision"`, "PRIMARY_OUTPUT_LIMIT_PAYLOAD"},
+		{"holdout", "confluence-output-limit-mcp-holdout", `siteSearch ~ "Coral failover approval"`, "HOLDOUT_OUTPUT_LIMIT_PAYLOAD"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixtureFile, err := os.Open(filepath.Join("..", "..", "benchmarks", "agent-eval", test.directory, "fixture.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+			closeErr := fixtureFile.Close()
+			if decodeErr != nil || closeErr != nil {
+				t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
+			}
+			backend, err := agenteval.StartMockBackend(fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer backend.Close()
+			for name, value := range backend.Environment() {
+				t.Setenv(name, value)
+			}
+			t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+			t.Setenv("ATL_READ_ONLY", "1")
+			t.Setenv("ATL_NO_UPDATE", "1")
+
+			client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
+			defer closeSessions()
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name: "confluence_search",
+				Arguments: map[string]any{
+					"cql": test.query, "limit": 10, "max_bytes": 1024,
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil || bytes.Contains(encoded, []byte(test.bodyMarker)) {
+				t.Fatalf("output-limit result leaked or succeeded: %s", encoded)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil {
+				t.Fatalf("error content=%q: %v", text.Text, err)
+			}
+			if got.Kind != "output_limit_exceeded" || got.Remediation != "narrow_or_raise_bound" ||
+				!strings.Contains(got.Message, "exceeds max_bytes") {
+				t.Fatalf("classified error=%+v", got)
+			}
+			methods, unexpected, duplicates := backend.Summary()
+			if methods[http.MethodGet] != 1 || len(methods) != 1 || unexpected != 0 || duplicates != 0 {
+				t.Fatalf("requests=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+			}
+		})
+	}
+}
+
 func TestToolErrorsDoNotExposeBackendPathOrBody(t *testing.T) {
 	err := classified(&httpx.APIError{
 		Status: 400, Method: "GET",

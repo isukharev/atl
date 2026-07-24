@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "confluence-synthetic-output-limit-mcp-holdout-answer",
+  "scenario_id": "confluence.synthetic-output-limit-mcp-holdout",
+  "minimum_score_bps": 8000,
+  "criteria": [
+    {"id":"output_boundary","description":"The selected output-limit rejection is reported without another invocation, bound change, query change, or claims from the rejected payload.","maximum":4,"minimum":4,"weight":45},
+    {"id":"qualification","description":"The rejected result is not treated as partial evidence; evidence remains incomplete and the decision remains undetermined.","maximum":4,"minimum":4,"weight":30},
+    {"id":"grounding","description":"The requested topic, exact query, and selected byte bound are retained.","maximum":4,"minimum":3,"weight":15},
+    {"id":"concision","description":"The answer is concise and excludes rejected fixture content.","maximum":4,"minimum":3,"weight":10}
+  ],
+  "allowed_finding_ids": ["incomplete_answer", "missing_qualification", "unsupported_claim", "verbose"]
+}

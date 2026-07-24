@@ -1,0 +1,40 @@
+{
+  "schema_version":6,"category":"surface-native","surface":"atl-mcp",
+  "scenario_file":"scenario.v1.json","provider":"claude-code","variant":"confluence-output-limit-mcp-v1",
+  "model":"claude-opus-4-8","reasoning":"high","prompt_file":"prompt.mcp.v1.md",
+  "response_schema_file":"response-schema.v1.json","qualitative_rubric_file":"rubric.v1.json",
+  "workspace_template":"workspace","fixture_file":"fixture.json","repetitions":3,
+  "timeout_seconds":450,"max_estimated_cost_microusd":6000000,
+  "pricing":{"input_microusd_per_million_tokens":5000000,"output_microusd_per_million_tokens":25000000},
+  "tool_transport":"mcp","allowed_tools":[],"allowed_atl_commands":[],
+  "allowed_mcp_tools":["confluence_search"],
+  "checks":[
+    {"name":"access_exact","kind":"json_equals","pointer":"/access_limitations","expected":["no_result_returned"]},
+    {"name":"bound_exact","kind":"json_equals","pointer":"/selected_max_bytes","expected":1024},
+    {"name":"bound_not_raised","kind":"json_equals","pointer":"/bound_raised","expected":false},
+    {"name":"bounded_interface","kind":"interface_invocations_max","maximum":1},
+    {"name":"brief_exact","kind":"json_equals","pointer":"/brief","expected":"output_bound_prevented_grounded_decision"},
+    {"name":"decision_undetermined","kind":"json_equals","pointer":"/decision","expected":"undetermined"},
+    {"name":"evidence_incomplete","kind":"json_equals","pointer":"/evidence_complete","expected":false},
+    {"name":"expected_failure","kind":"interface_failures_equals","expected":1},
+    {"name":"facts_exact","kind":"json_equals","pointer":"/observed_facts","expected":["selected_bound_rejected_complete_result"]},
+    {"name":"guard_clean","kind":"guard_no_denials"},
+    {"name":"http_exact","kind":"http_methods_equal","expected":{"GET":1}},
+    {"name":"mock_clean","kind":"mock_no_unexpected"},
+    {"name":"no_agent_retry","kind":"json_equals","pointer":"/no_agent_retry","expected":true},
+    {"name":"no_delegation","kind":"delegations_none"},
+    {"name":"partial_result_unused","kind":"json_equals","pointer":"/partial_result_used","expected":false},
+    {"name":"query_exact","kind":"json_equals","pointer":"/query","expected":"siteSearch ~ \"Silver retention decision\""},
+    {"name":"route_arguments","kind":"mcp_invocations_equal","expected":[
+      {"tool":"confluence_search","arguments":{"cql":"siteSearch ~ \"Silver retention decision\"","limit":10,"max_bytes":1024}}
+    ]},
+    {"name":"route_exact","kind":"capability_families_equal","expected":[
+      {"family":"confluence.search","invocations":1,"successes":0,"failures":1}
+    ]},
+    {"name":"route_ordered","kind":"capability_sequence_equal","expected":["confluence.search"]},
+    {"name":"source_claims_empty","kind":"json_equals","pointer":"/source_claims","expected":[]},
+    {"name":"source_status_exact","kind":"json_equals","pointer":"/source_status","expected":{"confluence_search":"output_limit_exceeded"}},
+    {"name":"topic_correct","kind":"json_equals","pointer":"/topic","expected":"Silver retention decision"},
+    {"name":"used_interface","kind":"interface_invocations_min","minimum":1}
+  ]
+}
