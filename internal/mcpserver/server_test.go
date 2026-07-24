@@ -32,6 +32,9 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 	if initialized == nil || initialized.Instructions != Instructions || initialized.ServerInfo.Name != "atl" {
 		t.Fatalf("initialize=%+v", initialized)
 	}
+	if !strings.Contains(initialized.Instructions, "never projection") {
+		t.Fatalf("initialize instructions do not disambiguate Jira search field selection: %q", initialized.Instructions)
+	}
 	listed, err := client.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -64,6 +67,22 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		}
 		if tool.Name == "confluence_search" && !schemaRequired(input, "cql") {
 			t.Errorf("tool %s must require explicit cql: %#v", tool.Name, tool.InputSchema)
+		}
+		if tool.Name == "jira_issue_search" {
+			properties, _ := input["properties"].(map[string]any)
+			columns, _ := properties["columns"].(map[string]any)
+			fields, _ := properties["fields"].(map[string]any)
+			columnsDescription, _ := columns["description"].(string)
+			fieldsDescription, _ := fields["description"].(string)
+			if !strings.Contains(tool.Description, "no `projection` input") ||
+				!strings.Contains(columnsDescription, "never projection") ||
+				!strings.Contains(fieldsDescription, "never projection") {
+				t.Errorf("tool %s field selection guidance is ambiguous: description=%q columns=%#v fields=%#v",
+					tool.Name, tool.Description, columns, fields)
+			}
+			if _, exists := properties["projection"]; exists {
+				t.Errorf("tool %s must not advertise a projection input: %#v", tool.Name, tool.InputSchema)
+			}
 		}
 		if tool.Name == "confluence_page_section" {
 			properties, _ := input["properties"].(map[string]any)
@@ -566,6 +585,28 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	}
 	if c.tableSummaryReference != "42" || c.tableSummaryIndex != 2 || c.tableExtractReference != "42" || c.tableExtractIndex != 2 {
 		t.Fatalf("confluence table calls=%+v", c)
+	}
+}
+
+func TestJiraIssueSearchRejectsProjectionInputBeforeBackend(t *testing.T) {
+	jira := &recordingJiraReader{}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Jira: func() (JiraReader, error) { return jira, nil },
+	}))
+	defer closeSessions()
+
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "jira_issue_search",
+		Arguments: map[string]any{
+			"jql":        "project=PROJ",
+			"projection": []string{"key", "status"},
+		},
+	})
+	if err == nil {
+		t.Fatalf("unsupported projection input succeeded: %+v", result)
+	}
+	if jira.searchJQL != "" || jira.searchColumns != nil {
+		t.Fatalf("unsupported projection input reached backend: jql=%q columns=%v", jira.searchJQL, jira.searchColumns)
 	}
 }
 

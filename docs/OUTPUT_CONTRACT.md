@@ -116,6 +116,11 @@ minimum 1 KiB, maximum 1 MiB). Row/source limits and compact projections remain
 independent semantic bounds; exceeding the byte bound is an explicit
 `check_failed` result and never silently clips the typed output.
 
+`jira_issue_search` selects ordered returned fields with `columns` (preferred)
+or its `fields` compatibility alias. It has no `projection` input; `projection`
+is output metadata on the returned IssueList. Unknown input names and non-empty
+values for both aliases are rejected before backend access.
+
 `confluence_search` returns the same qualified schema-v1 search envelope as
 the CLI, including top-level `complete`, `truncated`, optional
 `partial_reason`, and `next_cursor`; candidate page bodies are not included.

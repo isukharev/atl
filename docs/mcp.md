@@ -54,8 +54,9 @@ columns, included sources, or rows before raising the byte bound.
 For `jira_issue_search`, select the ordered projection with `columns`.
 `fields` is accepted as a compatibility alias for the same projection because
 other Jira tools use that spelling. Do not supply non-empty values for both;
-empty arrays are treated as omitted, and ambiguous requests fail before backend
-access.
+empty arrays are treated as omitted. The tool has no `projection` input:
+`projection` is output metadata on the returned IssueList. Unknown input names
+and ambiguous requests fail before backend access.
 
 Use `jira_structure_get` only when compact identity/read-only metadata is
 enough. Use `jira_structure_view` for normalized hierarchy evidence with an
