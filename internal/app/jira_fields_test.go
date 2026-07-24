@@ -135,6 +135,19 @@ func TestJiraIssueFieldsMetadataOnlyOmitsAllValuesAndKeepsTypes(t *testing.T) {
 	if err != nil || result.Mode != "metadata" || result.Count != 5 {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
+	if result.Summary == nil ||
+		result.Summary.CustomCount != 1 ||
+		result.Summary.SystemCount != 3 ||
+		result.Summary.UnclassifiedCount != 1 ||
+		result.Summary.NonemptyIDCount != 5 ||
+		result.Summary.MissingIDCount != 0 ||
+		!result.Summary.NonemptyIDsUnique ||
+		result.Summary.ValueTypeCounts["string"] != 2 ||
+		result.Summary.ValueTypeCounts["object"] != 1 ||
+		result.Summary.ValueTypeCounts["list"] != 1 ||
+		result.Summary.ValueTypeCounts["null"] != 1 {
+		t.Fatalf("summary=%+v", result.Summary)
+	}
 	encoded, err := json.Marshal(result)
 	if err != nil {
 		t.Fatal(err)
@@ -149,6 +162,42 @@ func TestJiraIssueFieldsMetadataOnlyOmitsAllValuesAndKeepsTypes(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("metadata output missing %q: %s", want, text)
 		}
+	}
+}
+
+func TestSummarizeJiraIssueFieldsSeparatesMissingAndDuplicateIDs(t *testing.T) {
+	summary := summarizeJiraIssueFields([]JiraIssueFieldRecord{
+		{ID: "summary", CatalogKnown: true, ValueType: "string"},
+		{ID: "customfield_1", CatalogKnown: true, Custom: true, ValueType: "number"},
+		{ID: " customfield_1 ", CatalogKnown: true, Custom: true, ValueType: "number"},
+		{ID: "", CatalogKnown: true, ValueType: ""},
+		{ID: " ", ValueType: "object"},
+	})
+	if summary.CustomCount != 2 ||
+		summary.SystemCount != 2 ||
+		summary.UnclassifiedCount != 1 ||
+		summary.NonemptyIDCount != 3 ||
+		summary.MissingIDCount != 2 ||
+		summary.NonemptyIDsUnique ||
+		summary.ValueTypeCounts["string"] != 1 ||
+		summary.ValueTypeCounts["number"] != 2 ||
+		summary.ValueTypeCounts["unknown"] != 1 ||
+		summary.ValueTypeCounts["object"] != 1 {
+		t.Fatalf("summary=%+v", summary)
+	}
+}
+
+func TestSummarizeJiraIssueFieldsEmptyInventory(t *testing.T) {
+	summary := summarizeJiraIssueFields(nil)
+	if summary.CustomCount != 0 ||
+		summary.SystemCount != 0 ||
+		summary.UnclassifiedCount != 0 ||
+		summary.NonemptyIDCount != 0 ||
+		summary.MissingIDCount != 0 ||
+		!summary.NonemptyIDsUnique ||
+		summary.ValueTypeCounts == nil ||
+		len(summary.ValueTypeCounts) != 0 {
+		t.Fatalf("summary=%+v", summary)
 	}
 }
 

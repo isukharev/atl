@@ -460,7 +460,7 @@ atl conf comment add  --id 123456 --from-file comment.csf
 # Чтение
 atl jira issue get  PROJ-1
 atl jira issue fields PROJ-1 # compact non-empty поля с именами по умолчанию
-atl jira issue fields PROJ-1 --metadata-only # компактный каталог без значений
+atl jira issue fields PROJ-1 --metadata-only # каталог без значений + детерминированная сводка
 atl jira issue fields PROJ-1 --field "Delivery Notes"
 atl jira issue field get PROJ-1 --field "Delivery Notes" --max-bytes 16384 # точечное bounded-чтение
 atl jira issue history PROJ-1 --field "Delivery Notes" --since 2026-04-01 # summary различает пропущенные и повторные id

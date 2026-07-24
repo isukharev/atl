@@ -93,7 +93,9 @@ standard field, read that field directly with bounded `jira issue field get`;
 do not broaden the read through metadata discovery. For an unfamiliar issue or
 unknown custom field, start with value-free non-empty
 `jira issue fields <KEY> --metadata-only`, then select an exact unambiguous
-display name or id. Never use `*all` as discovery.
+display name or id. Use its ready `summary` for custom/system/unclassified,
+identifier-quality, and value-type counts instead of recounting the field
+array. Never use `*all` as discovery.
 
 For a known epic and task-supplied period, run one
 `jira epic digest --projection compact` with the selected evidence-field name.

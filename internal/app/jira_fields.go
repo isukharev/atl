@@ -36,6 +36,7 @@ type JiraIssueFieldRecord struct {
 	Truncated     bool   `json:"truncated,omitempty"`
 	OriginalBytes int    `json:"original_bytes,omitempty"`
 	MetadataOnly  bool   `json:"-"`
+	CatalogKnown  bool   `json:"-"`
 }
 
 // MarshalJSON omits value entirely in metadata mode while preserving the
@@ -63,12 +64,23 @@ func (r JiraIssueFieldRecord) MarshalJSON() ([]byte, error) {
 }
 
 type JiraIssueFieldsResult struct {
-	Key          string                 `json:"key"`
-	Mode         string                 `json:"mode"`
-	NonEmptyOnly bool                   `json:"non_empty_only"`
-	Count        int                    `json:"count"`
-	OmittedEmpty int                    `json:"omitted_empty,omitempty"`
-	Fields       []JiraIssueFieldRecord `json:"fields"`
+	Key          string                  `json:"key"`
+	Mode         string                  `json:"mode"`
+	NonEmptyOnly bool                    `json:"non_empty_only"`
+	Count        int                     `json:"count"`
+	OmittedEmpty int                     `json:"omitted_empty,omitempty"`
+	Summary      *JiraIssueFieldsSummary `json:"summary,omitempty"`
+	Fields       []JiraIssueFieldRecord  `json:"fields"`
+}
+
+type JiraIssueFieldsSummary struct {
+	CustomCount       int            `json:"custom_count"`
+	SystemCount       int            `json:"system_count"`
+	UnclassifiedCount int            `json:"unclassified_count"`
+	NonemptyIDCount   int            `json:"nonempty_id_count"`
+	MissingIDCount    int            `json:"missing_id_count"`
+	NonemptyIDsUnique bool           `json:"nonempty_ids_unique"`
+	ValueTypeCounts   map[string]int `json:"value_type_counts"`
 }
 
 // ResolveJiraFieldSelectors resolves exact field ids or exact
@@ -253,6 +265,7 @@ func (s *JiraService) IssueFields(ctx context.Context, key string, opts JiraIssu
 			ID: def.ID, Name: def.Name, Custom: def.Custom, Schema: def.Schema,
 			Empty: empty, Value: value, MetadataOnly: opts.MetadataOnly,
 		}
+		_, record.CatalogKnown = defsByID[def.ID]
 		if opts.MetadataOnly {
 			record.ValueType = jiraFieldValueType(value)
 		} else if !opts.Raw {
@@ -268,7 +281,47 @@ func (s *JiraService) IssueFields(ctx context.Context, key string, opts JiraIssu
 		result.Fields = append(result.Fields, record)
 	}
 	result.Count = len(result.Fields)
+	if opts.MetadataOnly {
+		summary := summarizeJiraIssueFields(result.Fields)
+		result.Summary = &summary
+	}
 	return result, nil
+}
+
+func summarizeJiraIssueFields(fields []JiraIssueFieldRecord) JiraIssueFieldsSummary {
+	summary := JiraIssueFieldsSummary{
+		NonemptyIDsUnique: true,
+		ValueTypeCounts:   map[string]int{},
+	}
+	seenIDs := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		switch {
+		case !field.CatalogKnown:
+			summary.UnclassifiedCount++
+		case field.Custom:
+			summary.CustomCount++
+		default:
+			summary.SystemCount++
+		}
+
+		id := strings.TrimSpace(field.ID)
+		if id == "" {
+			summary.MissingIDCount++
+		} else {
+			summary.NonemptyIDCount++
+			if _, exists := seenIDs[id]; exists {
+				summary.NonemptyIDsUnique = false
+			}
+			seenIDs[id] = struct{}{}
+		}
+
+		valueType := strings.TrimSpace(field.ValueType)
+		if valueType == "" {
+			valueType = "unknown"
+		}
+		summary.ValueTypeCounts[valueType]++
+	}
+	return summary
 }
 
 func jiraFieldValueType(value any) string {
