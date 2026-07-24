@@ -490,6 +490,11 @@ func (s RunSpec) Validate() error {
 			if check.Pointer == "" || len(check.Expected) != 0 {
 				return fmt.Errorf("json_present check %q requires only pointer", check.Name)
 			}
+		case "json_array_min_items":
+			if check.Pointer == "" || check.Minimum < 1 || check.Minimum > maxContractListEntries ||
+				check.Maximum != 0 || len(check.Expected) != 0 {
+				return fmt.Errorf("json_array_min_items check %q requires a pointer and bounded positive minimum", check.Name)
+			}
 		case "json_equals_workspace_json":
 			if check.Pointer == "" {
 				return fmt.Errorf("json_equals_workspace_json check %q requires an output pointer", check.Name)
@@ -955,6 +960,10 @@ func evaluateRunChecksWithMCPInvocations(
 		case "json_present":
 			_, ok := resolveJSONPointer(document, check.Pointer)
 			results[check.Name] = ok
+		case "json_array_min_items":
+			actual, ok := resolveJSONPointer(document, check.Pointer)
+			values, arrayOK := actual.([]any)
+			results[check.Name] = ok && arrayOK && len(values) >= check.Minimum
 		case "json_equals":
 			actual, ok := resolveJSONPointer(document, check.Pointer)
 			if !ok {

@@ -529,6 +529,13 @@ For stateful synthetic reconciliation, a route may replace its single
 sequence in order; query/body mismatches do not consume it, and any request
 after exhaustion is unexpected. Use this for a preflight-old / reconciliation-
 new transition, not as a general backend emulator. A
+`json_array_min_items` run check requires the final-response pointer to resolve
+to an array with at least the declared positive `minimum`. Use it when a
+semantic contract requires non-empty or plural evidence but exact prose would
+overfit one provider rendering; keep identities and closed classifications in
+separate exact structured fields.
+
+A
 `json_equals_workspace_json` run check can compare one final-response pointer
 with one pointer in a contained, regular JSON artifact created inside the
 synthetic workspace. It is forbidden in private-live specs and is useful for

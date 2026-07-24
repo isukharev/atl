@@ -105,6 +105,34 @@ func TestRepositoryCrossServicePartialAuthorizationFixturesDriveProviderOracles(
 						t.Fatalf("%s fixture final failed %q", spec.Provider, name)
 					}
 				}
+				var paraphrased map[string]any
+				if err := json.Unmarshal(final, &paraphrased); err != nil {
+					t.Fatal(err)
+				}
+				paraphrased["observed_facts"] = []string{
+					"The selected Jira issue and its status were observed.",
+					"The selected Confluence page identity was observed.",
+					"The selected section could not be read.",
+				}
+				paraphrased["access_limitations"] = []string{
+					"Authorization denied for the selected section.",
+				}
+				paraphrasedFinal, err := json.Marshal(paraphrased)
+				if err != nil {
+					t.Fatal(err)
+				}
+				paraphrasedResults, err := evaluateRunChecksWithMCPInvocations(
+					spec.Checks, paraphrasedFinal, "", 3, 1, 0, 0, nil, 0, 0,
+					methods, true, nil, families, true, sequence, invocations, true,
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for name, passed := range paraphrasedResults {
+					if !passed {
+						t.Fatalf("%s grounded paraphrase failed %q", spec.Provider, name)
+					}
+				}
 				assertCrossServicePartialAuthorizationMutationsFail(
 					t, spec, final, methods, families, sequence, invocations,
 				)
@@ -228,5 +256,39 @@ func assertCrossServicePartialAuthorizationMutationsFail(
 	}
 	if results["decision_undetermined"] || results["section_claims_empty"] {
 		t.Fatal("unsupported restricted-section claim passed semantic checks")
+	}
+
+	for _, test := range []struct {
+		name, check string
+		value       any
+	}{
+		{name: "missing-access-limitation", check: "access_qualified", value: []string{}},
+		{name: "missing-accessible-facts", check: "observed_facts_present", value: []string{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var incomplete map[string]any
+			if err := json.Unmarshal(final, &incomplete); err != nil {
+				t.Fatal(err)
+			}
+			if test.check == "access_qualified" {
+				incomplete["access_limitations"] = test.value
+			} else {
+				incomplete["observed_facts"] = test.value
+			}
+			incompleteFinal, err := json.Marshal(incomplete)
+			if err != nil {
+				t.Fatal(err)
+			}
+			results, err := evaluateRunChecksWithMCPInvocations(
+				spec.Checks, incompleteFinal, "", 3, 1, 0, 0, nil, 0, 0,
+				methods, true, nil, families, true, sequence, invocations, true,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if results[test.check] {
+				t.Fatalf("empty evidence passed %q", test.check)
+			}
+		})
 	}
 }
