@@ -141,7 +141,12 @@ MCP error content. An exhausted HTTP 429 is `rate_limited` with
 repeating the tool call. A valid result rejected by caller-selected
 `max_bytes` is `output_limit_exceeded` with `narrow_or_raise_bound`; treat it as
 no result, then narrow the query/selection or deliberately choose a larger
-allowed bound.
+allowed bound. A Confluence table `not_found` with
+`summarize_then_select_table` means the requested 1-based index is outside the
+reported content-free table count. Call `confluence_table_summary` without a
+table selection, choose from that inventory, and then extract once; do not
+report the page as missing. Other Confluence table `not_found` failures retain
+`verify_identifier_or_access` and do not expose structural counts.
 
 ## Install through the agent plugins
 

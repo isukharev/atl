@@ -110,6 +110,13 @@ object with stable `kind`, `remediation`, and diagnostic `message` fields.
 For transport/API failures, `message` is deliberately coarse and omits backend
 paths, query values, and response bodies.
 
+An out-of-range 1-based Confluence table selection remains `kind:"not_found"`
+but uses `remediation:"summarize_then_select_table"`. Its diagnostic message
+contains only the requested index and available table count. Genuine
+page/table absence retains `verify_identifier_or_access` and the generic safe
+message. This distinction changes neither CLI exit code 4 nor successful table
+schemas.
+
 `jira_fields`, `jira_issue_search`, `jira_epic_digest`, and `jira_board_view`
 reject a final encoded result larger than `max_bytes` (default 256 KiB,
 minimum 1 KiB, maximum 1 MiB). Row/source limits and compact projections remain

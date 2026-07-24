@@ -118,6 +118,24 @@ type pendingTableCell struct {
 	rows int
 }
 
+// ConfluenceTableSelectionError reports a 1-based table selection that exceeds
+// the number of tables on the page. It deliberately carries only the requested
+// index and the available table count — never a page id, title, heading,
+// caption, cell content, or backend text — so a transport can distinguish a
+// recoverable caller-side selection mistake from an unavailable source without
+// disclosing page content. It unwraps to domain.ErrNotFound, so sentinel-driven
+// exit codes and classification stay unchanged.
+type ConfluenceTableSelectionError struct {
+	Requested int
+	Available int
+}
+
+func (e *ConfluenceTableSelectionError) Error() string {
+	return fmt.Sprintf("%v: table %d not found (page has %d tables)", domain.ErrNotFound, e.Requested, e.Available)
+}
+
+func (e *ConfluenceTableSelectionError) Unwrap() error { return domain.ErrNotFound }
+
 // ExtractTables fetches a page's native CSF and extracts table data. table is
 // 1-based; table <= 0 returns all tables.
 func (s *ConfluenceService) ExtractTables(ctx context.Context, id string, table int) (*ConfluenceTableExtract, error) {
@@ -266,7 +284,7 @@ func ExtractTablesFromCSF(pageID, title string, body []byte, table int) (*Conflu
 	}
 	if table > 0 {
 		if table > len(all) {
-			return nil, fmt.Errorf("%w: table %d not found (page has %d tables)", domain.ErrNotFound, table, len(all))
+			return nil, &ConfluenceTableSelectionError{Requested: table, Available: len(all)}
 		}
 		res.Table = table
 		res.Tables = []ConfluenceTable{all[table-1]}

@@ -156,6 +156,10 @@ or tool call, and never retry a write automatically.
 `output_limit_exceeded` / `narrow_or_raise_bound` means caller-selected
 `max_bytes` rejected the complete encoded result; treat it as no evidence and
 narrow the selection or deliberately choose a larger allowed bound.
+For Confluence table tools, `not_found` /
+`summarize_then_select_table` means the selected 1-based index is outside the
+content-free table count. Summarize without a table selection, choose from that
+inventory, then extract once; do not report the page as missing.
 
 The recommended convention keeps the mirror **outside the user's code
 repository** at `~/.atl/<workspace>/`, so it is fully greppable yet never

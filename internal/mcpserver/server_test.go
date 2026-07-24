@@ -2083,6 +2083,86 @@ func TestConfluenceTableToolsRejectUnreconciledApplicationResults(t *testing.T) 
 	}
 }
 
+func TestConfluenceTableSelectionErrorIsDistinctAndContentFree(t *testing.T) {
+	const marker = "SYNTHETIC-TABLE-SELECTION-SECRET"
+	body := `<table><tbody><tr><td><a href="https://backend.invalid/` + marker + `">` + marker + `</a></td></tr></tbody></table>` +
+		`<table><tbody><tr><td>` + marker + `</td></tr></tbody></table>`
+	_, selectionErr := app.ExtractTablesFromCSF("PAGE-"+marker, "Title "+marker, []byte(body), 7)
+	var typed *app.ConfluenceTableSelectionError
+	if !errors.As(selectionErr, &typed) || typed.Requested != 7 || typed.Available != 2 {
+		t.Fatalf("test fixture must produce an out-of-range selection error: %v", selectionErr)
+	}
+	for _, tool := range []string{"confluence_table_summary", "confluence_table_extract"} {
+		t.Run(tool, func(t *testing.T) {
+			reader := &recordingConfluenceReader{tableErr: selectionErr}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Confluence: func() (ConfluenceReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name: tool, Arguments: map[string]any{"reference": "42", "table": 7},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+				t.Fatalf("result=%+v", result)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+				got.Kind != "not_found" || got.Remediation != "summarize_then_select_table" ||
+				got.Message != "selected Confluence table index 7 is out of range; available table count is 2" {
+				t.Fatalf("error=%+v decode=%v", got, err)
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, forbidden := range []string{marker, "PAGE-", "Title ", "https://", "backend.invalid"} {
+				if bytes.Contains(encoded, []byte(forbidden)) {
+					t.Fatalf("selection error leaked %q: %s", forbidden, encoded)
+				}
+			}
+		})
+	}
+}
+
+func TestConfluenceTableGenericNotFoundStaysUnchanged(t *testing.T) {
+	notFound := fmt.Errorf("%w: page SYNTHETIC-MISSING-PAGE-SECRET", domain.ErrNotFound)
+	for _, tool := range []string{"confluence_table_summary", "confluence_table_extract"} {
+		t.Run(tool, func(t *testing.T) {
+			reader := &recordingConfluenceReader{tableErr: notFound}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Confluence: func() (ConfluenceReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name: tool, Arguments: map[string]any{"reference": "42", "table": 7},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || len(result.Content) != 1 {
+				t.Fatalf("result=%+v", result)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+				got.Kind != "not_found" || got.Remediation != "verify_identifier_or_access" ||
+				got.Message != "Confluence page or table was not found" {
+				t.Fatalf("error=%+v decode=%v", got, err)
+			}
+		})
+	}
+}
+
 func TestConfluenceTableErrorsNeverExposeParserContent(t *testing.T) {
 	marker := "SYNTHETIC-SECRET-ENTITY"
 	_, parserErr := app.ExtractTablesFromCSF("42", "Synthetic", []byte("<table><tr><td>&"+marker+";</td></tr></table>"), 1)
