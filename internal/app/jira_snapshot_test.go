@@ -51,6 +51,38 @@ func TestJiraMirrorSnapshotStoresOnlyBaselineHashForRemoteDrift(t *testing.T) {
 	}
 }
 
+func TestJiraMirrorSnapshotCoordinatesWithoutCreatingMutationLock(t *testing.T) {
+	_, tracker, root, _ := setupPulled(t, "base")
+	lockPath := jiraPendingFieldsLockPath(root)
+	if err := os.Remove(lockPath); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := SnapshotJiraMirror(root)
+	if err != nil || got == nil || !got.Complete {
+		t.Fatalf("snapshot=%+v err=%v", got, err)
+	}
+	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
+		t.Fatalf("write-free snapshot created mutation lock: %v", err)
+	}
+
+	lock, err := lockJiraPendingFields(root, "snapshot-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lock.Unlock() }()
+	tracker.getCalls = 0
+	got, err = (&JiraService{tr: tracker}).SnapshotMirror(context.Background(), root, true)
+	if !errors.Is(err, domain.ErrCheckFailed) || got != nil || tracker.getCalls != 0 {
+		t.Fatalf("busy snapshot=%+v calls=%d err=%v", got, tracker.getCalls, err)
+	}
+	for _, private := range []string{root, "PROJ-1"} {
+		if strings.Contains(err.Error(), private) {
+			t.Fatalf("content-free busy error leaked %q: %v", private, err)
+		}
+	}
+}
+
 func TestJiraMirrorSnapshotEmptyMirrorReconciles(t *testing.T) {
 	result, err := SnapshotJiraMirror(t.TempDir())
 	if err != nil {
@@ -254,11 +286,15 @@ type jiraSnapshotTracker struct {
 	calls         int
 	singleAttempt bool
 	err           error
+	onGet         func()
 }
 
 func (t *jiraSnapshotTracker) GetIssue(ctx context.Context, key string, _ []string) (*domain.Issue, error) {
 	t.calls++
 	t.singleAttempt = domain.SingleAttempt(ctx)
+	if t.onGet != nil {
+		t.onGet()
+	}
 	if t.err != nil {
 		return nil, t.err
 	}
@@ -267,6 +303,59 @@ func (t *jiraSnapshotTracker) GetIssue(ctx context.Context, key string, _ []stri
 		responseKey = key
 	}
 	return &domain.Issue{Key: responseKey, Body: t.body, Fields: map[string]any{}}, nil
+}
+
+func TestJiraMirrorRemoteSnapshotHoldsMutationLockThroughProbe(t *testing.T) {
+	_, _, root, _ := setupPulled(t, "base")
+	var mutationBlocked bool
+	tracker := &jiraSnapshotTracker{
+		body: "base",
+		onGet: func() {
+			candidate, candidateErr := lockJiraPendingFields(root, "probe")
+			mutationBlocked = errors.Is(candidateErr, domain.ErrCheckFailed) && candidate == nil
+			if candidate != nil {
+				_ = candidate.Unlock()
+			}
+		},
+	}
+	got, err := (&JiraService{tr: tracker}).SnapshotMirror(context.Background(), root, true)
+	if err != nil || got == nil || !got.Complete || !mutationBlocked {
+		t.Fatalf("snapshot=%+v mutation_blocked=%t err=%v", got, mutationBlocked, err)
+	}
+	lock, err := lockJiraPendingFields(root, "after-snapshot")
+	if err != nil {
+		t.Fatalf("mutation remained blocked after snapshot: %v", err)
+	}
+	if err := lock.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestJiraMirrorRemoteSnapshotDiscardsLegacyRaceWithoutRetry(t *testing.T) {
+	_, _, root, _ := setupPulled(t, "base")
+	if err := os.Remove(jiraPendingFieldsLockPath(root)); err != nil {
+		t.Fatal(err)
+	}
+	tracker := &jiraSnapshotTracker{
+		body: "base",
+		onGet: func() {
+			lock, lockErr := lockJiraPendingFields(root, "probe")
+			if lockErr != nil {
+				t.Errorf("bootstrap mutation lock: %v", lockErr)
+				return
+			}
+			_ = lock.Unlock()
+		},
+	}
+	got, err := (&JiraService{tr: tracker}).SnapshotMirror(context.Background(), root, true)
+	if !errors.Is(err, domain.ErrCheckFailed) || got != nil || tracker.calls != 1 {
+		t.Fatalf("snapshot=%+v calls=%d err=%v", got, tracker.calls, err)
+	}
+	for _, private := range []string{root, "PROJ-1"} {
+		if strings.Contains(err.Error(), private) {
+			t.Fatalf("content-free race error leaked %q: %v", private, err)
+		}
+	}
 }
 
 func TestJiraMirrorRemoteSnapshotRejectsMismatchedIssueIdentity(t *testing.T) {

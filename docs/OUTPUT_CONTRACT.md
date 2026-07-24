@@ -470,7 +470,10 @@ lose unrelated entries.
 local,native,validation,render,remote}`. It intentionally omits root/target,
 page identity, title, path, hashes, validation messages, and body/view bytes.
 The offline default requires no config or credentials and performs no network
-or filesystem writes.
+or filesystem writes. Local inspection shares the persistent mutation lock when
+it exists. Contention returns a content-free exit `8` before inspection. If a
+legacy mirror has no lock yet, the command verifies that no current writer
+created it during the read and discards/retries the first result if one did.
 
 `local` partitions `present` into `clean|locally_edited` and
 `tracked|untracked`, with `non_canonical` as an explicit untracked subset.
@@ -611,7 +614,11 @@ pending-to-mirror binding such as a missing or moved `.wiki`.
 native,snapshot,pending,render,remote}`. It intentionally omits root/target,
 issue identity, path, hashes, field identity, diagnostic text, and native/raw/
 derived content. The offline default requires no config or credentials and
-performs no locks, pending-transaction recovery, network, or filesystem writes.
+performs no pending-transaction recovery, network, or filesystem writes. Local
+inspection shares the persistent mutation lock when it exists. Contention
+returns a content-free exit `8` before inspection. If a legacy mirror has no
+lock yet, the command verifies that no current writer created it during the
+read and discards/retries the first result if one did.
 
 `local` partitions every `.wiki` as clean/edited and canonical
 tracked/untracked, with non-canonical copies counted inside untracked. `native`

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/isukharev/atl/internal/csf"
@@ -120,17 +121,41 @@ func PreflightConfluenceMirrorRemoteSnapshot(dir string) (*ConfluenceMirrorSnaps
 // SnapshotMirror optionally adds one bounded remote metadata probe per
 // canonical page. Local integrity failures stop before any network request.
 func (s *ConfluenceService) SnapshotMirror(ctx context.Context, dir string, checkRemote bool) (*ConfluenceMirrorSnapshot, error) {
-	result, locals, localErr := inspectConfluenceMirror(dir)
-	if result == nil || !checkRemote {
+	if !checkRemote {
+		result, _, err := inspectConfluenceMirror(dir)
+		return result, err
+	}
+	root, guard, result, locals, localErr := beginConfluenceMirrorSnapshot(dir)
+	if guard == nil {
 		return result, localErr
+	}
+	finishBeforeRemote := func() (*ConfluenceMirrorSnapshot, error) {
+		retry, finishErr := guard.finish()
+		if finishErr != nil {
+			return nil, contentFreeConfluenceSnapshotError(finishErr)
+		}
+		if retry {
+			return s.SnapshotMirror(ctx, root, true)
+		}
+		return result, localErr
+	}
+	if result == nil {
+		return finishBeforeRemote()
 	}
 	result.RemoteRequested = true
 	result.Remote.Requested = true
 	if localErr != nil || !result.Complete || !result.Reconciled {
 		finalizeConfluenceMirrorSnapshot(result)
-		return result, localErr
+		return finishBeforeRemote()
 	}
 	if s.store == nil {
+		retry, finishErr := guard.finish()
+		if finishErr != nil {
+			return nil, contentFreeConfluenceSnapshotError(finishErr)
+		}
+		if retry {
+			return s.SnapshotMirror(ctx, root, true)
+		}
 		return result, fmt.Errorf("%w: remote mirror snapshot requires a configured Confluence backend", domain.ErrConfig)
 	}
 	probeContext := domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(ctx))
@@ -152,13 +177,44 @@ func (s *ConfluenceService) SnapshotMirror(ctx context.Context, dir string, chec
 		}
 	}
 	finalizeConfluenceMirrorSnapshot(result)
+	retry, finishErr := guard.finish()
+	if finishErr != nil {
+		return nil, contentFreeConfluenceSnapshotError(finishErr)
+	}
+	if retry {
+		return nil, contentFreeConfluenceSnapshotError(fmt.Errorf("%w: the mirror changed during remote inspection", domain.ErrCheckFailed))
+	}
 	return result, nil
 }
 
 func inspectConfluenceMirror(dir string) (*ConfluenceMirrorSnapshot, []*mirror.LocalCSF, error) {
+	root, guard, result, locals, inspectErr := beginConfluenceMirrorSnapshot(dir)
+	if guard == nil {
+		return result, locals, inspectErr
+	}
+	retry, finishErr := guard.finish()
+	if finishErr != nil {
+		return nil, nil, contentFreeConfluenceSnapshotError(finishErr)
+	}
+	if retry {
+		return inspectConfluenceMirror(root)
+	}
+	return result, locals, inspectErr
+}
+
+func beginConfluenceMirrorSnapshot(dir string) (string, *mirrorSnapshotLock, *ConfluenceMirrorSnapshot, []*mirror.LocalCSF, error) {
 	if dir == "" {
 		dir = "mirror"
 	}
+	guard, err := beginMirrorSnapshotLock(dir, filepath.Join(dir, ".atl", confluenceMutationLockName))
+	if err != nil {
+		return dir, nil, nil, nil, contentFreeConfluenceSnapshotError(err)
+	}
+	result, locals, inspectErr := inspectConfluenceMirrorUnlocked(dir)
+	return dir, guard, result, locals, inspectErr
+}
+
+func inspectConfluenceMirrorUnlocked(dir string) (*ConfluenceMirrorSnapshot, []*mirror.LocalCSF, error) {
 	diff, diffErr := DiffConfluenceMirror("", dir)
 	if diff == nil {
 		return nil, nil, contentFreeConfluenceSnapshotError(diffErr)

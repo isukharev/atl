@@ -381,6 +381,7 @@ atl conf push mirror/DOCS/acme-adr/acme-adr.csf
 atl conf status mirror --remote
 
 # Точные счётчики mirror/baseline/validation/render без содержимого (по умолчанию офлайн)
+# При конкурентном изменении mirror команда завершается до inspection и не пишет файлы.
 ATL_READ_ONLY=1 atl conf snapshot mirror
 ATL_READ_ONLY=1 atl conf snapshot mirror --remote # один single-attempt metadata probe на tracked-страницу
 
@@ -498,6 +499,7 @@ atl jira pull --jql 'project = PROJ AND status = Open' --assets
 # Выберите объём .md-представления: minimal | default | full (см. docs/usage.md)
 atl jira pull --jql 'project = PROJ' --render-profile full
 atl jira render mirror-jira --render-profile default   # перерендер офлайн, без повторного pull
+# Snapshot координирует чтение с изменениями mirror, не создавая lock-файл.
 ATL_READ_ONLY=1 atl jira snapshot mirror-jira          # точные счётчики состояния без содержимого
 ATL_READ_ONLY=1 atl jira snapshot mirror-jira --remote # один single-attempt GET на подходящую задачу
 atl manifest create --root mirror-jira --service jira --selector 'jql=project = PROJ'

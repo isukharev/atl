@@ -1396,6 +1396,10 @@ Flags:
 
 Return exact, content-free health cardinalities for a durable Confluence mirror.
 The offline default needs no backend URL, PAT, or config and performs no writes.
+It takes a shared advisory lock only when the persistent mutation lock already
+exists. An active mutation fails closed with exit `8` before inspection; a
+legacy mirror without that lock remains write-free and is re-inspected if a
+current writer creates the lock during the first read.
 
 ```bash
 ATL_READ_ONLY=1 atl conf snapshot
@@ -3136,8 +3140,11 @@ never reported drifted.
 ### `atl jira snapshot`
 
 Return exact, content-free health cardinalities for a durable Jira mirror. The
-offline default needs no backend URL, PAT, or config and performs no lock,
-transaction recovery, filesystem write, or network request.
+offline default needs no backend URL, PAT, or config and performs no
+transaction recovery, filesystem write, or network request. It takes a shared
+advisory lock only when the persistent mutation lock already exists. An active
+mutation fails closed with exit `8` before inspection; a legacy mirror without
+that lock is re-inspected if a current writer creates it during the first read.
 
 ```bash
 ATL_READ_ONLY=1 atl jira snapshot

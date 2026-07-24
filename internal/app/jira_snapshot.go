@@ -122,7 +122,7 @@ type jiraMirrorLocalEvidence struct {
 }
 
 // SnapshotJiraMirror inspects a mirror without config, credentials, network
-// access, recovery, locks, or writes.
+// access, recovery, writes, or creating/changing coordination files.
 func SnapshotJiraMirror(dir string) (*JiraMirrorSnapshot, error) {
 	result, _, err := inspectJiraMirror(dir)
 	return result, err
@@ -143,17 +143,41 @@ func PreflightJiraMirrorRemoteSnapshot(dir string) (*JiraMirrorSnapshot, error) 
 // SnapshotMirror optionally adds one single-attempt remote issue read per
 // eligible canonical substrate. Local integrity failures stop before network.
 func (s *JiraService) SnapshotMirror(ctx context.Context, dir string, checkRemote bool) (*JiraMirrorSnapshot, error) {
-	result, locals, localErr := inspectJiraMirror(dir)
-	if result == nil || !checkRemote {
+	if !checkRemote {
+		result, _, err := inspectJiraMirror(dir)
+		return result, err
+	}
+	root, guard, result, locals, localErr := beginJiraMirrorSnapshot(dir)
+	if guard == nil {
 		return result, localErr
+	}
+	finishBeforeRemote := func() (*JiraMirrorSnapshot, error) {
+		retry, finishErr := guard.finish()
+		if finishErr != nil {
+			return nil, contentFreeJiraSnapshotError(finishErr)
+		}
+		if retry {
+			return s.SnapshotMirror(ctx, root, true)
+		}
+		return result, localErr
+	}
+	if result == nil {
+		return finishBeforeRemote()
 	}
 	result.RemoteRequested = true
 	result.Remote.Requested = true
 	if localErr != nil || !result.Complete || !result.Reconciled {
 		finalizeJiraMirrorSnapshot(result)
-		return result, localErr
+		return finishBeforeRemote()
 	}
 	if s.tr == nil {
+		retry, finishErr := guard.finish()
+		if finishErr != nil {
+			return nil, contentFreeJiraSnapshotError(finishErr)
+		}
+		if retry {
+			return s.SnapshotMirror(ctx, root, true)
+		}
 		return result, fmt.Errorf("%w: remote mirror snapshot requires a configured Jira backend", domain.ErrConfig)
 	}
 	probeContext := domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(ctx))
@@ -190,13 +214,44 @@ func (s *JiraService) SnapshotMirror(ctx context.Context, dir string, checkRemot
 		}
 	}
 	finalizeJiraMirrorSnapshot(result)
+	retry, finishErr := guard.finish()
+	if finishErr != nil {
+		return nil, contentFreeJiraSnapshotError(finishErr)
+	}
+	if retry {
+		return nil, contentFreeJiraSnapshotError(fmt.Errorf("%w: the mirror changed during remote inspection", domain.ErrCheckFailed))
+	}
 	return result, nil
 }
 
 func inspectJiraMirror(dir string) (*JiraMirrorSnapshot, []*jiraMirrorLocalEvidence, error) {
+	root, guard, result, evidence, inspectErr := beginJiraMirrorSnapshot(dir)
+	if guard == nil {
+		return result, evidence, inspectErr
+	}
+	retry, finishErr := guard.finish()
+	if finishErr != nil {
+		return nil, nil, contentFreeJiraSnapshotError(finishErr)
+	}
+	if retry {
+		return inspectJiraMirror(root)
+	}
+	return result, evidence, inspectErr
+}
+
+func beginJiraMirrorSnapshot(dir string) (string, *mirrorSnapshotLock, *JiraMirrorSnapshot, []*jiraMirrorLocalEvidence, error) {
 	if dir == "" {
 		dir = "mirror-jira"
 	}
+	guard, err := beginMirrorSnapshotLock(dir, jiraPendingFieldsLockPath(dir))
+	if err != nil {
+		return dir, nil, nil, nil, contentFreeJiraSnapshotError(err)
+	}
+	result, evidence, inspectErr := inspectJiraMirrorUnlocked(dir)
+	return dir, guard, result, evidence, inspectErr
+}
+
+func inspectJiraMirrorUnlocked(dir string) (*JiraMirrorSnapshot, []*jiraMirrorLocalEvidence, error) {
 	m := mirror.New(dir)
 	locals, err := m.ListWiki()
 	if err != nil {
