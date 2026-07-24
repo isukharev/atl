@@ -812,6 +812,125 @@ func TestSyntheticTopicDiscoveryThroughMCPUsesExactGETOnlyRoute(t *testing.T) {
 	}
 }
 
+func TestSyntheticPartialAuthorizationThroughMCPStopsAtForbiddenSection(t *testing.T) {
+	tests := []struct {
+		name, directory, jiraQuery, confluenceQuery, jiraKey, jiraStatus string
+		pageID, pageTitle, heading, marker                               string
+	}{
+		{
+			name: "primary", directory: "cross-service-partial-authorization-mcp",
+			jiraQuery:       `text ~ "Orchid migration readiness" ORDER BY updated DESC`,
+			confluenceQuery: `siteSearch ~ "Orchid migration readiness"`,
+			jiraKey:         "OPS-217", jiraStatus: "In Review", pageID: "9301",
+			pageTitle: "Orchid migration readiness record",
+			heading:   "Current decision", marker: "FORBIDDEN_FIXTURE_MARKER",
+		},
+		{
+			name: "holdout", directory: "cross-service-partial-authorization-mcp-holdout",
+			jiraQuery:       `text ~ "Cobalt failover readiness" ORDER BY updated DESC`,
+			confluenceQuery: `siteSearch ~ "Cobalt failover readiness"`,
+			jiraKey:         "SRE-328", jiraStatus: "Blocked", pageID: "9402",
+			pageTitle: "Cobalt failover readiness record",
+			heading:   "Outcome", marker: "HOLDOUT_FORBIDDEN_MARKER",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixtureFile, err := os.Open(filepath.Join(
+				"..", "..", "benchmarks", "agent-eval", test.directory, "fixture.json",
+			))
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+			closeErr := fixtureFile.Close()
+			if decodeErr != nil || closeErr != nil {
+				t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
+			}
+			backend, err := agenteval.StartMockBackend(fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer backend.Close()
+			for name, value := range backend.Environment() {
+				t.Setenv(name, value)
+			}
+			t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+			t.Setenv("ATL_READ_ONLY", "1")
+			t.Setenv("ATL_NO_UPDATE", "1")
+
+			client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
+			defer closeSessions()
+			jiraResult := callToolOK(t, client, "jira_issue_search", map[string]any{
+				"jql": test.jiraQuery, "columns": []string{"key", "summary", "status", "updated"},
+				"limit": 10, "max_bytes": 131072,
+			})
+			jiraContent, ok := jiraResult.StructuredContent.(map[string]any)
+			jiraPage, pageOK := jiraContent["page"].(map[string]any)
+			jiraRows, rowsOK := jiraContent["rows"].([]any)
+			var jiraRow map[string]any
+			if len(jiraRows) == 1 {
+				jiraRow, _ = jiraRows[0].(map[string]any)
+			}
+			jiraValues, _ := jiraRow["values"].(map[string]any)
+			if !ok || !pageOK || jiraPage["complete"] != true || !rowsOK ||
+				jiraRow == nil || jiraRow["key"] != test.jiraKey ||
+				jiraValues["status"] != test.jiraStatus {
+				t.Fatalf("jira discovery=%#v", jiraResult.StructuredContent)
+			}
+			confluenceResult := callToolOK(t, client, "confluence_search", map[string]any{
+				"cql": test.confluenceQuery, "limit": 10, "max_bytes": 131072,
+			})
+			confluenceContent, ok := confluenceResult.StructuredContent.(map[string]any)
+			confluenceResults, resultsOK := confluenceContent["results"].([]any)
+			var confluencePage map[string]any
+			if len(confluenceResults) == 1 {
+				confluencePage, _ = confluenceResults[0].(map[string]any)
+			}
+			if !ok || confluenceContent["complete"] != true || !resultsOK ||
+				confluencePage == nil || confluencePage["id"] != test.pageID ||
+				confluencePage["title"] != test.pageTitle {
+				t.Fatalf("confluence discovery=%#v", confluenceResult.StructuredContent)
+			}
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name: "confluence_page_section",
+				Arguments: map[string]any{
+					"reference": test.pageID, "heading": test.heading,
+					"occurrence": 1, "max_bytes": 32768,
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil ||
+				bytes.Contains(encoded, []byte(test.marker)) {
+				t.Fatalf("forbidden result leaked or succeeded: %s", encoded)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil {
+				t.Fatalf("error content=%q: %v", text.Text, err)
+			}
+			if got.Kind != "forbidden" || got.Remediation != "request_access" ||
+				got.Message != "backend returned HTTP 403" {
+				t.Fatalf("classified error=%+v", got)
+			}
+			methods, unexpected, duplicates := backend.Summary()
+			if methods[http.MethodGet] != 3 || len(methods) != 1 ||
+				unexpected != 0 || duplicates != 0 {
+				t.Fatalf("requests=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+			}
+		})
+	}
+}
+
 func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	j := &recordingJiraReader{}
 	c := &recordingConfluenceReader{}
