@@ -362,6 +362,83 @@ func TestAggregateResultsReportsEligibilityAndFiltersNeutralEfficiency(t *testin
 	}
 }
 
+func TestAggregateResultsRetainsPassiveResourceBudgetFailures(t *testing.T) {
+	scenario := validScenario()
+	scenario.Category = BenchmarkCategorySurfaceNative
+	scenario.RequiredSemanticChecks = []string{"answer_correct"}
+	scenario.RequiredMetrics = []string{"output_tokens", "backend_requests"}
+	scenario.Budgets.MaxOutputTokens = 100
+
+	passing := validObservation()
+	passing.Metrics.OutputTokens = 90
+	passing.Coverage["output_tokens"] = true
+	passed, err := Evaluate(scenario, passing)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	overBudget := validObservation()
+	overBudget.Metrics.OutputTokens = 150
+	overBudget.Coverage["output_tokens"] = true
+	failed, err := Evaluate(scenario, overBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.Status != "fail" || len(failed.Violations) != 1 ||
+		failed.Violations[0].Code != "budget_exceeded" ||
+		failed.Violations[0].Subject != "output_tokens" {
+		t.Fatalf("failed result=%+v", failed)
+	}
+
+	aggregate, err := AggregateResults([]Result{passed, failed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := aggregate.Groups[0]
+	if group.Runs != 2 || group.Passes != 1 || group.SuccessRate != 0.5 {
+		t.Fatalf("group=%+v", group)
+	}
+	if got := group.Metrics.OutputTokens; got.ObservedRuns != 2 || got.P50 != 90 || got.P90 != 150 {
+		t.Fatalf("output token quantiles=%+v", got)
+	}
+}
+
+func TestAggregateResultsExcludesFailedChecksAndTrajectoryBudgets(t *testing.T) {
+	scenario := validScenario()
+	scenario.Category = BenchmarkCategorySurfaceNative
+	scenario.RequiredSemanticChecks = []string{"answer_correct"}
+	scenario.RequiredMetrics = []string{"output_tokens", "backend_requests"}
+	scenario.Budgets.MaxOutputTokens = 100
+	scenario.Budgets.MaxBackendRequests = 6
+
+	falseCheck := validObservation()
+	falseCheck.Checks["answer_correct"] = false
+	falseCheck.Metrics.OutputTokens = 150
+	falseCheck.Coverage["output_tokens"] = true
+	semanticFailure, err := Evaluate(scenario, falseCheck)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	extraRequest := validObservation()
+	extraRequest.HTTPMethods["GET"] = 7
+	extraRequest.Metrics.OutputTokens = 80
+	extraRequest.Coverage["output_tokens"] = true
+	trajectoryFailure, err := Evaluate(scenario, extraRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	aggregate, err := AggregateResults([]Result{semanticFailure, trajectoryFailure})
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := aggregate.Groups[0]
+	if group.Runs != 2 || group.Passes != 0 || group.Metrics.OutputTokens.ObservedRuns != 0 {
+		t.Fatalf("group=%+v", group)
+	}
+}
+
 func TestAggregateResultsDoesNotTreatUnavailableMetricAsZero(t *testing.T) {
 	first, err := Evaluate(validScenario(), validObservation())
 	if err != nil {

@@ -1269,7 +1269,7 @@ different checkpoint for the same day is never overwritten. This is durable
 private operating state, not a publishable benchmark result.
 
 Current manifests use schema v4, run specs use schema v7, observations use
-schema v5, results use schema v8, aggregates use schema v6, private plans use
+schema v5, results use schema v8, aggregates use schema v7, private plans use
 schema v8, finding scorecards use schema v3, coverage indexes use legacy schema
 v1 or typed schema v2, coverage scorecards use schema v2, legacy finding
 ledgers, legacy finding-acceptance indexes, and private-live sampling

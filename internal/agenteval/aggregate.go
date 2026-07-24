@@ -5,7 +5,7 @@ import (
 	"sort"
 )
 
-const AggregateSchemaVersion = 6
+const AggregateSchemaVersion = 7
 
 type Aggregate struct {
 	SchemaVersion int              `json:"schema_version"`
@@ -286,12 +286,44 @@ func deterministicValidForEfficiency(result Result) bool {
 	if result.EffectiveEligibility() != EligibilitySupported {
 		return false
 	}
+	resourceBudgetFailure := false
 	for _, violation := range result.Violations {
-		if violation.Code != "qualitative_review_failed" && violation.Code != "qualitative_review_disagreement" {
+		switch violation.Code {
+		case "qualitative_review_failed", "qualitative_review_disagreement":
+			continue
+		case "budget_exceeded":
+			if !passiveResourceMetric(violation.Subject) {
+				return false
+			}
+			resourceBudgetFailure = true
+		default:
 			return false
 		}
 	}
+	if resourceBudgetFailure {
+		for _, passed := range result.Checks {
+			if !passed {
+				return false
+			}
+		}
+	}
 	return true
+}
+
+// Passive resource overruns are themselves efficiency evidence. Trajectory and
+// safety budgets remain excluded because extra calls, requests, duplicates,
+// delegation, or writes can make otherwise comparable runs follow a different
+// route.
+func passiveResourceMetric(subject string) bool {
+	switch subject {
+	case "agent_turns", "output_bytes",
+		"input_tokens", "output_tokens",
+		"main_thread_input_tokens", "main_thread_output_tokens",
+		"estimated_cost_microusd", "duration_millis":
+		return true
+	default:
+		return false
+	}
 }
 
 func (r Result) Validate() error {
