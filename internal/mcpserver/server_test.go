@@ -931,6 +931,90 @@ func TestSyntheticPartialAuthorizationThroughMCPStopsAtForbiddenSection(t *testi
 	}
 }
 
+func TestSyntheticStaleCandidateThroughMCPStopsAtNotFoundSection(t *testing.T) {
+	tests := []struct {
+		name, directory, query, pageID, pageTitle, heading, marker string
+	}{
+		{"primary", "confluence-stale-not-found-mcp", `siteSearch ~ "Quartz retention decision"`,
+			"9501", "Quartz retention decision record", "Current decision", "NOT_FOUND_FIXTURE_MARKER"},
+		{"holdout", "confluence-stale-not-found-mcp-holdout", `siteSearch ~ "Saffron failover approval"`,
+			"9602", "Saffron failover approval record", "Approval", "HOLDOUT_NOT_FOUND_MARKER"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixtureFile, err := os.Open(filepath.Join("..", "..", "benchmarks", "agent-eval", test.directory, "fixture.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+			closeErr := fixtureFile.Close()
+			if decodeErr != nil || closeErr != nil {
+				t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
+			}
+			backend, err := agenteval.StartMockBackend(fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer backend.Close()
+			for name, value := range backend.Environment() {
+				t.Setenv(name, value)
+			}
+			t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+			t.Setenv("ATL_READ_ONLY", "1")
+			t.Setenv("ATL_NO_UPDATE", "1")
+			client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
+			defer closeSessions()
+
+			search := callToolOK(t, client, "confluence_search", map[string]any{
+				"cql": test.query, "limit": 10, "max_bytes": 131072,
+			})
+			content, ok := search.StructuredContent.(map[string]any)
+			results, resultsOK := content["results"].([]any)
+			var page map[string]any
+			if len(results) == 1 {
+				page, _ = results[0].(map[string]any)
+			}
+			if !ok || content["complete"] != true || !resultsOK || page == nil ||
+				page["id"] != test.pageID || page["title"] != test.pageTitle {
+				t.Fatalf("search=%#v", search.StructuredContent)
+			}
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name: "confluence_page_section",
+				Arguments: map[string]any{
+					"reference": test.pageID, "heading": test.heading,
+					"occurrence": 1, "max_bytes": 32768,
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil || bytes.Contains(encoded, []byte(test.marker)) {
+				t.Fatalf("not-found result leaked or succeeded: %s", encoded)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil {
+				t.Fatalf("error content=%q: %v", text.Text, err)
+			}
+			if got.Kind != "not_found" || got.Remediation != "verify_identifier_or_access" ||
+				got.Message != "backend returned HTTP 404" {
+				t.Fatalf("classified error=%+v", got)
+			}
+			methods, unexpected, duplicates := backend.Summary()
+			if methods[http.MethodGet] != 2 || len(methods) != 1 || unexpected != 0 || duplicates != 0 {
+				t.Fatalf("requests=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+			}
+		})
+	}
+}
+
 func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	j := &recordingJiraReader{}
 	c := &recordingConfluenceReader{}
