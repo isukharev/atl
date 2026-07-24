@@ -985,6 +985,103 @@ func TestProductionJiraIssueSearchHonorsPageSizeAboveOneHundred(t *testing.T) {
 	}
 }
 
+func TestSyntheticPaginatedJiraSearchThroughMCPReachesTerminalPage(t *testing.T) {
+	tests := []struct {
+		name, directory, query string
+		limit                  int
+		cursors                []string
+		keys                   [][]string
+	}{
+		{
+			name: "primary", directory: "jira-paginated-search-mcp",
+			query: "project = NOVA AND labels = readiness ORDER BY updated DESC, key ASC",
+			limit: 250, cursors: []string{"", "2", "4"},
+			keys: [][]string{{"NOVA-6", "NOVA-5"}, {"NOVA-4", "NOVA-3"}, {"NOVA-2", "NOVA-1"}},
+		},
+		{
+			name: "holdout", directory: "jira-paginated-search-mcp-holdout",
+			query: "project = ORBIT AND labels = launch ORDER BY priority DESC, key ASC",
+			limit: 125, cursors: []string{"", "3"},
+			keys: [][]string{{"ORBIT-15", "ORBIT-11", "ORBIT-9"}, {"ORBIT-7", "ORBIT-2"}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixtureFile, err := os.Open(filepath.Join(
+				"..", "..", "benchmarks", "agent-eval", test.directory, "fixture.json",
+			))
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+			closeErr := fixtureFile.Close()
+			if decodeErr != nil || closeErr != nil {
+				t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
+			}
+			backend, err := agenteval.StartMockBackend(fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer backend.Close()
+			for name, value := range backend.Environment() {
+				t.Setenv(name, value)
+			}
+			t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+			t.Setenv("ATL_READ_ONLY", "1")
+			t.Setenv("ATL_NO_UPDATE", "1")
+
+			client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
+			defer closeSessions()
+			for pageIndex, cursor := range test.cursors {
+				arguments := map[string]any{
+					"jql": test.query, "columns": []string{"key", "summary", "status", "updated"},
+					"limit": test.limit, "max_bytes": 65536,
+				}
+				if cursor != "" {
+					arguments["cursor"] = cursor
+				}
+				result := callToolOK(t, client, "jira_issue_search", arguments)
+				content, contentOK := result.StructuredContent.(map[string]any)
+				source, sourceOK := content["source"].(map[string]any)
+				selection, selectionOK := content["selection"].(map[string]any)
+				projection, projectionOK := content["projection"].(map[string]any)
+				page, pageOK := content["page"].(map[string]any)
+				rows, rowsOK := content["rows"].([]any)
+				if !contentOK || !sourceOK || !selectionOK || !projectionOK || !pageOK || !rowsOK ||
+					source["kind"] != "jql" || selection["jql"] != test.query ||
+					projection["ordering"] != "jql-order" ||
+					page["count"] != float64(len(test.keys[pageIndex])) ||
+					len(rows) != len(test.keys[pageIndex]) {
+					t.Fatalf("page %d content=%#v", pageIndex, result.StructuredContent)
+				}
+				terminal := pageIndex == len(test.cursors)-1
+				if page["complete"] != terminal || page["truncated"] == terminal {
+					t.Fatalf("page %d completeness=%#v", pageIndex, page)
+				}
+				if terminal {
+					if page["next_cursor"] != nil {
+						t.Fatalf("terminal page next_cursor=%#v", page["next_cursor"])
+					}
+				} else if page["next_cursor"] != test.cursors[pageIndex+1] {
+					t.Fatalf("page %d next_cursor=%#v want=%q", pageIndex, page["next_cursor"], test.cursors[pageIndex+1])
+				}
+				for rowIndex, rawRow := range rows {
+					row, ok := rawRow.(map[string]any)
+					if !ok || row["key"] != test.keys[pageIndex][rowIndex] ||
+						row["position"] != float64(rowIndex) {
+						t.Fatalf("page %d row %d=%#v", pageIndex, rowIndex, rawRow)
+					}
+				}
+			}
+			methods, unexpected, duplicates := backend.Summary()
+			if methods["GET"] != len(test.cursors) || len(methods) != 1 ||
+				unexpected != 0 || duplicates != 0 {
+				t.Fatalf("requests=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+			}
+		})
+	}
+}
+
 func TestJiraStructureGetAcceptsIntegerAndCanonicalDecimalString(t *testing.T) {
 	for _, value := range []any{int64(9), "9"} {
 		t.Run(fmt.Sprintf("%T", value), func(t *testing.T) {
