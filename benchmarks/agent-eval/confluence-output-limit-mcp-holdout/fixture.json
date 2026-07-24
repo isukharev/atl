@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/search",
+      "query_equals": {"cql": "siteSearch ~ \"Coral failover approval\""},
+      "status": 200,
+      "body": {
+        "results": [
+          {
+            "content": {"id":"9801","type":"page","title":"Coral failover approval north","space":{"key":"SRE"},"version":{"number":9,"when":"2026-07-21T09:00:00.000Z"}},
+            "excerpt": "HOLDOUT_OUTPUT_LIMIT_PAYLOAD candidate north contains distinct synthetic rejected source material repeated so the complete encoded search result exceeds the selected byte boundary. It must never be exposed or treated as partial evidence."
+          },
+          {
+            "content": {"id":"9802","type":"page","title":"Coral failover approval south","space":{"key":"SRE"},"version":{"number":8,"when":"2026-07-21T09:10:00.000Z"}},
+            "excerpt": "HOLDOUT_OUTPUT_LIMIT_PAYLOAD candidate south contains distinct synthetic rejected source material repeated so the complete encoded search result exceeds the selected byte boundary. It must never be exposed or treated as partial evidence."
+          },
+          {
+            "content": {"id":"9803","type":"page","title":"Coral failover approval east","space":{"key":"SRE"},"version":{"number":7,"when":"2026-07-21T09:20:00.000Z"}},
+            "excerpt": "HOLDOUT_OUTPUT_LIMIT_PAYLOAD candidate east contains distinct synthetic rejected source material repeated so the complete encoded search result exceeds the selected byte boundary. It must never be exposed or treated as partial evidence."
+          },
+          {
+            "content": {"id":"9804","type":"page","title":"Coral failover approval west","space":{"key":"SRE"},"version":{"number":6,"when":"2026-07-21T09:30:00.000Z"}},
+            "excerpt": "HOLDOUT_OUTPUT_LIMIT_PAYLOAD candidate west contains distinct synthetic rejected source material repeated so the complete encoded search result exceeds the selected byte boundary. It must never be exposed or treated as partial evidence."
+          },
+          {
+            "content": {"id":"9805","type":"page","title":"Coral failover approval central","space":{"key":"SRE"},"version":{"number":5,"when":"2026-07-21T09:40:00.000Z"}},
+            "excerpt": "HOLDOUT_OUTPUT_LIMIT_PAYLOAD candidate central contains distinct synthetic rejected source material repeated so the complete encoded search result exceeds the selected byte boundary. It must never be exposed or treated as partial evidence."
+          }
+        ],
+        "size": 5,
+        "totalCount": 5,
+        "_links": {}
+      }
+    }
+  ]
+}
