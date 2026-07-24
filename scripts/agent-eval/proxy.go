@@ -231,6 +231,9 @@ func allowedSkillReadCommand(command, rawRoots string) bool {
 	}
 	for _, part := range parts {
 		fields := strings.Fields(strings.TrimSpace(part))
+		if len(fields) > 0 && fields[0] == "command" {
+			fields = fields[1:]
+		}
 		var targets []string
 		switch {
 		case len(fields) >= 2 && len(fields) <= 17 && fields[0] == "cat":
