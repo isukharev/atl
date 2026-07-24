@@ -62,7 +62,7 @@ func TestRunHeadlessWithFakeProvidersUsesPrivateWrapperAndSyntheticMetrics(t *te
 	}
 	writeJSONTestFile(t, filepath.Join(caseDir, "fixture.json"), fixture)
 	writeTestFile(t, filepath.Join(caseDir, "prompt.md"), "Use atl and return the requested JSON.\n", 0o600)
-	responseSchemaFixture := `{"type":"object","properties":{"answer":{"type":"string"},"labels":{"type":"array","items":{"type":"string"},"uniqueItems":true},"format":{"const":"json"}},"required":["answer"],"additionalProperties":false}`
+	responseSchemaFixture := `{"type":"object","properties":{"answer":{"type":"string"},"labels":{"type":"array","items":{"type":"string"},"uniqueItems":true},"format":{"const":"json"}},"required":["answer","labels","format"],"additionalProperties":false}`
 	writeTestFile(t, filepath.Join(caseDir, "response.json"), responseSchemaFixture, 0o600)
 	rubric := Rubric{SchemaVersion: 1, ID: "synthetic-answer", ScenarioID: scenario.ID, MinimumScoreBPS: 6000, Criteria: []RubricCriterion{{ID: "usefulness", Description: "The answer is useful.", Maximum: 4, Minimum: 2, Weight: 1}}, AllowedFindingIDs: []string{"unclear"}}
 	writeJSONTestFile(t, filepath.Join(caseDir, "rubric.json"), rubric)
@@ -461,7 +461,7 @@ exit 2
 
 	spec.Variant = "typed-mcp-codex-compatible-schema"
 	spec.Repetitions = 1
-	writeTestFile(t, filepath.Join(caseDir, "response.json"), `{"type":"object","properties":{"answer":{"type":"string"},"labels":{"type":"array","items":{"type":"string"}}},"required":["answer"],"additionalProperties":false}`, 0o600)
+	writeTestFile(t, filepath.Join(caseDir, "response.json"), `{"type":"object","properties":{"answer":{"type":"string"},"labels":{"type":"array","items":{"type":"string"}}},"required":["answer","labels"],"additionalProperties":false}`, 0o600)
 	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
 	output, err = RunHeadless(context.Background(), RunOptions{
 		SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,

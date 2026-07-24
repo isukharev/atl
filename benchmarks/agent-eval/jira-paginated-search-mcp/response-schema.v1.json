@@ -44,18 +44,18 @@
       }
     },
     "status_counts": {
-      "type": "object",
-      "properties": {
-        "Blocked": {"type": "integer"},
-        "Closed": {"type": "integer"},
-        "Done": {"type": "integer"},
-        "In Progress": {"type": "integer"},
-        "Open": {"type": "integer"},
-        "Paused": {"type": "integer"},
-        "Review": {"type": "integer"},
-        "To Do": {"type": "integer"}
-      },
-      "additionalProperties": false
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "properties": {
+          "status": {"type": "string"},
+          "count": {"type": "integer"}
+        },
+        "required": ["status", "count"],
+        "additionalProperties": false
+      }
     },
     "total_count": {"type": "integer"},
     "ids_unique": {"type": "boolean"},

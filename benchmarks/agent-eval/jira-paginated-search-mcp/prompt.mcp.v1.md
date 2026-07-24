@@ -18,7 +18,8 @@ commands. Do not reproduce the summaries in the final response. Record each
 page's input cursor (`null` for the first call), ordered keys, count,
 complete/truncated flags, and next cursor. Concatenate all rows into `issues`
 with exact key, status, and updated value; compute exact status counts and the
-total, and prove identities are unique and page counts reconcile. Preserve the
-exact query and projection columns. Set `evidence_complete` only after terminal
-pagination. Include a concise `brief` and return only the requested structured
-response.
+total. Emit `status_counts` as one `{status,count}` entry per observed status,
+sorted by status name, and prove identities are unique and page counts
+reconcile. Preserve the exact query and projection columns. Set
+`evidence_complete` only after terminal pagination. Include a concise `brief`
+and return only the requested structured response.
