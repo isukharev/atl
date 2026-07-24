@@ -976,6 +976,10 @@ func validateSelectedTableExtract(extract *app.ConfluenceTableExtract, table int
 			}
 		}
 	}
+	summary := app.SummarizeConfluenceTables(extract)
+	if summary == nil || !summary.SelectionReconciled || len(summary.Tables) != 1 || selected.Summary != summary.Tables[0] {
+		return fmt.Errorf("%w: selected table summary is not reconciled", domain.ErrCheckFailed)
+	}
 	return nil
 }
 

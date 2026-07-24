@@ -34,6 +34,9 @@ For tabular evidence, call `confluence_table_summary` without a table selection,
 then `confluence_table_extract` for one positive 1-based table index. Never use
 table extraction as a full-page read. Honor `max_bytes`; an oversize error means
 narrow the selection, not that partial cells were returned.
+Each extracted table includes the same reconciled, content-free `summary`
+record as the summary tool. Use it for shape, span, style, link, and non-empty
+cell counts instead of deriving those totals locally.
 For exact values, filters, and plain-text answers, use each extracted cell's
 whitespace-normalized `text`. Use the also whitespace-normalized `markdown`
 only when inline formatting is explicitly requested. Treat both

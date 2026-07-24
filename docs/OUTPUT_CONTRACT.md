@@ -127,9 +127,12 @@ the CLI, including top-level `complete`, `truncated`, optional
 `partial_reason`, and `next_cursor`; candidate page bodies are not included.
 `confluence_table_summary` returns the content-free structural summary contract.
 `confluence_table_extract` requires one positive table index and returns exactly
-that expanded table. Both reject an encoded result larger than `max_bytes`
-instead of clipping cells or silently returning a partial structure. Their
-error messages do not repeat CSF parser text or malformed cell content.
+that expanded table. Its table record embeds the same content-free,
+`cell_count_reconciled` summary record as `confluence_table_summary`, so clients
+do not need to recount cells, spans, styles, or links. Both reject an encoded
+result larger than `max_bytes` instead of clipping cells or silently returning
+a partial structure. Their error messages do not repeat CSF parser text or
+malformed cell content.
 Each extracted cell's `text` is whitespace-normalized plain text for exact
 values and filtering. Its optional `markdown` is also whitespace-normalized and
 preserves inline formatting such as links, so clients should select it only when
@@ -1073,6 +1076,14 @@ semantics. Non-empty text, Markdown, and raw-attribute counts are separate.
 `distinct_style_marker_count` counts distinct key/value pairs. Only the counts
 are emitted: the command never emits page titles, cell content, URLs, style
 keys/values, raw attributes, or warning text.
+
+Every table record returned by `atl conf table extract --format json` also has
+a required `summary` object with this exact record shape. ATL computes it from
+the expanded table before JSON encoding. The embedded and standalone records
+therefore use identical origin/repeat/padding and span semantics; clients that
+need both content and counts should use the embedded record instead of
+recounting cells. The field is additive to the extraction contract and does
+not affect CSV or XLSX rendering.
 
 `atl jira export diff OLD NEW` reads JSONL/JSON/CSV compact exports and reports issue identifiers:
 

@@ -101,8 +101,10 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 				t.Fatal(marshalErr)
 			}
 			if !bytes.Contains(encoded, []byte("whitespace-normalized plain text")) ||
-				!bytes.Contains(encoded, []byte("formatting-preserving Markdown")) {
-				t.Errorf("tool %s output schema does not distinguish text and markdown: %s", tool.Name, encoded)
+				!bytes.Contains(encoded, []byte("formatting-preserving Markdown")) ||
+				!bytes.Contains(encoded, []byte(`"summary"`)) ||
+				!bytes.Contains(encoded, []byte(`"cell_count_reconciled"`)) {
+				t.Errorf("tool %s output schema lacks cell or summary semantics: %s", tool.Name, encoded)
 			}
 		}
 		if tool.Name == "confluence_table_summary" && !schemaRequired(input, "reference") {
@@ -583,6 +585,18 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	extractContent, ok := extract.StructuredContent.(map[string]any)
 	if !ok || extractContent["selected_table"] != float64(2) {
 		t.Fatalf("table extract=%#v", extract.StructuredContent)
+	}
+	extractTables, ok := extractContent["tables"].([]any)
+	if !ok || len(extractTables) != 1 {
+		t.Fatalf("table extract tables=%#v", extractContent["tables"])
+	}
+	extractTable, ok := extractTables[0].(map[string]any)
+	if !ok {
+		t.Fatalf("table extract record=%#v", extractTables[0])
+	}
+	extractSummary, ok := extractTable["summary"].(map[string]any)
+	if !ok || extractSummary["index"] != float64(2) || extractSummary["cell_count_reconciled"] != true {
+		t.Fatalf("table extract summary=%#v", extractTable["summary"])
 	}
 
 	if j.fieldOpts.Custom != "true" || j.fieldOpts.NameLike != "Outcome" {
@@ -1140,6 +1154,7 @@ func TestConfluenceTableToolsRejectUnreconciledApplicationResults(t *testing.T) 
 		{name: "summary cell count", tool: "confluence_table_summary", args: map[string]any{"reference": "42"}, mode: "summary-cell-count"},
 		{name: "extract selection", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract"},
 		{name: "extract dimensions", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-dimensions"},
+		{name: "extract summary", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-summary"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			reader := &invalidConfluenceTableReader{recordingConfluenceReader: &recordingConfluenceReader{}, mode: test.mode}
@@ -1539,6 +1554,8 @@ func (r *invalidConfluenceTableReader) ExtractTables(ctx context.Context, refere
 		result.Tables = append(result.Tables, result.Tables[0])
 	case "extract-dimensions":
 		result.Tables[0].RowCount++
+	case "extract-summary":
+		result.Tables[0].Summary.ExpandedCellCount++
 	}
 	return result, err
 }
@@ -1548,9 +1565,12 @@ func (r *recordingConfluenceReader) ExtractTables(_ context.Context, reference s
 	if r.tableErr != nil {
 		return nil, r.tableErr
 	}
-	return &app.ConfluenceTableExtract{PageID: "42", TableCount: 2, Table: table, Tables: []app.ConfluenceTable{{Index: table,
+	result := &app.ConfluenceTableExtract{PageID: "42", TableCount: 2, Table: table, Tables: []app.ConfluenceTable{{Index: table,
 		RowCount: 1, ColumnCount: 1, Rows: []app.ConfluenceTableRow{{Index: 1,
-			Cells: []app.ConfluenceTableCell{{Row: 1, Column: 1, Text: r.tableText}}}}}}}, nil
+			Cells: []app.ConfluenceTableCell{{Row: 1, Column: 1, Text: r.tableText}}}}}}}
+	summary := app.SummarizeConfluenceTables(result)
+	result.Tables[0].Summary = summary.Tables[0]
+	return result, nil
 }
 
 func (r *cancellingJiraReader) FieldCatalog(ctx context.Context, _ app.JiraFieldCatalogOpts) (*app.JiraFieldCatalogResult, error) {

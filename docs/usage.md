@@ -1342,9 +1342,12 @@ Flags:
 | `--raw-csv` | preserve formula-leading cells verbatim; CSV only and unsafe in spreadsheets |
 
 JSON preserves the expanded cells, source coordinates for rowspan/colspan
-repeats, ordinary links, and visible inline color markers. CSV without
-`--table` emits a cell-level stream so pages with different table shapes can
-share one file; CSV with `--table` emits a rectangular table.
+repeats, ordinary links, and visible inline color markers. Every JSON table
+also includes a required `summary` record with the same reconciled structural
+metrics as `atl conf table summary`, so scripts can consume exact counts without
+recounting cells. CSV without `--table` emits a cell-level stream so pages with
+different table shapes can share one file; CSV with `--table` emits a
+rectangular table.
 CSV prefixes cells beginning with `=`, `+`, `-`, `@`, tab, CR, or LF with an
 apostrophe by default so opening untrusted page data in a spreadsheet does not
 execute it as a formula. `--raw-csv` is an explicit unsafe escape hatch.

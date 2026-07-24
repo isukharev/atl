@@ -138,7 +138,8 @@ func testIntegrationMCPConfluenceTables(t *testing.T) {
 	)
 	if extract.Table != selected || extract.TableCount < selected || len(extract.Tables) != 1 ||
 		extract.Tables[0].Index != selected ||
-		extract.Tables[0].RowCount != len(extract.Tables[0].Rows) {
+		extract.Tables[0].RowCount != len(extract.Tables[0].Rows) ||
+		extract.Tables[0].Summary != summary.Tables[selected-1] {
 		t.Fatal("live selected table did not reconcile")
 	}
 	for _, row := range extract.Tables[0].Rows {

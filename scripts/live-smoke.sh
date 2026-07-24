@@ -250,7 +250,7 @@ PY
   jq -e --argjson min "$min_tables" '.table_count >= $min and (.tables | length) >= $min' "$tmp/conf-tables.json" >/dev/null
   jq -e -s '
     .[0].table_count == .[1].table_count and
-    ([.[0].tables[] | {index,row_count,column_count}] == [.[1].tables[] | {index,row_count,column_count}])
+    ([.[0].tables[]] == [.[1].tables[].summary])
   ' "$tmp/conf-table-summary.json" "$tmp/conf-tables.json" >/dev/null
   "$ATL_BIN" conf table extract --id "$conf_table_page_id" --table 1 --format csv > "$tmp/conf-table-1.csv"
   test -s "$tmp/conf-table-1.csv"
