@@ -61,6 +61,11 @@ write command after explicit approval.
   reported content-free table count. Call `confluence_table_summary` once
   without `table`, choose from that inventory, then extract the selected table;
   do not claim the page is missing.
+  If `confluence_page_section` returns `check_failed` or `not_found` with
+  `outline_then_select_section`, the occurrence selection is ambiguous or
+  stale. Refresh `confluence_page_outline`, choose the exact heading
+  occurrence from its content-free metadata, then read that section once; do
+  not claim the page or heading is missing. Other section failures are generic.
   Each extracted table carries the same reconciled, content-free `summary`
   metrics as the summary tool; use them instead of recounting cells or spans.
   In an extracted cell, use `text` for whitespace-normalized exact values and

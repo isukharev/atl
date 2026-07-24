@@ -160,6 +160,10 @@ For Confluence table tools, `not_found` /
 `summarize_then_select_table` means the selected 1-based index is outside the
 content-free table count. Summarize without a table selection, choose from that
 inventory, then extract once; do not report the page as missing.
+For `confluence_page_section`, `check_failed` or `not_found` /
+`outline_then_select_section` means the occurrence selection is ambiguous or
+stale. Refresh the content-free outline, choose the exact heading occurrence,
+then read that section once; do not report the page or heading as missing.
 
 The recommended convention keeps the mirror **outside the user's code
 repository** at `~/.atl/<workspace>/`, so it is fully greppable yet never

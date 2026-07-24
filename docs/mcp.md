@@ -86,7 +86,11 @@ limit before raising the byte bound. Reuse a returned numeric id directly with
 `confluence_page_outline` and `confluence_page_section`.
 Pass `confluence_page_section.heading` as the exact `title` returned by the
 outline, without a Markdown `#` prefix; use `occurrence` when that title
-repeats.
+repeats. A section `check_failed` or `not_found` with
+`outline_then_select_section` is a recoverable occurrence-selection error:
+refresh the outline, choose the exact heading occurrence from its content-free
+metadata, and then read that section once. Other section `not_found` failures
+remain generic and do not disclose the heading or page reference.
 
 For table evidence, call `confluence_table_summary` first without `table` to
 inventory every table without returning cell content. Then call
@@ -147,6 +151,13 @@ reported content-free table count. Call `confluence_table_summary` without a
 table selection, choose from that inventory, and then extract once; do not
 report the page as missing. Other Confluence table `not_found` failures retain
 `verify_identifier_or_access` and do not expose structural counts.
+A Confluence section `check_failed` or `not_found` with
+`outline_then_select_section` means an omitted occurrence was ambiguous or the
+requested positive occurrence exceeded the available count. Its message
+contains only requested/available integer counts. Refresh the page outline,
+select an occurrence from that inventory, and read the section once; do not
+report the page or heading as missing. Other section failures use coarse safe
+messages and retain their ordinary remediation.
 
 ## Install through the agent plugins
 

@@ -64,6 +64,29 @@ type ConfluencePageSectionResult struct {
 	EmittedBytes  int      `json:"emitted_bytes"`
 }
 
+// ConfluenceSectionSelectionError reports a recoverable page-section selection
+// mistake. Requested == 0 means the heading repeats and no occurrence was
+// supplied; Requested > 0 means the requested 1-based occurrence exceeds the
+// available matches. It deliberately carries only integer counts — never a
+// heading, page id, title, space, URL, body, or backend text — so a transport
+// can distinguish a recoverable caller-side selection mistake from an
+// unavailable source without disclosing page content. It unwraps to
+// domain.ErrCheckFailed when ambiguous and domain.ErrNotFound when out of
+// range, so sentinel-driven exit codes and classification stay unchanged.
+type ConfluenceSectionSelectionError struct {
+	Requested int
+	Available int
+}
+
+func (e *ConfluenceSectionSelectionError) Error() string { return e.Unwrap().Error() }
+
+func (e *ConfluenceSectionSelectionError) Unwrap() error {
+	if e.Requested == 0 {
+		return domain.ErrCheckFailed
+	}
+	return domain.ErrNotFound
+}
+
 type confluenceStructuralPage struct {
 	page     *domain.Resource
 	blocks   []mirror.Block
@@ -136,15 +159,17 @@ func (s *ConfluenceService) PageSection(ctx context.Context, reference string, o
 	if len(matches) == 0 {
 		return nil, fmt.Errorf("%w: Confluence heading %q was not found", domain.ErrNotFound, strings.TrimSpace(opts.Heading))
 	}
+	// The typed selection error carries the machine-readable counts; the
+	// wrapping prose keeps the existing human-facing message byte for byte.
 	if opts.Occurrence == 0 && len(matches) > 1 {
-		return nil, fmt.Errorf("%w: Confluence heading %q occurs %d times; pass --occurrence 1..%d", domain.ErrCheckFailed, strings.TrimSpace(opts.Heading), len(matches), len(matches))
+		return nil, fmt.Errorf("%w: Confluence heading %q occurs %d times; pass --occurrence 1..%d", &ConfluenceSectionSelectionError{Available: len(matches)}, strings.TrimSpace(opts.Heading), len(matches), len(matches))
 	}
 	occurrence := opts.Occurrence
 	if occurrence == 0 {
 		occurrence = 1
 	}
 	if occurrence > len(matches) {
-		return nil, fmt.Errorf("%w: Confluence heading %q has %d occurrence(s), not %d", domain.ErrNotFound, strings.TrimSpace(opts.Heading), len(matches), occurrence)
+		return nil, fmt.Errorf("%w: Confluence heading %q has %d occurrence(s), not %d", &ConfluenceSectionSelectionError{Requested: occurrence, Available: len(matches)}, strings.TrimSpace(opts.Heading), len(matches), occurrence)
 	}
 	selectedHeadingIndex := matches[occurrence-1]
 	selected := parsed.headings[selectedHeadingIndex]
