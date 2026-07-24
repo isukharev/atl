@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -933,14 +934,29 @@ func TestLiveGatewayConcurrencyDenialConsumesNoWriteBudgets(t *testing.T) {
 
 func TestLiveGatewayCloseWaitsForHandlersBeforeKeyTeardown(t *testing.T) {
 	started := make(chan struct{})
-	upstreamDone := make(chan struct{})
-	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
-		close(started)
-		<-request.Context().Done()
-		close(upstreamDone)
-	}))
+	canceled := make(chan struct{})
+	releaseRoundTrip := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseRoundTrip) })
+	}
+	roundTripDone := make(chan struct{})
+	upstream := httptest.NewServer(http.NotFoundHandler())
 	defer upstream.Close()
 	gateway, _ := startTestLiveGateway(t, upstream.URL, 1, 1024, 1024)
+	t.Cleanup(func() {
+		release()
+		_ = gateway.Close(context.Background())
+	})
+	originalKey := bytes.Clone(gateway.state.hmacKey)
+	gateway.state.upstreamHTTP.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		close(started)
+		<-request.Context().Done()
+		close(canceled)
+		<-releaseRoundTrip
+		close(roundTripDone)
+		return nil, request.Context().Err()
+	})
 	endpoint := gateway.Endpoints()["jira"]
 	clientDone := make(chan struct{})
 	go func() {
@@ -962,13 +978,36 @@ func TestLiveGatewayCloseWaitsForHandlersBeforeKeyTeardown(t *testing.T) {
 	}
 	closeContext, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := gateway.Close(closeContext); err != nil && !errors.Is(err, context.Canceled) {
-		t.Fatalf("close error=%v", err)
+	closeDone := make(chan error, 1)
+	go func() {
+		closeDone <- gateway.Close(closeContext)
+	}()
+	select {
+	case <-canceled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("gateway upstream operation was not canceled")
 	}
 	select {
-	case <-upstreamDone:
+	case err := <-closeDone:
+		t.Fatalf("gateway closed before its active handler: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if !bytes.Equal(gateway.state.hmacKey, originalKey) {
+		t.Fatal("gateway HMAC key changed before handler shutdown")
+	}
+	release()
+	select {
+	case err := <-closeDone:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("close error=%v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("gateway close did not finish after its active handler")
+	}
+	select {
+	case <-roundTripDone:
 	default:
-		t.Fatal("gateway key teardown raced an active upstream handler")
+		t.Fatal("gateway key teardown raced an active upstream operation")
 	}
 	for _, value := range gateway.state.hmacKey {
 		if value != 0 {
@@ -980,6 +1019,12 @@ func TestLiveGatewayCloseWaitsForHandlersBeforeKeyTeardown(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("gateway client did not stop")
 	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
 }
 
 func TestLiveGatewayEnforcesRequestAndAuditBoundaries(t *testing.T) {
