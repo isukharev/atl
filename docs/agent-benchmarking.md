@@ -269,13 +269,16 @@ different topology: one Jira candidate search, one Confluence candidate search,
 one outline-selected page section, and one exact Jira field expansion. Its
 primary n=3 pair and distinct n=1 repeated-leaf holdout share a byte-identical
 closed response schema and exact five-family route. Both require five typed
-calls, six GETs, one intentional repeated page target, and zero writes. The
-exact invocation oracle also checks each normalized typed-tool argument object;
-observed arguments exist only during evaluation and are omitted from stored
-observations and results. Exact answer checks preserve the complete rollout
-ceiling qualifier and terminal punctuation of each risk sentence instead of
-accepting shortened evidence. The historical neutral comparison remains
-unchanged.
+calls, five or six GETs, one intentional repeated page target, and zero writes.
+The closed `mcp_route_one_of` oracle binds each accepted HTTP method-count map
+to its matching normalized typed-tool argument array. It accepts only the
+reviewed canonical system-field-id route or the equivalent display-name route
+with its additional metadata lookup; crossed pairs, changed arguments, extra
+calls, and reordered calls still fail. Observed arguments exist only during
+evaluation and are omitted from stored observations and results. Exact answer
+checks preserve the complete rollout ceiling qualifier and terminal punctuation
+of each risk sentence instead of accepting shortened evidence. The historical
+neutral comparison remains unchanged.
 
 The semantic run-check kind `json_string_equals_optional_period` is deliberately
 narrow: its expected value is a canonical non-empty string without a terminal
@@ -890,13 +893,15 @@ claim.
 The newer `cross-service-discovery-mcp` and
 `cross-service-discovery-mcp-holdout` cells preserve that historical baseline
 and add current provider-paired regression coverage. Both force the same
-Jira-first five-call sequence and resolve `Description` by display name, so the
-deterministic contract is exactly six GETs rather than permitting the
-model-dependent five-or-six request route. The n=3 primary uses a unique page
-heading; the n=1 holdout changes every identity and fact and requires the second
-same-named leaf under an explicit structural parent. Exact route-family,
-sequence, invocation-argument, completeness, provenance, hostile-content, and
-zero-write checks must all pass before efficiency metrics are interpreted.
+Jira-first five-call sequence. The last call may use either the canonical
+`description` system field id for a five-GET route or the `Description` display
+name for an otherwise identical six-GET route. `mcp_route_one_of` enumerates
+and binds those two exact trajectories rather than accepting their cross
+product. The n=3 primary uses a unique page heading; the n=1 holdout changes
+every identity and fact and requires the second same-named leaf under an
+explicit structural parent. Exact route-family, sequence, trajectory,
+completeness, provenance, hostile-content, and zero-write checks must all pass
+before efficiency metrics are interpreted.
 
 ## Deterministic contract budgets
 

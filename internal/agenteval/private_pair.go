@@ -173,7 +173,8 @@ func runCheckClass(kind string) string {
 		"interface_invocations_min", "interface_invocations_max", "interface_all_succeeded", "interface_failures_equals",
 		"skill_invocations_min", "mock_no_unexpected", "delegations_min", "delegations_none",
 		"guard_no_denials", "http_methods_observed", "http_methods_equal",
-		"capability_families_equal", "capability_sequence_equal", "mcp_invocations_equal":
+		"capability_families_equal", "capability_sequence_equal", "mcp_invocations_equal",
+		"mcp_route_one_of":
 		return "mechanical"
 	default:
 		return ""

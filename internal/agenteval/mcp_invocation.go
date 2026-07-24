@@ -6,7 +6,10 @@ import (
 	"slices"
 )
 
-const maxMCPInvocationExpectations = 100
+const (
+	maxMCPInvocationExpectations = 100
+	maxMCPRouteAlternatives      = 8
+)
 
 // MCPInvocation is retained only while one provider run is evaluated. Raw tool
 // arguments are deliberately excluded from Observation and Result so private
@@ -14,6 +17,11 @@ const maxMCPInvocationExpectations = 100
 type MCPInvocation struct {
 	Tool      string
 	Arguments json.RawMessage
+}
+
+type mcpRouteExpectation struct {
+	HTTPMethods map[string]int
+	Invocations []MCPInvocation
 }
 
 func newMCPInvocation(tool string, input any) (MCPInvocation, bool) {
@@ -74,4 +82,56 @@ func invocationToolsAllowed(invocations []MCPInvocation, allowed []string) bool 
 		}
 	}
 	return true
+}
+
+func expectedMCPRouteAlternatives(raw json.RawMessage) ([]mcpRouteExpectation, bool) {
+	canonical, err := canonicalJSON(raw)
+	if err != nil {
+		return nil, false
+	}
+	var entries []json.RawMessage
+	if err := json.Unmarshal(canonical, &entries); err != nil ||
+		len(entries) < 2 ||
+		len(entries) > maxMCPRouteAlternatives {
+		return nil, false
+	}
+	alternatives := make([]mcpRouteExpectation, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		entryCanonical, err := canonicalJSON(entry)
+		if err != nil {
+			return nil, false
+		}
+		if _, duplicate := seen[string(entryCanonical)]; duplicate {
+			return nil, false
+		}
+		seen[string(entryCanonical)] = struct{}{}
+
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(entryCanonical, &fields); err != nil ||
+			len(fields) != 2 {
+			return nil, false
+		}
+		methods, methodsOK := expectedHTTPMethods(fields["http_methods"])
+		invocations, invocationsOK := expectedMCPInvocations(fields["invocations"])
+		if !methodsOK || !invocationsOK {
+			return nil, false
+		}
+		alternatives = append(alternatives, mcpRouteExpectation{
+			HTTPMethods: methods,
+			Invocations: invocations,
+		})
+	}
+	return alternatives, true
+}
+
+func mcpRouteMatches(
+	alternatives []mcpRouteExpectation,
+	httpMethods map[string]int,
+	invocations []MCPInvocation,
+) bool {
+	return slices.ContainsFunc(alternatives, func(alternative mcpRouteExpectation) bool {
+		return equalHTTPMethods(alternative.HTTPMethods, httpMethods) &&
+			equalMCPInvocations(alternative.Invocations, invocations)
+	})
 }
