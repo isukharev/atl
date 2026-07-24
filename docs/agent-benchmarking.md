@@ -276,8 +276,9 @@ reviewed canonical system-field-id route or the equivalent display-name route
 with its additional metadata lookup; crossed pairs, changed arguments, extra
 calls, and reordered calls still fail. Observed arguments exist only during
 evaluation and are omitted from stored observations and results. Exact answer
-checks preserve the complete rollout ceiling qualifier and terminal punctuation
-of each risk sentence instead of accepting shortened evidence. The historical
+checks define `topic` as the exact request label without added qualifiers and
+preserve the complete rollout ceiling qualifier and terminal punctuation of
+each risk sentence instead of accepting shortened evidence. The historical
 neutral comparison remains unchanged.
 
 The semantic run-check kind `json_string_equals_optional_period` is deliberately
