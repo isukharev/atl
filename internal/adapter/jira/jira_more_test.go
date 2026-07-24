@@ -511,8 +511,9 @@ func TestSearchEmptyResultNoCursor(t *testing.T) {
 	}
 }
 
-// TestSearchClampsLimitAndDefaultFields verifies the maxResults clamp (limit<=0
-// or >100 → 50) and the default search field set.
+// TestSearchClampsLimitAndDefaultFields verifies the maxResults bound and the
+// default search field set. Values through the typed interface's 1000-item
+// maximum must reach Jira unchanged.
 func TestSearchClampsLimitAndDefaultFields(t *testing.T) {
 	const wantFields = "summary,status,issuetype,project,assignee,labels"
 	cases := []struct {
@@ -522,7 +523,9 @@ func TestSearchClampsLimitAndDefaultFields(t *testing.T) {
 	}{
 		{"zero clamps to 50", 0, "50"},
 		{"negative clamps to 50", -3, "50"},
-		{"over 100 clamps to 50", 250, "50"},
+		{"above historical cap kept", 250, "250"},
+		{"maximum kept", 1000, "1000"},
+		{"over maximum clamps to 50", 1001, "50"},
 		{"in-range kept", 25, "25"},
 		{"exactly 100 kept", 100, "100"},
 	}

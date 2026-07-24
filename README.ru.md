@@ -479,6 +479,7 @@ atl jira epic digest PROJ-1 --quarter 2026-Q2 --status-field 'Delivery Notes' --
 atl jira issue view PROJ-1 -o text   # настроенный Markdown без записи файлов
 atl jira issue search --jql 'project = PROJ AND status = "In Progress"' --columns key,summary,status,assignee
 atl jira issue search --jql 'project = PROJ' --view full
+# --limit запрашивает maxResults 1..1000 (по умолчанию 50); Jira может вернуть меньше; продолжение — page.next_cursor
 atl jira issue children PROJ-100 --columns key,summary,status,assignee
 atl capabilities --task jira/portfolio            # bounded-маршрут квартального плана
 atl capabilities --task jira/edit                 # guarded-запись полей, worklog и планов

@@ -44,7 +44,11 @@ var _ domain.CompleteChangelogReader = (*Jira)(nil)
 var _ domain.JiraTimeSemanticsReader = (*Jira)(nil)
 var _ domain.Verifier = (*Jira)(nil)
 
-const defaultFields = "summary,description,status,issuetype,project,assignee,reporter,labels,issuelinks,comment,attachment"
+const (
+	defaultFields               = "summary,description,status,issuetype,project,assignee,reporter,labels,issuelinks,comment,attachment"
+	jiraSearchDefaultMaxResults = 50
+	jiraSearchMaxResults        = 1000
+)
 
 // --- DTOs ---
 
@@ -107,8 +111,8 @@ func (j *Jira) search(ctx context.Context, jql string, fields []string, limit in
 	if err != nil {
 		return nil, "", err
 	}
-	if limit <= 0 || limit > 100 {
-		limit = 50
+	if limit <= 0 || limit > jiraSearchMaxResults {
+		limit = jiraSearchDefaultMaxResults
 	}
 	fq := "summary,status,issuetype,project,assignee,labels"
 	if len(fields) > 0 {
