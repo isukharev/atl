@@ -45,7 +45,10 @@ are sufficient; request full definitions only to discover identities. For
 `columns`; `fields` and `projection` are equivalent compatibility aliases.
 Supply at most one non-empty selector; empty arrays are omitted. The returned
 IssueList carries normalized `projection` metadata independently. For a
-Structure metadata read, pass `structure_id` as a positive integer or canonical
+portfolio board, select the exact epic relation field plus `updated`, pass
+`epic_field` and `done_statuses`, require `epic_rollup.complete:true`, and use
+its deterministic counts/latest child timestamps instead of regrouping rows.
+For a Structure metadata read, pass `structure_id` as a positive integer or canonical
 decimal string without a sign, whitespace, or leading zero. For a Structure
 view, use explicit fields and at most one exact folder selector; honor
 emitted-row/byte bounds, the 1000-row forest scan cap, and completeness. Use CLI

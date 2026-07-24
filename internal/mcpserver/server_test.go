@@ -393,10 +393,26 @@ func TestSyntheticPortfolioThroughMCPUsesExactGETOnlyRoute(t *testing.T) {
 	if !ok || fieldContent["schema_version"] != float64(1) || fieldContent["complete"] != true {
 		t.Fatalf("field catalog=%#v", fields.StructuredContent)
 	}
-	callToolOK(t, client, "jira_board_view", map[string]any{
+	board := callToolOK(t, client, "jira_board_view", map[string]any{
 		"board_id": 5, "scope": "board", "limit": 50,
-		"columns": []string{"key", "summary", "status", "issuetype", "updated", "customfield_11001", "customfield_11002", "customfield_11003"},
+		"columns":    []string{"key", "summary", "status", "issuetype", "updated", "customfield_11001", "customfield_11002", "customfield_11003"},
+		"epic_field": "customfield_11001", "done_statuses": []string{"Done"},
 	})
+	boardContent, ok := board.StructuredContent.(map[string]any)
+	rollup, rollupOK := boardContent["epic_rollup"].(map[string]any)
+	epics, epicsOK := rollup["epics"].([]any)
+	if !ok || !rollupOK || !epicsOK || rollup["complete"] != true || len(epics) != 3 {
+		t.Fatalf("board rollup=%#v", board.StructuredContent)
+	}
+	first, firstOK := epics[0].(map[string]any)
+	second, secondOK := epics[1].(map[string]any)
+	third, thirdOK := epics[2].(map[string]any)
+	if !firstOK || !secondOK || !thirdOK ||
+		first["key"] != "PROJ-10" || first["child_count"] != float64(2) || first["done_child_count"] != float64(2) ||
+		second["key"] != "PROJ-20" || second["latest_child_updated"] != "2026-06-20T10:00:00.000+0000" ||
+		third["key"] != "PROJ-30" || third["latest_child_updated"] != "2026-06-27T10:00:00.000+0000" {
+		t.Fatalf("epics=%#v", epics)
+	}
 	for _, key := range []string{"PROJ-10", "PROJ-20", "PROJ-30"} {
 		callToolOK(t, client, "jira_epic_digest", map[string]any{
 			"key": key, "quarter": "2026-Q2", "include": []string{"identity", "status-field", "history"}, "status_field": "customfield_11002", "projection": "compact",
@@ -555,7 +571,8 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 		t.Fatalf("digest content=%#v", digest.StructuredContent)
 	}
 	callToolOK(t, client, "jira_board_view", map[string]any{
-		"board_id": 7, "scope": "backlog", "columns": []string{"key"}, "view": "compact", "jql": "labels=x",
+		"board_id": 7, "scope": "backlog", "columns": []string{"key", "updated", "customfield_3"},
+		"view": "compact", "jql": "labels=x", "epic_field": "customfield_3", "done_statuses": []string{"Done", "Closed"},
 	})
 	metadata := callToolOK(t, client, "jira_structure_get", map[string]any{"structure_id": 9})
 	metadataContent, ok := metadata.StructuredContent.(map[string]any)
@@ -611,7 +628,8 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	if j.digestKey != "PROJ-1" || j.digestOpts.Quarter != "2026-Q2" || j.digestOpts.StatusField != "customfield_1" || j.digestOpts.DoDField != "customfield_2" || j.digestOpts.EpicField != "customfield_3" || j.digestOpts.ChildLimit != 1000 || j.digestOpts.CommentLimit != 50 || j.digestOpts.HistoryLimit != 500 {
 		t.Fatalf("digest key=%q opts=%+v", j.digestKey, j.digestOpts)
 	}
-	if j.boardID != 7 || j.boardOpts.Scope != "backlog" || j.boardOpts.Limit != 200 || j.boardOpts.JQL != "labels=x" {
+	if j.boardID != 7 || j.boardOpts.Scope != "backlog" || j.boardOpts.Limit != 200 || j.boardOpts.JQL != "labels=x" ||
+		j.boardOpts.EpicField != "customfield_3" || strings.Join(j.boardOpts.DoneStatuses, ",") != "Done,Closed" {
 		t.Fatalf("board id=%d opts=%+v", j.boardID, j.boardOpts)
 	}
 	if j.structureID != 9 || j.structureViewID != 9 || j.structureOpts.MaxRows != 10 ||

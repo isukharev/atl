@@ -166,13 +166,15 @@ type JiraEpicDigestInput struct {
 }
 
 type JiraBoardViewInput struct {
-	BoardID  int      `json:"board_id" jsonschema:"positive Jira Agile board id"`
-	Scope    string   `json:"scope,omitempty" jsonschema:"all, board, or backlog; default all"`
-	Columns  []string `json:"columns,omitempty" jsonschema:"ordered field ids or supported board columns"`
-	View     string   `json:"view,omitempty" jsonschema:"named board list view; explicit columns win"`
-	JQL      string   `json:"jql,omitempty" jsonschema:"optional bounded board refinement"`
-	Limit    int      `json:"limit,omitempty" jsonschema:"maximum issues per scope from 1 to 1000; default 200"`
-	MaxBytes int      `json:"max_bytes,omitempty" jsonschema:"maximum encoded result bytes from 1024 to 1048576; default 262144"`
+	BoardID      int      `json:"board_id" jsonschema:"positive Jira Agile board id"`
+	Scope        string   `json:"scope,omitempty" jsonschema:"all, board, or backlog; default all"`
+	Columns      []string `json:"columns,omitempty" jsonschema:"ordered field ids or supported board columns"`
+	View         string   `json:"view,omitempty" jsonschema:"named board list view; explicit columns win"`
+	JQL          string   `json:"jql,omitempty" jsonschema:"optional bounded board refinement"`
+	Limit        int      `json:"limit,omitempty" jsonschema:"maximum issues per scope from 1 to 1000; default 200"`
+	EpicField    string   `json:"epic_field,omitempty" jsonschema:"exact epic relation field selected in columns; enables deterministic rollup"`
+	DoneStatuses []string `json:"done_statuses,omitempty" jsonschema:"one or more statuses counted as done; requires epic_field"`
+	MaxBytes     int      `json:"max_bytes,omitempty" jsonschema:"maximum encoded result bytes from 1024 to 1048576; default 262144"`
 }
 
 type JiraStructureGetInput struct {
@@ -369,7 +371,10 @@ func registerJiraTools(server *mcp.Server, deps Dependencies) {
 			if err != nil {
 				return nil, nil, classified(err)
 			}
-			out, err := jira.BoardSnapshot(ctx, in.BoardID, app.BoardSnapshotOpts{Scope: in.Scope, Columns: in.Columns, View: in.View, JQL: in.JQL, Limit: limit})
+			out, err := jira.BoardSnapshot(ctx, in.BoardID, app.BoardSnapshotOpts{
+				Scope: in.Scope, Columns: in.Columns, View: in.View, JQL: in.JQL, Limit: limit,
+				EpicField: in.EpicField, DoneStatuses: in.DoneStatuses,
+			})
 			if err == nil {
 				err = boundedJiraEvidenceOutput(out, maxBytes)
 			}

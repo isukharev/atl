@@ -103,6 +103,8 @@ atl jira board get 5
 atl jira board config 5
 atl jira board view 5 -o text
 atl jira board view 5 --jql 'statusCategory != Done' --limit 500
+atl jira board view 5 --columns key,status,updated,customfield_10001 \
+  --epic-field customfield_10001 --done-status Done
 atl jira board export 5 --format jsonl --out board.jsonl
 atl jira sprint list --board 5 --state active
 atl jira sprint current --board 5
@@ -122,10 +124,14 @@ Route by board type before asking for sprints:
 
 `board view` is the recommended compact agent path. It preserves backend rank
 order, maps status ids to configured columns, and keeps unmapped statuses
-explicit. Use `--jql 'statusCategory != Done'` or another user-approved
+explicit. When portfolio grouping is needed, select the exact epic relation
+field plus `updated`, use `--epic-field` and repeatable `--done-status`, require
+`epic_rollup.complete:true`, and consume its counts/latest child timestamp
+without regrouping raw rows. Use `--jql 'statusCategory != Done'` or another user-approved
 refinement when an old board has a very large history. `--limit 0` reads all;
 positive limits are explicit truncation per scope. For repeated filters, export
 JSONL and use `jq -c`; CSV is formula-safe by default; Markdown is for review.
+The epic rollup is view-only; board exports retain their existing row formats.
 Markdown follows the requested field projection, while retaining explicit
 status, column, and backlog context.
 Use a confirmed `--view <name>` from `atl config show` for recurring team

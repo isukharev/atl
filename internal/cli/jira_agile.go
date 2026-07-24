@@ -111,7 +111,8 @@ func jiraBoardCmd() *cobra.Command {
 	var backlogLimit int
 	backlogCmd := boardIssuePageCmd("backlog", "backlog", &backlogColumns, &backlogView, &backlogJQL, &backlogCursor, &backlogLimit)
 
-	var viewScope, viewColumns, viewPreset, viewJQL string
+	var viewScope, viewColumns, viewPreset, viewJQL, viewEpicField string
+	var viewDoneStatuses []string
 	var viewLimit int
 	view := &cobra.Command{
 		Use:   "view <BOARD-ID>",
@@ -126,7 +127,10 @@ func jiraBoardCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			snapshot, err := svc.BoardSnapshot(cmd.Context(), id, app.BoardSnapshotOpts{Scope: viewScope, Columns: splitFields(viewColumns), View: viewPreset, JQL: viewJQL, Limit: viewLimit})
+			snapshot, err := svc.BoardSnapshot(cmd.Context(), id, app.BoardSnapshotOpts{
+				Scope: viewScope, Columns: splitFields(viewColumns), View: viewPreset, JQL: viewJQL, Limit: viewLimit,
+				EpicField: viewEpicField, DoneStatuses: viewDoneStatuses,
+			})
 			if err != nil {
 				return err
 			}
@@ -138,6 +142,8 @@ func jiraBoardCmd() *cobra.Command {
 	view.Flags().StringVar(&viewPreset, "view", "", "named Jira list view from config (default: default; explicit --columns wins)")
 	view.Flags().StringVar(&viewJQL, "jql", "", "optional JQL refinement applied by the board endpoints")
 	view.Flags().IntVar(&viewLimit, "limit", 0, "maximum issues per requested scope (0 means all)")
+	view.Flags().StringVar(&viewEpicField, "epic-field", "", "exact selected epic relation field for deterministic rollup")
+	view.Flags().StringArrayVar(&viewDoneStatuses, "done-status", nil, "status counted as done in epic rollup (repeat or comma-separate; requires --epic-field)")
 	_ = view.RegisterFlagCompletionFunc("scope", fixedComp("all", "board", "backlog"))
 
 	var exportScope, exportColumns, exportView, exportJQL, exportFormat, exportOut string
