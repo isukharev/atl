@@ -217,6 +217,8 @@ The realistic matrix currently contains:
 | surface native | `jira-structure-deep-values` | deep selected hierarchy plus explicit row/accessibility counts and a query-only POST value matrix |
 | surface native | `jira-structure-view-mcp` | one bounded typed exact-subtree read with reconciled hierarchy, repeats, accessibility, and completeness |
 | surface native | `jira-structure-view-mcp-holdout` | distinct typed Structure hierarchy with nested non-issue rows and complete accessibility |
+| surface native | `jira-structure-qualification-mcp` | compact metadata privacy qualification followed by one bounded exact-subtree read |
+| surface native | `jira-structure-qualification-mcp-holdout` | distinct metadata/read-only state and complete nested hierarchy through the same ordered two-call route |
 | surface native | `confluence-page-evidence-mcp` | outline-first selection of one approved repeated-heading section through three bounded typed calls |
 | surface native | `confluence-page-evidence-holdout` | distinct three-occurrence page topology with different current evidence |
 | surface native | `confluence-paginated-search-evidence-mcp` | terminal three-page search followed by ordered outline/section evidence for every current record |
@@ -242,13 +244,14 @@ CLI workflow and are not used to claim a general surface winner.
 
 The Structure and Confluence table cells retain their original v1 contracts as
 historical inputs. Structure CLI and CLI table candidates run against v2 contracts;
-Structure MCP v1 and table MCP v3 candidates permit exactly one typed ATL
-interface call and zero content mutations. V2 reports row occurrences separately from
-unique identities, defines repeated
+Structure-view MCP v1 and table MCP v3 candidates permit exactly one typed ATL
+interface call and zero content mutations. Structure-qualification MCP v1
+requires exactly two ordered calls: compact metadata first, then one bounded
+view. V2 reports row occurrences separately from unique identities, defines repeated
 occurrences as occurrences after the first, and distinguishes selected,
 queried, exported, and omitted populations. Table v2 keeps exact content-free
 shape inventory separate from bounded selected-table analysis and states that
-shape cell counts use the expanded rectangular grid. Structure MCP v1 uses one
+shape cell counts use the expanded rectangular grid. Structure-view MCP v1 uses one
 exact folder path and reconciles the selected root, relative hierarchy,
 repeated issue occurrences, accessibility, completeness, and explicit field
 projection. Its four-request fixture budget is three GET reads plus one
@@ -265,11 +268,15 @@ equivalent current fixtures, core prompts, response schemas, budgets, and
 semantic checks for these cells; provider-native pricing is the only expected
 difference in the paired MCP contracts.
 
-The current typed-MCP provider-level `max_tool_calls` budget is two: one ATL MCP call plus a
-bounded schema-output call on providers that expose structured response
-formation as a tool. This does not relax the interface boundary;
-`max_interface_invocations` remains one. Table cells retain an exact one-GET
-oracle; Structure view cells retain the exact three-GET/one-query-POST oracle.
+The one-call typed-MCP provider-level `max_tool_calls` budget is two: one ATL MCP
+call plus a bounded schema-output call on providers that expose structured
+response formation as a tool. Their `max_interface_invocations` remains one.
+The metadata-first Structure qualification cells instead set
+`max_tool_calls=3` and `max_interface_invocations=2`. Table cells retain an
+exact one-GET oracle; Structure view cells retain the exact
+three-GET/one-query-POST oracle. Structure qualification observes four GETs
+plus one query-only POST because the view independently revalidates metadata;
+the repeated metadata GET is the single permitted duplicate request.
 Mirror snapshot MCP cells are stricter offline reads: they allow one no-argument
 typed interface call, zero ATL CLI invocations, zero HTTP methods, zero backend
 requests, and zero writes. Their closed response schemas expose only fixed

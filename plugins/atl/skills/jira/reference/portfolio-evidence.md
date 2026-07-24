@@ -9,8 +9,11 @@ one broad JQL plus a new child query for every epic.
 ## 1. Freeze one compact membership snapshot
 
 Discover an unknown source once (`board list`, or `structure folders` followed
-by an exact `--folder-id`). Then request one bounded snapshot with only fields
-needed to group and qualify the work:
+by an exact `--folder-id`). When a Structure id is already known, qualify it
+once with `structure get`. Retain only its id, name, and read-only state for the
+portfolio decision; never propagate owner, permission, saved-view, or forest
+transport payloads. Then request one bounded snapshot with only fields needed
+to group and qualify the work:
 
 ```bash
 export ATL_READ_ONLY=1

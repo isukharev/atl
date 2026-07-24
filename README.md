@@ -177,7 +177,7 @@ Core skills:
   `atl` (vs a live Atlassian MCP), the search-first workflow, and where the
   mirror lives.
 - **`confluence`** — pull, edit `.csf`, validate, and push pages under the version gate.
-- **`jira`** — search/pull issues, discover exact Structure folders, and inspect normalized Structure and Kanban/Scrum board views,
+- **`jira`** — search/pull issues, qualify exact Structure metadata, discover stored folders, and inspect normalized Structure and Kanban/Scrum board views,
   and create/update/transition/comment/link via guarded commands.
 - **`onboarding`** — optional consent-gated workflow discovery, declared team defaults, and a
   reviewed private profile; later observations become deterministic review/apply/reject
@@ -481,6 +481,7 @@ atl capabilities --task jira/edit                 # guarded field, worklog, and 
 atl jira board view 5 -o text                  # normalized Kanban/Scrum view
 atl jira board view 5 --columns key,status,updated,customfield_10001 --epic-field customfield_10001 --done-status Done # deterministic epic rollup
 atl jira sprint current --board 5              # resolve the active sprint
+atl jira structure get 123                     # qualify one exact Structure metadata document
 atl jira structure folders 123                 # discover exact stored subtrees; empty labels stay explicit
 atl jira structure view 123 --folder-id 100 -o text
 atl jira planning report --jql 'project = PROJ' --limit 100

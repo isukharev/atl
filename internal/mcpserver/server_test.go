@@ -433,6 +433,115 @@ func TestSyntheticPortfolioThroughMCPUsesExactGETOnlyRoute(t *testing.T) {
 	}
 }
 
+func TestSyntheticStructureQualificationThroughMCPProjectsMetadataAndObservedRoute(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		directory   string
+		structureID int
+		folderPath  string
+		folderID    string
+		rootRow     int
+		structure   string
+		readOnly    bool
+		rowCount    int
+		complete    bool
+		canaries    []string
+	}{
+		{
+			name: "primary", directory: "jira-structure-qualification-mcp",
+			structureID: 93, folderPath: "Plans / Current", folderID: "current",
+			rootRow: 510, structure: "Synthetic release train", readOnly: true,
+			rowCount: 6, complete: false,
+			canaries: []string{"OWNER-CANARY-PRIMARY", "PERMISSION-CANARY-PRIMARY", "VIEW-CANARY-PRIMARY"},
+		},
+		{
+			name: "holdout", directory: "jira-structure-qualification-mcp-holdout",
+			structureID: 94, folderPath: "Capacity / Week 28", folderID: "week-28",
+			rootRow: 710, structure: "Synthetic capacity plan", readOnly: false,
+			rowCount: 7, complete: true,
+			canaries: []string{"OWNER-CANARY-HOLDOUT", "PERMISSION-CANARY-HOLDOUT", "VIEW-CANARY-HOLDOUT"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixtureFile, err := os.Open(filepath.Join("..", "..", "benchmarks", "agent-eval", test.directory, "fixture.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+			closeErr := fixtureFile.Close()
+			if decodeErr != nil || closeErr != nil {
+				t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
+			}
+			backend, err := agenteval.StartMockBackend(fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer backend.Close()
+			for name, value := range backend.Environment() {
+				t.Setenv(name, value)
+			}
+			t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+			t.Setenv("ATL_READ_ONLY", "1")
+			t.Setenv("ATL_NO_UPDATE", "1")
+
+			client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
+			defer closeSessions()
+			metadataResult := callToolOK(t, client, "jira_structure_get", map[string]any{"structure_id": test.structureID})
+			metadata, ok := metadataResult.StructuredContent.(map[string]any)
+			if !ok || len(metadata) != 4 ||
+				metadata["schema_version"] != float64(1) ||
+				metadata["id"] != float64(test.structureID) ||
+				metadata["name"] != test.structure ||
+				metadata["read_only"] != test.readOnly {
+				t.Fatalf("compact metadata=%#v", metadataResult.StructuredContent)
+			}
+			for _, forbidden := range []string{"owner", "permissions", "views", "forest"} {
+				if _, exists := metadata[forbidden]; exists {
+					t.Fatalf("compact metadata exposed %q: %#v", forbidden, metadata)
+				}
+			}
+
+			viewResult := callToolOK(t, client, "jira_structure_view", map[string]any{
+				"structure_id": test.structureID,
+				"fields":       []string{"key", "summary", "status"},
+				"folder_path":  test.folderPath,
+				"max_rows":     50,
+				"max_bytes":    65536,
+			})
+			view, ok := viewResult.StructuredContent.(map[string]any)
+			viewMetadata, metadataOK := view["structure"].(map[string]any)
+			selection, selectionOK := view["selection"].(map[string]any)
+			path, pathOK := selection["path"].([]any)
+			if !ok || !metadataOK || !selectionOK || !pathOK ||
+				view["row_count"] != float64(test.rowCount) || view["complete"] != test.complete ||
+				viewMetadata["id"] != metadata["id"] ||
+				viewMetadata["name"] != metadata["name"] ||
+				viewMetadata["read_only"] != metadata["read_only"] ||
+				selection["kind"] != "folder-path" ||
+				selection["folder_id"] != test.folderID ||
+				selection["row_id"] != float64(test.rootRow) ||
+				len(path) != 2 || fmt.Sprint(path[0])+" / "+fmt.Sprint(path[1]) != test.folderPath {
+				t.Fatalf("metadata/view qualification mismatch: metadata=%#v view=%#v", metadata, view)
+			}
+
+			observed, err := json.Marshal([]any{metadataResult.StructuredContent, viewResult.StructuredContent})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, canary := range test.canaries {
+				if bytes.Contains(observed, []byte(canary)) {
+					t.Fatalf("MCP projection leaked fixture canary %q: %s", canary, observed)
+				}
+			}
+			methods, unexpected, duplicates := backend.Summary()
+			if methods["GET"] != 4 || methods["POST"] != 1 || len(methods) != 2 ||
+				unexpected != 0 || duplicates != 1 {
+				t.Fatalf("requests=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+			}
+		})
+	}
+}
+
 func TestSyntheticClippedDigestExpandsOnlyExactField(t *testing.T) {
 	fixtureFile, err := os.Open(filepath.Join("..", "..", "benchmarks", "agent-eval", "jira-clipped-field-evidence", "fixture.json"))
 	if err != nil {
