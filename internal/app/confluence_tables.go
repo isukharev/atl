@@ -71,13 +71,14 @@ type ConfluenceTableSummaryRecord struct {
 
 // ConfluenceTable is one expanded table. Index is 1-based in document order.
 type ConfluenceTable struct {
-	Index       int                       `json:"index"`
-	RowCount    int                       `json:"row_count"`
-	ColumnCount int                       `json:"column_count"`
-	Headers     []string                  `json:"headers,omitempty"`
-	Rows        []ConfluenceTableRow      `json:"rows"`
-	Warnings    []string                  `json:"warnings,omitempty"`
-	Metadata    map[string]map[string]any `json:"metadata,omitempty"`
+	Index       int                          `json:"index"`
+	RowCount    int                          `json:"row_count"`
+	ColumnCount int                          `json:"column_count"`
+	Summary     ConfluenceTableSummaryRecord `json:"summary"`
+	Headers     []string                     `json:"headers,omitempty"`
+	Rows        []ConfluenceTableRow         `json:"rows"`
+	Warnings    []string                     `json:"warnings,omitempty"`
+	Metadata    map[string]map[string]any    `json:"metadata,omitempty"`
 }
 
 // ConfluenceTableRow is one expanded row.
@@ -270,7 +271,21 @@ func ExtractTablesFromCSF(pageID, title string, body []byte, table int) (*Conflu
 		res.Table = table
 		res.Tables = []ConfluenceTable{all[table-1]}
 	}
+	if err := attachConfluenceTableSummaries(res); err != nil {
+		return nil, err
+	}
 	return res, nil
+}
+
+func attachConfluenceTableSummaries(extract *ConfluenceTableExtract) error {
+	summary := SummarizeConfluenceTables(extract)
+	if summary == nil || len(summary.Tables) != len(extract.Tables) {
+		return fmt.Errorf("%w: table summary could not be reconciled", domain.ErrCheckFailed)
+	}
+	for i := range extract.Tables {
+		extract.Tables[i].Summary = summary.Tables[i]
+	}
+	return nil
 }
 
 func topLevelTables(root *csf.Node) []*csf.Node {

@@ -52,6 +52,12 @@ func TestExtractTablesFromCSFMultipleTablesAndCellMetadata(t *testing.T) {
 	if res.TableCount != 2 || len(res.Tables) != 2 {
 		t.Fatalf("tables = %d/%d, want two", res.TableCount, len(res.Tables))
 	}
+	summary := SummarizeConfluenceTables(res)
+	for i := range res.Tables {
+		if res.Tables[i].Summary != summary.Tables[i] {
+			t.Fatalf("table %d embedded summary = %+v, want %+v", i+1, res.Tables[i].Summary, summary.Tables[i])
+		}
+	}
 	first := res.Tables[0]
 	if first.RowCount != 3 || first.ColumnCount != 3 {
 		t.Fatalf("first table shape = %dx%d, want 3x3", first.RowCount, first.ColumnCount)
@@ -103,6 +109,9 @@ func TestExtractTablesFromCSFSelectsOneTable(t *testing.T) {
 	}
 	if res.Table != 2 || res.TableCount != 2 || len(res.Tables) != 1 || res.Tables[0].Index != 2 {
 		t.Fatalf("selection = %+v", res)
+	}
+	if res.Tables[0].Summary.Index != 2 || !res.Tables[0].Summary.CellCountReconciled {
+		t.Fatalf("selected table summary = %+v", res.Tables[0].Summary)
 	}
 }
 
