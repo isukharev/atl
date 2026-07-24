@@ -51,6 +51,12 @@ minimum 1 KiB, maximum 1 MiB). They fail explicitly instead of clipping field
 definitions, rows, digest evidence, or board membership. Narrow filters,
 columns, included sources, or rows before raising the byte bound.
 
+For `jira_issue_search`, select the ordered projection with `columns`.
+`fields` is accepted as a compatibility alias for the same projection because
+other Jira tools use that spelling. Do not supply non-empty values for both;
+empty arrays are treated as omitted, and ambiguous requests fail before backend
+access.
+
 Use `jira_structure_get` only when compact identity/read-only metadata is
 enough. Use `jira_structure_view` for normalized hierarchy evidence with an
 explicit ordered `fields` projection. Omit all folder selectors for a bounded

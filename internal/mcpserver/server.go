@@ -133,7 +133,8 @@ type JiraFieldsInput struct {
 type JiraIssueSearchInput struct {
 	JQL      string   `json:"jql" jsonschema:"bounded JQL selection; required"`
 	Columns  []string `json:"columns,omitempty" jsonschema:"ordered field ids or supported columns"`
-	View     string   `json:"view,omitempty" jsonschema:"named Jira list view; explicit columns win"`
+	Fields   []string `json:"fields,omitempty" jsonschema:"compatibility alias for columns; do not supply non-empty values for both"`
+	View     string   `json:"view,omitempty" jsonschema:"named Jira list view; explicit columns or fields win"`
 	Limit    int      `json:"limit,omitempty" jsonschema:"page size from 1 to 1000; default 50"`
 	Cursor   string   `json:"cursor,omitempty" jsonschema:"opaque pagination cursor from a previous result"`
 	MaxBytes int      `json:"max_bytes,omitempty" jsonschema:"maximum encoded result bytes from 1024 to 1048576; default 262144"`
@@ -246,6 +247,13 @@ func registerJiraTools(server *mcp.Server, deps Dependencies) {
 			if strings.TrimSpace(in.JQL) == "" {
 				return nil, nil, classified(fmt.Errorf("%w: jql is required", domain.ErrUsage))
 			}
+			if len(in.Columns) > 0 && len(in.Fields) > 0 {
+				return nil, nil, classified(fmt.Errorf("%w: columns and fields are aliases; supply only one", domain.ErrUsage))
+			}
+			columns := in.Columns
+			if len(columns) == 0 {
+				columns = in.Fields
+			}
 			limit, err := boundedDefault(in.Limit, 50, 1000, "limit")
 			if err != nil {
 				return nil, nil, classified(err)
@@ -258,7 +266,7 @@ func registerJiraTools(server *mcp.Server, deps Dependencies) {
 			if err != nil {
 				return nil, nil, classified(err)
 			}
-			out, err := jira.SearchIssueListView(ctx, in.JQL, in.Columns, in.View, limit, in.Cursor)
+			out, err := jira.SearchIssueListView(ctx, in.JQL, columns, in.View, limit, in.Cursor)
 			if err == nil {
 				err = boundedJiraEvidenceOutput(out, maxBytes)
 			}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -489,7 +490,7 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	custom := true
 	callToolOK(t, client, "jira_fields", map[string]any{"name_like": "Outcome", "custom": custom})
 	callToolOK(t, client, "jira_issue_search", map[string]any{
-		"jql": "project=PROJ", "columns": []string{"key", "status"}, "view": "compact", "cursor": "next",
+		"jql": "project=PROJ", "fields": []string{"key", "status"}, "view": "compact", "cursor": "next",
 	})
 	callToolOK(t, client, "jira_issue_field_get", map[string]any{
 		"key": "PROJ-1", "field": "Delivery Notes", "max_bytes": 4096,
@@ -565,6 +566,34 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	}
 	if c.tableSummaryReference != "42" || c.tableSummaryIndex != 2 || c.tableExtractReference != "42" || c.tableExtractIndex != 2 {
 		t.Fatalf("confluence table calls=%+v", c)
+	}
+}
+
+func TestJiraIssueSearchProjectionAliasesTreatEmptyArraysAsOmitted(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]any
+		want []string
+	}{
+		{name: "columns", args: map[string]any{"columns": []string{"key"}}, want: []string{"key"}},
+		{name: "fields", args: map[string]any{"fields": []string{"status"}}, want: []string{"status"}},
+		{name: "empty columns", args: map[string]any{"columns": []string{}, "fields": []string{"status"}}, want: []string{"status"}},
+		{name: "empty fields", args: map[string]any{"columns": []string{"key"}, "fields": []string{}}, want: []string{"key"}},
+		{name: "both empty", args: map[string]any{"columns": []string{}, "fields": []string{}}, want: nil},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &recordingJiraReader{}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Jira: func() (JiraReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+			test.args["jql"] = "project=PROJ"
+			callToolOK(t, client, "jira_issue_search", test.args)
+			if !slices.Equal(reader.searchColumns, test.want) {
+				t.Fatalf("columns=%v want %v", reader.searchColumns, test.want)
+			}
+		})
 	}
 }
 
@@ -710,6 +739,9 @@ func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 		{name: "jira_issue_search", args: map[string]any{"jql": "project=PROJ", "limit": 1001}},
 		{name: "jira_issue_search", args: map[string]any{"jql": "project=PROJ", "max_bytes": 1023}},
 		{name: "jira_issue_search", args: map[string]any{"jql": "project=PROJ", "max_bytes": 1048577}},
+		{name: "jira_issue_search", args: map[string]any{
+			"jql": "project=PROJ", "columns": []string{"key"}, "fields": []string{"status"},
+		}},
 		{name: "jira_issue_field_get", args: map[string]any{"key": "PROJ-1", "field": "Delivery Notes", "max_bytes": 128}},
 		{name: "jira_board_view", args: map[string]any{"board_id": 1, "limit": 1001}},
 		{name: "jira_board_view", args: map[string]any{"board_id": 1, "max_bytes": 1023}},
