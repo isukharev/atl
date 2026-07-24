@@ -226,6 +226,8 @@ The realistic matrix currently contains:
 | surface native | `confluence-page-evidence-holdout` | distinct three-occurrence page topology with different current evidence |
 | surface native | `confluence-paginated-search-evidence-mcp` | terminal three-page search followed by ordered outline/section evidence for every current record |
 | surface native | `confluence-paginated-search-evidence-holdout` | distinct two-page pagination and repeated-heading topology with different current controls |
+| surface native | `jira-paginated-search-mcp` | exact three-page typed issue search with ordered identity and status reconciliation |
+| surface native | `jira-paginated-search-mcp-holdout` | distinct two-page Jira search topology through the same terminal-completeness contract |
 | surface native | `confluence-table-analytics` | bounded selected-table analysis with explicit filter/count/sum semantics, merged cells, links, and safe CSV |
 | surface native | `confluence-table-analytics-mcp` | one typed selected-table read with the same analytics and raw untrusted-data semantics |
 | surface native | `confluence-table-summary` | content-free shapes with explicit expanded-grid and rowspan/colspan source/covered semantics |
@@ -818,6 +820,17 @@ limit, continuation cursor, page identity, heading occurrence, and byte cap.
 Its distinct n=1 holdout changes the query, facts, candidate identities,
 pagination from three pages to two, selected-source count, and repeated-heading
 structure while preserving the same closed response schema and
+completeness/safety semantics.
+
+`jira-paginated-search-mcp` pairs Codex Luna/high and Claude Code Opus/high
+at n=3. It requires three ordered `jira_issue_search` calls, advances only with
+the returned cursor, and stops at explicit terminal completeness. Exact
+invocation, capability-family, sequence, and HTTP oracles bind the JQL,
+projection, page size, byte cap, three GETs, zero duplicate requests, and zero
+writes. The answer reconciles ordered identities and status counts without
+filtering or expanding issues. Its distinct n=1 holdout changes the JQL,
+identities, statuses, page size, and pagination topology from three pages to
+two while retaining the same byte-identical response schema and
 completeness/safety semantics.
 
 `cross-service-neutral-discovery` likewise remains the historical neutral

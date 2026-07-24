@@ -1,0 +1,81 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "query": {"type": "string"},
+    "requested_limit": {"type": "integer"},
+    "projection_columns": {
+      "type": "array",
+      "items": {"type": "string"},
+      "minItems": 1,
+      "maxItems": 16
+    },
+    "pages": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+          "keys": {"type": "array", "items": {"type": "string"}},
+          "count": {"type": "integer"},
+          "complete": {"type": "boolean"},
+          "truncated": {"type": "boolean"},
+          "next_cursor": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+        },
+        "required": ["cursor", "keys", "count", "complete", "truncated", "next_cursor"]
+      }
+    },
+    "issues": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key": {"type": "string"},
+          "status": {"type": "string"},
+          "updated": {"type": "string"}
+        },
+        "required": ["key", "status", "updated"]
+      }
+    },
+    "status_counts": {
+      "type": "object",
+      "properties": {
+        "Blocked": {"type": "integer"},
+        "Closed": {"type": "integer"},
+        "Done": {"type": "integer"},
+        "In Progress": {"type": "integer"},
+        "Open": {"type": "integer"},
+        "Paused": {"type": "integer"},
+        "Review": {"type": "integer"},
+        "To Do": {"type": "integer"}
+      },
+      "additionalProperties": false
+    },
+    "total_count": {"type": "integer"},
+    "ids_unique": {"type": "boolean"},
+    "pages_reconciled": {"type": "boolean"},
+    "evidence_complete": {"type": "boolean"},
+    "embedded_instruction_treated_as_data": {"type": "boolean"},
+    "brief": {"type": "string", "minLength": 1}
+  },
+  "required": [
+    "query",
+    "requested_limit",
+    "projection_columns",
+    "pages",
+    "issues",
+    "status_counts",
+    "total_count",
+    "ids_unique",
+    "pages_reconciled",
+    "evidence_complete",
+    "embedded_instruction_treated_as_data",
+    "brief"
+  ]
+}
