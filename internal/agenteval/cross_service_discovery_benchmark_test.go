@@ -231,6 +231,9 @@ func TestRepositoryCrossServiceDiscoveryFixturesDriveProviderOracles(t *testing.
 						t.Fatalf("%s fixture-derived final failed run check %q", spec.Provider, name)
 					}
 				}
+				assertCrossServiceDiscoveryQualifiedTopicFails(
+					t, spec, test.topic, final, methods, families, sequence, invocations,
+				)
 				canonicalResults, canonicalErr := evaluateRunChecksWithMCPInvocations(
 					spec.Checks, final, "", 5, 0, unexpected, 0,
 					nil, 0, 0, map[string]int{"GET": 5}, true, nil, families, true, sequence,
@@ -286,6 +289,18 @@ func TestRepositoryCrossServiceDiscoverySamplingPairIdentity(t *testing.T) {
 	}
 	if !bytes.Equal(primarySchema, holdoutSchema) {
 		t.Fatal("primary and holdout response schemas drifted")
+	}
+	var schema struct {
+		Properties map[string]struct {
+			Description string `json:"description"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(primarySchema, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema.Properties["topic"].Description !=
+		"The exact topic label supplied in the request, without added qualifiers." {
+		t.Fatalf("topic response contract drifted: %+v", schema.Properties["topic"])
 	}
 	primaryFixture, err := os.ReadFile(filepath.Join(primaryRoot, "fixture.json"))
 	if err != nil {
@@ -357,6 +372,8 @@ func TestRepositoryCrossServiceDiscoverySamplingPairIdentity(t *testing.T) {
 			}
 			for _, prompt := range [][]byte{primaryPrompt, holdoutPrompt} {
 				for _, fragment := range []string{
+					"Set `topic` to the exact topic label supplied in the request",
+					"qualifiers to it",
 					"ceiling phrase",
 					"including its `Up to` qualifier",
 					"including terminal punctuation",
@@ -410,6 +427,62 @@ func crossServiceDiscoveryFinal(t *testing.T, expected crossServiceDiscoveryExpe
 		t.Fatal(err)
 	}
 	return encoded
+}
+
+func assertCrossServiceDiscoveryQualifiedTopicFails(
+	t *testing.T,
+	spec RunSpec,
+	topic string,
+	final []byte,
+	methods map[string]int,
+	families []CapabilityFamilyMetric,
+	sequence []string,
+	invocations []MCPInvocation,
+) {
+	t.Helper()
+	checkIndex := slices.IndexFunc(spec.Checks, func(check RunCheck) bool {
+		return check.Name == "topic_correct"
+	})
+	if checkIndex < 0 {
+		t.Fatal("topic_correct check is missing")
+	}
+	check := spec.Checks[checkIndex]
+	var expected string
+	if err := json.Unmarshal(check.Expected, &expected); err != nil ||
+		check.Kind != "json_equals" ||
+		check.Pointer != "/topic" ||
+		expected != topic {
+		t.Fatalf("%s topic oracle drifted: %+v expected=%q err=%v", spec.Provider, check, expected, err)
+	}
+
+	var qualified map[string]any
+	if err := json.Unmarshal(final, &qualified); err != nil {
+		t.Fatal(err)
+	}
+	qualified["topic"] = topic + " rollout"
+	qualifiedFinal, err := json.Marshal(qualified)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, err := evaluateRunChecksWithMCPInvocations(
+		spec.Checks, qualifiedFinal, "", 5, 0, 0, 0,
+		nil, 0, 0, methods, true, nil, families, true, sequence,
+		invocations, true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, passed := range results {
+		if name == "topic_correct" {
+			if passed {
+				t.Fatalf("%s qualified topic passed exact oracle", spec.Provider)
+			}
+			continue
+		}
+		if !passed {
+			t.Fatalf("%s qualified topic unexpectedly failed run check %q", spec.Provider, name)
+		}
+	}
 }
 
 func crossServiceDiscoveryCapabilityFamilies() []CapabilityFamilyMetric {
