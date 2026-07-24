@@ -27,10 +27,13 @@ legacy `atl_invocations` fields continue to validate.
 
 Observations classify runs as `supported`, `unsupported-capability`, or
 `invalidated-backend-drift`. Ineligible runs retain safety and budget failures
-but are excluded from task pass/fail. Aggregate schema v6 reports eligibility
+but are excluded from task pass/fail. Aggregate schema v7 reports eligibility
 counts and coverage, conditional success, and computes neutral/surface-native
 efficiency and qualitative summaries only from supported deterministically
-valid runs. Missing eligibility in older observations means `supported`.
+valid runs. Supported runs with every check true that exceed only passive
+resource budgets remain failed but contribute covered efficiency metrics;
+trajectory and safety budget failures remain excluded. Missing eligibility in
+older observations means `supported`.
 
 Private `external-mcp` execution requires `--external-mcp-profile`. The
 owner-only profile and its directory stay outside the repository. Header
@@ -475,7 +478,7 @@ over-budget. The deterministic MCP test additionally verifies the exact
 four-GET, zero-write trajectory with technical-id reuse and that the expansion alone recovers the
 marker.
 
-Observation schema v5, result schema v8, and aggregate schema v6 retain the
+Observation schema v5, result schema v8, and aggregate schema v7 retain the
 `capability_families` contract introduced in v3, using a
 closed generic vocabulary shared by CLI and MCP. Each entry contains only
 invocations, successes, failures, and output bytes. Treat the section as

@@ -296,13 +296,18 @@ Observations classify each run as `supported` (the default),
 `unsupported-capability`, or `invalidated-backend-drift`. Unsupported runs name
 only bounded capability identifiers; drifted runs carry no backend detail.
 Ineligible runs do not count as task passes or failures, while their safety and
-budget violations are still retained. Aggregate schema v6 reports eligible,
+budget violations are still retained. Aggregate schema v7 reports eligible,
 unsupported, and drifted counts, eligibility coverage, and success conditional
 on eligible runs. Coverage excludes drift-invalidated blocks from its
 denominator: drift says nothing about whether the surface supports the task.
 Neutral and surface-native efficiency/quality summaries use
-only supported deterministically valid runs; route-fixed historical aggregation
-keeps its compatibility behavior. Current observations use schema v5 and
+only supported deterministically valid runs. A supported run whose checks are
+all true but which exceeds only a passive resource budget (turns, bytes,
+tokens, estimated cost, or duration) remains failed while contributing its
+covered efficiency metrics. Call-, request-, duplicate-, delegation-, and
+write-budget failures remain excluded because they can represent a different
+route or safety posture. Route-fixed historical aggregation keeps its
+compatibility behavior. Current observations use schema v5 and
 results use schema v8. Older result records without eligibility remain
 supported through the documented result decoders; observation inputs must be
 migrated explicitly before evaluation.
@@ -417,7 +422,7 @@ migrated. See [Private agent-benchmark workspace](agent-benchmark-private-worksp
 for the panel manifest and operator flow.
 
 Current assessments emit result schema v8, review schema v2, and aggregate
-schema v6. Current decoders retain read compatibility with promptless evidence
+schema v7. Current decoders retain read compatibility with promptless evidence
 result schema v7, attemptless result schema v6, prompt-bound result schema v5,
 panel result schema v4, singleton result schema v3, and reviewer-id-free review
 schema v1.
@@ -1194,7 +1199,7 @@ owner-private plan/result artifacts. Low-level dry-run reports only
 and aggregate JSON because a short private prompt may be guessable. Baseline
 comparison nevertheless requires both the exact digest and treatment to match.
 Result schema v8 carries both fields and also binds every synthetic runner
-result to its exact provider-neutral prompt contract. Aggregate schema v6 uses
+result to its exact provider-neutral prompt contract. Aggregate schema v7 uses
 the digest to reject mixed cohorts but deliberately omits it from output; it
 carries activation as a visible grouping/runtime dimension. Promptless
 evidence result v7, prompt-bound result v5, and private-plan v2 artifacts remain
