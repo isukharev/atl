@@ -60,6 +60,14 @@ emitted-row/byte bounds, the 1000-row forest scan cap, and completeness. Use CLI
 for mirror content/status/diff, raw Structure
 forest/values, exports/attachments, operations absent from MCP, and every
 mutation.
+For `jira_structure_view`, `not_found` or `check_failed` /
+`view_then_select_subtree` means the Structure was found but its stored-folder
+selector is stale, ambiguous, or cannot be validated from complete labels.
+When the full forest fits the MCP caps, read one selector-free view with narrow
+fields and `max_rows` sufficient for the full forest, choose the exact folder
+`row_id`, then request that `folder_row` subtree once. Use the CLI if the full
+forest does not fit; do not report the Structure as missing, repeat the failed
+selector, or expose folder identity/content from CLI diagnostics.
 
 ## Choose exactly one route
 

@@ -244,6 +244,27 @@ func TestStructureSnapshotEnforcesScanBoundBeforeFolderValueQuery(t *testing.T) 
 	}
 }
 
+func TestStructureSnapshotPreservesTypedFolderSelectionError(t *testing.T) {
+	valuesCalls := 0
+	svc := &JiraService{structure: scanBoundStructureReader{valuesCalls: &valuesCalls}}
+	_, err := svc.StructureSnapshot(t.Context(), 1, StructureSnapshotOpts{
+		Attributes: []string{"key"}, MaxRows: 3, MaxScanRows: 3,
+		StructureFolderSelector: StructureFolderSelector{FolderID: "missing"},
+	})
+	var selection *StructureFolderSelectionError
+	if !errors.As(err, &selection) ||
+		selection.Reason != StructureFolderSelectionNotFound ||
+		selection.Matches != 0 || selection.Available != 2 {
+		t.Fatalf("selection error = %#v, err = %v", selection, err)
+	}
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("error = %v, want not found", err)
+	}
+	if valuesCalls != 1 {
+		t.Fatalf("StructureValues calls = %d, want one folder-label projection", valuesCalls)
+	}
+}
+
 func TestStructureSnapshotResolvesValueRootBeforeSelectedRowBound(t *testing.T) {
 	for _, root := range []string{"PROJ-1", "Selected root"} {
 		t.Run(root, func(t *testing.T) {
@@ -466,6 +487,107 @@ func TestSelectStructureFolderRejectsDuplicateStableIDOccurrences(t *testing.T) 
 	folders := buildStructureFolders(rows, map[int64]string{10: "A", 20: "B"})
 	if _, _, err := selectStructureFolder(rows, folders, true, StructureFolderSelector{FolderID: "same"}); !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("duplicate id error=%v", err)
+	}
+}
+
+func TestSelectStructureFolderSelectionErrorsAreTypedAndPreserveMessages(t *testing.T) {
+	staleRows := []domain.StructureRow{
+		{RowID: 10, Depth: 0, ItemType: "folder", ItemID: "f-root"},
+		{RowID: 11, Depth: 1, ItemType: "folder", ItemID: "f-child"},
+		{RowID: 12, Depth: 2, ItemType: "issue", ItemID: "10001"},
+		{RowID: 20, Depth: 0, ItemType: "folder", ItemID: "f-other"},
+		{RowID: 21, Depth: 1, ItemType: "folder", ItemID: "f-child-2"},
+	}
+	staleFolders := buildStructureFolders(staleRows, map[int64]string{10: "Plans", 11: "Quarter", 20: "Archive", 21: "Quarter"})
+	ambiguousRows := []domain.StructureRow{
+		{RowID: 10, ItemType: "folder", ItemID: "same"},
+		{RowID: 20, ItemType: "folder", ItemID: "same"},
+	}
+	ambiguousFolders := buildStructureFolders(ambiguousRows, map[int64]string{10: "A", 20: "B"})
+
+	for _, test := range []struct {
+		name               string
+		rows               []domain.StructureRow
+		folders            []StructureFolder
+		complete           bool
+		selector           StructureFolderSelector
+		reason             StructureFolderSelectionReason
+		matches, available int
+		sentinel, other    error
+		message            string
+	}{
+		{
+			name: "stale selector", rows: staleRows, folders: staleFolders, complete: true,
+			selector: StructureFolderSelector{FolderID: "f-missing"},
+			reason:   StructureFolderSelectionNotFound, matches: 0, available: 4,
+			sentinel: domain.ErrNotFound, other: domain.ErrCheckFailed,
+			message: "not found: exact Structure folder was not found",
+		},
+		{
+			name: "ambiguous selector", rows: ambiguousRows, folders: ambiguousFolders, complete: true,
+			selector: StructureFolderSelector{FolderID: "same"},
+			reason:   StructureFolderSelectionAmbiguous, matches: 2, available: 2,
+			sentinel: domain.ErrCheckFailed, other: domain.ErrNotFound,
+			message: "check failed: exact Structure folder selector is ambiguous: folder=same row=10, folder=same row=20",
+		},
+		{
+			name: "incomplete labels", rows: staleRows, folders: staleFolders, complete: false,
+			selector: StructureFolderSelector{FolderPath: "Plans/Quarter"},
+			reason:   StructureFolderSelectionLabelsIncomplete, matches: 0, available: 4,
+			sentinel: domain.ErrCheckFailed, other: domain.ErrNotFound,
+			message: "check failed: exact folder path cannot be validated because folder labels are incomplete; use --folder-id or --folder-row",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, err := selectStructureFolder(test.rows, test.folders, test.complete, test.selector)
+			var selection *StructureFolderSelectionError
+			if !errors.As(err, &selection) {
+				t.Fatalf("error = %#v, want *StructureFolderSelectionError", err)
+			}
+			if selection.Reason != test.reason || selection.Matches != test.matches || selection.Available != test.available {
+				t.Fatalf("selection=%+v", selection)
+			}
+			if !errors.Is(err, test.sentinel) || errors.Is(err, test.other) {
+				t.Fatalf("sentinel mapping lost: %v", err)
+			}
+			if err.Error() != test.message {
+				t.Fatalf("message=%q want %q", err.Error(), test.message)
+			}
+		})
+	}
+}
+
+func TestSelectStructureFolderKeepsUnrelatedFailuresUntyped(t *testing.T) {
+	rows := []domain.StructureRow{
+		{RowID: 10, Depth: 0, ItemType: "folder", ItemID: "root"},
+		{RowID: 13, Depth: 1, ItemType: "issue", ItemID: "10001"},
+	}
+	folders := buildStructureFolders(rows, map[int64]string{10: "Plans"})
+	for _, test := range []struct {
+		name     string
+		selector StructureFolderSelector
+		sentinel error
+		message  string
+	}{
+		{
+			name: "non-folder row", selector: StructureFolderSelector{FolderRow: 13},
+			sentinel: domain.ErrUsage, message: "usage error: Structure row 13 is not a stored folder",
+		},
+		{
+			name: "empty path segment", selector: StructureFolderSelector{FolderPath: "Plans//Quarter"},
+			sentinel: domain.ErrUsage, message: "usage error: --folder-path contains an empty segment",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, err := selectStructureFolder(rows, folders, true, test.selector)
+			var selection *StructureFolderSelectionError
+			if errors.As(err, &selection) {
+				t.Fatalf("unrelated failure must not be a selection error: %#v", selection)
+			}
+			if !errors.Is(err, test.sentinel) || err.Error() != test.message {
+				t.Fatalf("err=%v", err)
+			}
+		})
 	}
 }
 
