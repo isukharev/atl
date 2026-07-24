@@ -4,7 +4,8 @@
 ## Search vs pull
 
 - `atl jira issue search --jql '<JQL>'` returns a lightweight list to stdout — use it to find the
-  right issues without writing anything to disk. Default `--limit 50`.
+  right issues without writing anything to disk. `--limit` requests Jira
+  `maxResults` from 1 to 1000 (default 50); Jira may return fewer rows.
 - `atl jira issue children <EPIC-KEY>` is the narrower path for one epic: it
   resolves the Epic Link field and returns a paginated IssueList without
   per-child reads or project-wide JQL.
@@ -35,7 +36,8 @@ Quote multi-word values with double quotes inside the single-quoted shell argume
 - `--columns key,summary,status,assignee` controls both ordered output and the
   fields fetched (cheaper, less noise).
 - Pagination lives under `page.next_cursor` (a `startAt` offset). Pass it back
-  via `--cursor <page.next_cursor>` to get the next page.
+  via `--cursor <page.next_cursor>` to get the next page; Jira may return fewer
+  rows than the requested page size.
 
 ## Picking a query
 

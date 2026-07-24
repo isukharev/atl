@@ -2346,13 +2346,15 @@ Flags:
 | `--jql` | JQL query (required) |
 | `--view` | named configured list view (`default` when omitted) |
 | `--columns` | ordered metadata, Jira-field, and source-context columns |
-| `--limit` | max results (default 50) |
+| `--limit` | page size from 1 to 1000 (default 50) |
 | `--cursor` | pagination cursor (startAt offset) |
 
 JSON uses the common IssueList contract documented below under boards and
 sprints. Read rows with `.rows[]`, selected fields with `.values.<field>`, and
-resume from `.page.next_cursor`. `-o text` is a Markdown table in the exact
-`--columns` order; `-o id` prints only keys.
+resume from `.page.next_cursor`. Requested page sizes through 1000 are passed
+to Jira unchanged; the backend may still return fewer rows and an explicit
+continuation. `-o text` is a Markdown table in the exact `--columns` order;
+`-o id` prints only keys.
 
 ### `atl jira issue children`
 

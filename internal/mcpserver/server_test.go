@@ -943,6 +943,48 @@ func TestProductionDependenciesRedactSecureBackendURLs(t *testing.T) {
 	}
 }
 
+func TestProductionJiraIssueSearchHonorsPageSizeAboveOneHundred(t *testing.T) {
+	fixture := agenteval.MockFixture{
+		SchemaVersion: agenteval.MockFixtureSchemaVersion,
+		JiraContext:   "/jira", ConfluenceContext: "/wiki",
+		Routes: []agenteval.MockRoute{{
+			Method: "GET", Path: "/jira/rest/api/2/search",
+			QueryEquals: map[string]string{
+				"jql":     "project = PROJ ORDER BY key",
+				"startAt": "0", "maxResults": "250", "fields": "summary,status",
+			},
+			Status: 200,
+			Body:   json.RawMessage(`{"startAt":0,"maxResults":250,"total":0,"issues":[]}`),
+		}},
+	}
+	backend, err := agenteval.StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	for name, value := range backend.Environment() {
+		t.Setenv(name, value)
+	}
+	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+	t.Setenv("ATL_READ_ONLY", "1")
+	t.Setenv("ATL_NO_UPDATE", "1")
+
+	client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
+	defer closeSessions()
+	result := callToolOK(t, client, "jira_issue_search", map[string]any{
+		"jql": "project = PROJ ORDER BY key", "columns": []string{"key", "summary", "status"}, "limit": 250,
+	})
+	content, ok := result.StructuredContent.(map[string]any)
+	page, pageOK := content["page"].(map[string]any)
+	if !ok || !pageOK || page["count"] != float64(0) || page["complete"] != true || page["truncated"] != false {
+		t.Fatalf("issue search=%#v", result.StructuredContent)
+	}
+	methods, unexpected, duplicates := backend.Summary()
+	if methods["GET"] != 1 || len(methods) != 1 || unexpected != 0 || duplicates != 0 {
+		t.Fatalf("requests=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+	}
+}
+
 func TestJiraStructureGetAcceptsIntegerAndCanonicalDecimalString(t *testing.T) {
 	for _, value := range []any{int64(9), "9"} {
 		t.Run(fmt.Sprintf("%T", value), func(t *testing.T) {

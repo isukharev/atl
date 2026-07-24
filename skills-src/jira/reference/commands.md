@@ -13,7 +13,7 @@ Load this reference only when exact command or flag lookup is useful.
 | `jira issue field get <KEY>` | Qualified bounded expansion of one exact compact value | `--field` required; `--max-bytes` 256..131072, default 16384 |
 | `jira issue field preview <KEY>` | GET-only file-backed custom-field proposal, safe under `ATL_READ_ONLY=1` | `--from-file FIELD=PATH`, `--from-md FIELD=PATH`, `--allow-fields` |
 | `jira issue view <KEY>` | Render one configured Markdown view without writing files | `-o text`, `--render-root`, `--render-profile`, `--render-include`, `--render-exclude` |
-| `jira issue search` | Search as a common IssueList / Markdown table | `--jql`, `--view`, `--columns`, `--limit`, `--cursor` |
+| `jira issue search` | Search as a paginated common IssueList / Markdown table | `--jql`, `--view`, `--columns`, `--limit` 1..1000, `--cursor` |
 | `jira issue search -o id` | Print matching issue keys one per line | `-o id` |
 | `jira issue children <EPIC-KEY>` | Read direct epic children as a common IssueList without per-child reads | `--view`, `--columns`, `--limit`, `--cursor`, `--epic-field`, `-o text/id` |
 | `jira epic digest <EPIC-KEY>` | Deterministic multi-source epic evidence with per-source completeness | `--projection compact|full`, period, includes, fields, caps, optional bounded Confluence heading expansion |
