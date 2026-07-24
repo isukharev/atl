@@ -272,6 +272,9 @@ Notes for scripts:
   deterministic `remediation` to **stderr** (use `-o text` for a plain
   `error: <msg>` line). Branch on `kind`/exit code; remediation is guidance for
   the agent to present, never permission to retry or mutate automatically.
+  `rate_limited` / `wait_before_retry` means the bounded replay-safe read retry
+  policy was exhausted; wait before a later read instead of immediately
+  repeating it, and never retry a write automatically.
 - **Ordinary `--cql` pull caps at 1000 pages; `--space` at 2000.** When either cap is
   hit the result carries `"truncated": true` / `"truncated_at": N` and a
   `warning:` line is printed to stderr — the rest is not mirrored. Narrow the

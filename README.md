@@ -568,7 +568,9 @@ atl jira field-options --project PROJ --field <field-id>
 `7` vs `3`: `7` means "finish setup" (no URL/token); `3` means "replace the token" (it was refused).
 JSON errors also include stable `kind` and `remediation` fields derived from
 local error types, so agents need not parse backend prose; existing `error` and
-`code` remain unchanged.
+`code` remain unchanged. After bounded replay-safe read retries are exhausted,
+HTTP 429 is `rate_limited` / `wait_before_retry`; do not immediately repeat the
+request or retry a write.
 For scripting and CI patterns (env-only config, disabling self-update, isolating credentials,
 handling the `--cql` page cap), see [docs/usage.md → Scripting & CI](docs/usage.md#scripting--ci).
 

@@ -32,7 +32,9 @@ If `atl` or Confluence URL/auth is missing, run `$setup` and stop.
 Exit 7 also means setup is incomplete. Exit 8 with `policy:"read_only"` is a
 human-decision boundary; never disable it to apply, push, create, move, or
 delete. Route other failures on stable JSON `kind`, numeric `code`, and
-`remediation`, not backend prose.
+`remediation`, not backend prose. For `rate_limited` /
+`wait_before_retry`, wait before a later read instead of immediately repeating
+the command or tool call; never retry a write automatically.
 
 `ATL_READ_ONLY=1 atl ...` protects only one process and is not a substitute for
 the block-level export. Remove the exported policy only for the exact reviewed
