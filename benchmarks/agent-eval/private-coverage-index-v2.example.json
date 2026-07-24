@@ -1,0 +1,13 @@
+{
+  "schema_version": 2,
+  "entries": [
+    {
+      "assessment_source": "private-live",
+      "assessment_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "assessment_source": "synthetic-root",
+      "assessment_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  ]
+}

@@ -1,17 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/isukharev/atl/benchmarks/agent-eval/private-coverage-index.schema.json",
-  "title": "ATL legacy synthetic-only accepted sampling coverage index",
+  "$id": "https://github.com/isukharev/atl/benchmarks/agent-eval/private-coverage-index-v2.schema.json",
+  "title": "ATL typed private accepted sampling coverage index",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "entries"],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2
     },
     "entries": {
       "type": "array",
-      "description": "Legacy synthetic-root entries must be strictly sorted by assessment_sha256; each accepted active cohort may appear only once.",
+      "description": "Entries must be strictly sorted by assessment_source and assessment_sha256; each accepted active cohort may appear only once per source.",
       "minItems": 1,
       "maxItems": 4096,
       "uniqueItems": true,
@@ -24,8 +24,12 @@
     "entry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["assessment_sha256"],
+      "required": ["assessment_source", "assessment_sha256"],
       "properties": {
+        "assessment_source": {
+          "type": "string",
+          "enum": ["private-live", "synthetic-root"]
+        },
         "assessment_sha256": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"

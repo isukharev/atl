@@ -92,19 +92,23 @@ acceptance entry binds the regression assessment and its non-empty
 prompt-contract digest. Agent executable drift remains incompatible.
 
 Accepted clean coverage without a preceding finding uses a separate owner-only
-index described by
-[`private-coverage-index.schema.json`](private-coverage-index.schema.json).
-`private coverage-scorecard` resolves only the exact sorted assessment digests
-selected by that index. Every entry must be an accepted immutable synthetic
+index. The legacy
+[`private-coverage-index.schema.json`](private-coverage-index.schema.json)
+remains readable as synthetic-only. The current
+[`private-coverage-index-v2.schema.json`](private-coverage-index-v2.schema.json)
+binds every exact sorted digest to an explicit `private-live` or
+`synthetic-root` source. `private coverage-scorecard` reopens each assessment
+through that source's immutable lifecycle. Every entry must be an accepted
 `regression` assessment with three passing primary observations and at least
 one distinct passing holdout. Unindexed historical assessments are ignored;
-two entries that resolve to the same generic task, capability, surface, and
-provider/model/reasoning cohort are rejected instead of double-counted. The
-report contains only the closed benchmark taxonomy, correctness and safety
-counts, explicit metric coverage, and call, duplicate, token, cost, and latency
-quantiles. It never emits scenario, root, assessment, prompt, path, backend, or
-content identifiers. Runtime labels are fail-closed to the public paired
-cohorts `codex`/`gpt-5.6-luna`/`high` and
+two entries that resolve to the same source, generic task, capability, surface,
+and provider/model/reasoning cohort are rejected instead of double-counted.
+The report keeps evidence sources in separate groups and contains only the
+closed benchmark taxonomy, correctness and safety counts, explicit metric
+coverage, and call, duplicate, token, cost, and latency quantiles. It never
+emits scenario, root, assessment, prompt, path, backend, or content
+identifiers. Runtime labels are fail-closed to the public paired cohorts
+`codex`/`gpt-5.6-luna`/`high` and
 `claude-code`/`claude-opus-4-8`/`high`.
 
 Private sample strength is encoded separately with

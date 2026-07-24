@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -18,9 +19,13 @@ import (
 )
 
 const (
-	PrivateCoverageIndexSchemaVersion     = 1
-	PrivateCoverageScorecardSchemaVersion = 1
-	PrivateCoverageIndexRelativePath      = "reports/sampling-coverage.v1.json"
+	PrivateCoverageIndexSchemaVersion = 1
+	PrivateCoverageIndexRelativePath  = "reports/sampling-coverage.v1.json"
+
+	PrivateCoverageIndexV2SchemaVersion = 2
+	PrivateCoverageIndexV2RelativePath  = "reports/sampling-coverage.v2.json"
+
+	PrivateCoverageScorecardSchemaVersion = 2
 )
 
 var ErrPrivateCoverageIndexRejected = errors.New("private coverage index rejected")
@@ -34,6 +39,16 @@ type PrivateCoverageIndexEntry struct {
 	AssessmentSHA256 string `json:"assessment_sha256"`
 }
 
+type PrivateCoverageIndexV2 struct {
+	SchemaVersion int                           `json:"schema_version"`
+	Entries       []PrivateCoverageIndexV2Entry `json:"entries"`
+}
+
+type PrivateCoverageIndexV2Entry struct {
+	AssessmentSource string `json:"assessment_source"`
+	AssessmentSHA256 string `json:"assessment_sha256"`
+}
+
 type PrivateCoverageScorecardOptions struct {
 	Root           string
 	RepositoryRoot string
@@ -41,6 +56,7 @@ type PrivateCoverageScorecardOptions struct {
 
 type PrivateCoverageScorecard struct {
 	SchemaVersion       int                             `json:"schema_version"`
+	IndexSchemaVersion  int                             `json:"index_schema_version"`
 	SourceSHA256        string                          `json:"source_sha256"`
 	Reconciled          bool                            `json:"reconciled"`
 	Assessments         int                             `json:"assessments"`
@@ -50,6 +66,7 @@ type PrivateCoverageScorecard struct {
 }
 
 type PrivateCoverageScorecardGroup struct {
+	AssessmentSource   string                 `json:"assessment_source"`
 	TaskClass          string                 `json:"task_class"`
 	Category           string                 `json:"category"`
 	Surface            string                 `json:"surface"`
@@ -99,21 +116,26 @@ type PrivateCoverageMetrics struct {
 }
 
 type privateCoverageResolved struct {
+	source     string
 	digest     string
-	assessment privateSyntheticSamplingAssessment
+	assessment any
 	primary    []Result
 	holdout    []Result
 	key        privateCoverageGroupKey
 }
 
 type privateCoverageGroupKey struct {
-	taskClass, category, surface, provider, model, reasoning, capabilityFamilies string
+	source, taskClass, category, surface, provider, model, reasoning, capabilityFamilies string
 }
 
 // BuildPrivateCoverageScorecard validates the exact active sampling index and
-// its immutable accepted synthetic evidence without changing the workspace.
+// its immutable accepted evidence without changing the workspace.
 func BuildPrivateCoverageScorecard(options PrivateCoverageScorecardOptions) (PrivateCoverageScorecard, error) {
-	root, _, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
+	return buildPrivateCoverageScorecard(options, LoadCompletedPrivateRun)
+}
+
+func buildPrivateCoverageScorecard(options PrivateCoverageScorecardOptions, load privateFindingSourceLoader) (PrivateCoverageScorecard, error) {
+	root, repository, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
 	if err != nil {
 		return PrivateCoverageScorecard{}, privateCoverageError("workspace")
 	}
@@ -124,11 +146,13 @@ func BuildPrivateCoverageScorecard(options PrivateCoverageScorecardOptions) (Pri
 	resolved := make([]privateCoverageResolved, 0, len(index.Entries))
 	seenGroups := map[privateCoverageGroupKey]struct{}{}
 	for _, entry := range index.Entries {
-		assessment, primary, holdout, loadErr := loadPrivateSyntheticSamplingAssessment(root, entry.AssessmentSHA256)
+		assessment, primary, holdout, loadErr := loadPrivateCoverageAssessment(
+			root, repository, entry.AssessmentSource, entry.AssessmentSHA256, load,
+		)
 		if loadErr != nil {
 			return PrivateCoverageScorecard{}, privateCoverageError("assessment")
 		}
-		key, keyErr := validatePrivateCoverageAssessment(assessment, primary, holdout)
+		key, keyErr := validatePrivateCoverageAssessment(entry.AssessmentSource, assessment, primary, holdout)
 		if keyErr != nil {
 			return PrivateCoverageScorecard{}, keyErr
 		}
@@ -137,7 +161,7 @@ func BuildPrivateCoverageScorecard(options PrivateCoverageScorecardOptions) (Pri
 		}
 		seenGroups[key] = struct{}{}
 		resolved = append(resolved, privateCoverageResolved{
-			digest: entry.AssessmentSHA256, assessment: assessment,
+			source: entry.AssessmentSource, digest: entry.AssessmentSHA256, assessment: assessment,
 			primary: primary, holdout: holdout, key: key,
 		})
 	}
@@ -146,35 +170,98 @@ func BuildPrivateCoverageScorecard(options PrivateCoverageScorecardOptions) (Pri
 		return PrivateCoverageScorecard{}, privateCoverageError("index_drift")
 	}
 	for _, item := range resolved {
-		assessment, primary, holdout, loadErr := loadPrivateSyntheticSamplingAssessment(root, item.digest)
+		assessment, primary, holdout, loadErr := loadPrivateCoverageAssessment(
+			root, repository, item.source, item.digest, load,
+		)
 		if loadErr != nil || !reflect.DeepEqual(assessment, item.assessment) ||
 			!reflect.DeepEqual(primary, item.primary) || !reflect.DeepEqual(holdout, item.holdout) {
 			return PrivateCoverageScorecard{}, privateCoverageError("evidence_drift")
 		}
 	}
-	return aggregatePrivateCoverageScorecard(canonical, resolved), nil
+	return aggregatePrivateCoverageScorecard(index.SchemaVersion, canonical, resolved), nil
 }
 
-func loadPrivateCoverageIndex(root string) (PrivateCoverageIndex, []byte, error) {
+type privateCoverageSelectedIndex struct {
+	SchemaVersion int
+	Entries       []PrivateCoverageIndexV2Entry
+}
+
+func loadPrivateCoverageIndex(root string) (privateCoverageSelectedIndex, []byte, error) {
 	directory := filepath.Join(root, "reports")
 	info, err := safepath.StatWithin(root, directory)
 	if err != nil || !info.IsDir() || runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
-		return PrivateCoverageIndex{}, nil, privateCoverageError("index_directory")
+		return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_directory")
 	}
-	path := filepath.Join(root, filepath.FromSlash(PrivateCoverageIndexRelativePath))
-	info, err = safepath.StatWithin(root, path)
-	if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
-		return PrivateCoverageIndex{}, nil, privateCoverageError("index_file")
+	legacyPath := filepath.Join(root, filepath.FromSlash(PrivateCoverageIndexRelativePath))
+	currentPath := filepath.Join(root, filepath.FromSlash(PrivateCoverageIndexV2RelativePath))
+	legacyInfo, legacyExists, err := privateCoverageIndexEntry(root, legacyPath)
+	if err != nil {
+		return privateCoverageSelectedIndex{}, nil, err
+	}
+	currentInfo, currentExists, err := privateCoverageIndexEntry(root, currentPath)
+	if err != nil {
+		return privateCoverageSelectedIndex{}, nil, err
+	}
+	if legacyExists == currentExists {
+		code := "index_file"
+		if legacyExists {
+			code = "index_ambiguous"
+		}
+		return privateCoverageSelectedIndex{}, nil, privateCoverageError(code)
+	}
+	path, selectedInfo, version := legacyPath, legacyInfo, PrivateCoverageIndexSchemaVersion
+	if currentExists {
+		path, selectedInfo, version = currentPath, currentInfo, PrivateCoverageIndexV2SchemaVersion
 	}
 	data, err := safepath.ReadFileWithinLimit(root, path, privateFindingLedgerMaxBytes)
 	if err != nil {
-		return PrivateCoverageIndex{}, nil, privateCoverageError("index_read")
+		return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_read")
 	}
-	index, canonical, err := decodePrivateCoverageIndex(data)
-	if err != nil || !bytes.Equal(data, canonical) {
-		return PrivateCoverageIndex{}, nil, privateCoverageError("index_contract")
+	legacyFinal, legacyStillExists, legacyErr := privateCoverageIndexEntry(root, legacyPath)
+	currentFinal, currentStillExists, currentErr := privateCoverageIndexEntry(root, currentPath)
+	if legacyErr != nil || currentErr != nil ||
+		legacyExists != legacyStillExists || currentExists != currentStillExists ||
+		legacyExists && (!os.SameFile(legacyInfo, legacyFinal) || !sameSyntheticRootInfo(legacyInfo, legacyFinal)) ||
+		currentExists && (!os.SameFile(currentInfo, currentFinal) || !sameSyntheticRootInfo(currentInfo, currentFinal)) {
+		return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_file")
 	}
-	return index, canonical, nil
+	finalInfo := legacyFinal
+	if currentExists {
+		finalInfo = currentFinal
+	}
+	if !os.SameFile(selectedInfo, finalInfo) || !sameSyntheticRootInfo(selectedInfo, finalInfo) {
+		return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_file")
+	}
+	if version == PrivateCoverageIndexSchemaVersion {
+		index, canonical, decodeErr := decodePrivateCoverageIndex(data)
+		if decodeErr != nil || !bytes.Equal(data, canonical) {
+			return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_contract")
+		}
+		entries := make([]PrivateCoverageIndexV2Entry, 0, len(index.Entries))
+		for _, entry := range index.Entries {
+			entries = append(entries, PrivateCoverageIndexV2Entry{
+				AssessmentSource: PrivateFindingAcceptanceSourceSyntheticRoot,
+				AssessmentSHA256: entry.AssessmentSHA256,
+			})
+		}
+		return privateCoverageSelectedIndex{SchemaVersion: version, Entries: entries}, canonical, nil
+	}
+	index, canonical, decodeErr := decodePrivateCoverageIndexV2(data)
+	if decodeErr != nil || !bytes.Equal(data, canonical) {
+		return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_contract")
+	}
+	return privateCoverageSelectedIndex{SchemaVersion: version, Entries: index.Entries}, canonical, nil
+}
+
+func privateCoverageIndexEntry(root, path string) (os.FileInfo, bool, error) {
+	info, err := safepath.StatWithin(root, path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
+		return nil, false, privateCoverageError("index_file")
+	}
+	return info, true, nil
 }
 
 func decodePrivateCoverageIndex(data []byte) (PrivateCoverageIndex, []byte, error) {
@@ -213,27 +300,124 @@ func (index PrivateCoverageIndex) validate() error {
 	return nil
 }
 
+func decodePrivateCoverageIndexV2(data []byte) (PrivateCoverageIndexV2, []byte, error) {
+	var index PrivateCoverageIndexV2
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&index); err != nil {
+		return index, nil, err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return index, nil, fmt.Errorf("trailing data")
+	}
+	if err := index.validate(); err != nil {
+		return index, nil, err
+	}
+	canonical, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		return index, nil, err
+	}
+	return index, append(canonical, '\n'), nil
+}
+
+func (index PrivateCoverageIndexV2) validate() error {
+	if index.SchemaVersion != PrivateCoverageIndexV2SchemaVersion ||
+		len(index.Entries) == 0 || len(index.Entries) > 4096 {
+		return fmt.Errorf("invalid coverage index envelope")
+	}
+	previous := ""
+	for _, entry := range index.Entries {
+		if entry.AssessmentSource != PrivateFindingAcceptanceSourcePrivateLive &&
+			entry.AssessmentSource != PrivateFindingAcceptanceSourceSyntheticRoot {
+			return fmt.Errorf("invalid coverage index source")
+		}
+		current := entry.AssessmentSource + "\x00" + entry.AssessmentSHA256
+		if !validSHA256(entry.AssessmentSHA256) || current <= previous {
+			return fmt.Errorf("invalid coverage index order")
+		}
+		previous = current
+	}
+	return nil
+}
+
+func loadPrivateCoverageAssessment(root, repository, source, digest string, load privateFindingSourceLoader) (any, []Result, []Result, error) {
+	switch source {
+	case PrivateFindingAcceptanceSourcePrivateLive:
+		assessment, primary, holdout, err := loadPrivateSamplingAssessment(root, repository, digest, load)
+		return assessment, primary, holdout, err
+	case PrivateFindingAcceptanceSourceSyntheticRoot:
+		assessment, primary, holdout, err := loadPrivateSyntheticSamplingAssessment(root, digest)
+		return assessment, primary, holdout, err
+	default:
+		return nil, nil, nil, privateCoverageError("assessment_source")
+	}
+}
+
 func validatePrivateCoverageAssessment(
-	assessment privateSyntheticSamplingAssessment,
+	source string,
+	assessment any,
 	primary, holdout []Result,
 ) (privateCoverageGroupKey, error) {
-	if assessment.SchemaVersion != PrivateSyntheticSamplingSchemaVersion ||
-		assessment.Tier != PrivateSamplingTierRegression ||
-		assessment.RegressionAccepted == nil || !*assessment.RegressionAccepted ||
-		!assessment.EvidenceReady || len(primary) != 3 || len(holdout) < 1 ||
-		assessment.Primary.Observations != len(primary) ||
-		!privateSamplingAllPass(assessment.PrimaryOutcome) ||
-		!privateSamplingAllPass(assessment.HoldoutOutcome) {
+	var primaryOutcome, holdoutOutcome PrivateSamplingOutcome
+	var declared *privateSyntheticSamplingCohort
+	switch value := assessment.(type) {
+	case privateSamplingAssessment:
+		if source != PrivateFindingAcceptanceSourcePrivateLive ||
+			value.SchemaVersion != PrivateSamplingSchemaVersion ||
+			value.Tier != PrivateSamplingTierRegression ||
+			value.RegressionAccepted == nil || !*value.RegressionAccepted ||
+			!value.EvidenceReady || len(value.Primary) != len(primary) || len(value.Holdout) != len(holdout) {
+			return privateCoverageGroupKey{}, privateCoverageError("assessment_acceptance")
+		}
+		primaryOutcome, holdoutOutcome = value.PrimaryOutcome, value.HoldoutOutcome
+	case privateSyntheticSamplingAssessment:
+		if source != PrivateFindingAcceptanceSourceSyntheticRoot ||
+			value.SchemaVersion != PrivateSyntheticSamplingSchemaVersion ||
+			value.Tier != PrivateSamplingTierRegression ||
+			value.RegressionAccepted == nil || !*value.RegressionAccepted ||
+			!value.EvidenceReady || value.Primary.Observations != len(primary) {
+			return privateCoverageGroupKey{}, privateCoverageError("assessment_acceptance")
+		}
+		primaryOutcome, holdoutOutcome = value.PrimaryOutcome, value.HoldoutOutcome
+		declared = &value.Primary.Cohort
+	default:
+		return privateCoverageGroupKey{}, privateCoverageError("assessment_source")
+	}
+	if len(primary) != 3 || len(holdout) < 1 ||
+		!privateSamplingAllPass(primaryOutcome) || !privateSamplingAllPass(holdoutOutcome) {
 		return privateCoverageGroupKey{}, privateCoverageError("assessment_acceptance")
 	}
 	all := append(append([]Result{}, primary...), holdout...)
+	expectedDataClass := "synthetic"
+	if source == PrivateFindingAcceptanceSourcePrivateLive {
+		expectedDataClass = "private-local"
+	}
 	for _, result := range all {
-		if result.DataClass != "synthetic" || result.Status != "pass" ||
+		if result.DataClass != expectedDataClass || result.Status != "pass" ||
 			result.EffectiveEligibility() != EligibilitySupported {
 			return privateCoverageGroupKey{}, privateCoverageError("assessment_result")
 		}
 	}
-	provider, model, reasoning, ok := privateCoverageRuntimeClass(assessment.Primary.Cohort.Runtime)
+	first := primary[0]
+	if declared != nil &&
+		(declared.TaskClass != first.TaskClass ||
+			declared.Category != first.EffectiveCategory() ||
+			declared.Surface != first.EffectiveSurface() ||
+			declared.Runtime.Provider != first.Runtime.Provider ||
+			declared.Runtime.Model != first.Runtime.Model ||
+			declared.Runtime.Reasoning != first.Runtime.Reasoning) {
+		return privateCoverageGroupKey{}, privateCoverageError("assessment_cohort")
+	}
+	for _, result := range all[1:] {
+		if result.TaskClass != first.TaskClass || result.EffectiveCategory() != first.EffectiveCategory() ||
+			result.EffectiveSurface() != first.EffectiveSurface() ||
+			result.Runtime.Provider != first.Runtime.Provider || result.Runtime.Model != first.Runtime.Model ||
+			result.Runtime.Reasoning != first.Runtime.Reasoning {
+			return privateCoverageGroupKey{}, privateCoverageError("assessment_cohort")
+		}
+	}
+	provider, model, reasoning, ok := privateCoverageRuntimeClass(first.Runtime)
 	if !ok {
 		return privateCoverageGroupKey{}, privateCoverageError("runtime_class")
 	}
@@ -242,8 +426,8 @@ func validatePrivateCoverageAssessment(
 		return privateCoverageGroupKey{}, privateCoverageError("capability_families")
 	}
 	return privateCoverageGroupKey{
-		taskClass: assessment.Primary.Cohort.TaskClass, category: assessment.Primary.Cohort.Category,
-		surface: assessment.Primary.Cohort.Surface, provider: provider, model: model, reasoning: reasoning,
+		source: source, taskClass: first.TaskClass, category: first.EffectiveCategory(),
+		surface: first.EffectiveSurface(), provider: provider, model: model, reasoning: reasoning,
 		capabilityFamilies: strings.Join(families, "\x00"),
 	}, nil
 }
@@ -283,17 +467,19 @@ func privateCoverageCapabilityFamilies(results []Result) ([]string, bool) {
 }
 
 func aggregatePrivateCoverageScorecard(
+	indexSchemaVersion int,
 	canonical []byte,
 	resolved []privateCoverageResolved,
 ) PrivateCoverageScorecard {
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("atl-private-coverage-scorecard-v1\x00"))
+	_, _ = hash.Write([]byte("atl-private-coverage-scorecard-v2\x00"))
 	_, _ = hash.Write(canonical)
 	report := PrivateCoverageScorecard{
-		SchemaVersion: PrivateCoverageScorecardSchemaVersion,
-		SourceSHA256:  hex.EncodeToString(hash.Sum(nil)),
-		Reconciled:    true,
-		Assessments:   len(resolved),
+		SchemaVersion:      PrivateCoverageScorecardSchemaVersion,
+		IndexSchemaVersion: indexSchemaVersion,
+		SourceSHA256:       hex.EncodeToString(hash.Sum(nil)),
+		Reconciled:         true,
+		Assessments:        len(resolved),
 	}
 	sort.Slice(resolved, func(i, j int) bool {
 		return privateCoverageGroupKeyString(resolved[i].key) < privateCoverageGroupKeyString(resolved[j].key)
@@ -303,7 +489,8 @@ func aggregatePrivateCoverageScorecard(
 		report.PrimaryObservations += len(item.primary)
 		report.HoldoutObservations += len(item.holdout)
 		report.Groups = append(report.Groups, PrivateCoverageScorecardGroup{
-			TaskClass: item.key.taskClass, Category: item.key.category, Surface: item.key.surface,
+			AssessmentSource: item.key.source,
+			TaskClass:        item.key.taskClass, Category: item.key.category, Surface: item.key.surface,
 			Provider: item.key.provider, Model: item.key.model, Reasoning: item.key.reasoning,
 			CapabilityFamilies: families, Assessments: 1,
 			Primary: privateCoverageOutcome(item.primary), Holdout: privateCoverageOutcome(item.holdout),
@@ -313,7 +500,7 @@ func aggregatePrivateCoverageScorecard(
 }
 
 func privateCoverageGroupKeyString(key privateCoverageGroupKey) string {
-	return key.taskClass + "\x00" + key.category + "\x00" + key.surface + "\x00" +
+	return key.source + "\x00" + key.taskClass + "\x00" + key.category + "\x00" + key.surface + "\x00" +
 		key.provider + "\x00" + key.model + "\x00" + key.reasoning + "\x00" + key.capabilityFamilies
 }
 
