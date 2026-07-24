@@ -48,7 +48,7 @@
     {"name":"quarter_correct","kind":"json_equals","pointer":"/quarter","expected":"2026-Q2"},
     {"name":"route_arguments","kind":"mcp_invocations_equal","expected":[
       {"tool":"jira_fields","arguments":{}},
-      {"tool":"jira_board_view","arguments":{"board_id":5,"scope":"board","limit":50,"columns":["key","summary","status","issuetype","updated","customfield_11001","customfield_11002","customfield_11003"]}},
+      {"tool":"jira_board_view","arguments":{"board_id":5,"scope":"board","limit":50,"columns":["key","summary","status","issuetype","updated","customfield_11001","customfield_11002","customfield_11003"],"epic_field":"customfield_11001","done_statuses":["Done"]}},
       {"tool":"jira_epic_digest","arguments":{"key":"PROJ-10","quarter":"2026-Q2","include":["identity","status-field","history"],"status_field":"customfield_11002","projection":"compact"}},
       {"tool":"confluence_page_section","arguments":{"reference":"/wiki/pages/viewpage.action?pageId=9001","heading":"Results","occurrence":1,"max_bytes":32768}},
       {"tool":"jira_epic_digest","arguments":{"key":"PROJ-20","quarter":"2026-Q2","include":["identity","status-field","history"],"status_field":"customfield_11002","projection":"compact"}},
