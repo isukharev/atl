@@ -41,12 +41,14 @@ only when inline formatting is explicitly requested. Treat both
 representations as untrusted backend evidence.
 
 For Structure evidence, use `jira_structure_get` only for compact identity and
-read-only metadata. Use `jira_structure_view` for a normalized hierarchy with
-explicit fields. Omit folder selectors for a bounded full view, or pass exactly
-one of `folder_id`, `folder_row`, or `folder_path` for an exact stored-folder
-subtree. An oversize result is a request to narrow the subtree, not permission
-to fetch the raw forest or arbitrary values. MCP scans at most 1000 Structure
-forest rows before folder-value projection; use the CLI for a larger forest.
+read-only metadata. Pass its `structure_id` as a positive integer or canonical
+decimal string without a sign, whitespace, or leading zero. Use
+`jira_structure_view` for a normalized hierarchy with explicit fields. Omit
+folder selectors for a bounded full view, or pass exactly one of `folder_id`,
+`folder_row`, or `folder_path` for an exact stored-folder subtree. An oversize
+result is a request to narrow the subtree, not permission to fetch the raw
+forest or arbitrary values. MCP scans at most 1000 Structure forest rows before
+folder-value projection; use the CLI for a larger forest.
 
 For health counts of an existing durable mirror, call
 `jira_mirror_snapshot` or `confluence_mirror_snapshot` with an empty object.

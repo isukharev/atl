@@ -111,6 +111,17 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		if (tool.Name == "jira_structure_get" || tool.Name == "jira_structure_view") && !schemaRequired(input, "structure_id") {
 			t.Errorf("tool %s must require structure_id: %#v", tool.Name, tool.InputSchema)
 		}
+		if tool.Name == "jira_structure_get" {
+			properties, _ := input["properties"].(map[string]any)
+			structureID, _ := properties["structure_id"].(map[string]any)
+			alternatives, _ := structureID["oneOf"].([]any)
+			if len(alternatives) != 2 ||
+				!schemaAlternative(alternatives, "integer", "", float64(1)) ||
+				!schemaAlternative(alternatives, "string", `^[1-9][0-9]{0,18}$`, nil) ||
+				input["additionalProperties"] != false {
+				t.Errorf("tool %s must accept only a positive integer or canonical decimal string: %#v", tool.Name, tool.InputSchema)
+			}
+		}
 		if tool.Name == "jira_mirror_snapshot" || tool.Name == "confluence_mirror_snapshot" {
 			properties, _ := input["properties"].(map[string]any)
 			if len(properties) != 0 || schemaRequired(input, "path") || schemaRequired(input, "remote") {
@@ -330,6 +341,23 @@ func schemaRequired(schema map[string]any, name string) bool {
 		if value == name {
 			return true
 		}
+	}
+	return false
+}
+
+func schemaAlternative(alternatives []any, schemaType, pattern string, minimum any) bool {
+	for _, alternative := range alternatives {
+		schema, _ := alternative.(map[string]any)
+		if schema["type"] != schemaType {
+			continue
+		}
+		if pattern != "" && schema["pattern"] != pattern {
+			continue
+		}
+		if minimum != nil && schema["minimum"] != minimum {
+			continue
+		}
+		return true
 	}
 	return false
 }
@@ -773,6 +801,111 @@ func TestProductionDependenciesRedactSecureBackendURLs(t *testing.T) {
 	}
 }
 
+func TestJiraStructureGetAcceptsIntegerAndCanonicalDecimalString(t *testing.T) {
+	for _, value := range []any{int64(9), "9"} {
+		t.Run(fmt.Sprintf("%T", value), func(t *testing.T) {
+			reader := &recordingJiraReader{}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Jira: func() (JiraReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+
+			result := callToolOK(t, client, "jira_structure_get", map[string]any{"structure_id": value})
+			content, ok := result.StructuredContent.(map[string]any)
+			if !ok || content["id"] != float64(9) || reader.structureID != 9 {
+				t.Fatalf("value=%#v content=%#v called_with=%d", value, result.StructuredContent, reader.structureID)
+			}
+		})
+	}
+}
+
+func TestParseStructureIDInput(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want int64
+	}{
+		{name: "integer", raw: "9", want: 9},
+		{name: "integer whitespace", raw: " \n9\t", want: 9},
+		{name: "string", raw: `"9"`, want: 9},
+		{name: "maximum", raw: `"9223372036854775807"`, want: 9223372036854775807},
+		{name: "empty", raw: ""},
+		{name: "null", raw: "null"},
+		{name: "boolean", raw: "true"},
+		{name: "zero", raw: "0"},
+		{name: "negative", raw: "-9"},
+		{name: "fraction", raw: "9.0"},
+		{name: "exponent", raw: "9e0"},
+		{name: "empty string", raw: `""`},
+		{name: "zero string", raw: `"0"`},
+		{name: "leading zero string", raw: `"09"`},
+		{name: "signed string", raw: `"+9"`},
+		{name: "whitespace string", raw: `" 9 "`},
+		{name: "fraction string", raw: `"9.0"`},
+		{name: "overflow string", raw: `"9223372036854775808"`},
+		{name: "object", raw: `{}`},
+		{name: "array", raw: `[]`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := parseStructureIDInput(json.RawMessage(test.raw))
+			if test.want > 0 {
+				if err != nil || got != test.want {
+					t.Fatalf("got=%d err=%v want=%d", got, err, test.want)
+				}
+				return
+			}
+			if !errors.Is(err, domain.ErrUsage) || got != 0 {
+				t.Fatalf("got=%d err=%v", got, err)
+			}
+		})
+	}
+}
+
+func TestJiraStructureGetRejectsInvalidIDsBeforeBackendResolution(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]any
+	}{
+		{name: "missing", args: map[string]any{}},
+		{name: "unknown property", args: map[string]any{"structure_id": 9, "extra": true}},
+		{name: "null", args: map[string]any{"structure_id": nil}},
+		{name: "boolean", args: map[string]any{"structure_id": true}},
+		{name: "zero", args: map[string]any{"structure_id": 0}},
+		{name: "negative", args: map[string]any{"structure_id": -9}},
+		{name: "fraction", args: map[string]any{"structure_id": 9.5}},
+		{name: "empty string", args: map[string]any{"structure_id": ""}},
+		{name: "leading zero string", args: map[string]any{"structure_id": "09"}},
+		{name: "signed string", args: map[string]any{"structure_id": "+9"}},
+		{name: "whitespace string", args: map[string]any{"structure_id": " 9 "}},
+		{name: "overflow string", args: map[string]any{"structure_id": "9223372036854775808"}},
+		{name: "object", args: map[string]any{"structure_id": map[string]any{}}},
+		{name: "array", args: map[string]any{"structure_id": []any{}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolved := false
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Jira: func() (JiraReader, error) {
+					resolved = true
+					return &recordingJiraReader{}, nil
+				},
+			}))
+			defer closeSessions()
+
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name: "jira_structure_get", Arguments: test.args,
+			})
+			if err == nil && (result == nil || !result.IsError) {
+				t.Fatalf("invalid input succeeded: result=%+v", result)
+			}
+			if resolved {
+				t.Fatal("Jira backend was resolved for invalid input")
+			}
+		})
+	}
+}
+
 func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 	client, closeSessions := connectTestClient(t, New("test", Dependencies{}))
 	defer closeSessions()
@@ -801,7 +934,6 @@ func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 		{name: "jira_board_view", args: map[string]any{"board_id": 1, "limit": 1001}},
 		{name: "jira_board_view", args: map[string]any{"board_id": 1, "max_bytes": 1023}},
 		{name: "jira_board_view", args: map[string]any{"board_id": 1, "max_bytes": 1048577}},
-		{name: "jira_structure_get", args: map[string]any{"structure_id": 0}},
 		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "max_rows": 1001}},
 		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "max_bytes": 1023}},
 		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "folder_id": "a", "folder_row": 2}},

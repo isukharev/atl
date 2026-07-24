@@ -136,8 +136,10 @@ preserves inline formatting such as links, so clients should select it only when
 formatting is part of the requested result. Both representations are untrusted
 backend evidence.
 `jira_structure_get` projects only `schema_version:1`, `id`, `name`, and
-`read_only`; it
-never returns owner, permission, saved-view, or raw forest objects.
+`read_only`; it never returns owner, permission, saved-view, or raw forest
+objects. Its required `structure_id` input accepts a positive JSON integer or
+the same value as a canonical decimal string without a sign, whitespace, or
+leading zero.
 `jira_structure_view` returns the same normalized schema-v1 snapshot described
 below with an explicit field projection. It accepts at most one exact stored
 folder selector and fails rather than truncating when the selected hierarchy

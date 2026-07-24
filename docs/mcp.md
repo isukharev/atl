@@ -21,7 +21,7 @@ The v1 surface is an explicit allowlist:
 | `jira_issue_field_get` | Expand one exact compact field with issue/update provenance | default 16 KiB, maximum 128 KiB encoded value |
 | `jira_epic_digest` | Aggregate selected qualified epic evidence | `projection:compact`; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_board_view` | Freeze one board/backlog membership snapshot | default 200/maximum 1000 rows per scope; default 256 KiB/maximum 1 MiB encoded result |
-| `jira_structure_get` | Read compact metadata for one exact Structure id | 32 KiB result cap; omits owner, permissions, saved views, and raw forest data |
+| `jira_structure_get` | Read compact metadata for one exact Structure id | accepts a positive integer or canonical decimal string id; 32 KiB result cap; omits owner, permissions, saved views, and raw forest data |
 | `jira_structure_view` | Read a normalized full Structure or exact stored-folder subtree | default 200/maximum 1000 emitted rows; maximum 1000 scanned forest rows; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_mirror_snapshot` | Summarize local Jira mirror health without content | no arguments; exact owner-configured root; offline fixed-shape counts |
 | `confluence_search` | Search one qualified bounded CQL candidate page | default 25, maximum 100 rows |
@@ -59,17 +59,19 @@ IssueList still carries its normalized `projection` metadata independently.
 Unknown input names and ambiguous requests fail before backend access.
 
 Use `jira_structure_get` only when compact identity/read-only metadata is
-enough. Use `jira_structure_view` for normalized hierarchy evidence with an
+enough. Its `structure_id` accepts either a positive JSON integer or the same
+value as a canonical decimal string without a sign, whitespace, or leading
+zero. Use `jira_structure_view` for normalized hierarchy evidence with an
 explicit ordered `fields` projection. Omit all folder selectors for a bounded
 full view, or pass exactly one of `folder_id`, `folder_row`, or `folder_path`
 for an exact stored-folder subtree. The tool fails rather than truncating when
 the selection exceeds `max_rows` or `max_bytes`. It also rejects forests above
 1000 rows before querying folder values, even when the requested subtree would
 be smaller; use the CLI for larger forests. Narrow the subtree before raising
-an emitted-row or byte bound. `complete:false`, `inaccessible_rows`, and `warnings` are
-evidence, not permission to probe raw forest/value endpoints. Raw formulas,
-arbitrary value matrices, issue pull, file export, and mutations remain
-unavailable through MCP.
+an emitted-row or byte bound. `complete:false`, `inaccessible_rows`, and
+`warnings` are evidence, not permission to probe raw forest/value endpoints.
+Raw formulas, arbitrary value matrices, issue pull, file export, and mutations
+remain unavailable through MCP.
 
 `confluence_search` requires explicit CQL and returns the same qualified
 schema-v1 page as `conf search`: `query`, bounded candidate metadata, `count`,
