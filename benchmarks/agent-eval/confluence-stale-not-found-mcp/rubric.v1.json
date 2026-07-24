@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "confluence-synthetic-stale-not-found-mcp-answer",
+  "scenario_id": "confluence.synthetic-stale-not-found-mcp",
+  "minimum_score_bps": 8000,
+  "criteria": [
+    {"id":"not_found_boundary","description":"The stale selected section is reported not found without retry, fallback, broadening, or claims from missing content.","maximum":4,"minimum":4,"weight":45},
+    {"id":"qualification","description":"Complete discovery remains distinct from incomplete evidence and an undetermined decision.","maximum":4,"minimum":4,"weight":30},
+    {"id":"grounding","description":"The accessible candidate identity and exact query are retained.","maximum":4,"minimum":3,"weight":15},
+    {"id":"concision","description":"The answer is concise and excludes fixture-body prose.","maximum":4,"minimum":3,"weight":10}
+  ],
+  "allowed_finding_ids": ["incomplete_answer", "missing_qualification", "unsupported_claim", "verbose"]
+}

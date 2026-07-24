@@ -233,6 +233,8 @@ The realistic matrix currently contains:
 | surface native | `cross-service-discovery-mcp-holdout` | distinct repeated-leaf cross-service topology through the same route |
 | surface native | `cross-service-partial-authorization-mcp` | successful bounded discovery followed by one exact forbidden section and qualified stop |
 | surface native | `cross-service-partial-authorization-mcp-holdout` | distinct forbidden-section topology through the same no-retry incomplete-evidence contract |
+| surface native | `confluence-stale-not-found-mcp` | complete bounded search followed by one exact missing section and qualified stop |
+| surface native | `confluence-stale-not-found-mcp-holdout` | distinct stale-candidate topology through the same no-retry not-found contract |
 | surface native | `jira-structure-subtree-export` | GET-only hierarchy rows plus explicit row/identity/repeat counts and ordered batch export |
 | surface native | `jira-structure-deep-values` | deep selected hierarchy plus explicit row/accessibility counts and a query-only POST value matrix |
 | surface native | `jira-structure-view-mcp` | one bounded typed exact-subtree read with reconciled hierarchy, repeats, accessibility, and completeness |
@@ -911,6 +913,16 @@ broadening either query, requesting a full page, or inferring restricted
 content fails the route or semantic contract. Its distinct n=1 holdout changes
 the topic, identities, status, heading, and fixture marker while retaining the
 byte-identical closed response schema and the same failure topology.
+
+`confluence-stale-not-found-mcp` applies the same expected-failure discipline
+to a stale search candidate. One complete bounded search is followed by one
+exact selected-section request returning not found. Exact invocation,
+capability, failure-count, and two-GET oracles reject retry, alternate
+identifiers, full-page fallback, or failure-as-success. The response retains
+accessible search identity while marking evidence incomplete, the decision
+undetermined, and missing-section claims empty. Its distinct n=1 holdout
+changes topic, page, heading, and fixture marker without changing the
+byte-identical closed response schema or failure topology.
 
 `confluence-decision-brief` is the longer synthesis cell. Three pages contribute
 an objective, two open risks, and an approved decision that supersedes a draft
