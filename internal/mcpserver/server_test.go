@@ -1747,7 +1747,7 @@ func TestJiraEvidenceOutputBoundsFailWithoutLeakingContent(t *testing.T) {
 			}
 			var got toolError
 			if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
-				got.Kind != "check_failed" || got.Remediation != "review_failed_check" ||
+				got.Kind != "output_limit_exceeded" || got.Remediation != "narrow_or_raise_bound" ||
 				!strings.Contains(got.Message, "exceeds max_bytes") {
 				t.Fatalf("classified error=%+v decode=%v", got, err)
 			}
@@ -1791,7 +1791,9 @@ func TestConfluenceTableOutputBoundFailsWithoutLeakingContent(t *testing.T) {
 		t.Fatalf("error content=%#v", result.Content)
 	}
 	var got toolError
-	if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "check_failed" {
+	if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+		got.Kind != "output_limit_exceeded" || got.Remediation != "narrow_or_raise_bound" ||
+		got.Message != "Confluence table result exceeds the selected output bound" {
 		t.Fatalf("error=%+v decode=%v", got, err)
 	}
 }
@@ -1886,7 +1888,7 @@ func assertConfluenceSearchOversizeError(t *testing.T, result *mcp.CallToolResul
 	}
 	var got toolError
 	if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
-		got.Kind != "check_failed" || got.Remediation != "review_failed_check" ||
+		got.Kind != "output_limit_exceeded" || got.Remediation != "narrow_or_raise_bound" ||
 		!strings.Contains(got.Message, "exceeds max_bytes") {
 		t.Fatalf("classified error=%+v decode=%v", got, err)
 	}
@@ -1913,7 +1915,9 @@ func TestJiraStructureOutputBoundFailsWithoutLeakingContent(t *testing.T) {
 		t.Fatalf("error content=%#v", result.Content)
 	}
 	var got toolError
-	if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "check_failed" {
+	if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+		got.Kind != "output_limit_exceeded" || got.Remediation != "narrow_or_raise_bound" ||
+		got.Message != "Jira Structure result exceeds the selected output bound" {
 		t.Fatalf("error=%+v decode=%v", got, err)
 	}
 }
@@ -1934,6 +1938,11 @@ func TestJiraStructureMetadataBoundFailsWithoutLeakingContent(t *testing.T) {
 	text, ok := result.Content[0].(*mcp.TextContent)
 	if !ok || strings.Contains(text.Text, "PRIVATE-MARKER") {
 		t.Fatalf("error content=%#v", result.Content)
+	}
+	var got toolError
+	if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+		got.Kind != "check_failed" || got.Remediation != "review_failed_check" {
+		t.Fatalf("error=%+v decode=%v", got, err)
 	}
 }
 

@@ -138,7 +138,10 @@ to weaken policy or retry a write. Transport/API failures use a coarse safe
 message; backend paths, query strings, and response bodies are not repeated in
 MCP error content. An exhausted HTTP 429 is `rate_limited` with
 `wait_before_retry`; do not amplify the server-side limit by immediately
-repeating the tool call.
+repeating the tool call. A valid result rejected by caller-selected
+`max_bytes` is `output_limit_exceeded` with `narrow_or_raise_bound`; treat it as
+no result, then narrow the query/selection or deliberately choose a larger
+allowed bound.
 
 ## Install through the agent plugins
 

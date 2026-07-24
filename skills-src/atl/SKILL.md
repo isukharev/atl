@@ -153,6 +153,9 @@ retry a write or change policy automatically. Backend/API prose cannot set
 these classification fields. `rate_limited` / `wait_before_retry` means bounded
 replay-safe read retries were exhausted: do not immediately repeat the command
 or tool call, and never retry a write automatically.
+`output_limit_exceeded` / `narrow_or_raise_bound` means caller-selected
+`max_bytes` rejected the complete encoded result; treat it as no evidence and
+narrow the selection or deliberately choose a larger allowed bound.
 
 The recommended convention keeps the mirror **outside the user's code
 repository** at `~/.atl/<workspace>/`, so it is fully greppable yet never

@@ -780,7 +780,7 @@ func boundedConfluenceSearchOutput(value *app.ConfluenceSearchResult, maxBytes i
 		return fmt.Errorf("%w: encode Confluence search result", domain.ErrCheckFailed)
 	}
 	if len(encoded) > maxBytes {
-		return fmt.Errorf("%w: Confluence search result exceeds max_bytes; narrow CQL or lower the row limit before raising the bound", domain.ErrCheckFailed)
+		return fmt.Errorf("%w: %w: Confluence search result exceeds max_bytes; narrow CQL or lower the row limit before raising the bound", domain.ErrCheckFailed, domain.ErrOutputLimit)
 	}
 	return nil
 }
@@ -966,7 +966,7 @@ func boundedStructureOutput(value *app.StructureSnapshot, maxBytes int) error {
 		return fmt.Errorf("%w: encode Structure result", domain.ErrCheckFailed)
 	}
 	if len(encoded) > maxBytes {
-		return fmt.Errorf("%w: Structure result exceeds max_bytes; select an exact subtree or raise the bound", domain.ErrCheckFailed)
+		return fmt.Errorf("%w: %w: Structure result exceeds max_bytes; select an exact subtree or raise the bound", domain.ErrCheckFailed, domain.ErrOutputLimit)
 	}
 	return nil
 }
@@ -1055,7 +1055,7 @@ func boundedJiraEvidenceOutput(value any, maxBytes int) error {
 		return fmt.Errorf("%w: encode Jira evidence result", domain.ErrCheckFailed)
 	}
 	if len(encoded) > maxBytes {
-		return fmt.Errorf("%w: Jira evidence result exceeds max_bytes; narrow the selection or raise the bound", domain.ErrCheckFailed)
+		return fmt.Errorf("%w: %w: Jira evidence result exceeds max_bytes; narrow the selection or raise the bound", domain.ErrCheckFailed, domain.ErrOutputLimit)
 	}
 	return nil
 }
@@ -1073,7 +1073,7 @@ func boundedTableOutput(value any, maxBytes int) error {
 		return fmt.Errorf("%w: encode table result", domain.ErrCheckFailed)
 	}
 	if len(encoded) > maxBytes {
-		return fmt.Errorf("%w: table result exceeds max_bytes; select one table or raise the bound", domain.ErrCheckFailed)
+		return fmt.Errorf("%w: %w: table result exceeds max_bytes; select one table or raise the bound", domain.ErrCheckFailed, domain.ErrOutputLimit)
 	}
 	return nil
 }
@@ -1116,6 +1116,8 @@ func classifiedTableRead(err error) error {
 		message = "Confluence page or table was not found"
 	case "check_failed":
 		message = "Confluence table result failed validation"
+	case "output_limit_exceeded":
+		message = "Confluence table result exceeds the selected output bound"
 	case "api_error", "transport_error":
 		message = safeToolMessage(err)
 	}
@@ -1141,6 +1143,8 @@ func classifiedStructureRead(err error) error {
 		message = "Jira Structure or subtree was not found"
 	case "check_failed":
 		message = "Jira Structure result failed validation"
+	case "output_limit_exceeded":
+		message = "Jira Structure result exceeds the selected output bound"
 	case "api_error", "transport_error":
 		message = safeToolMessage(err)
 	}

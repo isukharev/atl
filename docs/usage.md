@@ -275,6 +275,9 @@ Notes for scripts:
   `rate_limited` / `wait_before_retry` means the bounded replay-safe read retry
   policy was exhausted; wait before a later read instead of immediately
   repeating it, and never retry a write automatically.
+  `output_limit_exceeded` / `narrow_or_raise_bound` means the selected
+  `max_bytes` rejected the complete encoded result; it is not partial evidence,
+  so narrow the query/selection or deliberately choose a larger allowed bound.
 - **Ordinary `--cql` pull caps at 1000 pages; `--space` at 2000.** When either cap is
   hit the result carries `"truncated": true` / `"truncated_at": N` and a
   `warning:` line is printed to stderr — the rest is not mirrored. Narrow the
