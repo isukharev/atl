@@ -65,6 +65,11 @@ explicit per-row Structure value matrix, and transient issue export. The value
 operation remains read-only even though the Structure API carries that query
 payload over HTTP POST.
 
+`jira/portfolio` includes `jira structure get` as the qualification step for an
+exact Structure id before folder discovery or a bounded view. On the typed MCP
+surface, `jira_structure_get` narrows that result to id, name, and read-only
+state and omits owner, permission, saved-view, and forest transport payloads.
+
 `jira/edit` includes complete worklog listing and the single-entry add as a
 bounded pair. The add previews by default, applies only an exact reviewed
 proposal hash, and reconciles an ambiguous POST through one read without

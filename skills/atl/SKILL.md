@@ -46,6 +46,10 @@ reference. Load only the named focused skill/reference, then stop expanding the
 route once sufficient complete evidence is available. Use exact filters only;
 an unknown task/id is a loud not-found result, not a prompt for fuzzy guessing.
 `capabilities` is local/offline and works without valid config or credentials.
+For an exact Jira Structure id in the `jira/portfolio` route, use
+`jira structure get` for metadata qualification before a bounded view. Retain
+only id, name, and read-only state for the decision; do not propagate owner,
+permission, saved-view, or forest transport payloads.
 For Jira metadata discovery, use the ready `jira issue fields --metadata-only`
 summary for classification, identifier-quality, and value-type aggregates
 instead of recounting the returned field array.
