@@ -102,6 +102,10 @@ const (
 	structureFolderRecoveryMaxBytes    = 65536
 	structureFolderRecoveryScanRows    = 1000
 	structureFolderRecoveryCalls       = 3
+	// Claude Code reports its schema-constrained final response as one
+	// additional generic tool event. The exact MCP route remains three
+	// interface invocations for both providers.
+	structureFolderRecoveryToolEvents = structureFolderRecoveryCalls + 1
 	// The three views issue eight reads and four Structure Value POSTs. The
 	// Value POST is a query-only attribute read, not a mutation: it is counted
 	// as a remote write only because the transport budget classifies every
@@ -648,11 +652,12 @@ func assertStructureFolderRecoveryScenarioContract(
 		!slices.Equal(scenario.RequiredCapabilities, []string{"jira.structure.view"}) {
 		t.Fatalf("recovery scenario identity drifted: %+v", scenario)
 	}
-	// The budgets are the honest derived traffic, not a padded ceiling: the
-	// four Value POSTs are query-only attribute reads counted conservatively
-	// as remote writes.
+	// Interface and backend budgets are the exact derived route. The generic
+	// tool-call ceiling also admits one provider-reported structured-output
+	// event that is not an MCP invocation. The four Value POSTs are query-only
+	// attribute reads counted conservatively as remote writes.
 	if scenario.Budgets.MaxInterfaceInvocations != structureFolderRecoveryCalls ||
-		scenario.Budgets.MaxToolCalls != structureFolderRecoveryCalls ||
+		scenario.Budgets.MaxToolCalls != structureFolderRecoveryToolEvents ||
 		scenario.Budgets.MaxATLInvocations != 0 ||
 		scenario.Budgets.MaxDelegations != 0 ||
 		scenario.Budgets.MaxBackendRequests != structureFolderRecoveryRequests ||
@@ -849,7 +854,7 @@ func assertStructureFolderRecoveryBudgetsHold(
 			BackendObservation: BackendObservationHTTP, SafetyAssurance: SafetyAssuranceObservedHTTP,
 			Runtime: Runtime{Provider: "deterministic", ATLVersion: "test"},
 			Metrics: InputMetrics{
-				AgentTurns: structureFolderRecoveryCalls, ToolCalls: structureFolderRecoveryCalls,
+				AgentTurns: structureFolderRecoveryCalls, ToolCalls: structureFolderRecoveryToolEvents,
 				InterfaceInvocations:     structureFolderRecoveryCalls,
 				DuplicateBackendRequests: evidence.duplicates, OutputBytes: int64(len(evidence.final)),
 				InputTokens: 1, OutputTokens: 1, MainThreadInputTokens: 1,
@@ -902,7 +907,7 @@ func assertStructureFolderRecoveryBudgetsHold(
 		},
 		{
 			name:    "underdeclared-tool-calls",
-			shrink:  func(b *Budgets) { b.MaxToolCalls = structureFolderRecoveryCalls - 1 },
+			shrink:  func(b *Budgets) { b.MaxToolCalls = structureFolderRecoveryToolEvents - 1 },
 			subject: "tool_calls",
 		},
 	} {
