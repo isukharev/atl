@@ -66,6 +66,21 @@ func TestPrivateCheckpointBindsSelectedFindingLedgerVersion(t *testing.T) {
 	}
 }
 
+func TestPrivateCheckpointBindsSelectedCoverageIndexVersion(t *testing.T) {
+	fixture := newPrivateCheckpointFixture(t)
+	fixture.coverage.IndexSchemaVersion = PrivateCoverageIndexV2SchemaVersion
+	preview, err := previewPrivateCheckpoint(fixture.options(), fixture.dependencies())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Checkpoint.Contracts.CoverageIndex != PrivateCoverageIndexV2SchemaVersion {
+		t.Fatalf("contracts=%+v", preview.Checkpoint.Contracts)
+	}
+	if _, err := encodePrivateCheckpoint(preview.Checkpoint); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPrivateCheckpointAcceptsMultipleLinksPerFinding(t *testing.T) {
 	fixture := newPrivateCheckpointFixture(t)
 	fixture.scorecard.LedgerSchemaVersion = PrivateFindingLedgerV2SchemaVersion
@@ -449,7 +464,8 @@ func newPrivateCheckpointFixture(t *testing.T) privateCheckpointFixture {
 			Reconciled: true, Findings: 3, LinkedIssues: 2, LinkedPullRequests: 1, Regressions: 1,
 			Decisions: PrivateFindingDecisionCounts{Fixed: 1, Investigate: 2}},
 		coverage: PrivateCoverageScorecard{SchemaVersion: PrivateCoverageScorecardSchemaVersion,
-			SourceSHA256: strings.Repeat("c", 64), Reconciled: true, Assessments: 2,
+			IndexSchemaVersion: PrivateCoverageIndexSchemaVersion,
+			SourceSHA256:       strings.Repeat("c", 64), Reconciled: true, Assessments: 2,
 			PrimaryObservations: 6, HoldoutObservations: 2,
 			Groups: []PrivateCoverageScorecardGroup{{}, {}}}}
 }

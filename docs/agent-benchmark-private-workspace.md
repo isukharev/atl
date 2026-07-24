@@ -1181,12 +1181,18 @@ significance or comparative-reliability claim.
 
 The finding ledger remains a failure-to-decision lifecycle. Do not add a
 synthetic finding merely to make an otherwise clean accepted cohort visible.
-Instead, select the currently accepted clean evidence in the owner-only
-canonical index `reports/sampling-coverage.v1.json`, following the public
+Instead, select the currently accepted clean evidence in exactly one owner-only
+canonical index. The legacy `reports/sampling-coverage.v1.json` follows the
+public synthetic-only
 [schema](../benchmarks/agent-eval/private-coverage-index.schema.json) and
-[synthetic example](../benchmarks/agent-eval/private-coverage-index.example.json).
-The index contains only exact assessment digests, strictly sorted. Stored
-assessments that are not selected remain historical and are not counted.
+[example](../benchmarks/agent-eval/private-coverage-index.example.json). The
+current `reports/sampling-coverage.v2.json` follows the typed
+[v2 schema](../benchmarks/agent-eval/private-coverage-index-v2.schema.json) and
+[example](../benchmarks/agent-eval/private-coverage-index-v2.example.json);
+every entry binds its exact digest to `private-live` or `synthetic-root`.
+Keeping both versions is ambiguous and rejected. Entries are strictly sorted
+by source and digest. Stored assessments that are not selected remain
+historical and are not counted.
 
 Generate the active coverage scorecard offline:
 
@@ -1196,19 +1202,24 @@ Generate the active coverage scorecard offline:
   --repository-root .
 ```
 
-Every selected digest must reopen as one immutable, accepted schema-v2
-synthetic `regression` assessment with exactly three passing primary
-observations and at least one distinct passing holdout. The command reopens the
-receipt-backed roots again after resolving the complete index and fails closed
-on any index or evidence drift. Two selected assessments with the same generic
-task class, category, surface, provider/model/reasoning class, and exact closed
-capability-family set are ambiguous current coverage and are rejected rather
-than double-counted.
+Every selected digest must reopen through its declared lifecycle as one
+immutable, accepted `regression` assessment with exactly three passing primary
+observations and at least one distinct passing holdout. `synthetic-root`
+reopens receipt-backed roots; `private-live` reopens exact completed plans and
+compact baselines through the existing owner-only sampling contract. The
+command repeats source-specific resolution after loading the complete index
+and fails closed on a mislabeled source, index ambiguity, or evidence drift.
+Two selected assessments with the same source, generic task class, category,
+surface, provider/model/reasoning class, and exact closed capability-family set
+are ambiguous current coverage and are rejected rather than double-counted.
+The same generic cohort may appear once per source; the scorecard keeps those
+groups separate instead of blending their provenance.
 
-The deterministic report contains only the closed public task, category,
-surface, provider/model/reasoning, and capability-family taxonomy. Primary and
-holdout outcomes separately report correctness, eligibility, backend
-observation, safety assurance, and explicitly covered call, duplicate request,
+The deterministic schema-v2 report contains only the selected index schema,
+assessment source, and closed public task, category, surface,
+provider/model/reasoning, and capability-family taxonomy. Primary and holdout
+outcomes separately report correctness, eligibility, backend observation,
+safety assurance, and explicitly covered call, duplicate request,
 transport-level remote-write, token, cost, and latency quantiles. A write count
 is derived from observed HTTP methods; for example, a bounded query-only POST
 is still visible as a transport-level write metric and is not a claim of
@@ -1257,9 +1268,10 @@ private operating state, not a publishable benchmark result.
 
 Current manifests use schema v4, run specs use schema v7, observations use
 schema v5, results use schema v8, aggregates use schema v6, private plans use
-schema v8, finding scorecards use schema v3, coverage indexes and scorecards use
-schema v1, legacy finding ledgers, legacy finding-acceptance indexes, and
-private-live sampling specs/assessments use schema v1; daily checkpoints,
+schema v8, finding scorecards use schema v3, coverage indexes use legacy schema
+v1 or typed schema v2, coverage scorecards use schema v2, legacy finding
+ledgers, legacy finding-acceptance indexes, and private-live sampling
+specs/assessments use schema v1; daily checkpoints,
 typed-source finding ledgers and acceptance indexes, and attested synthetic-root
 sampling specs/assessments use schema v2,
 synthetic run receipts use schema v1 and complete synthetic-root aggregates use
