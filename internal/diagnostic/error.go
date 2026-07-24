@@ -5,6 +5,7 @@ package diagnostic
 
 import (
 	"errors"
+	"net/http"
 
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
@@ -36,6 +37,9 @@ func Classify(err error) (kind, remediation string) {
 	}
 	var apiErr *httpx.APIError
 	if errors.As(err, &apiErr) {
+		if apiErr.Status == http.StatusTooManyRequests {
+			return "rate_limited", "wait_before_retry"
+		}
 		return "api_error", "inspect_backend_error"
 	}
 	return "unexpected_error", "inspect_error"

@@ -25,7 +25,10 @@ If `atl` or Jira URL/auth is missing, run `{{atl.setup_cmd}}` and stop. Exit 7
 also means setup is incomplete. Exit 8 with `policy:"read_only"` is a human
 decision boundary; never disable it to create, update, transition, comment,
 link, upload, log work, push, or delete. Route other failures by stable JSON
-`kind`, numeric `code`, and `remediation`, never backend prose.
+`kind`, numeric `code`, and `remediation`, never backend prose. For
+`rate_limited` / `wait_before_retry`, wait before a later read instead of
+immediately repeating the command or tool call; never retry a write
+automatically.
 
 `ATL_READ_ONLY=1 atl ...` protects only one process and is not a substitute for
 the block-level export. Remove the exported policy only for the exact reviewed

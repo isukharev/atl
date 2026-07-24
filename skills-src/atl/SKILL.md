@@ -150,7 +150,9 @@ zone is `configured` or `default`.
 For any JSON failure, branch on stable `kind` and numeric `code`, not words in
 `error`. Treat `remediation` as safe guidance to present, never authorization to
 retry a write or change policy automatically. Backend/API prose cannot set
-these classification fields.
+these classification fields. `rate_limited` / `wait_before_retry` means bounded
+replay-safe read retries were exhausted: do not immediately repeat the command
+or tool call, and never retry a write automatically.
 
 The recommended convention keeps the mirror **outside the user's code
 repository** at `~/.atl/<workspace>/`, so it is fully greppable yet never

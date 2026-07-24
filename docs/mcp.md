@@ -136,7 +136,9 @@ Tool failures retain the same stable classification as CLI JSON errors:
 Branch on `kind`, not `message`. A remediation is guidance, never authorization
 to weaken policy or retry a write. Transport/API failures use a coarse safe
 message; backend paths, query strings, and response bodies are not repeated in
-MCP error content.
+MCP error content. An exhausted HTTP 429 is `rate_limited` with
+`wait_before_retry`; do not amplify the server-side limit by immediately
+repeating the tool call.
 
 ## Install through the agent plugins
 

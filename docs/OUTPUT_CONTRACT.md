@@ -186,8 +186,11 @@ automatically. Both are derived from local sentinels/typed metadata, never by
 parsing backend prose. Current exit classes map to `unexpected_error`,
 `usage_error`, `authentication_failed`, `not_found`, `version_conflict`,
 `forbidden`, `configuration_error`, and `check_failed`. Typed specializations
-include `read_only_policy`, `transport_error`, and `api_error` without changing
-their exit code. A missing command registration invariant is
+include `read_only_policy`, `transport_error`, `rate_limited`, and `api_error`
+without changing their exit code. `rate_limited` uses
+`remediation:"wait_before_retry"` after the bounded replay-safe read retry
+policy is exhausted; it never authorizes an immediate repeated request or a
+write retry. A missing command registration invariant is
 `internal_error`/`report_bug` (still exit 8), not a user check failure.
 
 ### Binary identity

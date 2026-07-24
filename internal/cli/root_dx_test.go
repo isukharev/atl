@@ -59,6 +59,7 @@ func TestErrorKindAndRemediationMatrix(t *testing.T) {
 		{"internal", "internal_error", "report_bug", &accessPolicyInvariantError{Command: "atl future"}},
 		{"read_only", "read_only_policy", "request_human_approval", &readOnlyPolicyError{Command: "atl jira push"}},
 		{"transport", "transport_error", "inspect_network_before_retry", &httpx.TransportError{Method: "GET", Category: "dns"}},
+		{"rate_limited", "rate_limited", "wait_before_retry", &httpx.APIError{Status: 429, Method: "GET", Path: "/safe", Body: "slow down"}},
 		{"api", "api_error", "inspect_backend_error", &httpx.APIError{Status: 500, Method: "GET", Path: "/safe", Body: "failure"}},
 	}
 	for _, tt := range tests {
@@ -76,6 +77,23 @@ func TestBackendProseCannotInjectErrorClassification(t *testing.T) {
 	kind, remediation := classifyError(err)
 	if kind != "api_error" || remediation != "inspect_backend_error" {
 		t.Fatalf("classification=%q/%q", kind, remediation)
+	}
+}
+
+func TestWriteErrorRateLimitedJSONPreservesExitCode(t *testing.T) {
+	err := &httpx.APIError{Status: 429, Method: "GET", Path: "/safe", Body: "slow down"}
+	var buf bytes.Buffer
+	writeError(&buf, "json", err, codeFor(err))
+	var got struct {
+		Code        int    `json:"code"`
+		Kind        string `json:"kind"`
+		Remediation string `json:"remediation"`
+	}
+	if unmarshalErr := json.Unmarshal(buf.Bytes(), &got); unmarshalErr != nil {
+		t.Fatalf("stderr is not valid JSON: %v (raw=%q)", unmarshalErr, buf.String())
+	}
+	if got.Code != exitGeneric || got.Kind != "rate_limited" || got.Remediation != "wait_before_retry" {
+		t.Fatalf("error contract=%+v", got)
 	}
 }
 

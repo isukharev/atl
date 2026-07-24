@@ -1232,6 +1232,70 @@ func TestToolErrorsExposeStableClassification(t *testing.T) {
 	}
 }
 
+func TestConfluenceSearchRateLimitIsClassifiedAfterBoundedReadRetries(t *testing.T) {
+	const bodyMarker = "RATE_LIMIT_BODY_MARKER"
+	fixture := agenteval.MockFixture{
+		SchemaVersion: 1,
+		JiraContext:   "/jira", ConfluenceContext: "/wiki",
+		Routes: []agenteval.MockRoute{{
+			Method: http.MethodGet, Path: "/wiki/rest/api/search",
+			QueryEquals: map[string]string{"cql": `siteSearch ~ "synthetic throttle"`},
+			Responses: []agenteval.MockResponse{
+				{Status: http.StatusTooManyRequests, Body: json.RawMessage(`{"message":"` + bodyMarker + `"}`)},
+				{Status: http.StatusTooManyRequests, Body: json.RawMessage(`{"message":"` + bodyMarker + `"}`)},
+				{Status: http.StatusTooManyRequests, Body: json.RawMessage(`{"message":"` + bodyMarker + `"}`)},
+				{Status: http.StatusTooManyRequests, Body: json.RawMessage(`{"message":"` + bodyMarker + `"}`)},
+			},
+		}},
+	}
+	backend, err := agenteval.StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	for name, value := range backend.Environment() {
+		t.Setenv(name, value)
+	}
+	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+	t.Setenv("ATL_READ_ONLY", "1")
+	t.Setenv("ATL_NO_UPDATE", "1")
+
+	client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
+	defer closeSessions()
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "confluence_search",
+		Arguments: map[string]any{
+			"cql": `siteSearch ~ "synthetic throttle"`, "limit": 10, "max_bytes": 131072,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || result.StructuredContent != nil || bytes.Contains(encoded, []byte(bodyMarker)) {
+		t.Fatalf("rate-limit result leaked or succeeded: %s", encoded)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content=%T", result.Content[0])
+	}
+	var got toolError
+	if err := json.Unmarshal([]byte(text.Text), &got); err != nil {
+		t.Fatalf("error content=%q: %v", text.Text, err)
+	}
+	if got.Kind != "rate_limited" || got.Remediation != "wait_before_retry" ||
+		got.Message != "backend returned HTTP 429" {
+		t.Fatalf("classified error=%+v", got)
+	}
+	methods, unexpected, duplicates := backend.Summary()
+	if methods[http.MethodGet] != 4 || len(methods) != 1 || unexpected != 0 || duplicates != 3 {
+		t.Fatalf("requests=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+	}
+}
+
 func TestToolErrorsDoNotExposeBackendPathOrBody(t *testing.T) {
 	err := classified(&httpx.APIError{
 		Status: 400, Method: "GET",
@@ -1245,6 +1309,20 @@ func TestToolErrorsDoNotExposeBackendPathOrBody(t *testing.T) {
 	encoded := got.Error()
 	if got.Kind != "api_error" || got.Message != "backend returned HTTP 400" || strings.Contains(encoded, "PRIVATE") || strings.Contains(encoded, "/rest/") {
 		t.Fatalf("classified error=%s", encoded)
+	}
+	rateLimited := classified(&httpx.APIError{
+		Status: http.StatusTooManyRequests, Method: "GET",
+		Path: "/rest/api/search?cql=PRIVATE",
+		Body: "rate limit for PRIVATE backend",
+	})
+	got = toolError{}
+	if !errors.As(rateLimited, &got) {
+		t.Fatalf("rate-limit error=%T %v", rateLimited, rateLimited)
+	}
+	encoded = got.Error()
+	if got.Kind != "rate_limited" || got.Remediation != "wait_before_retry" ||
+		got.Message != "backend returned HTTP 429" || strings.Contains(encoded, "PRIVATE") || strings.Contains(encoded, "/rest/") {
+		t.Fatalf("classified rate-limit error=%s", encoded)
 	}
 	transport := classified(&httpx.TransportError{Method: "GET", Category: "dns"})
 	got = toolError{}
