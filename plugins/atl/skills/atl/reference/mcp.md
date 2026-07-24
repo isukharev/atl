@@ -22,7 +22,8 @@ empty match is absence only when `complete:true`. `jira_fields`,
 256 KiB encoded-result bound and permit 1 KiB through 1 MiB. Narrow selection
 before raising `max_bytes`; an oversize failure never contains a clipped
 result. For `jira_issue_search`, prefer `columns`; `fields` is an equivalent
-compatibility alias. Supplying non-empty values for both is invalid; empty
+compatibility alias. There is no `projection` input—`projection` is returned
+output metadata. Supplying non-empty values for both aliases is invalid; empty
 arrays are omitted. Use technical Jira field ids after one qualified lookup.
 `jira_epic_digest` requires an explicit non-empty `include`; select only
 sources absent from the authoritative snapshot and set `projection:"compact"`
