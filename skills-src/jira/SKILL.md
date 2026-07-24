@@ -38,7 +38,10 @@ with no arguments only for offline content-free health counts of the exact
 owner-configured `ATL_MIRROR_ROOT`. They cannot write. The catalog, search,
 digest, and board tools default to a 256 KiB encoded-result bound (1 KiB through
 1 MiB allowed); narrow selection before raising `max_bytes`, and never treat an
-oversize failure as clipped evidence. For `jira_issue_search`, prefer
+oversize failure as clipped evidence. Use `jira_fields` with
+`summary_only:true` when qualification and the reconciled custom/system counts
+are sufficient; request full definitions only to discover identities. For
+`jira_issue_search`, prefer
 `columns`; `fields` and `projection` are equivalent compatibility aliases.
 Supply at most one non-empty selector; empty arrays are omitted. The returned
 IssueList carries normalized `projection` metadata independently. For a

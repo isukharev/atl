@@ -557,16 +557,33 @@ func TestJiraFields_Emit(t *testing.T) {
 	}
 	var res struct {
 		SchemaVersion int               `json:"schema_version"`
+		Projection    string            `json:"projection"`
 		Complete      bool              `json:"complete"`
 		Total         int               `json:"total"`
 		Count         int               `json:"count"`
+		CustomCount   int               `json:"custom_count"`
+		SystemCount   int               `json:"system_count"`
 		Fields        []domain.FieldDef `json:"fields"`
 	}
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("decode fields: %v\n%s", err, out)
 	}
-	if res.SchemaVersion != 1 || !res.Complete || res.Total != 2 || res.Count != 2 || len(res.Fields) != 2 || res.Fields[0].ID != "summary" || res.Fields[1].Name != "Epic Link" {
+	if res.SchemaVersion != 1 || res.Projection != "full" || !res.Complete || res.Total != 2 || res.Count != 2 ||
+		res.CustomCount != 1 || res.SystemCount != 1 || len(res.Fields) != 2 ||
+		res.Fields[0].ID != "summary" || res.Fields[1].Name != "Epic Link" {
 		t.Errorf("result = %+v, want complete summary + Epic Link", res)
+	}
+
+	out, code = runCLI(t, jiraEnv(js.srv), "jira", "fields", "--summary-only")
+	if code != exitOK {
+		t.Fatalf("jira fields --summary-only: exit %d, want 0 (stdout=%q)", code, out)
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("decode summary-only fields: %v\n%s", err, out)
+	}
+	if res.Projection != "summary" || res.Total != 2 || res.Count != 2 ||
+		res.CustomCount != 1 || res.SystemCount != 1 || len(res.Fields) != 0 || res.Fields == nil {
+		t.Errorf("summary-only result = %+v", res)
 	}
 }
 

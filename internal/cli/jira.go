@@ -1544,6 +1544,7 @@ func jiraPlanningReportCommand(use string) *cobra.Command {
 
 func jiraMetaCmds() []*cobra.Command {
 	var nameLike, fieldID, idLike, schema, custom string
+	var summaryOnly bool
 	fields := &cobra.Command{
 		Use:   "fields",
 		Short: "List qualified Jira fields without values",
@@ -1554,6 +1555,7 @@ func jiraMetaCmds() []*cobra.Command {
 			}
 			result, err := svc.FieldCatalog(cmd.Context(), app.JiraFieldCatalogOpts{
 				ID: fieldID, NameLike: nameLike, IDLike: idLike, Schema: schema, Custom: custom,
+				SummaryOnly: summaryOnly,
 			})
 			if err != nil {
 				return err
@@ -1566,6 +1568,7 @@ func jiraMetaCmds() []*cobra.Command {
 	fields.Flags().StringVar(&idLike, "id-like", "", "case-insensitive substring filter for field id")
 	fields.Flags().StringVar(&schema, "schema", "", "exact schema type filter")
 	fields.Flags().StringVar(&custom, "custom", "", "filter custom fields: true or false")
+	fields.Flags().BoolVar(&summaryOnly, "summary-only", false, "omit field definitions and return reconciled counts")
 
 	var project, issueType, field string
 	opts := &cobra.Command{

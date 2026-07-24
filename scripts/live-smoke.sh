@@ -44,6 +44,8 @@ fi
 if [[ -n "${ATL_TEST_JIRA_FIELD:-}" ]]; then
   "$ATL_BIN" jira fields --id "$ATL_TEST_JIRA_FIELD" > "$tmp/jira-field.json"
   jq -e '.fields | length >= 1' "$tmp/jira-field.json" >/dev/null
+  "$ATL_BIN" jira fields --summary-only > "$tmp/jira-field-summary.json"
+  jq -e '.projection == "summary" and (.fields | length == 0) and (.count == (.custom_count + .system_count))' "$tmp/jira-field-summary.json" >/dev/null
   ok "jira fields"
 else
   skip "jira fields (ATL_TEST_JIRA_FIELD unset)"

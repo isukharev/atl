@@ -4,12 +4,15 @@
 
 Jira rejects unknown field ids, status names, and link types — discover the valid values first:
 
-- `atl jira fields` → `{schema_version, source, complete, total, count,
-  fields:[{id,name,custom,schema}]}` without values. Custom fields look like
-  `customfield_10001`; exact ids and unambiguous display names are both valid
-  selectors. Treat an empty match as absence only when `complete:true`; never
-  infer completeness from a successful call or non-empty result. Filters change
-  `count`, not the source `total`/`complete` qualification.
+- `atl jira fields` → `{schema_version, projection, source, complete, total,
+  count, custom_count, system_count, fields:[{id,name,custom,schema}]}` without
+  values. Custom fields look like `customfield_10001`; exact ids and unambiguous
+  display names are both valid selectors. Treat an empty match as absence only
+  when `complete:true`; never infer completeness from a successful call or
+  non-empty result. Filters change `count` and its custom/system partition, not
+  the source `total`/`complete` qualification. Use `--summary-only` when only
+  qualification and counts are required: it returns `projection:"summary"` and
+  `fields:[]`.
 - `atl jira issue fields <KEY> --metadata-only` → value-free named records for
   non-empty fields. Start here when evidence-bearing custom fields are unknown;
   then repeat `--field "Exact Name"` without metadata-only for only the selected

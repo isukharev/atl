@@ -537,7 +537,7 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	}))
 	defer closeSessions()
 	custom := true
-	callToolOK(t, client, "jira_fields", map[string]any{"name_like": "Outcome", "custom": custom})
+	callToolOK(t, client, "jira_fields", map[string]any{"name_like": "Outcome", "custom": custom, "summary_only": true})
 	callToolOK(t, client, "jira_issue_search", map[string]any{
 		"jql": "project=PROJ", "fields": []string{"key", "status"}, "view": "compact", "cursor": "next",
 	})
@@ -599,7 +599,7 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 		t.Fatalf("table extract summary=%#v", extractTable["summary"])
 	}
 
-	if j.fieldOpts.Custom != "true" || j.fieldOpts.NameLike != "Outcome" {
+	if j.fieldOpts.Custom != "true" || j.fieldOpts.NameLike != "Outcome" || !j.fieldOpts.SummaryOnly {
 		t.Fatalf("field opts=%+v", j.fieldOpts)
 	}
 	if j.searchJQL != "project=PROJ" || j.searchLimit != 50 || j.searchCursor != "next" || j.searchView != "compact" || strings.Join(j.searchColumns, ",") != "key,status" {
@@ -683,6 +683,7 @@ func TestJiraIssueSearchProjectionAliasesTreatEmptyArraysAsOmitted(t *testing.T)
 			}
 		})
 	}
+
 }
 
 func TestJiraStructureViewSupportsFullAndExactFolderSelections(t *testing.T) {
@@ -874,6 +875,7 @@ func TestParseStructureIDInput(t *testing.T) {
 			}
 		})
 	}
+
 }
 
 func TestJiraStructureGetRejectsInvalidIDsBeforeBackendResolution(t *testing.T) {
@@ -1038,6 +1040,21 @@ func TestJiraEvidenceOutputBoundsFailWithoutLeakingContent(t *testing.T) {
 				t.Fatalf("classified error=%+v decode=%v", got, err)
 			}
 		})
+	}
+
+	summary := callToolOK(t, client, "jira_fields", map[string]any{"summary_only": true, "max_bytes": 1024})
+	content, ok := summary.StructuredContent.(map[string]any)
+	fields, fieldsOK := content["fields"].([]any)
+	if !ok || !fieldsOK || content["projection"] != "summary" ||
+		content["count"] != float64(1) || content["custom_count"] != float64(1) || len(fields) != 0 {
+		t.Fatalf("compact field summary=%#v", summary.StructuredContent)
+	}
+	encoded, err := json.Marshal(summary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte(privateMarker)) {
+		t.Fatalf("compact field summary leaked definition: %s", encoded)
 	}
 }
 
@@ -1348,9 +1365,15 @@ type oversizedJiraReader struct {
 	payload string
 }
 
-func (r *oversizedJiraReader) FieldCatalog(_ context.Context, _ app.JiraFieldCatalogOpts) (*app.JiraFieldCatalogResult, error) {
+func (r *oversizedJiraReader) FieldCatalog(_ context.Context, opts app.JiraFieldCatalogOpts) (*app.JiraFieldCatalogResult, error) {
+	if opts.SummaryOnly {
+		return &app.JiraFieldCatalogResult{
+			SchemaVersion: 1, Projection: "summary", Source: "test", Complete: true,
+			Total: 1, Count: 1, CustomCount: 1, Fields: []domain.FieldDef{},
+		}, nil
+	}
 	return &app.JiraFieldCatalogResult{
-		SchemaVersion: 1, Source: "test", Complete: true,
+		SchemaVersion: 1, Projection: "full", Source: "test", Complete: true,
 		Fields: []domain.FieldDef{{ID: "customfield_1", Name: r.payload, Custom: true}},
 	}, nil
 }
@@ -1394,7 +1417,9 @@ func (r *recordingJiraReader) IssueFieldEvidence(_ context.Context, key string, 
 
 func (r *recordingJiraReader) FieldCatalog(_ context.Context, opts app.JiraFieldCatalogOpts) (*app.JiraFieldCatalogResult, error) {
 	r.fieldOpts = opts
-	return &app.JiraFieldCatalogResult{SchemaVersion: 1, Source: "test", Complete: true, Fields: []domain.FieldDef{}}, nil
+	return &app.JiraFieldCatalogResult{
+		SchemaVersion: 1, Projection: "full", Source: "test", Complete: true, Fields: []domain.FieldDef{},
+	}, nil
 }
 
 func (r *recordingJiraReader) SearchIssueListView(_ context.Context, jql string, columns []string, view string, limit int, cursor string) (*app.IssueList, error) {

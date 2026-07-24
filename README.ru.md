@@ -525,7 +525,7 @@ atl jira render mirror-jira
 atl jira apply mirror-jira/PROJ/PROJ-1.md --dry-run
 
 # Метаданные
-atl jira fields # каталог без значений с явными complete/total/count
+atl jira fields --summary-only # компактная квалификация и согласованные счётчики без значений
 atl jira transitions --key PROJ-1
 atl jira link-types
 atl jira field-options --project PROJ --field <field-id>

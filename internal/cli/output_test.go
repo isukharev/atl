@@ -98,7 +98,11 @@ func TestHighValueTextProjections(t *testing.T) {
 	})
 	versions := confluenceVersionsText([]domain.Version{{Number: 7, When: "2026-07-12", By: "Alex", Message: "reviewed"}})
 	comments := commentsText([]domain.Comment{{ID: "99", Author: "Alex", Created: "2026-07-12", Body: "Looks good."}})
-	fields := jiraFieldsText(&app.JiraFieldCatalogResult{SchemaVersion: 1, Source: "jira-field-catalog", Complete: true, Total: 2, Count: 2, Fields: []domain.FieldDef{{ID: "summary", Name: "Summary"}, {ID: "customfield_10001", Name: "Delivery\nNotes", Custom: true, Schema: "string"}}})
+	fields := jiraFieldsText(&app.JiraFieldCatalogResult{
+		SchemaVersion: 1, Projection: "full", Source: "jira-field-catalog", Complete: true,
+		Total: 2, Count: 2, CustomCount: 1, SystemCount: 1,
+		Fields: []domain.FieldDef{{ID: "summary", Name: "Summary"}, {ID: "customfield_10001", Name: "Delivery\nNotes", Custom: true, Schema: "string"}},
+	})
 	transitions := jiraTransitionsText([]domain.TransitionDef{{ID: "31", Name: "Start progress", To: "In Progress"}})
 	assertGolden(t, "explicit_text_projections.txt", []byte(strings.Join([]string{
 		"[confluence-meta]", meta,
@@ -113,11 +117,22 @@ func TestHighValueTextProjections(t *testing.T) {
 
 func TestJiraFieldsTextKeepsPartialQualificationVisible(t *testing.T) {
 	text := jiraFieldsText(&app.JiraFieldCatalogResult{
-		SchemaVersion: 1, Source: "legacy", Complete: false,
-		PartialReason: "catalog\nnot qualified", Total: 1, Count: 1,
+		SchemaVersion: 1, Projection: "full", Source: "legacy", Complete: false,
+		PartialReason: "catalog\nnot qualified", Total: 1, Count: 1, SystemCount: 1,
 		Fields: []domain.FieldDef{{ID: "summary", Name: "Summary"}},
 	})
 	if !strings.HasPrefix(text, "complete=false\tsource=legacy\tcount=1\ttotal=1\npartial_reason=catalog not qualified\n") {
+		t.Fatalf("text=%q", text)
+	}
+}
+
+func TestJiraFieldsTextSummaryKeepsDefinitionsHidden(t *testing.T) {
+	text := jiraFieldsText(&app.JiraFieldCatalogResult{
+		SchemaVersion: 1, Projection: "summary", Source: "jira-field-catalog",
+		Complete: true, Total: 3, Count: 2, CustomCount: 1, SystemCount: 1,
+		Fields: []domain.FieldDef{},
+	})
+	if text != "complete=true\tsource=jira-field-catalog\tcount=2\ttotal=3\nprojection=summary\tcustom=1\tsystem=1" {
 		t.Fatalf("text=%q", text)
 	}
 }

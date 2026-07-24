@@ -20,8 +20,22 @@ func TestIntegrationProductionReadOnlyFixtures(t *testing.T) {
 		t.Skip("set ATL_INTEGRATION=1 to run live integration tests")
 	}
 
+	t.Run("jira fields", testIntegrationMCPJiraFields)
 	t.Run("jira structure", testIntegrationMCPJiraStructure)
 	t.Run("confluence tables", testIntegrationMCPConfluenceTables)
+}
+
+func testIntegrationMCPJiraFields(t *testing.T) {
+	client, closeSessions := connectIntegrationMCPClient(t)
+	defer closeSessions()
+
+	result := callIntegrationMCPTool[app.JiraFieldCatalogResult](
+		t, client, "jira_fields", map[string]any{"summary_only": true, "max_bytes": 1024},
+	)
+	if result.SchemaVersion != 1 || result.Projection != "summary" || len(result.Fields) != 0 ||
+		result.Fields == nil || result.Count != result.CustomCount+result.SystemCount || result.Total < result.Count {
+		t.Fatal("live Jira field catalog summary did not reconcile")
+	}
 }
 
 func testIntegrationMCPJiraStructure(t *testing.T) {

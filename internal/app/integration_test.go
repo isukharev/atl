@@ -172,3 +172,26 @@ func TestIntegrationJiraFieldOptions(t *testing.T) {
 		t.Errorf("no allowed values for field %q in %s/%s — point ATL_TEST_JIRA_FIELD at a field with options (e.g. priority)", field, project, issueType)
 	}
 }
+
+func TestIntegrationJiraFieldCatalogSummary(t *testing.T) {
+	skipUnlessJiraIntegration(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.JiraURL == "" {
+		t.Skip("JIRA_URL not set")
+	}
+	svc, err := NewJira(cfg, "integration-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.FieldCatalog(context.Background(), JiraFieldCatalogOpts{SummaryOnly: true})
+	if err != nil {
+		t.Fatalf("field catalog summary: %v", err)
+	}
+	if result.Projection != "summary" || len(result.Fields) != 0 || result.Fields == nil ||
+		result.Count != result.CustomCount+result.SystemCount || result.Total < result.Count {
+		t.Fatalf("field catalog summary did not reconcile: %+v", result)
+	}
+}

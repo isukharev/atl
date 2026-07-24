@@ -3447,19 +3447,27 @@ atl jira fields
 atl jira fields --name-like Epic
 atl jira fields --id customfield_10001
 atl jira fields --custom true --schema string --id-like customfield
+atl jira fields --summary-only
 ```
 
 Filters are applied client-side to Jira's field list. Available filters are
-`--id`, `--id-like`, `--name-like`, `--schema`, and `--custom true|false`. Use
+`--id`, `--id-like`, `--name-like`, `--schema`, and `--custom true|false`.
+`--summary-only` keeps the same filters and qualification but emits no field
+definitions. It sets `projection:"summary"` and returns the filtered
+`custom_count` and `system_count`; their sum equals `count`. The default full
+projection keeps `fields` and reports the same reconciled counts. Use
 `field-options` when you need values allowed for a specific project and issue
 type. The JSON envelope is versioned and reports `source`, `complete`, optional
-`partial_reason`, the unfiltered `total`, and filtered `count`; filters never
-change source completeness. A successful non-empty atomic Jira catalog is
-complete. An empty or unqualified source is explicitly incomplete, so agents
-must not treat a non-empty match or successful call alone as proof.
-`-o text` starts with the same qualification and then emits one tab-separated
-`id, name, custom, schema` record per field; field options and link types emit
-one value per line, and transitions emit `id, destination, name`.
+`partial_reason`, `projection`, the unfiltered `total`, and filtered `count`;
+filters and projections never change source completeness. A successful
+non-empty atomic Jira catalog is complete. An empty or unqualified source is
+explicitly incomplete, so agents must not treat a non-empty match or successful
+call alone as proof. The full `-o text` projection preserves its
+`complete, source, count, total` first line and emits one tab-separated
+`id, name, custom, schema` record per field. The summary text projection adds
+one `projection=summary, custom, system` line and no field records. Field
+options and link types emit one value per line, and transitions emit
+`id, destination, name`.
 
 ### `atl jira field-options`
 

@@ -123,12 +123,13 @@ func Serve(ctx context.Context, version string) error {
 }
 
 type JiraFieldsInput struct {
-	ID       string `json:"id,omitempty" jsonschema:"exact technical field id"`
-	NameLike string `json:"name_like,omitempty" jsonschema:"case-insensitive substring of the display name"`
-	IDLike   string `json:"id_like,omitempty" jsonschema:"case-insensitive substring of the technical id"`
-	Schema   string `json:"schema,omitempty" jsonschema:"exact Jira schema type"`
-	Custom   *bool  `json:"custom,omitempty" jsonschema:"when set, select only custom or system fields"`
-	MaxBytes int    `json:"max_bytes,omitempty" jsonschema:"maximum encoded result bytes from 1024 to 1048576; default 262144"`
+	ID          string `json:"id,omitempty" jsonschema:"exact technical field id"`
+	NameLike    string `json:"name_like,omitempty" jsonschema:"case-insensitive substring of the display name"`
+	IDLike      string `json:"id_like,omitempty" jsonschema:"case-insensitive substring of the technical id"`
+	Schema      string `json:"schema,omitempty" jsonschema:"exact Jira schema type"`
+	Custom      *bool  `json:"custom,omitempty" jsonschema:"when set, select only custom or system fields"`
+	SummaryOnly bool   `json:"summary_only,omitempty" jsonschema:"omit field definitions and return only qualification and reconciled counts"`
+	MaxBytes    int    `json:"max_bytes,omitempty" jsonschema:"maximum encoded result bytes from 1024 to 1048576; default 262144"`
 }
 
 type JiraIssueSearchInput struct {
@@ -223,7 +224,7 @@ type ConfluenceTableExtractInput struct {
 type MirrorSnapshotInput struct{}
 
 func registerJiraTools(server *mcp.Server, deps Dependencies) {
-	addReadOnlyTool(server, readOnlyTool("jira_fields", "Discover Jira field ids", "List value-free Jira field definitions with explicit catalog completeness and source/filtered counts."),
+	addReadOnlyTool(server, readOnlyTool("jira_fields", "Discover or summarize Jira fields", "List value-free field definitions or return a compact summary with explicit catalog completeness and reconciled counts."),
 		func(ctx context.Context, _ *mcp.CallToolRequest, in JiraFieldsInput) (*mcp.CallToolResult, *app.JiraFieldCatalogResult, error) {
 			maxBytes, err := boundedJiraEvidenceBytes(in.MaxBytes)
 			if err != nil {
@@ -237,7 +238,10 @@ func registerJiraTools(server *mcp.Server, deps Dependencies) {
 			if in.Custom != nil {
 				custom = fmt.Sprintf("%t", *in.Custom)
 			}
-			out, err := jira.FieldCatalog(ctx, app.JiraFieldCatalogOpts{ID: in.ID, NameLike: in.NameLike, IDLike: in.IDLike, Schema: in.Schema, Custom: custom})
+			out, err := jira.FieldCatalog(ctx, app.JiraFieldCatalogOpts{
+				ID: in.ID, NameLike: in.NameLike, IDLike: in.IDLike, Schema: in.Schema,
+				Custom: custom, SummaryOnly: in.SummaryOnly,
+			})
 			if err == nil {
 				err = boundedJiraEvidenceOutput(out, maxBytes)
 			}
