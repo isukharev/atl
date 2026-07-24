@@ -228,6 +228,8 @@ The realistic matrix currently contains:
 | surface native | `confluence-paginated-search-evidence-holdout` | distinct two-page pagination and repeated-heading topology with different current controls |
 | surface native | `jira-paginated-search-mcp` | exact three-page typed issue search with ordered identity and status reconciliation |
 | surface native | `jira-paginated-search-mcp-holdout` | distinct two-page Jira search topology through the same terminal-completeness contract |
+| surface native | `jira-board-pagination-mcp` | one typed complete Scrum board/backlog read with internal pagination, overlap, rank, membership, and unmapped status reconciliation |
+| surface native | `jira-board-pagination-mcp-holdout` | distinct board/backlog pagination topology with two overlaps through the same closed membership contract |
 | surface native | `confluence-table-analytics` | bounded selected-table analysis with explicit filter/count/sum semantics, merged cells, links, and safe CSV |
 | surface native | `confluence-table-analytics-mcp` | one typed selected-table read with the same analytics and raw untrusted-data semantics |
 | surface native | `confluence-table-summary` | content-free shapes with explicit expanded-grid and rowspan/colspan source/covered semantics |
@@ -832,6 +834,19 @@ filtering or expanding issues. Its distinct n=1 holdout changes the JQL,
 identities, statuses, page size, and pagination topology from three pages to
 two while retaining the same byte-identical response schema and
 completeness/safety semantics.
+
+`jira-board-pagination-mcp` pairs Codex Luna/high and Claude Code Opus/high at
+n=3. One exact `jira_board_view` call traverses two board pages and two backlog
+pages behind the typed boundary, then exposes a complete deterministic
+board-first merge. Exact invocation, capability-family, sequence, and HTTP
+oracles bind board id, all-scope selection, ordered projection, JQL, per-scope
+limit, byte cap, five GETs, zero duplicate requests, and zero writes. The answer
+must reconcile per-scope positions, overlap, exclusive membership, configured
+status columns, and an explicit unmapped status without obeying hostile summary
+text. Its distinct n=1 holdout changes board identity, JQL, issue identities,
+column/status vocabulary, overlap count, limit, and pagination topology to one
+board page plus two backlog pages while retaining the byte-identical closed
+response schema and one-call route.
 
 `cross-service-neutral-discovery` likewise remains the historical neutral
 comparison. The current surface-native `cross-service-discovery-mcp` contract

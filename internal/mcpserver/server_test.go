@@ -433,6 +433,119 @@ func TestSyntheticPortfolioThroughMCPUsesExactGETOnlyRoute(t *testing.T) {
 	}
 }
 
+func TestSyntheticPaginatedBoardThroughMCPReconcilesMembership(t *testing.T) {
+	for _, test := range []struct {
+		name, directory, query   string
+		boardID, limit, requests int
+		keys                     []string
+		inBoard, inBacklog       []bool
+		boardPositions           []any
+		backlogPositions         []any
+		columns                  []string
+		mapped                   []bool
+	}{
+		{
+			name: "primary", directory: "jira-board-pagination-mcp",
+			boardID: 21, query: "labels = readiness ORDER BY Rank ASC", limit: 100, requests: 5,
+			keys:             []string{"RIVER-9", "RIVER-8", "RIVER-7", "RIVER-6", "RIVER-5", "RIVER-4"},
+			inBoard:          []bool{true, true, true, true, false, false},
+			inBacklog:        []bool{false, true, false, false, true, true},
+			boardPositions:   []any{0, 1, 2, 3, nil, nil},
+			backlogPositions: []any{nil, 0, nil, nil, 1, 2},
+			columns:          []string{"Active", "Ready", "Done", "Unmapped", "Active", "Ready"},
+			mapped:           []bool{true, true, true, false, true, true},
+		},
+		{
+			name: "holdout", directory: "jira-board-pagination-mcp-holdout",
+			boardID: 34, query: "labels = launch ORDER BY Rank ASC", limit: 75, requests: 4,
+			keys:             []string{"COMET-12", "COMET-10", "COMET-8", "COMET-6", "COMET-2"},
+			inBoard:          []bool{true, true, true, false, false},
+			inBacklog:        []bool{true, true, false, true, true},
+			boardPositions:   []any{0, 1, 2, nil, nil},
+			backlogPositions: []any{0, 1, nil, 2, 3},
+			columns:          []string{"Unmapped", "Work", "Closed", "Queue", "Queue"},
+			mapped:           []bool{false, true, true, true, true},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixtureFile, err := os.Open(filepath.Join("..", "..", "benchmarks", "agent-eval", test.directory, "fixture.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+			closeErr := fixtureFile.Close()
+			if decodeErr != nil || closeErr != nil {
+				t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
+			}
+			backend, err := agenteval.StartMockBackend(fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer backend.Close()
+			for name, value := range backend.Environment() {
+				t.Setenv(name, value)
+			}
+			t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+			t.Setenv("ATL_READ_ONLY", "1")
+			t.Setenv("ATL_NO_UPDATE", "1")
+
+			client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
+			defer closeSessions()
+			result := callToolOK(t, client, "jira_board_view", map[string]any{
+				"board_id": test.boardID, "scope": "all",
+				"columns": []string{"key", "summary", "status"},
+				"jql":     test.query, "limit": test.limit, "max_bytes": 131072,
+			})
+			content, ok := result.StructuredContent.(map[string]any)
+			rows, rowsOK := content["rows"].([]any)
+			board, boardOK := content["board"].(map[string]any)
+			if !ok || !rowsOK || !boardOK ||
+				board["id"] != float64(test.boardID) ||
+				content["scope"] != "all" ||
+				content["complete"] != true ||
+				content["truncated"] != false ||
+				content["backlog_fetched"] != true ||
+				content["row_count"] != float64(len(test.keys)) ||
+				len(rows) != len(test.keys) {
+				t.Fatalf("board content=%#v", result.StructuredContent)
+			}
+			for index, raw := range rows {
+				row, rowOK := raw.(map[string]any)
+				if !rowOK ||
+					row["key"] != test.keys[index] ||
+					row["position"] != float64(index) ||
+					row["in_board"] != test.inBoard[index] ||
+					row["in_backlog"] != test.inBacklog[index] ||
+					row["column"] != test.columns[index] ||
+					row["column_mapped"] != test.mapped[index] {
+					t.Fatalf("row %d=%#v", index, raw)
+				}
+				for _, position := range []struct {
+					name     string
+					expected any
+				}{
+					{name: "board_position", expected: test.boardPositions[index]},
+					{name: "backlog_position", expected: test.backlogPositions[index]},
+				} {
+					actual, present := row[position.name]
+					if position.expected == nil {
+						if present {
+							t.Fatalf("row %d unexpectedly has %s=%#v", index, position.name, actual)
+						}
+					} else if !present || actual != float64(position.expected.(int)) {
+						t.Fatalf("row %d %s=%#v want=%v", index, position.name, actual, position.expected)
+					}
+				}
+			}
+			methods, unexpected, duplicates := backend.Summary()
+			if len(methods) != 1 || methods["GET"] != test.requests ||
+				unexpected != 0 || duplicates != 0 {
+				t.Fatalf("requests=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+			}
+		})
+	}
+}
+
 func TestSyntheticStructureQualificationThroughMCPProjectsMetadataAndObservedRoute(t *testing.T) {
 	for _, test := range []struct {
 		name        string
