@@ -322,11 +322,14 @@ func TestPrivateLiveGuardAllowsOnlyConfinedSkillReaders(t *testing.T) {
 	roots, _ := json.Marshal([]string{root})
 	for _, command := range []string{
 		"cat " + first,
+		"command cat " + first,
 		"cat " + first + " " + second,
 		"sed -n '1,240p' " + first,
+		"command sed -n '1,240p' " + first,
 		"sed -n '1,240p' " + first + " && sed -n '1,260p' " + second,
 		"sed -n '1,240p' " + first + "\nsed -n '1,260p' " + second,
 		"wc -l " + first + " " + second,
+		"command wc -l " + first + " " + second,
 	} {
 		if !allowedSkillReadCommand(command, string(roots)) {
 			t.Errorf("expected allow: %s", command)
@@ -335,6 +338,7 @@ func TestPrivateLiveGuardAllowsOnlyConfinedSkillReaders(t *testing.T) {
 	for _, command := range []string{
 		"cat /etc/passwd", "sed -n '1,20p' /etc/passwd",
 		"cat " + first + "; env", "cat " + first + "\nenv", "cat $(env)", "head " + first, "wc -c " + first,
+		"command", "command -p cat " + first, "command -- cat " + first, "command env", "command head " + first,
 	} {
 		if allowedSkillReadCommand(command, string(roots)) {
 			t.Errorf("expected deny: %s", command)
@@ -364,6 +368,7 @@ func TestPrivateLiveCLIGuardAllowsOnlyOneATLCommandShape(t *testing.T) {
 	for _, input := range []string{
 		`{"tool_name":"Read","tool_input":{"file_path":` + strconv.Quote(skill) + `}}`,
 		`{"tool_name":"Bash","tool_input":{"command":` + strconv.Quote("sed -n '1,20p' "+skill) + `}}`,
+		`{"tool_name":"Bash","tool_input":{"command":` + strconv.Quote("command cat "+skill) + `}}`,
 		`{"tool_name":"Bash","tool_input":{"command":"export ATL_READ_ONLY=1; atl jira epic digest PROJ-1 --quarter 2026-Q2"}}`,
 		`{"tool_name":"Bash","tool_input":{"command":"export ATL_READ_ONLY=1\ncommand -v atl\natl config show\natl capabilities --task jira/evidence"}}`,
 		`{"tool_name":"Bash","tool_input":{"command":"command -v atl"}}`,

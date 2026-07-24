@@ -561,6 +561,8 @@ Codex may express a generated skill read as a workspace-relative bounded
 canonical ephemeral workspace supplied by the runner. The same canonical
 workspace and ordered JSON read-root set are passed to tool subprocesses and
 embedded as shell-quoted assignments in the exact PreToolUse hook command. The
+literal shell-builtin prefix `command` is accepted only before those same three
+reader forms; builtin options and every other executable remain denied. The
 same command explicitly binds its guard mode, owner-private audit counter, and
 exact MCP tool allowlist, so the safety decision does not depend on ambient hook
 environment propagation.
