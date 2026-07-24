@@ -4,6 +4,18 @@
   "non_empty_only": true,
   "count": 3,
   "omitted_empty": 1,
+  "summary": {
+    "custom_count": 1,
+    "system_count": 2,
+    "unclassified_count": 0,
+    "nonempty_id_count": 3,
+    "missing_id_count": 0,
+    "nonempty_ids_unique": true,
+    "value_type_counts": {
+      "object": 1,
+      "string": 2
+    }
+  },
   "fields": [
     {
       "id": "assignee",

@@ -1493,7 +1493,7 @@ timestamp. Every other outcome is non-zero `unknown` and must not be
 automatically replayed.
 
 `atl jira issue fields <KEY>` emits
-`{key,mode,non_empty_only,count,omitted_empty?,fields:[{id,name,custom,
+`{key,mode,non_empty_only,count,omitted_empty?,summary?,fields:[{id,name,custom,
 schema?,empty?,value_type?,value?,truncated?,original_bytes?}]}`. Default mode is `compact`
 and omits empty fields. Exact repeatable `--field` selectors accept ids or
 case-insensitive display names; ambiguous names fail before the issue read.
@@ -1506,9 +1506,15 @@ to `raw`, preserves unprojected private values, and writes a privacy warning to
 stderr. Explicit `--metadata-only` switches mode to `metadata`, omits `value`
 entirely, and emits only the closed coarse `value_type` alongside field
 identity/schema/emptiness. It preserves non-empty and `--include-empty`
-semantics, including observed plugin fields absent from the catalog, and
-conflicts with `--raw` before config/network access. Its `-o text` table has no
-value column; compact/raw keep their existing escaped Markdown table.
+semantics, including observed plugin fields absent from the catalog, and adds
+`summary:{custom_count,system_count,unclassified_count,nonempty_id_count,
+missing_id_count,nonempty_ids_unique,value_type_counts}`. Custom and system
+counts cover catalog-classified fields; an observed field absent from the
+catalog is counted separately as unclassified. Missing ids are kept separate
+from uniqueness among non-empty ids. The summary is derived from the returned
+array without another backend request. `--metadata-only` conflicts with
+`--raw` before config/network access. Its `-o text` table has no value column;
+compact/raw keep their existing escaped Markdown table.
 
 `atl jira issue field get <KEY> --field <ID-or-name>` emits one qualified,
 bounded expansion:

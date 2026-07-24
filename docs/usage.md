@@ -2232,8 +2232,13 @@ have explicit caps; a clipped record sets `truncated` and `original_bytes`.
 same non-empty/default or `--include-empty` selection, sets `mode:"metadata"`,
 and emits only `id`, `name`, `custom`, optional schema, optional `empty`, and a
 closed `value_type` (`string`, `number`, `boolean`, `list`, `object`, `null`, or
-`unknown`). The `value` key is absent, not redacted or set to null, so no field
-content can leak into JSON or the metadata Markdown table. Use the inventory to
+`unknown`). Its JSON `summary` reports custom, system, and unclassified counts,
+non-empty versus missing id counts, uniqueness among non-empty ids, and
+deterministic counts by `value_type`. The aggregates are derived from the
+returned records without another Jira request; observed fields absent from the
+field catalog remain unclassified instead of being guessed as system fields.
+The `value` key is absent, not redacted or set to null, so no field content can
+leak into JSON or the metadata Markdown table. Use the summary and inventory to
 choose one or two exact `--field` selectors, then read those values in compact
 mode. `--metadata-only --raw` is rejected before config or network access.
 

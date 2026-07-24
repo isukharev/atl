@@ -456,7 +456,7 @@ never silently discarded.
 # Read
 atl jira issue get  PROJ-1
 atl jira issue fields PROJ-1 # compact non-empty named fields by default
-atl jira issue fields PROJ-1 --metadata-only # lower-token field inventory, no values
+atl jira issue fields PROJ-1 --metadata-only # value-free inventory + deterministic summary
 atl jira issue fields PROJ-1 --field "Delivery Notes"
 atl jira issue field get PROJ-1 --field "Delivery Notes" --max-bytes 16384 # bounded exact expansion
 atl jira issue history PROJ-1 --field "Delivery Notes" --since 2026-04-01 # summary separates missing and duplicate ids
