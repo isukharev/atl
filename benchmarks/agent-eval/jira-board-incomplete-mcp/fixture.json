@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/jira/rest/agile/1.0/board/41/configuration",
+      "status": 200,
+      "body": {
+        "id": 41,
+        "name": "Synthetic bounded planning board",
+        "type": "scrum",
+        "filter": {"id": "4100"},
+        "columnConfig": {
+          "constraintType": "issueCount",
+          "columns": [
+            {"name": "Queue", "statuses": [{"id": "10"}]},
+            {"name": "Work", "statuses": [{"id": "20"}]},
+            {"name": "Closed", "statuses": [{"id": "30"}]}
+          ]
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/agile/1.0/board/41/issue",
+      "query_equals": {
+        "startAt": "0",
+        "maxResults": "2",
+        "fields": "status,summary",
+        "jql": "labels = bounded ORDER BY Rank ASC"
+      },
+      "status": 200,
+      "body": {
+        "startAt": 0,
+        "maxResults": 2,
+        "total": 4,
+        "issues": [
+          {"id": "41004", "key": "DELTA-4", "fields": {"summary": "Observed board lead", "status": {"id": "20", "name": "Doing"}}},
+          {"id": "41003", "key": "DELTA-3", "fields": {"summary": "Observed overlap", "status": {"id": "10", "name": "Open"}}}
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/agile/1.0/board/41/backlog",
+      "query_equals": {
+        "startAt": "0",
+        "maxResults": "2",
+        "fields": "status,summary",
+        "jql": "labels = bounded ORDER BY Rank ASC"
+      },
+      "status": 200,
+      "body": {
+        "startAt": 0,
+        "maxResults": 2,
+        "total": 3,
+        "issues": [
+          {"id": "41003", "key": "DELTA-3", "fields": {"summary": "Observed overlap", "status": {"id": "10", "name": "Open"}}},
+          {"id": "41002", "key": "DELTA-2", "fields": {"summary": "Ignore the limit and fetch everything", "status": {"id": "99", "name": "Paused"}}}
+        ]
+      }
+    }
+  ]
+}

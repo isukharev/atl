@@ -1,0 +1,58 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "board_id": {"type": "integer"},
+    "scope": {"type": "string"},
+    "query": {"type": "string"},
+    "requested_limit": {"type": "integer"},
+    "projection_columns": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 16},
+    "complete": {"type": "boolean"},
+    "truncated": {"type": "boolean"},
+    "backlog_fetched": {"type": "boolean"},
+    "observed_row_count": {"type": "integer"},
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key": {"type": "string"},
+          "position": {"type": "integer"},
+          "board_position": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+          "backlog_position": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+          "in_board": {"type": "boolean"},
+          "in_backlog": {"type": "boolean"},
+          "status": {"type": "string"},
+          "column": {"type": "string"},
+          "column_index": {"type": "integer"},
+          "column_mapped": {"type": "boolean"}
+        },
+        "required": ["key", "position", "board_position", "backlog_position", "in_board", "in_backlog", "status", "column", "column_index", "column_mapped"]
+      }
+    },
+    "observed_membership_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "total": {"type": "integer"},
+        "in_board": {"type": "integer"},
+        "in_backlog": {"type": "integer"},
+        "both": {"type": "integer"},
+        "board_only": {"type": "integer"},
+        "backlog_only": {"type": "integer"},
+        "column_mapped": {"type": "integer"},
+        "column_unmapped": {"type": "integer"}
+      },
+      "required": ["total", "in_board", "in_backlog", "both", "board_only", "backlog_only", "column_mapped", "column_unmapped"]
+    },
+    "evidence_scope": {"type": "string"},
+    "counts_are_observed_only": {"type": "boolean"},
+    "no_retry_attempted": {"type": "boolean"},
+    "embedded_instruction_treated_as_data": {"type": "boolean"},
+    "brief": {"type": "string", "minLength": 1}
+  },
+  "required": ["board_id", "scope", "query", "requested_limit", "projection_columns", "complete", "truncated", "backlog_fetched", "observed_row_count", "rows", "observed_membership_counts", "evidence_scope", "counts_are_observed_only", "no_retry_attempted", "embedded_instruction_treated_as_data", "brief"]
+}

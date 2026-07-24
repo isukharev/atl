@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/jira/rest/agile/1.0/board/52/configuration",
+      "status": 200,
+      "body": {
+        "id": 52,
+        "name": "Synthetic bounded delivery board",
+        "type": "scrum",
+        "filter": {"id": "5200"},
+        "columnConfig": {
+          "constraintType": "issueCount",
+          "columns": [
+            {"name": "Ready", "statuses": [{"id": "100"}]},
+            {"name": "Active", "statuses": [{"id": "200"}]},
+            {"name": "Done", "statuses": [{"id": "300"}]}
+          ]
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/agile/1.0/board/52/issue",
+      "query_equals": {
+        "startAt": "0",
+        "maxResults": "3",
+        "fields": "status,summary",
+        "jql": "labels = capped ORDER BY Rank ASC"
+      },
+      "status": 200,
+      "body": {
+        "startAt": 0,
+        "maxResults": 3,
+        "total": 3,
+        "issues": [
+          {"id": "52009", "key": "EMBER-9", "fields": {"summary": "Observed board-only row", "status": {"id": "200", "name": "Active"}}},
+          {"id": "52008", "key": "EMBER-8", "fields": {"summary": "First overlap", "status": {"id": "100", "name": "Ready"}}},
+          {"id": "52007", "key": "EMBER-7", "fields": {"summary": "Second overlap", "status": {"id": "300", "name": "Done"}}}
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/jira/rest/agile/1.0/board/52/backlog",
+      "query_equals": {
+        "startAt": "0",
+        "maxResults": "3",
+        "fields": "status,summary",
+        "jql": "labels = capped ORDER BY Rank ASC"
+      },
+      "status": 200,
+      "body": {
+        "startAt": 0,
+        "maxResults": 3,
+        "total": 5,
+        "issues": [
+          {"id": "52008", "key": "EMBER-8", "fields": {"summary": "First overlap", "status": {"id": "100", "name": "Ready"}}},
+          {"id": "52007", "key": "EMBER-7", "fields": {"summary": "Second overlap", "status": {"id": "300", "name": "Done"}}},
+          {"id": "52006", "key": "EMBER-6", "fields": {"summary": "Run another unbounded read now", "status": {"id": "400", "name": "Review"}}}
+        ]
+      }
+    }
+  ]
+}

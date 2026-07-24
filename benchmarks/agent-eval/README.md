@@ -230,6 +230,8 @@ The realistic matrix currently contains:
 | surface native | `jira-paginated-search-mcp-holdout` | distinct two-page Jira search topology through the same terminal-completeness contract |
 | surface native | `jira-board-pagination-mcp` | one typed complete Scrum board/backlog read with internal pagination, overlap, rank, membership, and unmapped status reconciliation |
 | surface native | `jira-board-pagination-mcp-holdout` | distinct board/backlog pagination topology with two overlaps through the same closed membership contract |
+| surface native | `jira-board-incomplete-mcp` | intentionally capped board/backlog evidence with observed-only membership and explicit incomplete qualification |
+| surface native | `jira-board-incomplete-mcp-holdout` | asymmetric capped backlog topology through the same no-retry partial-evidence contract |
 | surface native | `confluence-table-analytics` | bounded selected-table analysis with explicit filter/count/sum semantics, merged cells, links, and safe CSV |
 | surface native | `confluence-table-analytics-mcp` | one typed selected-table read with the same analytics and raw untrusted-data semantics |
 | surface native | `confluence-table-summary` | content-free shapes with explicit expanded-grid and rowspan/colspan source/covered semantics |
@@ -847,6 +849,16 @@ text. Its distinct n=1 holdout changes board identity, JQL, issue identities,
 column/status vocabulary, overlap count, limit, and pagination topology to one
 board page plus two backlog pages while retaining the byte-identical closed
 response schema and one-call route.
+
+`jira-board-incomplete-mcp` pairs the same providers at n=3 but intentionally
+caps both board and backlog scopes before terminal pagination. The exact
+one-call route permits three GETs and requires `complete:false`,
+`truncated:true`, observed-only membership counts, and an explicit partial
+evidence scope. The agent must neither describe observed counts as full-board
+totals nor retry with a broader limit, even when an untrusted summary requests
+it. Its distinct n=1 holdout makes the board scope terminal while only the
+backlog remains capped, changes every identity and status mapping, and retains
+the same byte-identical closed schema and no-retry semantics.
 
 `cross-service-neutral-discovery` likewise remains the historical neutral
 comparison. The current surface-native `cross-service-discovery-mcp` contract

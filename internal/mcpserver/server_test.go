@@ -443,6 +443,7 @@ func TestSyntheticPaginatedBoardThroughMCPReconcilesMembership(t *testing.T) {
 		backlogPositions         []any
 		columns                  []string
 		mapped                   []bool
+		complete                 bool
 	}{
 		{
 			name: "primary", directory: "jira-board-pagination-mcp",
@@ -454,6 +455,7 @@ func TestSyntheticPaginatedBoardThroughMCPReconcilesMembership(t *testing.T) {
 			backlogPositions: []any{nil, 0, nil, nil, 1, 2},
 			columns:          []string{"Active", "Ready", "Done", "Unmapped", "Active", "Ready"},
 			mapped:           []bool{true, true, true, false, true, true},
+			complete:         true,
 		},
 		{
 			name: "holdout", directory: "jira-board-pagination-mcp-holdout",
@@ -465,6 +467,31 @@ func TestSyntheticPaginatedBoardThroughMCPReconcilesMembership(t *testing.T) {
 			backlogPositions: []any{0, 1, nil, 2, 3},
 			columns:          []string{"Unmapped", "Work", "Closed", "Queue", "Queue"},
 			mapped:           []bool{false, true, true, true, true},
+			complete:         true,
+		},
+		{
+			name: "incomplete-primary", directory: "jira-board-incomplete-mcp",
+			boardID: 41, query: "labels = bounded ORDER BY Rank ASC", limit: 2, requests: 3,
+			keys:             []string{"DELTA-4", "DELTA-3", "DELTA-2"},
+			inBoard:          []bool{true, true, false},
+			inBacklog:        []bool{false, true, true},
+			boardPositions:   []any{0, 1, nil},
+			backlogPositions: []any{nil, 0, 1},
+			columns:          []string{"Work", "Queue", "Unmapped"},
+			mapped:           []bool{true, true, false},
+			complete:         false,
+		},
+		{
+			name: "incomplete-holdout", directory: "jira-board-incomplete-mcp-holdout",
+			boardID: 52, query: "labels = capped ORDER BY Rank ASC", limit: 3, requests: 3,
+			keys:             []string{"EMBER-9", "EMBER-8", "EMBER-7", "EMBER-6"},
+			inBoard:          []bool{true, true, true, false},
+			inBacklog:        []bool{false, true, true, true},
+			boardPositions:   []any{0, 1, 2, nil},
+			backlogPositions: []any{nil, 0, 1, 2},
+			columns:          []string{"Active", "Ready", "Done", "Unmapped"},
+			mapped:           []bool{true, true, true, false},
+			complete:         false,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -502,8 +529,8 @@ func TestSyntheticPaginatedBoardThroughMCPReconcilesMembership(t *testing.T) {
 			if !ok || !rowsOK || !boardOK ||
 				board["id"] != float64(test.boardID) ||
 				content["scope"] != "all" ||
-				content["complete"] != true ||
-				content["truncated"] != false ||
+				content["complete"] != test.complete ||
+				content["truncated"] != !test.complete ||
 				content["backlog_fetched"] != true ||
 				content["row_count"] != float64(len(test.keys)) ||
 				len(rows) != len(test.keys) {
