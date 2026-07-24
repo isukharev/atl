@@ -231,6 +231,8 @@ The realistic matrix currently contains:
 | neutral common | `cross-service-neutral-discovery` | bounded topic discovery across Jira and Confluence with distractors |
 | surface native | `cross-service-discovery-mcp` | exact five-call Jira-first and Confluence bounded-evidence route |
 | surface native | `cross-service-discovery-mcp-holdout` | distinct repeated-leaf cross-service topology through the same route |
+| surface native | `cross-service-partial-authorization-mcp` | successful bounded discovery followed by one exact forbidden section and qualified stop |
+| surface native | `cross-service-partial-authorization-mcp-holdout` | distinct forbidden-section topology through the same no-retry incomplete-evidence contract |
 | surface native | `jira-structure-subtree-export` | GET-only hierarchy rows plus explicit row/identity/repeat counts and ordered batch export |
 | surface native | `jira-structure-deep-values` | deep selected hierarchy plus explicit row/accessibility counts and a query-only POST value matrix |
 | surface native | `jira-structure-view-mcp` | one bounded typed exact-subtree read with reconciled hierarchy, repeats, accessibility, and completeness |
@@ -896,6 +898,19 @@ ceiling qualifier and complete risk sentence; shortening either is not treated
 as an equivalent exact answer. The rollout phrase allows exactly one optional
 terminal full stop while keeping every other character exact, so punctuation
 formatting cannot hide a missing qualifier or changed value.
+
+`cross-service-partial-authorization-mcp` pairs the same providers at n=3 but
+requires a controlled partial result: one bounded Jira search and one bounded
+Confluence search succeed before the exact selected section returns forbidden.
+The three-call oracle requires three GETs, zero duplicates, zero writes, and a
+failed section capability rather than treating the expected authorization
+boundary as a successful expansion. The answer must preserve accessible
+identity and status facts while marking the overall evidence incomplete,
+leaving the decision undetermined, and emitting no section claims. Retrying,
+broadening either query, requesting a full page, or inferring restricted
+content fails the route or semantic contract. Its distinct n=1 holdout changes
+the topic, identities, status, heading, and fixture marker while retaining the
+byte-identical closed response schema and the same failure topology.
 
 `confluence-decision-brief` is the longer synthesis cell. Three pages contribute
 an objective, two open risks, and an approved decision that supersedes a draft
