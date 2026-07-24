@@ -573,6 +573,21 @@ func (s RunSpec) Validate() error {
 				!invocationToolsAllowed(expected, s.AllowedMCPTools) {
 				return fmt.Errorf("mcp_invocations_equal check %q requires an exact bounded ATL MCP tool-and-arguments array", check.Name)
 			}
+		case "mcp_route_one_of":
+			alternatives, ok := expectedMCPRouteAlternatives(check.Expected)
+			toolsAllowed := ok
+			for _, alternative := range alternatives {
+				toolsAllowed = toolsAllowed &&
+					invocationToolsAllowed(alternative.Invocations, s.AllowedMCPTools)
+			}
+			if s.EffectiveSurface() != SurfaceATLMCP ||
+				check.Minimum != 0 ||
+				check.Maximum != 0 ||
+				check.Pointer != "" ||
+				!ok ||
+				!toolsAllowed {
+				return fmt.Errorf("mcp_route_one_of check %q requires 2..%d exact bounded HTTP-and-MCP alternatives", check.Name, maxMCPRouteAlternatives)
+			}
 		default:
 			return fmt.Errorf("unsupported run check kind %q", check.Kind)
 		}
@@ -932,6 +947,11 @@ func evaluateRunChecksWithMCPInvocations(
 		case "mcp_invocations_equal":
 			expected, _ := expectedMCPInvocations(check.Expected)
 			results[check.Name] = mcpInvocationsObserved && equalMCPInvocations(expected, mcpInvocations)
+		case "mcp_route_one_of":
+			alternatives, _ := expectedMCPRouteAlternatives(check.Expected)
+			results[check.Name] = httpMethodsObserved &&
+				mcpInvocationsObserved &&
+				mcpRouteMatches(alternatives, httpMethods, mcpInvocations)
 		case "json_present":
 			_, ok := resolveJSONPointer(document, check.Pointer)
 			results[check.Name] = ok

@@ -208,7 +208,8 @@ func TestRepositoryCrossServiceDiscoveryFixturesDriveProviderOracles(t *testing.
 			final := crossServiceDiscoveryFinal(t, test)
 			families := crossServiceDiscoveryCapabilityFamilies()
 			sequence := crossServiceDiscoveryCapabilitySequence()
-			invocations := crossServiceDiscoveryMCPInvocations(t, test)
+			invocations := crossServiceDiscoveryMCPInvocations(t, test, "Description")
+			canonicalInvocations := crossServiceDiscoveryMCPInvocations(t, test, "description")
 			scenario := loadRepositoryScenario(t, filepath.Join(root, "scenario.v1.json"))
 			if scenario.ID != test.scenarioID {
 				t.Fatalf("scenario id=%q want=%q", scenario.ID, test.scenarioID)
@@ -229,6 +230,27 @@ func TestRepositoryCrossServiceDiscoveryFixturesDriveProviderOracles(t *testing.
 					if !passed {
 						t.Fatalf("%s fixture-derived final failed run check %q", spec.Provider, name)
 					}
+				}
+				canonicalResults, canonicalErr := evaluateRunChecksWithMCPInvocations(
+					spec.Checks, final, "", 5, 0, unexpected, 0,
+					nil, 0, 0, map[string]int{"GET": 5}, true, nil, families, true, sequence,
+					canonicalInvocations, true,
+				)
+				if canonicalErr != nil {
+					t.Fatal(canonicalErr)
+				}
+				for name, passed := range canonicalResults {
+					if !passed {
+						t.Fatalf("%s canonical-id route failed run check %q", spec.Provider, name)
+					}
+				}
+				crossedResults, crossedErr := evaluateRunChecksWithMCPInvocations(
+					spec.Checks, final, "", 5, 0, unexpected, 0,
+					nil, 0, 0, map[string]int{"GET": 5}, true, nil, families, true, sequence,
+					invocations, true,
+				)
+				if crossedErr != nil || crossedResults["route_trajectory"] {
+					t.Fatalf("%s crossed route result=%v err=%v", spec.Provider, crossedResults, crossedErr)
 				}
 				assertCrossServiceDiscoveryShortenedEvidenceFails(
 					t, spec, final, methods, families, sequence, invocations,
@@ -413,6 +435,7 @@ func crossServiceDiscoveryCapabilitySequence() []string {
 func crossServiceDiscoveryMCPInvocations(
 	t *testing.T,
 	expected crossServiceDiscoveryExpectation,
+	fieldSelector string,
 ) []MCPInvocation {
 	t.Helper()
 	values := []struct {
@@ -445,7 +468,7 @@ func crossServiceDiscoveryMCPInvocations(
 		{
 			tool: "jira_issue_field_get",
 			arguments: map[string]any{
-				"key": expected.jiraKey, "field": "Description", "max_bytes": 16384,
+				"key": expected.jiraKey, "field": fieldSelector, "max_bytes": 16384,
 			},
 		},
 	}
@@ -596,10 +619,10 @@ func assertCrossServiceDiscoveryRouteMutationsFail(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if results["route_arguments"] || !results["route_exact"] || !results["route_ordered"] {
+	if results["route_trajectory"] || !results["route_exact"] || !results["route_ordered"] {
 		t.Fatalf(
-			"argument-only mutation result: arguments=%v exact=%v ordered=%v",
-			results["route_arguments"], results["route_exact"], results["route_ordered"],
+			"argument-only mutation result: trajectory=%v exact=%v ordered=%v",
+			results["route_trajectory"], results["route_exact"], results["route_ordered"],
 		)
 	}
 
@@ -616,10 +639,10 @@ func assertCrossServiceDiscoveryRouteMutationsFail(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if results["route_exact"] || results["route_ordered"] || !results["route_arguments"] {
+	if results["route_exact"] || results["route_ordered"] || !results["route_trajectory"] {
 		t.Fatalf(
-			"family/sequence mutation result: arguments=%v exact=%v ordered=%v",
-			results["route_arguments"], results["route_exact"], results["route_ordered"],
+			"family/sequence mutation result: trajectory=%v exact=%v ordered=%v",
+			results["route_trajectory"], results["route_exact"], results["route_ordered"],
 		)
 	}
 }

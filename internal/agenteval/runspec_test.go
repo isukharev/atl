@@ -1307,6 +1307,89 @@ func TestRunSpecValidatesExactMCPInvocations(t *testing.T) {
 	}
 }
 
+func TestRunSpecValidatesExactMCPRouteAlternatives(t *testing.T) {
+	expected := json.RawMessage(`[
+		{
+			"http_methods":{"GET":2},
+			"invocations":[{"tool":"jira_issue_field_get","arguments":{"key":"DEMO-1","field":"Description","max_bytes":16384}}]
+		},
+		{
+			"http_methods":{"GET":1},
+			"invocations":[{"tool":"jira_issue_field_get","arguments":{"key":"DEMO-1","field":"description","max_bytes":16384}}]
+		}
+	]`)
+	valid := validRunSpec()
+	valid.ToolTransport = "mcp"
+	valid.Surface = SurfaceATLMCP
+	valid.AllowedTools = nil
+	valid.AllowedATLCommands = nil
+	valid.AllowedMCPTools = []string{"jira_issue_field_get"}
+	valid.Checks = append(valid.Checks, RunCheck{
+		Name: "route_trajectory", Kind: "mcp_route_one_of", Expected: expected,
+	})
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if runCheckClass("mcp_route_one_of") != "mechanical" ||
+		!privateActivationSafetyCheckKind("mcp_route_one_of") {
+		t.Fatal("mcp_route_one_of is not classified as a mechanical safety check")
+	}
+
+	alternatives, ok := expectedMCPRouteAlternatives(expected)
+	if !ok || len(alternatives) != 2 {
+		t.Fatalf("route alternatives=%+v ok=%v", alternatives, ok)
+	}
+	check := valid.Checks[len(valid.Checks)-1:]
+	for index, alternative := range alternatives {
+		results, err := evaluateRunChecksWithMCPInvocations(
+			check, []byte(`{}`), "", 1, 0, 0, 0,
+			nil, 0, 0, alternative.HTTPMethods, true, nil, nil, true, nil,
+			alternative.Invocations, true,
+		)
+		if err != nil || !results["route_trajectory"] {
+			t.Fatalf("alternative %d result=%v err=%v", index, results, err)
+		}
+	}
+	results, err := evaluateRunChecksWithMCPInvocations(
+		check, []byte(`{}`), "", 1, 0, 0, 0,
+		nil, 0, 0, alternatives[0].HTTPMethods, true, nil, nil, true, nil,
+		alternatives[1].Invocations, true,
+	)
+	if err != nil || results["route_trajectory"] {
+		t.Fatalf("crossed alternative result=%v err=%v", results, err)
+	}
+
+	for _, invalid := range []json.RawMessage{
+		nil,
+		json.RawMessage(`null`),
+		json.RawMessage(`[]`),
+		json.RawMessage(`[{"http_methods":{"GET":1},"invocations":[{"tool":"jira_issue_field_get","arguments":{}}]}]`),
+		json.RawMessage(`[
+			{"http_methods":{"GET":1},"invocations":[{"tool":"jira_issue_field_get","arguments":{}}]},
+			{"http_methods":{"GET":1},"invocations":[{"tool":"jira_issue_field_get","arguments":{}}]}
+		]`),
+		json.RawMessage(`[
+			{"http_methods":{"GET":1},"invocations":[{"tool":"jira_issue_field_get","arguments":{}}]},
+			{"http_methods":{"GET":2},"invocations":[{"tool":"not_allowed","arguments":{}}]}
+		]`),
+		json.RawMessage(`[
+			{"http_methods":{"GET":1},"invocations":[{"tool":"jira_issue_field_get","arguments":{}}],"extra":true},
+			{"http_methods":{"GET":2},"invocations":[{"tool":"jira_issue_field_get","arguments":{}}]}
+		]`),
+		json.RawMessage(`[
+			{"http_methods":{"GET":1}},
+			{"http_methods":{"GET":2},"invocations":[{"tool":"jira_issue_field_get","arguments":{}}]}
+		]`),
+	} {
+		spec := valid
+		spec.Checks = slices.Clone(valid.Checks)
+		spec.Checks[len(spec.Checks)-1].Expected = invalid
+		if err := spec.Validate(); err == nil {
+			t.Fatalf("invalid MCP route alternatives passed: %s", invalid)
+		}
+	}
+}
+
 func TestRunSpecValidatesExpectedATLFailureCount(t *testing.T) {
 	for name, expected := range map[string]json.RawMessage{
 		"missing":  nil,
