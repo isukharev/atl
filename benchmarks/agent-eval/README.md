@@ -249,6 +249,8 @@ The realistic matrix currently contains:
 | surface native | `confluence-paginated-search-evidence-holdout` | distinct two-page pagination and repeated-heading topology with different current controls |
 | surface native | `jira-paginated-search-mcp` | exact three-page typed issue search with ordered identity and status reconciliation |
 | surface native | `jira-paginated-search-mcp-holdout` | distinct two-page Jira search topology through the same terminal-completeness contract |
+| surface native | `jira-search-zero-progress-mcp` | advancing Jira search cursor with a successful page that contributes no new stable identity |
+| surface native | `jira-search-zero-progress-mcp-holdout` | partial-overlap pages that still add identities before a distinct zero-progress stop |
 | surface native | `jira-board-pagination-mcp` | one typed complete Scrum board/backlog read with internal pagination, overlap, rank, membership, and unmapped status reconciliation |
 | surface native | `jira-board-pagination-mcp-holdout` | distinct board/backlog pagination topology with two overlaps through the same closed membership contract |
 | surface native | `jira-board-incomplete-mcp` | intentionally capped board/backlog evidence with observed-only membership and explicit incomplete qualification |
@@ -859,6 +861,21 @@ filtering or expanding issues. Its distinct n=1 holdout changes the JQL,
 identities, statuses, page size, and pagination topology from three pages to
 two while retaining the same byte-identical response schema and
 completeness/safety semantics.
+
+`jira-search-zero-progress-mcp` pairs Codex Luna/high and Claude Code Opus/high
+at n=3. It requires three successful ordered `jira_issue_search` calls with
+distinct advancing cursors: a middle page mixes a repeated identity with new
+evidence, and the third contributes no new stable identity. Exact invocation,
+capability-family, sequence, and HTTP checks bind the JQL, projection, page
+size, byte cap, and three GETs; scenario budgets require zero duplicate
+requests and zero writes. The answer preserves first-seen order, reconciles
+observed, unique, and repeated-row counts, and leaves evidence explicitly
+incomplete without claiming a backend total. Its distinct n=1 holdout changes
+the query, identities, statuses, limit, and topology: two partial-overlap pages
+still add identities before a fourth successful page makes zero identity
+progress. Primary and holdout share one byte-identical response schema and the
+same general stop rule without disclosing the expected page count in either
+prompt.
 
 `jira-board-pagination-mcp` pairs Codex Luna/high and Claude Code Opus/high at
 n=3. One exact `jira_board_view` call traverses two board pages and two backlog
