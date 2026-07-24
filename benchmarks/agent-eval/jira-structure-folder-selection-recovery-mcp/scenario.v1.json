@@ -72,7 +72,7 @@
   ],
   "budgets": {
     "max_agent_turns": 8,
-    "max_tool_calls": 3,
+    "max_tool_calls": 4,
     "max_atl_invocations": 0,
     "max_interface_invocations": 3,
     "max_delegations": 0,
