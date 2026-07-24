@@ -20,7 +20,9 @@ empty match is absence only when `complete:true`. `jira_fields`,
 `jira_issue_search`, `jira_epic_digest`, and `jira_board_view` default to a
 256 KiB encoded-result bound and permit 1 KiB through 1 MiB. Narrow selection
 before raising `max_bytes`; an oversize failure never contains a clipped
-result. Use technical Jira field ids after one qualified lookup.
+result. For `jira_issue_search`, prefer `columns`; `fields` is an equivalent
+compatibility alias. Supplying non-empty values for both is invalid; empty
+arrays are omitted. Use technical Jira field ids after one qualified lookup.
 `jira_epic_digest` requires an explicit non-empty `include`; select only
 sources absent from the authoritative snapshot and set `projection:"compact"`
 for synthesis. Inspect its omitted/clipped paths and request `full` only for a
