@@ -22,8 +22,114 @@ func TestRepositoryBenchmarkCorpusContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inventory.SchemaVersion != 1 || inventory.Scenarios < 1 || inventory.Runs < inventory.Scenarios || len(inventory.Classes) < 1 {
+	if inventory.SchemaVersion != 2 || inventory.Scenarios < 1 || inventory.Runs < inventory.Scenarios ||
+		len(inventory.Classes) < 1 || len(inventory.MCPTools) != 15 {
 		t.Fatalf("inventory=%+v", inventory)
+	}
+	previous := ""
+	for _, tool := range inventory.MCPTools {
+		if tool.Tool <= previous || tool.Specs < 2 || tool.Repetitions < tool.Specs ||
+			tool.ExactInvocationSpecs < 2 || len(tool.Providers) != 2 {
+			t.Fatalf("MCP tool inventory drifted: previous=%q tool=%+v", previous, tool)
+		}
+		previous = tool.Tool
+		if !slices.Equal(
+			[]string{tool.Providers[0].Provider, tool.Providers[1].Provider},
+			[]string{"claude-code", "codex"},
+		) {
+			t.Fatalf("MCP provider inventory drifted: %+v", tool)
+		}
+		for _, provider := range tool.Providers {
+			if provider.Specs < 2 || provider.Repetitions < provider.Specs ||
+				provider.N3PlusSpecs < 1 || provider.N1Specs < 1 ||
+				provider.DistinctHoldoutSpecs < 1 || provider.ExactInvocationSpecs < 2 ||
+				provider.ExactN3PlusSpecs < 1 || provider.ExactDistinctHoldoutSpecs < 1 ||
+				provider.ExactPrimaryScenarios < 1 || provider.ExactHoldoutScenarios < 1 {
+				t.Fatalf("MCP sampling inventory drifted: tool=%s provider=%+v", tool.Tool, provider)
+			}
+		}
+	}
+}
+
+func TestCorpusMCPToolInventoryRequiresDistinctPrimaryAndHoldoutScenarios(t *testing.T) {
+	exactCheck := RunCheck{
+		Name: "exact", Kind: "mcp_invocations_equal",
+		Expected: json.RawMessage(`[{"tool":"jira_board_view","arguments":{"board_id":1}}]`),
+	}
+	run := func(scenarioID string, repetitions int) loadedRun {
+		return loadedRun{
+			scenario: Scenario{ID: scenarioID},
+			spec: RunSpec{
+				Provider: "codex", Repetitions: repetitions, ToolTransport: "mcp",
+				AllowedMCPTools: []string{"jira_board_view"}, Checks: []RunCheck{exactCheck},
+			},
+		}
+	}
+
+	inventory := corpusMCPToolInventory(map[string][]loadedRun{
+		"holdout": {
+			run("jira.synthetic-board-holdout-v1", 3),
+			run("jira.synthetic-board-holdout-v1", 1),
+		},
+	})
+	provider := inventory[0].Providers[0]
+	if provider.ExactN3PlusSpecs != 0 || provider.ExactPrimaryScenarios != 0 ||
+		provider.ExactDistinctHoldoutSpecs != 1 || provider.ExactHoldoutScenarios != 1 {
+		t.Fatalf("holdout-only coverage accepted as primary: %+v", provider)
+	}
+
+	inventory = corpusMCPToolInventory(map[string][]loadedRun{
+		"primary": {run("jira.synthetic-board-v1", 3)},
+		"holdout": {run("jira.synthetic-board-holdout-v1", 1)},
+	})
+	provider = inventory[0].Providers[0]
+	if provider.ExactN3PlusSpecs != 1 || provider.ExactPrimaryScenarios != 1 ||
+		provider.ExactDistinctHoldoutSpecs != 1 || provider.ExactHoldoutScenarios != 1 {
+		t.Fatalf("distinct primary/holdout coverage rejected: %+v", provider)
+	}
+}
+
+func TestCorpusScenarioHasToken(t *testing.T) {
+	for _, scenarioID := range []string{
+		"jira.synthetic-board-holdout-v1",
+		"jira.synthetic_board_HOLDOUT_v1",
+	} {
+		if !corpusScenarioHasToken(scenarioID, "holdout") {
+			t.Fatalf("holdout token not detected in %q", scenarioID)
+		}
+	}
+	for _, scenarioID := range []string{
+		"jira.synthetic-board-holdoutish-v1",
+		"jira.synthetic-board-withholding-v1",
+	} {
+		if corpusScenarioHasToken(scenarioID, "holdout") {
+			t.Fatalf("non-token substring detected in %q", scenarioID)
+		}
+	}
+}
+
+func TestCorpusExactMCPToolsRequiresEveryAllowedRouteAlternative(t *testing.T) {
+	spec := RunSpec{Checks: []RunCheck{
+		{
+			Name: "single", Kind: "mcp_invocations_equal",
+			Expected: json.RawMessage(`[{"tool":"jira_board_view","arguments":{"board_id":1}}]`),
+		},
+		{
+			Name: "alternatives", Kind: "mcp_route_one_of",
+			Expected: json.RawMessage(`[
+				{"http_methods":{"GET":2},"invocations":[
+					{"tool":"jira_issue_search","arguments":{"jql":"x"}},
+					{"tool":"jira_issue_field_get","arguments":{"key":"X-1","field":"Description"}}
+				]},
+				{"http_methods":{"GET":1},"invocations":[
+					{"tool":"jira_issue_field_get","arguments":{"key":"X-1","field":"description"}}
+				]}
+			]`),
+		},
+	}}
+	got := corpusExactMCPTools(spec)
+	if !got["jira_board_view"] || !got["jira_issue_field_get"] || got["jira_issue_search"] || len(got) != 2 {
+		t.Fatalf("exact MCP tools=%v", got)
 	}
 }
 

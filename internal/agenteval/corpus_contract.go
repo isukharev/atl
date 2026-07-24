@@ -28,11 +28,34 @@ type CorpusClassInventory struct {
 	ComparisonSets int    `json:"comparison_sets"`
 }
 
+type CorpusMCPProviderInventory struct {
+	Provider                  string `json:"provider"`
+	Specs                     int    `json:"specs"`
+	Repetitions               int    `json:"repetitions"`
+	N3PlusSpecs               int    `json:"n3_plus_specs"`
+	N1Specs                   int    `json:"n1_specs"`
+	DistinctHoldoutSpecs      int    `json:"distinct_holdout_specs"`
+	ExactInvocationSpecs      int    `json:"exact_invocation_specs"`
+	ExactN3PlusSpecs          int    `json:"exact_n3_plus_specs"`
+	ExactDistinctHoldoutSpecs int    `json:"exact_distinct_holdout_specs"`
+	ExactPrimaryScenarios     int    `json:"exact_primary_scenarios"`
+	ExactHoldoutScenarios     int    `json:"exact_holdout_scenarios"`
+}
+
+type CorpusMCPToolInventory struct {
+	Tool                 string                       `json:"tool"`
+	Specs                int                          `json:"specs"`
+	Repetitions          int                          `json:"repetitions"`
+	ExactInvocationSpecs int                          `json:"exact_invocation_specs"`
+	Providers            []CorpusMCPProviderInventory `json:"providers"`
+}
+
 type CorpusInventory struct {
-	SchemaVersion int                    `json:"schema_version"`
-	Scenarios     int                    `json:"scenarios"`
-	Runs          int                    `json:"runs"`
-	Classes       []CorpusClassInventory `json:"classes"`
+	SchemaVersion int                      `json:"schema_version"`
+	Scenarios     int                      `json:"scenarios"`
+	Runs          int                      `json:"runs"`
+	Classes       []CorpusClassInventory   `json:"classes"`
+	MCPTools      []CorpusMCPToolInventory `json:"mcp_tools"`
 }
 
 // ValidateBenchmarkCorpus inventories every run.*.json below root and checks
@@ -128,11 +151,154 @@ func ValidateBenchmarkCorpus(root string) (CorpusInventory, error) {
 		}
 		return keys[i].taskClass < keys[j].taskClass
 	})
-	result := CorpusInventory{SchemaVersion: 1, Scenarios: scenarioCount, Runs: runCount, Classes: make([]CorpusClassInventory, 0, len(keys))}
+	result := CorpusInventory{
+		SchemaVersion: 2, Scenarios: scenarioCount, Runs: runCount,
+		Classes:  make([]CorpusClassInventory, 0, len(keys)),
+		MCPTools: corpusMCPToolInventory(byDirectory),
+	}
 	for _, key := range keys {
 		result.Classes = append(result.Classes, classes[key])
 	}
 	return result, nil
+}
+
+func corpusMCPToolInventory(byDirectory map[string][]loadedRun) []CorpusMCPToolInventory {
+	type providerKey struct{ tool, provider string }
+	type providerScenarios struct {
+		primary map[string]struct{}
+		holdout map[string]struct{}
+	}
+	tools := map[string]CorpusMCPToolInventory{}
+	providers := map[providerKey]CorpusMCPProviderInventory{}
+	scenarios := map[providerKey]providerScenarios{}
+	for _, runs := range byDirectory {
+		for _, run := range runs {
+			if run.spec.EffectiveToolTransport() != "mcp" {
+				continue
+			}
+			exactTools := corpusExactMCPTools(run.spec)
+			isHoldout := corpusScenarioHasToken(run.scenario.ID, "holdout")
+			for _, tool := range run.spec.AllowedMCPTools {
+				inventory := tools[tool]
+				inventory.Tool = tool
+				inventory.Specs++
+				inventory.Repetitions += run.spec.Repetitions
+				if exactTools[tool] {
+					inventory.ExactInvocationSpecs++
+				}
+				tools[tool] = inventory
+
+				key := providerKey{tool: tool, provider: run.spec.Provider}
+				provider := providers[key]
+				provider.Provider = run.spec.Provider
+				provider.Specs++
+				provider.Repetitions += run.spec.Repetitions
+				if run.spec.Repetitions >= 3 {
+					provider.N3PlusSpecs++
+				}
+				if run.spec.Repetitions == 1 {
+					provider.N1Specs++
+					if isHoldout {
+						provider.DistinctHoldoutSpecs++
+					}
+				}
+				if exactTools[tool] {
+					provider.ExactInvocationSpecs++
+					if run.spec.Repetitions >= 3 && !isHoldout {
+						provider.ExactN3PlusSpecs++
+						coverage := scenarios[key]
+						if coverage.primary == nil {
+							coverage.primary = map[string]struct{}{}
+						}
+						coverage.primary[run.scenario.ID] = struct{}{}
+						scenarios[key] = coverage
+					}
+					if run.spec.Repetitions == 1 && isHoldout {
+						provider.ExactDistinctHoldoutSpecs++
+						coverage := scenarios[key]
+						if coverage.holdout == nil {
+							coverage.holdout = map[string]struct{}{}
+						}
+						coverage.holdout[run.scenario.ID] = struct{}{}
+						scenarios[key] = coverage
+					}
+				}
+				providers[key] = provider
+			}
+		}
+	}
+	toolNames := make([]string, 0, len(tools))
+	for tool := range tools {
+		toolNames = append(toolNames, tool)
+	}
+	sort.Strings(toolNames)
+	result := make([]CorpusMCPToolInventory, 0, len(toolNames))
+	for _, tool := range toolNames {
+		inventory := tools[tool]
+		for key, provider := range providers {
+			if key.tool == tool {
+				provider.ExactPrimaryScenarios = len(scenarios[key].primary)
+				provider.ExactHoldoutScenarios = len(scenarios[key].holdout)
+				inventory.Providers = append(inventory.Providers, provider)
+			}
+		}
+		sort.Slice(inventory.Providers, func(i, j int) bool {
+			return inventory.Providers[i].Provider < inventory.Providers[j].Provider
+		})
+		result = append(result, inventory)
+	}
+	return result
+}
+
+func corpusScenarioHasToken(scenarioID, token string) bool {
+	for _, part := range strings.FieldsFunc(scenarioID, func(r rune) bool {
+		return r == '.' || r == '-' || r == '_'
+	}) {
+		if strings.EqualFold(part, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func corpusExactMCPTools(spec RunSpec) map[string]bool {
+	result := map[string]bool{}
+	for _, check := range spec.Checks {
+		switch check.Kind {
+		case "mcp_invocations_equal":
+			invocations, ok := expectedMCPInvocations(check.Expected)
+			if !ok {
+				continue
+			}
+			for _, invocation := range invocations {
+				result[invocation.Tool] = true
+			}
+		case "mcp_route_one_of":
+			alternatives, ok := expectedMCPRouteAlternatives(check.Expected)
+			if !ok || len(alternatives) == 0 {
+				continue
+			}
+			required := map[string]bool{}
+			for _, invocation := range alternatives[0].Invocations {
+				required[invocation.Tool] = true
+			}
+			for _, alternative := range alternatives[1:] {
+				present := map[string]bool{}
+				for _, invocation := range alternative.Invocations {
+					present[invocation.Tool] = true
+				}
+				for tool := range required {
+					if !present[tool] {
+						delete(required, tool)
+					}
+				}
+			}
+			for tool := range required {
+				result[tool] = true
+			}
+		}
+	}
+	return result
 }
 
 func validateNeutralCommonCohorts(runs []loadedRun) (int, error) {
