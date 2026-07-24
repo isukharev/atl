@@ -125,6 +125,9 @@ names and conflicting aliases are rejected before backend access.
 `confluence_search` returns the same qualified schema-v1 search envelope as
 the CLI, including top-level `complete`, `truncated`, optional
 `partial_reason`, and `next_cursor`; candidate page bodies are not included.
+At the MCP boundary, `max_bytes` defaults to 128 KiB and rejects an encoded
+result above the configured bound instead of clipping candidate metadata or
+pagination evidence.
 `confluence_table_summary` returns the content-free structural summary contract.
 `confluence_table_extract` requires one positive table index and returns exactly
 that expanded table. Its table record embeds the same content-free,

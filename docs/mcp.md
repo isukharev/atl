@@ -24,7 +24,7 @@ The v1 surface is an explicit allowlist:
 | `jira_structure_get` | Read compact metadata for one exact Structure id | accepts a positive integer or canonical decimal string id; 32 KiB result cap; omits owner, permissions, saved views, and raw forest data |
 | `jira_structure_view` | Read a normalized full Structure or exact stored-folder subtree | default 200/maximum 1000 emitted rows; maximum 1000 scanned forest rows; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_mirror_snapshot` | Summarize local Jira mirror health without content | no arguments; exact owner-configured root; offline fixed-shape counts |
-| `confluence_search` | Search one qualified bounded CQL candidate page | default 25, maximum 100 rows |
+| `confluence_search` | Search one qualified bounded CQL candidate page | default 25/maximum 100 rows; default 128 KiB/maximum 1 MiB encoded result |
 | `confluence_page_resolve` | Resolve an id or same-origin URL/path | exact resolution only |
 | `confluence_page_outline` | Inspect headings before reading content | one page |
 | `confluence_page_section` | Read one exact Markdown section | default 32 KiB, maximum 1 MiB |
@@ -79,7 +79,10 @@ remain unavailable through MCP.
 `confluence_search` requires explicit CQL and returns the same qualified
 schema-v1 page as `conf search`: `query`, bounded candidate metadata, `count`,
 `complete`, `truncated`, optional `partial_reason`, and `next_cursor`. Search
-results omit page bodies. Reuse a returned numeric id directly with
+results omit page bodies. The MCP tool also rejects an encoded result larger
+than `max_bytes` (default 128 KiB, minimum 1 KiB, maximum 1 MiB) rather than
+clipping titles, excerpts, or pagination evidence. Narrow CQL or lower the row
+limit before raising the byte bound. Reuse a returned numeric id directly with
 `confluence_page_outline` and `confluence_page_section`.
 Pass `confluence_page_section.heading` as the exact `title` returned by the
 outline, without a Markdown `#` prefix; use `occurrence` when that title

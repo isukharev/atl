@@ -70,7 +70,8 @@ pending, and render buckets, and keep `remote_requested:false`. Use the CLI when
 the task needs item identities, paths, content, status rows, or diffs.
 
 For a topic-first lookup, call `confluence_search` once with explicit bounded
-CQL and `jira_issue_search` once with explicit bounded JQL. Require Confluence
+CQL, row `limit`, and `max_bytes`, and call `jira_issue_search` once with
+explicit bounded JQL. Require Confluence
 top-level `complete:true` and Jira `page.complete:true`, freeze the candidate
 pages, then expand only the selected Jira field and outline-selected
 Confluence section. A numeric Confluence search-result id is already stable;
