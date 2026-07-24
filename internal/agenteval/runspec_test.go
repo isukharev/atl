@@ -604,6 +604,7 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 	checks := []RunCheck{
 		{Name: "equals", Kind: "json_equals", Pointer: "/nested/value", Expected: json.RawMessage(`7`)},
 		{Name: "present", Kind: "json_present", Pointer: "/nested"},
+		{Name: "array_items", Kind: "json_array_min_items", Pointer: "/items", Minimum: 2},
 		{Name: "used", Kind: "atl_invocations_min", Minimum: 2},
 		{Name: "used_interface", Kind: "interface_invocations_min", Minimum: 2},
 		{Name: "used_skill", Kind: "skill_invocations_min", Minimum: 1},
@@ -618,7 +619,7 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 		{Name: "guarded", Kind: "guard_no_denials"},
 		{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":2,"PUT":1}`)},
 	}
-	result, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), "", 2, 1, 0, 1, map[string]int{"atl:jira": 1}, 1, 0, map[string]int{"GET": 2, "PUT": 1}, true, []int{0, 8})
+	result, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7},"items":["a","b"]}`), "", 2, 1, 0, 1, map[string]int{"atl:jira": 1}, 1, 0, map[string]int{"GET": 2, "PUT": 1}, true, []int{0, 8})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -627,7 +628,7 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 			t.Errorf("check %s failed", name)
 		}
 	}
-	over, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7}}`), "", 3, 0, 0, 1, map[string]int{"atl:confluence": 1}, 1, 0, map[string]int{"GET": 3}, true, []int{0, 0, 0})
+	over, err := evaluateRunChecks(checks, []byte(`{"nested":{"value":7},"items":["a"]}`), "", 3, 0, 0, 1, map[string]int{"atl:confluence": 1}, 1, 0, map[string]int{"GET": 3}, true, []int{0, 0, 0})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -642,6 +643,9 @@ func TestEvaluateRunChecksUsesStructuredValuesOnly(t *testing.T) {
 	}
 	if over["expected_fail_closed"] {
 		t.Fatal("atl_failures_equals accepted the wrong failure count")
+	}
+	if over["array_items"] {
+		t.Fatal("json_array_min_items accepted a short array")
 	}
 	if over["exit_codes"] {
 		t.Fatal("cli_exit_codes_equal accepted different ordered exit codes")
@@ -726,6 +730,65 @@ func TestRunSpecValidatesOptionalTerminalPeriodStringCheck(t *testing.T) {
 		if err := spec.Validate(); err == nil {
 			t.Fatalf("invalid check passed: %+v", invalid)
 		}
+	}
+}
+
+func TestRunSpecValidatesJSONArrayMinItemsCheck(t *testing.T) {
+	check := RunCheck{
+		Name: "evidence_present", Kind: "json_array_min_items",
+		Pointer: "/evidence", Minimum: 2,
+	}
+	valid := validRunSpec()
+	valid.Checks = append(valid.Checks, check)
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if runCheckClass(check.Kind) != "semantic" ||
+		privateActivationSafetyCheckKind(check.Kind) {
+		t.Fatal("array minimum check is not classified as semantic")
+	}
+	for name, test := range map[string]struct {
+		final string
+		want  bool
+	}{
+		"exact":   {final: `{"evidence":["a","b"]}`, want: true},
+		"over":    {final: `{"evidence":["a","b","c"]}`, want: true},
+		"short":   {final: `{"evidence":["a"]}`},
+		"missing": {final: `{}`},
+		"object":  {final: `{"evidence":{"a":"b"}}`},
+		"null":    {final: `{"evidence":null}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			results, err := evaluateRunChecks(
+				[]RunCheck{check}, []byte(test.final), "", 0, 0, 0, 0,
+				nil, 0, 0, nil, false, nil,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if results[check.Name] != test.want {
+				t.Fatalf("result=%v want %v", results[check.Name], test.want)
+			}
+		})
+	}
+
+	for name, mutate := range map[string]func(*RunCheck){
+		"missing pointer": func(value *RunCheck) { value.Pointer = "" },
+		"zero minimum":    func(value *RunCheck) { value.Minimum = 0 },
+		"unexpected max":  func(value *RunCheck) { value.Maximum = 2 },
+		"unexpected value": func(value *RunCheck) {
+			value.Expected = json.RawMessage(`2`)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := validRunSpec()
+			mutated := check
+			mutate(&mutated)
+			candidate.Checks = append(candidate.Checks, mutated)
+			if err := candidate.Validate(); err == nil {
+				t.Fatal("invalid json_array_min_items check passed")
+			}
+		})
 	}
 }
 
