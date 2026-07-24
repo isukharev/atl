@@ -73,6 +73,18 @@ the selection exceeds `max_rows` or `max_bytes`. It also rejects forests above
 be smaller; use the CLI for larger forests. Narrow the subtree before raising
 an emitted-row or byte bound. `complete:false`, `inaccessible_rows`, and
 `warnings` are evidence, not permission to probe raw forest/value endpoints.
+If an exact selector fails with `view_then_select_subtree`, the Structure
+itself was found but the stored-folder selection is stale, ambiguous, or cannot
+be validated from the available labels. When the full forest fits the MCP
+bounds, retry once without a folder selector, keep `fields` narrow, and set
+`max_rows` high enough for the full forest (at most 1000). Choose a folder row
+from that snapshot, then request the exact `folder_row` subtree. A forest above
+1000 rows or a selector-free view that still exceeds its row/byte bound remains
+CLI-only. The error carries only matching/available counts; it never repeats
+folder identity or content. A `folder_row` that now identifies a non-folder is
+instead a `usage_error`; refresh the bounded view rather than treating the
+Structure as missing. Other Structure `not_found` and `check_failed` errors
+remain generic.
 Raw formulas, arbitrary value matrices, issue pull, file export, and mutations
 remain unavailable through MCP.
 
@@ -158,6 +170,15 @@ contains only requested/available integer counts. Refresh the page outline,
 select an occurrence from that inventory, and read the section once; do not
 report the page or heading as missing. Other section failures use coarse safe
 messages and retain their ordinary remediation.
+A Jira Structure `not_found` or `check_failed` with
+`view_then_select_subtree` means the Structure exists but its stored-folder
+selector did not resolve exactly. Its message contains only
+matching/available integer counts. Read one selector-free bounded view with a
+narrow field projection and `max_rows` sufficient for the full forest, choose
+the exact folder `row_id`, and request that `folder_row` subtree once. If the
+full forest does not fit the MCP row/byte caps, use the CLI; do not report the
+Structure as missing. Other Structure failures use coarse safe messages and
+retain their ordinary remediation.
 
 ## Install through the agent plugins
 

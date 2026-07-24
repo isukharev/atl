@@ -125,6 +125,16 @@ section failures retain their ordinary classification and a generic safe
 message. The typed distinction changes neither the existing CLI error text and
 exit codes nor successful outline/section schemas.
 
+A stale Jira Structure stored-folder selector remains `kind:"not_found"`;
+an ambiguous selector or a path that cannot be validated because labels are
+incomplete remains `kind:"check_failed"`. These typed selection failures use
+`remediation:"view_then_select_subtree"` with matching/available integer counts
+only. The recovery route is an existing selector-free bounded
+`jira_structure_view` followed by one exact `folder_row` view. Genuine
+Structure absence and unrelated validation failures retain their ordinary
+remediation and generic safe messages. CLI diagnostics and exits, successful
+Structure schemas, and read/write authority are unchanged.
+
 `jira_fields`, `jira_issue_search`, `jira_epic_digest`, and `jira_board_view`
 reject a final encoded result larger than `max_bytes` (default 256 KiB,
 minimum 1 KiB, maximum 1 MiB). Row/source limits and compact projections remain
@@ -168,7 +178,11 @@ exceeds `max_rows` or the encoded snapshot exceeds `max_bytes`. Its row,
 unique-issue, projection, accessibility, selection, and completeness fields are
 reconciled before emission. A selected snapshot must begin with the exact
 selected stored-folder row at relative depth zero; exact path selections are
-normalized and compared with the returned path. MCP scans at most 1000 forest
+normalized and compared with the returned path. A typed
+`view_then_select_subtree` failure is recoverable when the full forest fits the
+MCP row/byte bounds: use one selector-free view with a sufficient `max_rows`,
+then one exact `folder_row` view. Larger forests remain CLI-only. The diagnostic
+exposes counts but no folder identity or content. MCP scans at most 1000 forest
 rows and applies that cap before any folder-value query. Raw forest formulas, arbitrary value matrices,
 pull, and export are not MCP tools.
 `jira_mirror_snapshot` and `confluence_mirror_snapshot` accept an empty object

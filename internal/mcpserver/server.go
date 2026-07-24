@@ -1178,6 +1178,12 @@ func classifiedStructureRead(err error) error {
 		return nil
 	}
 	kind, remediation := diagnostic.Classify(err)
+	// A stale, ambiguous, or unvalidatable stored-folder selector is recoverable by
+	// the caller, so it gets a distinct remediation and a count-only message. Only
+	// the typed application error qualifies — never a string match — and it carries
+	// no folder id, row id, path, label, Structure content, or backend text.
+	var selection *app.StructureFolderSelectionError
+	typed := errors.As(err, &selection) && selection != nil
 	message := "Jira Structure read failed"
 	switch kind {
 	case "usage_error":
@@ -1190,8 +1196,22 @@ func classifiedStructureRead(err error) error {
 		message = "Jira Structure access is forbidden"
 	case "not_found":
 		message = "Jira Structure or subtree was not found"
+		if typed && selection.Reason == app.StructureFolderSelectionNotFound {
+			remediation = "view_then_select_subtree"
+			message = fmt.Sprintf("selected Jira Structure folder was not found; available stored-folder count is %d", selection.Available)
+		}
 	case "check_failed":
 		message = "Jira Structure result failed validation"
+		if typed {
+			switch selection.Reason {
+			case app.StructureFolderSelectionAmbiguous:
+				remediation = "view_then_select_subtree"
+				message = fmt.Sprintf("Jira Structure folder selector is ambiguous; matching stored-folder count is %d and available stored-folder count is %d", selection.Matches, selection.Available)
+			case app.StructureFolderSelectionLabelsIncomplete:
+				remediation = "view_then_select_subtree"
+				message = fmt.Sprintf("Jira Structure folder path cannot be validated because folder labels are incomplete; available stored-folder count is %d", selection.Available)
+			}
+		}
 	case "output_limit_exceeded":
 		message = "Jira Structure result exceeds the selected output bound"
 	case "api_error", "transport_error":

@@ -2198,6 +2198,153 @@ func TestConfluenceSectionSelectionErrorsAreDistinctAndContentFree(t *testing.T)
 	}
 }
 
+// structureSelectionFixture mirrors what the application layer hands the Structure
+// classifier: the sentinel that drives classification, the typed selection error
+// that carries the safe exported counts, and the identifier-bearing diagnostic the
+// app keeps unexported. The typed error contributes no bytes of its own here (its
+// diagnostic field is unexported), so the wire message is exactly `detail`.
+func structureSelectionFixture(sentinel error, typed *app.StructureFolderSelectionError, detail string) error {
+	return fmt.Errorf("%w: %s%w", sentinel, detail, typed)
+}
+
+func TestJiraStructureFolderSelectionErrorsAreDistinctAndContentFree(t *testing.T) {
+	const marker = "SYNTHETIC-STRUCTURE-SELECTION-SECRET"
+	for _, test := range []struct {
+		name, kind, message string
+		args                map[string]any
+		err                 error
+		reason              app.StructureFolderSelectionReason
+		matches, available  int
+	}{
+		{
+			name: "stale selector", kind: "not_found",
+			reason: app.StructureFolderSelectionNotFound, matches: 0, available: 4,
+			args: map[string]any{"structure_id": 9, "folder_id": "folder-" + marker},
+			err: structureSelectionFixture(domain.ErrNotFound,
+				&app.StructureFolderSelectionError{Reason: app.StructureFolderSelectionNotFound, Available: 4},
+				"exact Structure folder was not found"),
+			message: "selected Jira Structure folder was not found; available stored-folder count is 4",
+		},
+		{
+			name: "ambiguous selector", kind: "check_failed",
+			reason: app.StructureFolderSelectionAmbiguous, matches: 2, available: 4,
+			args: map[string]any{"structure_id": 9, "folder_id": "folder-" + marker},
+			err: structureSelectionFixture(domain.ErrCheckFailed,
+				&app.StructureFolderSelectionError{Reason: app.StructureFolderSelectionAmbiguous, Matches: 2, Available: 4},
+				"exact Structure folder selector is ambiguous: folder="+marker+" row=10, folder="+marker+" row=20"),
+			message: "Jira Structure folder selector is ambiguous; matching stored-folder count is 2 and available stored-folder count is 4",
+		},
+		{
+			name: "incomplete labels", kind: "check_failed",
+			reason: app.StructureFolderSelectionLabelsIncomplete, matches: 0, available: 4,
+			args: map[string]any{"structure_id": 9, "folder_path": "Plans/" + marker},
+			err: structureSelectionFixture(domain.ErrCheckFailed,
+				&app.StructureFolderSelectionError{Reason: app.StructureFolderSelectionLabelsIncomplete, Available: 4},
+				"exact folder path cannot be validated because folder labels are incomplete; use --folder-id or --folder-row"),
+			message: "Jira Structure folder path cannot be validated because folder labels are incomplete; available stored-folder count is 4",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var typed *app.StructureFolderSelectionError
+			if !errors.As(test.err, &typed) || typed.Reason != test.reason ||
+				typed.Matches != test.matches || typed.Available != test.available {
+				t.Fatalf("test fixture must carry a typed selection error: %v", test.err)
+			}
+			reader := &failingStructureReader{recordingJiraReader: &recordingJiraReader{}, err: test.err}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Jira: func() (JiraReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name: "jira_structure_view", Arguments: test.args,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+				t.Fatalf("result=%+v", result)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+				got.Kind != test.kind || got.Remediation != "view_then_select_subtree" || got.Message != test.message {
+				t.Fatalf("error=%+v decode=%v", got, err)
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, forbidden := range []string{marker, "folder-", "folder=", "row=", "Plans/", "--folder-id", "--folder-row"} {
+				if bytes.Contains(encoded, []byte(forbidden)) {
+					t.Fatalf("selection error leaked %q: %s", forbidden, encoded)
+				}
+			}
+		})
+	}
+}
+
+func TestJiraStructureOtherErrorsStayStaticAndUnremediated(t *testing.T) {
+	const marker = "SYNTHETIC-STRUCTURE-PROSE-SECRET"
+	for _, test := range []struct {
+		name, kind, remediation, message string
+		err                              error
+	}{
+		{
+			name: "missing structure", kind: "not_found", remediation: "verify_identifier_or_access",
+			message: "Jira Structure or subtree was not found",
+			err:     fmt.Errorf("%w: Structure %s was not found", domain.ErrNotFound, "id-"+marker),
+		},
+		{
+			name: "unrelated check failure", kind: "check_failed", remediation: "review_failed_check",
+			message: "Jira Structure result failed validation",
+			err: fmt.Errorf("%w: selected Structure folder row disappeared from the forest snapshot: %v",
+				domain.ErrCheckFailed, errors.New("backend detail "+marker)),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var typed *app.StructureFolderSelectionError
+			if errors.As(test.err, &typed) {
+				t.Fatalf("fixture must stay untyped: %#v", typed)
+			}
+			reader := &failingStructureReader{recordingJiraReader: &recordingJiraReader{}, err: test.err}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Jira: func() (JiraReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name: "jira_structure_view", Arguments: map[string]any{"structure_id": 9, "folder_id": "folder-a"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || len(result.Content) != 1 {
+				t.Fatalf("result=%+v", result)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+				got.Kind != test.kind || got.Remediation != test.remediation || got.Message != test.message {
+				t.Fatalf("error=%+v decode=%v", got, err)
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, forbidden := range []string{marker, "stored-folder count"} {
+				if bytes.Contains(encoded, []byte(forbidden)) {
+					t.Fatalf("generic error leaked %q: %s", forbidden, encoded)
+				}
+			}
+		})
+	}
+}
+
 func TestConfluenceSectionOtherErrorsStayStaticAndUnremediated(t *testing.T) {
 	const marker = "SYNTHETIC-SECTION-PROSE-SECRET"
 	for _, test := range []struct {
@@ -2456,6 +2603,15 @@ type recordingJiraReader struct {
 type invalidStructureReader struct {
 	*recordingJiraReader
 	mode string
+}
+
+type failingStructureReader struct {
+	*recordingJiraReader
+	err error
+}
+
+func (r *failingStructureReader) StructureSnapshot(_ context.Context, _ int64, _ app.StructureSnapshotOpts) (*app.StructureSnapshot, error) {
+	return nil, r.err
 }
 
 type oversizedJiraReader struct {

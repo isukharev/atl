@@ -15,6 +15,51 @@ type StructureFolderSelector struct {
 	FolderPath string
 }
 
+// StructureFolderSelectionReason is the closed set of recoverable stored-folder
+// selection failures. It is a caller-facing classification, not free-form prose.
+type StructureFolderSelectionReason string
+
+const (
+	// StructureFolderSelectionNotFound means the selector matched no stored
+	// folder in the current forest snapshot — typically a stale id, row, or path.
+	StructureFolderSelectionNotFound StructureFolderSelectionReason = "not_found"
+	// StructureFolderSelectionAmbiguous means the selector matched more than one
+	// stored folder, so exact selection fails closed.
+	StructureFolderSelectionAmbiguous StructureFolderSelectionReason = "ambiguous"
+	// StructureFolderSelectionLabelsIncomplete means a path selector cannot be
+	// validated because folder labels are incomplete for this snapshot.
+	StructureFolderSelectionLabelsIncomplete StructureFolderSelectionReason = "labels_incomplete"
+)
+
+// StructureFolderSelectionError reports a recoverable Jira Structure stored-folder
+// selection mistake so a transport can tell a stale, ambiguous, or unvalidatable
+// selector apart from a genuinely missing Structure. Only Reason and the two
+// integer counts are exported: they carry no folder id, row id, path segment,
+// label, Structure content, or backend prose, so they are safe to surface at the
+// MCP boundary. The human diagnostic and the sentinel stay unexported — Error()
+// still returns the existing CLI message byte for byte and Unwrap() still yields
+// the original sentinel, so exit codes and classification are unchanged.
+type StructureFolderSelectionError struct {
+	Reason    StructureFolderSelectionReason
+	Matches   int
+	Available int
+
+	sentinel error
+	detail   string
+}
+
+func (e *StructureFolderSelectionError) Error() string { return e.detail }
+
+func (e *StructureFolderSelectionError) Unwrap() error { return e.sentinel }
+
+func newStructureFolderSelectionError(reason StructureFolderSelectionReason, matches, available int, sentinel error, detail string) *StructureFolderSelectionError {
+	return &StructureFolderSelectionError{
+		Reason: reason, Matches: matches, Available: available,
+		sentinel: sentinel,
+		detail:   fmt.Sprintf("%s: %s", sentinel, detail),
+	}
+}
+
 type StructureSelection struct {
 	Kind     string   `json:"kind"`
 	FolderID string   `json:"folder_id"`
@@ -214,7 +259,10 @@ func selectStructureFolder(rows []domain.StructureRow, folders []StructureFolder
 		}
 	case strings.TrimSpace(selector.FolderPath) != "":
 		if !complete {
-			return nil, nil, fmt.Errorf("%w: exact folder path cannot be validated because folder labels are incomplete; use --folder-id or --folder-row", domain.ErrCheckFailed)
+			// The typed error carries the machine-readable classification and counts;
+			// the CLI-facing diagnostic below is preserved byte for byte.
+			return nil, nil, newStructureFolderSelectionError(StructureFolderSelectionLabelsIncomplete, 0, len(folders), domain.ErrCheckFailed,
+				"exact folder path cannot be validated because folder labels are incomplete; use --folder-id or --folder-row")
 		}
 		wanted, err := normalizeFolderPath(selector.FolderPath)
 		if err != nil {
@@ -227,14 +275,18 @@ func selectStructureFolder(rows []domain.StructureRow, folders []StructureFolder
 		}
 	}
 	if len(matches) == 0 {
-		return nil, nil, fmt.Errorf("%w: exact Structure folder was not found", domain.ErrNotFound)
+		return nil, nil, newStructureFolderSelectionError(StructureFolderSelectionNotFound, 0, len(folders), domain.ErrNotFound,
+			"exact Structure folder was not found")
 	}
 	if len(matches) > 1 {
 		ids := make([]string, len(matches))
 		for i, match := range matches {
 			ids[i] = fmt.Sprintf("folder=%s row=%d", match.FolderID, match.RowID)
 		}
-		return nil, nil, fmt.Errorf("%w: exact Structure folder selector is ambiguous: %s", domain.ErrCheckFailed, strings.Join(ids, ", "))
+		// Folder ids and row ids stay inside the unexported CLI diagnostic; only the
+		// counts are exported for transports that must not disclose Structure content.
+		return nil, nil, newStructureFolderSelectionError(StructureFolderSelectionAmbiguous, len(matches), len(folders), domain.ErrCheckFailed,
+			fmt.Sprintf("exact Structure folder selector is ambiguous: %s", strings.Join(ids, ", ")))
 	}
 	match := matches[0]
 	start := -1
