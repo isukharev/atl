@@ -25,6 +25,12 @@ const boardIssuesBody = `{"startAt":0,"maxResults":50,"total":2,"issues":[
 	{"id":"10002","key":"ENG-2","fields":{"summary":"Second","status":{"id":"99","name":"Custom"}}}
 ]}`
 
+const boardIssuesEpicBody = `{"startAt":0,"maxResults":50,"total":3,"issues":[
+	{"id":"10001","key":"ENG-EPIC","fields":{"status":{"id":"11","name":"Open"},"updated":"2026-04-01T09:00:00.000+0000","customfield_10001":null}},
+	{"id":"10002","key":"ENG-1","fields":{"status":{"id":"11","name":"Open"},"updated":"2026-04-02T09:00:00.000+0000","customfield_10001":"ENG-EPIC"}},
+	{"id":"10003","key":"ENG-2","fields":{"status":{"id":"12","name":"Done"},"updated":"2026-04-03T09:00:00.000+0000","customfield_10001":"ENG-EPIC"}}
+]}`
+
 const boardsBody = `{"maxResults":50,"startAt":0,"total":1,"isLast":true,"values":[
 	{"id":5,"name":"ENG board","type":"scrum","location":{"projectKey":"ENG"}}
 ]}`
@@ -104,6 +110,44 @@ func TestJiraBoardConfigAndKanbanViewNeverCallSprintOrBacklog(t *testing.T) {
 			"kanban_endpoints_safe": true,
 		},
 	))
+}
+
+func TestJiraBoardViewEpicRollup(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/agile/1.0/board/5/configuration", http.StatusOK, kanbanConfigBody)
+	js.route(http.MethodGet, "/rest/agile/1.0/board/5/issue", http.StatusOK, boardIssuesEpicBody)
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "board", "view", "5",
+		"--scope", "board",
+		"--columns", "key,status,updated,customfield_10001",
+		"--epic-field", "customfield_10001",
+		"--done-status", "Done",
+	)
+	if code != exitOK {
+		t.Fatalf("board view exit=%d output=%q", code, out)
+	}
+	var snapshot struct {
+		EpicRollup struct {
+			Complete bool `json:"complete"`
+			Epics    []struct {
+				Key                string `json:"key"`
+				ChildCount         int    `json:"child_count"`
+				DoneChildCount     int    `json:"done_child_count"`
+				LatestChildUpdated string `json:"latest_child_updated"`
+			} `json:"epics"`
+		} `json:"epic_rollup"`
+	}
+	if err := json.Unmarshal([]byte(out), &snapshot); err != nil {
+		t.Fatalf("decode snapshot: %v\n%s", err, out)
+	}
+	if !snapshot.EpicRollup.Complete || len(snapshot.EpicRollup.Epics) != 1 {
+		t.Fatalf("rollup=%+v", snapshot.EpicRollup)
+	}
+	epic := snapshot.EpicRollup.Epics[0]
+	if epic.Key != "ENG-EPIC" || epic.ChildCount != 2 || epic.DoneChildCount != 1 ||
+		epic.LatestChildUpdated != "2026-04-03T09:00:00.000+0000" {
+		t.Fatalf("epic=%+v", epic)
+	}
 }
 
 func TestJiraBoardKanbanBacklogRefusesBeforeBacklogEndpoint(t *testing.T) {

@@ -1795,6 +1795,45 @@ configuration and before calling the incompatible endpoint.
 }
 ```
 
+When `board view` receives `--epic-field <exact-field>` and at least one
+`--done-status`, it adds an optional deterministic aggregate:
+
+```json
+{
+  "epic_rollup": {
+    "epic_field": "customfield_10001",
+    "done_statuses": ["Done"],
+    "complete": true,
+    "epics": [{
+      "key": "PROJ-10",
+      "parent_present": true,
+      "child_count": 2,
+      "done_child_count": 1,
+      "status_counts": [
+        {"status": "Done", "count": 1},
+        {"status": "In Progress", "count": 1}
+      ],
+      "latest_child_updated": "2026-06-20T10:00:00.000+0000",
+      "timestamped_children": 2,
+      "missing_updated_children": 0,
+      "timestamp_coverage_complete": true
+    }]
+  }
+}
+```
+
+The exact epic field and `updated` must both occur in the selected projection.
+Done statuses are matched case-insensitively, case-insensitive duplicates are
+rejected, and accepted values are emitted in deterministic order. Epic keys and
+status records are sorted lexically. The aggregate uses only rows in this
+snapshot and does not fetch children separately. Its `complete` is false when
+the snapshot is incomplete, a referenced parent is absent, or a child lacks
+`updated`. A backend relation must be an exact non-empty string or an object
+with an exact non-empty string `key`; arrays, scalar non-strings, and objects
+without that key fail check validation. Malformed timestamps fail the same
+way. With no rollup options the field is omitted, preserving the existing JSON
+shape.
+
 Rows from board scope retain backend rank order. For Scrum `scope:all`, backlog
 membership and backlog position are joined by issue key; backlog-only issues
 are appended in backlog order. For Kanban, `scope:all` reads board scope only,
@@ -1809,7 +1848,8 @@ pagination safety cap return check-failed (exit 8). There is no board snapshot
 version in Jira's API, so `complete` means all reported pages were consumed,
 not that concurrent board changes were transactionally excluded.
 
-`board export --format json|jsonl|csv|md` writes the same projection. JSONL
+`board export --format json|jsonl|csv|md` writes the existing row projection
+and does not accept or emit the optional view-only epic rollup. JSONL
 repeats compact board identity, projection, row count, and completeness with each row. CSV contains rank,
 scope membership, status/column mapping, and selected fields; formula-leading
 cells are neutralized unless `--raw-csv` is explicitly approved. Markdown is a

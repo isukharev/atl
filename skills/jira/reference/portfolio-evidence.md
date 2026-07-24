@@ -15,7 +15,8 @@ needed to group and qualify the work:
 ```bash
 export ATL_READ_ONLY=1
 atl jira board view 5 --scope board \
-  --columns key,summary,status,issuetype,updated,customfield_10001,customfield_10002
+  --columns key,summary,status,issuetype,updated,customfield_10001,customfield_10002 \
+  --epic-field customfield_10001 --done-status Done
 ```
 
 For Structure, use the equivalent `structure view --folder-id ... --fields
@@ -29,11 +30,18 @@ Resolve unfamiliar display names once with `jira fields` or metadata-only
 repeat the catalog lookup per epic. Require the field catalog's own
 `complete:true` before treating an unmatched name as absent.
 
+Require `epic_rollup.complete:true`. Use its stable epic ordering,
+`status_counts`, `done_child_count`, and `latest_child_updated` instead of
+regrouping raw rows. A false value means the board snapshot was truncated, a
+referenced parent was outside the snapshot, or at least one child lacked an
+update timestamp. Do not silently treat that partial aggregate as complete.
+
 ## 2. Reuse the snapshot before expanding
 
-Derive epic membership, child status counts, and latest child update from the
-same snapshot when it already contains the epic-link/parent field. Do not call
-the default epic digest merely to fetch the same children/comments again.
+Use the deterministic epic rollup when the snapshot contains the
+epic-link/parent field. Do not rederive its membership, child status counts, or
+latest child update, and do not call the default epic digest merely to fetch the
+same children/comments again.
 
 For each selected epic, request only evidence absent from the snapshot. A
 typical quarter qualification is:

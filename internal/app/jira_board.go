@@ -6,8 +6,10 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
@@ -117,11 +119,13 @@ func (s *JiraService) BoardIssueListView(ctx context.Context, boardID int, scope
 
 // BoardSnapshotOpts controls a complete normalized board read.
 type BoardSnapshotOpts struct {
-	Scope   string
-	Columns []string
-	View    string
-	JQL     string
-	Limit   int
+	Scope        string
+	Columns      []string
+	View         string
+	JQL          string
+	Limit        int
+	EpicField    string
+	DoneStatuses []string
 }
 
 type BoardProjection struct {
@@ -144,6 +148,7 @@ type BoardSnapshot struct {
 	Complete       bool                       `json:"complete"`
 	Truncated      bool                       `json:"truncated"`
 	BacklogFetched bool                       `json:"backlog_fetched"`
+	EpicRollup     *BoardEpicRollup           `json:"epic_rollup,omitempty"`
 }
 
 type BoardSnapshotRow struct {
@@ -160,6 +165,32 @@ type BoardSnapshotRow struct {
 	ColumnIndex     int            `json:"column_index"`
 	ColumnMapped    bool           `json:"column_mapped"`
 	Values          map[string]any `json:"values"`
+}
+
+// BoardEpicRollup is an optional deterministic relation aggregate derived only
+// from rows already present in a board snapshot.
+type BoardEpicRollup struct {
+	EpicField    string                 `json:"epic_field"`
+	DoneStatuses []string               `json:"done_statuses"`
+	Complete     bool                   `json:"complete"`
+	Epics        []BoardEpicRollupEntry `json:"epics"`
+}
+
+type BoardEpicRollupEntry struct {
+	Key                       string             `json:"key"`
+	ParentPresent             bool               `json:"parent_present"`
+	ChildCount                int                `json:"child_count"`
+	DoneChildCount            int                `json:"done_child_count"`
+	StatusCounts              []BoardStatusCount `json:"status_counts"`
+	LatestChildUpdated        string             `json:"latest_child_updated,omitempty"`
+	TimestampedChildren       int                `json:"timestamped_children"`
+	MissingUpdatedChildren    int                `json:"missing_updated_children"`
+	TimestampCoverageComplete bool               `json:"timestamp_coverage_complete"`
+}
+
+type BoardStatusCount struct {
+	Status string `json:"status"`
+	Count  int    `json:"count"`
 }
 
 type boardScopePageFunc func(context.Context, int, []string, string, int, string) ([]domain.Issue, string, error)
@@ -223,6 +254,10 @@ func (s *JiraService) BoardSnapshot(ctx context.Context, boardID int, opts Board
 	if err != nil {
 		return nil, err
 	}
+	epicField, doneStatuses, err := normalizeBoardEpicRollupOptions(opts.EpicField, opts.DoneStatuses, fields)
+	if err != nil {
+		return nil, err
+	}
 	backendFields := normalizedBoardFields(fields, true)
 	config, err := s.BoardConfiguration(ctx, boardID)
 	if err != nil {
@@ -256,7 +291,17 @@ func (s *JiraService) BoardSnapshot(ctx context.Context, boardID int, opts Board
 	}
 	result.Truncated = !result.Complete
 	byKey := map[string]int{}
+	epicRelations := map[string]string{}
 	for position, issue := range boardIssues {
+		if epicField != "" {
+			relation, present, relationErr := boardEpicRelation(issue, epicField)
+			if relationErr != nil {
+				return nil, relationErr
+			}
+			if present {
+				epicRelations[issue.Key] = relation
+			}
+		}
 		p := position
 		row := boardSnapshotRow(issue, fields, config, len(result.Rows))
 		row.InBoard, row.BoardPosition = true, &p
@@ -270,13 +315,194 @@ func (s *JiraService) BoardSnapshot(ctx context.Context, boardID int, opts Board
 			result.Rows[index].BacklogPosition = &p
 			continue
 		}
+		if epicField != "" {
+			relation, present, relationErr := boardEpicRelation(issue, epicField)
+			if relationErr != nil {
+				return nil, relationErr
+			}
+			if present {
+				epicRelations[issue.Key] = relation
+			}
+		}
 		row := boardSnapshotRow(issue, fields, config, len(result.Rows))
 		row.InBacklog, row.BacklogPosition = true, &p
 		byKey[issue.Key] = len(result.Rows)
 		result.Rows = append(result.Rows, row)
 	}
 	result.RowCount = len(result.Rows)
+	if epicField != "" {
+		result.EpicRollup, err = boardEpicRollup(result.Rows, epicRelations, epicField, doneStatuses, result.Complete)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return result, nil
+}
+
+func normalizeBoardEpicRollupOptions(epicField string, rawDoneStatuses, fields []string) (string, []string, error) {
+	epicField = strings.TrimSpace(epicField)
+	doneStatuses := make([]string, 0, len(rawDoneStatuses))
+	seenStatuses := map[string]bool{}
+	for _, raw := range rawDoneStatuses {
+		for _, candidate := range strings.Split(raw, ",") {
+			candidate = strings.TrimSpace(candidate)
+			if candidate == "" {
+				return "", nil, fmt.Errorf("%w: --done-status values must be non-empty", domain.ErrUsage)
+			}
+			folded := strings.ToLower(candidate)
+			if seenStatuses[folded] {
+				return "", nil, fmt.Errorf("%w: duplicate --done-status %q", domain.ErrUsage, candidate)
+			}
+			seenStatuses[folded] = true
+			doneStatuses = append(doneStatuses, candidate)
+		}
+	}
+	sort.Slice(doneStatuses, func(i, j int) bool {
+		return strings.ToLower(doneStatuses[i]) < strings.ToLower(doneStatuses[j])
+	})
+	if epicField == "" {
+		if len(doneStatuses) != 0 {
+			return "", nil, fmt.Errorf("%w: --done-status requires --epic-field", domain.ErrUsage)
+		}
+		return "", nil, nil
+	}
+	if len(doneStatuses) == 0 {
+		return "", nil, fmt.Errorf("%w: --epic-field requires at least one --done-status", domain.ErrUsage)
+	}
+	for _, required := range []string{epicField, "updated"} {
+		found := false
+		for _, field := range fields {
+			if field == required {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return "", nil, fmt.Errorf("%w: epic rollup requires %q in --columns or the selected view", domain.ErrUsage, required)
+		}
+	}
+	return epicField, doneStatuses, nil
+}
+
+func boardEpicRelation(issue domain.Issue, epicField string) (string, bool, error) {
+	raw := issueListField(issue, epicField)
+	if raw == nil {
+		return "", false, nil
+	}
+	switch value := raw.(type) {
+	case string:
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return "", false, nil
+		}
+		return value, true, nil
+	case map[string]any:
+		rawKey, ok := value["key"]
+		if !ok {
+			return "", false, fmt.Errorf("%w: board row %q has an epic relation object without a key", domain.ErrCheckFailed, issue.Key)
+		}
+		key, ok := rawKey.(string)
+		if !ok || strings.TrimSpace(key) == "" {
+			return "", false, fmt.Errorf("%w: board row %q has an invalid epic relation key", domain.ErrCheckFailed, issue.Key)
+		}
+		return strings.TrimSpace(key), true, nil
+	default:
+		return "", false, fmt.Errorf("%w: board row %q has unsupported epic relation type", domain.ErrCheckFailed, issue.Key)
+	}
+}
+
+func boardEpicRollup(rows []BoardSnapshotRow, epicRelations map[string]string, epicField string, doneStatuses []string, snapshotComplete bool) (*BoardEpicRollup, error) {
+	type aggregate struct {
+		entry       BoardEpicRollupEntry
+		status      map[string]int
+		latest      time.Time
+		latestKnown bool
+	}
+	parents := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		parents[row.Key] = true
+	}
+	byEpic := map[string]*aggregate{}
+	for _, row := range rows {
+		relation, related := epicRelations[row.Key]
+		if !related {
+			continue
+		}
+		item := byEpic[relation]
+		if item == nil {
+			item = &aggregate{
+				entry:  BoardEpicRollupEntry{Key: relation},
+				status: map[string]int{},
+			}
+			byEpic[relation] = item
+		}
+		status := strings.TrimSpace(row.Status)
+		if status == "" {
+			return nil, fmt.Errorf("%w: board child row %q has no status", domain.ErrCheckFailed, row.Key)
+		}
+		item.entry.ChildCount++
+		item.status[status]++
+		if boardStatusMatches(status, doneStatuses) {
+			item.entry.DoneChildCount++
+		}
+
+		rawUpdated := row.Values["updated"]
+		if rawUpdated == nil || strings.TrimSpace(snapshotText(rawUpdated)) == "" {
+			item.entry.MissingUpdatedChildren++
+			continue
+		}
+		updated, ok := rawUpdated.(string)
+		if !ok {
+			return nil, fmt.Errorf("%w: board child row %q has non-string updated timestamp", domain.ErrCheckFailed, row.Key)
+		}
+		parsed, err := parseJiraHistoryTime(updated)
+		if err != nil {
+			return nil, fmt.Errorf("%w: board child row %q has unsupported updated timestamp", domain.ErrCheckFailed, row.Key)
+		}
+		item.entry.TimestampedChildren++
+		if !item.latestKnown || parsed.After(item.latest) {
+			item.latest, item.latestKnown = parsed, true
+			item.entry.LatestChildUpdated = updated
+		}
+	}
+
+	keys := make([]string, 0, len(byEpic))
+	for key := range byEpic {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	rollup := &BoardEpicRollup{
+		EpicField: epicField, DoneStatuses: append([]string(nil), doneStatuses...),
+		Complete: snapshotComplete, Epics: make([]BoardEpicRollupEntry, 0, len(keys)),
+	}
+	for _, key := range keys {
+		item := byEpic[key]
+		item.entry.ParentPresent = parents[key]
+		item.entry.TimestampCoverageComplete = item.entry.MissingUpdatedChildren == 0
+		if !item.entry.ParentPresent || !item.entry.TimestampCoverageComplete {
+			rollup.Complete = false
+		}
+		statuses := make([]string, 0, len(item.status))
+		for status := range item.status {
+			statuses = append(statuses, status)
+		}
+		sort.Strings(statuses)
+		item.entry.StatusCounts = make([]BoardStatusCount, 0, len(statuses))
+		for _, status := range statuses {
+			item.entry.StatusCounts = append(item.entry.StatusCounts, BoardStatusCount{Status: status, Count: item.status[status]})
+		}
+		rollup.Epics = append(rollup.Epics, item.entry)
+	}
+	return rollup, nil
+}
+
+func boardStatusMatches(status string, candidates []string) bool {
+	for _, candidate := range candidates {
+		if strings.EqualFold(status, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizedBoardFields(fields []string, requireStatus bool) []string {
@@ -455,6 +681,38 @@ func BoardSnapshotMarkdown(snapshot *BoardSnapshot) string {
 	md := IssueListMarkdown(list, false)
 	if snapshot.Board != nil && strings.EqualFold(snapshot.Board.Type, "kanban") && !snapshot.BacklogFetched {
 		md = strings.Replace(md, "# Jira issues\n\n", "# Jira issues\n\n> Kanban board; Jira's Scrum backlog endpoint was not queried.\n\n", 1)
+	}
+	if snapshot.EpicRollup != nil {
+		rows := make([][]string, 0, len(snapshot.EpicRollup.Epics))
+		for _, epic := range snapshot.EpicRollup.Epics {
+			statuses := make([]string, 0, len(epic.StatusCounts))
+			for _, status := range epic.StatusCounts {
+				statuses = append(statuses, fmt.Sprintf("%s=%d", status.Status, status.Count))
+			}
+			rows = append(rows, []string{
+				epic.Key,
+				strconv.FormatBool(epic.ParentPresent),
+				strconv.Itoa(epic.ChildCount),
+				strconv.Itoa(epic.DoneChildCount),
+				epic.LatestChildUpdated,
+				strconv.FormatBool(epic.TimestampCoverageComplete),
+				strings.Join(statuses, ", "),
+			})
+		}
+		md += "\n## Epic rollup\n\n"
+		md += MarkdownTable(
+			[]string{"Epic field", "Done statuses", "Complete"},
+			[][]string{{
+				snapshot.EpicRollup.EpicField,
+				strings.Join(snapshot.EpicRollup.DoneStatuses, ", "),
+				strconv.FormatBool(snapshot.EpicRollup.Complete),
+			}},
+		)
+		md += "\n"
+		md += MarkdownTable(
+			[]string{"Epic", "Parent present", "Children", "Done", "Latest child update", "Timestamps complete", "Status counts"},
+			rows,
+		)
 	}
 	return md
 }

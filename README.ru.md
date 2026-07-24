@@ -483,6 +483,7 @@ atl jira issue children PROJ-100 --columns key,summary,status,assignee
 atl capabilities --task jira/portfolio            # bounded-маршрут квартального плана
 atl capabilities --task jira/edit                 # guarded-запись полей, worklog и планов
 atl jira board view 5 -o text                  # нормализованный вид Kanban/Scrum
+atl jira board view 5 --columns key,status,updated,customfield_10001 --epic-field customfield_10001 --done-status Done # детерминированный epic rollup
 atl jira sprint current --board 5              # активный спринт
 atl jira structure folders 123                 # точные поддеревья; пустые labels остаются явными
 atl jira structure view 123 --folder-id 100 -o text

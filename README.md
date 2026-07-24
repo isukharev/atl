@@ -479,6 +479,7 @@ atl jira issue children PROJ-100 --columns key,summary,status,assignee
 atl capabilities --task jira/portfolio            # bounded quarter/plan route
 atl capabilities --task jira/edit                 # guarded field, worklog, and plan writes
 atl jira board view 5 -o text                  # normalized Kanban/Scrum view
+atl jira board view 5 --columns key,status,updated,customfield_10001 --epic-field customfield_10001 --done-status Done # deterministic epic rollup
 atl jira sprint current --board 5              # resolve the active sprint
 atl jira structure folders 123                 # discover exact stored subtrees; empty labels stay explicit
 atl jira structure view 123 --folder-id 100 -o text

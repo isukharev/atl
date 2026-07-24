@@ -69,7 +69,7 @@ Load this reference only when exact command or flag lookup is useful.
 | `jira board config <ID>` | Get filter, ordered columns/statuses, constraints, estimation, rank | `-o text/id` |
 | `jira board issues <ID>` | Read one backend-ranked IssueList page | `--view`, `--columns`, `--jql`, `--limit`, `--cursor`, `-o text/id` |
 | `jira board backlog <ID>` | Read one Scrum backlog IssueList page | `--view`, `--columns`, `--jql`, `--limit`, `--cursor`, `-o text/id` |
-| `jira board view <ID>` | Read normalized config/issues/backlog snapshot | `--scope all/board/backlog`, `--view`, `--columns`, `--jql`, `--limit`, `-o text/id` |
+| `jira board view <ID>` | Read normalized config/issues/backlog snapshot with optional deterministic epic rollup | `--scope all/board/backlog`, `--view`, `--columns`, `--jql`, `--limit`, `--epic-field`, repeatable `--done-status`, `-o text/id` |
 | `jira board export <ID>` | Write normalized board artifact | `--scope`, `--view`, `--columns`, `--jql`, `--limit`, `--format json/jsonl/csv/md`, `--out`, `--raw-csv` |
 | `jira sprint issues <ID>` | Read one sprint IssueList page | `--view`, `--columns`, `--limit`, `--cursor`, `-o text/id` |
 | `jira structure get <ID>` | Get Structure metadata | `-o id` |

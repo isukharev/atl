@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -221,6 +222,213 @@ func TestBoardSnapshotLimitIsExplicitTruncation(t *testing.T) {
 	}
 }
 
+func TestBoardSnapshotEpicRollupIsDeterministic(t *testing.T) {
+	f := &fakeAgile{
+		config: &domain.BoardConfiguration{ID: 5, Name: "Plan", Type: "kanban"},
+		boardIssues: []domain.Issue{
+			{ID: "1", Key: "EPIC-2", Status: "Open", Fields: map[string]any{"status": map[string]any{"name": "Open"}, "updated": "2026-04-01T09:00:00.000+0000"}},
+			{ID: "2", Key: "CHILD-3", Status: "Closed", Fields: map[string]any{"status": map[string]any{"name": "Closed"}, "updated": "2026-04-03T12:00:00.000+0000", "customfield_10001": "EPIC-2"}},
+			{ID: "3", Key: "EPIC-1", Status: "Open", Fields: map[string]any{"status": map[string]any{"name": "Open"}, "updated": "2026-04-01T08:00:00.000+0000"}},
+			{ID: "4", Key: "CHILD-2", Status: "In Progress", Fields: map[string]any{"status": map[string]any{"name": "In Progress"}, "updated": "2026-04-04T12:00:00.000+0000", "customfield_10001": "EPIC-1"}},
+			{ID: "5", Key: "CHILD-1", Status: "Done", Fields: map[string]any{"status": map[string]any{"name": "Done"}, "updated": "2026-04-02T12:00:00.000+0000", "customfield_10001": "EPIC-1"}},
+		},
+	}
+	snapshot, err := (&JiraService{agile: f}).BoardSnapshot(t.Context(), 5, BoardSnapshotOpts{
+		Scope: "board", Columns: []string{"key", "status", "updated", "customfield_10001"},
+		EpicField: "customfield_10001", DoneStatuses: []string{"closed, Done"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollup := snapshot.EpicRollup
+	if rollup == nil || !rollup.Complete || rollup.EpicField != "customfield_10001" ||
+		len(rollup.DoneStatuses) != 2 || rollup.DoneStatuses[0] != "closed" || rollup.DoneStatuses[1] != "Done" ||
+		len(rollup.Epics) != 2 {
+		t.Fatalf("rollup=%+v", rollup)
+	}
+	first, second := rollup.Epics[0], rollup.Epics[1]
+	if first.Key != "EPIC-1" || !first.ParentPresent || first.ChildCount != 2 || first.DoneChildCount != 1 ||
+		first.LatestChildUpdated != "2026-04-04T12:00:00.000+0000" || first.TimestampedChildren != 2 ||
+		!first.TimestampCoverageComplete || len(first.StatusCounts) != 2 ||
+		first.StatusCounts[0] != (BoardStatusCount{Status: "Done", Count: 1}) ||
+		first.StatusCounts[1] != (BoardStatusCount{Status: "In Progress", Count: 1}) {
+		t.Fatalf("first epic=%+v", first)
+	}
+	if second.Key != "EPIC-2" || !second.ParentPresent || second.ChildCount != 1 ||
+		second.DoneChildCount != 1 || second.LatestChildUpdated != "2026-04-03T12:00:00.000+0000" {
+		t.Fatalf("second epic=%+v", second)
+	}
+}
+
+func TestBoardEpicRollupReportsIncompleteEvidence(t *testing.T) {
+	rollup, err := boardEpicRollup([]BoardSnapshotRow{{
+		Key: "CHILD-1", Status: "Open",
+		Values: map[string]any{"customfield_10001": "EPIC-1"},
+	}}, map[string]string{"CHILD-1": "EPIC-1"}, "customfield_10001", []string{"Done"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rollup.Complete || len(rollup.Epics) != 1 || rollup.Epics[0].ParentPresent ||
+		rollup.Epics[0].TimestampCoverageComplete || rollup.Epics[0].MissingUpdatedChildren != 1 {
+		t.Fatalf("rollup=%+v", rollup)
+	}
+}
+
+func TestBoardEpicRollupInheritsSnapshotTruncation(t *testing.T) {
+	rows := []BoardSnapshotRow{
+		{Key: "EPIC-1", Status: "Open", Values: map[string]any{"updated": "2026-04-01T00:00:00Z"}},
+		{Key: "CHILD-1", Status: "Done", Values: map[string]any{"epic": "EPIC-1", "updated": "2026-04-02T00:00:00Z"}},
+	}
+	rollup, err := boardEpicRollup(rows, map[string]string{"CHILD-1": "EPIC-1"}, "epic", []string{"Done"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rollup.Complete || !rollup.Epics[0].ParentPresent || !rollup.Epics[0].TimestampCoverageComplete {
+		t.Fatalf("rollup=%+v", rollup)
+	}
+}
+
+func TestBoardSnapshotEpicRollupCountsIssueInBothScopesOnce(t *testing.T) {
+	parent := domain.Issue{
+		ID: "1", Key: "EPIC-1", Status: "Open",
+		Fields: map[string]any{"status": map[string]any{"name": "Open"}, "updated": "2026-04-01T00:00:00Z"},
+	}
+	child := domain.Issue{
+		ID: "2", Key: "CHILD-1", Status: "Done",
+		Fields: map[string]any{"status": map[string]any{"name": "Done"}, "updated": "2026-04-02T00:00:00Z", "epic": "EPIC-1"},
+	}
+	f := &fakeAgile{
+		config:        &domain.BoardConfiguration{ID: 5, Type: "scrum"},
+		boardIssues:   []domain.Issue{parent, child},
+		backlogIssues: []domain.Issue{child},
+	}
+	snapshot, err := (&JiraService{agile: f}).BoardSnapshot(t.Context(), 5, BoardSnapshotOpts{
+		Scope: "all", Columns: []string{"key", "status", "updated", "epic"},
+		EpicField: "epic", DoneStatuses: []string{"Done"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.RowCount != 2 || snapshot.EpicRollup.Epics[0].ChildCount != 1 {
+		t.Fatalf("snapshot=%+v", snapshot)
+	}
+}
+
+func TestBoardEpicRollupRejectsMalformedEvidence(t *testing.T) {
+	tests := []struct {
+		name string
+		row  BoardSnapshotRow
+	}{
+		{name: "status", row: BoardSnapshotRow{Key: "CHILD-1", Values: map[string]any{"epic": "EPIC-1", "updated": "2026-04-01T00:00:00Z"}}},
+		{name: "updated type", row: BoardSnapshotRow{Key: "CHILD-1", Status: "Open", Values: map[string]any{"epic": "EPIC-1", "updated": 7}}},
+		{name: "updated syntax", row: BoardSnapshotRow{Key: "CHILD-1", Status: "Open", Values: map[string]any{"epic": "EPIC-1", "updated": "yesterday"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := boardEpicRollup([]BoardSnapshotRow{tt.row}, map[string]string{"CHILD-1": "EPIC-1"}, "epic", []string{"Done"}, true)
+			if !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("err=%v, want check failed", err)
+			}
+		})
+	}
+}
+
+func TestBoardSnapshotEpicRollupRejectsMalformedRawRelations(t *testing.T) {
+	tests := []struct {
+		name     string
+		relation any
+	}{
+		{name: "number", relation: 7},
+		{name: "list", relation: []any{"EPIC-1"}},
+		{name: "object without key", relation: map[string]any{"name": "EPIC-1"}},
+		{name: "object with non-string key", relation: map[string]any{"key": 7}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &fakeAgile{
+				config: &domain.BoardConfiguration{ID: 5, Type: "kanban"},
+				boardIssues: []domain.Issue{{
+					Key: "CHILD-1", Status: "Open",
+					Fields: map[string]any{
+						"status":  map[string]any{"name": "Open"},
+						"updated": "2026-04-01T00:00:00Z",
+						"epic":    tt.relation,
+					},
+				}},
+			}
+			_, err := (&JiraService{agile: f}).BoardSnapshot(t.Context(), 5, BoardSnapshotOpts{
+				Scope: "board", Columns: []string{"key", "status", "updated", "epic"},
+				EpicField: "epic", DoneStatuses: []string{"Done"},
+			})
+			if !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("relation=%#v err=%v, want check failed", tt.relation, err)
+			}
+		})
+	}
+}
+
+func TestBoardSnapshotEpicRollupUsesExactParentObjectKey(t *testing.T) {
+	f := &fakeAgile{
+		config: &domain.BoardConfiguration{ID: 5, Type: "kanban"},
+		boardIssues: []domain.Issue{
+			{Key: "EPIC-1", Status: "Open", Fields: map[string]any{"status": map[string]any{"name": "Open"}, "updated": "2026-04-01T00:00:00Z"}},
+			{
+				Key: "CHILD-1", Status: "Done",
+				Fields: map[string]any{
+					"status":  map[string]any{"name": "Done"},
+					"updated": "2026-04-02T00:00:00Z",
+					"parent":  map[string]any{"key": "EPIC-1", "name": "Misleading label"},
+				},
+			},
+		},
+	}
+	snapshot, err := (&JiraService{agile: f}).BoardSnapshot(t.Context(), 5, BoardSnapshotOpts{
+		Scope: "board", Columns: []string{"key", "status", "updated", "parent"},
+		EpicField: "parent", DoneStatuses: []string{"Done"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Rows[1].Values["parent"] != "Misleading label" {
+		t.Fatalf("presentation row changed: %#v", snapshot.Rows[1].Values["parent"])
+	}
+	if len(snapshot.EpicRollup.Epics) != 1 || snapshot.EpicRollup.Epics[0].Key != "EPIC-1" ||
+		!snapshot.EpicRollup.Epics[0].ParentPresent {
+		t.Fatalf("rollup=%+v", snapshot.EpicRollup)
+	}
+}
+
+func TestBoardSnapshotEpicRollupOptionsFailBeforeBackendRead(t *testing.T) {
+	tests := []BoardSnapshotOpts{
+		{DoneStatuses: []string{"Done"}},
+		{EpicField: "epic"},
+		{Columns: []string{"key", "status", "updated"}, EpicField: "epic", DoneStatuses: []string{"Done"}},
+		{Columns: []string{"key", "status", "epic"}, EpicField: "epic", DoneStatuses: []string{"Done"}},
+		{Columns: []string{"key", "status", "updated", "epic"}, EpicField: "epic", DoneStatuses: []string{"Done", "done"}},
+		{Columns: []string{"key", "status", "updated", "epic"}, EpicField: "epic", DoneStatuses: []string{""}},
+	}
+	for _, opts := range tests {
+		f := &fakeAgile{}
+		_, err := (&JiraService{agile: f}).BoardSnapshot(t.Context(), 5, opts)
+		if !errors.Is(err, domain.ErrUsage) {
+			t.Fatalf("opts=%+v err=%v, want usage", opts, err)
+		}
+		if f.boardIssueCalls != 0 || f.backlogCalls != 0 {
+			t.Fatalf("opts=%+v read backend", opts)
+		}
+	}
+}
+
+func TestBoardSnapshotWithoutRollupPreservesJSONShape(t *testing.T) {
+	data, err := json.Marshal(&BoardSnapshot{SchemaVersion: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "epic_rollup") {
+		t.Fatalf("unexpected optional field: %s", data)
+	}
+}
+
 func TestBoardJSONLUsesCompactIdentityInsteadOfRepeatingColumns(t *testing.T) {
 	snapshot := &BoardSnapshot{
 		SchemaVersion: 1,
@@ -248,6 +456,26 @@ func TestBoardMarkdownUsesRequestedProjectionFields(t *testing.T) {
 	}
 	md := BoardSnapshotMarkdown(snapshot)
 	for _, want := range []string{"Kanban board", "Source: board", "— Plan", "| # | Key | Status | Column | Summary | customfield_10001 |", "| 0 | ENG-1 | Open | To Do | First | Team A |"} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("Markdown missing %q:\n%s", want, md)
+		}
+	}
+}
+
+func TestBoardMarkdownEscapesEpicRollupValues(t *testing.T) {
+	snapshot := &BoardSnapshot{
+		Board: &domain.BoardConfiguration{Name: "Plan", Type: "kanban"}, Scope: "board", Complete: true,
+		Projection: BoardProjection{Columns: []string{"key"}, Fields: []string{}},
+		EpicRollup: &BoardEpicRollup{
+			EpicField: "custom|field", DoneStatuses: []string{"Done\nClosed"}, Complete: true,
+			Epics: []BoardEpicRollupEntry{{
+				Key: "EPIC|1", ParentPresent: true, ChildCount: 1, DoneChildCount: 1,
+				TimestampCoverageComplete: true, StatusCounts: []BoardStatusCount{{Status: "Done|Closed", Count: 1}},
+			}},
+		},
+	}
+	md := BoardSnapshotMarkdown(snapshot)
+	for _, want := range []string{"## Epic rollup", "custom\\|field", "Done Closed", "EPIC\\|1", "Done\\|Closed=1"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("Markdown missing %q:\n%s", want, md)
 		}

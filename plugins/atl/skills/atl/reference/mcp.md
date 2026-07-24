@@ -33,6 +33,12 @@ sources absent from the authoritative snapshot and set `projection:"compact"`
 for synthesis. Inspect its omitted/clipped paths and request `full` only for a
 named raw detail. Do not substitute a full page
 when one section is sufficient.
+For portfolio grouping, give `jira_board_view` an exact selected `epic_field`,
+include `updated` in `columns`, and provide one or more `done_statuses`.
+Require `epic_rollup.complete:true` and use its deterministic membership,
+counts, and latest child timestamps instead of regrouping raw rows. The rollup
+is derived from the same bounded snapshot and causes no additional backend
+request.
 For tabular evidence, call `confluence_table_summary` without a table selection,
 then `confluence_table_extract` for one positive 1-based table index. Never use
 table extraction as a full-page read. Honor `max_bytes`; an oversize error means

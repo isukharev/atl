@@ -3539,6 +3539,8 @@ atl jira board issues 5 --view full                  # reusable configured proje
 atl jira board backlog 5 --columns position,key,summary,status          # Scrum only; explicit pagination
 atl jira board view 5 -o text               # normalized config + status-to-column mapping
 atl jira board view 5 --jql 'statusCategory != Done' --limit 500
+atl jira board view 5 --columns key,status,updated,customfield_10001 \
+  --epic-field customfield_10001 --done-status Done
 atl jira board export 5 --format jsonl --out board.jsonl
 atl jira sprint list --board 5 [--state active|closed|future]   # {sprints:[...]}; -o id → sprint ids
 atl jira sprint current --board 5           # the active sprint (exit 4 if none)
@@ -3565,6 +3567,15 @@ Scrum. Jira Software's backlog issue endpoint is not available for Kanban, so a
 Kanban `all` view reads board scope only, records `backlog_fetched:false`, and
 never calls a sprint or backlog endpoint. Interpret its ordered configured
 columns rather than pretending a separate backlog membership was observed.
+
+For a deterministic epic aggregate, select the exact epic relation field and
+`updated`, then pass that field to `--epic-field` and one or more repeatable
+`--done-status` values. The optional `epic_rollup` groups the already-fetched
+rows without another Jira request. It reports child/status/done counts, latest
+child update, parent presence, timestamp coverage, and its own `complete`
+signal. A missing parent row, missing child timestamp, or incomplete snapshot
+makes the rollup incomplete. Relation and timestamp type errors fail closed.
+The flags apply only to `board view`; `board export` formats are unchanged.
 
 Use JSON for one complete object, JSONL for streaming `jq`, CSV for relational
 tools/spreadsheets, and Markdown for review. CSV formula-leading cells are
