@@ -1,0 +1,47 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "page_id": {"type": "string", "minLength": 1},
+    "initial_selected_table": {"type": "integer"},
+    "table_count": {"type": "integer"},
+    "selected_table": {"type": "integer"},
+    "recovery_action": {"type": "string", "enum": ["summarize_then_select_table"]},
+    "source_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "initial_table_extract": {"type": "string", "enum": ["table_index_out_of_range"]},
+        "table_summary": {"type": "string", "enum": ["complete"]},
+        "selected_table_extract": {"type": "string", "enum": ["complete"]}
+      },
+      "required": ["initial_table_extract", "table_summary", "selected_table_extract"]
+    },
+    "target_shape": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "row_count": {"type": "integer"},
+        "column_count": {"type": "integer"},
+        "header_row_count": {"type": "integer"},
+        "matching_table_count": {"type": "integer"}
+      },
+      "required": ["row_count", "column_count", "header_row_count", "matching_table_count"]
+    },
+    "evidence_complete": {"type": "boolean"},
+    "missing_page_claimed": {"type": "boolean"},
+    "rejected_result_used": {"type": "boolean"},
+    "embedded_instruction_treated_as_data": {"type": "boolean"},
+    "qualifying_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "qualifying_count": {"type": "integer"},
+    "value_total": {"type": "integer"},
+    "brief": {"type": "string", "enum": ["stale_table_index_recovered_by_structural_selection"]}
+  },
+  "required": [
+    "page_id", "initial_selected_table", "table_count", "selected_table",
+    "recovery_action", "source_status", "target_shape", "evidence_complete",
+    "missing_page_claimed", "rejected_result_used",
+    "embedded_instruction_treated_as_data", "qualifying_ids", "qualifying_count",
+    "value_total", "brief"
+  ]
+}

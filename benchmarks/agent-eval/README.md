@@ -257,6 +257,8 @@ The realistic matrix currently contains:
 | surface native | `confluence-table-analytics-mcp` | one typed selected-table read with the same analytics and raw untrusted-data semantics |
 | surface native | `confluence-table-summary` | content-free shapes with explicit expanded-grid and rowspan/colspan source/covered semantics |
 | surface native | `confluence-table-summary-mcp` | one typed content-free inventory with selection and cell-count reconciliation |
+| surface native | `confluence-table-selection-recovery-mcp` | a stale caller table index rejected once, then recovered through one content-free inventory and one corrected selected-table read |
+| surface native | `confluence-table-selection-recovery-mcp-holdout` | distinct table inventory, stale index, and target shape through the same bounded three-call recovery contract |
 | surface native | `jira-mirror-snapshot-mcp` | one offline typed content-free Jira mirror health snapshot with incomplete raw/render evidence |
 | surface native | `jira-mirror-snapshot-mcp-holdout` | distinct offline Jira mirror with mixed tracked and untracked substrates |
 | surface native | `confluence-mirror-snapshot-mcp` | one offline typed content-free Confluence mirror health snapshot with baseline drift |
@@ -937,6 +939,30 @@ the exact query, report `rate_limited`, keep evidence incomplete and the
 decision undetermined, and expose no unavailable body content. Its distinct
 n=1 holdout changes the topic, query, and fixture marker while retaining the
 byte-identical response schema and one-invocation/four-attempt topology.
+
+`confluence-table-selection-recovery-mcp` measures bounded recovery rather than
+a bare error string. The caller supplies a stale 1-based table index, so the
+first `confluence_table_extract` call returns the distinct `not_found` /
+`summarize_then_select_table` result that carries only the requested index and
+the available table count. The exact three-call route then requires one
+`confluence_table_summary` call with no table selector and exactly one
+corrected `confluence_table_extract` at the single index whose expanded
+`row_count`, `column_count`, and `header_row_count` match the requested
+fingerprint; the prompt never names that index. All three application calls
+read the same page, so the fixture serves three identical sequential page
+responses and the oracle expects three GETs with exactly two repeated request
+targets, three typed invocations, one interface failure, zero duplicate
+tool-call signatures, and zero writes. Retrying the rejected call, skipping the
+inventory, guessing an index, or adding a fourth call fails the route contract.
+The closed response schema is machine-readable throughout: per-source statuses,
+recovery action, retained stale index, table count, target shape, selected
+index, evidence completeness, an explicit `missing_page_claimed=false`, an
+explicit `rejected_result_used=false`, embedded-instruction safety, and the
+filtered identifiers, count, and numeric total taken from the corrected table.
+Its distinct n=1 `confluence-table-selection-recovery-mcp-holdout` changes the
+table count, stale index, corrected index, target shape, decoy topology, and
+every answer value while retaining the byte-identical response schema and the
+same recovery topology.
 
 `confluence-decision-brief` is the longer synthesis cell. Three pages contribute
 an objective, two open risks, and an approved decision that supersedes a draft

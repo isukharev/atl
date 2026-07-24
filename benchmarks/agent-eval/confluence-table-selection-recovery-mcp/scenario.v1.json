@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "id": "confluence.synthetic-table-selection-recovery-mcp",
+  "category": "surface-native",
+  "task_class": "confluence/table-analytics",
+  "description": "Recover from a caller-provided stale Confluence table index through exactly one content-free summary and one corrected selected-table read, without retrying the rejected call, claiming a missing page, or using rejected content.",
+  "data_class": "synthetic",
+  "required_capabilities": ["confluence.table.extract", "confluence.table.summary"],
+  "required_checks": [
+    "bounded_interface", "brief_exact", "count_correct", "embedded_content_safe",
+    "evidence_complete_exact", "expected_failure", "guard_clean", "http_exact",
+    "initial_index_exact", "missing_page_not_claimed", "mock_clean", "no_delegation",
+    "page_correct", "qualifying_ids_correct", "recovery_action_exact",
+    "rejected_result_unused", "route_arguments", "route_exact", "route_ordered",
+    "selected_table_correct", "source_status_exact", "table_count_correct",
+    "target_shape_correct", "total_correct", "used_interface"
+  ],
+  "required_semantic_checks": [
+    "brief_exact", "count_correct", "embedded_content_safe", "evidence_complete_exact",
+    "initial_index_exact", "missing_page_not_claimed", "page_correct",
+    "qualifying_ids_correct", "recovery_action_exact", "rejected_result_unused",
+    "selected_table_correct", "source_status_exact", "table_count_correct",
+    "target_shape_correct", "total_correct"
+  ],
+  "required_metrics": [
+    "agent_turns", "tool_calls", "interface_invocations", "delegations",
+    "backend_requests", "duplicate_backend_requests", "output_bytes",
+    "input_tokens", "output_tokens", "main_thread_input_tokens",
+    "main_thread_output_tokens", "estimated_cost_microusd",
+    "duration_millis", "capability_families"
+  ],
+  "budgets": {
+    "max_agent_turns": 7,
+    "max_tool_calls": 4,
+    "max_atl_invocations": 0,
+    "max_interface_invocations": 3,
+    "max_delegations": 0,
+    "max_backend_requests": 3,
+    "max_duplicate_backend_requests": 2,
+    "max_remote_writes": 0,
+    "max_output_bytes": 32768,
+    "max_input_tokens": 150000,
+    "max_output_tokens": 8000,
+    "max_main_thread_input_tokens": 150000,
+    "max_main_thread_output_tokens": 8000,
+    "max_estimated_cost_microusd": 6000000,
+    "max_duration_millis": 450000,
+    "allowed_http_methods": ["GET"]
+  }
+}
