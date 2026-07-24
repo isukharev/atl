@@ -1,0 +1,91 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "structure_id": {"type": "integer"},
+    "structure_name": {"type": "string", "minLength": 1},
+    "initial_selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "selector_kind": {"type": "string", "enum": ["folder_id", "folder_row", "folder_path"]},
+        "selector_value": {"type": "string", "minLength": 1},
+        "failure_kind": {"type": "string", "enum": ["not_found", "check_failed"]},
+        "remediation": {"type": "string", "enum": ["view_then_select_subtree"]},
+        "matching_folder_count": {"type": "integer", "minimum": 0},
+        "available_folder_count": {"type": "integer", "minimum": 0},
+        "retried": {"type": "boolean"}
+      },
+      "required": ["selector_kind", "selector_value", "failure_kind", "remediation", "matching_folder_count", "available_folder_count", "retried"]
+    },
+    "inventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "selector_free": {"type": "boolean"},
+        "row_count": {"type": "integer", "minimum": 0},
+        "folder_count": {"type": "integer", "minimum": 0},
+        "issue_count": {"type": "integer", "minimum": 0},
+        "complete": {"type": "boolean"}
+      },
+      "required": ["selector_free", "row_count", "folder_count", "issue_count", "complete"]
+    },
+    "selected_folder": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"type": "string"},
+        "folder_id": {"type": "string", "minLength": 1},
+        "row_id": {"type": "integer"},
+        "path": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      },
+      "required": ["kind", "folder_id", "row_id", "path"]
+    },
+    "projection_fields": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "subtree": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "row_count": {"type": "integer", "minimum": 0},
+        "issue_count": {"type": "integer", "minimum": 0},
+        "accessible_issue_rows": {"type": "integer", "minimum": 0},
+        "inaccessible_issue_rows": {"type": "integer", "minimum": 0},
+        "repeated_issue_occurrences": {"type": "integer", "minimum": 0},
+        "non_issue_rows": {"type": "integer", "minimum": 0},
+        "complete": {"type": "boolean"}
+      },
+      "required": ["row_count", "issue_count", "accessible_issue_rows", "inaccessible_issue_rows", "repeated_issue_occurrences", "non_issue_rows", "complete"]
+    },
+    "ordered_rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "row_id": {"type": "integer"},
+          "relative_depth": {"type": "integer", "minimum": 0},
+          "item_type": {"type": "string", "minLength": 1},
+          "item_id": {"type": "string", "minLength": 1},
+          "accessible": {"type": "boolean"}
+        },
+        "required": ["row_id", "relative_depth", "item_type", "item_id", "accessible"]
+      }
+    },
+    "inaccessible_rows": {"type": "array", "items": {"type": "integer"}},
+    "answer_issue_keys": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "warnings_count": {"type": "integer", "minimum": 0},
+    "evidence_complete": {"type": "boolean"},
+    "structure_missing_claimed": {"type": "boolean"},
+    "rejected_result_used": {"type": "boolean"},
+    "embedded_instruction_treated_as_data": {"type": "boolean"},
+    "content_mutations": {"type": "integer", "minimum": 0},
+    "brief": {"type": "string", "minLength": 1, "maxLength": 120}
+  },
+  "required": [
+    "structure_id", "structure_name", "initial_selection", "inventory",
+    "selected_folder", "projection_fields", "subtree", "ordered_rows",
+    "inaccessible_rows", "answer_issue_keys", "warnings_count",
+    "evidence_complete", "structure_missing_claimed", "rejected_result_used",
+    "embedded_instruction_treated_as_data", "content_mutations", "brief"
+  ]
+}
