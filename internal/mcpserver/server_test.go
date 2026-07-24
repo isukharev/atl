@@ -1233,66 +1233,70 @@ func TestToolErrorsExposeStableClassification(t *testing.T) {
 }
 
 func TestConfluenceSearchRateLimitIsClassifiedAfterBoundedReadRetries(t *testing.T) {
-	const bodyMarker = "RATE_LIMIT_BODY_MARKER"
-	fixture := agenteval.MockFixture{
-		SchemaVersion: 1,
-		JiraContext:   "/jira", ConfluenceContext: "/wiki",
-		Routes: []agenteval.MockRoute{{
-			Method: http.MethodGet, Path: "/wiki/rest/api/search",
-			QueryEquals: map[string]string{"cql": `siteSearch ~ "synthetic throttle"`},
-			Responses: []agenteval.MockResponse{
-				{Status: http.StatusTooManyRequests, Body: json.RawMessage(`{"message":"` + bodyMarker + `"}`)},
-				{Status: http.StatusTooManyRequests, Body: json.RawMessage(`{"message":"` + bodyMarker + `"}`)},
-				{Status: http.StatusTooManyRequests, Body: json.RawMessage(`{"message":"` + bodyMarker + `"}`)},
-				{Status: http.StatusTooManyRequests, Body: json.RawMessage(`{"message":"` + bodyMarker + `"}`)},
-			},
-		}},
+	tests := []struct {
+		name, directory, query, bodyMarker string
+	}{
+		{"primary", "confluence-rate-limit-mcp", `siteSearch ~ "Amber quota decision"`, "PRIMARY_RATE_LIMIT_MARKER"},
+		{"holdout", "confluence-rate-limit-mcp-holdout", `siteSearch ~ "Indigo recovery approval"`, "HOLDOUT_RATE_LIMIT_MARKER"},
 	}
-	backend, err := agenteval.StartMockBackend(fixture)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer backend.Close()
-	for name, value := range backend.Environment() {
-		t.Setenv(name, value)
-	}
-	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-	t.Setenv("ATL_READ_ONLY", "1")
-	t.Setenv("ATL_NO_UPDATE", "1")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixtureFile, err := os.Open(filepath.Join("..", "..", "benchmarks", "agent-eval", test.directory, "fixture.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+			closeErr := fixtureFile.Close()
+			if decodeErr != nil || closeErr != nil {
+				t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
+			}
+			backend, err := agenteval.StartMockBackend(fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer backend.Close()
+			for name, value := range backend.Environment() {
+				t.Setenv(name, value)
+			}
+			t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+			t.Setenv("ATL_READ_ONLY", "1")
+			t.Setenv("ATL_NO_UPDATE", "1")
 
-	client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
-	defer closeSessions()
-	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "confluence_search",
-		Arguments: map[string]any{
-			"cql": `siteSearch ~ "synthetic throttle"`, "limit": 10, "max_bytes": 131072,
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	encoded, err := json.Marshal(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.IsError || result.StructuredContent != nil || bytes.Contains(encoded, []byte(bodyMarker)) {
-		t.Fatalf("rate-limit result leaked or succeeded: %s", encoded)
-	}
-	text, ok := result.Content[0].(*mcp.TextContent)
-	if !ok {
-		t.Fatalf("content=%T", result.Content[0])
-	}
-	var got toolError
-	if err := json.Unmarshal([]byte(text.Text), &got); err != nil {
-		t.Fatalf("error content=%q: %v", text.Text, err)
-	}
-	if got.Kind != "rate_limited" || got.Remediation != "wait_before_retry" ||
-		got.Message != "backend returned HTTP 429" {
-		t.Fatalf("classified error=%+v", got)
-	}
-	methods, unexpected, duplicates := backend.Summary()
-	if methods[http.MethodGet] != 4 || len(methods) != 1 || unexpected != 0 || duplicates != 3 {
-		t.Fatalf("requests=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+			client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
+			defer closeSessions()
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name: "confluence_search",
+				Arguments: map[string]any{
+					"cql": test.query, "limit": 10, "max_bytes": 131072,
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil || bytes.Contains(encoded, []byte(test.bodyMarker)) {
+				t.Fatalf("rate-limit result leaked or succeeded: %s", encoded)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil {
+				t.Fatalf("error content=%q: %v", text.Text, err)
+			}
+			if got.Kind != "rate_limited" || got.Remediation != "wait_before_retry" ||
+				got.Message != "backend returned HTTP 429" {
+				t.Fatalf("classified error=%+v", got)
+			}
+			methods, unexpected, duplicates := backend.Summary()
+			if methods[http.MethodGet] != 4 || len(methods) != 1 || unexpected != 0 || duplicates != 3 {
+				t.Fatalf("requests=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+			}
+		})
 	}
 }
 

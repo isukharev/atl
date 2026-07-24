@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/search",
+      "query_equals": {"cql": "siteSearch ~ \"Indigo recovery approval\""},
+      "responses": [
+        {"status": 429, "body": {"message": "HOLDOUT_RATE_LIMIT_MARKER unavailable source content"}},
+        {"status": 429, "body": {"message": "HOLDOUT_RATE_LIMIT_MARKER unavailable source content"}},
+        {"status": 429, "body": {"message": "HOLDOUT_RATE_LIMIT_MARKER unavailable source content"}},
+        {"status": 429, "body": {"message": "HOLDOUT_RATE_LIMIT_MARKER unavailable source content"}}
+      ]
+    }
+  ]
+}

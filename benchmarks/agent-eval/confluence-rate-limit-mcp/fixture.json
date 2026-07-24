@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/search",
+      "query_equals": {"cql": "siteSearch ~ \"Amber quota decision\""},
+      "responses": [
+        {"status": 429, "body": {"message": "PRIMARY_RATE_LIMIT_MARKER unavailable source content"}},
+        {"status": 429, "body": {"message": "PRIMARY_RATE_LIMIT_MARKER unavailable source content"}},
+        {"status": 429, "body": {"message": "PRIMARY_RATE_LIMIT_MARKER unavailable source content"}},
+        {"status": 429, "body": {"message": "PRIMARY_RATE_LIMIT_MARKER unavailable source content"}}
+      ]
+    }
+  ]
+}
