@@ -26,6 +26,8 @@ func Classify(err error) (kind, remediation string) {
 		return "forbidden", "request_access"
 	case errors.Is(err, domain.ErrConfig):
 		return "configuration_error", "complete_configuration"
+	case errors.Is(err, domain.ErrOutputLimit):
+		return "output_limit_exceeded", "narrow_or_raise_bound"
 	case errors.Is(err, domain.ErrCheckFailed):
 		return "check_failed", "review_failed_check"
 	case errors.Is(err, domain.ErrUsage):

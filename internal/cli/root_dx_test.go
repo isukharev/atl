@@ -55,6 +55,7 @@ func TestErrorKindAndRemediationMatrix(t *testing.T) {
 		{"version", "version_conflict", "refresh_and_reapply", domain.ErrVersionConflict},
 		{"forbidden", "forbidden", "request_access", domain.ErrForbidden},
 		{"config", "configuration_error", "complete_configuration", domain.ErrConfig},
+		{"output_limit", "output_limit_exceeded", "narrow_or_raise_bound", fmt.Errorf("%w: %w", domain.ErrCheckFailed, domain.ErrOutputLimit)},
 		{"check", "check_failed", "review_failed_check", domain.ErrCheckFailed},
 		{"internal", "internal_error", "report_bug", &accessPolicyInvariantError{Command: "atl future"}},
 		{"read_only", "read_only_policy", "request_human_approval", &readOnlyPolicyError{Command: "atl jira push"}},
@@ -69,6 +70,13 @@ func TestErrorKindAndRemediationMatrix(t *testing.T) {
 				t.Fatalf("got %q/%q, want %q/%q", kind, remediation, tt.kind, tt.remediation)
 			}
 		})
+	}
+}
+
+func TestOutputLimitPreservesCheckFailedExitCode(t *testing.T) {
+	err := fmt.Errorf("%w: %w: result exceeds max_bytes", domain.ErrCheckFailed, domain.ErrOutputLimit)
+	if code := codeFor(err); code != exitCheckFailed {
+		t.Fatalf("code=%d want=%d", code, exitCheckFailed)
 	}
 }
 

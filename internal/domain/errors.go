@@ -11,6 +11,11 @@ var (
 	ErrVersionConflict = errors.New("remote version moved (drift); refused")
 	ErrForbidden       = errors.New("forbidden")
 	ErrUsage           = errors.New("usage error")
+	// ErrOutputLimit marks a caller-selected encoded-result bound that rejected
+	// an otherwise valid result. MCP helpers pair it with ErrCheckFailed so the
+	// existing CLI exit code remains stable while clients can distinguish this
+	// recoverable scope/bound decision from reconciliation failures.
+	ErrOutputLimit = errors.New("output limit exceeded")
 	// ErrCheckFailed marks a precondition-audit failure (e.g. `jira issue check`
 	// found a required field empty). It maps to exit 8 so a CI/pre-transition
 	// gate can distinguish "the check failed" from a generic/transport error
