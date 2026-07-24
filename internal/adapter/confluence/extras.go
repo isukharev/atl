@@ -116,7 +116,7 @@ func (cf *Confluence) AddComment(ctx context.Context, id string, body []byte) (*
 // until the server stops signaling more.
 func (cf *Confluence) ListAttachments(ctx context.Context, id string) ([]domain.Attachment, error) {
 	start := 0
-	var out []domain.Attachment
+	out := []domain.Attachment{}
 	for page := 0; page < maxPages && len(out) < maxItems; page++ {
 		var resp struct {
 			Results []struct {

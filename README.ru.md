@@ -407,6 +407,7 @@ atl conf page get     --id 123456
 atl conf page get     --id 123456 --format csf
 atl conf page meta    --id 123456  # если restricted отсутствует, состояние неизвестно
 atl conf page history --id 123456
+atl conf attachment list --id 123456 # пустой успех: {"attachments":[]}
 # Guarded-обновление title: значение берётся из файла/stdin, а не argv
 atl conf page title set 123456 --from-file title.txt
 # Затем --apply с --expected-version и --expected-proposal-hash из preview

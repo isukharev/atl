@@ -52,6 +52,9 @@ atl conf attachment upload --id <page-id> --file <path> [--comment <text>]
 atl conf attachment delete --id <attachment-id> --force
 ```
 
+Successful JSON listings always return an `attachments` array. Treat `[]` as a
+complete empty result; `null` is not a successful current output shape.
+
 Attachment deletion is permanent and the explicit `--force` confirms it.
 Downloads and uploads stream bytes. Treat upload as non-idempotent. Before the
 first upload, list attachments and retain a private baseline of matching

@@ -265,6 +265,23 @@ func TestListAttachmentsPaginates(t *testing.T) {
 	}
 }
 
+func TestListAttachmentsEmptyIsNonNil(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[],"_links":{}}`))
+	}))
+	defer srv.Close()
+
+	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+	got, err := cf.ListAttachments(context.Background(), "300")
+	if err != nil {
+		t.Fatalf("ListAttachments: %v", err)
+	}
+	if got == nil || len(got) != 0 {
+		t.Fatalf("empty attachments = %#v, want non-nil empty slice", got)
+	}
+}
+
 // TestSearchEmptyPageStopsCursor verifies that an empty results page with a
 // populated _links.next returns "" as the next cursor, so an external caller
 // does not loop forever on a non-advancing offset.

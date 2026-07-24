@@ -2155,6 +2155,10 @@ atl conf attachment upload --id 12345678 --file ./diagram.png [--comment 'v2']
 atl conf attachment delete --id <ATTACHMENT-ID> --force
 ```
 
+The JSON `attachments` member is always an array after a successful listing.
+Pages without attachments emit `"attachments":[]`, not `null`; `-o id` is
+empty in that case.
+
 Uploads stream the selected file without buffering it and send the exact multipart
 `Content-Length`, preserving compatibility with intermediaries that reject chunked uploads.
 
