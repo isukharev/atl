@@ -91,6 +91,12 @@ func projectCodexSchemaNode(schema map[string]any, pointer string, checks []RunC
 		if !ok {
 			return fmt.Errorf("codex response schema properties must be an object")
 		}
+		if schema["additionalProperties"] != false {
+			return fmt.Errorf("codex response schema object at %q must set additionalProperties to false", pointer)
+		}
+		if err := validateCodexRequiredProperties(schema, properties, pointer); err != nil {
+			return err
+		}
 		for name, rawProperty := range properties {
 			property, ok := rawProperty.(map[string]any)
 			if !ok {
@@ -140,6 +146,45 @@ func projectCodexSchemaNode(schema map[string]any, pointer string, checks []RunC
 					return err
 				}
 			}
+		}
+	}
+	return nil
+}
+
+func validateCodexRequiredProperties(schema, properties map[string]any, pointer string) error {
+	if len(properties) == 0 {
+		rawRequired, present := schema["required"]
+		if !present {
+			return nil
+		}
+		required, ok := rawRequired.([]any)
+		if !ok || len(required) != 0 {
+			return fmt.Errorf("codex response schema object at %q requires properties that are not declared", pointer)
+		}
+		return nil
+	}
+	rawRequired, present := schema["required"]
+	required, ok := rawRequired.([]any)
+	if !present || !ok {
+		return fmt.Errorf("codex response schema object at %q must require every declared property", pointer)
+	}
+	if len(required) != len(properties) {
+		return fmt.Errorf("codex response schema object at %q must require every declared property exactly once", pointer)
+	}
+	seen := make(map[string]bool, len(required))
+	for _, rawName := range required {
+		name, ok := rawName.(string)
+		if !ok || seen[name] {
+			return fmt.Errorf("codex response schema object at %q must require every declared property exactly once", pointer)
+		}
+		if _, declared := properties[name]; !declared {
+			return fmt.Errorf("codex response schema object at %q requires undeclared property %q", pointer, name)
+		}
+		seen[name] = true
+	}
+	for name := range properties {
+		if !seen[name] {
+			return fmt.Errorf("codex response schema object at %q does not require declared property %q", pointer, name)
 		}
 	}
 	return nil

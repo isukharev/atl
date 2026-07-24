@@ -55,11 +55,11 @@ func TestProviderResponseSchemaRequiresStrongUniqueItemsReplacement(t *testing.T
 		schema   string
 	}{
 		{name: "missing check", schema: `{"type":"array","uniqueItems":true}`},
-		{name: "non array expected", pointer: "/labels", expected: json.RawMessage(`"alpha"`), schema: `{"type":"object","properties":{"labels":{"type":"array","uniqueItems":true}}}`},
-		{name: "duplicate expected", pointer: "/labels", expected: json.RawMessage(`["alpha","alpha"]`), schema: `{"type":"object","properties":{"labels":{"type":"array","uniqueItems":true}}}`},
-		{name: "equivalent number expected", pointer: "/labels", expected: json.RawMessage(`[1,1.0]`), schema: `{"type":"object","properties":{"labels":{"type":"array","uniqueItems":true}}}`},
-		{name: "signed zero expected", pointer: "/labels", expected: json.RawMessage(`[-0,0]`), schema: `{"type":"object","properties":{"labels":{"type":"array","uniqueItems":true}}}`},
-		{name: "nested signed zero expected", pointer: "/labels", expected: json.RawMessage(`[{"value":-0},{"value":0}]`), schema: `{"type":"object","properties":{"labels":{"type":"array","uniqueItems":true}}}`},
+		{name: "non array expected", pointer: "/labels", expected: json.RawMessage(`"alpha"`), schema: `{"type":"object","properties":{"labels":{"type":"array","uniqueItems":true}},"required":["labels"],"additionalProperties":false}`},
+		{name: "duplicate expected", pointer: "/labels", expected: json.RawMessage(`["alpha","alpha"]`), schema: `{"type":"object","properties":{"labels":{"type":"array","uniqueItems":true}},"required":["labels"],"additionalProperties":false}`},
+		{name: "equivalent number expected", pointer: "/labels", expected: json.RawMessage(`[1,1.0]`), schema: `{"type":"object","properties":{"labels":{"type":"array","uniqueItems":true}},"required":["labels"],"additionalProperties":false}`},
+		{name: "signed zero expected", pointer: "/labels", expected: json.RawMessage(`[-0,0]`), schema: `{"type":"object","properties":{"labels":{"type":"array","uniqueItems":true}},"required":["labels"],"additionalProperties":false}`},
+		{name: "nested signed zero expected", pointer: "/labels", expected: json.RawMessage(`[{"value":-0},{"value":0}]`), schema: `{"type":"object","properties":{"labels":{"type":"array","uniqueItems":true}},"required":["labels"],"additionalProperties":false}`},
 		{name: "nested item", pointer: "/groups/*", expected: json.RawMessage(`["alpha"]`), schema: `{"type":"array","items":{"type":"array","uniqueItems":true}}`},
 		{name: "definition pointer unknown", pointer: "/labels", expected: json.RawMessage(`["alpha"]`), schema: `{"type":"object","$defs":{"labels":{"type":"array","uniqueItems":true}}}`},
 	}
@@ -91,7 +91,7 @@ func TestProviderResponseSchemaRemovesNoOpUniqueItemsFalse(t *testing.T) {
 func TestProviderResponseSchemaEscapesPropertyPointer(t *testing.T) {
 	spec := validRunSpec()
 	spec.Checks = append(spec.Checks, RunCheck{Name: "exact", Kind: "json_equals", Pointer: "/a~1b~0c", Expected: json.RawMessage(`[1,2]`)})
-	projected, err := providerResponseSchema(spec, []byte(`{"type":"object","properties":{"a/b~c":{"type":"array","uniqueItems":true}}}`))
+	projected, err := providerResponseSchema(spec, []byte(`{"type":"object","properties":{"a/b~c":{"type":"array","uniqueItems":true}},"required":["a/b~c"],"additionalProperties":false}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,6 +127,69 @@ func TestProviderResponseSchemaRequiresClosedAdditionalProperties(t *testing.T) 
 		_, err := providerResponseSchema(spec, []byte(`{"type":"object","additionalProperties":`+value+`}`))
 		if err == nil || !strings.Contains(err.Error(), "additionalProperties must be false") {
 			t.Fatalf("value=%s err=%v", value, err)
+		}
+	}
+	spec := validRunSpec()
+	_, err := providerResponseSchema(spec, []byte(`{"type":"object","properties":{"value":{"type":"string"}},"required":["value"]}`))
+	if err == nil || !strings.Contains(err.Error(), "must set additionalProperties to false") {
+		t.Fatalf("missing additionalProperties err=%v", err)
+	}
+}
+
+func TestProviderResponseSchemaRequiresEveryCodexObjectPropertyExactlyOnce(t *testing.T) {
+	tests := []struct {
+		name   string
+		schema string
+	}{
+		{
+			name:   "missing required",
+			schema: `{"type":"object","properties":{"value":{"type":"string"}},"additionalProperties":false}`,
+		},
+		{
+			name:   "nested missing required",
+			schema: `{"type":"object","properties":{"outer":{"type":"object","properties":{"value":{"type":"string"}},"additionalProperties":false}},"required":["outer"],"additionalProperties":false}`,
+		},
+		{
+			name:   "partial required",
+			schema: `{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"string"}},"required":["a"],"additionalProperties":false}`,
+		},
+		{
+			name:   "duplicate required",
+			schema: `{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"string"}},"required":["a","a"],"additionalProperties":false}`,
+		},
+		{
+			name:   "undeclared required",
+			schema: `{"type":"object","properties":{"a":{"type":"string"}},"required":["b"],"additionalProperties":false}`,
+		},
+		{
+			name:   "undeclared required with empty properties",
+			schema: `{"type":"object","properties":{},"required":["ghost"],"additionalProperties":false}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			spec := validRunSpec()
+			_, err := providerResponseSchema(spec, []byte(test.schema))
+			if err == nil || !strings.Contains(err.Error(), "codex response schema object") {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
+
+func TestProviderResponseSchemaRequiresClosedExplicitEmptyProperties(t *testing.T) {
+	spec := validRunSpec()
+	_, err := providerResponseSchema(spec, []byte(`{"type":"object","properties":{}}`))
+	if err == nil || !strings.Contains(err.Error(), "must set additionalProperties to false") {
+		t.Fatalf("err=%v", err)
+	}
+	for _, schema := range []string{
+		`{"type":"object","properties":{},"additionalProperties":false}`,
+		`{"type":"object","properties":{},"required":[],"additionalProperties":false}`,
+	} {
+		projected, projectErr := providerResponseSchema(spec, []byte(schema))
+		if projectErr != nil || string(projected) != schema {
+			t.Fatalf("schema=%s projected=%s err=%v", schema, projected, projectErr)
 		}
 	}
 }

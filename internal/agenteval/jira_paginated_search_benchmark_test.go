@@ -21,7 +21,7 @@ type jiraPaginatedSearchExpectation struct {
 	keys             [][]string
 	statuses         []string
 	updated          []string
-	statusCounts     map[string]any
+	statusCounts     []map[string]any
 	expectedRequests int
 }
 
@@ -51,7 +51,12 @@ func TestRepositoryJiraPaginatedSearchFixturesDriveProviderOracles(t *testing.T)
 					"2026-07-18T10:00:00.000+0000",
 					"2026-07-17T10:00:00.000+0000",
 				},
-				statusCounts:     map[string]any{"Blocked": 1, "Done": 2, "In Progress": 2, "To Do": 1},
+				statusCounts: []map[string]any{
+					{"status": "Blocked", "count": 1},
+					{"status": "Done", "count": 2},
+					{"status": "In Progress", "count": 2},
+					{"status": "To Do", "count": 1},
+				},
 				expectedRequests: 3,
 			},
 		},
@@ -74,7 +79,12 @@ func TestRepositoryJiraPaginatedSearchFixturesDriveProviderOracles(t *testing.T)
 					"2026-07-20T09:00:00.000+0000",
 					"2026-07-19T09:00:00.000+0000",
 				},
-				statusCounts:     map[string]any{"Closed": 1, "Open": 2, "Paused": 1, "Review": 1},
+				statusCounts: []map[string]any{
+					{"status": "Closed", "count": 1},
+					{"status": "Open", "count": 2},
+					{"status": "Paused", "count": 1},
+					{"status": "Review", "count": 1},
+				},
 				expectedRequests: 2,
 			},
 		},
@@ -290,7 +300,7 @@ func jiraPaginatedSearchBenchmarkFinal(
 	limit int,
 	columns []string,
 	pages, issues []map[string]any,
-	statusCounts map[string]any,
+	statusCounts []map[string]any,
 ) []byte {
 	t.Helper()
 	final := map[string]any{
