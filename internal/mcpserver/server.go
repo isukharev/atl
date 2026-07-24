@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -174,7 +175,7 @@ type JiraBoardViewInput struct {
 }
 
 type JiraStructureGetInput struct {
-	StructureID int64 `json:"structure_id" jsonschema:"positive Jira Structure id"`
+	StructureID json.RawMessage `json:"structure_id"`
 }
 
 type JiraStructureViewInput struct {
@@ -371,20 +372,23 @@ func registerJiraTools(server *mcp.Server, deps Dependencies) {
 			return nil, out, classified(err)
 		})
 
-	addReadOnlyTool(server, readOnlyTool("jira_structure_get", "Read Jira Structure metadata", "Return compact metadata for one exact Structure id without owner, permission, view, or forest payloads."),
+	structureGetTool := readOnlyTool("jira_structure_get", "Read Jira Structure metadata", "Return compact metadata for one exact Structure id without owner, permission, view, or forest payloads. Accepts a positive integer or its canonical decimal string.")
+	structureGetTool.InputSchema = jiraStructureGetInputSchema()
+	addReadOnlyTool(server, structureGetTool,
 		func(ctx context.Context, _ *mcp.CallToolRequest, in JiraStructureGetInput) (*mcp.CallToolResult, *app.StructureMetadataResult, error) {
-			if in.StructureID <= 0 {
-				return nil, nil, classifiedStructureRead(fmt.Errorf("%w: structure_id must be positive", domain.ErrUsage))
+			structureID, err := parseStructureIDInput(in.StructureID)
+			if err != nil {
+				return nil, nil, classifiedStructureRead(err)
 			}
 			jira, err := jiraReader(deps)
 			if err != nil {
 				return nil, nil, classifiedStructureRead(err)
 			}
-			out, err := jira.Structure(ctx, in.StructureID)
+			out, err := jira.Structure(ctx, structureID)
 			if err != nil {
 				return nil, nil, classifiedStructureRead(err)
 			}
-			if out == nil || out.ID != in.StructureID || strings.TrimSpace(out.Name) == "" {
+			if out == nil || out.ID != structureID || strings.TrimSpace(out.Name) == "" {
 				return nil, nil, classifiedStructureRead(fmt.Errorf("%w: Structure metadata is not reconciled", domain.ErrCheckFailed))
 			}
 			projected := &app.StructureMetadataResult{SchemaVersion: 1, ID: out.ID, Name: out.Name, ReadOnly: out.ReadOnly}
@@ -566,6 +570,51 @@ func readOnlyTool(name, title, description string) *mcp.Tool {
 			DestructiveHint: &nondestructive, OpenWorldHint: &closed,
 		},
 	}
+}
+
+func jiraStructureGetInputSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type: "object",
+		Properties: map[string]*jsonschema.Schema{
+			"structure_id": {
+				Description: "positive Jira Structure id as an integer or canonical decimal string",
+				OneOf: []*jsonschema.Schema{
+					{Type: "integer", Minimum: jsonschema.Ptr(1.0)},
+					{Type: "string", Pattern: `^[1-9][0-9]{0,18}$`, MaxLength: jsonschema.Ptr(19)},
+				},
+			},
+		},
+		Required:             []string{"structure_id"},
+		AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
+	}
+}
+
+func parseStructureIDInput(raw json.RawMessage) (int64, error) {
+	invalid := func() (int64, error) {
+		return 0, fmt.Errorf("%w: structure_id must be a positive integer or canonical decimal string", domain.ErrUsage)
+	}
+	raw = json.RawMessage(strings.TrimSpace(string(raw)))
+	if len(raw) == 0 {
+		return invalid()
+	}
+	value := string(raw)
+	if raw[0] == '"' {
+		var decoded string
+		if json.Unmarshal(raw, &decoded) != nil || decoded == "" || decoded[0] < '1' || decoded[0] > '9' {
+			return invalid()
+		}
+		for index := 1; index < len(decoded); index++ {
+			if decoded[index] < '0' || decoded[index] > '9' {
+				return invalid()
+			}
+		}
+		value = decoded
+	}
+	id, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || id <= 0 {
+		return invalid()
+	}
+	return id, nil
 }
 
 // addReadOnlyTool keeps the SDK's inferred, validated output contract while

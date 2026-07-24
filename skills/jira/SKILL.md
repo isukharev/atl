@@ -43,9 +43,11 @@ oversize failure as clipped evidence. For `jira_issue_search`, prefer
 `columns`; `fields` and `projection` are equivalent compatibility aliases.
 Supply at most one non-empty selector; empty arrays are omitted. The returned
 IssueList carries normalized `projection` metadata independently. For a
-Structure view, use explicit fields and at most one exact folder selector;
-honor emitted-row/byte bounds, the 1000-row forest scan cap, and completeness.
-Use CLI for mirror content/status/diff, raw Structure
+Structure metadata read, pass `structure_id` as a positive integer or canonical
+decimal string without a sign, whitespace, or leading zero. For a Structure
+view, use explicit fields and at most one exact folder selector; honor
+emitted-row/byte bounds, the 1000-row forest scan cap, and completeness. Use CLI
+for mirror content/status/diff, raw Structure
 forest/values, exports/attachments, operations absent from MCP, and every
 mutation.
 
