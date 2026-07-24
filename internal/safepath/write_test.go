@@ -401,6 +401,45 @@ func TestTryLockFileWithinIsExclusiveAndCrashScoped(t *testing.T) {
 	_ = third.Unlock()
 }
 
+func TestTrySharedLockExistingFileWithinDoesNotCreateAndCoordinatesWithWriter(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "mirror.lock")
+	if lock, acquired, err := TrySharedLockExistingFileWithin(root, path); !os.IsNotExist(err) || acquired || lock != nil {
+		t.Fatalf("missing shared lock: lock=%v acquired=%t err=%v", lock, acquired, err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("shared lock created missing file: %v", err)
+	}
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first, acquired, err := TrySharedLockExistingFileWithin(root, path)
+	if err != nil || !acquired || first == nil {
+		t.Fatalf("first shared lock: acquired=%t err=%v", acquired, err)
+	}
+	defer func() { _ = first.Unlock() }()
+	second, acquired, err := TrySharedLockExistingFileWithin(root, path)
+	if err != nil || !acquired || second == nil {
+		t.Fatalf("second shared lock: acquired=%t err=%v", acquired, err)
+	}
+	if writer, acquired, err := TryLockFileWithin(root, path, 0o600); err != nil || acquired || writer != nil {
+		t.Fatalf("writer while readers active: lock=%v acquired=%t err=%v", writer, acquired, err)
+	}
+	if err := second.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+	writer, acquired, err := TryLockFileWithin(root, path, 0o600)
+	if err != nil || !acquired || writer == nil {
+		t.Fatalf("writer after readers: acquired=%t err=%v", acquired, err)
+	}
+	if err := writer.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWriteFileWithinReplacesFinalSymlink(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "victim")

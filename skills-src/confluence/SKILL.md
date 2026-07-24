@@ -54,7 +54,9 @@ write command after explicit approval.
 - Existing mirror health counts: use `confluence_mirror_snapshot` with no
   arguments only when the owner configured the exact `ATL_MIRROR_ROOT`. It is
   offline and content-free; inspect `complete`, `reconciled`, native,
-  validation, and render buckets. Use CLI for paths, content, status, or diff.
+  validation, and render buckets. A concurrent mirror mutation fails closed
+  before inspection; the snapshot creates or changes no file. Use CLI for
+  paths, content, status, or diff.
 - CLI one-off read: `page resolve` once for a URL, then `page outline` before an
   exact bounded `page section`; use `page view -o text` only when the full page
   is actually required. Honor `complete` and duplicate-heading `--occurrence`.

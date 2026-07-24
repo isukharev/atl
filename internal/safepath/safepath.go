@@ -303,6 +303,45 @@ func TryLockFileWithin(root, target string, perm os.FileMode) (lock *FileLock, a
 	return &FileLock{file: f, unlock: unlock}, true, nil
 }
 
+// TrySharedLockExistingFileWithin non-blockingly acquires a shared advisory
+// lock on an existing regular file beneath root. It never creates or writes the
+// file. acquired=false is not an error: another process currently owns an
+// exclusive lock. A missing file is returned as os.ErrNotExist so callers can
+// distinguish legacy state that predates a coordination file.
+func TrySharedLockExistingFileWithin(root, target string) (lock *FileLock, acquired bool, err error) {
+	rel, err := relativeToRoot(root, target)
+	if err != nil {
+		return nil, false, err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = r.Close() }()
+	if err := rejectSymlinkComponents(r, rel); err != nil {
+		return nil, false, err
+	}
+	f, err := r.OpenFile(rel, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, false, err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, false, err
+	}
+	if !info.Mode().IsRegular() {
+		_ = f.Close()
+		return nil, false, fmt.Errorf("lock target is not a regular file")
+	}
+	unlock, acquired, err := tryAdvisorySharedLock(f)
+	if err != nil || !acquired {
+		_ = f.Close()
+		return nil, acquired, err
+	}
+	return &FileLock{file: f, unlock: unlock}, true, nil
+}
+
 // ReadFileWithin reads a regular mirror-owned file without following any
 // descendant symlink, including at the final component.
 func ReadFileWithin(root, target string) ([]byte, error) {

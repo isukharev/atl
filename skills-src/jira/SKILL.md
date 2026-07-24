@@ -116,7 +116,9 @@ memory; pull a fresh copy into a newly approved root instead.
 Run `jira snapshot <existing-root> --remote` first for exact content-free
 baseline/raw-snapshot/pending/render/drift cardinalities. Require reconciled
 output and treat `complete:false`, unavailable probes, invalid binding, or exit
-`8` as a stop signal. Expand with identity-bearing
+`8` as a stop signal, including contention with an active mirror mutation.
+Snapshot coordinates through a shared advisory lock without creating or
+changing files. Expand with identity-bearing
 `jira status <existing-root> --remote` only when repair or per-issue selection
 needs it.
 Preserve locally edited work. Re-pull a clean remote-drifted mirror; a clean

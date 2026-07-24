@@ -377,6 +377,7 @@ atl conf push mirror/DOCS/acme-adr/acme-adr.csf
 atl conf status mirror --remote
 
 # Exact content-free mirror/baseline/validation/render counts (offline by default)
+# A concurrent mirror mutation fails closed before inspection; snapshot writes no files.
 ATL_READ_ONLY=1 atl conf snapshot mirror
 ATL_READ_ONLY=1 atl conf snapshot mirror --remote # one single-attempt metadata probe per eligible tracked page
 
@@ -494,6 +495,7 @@ atl jira pull --jql 'project = PROJ AND status = Open' --assets
 # Choose how much the .md view shows: minimal | default | full (see docs/usage.md)
 atl jira pull --jql 'project = PROJ' --render-profile full
 atl jira render mirror-jira --render-profile default   # re-render offline, no re-pull
+# Snapshot coordinates read-only with mirror mutations and writes no lock file.
 ATL_READ_ONLY=1 atl jira snapshot mirror-jira          # exact content-free mirror health counts
 ATL_READ_ONLY=1 atl jira snapshot mirror-jira --remote # one single-attempt GET per eligible issue
 atl manifest create --root mirror-jira --service jira --selector 'jql=project = PROJ'

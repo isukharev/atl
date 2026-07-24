@@ -19,15 +19,82 @@ type snapshotMetaStore struct {
 	errs           map[string]error
 	calls          []string
 	singleAttempts []bool
+	onGet          func()
 }
 
 func (s *snapshotMetaStore) GetMeta(ctx context.Context, id string) (*domain.PageMeta, error) {
 	s.calls = append(s.calls, id)
 	s.singleAttempts = append(s.singleAttempts, domain.SingleAttempt(ctx))
+	if s.onGet != nil {
+		s.onGet()
+	}
 	if err := s.errs[id]; err != nil {
 		return nil, err
 	}
 	return s.meta[id], nil
+}
+
+func TestConfluenceMirrorRemoteSnapshotHoldsMutationLockThroughProbe(t *testing.T) {
+	root := t.TempDir()
+	writeDiffPage(t, root, "301", "stable", `<p>body</p>`)
+	lock, err := lockConfluenceMutations(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lock.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+	var mutationBlocked bool
+	store := &snapshotMetaStore{
+		meta: map[string]*domain.PageMeta{"301": {ID: "301", Version: 3}},
+		onGet: func() {
+			candidate, candidateErr := lockConfluenceMutations(root, false)
+			mutationBlocked = errors.Is(candidateErr, domain.ErrCheckFailed) && candidate == nil
+			if candidate != nil {
+				_ = candidate.Unlock()
+			}
+		},
+	}
+	got, err := (&ConfluenceService{store: store}).SnapshotMirror(context.Background(), root, true)
+	if err != nil || got == nil || !got.Complete || !mutationBlocked {
+		t.Fatalf("snapshot=%+v mutation_blocked=%t err=%v", got, mutationBlocked, err)
+	}
+	lock, err = lockConfluenceMutations(root, false)
+	if err != nil {
+		t.Fatalf("mutation remained blocked after snapshot: %v", err)
+	}
+	if err := lock.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestConfluenceMirrorRemoteSnapshotDiscardsLegacyRaceWithoutRetry(t *testing.T) {
+	root := t.TempDir()
+	writeDiffPage(t, root, "302", "stable", `<p>body</p>`)
+	lockPath := filepath.Join(root, ".atl", confluenceMutationLockName)
+	if err := os.Remove(lockPath); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	store := &snapshotMetaStore{
+		meta: map[string]*domain.PageMeta{"302": {ID: "302", Version: 3}},
+		onGet: func() {
+			lock, lockErr := lockConfluenceMutations(root, false)
+			if lockErr != nil {
+				t.Errorf("bootstrap mutation lock: %v", lockErr)
+				return
+			}
+			_ = lock.Unlock()
+		},
+	}
+	got, err := (&ConfluenceService{store: store}).SnapshotMirror(context.Background(), root, true)
+	if !errors.Is(err, domain.ErrCheckFailed) || got != nil || len(store.calls) != 1 {
+		t.Fatalf("snapshot=%+v calls=%v err=%v", got, store.calls, err)
+	}
+	for _, private := range []string{root, "302", "stable"} {
+		if strings.Contains(err.Error(), private) {
+			t.Fatalf("content-free race error leaked %q: %v", private, err)
+		}
+	}
 }
 
 func TestConfluenceMirrorSnapshotReconcilesContentFreeHealthBuckets(t *testing.T) {
@@ -137,6 +204,39 @@ func TestConfluenceMirrorSnapshotStopsBeforeRemoteOnBaselineMismatch(t *testing.
 	if len(store.calls) != 0 || got.Native.BaselineMismatch != 1 || got.Complete || !got.Reconciled ||
 		!got.Remote.Requested || got.Remote.Attempted != 0 || got.Remote.NotAttempted != 1 {
 		t.Fatalf("snapshot=%+v calls=%v", got, store.calls)
+	}
+}
+
+func TestConfluenceMirrorSnapshotCoordinatesWithoutCreatingMutationLock(t *testing.T) {
+	root := t.TempDir()
+	writeDiffPage(t, root, "201", "stable", `<p>body</p>`)
+	lockPath := filepath.Join(root, ".atl", confluenceMutationLockName)
+	if err := os.Remove(lockPath); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+
+	got, err := SnapshotConfluenceMirror(root)
+	if err != nil || got == nil || !got.Complete {
+		t.Fatalf("snapshot=%+v err=%v", got, err)
+	}
+	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
+		t.Fatalf("write-free snapshot created mutation lock: %v", err)
+	}
+
+	lock, err := lockConfluenceMutations(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lock.Unlock() }()
+	store := &snapshotMetaStore{meta: map[string]*domain.PageMeta{"201": {ID: "201", Version: 3}}}
+	got, err = (&ConfluenceService{store: store}).SnapshotMirror(context.Background(), root, true)
+	if !errors.Is(err, domain.ErrCheckFailed) || got != nil || len(store.calls) != 0 {
+		t.Fatalf("busy snapshot=%+v calls=%v err=%v", got, store.calls, err)
+	}
+	for _, private := range []string{root, "201", "stable"} {
+		if strings.Contains(err.Error(), private) {
+			t.Fatalf("content-free busy error leaked %q: %v", private, err)
+		}
 	}
 }
 
