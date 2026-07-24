@@ -1138,10 +1138,13 @@ contract:
 ```json
 {
   "schema_version": 1,
+  "projection": "full",
   "source": "jira-field-catalog",
   "complete": true,
   "total": 2,
   "count": 1,
+  "custom_count": 1,
+  "system_count": 0,
   "fields": [
     {
       "id": "customfield_10001",
@@ -1154,14 +1157,21 @@ contract:
 ```
 
 `total` describes the source snapshot before client-side filters; `count`
-describes the emitted match set. Filtering never upgrades or downgrades source
-completeness. Jira's `/rest/api/2/field` response is atomic and non-paginated,
-so a successfully decoded non-empty response is `complete:true`. An empty or
+describes the filtered match set. `custom_count` and `system_count` partition
+that same set and always sum to `count`. The default `projection:"full"` emits
+the matching value-free definitions. CLI `--summary-only` and MCP
+`summary_only:true` select `projection:"summary"` and return `fields:[]`,
+preserving qualification, filters, and reconciled counts in a compact result.
+Filtering and projection never upgrade or downgrade source completeness.
+Jira's `/rest/api/2/field` response is atomic and non-paginated, so a
+successfully decoded non-empty response is `complete:true`. An empty or
 legacy/unqualified source is `complete:false` with `partial_reason`; malformed
 ids, duplicates, and contradictory qualification fail with exit 8. Field
 values are never part of this contract. The text projection begins with
-`complete`, `source`, `count`, and `total`, followed by compact tab-separated
-field records.
+the backward-compatible `complete`, `source`, `count`, and `total` line. The
+summary text projection adds `projection=summary`, `custom`, and `system` on a
+second line and no field records; the full projection keeps the existing
+tab-separated field records.
 
 `atl jira issue refs <KEY>` and `atl jira issue refs --jql ...` return
 deterministic, provenance-qualified artifact references per issue:

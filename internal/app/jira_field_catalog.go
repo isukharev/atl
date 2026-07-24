@@ -16,15 +16,21 @@ type JiraFieldCatalogOpts struct {
 	IDLike   string
 	Schema   string
 	Custom   string
+	// SummaryOnly preserves qualification and reconciled counts while omitting
+	// field definitions from the result.
+	SummaryOnly bool
 }
 
 type JiraFieldCatalogResult struct {
 	SchemaVersion int               `json:"schema_version"`
+	Projection    string            `json:"projection"`
 	Source        string            `json:"source"`
 	Complete      bool              `json:"complete"`
 	PartialReason string            `json:"partial_reason,omitempty"`
 	Total         int               `json:"total"`
 	Count         int               `json:"count"`
+	CustomCount   int               `json:"custom_count"`
+	SystemCount   int               `json:"system_count"`
 	Fields        []domain.FieldDef `json:"fields"`
 }
 
@@ -51,9 +57,22 @@ func (s *JiraService) FieldCatalog(ctx context.Context, opts JiraFieldCatalogOpt
 	if err != nil {
 		return nil, err
 	}
+	customCount := 0
+	for _, field := range fields {
+		if field.Custom {
+			customCount++
+		}
+	}
+	projection := "full"
+	resultFields := fields
+	if opts.SummaryOnly {
+		projection = "summary"
+		resultFields = []domain.FieldDef{}
+	}
 	return &JiraFieldCatalogResult{
-		SchemaVersion: 1, Source: source, Complete: snapshot.Complete,
-		PartialReason: snapshot.PartialReason, Total: total, Count: len(fields), Fields: fields,
+		SchemaVersion: 1, Projection: projection, Source: source, Complete: snapshot.Complete,
+		PartialReason: snapshot.PartialReason, Total: total, Count: len(fields),
+		CustomCount: customCount, SystemCount: len(fields) - customCount, Fields: resultFields,
 	}, nil
 }
 

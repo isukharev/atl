@@ -263,9 +263,13 @@ func commentsText(comments []domain.Comment) string {
 
 func jiraFieldsText(result *app.JiraFieldCatalogResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "complete=%t\tsource=%s\tcount=%d\ttotal=%d\n", result.Complete, textCell(result.Source), result.Count, result.Total)
+	fmt.Fprintf(&b, "complete=%t\tsource=%s\tcount=%d\ttotal=%d\n",
+		result.Complete, textCell(result.Source), result.Count, result.Total)
 	if result.PartialReason != "" {
 		fmt.Fprintf(&b, "partial_reason=%s\n", textCell(result.PartialReason))
+	}
+	if result.Projection == "summary" {
+		fmt.Fprintf(&b, "projection=summary\tcustom=%d\tsystem=%d\n", result.CustomCount, result.SystemCount)
 	}
 	for _, field := range result.Fields {
 		fmt.Fprintf(&b, "%s\t%s\tcustom=%t", textCell(field.ID), textCell(field.Name), field.Custom)

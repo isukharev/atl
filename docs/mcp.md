@@ -16,7 +16,7 @@ The v1 surface is an explicit allowlist:
 
 | Tool | Purpose | Important bound |
 |---|---|---|
-| `jira_fields` | Discover field ids without issue values | explicit catalog completeness/counts; default 256 KiB, maximum 1 MiB encoded result |
+| `jira_fields` | Discover field ids or request a content-free catalog summary | explicit completeness/reconciled counts; `summary_only`; default 256 KiB, maximum 1 MiB encoded result |
 | `jira_issue_search` | Read one compact IssueList page | default 50/maximum 1000 rows; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_issue_field_get` | Expand one exact compact field with issue/update provenance | default 16 KiB, maximum 128 KiB encoded value |
 | `jira_epic_digest` | Aggregate selected qualified epic evidence | `projection:compact`; default 256 KiB/maximum 1 MiB encoded result |
@@ -39,11 +39,14 @@ source completeness and exposes every omitted/clipped path. When a required
 narrative field is clipped, use `jira_issue_field_get`; do not repeat the whole
 digest with `projection:"full"`.
 
-`jira_fields` returns `schema_version`, `source`, `complete`, optional
-`partial_reason`, source `total`, filtered `count`, and value-free field
-definitions. Treat an empty match as evidence of absence only when
-`complete:true`; a successful tool call or non-empty match is not itself a
-completeness signal.
+`jira_fields` returns `schema_version`, `projection`, `source`, `complete`,
+optional `partial_reason`, source `total`, filtered `count`, reconciled
+`custom_count`/`system_count`, and value-free field definitions. Set
+`summary_only:true` when only qualification and counts are needed; the result
+uses `projection:"summary"` and an empty `fields` array. Filters apply before
+the partition counts, so `custom_count + system_count == count`. Treat an empty
+match as evidence of absence only when `complete:true`; a successful tool call
+or non-empty match is not itself a completeness signal.
 
 `jira_fields`, `jira_issue_search`, `jira_epic_digest`, and `jira_board_view`
 also enforce the final encoded result through `max_bytes` (default 256 KiB,
