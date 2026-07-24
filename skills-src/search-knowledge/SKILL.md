@@ -29,7 +29,9 @@ atl capabilities --task knowledge/search
 
 When the plugin exposes typed `atl` MCP tools, use the equivalent transient
 route without shell: call `confluence_search` and `jira_issue_search` once,
-freeze only complete candidate pages, then use `jira_issue_field_get` plus
+setting both row and byte bounds for each search. An oversize search error is
+not partial evidence: narrow the query or lower the row limit before raising
+the byte cap. Freeze only complete candidate pages, then use `jira_issue_field_get` plus
 `confluence_page_outline` and `confluence_page_section` for the selected
 evidence. When the selected evidence is tabular, use
 `confluence_table_summary` and then `confluence_table_extract` for one exact

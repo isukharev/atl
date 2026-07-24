@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -65,8 +66,15 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		if tool.Name == "jira_epic_digest" && !schemaRequired(input, "include") {
 			t.Errorf("tool %s must require an explicit include: %#v", tool.Name, tool.InputSchema)
 		}
-		if tool.Name == "confluence_search" && !schemaRequired(input, "cql") {
-			t.Errorf("tool %s must require explicit cql: %#v", tool.Name, tool.InputSchema)
+		if tool.Name == "confluence_search" {
+			properties, _ := input["properties"].(map[string]any)
+			maxBytes, _ := properties["max_bytes"].(map[string]any)
+			description, _ := maxBytes["description"].(string)
+			if !schemaRequired(input, "cql") ||
+				!strings.Contains(description, "1024 to 1048576") ||
+				!strings.Contains(description, "default 131072") {
+				t.Errorf("tool %s must require CQL and advertise its byte bound: %#v", tool.Name, tool.InputSchema)
+			}
 		}
 		if tool.Name == "jira_issue_search" {
 			properties, _ := input["properties"].(map[string]any)
@@ -1381,6 +1389,8 @@ func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{"identity"}, "max_bytes": 1023}},
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{"identity"}, "max_bytes": 1048577}},
 		{name: "confluence_search", args: map[string]any{"cql": "space=DOCS", "limit": 101}},
+		{name: "confluence_search", args: map[string]any{"cql": "space=DOCS", "max_bytes": 1023}},
+		{name: "confluence_search", args: map[string]any{"cql": "space=DOCS", "max_bytes": 1048577}},
 		{name: "confluence_page_section", args: map[string]any{"reference": "1", "heading": "Results", "max_bytes": 1048577}},
 		{name: "confluence_table_summary", args: map[string]any{"reference": "1", "table": -1}},
 		{name: "confluence_table_summary", args: map[string]any{"reference": "1", "max_bytes": 1023}},
@@ -1498,6 +1508,102 @@ func TestConfluenceTableOutputBoundFailsWithoutLeakingContent(t *testing.T) {
 	var got toolError
 	if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "check_failed" {
 		t.Fatalf("error=%+v decode=%v", got, err)
+	}
+}
+
+func TestConfluenceSearchOutputBoundFailsWithoutLeakingContent(t *testing.T) {
+	const privateMarker = "PRIVATE-CONFLUENCE-SEARCH-MARKER"
+	reader := &recordingConfluenceReader{searchText: privateMarker + strings.Repeat("x", 4<<10)}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Confluence: func() (ConfluenceReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "confluence_search",
+		Arguments: map[string]any{
+			"cql": "siteSearch ~ \"bounded topic\" ", "limit": 10, "max_bytes": 1024,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertConfluenceSearchOversizeError(t, result, privateMarker)
+}
+
+func TestProductionConfluenceSearchOutputBoundFailsWithoutLeakingContent(t *testing.T) {
+	const privateMarker = "PRIVATE-CONFLUENCE-SEARCH-PRODUCTION-MARKER"
+	body, err := json.Marshal(map[string]any{
+		"results": []any{map[string]any{
+			"content": map[string]any{
+				"id": "42", "type": "page", "title": "Bounded search result",
+				"space":   map[string]any{"key": "DOC"},
+				"version": map[string]any{"number": 1, "when": "2026-07-24T00:00:00.000Z"},
+			},
+			"excerpt": privateMarker + strings.Repeat("x", 4<<10),
+		}},
+		"size": 1, "totalCount": 1, "_links": map[string]any{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := agenteval.MockFixture{
+		SchemaVersion: agenteval.MockFixtureSchemaVersion,
+		JiraContext:   "/jira", ConfluenceContext: "/wiki",
+		Routes: []agenteval.MockRoute{{
+			Method: http.MethodGet, Path: "/wiki/rest/api/search",
+			QueryEquals: map[string]string{"cql": `siteSearch ~ "bounded topic"`},
+			Status:      http.StatusOK, Body: body,
+		}},
+	}
+	backend, err := agenteval.StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	for name, value := range backend.Environment() {
+		t.Setenv(name, value)
+	}
+	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+	t.Setenv("ATL_READ_ONLY", "1")
+	t.Setenv("ATL_NO_UPDATE", "1")
+
+	client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
+	defer closeSessions()
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "confluence_search",
+		Arguments: map[string]any{
+			"cql": `siteSearch ~ "bounded topic"`, "limit": 10, "max_bytes": 1024,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertConfluenceSearchOversizeError(t, result, privateMarker)
+	methods, unexpected, duplicates := backend.Summary()
+	if methods[http.MethodGet] != 1 || len(methods) != 1 || unexpected != 0 || duplicates != 0 {
+		t.Fatalf("requests=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+	}
+}
+
+func assertConfluenceSearchOversizeError(t *testing.T, result *mcp.CallToolResult, privateMarker string) {
+	t.Helper()
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || result.StructuredContent != nil || bytes.Contains(encoded, []byte(privateMarker)) {
+		t.Fatalf("oversize result leaked or succeeded: %s", encoded)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content=%T", result.Content[0])
+	}
+	var got toolError
+	if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+		got.Kind != "check_failed" || got.Remediation != "review_failed_check" ||
+		!strings.Contains(got.Message, "exceeds max_bytes") {
+		t.Fatalf("classified error=%+v decode=%v", got, err)
 	}
 }
 
@@ -1929,6 +2035,7 @@ func (r *invalidStructureReader) StructureSnapshot(ctx context.Context, id int64
 type recordingConfluenceReader struct {
 	searchCQL, searchCursor                              string
 	searchLimit                                          int
+	searchText                                           string
 	resolveReference, outlineReference, sectionReference string
 	sectionOpts                                          app.ConfluencePageSectionOpts
 	tableSummaryReference, tableExtractReference         string
@@ -1944,7 +2051,13 @@ type invalidConfluenceTableReader struct {
 
 func (r *recordingConfluenceReader) SearchQualified(_ context.Context, cql string, limit int, cursor string) (*app.ConfluenceSearchResult, error) {
 	r.searchCQL, r.searchLimit, r.searchCursor = cql, limit, cursor
-	return &app.ConfluenceSearchResult{SchemaVersion: 1, Results: []domain.PageRef{}, Complete: true}, nil
+	results := []domain.PageRef{}
+	if r.searchText != "" {
+		results = append(results, domain.PageRef{ID: "42", Title: r.searchText, Excerpt: r.searchText})
+	}
+	return &app.ConfluenceSearchResult{
+		SchemaVersion: 1, Query: cql, Results: results, Count: len(results), Complete: true,
+	}, nil
 }
 
 func (r *recordingConfluenceReader) ResolvePageReference(_ context.Context, reference string) (*app.ConfluencePageResolution, error) {
