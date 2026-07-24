@@ -139,6 +139,16 @@ func TestConfPageMetaKeepsOmittedRestrictionsUnknown(t *testing.T) {
 	}
 }
 
+func TestConfAttachmentListEmptyGolden(t *testing.T) {
+	srv := jsonServer(t, http.StatusOK, `{"results":[],"_links":{}}`)
+
+	out, code := runCLI(t, confEnv(srv), "conf", "attachment", "list", "--id", "12345")
+	if code != exitOK {
+		t.Fatalf("conf attachment list: exit %d, want %d (stdout=%q)", code, exitOK, out)
+	}
+	assertGolden(t, "conf_attachment_list_empty.json", []byte(out))
+}
+
 // TestConfPageGetGolden locks the JSON shape of `conf page get` (csf format). The
 // command emits a fixed map of id/title/space/version/body/url.
 func TestConfPageGetGolden(t *testing.T) {

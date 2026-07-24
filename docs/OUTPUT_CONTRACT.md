@@ -467,6 +467,11 @@ surface. Optional comments are fetched only when selected by the effective
 render settings; truncation is warned on stderr. A fresh pull is required before
 editing.
 
+`atl conf attachment list --id <ID>` emits `{"attachments":[...]}`. A
+successful listing always uses a JSON array; a page with no attachments emits
+`{"attachments":[]}`, never `null`. `-o id` emits one attachment id per line
+and produces empty output for the empty collection.
+
 Confluence pull/render/apply/push and mirror-local `conf edit` acquire one persistent mirror-internal
 advisory lock for their complete mutation/preview critical section. Contention
 is exit `8` before page/state writes. The file persists so every process locks
