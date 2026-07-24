@@ -53,6 +53,24 @@ Every worker brief should state:
 - focused verification commands;
 - branch/worktree ownership and any concurrent work to avoid.
 
+A session is a delegated worker only when the root's brief explicitly assigns
+that subordinate role. A worker operates one level below the root and must not
+delegate again, start background agents, or invoke another agent or model-review
+process. If the work needs splitting or the brief is insufficient, report that
+to the root instead of widening or narrowing scope. Treat omitted edit
+authority as read-only.
+
+Workers do not own repository integration or outward-facing state. Unless the
+brief authorizes the exact action, do not push, mutate issues/PRs/comments or
+labels, create tags or releases, merge, or make authenticated live-backend
+mutations. Read-only use is allowed when the brief places that backend in
+scope. Authority for one action does not carry to another task. The root owns
+those decisions and the final integrated state.
+
+Preserve pre-existing worktree state. Inspect and report it before acting, edit
+only the allowed files, and never stash, reset, clean, discard, overwrite,
+commit, or otherwise absorb unrelated user changes.
+
 Keep parallel waves bounded and give every overlapping file set a single
 implementation owner. Prefer parallel read-only analysis or disjoint edits over
 multiple workers modifying the same files. The root must inspect and reconcile
@@ -75,6 +93,13 @@ verification already run, remaining steps, and important constraints. Move to
 a fresh root session when repeated context compaction or obsolete history makes
 the transcript more costly than that checkpoint. Do not hand off in the middle
 of an unrecorded edit, destructive operation, release, or remote write.
+
+An independent review assignment is read-only: review the integrated diff,
+report findings with file/line evidence, and do not fix the code under review.
+A worker's final report should state the outcome, findings ordered by severity,
+verification actually run, files changed when edits were authorized, and any
+unfinished or blocked scope. The root rechecks the diff and runs the required
+full gates before completion.
 
 ## Architecture invariants
 

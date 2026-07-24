@@ -11,6 +11,28 @@ gate. The `.csf` bytes are the substrate — there is no lossy Markdown round-tr
 write path must never convert bodies. The `.md` files in a mirror are read-only views and
 are regenerated best-effort (a render failure is swallowed; it never fails a pull).
 
+## Agent operating model
+
+`AGENTS.md` → **Agent operating model** is the binding contract for delegated
+work in this repository: root ownership, bounded briefs, single implementation
+ownership for overlapping files, integrated-diff review, verification, and
+durable checkpoints.
+
+This session is a delegated worker only when the caller's brief explicitly
+assigns that subordinate role. In that case:
+
+- Work only on the brief's bounded objective. Treat omitted edit authority as
+  read-only, do not delegate again, and report any need to split or expand the
+  task to the root.
+- Do not push, mutate GitHub state, merge, tag, release, or mutate an
+  authenticated live backend unless the brief authorizes that exact action.
+  Read-only backend access is allowed when the brief places it in scope.
+- Inspect and report all pre-existing dirty worktree state, preserve it, and
+  edit only the allowed files. Never stash, reset, clean, discard, overwrite,
+  commit, or absorb unrelated changes.
+- A review assignment is read-only. Report findings with file/line evidence;
+  the root owns integration, the final diff, and final verification.
+
 ## Commands
 
 ```sh
