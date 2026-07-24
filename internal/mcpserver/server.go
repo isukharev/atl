@@ -1114,6 +1114,14 @@ func classifiedTableRead(err error) error {
 		message = "Confluence table access is forbidden"
 	case "not_found":
 		message = "Confluence page or table was not found"
+		// An out-of-range selection is recoverable by the caller, so it gets a
+		// distinct remediation. Only the typed application error qualifies —
+		// never a string match — and it carries no page or cell content.
+		var selection *app.ConfluenceTableSelectionError
+		if errors.As(err, &selection) {
+			remediation = "summarize_then_select_table"
+			message = fmt.Sprintf("selected Confluence table index %d is out of range; available table count is %d", selection.Requested, selection.Available)
+		}
 	case "check_failed":
 		message = "Confluence table result failed validation"
 	case "output_limit_exceeded":

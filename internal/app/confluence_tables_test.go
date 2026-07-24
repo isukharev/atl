@@ -115,6 +115,52 @@ func TestExtractTablesFromCSFSelectsOneTable(t *testing.T) {
 	}
 }
 
+func TestExtractTablesFromCSFTypesOutOfRangeSelectionWithoutContent(t *testing.T) {
+	const secret = "SYNTHETIC-TABLE-SECRET"
+	body := `<table><tbody><tr><td><a href="https://backend.invalid/` + secret + `">` + secret + `</a></td></tr></tbody></table>`
+	_, err := ExtractTablesFromCSF("PAGE-"+secret, "Title "+secret, []byte(body), 4)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("error = %v, want not-found sentinel", err)
+	}
+	var selection *ConfluenceTableSelectionError
+	if !errors.As(err, &selection) {
+		t.Fatalf("error = %#v, want *ConfluenceTableSelectionError", err)
+	}
+	if selection.Requested != 4 || selection.Available != 1 {
+		t.Fatalf("selection = %+v, want requested 4 of 1", selection)
+	}
+	typ := reflect.TypeOf(*selection)
+	if typ.NumField() != 2 {
+		t.Fatalf("selection error carries %d fields, want only the two counters", typ.NumField())
+	}
+	for i := 0; i < typ.NumField(); i++ {
+		if typ.Field(i).Type.Kind() != reflect.Int {
+			t.Fatalf("field %s is %s, want an int counter", typ.Field(i).Name, typ.Field(i).Type)
+		}
+	}
+	for _, forbidden := range []string{secret, "https://", "backend.invalid"} {
+		if strings.Contains(err.Error(), forbidden) {
+			t.Fatalf("selection error leaked %q: %s", forbidden, err.Error())
+		}
+	}
+}
+
+func TestExtractTablesFromCSFKeepsUsageAndParseErrorsUntyped(t *testing.T) {
+	var selection *ConfluenceTableSelectionError
+	_, err := ExtractTablesFromCSF("123", "Doc", []byte(tableExtractCSF), -1)
+	if !errors.Is(err, domain.ErrUsage) || errors.As(err, &selection) {
+		t.Fatalf("negative selection error = %v", err)
+	}
+	_, err = ExtractTablesFromCSF("123", "Doc", []byte("<table>"), 1)
+	if err == nil || errors.As(err, &selection) {
+		t.Fatalf("parse error = %v", err)
+	}
+	res, err := ExtractTablesFromCSF("123", "Doc", []byte(tableExtractCSF), 2)
+	if err != nil || res.Table != 2 {
+		t.Fatalf("in-range selection = %+v, err = %v", res, err)
+	}
+}
+
 func TestExtractTablesOriginMarkerIsInternalOnly(t *testing.T) {
 	res, err := ExtractTablesFromCSF("123", "Doc", []byte(`<table><tbody><tr><td>A</td></tr></tbody></table>`), 0)
 	if err != nil {
