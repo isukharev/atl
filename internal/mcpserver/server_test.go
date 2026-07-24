@@ -32,7 +32,7 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 	if initialized == nil || initialized.Instructions != Instructions || initialized.ServerInfo.Name != "atl" {
 		t.Fatalf("initialize=%+v", initialized)
 	}
-	if !strings.Contains(initialized.Instructions, "never projection") {
+	if !strings.Contains(initialized.Instructions, "columns (preferred), fields, or projection") {
 		t.Fatalf("initialize instructions do not disambiguate Jira search field selection: %q", initialized.Instructions)
 	}
 	listed, err := client.ListTools(context.Background(), nil)
@@ -72,16 +72,16 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 			properties, _ := input["properties"].(map[string]any)
 			columns, _ := properties["columns"].(map[string]any)
 			fields, _ := properties["fields"].(map[string]any)
+			projection, projectionExists := properties["projection"].(map[string]any)
 			columnsDescription, _ := columns["description"].(string)
 			fieldsDescription, _ := fields["description"].(string)
-			if !strings.Contains(tool.Description, "no `projection` input") ||
-				!strings.Contains(columnsDescription, "never projection") ||
-				!strings.Contains(fieldsDescription, "never projection") {
-				t.Errorf("tool %s field selection guidance is ambiguous: description=%q columns=%#v fields=%#v",
-					tool.Name, tool.Description, columns, fields)
-			}
-			if _, exists := properties["projection"]; exists {
-				t.Errorf("tool %s must not advertise a projection input: %#v", tool.Name, tool.InputSchema)
+			projectionDescription, _ := projection["description"].(string)
+			if !strings.Contains(tool.Description, "`columns` (preferred), `fields`, or `projection`") ||
+				!strings.Contains(columnsDescription, "columns, fields, or projection") ||
+				!strings.Contains(fieldsDescription, "columns, fields, or projection") ||
+				!projectionExists || !strings.Contains(projectionDescription, "compatibility alias for columns") {
+				t.Errorf("tool %s field selection guidance is ambiguous: description=%q columns=%#v fields=%#v projection=%#v",
+					tool.Name, tool.Description, columns, fields, projection)
 			}
 		}
 		if tool.Name == "confluence_page_section" {
@@ -588,7 +588,7 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	}
 }
 
-func TestJiraIssueSearchRejectsProjectionInputBeforeBackend(t *testing.T) {
+func TestJiraIssueSearchRejectsUnknownInputBeforeBackend(t *testing.T) {
 	jira := &recordingJiraReader{}
 	client, closeSessions := connectTestClient(t, New("test", Dependencies{
 		Jira: func() (JiraReader, error) { return jira, nil },
@@ -598,15 +598,15 @@ func TestJiraIssueSearchRejectsProjectionInputBeforeBackend(t *testing.T) {
 	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "jira_issue_search",
 		Arguments: map[string]any{
-			"jql":        "project=PROJ",
-			"projection": []string{"key", "status"},
+			"jql":             "project=PROJ",
+			"projection_mode": []string{"key", "status"},
 		},
 	})
 	if err == nil {
-		t.Fatalf("unsupported projection input succeeded: %+v", result)
+		t.Fatalf("unknown input succeeded: %+v", result)
 	}
 	if jira.searchJQL != "" || jira.searchColumns != nil {
-		t.Fatalf("unsupported projection input reached backend: jql=%q columns=%v", jira.searchJQL, jira.searchColumns)
+		t.Fatalf("unknown input reached backend: jql=%q columns=%v", jira.searchJQL, jira.searchColumns)
 	}
 }
 
@@ -618,9 +618,14 @@ func TestJiraIssueSearchProjectionAliasesTreatEmptyArraysAsOmitted(t *testing.T)
 	}{
 		{name: "columns", args: map[string]any{"columns": []string{"key"}}, want: []string{"key"}},
 		{name: "fields", args: map[string]any{"fields": []string{"status"}}, want: []string{"status"}},
+		{name: "projection", args: map[string]any{"projection": []string{"assignee"}}, want: []string{"assignee"}},
 		{name: "empty columns", args: map[string]any{"columns": []string{}, "fields": []string{"status"}}, want: []string{"status"}},
+		{name: "empty columns with projection", args: map[string]any{"columns": []string{}, "projection": []string{"assignee"}}, want: []string{"assignee"}},
 		{name: "empty fields", args: map[string]any{"columns": []string{"key"}, "fields": []string{}}, want: []string{"key"}},
-		{name: "both empty", args: map[string]any{"columns": []string{}, "fields": []string{}}, want: nil},
+		{name: "empty fields with projection", args: map[string]any{"fields": []string{}, "projection": []string{"assignee"}}, want: []string{"assignee"}},
+		{name: "empty projection with columns", args: map[string]any{"projection": []string{}, "columns": []string{"key"}}, want: []string{"key"}},
+		{name: "empty projection with fields", args: map[string]any{"projection": []string{}, "fields": []string{"status"}}, want: []string{"status"}},
+		{name: "all empty", args: map[string]any{"columns": []string{}, "fields": []string{}, "projection": []string{}}, want: nil},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -782,6 +787,15 @@ func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 		{name: "jira_issue_search", args: map[string]any{"jql": "project=PROJ", "max_bytes": 1048577}},
 		{name: "jira_issue_search", args: map[string]any{
 			"jql": "project=PROJ", "columns": []string{"key"}, "fields": []string{"status"},
+		}},
+		{name: "jira_issue_search", args: map[string]any{
+			"jql": "project=PROJ", "columns": []string{"key"}, "projection": []string{"status"},
+		}},
+		{name: "jira_issue_search", args: map[string]any{
+			"jql": "project=PROJ", "fields": []string{"key"}, "projection": []string{"status"},
+		}},
+		{name: "jira_issue_search", args: map[string]any{
+			"jql": "project=PROJ", "columns": []string{"key"}, "fields": []string{"summary"}, "projection": []string{"status"},
 		}},
 		{name: "jira_issue_field_get", args: map[string]any{"key": "PROJ-1", "field": "Delivery Notes", "max_bytes": 128}},
 		{name: "jira_board_view", args: map[string]any{"board_id": 1, "limit": 1001}},
