@@ -182,11 +182,26 @@ go run ./scripts/agent-eval inventory benchmarks/agent-eval
 make agent-eval-contract
 ```
 
-The inventory output is aggregate-only. Neutral common cohorts must contain
-two or three unique surfaces with byte-identical prompts/schemas and matching
-semantic task, oracle, and data-capability contracts;
-surface-native cases are reported separately rather than scored as failures on
-interfaces that do not expose the capability.
+Inventory schema v2 is aggregate-only. In addition to task-class totals,
+`mcp_tools` reports each allowed typed tool in stable name order with total
+specs/repetitions and stable provider entries. Provider entries distinguish
+`n3_plus_specs`, all `n1_specs`, and the subset whose distinct scenario id is a
+holdout. `exact_invocation_specs`, `exact_n3_plus_specs`, and
+`exact_distinct_holdout_specs` count only contracts whose exact invocation
+oracle actually exercises that tool. This includes a single
+`mcp_invocations_equal` route or a tool present in every allowed
+`mcp_route_one_of` alternative; merely granting a tool does not prove coverage.
+`exact_primary_scenarios` and `exact_holdout_scenarios` count unique scenario
+ids, with `holdout` recognized as a complete dot, dash, or underscore-delimited
+token rather than a substring.
+The production MCP test requires this inventory
+to cover every advertised read-only tool, while the repository corpus test
+requires both reviewed providers to retain at least one exact n=3-plus primary
+and one exact distinct n=1 holdout per tool. Neutral common cohorts must contain two or three unique
+surfaces with byte-identical prompts/schemas and matching semantic task,
+oracle, and data-capability contracts; surface-native cases are reported
+separately rather than scored as failures on interfaces that do not expose the
+capability.
 
 Run-spec schema v7 retains the mandatory `data_capabilities` contract for
 neutral-common comparisons, models the complete private Codex CLI prompt-channel

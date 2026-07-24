@@ -174,6 +174,17 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("tools=%v want=%v", got, want)
 	}
+	inventory, err := agenteval.ValidateBenchmarkCorpus(filepath.Join("..", "..", "benchmarks", "agent-eval"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	covered := make([]string, len(inventory.MCPTools))
+	for index, tool := range inventory.MCPTools {
+		covered[index] = tool.Tool
+	}
+	if !slices.Equal(covered, want) {
+		t.Fatalf("advertised tools lack exact benchmark coverage: covered=%v want=%v", covered, want)
+	}
 }
 
 func TestMirrorSnapshotToolsAreOfflineContentFreeAndPathless(t *testing.T) {
