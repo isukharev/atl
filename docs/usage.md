@@ -3797,6 +3797,8 @@ atl jira structure rows 123 --root "release train"  # first matching subtree
 atl jira structure folders 123                     # stable folder ids, paths, subtree statistics
 atl jira structure view 123 --folder-id 100        # exact stable folder selector
 atl jira structure view 123 --folder-path 'Plans / Quarter' -o text
+atl jira structure view 123 --folder-id 100 \
+  --expected-forest-signature 55 --expected-forest-version 7 # bind a selector to one forest version
 atl jira structure values 123 --rows 100,101 --fields key,summary,status
 atl jira structure pull-issues 123 --fields summary,status
 atl jira structure export 123 --root "release train" --fields key,summary,status --format jsonl --out structure.jsonl
@@ -3857,6 +3859,32 @@ absolute `depth`/`parent_row_id`, adds `relative_depth`, and returns a
 case-insensitive and collapses whitespace per segment; use folder id/row when a
 folder name contains `/`. Completeness is scoped to emitted rows, so missing
 labels in an unrelated branch do not mark a selected subtree partial.
+
+`view` additionally accepts the paired optional flags
+`--expected-forest-signature` and `--expected-forest-version`, which bind one
+view to exactly one forest version. Omitting both is an explicitly ungated
+view. If either is supplied both are required, the signature must be non-zero,
+and the version must be positive; an unpaired or invalid pair is a usage error
+(exit `2`) decided before any backend request. When a `--folder-id`,
+`--folder-row`, or `--folder-path` selector came from an earlier `view` or
+`folders` result, copy both members of that result's `forest_version` into the
+later call. A selector fixed outside any earlier read may omit both and must
+then be read as ungated evidence. A stale pair fails with exit `8` after the
+first forest read and before any Structure Value or Jira issue expansion, so a
+caller that already lost the race does no projection work; the diagnostic
+carries only the expected and current signature/version integers.
+
+The gate is a single comparison against the forest the snapshot is built from;
+no additional forest request is made, and there is no final re-read after
+projection. Every successful snapshot therefore reports the `forest_version` it
+was assembled from plus `forest_version_gated` — true only when the caller
+supplied the exact pair. A returned pair with either member zero is
+non-bindable: do not pass it back through the expected-version flags, and keep
+the later selection explicitly ungated. The forest version qualifies the
+hierarchy and the selection only: Jira issue fields and stored-folder labels
+are read at separate times and are not covered by it. `export` has no
+expected-version flags, so its snapshots are always
+`forest_version_gated:false`.
 
 `rows` parses Structure's forest formula into a stable row list. `--root`
 matches the first row by row id, item id/type/semantic, or by selected Structure

@@ -24,7 +24,7 @@ The v1 surface is an explicit allowlist:
 | `jira_epic_digest` | Aggregate selected qualified epic evidence | `projection:compact`; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_board_view` | Freeze one board/backlog membership snapshot | default 200/maximum 1000 rows per scope; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_structure_get` | Read compact metadata for one exact Structure id | accepts a positive integer or canonical decimal string id; 32 KiB result cap; omits owner, permissions, saved views, and raw forest data |
-| `jira_structure_view` | Read a normalized full Structure or exact stored-folder subtree | default 200/maximum 1000 emitted rows; maximum 1000 scanned forest rows; default 256 KiB/maximum 1 MiB encoded result |
+| `jira_structure_view` | Read a normalized full Structure or exact stored-folder subtree | optional paired `expected_forest_signature`/`expected_forest_version` binding; default 200/maximum 1000 emitted rows; maximum 1000 scanned forest rows; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_mirror_snapshot` | Summarize local Jira mirror health without content | no arguments; exact owner-configured root; offline fixed-shape counts |
 | `confluence_search` | Search one qualified bounded CQL candidate page | default 25/maximum 100 rows; default 128 KiB/maximum 1 MiB encoded result |
 | `confluence_page_resolve` | Resolve an id or same-origin URL/path | exact resolution only |
@@ -115,6 +115,24 @@ the selection exceeds `max_rows` or `max_bytes`. It also rejects forests above
 be smaller; use the CLI for larger forests. Narrow the subtree before raising
 an emitted-row or byte bound. `complete:false`, `inaccessible_rows`, and
 `warnings` are evidence, not permission to probe raw forest/value endpoints.
+
+Bind a selection to the forest it came from. Whenever an earlier
+`jira_structure_view` supplied the `folder_id`, `folder_row`, or `folder_path`,
+copy both `forest_version.signature` and `forest_version.version` from that
+result into `expected_forest_signature` and `expected_forest_version`. Both
+inputs are optional but paired: one without the other, a zero signature, or a
+non-positive version is rejected before backend access. A matching result returns
+`forest_version_gated:true`; omitting both is an explicitly ungated selection
+that is appropriate only for a selector fixed outside any earlier read. The
+comparison happens once, against the forest the view is built from, before any
+folder-value or Jira issue expansion; there is no second forest request. Every
+successful view reports the `forest_version` it was assembled from, which
+qualifies the hierarchy and the selection only — Jira issue fields and stored
+folder labels are separately timed and are not covered by that version, so do
+not report them as one transactional snapshot. A returned pair with either
+member zero is non-bindable: omit both expected inputs, keep the selection
+explicitly ungated, and report that limitation. `jira_structure_get` metadata
+is not version-bound and takes no such input, and no new tool is added.
 If an exact selector fails with `view_then_select_subtree`, the Structure
 itself was found but the stored-folder selection is stale, ambiguous, or cannot
 be validated from the available labels. When the full forest fits the MCP
@@ -356,8 +374,15 @@ matching/available integer counts. Read one selector-free bounded view with a
 narrow field projection and `max_rows` sufficient for the full forest, choose
 the exact folder `row_id`, and request that `folder_row` subtree once. If the
 full forest does not fit the MCP row/byte caps, use the CLI; do not report the
-Structure as missing. Other Structure failures use coarse safe messages and
-retain their ordinary remediation.
+Structure as missing.
+A Jira Structure `check_failed` with
+`reread_structure_view_then_retry_expected_forest_version` means the supplied
+forest-version pair no longer matches the current forest. Its message is static
+apart from the expected and current
+signature/version integers. Re-read the view, re-select the subtree from that
+fresh result, and request it once with the new pair; never retry the old selector
+against a new forest version. Other Structure failures use coarse safe messages
+and retain their ordinary remediation.
 
 ## Install through the agent plugins
 
@@ -464,7 +489,8 @@ confirmed, then requests one normalized selection:
 
 ```text
 jira_structure_get
-  -> jira_structure_view (explicit fields and at most one exact folder selector)
+  -> jira_structure_view (explicit fields, selector-free bounded inventory)
+  -> jira_structure_view (one exact folder selector + that inventory's forest-version pair)
 ```
 
 ## Protocol and operations

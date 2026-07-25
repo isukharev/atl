@@ -170,6 +170,16 @@ Structure absence and unrelated validation failures retain their ordinary
 remediation and generic safe messages. CLI diagnostics and exits, successful
 Structure schemas, and read/write authority are unchanged.
 
+A `jira_structure_view` whose supplied `expected_forest_signature` /
+`expected_forest_version` pair does not match the current forest is
+`kind:"check_failed"` with
+`remediation:"reread_structure_view_then_retry_expected_forest_version"`. Its
+message is static apart from the expected and current signature/version
+integers, so it carries no row, folder, issue, or backend content. Recover by
+re-reading the view, re-selecting the subtree from that fresh result, and
+requesting it once with the new pair. Other Structure `check_failed` results keep
+their existing remediation.
+
 `jira_fields`, `jira_issue_search`, `jira_issue_history`, `jira_issue_refs`,
 `jira_epic_digest`, and `jira_board_view` reject a final encoded result larger than `max_bytes`
 (default 256 KiB, minimum 1 KiB, maximum 1 MiB). Row/source limits and compact
@@ -243,11 +253,27 @@ objects. Its required `structure_id` input accepts a positive JSON integer or
 the same value as a canonical decimal string without a sign, whitespace, or
 leading zero.
 `jira_structure_view` returns the same normalized schema-v1 snapshot described
-below with an explicit field projection. It accepts at most one exact stored
+below with an explicit field projection, including its required
+`forest_version` and `forest_version_gated` members. It accepts the optional
+paired integer inputs
+`expected_forest_signature` and `expected_forest_version`; supplying one without
+the other, a zero signature, or a non-positive version is rejected before
+backend access. Clients copy both members of an earlier view's `forest_version`
+whenever that view supplied the `folder_id`, `folder_row`, or `folder_path`
+selector, and a matching result has `forest_version_gated:true`. A returned
+pair with either member zero is non-bindable: clients omit both expected inputs
+and report the later selection as explicitly ungated. Otherwise omission is
+valid only for a selector fixed outside any earlier read.
+`jira_structure_get` metadata is not version-bound and gains no such input. It
+accepts at most one exact stored
 folder selector and fails rather than truncating when the selected hierarchy
 exceeds `max_rows` or the encoded snapshot exceeds `max_bytes`. Its row,
-unique-issue, projection, accessibility, selection, and completeness fields are
-reconciled before emission. A selected snapshot must begin with the exact
+unique-issue, projection, accessibility, selection, completeness, and
+forest-version fields are validated before emission, including a
+`forest_version_gated` value that matches the request and, when gated, a
+`forest_version` equal to the requested pair. The forest version qualifies only
+the hierarchy and the selection, because Jira issue fields and stored folder
+labels are separately timed. A selected snapshot must begin with the exact
 selected stored-folder row at relative depth zero; exact path selections are
 normalized and compared with the returned path. A typed
 `view_then_select_subtree` failure is recoverable when the full forest fits the
@@ -2123,13 +2149,14 @@ value matrix under `responses` and `raw`; if the backend reports permission
 gaps, normalized row ids are also exposed as `inaccessible_rows`. The field is
 always present; when there are no reported gaps it is `[]`.
 
-`atl jira structure view <ID>` returns a normalized, version-checked snapshot:
+`atl jira structure view <ID>` returns a normalized snapshot:
 
 ```json
 {
   "schema_version": 1,
   "structure": {"id": 123, "name": "Quarter plan", "read_only": true},
   "forest_version": {"signature": 55, "version": 7},
+  "forest_version_gated": false,
   "projection": {
     "kind": "jira-fields-v1",
     "source": "list-view",
@@ -2156,6 +2183,29 @@ always present; when there are no reported gaps it is `[]`.
 `projection.source` is `list-view` for the built-in default, `full`, and custom
 named views; it is `explicit` when `--fields` wins. The selected preset name is
 reported separately as `projection.view`.
+
+Every successful snapshot keeps `schema_version:1` and always carries
+`forest_version` — the forest the snapshot was assembled from — and
+`forest_version_gated`. `forest_version_gated:true` means the caller supplied
+that exact pair through the paired `--expected-forest-signature` and
+`--expected-forest-version` flags, and the snapshot's `forest_version` then
+equals it. Omitting both flags is an explicitly ungated view. If either is
+supplied both are required, the signature must be non-zero, and the version must
+be positive; an unpaired or invalid pair is a usage error and exits `2` before
+any backend request. A supplied pair that does not match exits `8`: the
+comparison runs on the initial forest read, before Structure Value or Jira issue
+expansion, and the diagnostic carries only the expected and current
+signature/version integers. There is no second forest request and no final
+re-read. A returned pair with either member zero is non-bindable: do not pass it
+as an expected pair, and treat a later selection as explicitly ungated. Copy
+both non-zero members of a returned `forest_version` into a later call
+whenever its `--folder-id`, `--folder-row`, or `--folder-path` selector came
+from an earlier `view` or `folders` result; a selector fixed outside any earlier
+read may omit them and is then explicitly ungated evidence. The forest version
+qualifies the hierarchy and the selection only — Jira issue fields and stored
+folder labels are separately timed and are not covered by it. The `-o text`
+header states the signature, version, and gated facts alongside the projection
+and row count.
 
 `-o text` renders emitted `#`, numeric Depth (relative when selected), technical
 Type/Item, separate Jira value columns, and Access. It does not duplicate key
@@ -2212,8 +2262,11 @@ artifact and returns a small result object:
 ```
 
 JSON and Markdown contain the same normalized snapshot as `structure view`.
-JSONL has one self-contained record per row, including schema, structure id,
-versions, projection, and row, which makes line-oriented filtering safe. CSV
+`export` adds no expected-version flags, so its snapshots are always
+`forest_version_gated:false`; Markdown states that signature, version, and gated
+value in its header note. JSONL has one self-contained record per row, including
+schema, structure id, `forest_version`, `forest_version_gated`, projection, and
+row, which makes line-oriented filtering safe. CSV
 contains row metadata (`row_id`, `depth`, `relative_depth`, `parent_row_id`, `position`,
 `item_type`, `item_id`, `accessible`) plus selected Structure attributes. CSV cells use the
 same default formula neutralization as `jira export`; `--raw-csv` disables it

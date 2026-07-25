@@ -30,6 +30,17 @@
       },
       "required": ["selector_free", "row_count", "folder_count", "issue_count", "complete"]
     },
+    "forest_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "signature": {"type": "integer"},
+        "version": {"type": "integer", "minimum": 1},
+        "inventory_gated": {"type": "boolean"},
+        "subtree_gated": {"type": "boolean"}
+      },
+      "required": ["signature", "version", "inventory_gated", "subtree_gated"]
+    },
     "selected_folder": {
       "type": "object",
       "additionalProperties": false,
@@ -82,7 +93,7 @@
     "brief": {"type": "string", "minLength": 1, "maxLength": 120}
   },
   "required": [
-    "structure_id", "structure_name", "initial_selection", "inventory",
+    "structure_id", "structure_name", "initial_selection", "inventory", "forest_binding",
     "selected_folder", "projection_fields", "subtree", "ordered_rows",
     "inaccessible_rows", "answer_issue_keys", "warnings_count",
     "evidence_complete", "structure_missing_claimed", "rejected_result_used",

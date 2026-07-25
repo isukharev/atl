@@ -507,6 +507,7 @@ atl jira sprint current --board 5              # активный спринт
 atl jira structure get 123                     # метаданные одного точного Structure
 atl jira structure folders 123                 # точные поддеревья; пустые labels остаются явными
 atl jira structure view 123 --folder-id 100 -o text
+atl jira structure view 123 --folder-id 100 --expected-forest-signature 55 --expected-forest-version 7 # привязать селектор из view к одной версии forest
 atl jira planning report --jql 'project = PROJ' --limit 100
 atl jira quality-report --jql 'project = PROJ' # compatibility alias
 atl jira issue link suggest --csv links.csv     # read-only анализ кандидатов

@@ -72,7 +72,7 @@ Load this reference only when exact command or flag lookup is useful.
 | `jira board export <ID>` | Write normalized board artifact | `--scope`, `--view`, `--columns`, `--jql`, `--limit`, `--format json/jsonl/csv/md`, `--out`, `--raw-csv` |
 | `jira sprint issues <ID>` | Read one sprint IssueList page | `--view`, `--columns`, `--limit`, `--cursor`, `-o text/id` |
 | `jira structure get <ID>` | Get Structure metadata | `-o id` |
-| `jira structure view <ID>` | Read normalized hierarchy + Jira fields | exact folder selector or fuzzy `--root`, `--view`, `--fields`, `--batch-size`, `-o text/id` |
+| `jira structure view <ID>` | Read normalized hierarchy + Jira fields, optionally bound to one forest version | exact folder selector or fuzzy `--root`, paired `--expected-forest-signature`/`--expected-forest-version`, `--view`, `--fields`, `--batch-size`, `-o text/id` |
 | `jira structure forest <ID>` | Get raw latest Structure forest formula | — |
 | `jira structure rows <ID>` | Parse Structure forest rows | exact folder selector or fuzzy `--root`, `--root-fields`, `-o id` |
 | `jira structure folders <ID>` | Discover stable stored folders, paths, and subtree statistics without Jira issue reads | `-o text/id` |

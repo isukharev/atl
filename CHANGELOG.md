@@ -38,6 +38,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `jira structure view` now accepts the paired
+  `--expected-forest-signature` and `--expected-forest-version` flags, and the
+  read-only `jira_structure_view` MCP tool exposes the matching optional
+  inputs. A selector derived from an earlier view can therefore be bound to
+  that exact forest before folder-value or Jira issue expansion; a stale pair
+  fails with exit `8` or a static pair-only MCP remediation. Successful views
+  report the always-present `forest_version_gated` state, while Jira fields and
+  stored-folder labels remain explicitly separately timed. Structure JSON and
+  JSONL exports carry the same gated state, and Markdown export headers report
+  the forest signature, version, and gate status; exports remain ungated
+  because they accept no expected-version flags.
+
 - Added typed read-only MCP `jira_issue_refs` for bounded, reconciled reference
   summaries over one exact issue or a JQL selection capped at 25 issues. Its
   schema-v1 projection preserves selection, source qualification, per-issue

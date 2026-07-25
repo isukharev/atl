@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -78,6 +79,145 @@ func (t *valueRootTracker) Search(_ context.Context, jql string, _ []string, _ i
 	}, "", nil
 }
 
+// forestVersionReader serves one folder + one issue row at a fixed version.
+type forestVersionReader struct {
+	forestCalls *int
+	valuesCalls *int
+	version     domain.StructureVersion
+}
+
+func (forestVersionReader) GetStructure(context.Context, int64) (*domain.Structure, error) {
+	return &domain.Structure{ID: 1, Name: "Synthetic"}, nil
+}
+
+func (r forestVersionReader) StructureForest(context.Context, int64) (*domain.StructureForest, error) {
+	(*r.forestCalls)++
+	return &domain.StructureForest{
+		Formula:   "10:0:1/f-root,11:1:10001",
+		ItemTypes: map[string]string{"1": "folder"},
+		Version:   r.version,
+	}, nil
+}
+
+func (r forestVersionReader) StructureValues(context.Context, int64, []int64, []string) (*domain.StructureValues, error) {
+	(*r.valuesCalls)++
+	return &domain.StructureValues{
+		Responses: []map[string]any{{
+			"rows": []any{float64(10)},
+			"data": []any{map[string]any{"attribute": map[string]any{"id": "summary"}, "values": []any{"Folder"}}},
+		}},
+		InaccessibleRows: []int64{},
+	}, nil
+}
+
+func newForestVersionService(version domain.StructureVersion) (*JiraService, *valueRootTracker, *int, *int) {
+	forestCalls, valuesCalls := 0, 0
+	tracker := &valueRootTracker{}
+	svc := &JiraService{tr: tracker, structure: forestVersionReader{
+		forestCalls: &forestCalls, valuesCalls: &valuesCalls, version: version,
+	}}
+	return svc, tracker, &forestCalls, &valuesCalls
+}
+
+func TestStructureSnapshotBindsMatchingExpectedForestVersion(t *testing.T) {
+	svc, _, forestCalls, _ := newForestVersionService(domain.StructureVersion{Signature: 55, Version: 7})
+
+	got, err := svc.StructureSnapshot(t.Context(), 1, StructureSnapshotOpts{
+		Attributes:            []string{"key", "summary"},
+		ExpectedForestVersion: &domain.StructureVersion{Signature: 55, Version: 7},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.ForestVersionGated {
+		t.Fatal("matching expected forest version was not reported as gated")
+	}
+	if got.ForestVersion != (domain.StructureVersion{Signature: 55, Version: 7}) || got.RowCount != 2 {
+		t.Fatalf("snapshot version=%+v rows=%d", got.ForestVersion, got.RowCount)
+	}
+	if *forestCalls != 1 {
+		t.Fatalf("forest reads = %d, want one initial read", *forestCalls)
+	}
+}
+
+func TestStructureSnapshotReportsUngatedReadWithoutExtraForestRequest(t *testing.T) {
+	svc, _, forestCalls, _ := newForestVersionService(domain.StructureVersion{Signature: 55, Version: 7})
+
+	got, err := svc.StructureSnapshot(t.Context(), 1, StructureSnapshotOpts{Attributes: []string{"key"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ForestVersionGated {
+		t.Fatal("view without an expected pair was reported as gated")
+	}
+	if *forestCalls != 1 {
+		t.Fatalf("forest reads = %d, want no extra forest read", *forestCalls)
+	}
+}
+
+func TestStructureSnapshotRejectsStaleExpectedForestVersionBeforeProjection(t *testing.T) {
+	svc, tracker, forestCalls, valuesCalls := newForestVersionService(domain.StructureVersion{Signature: 55, Version: 7})
+
+	got, err := svc.StructureSnapshot(t.Context(), 1, StructureSnapshotOpts{
+		Attributes:            []string{"key", "summary"},
+		ExpectedForestVersion: &domain.StructureVersion{Signature: 55, Version: 6},
+	})
+	var mismatch *StructureForestVersionMismatchError
+	if got != nil || !errors.As(err, &mismatch) || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("snapshot=%v err=%v, want a typed check failure and no snapshot", got, err)
+	}
+	if mismatch.Expected != (domain.StructureVersion{Signature: 55, Version: 6}) ||
+		mismatch.Current != (domain.StructureVersion{Signature: 55, Version: 7}) {
+		t.Fatalf("mismatch=%+v, want the supplied and observed pairs", mismatch)
+	}
+	if *forestCalls != 1 {
+		t.Fatalf("forest reads = %d, want only the initial read before failing closed", *forestCalls)
+	}
+	if *valuesCalls != 0 || tracker.searchCalls != 0 {
+		t.Fatalf("value calls=%d search calls=%d, want no projection work on a stale expectation", *valuesCalls, tracker.searchCalls)
+	}
+}
+
+func TestStructureSnapshotRejectsIncompleteExpectedForestVersionBeforeBackendAccess(t *testing.T) {
+	for _, expected := range []domain.StructureVersion{
+		{Signature: 0, Version: 7},
+		{Signature: 55, Version: 0},
+		{Signature: 55, Version: -1},
+	} {
+		svc := &JiraService{}
+		_, err := svc.StructureSnapshot(t.Context(), 1, StructureSnapshotOpts{ExpectedForestVersion: &expected})
+		if !errors.Is(err, domain.ErrUsage) {
+			t.Fatalf("expected=%+v error=%v, want usage before any backend read", expected, err)
+		}
+	}
+}
+
+func TestStructureForestVersionMismatchCarriesOnlyIntegerVersionEvidence(t *testing.T) {
+	err := newStructureForestVersionMismatch(
+		domain.StructureVersion{Signature: 55, Version: 7},
+		domain.StructureVersion{Signature: 56, Version: 8},
+	)
+	want := "check failed: Structure forest version mismatch: expected signature=55 version=7, got signature=56 version=8"
+	if err.Error() != want {
+		t.Fatalf("message=%q want %q", err.Error(), want)
+	}
+	if !errors.Is(err, domain.ErrCheckFailed) || errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("sentinel mapping lost: %v", err)
+	}
+	versionType := reflect.TypeOf(domain.StructureVersion{})
+	errorType := reflect.TypeOf(*err)
+	for i := range errorType.NumField() {
+		if field := errorType.Field(i); field.Type != versionType {
+			t.Fatalf("field %q has type %s, want an integer version pair", field.Name, field.Type)
+		}
+	}
+	for i := range versionType.NumField() {
+		if field := versionType.Field(i); field.Type.Kind() != reflect.Int64 {
+			t.Fatalf("version field %q has kind %s, want int64", field.Name, field.Type.Kind())
+		}
+	}
+}
+
 func TestNormalizeStructureValueRowsMapsAttributeMatrix(t *testing.T) {
 	values := &domain.StructureValues{Responses: []map[string]any{{
 		"rows": []any{float64(100), float64(101)},
@@ -98,9 +238,10 @@ func TestNormalizeStructureValueRowsMapsAttributeMatrix(t *testing.T) {
 
 func TestRenderStructureSnapshotIsCompactAndStreamFriendly(t *testing.T) {
 	snapshot := &StructureSnapshot{
-		SchemaVersion: 1,
-		Structure:     StructureSnapshotMetadata{ID: 123, Name: "Quarter | plan"},
-		ForestVersion: domain.StructureVersion{Signature: 55, Version: 7},
+		SchemaVersion:      1,
+		Structure:          StructureSnapshotMetadata{ID: 123, Name: "Quarter | plan"},
+		ForestVersion:      domain.StructureVersion{Signature: 55, Version: 7},
+		ForestVersionGated: true,
 		Projection: StructureProjection{
 			Kind: "atl-attributes-v1", Source: "explicit", Attributes: []string{"key", "summary", "status"},
 		},
@@ -113,7 +254,9 @@ func TestRenderStructureSnapshotIsCompactAndStreamFriendly(t *testing.T) {
 	}
 
 	md := string(renderStructureSnapshotMarkdown(snapshot))
-	if !strings.Contains(md, `Line one line \| two`) || !strings.Contains(md, "| Open |") || strings.Contains(md, "example.invalid") {
+	if !strings.Contains(md, `Line one line \| two`) || !strings.Contains(md, "| Open |") ||
+		!strings.Contains(md, "gated: `true`") ||
+		!strings.Contains(md, "separately timed") || strings.Contains(md, "example.invalid") {
 		t.Fatalf("Markdown is not compact/safe:\n%s", md)
 	}
 	jsonl, err := renderStructureSnapshot("jsonl", snapshot, false)
@@ -121,14 +264,16 @@ func TestRenderStructureSnapshotIsCompactAndStreamFriendly(t *testing.T) {
 		t.Fatal(err)
 	}
 	var record struct {
-		StructureID int64                `json:"structure_id"`
-		Projection  StructureProjection  `json:"projection"`
-		Row         StructureSnapshotRow `json:"row"`
+		StructureID        int64                `json:"structure_id"`
+		ForestVersionGated bool                 `json:"forest_version_gated"`
+		Projection         StructureProjection  `json:"projection"`
+		Row                StructureSnapshotRow `json:"row"`
 	}
 	if err := json.Unmarshal(jsonl, &record); err != nil {
 		t.Fatalf("JSONL record: %v\n%s", err, jsonl)
 	}
-	if record.StructureID != 123 || record.Projection.Attributes[2] != "status" || record.Row.RowID != 100 {
+	if record.StructureID != 123 || !record.ForestVersionGated ||
+		record.Projection.Attributes[2] != "status" || record.Row.RowID != 100 {
 		t.Fatalf("JSONL record=%+v", record)
 	}
 }

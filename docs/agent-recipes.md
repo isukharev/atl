@@ -293,6 +293,8 @@ jq -s '[.[] | select(.row.values.status != "Done")]' board.jsonl
 
 atl jira structure folders 123 -o text
 atl jira structure view 123 --folder-path 'Plans / Quarter' --view full -o text
+atl jira structure view 123 --folder-id 100 \
+  --expected-forest-signature 55 --expected-forest-version 7
 atl jira structure export 123 \
   --folder-id 100 --fields key,summary,status,assignee \
   --format jsonl --out structure.jsonl
@@ -301,6 +303,18 @@ atl jira structure export 123 \
 Structure browser saved-view columns are not reproduced. Select fields or a
 named view explicitly. Treat `complete:false`, inaccessible rows, truncation,
 and warnings as partial results rather than an empty plan.
+
+When a folder selector came from an earlier `structure view` or `structure
+folders` result, copy both members of that result's `forest_version` into the
+next `view` call. The two flags are paired and optional: omitting both is an
+explicitly ungated view, an unpaired or invalid pair exits `2`, and a pair that
+does not match the current forest exits `8` before any Jira issue expansion.
+Read `forest_version` and `forest_version_gated` from the result: they qualify
+the hierarchy and the selection, while Jira issue fields and stored folder
+labels stay separately timed.
+If either returned version member is zero, the pair is non-bindable: omit both
+expected flags and report the later selection as explicitly ungated instead of
+claiming version-bound evidence.
 
 ## Read and edit a Confluence page
 

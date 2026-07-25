@@ -501,6 +501,7 @@ atl jira sprint current --board 5              # resolve the active sprint
 atl jira structure get 123                     # qualify one exact Structure metadata document
 atl jira structure folders 123                 # discover exact stored subtrees; empty labels stay explicit
 atl jira structure view 123 --folder-id 100 -o text
+atl jira structure view 123 --folder-id 100 --expected-forest-signature 55 --expected-forest-version 7 # bind a view-derived selector to one forest version
 atl jira planning report --jql 'project = PROJ' --limit 100
 atl jira quality-report --jql 'project = PROJ' # compatibility alias
 atl jira issue link suggest --csv links.csv     # read-only candidate analysis
