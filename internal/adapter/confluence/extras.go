@@ -112,12 +112,37 @@ func (cf *Confluence) AddComment(ctx context.Context, id string, body []byte) (*
 	return &domain.Comment{ID: out.ID, Body: string(body)}, nil
 }
 
-// ListAttachments returns a page's attachments. It follows _links.next, paging
-// until the server stops signaling more.
+// ListAttachments returns a page's attachments. It is the compatibility
+// surface: it delegates to ListAttachmentsQualified and intentionally drops the
+// qualification, so an inventory cut short by a safety cap is indistinguishable
+// from an exhausted one. New callers that must not mistake a capped listing for
+// a complete one use ListAttachmentsQualified instead.
 func (cf *Confluence) ListAttachments(ctx context.Context, id string) ([]domain.Attachment, error) {
+	inventory, err := cf.ListAttachmentsQualified(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return inventory.Attachments, nil
+}
+
+// ListAttachmentsQualified returns a page's attachments with explicit
+// completeness. It follows _links.next until the server stops signaling more
+// (complete) and otherwise reports the exact limiter that stopped it: the page
+// cap, the item cap, or a page that advertised more while making no progress.
+// The item cap is enforced per attachment, so the returned slice never exceeds
+// it silently.
+func (cf *Confluence) ListAttachmentsQualified(ctx context.Context, id string) (domain.AttachmentInventory, error) {
 	start := 0
 	out := []domain.Attachment{}
-	for page := 0; page < maxPages && len(out) < maxItems; page++ {
+	partial := func(reason string) (domain.AttachmentInventory, error) {
+		return domain.AttachmentInventory{Attachments: out, PartialReason: reason}, nil
+	}
+	for page := 0; page < maxPages; page++ {
+		// Reaching a later iteration means the previous page both advertised more
+		// and made progress, so a filled collection is provably a prefix.
+		if len(out) >= maxItems {
+			return partial(domain.AttachmentPartialItemLimit)
+		}
 		var resp struct {
 			Results []struct {
 				ID       string `json:"id"`
@@ -146,21 +171,33 @@ func (cf *Confluence) ListAttachments(ctx context.Context, id string) ([]domain.
 		q.Set("start", strconv.Itoa(start))
 		path := "/rest/api/content/" + url.PathEscape(id) + "/child/attachment?" + q.Encode()
 		if err := cf.c.GetJSON(ctx, path, &resp); err != nil {
-			return nil, err
+			return domain.AttachmentInventory{}, err
 		}
 		for _, r := range resp.Results {
+			if len(out) >= maxItems {
+				// One response carried more rows than the cap allows; stop exactly at
+				// the cap instead of silently exceeding it.
+				return partial(domain.AttachmentPartialItemLimit)
+			}
 			out = append(out, domain.Attachment{
 				ID: r.ID, Title: r.Title, MediaType: r.Metadata.MediaType,
 				FileSize: r.Extensions.FileSize, Version: r.Version.Number,
 				Comment: r.Extensions.Comment, DownPath: r.Links.Download,
 			})
 		}
-		if resp.Links.Next == "" || len(resp.Results) == 0 {
-			break
+		if resp.Links.Next == "" {
+			return domain.AttachmentInventory{Attachments: out, Complete: true}, nil // server exhausted at or under the caps
+		}
+		if len(resp.Results) == 0 {
+			// The server still advertises more but returned nothing, so paging cannot
+			// progress. Reporting exhaustion here would fabricate completeness.
+			return partial(domain.AttachmentPartialPaginationStalled)
 		}
 		start += len(resp.Results)
 	}
-	return out, nil
+	// The loop only reaches here by exhausting the page cap; every natural exit
+	// returns above, so the last page still signaled _links.next.
+	return partial(domain.AttachmentPartialPageLimit)
 }
 
 // DownloadAttachment streams attachment bytes. version<=0 means latest. The

@@ -29,7 +29,7 @@ func TestRepositoryBenchmarkCorpusContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	if inventory.SchemaVersion != 2 || inventory.Scenarios < 1 || inventory.Runs < inventory.Scenarios ||
-		len(inventory.Classes) < 1 || len(inventory.MCPTools) != 16 {
+		len(inventory.Classes) < 1 || len(inventory.MCPTools) != 17 {
 		t.Fatalf("inventory=%+v", inventory)
 	}
 	previous := ""

@@ -41,7 +41,7 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"confluence_mirror_snapshot",
+		"confluence_attachment_list", "confluence_mirror_snapshot",
 		"confluence_page_outline", "confluence_page_resolve", "confluence_page_section", "confluence_search",
 		"confluence_table_extract", "confluence_table_summary",
 		"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_history",
@@ -139,6 +139,44 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 			}
 			if !schemaRequired(output, "complete") {
 				t.Errorf("tool %s output must require complete: %#v", tool.Name, tool.OutputSchema)
+			}
+		}
+		if tool.Name == "confluence_attachment_list" {
+			properties, _ := input["properties"].(map[string]any)
+			maxBytes, _ := properties["max_bytes"].(map[string]any)
+			description, _ := maxBytes["description"].(string)
+			if !schemaRequired(input, "reference") || !schemaRequired(input, "expected_page_version") {
+				t.Errorf("tool %s must require reference and expected_page_version: %#v", tool.Name, tool.InputSchema)
+			}
+			if !strings.Contains(description, "1024 to 1048576") || !strings.Contains(description, "default 131072") {
+				t.Errorf("tool %s must advertise its byte bound: %#v", tool.Name, tool.InputSchema)
+			}
+			// No selector may reach an attachment's bytes, download path, or comment.
+			for _, forbidden := range []string{"download", "content", "filename", "attachment_id", "comment", "version"} {
+				if _, exists := properties[forbidden]; exists {
+					t.Errorf("tool %s must not expose a %s selector: %#v", tool.Name, forbidden, tool.InputSchema)
+				}
+			}
+			output, _ := tool.OutputSchema.(map[string]any)
+			for _, required := range []string{"schema_version", "page_id", "page_version", "count", "complete", "attachments"} {
+				if !schemaRequired(output, required) {
+					t.Errorf("tool %s output must require %s: %#v", tool.Name, required, tool.OutputSchema)
+				}
+			}
+			if schemaRequired(output, "partial_reason") {
+				t.Errorf("tool %s partial_reason must stay optional: %#v", tool.Name, tool.OutputSchema)
+			}
+			encoded, marshalErr := json.Marshal(tool.OutputSchema)
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			for _, forbidden := range []string{`"comment"`, `"download`, `"url"`, `"page_title"`, `"body"`} {
+				if bytes.Contains(encoded, []byte(forbidden)) {
+					t.Errorf("tool %s output schema advertises %s: %s", tool.Name, forbidden, encoded)
+				}
+			}
+			if !strings.Contains(tool.Description, "untrusted evidence") {
+				t.Errorf("tool %s must mark attachment titles untrusted: %q", tool.Name, tool.Description)
 			}
 		}
 		if tool.Name == "confluence_table_extract" && (!schemaRequired(input, "reference") || !schemaRequired(input, "table")) {
@@ -2331,6 +2369,375 @@ func TestConfluenceTableSelectionErrorIsDistinctAndContentFree(t *testing.T) {
 	}
 }
 
+// attachmentInventoryClient wires one recording reader into a live session.
+func attachmentInventoryClient(t *testing.T, reader *recordingConfluenceReader) *mcp.ClientSession {
+	t.Helper()
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Confluence: func() (ConfluenceReader, error) { return reader, nil },
+	}))
+	t.Cleanup(closeSessions)
+	return client
+}
+
+func TestConfluenceAttachmentListForwardsExactInput(t *testing.T) {
+	reader := &recordingConfluenceReader{}
+	client := attachmentInventoryClient(t, reader)
+	result := callToolOK(t, client, "confluence_attachment_list", map[string]any{
+		"reference": "/pages/viewpage.action?pageId=42", "expected_page_version": 7,
+	})
+	if reader.attachmentReference != "/pages/viewpage.action?pageId=42" || reader.attachmentOpts.ExpectedPageVersion != 7 {
+		t.Fatalf("reference=%q opts=%+v", reader.attachmentReference, reader.attachmentOpts)
+	}
+	content, ok := result.StructuredContent.(map[string]any)
+	if !ok || content["schema_version"] != float64(1) || content["page_id"] != "42" ||
+		content["page_version"] != float64(7) || content["count"] != float64(0) || content["complete"] != true {
+		t.Fatalf("content=%#v", result.StructuredContent)
+	}
+	attachments, ok := content["attachments"].([]any)
+	if !ok || len(attachments) != 0 {
+		t.Fatalf("an exhausted empty inventory must be an empty array: %#v", result.StructuredContent)
+	}
+	if _, exists := content["partial_reason"]; exists {
+		t.Fatalf("a complete inventory must omit partial_reason: %#v", result.StructuredContent)
+	}
+}
+
+// The projection is the privacy boundary: the source record carries an author
+// comment and a download path, and neither may cross it.
+func TestConfluenceAttachmentListOutputIsMetadataOnly(t *testing.T) {
+	const marker = "SYNTHETIC-ATTACHMENT-SECRET"
+	reader := &recordingConfluenceReader{attachmentResult: &app.ConfluenceAttachmentInventoryResult{
+		SchemaVersion: 1, PageID: "42", PageVersion: 7, Count: 1, Complete: true,
+		Attachments: []domain.Attachment{{
+			ID: "att1", Title: "diagram.png", MediaType: "image/png", FileSize: 4096, Version: 3,
+			Comment: "comment " + marker, DownPath: "/download/attachments/42/" + marker + ".png",
+		}},
+	}}
+	client := attachmentInventoryClient(t, reader)
+	result := callToolOK(t, client, "confluence_attachment_list", map[string]any{
+		"reference": "42", "expected_page_version": 7,
+	})
+	content, _ := result.StructuredContent.(map[string]any)
+	attachments, ok := content["attachments"].([]any)
+	if !ok || len(attachments) != 1 {
+		t.Fatalf("content=%#v", result.StructuredContent)
+	}
+	attachment, _ := attachments[0].(map[string]any)
+	if attachment["id"] != "att1" || attachment["title"] != "diagram.png" || attachment["media_type"] != "image/png" ||
+		attachment["file_size"] != float64(4096) || attachment["version"] != float64(3) {
+		t.Fatalf("attachment=%#v", attachment)
+	}
+	for _, forbidden := range []string{"comment", "down_path", "downPath", "download"} {
+		if _, exists := attachment[forbidden]; exists {
+			t.Fatalf("attachment projection exposed %q: %#v", forbidden, attachment)
+		}
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{marker, "/download/", "comment"} {
+		if bytes.Contains(encoded, []byte(forbidden)) {
+			t.Fatalf("attachment inventory leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestConfluenceAttachmentListSurfacesStaticPartialReason(t *testing.T) {
+	for _, reason := range []string{"page_limit", "item_limit", "pagination_stalled", "legacy_unqualified"} {
+		t.Run(reason, func(t *testing.T) {
+			reader := &recordingConfluenceReader{attachmentResult: &app.ConfluenceAttachmentInventoryResult{
+				SchemaVersion: 1, PageID: "42", PageVersion: 7, Count: 1, PartialReason: reason,
+				Attachments: []domain.Attachment{{ID: "att1", Title: "one.png"}},
+			}}
+			client := attachmentInventoryClient(t, reader)
+			result := callToolOK(t, client, "confluence_attachment_list", map[string]any{
+				"reference": "42", "expected_page_version": 7,
+			})
+			content, _ := result.StructuredContent.(map[string]any)
+			if content["complete"] != false || content["partial_reason"] != reason {
+				t.Fatalf("content=%#v", result.StructuredContent)
+			}
+		})
+	}
+}
+
+// The tool refuses an unbound read outright, before any backend call. Omitting
+// the version entirely is rejected by the strict input schema; a present but
+// non-positive version is rejected by the handler.
+func TestConfluenceAttachmentListRequiresPositiveExpectedVersion(t *testing.T) {
+	reader := &recordingConfluenceReader{}
+	client := attachmentInventoryClient(t, reader)
+	if _, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "confluence_attachment_list", Arguments: map[string]any{"reference": "42"},
+	}); err == nil {
+		t.Fatal("an omitted expected_page_version must be rejected by the input schema")
+	}
+	for _, args := range []map[string]any{
+		{"reference": "42", "expected_page_version": 0},
+		{"reference": "42", "expected_page_version": -3},
+		{"reference": "   ", "expected_page_version": 7},
+	} {
+		result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+			Name: "confluence_attachment_list", Arguments: args,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.IsError || result.StructuredContent != nil {
+			t.Fatalf("args=%#v result=%+v", args, result)
+		}
+		text, _ := result.Content[0].(*mcp.TextContent)
+		var got toolError
+		if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "usage_error" ||
+			got.Message != "invalid Confluence attachment inventory request" {
+			t.Fatalf("args=%#v error=%+v decode=%v", args, got, err)
+		}
+	}
+	if reader.attachmentCalls != 0 {
+		t.Fatalf("an unbound request reached the backend %d times", reader.attachmentCalls)
+	}
+}
+
+func TestConfluenceAttachmentListRejectsOutOfRangeByteBounds(t *testing.T) {
+	for _, maxBytes := range []int{1023, 1048577, -1} {
+		reader := &recordingConfluenceReader{}
+		client := attachmentInventoryClient(t, reader)
+		result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+			Name:      "confluence_attachment_list",
+			Arguments: map[string]any{"reference": "42", "expected_page_version": 7, "max_bytes": maxBytes},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.IsError || reader.attachmentCalls != 0 {
+			t.Fatalf("max_bytes=%d result=%+v calls=%d", maxBytes, result, reader.attachmentCalls)
+		}
+		text, ok := result.Content[0].(*mcp.TextContent)
+		if !ok {
+			t.Fatalf("content=%T", result.Content[0])
+		}
+		var got toolError
+		if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "usage_error" ||
+			got.Message != "invalid Confluence attachment inventory request" {
+			t.Fatalf("error=%+v decode=%v", got, err)
+		}
+	}
+}
+
+// An oversize inventory is refused, never clipped: a silently shortened
+// attachment list is exactly the false-absence evidence this tool prevents.
+func TestConfluenceAttachmentListRefusesOversizeInventoryWithoutClipping(t *testing.T) {
+	attachments := make([]domain.Attachment, 0, 200)
+	for i := 0; i < 200; i++ {
+		attachments = append(attachments, domain.Attachment{
+			ID: fmt.Sprintf("att%03d", i), Title: fmt.Sprintf("attachment-%03d.png", i),
+			MediaType: "image/png", FileSize: int64(i), Version: 1,
+		})
+	}
+	reader := &recordingConfluenceReader{attachmentResult: &app.ConfluenceAttachmentInventoryResult{
+		SchemaVersion: 1, PageID: "42", PageVersion: 7, Count: len(attachments), Complete: true,
+		Attachments: attachments,
+	}}
+	client := attachmentInventoryClient(t, reader)
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "confluence_attachment_list",
+		Arguments: map[string]any{"reference": "42", "expected_page_version": 7, "max_bytes": 1024},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || result.StructuredContent != nil {
+		t.Fatalf("result=%+v", result)
+	}
+	text, _ := result.Content[0].(*mcp.TextContent)
+	var got toolError
+	if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "output_limit_exceeded" ||
+		got.Remediation != "raise_bound_or_use_cli_attachment_list" ||
+		got.Message != "Confluence attachment inventory exceeds the selected output bound" {
+		t.Fatalf("error=%+v decode=%v", got, err)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte("attachment-000.png")) {
+		t.Fatalf("a rejected inventory leaked its rows: %s", encoded)
+	}
+
+	// The same inventory is returned whole once the bound admits it.
+	ok := callToolOK(t, client, "confluence_attachment_list", map[string]any{
+		"reference": "42", "expected_page_version": 7, "max_bytes": 128 << 10,
+	})
+	content, _ := ok.StructuredContent.(map[string]any)
+	rows, _ := content["attachments"].([]any)
+	if len(rows) != len(attachments) || content["count"] != float64(len(attachments)) {
+		t.Fatalf("bounded inventory was clipped: %d rows", len(rows))
+	}
+}
+
+// A moved page is reported with two integers and nothing else.
+func TestConfluenceAttachmentListVersionMismatchIsContentFree(t *testing.T) {
+	reader := &recordingConfluenceReader{
+		attachmentErr: &app.ConfluencePageVersionMismatchError{Expected: 7, Current: 9},
+	}
+	client := attachmentInventoryClient(t, reader)
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "confluence_attachment_list",
+		Arguments: map[string]any{"reference": "42", "expected_page_version": 7},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content=%T", result.Content[0])
+	}
+	var got toolError
+	if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "check_failed" ||
+		got.Remediation != "reread_page_then_retry_expected_version" ||
+		got.Message != "expected Confluence page version 7 does not match the current page version 9" {
+		t.Fatalf("error=%+v decode=%v", got, err)
+	}
+}
+
+// Every non-mismatch failure is a static sentence, including backend and
+// transport failures, so no backend diagnostic or page text can cross.
+func TestConfluenceAttachmentListErrorsAreStaticAndContentFree(t *testing.T) {
+	const marker = "SYNTHETIC-ATTACHMENT-BACKEND-SECRET"
+	for _, test := range []struct {
+		name, kind, message string
+		err                 error
+	}{
+		{
+			name: "not found", kind: "not_found",
+			err: fmt.Errorf("%w: page %s is gone", domain.ErrNotFound, marker), message: "Confluence page was not found",
+		},
+		{
+			name: "forbidden", kind: "forbidden",
+			err: fmt.Errorf("%w: %s", domain.ErrForbidden, marker), message: "Confluence attachment inventory access is forbidden",
+		},
+		{
+			name: "auth", kind: "authentication_failed",
+			err: fmt.Errorf("%w: %s", domain.ErrAuth, marker), message: "Confluence attachment inventory authentication failed",
+		},
+		{
+			name: "config", kind: "configuration_error",
+			err: fmt.Errorf("%w: %s", domain.ErrConfig, marker), message: "Confluence attachment inventory service is not configured",
+		},
+		{
+			name: "check failed", kind: "check_failed",
+			err: fmt.Errorf("%w: %s", domain.ErrCheckFailed, marker), message: "Confluence attachment inventory failed validation",
+		},
+		{
+			name: "backend", kind: "api_error",
+			err:     &httpx.APIError{Status: 500, Method: "GET", Path: "/rest/api/content/" + marker, Body: marker},
+			message: "Confluence attachment inventory read failed",
+		},
+		{
+			name: "transport", kind: "transport_error",
+			err: &httpx.TransportError{Category: marker}, message: "Confluence attachment inventory read failed",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &recordingConfluenceReader{attachmentErr: test.err}
+			client := attachmentInventoryClient(t, reader)
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name:      "confluence_attachment_list",
+				Arguments: map[string]any{"reference": "42", "expected_page_version": 7},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil {
+				t.Fatalf("result=%+v", result)
+			}
+			text, _ := result.Content[0].(*mcp.TextContent)
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != test.kind || got.Message != test.message {
+				t.Fatalf("error=%+v decode=%v", got, err)
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Contains(encoded, []byte(marker)) {
+				t.Fatalf("%s leaked backend text: %s", test.name, encoded)
+			}
+		})
+	}
+}
+
+// Unreconciled evidence is refused before it becomes a client result.
+func TestConfluenceAttachmentListRejectsUnreconciledInventory(t *testing.T) {
+	for name, inventory := range map[string]*app.ConfluenceAttachmentInventoryResult{
+		"absent":            nil,
+		"wrong schema":      {SchemaVersion: 2, PageID: "42", PageVersion: 7, Complete: true, Attachments: []domain.Attachment{}},
+		"empty page id":     {SchemaVersion: 1, PageID: " ", PageVersion: 7, Complete: true, Attachments: []domain.Attachment{}},
+		"other version":     {SchemaVersion: 1, PageID: "42", PageVersion: 9, Complete: true, Attachments: []domain.Attachment{}},
+		"nil collection":    {SchemaVersion: 1, PageID: "42", PageVersion: 7, Complete: true},
+		"count mismatch":    {SchemaVersion: 1, PageID: "42", PageVersion: 7, Count: 2, Complete: true, Attachments: []domain.Attachment{{ID: "att1"}}},
+		"complete + reason": {SchemaVersion: 1, PageID: "42", PageVersion: 7, Complete: true, PartialReason: "page_limit", Attachments: []domain.Attachment{}},
+		"partial no reason": {SchemaVersion: 1, PageID: "42", PageVersion: 7, Attachments: []domain.Attachment{}},
+		"unknown reason":    {SchemaVersion: 1, PageID: "42", PageVersion: 7, PartialReason: "backend said so", Attachments: []domain.Attachment{}},
+		"duplicate ids": {SchemaVersion: 1, PageID: "42", PageVersion: 7, Count: 2, Complete: true,
+			Attachments: []domain.Attachment{{ID: "att1"}, {ID: "att1"}}},
+		"negative size": {SchemaVersion: 1, PageID: "42", PageVersion: 7, Count: 1, Complete: true,
+			Attachments: []domain.Attachment{{ID: "att1", FileSize: -1}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			reader := &recordingConfluenceReader{attachmentResult: inventory}
+			if inventory == nil {
+				reader.attachmentResult = &app.ConfluenceAttachmentInventoryResult{}
+			}
+			client := attachmentInventoryClient(t, reader)
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name:      "confluence_attachment_list",
+				Arguments: map[string]any{"reference": "42", "expected_page_version": 7},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil {
+				t.Fatalf("%s produced a result: %+v", name, result)
+			}
+			text, _ := result.Content[0].(*mcp.TextContent)
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "check_failed" ||
+				got.Message != "Confluence attachment inventory failed validation" {
+				t.Fatalf("error=%+v decode=%v", got, err)
+			}
+		})
+	}
+}
+
+// The production wiring must expose the tool through the real application
+// service, not only through a test double.
+func TestConfluenceAttachmentListUsesProductionDependencies(t *testing.T) {
+	var _ ConfluenceReader = (*app.ConfluenceService)(nil)
+	client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
+	defer closeSessions()
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "confluence_attachment_list",
+		Arguments: map[string]any{"reference": "42", "expected_page_version": 7},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || result.StructuredContent != nil {
+		t.Fatalf("an unconfigured backend must fail closed: %+v", result)
+	}
+	text, _ := result.Content[0].(*mcp.TextContent)
+	var got toolError
+	if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "configuration_error" ||
+		got.Message != "Confluence attachment inventory service is not configured" {
+		t.Fatalf("error=%+v decode=%v", got, err)
+	}
+}
+
 func TestConfluenceOutlineAndSectionPartialReadsCarryStaticReasons(t *testing.T) {
 	for _, test := range []struct {
 		name, tool, reason string
@@ -3104,6 +3511,11 @@ type recordingConfluenceReader struct {
 	sectionErr                                           error
 	outlineResult                                        *app.ConfluencePageOutlineResult
 	sectionResult                                        *app.ConfluencePageSectionResult
+	attachmentReference                                  string
+	attachmentOpts                                       app.ConfluenceAttachmentInventoryOpts
+	attachmentResult                                     *app.ConfluenceAttachmentInventoryResult
+	attachmentErr                                        error
+	attachmentCalls                                      int
 }
 
 // partialOriginalBytes reports the configured original byte bound of whichever
@@ -3156,6 +3568,21 @@ func (r *recordingConfluenceReader) PageSection(_ context.Context, reference str
 		return r.sectionResult, nil
 	}
 	return &app.ConfluencePageSectionResult{Path: []string{}}, nil
+}
+
+func (r *recordingConfluenceReader) AttachmentInventory(_ context.Context, reference string, opts app.ConfluenceAttachmentInventoryOpts) (*app.ConfluenceAttachmentInventoryResult, error) {
+	r.attachmentReference, r.attachmentOpts = reference, opts
+	r.attachmentCalls++
+	if r.attachmentErr != nil {
+		return nil, r.attachmentErr
+	}
+	if r.attachmentResult != nil {
+		return r.attachmentResult, nil
+	}
+	return &app.ConfluenceAttachmentInventoryResult{
+		SchemaVersion: 1, PageID: "42", PageVersion: opts.ExpectedPageVersion,
+		Complete: true, Attachments: []domain.Attachment{},
+	}, nil
 }
 
 func (r *recordingConfluenceReader) SummarizeTables(_ context.Context, reference string, table int) (*app.ConfluenceTableSummary, error) {
@@ -3273,5 +3700,9 @@ func (*cancellingConfluenceReader) PageSection(context.Context, string, app.Conf
 }
 
 func (*cancellingConfluenceReader) ExtractTables(context.Context, string, int) (*app.ConfluenceTableExtract, error) {
+	panic("unexpected call")
+}
+
+func (*cancellingConfluenceReader) AttachmentInventory(context.Context, string, app.ConfluenceAttachmentInventoryOpts) (*app.ConfluenceAttachmentInventoryResult, error) {
 	panic("unexpected call")
 }

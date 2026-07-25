@@ -61,6 +61,51 @@ type CompletePageSearcher interface {
 	SearchComplete(ctx context.Context, query string, limit int, cursor string) (PageSearchPage, error)
 }
 
+// Attachment inventories name their limiter through this closed set of static
+// identifiers. Each value is a compile-time literal that never interpolates a
+// page id, title, filename, URL, body, or backend text, so a client can branch
+// on the machine-readable cause without any page content crossing the
+// boundary. AttachmentPartialLegacyUnqualified is reserved for a document
+// backend that implements only the compatibility listing and therefore cannot
+// prove exhaustion at all.
+const (
+	AttachmentPartialPageLimit         = "page_limit"
+	AttachmentPartialItemLimit         = "item_limit"
+	AttachmentPartialPaginationStalled = "pagination_stalled"
+	AttachmentPartialLegacyUnqualified = "legacy_unqualified"
+)
+
+// ValidAttachmentPartialReason reports whether reason is a member of the closed
+// static set above. Callers validate before emitting so a future adapter cannot
+// smuggle backend text through the reason field.
+func ValidAttachmentPartialReason(reason string) bool {
+	switch reason {
+	case AttachmentPartialPageLimit, AttachmentPartialItemLimit,
+		AttachmentPartialPaginationStalled, AttachmentPartialLegacyUnqualified:
+		return true
+	}
+	return false
+}
+
+// AttachmentInventory qualifies one page attachment listing. Attachments is
+// always non-nil, so an empty inventory is proven-empty evidence rather than an
+// absent read. Complete is true only when the adapter observed the backend stop
+// signaling more pages; every false value carries a static PartialReason from
+// the closed set above.
+type AttachmentInventory struct {
+	Attachments   []Attachment
+	Complete      bool
+	PartialReason string
+}
+
+// QualifiedAttachmentLister is the optional document-backend capability used
+// when a caller must distinguish a complete attachment inventory from one that
+// a safety cap or inconsistent pagination cut short. DocStore.ListAttachments
+// stays the compatibility surface for workflows that only need the slice.
+type QualifiedAttachmentLister interface {
+	ListAttachmentsQualified(ctx context.Context, id string) (AttachmentInventory, error)
+}
+
 // ConfluenceTimeSemanticsReader is the narrow, optional metadata capability
 // used by environment diagnostics. It must perform only the current-user GET;
 // a user timezone is an observed preference, not proof of CQL parser semantics.

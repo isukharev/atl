@@ -1205,23 +1205,30 @@ func confAttachmentCmd() *cobra.Command {
 	c := &cobra.Command{Use: "attachment", Short: "Attachment list/get/upload/delete"}
 
 	var listID string
+	var listExpectedVersion int
 	list := &cobra.Command{
 		Use:   "list",
-		Short: "List attachments on a page",
+		Short: "List attachments on a page with explicit completeness",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if listID == "" {
 				return usageErr("--id is required")
 			}
+			if listExpectedVersion < 0 {
+				return usageErr("--expected-version must be a positive page version (0 disables the gate)")
+			}
 			svc, err := confService()
 			if err != nil {
 				return err
 			}
-			atts, err := svc.Attachments(cmd.Context(), listID)
+			inventory, err := svc.AttachmentInventory(cmd.Context(), listID, app.ConfluenceAttachmentInventoryOpts{
+				ExpectedPageVersion: listExpectedVersion,
+			})
 			if err != nil {
 				return err
 			}
-			return emitID(cmd, map[string]any{"attachments": atts}, func() string {
+			atts := inventory.Attachments
+			return emitID(cmd, inventory, func() string {
 				var b strings.Builder
 				for _, a := range atts {
 					fmt.Fprintf(&b, "%s\t%s\t%d bytes\n", a.ID, a.Title, a.FileSize)
@@ -1237,6 +1244,7 @@ func confAttachmentCmd() *cobra.Command {
 		},
 	}
 	list.Flags().StringVar(&listID, "id", "", "page id or supported same-origin URL")
+	list.Flags().IntVar(&listExpectedVersion, "expected-version", 0, "refuse the listing unless the page is at this version (0 = no gate)")
 
 	var getPageID, getName, getInto string
 	var getVersion int

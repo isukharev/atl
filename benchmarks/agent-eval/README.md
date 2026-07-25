@@ -247,6 +247,8 @@ The realistic matrix currently contains:
 | surface native | `confluence-page-evidence-holdout` | distinct three-occurrence page topology with different current evidence |
 | surface native | `confluence-section-bound-recovery-mcp` | one successful but partial bounded section read recovered by exactly one identical re-read at the reported original byte size |
 | surface native | `confluence-section-bound-recovery-mcp-holdout` | distinct section whose reported original byte size exceeds the authorized ceiling, so the same contract must stop after one read |
+| surface native | `confluence-attachment-evidence-mcp` | one complete bounded section whose attachment marker is qualified as present but unread through a complete metadata-only inventory at the same page version |
+| surface native | `confluence-attachment-evidence-mcp-holdout` | distinct page whose complete metadata-only inventory omits the referenced attachment, so the same route reports a dangling reference without retrying |
 | surface native | `confluence-paginated-search-evidence-mcp` | terminal three-page search followed by ordered outline/section evidence for every current record |
 | surface native | `confluence-paginated-search-evidence-holdout` | distinct two-page pagination and repeated-heading topology with different current controls |
 | surface native | `jira-paginated-search-mcp` | exact three-page typed issue search with ordered identity and status reconciliation |

@@ -139,14 +139,157 @@ func TestConfPageMetaKeepsOmittedRestrictionsUnknown(t *testing.T) {
 	}
 }
 
+// attachmentListServer routes the two requests a qualified inventory makes: the
+// page metadata read that binds the page version, then the attachment listing.
+// No _links.webui is emitted, so the golden stays host-independent.
+func attachmentListServer(t *testing.T, attachments string) (*httptest.Server, *[]string) {
+	t.Helper()
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/child/attachment") {
+			_, _ = w.Write([]byte(attachments))
+			return
+		}
+		_, _ = w.Write([]byte(`{"id":"12345","title":"Design Doc","space":{"key":"ENG"},"version":{"number":7}}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &paths
+}
+
 func TestConfAttachmentListEmptyGolden(t *testing.T) {
-	srv := jsonServer(t, http.StatusOK, `{"results":[],"_links":{}}`)
+	srv, _ := attachmentListServer(t, `{"results":[],"_links":{}}`)
 
 	out, code := runCLI(t, confEnv(srv), "conf", "attachment", "list", "--id", "12345")
 	if code != exitOK {
 		t.Fatalf("conf attachment list: exit %d, want %d (stdout=%q)", code, exitOK, out)
 	}
 	assertGolden(t, "conf_attachment_list_empty.json", []byte(out))
+}
+
+// The CLI intentionally retains the complete legacy attachment record. This
+// populated golden keeps the MCP-only projection from accidentally replacing
+// the CLI result and dropping media type, version, or uploader comment.
+func TestConfAttachmentListPopulatedGoldenPreservesFullRecord(t *testing.T) {
+	srv, _ := attachmentListServer(t, `{"results":[{
+		"id":"att1",
+		"title":"diagram.png",
+		"metadata":{"mediaType":"image/png"},
+		"extensions":{"fileSize":42,"comment":"reviewed synthetic diagram"},
+		"version":{"number":3},
+		"_links":{"download":"/download/attachments/12345/diagram.png"}
+	}],"_links":{}}`)
+
+	out, code := runCLI(t, confEnv(srv), "conf", "attachment", "list", "--id", "12345")
+	if code != exitOK {
+		t.Fatalf("conf attachment list: exit %d (stdout=%q)", code, out)
+	}
+	assertGolden(t, "conf_attachment_list_populated.json", []byte(out))
+}
+
+// -o id is an exact contract: one attachment id per line and nothing else, no
+// matter what qualification the JSON view gained.
+func TestConfAttachmentListIDOutputIsUnchanged(t *testing.T) {
+	srv, _ := attachmentListServer(t, `{"results":[
+		{"id":"att1","title":"one.png","version":{"number":1}},
+		{"id":"att2","title":"two.png","version":{"number":3}}
+	],"_links":{}}`)
+
+	out, code := runCLI(t, confEnv(srv), "-o", "id", "conf", "attachment", "list", "--id", "12345")
+	if code != exitOK {
+		t.Fatalf("conf attachment list -o id: exit %d (stdout=%q)", code, out)
+	}
+	if out != "att1\natt2\n" {
+		t.Fatalf("-o id output = %q", out)
+	}
+}
+
+func TestConfAttachmentListEmptyIDOutputIsEmpty(t *testing.T) {
+	srv, _ := attachmentListServer(t, `{"results":[],"_links":{}}`)
+
+	out, code := runCLI(t, confEnv(srv), "-o", "id", "conf", "attachment", "list", "--id", "12345")
+	if code != exitOK || out != "" {
+		t.Fatalf("conf attachment list -o id: exit %d stdout=%q", code, out)
+	}
+}
+
+func TestConfAttachmentListTextOutputIsUnchanged(t *testing.T) {
+	srv, _ := attachmentListServer(t, `{"results":[
+		{"id":"att1","title":"one.png","extensions":{"fileSize":42},"version":{"number":1}}
+	],"_links":{}}`)
+
+	out, code := runCLI(t, confEnv(srv), "-o", "text", "conf", "attachment", "list", "--id", "12345")
+	if code != exitOK {
+		t.Fatalf("conf attachment list -o text: exit %d (stdout=%q)", code, out)
+	}
+	if out != "att1\tone.png\t42 bytes\n" {
+		t.Fatalf("-o text output = %q", out)
+	}
+}
+
+// A capped listing must surface as partial rather than as a complete inventory.
+func TestConfAttachmentListReportsPartialListing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !strings.HasSuffix(r.URL.Path, "/child/attachment") {
+			_, _ = w.Write([]byte(`{"id":"12345","title":"Design Doc","space":{"key":"ENG"},"version":{"number":7}}`))
+			return
+		}
+		// Always advertise another page so the adapter's page cap is what stops it.
+		start := r.URL.Query().Get("start")
+		_, _ = w.Write([]byte(`{"results":[{"id":"att` + start + `","title":"one.png","version":{"number":1}}],
+			"_links":{"next":"/rest/api/content/12345/child/attachment?start=1"}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	out, code := runCLI(t, confEnv(srv), "conf", "attachment", "list", "--id", "12345")
+	if code != exitOK {
+		t.Fatalf("conf attachment list: exit %d (stdout=%q)", code, out)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["complete"] != false || got["partial_reason"] != "page_limit" {
+		t.Fatalf("capped listing reported as complete: %s", out)
+	}
+}
+
+// The optional gate must refuse before any attachment request is issued.
+func TestConfAttachmentListExpectedVersionGate(t *testing.T) {
+	srv, paths := attachmentListServer(t, `{"results":[],"_links":{}}`)
+
+	out, code := runCLI(t, confEnv(srv), "conf", "attachment", "list", "--id", "12345", "--expected-version", "3")
+	if code != exitCheckFailed {
+		t.Fatalf("stale expected version: exit %d, want %d (stdout=%q)", code, exitCheckFailed, out)
+	}
+	for _, path := range *paths {
+		if strings.HasSuffix(path, "/child/attachment") {
+			t.Fatalf("a refused version gate must not list attachments: %v", *paths)
+		}
+	}
+
+	out, code = runCLI(t, confEnv(srv), "conf", "attachment", "list", "--id", "12345", "--expected-version", "7")
+	if code != exitOK {
+		t.Fatalf("matching expected version: exit %d (stdout=%q)", code, out)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["page_version"] != float64(7) || got["complete"] != true {
+		t.Fatalf("result=%s", out)
+	}
+}
+
+func TestConfAttachmentListRejectsNegativeExpectedVersion(t *testing.T) {
+	srv, _ := attachmentListServer(t, `{"results":[],"_links":{}}`)
+
+	out, code := runCLI(t, confEnv(srv), "conf", "attachment", "list", "--id", "12345", "--expected-version", "-1")
+	if code != exitUsage {
+		t.Fatalf("negative expected version: exit %d, want %d (stdout=%q)", code, exitUsage, out)
+	}
 }
 
 // TestConfPageGetGolden locks the JSON shape of `conf page get` (csf format). The
