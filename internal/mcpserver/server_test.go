@@ -126,6 +126,21 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 				t.Errorf("tool %s heading guidance is ambiguous: %#v", tool.Name, heading)
 			}
 		}
+		// Both bounded page reads can return a partial result, so each advertises
+		// an optional machine-readable reason next to its completeness flag.
+		if tool.Name == "confluence_page_outline" || tool.Name == "confluence_page_section" {
+			output, _ := tool.OutputSchema.(map[string]any)
+			outputProperties, _ := output["properties"].(map[string]any)
+			if _, exists := outputProperties["partial_reason"]; !exists {
+				t.Errorf("tool %s output must advertise partial_reason: %#v", tool.Name, tool.OutputSchema)
+			}
+			if schemaRequired(output, "partial_reason") {
+				t.Errorf("tool %s partial_reason must stay optional: %#v", tool.Name, tool.OutputSchema)
+			}
+			if !schemaRequired(output, "complete") {
+				t.Errorf("tool %s output must require complete: %#v", tool.Name, tool.OutputSchema)
+			}
+		}
 		if tool.Name == "confluence_table_extract" && (!schemaRequired(input, "reference") || !schemaRequired(input, "table")) {
 			t.Errorf("tool %s must require reference and selected table: %#v", tool.Name, tool.InputSchema)
 		}
@@ -2316,6 +2331,87 @@ func TestConfluenceTableSelectionErrorIsDistinctAndContentFree(t *testing.T) {
 	}
 }
 
+func TestConfluenceOutlineAndSectionPartialReadsCarryStaticReasons(t *testing.T) {
+	for _, test := range []struct {
+		name, tool, reason string
+		args               map[string]any
+		reader             *recordingConfluenceReader
+	}{
+		{
+			name: "outline heading limit", tool: "confluence_page_outline", reason: "heading_limit",
+			args: map[string]any{"reference": "42"},
+			reader: &recordingConfluenceReader{outlineResult: &app.ConfluencePageOutlineResult{
+				ID: "42", Count: 1000, Total: 1001, Complete: false, Truncated: true,
+				PartialReason: "heading_limit", OriginalBytes: 90_000, EmittedBytes: 89_000,
+				Headings: []app.ConfluenceOutlineEntry{},
+			}},
+		},
+		{
+			name: "section max bytes", tool: "confluence_page_section", reason: "max_bytes",
+			args: map[string]any{"reference": "42", "heading": "Overview", "max_bytes": 4096},
+			reader: &recordingConfluenceReader{sectionResult: &app.ConfluencePageSectionResult{
+				ID: "42", Heading: "Overview", Occurrence: 1, Path: []string{"Overview"},
+				Markdown: "# Overview\n\n[... truncated by atl ...]\n", Complete: false, Truncated: true,
+				PartialReason: "max_bytes", OriginalBytes: 14_000, EmittedBytes: 4_000,
+			}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Confluence: func() (ConfluenceReader, error) { return test.reader, nil },
+			}))
+			defer closeSessions()
+			result := callToolOK(t, client, test.tool, test.args)
+			content, ok := result.StructuredContent.(map[string]any)
+			if !ok || content["complete"] != false || content["truncated"] != true || content["partial_reason"] != test.reason {
+				t.Fatalf("%s content=%#v", test.tool, result.StructuredContent)
+			}
+			// original_bytes stays the exact bound a client needs to decide
+			// whether one re-read can complete the same evidence.
+			if content["original_bytes"] != float64(test.reader.partialOriginalBytes()) {
+				t.Fatalf("%s lost its original byte bound: %#v", test.tool, result.StructuredContent)
+			}
+		})
+	}
+}
+
+func TestConfluenceOutlineAndSectionCompleteReadsOmitPartialReason(t *testing.T) {
+	reader := &recordingConfluenceReader{
+		outlineResult: &app.ConfluencePageOutlineResult{
+			ID: "42", Count: 1, Total: 1, Complete: true, OriginalBytes: 64, EmittedBytes: 64,
+			Headings: []app.ConfluenceOutlineEntry{{Index: 1, Level: 1, Title: "Overview", Path: []string{"Overview"}, Occurrence: 1}},
+		},
+		sectionResult: &app.ConfluencePageSectionResult{
+			ID: "42", Heading: "Overview", Occurrence: 1, Path: []string{"Overview"},
+			Markdown: "# Overview\n", Complete: true, OriginalBytes: 11, EmittedBytes: 11,
+		},
+	}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Confluence: func() (ConfluenceReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+	for tool, args := range map[string]map[string]any{
+		"confluence_page_outline": {"reference": "42"},
+		"confluence_page_section": {"reference": "42", "heading": "Overview"},
+	} {
+		result := callToolOK(t, client, tool, args)
+		content, ok := result.StructuredContent.(map[string]any)
+		if !ok || content["complete"] != true {
+			t.Fatalf("%s content=%#v", tool, result.StructuredContent)
+		}
+		if _, exists := content["partial_reason"]; exists {
+			t.Fatalf("%s complete read must omit partial_reason: %#v", tool, result.StructuredContent)
+		}
+		encoded, err := json.Marshal(result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(encoded, []byte("partial_reason")) {
+			t.Fatalf("%s emitted partial_reason on a complete read: %s", tool, encoded)
+		}
+	}
+}
+
 func TestConfluenceSectionSelectionErrorsAreDistinctAndContentFree(t *testing.T) {
 	const marker = "SYNTHETIC-SECTION-SELECTION-SECRET"
 	heading := "Heading " + marker
@@ -3006,6 +3102,20 @@ type recordingConfluenceReader struct {
 	tableText                                            string
 	tableErr                                             error
 	sectionErr                                           error
+	outlineResult                                        *app.ConfluencePageOutlineResult
+	sectionResult                                        *app.ConfluencePageSectionResult
+}
+
+// partialOriginalBytes reports the configured original byte bound of whichever
+// bounded page read the stub is standing in for.
+func (r *recordingConfluenceReader) partialOriginalBytes() int {
+	if r.outlineResult != nil {
+		return r.outlineResult.OriginalBytes
+	}
+	if r.sectionResult != nil {
+		return r.sectionResult.OriginalBytes
+	}
+	return 0
 }
 
 type invalidConfluenceTableReader struct {
@@ -3031,6 +3141,9 @@ func (r *recordingConfluenceReader) ResolvePageReference(_ context.Context, refe
 
 func (r *recordingConfluenceReader) PageOutline(_ context.Context, reference string) (*app.ConfluencePageOutlineResult, error) {
 	r.outlineReference = reference
+	if r.outlineResult != nil {
+		return r.outlineResult, nil
+	}
 	return &app.ConfluencePageOutlineResult{Headings: []app.ConfluenceOutlineEntry{}}, nil
 }
 
@@ -3038,6 +3151,9 @@ func (r *recordingConfluenceReader) PageSection(_ context.Context, reference str
 	r.sectionReference, r.sectionOpts = reference, opts
 	if r.sectionErr != nil {
 		return nil, r.sectionErr
+	}
+	if r.sectionResult != nil {
+		return r.sectionResult, nil
 	}
 	return &app.ConfluencePageSectionResult{Path: []string{}}, nil
 }

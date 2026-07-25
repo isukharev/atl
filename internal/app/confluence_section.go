@@ -20,6 +20,21 @@ const (
 	confluenceSectionMaxBytes     = 1 << 20
 )
 
+// Partial outline/section reads name their limiter through this closed set of
+// static identifiers. Each value is a compile-time literal that never
+// interpolates a heading, page id, title, space, URL, body, backend text, or
+// caller value, so a client can branch on the machine-readable cause without
+// any page content crossing the boundary. Only confluencePartialMaxBytes is
+// eligible for a one-shot recovery attempt: for an unchanged page and valid
+// rendering, re-reading the same reference/heading/occurrence with
+// max_bytes >= original_bytes returns the complete section.
+const (
+	confluencePartialHeadingLimit = "heading_limit"
+	confluencePartialByteLimit    = "byte_limit"
+	confluencePartialMaxBytes     = "max_bytes"
+	confluencePartialInvalidUTF8  = "invalid_utf8"
+)
+
 type ConfluenceOutlineEntry struct {
 	Index      int      `json:"index"`
 	Level      int      `json:"level"`
@@ -37,6 +52,7 @@ type ConfluencePageOutlineResult struct {
 	Total         int                      `json:"total"`
 	Complete      bool                     `json:"complete"`
 	Truncated     bool                     `json:"truncated,omitempty"`
+	PartialReason string                   `json:"partial_reason,omitempty"`
 	OriginalBytes int                      `json:"original_bytes"`
 	EmittedBytes  int                      `json:"emitted_bytes"`
 	Headings      []ConfluenceOutlineEntry `json:"headings"`
@@ -60,6 +76,7 @@ type ConfluencePageSectionResult struct {
 	Markdown      string   `json:"markdown"`
 	Complete      bool     `json:"complete"`
 	Truncated     bool     `json:"truncated,omitempty"`
+	PartialReason string   `json:"partial_reason,omitempty"`
 	OriginalBytes int      `json:"original_bytes"`
 	EmittedBytes  int      `json:"emitted_bytes"`
 }
@@ -106,7 +123,9 @@ func (s *ConfluenceService) PageOutline(ctx context.Context, reference string) (
 	}
 	headings := make([]ConfluenceOutlineEntry, 0, min(len(parsed.headings), confluenceOutlineHeadingCap))
 	originalBytes, emittedBytes := 0, 0
-	truncated := false
+	// partialReason records the first limiter that stopped emission and keeps
+	// counting the remaining headings for the original-byte total.
+	partialReason := ""
 	for _, heading := range parsed.headings {
 		encoded, marshalErr := json.Marshal(heading.ConfluenceOutlineEntry)
 		if marshalErr != nil {
@@ -114,11 +133,15 @@ func (s *ConfluenceService) PageOutline(ctx context.Context, reference string) (
 		}
 		size := len(encoded) + 1
 		originalBytes += size
-		if truncated {
+		if partialReason != "" {
 			continue
 		}
-		if len(headings) >= confluenceOutlineHeadingCap || emittedBytes+size > confluenceOutlineByteCap {
-			truncated = true
+		if len(headings) >= confluenceOutlineHeadingCap {
+			partialReason = confluencePartialHeadingLimit
+			continue
+		}
+		if emittedBytes+size > confluenceOutlineByteCap {
+			partialReason = confluencePartialByteLimit
 			continue
 		}
 		headings = append(headings, heading.ConfluenceOutlineEntry)
@@ -126,7 +149,8 @@ func (s *ConfluenceService) PageOutline(ctx context.Context, reference string) (
 	}
 	return &ConfluencePageOutlineResult{
 		ID: parsed.page.ID, Title: parsed.page.Title, Space: parsed.page.SpaceKey, Version: parsed.page.Version,
-		Count: len(headings), Total: len(parsed.headings), Complete: !truncated, Truncated: truncated,
+		Count: len(headings), Total: len(parsed.headings),
+		Complete: partialReason == "", Truncated: partialReason != "", PartialReason: partialReason,
 		OriginalBytes: originalBytes, EmittedBytes: emittedBytes, Headings: headings,
 	}, nil
 }
@@ -182,12 +206,18 @@ func (s *ConfluenceService) PageSection(ctx context.Context, reference string, o
 	}
 	selectedBlocks := parsed.blocks[selected.blockIndex:endBlock]
 	originalMarkdown := joinConfluenceSectionBlocks(selectedBlocks)
-	markdown, truncated := boundedConfluenceSectionMarkdown(selectedBlocks, maxBytes)
+	bounded := boundedConfluenceSectionMarkdown(selectedBlocks, maxBytes)
 	return &ConfluencePageSectionResult{
 		ID: parsed.page.ID, PageTitle: parsed.page.Title, Space: parsed.page.SpaceKey, Version: parsed.page.Version,
 		Heading: selected.Title, Level: selected.Level, Path: selected.Path, Occurrence: occurrence,
-		Markdown: markdown, Complete: !truncated, Truncated: truncated,
-		OriginalBytes: len(originalMarkdown), EmittedBytes: len(markdown),
+		Markdown: bounded.markdown,
+		Complete: bounded.partialReason == "", Truncated: bounded.partialReason != "",
+		PartialReason: bounded.partialReason,
+		// OriginalBytes stays the exact minimum max_bytes that can return this
+		// same rendering complete. A caller can therefore make one recovery
+		// attempt without content-derived guessing, then must still verify the
+		// returned version and completeness.
+		OriginalBytes: len(originalMarkdown), EmittedBytes: len(bounded.markdown),
 	}, nil
 }
 
@@ -262,7 +292,16 @@ func joinConfluenceSectionBlocks(blocks []mirror.Block) string {
 	return strings.Join(parts, "\n\n") + "\n"
 }
 
-func boundedConfluenceSectionMarkdown(blocks []mirror.Block, maxBytes int) (string, bool) {
+// confluenceSectionBody is the internal result of one bounding pass. Carrying
+// the reason out of the pass that produced it keeps the emitted limiter exact
+// instead of inferring it from the finished bytes afterwards.
+type confluenceSectionBody struct {
+	markdown string
+	// partialReason is empty exactly when the whole section fit the bound.
+	partialReason string
+}
+
+func boundedConfluenceSectionMarkdown(blocks []mirror.Block, maxBytes int) confluenceSectionBody {
 	parts := make([]string, 0, len(blocks))
 	size := 0
 	truncated := false
@@ -300,9 +339,15 @@ func boundedConfluenceSectionMarkdown(blocks []mirror.Block, maxBytes int) (stri
 		}
 	}
 	if !utf8.ValidString(result) {
-		return "", true
+		// Defensive: the rendering is withheld in full rather than emitted, so
+		// this partial read is terminal and must never be reported as a
+		// recoverable byte bound.
+		return confluenceSectionBody{partialReason: confluencePartialInvalidUTF8}
 	}
-	return result, truncated
+	if truncated {
+		return confluenceSectionBody{markdown: result, partialReason: confluencePartialMaxBytes}
+	}
+	return confluenceSectionBody{markdown: result}
 }
 
 func ConfluenceOutlineMarkdown(result *ConfluencePageOutlineResult) string {

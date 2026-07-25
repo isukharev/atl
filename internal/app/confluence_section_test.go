@@ -2,12 +2,40 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/mirror"
 )
+
+// confluencePartialInvariantHolds encodes the single contract both partial
+// results must satisfy: partial_reason is absent exactly when the read is
+// complete. TestConfluencePartialInvariantRejectsInconsistentResults keeps this
+// helper load-bearing by proving it rejects both inconsistent directions.
+func confluencePartialInvariantHolds(complete bool, reason string) bool {
+	return complete == (reason == "")
+}
+
+// confluencePartialReasonJSON reports the emitted partial_reason and whether the
+// key was present at all, so tests assert omission on the wire rather than an
+// empty Go string.
+func confluencePartialReasonJSON(t *testing.T, result any) (string, bool) {
+	t.Helper()
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	value, present := decoded["partial_reason"]
+	text, _ := value.(string)
+	return text, present
+}
 
 type sectionStore struct {
 	domain.DocStore
@@ -35,8 +63,12 @@ func TestConfluencePageOutlineUsesStructuralBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Complete || result.Count != 5 {
+	if !result.Complete || result.Count != 5 || result.Truncated {
 		t.Fatalf("result=%+v", result)
+	}
+	if reason, present := confluencePartialReasonJSON(t, result); present || reason != "" ||
+		!confluencePartialInvariantHolds(result.Complete, result.PartialReason) {
+		t.Fatalf("complete outline must omit partial_reason: reason=%q present=%t result=%+v", reason, present, result)
 	}
 	titles := make([]string, 0, len(result.Headings))
 	for _, heading := range result.Headings {
@@ -63,6 +95,14 @@ func TestConfluencePageOutlineReportsHeadingCap(t *testing.T) {
 	if result.Complete || !result.Truncated || result.Count != confluenceOutlineHeadingCap || result.Total != confluenceOutlineHeadingCap+1 {
 		t.Fatalf("result=%+v", result)
 	}
+	reason, present := confluencePartialReasonJSON(t, result)
+	if !present || reason != "heading_limit" || result.PartialReason != reason ||
+		!confluencePartialInvariantHolds(result.Complete, result.PartialReason) {
+		t.Fatalf("heading-limit outline reason=%q present=%t result=%+v", reason, present, result)
+	}
+	if result.EmittedBytes <= 0 || result.OriginalBytes <= result.EmittedBytes {
+		t.Fatalf("heading-limit accounting lost: %+v", result)
+	}
 }
 
 func TestConfluencePageOutlineReportsByteCap(t *testing.T) {
@@ -74,6 +114,50 @@ func TestConfluencePageOutlineReportsByteCap(t *testing.T) {
 	}
 	if result.Complete || !result.Truncated || result.Count != 0 || result.Total != 1 || result.OriginalBytes <= confluenceOutlineByteCap || result.EmittedBytes != 0 {
 		t.Fatalf("result=%+v", result)
+	}
+	reason, present := confluencePartialReasonJSON(t, result)
+	if !present || reason != "byte_limit" || result.PartialReason != reason ||
+		!confluencePartialInvariantHolds(result.Complete, result.PartialReason) {
+		t.Fatalf("byte-limit outline reason=%q present=%t result=%+v", reason, present, result)
+	}
+}
+
+func TestConfluencePageOutlineHeadingLimitWinsWhenBothCapsBind(t *testing.T) {
+	var body strings.Builder
+	for i := 0; i < confluenceOutlineHeadingCap; i++ {
+		body.WriteString("<h2>Repeated</h2>")
+	}
+	// The next heading crosses both caps at once. Heading count is already
+	// binding before this record's encoded size is considered.
+	body.WriteString("<h2>" + strings.Repeat("x", confluenceOutlineByteCap) + "</h2>")
+	service := &ConfluenceService{store: &sectionStore{page: &domain.Resource{ID: "42", Body: []byte(body.String()), BodyPresent: true}}}
+	result, err := service.PageOutline(context.Background(), "42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PartialReason != "heading_limit" || result.Count != confluenceOutlineHeadingCap ||
+		result.Total != confluenceOutlineHeadingCap+1 || result.OriginalBytes <= confluenceOutlineByteCap {
+		t.Fatalf("simultaneous caps must retain heading-limit precedence: %+v", result)
+	}
+}
+
+func TestConfluencePartialInvariantRejectsInconsistentResults(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		complete bool
+		reason   string
+	}{
+		{name: "partial without reason", complete: false, reason: ""},
+		{name: "complete with reason", complete: true, reason: "max_bytes"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if confluencePartialInvariantHolds(test.complete, test.reason) {
+				t.Fatalf("invariant accepted complete=%t reason=%q", test.complete, test.reason)
+			}
+		})
+	}
+	if !confluencePartialInvariantHolds(true, "") || !confluencePartialInvariantHolds(false, "byte_limit") {
+		t.Fatal("invariant rejected a consistent pair")
 	}
 }
 
@@ -95,6 +179,10 @@ func TestConfluencePageSectionRequiresDuplicateOccurrenceAndPreservesRendering(t
 	if strings.Contains(result.Markdown, "Second occurrence") || strings.Contains(result.Markdown, "Appendix") || !result.Complete || result.Occurrence != 1 {
 		t.Fatalf("result=%+v", result)
 	}
+	if reason, present := confluencePartialReasonJSON(t, result); present || reason != "" ||
+		!confluencePartialInvariantHolds(result.Complete, result.PartialReason) {
+		t.Fatalf("complete section must omit partial_reason: reason=%q present=%t result=%+v", reason, present, result)
+	}
 }
 
 func TestConfluencePageSectionTruncatesAtBlockBoundary(t *testing.T) {
@@ -104,6 +192,60 @@ func TestConfluencePageSectionTruncatesAtBlockBoundary(t *testing.T) {
 	}
 	if result.Complete || !result.Truncated || !strings.Contains(result.Markdown, "truncated by atl") || result.EmittedBytes > 80 || result.OriginalBytes <= result.EmittedBytes {
 		t.Fatalf("result=%+v", result)
+	}
+	reason, present := confluencePartialReasonJSON(t, result)
+	if !present || reason != "max_bytes" || result.PartialReason != reason ||
+		!confluencePartialInvariantHolds(result.Complete, result.PartialReason) {
+		t.Fatalf("max_bytes section reason=%q present=%t result=%+v", reason, present, result)
+	}
+
+	// original_bytes is the exact minimum bound that returns the same section
+	// complete, so one re-read at that value is the whole recovery.
+	recovered, err := sectionService().PageSection(context.Background(), "42", ConfluencePageSectionOpts{Heading: "Overview", MaxBytes: result.OriginalBytes})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recovered.Complete || recovered.Truncated || recovered.PartialReason != "" ||
+		recovered.EmittedBytes != result.OriginalBytes || recovered.OriginalBytes != result.OriginalBytes ||
+		strings.Contains(recovered.Markdown, "truncated by atl") {
+		t.Fatalf("re-read at original_bytes=%d must be complete: %+v", result.OriginalBytes, recovered)
+	}
+	if reason, present := confluencePartialReasonJSON(t, recovered); present || reason != "" {
+		t.Fatalf("recovered section must omit partial_reason: reason=%q present=%t", reason, present)
+	}
+	if below, err := sectionService().PageSection(context.Background(), "42", ConfluencePageSectionOpts{Heading: "Overview", MaxBytes: result.OriginalBytes - 1}); err != nil {
+		t.Fatal(err)
+	} else if below.Complete || below.PartialReason != "max_bytes" {
+		t.Fatalf("original_bytes-1 must stay partial: %+v", below)
+	}
+}
+
+func TestBoundedConfluenceSectionMarkdownNamesItsExactLimiter(t *testing.T) {
+	fits := boundedConfluenceSectionMarkdown([]mirror.Block{{MD: "first"}, {MD: "second"}}, 1<<10)
+	if fits.partialReason != "" || fits.markdown != "first\n\nsecond\n" {
+		t.Fatalf("complete bound=%+v", fits)
+	}
+	// A whole rendered block that does not fit is the recoverable byte bound.
+	byteBound := boundedConfluenceSectionMarkdown([]mirror.Block{{MD: "first"}, {MD: strings.Repeat("x", 128)}}, 64)
+	if byteBound.partialReason != "max_bytes" || !strings.Contains(byteBound.markdown, "truncated by atl") {
+		t.Fatalf("byte bound=%+v", byteBound)
+	}
+	// The defensive invalid-UTF-8 path withholds the body entirely and must not
+	// be reported as a recoverable byte bound, with or without truncation.
+	for _, test := range []struct {
+		name     string
+		blocks   []mirror.Block
+		maxBytes int
+	}{
+		{name: "untruncated", blocks: []mirror.Block{{MD: "\xff\xfe"}}, maxBytes: 1 << 10},
+		{name: "also truncated", blocks: []mirror.Block{{MD: "\xff\xfe"}, {MD: strings.Repeat("x", 128)}}, maxBytes: 64},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			invalid := boundedConfluenceSectionMarkdown(test.blocks, test.maxBytes)
+			if invalid.partialReason != "invalid_utf8" || invalid.markdown != "" {
+				t.Fatalf("invalid utf8 bound=%+v", invalid)
+			}
+		})
 	}
 }
 

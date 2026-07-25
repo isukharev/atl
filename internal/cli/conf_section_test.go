@@ -37,4 +37,24 @@ func TestConfPageOutlineAndSectionContracts(t *testing.T) {
 	if code != exitOK || !strings.Contains(truncated, `"complete": false`) || !strings.Contains(truncated, `"truncated": true`) {
 		t.Fatalf("truncated exit=%d output=%s", code, truncated)
 	}
+	// A partial section names its limiter in JSON so a client can tell the
+	// recoverable byte bound from a terminal partial read without parsing prose.
+	if !strings.Contains(truncated, `"partial_reason": "max_bytes"`) {
+		t.Fatalf("truncated JSON must carry the machine-readable reason: %s", truncated)
+	}
+	// The complete read stays silent about partial_reason on both surfaces.
+	if complete, code := runCLI(t, confEnv(cs.srv), "conf", "page", "section", "42", "--heading", "Overview"); code != exitOK ||
+		!strings.Contains(complete, `"complete": true`) || strings.Contains(complete, "partial_reason") {
+		t.Fatalf("complete section exit=%d output=%s", code, complete)
+	}
+	// Text output is unchanged: the rendered Markdown plus the existing marker.
+	truncatedText, code := runCLI(t, confEnv(cs.srv), "-o", "text", "conf", "page", "section", "42", "--heading", "Overview", "--max-bytes", "40")
+	if code != exitOK || !strings.Contains(truncatedText, "# Overview") ||
+		!strings.Contains(truncatedText, "[... truncated by atl ...]") || strings.Contains(truncatedText, "partial_reason") {
+		t.Fatalf("truncated text exit=%d output=%q", code, truncatedText)
+	}
+	outlinePartial, code := runCLI(t, confEnv(cs.srv), "conf", "page", "outline", "42")
+	if code != exitOK || strings.Contains(outlinePartial, "partial_reason") {
+		t.Fatalf("complete outline must omit partial_reason: exit=%d output=%s", code, outlinePartial)
+	}
 }

@@ -1836,8 +1836,11 @@ opaque blocks are not promoted into page sections. JSON includes ordered
 1-based occurrence among equal case/whitespace-normalized titles. `count` is
 the emitted count, `total` is the parsed count, and `complete`/`truncated`
 expose the 1000-heading/262144-byte safety caps; `original_bytes` and
-`emitted_bytes` qualify the bounded heading records. `-o text` emits an indented
-Markdown list.
+`emitted_bytes` qualify the bounded heading records. A partial outline also
+names its limiter in `partial_reason`: `heading_limit` when the 1000-heading cap
+stopped emission first, `byte_limit` when the 262144-byte cap did. Both are
+terminal — there is no larger outline bound to retry with. `-o text` emits an
+indented Markdown list.
 
 `section` selects an exact case/whitespace-normalized heading and renders it,
 its body, and descendant headings through the existing link/color/table-aware
@@ -1846,9 +1849,22 @@ titles fail with exit 8 until `--occurrence` is supplied. JSON reports the
 selected `heading`, `level`, `path`, `occurrence`, `markdown`, `complete`,
 `truncated`, `original_bytes`, and `emitted_bytes`. The default output cap is
 262144 bytes; `--max-bytes` accepts 1..1048576 and truncates only before a whole
-rendered block, adding a visible marker when it fits. `-o text` emits only the
-selected Markdown. Both commands accept the safe page references above, are
-read-only, and create no mirror artifacts.
+rendered block, adding a visible marker when it fits. A partial section names
+its limiter in `partial_reason`: `max_bytes` when a whole rendered block did not
+fit, `invalid_utf8` when the rendering was withheld entirely. `-o text` emits
+only the selected Markdown. Both commands accept the safe page references above,
+are read-only, and create no mirror artifacts.
+
+For both commands `partial_reason` is a static identifier that carries no page
+content, and it is present exactly when `complete` is `false`. Treat any partial
+outline or section as incomplete evidence: do not infer that missing content is
+absent and do not settle a decision from it. Only `max_bytes` is recoverable —
+re-read the same reference, heading, and occurrence **once** with `--max-bytes`
+at or above the reported `original_bytes`, which is the exact minimum bound for
+the same valid rendering, and only when that value is within the 1048576-byte
+cap. Accept the recovery only when the page `version` is unchanged and the
+second result has `complete:true`. Otherwise do not retry the same read; use a
+narrower heading or the full page instead.
 
 ### `atl conf page get`
 

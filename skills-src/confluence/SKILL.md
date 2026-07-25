@@ -65,6 +65,18 @@ write command after explicit approval.
   stale. Refresh `confluence_page_outline`, choose the exact heading
   occurrence from its content-free metadata, then read that section once; do
   not claim the page or heading is missing. Other section failures are generic.
+  `confluence_page_outline` and `confluence_page_section` can also *succeed*
+  partially: they carry `complete`, `original_bytes`, `emitted_bytes`, and a
+  static `partial_reason` that is present exactly when `complete` is false.
+  A truncated section is coherent Markdown, so never treat it as the whole
+  section, as evidence of absence, or as a settled decision. Only section
+  `max_bytes` is recoverable: re-read the same `reference`/`heading`/
+  `occurrence` at most once with `max_bytes` set to the reported
+  `original_bytes`, and only when that value is within your authorization and
+  the 1 MiB cap. Accept the recovery only when the second result has the same
+  page `version` and `complete:true`. Outline `heading_limit`/`byte_limit` and
+  section `invalid_utf8` are terminal — narrow the heading or report the answer
+  as incomplete instead of repeating the call.
   Each extracted table carries the same reconciled, content-free `summary`
   metrics as the summary tool; use them instead of recounting cells or spans.
   In an extracted cell, use `text` for whitespace-normalized exact values and
@@ -79,6 +91,9 @@ write command after explicit approval.
 - CLI one-off read: `page resolve` once for a URL, then `page outline` before an
   exact bounded `page section`; use `page view -o text` only when the full page
   is actually required. Honor `complete` and duplicate-heading `--occurrence`.
+  `outline`/`section` JSON carries the same `partial_reason` contract: only
+  section `max_bytes` is recoverable, by one re-read with `--max-bytes` at or
+  above `original_bytes`.
 - Durable pull, complete/incremental sync, render migration, prefetch/rate
   controls: [sync.md](reference/sync.md).
 - Ordinary Markdown body edit, apply/diff, multi-page plan, and push sequence:

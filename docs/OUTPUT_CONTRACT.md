@@ -1696,21 +1696,38 @@ targets fail closed. Read-only page consumers accept the same references but
 continue to emit the backend's stable page id in their existing result shapes.
 
 `atl conf page outline <REF>` emits
-`{id,title,space,version,count,total,complete,truncated?,original_bytes,
-emitted_bytes,headings:[{index,level,title,path,occurrence}]}`. The 1000-heading
-and 262144-byte structural caps are explicit: `count`/`emitted_bytes` describe
-emitted records and `total`/`original_bytes` describe parsed records. `-o text`
-is an indented Markdown list. Macro/code/table-contained headings are not
-entries.
+`{id,title,space,version,count,total,complete,truncated?,partial_reason?,
+original_bytes,emitted_bytes,headings:[{index,level,title,path,occurrence}]}`.
+The 1000-heading and 262144-byte structural caps are explicit:
+`count`/`emitted_bytes` describe emitted records and `total`/`original_bytes`
+describe parsed records. `partial_reason` is `heading_limit` when the
+1000-heading cap stopped emission first and `byte_limit` when the 262144-byte
+cap did. `-o text` is an indented Markdown list. Macro/code/table-contained
+headings are not entries.
 
 `atl conf page section <REF> --heading ...` emits
 `{id,page_title,space,version,heading,level,path,occurrence,markdown,complete,
-truncated?,original_bytes,emitted_bytes}`. Duplicate normalized titles require
-an explicit 1-based `--occurrence`. The section includes descendant headings
-and ends before the next same/higher-level heading. The byte cap is applied at
-rendered block boundaries; `complete:false,truncated:true` is never a complete
-section. `-o text` emits only `markdown`. No mirror artifact or writeback base
-is created.
+truncated?,partial_reason?,original_bytes,emitted_bytes}`. Duplicate normalized
+titles require an explicit 1-based `--occurrence`. The section includes
+descendant headings and ends before the next same/higher-level heading. The byte
+cap is applied at rendered block boundaries; `complete:false,truncated:true` is
+never a complete section. `partial_reason` is `max_bytes` when a whole rendered
+block did not fit the requested bound and `invalid_utf8` when the rendering was
+withheld entirely. `-o text` emits only `markdown`. No mirror artifact or
+writeback base is created.
+
+Both partial reasons are a closed set of static identifiers that never
+interpolate a heading, page id, title, space, URL, body, or caller value. For
+both commands `partial_reason` is absent exactly when `complete` is `true` and
+present exactly when it is `false`, so a client can branch on the limiter
+without parsing `markdown`. Only `max_bytes` permits a recovery attempt:
+re-read the same reference, heading, and occurrence once with `--max-bytes` at
+or above the reported `original_bytes` (and within the 1048576-byte cap).
+`original_bytes` is the exact minimum bound for the same valid rendering, but
+the caller must still require an unchanged page `version` and
+`complete:true` on the second result. `heading_limit`, `byte_limit`, and
+`invalid_utf8` are terminal for these commands. A partial result is never
+evidence of absence and never establishes a decision.
 
 `atl jira epic digest <KEY>` emits schema v1 with
 `{schema_version,period,includes,sources,epic,status_field?,dod_field?,children?,

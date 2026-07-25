@@ -130,6 +130,36 @@ refresh the outline, choose the exact heading occurrence from its content-free
 metadata, and then read that section once. Other section `not_found` failures
 remain generic and do not disclose the heading or page reference.
 
+Unlike the fail-closed encoded-result caps on `confluence_search`, the table
+tools, and `jira_structure_view`, these two page reads can satisfy the call with
+structurally bounded partial output, so both qualify that result explicitly.
+`confluence_page_outline` and
+`confluence_page_section` return `complete`, optional `truncated`, optional
+`partial_reason`, `original_bytes`, and `emitted_bytes`. `partial_reason` is
+absent exactly when `complete:true` and present exactly when `complete:false`.
+Its values are a closed static set that never contains a heading, page id,
+title, space, URL, body, or caller value:
+
+| tool | `partial_reason` | meaning | recoverable |
+|---|---|---|---|
+| `confluence_page_outline` | `heading_limit` | the 1000-heading cap stopped emission first | no |
+| `confluence_page_outline` | `byte_limit` | the 262144-byte heading cap stopped emission first | no |
+| `confluence_page_section` | `max_bytes` | a whole rendered block did not fit the requested bound | yes, once |
+| `confluence_page_section` | `invalid_utf8` | the rendering was withheld entirely | no |
+
+Treat every partial outline or section as incomplete evidence: a truncated
+section is coherent Markdown, so never read it as the whole section, as evidence
+of absence, or as a settled decision. Only `max_bytes` is recoverable. Re-read
+the same `reference`, `heading`, and `occurrence` at most once with
+`max_bytes` set to the reported `original_bytes` — the exact minimum bound for
+the same valid rendering — and only when that value is within both the caller's
+authorization and the 1 MiB cap. Accept the recovery only when the second
+result has the same page `version` and `complete:true`; otherwise keep the
+evidence incomplete. When `original_bytes` exceeds either bound, do not retry:
+select a narrower heading from the outline, or qualify the answer as
+incomplete. The other three reasons are terminal; repeating the same call
+cannot change them.
+
 For table evidence, call `confluence_table_summary` first without `table` to
 inventory every table without returning cell content. Then call
 `confluence_table_extract` with one positive 1-based `table` index. All-table
