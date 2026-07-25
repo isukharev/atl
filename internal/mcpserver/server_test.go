@@ -36,6 +36,14 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 	if !strings.Contains(initialized.Instructions, "columns (preferred), fields, or projection") {
 		t.Fatalf("initialize instructions do not disambiguate Jira search field selection: %q", initialized.Instructions)
 	}
+	for _, guidance := range []string{
+		"confluence_page_meta", "body-free page identity", "restricted, unrestricted, or unknown",
+		"omits labels, ancestors, URLs, principals, and page content",
+	} {
+		if !strings.Contains(initialized.Instructions, guidance) {
+			t.Fatalf("initialize instructions omit page-metadata guidance %q: %q", guidance, initialized.Instructions)
+		}
+	}
 	// The section gate is conditional, so the server-level guidance has to state
 	// all three cases; an agent that reads only "pass a version" would either
 	// bind an externally fixed selection it cannot bind or skip the binding that
@@ -61,7 +69,7 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 	}
 	want := []string{
 		"confluence_attachment_list", "confluence_mirror_snapshot",
-		"confluence_page_outline", "confluence_page_resolve", "confluence_page_section", "confluence_search",
+		"confluence_page_meta", "confluence_page_outline", "confluence_page_resolve", "confluence_page_section", "confluence_search",
 		"confluence_table_extract", "confluence_table_summary",
 		"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_history",
 		"jira_issue_search", "jira_mirror_snapshot", "jira_structure_get", "jira_structure_view",
@@ -69,6 +77,9 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 	got := make([]string, 0, len(listed.Tools))
 	for _, tool := range listed.Tools {
 		got = append(got, tool.Name)
+		if _, ok := agenteval.CapabilityFamilyForMCP(tool.Name); !ok {
+			t.Errorf("tool %s has no evaluation capability-family mapping", tool.Name)
+		}
 		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint || !tool.Annotations.IdempotentHint {
 			t.Errorf("tool %s annotations=%+v", tool.Name, tool.Annotations)
 		}
@@ -184,6 +195,30 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 			for _, required := range []string{"schema_version", "version"} {
 				if !schemaRequired(output, required) {
 					t.Errorf("tool %s output must require %s: %#v", tool.Name, required, tool.OutputSchema)
+				}
+			}
+		}
+		if tool.Name == "confluence_page_meta" {
+			if !schemaRequired(input, "reference") {
+				t.Errorf("tool %s must require reference: %#v", tool.Name, tool.InputSchema)
+			}
+			output, _ := tool.OutputSchema.(map[string]any)
+			for _, required := range []string{"schema_version", "id", "title", "space", "version", "restriction_state"} {
+				if !schemaRequired(output, required) {
+					t.Errorf("tool %s output must require %s: %#v", tool.Name, required, tool.OutputSchema)
+				}
+			}
+			outputProperties, _ := output["properties"].(map[string]any)
+			for _, forbidden := range []string{"url", "labels", "ancestors", "restrictions", "principals", "body"} {
+				if _, exists := outputProperties[forbidden]; exists {
+					t.Errorf("tool %s output must not expose %s: %#v", tool.Name, forbidden, tool.OutputSchema)
+				}
+			}
+			for _, guidance := range []string{
+				"body-free", "restricted, unrestricted, or unknown", "omits labels, ancestors, URLs",
+			} {
+				if !strings.Contains(tool.Description, guidance) {
+					t.Errorf("tool %s description omits %q: %q", tool.Name, guidance, tool.Description)
 				}
 			}
 		}
@@ -2571,6 +2606,255 @@ func attachmentInventoryClient(t *testing.T, reader *recordingConfluenceReader) 
 	return client
 }
 
+func pageMetadataClient(t *testing.T, reader *recordingConfluenceReader) *mcp.ClientSession {
+	t.Helper()
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Confluence: func() (ConfluenceReader, error) { return reader, nil },
+	}))
+	t.Cleanup(closeSessions)
+	return client
+}
+
+func TestConfluencePageMetadataForwardsReferenceAndPreservesTriState(t *testing.T) {
+	for _, test := range []struct {
+		name, state string
+	}{
+		{name: "unknown", state: app.ConfluenceRestrictionUnknown},
+		{name: "restricted", state: app.ConfluenceRestrictionRestricted},
+		{name: "unrestricted", state: app.ConfluenceRestrictionUnrestricted},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &recordingConfluenceReader{metadataResult: &app.ConfluencePageMetadataResult{
+				SchemaVersion: app.ConfluencePageMetadataSchemaVersion,
+				ID:            "42", Title: "Synthetic page", Space: "DOCS", Version: 7,
+				Updated: "2026-07-25T12:00:00.000Z", RestrictionState: test.state,
+			}}
+			result := callToolOK(t, pageMetadataClient(t, reader), "confluence_page_meta", map[string]any{
+				"reference": "/wiki/pages/viewpage.action?pageId=42",
+			})
+			if reader.metadataCalls != 1 || reader.metadataReference != "/wiki/pages/viewpage.action?pageId=42" {
+				t.Fatalf("metadata calls=%d reference=%q", reader.metadataCalls, reader.metadataReference)
+			}
+			content, ok := result.StructuredContent.(map[string]any)
+			if !ok || len(content) != 7 ||
+				content["schema_version"] != float64(app.ConfluencePageMetadataSchemaVersion) ||
+				content["id"] != "42" || content["title"] != "Synthetic page" ||
+				content["space"] != "DOCS" || content["version"] != float64(7) ||
+				content["updated"] != "2026-07-25T12:00:00.000Z" ||
+				content["restriction_state"] != test.state {
+				t.Fatalf("metadata=%#v", result.StructuredContent)
+			}
+			for _, forbidden := range []string{"url", "labels", "ancestors", "restrictions", "principals", "body"} {
+				if _, exists := content[forbidden]; exists {
+					t.Fatalf("metadata exposed %q: %#v", forbidden, content)
+				}
+			}
+		})
+	}
+}
+
+func TestConfluencePageMetadataRejectsEmptyReferenceBeforeReaderConstruction(t *testing.T) {
+	constructed := false
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Confluence: func() (ConfluenceReader, error) {
+			constructed = true
+			return &recordingConfluenceReader{}, nil
+		},
+	}))
+	defer closeSessions()
+
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "confluence_page_meta", Arguments: map[string]any{"reference": " \t "},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if constructed || !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+		t.Fatalf("constructed=%t result=%+v", constructed, result)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content=%T", result.Content[0])
+	}
+	var got toolError
+	if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+		got.Kind != "usage_error" || got.Message != "invalid Confluence page metadata request" {
+		t.Fatalf("error=%+v decode=%v", got, err)
+	}
+}
+
+func TestConfluencePageMetadataRejectsUnknownInputBeforeReaderConstruction(t *testing.T) {
+	reader := &recordingConfluenceReader{}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Confluence: func() (ConfluenceReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "confluence_page_meta",
+		Arguments: map[string]any{
+			"reference": "42",
+			"include":   []string{"labels"},
+		},
+	})
+	if err == nil {
+		t.Fatalf("unknown input succeeded: %+v", result)
+	}
+	if reader.metadataCalls != 0 || reader.metadataReference != "" {
+		t.Fatalf("unknown input reached reader: calls=%d reference=%q", reader.metadataCalls, reader.metadataReference)
+	}
+}
+
+func TestConfluencePageMetadataRejectsUnreconciledApplicationResults(t *testing.T) {
+	valid := func() *app.ConfluencePageMetadataResult {
+		return &app.ConfluencePageMetadataResult{
+			SchemaVersion: app.ConfluencePageMetadataSchemaVersion,
+			ID:            "42", Title: "Synthetic page", Space: "DOCS", Version: 7,
+			RestrictionState: app.ConfluenceRestrictionUnknown,
+		}
+	}
+	tests := []struct {
+		name   string
+		mutate func(*app.ConfluencePageMetadataResult) *app.ConfluencePageMetadataResult
+	}{
+		{name: "nil", mutate: func(*app.ConfluencePageMetadataResult) *app.ConfluencePageMetadataResult { return nil }},
+		{name: "schema", mutate: func(result *app.ConfluencePageMetadataResult) *app.ConfluencePageMetadataResult {
+			result.SchemaVersion++
+			return result
+		}},
+		{name: "id", mutate: func(result *app.ConfluencePageMetadataResult) *app.ConfluencePageMetadataResult {
+			result.ID = ""
+			return result
+		}},
+		{name: "title", mutate: func(result *app.ConfluencePageMetadataResult) *app.ConfluencePageMetadataResult {
+			result.Title = ""
+			return result
+		}},
+		{name: "space", mutate: func(result *app.ConfluencePageMetadataResult) *app.ConfluencePageMetadataResult {
+			result.Space = ""
+			return result
+		}},
+		{name: "version", mutate: func(result *app.ConfluencePageMetadataResult) *app.ConfluencePageMetadataResult {
+			result.Version = 0
+			return result
+		}},
+		{name: "restriction state", mutate: func(result *app.ConfluencePageMetadataResult) *app.ConfluencePageMetadataResult {
+			result.RestrictionState = "missing"
+			return result
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &recordingConfluenceReader{
+				metadataResult: test.mutate(valid()), metadataResultSet: true,
+			}
+			result, err := pageMetadataClient(t, reader).CallTool(context.Background(), &mcp.CallToolParams{
+				Name: "confluence_page_meta", Arguments: map[string]any{"reference": "42"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+				t.Fatalf("result=%+v", result)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+				got.Kind != "check_failed" || got.Message != "Confluence page metadata failed validation" {
+				t.Fatalf("error=%+v decode=%v", got, err)
+			}
+		})
+	}
+}
+
+func TestConfluencePageMetadataOutputBoundFailsWithoutLeakingContent(t *testing.T) {
+	const marker = "SYNTHETIC-PAGE-METADATA-PRIVATE-MARKER"
+	reader := &recordingConfluenceReader{metadataResult: &app.ConfluencePageMetadataResult{
+		SchemaVersion: app.ConfluencePageMetadataSchemaVersion,
+		ID:            "42", Title: marker + strings.Repeat("x", confluencePageMetadataMaxBytes),
+		Space: "DOCS", Version: 7, RestrictionState: app.ConfluenceRestrictionRestricted,
+	}}
+	result, err := pageMetadataClient(t, reader).CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "confluence_page_meta", Arguments: map[string]any{"reference": "42"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, marshalErr := json.Marshal(result)
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	if !result.IsError || result.StructuredContent != nil || bytes.Contains(encoded, []byte(marker)) ||
+		len(result.Content) != 1 {
+		t.Fatalf("oversize metadata leaked or succeeded: %s", encoded)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content=%T", result.Content[0])
+	}
+	var got toolError
+	if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+		got.Kind != "output_limit_exceeded" ||
+		got.Remediation != "use_cli_conf_page_meta" ||
+		got.Message != "Confluence page metadata exceeds its output bound" {
+		t.Fatalf("error=%+v decode=%v", got, err)
+	}
+}
+
+func TestConfluencePageMetadataErrorsAreStaticAndContentFree(t *testing.T) {
+	const marker = "SYNTHETIC-PAGE-METADATA-BACKEND-SECRET"
+	for _, test := range []struct {
+		name, kind, message string
+		err                 error
+	}{
+		{name: "config", kind: "configuration_error", err: fmt.Errorf("%w: %s", domain.ErrConfig, marker), message: "Confluence page metadata service is not configured"},
+		{name: "auth", kind: "authentication_failed", err: fmt.Errorf("%w: %s", domain.ErrAuth, marker), message: "Confluence page metadata authentication failed"},
+		{name: "forbidden", kind: "forbidden", err: fmt.Errorf("%w: %s", domain.ErrForbidden, marker), message: "Confluence page metadata access is forbidden"},
+		{name: "not found", kind: "not_found", err: fmt.Errorf("%w: %s", domain.ErrNotFound, marker), message: "Confluence page was not found"},
+		{name: "check", kind: "check_failed", err: fmt.Errorf("%w: %s", domain.ErrCheckFailed, marker), message: "Confluence page metadata failed validation"},
+		{name: "api", kind: "api_error", err: &httpx.APIError{
+			Status: 500, Method: "GET", Path: "/rest/api/content/" + marker, Body: marker,
+		}, message: "Confluence page metadata API request failed"},
+		{name: "rate limited", kind: "rate_limited", err: &httpx.APIError{
+			Status: http.StatusTooManyRequests, Method: "GET",
+			Path: "/rest/api/content/" + marker, Body: marker,
+		}, message: "Confluence page metadata rate limit was exhausted"},
+		{name: "transport", kind: "transport_error", err: &httpx.TransportError{
+			Method: "GET", Category: marker,
+		}, message: "Confluence page metadata transport failed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &recordingConfluenceReader{metadataErr: test.err}
+			result, err := pageMetadataClient(t, reader).CallTool(context.Background(), &mcp.CallToolParams{
+				Name: "confluence_page_meta", Arguments: map[string]any{"reference": "42"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, marshalErr := json.Marshal(result)
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			if !result.IsError || result.StructuredContent != nil || bytes.Contains(encoded, []byte(marker)) ||
+				len(result.Content) != 1 {
+				t.Fatalf("error leaked or succeeded: %s", encoded)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+				got.Kind != test.kind || got.Message != test.message {
+				t.Fatalf("error=%+v decode=%v", got, err)
+			}
+		})
+	}
+}
+
 func TestConfluenceAttachmentListForwardsExactInput(t *testing.T) {
 	reader := &recordingConfluenceReader{}
 	client := attachmentInventoryClient(t, reader)
@@ -4202,25 +4486,30 @@ func (r *invalidStructureReader) StructureSnapshot(ctx context.Context, id int64
 }
 
 type recordingConfluenceReader struct {
-	searchCQL, searchCursor                              string
-	searchLimit                                          int
-	searchText                                           string
-	resolveReference, outlineReference, sectionReference string
-	sectionOpts                                          app.ConfluencePageSectionOpts
-	tableSummaryReference, tableExtractReference         string
-	tableSummaryIndex, tableExtractIndex                 int
-	tableSummaryOpts, tableExtractOpts                   app.ConfluenceTableReadOpts
-	tableText                                            string
-	tableErr                                             error
-	sectionErr                                           error
-	outlineErr                                           error
-	outlineResult                                        *app.ConfluencePageOutlineResult
-	sectionResult                                        *app.ConfluencePageSectionResult
-	attachmentReference                                  string
-	attachmentOpts                                       app.ConfluenceAttachmentInventoryOpts
-	attachmentResult                                     *app.ConfluenceAttachmentInventoryResult
-	attachmentErr                                        error
-	attachmentCalls                                      int
+	searchCQL, searchCursor                      string
+	searchLimit                                  int
+	searchText                                   string
+	resolveReference, metadataReference          string
+	outlineReference, sectionReference           string
+	metadataResult                               *app.ConfluencePageMetadataResult
+	metadataResultSet                            bool
+	metadataErr                                  error
+	metadataCalls                                int
+	sectionOpts                                  app.ConfluencePageSectionOpts
+	tableSummaryReference, tableExtractReference string
+	tableSummaryIndex, tableExtractIndex         int
+	tableSummaryOpts, tableExtractOpts           app.ConfluenceTableReadOpts
+	tableText                                    string
+	tableErr                                     error
+	sectionErr                                   error
+	outlineErr                                   error
+	outlineResult                                *app.ConfluencePageOutlineResult
+	sectionResult                                *app.ConfluencePageSectionResult
+	attachmentReference                          string
+	attachmentOpts                               app.ConfluenceAttachmentInventoryOpts
+	attachmentResult                             *app.ConfluenceAttachmentInventoryResult
+	attachmentErr                                error
+	attachmentCalls                              int
 }
 
 // partialOriginalBytes reports the configured original byte bound of whichever
@@ -4254,6 +4543,22 @@ func (r *recordingConfluenceReader) SearchQualified(_ context.Context, cql strin
 func (r *recordingConfluenceReader) ResolvePageReference(_ context.Context, reference string) (*app.ConfluencePageResolution, error) {
 	r.resolveReference = reference
 	return &app.ConfluencePageResolution{}, nil
+}
+
+func (r *recordingConfluenceReader) PageMetadata(_ context.Context, reference string) (*app.ConfluencePageMetadataResult, error) {
+	r.metadataReference = reference
+	r.metadataCalls++
+	if r.metadataErr != nil {
+		return nil, r.metadataErr
+	}
+	if r.metadataResultSet || r.metadataResult != nil {
+		return r.metadataResult, nil
+	}
+	return &app.ConfluencePageMetadataResult{
+		SchemaVersion: app.ConfluencePageMetadataSchemaVersion,
+		ID:            "42", Title: "Synthetic page", Space: "DOCS", Version: 3,
+		RestrictionState: app.ConfluenceRestrictionUnknown,
+	}, nil
 }
 
 func (r *recordingConfluenceReader) PageOutline(_ context.Context, reference string) (*app.ConfluencePageOutlineResult, error) {
@@ -4448,6 +4753,10 @@ func (*cancellingConfluenceReader) SearchQualified(context.Context, string, int,
 }
 
 func (*cancellingConfluenceReader) ResolvePageReference(context.Context, string) (*app.ConfluencePageResolution, error) {
+	panic("unexpected call")
+}
+
+func (*cancellingConfluenceReader) PageMetadata(context.Context, string) (*app.ConfluencePageMetadataResult, error) {
 	panic("unexpected call")
 }
 

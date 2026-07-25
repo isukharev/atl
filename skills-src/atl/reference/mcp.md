@@ -10,8 +10,8 @@ The exact tools are:
   `jira_issue_history`, `jira_epic_digest`,
   `jira_board_view`, `jira_structure_get`, `jira_structure_view`,
   `jira_mirror_snapshot`;
-- `confluence_search`, `confluence_page_resolve`, `confluence_page_outline`,
-  `confluence_page_section`, `confluence_attachment_list`,
+- `confluence_search`, `confluence_page_resolve`, `confluence_page_meta`,
+  `confluence_page_outline`, `confluence_page_section`, `confluence_attachment_list`,
   `confluence_table_summary`, `confluence_table_extract`,
   `confluence_mirror_snapshot`.
 
@@ -100,6 +100,16 @@ pages, then expand only the selected Jira field and outline-selected
 Confluence section. A numeric Confluence search-result id is already stable;
 do not resolve it again. Search results contain candidate metadata, not page
 bodies.
+
+Use `confluence_page_meta` for body-free page governance evidence. It returns
+only schema/page identity, title, space, positive version, optional update
+stamp, and explicit `restricted`, `unrestricted`, or `unknown` state under a
+fixed 32 KiB cap. Unknown restriction state is not evidence of unrestricted
+access. URLs, labels, ancestors, restriction principals, page content, and
+arbitrary backend metadata are absent by construction. Its version is one
+separately timed observation, not an atomic snapshot with a later read. On
+`use_cli_conf_page_meta`, use the richer CLI metadata command rather than
+repeating MCP.
 
 `confluence_page_outline` and `confluence_page_section` are one selection
 protocol: both stamp `schema_version:1`, so never validate one against the

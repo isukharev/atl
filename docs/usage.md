@@ -124,7 +124,7 @@ Run the typed read-only agent tool surface over MCP stdio:
 atl mcp serve
 ```
 
-The process registers seventeen explicit Jira/Confluence evidence tools and no
+The process registers eighteen explicit Jira/Confluence evidence tools and no
 mutation, shell, arbitrary-file, mirror-write, or raw-REST tool. Two no-argument
 tools inspect only an explicit valid `ATL_MIRROR_ROOT`, offline, and return
 content-free mirror health counts. Stdout is
@@ -132,6 +132,12 @@ reserved for protocol frames, startup skips self-update, and tool errors expose
 the same stable `kind`/`remediation` classes as CLI JSON. Install through the
 Claude Code/Codex plugin or see [mcp.md](mcp.md) for the exact tools, bounds,
 standalone Codex config, and CLI fallback guidance.
+
+`confluence_page_meta` is the body-free governance read: it returns only
+schema/page identity, title, space, a positive version, an optional update
+stamp, and explicit `restricted`, `unrestricted`, or `unknown` state. It has a
+fixed 32 KiB encoded-result cap and omits URLs, labels, ancestors, restriction
+principals, page content, and arbitrary backend metadata.
 
 ### Body input (`--from-file`)
 

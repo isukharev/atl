@@ -38,6 +38,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added typed read-only MCP `confluence_page_meta` for one bounded, body-free
+  page governance read. The schema-v1 result carries only reconciled page
+  identity, title, space, positive version, optional update stamp, and an
+  explicit `restricted`, `unrestricted`, or `unknown` state. It deliberately
+  excludes URLs, labels, ancestors, restriction principals, bodies, and
+  arbitrary backend metadata; enforces a fixed 32 KiB encoded-result cap; and
+  uses static content-free diagnostics for every failure class. The offline
+  capability catalog now routes `confluence.page.meta` to the richer
+  `conf page meta` CLI fallback.
+
 - `conf table summary` and `conf table extract` now report
   `schema_version:1`, the exact positive page `version`, and the always-present
   `page_version_gated` state. Both commands accept optional

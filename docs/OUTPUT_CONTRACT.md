@@ -128,12 +128,22 @@ not themselves grant write authority.
 
 `atl mcp serve` is a separate stdio protocol transport, so global CLI output
 flags and process exit envelopes do not apply to individual tool calls. Each of
-the seventeen registered tools has inferred input/output JSON Schema and returns
+the eighteen registered tools has inferred input/output JSON Schema and returns
 typed `structuredContent`; compatible clients may also expose the SDK's text
 projection. Tool failures set the MCP error result and contain a JSON text
 object with stable `kind`, `remediation`, and diagnostic `message` fields.
 For transport/API failures, `message` is deliberately coarse and omits backend
 paths, query values, and response bodies.
+
+`confluence_page_meta` returns
+`{schema_version,id,title,space,version,updated?,restriction_state}`.
+`restriction_state` is exactly `restricted`, `unrestricted`, or `unknown`;
+an omitted backend restriction expansion is always `unknown`, never
+`unrestricted`. The result is rejected whole above its fixed 32 KiB encoded
+cap with remediation `use_cli_conf_page_meta`. URLs, labels, ancestors,
+restriction principals, page bodies, and arbitrary backend expansion fields
+are absent by construction, and every failure class uses a static content-free
+message.
 
 An out-of-range 1-based Confluence table selection remains `kind:"not_found"`
 but uses `remediation:"summarize_then_select_table"`. Its diagnostic message

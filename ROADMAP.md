@@ -32,10 +32,11 @@ Recent beta work established the contracts the next wave builds on:
 - a versioned offline capability catalog that maps exact agent task classes to
   bounded command/reference routes and derives access/output facts from the
   executable CLI contract;
-- a typed read-only MCP stdio server with seventeen bounded evidence tools,
+- a typed read-only MCP stdio server with eighteen bounded evidence tools,
   including two offline content-free mirror health snapshots, stable error
-  classes, plugin distribution, and a synthetic Codex route that proves the
-  same fifteen-GET quarterly portfolio result with zero writes;
+  classes, a body-free Confluence page governance projection with explicit
+  tri-state access state, plugin distribution, and a synthetic Codex route that
+  proves the same fifteen-GET quarterly portfolio result with zero writes;
 - a same-runtime Claude Code CLI/MCP portfolio comparison whose three-run MCP
   median preserves correctness and backend traffic while materially reducing
   turns, context, cost, and duration.

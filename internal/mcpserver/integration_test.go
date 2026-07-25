@@ -22,6 +22,7 @@ func TestIntegrationProductionReadOnlyFixtures(t *testing.T) {
 
 	t.Run("jira fields", testIntegrationMCPJiraFields)
 	t.Run("jira structure", testIntegrationMCPJiraStructure)
+	t.Run("confluence page metadata", testIntegrationMCPConfluencePageMetadata)
 	t.Run("confluence tables", testIntegrationMCPConfluenceTables)
 }
 
@@ -109,6 +110,29 @@ func testIntegrationMCPJiraStructure(t *testing.T) {
 	}
 	if selectionKind != "" && (view.Selection == nil || view.Selection.Kind != selectionKind) {
 		t.Fatal("live Structure selection did not reconcile")
+	}
+}
+
+func testIntegrationMCPConfluencePageMetadata(t *testing.T) {
+	pageID := strings.TrimSpace(os.Getenv("ATL_TEST_CONFLUENCE_TABLE_PAGE_ID"))
+	if pageID == "" {
+		t.Skip("set ATL_TEST_CONFLUENCE_TABLE_PAGE_ID to run the live page metadata MCP test")
+	}
+	client, closeSessions := connectIntegrationMCPClient(t)
+	defer closeSessions()
+
+	result := callIntegrationMCPTool[app.ConfluencePageMetadataResult](
+		t, client, "confluence_page_meta", map[string]any{"reference": pageID},
+	)
+	if result.SchemaVersion != app.ConfluencePageMetadataSchemaVersion ||
+		result.ID != pageID || strings.TrimSpace(result.Title) == "" ||
+		strings.TrimSpace(result.Space) == "" || result.Version < 1 {
+		t.Fatal("live Confluence page metadata did not reconcile")
+	}
+	switch result.RestrictionState {
+	case app.ConfluenceRestrictionUnknown, app.ConfluenceRestrictionRestricted, app.ConfluenceRestrictionUnrestricted:
+	default:
+		t.Fatal("live Confluence restriction state did not reconcile")
 	}
 }
 
