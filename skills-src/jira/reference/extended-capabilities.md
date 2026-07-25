@@ -155,6 +155,8 @@ atl jira structure view 123 --folder-id 100 --expected-forest-signature 55 --exp
 atl jira structure values 123 --rows 100,101 --fields key,summary,status
 atl jira structure pull-issues 123 --fields summary,status
 atl jira structure export 123 --format jsonl --out structure.jsonl
+atl jira structure export 123 --folder-id 100 --format jsonl --out structure.jsonl \
+  --expected-forest-signature 55 --expected-forest-version 7
 ```
 
 Use `view` first for agent analysis: JSON is compact and jq-friendly, `-o text`
@@ -188,22 +190,29 @@ Selected Markdown uses relative numeric Depth with separate Key/Summary cells;
 JSON keeps absolute depth and adds `relative_depth`.
 
 Bind that second call to the forest the selector came from: copy both
-`forest_version.signature` and `forest_version.version` from the earlier `view`
-or `folders` result into `--expected-forest-signature` and
-`--expected-forest-version`. The flags are optional but paired — omitting both is
-an explicitly ungated view, and an unpaired or invalid pair is a usage error
-(exit 2) before any backend request. A pair that does not match the current
-forest exits 8 on the first forest read, before Structure Value or Jira issue
-expansion, reporting only the expected and current integers; re-read the view,
+`signature` and `version` from the earlier `view`, `folders`, or `rows` result
+into `--expected-forest-signature` and
+`--expected-forest-version`. `view`, `rows`, `pull-issues`, and `export` all
+accept that pair; `get`, `forest`, `folders`, and `values` accept none. The
+flags are optional but paired — omitting both is
+an explicitly ungated read, and an unpaired, zero, or non-positive pair is a
+usage error (exit 2) before any backend request. A pair that does not match the
+current forest exits 8 on the initial forest read — before folder labels,
+Structure Value or Jira issue expansion, export rendering, and before any
+`--out` file exists, so no partial artifact is left behind. It reports only the
+expected and current integers; re-read the view,
 re-select the subtree there, and retry once with the new pair. Omit both only
 for a selector fixed outside any earlier read. If either returned version
 member is zero, the pair is non-bindable: omit both flags, keep the selection
-explicitly ungated, and report that limitation. Every snapshot reports the
-`forest_version` it was built from plus `forest_version_gated`; there is no
+explicitly ungated, and report that limitation. Every result reports
+`forest_version_gated`, alongside `forest_version` on `view`/`export` and the
+existing `version` on `rows`/`pull-issues`; there is no
 second forest request. That version covers the hierarchy and the selection only
 — Jira issue fields and stored folder labels are separately timed, so do not
-present them as one atomic versioned value snapshot. `export` has no
-expected-version flags, so its snapshots are always `forest_version_gated:false`.
+present them as one atomic versioned value snapshot. A gated CSV export reports
+that provenance only in the command result, because CSV headers and cells are
+unchanged; keep it with the file if the export must stay auditable. The default
+JSON result and `-o text` both report the pair and gate state.
 
 For repeated filtering, export JSONL and use `jq -c` per record; use CSV for
 spreadsheet/relational tools and Markdown for human review. Exports support

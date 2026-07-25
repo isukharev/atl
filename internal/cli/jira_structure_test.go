@@ -490,7 +490,7 @@ func structureViewServer(t *testing.T) *jiraServer {
 	return js
 }
 
-func structureViewGated(t *testing.T, out string) bool {
+func structureForestVersionGated(t *testing.T, out string) bool {
 	t.Helper()
 	var got struct {
 		ForestVersionGated bool `json:"forest_version_gated"`
@@ -509,7 +509,7 @@ func TestJiraStructureViewCLIBindsExactForestVersion(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("gated view: exit %d, want 0 (stdout=%q)", code, out)
 	}
-	if !structureViewGated(t, out) {
+	if !structureForestVersionGated(t, out) {
 		t.Fatal("matching expected pair was not reported as gated")
 	}
 
@@ -517,7 +517,7 @@ func TestJiraStructureViewCLIBindsExactForestVersion(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("ungated view: exit %d, want 0 (stdout=%q)", code, ungated)
 	}
-	if structureViewGated(t, ungated) {
+	if structureForestVersionGated(t, ungated) {
 		t.Fatal("view without expected pair was reported as gated")
 	}
 }
@@ -552,6 +552,144 @@ func TestJiraStructureViewCLIRejectsUnpairedForestGateBeforeNetwork(t *testing.T
 		}
 		if len(js.requests()) != 0 {
 			t.Fatalf("%v sent requests before validating the forest gate: %+v", args, js.requests())
+		}
+	}
+}
+
+func TestJiraStructureSelectorConsumersCLIBindExactForestVersion(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{name: "rows", args: []string{"jira", "structure", "rows", "123", "--folder-id", "f-root"}},
+		{name: "pull-issues", args: []string{"jira", "structure", "pull-issues", "123", "--fields", "summary"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			js := structureViewServer(t)
+
+			out, code := runCLI(t, jiraEnv(js.srv), append(test.args,
+				"--expected-forest-signature", "55", "--expected-forest-version", "7")...)
+			if code != exitOK {
+				t.Fatalf("gated %s: exit %d, want 0 (stdout=%q)", test.name, code, out)
+			}
+			if !structureForestVersionGated(t, out) {
+				t.Fatal("matching expected pair was not reported as gated")
+			}
+
+			ungated, code := runCLI(t, jiraEnv(js.srv), test.args...)
+			if code != exitOK {
+				t.Fatalf("ungated %s: exit %d, want 0 (stdout=%q)", test.name, code, ungated)
+			}
+			if structureForestVersionGated(t, ungated) {
+				t.Fatalf("%s without an expected pair was reported as gated", test.name)
+			}
+		})
+	}
+}
+
+func TestJiraStructureExportCLIBindsExactForestVersion(t *testing.T) {
+	js := structureViewServer(t)
+	outPath := filepath.Join(t.TempDir(), "gated.json")
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "structure", "export", "123",
+		"--format", "json", "--out", outPath, "--fields", "key,summary",
+		"--expected-forest-signature", "55", "--expected-forest-version", "7")
+	if code != exitOK {
+		t.Fatalf("gated export: exit %d, want 0 (stdout=%q)", code, out)
+	}
+	var res struct {
+		ForestVersion struct {
+			Signature int64 `json:"signature"`
+			Version   int64 `json:"version"`
+		} `json:"forest_version"`
+		ForestVersionGated bool `json:"forest_version_gated"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out)
+	}
+	if !res.ForestVersionGated || res.ForestVersion.Signature != 55 || res.ForestVersion.Version != 7 {
+		t.Fatalf("export result = %+v, want auditable gated provenance", res)
+	}
+	if data, err := os.ReadFile(outPath); err != nil || !strings.Contains(string(data), `"forest_version_gated": true`) {
+		t.Fatalf("exported file = %q err=%v", data, err)
+	}
+
+	textPath := filepath.Join(t.TempDir(), "gated.csv")
+	text, code := runCLI(t, jiraEnv(js.srv), "jira", "structure", "export", "123",
+		"--format", "csv", "--out", textPath, "--fields", "key,summary", "-o", "text",
+		"--expected-forest-signature", "55", "--expected-forest-version", "7")
+	if code != exitOK {
+		t.Fatalf("gated text export: exit %d, want 0 (stdout=%q)", code, text)
+	}
+	for _, want := range []string{
+		"format=csv", "forest_signature=55", "forest_version=7", "gated=true",
+		"rows=2", "issues=1",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text export = %q, want %q", text, want)
+		}
+	}
+}
+
+func TestJiraStructureSelectorConsumersCLIFailClosedOnStaleForestVersion(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		args    func(out string) []string
+		outFile bool
+	}{
+		{name: "rows", args: func(string) []string {
+			return []string{"jira", "structure", "rows", "123", "--folder-id", "f-root"}
+		}},
+		{name: "pull-issues", outFile: true, args: func(out string) []string {
+			return []string{"jira", "structure", "pull-issues", "123", "--fields", "summary", "--out", out}
+		}},
+		{name: "export", outFile: true, args: func(out string) []string {
+			return []string{"jira", "structure", "export", "123", "--format", "json", "--out", out, "--fields", "key,summary"}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			js := structureViewServer(t)
+			outPath := filepath.Join(t.TempDir(), "stale.json")
+
+			out, code := runCLI(t, jiraEnv(js.srv), append(test.args(outPath),
+				"--expected-forest-signature", "55", "--expected-forest-version", "6")...)
+			if code != exitCheckFailed {
+				t.Fatalf("stale %s: exit %d, want %d (stdout=%q)", test.name, code, exitCheckFailed, out)
+			}
+			for _, request := range js.requests() {
+				if request.path == "/rest/api/2/search" || request.path == "/rest/structure/2.0/value" {
+					t.Fatalf("stale gate did projection work: %+v", request)
+				}
+			}
+			if test.outFile {
+				if _, err := os.Stat(outPath); !os.IsNotExist(err) {
+					t.Fatalf("stale %s created %q (stat err=%v)", test.name, outPath, err)
+				}
+			}
+		})
+	}
+}
+
+func TestJiraStructureSelectorConsumersCLIRejectUnpairedForestGateBeforeNetwork(t *testing.T) {
+	for _, command := range [][]string{
+		{"jira", "structure", "rows", "123"},
+		{"jira", "structure", "pull-issues", "123"},
+		{"jira", "structure", "export", "123", "--out", filepath.Join(t.TempDir(), "unused.json")},
+	} {
+		for _, args := range [][]string{
+			{"--expected-forest-signature", "55"},
+			{"--expected-forest-version", "7"},
+			{"--expected-forest-signature", "0", "--expected-forest-version", "7"},
+			{"--expected-forest-signature", "55", "--expected-forest-version", "0"},
+		} {
+			js := newJiraServer(t)
+			_, code := runCLI(t, jiraEnv(js.srv), append(append([]string(nil), command...), args...)...)
+			if code != exitUsage {
+				t.Fatalf("%v %v: exit %d, want %d", command, args, code, exitUsage)
+			}
+			if len(js.requests()) != 0 {
+				t.Fatalf("%v %v sent requests before validating the forest gate: %+v", command, args, js.requests())
+			}
 		}
 	}
 }

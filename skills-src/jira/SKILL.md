@@ -226,6 +226,12 @@ shell/workspace configuration implicitly.
   Folder discovery also preserves `name:""` for a missing label and
   `parent_folder_id:""` for a root; keep the separate `folder:<id>` path
   fallback as technical identity instead of copying it into `name`.
+- CLI `structure view`, `rows`, `pull-issues`, and `export` accept the same
+  paired `--expected-forest-signature`/`--expected-forest-version`; carry a
+  selector derived from an earlier read on all four and require
+  `forest_version_gated:true`. A partial or non-positive pair exits 2 before any
+  request; a stale pair exits 8 before labels, values, Jira fields, rendering,
+  or any `--out` file. A zero member is non-bindable — omit both and say so.
 - Never expose private Jira exports, queries, bodies, user objects, verbose
   traces, or raw benchmark transcripts in a public repository.
 
