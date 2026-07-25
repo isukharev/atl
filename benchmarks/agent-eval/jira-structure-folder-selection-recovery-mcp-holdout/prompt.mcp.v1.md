@@ -11,14 +11,19 @@ still contains rows is the target.
 On every call pass `structure_id=87`, the ordered narrow projection
 `fields=["key","summary","status"]`, and `max_bytes=65536`. Use `max_rows=50`
 for a view that selects one stored folder and `max_rows=200` for a
-selector-free view of the whole forest. Pass no other argument.
+selector-free view of the whole forest. On the final folder-row call, also copy
+the inventory result's exact `forest_version.signature` and
+`forest_version.version` into `expected_forest_signature` and
+`expected_forest_version`; pass no other argument.
 
 A Structure failure whose remediation is `view_then_select_subtree` means the
 Structure itself was found and only the stored-folder selector did not resolve
 exactly; its message carries matching and available stored-folder counts and no
 folder identity, label, or content. Recover with the documented route: read one
 selector-free bounded view of the forest, take the exact `row_id` of the target
-folder from that inventory, and request that subtree once with `folder_row`. Do
+folder from that inventory, copy the exact forest-version pair, and request that
+subtree once with `folder_row`. The inventory must be ungated; the subtree must
+be gated and carry the same pair. Do
 not repeat a rejected selector, guess another selector or path, add another
 view, or report the Structure, the folder, or the subtree as missing. A
 rejected result is not evidence: it carries no rows, issues, labels, or paths.
@@ -39,6 +44,8 @@ Return only the requested structured response:
 - `inventory`: `selector_free=true` plus the `row_count`, `issue_count`, and
   `complete` of the selector-free view and the `folder_count` of stored-folder
   rows you counted in it.
+- `forest_binding`: the inventory pair as `signature` and `version`,
+  `inventory_gated=false`, and `subtree_gated=true`.
 - `selected_folder`: the `kind`, `folder_id`, `row_id`, and `path` of the
   selection returned by the exact subtree view.
 - `projection_fields`: that view's ordered projection attributes.

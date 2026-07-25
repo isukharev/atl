@@ -75,7 +75,17 @@ its deterministic counts/latest child timestamps instead of regrouping rows.
 For a Structure metadata read, pass `structure_id` as a positive integer or canonical
 decimal string without a sign, whitespace, or leading zero. For a Structure
 view, use explicit fields and at most one exact folder selector; honor
-emitted-row/byte bounds, the 1000-row forest scan cap, and completeness. Use CLI
+emitted-row/byte bounds, the 1000-row forest scan cap, and completeness. When an
+earlier `jira_structure_view` supplied that selector, copy both
+`forest_version.signature` and `forest_version.version` into the paired
+`expected_forest_signature` and `expected_forest_version` and require
+`forest_version_gated:true`; omitting both is an explicitly ungated selection for
+an externally fixed selector. If either returned version member is zero, the
+pair is non-bindable: omit both expected inputs and keep the selection
+explicitly ungated. The returned `forest_version` qualifies the
+hierarchy and the selection only, because Jira issue fields and stored folder
+labels are separately timed. `jira_structure_get`
+metadata is not version-bound. Use CLI
 for mirror content/status/diff, raw Structure
 forest/values, exports/attachments, operations absent from MCP, and every
 mutation.
@@ -87,6 +97,11 @@ fields and `max_rows` sufficient for the full forest, choose the exact folder
 `row_id`, then request that `folder_row` subtree once. Use the CLI if the full
 forest does not fit; do not report the Structure as missing, repeat the failed
 selector, or expose folder identity/content from CLI diagnostics.
+`check_failed` / `reread_structure_view_then_retry_expected_forest_version`
+instead means the forest-version pair you supplied does not match the current
+forest; the message carries only the expected and current integers.
+Re-read the view, re-select the subtree from that fresh result, and retry once
+with the new pair — never against the old selector and old pair.
 
 ## Choose exactly one route
 

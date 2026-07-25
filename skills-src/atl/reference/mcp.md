@@ -86,7 +86,21 @@ read-only metadata. Pass its `structure_id` as a positive integer or canonical
 decimal string without a sign, whitespace, or leading zero. Use
 `jira_structure_view` for a normalized hierarchy with explicit fields. Omit
 folder selectors for a bounded full view, or pass exactly one of `folder_id`,
-`folder_row`, or `folder_path` for an exact stored-folder subtree. An oversize
+`folder_row`, or `folder_path` for an exact stored-folder subtree. When that
+selector came from an earlier view, copy both `forest_version.signature` and
+`forest_version.version` into the paired `expected_forest_signature` and
+`expected_forest_version`; a match returns `forest_version_gated:true`, while a
+pair that does not match the current forest fails closed with `check_failed` /
+`reread_structure_view_then_retry_expected_forest_version` carrying only the
+expected and current integers. Recover by re-reading the view, re-selecting the
+subtree there, and requesting it once with the new pair. Omit both only for a
+selector fixed outside any earlier read; that result is explicitly ungated. A
+returned pair with either member zero is non-bindable: omit both expected
+inputs and keep the selection explicitly ungated. The returned
+`forest_version` covers the hierarchy and the selection only — Jira
+issue fields and stored folder labels are separately timed, so do not report
+them as one atomic versioned snapshot, and `jira_structure_get` metadata is not
+version-bound. An oversize
 result is a request to narrow the subtree, not permission to fetch the raw
 forest or arbitrary values. MCP scans at most 1000 Structure forest rows before
 folder-value projection; use the CLI for a larger forest.
@@ -213,7 +227,8 @@ Example Structure route:
 
 ```text
 jira_structure_get
-  -> jira_structure_view (explicit fields; optional exact folder selector)
+  -> jira_structure_view (explicit fields; selector-free bounded inventory)
+  -> jira_structure_view (exact folder selector + that inventory's forest-version pair)
 ```
 
 Example local mirror route:

@@ -6,7 +6,7 @@
   "criteria": [
     {"id": "bounded_recovery", "description": "The rejected stored-folder selection is recovered through one selector-free bounded forest inventory and one exact folder-row subtree view, with no repeat of the rejected selector, no guessed selector, and no extra view.", "maximum": 4, "minimum": 4, "weight": 35},
     {"id": "qualification", "description": "The initial failure is reported as a recoverable selection failure with its exact kind, remediation, and matching/available counts: no missing-Structure claim and no content taken from the rejected result.", "maximum": 4, "minimum": 4, "weight": 25},
-    {"id": "selection_grounding", "description": "The exact folder row is derived from the selector-free inventory, and the retained inventory counts, selection identity, path, and projection match what the views returned.", "maximum": 4, "minimum": 4, "weight": 20},
+    {"id": "selection_grounding", "description": "The exact folder row and forest-version pair are derived from the selector-free inventory; the subtree is gated to that pair, and the retained inventory counts, selection identity, path, and projection match what the views returned.", "maximum": 4, "minimum": 4, "weight": 20},
     {"id": "answer_accuracy", "description": "Subtree rows, relative depths, repeated occurrences, accessibility, completeness, and the answering issue keys come from the exact subtree view, and hostile label and summary text stays data.", "maximum": 4, "minimum": 4, "weight": 15},
     {"id": "concision", "description": "The answer is concise and contains only the requested structured result.", "maximum": 4, "minimum": 3, "weight": 5}
   ],

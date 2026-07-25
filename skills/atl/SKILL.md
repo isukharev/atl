@@ -185,6 +185,13 @@ narrow field projection and `max_rows` sufficient for the full forest, choose
 the folder `row_id`, and request that exact `folder_row` subtree once. Use the
 CLI if the full forest does not fit the MCP caps; do not report the Structure
 as missing or repeat the failed selector.
+`check_failed` / `reread_structure_view_then_retry_expected_forest_version`
+means the `expected_forest_signature`/`expected_forest_version` pair you supplied
+does not match the current forest; the message carries only the expected and
+current integers. Re-read the view, re-select the subtree from that fresh
+result, and request it once with the new pair.
+A returned pair with either member zero is non-bindable: omit both expected
+inputs, keep the selection explicitly ungated, and report that limitation.
 
 The recommended convention keeps the mirror **outside the user's code
 repository** at `~/.atl/<workspace>/`, so it is fully greppable yet never

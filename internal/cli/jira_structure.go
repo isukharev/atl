@@ -193,7 +193,7 @@ func jiraStructureCmd() *cobra.Command {
 	values.Flags().StringVar(&valueFields, "fields", "", "comma-separated Structure attribute ids (for example key,summary,status)")
 
 	var viewRoot, viewFields, viewPreset, viewFolderID, viewFolderPath string
-	var viewFolderRow int64
+	var viewFolderRow, viewExpectedSignature, viewExpectedVersion int64
 	var viewBatchSize int
 	view := &cobra.Command{
 		Use:   "view <STRUCTURE-ID>",
@@ -201,6 +201,10 @@ func jiraStructureCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			selector, err := structureFolderSelector(cmd, viewFolderID, viewFolderRow, viewFolderPath)
+			if err != nil {
+				return err
+			}
+			expected, err := structureExpectedForestVersion(cmd, viewExpectedSignature, viewExpectedVersion)
 			if err != nil {
 				return err
 			}
@@ -217,6 +221,7 @@ func jiraStructureCmd() *cobra.Command {
 				Attributes:              splitFields(viewFields),
 				BatchSize:               viewBatchSize,
 				View:                    viewPreset,
+				ExpectedForestVersion:   expected,
 				StructureFolderSelector: selector,
 			})
 			if err != nil {
@@ -235,6 +240,8 @@ func jiraStructureCmd() *cobra.Command {
 	view.Flags().StringVar(&viewFields, "fields", "", "comma-separated Jira fields (default: key,summary,status,assignee)")
 	view.Flags().StringVar(&viewPreset, "view", "", "named Jira list view from config (default: default; explicit --fields wins)")
 	view.Flags().IntVar(&viewBatchSize, "batch-size", 100, "issue id batch size for generated JQL")
+	view.Flags().Int64Var(&viewExpectedSignature, "expected-forest-signature", 0, "bind the view to this exact forest signature (requires --expected-forest-version)")
+	view.Flags().Int64Var(&viewExpectedVersion, "expected-forest-version", 0, "bind the view to this exact forest version (requires --expected-forest-signature)")
 	addStructureFolderSelectorFlags(view, &viewFolderID, &viewFolderRow, &viewFolderPath)
 
 	var pullRoot, pullRootFields, pullFields, pullView, pullOut, pullFolderID, pullFolderPath string
@@ -347,6 +354,24 @@ func structureFolderSelector(cmd *cobra.Command, folderID string, folderRow int6
 		return app.StructureFolderSelector{}, usageErr("--folder-row must be positive")
 	}
 	return app.StructureFolderSelector{FolderID: folderID, FolderRow: folderRow, FolderPath: folderPath}, nil
+}
+
+// structureExpectedForestVersion resolves the optional exact forest gate. Both
+// halves identify one forest snapshot, so a one-sided or non-positive pair is a
+// usage error decided before any backend read.
+func structureExpectedForestVersion(cmd *cobra.Command, signature, version int64) (*domain.StructureVersion, error) {
+	signatureSet := cmd.Flags().Changed("expected-forest-signature")
+	versionSet := cmd.Flags().Changed("expected-forest-version")
+	if !signatureSet && !versionSet {
+		return nil, nil
+	}
+	if signatureSet != versionSet {
+		return nil, usageErr("--expected-forest-signature and --expected-forest-version must be passed together")
+	}
+	if signature == 0 || version <= 0 {
+		return nil, usageErr("--expected-forest-signature must be non-zero and --expected-forest-version must be positive")
+	}
+	return &domain.StructureVersion{Signature: signature, Version: version}, nil
 }
 
 func structureRowLines(rows []domain.StructureRow) string {

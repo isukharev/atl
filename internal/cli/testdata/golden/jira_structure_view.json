@@ -9,6 +9,7 @@
     "signature": 55,
     "version": 7
   },
+  "forest_version_gated": false,
   "projection": {
     "kind": "jira-fields-v1",
     "source": "list-view",

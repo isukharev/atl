@@ -86,7 +86,34 @@ type StructureSnapshotOpts struct {
 	MaxRows     int
 	MaxScanRows int
 	View        string
+	// ExpectedForestVersion binds the snapshot to one exact forest version
+	// pair. When set, a snapshot assembled against any other forest fails
+	// closed before later value and Jira-field reads. Nil means ungated; the
+	// returned hierarchy and selection still identify the initial forest.
+	ExpectedForestVersion *domain.StructureVersion
 	StructureFolderSelector
+}
+
+// StructureForestVersionMismatchError reports that a Jira Structure forest is
+// not the exact one a normalized view was bound to because the caller's
+// expectation is stale. Only the two integer version pairs are exported: they
+// carry no row, item, folder, issue, or backend content, so they are safe at a
+// bounded transport boundary. Unwrap() yields domain.ErrCheckFailed, so exit
+// codes and classification stay unchanged.
+type StructureForestVersionMismatchError struct {
+	Expected domain.StructureVersion `json:"expected"`
+	Current  domain.StructureVersion `json:"current"`
+}
+
+func (e *StructureForestVersionMismatchError) Error() string {
+	return fmt.Sprintf("%s: Structure forest version mismatch: expected signature=%d version=%d, got signature=%d version=%d",
+		domain.ErrCheckFailed, e.Expected.Signature, e.Expected.Version, e.Current.Signature, e.Current.Version)
+}
+
+func (e *StructureForestVersionMismatchError) Unwrap() error { return domain.ErrCheckFailed }
+
+func newStructureForestVersionMismatch(expected, current domain.StructureVersion) *StructureForestVersionMismatchError {
+	return &StructureForestVersionMismatchError{Expected: expected, Current: current}
 }
 
 // StructureProjection makes it explicit that atl selected Jira fields; it is
@@ -117,19 +144,23 @@ type StructureMetadataResult struct {
 	ReadOnly      bool   `json:"read_only"`
 }
 
-// StructureSnapshot is a consistent normalized forest/value snapshot.
+// StructureSnapshot is one forest hierarchy with separately timed Jira-field
+// and stored-folder-label projections.
 type StructureSnapshot struct {
-	SchemaVersion    int                       `json:"schema_version"`
-	Structure        StructureSnapshotMetadata `json:"structure"`
-	ForestVersion    domain.StructureVersion   `json:"forest_version"`
-	Projection       StructureProjection       `json:"projection"`
-	Rows             []StructureSnapshotRow    `json:"rows"`
-	RowCount         int                       `json:"row_count"`
-	IssueCount       int                       `json:"issue_count"`
-	Complete         bool                      `json:"complete"`
-	InaccessibleRows []int64                   `json:"inaccessible_rows"`
-	Selection        *StructureSelection       `json:"selection,omitempty"`
-	Warnings         []string                  `json:"warnings"`
+	SchemaVersion int                       `json:"schema_version"`
+	Structure     StructureSnapshotMetadata `json:"structure"`
+	ForestVersion domain.StructureVersion   `json:"forest_version"`
+	// ForestVersionGated reports whether the caller supplied an exact expected
+	// forest version pair that this snapshot was checked against.
+	ForestVersionGated bool                   `json:"forest_version_gated"`
+	Projection         StructureProjection    `json:"projection"`
+	Rows               []StructureSnapshotRow `json:"rows"`
+	RowCount           int                    `json:"row_count"`
+	IssueCount         int                    `json:"issue_count"`
+	Complete           bool                   `json:"complete"`
+	InaccessibleRows   []int64                `json:"inaccessible_rows"`
+	Selection          *StructureSelection    `json:"selection,omitempty"`
+	Warnings           []string               `json:"warnings"`
 }
 
 // StructureSnapshotRow is one jq/JSONL-friendly hierarchy row with selected
@@ -232,6 +263,9 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 	if opts.MaxScanRows < 0 {
 		return nil, fmt.Errorf("%w: max scan rows must be positive", domain.ErrUsage)
 	}
+	if expected := opts.ExpectedForestVersion; expected != nil && (expected.Signature == 0 || expected.Version <= 0) {
+		return nil, fmt.Errorf("%w: expected forest version needs a nonzero signature and a positive version", domain.ErrUsage)
+	}
 	if err := validateStructureSelector(opts.Root, opts.StructureFolderSelector); err != nil {
 		return nil, err
 	}
@@ -254,6 +288,11 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 	forest, err := s.StructureForest(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	// Fail closed on a stale expectation before any folder-value or Jira read,
+	// so a caller that already lost the race does no projection work.
+	if expected := opts.ExpectedForestVersion; expected != nil && forest.Version != *expected {
+		return nil, newStructureForestVersionMismatch(*expected, forest.Version)
 	}
 	rows, err := ParseStructureRows(forest)
 	if err != nil {
@@ -333,7 +372,8 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 		Structure: StructureSnapshotMetadata{
 			ID: metadata.ID, Name: metadata.Name, ReadOnly: metadata.ReadOnly,
 		},
-		ForestVersion: forest.Version,
+		ForestVersion:      forest.Version,
+		ForestVersionGated: opts.ExpectedForestVersion != nil,
 		Projection: StructureProjection{
 			Kind: "jira-fields-v1", Source: source, Attributes: attributes,
 			BrowserViewReproduced: false, View: preset,
@@ -829,19 +869,22 @@ func renderStructureSnapshot(format string, snapshot *StructureSnapshot, rawCSV 
 		enc.SetEscapeHTML(false)
 		for _, row := range snapshot.Rows {
 			record := struct {
-				SchemaVersion int                     `json:"schema_version"`
-				StructureID   int64                   `json:"structure_id"`
-				ForestVersion domain.StructureVersion `json:"forest_version"`
-				Projection    StructureProjection     `json:"projection"`
-				Complete      bool                    `json:"complete"`
-				Inaccessible  []int64                 `json:"inaccessible_rows"`
-				Selection     *StructureSelection     `json:"selection,omitempty"`
-				Warnings      []string                `json:"warnings"`
-				Row           StructureSnapshotRow    `json:"row"`
+				SchemaVersion      int                     `json:"schema_version"`
+				StructureID        int64                   `json:"structure_id"`
+				ForestVersion      domain.StructureVersion `json:"forest_version"`
+				ForestVersionGated bool                    `json:"forest_version_gated"`
+				Projection         StructureProjection     `json:"projection"`
+				Complete           bool                    `json:"complete"`
+				Inaccessible       []int64                 `json:"inaccessible_rows"`
+				Selection          *StructureSelection     `json:"selection,omitempty"`
+				Warnings           []string                `json:"warnings"`
+				Row                StructureSnapshotRow    `json:"row"`
 			}{
 				SchemaVersion: snapshot.SchemaVersion, StructureID: snapshot.Structure.ID,
-				ForestVersion: snapshot.ForestVersion, Projection: snapshot.Projection,
-				Complete: snapshot.Complete, Inaccessible: snapshot.InaccessibleRows,
+				ForestVersion:      snapshot.ForestVersion,
+				ForestVersionGated: snapshot.ForestVersionGated,
+				Projection:         snapshot.Projection,
+				Complete:           snapshot.Complete, Inaccessible: snapshot.InaccessibleRows,
 				Selection: snapshot.Selection, Warnings: snapshot.Warnings, Row: row,
 			}
 			if err := enc.Encode(record); err != nil {
@@ -899,8 +942,10 @@ func renderStructureSnapshotMarkdown(snapshot *StructureSnapshot) []byte {
 		b.WriteString(markdownTableCell(name))
 	}
 	b.WriteString("\n\n")
-	fmt.Fprintf(&b, "> ATL Jira-field projection (`%s`, source: `%s`); browser saved-view columns are not reproduced. Forest version: `%d`; rows: %d.\n\n",
-		snapshot.Projection.Kind, snapshot.Projection.Source, snapshot.ForestVersion.Version, snapshot.RowCount)
+	fmt.Fprintf(&b, "> ATL Jira-field projection (`%s`, source: `%s`); browser saved-view columns are not reproduced. Forest version: signature `%d`, version `%d`; gated: `%t`; rows: %d. Jira fields and folder labels are separately timed.\n\n",
+		snapshot.Projection.Kind, snapshot.Projection.Source,
+		snapshot.ForestVersion.Signature, snapshot.ForestVersion.Version,
+		snapshot.ForestVersionGated, snapshot.RowCount)
 	if snapshot.Selection != nil {
 		fmt.Fprintf(&b, "> Selected folder: `%s`; path: %s; depth is relative in this table.\n\n", snapshot.Selection.FolderID, markdownTableCell(strings.Join(snapshot.Selection.Path, " / ")))
 	}

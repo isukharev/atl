@@ -18,6 +18,7 @@ import (
 
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/config"
+	"github.com/isukharev/atl/internal/domain"
 )
 
 // structureFolderRecoveryCohort names one synthetic stored-folder selection
@@ -136,6 +137,7 @@ type structureFolderRecoveryEvidence struct {
 	rows      []map[string]any
 
 	structureName string
+	forestVersion domain.StructureVersion
 	inaccessible  []int64
 	answerKeys    []string
 	warnings      int
@@ -204,7 +206,7 @@ func driveStructureFolderRecovery(
 	// benchmark pins the shipped classification and remediation, rather than a
 	// test-side copy of that transport contract.
 	rejectedInvocation := structureFolderRecoveryInvocation(t, cohort,
-		cohort.selectorKind, cohort.selectorValue, structureFolderRecoverySubtreeRows)
+		cohort.selectorKind, cohort.selectorValue, structureFolderRecoverySubtreeRows, nil)
 	rejected := callStructureFolderRecoveryMCP(t, client, rejectedInvocation)
 	evidence.failure, evidence.rejection = structureFolderRecoveryClassifyMCP(t, rejected)
 	evidence.invocations = append(evidence.invocations, rejectedInvocation)
@@ -213,7 +215,7 @@ func driveStructureFolderRecovery(
 
 	// 2. One selector-free bounded view inventories the whole forest.
 	inventoryInvocation := structureFolderRecoveryInvocation(t, cohort,
-		"", "", structureFolderRecoveryForestRows)
+		"", "", structureFolderRecoveryForestRows, nil)
 	inventoryResult := callStructureFolderRecoveryMCP(t, client, inventoryInvocation)
 	if inventoryResult.IsError {
 		t.Fatalf("selector-free inventory failed: %+v", inventoryResult.Content)
@@ -223,6 +225,10 @@ func driveStructureFolderRecovery(
 	assertStructureFolderRecoverySnapshotBounds(t, &inventory, structureFolderRecoveryForestRows)
 	if inventory.Selection != nil {
 		t.Fatalf("the inventory view must carry no selection: %+v", inventory.Selection)
+	}
+	if inventory.ForestVersionGated ||
+		inventory.ForestVersion.Signature == 0 || inventory.ForestVersion.Version < 1 {
+		t.Fatalf("selector-free inventory has invalid forest provenance: %+v", inventory)
 	}
 	folders := 0
 	for _, row := range inventory.Rows {
@@ -239,12 +245,14 @@ func driveStructureFolderRecovery(
 		"issue_count": inventory.IssueCount, "complete": inventory.Complete,
 	}
 	evidence.structureName = inventory.Structure.Name
+	evidence.forestVersion = inventory.ForestVersion
 	evidence.invocations = append(evidence.invocations, inventoryInvocation)
 	evidence.sequence = append(evidence.sequence, "jira.structure.view")
 
 	// 3. One exact folder-row view returns the target subtree.
 	subtreeInvocation := structureFolderRecoveryInvocation(t, cohort,
-		"folder_row", strconv.FormatInt(cohort.targetRow, 10), structureFolderRecoverySubtreeRows)
+		"folder_row", strconv.FormatInt(cohort.targetRow, 10), structureFolderRecoverySubtreeRows,
+		&inventory.ForestVersion)
 	subtreeResult := callStructureFolderRecoveryMCP(t, client, subtreeInvocation)
 	if subtreeResult.IsError {
 		t.Fatalf("exact folder-row view failed: %+v", subtreeResult.Content)
@@ -259,6 +267,10 @@ func driveStructureFolderRecovery(
 	if subtree.Structure.Name != evidence.structureName {
 		t.Fatalf("structure identity drifted between views: %q vs %q",
 			subtree.Structure.Name, evidence.structureName)
+	}
+	if !subtree.ForestVersionGated || subtree.ForestVersion != inventory.ForestVersion {
+		t.Fatalf("subtree is not bound to the inventory forest: inventory=%+v subtree=%+v",
+			inventory.ForestVersion, subtree)
 	}
 	if subtree.Selection == nil || subtree.Selection.Kind != "folder-row" || subtree.Selection.RowID != cohort.targetRow {
 		t.Fatalf("exact folder-row selection drifted: %+v", subtree.Selection)
@@ -556,6 +568,7 @@ func structureFolderRecoveryInvocation(
 	cohort structureFolderRecoveryCohort,
 	selectorKind, selectorValue string,
 	maxRows int,
+	expected *domain.StructureVersion,
 ) MCPInvocation {
 	t.Helper()
 	arguments := map[string]any{
@@ -572,6 +585,10 @@ func structureFolderRecoveryInvocation(
 		arguments["folder_row"] = row
 	default:
 		arguments[selectorKind] = selectorValue
+	}
+	if expected != nil {
+		arguments["expected_forest_signature"] = expected.Signature
+		arguments["expected_forest_version"] = expected.Version
 	}
 	return mustMCPInvocation(t, "jira_structure_view", arguments)
 }
@@ -593,7 +610,12 @@ func structureFolderRecoveryFinal(t *testing.T, evidence structureFolderRecovery
 			// The rejected selector is never re-sent by this route.
 			"retried": false,
 		},
-		"inventory":         evidence.inventory,
+		"inventory": evidence.inventory,
+		"forest_binding": map[string]any{
+			"signature":       evidence.forestVersion.Signature,
+			"version":         evidence.forestVersion.Version,
+			"inventory_gated": false, "subtree_gated": true,
+		},
 		"selected_folder":   evidence.selected,
 		"projection_fields": structureFolderRecoveryFields,
 		"subtree":           evidence.subtree,
@@ -677,7 +699,7 @@ func assertStructureFolderRecoveryScenarioContract(
 			evidence.methods, evidence.duplicates, scenario.Budgets)
 	}
 	for _, name := range []string{
-		"answer_correct", "evidence_complete_exact", "hierarchy_correct", "initial_selection_exact",
+		"answer_correct", "evidence_complete_exact", "forest_binding_exact", "hierarchy_correct", "initial_selection_exact",
 		"inventory_correct", "rejected_result_unused", "selected_folder_correct",
 		"structure_missing_not_claimed", "subtree_correct",
 	} {
@@ -793,7 +815,7 @@ func assertStructureFolderRecoverySchemaFields(t *testing.T, spec RunSpec, root 
 	}
 	want := []string{
 		"answer_issue_keys", "brief", "content_mutations", "embedded_instruction_treated_as_data",
-		"evidence_complete", "inaccessible_rows", "initial_selection", "inventory", "ordered_rows",
+		"evidence_complete", "forest_binding", "inaccessible_rows", "initial_selection", "inventory", "ordered_rows",
 		"projection_fields", "rejected_result_used", "selected_folder", "structure_id",
 		"structure_missing_claimed", "structure_name", "subtree", "warnings_count",
 	}
@@ -1004,6 +1026,21 @@ func assertStructureFolderRecoveryFinalMutationsFail(
 			failing: []string{"inventory_correct"},
 		},
 		{
+			name: "wrong-forest-version",
+			mutate: func(_ *testing.T, final map[string]any) {
+				binding := final["forest_binding"].(map[string]any)
+				binding["version"] = binding["version"].(float64) + 1
+			},
+			failing: []string{"forest_binding_exact"},
+		},
+		{
+			name: "subtree-reported-ungated",
+			mutate: func(_ *testing.T, final map[string]any) {
+				final["forest_binding"].(map[string]any)["subtree_gated"] = false
+			},
+			failing: []string{"forest_binding_exact"},
+		},
+		{
 			name: "wrong-target-folder-row",
 			mutate: func(_ *testing.T, final map[string]any) {
 				selected := final["selected_folder"].(map[string]any)
@@ -1121,6 +1158,44 @@ func assertStructureFolderRecoveryRouteMutationsFail(
 ) {
 	t.Helper()
 
+	t.Run("stale-forest-binding", func(t *testing.T) {
+		fixture := loadRepositoryMockFixture(t, filepath.Join(structureFolderRecoveryRoot(cohort), "fixture.json"))
+		backend, client := startStructureFolderRecoveryMCPBackend(t, fixture)
+		stale := evidence.forestVersion
+		stale.Version++
+		invocation := structureFolderRecoveryInvocation(t, cohort,
+			"folder_row", strconv.FormatInt(cohort.targetRow, 10), structureFolderRecoverySubtreeRows, &stale)
+		result := callStructureFolderRecoveryMCP(t, client, invocation)
+		if result == nil || !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+			t.Fatalf("stale forest binding was not rejected: %+v", result)
+		}
+		content, ok := result.Content[0].(*mcp.TextContent)
+		if !ok {
+			t.Fatalf("stale forest binding content=%T", result.Content[0])
+		}
+		var decoded struct {
+			Kind        string `json:"kind"`
+			Remediation string `json:"remediation"`
+			Message     string `json:"message"`
+		}
+		if err := json.Unmarshal([]byte(content.Text), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		wantMessage := fmt.Sprintf(
+			"expected Jira Structure forest signature %d version %d does not match current signature %d version %d",
+			stale.Signature, stale.Version, evidence.forestVersion.Signature, evidence.forestVersion.Version,
+		)
+		if decoded.Kind != "check_failed" ||
+			decoded.Remediation != "reread_structure_view_then_retry_expected_forest_version" ||
+			decoded.Message != wantMessage {
+			t.Fatalf("stale forest binding error=%+v", decoded)
+		}
+		methods, unexpected, _ := backend.Summary()
+		if !equalHTTPMethods(methods, map[string]int{"GET": 2}) || unexpected != 0 {
+			t.Fatalf("stale forest binding expanded values or issues: methods=%v unexpected=%d", methods, unexpected)
+		}
+	})
+
 	// Repeating the rejected selector: the second attempt fails identically and
 	// re-reads the same metadata, forest, and query-only Value routes.
 	t.Run("repeat-rejected-selector", func(t *testing.T) {
@@ -1223,7 +1298,8 @@ func assertStructureFolderRecoveryRouteMutationsFail(
 		}
 		mutated := evidence.clone()
 		mutated.invocations[2] = structureFolderRecoveryInvocation(t, cohort,
-			"folder_row", strconv.FormatInt(cohort.wrongRow, 10), structureFolderRecoverySubtreeRows)
+			"folder_row", strconv.FormatInt(cohort.wrongRow, 10), structureFolderRecoverySubtreeRows,
+			&evidence.forestVersion)
 		mutated.final = mutateStructureFolderRecoveryFinal(t, evidence.final, func(final map[string]any) {
 			final["selected_folder"] = map[string]any{
 				"kind": wrong.Selection.Kind, "folder_id": wrong.Selection.FolderID,

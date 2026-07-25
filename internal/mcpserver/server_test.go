@@ -68,6 +68,15 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 			t.Fatalf("initialize instructions omit table-gate guidance %q: %q", guidance, initialized.Instructions)
 		}
 	}
+	for _, guidance := range []string{
+		"forest_version.signature", "expected_forest_signature",
+		"explicitly ungated selection", "non-bindable",
+		"folder labels are separately timed",
+	} {
+		if !strings.Contains(initialized.Instructions, guidance) {
+			t.Fatalf("initialize instructions omit Structure forest-gate guidance %q: %q", guidance, initialized.Instructions)
+		}
+	}
 	listed, err := client.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -386,10 +395,26 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 			}
 		}
 		if tool.Name == "jira_structure_view" {
+			properties, _ := input["properties"].(map[string]any)
+			expectedSignature, _ := properties["expected_forest_signature"].(map[string]any)
+			expectedVersion, _ := properties["expected_forest_version"].(map[string]any)
+			signatureDescription, _ := expectedSignature["description"].(string)
+			versionDescription, _ := expectedVersion["description"].(string)
+			if expectedSignature == nil || expectedVersion == nil ||
+				schemaRequired(input, "expected_forest_signature") || schemaRequired(input, "expected_forest_version") ||
+				!strings.Contains(signatureDescription, "forest_version.signature") ||
+				!strings.Contains(versionDescription, "forest_version.version") {
+				t.Errorf("tool %s must advertise the optional exact forest-version pair: %#v", tool.Name, tool.InputSchema)
+			}
 			output, _ := tool.OutputSchema.(map[string]any)
-			for _, required := range []string{"schema_version", "structure", "projection", "rows", "row_count", "issue_count", "complete", "inaccessible_rows", "warnings"} {
+			for _, required := range []string{"schema_version", "structure", "forest_version", "forest_version_gated", "projection", "rows", "row_count", "issue_count", "complete", "inaccessible_rows", "warnings"} {
 				if !schemaRequired(output, required) {
 					t.Errorf("tool %s output must require %s: %#v", tool.Name, required, tool.OutputSchema)
+				}
+			}
+			for _, guidance := range []string{"forest_version.signature", "expected_forest_signature", "non-bindable", "separately timed"} {
+				if !strings.Contains(tool.Description, guidance) {
+					t.Errorf("tool %s description omits %q: %q", tool.Name, guidance, tool.Description)
 				}
 			}
 		}
@@ -1005,6 +1030,7 @@ func TestSyntheticStructureQualificationThroughMCPProjectsMetadataAndObservedRou
 			path, pathOK := selection["path"].([]any)
 			if !ok || !metadataOK || !selectionOK || !pathOK ||
 				view["row_count"] != float64(test.rowCount) || view["complete"] != test.complete ||
+				view["forest_version_gated"] != false ||
 				viewMetadata["id"] != metadata["id"] ||
 				viewMetadata["name"] != metadata["name"] ||
 				viewMetadata["read_only"] != metadata["read_only"] ||
@@ -1399,10 +1425,13 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 		t.Fatalf("Structure metadata=%#v", metadata.StructuredContent)
 	}
 	view := callToolOK(t, client, "jira_structure_view", map[string]any{
-		"structure_id": 9, "fields": []string{"key", "summary"}, "folder_id": "folder-a", "max_rows": 10, "max_bytes": 4096,
+		"structure_id": 9, "fields": []string{"key", "summary"}, "folder_id": "folder-a",
+		"expected_forest_signature": 55, "expected_forest_version": 7,
+		"max_rows": 10, "max_bytes": 4096,
 	})
 	viewContent, ok := view.StructuredContent.(map[string]any)
-	if !ok || viewContent["row_count"] != float64(2) || viewContent["complete"] != true {
+	if !ok || viewContent["row_count"] != float64(2) || viewContent["complete"] != true ||
+		viewContent["forest_version_gated"] != true {
 		t.Fatalf("Structure view=%#v", view.StructuredContent)
 	}
 	callToolOK(t, client, "confluence_search", map[string]any{"cql": "space=DOCS", "cursor": "25"})
@@ -1456,7 +1485,9 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	}
 	if j.structureID != 9 || j.structureViewID != 9 || j.structureOpts.MaxRows != 10 ||
 		j.structureOpts.MaxScanRows != jiraStructureViewMaxMaxRows || j.structureOpts.BatchSize != 100 ||
-		j.structureOpts.FolderID != "folder-a" || strings.Join(j.structureOpts.Attributes, ",") != "key,summary" {
+		j.structureOpts.FolderID != "folder-a" || strings.Join(j.structureOpts.Attributes, ",") != "key,summary" ||
+		j.structureOpts.ExpectedForestVersion == nil ||
+		*j.structureOpts.ExpectedForestVersion != (domain.StructureVersion{Signature: 55, Version: 7}) {
 		t.Fatalf("Structure calls=%+v", j)
 	}
 	if c.resolveReference != "/x/Abc" || c.outlineReference != "42" || c.sectionReference != "42" || c.sectionOpts.Heading != "Results" || c.sectionOpts.Occurrence != 2 || c.sectionOpts.MaxBytes != 32<<10 {
@@ -1943,6 +1974,9 @@ func TestJiraStructureViewSupportsFullAndExactFolderSelections(t *testing.T) {
 			content, ok := result.StructuredContent.(map[string]any)
 			if !ok {
 				t.Fatalf("content=%#v", result.StructuredContent)
+			}
+			if content["forest_version_gated"] != false {
+				t.Fatalf("forest version claims=%#v", content)
 			}
 			selection, selected := content["selection"].(map[string]any)
 			if test.kind == "" && selected || test.kind != "" && (!selected || selection["kind"] != test.kind) {
@@ -2493,6 +2527,10 @@ func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "fields": []string{strings.Repeat("x", jiraStructureFieldIDMaxBytes+1)}}},
 		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "folder_path": strings.Repeat("x", jiraStructureFolderPathMaxBytes+1)}},
 		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "folder_path": "Plans//Quarter"}},
+		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "expected_forest_signature": 55}},
+		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "expected_forest_version": 7}},
+		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "expected_forest_signature": 0, "expected_forest_version": 0}},
+		{name: "jira_structure_view", args: map[string]any{"structure_id": 1, "expected_forest_signature": 55, "expected_forest_version": -1}},
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{"comments"}, "comment_limit": 51}},
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{}}},
 		{name: "jira_epic_digest", args: map[string]any{"key": "PROJ-1", "include": []string{"confluence"}}},
@@ -2778,7 +2816,10 @@ func TestJiraStructureMetadataBoundFailsWithoutLeakingContent(t *testing.T) {
 }
 
 func TestJiraStructureViewRejectsUnreconciledApplicationResults(t *testing.T) {
-	for _, mode := range []string{"row-count", "selection", "wrong-root", "second-root", "wrong-path", "projection", "completeness"} {
+	for _, mode := range []string{
+		"row-count", "selection", "wrong-root", "second-root", "wrong-path", "projection", "completeness",
+		"forest-gated",
+	} {
 		t.Run(mode, func(t *testing.T) {
 			reader := &invalidStructureReader{recordingJiraReader: &recordingJiraReader{}, mode: mode}
 			client, closeSessions := connectTestClient(t, New("test", Dependencies{
@@ -2806,6 +2847,48 @@ func TestJiraStructureViewRejectsUnreconciledApplicationResults(t *testing.T) {
 				t.Fatalf("error=%+v decode=%v", got, err)
 			}
 		})
+	}
+}
+
+func TestJiraStructureViewPreservesUngatedZeroForestVersion(t *testing.T) {
+	reader := &invalidStructureReader{recordingJiraReader: &recordingJiraReader{}, mode: "forest-version"}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Jira: func() (JiraReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "jira_structure_view", Arguments: map[string]any{
+			"structure_id": 9, "folder_id": "folder-a",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, ok := result.StructuredContent.(map[string]any)
+	version, versionOK := content["forest_version"].(map[string]any)
+	if result.IsError || !ok || !versionOK ||
+		version["signature"] != float64(0) || version["version"] != float64(0) ||
+		content["forest_version_gated"] != false {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestJiraStructureViewRejectsBoundResultForWrongForestVersion(t *testing.T) {
+	reader := &invalidStructureReader{recordingJiraReader: &recordingJiraReader{}, mode: "wrong-expected-forest"}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Jira: func() (JiraReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "jira_structure_view", Arguments: map[string]any{
+			"structure_id": 9, "expected_forest_signature": 55, "expected_forest_version": 7,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || result.StructuredContent != nil {
+		t.Fatalf("result=%+v", result)
 	}
 }
 
@@ -3905,6 +3988,50 @@ func TestJiraStructureOtherErrorsStayStaticAndUnremediated(t *testing.T) {
 	}
 }
 
+func TestJiraStructureForestVersionMismatchIsPairOnlyAndRecoverable(t *testing.T) {
+	const marker = "SYNTHETIC-STRUCTURE-VERSION-PROSE-SECRET"
+	reader := &failingStructureReader{
+		recordingJiraReader: &recordingJiraReader{},
+		err: fmt.Errorf("wrapped %s: %w", marker, &app.StructureForestVersionMismatchError{
+			Expected: domain.StructureVersion{Signature: -55, Version: 7},
+			Current:  domain.StructureVersion{Signature: 66, Version: 8},
+		}),
+	}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Jira: func() (JiraReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "jira_structure_view", Arguments: map[string]any{
+			"structure_id": 9, "expected_forest_signature": -55, "expected_forest_version": 7,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content=%T", result.Content[0])
+	}
+	var got toolError
+	if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+		got.Kind != "check_failed" ||
+		got.Remediation != "reread_structure_view_then_retry_expected_forest_version" ||
+		got.Message != "expected Jira Structure forest signature -55 version 7 does not match current signature 66 version 8" {
+		t.Fatalf("error=%+v decode=%v", got, err)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte(marker)) || bytes.Contains(encoded, []byte("wrapped")) {
+		t.Fatalf("version error leaked backend prose: %s", encoded)
+	}
+}
+
 func TestConfluenceSectionOtherErrorsStayStaticAndUnremediated(t *testing.T) {
 	const marker = "SYNTHETIC-SECTION-PROSE-SECRET"
 	for _, test := range []struct {
@@ -4893,11 +5020,17 @@ func (r *recordingJiraReader) StructureSnapshot(_ context.Context, id int64, opt
 			{RowID: selection.RowID + 1, Depth: 1, ParentRowID: selection.RowID, ItemType: "issue", ItemID: "10001", Accessible: true, RelativeDepth: &one, Values: issueValues},
 		}
 	}
+	forestVersion := domain.StructureVersion{Signature: 55, Version: 7}
+	if opts.ExpectedForestVersion != nil {
+		forestVersion = *opts.ExpectedForestVersion
+	}
 	return &app.StructureSnapshot{
 		SchemaVersion: 1, Structure: app.StructureSnapshotMetadata{ID: id, Name: "Synthetic Structure"},
-		Projection: app.StructureProjection{Kind: "jira-fields-v1", Source: "explicit", Attributes: append([]string(nil), opts.Attributes...)},
-		Rows:       rows,
-		RowCount:   len(rows), IssueCount: 1, Complete: true, InaccessibleRows: []int64{}, Selection: selection, Warnings: []string{},
+		ForestVersion:      forestVersion,
+		ForestVersionGated: opts.ExpectedForestVersion != nil,
+		Projection:         app.StructureProjection{Kind: "jira-fields-v1", Source: "explicit", Attributes: append([]string(nil), opts.Attributes...)},
+		Rows:               rows,
+		RowCount:           len(rows), IssueCount: 1, Complete: true, InaccessibleRows: []int64{}, Selection: selection, Warnings: []string{},
 	}, nil
 }
 
@@ -4919,6 +5052,12 @@ func (r *invalidStructureReader) StructureSnapshot(ctx context.Context, id int64
 		delete(result.Rows[0].Values, opts.Attributes[0])
 	case "completeness":
 		result.Complete = false
+	case "forest-version":
+		result.ForestVersion = domain.StructureVersion{}
+	case "forest-gated":
+		result.ForestVersionGated = !result.ForestVersionGated
+	case "wrong-expected-forest":
+		result.ForestVersion.Signature++
 	}
 	return result, err
 }

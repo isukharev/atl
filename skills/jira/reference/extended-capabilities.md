@@ -152,6 +152,7 @@ atl jira structure forest 123
 atl jira structure rows 123 --root "release train"
 atl jira structure folders 123
 atl jira structure view 123 --folder-id 100 -o text
+atl jira structure view 123 --folder-id 100 --expected-forest-signature 55 --expected-forest-version 7
 atl jira structure values 123 --rows 100,101 --fields key,summary,status
 atl jira structure pull-issues 123 --fields summary,status
 atl jira structure export 123 --format jsonl --out structure.jsonl
@@ -186,6 +187,24 @@ use folder id/row selection. Completeness is scoped to the emitted subtree.
 `--folder-row` is snapshot-local. Keep `--root` only for explicitly fuzzy work.
 Selected Markdown uses relative numeric Depth with separate Key/Summary cells;
 JSON keeps absolute depth and adds `relative_depth`.
+
+Bind that second call to the forest the selector came from: copy both
+`forest_version.signature` and `forest_version.version` from the earlier `view`
+or `folders` result into `--expected-forest-signature` and
+`--expected-forest-version`. The flags are optional but paired — omitting both is
+an explicitly ungated view, and an unpaired or invalid pair is a usage error
+(exit 2) before any backend request. A pair that does not match the current
+forest exits 8 on the first forest read, before Structure Value or Jira issue
+expansion, reporting only the expected and current integers; re-read the view,
+re-select the subtree there, and retry once with the new pair. Omit both only
+for a selector fixed outside any earlier read. If either returned version
+member is zero, the pair is non-bindable: omit both flags, keep the selection
+explicitly ungated, and report that limitation. Every snapshot reports the
+`forest_version` it was built from plus `forest_version_gated`; there is no
+second forest request. That version covers the hierarchy and the selection only
+— Jira issue fields and stored folder labels are separately timed, so do not
+present them as one atomic versioned value snapshot. `export` has no
+expected-version flags, so its snapshots are always `forest_version_gated:false`.
 
 For repeated filtering, export JSONL and use `jq -c` per record; use CSV for
 spreadsheet/relational tools and Markdown for human review. Exports support
