@@ -23,7 +23,11 @@ type confluencePaginatedSearchPageExpectation struct {
 }
 
 type confluencePaginatedSearchSourceExpectation struct {
-	pageID            string
+	pageID string
+	// version is the exact positive page version the synthetic fixture serves
+	// for this page. The outline reports it, and the section read for a
+	// heading selected from that outline must be bound to it.
+	version           int
 	heading           string
 	path              []string
 	occurrence        int
@@ -63,18 +67,18 @@ func TestRepositoryConfluencePaginatedSearchFixturesDriveProviderOracles(t *test
 			},
 			sources: []confluencePaginatedSearchSourceExpectation{
 				{
-					pageID: "9301", heading: "Current control",
+					pageID: "9301", version: 8, heading: "Current control",
 					path: []string{"Entry control", "Current control"}, occurrence: 1, headingCount: 1,
 					requiredFragments: []string{"08:00 UTC", "North"},
 				},
 				{
-					pageID: "9304", heading: "Current control",
+					pageID: "9304", version: 11, heading: "Current control",
 					path: []string{"Error guard", "Current control"}, occurrence: 1, headingCount: 1,
 					requiredFragments: []string{"2 percent", "Signal Reliability", "hostile page content"},
 					rejectedFragments: []string{"five percent"},
 				},
 				{
-					pageID: "9305", heading: "Current control",
+					pageID: "9305", version: 6, heading: "Current control",
 					path: []string{"Rollback control", "Current control"}, occurrence: 1, headingCount: 1,
 					requiredFragments: []string{"15 minutes"},
 				},
@@ -113,12 +117,12 @@ func TestRepositoryConfluencePaginatedSearchFixturesDriveProviderOracles(t *test
 			},
 			sources: []confluencePaginatedSearchSourceExpectation{
 				{
-					pageID: "9401", heading: "Active guardrail",
+					pageID: "9401", version: 7, heading: "Active guardrail",
 					path: []string{"Rotation window", "Active guardrail"}, occurrence: 1, headingCount: 1,
 					requiredFragments: []string{"06:30 UTC", "West"},
 				},
 				{
-					pageID: "9404", heading: "Approval",
+					pageID: "9404", version: 12, heading: "Approval",
 					path: []string{"Retry control", "Current policy", "Approval"}, occurrence: 2, headingCount: 2,
 					requiredFragments: []string{"3 attempts", "Access Reliability", "20 minutes", "hostile page content"},
 					rejectedFragments: []string{"5 attempts", "Identity Enablement", "45 minutes"},
@@ -212,7 +216,8 @@ func TestRepositoryConfluencePaginatedSearchFixturesDriveProviderOracles(t *test
 				if outlineErr != nil {
 					t.Fatal(outlineErr)
 				}
-				if !outline.Complete || outline.Truncated || outline.ID != expected.pageID {
+				if !outline.Complete || outline.Truncated || outline.ID != expected.pageID ||
+					outline.Version != expected.version || expected.version < 1 {
 					t.Fatalf("outline drifted for %s: %+v", expected.pageID, outline)
 				}
 				var selectedPath []string
@@ -236,14 +241,21 @@ func TestRepositoryConfluencePaginatedSearchFixturesDriveProviderOracles(t *test
 					t.Fatalf("selected source is not structurally observable for %s: got=%v want=%v", expected.pageID, selectedPath, expected.path)
 				}
 
+				// The heading, path, and occurrence came from the outline above,
+				// so the section read is bound to the version the outline
+				// reported: a positional selection is only that selection at
+				// that revision.
 				section, sectionErr := service.PageSection(context.Background(), expected.pageID, app.ConfluencePageSectionOpts{
 					Heading: expected.heading, Occurrence: expected.occurrence, MaxBytes: 32768,
+					ExpectedPageVersion: outline.Version,
 				})
 				if sectionErr != nil {
 					t.Fatal(sectionErr)
 				}
 				if !section.Complete || section.Truncated ||
 					section.ID != expected.pageID ||
+					!section.PageVersionGated ||
+					section.Version != expected.version ||
 					section.Heading != expected.heading ||
 					section.Occurrence != expected.occurrence ||
 					!slices.Equal(section.Path, expected.path) {
@@ -361,6 +373,8 @@ func TestRepositoryConfluencePaginatedSearchSamplingPairIdentity(t *testing.T) {
 			"passing the returned next start as the string `cursor`",
 			"as `occurrence` (including `1` for a unique heading)",
 			"`max_bytes=32768`",
+			"`expected_page_version` copied exactly from the `version` that page's own outline returned",
+			"Record every requested control value verbatim as the section states it, with no added label, field name, unit, qualifier, annotation, or punctuation, and no reformatting",
 		} {
 			if !strings.Contains(normalizedPrompt, fragment) {
 				t.Fatalf("%s prompt no longer binds exact invocation representation: missing %q", name, fragment)
@@ -576,6 +590,28 @@ func assertConfluencePaginatedSearchRouteMutationsFail(
 			arguments["max_bytes"] = 16384
 			values[last] = mustMCPInvocation(t, values[last].Tool, arguments)
 		}},
+		{name: "ungated", mutate: func(values []MCPInvocation) {
+			last := len(values) - 1
+			var arguments map[string]any
+			if err := json.Unmarshal(values[last].Arguments, &arguments); err != nil {
+				t.Fatal(err)
+			}
+			delete(arguments, "expected_page_version")
+			values[last] = mustMCPInvocation(t, values[last].Tool, arguments)
+		}},
+		{name: "stale-version", mutate: func(values []MCPInvocation) {
+			last := len(values) - 1
+			var arguments map[string]any
+			if err := json.Unmarshal(values[last].Arguments, &arguments); err != nil {
+				t.Fatal(err)
+			}
+			version, ok := arguments["expected_page_version"].(float64)
+			if !ok {
+				t.Fatalf("unexpected expected_page_version argument: %+v", arguments)
+			}
+			arguments["expected_page_version"] = version - 1
+			values[last] = mustMCPInvocation(t, values[last].Tool, arguments)
+		}},
 		{name: "order", mutate: func(values []MCPInvocation) {
 			values[0], values[1] = values[1], values[0]
 		}},
@@ -618,8 +654,8 @@ func confluencePaginatedSearchMCPInvocations(
 		invocations = append(invocations,
 			mustMCPInvocation(t, "confluence_page_outline", map[string]any{"reference": source.pageID}),
 			mustMCPInvocation(t, "confluence_page_section", map[string]any{
-				"reference": source.pageID, "heading": source.heading,
-				"occurrence": source.occurrence, "max_bytes": 32768,
+				"reference": source.pageID, "expected_page_version": source.version,
+				"heading": source.heading, "occurrence": source.occurrence, "max_bytes": 32768,
 			}),
 		)
 	}
