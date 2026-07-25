@@ -18,7 +18,8 @@ type CapabilityFamilyMetric struct {
 var mcpCapabilityFamilies = map[string]string{
 	"jira_fields": "jira.fields", "jira_issue_search": "jira.issue.search",
 	"jira_issue_field_get": "jira.issue.field", "jira_issue_refs": "jira.issue.refs",
-	"jira_epic_digest": "jira.epic.digest", "jira_board_view": "jira.board.view",
+	"jira_issue_history": "jira.issue.history",
+	"jira_epic_digest":   "jira.epic.digest", "jira_board_view": "jira.board.view",
 	"jira_structure_get": "jira.structure.get", "jira_structure_view": "jira.structure.view",
 	"jira_mirror_snapshot":    "jira.mirror.snapshot",
 	"confluence_page_resolve": "confluence.page.resolve", "confluence_page_outline": "confluence.page.outline",

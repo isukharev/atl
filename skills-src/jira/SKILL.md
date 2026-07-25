@@ -35,11 +35,13 @@ the block-level export. Remove the exported policy only for the exact reviewed
 write command after explicit approval.
 
 If the plugin exposes typed MCP, prefer `jira_fields`, `jira_issue_search`,
-`jira_epic_digest`, `jira_board_view`, `jira_structure_get`, and
+`jira_issue_history`, `jira_epic_digest`, `jira_board_view`,
+`jira_structure_get`, and
 `jira_structure_view` for bounded transient reads. Use `jira_mirror_snapshot`
 with no arguments only for offline content-free health counts of the exact
 owner-configured `ATL_MIRROR_ROOT`. They cannot write. The catalog, search,
-digest, and board tools default to a 256 KiB encoded-result bound (1 KiB through
+history, digest, and board tools default to a 256 KiB encoded-result bound
+(1 KiB through
 1 MiB allowed); narrow selection before raising `max_bytes`, and never treat an
 `output_limit_exceeded` / `narrow_or_raise_bound` failure as clipped evidence.
 Use `jira_fields` with
@@ -48,7 +50,18 @@ are sufficient; request full definitions only to discover identities. For
 `jira_issue_search`, prefer
 `columns`; `fields` and `projection` are equivalent compatibility aliases.
 Supply at most one non-empty selector; empty arrays are omitted. The returned
-IssueList carries normalized `projection` metadata independently. For a
+IssueList carries normalized `projection` metadata independently. For changelog
+questions, call `jira_issue_history` with the exact `key`: it always returns
+provenance, `filters`, deterministic `summary` facts, and selected-field
+`last_changes` and never the raw history rows. Add repeated exact `fields` for
+per-field recency and optional inclusive `since`/`until` boundaries. Use a
+task-supplied technical field id directly; otherwise qualify it once. Technical
+ids need no catalog lookup, while a display-name selector adds one Jira
+field-catalog request inside the history call. Civil dates add one current-user
+timezone request, while explicit timestamps need no calendar lookup; the two
+metadata requests are independent. Read `complete` and any `partial_reason`
+before treating absence as evidence. Use the CLI `jira issue history` only
+when individual changes are themselves the required evidence. For a
 portfolio board, select the exact epic relation field plus `updated`, pass
 `epic_field` and `done_statuses`, require `epic_rollup.complete:true`, and use
 its deterministic counts/latest child timestamps instead of regrouping rows.
@@ -125,7 +138,8 @@ pagination cursors and `complete:false`; an empty partial result never proves
 absence. Prefer transient batch export for several known keys over shell loops.
 For changelog arithmetic or consistency checks, add `--summary-only` so the
 model receives provenance, filters, deterministic facts, and selected-field
-`last_changes` without raw history rows. Omit it only when individual changes
+`last_changes` without raw history rows — the same projection typed MCP
+`jira_issue_history` always returns. Omit it only when individual changes
 are themselves required evidence. Never append `--summary-only=false`: atl
 rejects an explicit false value before backend access.
 

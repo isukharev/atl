@@ -253,6 +253,8 @@ The realistic matrix currently contains:
 | surface native | `jira-search-zero-progress-mcp-holdout` | partial-overlap pages that still add identities before a distinct zero-progress stop |
 | surface native | `jira-snapshot-reconciliation-mcp` | bounded issue search and exact field expansion with an explicit cross-call snapshot mismatch |
 | surface native | `jira-snapshot-reconciliation-mcp-holdout` | distinct reconciled snapshot with newer-row and in-field-date distractors |
+| surface native | `jira-history-summary-mcp` | one bounded typed filtered changelog summary with separate total/fetched/matched cardinality and an exact selected-field latest change |
+| surface native | `jira-history-summary-mcp-holdout` | distinct unfiltered incomplete changelog with non-comparable ordering and id-first buckets through the same one-call contract |
 | surface native | `jira-board-pagination-mcp` | one typed complete Scrum board/backlog read with internal pagination, overlap, rank, membership, and unmapped status reconciliation |
 | surface native | `jira-board-pagination-mcp-holdout` | distinct board/backlog pagination topology with two overlaps through the same closed membership contract |
 | surface native | `jira-board-incomplete-mcp` | intentionally capped board/backlog evidence with observed-only membership and explicit incomplete qualification |
@@ -892,6 +894,25 @@ row and a later date inside field text remain content rather than selected
 snapshot provenance. Primary and holdout share one byte-identical closed
 response schema and the same no-refresh rule without disclosing fixture answers
 or transport counts in either prompt.
+
+`jira-history-summary-mcp` pairs Codex Luna/high and Claude Code Opus/high at
+n=3. One `jira_issue_history` call with an exact field selector, explicit
+timestamp boundaries, and byte bound returns the summary projection only, so no
+raw changelog row enters the model context. Exact invocation,
+capability-family, sequence, and HTTP checks bind the key, selector,
+boundaries, byte cap, one GET, zero duplicate requests, and zero writes, while
+the generic two-call budget admits a schema-constrained final response without
+admitting a second read. The answer separates total, fetched, and matched
+history cardinality, keeps missing ids apart from repeated non-empty ids, and
+copies the ordered field bucket and the selected field's latest change exactly.
+Its distinct n=1 holdout drops the selector and both boundaries, and a second
+successful page makes no forward progress: the same one-call route yields two
+GETs, an explicit partial reason, `comparable:false` / `ascending:null`
+ordering, four id-first buckets including one with no technical field id, and no
+latest change. Primary and holdout share one byte-identical closed response
+schema and the same mapping rules while binding distinct evidence, and neither
+prompt discloses counts, stamps, bucket contents, completeness, ordering, the
+partial reason, or backend traffic.
 
 `jira-board-pagination-mcp` pairs Codex Luna/high and Claude Code Opus/high at
 n=3. One exact `jira_board_view` call traverses two board pages and two backlog

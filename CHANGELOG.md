@@ -36,6 +36,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an unverified constant response while skipping or misreporting the tool call.
 - Made the fixed Codex activation-calibration response schema compatible with strict provider structured-output validation by explicitly typing every property; reviewed plans still bind the exact schema digest and remain one-shot.
 
+### Added
+
+- Added typed read-only MCP `jira_issue_history` so clients can read one
+  issue's deterministic changelog summary — provenance, completeness, resolved
+  filters, cardinality/consistency facts, and selected-field `last_changes` —
+  instead of doing changelog arithmetic themselves. It reuses the existing
+  application read with optional exact `fields` and inclusive `since`/`until`
+  boundaries, always returns the summary projection, and exposes no raw-history
+  selector: the raw changelog array is absent by construction and the encoded
+  result stays inside the standard Jira evidence byte bound. Technical field
+  ids and explicit timestamps add no metadata lookup; display-name selectors
+  and civil dates may add one field-catalog and one current-user-timezone
+  request respectively.
+
 ### Changed
 
 - Daily checkpoints now accept content-free aggregate issue and PR counts above
