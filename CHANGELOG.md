@@ -38,6 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added typed read-only MCP `jira_issue_refs` for bounded, reconciled reference
+  summaries over one exact issue or a JQL selection capped at 25 issues. Its
+  schema-v1 projection preserves selection, source qualification, per-issue
+  and top-level count/kind/completeness/reconciliation facts while omitting raw
+  URLs, issue narrative, source text, and input-query echoes before output
+  validation and byte bounding. Provider-paired synthetic primary and distinct
+  holdout cohorts pin the one-call, two-or-three-GET, zero-write route.
+
 - Added typed read-only MCP `confluence_page_meta` for one bounded, body-free
   page governance read. The schema-v1 result carries only reconciled page
   identity, title, space, positive version, optional update stamp, and an

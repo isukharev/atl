@@ -124,7 +124,7 @@ Run the typed read-only agent tool surface over MCP stdio:
 atl mcp serve
 ```
 
-The process registers eighteen explicit Jira/Confluence evidence tools and no
+The process registers nineteen explicit Jira/Confluence evidence tools and no
 mutation, shell, arbitrary-file, mirror-write, or raw-REST tool. Two no-argument
 tools inspect only an explicit valid `ATL_MIRROR_ROOT`, offline, and return
 content-free mirror health counts. Stdout is
@@ -138,6 +138,15 @@ schema/page identity, title, space, a positive version, an optional update
 stamp, and explicit `restricted`, `unrestricted`, or `unknown` state. It has a
 fixed 32 KiB encoded-result cap and omits URLs, labels, ancestors, restriction
 principals, page content, and arbitrary backend metadata.
+
+`jira_issue_refs` is the summary-only reference read: pass exactly one issue
+`key`, or bounded `jql` with `limit` from 1 through 25. Up to eight exact
+technical field ids may add qualified reference sources. The result preserves
+selection, per-source completeness, per-issue and top-level counts, kind
+buckets, and reconciliation facts, but omits raw reference URLs, issue
+summaries/types, and source text. JQL mode performs one paginated comment
+listing per emitted issue, so backend traffic scales with the selected limit.
+Use the CLI `jira issue refs` when the URLs themselves are required evidence.
 
 ### Body input (`--from-file`)
 

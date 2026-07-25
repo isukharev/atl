@@ -70,7 +70,7 @@ preflight before identity-bearing `jira status` or issue-level repair.
 When the installed plugin exposes `atl` MCP tools, prefer them for transient,
 bounded evidence reads: typed arguments remove shell construction and the
 server registers no mutation or arbitrary-filesystem tool. Load
-[mcp.md](reference/mcp.md) for its exact eighteen-tool route and CLI fallback
+[mcp.md](reference/mcp.md) for its exact nineteen-tool route and CLI fallback
 boundary. Use bounded Structure metadata/view through MCP. For content-free
 health counts of an existing durable mirror, use the no-argument mirror snapshot
 tool only when the owner has configured `ATL_MIRROR_ROOT`. Continue using the

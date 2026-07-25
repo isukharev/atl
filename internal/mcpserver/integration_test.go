@@ -21,6 +21,7 @@ func TestIntegrationProductionReadOnlyFixtures(t *testing.T) {
 	}
 
 	t.Run("jira fields", testIntegrationMCPJiraFields)
+	t.Run("jira issue references", testIntegrationMCPJiraIssueRefs)
 	t.Run("jira structure", testIntegrationMCPJiraStructure)
 	t.Run("confluence page metadata", testIntegrationMCPConfluencePageMetadata)
 	t.Run("confluence tables", testIntegrationMCPConfluenceTables)
@@ -36,6 +37,41 @@ func testIntegrationMCPJiraFields(t *testing.T) {
 	if result.SchemaVersion != 1 || result.Projection != "summary" || len(result.Fields) != 0 ||
 		result.Fields == nil || result.Count != result.CustomCount+result.SystemCount || result.Total < result.Count {
 		t.Fatal("live Jira field catalog summary did not reconcile")
+	}
+}
+
+func testIntegrationMCPJiraIssueRefs(t *testing.T) {
+	project := strings.TrimSpace(os.Getenv("ATL_TEST_JIRA_PROJECT"))
+	if project == "" {
+		t.Skip("set ATL_TEST_JIRA_PROJECT to run the live Jira reference MCP test")
+	}
+	client, closeSessions := connectIntegrationMCPClient(t)
+	defer closeSessions()
+
+	result := callIntegrationMCPTool[app.JiraIssueRefsView](
+		t, client, "jira_issue_refs", map[string]any{
+			"jql":       "project = " + project + " ORDER BY key ASC",
+			"limit":     1,
+			"max_bytes": 1 << 20,
+		},
+	)
+	if result.SchemaVersion != 1 || result.Count != len(result.Issues) ||
+		result.Summary.IssueCount != result.Count ||
+		!result.Summary.CountMatchesIssues ||
+		!result.Summary.SelectionCountMatchesIssues ||
+		!result.Summary.ReferenceCountMatchesKinds ||
+		!result.Summary.IssueSummariesReconciled ||
+		!result.Summary.CompleteMatchesInputs ||
+		!result.Summary.TruncatedMatchesInputs {
+		t.Fatal("live Jira reference summary did not reconcile")
+	}
+	for _, issue := range result.Issues {
+		if strings.TrimSpace(issue.Key) == "" ||
+			!issue.ReferenceSummary.ReferenceCountMatchesKinds ||
+			!issue.ReferenceSummary.CompleteMatchesSources ||
+			!issue.ReferenceSummary.TruncatedMatchesSources {
+			t.Fatal("live Jira per-issue reference summary did not reconcile")
+		}
 	}
 }
 

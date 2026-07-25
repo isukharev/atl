@@ -48,6 +48,22 @@ func TestResolveJiraFieldSelectorsByIDAndExactName(t *testing.T) {
 	}
 }
 
+func TestJiraTechnicalFieldIDsRejectsDisplayNames(t *testing.T) {
+	for _, test := range []struct {
+		selectors []string
+		want      bool
+	}{
+		{selectors: nil, want: true},
+		{selectors: []string{"summary", "customfield_20001"}, want: true},
+		{selectors: []string{"Delivery Notes"}, want: false},
+		{selectors: []string{"customfield_name"}, want: false},
+	} {
+		if got := JiraTechnicalFieldIDs(test.selectors); got != test.want {
+			t.Fatalf("JiraTechnicalFieldIDs(%v)=%t want=%t", test.selectors, got, test.want)
+		}
+	}
+}
+
 func TestJiraIssueFieldsDefaultsToNonEmptyCompactValues(t *testing.T) {
 	tracker := &jiraFieldInspectTracker{
 		defs: []domain.FieldDef{

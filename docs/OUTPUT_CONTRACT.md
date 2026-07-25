@@ -128,7 +128,7 @@ not themselves grant write authority.
 
 `atl mcp serve` is a separate stdio protocol transport, so global CLI output
 flags and process exit envelopes do not apply to individual tool calls. Each of
-the eighteen registered tools has inferred input/output JSON Schema and returns
+the nineteen registered tools has inferred input/output JSON Schema and returns
 typed `structuredContent`; compatible clients may also expose the SDK's text
 projection. Tool failures set the MCP error result and contain a JSON text
 object with stable `kind`, `remediation`, and diagnostic `message` fields.
@@ -170,8 +170,8 @@ Structure absence and unrelated validation failures retain their ordinary
 remediation and generic safe messages. CLI diagnostics and exits, successful
 Structure schemas, and read/write authority are unchanged.
 
-`jira_fields`, `jira_issue_search`, `jira_issue_history`, `jira_epic_digest`,
-and `jira_board_view` reject a final encoded result larger than `max_bytes`
+`jira_fields`, `jira_issue_search`, `jira_issue_history`, `jira_issue_refs`,
+`jira_epic_digest`, and `jira_board_view` reject a final encoded result larger than `max_bytes`
 (default 256 KiB, minimum 1 KiB, maximum 1 MiB). Row/source limits and compact
 projections remain independent semantic bounds; exceeding the byte bound is an
 explicit `check_failed` result and never silently clips the typed output.
@@ -191,6 +191,20 @@ dates add one current-user timezone request. These two metadata requests are
 independent. The byte bound is applied to the projected result, so a rejected
 oversize result never contains raw history rows. CLI flags, exits, and the full
 raw-history contract are unchanged.
+
+`jira_issue_refs` accepts exactly one issue `key`, or `jql` with a required
+`limit` from 1 through 25, plus at most eight exact technical field ids. It
+returns a closed schema-v1 projection:
+`{schema_version,count,complete,truncated?,selection,summary,warnings?,issues}`.
+Each issue contains only
+`{key,complete,truncated?,sources,reference_summary}`. The input key/JQL echo,
+issue summary/type, source text, and `refs` array with raw URLs are absent by
+construction. The projection is made before validation and `max_bytes`
+enforcement, so URLs cannot appear in a successful result or an oversize
+diagnostic. All existing selection, source, per-issue, and top-level
+reconciliation facts are preserved and checked without changing the full CLI
+contract. JQL mode performs one paginated comment listing per emitted issue, so
+backend traffic scales linearly with the selected limit.
 
 `jira_issue_search` selects ordered returned fields with `columns` (preferred),
 `fields`, or `projection`; the latter two are compatibility aliases. At most

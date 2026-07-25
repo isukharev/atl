@@ -186,6 +186,14 @@ func jiraTechnicalFieldDefs(selectors []string) ([]domain.FieldDef, bool) {
 	return defs, true
 }
 
+// JiraTechnicalFieldIDs reports whether every selector is an exact known
+// system field id or a canonical customfield_<digits> id. Bounded transports
+// use it to reject display-name resolution before any field-catalog request.
+func JiraTechnicalFieldIDs(selectors []string) bool {
+	_, ok := jiraTechnicalFieldDefs(selectors)
+	return ok
+}
+
 func (s *JiraService) IssueFields(ctx context.Context, key string, opts JiraIssueFieldsOpts) (*JiraIssueFieldsResult, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {

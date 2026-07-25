@@ -112,6 +112,9 @@ is absent. For refs, use top-level `summary` and per-issue
 not manually add the nested arrays. The reconciliation booleans make count and
 completeness disagreements explicit. A repeated URL is deduplicated within one
 issue but counted once per issue across a multi-issue selection. Use
+typed `jira_issue_refs` when only those reconciled aggregate facts are needed;
+it deliberately omits every raw URL and narrative field. Keep the CLI route
+above when the selected URL itself must be followed into Confluence. Use
 `jira epic digest` instead when an epic question spans children, status
 narrative, comments, history, and refs.
 
