@@ -93,6 +93,20 @@ Confluence section. A numeric Confluence search-result id is already stable;
 do not resolve it again. Search results contain candidate metadata, not page
 bodies.
 
+`confluence_page_outline` and `confluence_page_section` can succeed with
+structurally bounded partial output, so check `complete` before using either. A
+partial read carries a static `partial_reason` — present exactly when
+`complete:false` — plus `original_bytes` and `emitted_bytes`.
+Outline `heading_limit`/`byte_limit` and section `invalid_utf8` are terminal.
+Section `max_bytes` is the only recoverable case: a truncated section is
+coherent Markdown, so do not answer from it; instead re-read the same
+`reference`, `heading`, and `occurrence` at most once with `max_bytes` set to
+the reported `original_bytes`, and only when that value fits both your
+authorization and the 1 MiB cap. Accept it only when the second result has the
+same page `version` and `complete:true`; otherwise select a narrower heading or
+report the evidence as incomplete. No partial outline or section is evidence
+of absence or a settled decision.
+
 Use the CLI instead when the task needs raw changelog rows, raw Structure
 forest/values, Structure
 pull/export, durable pull/mirror files, mirror content/status/diff, exports,

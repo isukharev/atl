@@ -38,6 +38,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `conf page outline` and `conf page section` — and their typed read-only MCP
+  tools `confluence_page_outline` and `confluence_page_section` — now emit an
+  optional `partial_reason` alongside `complete`, so a client can tell a
+  recoverable byte bound from a terminal partial read without inspecting prose.
+  The field is absent exactly when `complete` is true and carries one static,
+  content-free identifier when it is false: outline `heading_limit` or
+  `byte_limit`, section `max_bytes` or `invalid_utf8`. Only section `max_bytes`
+  permits one recovery attempt — re-reading the same reference, heading, and
+  occurrence with `max_bytes` at or above the reported `original_bytes`.
+  Callers still verify that the page version is unchanged and the second result
+  is complete. Emitted bytes, block boundaries, the visible truncation marker,
+  selection errors, sentinels, and text output are unchanged.
+
 - Added typed read-only MCP `jira_issue_history` so clients can read one
   issue's deterministic changelog summary — provenance, completeness, resolved
   filters, cardinality/consistency facts, and selected-field `last_changes` —
