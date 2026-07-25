@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "page_version": {"type": "integer", "minimum": 1},
+    "heading": {"type": "string", "minLength": 1},
+    "initial_complete": {"type": "boolean"},
+    "initial_partial_reason": {"type": "string", "enum": ["max_bytes", "invalid_utf8"]},
+    "initial_original_bytes": {"type": "integer", "minimum": 0},
+    "recovery_attempted": {"type": "boolean"},
+    "recovery_max_bytes": {"type": ["integer", "null"]},
+    "final_complete": {"type": "boolean"},
+    "evidence_complete": {"type": "boolean"},
+    "decision": {"type": "string", "enum": ["approved", "held", "undetermined"]},
+    "brief": {"type": "string", "minLength": 1, "maxLength": 240}
+  },
+  "required": [
+    "schema_version",
+    "page_version",
+    "heading",
+    "initial_complete",
+    "initial_partial_reason",
+    "initial_original_bytes",
+    "recovery_attempted",
+    "recovery_max_bytes",
+    "final_complete",
+    "evidence_complete",
+    "decision",
+    "brief"
+  ]
+}
