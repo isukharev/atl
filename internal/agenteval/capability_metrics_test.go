@@ -2,9 +2,24 @@ package agenteval
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
+
+func TestKnownMCPToolNamesAreSortedAndDetached(t *testing.T) {
+	names := KnownMCPToolNames()
+	if !slices.IsSorted(names) || len(names) != len(mcpCapabilityFamilies) {
+		t.Fatalf("names=%v map=%v", names, mcpCapabilityFamilies)
+	}
+	if len(names) == 0 {
+		t.Fatal("known MCP inventory is empty")
+	}
+	names[0] = "mutated"
+	if slices.Contains(KnownMCPToolNames(), "mutated") {
+		t.Fatal("known MCP inventory aliases mutable state")
+	}
+}
 
 func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 	private := "SYNTHETIC-SENSITIVE-123"

@@ -44,6 +44,11 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 			t.Fatalf("initialize instructions omit page-metadata guidance %q: %q", guidance, initialized.Instructions)
 		}
 	}
+	for _, guidance := range []string{"jira_issue_refs", "raw reference URLs and issue narrative are deliberately omitted"} {
+		if !strings.Contains(initialized.Instructions, guidance) {
+			t.Fatalf("initialize instructions omit reference-summary guidance %q: %q", guidance, initialized.Instructions)
+		}
+	}
 	// The section gate is conditional, so the server-level guidance has to state
 	// all three cases; an agent that reads only "pass a version" would either
 	// bind an externally fixed selection it cannot bind or skip the binding that
@@ -72,7 +77,7 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		"confluence_page_meta", "confluence_page_outline", "confluence_page_resolve", "confluence_page_section", "confluence_search",
 		"confluence_table_extract", "confluence_table_summary",
 		"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_history",
-		"jira_issue_search", "jira_mirror_snapshot", "jira_structure_get", "jira_structure_view",
+		"jira_issue_refs", "jira_issue_search", "jira_mirror_snapshot", "jira_structure_get", "jira_structure_view",
 	}
 	got := make([]string, 0, len(listed.Tools))
 	for _, tool := range listed.Tools {
@@ -145,6 +150,39 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 			for _, required := range []string{"key", "complete", "source", "total", "fetched", "count", "filters", "summary"} {
 				if !schemaRequired(output, required) {
 					t.Errorf("tool %s output must require %s: %#v", tool.Name, required, tool.OutputSchema)
+				}
+			}
+		}
+		if tool.Name == "jira_issue_refs" {
+			properties, _ := input["properties"].(map[string]any)
+			for _, forbidden := range []string{"refs", "urls", "include_refs", "raw", "projection", "summary_only", "cursor"} {
+				if _, exists := properties[forbidden]; exists {
+					t.Errorf("tool %s must not expose a %s selector: %#v", tool.Name, forbidden, tool.InputSchema)
+				}
+			}
+			for _, expected := range []string{"key", "jql", "fields", "limit", "max_bytes"} {
+				if _, exists := properties[expected]; !exists {
+					t.Errorf("tool %s input must expose %s: %#v", tool.Name, expected, tool.InputSchema)
+				}
+			}
+			output, _ := tool.OutputSchema.(map[string]any)
+			for _, required := range []string{"schema_version", "count", "complete", "selection", "summary", "issues"} {
+				if !schemaRequired(output, required) {
+					t.Errorf("tool %s output must require %s: %#v", tool.Name, required, tool.OutputSchema)
+				}
+			}
+			encoded, marshalErr := json.Marshal(tool.OutputSchema)
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			for _, forbidden := range []string{`"refs"`, `"url"`, `"jql"`, `"type":{"type":"string"`, `"summary":{"type":"string"`} {
+				if bytes.Contains(encoded, []byte(forbidden)) {
+					t.Errorf("tool %s output schema advertises %s: %s", tool.Name, forbidden, encoded)
+				}
+			}
+			for _, guidance := range []string{"Raw reference URLs", "issue summaries", "use the CLI"} {
+				if !strings.Contains(tool.Description, guidance) {
+					t.Errorf("tool %s description omits %q: %q", tool.Name, guidance, tool.Description)
 				}
 			}
 		}
@@ -379,6 +417,9 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 	sort.Strings(got)
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("tools=%v want=%v", got, want)
+	}
+	if known := agenteval.KnownMCPToolNames(); !slices.Equal(got, known) {
+		t.Fatalf("production and evaluation MCP inventories diverge: production=%v evaluation=%v", got, known)
 	}
 	inventory, err := agenteval.ValidateBenchmarkCorpus(filepath.Join("..", "..", "benchmarks", "agent-eval"))
 	if err != nil {
@@ -655,6 +696,91 @@ func TestSyntheticPortfolioThroughMCPUsesExactGETOnlyRoute(t *testing.T) {
 	methods, unexpected, duplicates := backend.Summary()
 	if methods["GET"] != 15 || len(methods) != 1 || unexpected != 0 || duplicates != 2 {
 		t.Fatalf("requests=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+	}
+}
+
+func TestSyntheticJiraReferenceSummaryThroughMCPUsesExactClosedRoute(t *testing.T) {
+	tests := []struct {
+		name, directory string
+		args            map[string]any
+		count, refs     int
+		complete        bool
+		truncated       bool
+		gets            int
+	}{
+		{
+			name: "key primary", directory: "jira-reference-summary-mcp",
+			args: map[string]any{
+				"key": "RF-42", "fields": []string{"customfield_20001"}, "max_bytes": 32768,
+			},
+			count: 1, refs: 5, complete: true, gets: 2,
+		},
+		{
+			name: "bounded JQL holdout", directory: "jira-reference-summary-mcp-holdout",
+			args: map[string]any{
+				"jql": "project=RF", "limit": 2, "max_bytes": 32768,
+			},
+			count: 2, refs: 4, complete: false, truncated: true, gets: 3,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixtureFile, err := os.Open(filepath.Join("..", "..", "benchmarks", "agent-eval", test.directory, "fixture.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+			closeErr := fixtureFile.Close()
+			if decodeErr != nil || closeErr != nil {
+				t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
+			}
+			backend, err := agenteval.StartMockBackend(fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer backend.Close()
+			for name, value := range backend.Environment() {
+				t.Setenv(name, value)
+			}
+			t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+			t.Setenv("ATL_READ_ONLY", "1")
+			t.Setenv("ATL_NO_UPDATE", "1")
+
+			client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
+			defer closeSessions()
+			result := callToolOK(t, client, "jira_issue_refs", test.args)
+			content, ok := result.StructuredContent.(map[string]any)
+			summary, summaryOK := content["summary"].(map[string]any)
+			issues, issuesOK := content["issues"].([]any)
+			if !ok || !summaryOK || !issuesOK ||
+				content["schema_version"] != float64(1) ||
+				content["count"] != float64(test.count) ||
+				content["complete"] != test.complete ||
+				summary["reference_count"] != float64(test.refs) ||
+				len(issues) != test.count {
+				t.Fatalf("reference summary=%#v", result.StructuredContent)
+			}
+			if _, exists := content["jql"]; exists {
+				t.Fatalf("reference summary echoed JQL: %#v", content)
+			}
+			gotTruncated, _ := content["truncated"].(bool)
+			if gotTruncated != test.truncated {
+				t.Fatalf("truncated=%t want=%t content=%#v", gotTruncated, test.truncated, content)
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, forbidden := range []string{`"refs"`, `"url"`, "https://"} {
+				if bytes.Contains(encoded, []byte(forbidden)) {
+					t.Fatalf("reference summary leaked %q: %s", forbidden, encoded)
+				}
+			}
+			methods, unexpected, duplicates := backend.Summary()
+			if methods["GET"] != test.gets || len(methods) != 1 || unexpected != 0 || duplicates != 0 {
+				t.Fatalf("requests=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+			}
+		})
 	}
 }
 
@@ -1477,6 +1603,217 @@ func TestJiraIssueHistoryOmitsLastChangesWithoutSelectedFields(t *testing.T) {
 	}
 }
 
+func TestJiraIssueRefsForwardsExactOptionsAndReturnsClosedSummary(t *testing.T) {
+	reader := &recordingJiraReader{}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Jira: func() (JiraReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+
+	result := callToolOK(t, client, "jira_issue_refs", map[string]any{
+		"key": "PROJ-1", "fields": []string{"customfield_10001"}, "max_bytes": 4096,
+	})
+	if reader.refsOpts.Key != "PROJ-1" || reader.refsOpts.JQL != "" || reader.refsOpts.Limit != 0 ||
+		!slices.Equal(reader.refsOpts.Fields, []string{"customfield_10001"}) {
+		t.Fatalf("refs opts=%+v", reader.refsOpts)
+	}
+	content, ok := result.StructuredContent.(map[string]any)
+	if !ok || content["schema_version"] != float64(1) || content["count"] != float64(1) ||
+		content["complete"] != true {
+		t.Fatalf("content=%#v", result.StructuredContent)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"https://private.invalid", "narrative must not cross MCP", `"refs"`, `"jql"`, `"type":"Story"`} {
+		if bytes.Contains(encoded, []byte(forbidden)) {
+			t.Fatalf("reference summary leaked %q: %s", forbidden, encoded)
+		}
+	}
+	issues, issuesOK := content["issues"].([]any)
+	if !issuesOK || len(issues) != 1 {
+		t.Fatalf("issues=%#v", content["issues"])
+	}
+	issue, issueOK := issues[0].(map[string]any)
+	if !issueOK || issue["key"] != "PROJ-1" || issue["complete"] != true {
+		t.Fatalf("issue=%#v", issues[0])
+	}
+	for _, required := range []string{"sources", "reference_summary"} {
+		if _, exists := issue[required]; !exists {
+			t.Fatalf("issue omits %s: %#v", required, issue)
+		}
+	}
+}
+
+func TestJiraIssueRefsAcceptsCanonicalizedOrMovedIssueKey(t *testing.T) {
+	reader := &recordingJiraReader{
+		refsResult: validJiraIssueRefsResult(app.JiraIssueRefsOpts{Key: "NEW-9"}),
+	}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Jira: func() (JiraReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+
+	result := callToolOK(t, client, "jira_issue_refs", map[string]any{"key": "old-5"})
+	content, ok := result.StructuredContent.(map[string]any)
+	issues, issuesOK := content["issues"].([]any)
+	if !ok || !issuesOK || len(issues) != 1 {
+		t.Fatalf("content=%#v", result.StructuredContent)
+	}
+	issue, issueOK := issues[0].(map[string]any)
+	if !issueOK || issue["key"] != "NEW-9" || reader.refsOpts.Key != "old-5" {
+		t.Fatalf("issue=%#v opts=%+v", issues[0], reader.refsOpts)
+	}
+}
+
+func TestJiraIssueRefsRejectsUnreconciledSummary(t *testing.T) {
+	tests := []struct {
+		name   string
+		opts   app.JiraIssueRefsOpts
+		mutate func(*app.JiraIssueRefsResult)
+	}{
+		{name: "top-level count", opts: app.JiraIssueRefsOpts{Key: "PROJ-1"}, mutate: func(result *app.JiraIssueRefsResult) {
+			result.Summary.IssueCount++
+		}},
+		{name: "per-issue kind count", opts: app.JiraIssueRefsOpts{Key: "PROJ-1"}, mutate: func(result *app.JiraIssueRefsResult) {
+			result.Issues[0].ReferenceSummary.ReferenceKindCounts["link"] = 1
+		}},
+		{name: "unknown reference kind", opts: app.JiraIssueRefsOpts{Key: "PROJ-1"}, mutate: func(result *app.JiraIssueRefsResult) {
+			result.Issues[0].ReferenceSummary.ReferenceKindCounts["private.example"] = 0
+			result.Summary.ReferenceKindCounts["private.example"] = 0
+		}},
+		{name: "source completeness", opts: app.JiraIssueRefsOpts{Key: "PROJ-1"}, mutate: func(result *app.JiraIssueRefsResult) {
+			source := result.Issues[0].Sources["comments"]
+			source.Complete = false
+			source.Warning = app.JiraIssueRefsWarningCommentsPartial
+			result.Issues[0].Sources["comments"] = source
+		}},
+		{name: "negative source count", opts: app.JiraIssueRefsOpts{Key: "PROJ-1"}, mutate: func(result *app.JiraIssueRefsResult) {
+			source := result.Issues[0].Sources["description"]
+			source.Count = -1
+			result.Issues[0].Sources["description"] = source
+		}},
+		{name: "unrequested source name", opts: app.JiraIssueRefsOpts{Key: "PROJ-1"}, mutate: func(result *app.JiraIssueRefsResult) {
+			source := result.Issues[0].Sources["description"]
+			delete(result.Issues[0].Sources, "description")
+			result.Issues[0].Sources["field.customfield_99999"] = source
+			delete(result.Issues[0].ReferenceSummary.SourceValueCounts, "description")
+			result.Issues[0].ReferenceSummary.SourceValueCounts["field.customfield_99999"] = 0
+			delete(result.Summary.SourceValueCounts, "description")
+			result.Summary.SourceValueCounts["field.customfield_99999"] = 0
+		}},
+		{name: "unrecognized source warning", opts: app.JiraIssueRefsOpts{Key: "PROJ-1"}, mutate: func(result *app.JiraIssueRefsResult) {
+			source := result.Issues[0].Sources["comments"]
+			source.Complete = false
+			source.Warning = "private backend detail"
+			result.Issues[0].Sources["comments"] = source
+		}},
+		{name: "unrecognized warning", opts: app.JiraIssueRefsOpts{Key: "PROJ-1"}, mutate: func(result *app.JiraIssueRefsResult) {
+			result.Warnings = []string{"private backend detail"}
+		}},
+		{name: "blank issue key", opts: app.JiraIssueRefsOpts{Key: "PROJ-1"}, mutate: func(result *app.JiraIssueRefsResult) {
+			result.Issues[0].Key = " "
+		}},
+		{name: "JQL selection mode", opts: app.JiraIssueRefsOpts{JQL: "project = PROJ", Limit: 1}, mutate: func(result *app.JiraIssueRefsResult) {
+			result.Selection.Mode = "key"
+		}},
+		{name: "JQL selection limit", opts: app.JiraIssueRefsOpts{JQL: "project = PROJ", Limit: 1}, mutate: func(result *app.JiraIssueRefsResult) {
+			result.Selection.Limit = 2
+		}},
+		{name: "JQL count exceeds bound", opts: app.JiraIssueRefsOpts{JQL: "project = PROJ", Limit: 1}, mutate: func(result *app.JiraIssueRefsResult) {
+			second := result.Issues[0]
+			second.Key = "PROJ-2"
+			result.Issues = append(result.Issues, second)
+			result.Count = 2
+			result.Selection.Count = 2
+			result.Summary.IssueCount = 2
+			result.Summary.CompleteIssueCount = 2
+			result.Summary.SourceCount = 4
+			result.Summary.CompleteSourceCount = 4
+		}},
+		{name: "duplicate JQL issue key", opts: app.JiraIssueRefsOpts{JQL: "project = PROJ", Limit: 2}, mutate: func(result *app.JiraIssueRefsResult) {
+			result.Issues = append(result.Issues, result.Issues[0])
+			result.Count = 2
+			result.Selection.Count = 2
+			result.Summary.IssueCount = 2
+			result.Summary.CompleteIssueCount = 2
+			result.Summary.SourceCount = 4
+			result.Summary.CompleteSourceCount = 4
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			full := validJiraIssueRefsResult(test.opts)
+			test.mutate(full)
+			reader := &recordingJiraReader{refsResult: full}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Jira: func() (JiraReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+
+			arguments := map[string]any{"key": test.opts.Key}
+			if test.opts.JQL != "" {
+				arguments = map[string]any{"jql": test.opts.JQL, "limit": test.opts.Limit}
+			}
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name: "jira_issue_refs", Arguments: arguments,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil {
+				t.Fatalf("result=%+v", result)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+				got.Kind != "check_failed" || got.Message != "Jira issue reference summary failed validation" {
+				t.Fatalf("classified error=%+v decode=%v", got, err)
+			}
+		})
+	}
+}
+
+func TestJiraIssueRefsSentinelsKeepStaticClassification(t *testing.T) {
+	tests := []struct {
+		name, kind, remediation, message string
+		err                              error
+	}{
+		{name: "not found", kind: "not_found", remediation: "verify_identifier_or_access", message: "Jira issue reference source was not found", err: fmt.Errorf("%w: private issue marker", domain.ErrNotFound)},
+		{name: "forbidden", kind: "forbidden", remediation: "request_access", message: "Jira issue reference summary access is forbidden", err: fmt.Errorf("%w: private reference marker", domain.ErrForbidden)},
+		{name: "transport", kind: "transport_error", remediation: "inspect_network_before_retry", message: "Jira issue reference summary transport failed", err: &httpx.TransportError{Method: "GET", Category: "private backend marker"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &recordingJiraReader{refsErr: test.err}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Jira: func() (JiraReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name: "jira_issue_refs", Arguments: map[string]any{"key": "PROJ-1"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !result.IsError || !ok {
+				t.Fatalf("result=%+v", result)
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+				got.Kind != test.kind || got.Remediation != test.remediation || got.Message != test.message ||
+				strings.Contains(got.Message, "private") {
+				t.Fatalf("classified error=%+v decode=%v", got, err)
+			}
+		})
+	}
+}
+
 func TestJiraIssueHistorySentinelsKeepStableClassification(t *testing.T) {
 	tests := []struct {
 		name, kind, remediation, message string
@@ -1547,6 +1884,37 @@ func TestJiraIssueHistoryCancellationPropagatesToApplicationContext(t *testing.T
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("history client call did not return after cancellation")
+	}
+}
+
+func TestJiraIssueRefsCancellationPropagatesToApplicationContext(t *testing.T) {
+	reader := &cancellingJiraReader{started: make(chan struct{}), canceled: make(chan struct{})}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Jira: func() (JiraReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = client.CallTool(ctx, &mcp.CallToolParams{Name: "jira_issue_refs", Arguments: map[string]any{"key": "PROJ-1"}})
+	}()
+	select {
+	case <-reader.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reference-summary tool handler did not start")
+	}
+	cancel()
+	select {
+	case <-reader.canceled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reference-summary application context was not canceled")
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reference-summary client call did not return after cancellation")
 	}
 }
 
@@ -2103,6 +2471,18 @@ func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 		{name: "jira_issue_history", args: map[string]any{"key": "   "}},
 		{name: "jira_issue_history", args: map[string]any{"key": "PROJ-1", "max_bytes": 1023}},
 		{name: "jira_issue_history", args: map[string]any{"key": "PROJ-1", "max_bytes": 1048577}},
+		{name: "jira_issue_refs", args: map[string]any{}},
+		{name: "jira_issue_refs", args: map[string]any{"key": "PROJ-1", "jql": "project=PROJ"}},
+		{name: "jira_issue_refs", args: map[string]any{"key": "PROJ-1", "limit": 1}},
+		{name: "jira_issue_refs", args: map[string]any{"jql": "project=PROJ"}},
+		{name: "jira_issue_refs", args: map[string]any{"jql": "project=PROJ", "limit": 26}},
+		{name: "jira_issue_refs", args: map[string]any{"key": "PROJ-1", "fields": []string{"Delivery Notes"}}},
+		{name: "jira_issue_refs", args: map[string]any{"key": "PROJ-1", "fields": []string{"customfield_1", "customfield_1"}}},
+		{name: "jira_issue_refs", args: map[string]any{"key": "PROJ-1", "fields": []string{
+			"a", "b", "c", "d", "e", "f", "g", "h", "i",
+		}}},
+		{name: "jira_issue_refs", args: map[string]any{"key": "PROJ-1", "max_bytes": 1023}},
+		{name: "jira_issue_refs", args: map[string]any{"key": "PROJ-1", "max_bytes": 1048577}},
 		{name: "jira_board_view", args: map[string]any{"board_id": 1, "limit": 1001}},
 		{name: "jira_board_view", args: map[string]any{"board_id": 1, "max_bytes": 1023}},
 		{name: "jira_board_view", args: map[string]any{"board_id": 1, "max_bytes": 1048577}},
@@ -2173,6 +2553,7 @@ func TestJiraEvidenceOutputBoundsFailWithoutLeakingContent(t *testing.T) {
 		{name: "jira_issue_history", args: map[string]any{
 			"key": "PROJ-1", "fields": []string{"Delivery Notes"}, "max_bytes": 1024,
 		}},
+		{name: "jira_issue_refs", args: map[string]any{"key": "PROJ-1", "max_bytes": 1024}},
 		{name: "jira_epic_digest", args: map[string]any{
 			"key": "PROJ-1", "include": []string{"identity"}, "projection": "full", "max_bytes": 1024,
 		}},
@@ -4268,6 +4649,9 @@ type recordingJiraReader struct {
 	historyKey                          string
 	historyOpts                         app.JiraHistoryOpts
 	historyErr                          error
+	refsOpts                            app.JiraIssueRefsOpts
+	refsResult                          *app.JiraIssueRefsResult
+	refsErr                             error
 	digestKey                           string
 	digestOpts                          app.JiraEpicDigestOpts
 	boardID                             int
@@ -4334,6 +4718,10 @@ func (r *oversizedJiraReader) HistoryFiltered(_ context.Context, key string, opt
 	}, nil
 }
 
+func (r *oversizedJiraReader) IssueRefs(_ context.Context, opts app.JiraIssueRefsOpts) (*app.JiraIssueRefsResult, error) {
+	return validJiraIssueRefsResult(opts), nil
+}
+
 func (r *oversizedJiraReader) EpicDigest(_ context.Context, _ string, _ app.JiraEpicDigestOpts) (*app.JiraEpicDigestResult, error) {
 	return &app.JiraEpicDigestResult{
 		SchemaVersion: 1, Includes: []string{"identity"},
@@ -4396,6 +4784,56 @@ func (r *recordingJiraReader) HistoryFiltered(_ context.Context, key string, opt
 		}}
 	}
 	return result, nil
+}
+
+func (r *recordingJiraReader) IssueRefs(_ context.Context, opts app.JiraIssueRefsOpts) (*app.JiraIssueRefsResult, error) {
+	r.refsOpts = opts
+	if r.refsErr != nil {
+		return nil, r.refsErr
+	}
+	if r.refsResult != nil {
+		return r.refsResult, nil
+	}
+	return validJiraIssueRefsResult(opts), nil
+}
+
+func validJiraIssueRefsResult(opts app.JiraIssueRefsOpts) *app.JiraIssueRefsResult {
+	selection := app.JiraIssueRefsSelection{Mode: "jql", Limit: opts.Limit, Complete: true}
+	key := "PROJ-1"
+	if opts.Key != "" {
+		key = opts.Key
+		selection = app.JiraIssueRefsSelection{Mode: "key", Count: 1, Complete: true}
+	} else {
+		selection.Count = 1
+	}
+	sources := map[string]app.JiraIssueRefsSource{
+		"comments":    {Complete: true, Count: 0},
+		"description": {Complete: true, Count: 0},
+	}
+	issues := []app.JiraIssueRefs{{
+		Key: key, Summary: "narrative must not cross MCP", Type: "Story", Complete: true, Sources: sources,
+		ReferenceSummary: app.JiraIssueReferenceSummary{
+			ReferenceKindCounts: map[string]int{}, SourceCount: 2,
+			SourceValueCounts:   map[string]int{"comments": 0, "description": 0},
+			CompleteSourceCount: 2, ReferenceCountMatchesKinds: true,
+			CompleteMatchesSources: true, TruncatedMatchesSources: true,
+		},
+		Refs: []app.PlanningRef{{URL: "https://private.invalid/must-not-cross", Kind: "link"}},
+	}}
+	result := &app.JiraIssueRefsResult{
+		Key: opts.Key, JQL: opts.JQL, Count: len(issues), Complete: true,
+		Selection: selection, Issues: issues,
+	}
+	result.Summary = app.JiraIssueRefsSummary{
+		IssueCount: len(issues), CompleteIssueCount: len(issues),
+		ReferenceKindCounts: map[string]int{}, SourceCount: len(issues) * 2,
+		SourceValueCounts:   map[string]int{"comments": 0, "description": 0},
+		CompleteSourceCount: len(issues) * 2,
+		CountMatchesIssues:  true, SelectionCountMatchesIssues: true,
+		ReferenceCountMatchesKinds: true, IssueSummariesReconciled: true,
+		CompleteMatchesInputs: true, TruncatedMatchesInputs: true,
+	}
+	return result
 }
 
 func (r *recordingJiraReader) SearchIssueListView(_ context.Context, jql string, columns []string, view string, limit int, cursor string) (*app.IssueList, error) {
@@ -4715,6 +5153,13 @@ func (*cancellingJiraReader) IssueFieldEvidence(context.Context, string, app.Jir
 }
 
 func (r *cancellingJiraReader) HistoryFiltered(ctx context.Context, _ string, _ app.JiraHistoryOpts) (*app.JiraHistoryResult, error) {
+	close(r.started)
+	<-ctx.Done()
+	close(r.canceled)
+	return nil, ctx.Err()
+}
+
+func (r *cancellingJiraReader) IssueRefs(ctx context.Context, _ app.JiraIssueRefsOpts) (*app.JiraIssueRefsResult, error) {
 	close(r.started)
 	<-ctx.Done()
 	close(r.canceled)

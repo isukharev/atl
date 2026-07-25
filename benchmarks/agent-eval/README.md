@@ -263,6 +263,8 @@ The realistic matrix currently contains:
 | surface native | `jira-snapshot-reconciliation-mcp-holdout` | distinct reconciled snapshot with newer-row and in-field-date distractors |
 | surface native | `jira-history-summary-mcp` | one bounded typed filtered changelog summary with separate total/fetched/matched cardinality and an exact selected-field latest change |
 | surface native | `jira-history-summary-mcp-holdout` | distinct unfiltered incomplete changelog with non-comparable ordering and id-first buckets through the same one-call contract |
+| surface native | `jira-reference-summary-mcp` | one bounded typed issue-reference summary with exact source qualification, kind buckets, reconciliation, and no raw URLs or narrative |
+| surface native | `jira-reference-summary-mcp-holdout` | distinct capped JQL selection with cross-issue counts and the same one-call closed projection |
 | surface native | `jira-board-pagination-mcp` | one typed complete Scrum board/backlog read with internal pagination, overlap, rank, membership, and unmapped status reconciliation |
 | surface native | `jira-board-pagination-mcp-holdout` | distinct board/backlog pagination topology with two overlaps through the same closed membership contract |
 | surface native | `jira-board-incomplete-mcp` | intentionally capped board/backlog evidence with observed-only membership and explicit incomplete qualification |
@@ -925,6 +927,19 @@ latest change. Primary and holdout share one byte-identical closed response
 schema and the same mapping rules while binding distinct evidence, and neither
 prompt discloses counts, stamps, bucket contents, completeness, ordering, the
 partial reason, or backend traffic.
+
+`jira-reference-summary-mcp` pairs the same providers at n=3 over one exact
+`jira_issue_refs` call. The tool projects away raw reference URLs, issue
+summary/type, source text, and input-query echoes before validation and byte
+bounding, while preserving selection, source qualification, per-issue
+`reference_summary`, and the reconciled top-level summary. Exact argument,
+capability-family, sequence, and HTTP checks bind the key, technical field id,
+byte cap, two GETs, zero duplicate requests, and zero writes. The distinct n=1
+holdout uses one JQL selection capped at two issues and three GETs, reports the
+selection truncation separately from complete emitted issue sources, and
+changes every reference/source bucket. Both cohorts share one byte-identical
+closed answer schema and require the model to copy existing reconciliation
+facts instead of recounting sources or reconstructing URLs.
 
 `jira-board-pagination-mcp` pairs Codex Luna/high and Claude Code Opus/high at
 n=3. One exact `jira_board_view` call traverses two board pages and two backlog

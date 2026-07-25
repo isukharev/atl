@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -50,6 +51,14 @@ func TestExtractPlanningRefsClassifiesAndDedupes(t *testing.T) {
 	kinds := refs[0].Kind + "," + refs[1].Kind
 	if !strings.Contains(kinds, "design") || !strings.Contains(kinds, "doc") {
 		t.Fatalf("refs = %+v, want design and doc", refs)
+	}
+	for _, kind := range []string{"chat", "design", "doc", "jira", "link"} {
+		if !JiraPlanningReferenceKind(kind) {
+			t.Fatalf("known reference kind %q was rejected", kind)
+		}
+	}
+	if JiraPlanningReferenceKind("private.example") || JiraPlanningReferenceKind("") {
+		t.Fatal("unknown reference kind was accepted")
 	}
 }
 
@@ -406,6 +415,171 @@ func TestIssueRefsRejectsNegativeLimit(t *testing.T) {
 	if !errors.Is(err, domain.ErrUsage) {
 		t.Fatalf("err=%v", err)
 	}
+}
+
+func TestIssueRefsViewProjectionEmitsClosedEvidenceKeysOnly(t *testing.T) {
+	tracker := qualifiedRefsTracker{
+		issues: []domain.Issue{{
+			Key: "PROJ-1", Summary: "canary narrative", Type: "canary type",
+			Body: "https://canary.example.test/secret " + strings.Repeat("x", jiraDigestTextCap),
+		}},
+		comments: map[string][]domain.Comment{"PROJ-1": {}},
+	}
+	full, err := (&JiraService{tr: tracker}).IssueRefs(context.Background(), JiraIssueRefsOpts{Key: "PROJ-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !full.Truncated || len(full.Warnings) == 0 || len(full.Issues[0].Warnings) == 0 ||
+		len(full.Issues[0].Refs) != 1 || !strings.Contains(full.Issues[0].Refs[0].URL, "canary") ||
+		full.Issues[0].Summary != "canary narrative" || full.Issues[0].Type != "canary type" {
+		t.Fatalf("full=%+v issue=%+v", full, full.Issues[0])
+	}
+
+	view := JiraIssueRefsViewProjection(full)
+	if view.SchemaVersion != 1 || view.Count != full.Count || view.Complete != full.Complete ||
+		view.Truncated != full.Truncated ||
+		view.Selection.Mode != full.Selection.Mode || view.Selection.Count != full.Selection.Count ||
+		view.Selection.Limit != full.Selection.Limit || view.Selection.Complete != full.Selection.Complete ||
+		view.Selection.Truncated != full.Selection.Truncated || view.Selection.Warning != full.Selection.Warning ||
+		!slices.Equal(view.Warnings, full.Warnings) || len(view.Issues) != 1 {
+		t.Fatalf("view=%+v", view)
+	}
+	issue := view.Issues[0]
+	if issue.Key != "PROJ-1" || issue.Complete || !issue.Truncated || len(issue.Sources) != 2 ||
+		issue.Sources["description"].Count != 1 || !issue.Sources["description"].TextTruncated ||
+		issue.Sources["description"].Warning == "" || !issue.Sources["comments"].Complete {
+		t.Fatalf("issue=%+v", issue)
+	}
+	if issue.ReferenceSummary.ReferenceCount != 1 || issue.ReferenceSummary.ReferenceKindCounts["link"] != 1 ||
+		issue.ReferenceSummary.SourceValueCounts["description"] != 1 || issue.ReferenceSummary.TruncatedSourceCount != 1 {
+		t.Fatalf("issue summary=%+v", issue.ReferenceSummary)
+	}
+	if view.Summary.ReferenceCount != 1 || view.Summary.ReferenceKindCounts["link"] != 1 ||
+		view.Summary.SourceValueCounts["description"] != 1 || !view.Summary.IssueSummariesReconciled {
+		t.Fatalf("summary=%+v", view.Summary)
+	}
+
+	data, err := json.Marshal(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, leak := range []string{"canary", "https://", "\"refs\"", "\"jql\"", "\"summary\":\"", "\"type\""} {
+		if strings.Contains(string(data), leak) {
+			t.Fatalf("projection leaked %q: %s", leak, data)
+		}
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil {
+		t.Fatal(err)
+	}
+	wantTop := []string{"complete", "count", "issues", "schema_version", "selection", "summary", "truncated", "warnings"}
+	if got := sortedJSONKeys(top); !slices.Equal(got, wantTop) {
+		t.Fatalf("top-level keys = %v, want %v", got, wantTop)
+	}
+	var selection map[string]json.RawMessage
+	if err := json.Unmarshal(top["selection"], &selection); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := sortedJSONKeys(selection), []string{"complete", "count", "mode"}; !slices.Equal(got, want) {
+		t.Fatalf("selection keys = %v, want %v", got, want)
+	}
+	var summary map[string]json.RawMessage
+	if err := json.Unmarshal(top["summary"], &summary); err != nil {
+		t.Fatal(err)
+	}
+	wantSummary := []string{
+		"complete_issue_count", "complete_matches_inputs", "complete_source_count", "count_matches_issues",
+		"incomplete_issue_count", "incomplete_source_count", "issue_count", "issue_summaries_reconciled",
+		"reference_count", "reference_count_matches_kinds", "reference_kind_counts",
+		"selection_count_matches_issues", "source_count", "source_value_counts",
+		"truncated_matches_inputs", "truncated_source_count",
+	}
+	if got := sortedJSONKeys(summary); !slices.Equal(got, wantSummary) {
+		t.Fatalf("summary keys = %v, want %v", got, wantSummary)
+	}
+	var rows []map[string]json.RawMessage
+	if err := json.Unmarshal(top["issues"], &rows); err != nil {
+		t.Fatal(err)
+	}
+	wantIssue := []string{"complete", "key", "reference_summary", "sources", "truncated"}
+	if got := sortedJSONKeys(rows[0]); !slices.Equal(got, wantIssue) {
+		t.Fatalf("issue keys = %v, want %v", got, wantIssue)
+	}
+	var sources map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(rows[0]["sources"], &sources); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := sortedJSONKeys(sources["comments"]), []string{"complete", "count"}; !slices.Equal(got, want) {
+		t.Fatalf("comments source keys = %v, want %v", got, want)
+	}
+	if got, want := sortedJSONKeys(sources["description"]), []string{"complete", "count", "text_truncated", "warning"}; !slices.Equal(got, want) {
+		t.Fatalf("description source keys = %v, want %v", got, want)
+	}
+	var referenceSummary map[string]json.RawMessage
+	if err := json.Unmarshal(rows[0]["reference_summary"], &referenceSummary); err != nil {
+		t.Fatal(err)
+	}
+	wantReferenceSummary := []string{
+		"complete_matches_sources", "complete_source_count", "incomplete_source_count",
+		"reference_count", "reference_count_matches_kinds", "reference_kind_counts",
+		"source_count", "source_value_counts", "truncated_matches_sources", "truncated_source_count",
+	}
+	if got := sortedJSONKeys(referenceSummary); !slices.Equal(got, wantReferenceSummary) {
+		t.Fatalf("reference summary keys = %v, want %v", got, wantReferenceSummary)
+	}
+}
+
+func TestIssueRefsViewProjectionDeepCopiesMutableFactsAndHandlesNil(t *testing.T) {
+	tracker := qualifiedRefsTracker{
+		issues:   []domain.Issue{{Key: "PROJ-1", Body: "https://docs.example.com/spec"}},
+		comments: map[string][]domain.Comment{"PROJ-1": {}},
+		pages:    map[string][]domain.Issue{"": {{Key: "PROJ-1", Body: "https://docs.example.com/spec"}}},
+		next:     map[string]string{"": "1"},
+	}
+	full, err := (&JiraService{tr: tracker}).IssueRefs(context.Background(), JiraIssueRefsOpts{JQL: "project = PROJ", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(full.Warnings) == 0 || full.Summary.SourceValueCounts["description"] != 1 {
+		t.Fatalf("full=%+v", full)
+	}
+	view := JiraIssueRefsViewProjection(full)
+
+	view.Warnings[0] = "mutated warning"
+	view.Summary.ReferenceKindCounts["doc"] = 99
+	view.Summary.SourceValueCounts["description"] = 99
+	view.Issues[0].Sources["description"] = JiraIssueRefsSourceView{Count: 99}
+	view.Issues[0].ReferenceSummary.SourceValueCounts["description"] = 99
+	if full.Warnings[0] == "mutated warning" || full.Summary.ReferenceKindCounts["doc"] != 1 ||
+		full.Summary.SourceValueCounts["description"] != 1 || full.Issues[0].Sources["description"].Count != 1 ||
+		full.Issues[0].ReferenceSummary.SourceValueCounts["description"] != 1 {
+		t.Fatalf("projection mutation reached the source result: %+v", full)
+	}
+
+	fresh := JiraIssueRefsViewProjection(full)
+	full.Warnings[0] = "source warning"
+	full.Summary.ReferenceKindCounts["doc"] = 42
+	full.Summary.SourceValueCounts["description"] = 42
+	full.Issues[0].Sources["description"] = JiraIssueRefsSource{Count: 42}
+	full.Issues[0].ReferenceSummary.SourceValueCounts["description"] = 42
+	if fresh.Warnings[0] == "source warning" || fresh.Summary.ReferenceKindCounts["doc"] != 1 ||
+		fresh.Summary.SourceValueCounts["description"] != 1 || fresh.Issues[0].Sources["description"].Count != 1 ||
+		fresh.Issues[0].ReferenceSummary.SourceValueCounts["description"] != 1 {
+		t.Fatalf("source mutation reached the projection: %+v", fresh)
+	}
+
+	if JiraIssueRefsViewProjection(nil) != nil {
+		t.Fatal("nil result must produce nil projection")
+	}
+}
+
+func sortedJSONKeys(object map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(object))
+	for key := range object {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
 }
 
 func TestIssueTreeGroupsEpicsExternalEpicsAndOrphans(t *testing.T) {

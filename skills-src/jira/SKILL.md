@@ -35,7 +35,7 @@ the block-level export. Remove the exported policy only for the exact reviewed
 write command after explicit approval.
 
 If the plugin exposes typed MCP, prefer `jira_fields`, `jira_issue_search`,
-`jira_issue_history`, `jira_epic_digest`, `jira_board_view`,
+`jira_issue_history`, `jira_issue_refs`, `jira_epic_digest`, `jira_board_view`,
 `jira_structure_get`, and
 `jira_structure_view` for bounded transient reads. Use `jira_mirror_snapshot`
 with no arguments only for offline content-free health counts of the exact
@@ -62,6 +62,13 @@ timezone request, while explicit timestamps need no calendar lookup; the two
 metadata requests are independent. Read `complete` and any `partial_reason`
 before treating absence as evidence. Use the CLI `jira issue history` only
 when individual changes are themselves the required evidence. For a
+reference-inventory question, call `jira_issue_refs` with exactly one issue
+`key`, or bounded `jql` plus `limit` from 1 through 25, and at most eight exact
+technical field ids. Use its per-issue and top-level reconciled summaries; raw
+URLs, issue summary/type, and source text are deliberately absent. JQL mode
+performs one paginated comment listing per emitted issue, so traffic scales
+with the selected limit. Use the CLI `jira issue refs` only when an individual
+URL is required. For a
 portfolio board, select the exact epic relation field plus `updated`, pass
 `epic_field` and `done_statuses`, require `epic_rollup.complete:true`, and use
 its deterministic counts/latest child timestamps instead of regrouping rows.

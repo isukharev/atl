@@ -7,7 +7,7 @@ Confluence, local mirrors, auth, or config.
 The exact tools are:
 
 - `jira_fields`, `jira_issue_search`, `jira_issue_field_get`,
-  `jira_issue_history`, `jira_epic_digest`,
+  `jira_issue_history`, `jira_issue_refs`, `jira_epic_digest`,
   `jira_board_view`, `jira_structure_get`, `jira_structure_view`,
   `jira_mirror_snapshot`;
 - `confluence_search`, `confluence_page_resolve`, `confluence_page_meta`,
@@ -21,7 +21,7 @@ fields or exact sections. `jira_fields` explicitly qualifies the catalog; an
 empty match is absence only when `complete:true`. Use `summary_only:true` for
 compact qualification and reconciled custom/system counts without field
 definitions. `jira_fields`,
-`jira_issue_search`, `jira_issue_history`, `jira_epic_digest`, and
+`jira_issue_search`, `jira_issue_history`, `jira_issue_refs`, `jira_epic_digest`, and
 `jira_board_view` default to a
 256 KiB encoded-result bound and permit 1 KiB through 1 MiB. Narrow selection
 before raising `max_bytes`; an oversize failure never contains a clipped
@@ -43,6 +43,13 @@ current-user timezone request, while explicit timestamps need no calendar
 lookup; display-name and civil-date metadata requests are independent. Use the
 returned counts instead of recomputing changelog arithmetic, and fall back to
 the CLI when individual changes are themselves the required evidence.
+`jira_issue_refs` accepts exactly one issue `key`, or bounded `jql` with a
+required `limit` from 1 through 25, plus at most eight exact technical field
+ids. Use its selection, source qualification, per-issue `reference_summary`,
+and top-level reconciled counts directly. It never returns raw URLs, issue
+summary/type, or source text. JQL mode performs one paginated comment listing
+per emitted issue, so traffic scales with the selected limit. Use the CLI
+`jira issue refs` only when an individual URL is itself required evidence.
 `jira_epic_digest` requires an explicit non-empty `include`; select only
 sources absent from the authoritative snapshot and set `projection:"compact"`
 for synthesis. Inspect its omitted/clipped paths and request `full` only for a

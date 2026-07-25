@@ -32,7 +32,7 @@ Recent beta work established the contracts the next wave builds on:
 - a versioned offline capability catalog that maps exact agent task classes to
   bounded command/reference routes and derives access/output facts from the
   executable CLI contract;
-- a typed read-only MCP stdio server with eighteen bounded evidence tools,
+- a typed read-only MCP stdio server with nineteen bounded evidence tools,
   including two offline content-free mirror health snapshots, stable error
   classes, a body-free Confluence page governance projection with explicit
   tri-state access state, plugin distribution, and a synthetic Codex route that

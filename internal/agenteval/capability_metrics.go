@@ -29,6 +29,19 @@ var mcpCapabilityFamilies = map[string]string{
 	"confluence_mirror_snapshot": "confluence.mirror.snapshot",
 }
 
+// KnownMCPToolNames returns the closed sorted tool-name inventory understood by
+// agent-eval. A repository contract test compares the production MCP server's
+// explicit registration list with this inventory in both directions so neither
+// side can silently advertise a route the other does not know about.
+func KnownMCPToolNames() []string {
+	names := make([]string, 0, len(mcpCapabilityFamilies))
+	for name := range mcpCapabilityFamilies {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 var allowedCapabilityFamilies = map[string]struct{}{
 	"atl.config": {}, "atl.capabilities": {}, "jira.fields": {}, "jira.issue.fields": {},
 	"jira.issue.field": {}, "jira.issue.field.preview": {}, "jira.issue.field.set": {}, "jira.issue.refs": {}, "jira.issue.worklog.list": {}, "jira.issue.worklog.add": {}, "jira.issue.search": {}, "jira.issue.batch-read": {}, "jira.epic.digest": {},

@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -124,6 +126,18 @@ type JiraIssueRefsSource struct {
 	Warning       string `json:"warning,omitempty"`
 }
 
+// Jira issue-reference warning literals are shared with bounded transports so
+// a deliberate application reword cannot silently desynchronize an allowlist.
+const (
+	JiraIssueRefsWarningSelectionLimit          = "issue selection stopped at the configured limit"
+	JiraIssueRefsWarningPaginationNoProgress    = "issue selection pagination made no forward progress"
+	JiraIssueRefsWarningPaginationRepeated      = "issue selection pagination repeated its cursor"
+	JiraIssueRefsWarningSourceTextCap           = "source text cap reached"
+	JiraIssueRefsWarningCommentsPartial         = "complete comment collection unavailable; embedded comments may be partial"
+	JiraIssueRefsWarningFieldAbsent             = "requested field absent from issue snapshot"
+	JiraIssueRefsWarningIncompleteSourcesFormat = "%d issue reference source set(s) incomplete"
+)
+
 // JiraIssueRefs is the refs found in one issue.
 type JiraIssueRefs struct {
 	Key              string                         `json:"key"`
@@ -150,6 +164,107 @@ type JiraIssueReferenceSummary struct {
 	ReferenceCountMatchesKinds bool           `json:"reference_count_matches_kinds"`
 	CompleteMatchesSources     bool           `json:"complete_matches_sources"`
 	TruncatedMatchesSources    bool           `json:"truncated_matches_sources"`
+}
+
+// jiraIssueRefsViewSchemaVersion versions the bounded reference-evidence
+// projection independently from the full JiraIssueRefsResult shape.
+const jiraIssueRefsViewSchemaVersion = 1
+
+// JiraIssueRefsView is the closed projection of reconciled reference evidence
+// for consumers that must not receive the extracted artifacts or any issue
+// narrative. It keeps the selection provenance, the reconciled aggregate
+// summary, and the per-issue source records; it carries no key/JQL selection
+// echo, no PlanningRef URLs, and no issue summary or type.
+type JiraIssueRefsView struct {
+	SchemaVersion int                        `json:"schema_version"`
+	Count         int                        `json:"count"`
+	Complete      bool                       `json:"complete"`
+	Truncated     bool                       `json:"truncated,omitempty"`
+	Selection     JiraIssueRefsSelectionView `json:"selection"`
+	Summary       JiraIssueRefsSummary       `json:"summary"`
+	Warnings      []string                   `json:"warnings,omitempty"`
+	Issues        []JiraIssueRefsIssueView   `json:"issues"`
+}
+
+// JiraIssueRefsSelectionView closes the transport selection shape so future
+// query echoes added to JiraIssueRefsSelection cannot cross the MCP boundary.
+type JiraIssueRefsSelectionView struct {
+	Mode      string `json:"mode"`
+	Count     int    `json:"count"`
+	Limit     int    `json:"limit,omitempty"`
+	Complete  bool   `json:"complete"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Warning   string `json:"warning,omitempty"`
+}
+
+// JiraIssueRefsSourceView closes one source-qualification record so future
+// source samples or narrative fields cannot cross the MCP boundary.
+type JiraIssueRefsSourceView struct {
+	Complete      bool   `json:"complete"`
+	Count         int    `json:"count"`
+	TextTruncated bool   `json:"text_truncated,omitempty"`
+	Warning       string `json:"warning,omitempty"`
+}
+
+// JiraIssueRefsIssueView is one issue's bounded reference evidence: its key,
+// completeness, the per-source records that qualified extraction, and the
+// reconciled reference summary — never the refs those sources produced.
+type JiraIssueRefsIssueView struct {
+	Key              string                             `json:"key"`
+	Complete         bool                               `json:"complete"`
+	Truncated        bool                               `json:"truncated,omitempty"`
+	Sources          map[string]JiraIssueRefsSourceView `json:"sources"`
+	ReferenceSummary JiraIssueReferenceSummary          `json:"reference_summary"`
+}
+
+// JiraIssueRefsViewProjection copies already reconciled reference facts into
+// their closed projection field by field. Projecting explicitly (rather than
+// clearing fields on the source record) keeps a future JiraIssueRefs field from
+// silently reaching a client. It recomputes no aggregate and rewrites no
+// warning, and it deep-copies every map and slice so mutating one shape cannot
+// reach the other.
+func JiraIssueRefsViewProjection(result *JiraIssueRefsResult) *JiraIssueRefsView {
+	if result == nil {
+		return nil
+	}
+	issues := make([]JiraIssueRefsIssueView, 0, len(result.Issues))
+	for _, issue := range result.Issues {
+		sources := make(map[string]JiraIssueRefsSourceView, len(issue.Sources))
+		for name, source := range issue.Sources {
+			sources[name] = JiraIssueRefsSourceView{ //nolint:staticcheck // Security boundary: list every allowed field explicitly.
+				Complete: source.Complete, Count: source.Count,
+				TextTruncated: source.TextTruncated, Warning: source.Warning,
+			}
+		}
+		issues = append(issues, JiraIssueRefsIssueView{
+			Key: issue.Key, Complete: issue.Complete, Truncated: issue.Truncated,
+			Sources:          sources,
+			ReferenceSummary: cloneJiraIssueReferenceSummary(issue.ReferenceSummary),
+		})
+	}
+	summary := result.Summary
+	summary.ReferenceKindCounts = maps.Clone(summary.ReferenceKindCounts)
+	summary.SourceValueCounts = maps.Clone(summary.SourceValueCounts)
+	return &JiraIssueRefsView{
+		SchemaVersion: jiraIssueRefsViewSchemaVersion,
+		Count:         result.Count,
+		Complete:      result.Complete,
+		Truncated:     result.Truncated,
+		Selection: JiraIssueRefsSelectionView{
+			Mode: result.Selection.Mode, Count: result.Selection.Count, Limit: result.Selection.Limit,
+			Complete: result.Selection.Complete, Truncated: result.Selection.Truncated,
+			Warning: result.Selection.Warning,
+		},
+		Summary:  summary,
+		Warnings: slices.Clone(result.Warnings),
+		Issues:   issues,
+	}
+}
+
+func cloneJiraIssueReferenceSummary(summary JiraIssueReferenceSummary) JiraIssueReferenceSummary {
+	summary.ReferenceKindCounts = maps.Clone(summary.ReferenceKindCounts)
+	summary.SourceValueCounts = maps.Clone(summary.SourceValueCounts)
+	return summary
 }
 
 // JiraIssueTreeOpts controls normalized epic tree extraction.
@@ -284,7 +399,7 @@ func (s *JiraService) IssueRefs(ctx context.Context, opts JiraIssueRefsOpts) (*J
 		result.Truncated = result.Truncated || row.Truncated
 	}
 	if incompleteIssues > 0 {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("%d issue reference source set(s) incomplete", incompleteIssues))
+		result.Warnings = append(result.Warnings, fmt.Sprintf(JiraIssueRefsWarningIncompleteSourcesFormat, incompleteIssues))
 	}
 	result.Summary = summarizeJiraIssueRefsResult(result)
 	return result, nil
@@ -313,7 +428,7 @@ func (s *JiraService) collectIssueRefsSelection(ctx context.Context, jql string,
 			selection.Truncated = next != "" || remaining < len(issues)
 			selection.Complete = !selection.Truncated
 			if selection.Truncated {
-				selection.Warning = "issue selection stopped at the configured limit"
+				selection.Warning = JiraIssueRefsWarningSelectionLimit
 			}
 			return out, selection, nil
 		}
@@ -322,12 +437,12 @@ func (s *JiraService) collectIssueRefsSelection(ctx context.Context, jql string,
 		}
 		if len(issues) == 0 {
 			selection.Complete = false
-			selection.Warning = "issue selection pagination made no forward progress"
+			selection.Warning = JiraIssueRefsWarningPaginationNoProgress
 			break
 		}
 		if next == cursor {
 			selection.Complete = false
-			selection.Warning = "issue selection pagination repeated its cursor"
+			selection.Warning = JiraIssueRefsWarningPaginationRepeated
 			break
 		}
 		cursor = next
@@ -349,7 +464,7 @@ func (s *JiraService) issueRefsForIssue(ctx context.Context, issue domain.Issue,
 		}
 		if truncated {
 			complete = false
-			warning = joinDigestWarnings(warning, "source text cap reached")
+			warning = joinDigestWarnings(warning, JiraIssueRefsWarningSourceTextCap)
 		}
 		row.Sources[sourceName] = JiraIssueRefsSource{
 			Complete: complete, Count: count, TextTruncated: truncated, Warning: warning,
@@ -360,7 +475,7 @@ func (s *JiraService) issueRefsForIssue(ctx context.Context, issue domain.Issue,
 	for _, field := range issueRefExtraFields(extraFields) {
 		value, present := issue.Fields[field]
 		if !present {
-			addText("field."+field, "", 0, false, "requested field absent from issue snapshot")
+			addText("field."+field, "", 0, false, JiraIssueRefsWarningFieldAbsent)
 			continue
 		}
 		text := renderFieldValue(value)
@@ -376,7 +491,7 @@ func (s *JiraService) issueRefsForIssue(ctx context.Context, issue domain.Issue,
 		}
 		comments = issue.Comments
 		commentComplete = false
-		commentWarning = "complete comment collection unavailable; embedded comments may be partial"
+		commentWarning = JiraIssueRefsWarningCommentsPartial
 	}
 	commentTruncated := false
 	for _, comment := range comments {
@@ -388,7 +503,7 @@ func (s *JiraService) issueRefsForIssue(ctx context.Context, issue domain.Issue,
 	}
 	if commentTruncated {
 		commentComplete = false
-		commentWarning = joinDigestWarnings(commentWarning, "source text cap reached")
+		commentWarning = joinDigestWarnings(commentWarning, JiraIssueRefsWarningSourceTextCap)
 	}
 	row.Sources["comments"] = JiraIssueRefsSource{
 		Complete: commentComplete, Count: len(comments), TextTruncated: commentTruncated, Warning: commentWarning,
@@ -765,6 +880,27 @@ func fieldString(v any) string {
 
 var urlRe = regexp.MustCompile(`https?://[^\s<>"')\]]+`)
 
+const (
+	jiraPlanningReferenceKindChat   = "chat"
+	jiraPlanningReferenceKindDesign = "design"
+	jiraPlanningReferenceKindDoc    = "doc"
+	jiraPlanningReferenceKindJira   = "jira"
+	jiraPlanningReferenceKindLink   = "link"
+)
+
+// JiraPlanningReferenceKind reports whether kind belongs to the closed,
+// content-free vocabulary emitted by Jira reference summaries.
+func JiraPlanningReferenceKind(kind string) bool {
+	switch kind {
+	case jiraPlanningReferenceKindChat, jiraPlanningReferenceKindDesign,
+		jiraPlanningReferenceKindDoc, jiraPlanningReferenceKindJira,
+		jiraPlanningReferenceKindLink:
+		return true
+	default:
+		return false
+	}
+}
+
 func ExtractPlanningRefs(text string) []PlanningRef {
 	seen := map[string]bool{}
 	var refs []PlanningRef
@@ -783,23 +919,23 @@ func ExtractPlanningRefs(text string) []PlanningRef {
 func classifyPlanningRef(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return "link"
+		return jiraPlanningReferenceKindLink
 	}
 	host := strings.ToLower(u.Host)
 	path := strings.ToLower(u.Path)
 	switch {
 	case strings.Contains(host, "figma.com"):
-		return "design"
+		return jiraPlanningReferenceKindDesign
 	case strings.Contains(host, "confluence") || strings.Contains(path, "/wiki/"):
-		return "doc"
+		return jiraPlanningReferenceKindDoc
 	case strings.Contains(host, "jira") || strings.Contains(path, "/browse/"):
-		return "jira"
+		return jiraPlanningReferenceKindJira
 	case strings.Contains(host, "slack.com") || strings.Contains(host, "teams.microsoft.com"):
-		return "chat"
+		return jiraPlanningReferenceKindChat
 	case strings.Contains(host, "docs.") || strings.Contains(host, "notion.") || strings.Contains(host, "sharepoint."):
-		return "doc"
+		return jiraPlanningReferenceKindDoc
 	default:
-		return "link"
+		return jiraPlanningReferenceKindLink
 	}
 }
 

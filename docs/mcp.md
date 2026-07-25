@@ -20,6 +20,7 @@ The v1 surface is an explicit allowlist:
 | `jira_issue_search` | Read one compact IssueList page | default 50/maximum 1000 rows; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_issue_field_get` | Expand one exact compact field with issue/update provenance | default 16 KiB, maximum 128 KiB encoded value |
 | `jira_issue_history` | Summarize one issue's changelog without raw history rows | summary projection only; default 256 KiB/maximum 1 MiB encoded result |
+| `jira_issue_refs` | Summarize qualified issue references without raw URLs or narrative | one key or JQL limited to 25 issues; at most 8 technical field ids; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_epic_digest` | Aggregate selected qualified epic evidence | `projection:compact`; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_board_view` | Freeze one board/backlog membership snapshot | default 200/maximum 1000 rows per scope; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_structure_get` | Read compact metadata for one exact Structure id | accepts a positive integer or canonical decimal string id; 32 KiB result cap; omits owner, permissions, saved views, and raw forest data |
@@ -75,8 +76,21 @@ add both metadata requests. There is no raw-history selector and no projection
 mode: when individual changes are themselves the required evidence, use
 `atl jira issue history` in the CLI.
 
-`jira_fields`, `jira_issue_search`, `jira_issue_history`, `jira_epic_digest`,
-and `jira_board_view` also enforce the final encoded result through `max_bytes`
+`jira_issue_refs` answers reference-inventory questions without shipping the
+references. Supply exactly one `key`, or `jql` with a required `limit` from 1
+through 25, plus at most eight exact technical field ids. The schema-v1 result
+contains only the emitted count, selection qualification, top-level summary,
+static warnings, and per-issue key, source qualification, and
+`reference_summary`. It omits the input key/JQL echo, raw reference URLs, issue
+summary/type, and all source text by construction. Every per-issue and
+top-level count, bucket, completeness flag, truncation flag, and reconciliation
+boolean is validated before emission. Use those facts directly instead of
+recounting sources. JQL mode performs one paginated comment listing per emitted
+issue, so backend traffic scales linearly with the selected limit. Use `atl
+jira issue refs` when individual URLs are the required evidence.
+
+`jira_fields`, `jira_issue_search`, `jira_issue_history`, `jira_issue_refs`,
+`jira_epic_digest`, and `jira_board_view` also enforce the final encoded result through `max_bytes`
 (default 256 KiB, minimum 1 KiB, maximum 1 MiB). They fail explicitly instead of
 clipping field definitions, rows, summary facts, digest evidence, or board
 membership. Narrow filters, columns, selected fields, time boundaries, included
@@ -385,6 +399,7 @@ enabled_tools = [
   "jira_issue_search",
   "jira_issue_field_get",
   "jira_issue_history",
+  "jira_issue_refs",
   "jira_epic_digest",
   "jira_board_view",
   "jira_structure_get",
