@@ -48,7 +48,7 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 		task string
 		ids  []string
 	}{
-		{"jira/evidence", []string{"jira.issue.fields", "jira.epic.digest", "jira.issue.field.get", "jira.issue.refs", "jira.issue.history"}},
+		{"jira/evidence", []string{"jira.issue.search", "jira.issue.fields", "jira.epic.digest", "jira.issue.field.get", "jira.issue.refs", "jira.issue.history"}},
 		{"jira/portfolio", []string{"jira.board.list", "jira.board.view", "jira.structure.get", "jira.structure.folders", "jira.structure.view", "jira.portfolio.epic.digest", "jira.portfolio.confluence.section"}},
 		{"jira/board-portfolio", []string{"jira.board-portfolio.fields", "jira.board-portfolio.view", "jira.board-portfolio.epic.digest"}},
 		{"jira/batch-analysis", []string{"jira.batch.issue.export"}},
@@ -171,7 +171,7 @@ func TestCapabilitiesCommandIsOfflineAndSupportsAllOutputModes(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Selection.Task != "jira/evidence" || catalog.Selection.Count != 5 {
+	if catalog.Selection.Task != "jira/evidence" || catalog.Selection.Count != 6 {
 		t.Fatalf("selection=%+v", catalog.Selection)
 	}
 

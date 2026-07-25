@@ -251,6 +251,8 @@ The realistic matrix currently contains:
 | surface native | `jira-paginated-search-mcp-holdout` | distinct two-page Jira search topology through the same terminal-completeness contract |
 | surface native | `jira-search-zero-progress-mcp` | advancing Jira search cursor with a successful page that contributes no new stable identity |
 | surface native | `jira-search-zero-progress-mcp-holdout` | partial-overlap pages that still add identities before a distinct zero-progress stop |
+| surface native | `jira-snapshot-reconciliation-mcp` | bounded issue search and exact field expansion with an explicit cross-call snapshot mismatch |
+| surface native | `jira-snapshot-reconciliation-mcp-holdout` | distinct reconciled snapshot with newer-row and in-field-date distractors |
 | surface native | `jira-board-pagination-mcp` | one typed complete Scrum board/backlog read with internal pagination, overlap, rank, membership, and unmapped status reconciliation |
 | surface native | `jira-board-pagination-mcp-holdout` | distinct board/backlog pagination topology with two overlaps through the same closed membership contract |
 | surface native | `jira-board-incomplete-mcp` | intentionally capped board/backlog evidence with observed-only membership and explicit incomplete qualification |
@@ -876,6 +878,20 @@ still add identities before a fourth successful page makes zero identity
 progress. Primary and holdout share one byte-identical response schema and the
 same general stop rule without disclosing the expected page count in either
 prompt.
+
+`jira-snapshot-reconciliation-mcp` pairs Codex Luna/high and Claude Code
+Opus/high at n=3. One bounded `jira_issue_search` selects a unique status row,
+then one exact `jira_issue_field_get` expands its description. Exact invocation,
+capability-family, sequence, and HTTP checks bind the query, projection, field,
+byte cap, two GETs, zero duplicate requests, and zero writes. The answer
+compares key, id, and `updated` provenance across the two successful reads; a
+later expansion remains reported evidence but is not attributed to the selected
+snapshot. Its distinct n=1 holdout reconciles the two stamps while changing the
+query, identities, decision marker, and distractor topology. A newer unrelated
+row and a later date inside field text remain content rather than selected
+snapshot provenance. Primary and holdout share one byte-identical closed
+response schema and the same no-refresh rule without disclosing fixture answers
+or transport counts in either prompt.
 
 `jira-board-pagination-mcp` pairs Codex Luna/high and Claude Code Opus/high at
 n=3. One exact `jira_board_view` call traverses two board pages and two backlog

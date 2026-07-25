@@ -17,6 +17,10 @@ step mechanically.
 | Several known keys | `jira export --keys ... --out -` | per-key history/digest only for exceptions |
 | Broad discovery | `jira issue search --columns ...` | batch export for selected keys |
 
+The offline `jira/evidence` capability route exposes broad search as its first
+discovery step, followed by exact per-issue qualification and bounded
+expansion. Skip that search when the task already supplies one exact issue key.
+
 ## First-use epic flow
 
 If the task already names one exact standard field, skip this discovery flow
