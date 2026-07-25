@@ -363,6 +363,11 @@ $EDITOR mirror/DOCS/acme-adr/acme-adr.csf
 # Validate before pushing (blocks on malformed XML, warns on sanity issues)
 atl conf validate mirror/DOCS/acme-adr/acme-adr.csf
 
+# Opt-in advisory Confluence Cloud compatibility inventory (warnings only, never blocks).
+# Adds cloud-compat/* findings plus cloud_compat.rule_pack / source_date; predicts no
+# migration outcome and never guesses at unlisted marketplace, user, or unknown macros.
+atl conf validate mirror/DOCS/acme-adr/acme-adr.csf --cloud-compat
+
 # Inspect native baseline → candidate changes offline (JSON by default)
 ATL_READ_ONLY=1 atl conf diff mirror/DOCS/acme-adr/acme-adr.csf -o text
 # Text uses root-relative paths and explicit semantic/byte-only/none review labels;
@@ -446,6 +451,7 @@ never silently discarded.
 | Safeguard | Behaviour |
 |-----------|-----------|
 | `atl conf validate` | Blocks on malformed XML (reports line/col); warns on structural issues |
+| `atl conf validate --cloud-compat` | Opt-in advisory Cloud-compatibility inventory (`cloud-compat/*` warnings, versioned rule pack); never blocks and predicts no migration outcome |
 | `atl conf plan create/preview/apply` | Freezes a multi-page set; read-only complete preview, exact hash + confirmation, no force/replay |
 | `atl conf push --dry-run` | Reports all consequences without writing anything |
 | Version gate | `push` exits **5** when the remote version has advanced since the last pull |

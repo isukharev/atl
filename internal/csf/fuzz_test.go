@@ -33,6 +33,12 @@ var csfSeeds = [][]byte{
 	[]byte("text only, no markup"),
 	[]byte(`<p xmlns:ac="x" ac:foo="1">y</p>`), // namespaced attrs the parser skips
 	[]byte("</a></b></c>"),                     // unbalanced closes stress the stack guard
+	// Shapes the Cloud-compat rule pack walks: a listed macro key, a bodied
+	// macro nested in another macro, and a table inside a table.
+	[]byte(`<ac:structured-macro ac:name="chart"/>`),
+	[]byte(`<ac:structured-macro ac:name="info"><ac:rich-text-body><ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[x]]></ac:plain-text-body></ac:structured-macro></ac:rich-text-body></ac:structured-macro>`),
+	[]byte(`<table><tbody><tr><td><table><tbody><tr><td>x</td></tr></tbody></table></td></tr></tbody></table>`),
+	[]byte(`<ac:macro ac:name="span"><table><table>`), // listed key + unbalanced nested tables
 }
 
 // seedCSF feeds the on-disk sample plus the small literals into f.Add.
@@ -108,5 +114,41 @@ func FuzzValidate(f *testing.F) {
 			_ = p.Message
 		}
 		_ = HasErrors(problems)
+	})
+}
+
+// FuzzValidateCloudCompat asserts the opt-in rule pack holds its contract on
+// arbitrary server-controlled bytes: it never panics, never mutates the input,
+// only ever appends warnings after the default diagnostics, and never turns a
+// clean body into a blocking one.
+func FuzzValidateCloudCompat(f *testing.F) {
+	seedCSF(f)
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		orig := append([]byte(nil), raw...)
+		base := Validate(raw)
+		got := ValidateWithOptions(raw, Options{CloudCompat: true})
+
+		if !bytes.Equal(raw, orig) {
+			t.Fatalf("ValidateWithOptions mutated its input: before=%q after=%q", orig, raw)
+		}
+		if len(got) < len(base) {
+			t.Fatalf("cloud pack dropped diagnostics: %d < %d for %q", len(got), len(base), raw)
+		}
+		for i, p := range base {
+			if got[i] != p {
+				t.Fatalf("cloud pack changed default diagnostic %d: got %+v want %+v for %q", i, got[i], p, raw)
+			}
+		}
+		for _, p := range got[len(base):] {
+			if p.Severity != "warning" {
+				t.Fatalf("cloud finding %+v is not a warning for %q", p, raw)
+			}
+			if p.Line < 0 || p.Col < 0 {
+				t.Fatalf("cloud finding reported negative position: %+v for %q", p, raw)
+			}
+		}
+		if HasErrors(got) != HasErrors(base) {
+			t.Fatalf("cloud pack changed the push gate for %q", raw)
+		}
 	})
 }

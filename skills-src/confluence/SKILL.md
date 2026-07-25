@@ -182,6 +182,17 @@ or discard the output, and do not publish until the baseline is repaired.
 - Validate, review dry-runs, and write the exact bytes/hash reviewed. Never
   auto-force, auto-replay `unknown`, or retry a non-idempotent comment, upload,
   create, or blog POST without reconciliation.
+- `conf validate --cloud-compat` is an opt-in advisory inventory, not a gate.
+  Default validation output is unchanged without it; with it, `cloud-compat/*`
+  entries are warnings only and never block a push or change an exit code.
+  Report them as documented Cloud editor limitations, carry the emitted
+  `cloud_compat.rule_pack`/`source_date` with any finding you keep, and branch
+  on the closed rule names (`macro-not-insertable`, `macro-view-only`,
+  `macro-removed`, `nested-bodied-macro`, `nested-table`) rather than message
+  prose. Never claim a page will or will not migrate successfully, and never
+  read an absent finding as clearance for an unlisted marketplace app, user, or
+  unknown macro — the pack never guesses at those. It converts nothing and
+  calls no backend.
 - Pull/render/apply/push and mirror-local edit share a mutation lock. Wait on
   contention; never delete/bypass locks or retry concurrently. A partial scan,
   missing native body, or corrupt sidecar is not clean evidence.

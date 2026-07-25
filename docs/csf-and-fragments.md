@@ -94,7 +94,9 @@ skips the subtree (used to avoid descending into draw.io macro internals).
 
 ## Validation
 
-`csf.Validate(raw []byte) []csf.Problem` runs two passes:
+`csf.Validate(raw []byte) []csf.Problem` runs the default validation passes.
+`csf.ValidateWithOptions(raw, csf.Options{...})` preserves those diagnostics
+exactly and may append explicitly selected advisory rule packs.
 
 ### Pass 1: well-formedness
 
@@ -106,20 +108,32 @@ line/col computation).
 A well-formedness error **blocks a push** (`csf.HasErrors` returns true).
 Sending malformed XML to the Confluence API would silently corrupt the page.
 
-### Pass 2: sanity checks (warnings only)
+### Pass 2: sanity and invisible-character checks (warnings only)
 
-Walks the successfully-parsed DOM and emits advisory `Problem` items
-(`Severity: "warning"`) for common mistakes:
+Walks the successfully-parsed DOM and scans the original bytes, emitting
+advisory `Problem` items (`Severity: "warning"`) for common mistakes:
 
 | rule | condition |
 |---|---|
 | `macro-name` | `<ac:structured-macro>` missing `ac:name` |
 | `drawio-params` | `drawio` macro missing the `diagramName` parameter |
 | `dangling-ref` | `<ri:attachment>` without `ri:filename` |
+| `invisible-chars` | non-breaking spaces, zero-width characters (including U+FEFF/BOM), or soft hyphens that make exact-string edits fragile |
 
 Warnings do not block a push; they are surfaced in the output of
 `atl conf validate` and `atl conf push --dry-run` so a human or agent can
 notice and fix them.
+
+### Optional Cloud-compatibility pass
+
+`csf.Options{CloudCompat: true}` appends the closed `v1`
+`cloud-compat/*` warning pack after all default diagnostics. It inventories
+macro keys named on Atlassian's official compatibility list, nested bodied
+macros, and nested tables. Unknown keys are not guessed at, malformed input
+short-circuits before the optional pass, and every finding remains advisory:
+the option cannot change `csf.HasErrors` or the push gate. The CLI exposes this
+as `atl conf validate --cloud-compat` and adds the rule-pack/source-date
+identity to its opt-in JSON result.
 
 ---
 

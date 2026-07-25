@@ -80,6 +80,11 @@ Recent beta work established the contracts the next wave builds on:
   prefetch in canonical order while a shared transport gate covers Confluence,
   Jira macros, redirects, retries, comments, and streams; local writes and
   checkpoints remain serial.
+- opt-in advisory Confluence Cloud compatibility validation
+  (`conf validate --cloud-compat`): a closed, versioned rule pack that reports
+  documented editor limitations as warnings only, identifies its own rule-pack
+  version and source date, never changes the push gate or an exit code, and
+  makes no claim about whether a page will migrate.
 
 ## Now
 
@@ -99,9 +104,10 @@ Work likely to follow once the current sequence is stable.
   - bounded concurrency and rate-limit controls;
   - standalone fragment inventory/check commands when diff/plan evidence shows
     that a separate surface is useful.
-- Migration readiness:
-  - `conf validate --cloud-compat` to detect content that may lose fidelity
-    during Cloud/ADF migration.
+- Migration readiness beyond the shipped advisory `conf validate --cloud-compat`
+  rule pack: later packs as Atlassian's documentation moves, and — only if
+  demand justifies it — space-level reporting and third-party app assessment,
+  both of which are deliberately out of scope today.
 - Windows support:
   - config-dir and path handling;
   - Scoop/Winget packaging.

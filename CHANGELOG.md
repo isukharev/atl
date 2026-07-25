@@ -38,6 +38,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `conf validate --cloud-compat` — an opt-in, advisory Confluence Cloud
+  compatibility inventory. The flag appends warning-only `cloud-compat/*`
+  findings to `problems[]` and adds
+  `cloud_compat:{rule_pack:"v1",source_date:"2026-07-25"}` to the result;
+  without it, both the diagnostics and the JSON object are unchanged. The v1
+  rule pack is closed — `cloud-compat/macro-not-insertable`,
+  `cloud-compat/macro-view-only`, `cloud-compat/macro-removed`,
+  `cloud-compat/nested-bodied-macro`, and `cloud-compat/nested-table` — and the
+  macro category is carried by the rule name rather than the message prose.
+  Because every finding is a warning, the flag can never change `ok`, the push
+  gate, or an exit code. The pack is deliberately conservative: it classifies
+  only macro keys named on Atlassian's official compatibility list, never
+  guesses at an unlisted marketplace app, user, or unknown macro, makes no claim
+  that a page will or will not migrate successfully, and performs no conversion,
+  backend call, or write.
+
 - Added typed read-only MCP `confluence_attachment_list` for one
   version-gated, metadata-only page attachment inventory. It exposes
   explicit completeness and static partial reasons, requires the page version
