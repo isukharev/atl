@@ -1,0 +1,40 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "page_id": {"type": "string", "minLength": 1},
+    "outline_version": {"type": "integer", "minimum": 1},
+    "selected_heading": {"type": "string", "minLength": 1},
+    "selected_path": {"type": "array", "maxItems": 8, "items": {"type": "string", "minLength": 1, "maxLength": 240}},
+    "selected_occurrence": {"type": "integer", "minimum": 1},
+    "expected_page_version_sent": {"type": "integer", "minimum": 1},
+    "section_version_gated": {"type": ["boolean", "null"]},
+    "section_version": {"type": ["integer", "null"]},
+    "section_complete": {"type": ["boolean", "null"]},
+    "evidence_complete": {"type": "boolean"},
+    "evidence_status": {"type": "string", "enum": ["current", "stale"]},
+    "decision": {"type": "string", "enum": ["approved", "deferred", "held", "undetermined"]},
+    "section_claims": {"type": "array", "maxItems": 4, "items": {"type": "string", "minLength": 1, "maxLength": 320}},
+    "no_retry_attempted": {"type": "boolean"},
+    "brief": {"type": "string", "minLength": 1, "maxLength": 240}
+  },
+  "required": [
+    "schema_version",
+    "page_id",
+    "outline_version",
+    "selected_heading",
+    "selected_path",
+    "selected_occurrence",
+    "expected_page_version_sent",
+    "section_version_gated",
+    "section_version",
+    "section_complete",
+    "evidence_complete",
+    "evidence_status",
+    "decision",
+    "section_claims",
+    "no_retry_attempted",
+    "brief"
+  ]
+}

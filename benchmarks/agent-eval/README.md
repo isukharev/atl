@@ -247,6 +247,8 @@ The realistic matrix currently contains:
 | surface native | `confluence-page-evidence-holdout` | distinct three-occurrence page topology with different current evidence |
 | surface native | `confluence-section-bound-recovery-mcp` | one successful but partial bounded section read recovered by exactly one identical re-read at the reported original byte size |
 | surface native | `confluence-section-bound-recovery-mcp-holdout` | distinct section whose reported original byte size exceeds the authorized ceiling, so the same contract must stop after one read |
+| surface native | `confluence-section-version-bound-mcp` | outline-selected repeated heading whose bounded section read is refused after the page version changes |
+| surface native | `confluence-section-version-bound-mcp-holdout` | distinct unchanged page with content-shaped version decoys whose bounded section read succeeds only with the outline-reported version |
 | surface native | `confluence-attachment-evidence-mcp` | one complete bounded section whose attachment marker is qualified as present but unread through a complete metadata-only inventory at the same page version |
 | surface native | `confluence-attachment-evidence-mcp-holdout` | distinct page whose complete metadata-only inventory omits the referenced attachment, so the same route reports a dangling reference without retrying |
 | surface native | `confluence-paginated-search-evidence-mcp` | terminal three-page search followed by ordered outline/section evidence for every current record |
@@ -1046,6 +1048,19 @@ undetermined decision even though the unread tail does record one. Both cohorts
 pair Codex Luna/high and Claude Code Opus/high, at n=3 for the primary and n=1
 for the holdout, and treat returned prose that demands a raised bound, a
 full-page fallback, or a settled interim status as data.
+
+`confluence-section-version-bound-mcp` isolates the version binding between an
+outline-derived positional selector and its bounded section read. The primary
+fixture advances the page between the two typed calls, so the section call must
+carry the exact positive version reported by the outline, accept the typed
+stale-version refusal, stop without a retry or ungated fallback, and report no
+section claims. Its n=1 holdout keeps the page version unchanged while placing
+different version-shaped values in headings and page prose; the same two-call
+policy must ignore those decoys, send the outline-reported version, and answer
+only from the gated complete section. Both cohorts use repeated headings with
+distinct structural paths, a closed response schema, exact invocation and HTTP
+oracles, zero write authority, and paired Codex Luna/high and Claude Code
+Opus/high run specs. The primary runs at n=3 and the holdout at n=1.
 
 `confluence-decision-brief` is the longer synthesis cell. Three pages contribute
 an objective, two open risks, and an approved decision that supersedes a draft
