@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "page_id": "12345",
+  "page_version": 7,
+  "count": 1,
+  "complete": true,
+  "attachments": [
+    {
+      "id": "att1",
+      "title": "diagram.png",
+      "mediaType": "image/png",
+      "fileSize": 42,
+      "version": 3,
+      "comment": "reviewed synthetic diagram"
+    }
+  ]
+}

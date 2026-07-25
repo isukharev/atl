@@ -46,21 +46,34 @@ non-spreadsheet consumer.
 
 ```bash
 atl conf attachment list --id <page-id>
+atl conf attachment list --id <page-id> --expected-version <N>
 atl conf attachment get --id <page-id> --name <filename> [--version N] --into <dir>
 atl conf attachment upload --id <page-id> --file <path> [--comment <text>]
 atl conf attachment delete --id <attachment-id> --force
 ```
 
-Successful JSON listings always return an `attachments` array. Treat `[]` as a
-complete empty result; `null` is not a successful current output shape.
+`list` returns the qualified inventory `{schema_version, page_id, page_version,
+count, complete, partial_reason?, attachments:[...]}`. Successful JSON listings
+always return an `attachments` array; `null` is not a successful current output
+shape. Treat `[]` as a complete empty result only when `complete:true`. A
+`complete:false` inventory names its limiter with a static `partial_reason`
+(`page_limit`, `item_limit`, `pagination_stalled`, `legacy_unqualified`) and is
+a prefix, never evidence that an attachment is absent. `-o id` and `-o text`
+output are unchanged.
+
+`--expected-version N` binds the listing to a page version you already
+observed: a positive value refuses the read with exit `8` when the page has
+moved, before any attachment request, and reports only the expected and current
+version integers. Use it whenever the inventory must correspond to a specific
+page read.
 
 Attachment deletion is permanent and the explicit `--force` confirms it.
 Downloads and uploads stream bytes. Treat upload as non-idempotent. Before the
 first upload, list attachments and retain a private baseline of matching
 filename, id, version, size, and comment. After an ambiguous response, list
 again and compare against that baseline; only a new id/version with the expected
-attributes can support a committed outcome. If either listing errors, appears
-incomplete/capped, or cannot distinguish prior state, report `unknown` and do
+attributes can support a committed outcome. If either listing errors, reports
+`complete:false`, or cannot distinguish prior state, report `unknown` and do
 not retry. Never blindly replay.
 
 Use `conf pull --assets` when diagrams or images are needed for understanding a

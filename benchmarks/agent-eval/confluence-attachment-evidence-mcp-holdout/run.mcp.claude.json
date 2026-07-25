@@ -1,0 +1,59 @@
+{
+  "schema_version": 6,
+  "category": "surface-native",
+  "surface": "atl-mcp",
+  "scenario_file": "scenario.v1.json",
+  "provider": "claude-code",
+  "variant": "attachment-qualification-mcp-v1",
+  "model": "claude-opus-4-8",
+  "reasoning": "high",
+  "prompt_file": "prompt.mcp.v1.md",
+  "response_schema_file": "response-schema.v1.json",
+  "qualitative_rubric_file": "rubric.v1.json",
+  "workspace_template": "workspace",
+  "fixture_file": "fixture.json",
+  "repetitions": 1,
+  "timeout_seconds": 450,
+  "max_estimated_cost_microusd": 6000000,
+  "pricing": {
+    "input_microusd_per_million_tokens": 5000000,
+    "output_microusd_per_million_tokens": 25000000
+  },
+  "tool_transport": "mcp",
+  "allowed_tools": [],
+  "allowed_atl_commands": [],
+  "allowed_mcp_tools": ["confluence_page_section", "confluence_attachment_list"],
+  "checks": [
+    {"name": "attachment_exact", "kind": "json_equals", "pointer": "/referenced_attachment", "expected": "rollout-checklist.pdf"},
+    {"name": "bounded_interface", "kind": "interface_invocations_max", "maximum": 2},
+    {"name": "brief_present", "kind": "json_present", "pointer": "/brief"},
+    {"name": "bytes_unread_exact", "kind": "json_equals", "pointer": "/attachment_bytes_read", "expected": false},
+    {"name": "content_absent_exact", "kind": "json_equals", "pointer": "/attachment_content", "expected": null},
+    {"name": "decision_exact", "kind": "json_equals", "pointer": "/decision", "expected": "undetermined"},
+    {"name": "file_size_exact", "kind": "json_equals", "pointer": "/attachment_file_size", "expected": null},
+    {"name": "guard_clean", "kind": "guard_no_denials"},
+    {"name": "heading_exact", "kind": "json_equals", "pointer": "/heading", "expected": "Change evidence index"},
+    {"name": "http_exact", "kind": "http_methods_equal", "expected": {"GET": 3}},
+    {"name": "interface_succeeded", "kind": "interface_all_succeeded"},
+    {"name": "inventory_complete_exact", "kind": "json_equals", "pointer": "/inventory_complete", "expected": true},
+    {"name": "inventory_count_exact", "kind": "json_equals", "pointer": "/inventory_count", "expected": 2},
+    {"name": "membership_exact", "kind": "json_equals", "pointer": "/membership_status", "expected": "absent_dangling"},
+    {"name": "mock_clean", "kind": "mock_no_unexpected"},
+    {"name": "no_delegation", "kind": "delegations_none"},
+    {"name": "page_id_exact", "kind": "json_equals", "pointer": "/page_id", "expected": "8402"},
+    {"name": "page_version_exact", "kind": "json_equals", "pointer": "/page_version", "expected": 9},
+    {"name": "route_arguments", "kind": "mcp_invocations_equal", "expected": [
+      {"tool": "confluence_page_section", "arguments": {"reference": "8402", "heading": "Change evidence index", "occurrence": 1, "max_bytes": 32768}},
+      {"tool": "confluence_attachment_list", "arguments": {"reference": "8402", "expected_page_version": 9, "max_bytes": 65536}}
+    ]},
+    {"name": "route_exact", "kind": "capability_families_equal", "expected": [
+      {"family": "confluence.attachment.list", "invocations": 1, "successes": 1, "failures": 0},
+      {"family": "confluence.page.section", "invocations": 1, "successes": 1, "failures": 0}
+    ]},
+    {"name": "route_ordered", "kind": "capability_sequence_equal", "expected": [
+      "confluence.page.section", "confluence.attachment.list"
+    ]},
+    {"name": "schema_version_exact", "kind": "json_equals", "pointer": "/schema_version", "expected": 1},
+    {"name": "used_interface", "kind": "interface_invocations_min", "minimum": 2}
+  ]
+}

@@ -53,7 +53,7 @@ Help и shell completion остаются доступны в read-only режи
   и [SECURITY.md](SECURITY.md).
 - **Удобен для скриптов** — JSON в stdout, логи и ошибки в stderr, без интерактивных
   запросов, чёткие коды выхода.
-- **Типизированный read-only MCP** — `atl mcp serve` предоставляет агентам шестнадцать
+- **Типизированный read-only MCP** — `atl mcp serve` предоставляет агентам семнадцать
   ограниченных Jira/Confluence evidence-tools без записи, shell, raw REST и произвольных файлов;
   два из них офлайн возвращают content-free health snapshot заданного владельцем зеркала.
 - **Один статический бинарник** — `CGO_ENABLED=0`, запускается везде, где работает Go 1.26.
@@ -165,7 +165,7 @@ codex plugin add atl@atl
 проверяемый приватный профиль только по явно разрешённым примерам. После setup Codex сможет
 использовать те же встроенные скиллы по мере необходимости. Плагин также запускает
 типизированную read-only MCP-поверхность бинарника; после установки и настройки `atl`
-начните новую сессию. Шестнадцать tools, их лимиты и standalone setup описаны в
+начните новую сессию. Семнадцать tools, их лимиты и standalone setup описаны в
 [docs/mcp.md](docs/mcp.md).
 
 Метаданные скиллов декларируют взаимоисключающие discovery-границы: для
@@ -410,7 +410,8 @@ atl conf page get     --id 123456
 atl conf page get     --id 123456 --format csf
 atl conf page meta    --id 123456  # если restricted отсутствует, состояние неизвестно
 atl conf page history --id 123456
-atl conf attachment list --id 123456 # пустой успех: {"attachments":[]}
+atl conf attachment list --id 123456 # qualified: complete + partial_reason; пустой успех: "attachments":[]
+atl conf attachment list --id 123456 --expected-version 7 # отказ, если страница уже не на v7
 # Guarded-обновление title: значение берётся из файла/stdin, а не argv
 atl conf page title set 123456 --from-file title.txt
 # Затем --apply с --expected-version и --expected-proposal-hash из preview

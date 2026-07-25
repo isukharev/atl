@@ -124,7 +124,7 @@ Run the typed read-only agent tool surface over MCP stdio:
 atl mcp serve
 ```
 
-The process registers sixteen explicit Jira/Confluence evidence tools and no
+The process registers seventeen explicit Jira/Confluence evidence tools and no
 mutation, shell, arbitrary-file, mirror-write, or raw-REST tool. Two no-argument
 tools inspect only an explicit valid `ATL_MIRROR_ROOT`, offline, and return
 content-free mirror health counts. Stdout is
@@ -2180,15 +2180,26 @@ atl conf page copy --id 12345678 --title 'Copy of Design Doc' [--space ENG] [--p
 Manage page attachments. `delete` requires `--force`.
 
 ```bash
-atl conf attachment list --id 12345678                       # {attachments:[...]}; -o id → ids
+atl conf attachment list --id 12345678                       # qualified inventory; -o id → ids
+atl conf attachment list --id 12345678 --expected-version 7  # refuse unless the page is at v7
 atl conf attachment get --id 12345678 --name diagram.png --into ./assets
 atl conf attachment upload --id 12345678 --file ./diagram.png [--comment 'v2']
 atl conf attachment delete --id <ATTACHMENT-ID> --force
 ```
 
-The JSON `attachments` member is always an array after a successful listing.
-Pages without attachments emit `"attachments":[]`, not `null`; `-o id` is
-empty in that case.
+`list` emits `{schema_version, page_id, page_version, count, complete,
+partial_reason?, attachments:[...]}`. The JSON `attachments` member is always an
+array after a successful listing. Pages without attachments emit
+`"attachments":[]`, not `null`; `-o id` is empty in that case. Treat an empty
+array as proven absence only when `complete:true`; a `complete:false` inventory
+carries a static `partial_reason` (`page_limit`, `item_limit`,
+`pagination_stalled`, or `legacy_unqualified`) and is a prefix, not the whole
+set.
+
+`--expected-version N` binds the listing to a page version you already
+observed. A positive value refuses the read with exit `8` when the page has
+moved, before any attachment request is made, and reports only the expected and
+current version integers; `0` (the default) disables the gate.
 
 Uploads stream the selected file without buffering it and send the exact multipart
 `Content-Length`, preserving compatibility with intermediaries that reject chunked uploads.

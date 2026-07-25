@@ -23,7 +23,7 @@ var mcpCapabilityFamilies = map[string]string{
 	"jira_structure_get": "jira.structure.get", "jira_structure_view": "jira.structure.view",
 	"jira_mirror_snapshot":    "jira.mirror.snapshot",
 	"confluence_page_resolve": "confluence.page.resolve", "confluence_page_outline": "confluence.page.outline",
-	"confluence_page_section": "confluence.page.section", "confluence_search": "confluence.search",
+	"confluence_attachment_list": "confluence.attachment.list", "confluence_page_section": "confluence.page.section", "confluence_search": "confluence.search",
 	"confluence_table_extract": "confluence.table.extract", "confluence_table_summary": "confluence.table.summary",
 	"confluence_mirror_snapshot": "confluence.mirror.snapshot",
 }

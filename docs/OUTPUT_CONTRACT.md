@@ -103,7 +103,7 @@ not themselves grant write authority.
 
 `atl mcp serve` is a separate stdio protocol transport, so global CLI output
 flags and process exit envelopes do not apply to individual tool calls. Each of
-the sixteen registered tools has inferred input/output JSON Schema and returns
+the seventeen registered tools has inferred input/output JSON Schema and returns
 typed `structuredContent`; compatible clients may also expose the SDK's text
 projection. Tool failures set the MCP error result and contain a JSON text
 object with stable `kind`, `remediation`, and diagnostic `message` fields.
@@ -522,10 +522,26 @@ surface. Optional comments are fetched only when selected by the effective
 render settings; truncation is warned on stderr. A fresh pull is required before
 editing.
 
-`atl conf attachment list --id <ID>` emits `{"attachments":[...]}`. A
-successful listing always uses a JSON array; a page with no attachments emits
-`{"attachments":[]}`, never `null`. `-o id` emits one attachment id per line
-and produces empty output for the empty collection.
+`atl conf attachment list --id <ID>` emits the qualified inventory
+`{schema_version:1,page_id,page_version,count,complete,partial_reason?,
+attachments:[...]}`. `page_id` is the resolved content id and `page_version` is
+the version observed immediately before listing, so the caller can reject a
+page-body revision mismatch without assuming that Confluence provides an
+atomic page/attachment snapshot. A successful listing always uses a JSON array;
+a page with no attachments emits `"attachments":[]`, never `null`.
+`complete:true` means the backend listing was exhausted, so an empty array is
+proven absence. `complete:false` always carries a static `partial_reason` from
+the closed set `page_limit`, `item_limit`, `pagination_stalled`, or
+`legacy_unqualified`, and never proves that an omitted attachment does not
+exist. Attachment records are unchanged and still include `comment`. `-o id`
+emits one attachment id per line and produces empty output for the empty
+collection; `-o text` still emits `id<TAB>title<TAB><size> bytes` per line.
+
+`--expected-version <N>` is an optional consistency gate: a positive value
+refuses the listing with exit `8` unless the page is currently at that version,
+before any attachment request is issued, and reports only the expected and
+current integers. `0` (the default) disables the gate; a negative value is a
+usage error (exit `2`).
 
 Confluence pull/render/apply/push and mirror-local `conf edit` acquire one persistent mirror-internal
 advisory lock for their complete mutation/preview critical section. Contention

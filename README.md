@@ -52,7 +52,7 @@ Confluence durable-view marker checks accept either LF or CRLF line endings.
   and [SECURITY.md](SECURITY.md).
 - **Scripting-friendly** — JSON to stdout, logs/errors to stderr, no interactive prompts,
   well-defined exit codes.
-- **Typed read-only MCP** — `atl mcp serve` gives agents sixteen bounded Jira/Confluence
+- **Typed read-only MCP** — `atl mcp serve` gives agents seventeen bounded Jira/Confluence
   evidence tools with no write, shell, raw REST, or arbitrary-file surface; two are
   offline, content-free health snapshots of an owner-configured mirror root.
 - **Single static binary** — `CGO_ENABLED=0`, runs anywhere Go 1.26 runs.
@@ -162,7 +162,7 @@ install/configure the `atl` CLI. Optionally invoke `$onboarding` afterward to bu
 private workflow profile from explicitly approved examples. After setup, Codex can invoke the same
 shared skills when relevant. The plugin also starts the binary's typed read-only MCP surface;
 begin a new session after installing/configuring `atl`. See [docs/mcp.md](docs/mcp.md)
-for its sixteen tools, bounds, and standalone setup.
+for its seventeen tools, bounds, and standalone setup.
 
 Shipped skill metadata declares mutually exclusive intended discovery
 boundaries. Focused workflows, cross-service discovery, direct
@@ -405,7 +405,8 @@ atl conf page get     --id 123456
 atl conf page get     --id 123456 --format csf
 atl conf page meta    --id 123456  # omitted restricted = unknown, not false
 atl conf page history --id 123456
-atl conf attachment list --id 123456 # empty success is {"attachments":[]}
+atl conf attachment list --id 123456 # qualified: complete + partial_reason; empty success is "attachments":[]
+atl conf attachment list --id 123456 --expected-version 7 # refuse unless the page is still at v7
 # Guarded title update: title stays in a bounded file/stdin, not argv
 atl conf page title set 123456 --from-file title.txt
 # Re-run with --apply, --expected-version, and --expected-proposal-hash from that preview

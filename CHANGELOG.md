@@ -38,6 +38,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added typed read-only MCP `confluence_attachment_list` for one
+  version-gated, metadata-only page attachment inventory. It exposes
+  explicit completeness and static partial reasons, requires the page version
+  observed by the caller, and returns no attachment bytes, comments, download
+  paths, page titles, or backend diagnostics. `conf attachment list` now emits
+  the same qualified count/completeness wrapper, preserves its existing
+  attachment records and text/id projections, and accepts an optional
+  `--expected-version` pre-list consistency gate.
+
 - `conf page outline` and `conf page section` — and their typed read-only MCP
   tools `confluence_page_outline` and `confluence_page_section` — now emit an
   optional `partial_reason` alongside `complete`, so a client can tell a

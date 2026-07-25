@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "page_id": {"type": "string", "minLength": 1},
+    "page_version": {"type": "integer", "minimum": 1},
+    "heading": {"type": "string", "minLength": 1},
+    "referenced_attachment": {"type": "string", "minLength": 1},
+    "inventory_complete": {"type": "boolean"},
+    "inventory_count": {"type": "integer", "minimum": 0},
+    "membership_status": {"type": "string", "enum": ["present_unread", "absent_dangling", "undetermined"]},
+    "attachment_file_size": {"type": ["integer", "null"]},
+    "attachment_bytes_read": {"type": "boolean"},
+    "attachment_content": {"type": ["string", "null"]},
+    "decision": {"type": "string", "enum": ["approved", "held", "undetermined"]},
+    "brief": {"type": "string", "minLength": 1, "maxLength": 240}
+  },
+  "required": [
+    "schema_version",
+    "page_id",
+    "page_version",
+    "heading",
+    "referenced_attachment",
+    "inventory_complete",
+    "inventory_count",
+    "membership_status",
+    "attachment_file_size",
+    "attachment_bytes_read",
+    "attachment_content",
+    "decision",
+    "brief"
+  ]
+}
