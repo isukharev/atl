@@ -314,6 +314,12 @@ func driveConfluenceAttachmentEvidence(
 	if !ok {
 		t.Fatal("the opening bounded section read must succeed")
 	}
+	// The selection is fixed by the task text rather than derived from an
+	// outline, so this read has no earlier revision to bind to and says so. The
+	// version it reports is what the inventory gate is then built from.
+	if section.PageVersionGated {
+		t.Fatalf("the externally fixed section selection must read ungated: %+v", section)
+	}
 	evidence.section = section
 	if markers := confluenceAttachmentEvidenceMarkers(section.Markdown); len(markers) == 1 {
 		evidence.marker = markers[0]
@@ -440,6 +446,10 @@ func startConfluenceAttachmentEvidenceBackend(
 	return backend, trace, connectRepositoryMCPClient(t)
 }
 
+// confluenceAttachmentEvidenceSectionInvocation is the direct, externally fixed
+// selection: no outline preceded it and no earlier section result exists, so it
+// carries no expected_page_version and reads explicitly ungated. The inventory
+// call that follows is what carries a gate, built from this result's version.
 func confluenceAttachmentEvidenceSectionInvocation(
 	t *testing.T,
 	cohort confluenceAttachmentEvidenceCohort,
@@ -1949,6 +1959,10 @@ func TestRepositoryConfluenceAttachmentEvidencePromptsWithholdAnswers(t *testing
 				"Use only `confluence_page_section` and `confluence_attachment_list`",
 				"No full-page read, search, outline, attachment download, or other tool is authorized",
 				"Take that filename from the result you actually read, never from this task text",
+				// The two calls sit on opposite sides of the gate rule: the direct
+				// section read has no earlier revision to bind to, and the inventory
+				// read does. The prompt must say both, not one.
+				"omit `expected_page_version` and accept the ungated result it returns",
 				"`expected_page_version` set to the exact page `version` the section result returned",
 				"never attachment bytes, a download path, or an uploader comment",
 				"never retry, repeat, widen, or narrow either call",

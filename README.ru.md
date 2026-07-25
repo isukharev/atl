@@ -485,7 +485,10 @@ atl jira issue refs PROJ-1 --fields "Delivery Notes" # ссылки и согл�
 # --keys/--ids сохраняют порядок селекторов после дедупликации; отсутствующие задачи пропускаются
 atl jira export --keys PROJ-1,PROJ-2 --fields "Delivery Notes" --out - | jq -s '.'
 atl conf page resolve 'https://confluence.example.test/spaces/ENG/pages/42/Page'
-atl conf page outline 42 && atl conf page section 42 --heading 'Delivery Notes' -o text
+atl conf page outline 42 # затем привяжите секцию к точной версии из outline
+atl conf page section 42 --heading 'Delivery Notes' --expected-version 7 -o text
+# exit 8, если страница изменилась; опускайте --expected-version только для заголовка,
+# заданного вне предыдущего чтения (page_version_gated:false — ничего не сверяет)
 atl jira epic digest PROJ-1 --quarter 2026-Q2 --status-field 'Delivery Notes' --projection compact
 atl jira issue view PROJ-1 -o text   # настроенный Markdown без записи файлов
 atl jira issue search --jql 'project = PROJ AND status = "In Progress"' --columns key,summary,status,assignee

@@ -1911,12 +1911,19 @@ Inspect a long page without placing its entire rendered body in agent context:
 atl conf page outline 12345678
 atl conf page outline '/x/AwAG' -o text
 atl conf page section 12345678 --heading 'Delivery Notes' -o text
-atl conf page section 12345678 --heading 'Delivery Notes' --occurrence 2 --max-bytes 131072
+# bind an outline-selected heading to the exact version that outline returned
+atl conf page section 12345678 --heading 'Delivery Notes' --occurrence 2 \
+  --max-bytes 131072 --expected-version 7
 ```
 
 `outline` parses native CSF and walks the same structural block traversal as the
 Markdown renderer. Headings inside code/structured macros, tables, and other
-opaque blocks are not promoted into page sections. JSON includes ordered
+opaque blocks are not promoted into page sections. Both commands emit
+`schema_version:1` — they are one selection protocol, so neither result should
+be validated against the other's shape — and both reconcile page identity
+before parsing any body, failing with exit 8 rather than returning a result
+that cannot be attributed to the resolved page and a positive version.
+JSON includes ordered
 `headings` with `index`, native `level`, normalized hierarchy `path`, and a
 1-based occurrence among equal case/whitespace-normalized titles. `count` is
 the emitted count, `total` is the parsed count, and `complete`/`truncated`
@@ -1932,13 +1939,33 @@ its body, and descendant headings through the existing link/color/table-aware
 renderer, stopping before the next heading of the same or higher rank. Duplicate
 titles fail with exit 8 until `--occurrence` is supplied. JSON reports the
 selected `heading`, `level`, `path`, `occurrence`, `markdown`, `complete`,
-`truncated`, `original_bytes`, and `emitted_bytes`. The default output cap is
+`truncated`, `original_bytes`, `emitted_bytes`, and the always-present
+`page_version_gated`. The default output cap is
 262144 bytes; `--max-bytes` accepts 1..1048576 and truncates only before a whole
 rendered block, adding a visible marker when it fits. A partial section names
 its limiter in `partial_reason`: `max_bytes` when a whole rendered block did not
 fit, `invalid_utf8` when the rendering was withheld entirely. `-o text` emits
 only the selected Markdown. Both commands accept the safe page references above,
 are read-only, and create no mirror artifacts.
+
+`--expected-version N` binds the section to a page revision you already
+observed. A positive value refuses the read with exit 8 unless the page is
+currently at exactly that version, reporting only the expected and current
+version integers, and reports `page_version_gated:true` on a match. `0` (the
+default) or an omitted flag leaves the read ungated and reports
+`page_version_gated:false`; a negative value is a usage error (exit 2). The
+check reuses the page response the read already fetched, so it issues no extra
+backend request and grants no write capability.
+
+Which section a heading resolves to depends on the revision it is resolved
+against, because `occurrence` and `path` are positional. Pass the `version` from
+the `page outline` result whenever the heading, path, or occurrence came from
+that outline, and the `version` from the first section result when re-reading
+the same selection at a wider bound. A selection fixed outside any earlier read
+— a heading named in the task itself — has no earlier revision to reconcile, so
+it may omit the flag. That ungated result is still exact evidence for the
+revision reported in its own `version`; it simply reconciles no earlier
+selection, which is what `page_version_gated:false` states.
 
 For both commands `partial_reason` is a static identifier that carries no page
 content, and it is present exactly when `complete` is `false`. Treat any partial
@@ -1947,9 +1974,11 @@ absent and do not settle a decision from it. Only `max_bytes` is recoverable —
 re-read the same reference, heading, and occurrence **once** with `--max-bytes`
 at or above the reported `original_bytes`, which is the exact minimum bound for
 the same valid rendering, and only when that value is within the 1048576-byte
-cap. Accept the recovery only when the page `version` is unchanged and the
-second result has `complete:true`. Otherwise do not retry the same read; use a
-narrower heading or the full page instead.
+cap. Pass `--expected-version` with the first result's `version` on that
+re-read, so a page that moved is refused instead of silently answering from a
+body the first result never described, and accept the recovery only when the
+second result also has `complete:true`. Otherwise do not retry the same read;
+use a narrower heading or the full page instead.
 
 ### `atl conf page get`
 

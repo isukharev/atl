@@ -127,8 +127,12 @@ func TestRepositoryConfluencePageEvidenceFixturesDriveProviderOracles(t *testing
 				t.Fatalf("selected occurrence is not structurally observable: got=%v want=%v", selectedPath, test.selectedPath)
 			}
 
+			// The occurrence was read out of the outline, so the section read is
+			// bound to the revision that outline reported. Without that binding the
+			// selected occurrence would be attributable to no particular revision.
 			section, err := service.PageSection(context.Background(), resolved.ID, app.ConfluencePageSectionOpts{
 				Heading: test.heading, Occurrence: test.occurrence, MaxBytes: 32768,
+				ExpectedPageVersion: outline.Version,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -137,6 +141,7 @@ func TestRepositoryConfluencePageEvidenceFixturesDriveProviderOracles(t *testing
 				section.ID != test.pageID ||
 				section.Heading != test.heading ||
 				section.Occurrence != test.occurrence ||
+				!section.PageVersionGated || section.Version != outline.Version ||
 				!slices.Equal(section.Path, test.selectedPath) {
 				t.Fatalf("selected section drifted: %+v", section)
 			}
@@ -164,7 +169,7 @@ func TestRepositoryConfluencePageEvidenceFixturesDriveProviderOracles(t *testing
 				{Family: "confluence.page.section", Invocations: 1, Successes: 1, OutputBytes: 1},
 			}
 			mcpInvocations := confluencePageEvidenceMCPInvocations(
-				t, test.reference, test.pageID, test.heading, test.occurrence,
+				t, test.reference, test.pageID, test.heading, test.occurrence, outline.Version,
 			)
 
 			scenario := loadRepositoryScenario(t, filepath.Join(root, test.scenarioFile))
@@ -411,17 +416,21 @@ func assertConfluencePageEvidenceCheckMutationFails(
 	}
 }
 
+// confluencePageEvidenceMCPInvocations is the exact outline-derived route: the
+// section call carries the version the preceding outline returned, because the
+// occurrence it selects only names one section at that revision.
 func confluencePageEvidenceMCPInvocations(
 	t *testing.T,
 	reference, pageID, heading string,
-	occurrence int,
+	occurrence, outlineVersion int,
 ) []MCPInvocation {
 	t.Helper()
 	return []MCPInvocation{
 		mustMCPInvocation(t, "confluence_page_resolve", map[string]any{"reference": reference}),
 		mustMCPInvocation(t, "confluence_page_outline", map[string]any{"reference": pageID}),
 		mustMCPInvocation(t, "confluence_page_section", map[string]any{
-			"reference": pageID, "heading": heading, "occurrence": occurrence, "max_bytes": 32768,
+			"reference": pageID, "expected_page_version": outlineVersion,
+			"heading": heading, "occurrence": occurrence, "max_bytes": 32768,
 		}),
 	}
 }

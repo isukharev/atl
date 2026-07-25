@@ -144,8 +144,14 @@ section:
 atl --read-only conf page resolve '<same-origin-page-or-short-url>'
 atl --read-only conf page outline '<same-origin-page-or-short-url>'
 atl --read-only conf page section '<same-origin-page-or-short-url>' \
-  --heading 'Metrics' --max-bytes 65536 -o text
+  --heading 'Metrics' --max-bytes 65536 --expected-version <outline-version> -o text
 ```
+
+Because the heading was chosen from the outline, bind the section to the exact
+`version` that outline returned: `occurrence` and `path` are positional, so a
+page that moved in between can resolve the same selection to different content.
+A mismatch is exit 8 with only the two version integers — re-read the outline,
+re-select the heading there, and read the section once at the new version.
 
 A digest can expand up to a requested small count with
 `--expand-confluence 1 --confluence-heading 'Metrics'`. Honor both digest-source
@@ -179,6 +185,11 @@ atl jira epic digest PROJ-42 --quarter 2026-Q2 \
   --status-field customfield_10002
 atl conf page section '<same-origin-page-url>' --heading Results --max-bytes 32768
 ```
+
+That last section takes a heading fixed by the task on a page this route never
+read before, so it has no earlier revision to reconcile and omits
+`--expected-version`; the result says so with `page_version_gated:false`. Add
+the flag as soon as the heading comes from an outline you just read.
 
 Require the field catalog, board/Structure snapshot, every selected digest
 source, and every section to report complete. An unmatched field name is absent

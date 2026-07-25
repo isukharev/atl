@@ -60,11 +60,29 @@ write command after explicit approval.
   reported content-free table count. Call `confluence_table_summary` once
   without `table`, choose from that inventory, then extract the selected table;
   do not claim the page is missing.
+  Bind the section to the revision its selection came from: pass the outline's
+  exact positive `version` as `expected_page_version` whenever the `heading`,
+  `path`, or `occurrence` came from `confluence_page_outline`, and the first
+  section result's `version` when re-reading that selection at a wider bound.
+  Occurrence and path are positional, so an unbound re-selection can resolve to
+  different content with no visible symptom. A match returns
+  `page_version_gated:true`; a stale version is refused before any section is
+  produced. Omit the field only for a heading fixed outside any earlier read:
+  that returns `page_version_gated:false`, an explicitly ungated read that is
+  exact evidence for the revision in its own `version` but reconciles no
+  earlier selection. A negative value is rejected as a usage error; omission
+  and `0` are the same ungated read. The gate reuses the page the tool already
+  fetched — no extra request, no write capability.
   If `confluence_page_section` returns `check_failed` or `not_found` with
   `outline_then_select_section`, the occurrence selection is ambiguous or
   stale. Refresh `confluence_page_outline`, choose the exact heading
   occurrence from its content-free metadata, then read that section once; do
-  not claim the page or heading is missing. Other section failures are generic.
+  not claim the page or heading is missing. `check_failed` with
+  `reread_outline_then_retry_expected_version` means the supplied
+  `expected_page_version` no longer matches; it reports only the two integers.
+  Re-read the outline, re-select the occurrence there, then request the section
+  once at the new version — never retry the old selection against the new
+  revision. Other section failures are generic.
   `confluence_page_outline` and `confluence_page_section` can also *succeed*
   partially: they carry `complete`, `original_bytes`, `emitted_bytes`, and a
   static `partial_reason` that is present exactly when `complete` is false.
@@ -73,8 +91,10 @@ write command after explicit approval.
   `max_bytes` is recoverable: re-read the same `reference`/`heading`/
   `occurrence` at most once with `max_bytes` set to the reported
   `original_bytes`, and only when that value is within your authorization and
-  the 1 MiB cap. Accept the recovery only when the second result has the same
-  page `version` and `complete:true`. Outline `heading_limit`/`byte_limit` and
+  the 1 MiB cap. Pass `expected_page_version` with the first result's `version`
+  on that re-read so a moved page is refused rather than answered from a body
+  the first result never described, and accept the recovery only when the
+  second result is also `complete:true`. Outline `heading_limit`/`byte_limit` and
   section `invalid_utf8` are terminal — narrow the heading or report the answer
   as incomplete instead of repeating the call.
   When a complete section's substance is an attachment marker rather than page
@@ -106,7 +126,11 @@ write command after explicit approval.
   is actually required. Honor `complete` and duplicate-heading `--occurrence`.
   `outline`/`section` JSON carries the same `partial_reason` contract: only
   section `max_bytes` is recoverable, by one re-read with `--max-bytes` at or
-  above `original_bytes`.
+  above `original_bytes`. `--expected-version` is the same binding as the MCP
+  field, with the same rule: pass the outline's `version` for an
+  outline-selected heading and the first result's `version` on the wider-bound
+  re-read, and read `page_version_gated` to see which you got. A mismatch is
+  exit 8 with only the two integers; a negative value is exit 2.
 - Durable pull, complete/incremental sync, render migration, prefetch/rate
   controls: [sync.md](reference/sync.md).
 - Ordinary Markdown body edit, apply/diff, multi-page plan, and push sequence:
