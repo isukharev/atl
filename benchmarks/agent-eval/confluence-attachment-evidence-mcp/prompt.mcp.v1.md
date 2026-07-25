@@ -5,8 +5,11 @@ calls, or inspect or write any file. Use only `confluence_page_section` and
 download, or other tool is authorized, and no other heading may be read.
 
 Start with exactly one call using `reference="7301"`,
-`heading="Evidence register"`, `occurrence=1`, and `max_bytes=32768`. Never
-change the reference, the heading, or the occurrence.
+`heading="Evidence register"`, `occurrence=1`, and `max_bytes=32768`. This
+reference, heading, and occurrence are fixed by this task text, not taken from
+an outline or any earlier result, so there is no observed page version to bind
+this first read to: omit `expected_page_version` and accept the ungated result
+it returns. Never change the reference, the heading, or the occurrence.
 
 A section result states its own completeness. Use the returned section only
 after it reports `complete:true`; a bounded prefix is not the section and is

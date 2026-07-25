@@ -58,3 +58,29 @@ func TestConfPageOutlineAndSectionContracts(t *testing.T) {
 		t.Fatalf("complete outline must omit partial_reason: exit=%d output=%s", code, outlinePartial)
 	}
 }
+
+// TestConfPageSectionExpectedVersionGate pins the optional CLI gate: the flag is
+// opt-in so every existing invocation keeps working, and when it is set the
+// existing sentinel mapping supplies the exit codes without a new one.
+func TestConfPageSectionExpectedVersionGate(t *testing.T) {
+	cs := newConfServer(t)
+	cs.page = `{"id":"42","type":"page","title":"Example","space":{"key":"ENG"},"version":{"number":3},"ancestors":[],"body":{"storage":{"value":"<h1>Overview</h1><p>Intro</p><h2>Details</h2><p>First</p>"}}}`
+
+	ungated, code := runCLI(t, confEnv(cs.srv), "conf", "page", "section", "42", "--heading", "Overview")
+	if code != exitOK || !strings.Contains(ungated, `"page_version_gated": false`) {
+		t.Fatalf("ungated section exit=%d output=%s", code, ungated)
+	}
+	assertGolden(t, "conf_page_section_ungated.json", []byte(ungated))
+	gated, code := runCLI(t, confEnv(cs.srv), "conf", "page", "section", "42", "--heading", "Overview", "--expected-version", "3")
+	if code != exitOK || !strings.Contains(gated, `"page_version_gated": true`) ||
+		!strings.Contains(gated, `"version": 3`) || !strings.Contains(gated, `"schema_version": 1`) {
+		t.Fatalf("gated section exit=%d output=%s", code, gated)
+	}
+	assertGolden(t, "conf_page_section_gated.json", []byte(gated))
+	if _, code := runCLI(t, confEnv(cs.srv), "conf", "page", "section", "42", "--heading", "Overview", "--expected-version", "4"); code != exitCheckFailed {
+		t.Fatalf("stale gate exit=%d want %d", code, exitCheckFailed)
+	}
+	if _, code := runCLI(t, confEnv(cs.srv), "conf", "page", "section", "42", "--heading", "Overview", "--expected-version", "-1"); code != exitUsage {
+		t.Fatalf("negative gate exit=%d want %d", code, exitUsage)
+	}
+}

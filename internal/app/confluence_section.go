@@ -20,6 +20,13 @@ const (
 	confluenceSectionMaxBytes     = 1 << 20
 )
 
+// ConfluenceStructuralSchemaVersion stamps both bounded structural page reads.
+// The outline and the section are one selection protocol — an outline is read to
+// pick a heading, and the section that follows must be attributable to the same
+// page revision — so a single marker keeps a consumer from validating one shape
+// against the other's contract.
+const ConfluenceStructuralSchemaVersion = 1
+
 // Partial outline/section reads name their limiter through this closed set of
 // static identifiers. Each value is a compile-time literal that never
 // interpolates a heading, page id, title, space, URL, body, backend text, or
@@ -35,6 +42,20 @@ const (
 	confluencePartialInvalidUTF8  = "invalid_utf8"
 )
 
+// ConfluenceValidOutlinePartialReason and ConfluenceValidSectionPartialReason
+// expose the two closed reason sets so a transport can fail closed on a reason
+// it does not recognize without duplicating the literals and drifting from
+// them. Each set is exactly the reasons its own read can emit: an outline is
+// bounded by heading count or encoded bytes, a section by its caller-selected
+// byte bound or the defensive invalid-rendering withhold.
+func ConfluenceValidOutlinePartialReason(reason string) bool {
+	return reason == confluencePartialHeadingLimit || reason == confluencePartialByteLimit
+}
+
+func ConfluenceValidSectionPartialReason(reason string) bool {
+	return reason == confluencePartialMaxBytes || reason == confluencePartialInvalidUTF8
+}
+
 type ConfluenceOutlineEntry struct {
 	Index      int      `json:"index"`
 	Level      int      `json:"level"`
@@ -44,6 +65,7 @@ type ConfluenceOutlineEntry struct {
 }
 
 type ConfluencePageOutlineResult struct {
+	SchemaVersion int                      `json:"schema_version"`
 	ID            string                   `json:"id"`
 	Title         string                   `json:"title"`
 	Space         string                   `json:"space"`
@@ -62,23 +84,38 @@ type ConfluencePageSectionOpts struct {
 	Heading    string
 	Occurrence int
 	MaxBytes   int
+	// ExpectedPageVersion binds this section read to the page revision the
+	// caller already observed — in practice the version an outline returned
+	// just before the heading was chosen. Zero leaves the read ungated, which
+	// is what the CLI and existing in-process callers rely on; a positive value
+	// refuses the read when the page has moved, so a repeated-heading
+	// occurrence or path can never be resolved against a body the caller never
+	// saw. Negative is a caller mistake, not a disabled gate.
+	ExpectedPageVersion int
 }
 
 type ConfluencePageSectionResult struct {
-	ID            string   `json:"id"`
-	PageTitle     string   `json:"page_title"`
-	Space         string   `json:"space"`
-	Version       int      `json:"version"`
-	Heading       string   `json:"heading"`
-	Level         int      `json:"level"`
-	Path          []string `json:"path"`
-	Occurrence    int      `json:"occurrence"`
-	Markdown      string   `json:"markdown"`
-	Complete      bool     `json:"complete"`
-	Truncated     bool     `json:"truncated,omitempty"`
-	PartialReason string   `json:"partial_reason,omitempty"`
-	OriginalBytes int      `json:"original_bytes"`
-	EmittedBytes  int      `json:"emitted_bytes"`
+	SchemaVersion int    `json:"schema_version"`
+	ID            string `json:"id"`
+	PageTitle     string `json:"page_title"`
+	Space         string `json:"space"`
+	Version       int    `json:"version"`
+	// PageVersionGated is true only when a positive expected version was
+	// supplied and matched the version this body was read at. It is the
+	// difference between "the page happened to be at version N" and "this
+	// selection was bound to version N", which is what a consumer needs to know
+	// before attributing an occurrence to a revision.
+	PageVersionGated bool     `json:"page_version_gated"`
+	Heading          string   `json:"heading"`
+	Level            int      `json:"level"`
+	Path             []string `json:"path"`
+	Occurrence       int      `json:"occurrence"`
+	Markdown         string   `json:"markdown"`
+	Complete         bool     `json:"complete"`
+	Truncated        bool     `json:"truncated,omitempty"`
+	PartialReason    string   `json:"partial_reason,omitempty"`
+	OriginalBytes    int      `json:"original_bytes"`
+	EmittedBytes     int      `json:"emitted_bytes"`
 }
 
 // ConfluenceSectionSelectionError reports a recoverable page-section selection
@@ -117,7 +154,7 @@ type structuralHeading struct {
 }
 
 func (s *ConfluenceService) PageOutline(ctx context.Context, reference string) (*ConfluencePageOutlineResult, error) {
-	parsed, err := s.loadStructuralConfluencePage(ctx, reference)
+	parsed, err := s.loadStructuralConfluencePage(ctx, reference, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +185,8 @@ func (s *ConfluenceService) PageOutline(ctx context.Context, reference string) (
 		emittedBytes += size
 	}
 	return &ConfluencePageOutlineResult{
-		ID: parsed.page.ID, Title: parsed.page.Title, Space: parsed.page.SpaceKey, Version: parsed.page.Version,
+		SchemaVersion: ConfluenceStructuralSchemaVersion,
+		ID:            parsed.page.ID, Title: parsed.page.Title, Space: parsed.page.SpaceKey, Version: parsed.page.Version,
 		Count: len(headings), Total: len(parsed.headings),
 		Complete: partialReason == "", Truncated: partialReason != "", PartialReason: partialReason,
 		OriginalBytes: originalBytes, EmittedBytes: emittedBytes, Headings: headings,
@@ -163,6 +201,9 @@ func (s *ConfluenceService) PageSection(ctx context.Context, reference string, o
 	if opts.Occurrence < 0 {
 		return nil, fmt.Errorf("%w: --occurrence must be >= 1 when set", domain.ErrUsage)
 	}
+	if opts.ExpectedPageVersion < 0 {
+		return nil, fmt.Errorf("%w: --expected-version must be >= 1 when set", domain.ErrUsage)
+	}
 	maxBytes := opts.MaxBytes
 	if maxBytes == 0 {
 		maxBytes = confluenceSectionDefaultBytes
@@ -170,7 +211,7 @@ func (s *ConfluenceService) PageSection(ctx context.Context, reference string, o
 	if maxBytes < 1 || maxBytes > confluenceSectionMaxBytes {
 		return nil, fmt.Errorf("%w: --max-bytes must be between 1 and %d", domain.ErrUsage, confluenceSectionMaxBytes)
 	}
-	parsed, err := s.loadStructuralConfluencePage(ctx, reference)
+	parsed, err := s.loadStructuralConfluencePage(ctx, reference, opts.ExpectedPageVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -208,8 +249,10 @@ func (s *ConfluenceService) PageSection(ctx context.Context, reference string, o
 	originalMarkdown := joinConfluenceSectionBlocks(selectedBlocks)
 	bounded := boundedConfluenceSectionMarkdown(selectedBlocks, maxBytes)
 	return &ConfluencePageSectionResult{
-		ID: parsed.page.ID, PageTitle: parsed.page.Title, Space: parsed.page.SpaceKey, Version: parsed.page.Version,
-		Heading: selected.Title, Level: selected.Level, Path: selected.Path, Occurrence: occurrence,
+		SchemaVersion: ConfluenceStructuralSchemaVersion,
+		ID:            parsed.page.ID, PageTitle: parsed.page.Title, Space: parsed.page.SpaceKey, Version: parsed.page.Version,
+		PageVersionGated: opts.ExpectedPageVersion > 0,
+		Heading:          selected.Title, Level: selected.Level, Path: selected.Path, Occurrence: occurrence,
 		Markdown: bounded.markdown,
 		Complete: bounded.partialReason == "", Truncated: bounded.partialReason != "",
 		PartialReason: bounded.partialReason,
@@ -221,7 +264,7 @@ func (s *ConfluenceService) PageSection(ctx context.Context, reference string, o
 	}, nil
 }
 
-func (s *ConfluenceService) loadStructuralConfluencePage(ctx context.Context, reference string) (*confluenceStructuralPage, error) {
+func (s *ConfluenceService) loadStructuralConfluencePage(ctx context.Context, reference string, expectedVersion int) (*confluenceStructuralPage, error) {
 	resolved, err := s.ResolvePageReference(ctx, reference)
 	if err != nil {
 		return nil, err
@@ -229,6 +272,17 @@ func (s *ConfluenceService) loadStructuralConfluencePage(ctx context.Context, re
 	page, err := s.store.GetPage(ctx, resolved.ID, domain.PullOpts{Format: "csf"})
 	if err != nil {
 		return nil, err
+	}
+	// Validate provenance before parsing or rendering any body. Both outline
+	// and section results claim a concrete page identity and revision, so
+	// neither may proceed from an unattributable response. A positive expected
+	// version is checked against this same response, before heading selection,
+	// and therefore adds no backend request.
+	if page == nil || strings.TrimSpace(page.ID) == "" || page.ID != resolved.ID || page.Version < 1 {
+		return nil, fmt.Errorf("%w: Confluence page %s identity is not reconciled for outline/section", domain.ErrCheckFailed, resolved.ID)
+	}
+	if expectedVersion > 0 && expectedVersion != page.Version {
+		return nil, &ConfluencePageVersionMismatchError{Expected: expectedVersion, Current: page.Version}
 	}
 	if err := requireConfluenceNativeBody(page, resolved.ID, "outline/section"); err != nil {
 		return nil, err

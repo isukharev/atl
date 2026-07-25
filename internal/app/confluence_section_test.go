@@ -58,6 +58,33 @@ func sectionService() *ConfluenceService {
 	return &ConfluenceService{store: &sectionStore{page: &domain.Resource{ID: "42", Title: "Example", SpaceKey: "ENG", Version: 3, Body: []byte(sectionTestCSF), BodyPresent: true}}}
 }
 
+// driftingSectionStore serves its first page once and every later read from the
+// next revision, which is the concurrent-edit shape the version binding exists
+// to catch. It also counts reads, so a test can prove the gate adds no request.
+type driftingSectionStore struct {
+	domain.DocStore
+	pages []*domain.Resource
+	calls int
+}
+
+func (s *driftingSectionStore) GetPage(context.Context, string, domain.PullOpts) (*domain.Resource, error) {
+	page := s.pages[min(s.calls, len(s.pages)-1)]
+	s.calls++
+	return page, nil
+}
+
+// The inserted revision prepends one more heading with the same title, so every
+// later occurrence of "Status" shifts by one without any other visible change.
+const (
+	sectionDriftBeforeCSF = `<h1>Alpha</h1><p>Intro</p>` +
+		`<h2>Status</h2><p>first status</p>` +
+		`<h2>Status</h2><p>second status</p>`
+	sectionDriftAfterCSF = `<h1>Alpha</h1><p>Intro</p>` +
+		`<h2>Status</h2><p>inserted status</p>` +
+		`<h2>Status</h2><p>first status</p>` +
+		`<h2>Status</h2><p>second status</p>`
+)
+
 func TestConfluencePageOutlineUsesStructuralBlocks(t *testing.T) {
 	result, err := sectionService().PageOutline(context.Background(), "42")
 	if err != nil {
@@ -87,7 +114,7 @@ func TestConfluencePageOutlineReportsHeadingCap(t *testing.T) {
 	for i := 0; i < confluenceOutlineHeadingCap+1; i++ {
 		body.WriteString("<h2>Repeated</h2>")
 	}
-	service := &ConfluenceService{store: &sectionStore{page: &domain.Resource{ID: "42", Body: []byte(body.String()), BodyPresent: true}}}
+	service := &ConfluenceService{store: &sectionStore{page: &domain.Resource{ID: "42", Version: 1, Body: []byte(body.String()), BodyPresent: true}}}
 	result, err := service.PageOutline(context.Background(), "42")
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +134,7 @@ func TestConfluencePageOutlineReportsHeadingCap(t *testing.T) {
 
 func TestConfluencePageOutlineReportsByteCap(t *testing.T) {
 	title := strings.Repeat("x", confluenceOutlineByteCap)
-	service := &ConfluenceService{store: &sectionStore{page: &domain.Resource{ID: "42", Body: []byte("<h2>" + title + "</h2>"), BodyPresent: true}}}
+	service := &ConfluenceService{store: &sectionStore{page: &domain.Resource{ID: "42", Version: 1, Body: []byte("<h2>" + title + "</h2>"), BodyPresent: true}}}
 	result, err := service.PageOutline(context.Background(), "42")
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +157,7 @@ func TestConfluencePageOutlineHeadingLimitWinsWhenBothCapsBind(t *testing.T) {
 	// The next heading crosses both caps at once. Heading count is already
 	// binding before this record's encoded size is considered.
 	body.WriteString("<h2>" + strings.Repeat("x", confluenceOutlineByteCap) + "</h2>")
-	service := &ConfluenceService{store: &sectionStore{page: &domain.Resource{ID: "42", Body: []byte(body.String()), BodyPresent: true}}}
+	service := &ConfluenceService{store: &sectionStore{page: &domain.Resource{ID: "42", Version: 1, Body: []byte(body.String()), BodyPresent: true}}}
 	result, err := service.PageOutline(context.Background(), "42")
 	if err != nil {
 		t.Fatal(err)
@@ -316,5 +343,214 @@ func TestConfluencePageSectionValidatesSelection(t *testing.T) {
 		if err == nil {
 			t.Fatalf("opts=%+v unexpectedly succeeded", opts)
 		}
+	}
+}
+
+func TestConfluenceStructuralReadsStampTheirSchemaVersion(t *testing.T) {
+	service := sectionService()
+	outline, err := service.PageOutline(context.Background(), "42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	section, err := service.PageSection(context.Background(), "42", ConfluencePageSectionOpts{Heading: "Overview"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outline.SchemaVersion != ConfluenceStructuralSchemaVersion || section.SchemaVersion != ConfluenceStructuralSchemaVersion {
+		t.Fatalf("outline=%d section=%d want %d", outline.SchemaVersion, section.SchemaVersion, ConfluenceStructuralSchemaVersion)
+	}
+	for _, result := range []any{outline, section} {
+		encoded, err := json.Marshal(result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(encoded, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		if decoded["schema_version"] != float64(1) {
+			t.Fatalf("schema_version absent from %T on the wire: %s", result, encoded)
+		}
+	}
+}
+
+func TestConfluencePageSectionExpectedVersionGate(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		expected int
+		gated    bool
+	}{
+		{name: "matching positive version binds the read", expected: 3, gated: true},
+		{name: "zero preserves the ungated caller contract", expected: 0, gated: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &sectionStore{page: &domain.Resource{ID: "42", Title: "Example", SpaceKey: "ENG", Version: 3, Body: []byte(sectionTestCSF), BodyPresent: true}}
+			result, err := (&ConfluenceService{store: store}).PageSection(context.Background(), "42", ConfluencePageSectionOpts{
+				Heading: "Overview", ExpectedPageVersion: test.expected,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.PageVersionGated != test.gated || result.Version != 3 {
+				t.Fatalf("gated=%t version=%d want gated=%t version=3", result.PageVersionGated, result.Version, test.gated)
+			}
+			// page_version_gated is a wire-visible claim, not an internal flag.
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded map[string]any
+			if err := json.Unmarshal(encoded, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if decoded["page_version_gated"] != test.gated {
+				t.Fatalf("page_version_gated=%v want %t: %s", decoded["page_version_gated"], test.gated, encoded)
+			}
+		})
+	}
+}
+
+func TestConfluencePageSectionRejectsNegativeExpectedVersionAsUsage(t *testing.T) {
+	store := &sectionStore{page: &domain.Resource{ID: "42", Version: 3, Body: []byte(sectionTestCSF), BodyPresent: true}}
+	_, err := (&ConfluenceService{store: store}).PageSection(context.Background(), "42", ConfluencePageSectionOpts{
+		Heading: "Overview", ExpectedPageVersion: -1,
+	})
+	if !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("err=%v want usage", err)
+	}
+	var mismatch *ConfluencePageVersionMismatchError
+	if errors.As(err, &mismatch) {
+		t.Fatalf("a negative bound is a caller mistake, not a staleness report: %+v", mismatch)
+	}
+}
+
+func TestConfluencePageSectionVersionMismatchIsTypedAndCostsNoExtraRequest(t *testing.T) {
+	store := &driftingSectionStore{pages: []*domain.Resource{
+		{ID: "42", Title: "Example", SpaceKey: "ENG", Version: 6, Body: []byte(sectionDriftAfterCSF), BodyPresent: true},
+	}}
+	_, err := (&ConfluenceService{store: store}).PageSection(context.Background(), "42", ConfluencePageSectionOpts{
+		Heading: "Status", Occurrence: 1, ExpectedPageVersion: 5,
+	})
+	var mismatch *ConfluencePageVersionMismatchError
+	if !errors.As(err, &mismatch) {
+		t.Fatalf("error = %#v, want *ConfluencePageVersionMismatchError", err)
+	}
+	if mismatch.Expected != 5 || mismatch.Current != 6 {
+		t.Fatalf("mismatch=%+v want expected=5 current=6", mismatch)
+	}
+	if !errors.Is(err, domain.ErrCheckFailed) || errors.Is(err, domain.ErrUsage) || errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("sentinel mapping lost: %v", err)
+	}
+	// The gate is decided from the body this read already fetched, so a refusal
+	// must not cost a second page read.
+	if store.calls != 1 {
+		t.Fatalf("page reads=%d want 1", store.calls)
+	}
+}
+
+func TestConfluencePageSectionGatedReadIssuesOneRequest(t *testing.T) {
+	store := &driftingSectionStore{pages: []*domain.Resource{
+		{ID: "42", Title: "Example", SpaceKey: "ENG", Version: 3, Body: []byte(sectionTestCSF), BodyPresent: true},
+	}}
+	if _, err := (&ConfluenceService{store: store}).PageSection(context.Background(), "42", ConfluencePageSectionOpts{
+		Heading: "Overview", ExpectedPageVersion: 3,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if store.calls != 1 {
+		t.Fatalf("gated section issued %d page reads, want 1", store.calls)
+	}
+}
+
+// TestConfluencePageSectionGateRefusesOccurrenceDriftAcrossVersions is the
+// regression this binding exists for. An outline is read at one version, the
+// page gains another heading with the same title, and the ungated read silently
+// resolves the same occurrence number to a different section. The gate turns
+// that substitution into a refusal.
+func TestConfluencePageSectionGateRefusesOccurrenceDriftAcrossVersions(t *testing.T) {
+	store := &driftingSectionStore{pages: []*domain.Resource{
+		{ID: "42", Title: "Example", SpaceKey: "ENG", Version: 5, Body: []byte(sectionDriftBeforeCSF), BodyPresent: true},
+		{ID: "42", Title: "Example", SpaceKey: "ENG", Version: 6, Body: []byte(sectionDriftAfterCSF), BodyPresent: true},
+	}}
+	service := &ConfluenceService{store: store}
+
+	outline, err := service.PageOutline(context.Background(), "42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outline.Version != 5 || outline.Count != 3 {
+		t.Fatalf("outline=%+v want version 5 with three headings", outline)
+	}
+	statuses := 0
+	for _, heading := range outline.Headings {
+		if heading.Title == "Status" {
+			statuses++
+		}
+	}
+	if statuses != 2 {
+		t.Fatalf("outline must show exactly two Status headings before the edit: %+v", outline.Headings)
+	}
+
+	// Ungated, occurrence 2 now selects what used to be occurrence 1. Nothing in
+	// the result marks the substitution beyond the bumped version.
+	drifted, err := service.PageSection(context.Background(), "42", ConfluencePageSectionOpts{Heading: "Status", Occurrence: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if drifted.Version != 6 || drifted.PageVersionGated {
+		t.Fatalf("ungated read=%+v want version 6 and no gate", drifted)
+	}
+	if !strings.Contains(drifted.Markdown, "first status") || strings.Contains(drifted.Markdown, "second status") {
+		t.Fatalf("drift precondition lost; occurrence 2 must have moved: %q", drifted.Markdown)
+	}
+
+	// Bound to the version the outline reported, the same request is refused.
+	_, err = service.PageSection(context.Background(), "42", ConfluencePageSectionOpts{
+		Heading: "Status", Occurrence: 2, ExpectedPageVersion: outline.Version,
+	})
+	var mismatch *ConfluencePageVersionMismatchError
+	if !errors.As(err, &mismatch) || mismatch.Expected != 5 || mismatch.Current != 6 {
+		t.Fatalf("gated read must refuse the drifted page: err=%v mismatch=%+v", err, mismatch)
+	}
+}
+
+func TestConfluenceStructuralReadsRejectUnreconciledPageIdentity(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		page *domain.Resource
+	}{
+		{name: "missing id", page: &domain.Resource{Version: 3, Body: []byte(sectionTestCSF), BodyPresent: true}},
+		{name: "foreign id", page: &domain.Resource{ID: "43", Version: 3, Body: []byte(sectionTestCSF), BodyPresent: true}},
+		{name: "no version", page: &domain.Resource{ID: "42", Body: []byte(sectionTestCSF), BodyPresent: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service := &ConfluenceService{store: &sectionStore{page: test.page}}
+			// An unattributable body must never pass as either an outline or an
+			// ungated section success: both outputs make page/revision claims.
+			if _, err := service.PageOutline(context.Background(), "42"); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("outline err=%v want check failed", err)
+			}
+			_, err := service.PageSection(
+				context.Background(), "42", ConfluencePageSectionOpts{Heading: "Overview"},
+			)
+			if !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("err=%v want check failed", err)
+			}
+		})
+	}
+}
+
+func TestConfluenceStructuralPartialReasonSetsAreClosed(t *testing.T) {
+	if !ConfluenceValidOutlinePartialReason(confluencePartialHeadingLimit) ||
+		!ConfluenceValidOutlinePartialReason(confluencePartialByteLimit) ||
+		ConfluenceValidOutlinePartialReason(confluencePartialMaxBytes) ||
+		ConfluenceValidOutlinePartialReason("") || ConfluenceValidOutlinePartialReason("unknown") {
+		t.Fatal("outline partial-reason set is not closed to its own limiters")
+	}
+	if !ConfluenceValidSectionPartialReason(confluencePartialMaxBytes) ||
+		!ConfluenceValidSectionPartialReason(confluencePartialInvalidUTF8) ||
+		ConfluenceValidSectionPartialReason(confluencePartialHeadingLimit) ||
+		ConfluenceValidSectionPartialReason("") || ConfluenceValidSectionPartialReason("unknown") {
+		t.Fatal("section partial-reason set is not closed to its own limiters")
 	}
 }

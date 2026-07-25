@@ -36,6 +36,17 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 	if !strings.Contains(initialized.Instructions, "columns (preferred), fields, or projection") {
 		t.Fatalf("initialize instructions do not disambiguate Jira search field selection: %q", initialized.Instructions)
 	}
+	// The section gate is conditional, so the server-level guidance has to state
+	// all three cases; an agent that reads only "pass a version" would either
+	// bind an externally fixed selection it cannot bind or skip the binding that
+	// makes an outline-derived occurrence attributable.
+	for _, guidance := range []string{
+		"confluence_page_outline result", "first section result's version", "explicitly ungated read that reconciles nothing",
+	} {
+		if !strings.Contains(initialized.Instructions, guidance) {
+			t.Fatalf("initialize instructions omit section-gate guidance %q: %q", guidance, initialized.Instructions)
+		}
+	}
 	listed, err := client.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -124,6 +135,48 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 			description, _ := heading["description"].(string)
 			if !strings.Contains(description, "without a Markdown # prefix") {
 				t.Errorf("tool %s heading guidance is ambiguous: %#v", tool.Name, heading)
+			}
+			// The gate is conditional on where the selection came from, so the field
+			// is advertised but never demanded: a caller whose heading and
+			// occurrence were fixed externally has no version to copy. It is only
+			// useful when the agent knows which integer to copy and from where, so
+			// both the tool and the field say so.
+			expected, _ := properties["expected_page_version"].(map[string]any)
+			if expected == nil {
+				t.Errorf("tool %s must advertise expected_page_version: %#v", tool.Name, tool.InputSchema)
+			}
+			if schemaRequired(input, "expected_page_version") {
+				t.Errorf("tool %s must not require expected_page_version: %#v", tool.Name, tool.InputSchema)
+			}
+			expectedDescription, _ := expected["description"].(string)
+			if !strings.Contains(expectedDescription, "confluence_page_outline") ||
+				!strings.Contains(expectedDescription, "exact") ||
+				!strings.Contains(expectedDescription, "omit") {
+				t.Errorf("tool %s expected_page_version guidance is ambiguous: %#v", tool.Name, expected)
+			}
+			// The description has to carry all three provenance rules: outline-derived
+			// selection, recovery re-read, and what an omitted gate does and does not
+			// mean.
+			for _, guidance := range []string{
+				"confluence_page_outline", "expected_page_version", "re-reading", "page_version_gated:false",
+			} {
+				if !strings.Contains(tool.Description, guidance) {
+					t.Errorf("tool %s description omits %q: %q", tool.Name, guidance, tool.Description)
+				}
+			}
+			output, _ := tool.OutputSchema.(map[string]any)
+			for _, required := range []string{"schema_version", "version", "page_version_gated"} {
+				if !schemaRequired(output, required) {
+					t.Errorf("tool %s output must require %s: %#v", tool.Name, required, tool.OutputSchema)
+				}
+			}
+		}
+		if tool.Name == "confluence_page_outline" {
+			output, _ := tool.OutputSchema.(map[string]any)
+			for _, required := range []string{"schema_version", "version"} {
+				if !schemaRequired(output, required) {
+					t.Errorf("tool %s output must require %s: %#v", tool.Name, required, tool.OutputSchema)
+				}
 			}
 		}
 		// Both bounded page reads can return a partial result, so each advertises
@@ -519,12 +572,17 @@ func TestSyntheticPortfolioThroughMCPUsesExactGETOnlyRoute(t *testing.T) {
 			"key": key, "quarter": "2026-Q2", "include": []string{"identity", "status-field", "history"}, "status_field": "customfield_11002", "projection": "compact",
 		})
 	}
+	// These headings are fixed by the route and no earlier call exposes a page
+	// version, so the exact ordered benchmark route reads them explicitly
+	// ungated rather than inventing a binding from test-only fixture data.
 	for _, pageID := range []string{"9001", "9002", "9003"} {
 		result := callToolOK(t, client, "confluence_page_section", map[string]any{
-			"reference": "/wiki/pages/viewpage.action?pageId=" + pageID, "heading": "Results", "max_bytes": 32768,
+			"reference": "/wiki/pages/viewpage.action?pageId=" + pageID, "heading": "Results",
+			"max_bytes": 32768,
 		})
 		content, ok := result.StructuredContent.(map[string]any)
-		if !ok || content["id"] != pageID || content["complete"] != true {
+		if !ok || content["id"] != pageID || content["complete"] != true ||
+			content["page_version_gated"] != false {
 			t.Fatalf("section %s content=%#v", pageID, result.StructuredContent)
 		}
 	}
@@ -875,8 +933,17 @@ func TestSyntheticTopicDiscoveryThroughMCPUsesExactGETOnlyRoute(t *testing.T) {
 	if !ok || !pageOK || page["complete"] != true {
 		t.Fatalf("jira search=%#v", jira.StructuredContent)
 	}
-	callToolOK(t, client, "confluence_page_outline", map[string]any{"reference": "8101"})
-	section := callToolOK(t, client, "confluence_page_section", map[string]any{"reference": "8101", "heading": "Decision"})
+	outline := callToolOK(t, client, "confluence_page_outline", map[string]any{"reference": "8101"})
+	outlineContent, outlineOK := outline.StructuredContent.(map[string]any)
+	outlineVersion, versionOK := outlineContent["version"].(float64)
+	if !outlineOK || !versionOK || outlineVersion < 1 {
+		t.Fatalf("outline=%#v", outline.StructuredContent)
+	}
+	// The section copies the version the outline just reported, which is the
+	// exact binding the tool description instructs an agent to perform.
+	section := callToolOK(t, client, "confluence_page_section", map[string]any{
+		"reference": "8101", "heading": "Decision", "expected_page_version": int(outlineVersion),
+	})
 	sectionContent, ok := section.StructuredContent.(map[string]any)
 	markdown, _ := sectionContent["markdown"].(string)
 	if !ok || sectionContent["complete"] != true || !strings.Contains(markdown, "25 percent") {
@@ -974,6 +1041,9 @@ func TestSyntheticPartialAuthorizationThroughMCPStopsAtForbiddenSection(t *testi
 				confluencePage["title"] != test.pageTitle {
 				t.Fatalf("confluence discovery=%#v", confluenceResult.StructuredContent)
 			}
+			// Search selected the page, but this test fixes the heading and
+			// occurrence externally; no outline-derived selection is being
+			// reconciled, so the benchmark route remains explicitly ungated.
 			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
 				Name: "confluence_page_section",
 				Arguments: map[string]any{
@@ -1060,6 +1130,9 @@ func TestSyntheticStaleCandidateThroughMCPStopsAtNotFoundSection(t *testing.T) {
 				page["id"] != test.pageID || page["title"] != test.pageTitle {
 				t.Fatalf("search=%#v", search.StructuredContent)
 			}
+			// The task fixes the heading and occurrence rather than choosing
+			// them from an outline, so this negative route does not invent a
+			// structural binding from the search result.
 			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
 				Name: "confluence_page_section",
 				Arguments: map[string]any{
@@ -1144,7 +1217,7 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	callToolOK(t, client, "confluence_page_resolve", map[string]any{"reference": "/x/Abc"})
 	callToolOK(t, client, "confluence_page_outline", map[string]any{"reference": "42"})
 	callToolOK(t, client, "confluence_page_section", map[string]any{
-		"reference": "42", "heading": "Results", "occurrence": 2,
+		"reference": "42", "heading": "Results", "occurrence": 2, "expected_page_version": 3,
 	})
 	summary := callToolOK(t, client, "confluence_table_summary", map[string]any{"reference": "42", "table": 2})
 	summaryContent, ok := summary.StructuredContent.(map[string]any)
@@ -1979,7 +2052,8 @@ func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 		{name: "confluence_search", args: map[string]any{"cql": "space=DOCS", "limit": 101}},
 		{name: "confluence_search", args: map[string]any{"cql": "space=DOCS", "max_bytes": 1023}},
 		{name: "confluence_search", args: map[string]any{"cql": "space=DOCS", "max_bytes": 1048577}},
-		{name: "confluence_page_section", args: map[string]any{"reference": "1", "heading": "Results", "max_bytes": 1048577}},
+		{name: "confluence_page_section", args: map[string]any{"reference": "1", "heading": "Results", "expected_page_version": 3, "max_bytes": 1048577}},
+		{name: "confluence_page_section", args: map[string]any{"reference": "1", "heading": "Results", "expected_page_version": -1}},
 		{name: "confluence_table_summary", args: map[string]any{"reference": "1", "table": -1}},
 		{name: "confluence_table_summary", args: map[string]any{"reference": "1", "max_bytes": 1023}},
 		{name: "confluence_table_extract", args: map[string]any{"reference": "1", "table": 0}},
@@ -2738,6 +2812,17 @@ func TestConfluenceAttachmentListUsesProductionDependencies(t *testing.T) {
 	}
 }
 
+func reconciledConfluenceOutlineEntries(count int) []app.ConfluenceOutlineEntry {
+	entries := make([]app.ConfluenceOutlineEntry, count)
+	for i := range entries {
+		title := fmt.Sprintf("Heading %d", i+1)
+		entries[i] = app.ConfluenceOutlineEntry{
+			Index: i + 1, Level: 2, Title: title, Path: []string{title}, Occurrence: 1,
+		}
+	}
+	return entries
+}
+
 func TestConfluenceOutlineAndSectionPartialReadsCarryStaticReasons(t *testing.T) {
 	for _, test := range []struct {
 		name, tool, reason string
@@ -2748,18 +2833,20 @@ func TestConfluenceOutlineAndSectionPartialReadsCarryStaticReasons(t *testing.T)
 			name: "outline heading limit", tool: "confluence_page_outline", reason: "heading_limit",
 			args: map[string]any{"reference": "42"},
 			reader: &recordingConfluenceReader{outlineResult: &app.ConfluencePageOutlineResult{
-				ID: "42", Count: 1000, Total: 1001, Complete: false, Truncated: true,
+				SchemaVersion: app.ConfluenceStructuralSchemaVersion, ID: "42", Version: 3,
+				Count: 1000, Total: 1001, Complete: false, Truncated: true,
 				PartialReason: "heading_limit", OriginalBytes: 90_000, EmittedBytes: 89_000,
-				Headings: []app.ConfluenceOutlineEntry{},
+				Headings: reconciledConfluenceOutlineEntries(1000),
 			}},
 		},
 		{
 			name: "section max bytes", tool: "confluence_page_section", reason: "max_bytes",
-			args: map[string]any{"reference": "42", "heading": "Overview", "max_bytes": 4096},
+			args: map[string]any{"reference": "42", "heading": "Overview", "expected_page_version": 3, "max_bytes": 4096},
 			reader: &recordingConfluenceReader{sectionResult: &app.ConfluencePageSectionResult{
-				ID: "42", Heading: "Overview", Occurrence: 1, Path: []string{"Overview"},
+				SchemaVersion: app.ConfluenceStructuralSchemaVersion, ID: "42", Version: 3, PageVersionGated: true,
+				Heading: "Overview", Level: 1, Occurrence: 1, Path: []string{"Overview"},
 				Markdown: "# Overview\n\n[... truncated by atl ...]\n", Complete: false, Truncated: true,
-				PartialReason: "max_bytes", OriginalBytes: 14_000, EmittedBytes: 4_000,
+				PartialReason: "max_bytes", OriginalBytes: 14_000, EmittedBytes: 39,
 			}},
 		},
 	} {
@@ -2785,11 +2872,13 @@ func TestConfluenceOutlineAndSectionPartialReadsCarryStaticReasons(t *testing.T)
 func TestConfluenceOutlineAndSectionCompleteReadsOmitPartialReason(t *testing.T) {
 	reader := &recordingConfluenceReader{
 		outlineResult: &app.ConfluencePageOutlineResult{
-			ID: "42", Count: 1, Total: 1, Complete: true, OriginalBytes: 64, EmittedBytes: 64,
+			SchemaVersion: app.ConfluenceStructuralSchemaVersion, ID: "42", Version: 3,
+			Count: 1, Total: 1, Complete: true, OriginalBytes: 64, EmittedBytes: 64,
 			Headings: []app.ConfluenceOutlineEntry{{Index: 1, Level: 1, Title: "Overview", Path: []string{"Overview"}, Occurrence: 1}},
 		},
 		sectionResult: &app.ConfluencePageSectionResult{
-			ID: "42", Heading: "Overview", Occurrence: 1, Path: []string{"Overview"},
+			SchemaVersion: app.ConfluenceStructuralSchemaVersion, ID: "42", Version: 3, PageVersionGated: true,
+			Heading: "Overview", Level: 1, Occurrence: 1, Path: []string{"Overview"},
 			Markdown: "# Overview\n", Complete: true, OriginalBytes: 11, EmittedBytes: 11,
 		},
 	}
@@ -2799,7 +2888,7 @@ func TestConfluenceOutlineAndSectionCompleteReadsOmitPartialReason(t *testing.T)
 	defer closeSessions()
 	for tool, args := range map[string]map[string]any{
 		"confluence_page_outline": {"reference": "42"},
-		"confluence_page_section": {"reference": "42", "heading": "Overview"},
+		"confluence_page_section": {"reference": "42", "heading": "Overview", "expected_page_version": 3},
 	} {
 		result := callToolOK(t, client, tool, args)
 		content, ok := result.StructuredContent.(map[string]any)
@@ -2836,12 +2925,12 @@ func TestConfluenceSectionSelectionErrorsAreDistinctAndContentFree(t *testing.T)
 	}{
 		{
 			name: "ambiguous", kind: "check_failed", err: ambiguous, requested: 0, available: 3,
-			args:    map[string]any{"reference": "42", "heading": heading},
+			args:    map[string]any{"reference": "42", "heading": heading, "expected_page_version": 3},
 			message: "Confluence heading selection is ambiguous; available occurrence count is 3, so select an occurrence from 1 to 3",
 		},
 		{
 			name: "out of range", kind: "not_found", err: stale, requested: 5, available: 2,
-			args:    map[string]any{"reference": "42", "heading": heading, "occurrence": 5},
+			args:    map[string]any{"reference": "42", "heading": heading, "occurrence": 5, "expected_page_version": 3},
 			message: "selected Confluence heading occurrence 5 is out of range; available occurrence count is 2",
 		},
 	} {
@@ -3069,7 +3158,7 @@ func TestConfluenceSectionOtherErrorsStayStaticAndUnremediated(t *testing.T) {
 			defer closeSessions()
 			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
 				Name:      "confluence_page_section",
-				Arguments: map[string]any{"reference": "42", "heading": "Heading " + marker},
+				Arguments: map[string]any{"reference": "42", "heading": "Heading " + marker, "expected_page_version": 3},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -3094,6 +3183,502 @@ func TestConfluenceSectionOtherErrorsStayStaticAndUnremediated(t *testing.T) {
 				if bytes.Contains(encoded, []byte(forbidden)) {
 					t.Fatalf("page-section error leaked %q: %s", forbidden, encoded)
 				}
+			}
+		})
+	}
+}
+
+func TestConfluenceOutlineErrorsAreStaticAndContentFree(t *testing.T) {
+	const marker = "SYNTHETIC-OUTLINE-ERROR-SECRET"
+	for _, test := range []struct {
+		name, kind, message string
+		err                 error
+	}{
+		{
+			name: "structural check failure", kind: "check_failed",
+			message: "Confluence page outline result failed validation",
+			err: fmt.Errorf("%w: page %s CSF cannot be inspected structurally: XML element <%s> is malformed",
+				domain.ErrCheckFailed, "PAGE-"+marker, marker),
+		},
+		{
+			name: "configuration failure", kind: "configuration_error",
+			message: "Confluence page outline service is not configured",
+			err:     fmt.Errorf("%w: backend https://backend.invalid/%s is not configured", domain.ErrConfig, marker),
+		},
+		{
+			name: "not found", kind: "not_found",
+			message: "Confluence page was not found",
+			err:     fmt.Errorf("%w: page %s does not exist", domain.ErrNotFound, marker),
+		},
+		{
+			name: "authentication failure", kind: "authentication_failed",
+			message: "Confluence page outline authentication failed",
+			err:     fmt.Errorf("%w: credential %s was rejected", domain.ErrAuth, marker),
+		},
+		{
+			name: "forbidden", kind: "forbidden",
+			message: "Confluence page outline access is forbidden",
+			err:     fmt.Errorf("%w: page %s is restricted", domain.ErrForbidden, marker),
+		},
+		{
+			name: "backend failure", kind: "api_error",
+			message: "backend returned HTTP 500",
+			err:     &httpx.APIError{Status: 500, Method: "GET", Path: "/" + marker, Body: marker},
+		},
+		{
+			name: "transport failure", kind: "transport_error",
+			message: "backend transport failed (connection-refused)",
+			err:     &httpx.TransportError{Method: marker, Category: "connection-refused"},
+		},
+		{
+			name: "unexpected failure", kind: "unexpected_error",
+			message: "Confluence page outline read failed",
+			err:     errors.New(marker),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &recordingConfluenceReader{outlineErr: test.err}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Confluence: func() (ConfluenceReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name: "confluence_page_outline", Arguments: map[string]any{"reference": "42"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+				t.Fatalf("result=%+v", result)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+				got.Kind != test.kind || got.Message != test.message {
+				t.Fatalf("error=%+v decode=%v", got, err)
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, forbidden := range []string{marker, "PAGE-", "backend.invalid", "XML element"} {
+				if bytes.Contains(encoded, []byte(forbidden)) {
+					t.Fatalf("outline error leaked %q: %s", forbidden, encoded)
+				}
+			}
+		})
+	}
+}
+
+// TestConfluenceSectionRejectsNegativeExpectedPageVersionBeforeAnyBackendWork
+// pins the one value the MCP surface refuses outright. A negative bound cannot
+// name a revision, so it is a malformed request rather than a disabled gate, and
+// the handler rejects it before a Confluence reader is ever constructed.
+func TestConfluenceSectionRejectsNegativeExpectedPageVersionBeforeAnyBackendWork(t *testing.T) {
+	reader := &recordingConfluenceReader{}
+	constructed := 0
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Confluence: func() (ConfluenceReader, error) {
+			constructed++
+			return reader, nil
+		},
+	}))
+	defer closeSessions()
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "confluence_page_section",
+		Arguments: map[string]any{"reference": "42", "heading": "Overview", "expected_page_version": -3},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content=%T", result.Content[0])
+	}
+	var got toolError
+	if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+		got.Kind != "usage_error" || got.Remediation != "fix_request" ||
+		got.Message != "invalid Confluence page section request" {
+		t.Fatalf("error=%+v decode=%v", got, err)
+	}
+	if constructed != 0 || reader.sectionReference != "" {
+		t.Fatalf("malformed section request reached the backend: constructed=%d reference=%q", constructed, reader.sectionReference)
+	}
+}
+
+// TestConfluenceSectionWithoutExpectedPageVersionReadsUngated pins the other
+// half of the conditional contract: a selection that was not derived from an
+// earlier read is a valid request, and the result says so instead of implying a
+// binding nobody established. Omitting the field and sending zero are the same
+// request, and both reach the backend ungated.
+func TestConfluenceSectionWithoutExpectedPageVersionReadsUngated(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args map[string]any
+	}{
+		{name: "omitted", args: map[string]any{"reference": "42", "heading": "Overview"}},
+		{name: "zero", args: map[string]any{"reference": "42", "heading": "Overview", "expected_page_version": 0}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &recordingConfluenceReader{}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Confluence: func() (ConfluenceReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+			result := callToolOK(t, client, "confluence_page_section", test.args)
+			content, ok := result.StructuredContent.(map[string]any)
+			if !ok || content["page_version_gated"] != false {
+				t.Fatalf("ungated section content=%#v", result.StructuredContent)
+			}
+			if reader.sectionOpts.ExpectedPageVersion != 0 {
+				t.Fatalf("ungated request reached the application as %+v", reader.sectionOpts)
+			}
+		})
+	}
+}
+
+func TestConfluenceSectionVersionMismatchClassificationIsIntegerOnly(t *testing.T) {
+	const marker = "SYNTHETIC-SECTION-VERSION-SECRET"
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{name: "bare typed error", err: &app.ConfluencePageVersionMismatchError{Expected: 5, Current: 6}},
+		{
+			name: "wrapped in a content-bearing message",
+			err: fmt.Errorf("%w: page %q at https://backend.invalid/x",
+				&app.ConfluencePageVersionMismatchError{Expected: 5, Current: 6}, marker),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &recordingConfluenceReader{sectionErr: test.err}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Confluence: func() (ConfluenceReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name: "confluence_page_section",
+				Arguments: map[string]any{
+					"reference": "42", "heading": "Heading " + marker, "occurrence": 2, "expected_page_version": 5,
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+				t.Fatalf("result=%+v", result)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			// The remediation names the outline deliberately: the new revision may
+			// have renumbered the very occurrence this call selected, so retrying
+			// the same selection against the new version is not the recovery.
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+				got.Kind != "check_failed" ||
+				got.Remediation != "reread_outline_then_retry_expected_version" ||
+				got.Message != "expected Confluence page version 5 does not match the current page version 6" {
+				t.Fatalf("error=%+v decode=%v", got, err)
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, forbidden := range []string{marker, "https://", "backend.invalid"} {
+				if bytes.Contains(encoded, []byte(forbidden)) {
+					t.Fatalf("version-mismatch error leaked %q: %s", forbidden, encoded)
+				}
+			}
+		})
+	}
+}
+
+func TestConfluenceStructuralResultValidatorsFailClosed(t *testing.T) {
+	outline := func(mutate func(*app.ConfluencePageOutlineResult)) *app.ConfluencePageOutlineResult {
+		result := &app.ConfluencePageOutlineResult{
+			SchemaVersion: app.ConfluenceStructuralSchemaVersion, ID: "42", Version: 3,
+			Count: 1, Total: 1, Complete: true, OriginalBytes: 64, EmittedBytes: 64,
+			Headings: []app.ConfluenceOutlineEntry{{Index: 1, Level: 1, Title: "Overview", Path: []string{"Overview"}, Occurrence: 1}},
+		}
+		mutate(result)
+		return result
+	}
+	section := func(mutate func(*app.ConfluencePageSectionResult)) *app.ConfluencePageSectionResult {
+		result := &app.ConfluencePageSectionResult{
+			SchemaVersion: app.ConfluenceStructuralSchemaVersion, ID: "42", Version: 3, PageVersionGated: true,
+			Heading: "Overview", Level: 1, Occurrence: 1, Path: []string{"Overview"},
+			Markdown: "# Overview\n", Complete: true, OriginalBytes: 11, EmittedBytes: 11,
+		}
+		mutate(result)
+		return result
+	}
+	// A page with no headings at all is legitimate evidence of absence and must
+	// survive validation; only self-inconsistent shapes are refused.
+	if err := validateConfluenceOutlineResult(outline(func(r *app.ConfluencePageOutlineResult) {
+		r.Count, r.Total, r.OriginalBytes, r.EmittedBytes = 0, 0, 0, 0
+		r.Headings = []app.ConfluenceOutlineEntry{}
+	})); err != nil {
+		t.Fatalf("empty outline rejected: %v", err)
+	}
+	if err := validateConfluenceOutlineResult(outline(func(*app.ConfluencePageOutlineResult) {})); err != nil {
+		t.Fatalf("reconciled outline rejected: %v", err)
+	}
+	boundSectionInput := ConfluenceSectionInput{
+		Heading: "Overview", Occurrence: 1, ExpectedPageVersion: 3,
+	}
+	if err := validateConfluenceSectionResult(section(func(*app.ConfluencePageSectionResult) {}), boundSectionInput); err != nil {
+		t.Fatalf("reconciled section rejected: %v", err)
+	}
+	// The gate is conditional, so the validator has to accept both honest states
+	// and reject only the contradictory ones. An ungated read is legitimate
+	// evidence about whatever revision it was served from, so any positive
+	// returned version is accepted when no version was requested.
+	for _, version := range []int{1, 3, 97} {
+		if err := validateConfluenceSectionResult(section(func(r *app.ConfluencePageSectionResult) {
+			r.PageVersionGated, r.Version = false, version
+		}), ConfluenceSectionInput{Heading: "Overview", Occurrence: 1}); err != nil {
+			t.Fatalf("honest ungated section at version %d rejected: %v", version, err)
+		}
+	}
+	for _, test := range []struct {
+		name  string
+		input ConfluenceSectionInput
+	}{
+		{
+			name:  "returned heading differs from request",
+			input: ConfluenceSectionInput{Heading: "Other", Occurrence: 1, ExpectedPageVersion: 3},
+		},
+		{
+			name:  "returned occurrence differs from request",
+			input: ConfluenceSectionInput{Heading: "Overview", Occurrence: 2, ExpectedPageVersion: 3},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateConfluenceSectionResult(
+				section(func(*app.ConfluencePageSectionResult) {}), test.input,
+			); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("err=%v want check failed", err)
+			}
+		})
+	}
+	if err := validateConfluenceSectionResult(
+		section(func(r *app.ConfluencePageSectionResult) { r.Occurrence = 2 }),
+		ConfluenceSectionInput{Heading: "Overview", ExpectedPageVersion: 3},
+	); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("omitted occurrence accepted occurrence 2: %v", err)
+	}
+
+	for _, test := range []struct {
+		name   string
+		mutate func(*app.ConfluencePageOutlineResult)
+	}{
+		{name: "nil result", mutate: nil},
+		{name: "unknown schema", mutate: func(r *app.ConfluencePageOutlineResult) { r.SchemaVersion = 2 }},
+		{name: "empty id", mutate: func(r *app.ConfluencePageOutlineResult) { r.ID = "  " }},
+		{name: "no version", mutate: func(r *app.ConfluencePageOutlineResult) { r.Version = 0 }},
+		{name: "absent headings", mutate: func(r *app.ConfluencePageOutlineResult) { r.Headings = nil }},
+		{name: "count disagrees with length", mutate: func(r *app.ConfluencePageOutlineResult) { r.Count = 2 }},
+		{name: "total below count", mutate: func(r *app.ConfluencePageOutlineResult) { r.Total = 0 }},
+		{name: "emitted exceeds original", mutate: func(r *app.ConfluencePageOutlineResult) { r.EmittedBytes = 65 }},
+		{name: "nonsequential heading index", mutate: func(r *app.ConfluencePageOutlineResult) { r.Headings[0].Index = 2 }},
+		{name: "impossible heading level", mutate: func(r *app.ConfluencePageOutlineResult) { r.Headings[0].Level = 7 }},
+		{name: "empty heading title", mutate: func(r *app.ConfluencePageOutlineResult) { r.Headings[0].Title = " " }},
+		{name: "absent heading path", mutate: func(r *app.ConfluencePageOutlineResult) { r.Headings[0].Path = nil }},
+		{name: "path does not end in heading", mutate: func(r *app.ConfluencePageOutlineResult) { r.Headings[0].Path = []string{"Other"} }},
+		{name: "zero heading occurrence", mutate: func(r *app.ConfluencePageOutlineResult) { r.Headings[0].Occurrence = 0 }},
+		{name: "complete with a reason", mutate: func(r *app.ConfluencePageOutlineResult) { r.PartialReason = "byte_limit" }},
+		{
+			name: "partial without a reason",
+			mutate: func(r *app.ConfluencePageOutlineResult) {
+				r.Complete, r.Truncated, r.Total = false, true, 2
+			},
+		},
+		{
+			name:   "truncated flag contradicts completeness",
+			mutate: func(r *app.ConfluencePageOutlineResult) { r.Truncated = true },
+		},
+		{
+			name: "unknown partial reason",
+			mutate: func(r *app.ConfluencePageOutlineResult) {
+				r.Complete, r.Truncated, r.PartialReason, r.Total = false, true, "max_bytes", 2
+			},
+		},
+		{
+			name:   "complete but withheld a heading",
+			mutate: func(r *app.ConfluencePageOutlineResult) { r.Total = 2 },
+		},
+	} {
+		t.Run("outline "+test.name, func(t *testing.T) {
+			var candidate *app.ConfluencePageOutlineResult
+			if test.mutate != nil {
+				candidate = outline(test.mutate)
+			}
+			if err := validateConfluenceOutlineResult(candidate); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("err=%v want check failed", err)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name     string
+		expected int
+		mutate   func(*app.ConfluencePageSectionResult)
+	}{
+		{name: "nil result", expected: 3},
+		{name: "unknown schema", expected: 3, mutate: func(r *app.ConfluencePageSectionResult) { r.SchemaVersion = 2 }},
+		{name: "empty id", expected: 3, mutate: func(r *app.ConfluencePageSectionResult) { r.ID = "  " }},
+		{name: "no version", expected: 3, mutate: func(r *app.ConfluencePageSectionResult) { r.Version = 0 }},
+		// Every contradictory combination of the requested gate and the claimed
+		// one. The honest pairs — bound/gated at the same version, and
+		// unbound/ungated — are asserted to pass above.
+		{name: "bound request answered ungated", expected: 3, mutate: func(r *app.ConfluencePageSectionResult) { r.PageVersionGated = false }},
+		{name: "bound request gated at another version", expected: 4, mutate: func(*app.ConfluencePageSectionResult) {}},
+		{name: "unbound request answered with a gate claim", expected: 0, mutate: func(*app.ConfluencePageSectionResult) {}},
+		{
+			name: "impossible negative requirement claimed as gated", expected: -1,
+			mutate: func(*app.ConfluencePageSectionResult) {},
+		},
+		{
+			name: "impossible negative requirement reported ungated", expected: -1,
+			mutate: func(r *app.ConfluencePageSectionResult) { r.PageVersionGated = false },
+		},
+		{name: "absent path", expected: 3, mutate: func(r *app.ConfluencePageSectionResult) { r.Path = nil }},
+		{name: "empty heading", expected: 3, mutate: func(r *app.ConfluencePageSectionResult) { r.Heading = " " }},
+		{name: "path does not end in heading", expected: 3, mutate: func(r *app.ConfluencePageSectionResult) { r.Path = []string{"Other"} }},
+		{name: "impossible level", expected: 3, mutate: func(r *app.ConfluencePageSectionResult) { r.Level = 7 }},
+		{name: "zero occurrence", expected: 3, mutate: func(r *app.ConfluencePageSectionResult) { r.Occurrence = 0 }},
+		{name: "complete with a reason", expected: 3, mutate: func(r *app.ConfluencePageSectionResult) { r.PartialReason = "max_bytes" }},
+		{
+			name: "partial without a reason", expected: 3,
+			mutate: func(r *app.ConfluencePageSectionResult) {
+				r.Complete, r.Truncated, r.OriginalBytes = false, true, 40
+			},
+		},
+		{
+			name: "unknown partial reason", expected: 3,
+			mutate: func(r *app.ConfluencePageSectionResult) {
+				r.Complete, r.Truncated, r.PartialReason, r.OriginalBytes = false, true, "heading_limit", 40
+			},
+		},
+		{
+			name: "emitted bytes disagree with the body", expected: 3,
+			mutate: func(r *app.ConfluencePageSectionResult) { r.EmittedBytes = 12 },
+		},
+		{
+			name: "original bytes below emitted bytes", expected: 3,
+			mutate: func(r *app.ConfluencePageSectionResult) {
+				r.Complete, r.Truncated, r.PartialReason, r.OriginalBytes = false, true, "max_bytes", 10
+			},
+		},
+		{
+			name: "invalid utf-8 body", expected: 3,
+			mutate: func(r *app.ConfluencePageSectionResult) {
+				r.Markdown, r.OriginalBytes, r.EmittedBytes = "\xff\xfe", 2, 2
+			},
+		},
+		{
+			name: "complete but withheld bytes", expected: 3,
+			mutate: func(r *app.ConfluencePageSectionResult) { r.OriginalBytes = 40 },
+		},
+		{
+			name: "partial that withheld nothing", expected: 3,
+			mutate: func(r *app.ConfluencePageSectionResult) {
+				r.Complete, r.Truncated, r.PartialReason = false, true, "max_bytes"
+			},
+		},
+	} {
+		t.Run("section "+test.name, func(t *testing.T) {
+			var candidate *app.ConfluencePageSectionResult
+			if test.mutate != nil {
+				candidate = section(test.mutate)
+			}
+			input := ConfluenceSectionInput{
+				Heading: "Overview", Occurrence: 1, ExpectedPageVersion: test.expected,
+			}
+			if err := validateConfluenceSectionResult(candidate, input); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("err=%v want check failed", err)
+			}
+		})
+	}
+}
+
+// TestConfluenceStructuralValidatorsAreWiredIntoBothTools proves the validators
+// are not dead code: a reader that returns an unreconciled result fails the call
+// instead of handing the client evidence it cannot trust.
+func TestConfluenceStructuralValidatorsAreWiredIntoBothTools(t *testing.T) {
+	for _, test := range []struct {
+		name, tool string
+		reader     *recordingConfluenceReader
+		args       map[string]any
+	}{
+		{
+			name: "outline", tool: "confluence_page_outline",
+			args: map[string]any{"reference": "42"},
+			reader: &recordingConfluenceReader{outlineResult: &app.ConfluencePageOutlineResult{
+				SchemaVersion: app.ConfluenceStructuralSchemaVersion, ID: "42", Version: 3,
+				Count: 1, Total: 1, Complete: true, Headings: nil,
+			}},
+		},
+		{
+			name: "bound section answered ungated", tool: "confluence_page_section",
+			args: map[string]any{"reference": "42", "heading": "Overview", "expected_page_version": 3},
+			reader: &recordingConfluenceReader{sectionResult: &app.ConfluencePageSectionResult{
+				SchemaVersion: app.ConfluenceStructuralSchemaVersion, ID: "42", Version: 3, PageVersionGated: false,
+				Heading: "Overview", Level: 1, Occurrence: 1, Path: []string{"Overview"},
+				Markdown: "# Overview\n", Complete: true, OriginalBytes: 11, EmittedBytes: 11,
+			}},
+		},
+		{
+			// The conditional gate cuts both ways: an unbound request that comes
+			// back claiming a binding would hand the client authority it never
+			// asked for, which is exactly what page_version_gated must not mean.
+			name: "unbound section answered gated", tool: "confluence_page_section",
+			args: map[string]any{"reference": "42", "heading": "Overview"},
+			reader: &recordingConfluenceReader{sectionResult: &app.ConfluencePageSectionResult{
+				SchemaVersion: app.ConfluenceStructuralSchemaVersion, ID: "42", Version: 3, PageVersionGated: true,
+				Heading: "Overview", Level: 1, Occurrence: 1, Path: []string{"Overview"},
+				Markdown: "# Overview\n", Complete: true, OriginalBytes: 11, EmittedBytes: 11,
+			}},
+		},
+		{
+			name: "section answered for another occurrence", tool: "confluence_page_section",
+			args: map[string]any{
+				"reference": "42", "heading": "Overview", "occurrence": 2, "expected_page_version": 3,
+			},
+			reader: &recordingConfluenceReader{sectionResult: &app.ConfluencePageSectionResult{
+				SchemaVersion: app.ConfluenceStructuralSchemaVersion, ID: "42", Version: 3, PageVersionGated: true,
+				Heading: "Overview", Level: 1, Occurrence: 1, Path: []string{"Overview"},
+				Markdown: "# Overview\n", Complete: true, OriginalBytes: 11, EmittedBytes: 11,
+			}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Confluence: func() (ConfluenceReader, error) { return test.reader, nil },
+			}))
+			defer closeSessions()
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: test.tool, Arguments: test.args})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+				t.Fatalf("unreconciled %s result was returned: %+v", test.tool, result)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "check_failed" {
+				t.Fatalf("error=%+v decode=%v", got, err)
 			}
 		})
 	}
@@ -3509,6 +4094,7 @@ type recordingConfluenceReader struct {
 	tableText                                            string
 	tableErr                                             error
 	sectionErr                                           error
+	outlineErr                                           error
 	outlineResult                                        *app.ConfluencePageOutlineResult
 	sectionResult                                        *app.ConfluencePageSectionResult
 	attachmentReference                                  string
@@ -3553,10 +4139,18 @@ func (r *recordingConfluenceReader) ResolvePageReference(_ context.Context, refe
 
 func (r *recordingConfluenceReader) PageOutline(_ context.Context, reference string) (*app.ConfluencePageOutlineResult, error) {
 	r.outlineReference = reference
+	if r.outlineErr != nil {
+		return nil, r.outlineErr
+	}
 	if r.outlineResult != nil {
 		return r.outlineResult, nil
 	}
-	return &app.ConfluencePageOutlineResult{Headings: []app.ConfluenceOutlineEntry{}}, nil
+	// The default stands in for a legitimately heading-free page: reconciled
+	// provenance and completeness, and an empty — not absent — heading slice.
+	return &app.ConfluencePageOutlineResult{
+		SchemaVersion: app.ConfluenceStructuralSchemaVersion, ID: "42", Version: 3,
+		Complete: true, Headings: []app.ConfluenceOutlineEntry{},
+	}, nil
 }
 
 func (r *recordingConfluenceReader) PageSection(_ context.Context, reference string, opts app.ConfluencePageSectionOpts) (*app.ConfluencePageSectionResult, error) {
@@ -3567,7 +4161,24 @@ func (r *recordingConfluenceReader) PageSection(_ context.Context, reference str
 	if r.sectionResult != nil {
 		return r.sectionResult, nil
 	}
-	return &app.ConfluencePageSectionResult{Path: []string{}}, nil
+	occurrence := opts.Occurrence
+	if occurrence == 0 {
+		occurrence = 1
+	}
+	// The stub echoes the requested gate the way the service does, so the
+	// transport-side validator is exercised against a reconciled result. An
+	// ungated read still reports the revision it was served from — that is the
+	// difference the gate flag records.
+	version := opts.ExpectedPageVersion
+	if version == 0 {
+		version = 3
+	}
+	return &app.ConfluencePageSectionResult{
+		SchemaVersion: app.ConfluenceStructuralSchemaVersion, ID: "42",
+		Version: version, PageVersionGated: opts.ExpectedPageVersion > 0,
+		Heading: opts.Heading, Level: 2, Path: []string{opts.Heading}, Occurrence: occurrence,
+		Complete: true,
+	}, nil
 }
 
 func (r *recordingConfluenceReader) AttachmentInventory(_ context.Context, reference string, opts app.ConfluenceAttachmentInventoryOpts) (*app.ConfluenceAttachmentInventoryResult, error) {

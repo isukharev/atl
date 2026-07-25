@@ -6,8 +6,10 @@ Begin from the topic rather than assuming a Jira key or page id. Search both
 services once with a narrow query, use the returned candidate evidence to reject
 superseded and unrelated results, then expand only the one relevant Jira field
 and one relevant bounded Confluence section. Inspect the selected page outline
-before reading the section. A numeric id returned by Confluence search is
-already a stable reference; do not resolve it again. For the selected Jira
+before reading the section, then pass that outline JSON's exact `version` to
+the section command as `--expected-version`. A stale binding must be refused
+rather than retried against a new outline. A numeric id returned by Confluence
+search is already a stable reference; do not resolve it again. For the selected Jira
 issue, read the standard `Description` field through the exact bounded field
 command; it is not an unfamiliar custom field and needs no separate metadata
 command. Do not load a full page,

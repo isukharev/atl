@@ -28,7 +28,7 @@ The v1 surface is an explicit allowlist:
 | `confluence_search` | Search one qualified bounded CQL candidate page | default 25/maximum 100 rows; default 128 KiB/maximum 1 MiB encoded result |
 | `confluence_page_resolve` | Resolve an id or same-origin URL/path | exact resolution only |
 | `confluence_page_outline` | Inspect headings before reading content | one page |
-| `confluence_page_section` | Read one exact Markdown section | default 32 KiB, maximum 1 MiB |
+| `confluence_page_section` | Read one exact Markdown section | optional `expected_page_version` binding; default 32 KiB, maximum 1 MiB |
 | `confluence_attachment_list` | Qualify one page's attachment inventory | requires a positive `expected_page_version`; metadata only; default 128 KiB, maximum 1 MiB encoded result |
 | `confluence_table_summary` | Inspect content-free table structure | default 128 KiB, maximum 1 MiB encoded result |
 | `confluence_table_extract` | Read one exact expanded table | selected table required; default 256 KiB, maximum 1 MiB encoded result |
@@ -125,7 +125,41 @@ limit before raising the byte bound. Reuse a returned numeric id directly with
 `confluence_page_outline` and `confluence_page_section`.
 Pass `confluence_page_section.heading` as the exact `title` returned by the
 outline, without a Markdown `#` prefix; use `occurrence` when that title
-repeats. A section `check_failed` or `not_found` with
+repeats.
+
+`confluence_page_section` also takes an optional `expected_page_version`, and
+every section result carries the resulting `page_version_gated`. Whether to
+supply it follows the provenance of the selection, not the tool. Heading
+`occurrence` and structural `path` are positional, so the same selection can
+resolve to a different section on a different revision, with no observable
+symptom in the returned Markdown. Copy the outline's exact positive `version`
+integer into `expected_page_version` whenever the heading, path, or occurrence
+came from a `confluence_page_outline` result, and copy the first section
+result's `version` when re-reading that same selection at a wider bound. A
+matching version returns `page_version_gated:true`; a stale one is refused with
+`check_failed` and `reread_outline_then_retry_expected_version` before any
+result is produced. Omit the field only for a selection fixed outside any
+earlier read — a heading named in the task itself. That is an explicitly
+ungated read: it returns `page_version_gated:false` and remains exact evidence
+for the revision in its own `version`, but it reconciles no earlier selection,
+and a consumer must not read it as one. A negative value is a `usage_error`
+rejected before backend access; omission and `0` are the same ungated read. The
+gate is evaluated against the page response the read already fetched, so it
+costs no extra request and adds no write capability.
+
+Both `confluence_page_outline` and `confluence_page_section` stamp
+`schema_version:1` — they are one selection protocol, so neither result may be
+validated against the other's contract — and the server validates each result
+fail-closed before returning it: schema version, page identity and positive
+version, completeness against the closed `partial_reason` set, count and byte
+accounting, and, for a section, that its `page_version_gated` and `version`
+match exactly what the request asked for. A result that does not reconcile is a
+`check_failed` tool error, never a partially trusted evidence object.
+Outline failures also cross a dedicated content-free error boundary: page ids,
+titles, CSF/XML parser text, backend paths, and response bodies are never
+returned in the tool error.
+
+A section `check_failed` or `not_found` with
 `outline_then_select_section` is a recoverable occurrence-selection error:
 refresh the outline, choose the exact heading occurrence from its content-free
 metadata, and then read that section once. Other section `not_found` failures
@@ -154,9 +188,12 @@ of absence, or as a settled decision. Only `max_bytes` is recoverable. Re-read
 the same `reference`, `heading`, and `occurrence` at most once with
 `max_bytes` set to the reported `original_bytes` — the exact minimum bound for
 the same valid rendering — and only when that value is within both the caller's
-authorization and the 1 MiB cap. Accept the recovery only when the second
-result has the same page `version` and `complete:true`; otherwise keep the
-evidence incomplete. When `original_bytes` exceeds either bound, do not retry:
+authorization and the 1 MiB cap. Bind that re-read with `expected_page_version`
+set to the `version` the first section result returned, so a page that moved in
+between is refused instead of answered from a body the first result never
+described; accept the recovery only when the second result is also
+`complete:true`. Otherwise keep the evidence incomplete. When `original_bytes`
+exceeds either bound, do not retry:
 select a narrower heading from the outline, or qualify the answer as
 incomplete. The other three reasons are terminal; repeating the same call
 cannot change them.
@@ -253,7 +290,14 @@ A Confluence section `check_failed` or `not_found` with
 requested positive occurrence exceeded the available count. Its message
 contains only requested/available integer counts. Refresh the page outline,
 select an occurrence from that inventory, and read the section once; do not
-report the page or heading as missing. Other section failures use coarse safe
+report the page or heading as missing.
+A section `check_failed` with `reread_outline_then_retry_expected_version`
+means the supplied `expected_page_version` no longer matches the page; its
+message contains only the expected and current integers. Recover by re-reading
+`confluence_page_outline`, re-selecting the heading occurrence from that fresh
+outline, and requesting the section once with the new version — not by
+retrying the previous selection against the new revision, which is the drift
+rather than the fix. Other section failures use coarse safe
 messages and retain their ordinary remediation.
 A Jira Structure `not_found` or `check_failed` with
 `view_then_select_subtree` means the Structure exists but its stored-folder

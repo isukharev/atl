@@ -94,7 +94,29 @@ Confluence section. A numeric Confluence search-result id is already stable;
 do not resolve it again. Search results contain candidate metadata, not page
 bodies.
 
-`confluence_page_outline` and `confluence_page_section` can succeed with
+`confluence_page_outline` and `confluence_page_section` are one selection
+protocol: both stamp `schema_version:1`, so never validate one against the
+other's shape, and the server rejects either result fail-closed when its schema,
+page identity/version, completeness, counts, byte accounting, or version gate
+does not reconcile.
+
+Bind a section to the revision its selection came from. Pass the outline's exact
+positive `version` as `expected_page_version` whenever the `heading`, `path`, or
+`occurrence` came from `confluence_page_outline`, and the first section result's
+`version` when re-reading that same selection at a wider bound. Occurrence and
+path are positional, so an unbound re-selection can resolve to different content
+with no visible symptom. A match returns the always-present
+`page_version_gated:true`; a stale version fails with `check_failed` /
+`reread_outline_then_retry_expected_version` and only the two integers, so
+re-read the outline, re-select the occurrence there, and read the section once
+at the new version. Omit the field only for a heading fixed outside any earlier
+read: the result is then `page_version_gated:false`, an explicitly ungated read
+that is exact evidence for the revision in its own `version` but reconciles no
+earlier selection. A negative value is a usage error; omission and `0` are the
+same ungated read. The gate reuses the page response the tool already fetched —
+no extra request and no write capability.
+
+Both tools can also succeed with
 structurally bounded partial output, so check `complete` before using either. A
 partial read carries a static `partial_reason` — present exactly when
 `complete:false` — plus `original_bytes` and `emitted_bytes`.
@@ -103,8 +125,9 @@ Section `max_bytes` is the only recoverable case: a truncated section is
 coherent Markdown, so do not answer from it; instead re-read the same
 `reference`, `heading`, and `occurrence` at most once with `max_bytes` set to
 the reported `original_bytes`, and only when that value fits both your
-authorization and the 1 MiB cap. Accept it only when the second result has the
-same page `version` and `complete:true`; otherwise select a narrower heading or
+authorization and the 1 MiB cap. Bind that re-read with `expected_page_version`
+set to the first result's `version`, and accept it only when the second result
+is also `complete:true`; otherwise select a narrower heading or
 report the evidence as incomplete. No partial outline or section is evidence
 of absence or a settled decision.
 
@@ -145,7 +168,7 @@ Example topic-first route:
 confluence_search + jira_issue_search
   -> jira_issue_field_get (one selected issue field)
   -> confluence_page_outline
-  -> confluence_page_section (one selected heading)
+  -> confluence_page_section (one selected heading + that outline's version)
 ```
 
 Example attachment-evidence route:

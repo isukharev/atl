@@ -38,6 +38,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `conf page section` accepts an optional `--expected-version`, and the typed
+  read-only MCP `confluence_page_section` accepts the matching optional
+  `expected_page_version`, so a heading selection can be bound to the exact page
+  revision it came from. Heading `occurrence` and structural `path` are
+  positional, so pass the outline's exact `version` whenever the heading, path,
+  or occurrence came from `conf page outline` / `confluence_page_outline`, and
+  the first section result's `version` when re-reading that same selection at a
+  wider byte bound. A positive match returns the new always-present
+  `page_version_gated:true`; a stale one fails closed with exit `8` — at MCP a
+  `check_failed` carrying `reread_outline_then_retry_expected_version` and only
+  the two version integers — before any section is produced. A negative value is
+  a usage error (exit `2`); omission and `0` are the same explicitly ungated
+  read, which returns `page_version_gated:false`: still exact evidence for the
+  revision in its own `version`, but reconciling no earlier selection, so omit
+  it only for a selection fixed outside any earlier read. The gate is evaluated
+  against the page response the read already fetched, so it adds no backend
+  request, no write capability, and no claim of an atomic snapshot. Outline and
+  section results now also carry `schema_version:1` as one selection protocol,
+  and the MCP tools validate each result fail-closed for schema, page
+  identity/version, completeness against the closed `partial_reason` set,
+  count/byte accounting, and gate reconciliation. Existing ungated callers,
+  selection errors, sentinels, bounds, and text output are unchanged. Nested
+  Confluence sections expanded by `jira epic digest` inherit the two additive
+  members and remain explicitly ungated because their selector is supplied by
+  the digest request rather than selected from an outline. Outline failures now
+  use a dedicated content-free MCP classifier, so page identity and CSF/XML
+  parser details cannot escape through that half of the protocol.
+
 - `conf validate --cloud-compat` — an opt-in, advisory Confluence Cloud
   compatibility inventory. The flag appends warning-only `cloud-compat/*`
   findings to `problems[]` and adds

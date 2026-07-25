@@ -165,6 +165,11 @@ For `confluence_page_section`, `check_failed` or `not_found` /
 `outline_then_select_section` means the occurrence selection is ambiguous or
 stale. Refresh the content-free outline, choose the exact heading occurrence,
 then read that section once; do not report the page or heading as missing.
+`check_failed` / `reread_outline_then_retry_expected_version` means the
+`expected_page_version` you supplied no longer matches the page; the message
+carries only the expected and current integers. Re-read the outline, re-select
+the occurrence there, and request the section once at the new version — do not
+retry the previous selection against the new revision.
 For `jira_structure_view`, `not_found` or `check_failed` /
 `view_then_select_subtree` means the Structure exists but its stored-folder
 selector did not resolve exactly. Read one selector-free bounded view with a

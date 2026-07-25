@@ -222,7 +222,7 @@ func confPageCmd() *cobra.Command {
 		},
 	}
 	var sectionHeading string
-	var sectionOccurrence, sectionMaxBytes int
+	var sectionOccurrence, sectionMaxBytes, sectionExpectedVersion int
 	section := &cobra.Command{
 		Use:   "section <ID-OR-URL>",
 		Short: "Render one structurally bounded page section as Markdown",
@@ -234,6 +234,7 @@ func confPageCmd() *cobra.Command {
 			}
 			result, err := svc.PageSection(cmd.Context(), args[0], app.ConfluencePageSectionOpts{
 				Heading: sectionHeading, Occurrence: sectionOccurrence, MaxBytes: sectionMaxBytes,
+				ExpectedPageVersion: sectionExpectedVersion,
 			})
 			if err != nil {
 				return err
@@ -248,6 +249,7 @@ func confPageCmd() *cobra.Command {
 	section.Flags().StringVar(&sectionHeading, "heading", "", "exact heading text (case/whitespace normalized)")
 	section.Flags().IntVar(&sectionOccurrence, "occurrence", 0, "1-based occurrence when the heading is duplicated")
 	section.Flags().IntVar(&sectionMaxBytes, "max-bytes", 256<<10, "maximum Markdown bytes (1..1048576; truncates at block boundary)")
+	section.Flags().IntVar(&sectionExpectedVersion, "expected-version", 0, "refuse the read unless the page is at this exact version, e.g. the version `conf page outline` returned (0 leaves the read ungated)")
 	var id, format string
 	get := &cobra.Command{
 		Use:   "get",

@@ -13,7 +13,8 @@ atl conf space tree --space <KEY> [--depth N]
 atl conf page list --space <KEY> [--status current|archived|trashed]
 atl conf page resolve <id-or-same-origin-url> -o id
 atl conf page outline <id-or-same-origin-url>
-atl conf page section <id-or-same-origin-url> --heading '<exact>' -o text
+atl conf page section <id-or-same-origin-url> --heading '<exact>' \
+  --expected-version <outline-version> -o text
 atl conf page view <id-or-same-origin-url> --jira-view default -o text
 atl conf page view <id-or-same-origin-url> --jira-macros off -o text # untrusted/heavy page: placeholders only
 ```
@@ -25,6 +26,11 @@ absence; otherwise continue `next_cursor` or report the partial search. A
 numeric id returned here is already stable, so pass it directly to
 `page outline`/`page section` and reserve `page resolve` for URLs or unknown
 references.
+When a section heading or occurrence came from `page outline`, pass that
+outline's exact `version` through `--expected-version`. On a wider-bound
+section recovery, pass the first section result's version. Omit the flag only
+for a selector fixed outside any earlier read; `page_version_gated:false`
+then records that the result reconciles no earlier selection.
 
 Use transient `page view` only for one-off readonly work. For a mirror:
 
@@ -178,7 +184,7 @@ identifier per line.
 |---|---|---|
 | `conf search` | Find a qualified bounded page (`complete`/`truncated`) | `--cql` or convenience filters, `--limit`, `--cursor` |
 | `conf space tree` | Space hierarchy | `--space`, `--depth` |
-| `conf page resolve|outline|section|list|get|view|meta|history|open` | Reference resolution and page reads | outline before long reads; section uses exact heading/occurrence/byte cap; view supports `--jira-view`, `--jira-macros` |
+| `conf page resolve|outline|section|list|get|view|meta|history|open` | Reference resolution and page reads | outline before long reads; section uses exact heading/occurrence/byte cap and `--expected-version` for outline-derived or recovery reads; view supports `--jira-view`, `--jira-macros` |
 | `conf page labels list <ID>` | Complete page-label read | no write; inspect `complete` |
 | `conf page labels add\|remove <ID> <LABEL>...` | Guarded label preview/apply | `--apply`, `--expected-proposal-hash` |
 | `conf page title set <ID>` | Guarded title preview/apply | `--from-file`, `--apply`, expected gates |

@@ -16,7 +16,11 @@ services once with a narrow query containing `Orchid retry worker`, use the
 returned candidate evidence to reject superseded and unrelated results, then
 expand only the selected Jira `Description` field and selected Confluence
 `Decision` section. Inspect the selected page outline before reading the
-section, then pass its exact title `Decision` without a Markdown `#` prefix.
+section, then pass its exact title `Decision` without a Markdown `#` prefix and
+copy that outline result's exact `version` into the section call's
+`expected_page_version`. The heading selection is only attributable to that
+revision; a stale binding must be refused rather than retried against a new
+outline.
 A numeric id returned by Confluence search is already stable; do not
 resolve it again. Do not repeat a successful search or read a distractor.
 
