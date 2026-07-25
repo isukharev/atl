@@ -1,0 +1,52 @@
+{
+  "cloud_compat": {
+    "rule_pack": "v1",
+    "source_date": "2026-07-25"
+  },
+  "file": "<FILE>",
+  "ok": true,
+  "problems": [
+    {
+      "severity": "warning",
+      "line": 1,
+      "col": 1,
+      "rule": "cloud-compat/macro-view-only",
+      "message": "macro \"chart\" is removed from both Confluence Cloud editors; existing instances stay visible but cannot be inserted or edited"
+    },
+    {
+      "severity": "warning",
+      "line": 2,
+      "col": 1,
+      "rule": "cloud-compat/macro-removed",
+      "message": "macro \"span\" is removed from Confluence Cloud"
+    },
+    {
+      "severity": "warning",
+      "line": 3,
+      "col": 1,
+      "rule": "cloud-compat/macro-not-insertable",
+      "message": "macro \"info\" cannot be inserted in the Confluence Cloud editor; Atlassian documents a Cloud editor migration or conversion path for existing content"
+    },
+    {
+      "severity": "warning",
+      "line": 3,
+      "col": 56,
+      "rule": "cloud-compat/macro-not-insertable",
+      "message": "macro \"code\" cannot be inserted in the Confluence Cloud editor; Atlassian documents a Cloud editor migration or conversion path for existing content"
+    },
+    {
+      "severity": "warning",
+      "line": 3,
+      "col": 56,
+      "rule": "cloud-compat/nested-bodied-macro",
+      "message": "macro \"code\" has a body and is nested inside macro \"info\"; the Confluence Cloud editor does not support nested bodied macros"
+    },
+    {
+      "severity": "warning",
+      "line": 4,
+      "col": 23,
+      "rule": "cloud-compat/nested-table",
+      "message": "table nested inside another table; the Confluence Cloud editor does not support nested tables"
+    }
+  ]
+}

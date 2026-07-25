@@ -79,6 +79,31 @@ cursor and no pagination anomaly. Legacy/unqualified stores remain
 above a Markdown candidate table; `-o id` remains page ids only. Agents must
 continue a cursor or disclose partial search before making an absence claim.
 
+### Advisory Cloud-compatibility validation
+
+`atl conf validate --cloud-compat` is opt-in and purely additive. Without the
+flag the result object is unchanged: `{file, ok, problems}`. With it, the object
+gains `cloud_compat:{rule_pack:"v1",source_date:"2026-07-25"}` and `problems[]`
+gains `cloud-compat/*` entries appended in document order after the default
+diagnostics. Every such entry has severity `"warning"`, so the flag can never
+change `ok`, the push gate, or the command's exit status.
+
+The v1 rule set is closed: `cloud-compat/macro-not-insertable`,
+`cloud-compat/macro-view-only`, `cloud-compat/macro-removed`,
+`cloud-compat/nested-bodied-macro`, and `cloud-compat/nested-table`. The macro
+category is carried by `rule`, never by the message prose, so a client branches
+on the rule name. `rule_pack` identifies the frozen taxonomy and `source_date`
+the day it was reconciled against the official Atlassian Cloud editor and
+macro-removal documentation; treat both as the version handle for any stored
+finding. Only macro keys named explicitly on Atlassian's official compatibility
+list are classified; an unlisted marketplace app, user, or unknown macro is
+never guessed at. No finding asserts that a migration will or will not succeed.
+A body that is not well-formed
+short-circuits before the pack runs: the result keeps `cloud_compat` and the
+well-formedness error but carries no `cloud-compat/*` entry, which is not
+evidence of Cloud compatibility. The command converts nothing, calls no backend,
+and writes no files.
+
 ### Capability catalog
 
 `atl capabilities` is an offline, deterministic routing contract. JSON is
@@ -290,7 +315,8 @@ text. Text output remains one concise `error:` line.
   HTTP 409 on a Jira write (locked issue, workflow veto) stays a generic conflict (exit `1`), also
   distinct from `5` (#66).
 - `conf validate` exits non-zero (exit 1) when the CSF is not well-formed. Treat any `"error"`-
-  severity problem in its `problems[]` array as a hard blocker before pushing.
+  severity problem in its `problems[]` array as a hard blocker before pushing. `--cloud-compat`
+  adds only `"warning"`-severity findings, so it never changes this exit status.
 - `jira issue check` exits `8` (`ErrCheckFailed`) when a field listed in `--require` is empty — a
   distinct code so a CI gate can tell "fields missing" from a transport/auth error. The full result
   (including `missing_required` and `missing_warn`) is still emitted to stdout before the exit.

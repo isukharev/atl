@@ -1063,7 +1063,8 @@ func confPlanCmd() *cobra.Command {
 }
 
 func confValidateCmd() *cobra.Command {
-	return &cobra.Command{
+	var cloudCompat bool
+	cmd := &cobra.Command{
 		Use:   "validate <file.csf>",
 		Short: "Validate CSF well-formedness + sanity → machine-readable problems",
 		Args:  cobra.ExactArgs(1),
@@ -1072,15 +1073,27 @@ func confValidateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			problems := csf.Validate(body)
+			problems := csf.ValidateWithOptions(body, csf.Options{CloudCompat: cloudCompat})
 			err = nil
 			if csf.HasErrors(problems) {
 				err = fmt.Errorf("%s: not well-formed", args[0])
 			}
-			_ = emit(cmd, map[string]any{"file": args[0], "ok": !csf.HasErrors(problems), "problems": problems}, nil)
+			out := map[string]any{"file": args[0], "ok": !csf.HasErrors(problems), "problems": problems}
+			if cloudCompat {
+				// Only present with the flag, so default output is unchanged.
+				// The pack is versioned because Atlassian's documentation moves.
+				out["cloud_compat"] = map[string]any{
+					"rule_pack":   csf.CloudCompatRulePack,
+					"source_date": csf.CloudCompatSourceDate,
+				}
+			}
+			_ = emit(cmd, out, nil)
 			return err
 		},
 	}
+	cmd.Flags().BoolVar(&cloudCompat, "cloud-compat", false,
+		"also report advisory Confluence Cloud compatibility findings (cloud-compat/* warnings; never blocks)")
+	return cmd
 }
 
 func confPushCmd() *cobra.Command {

@@ -26,10 +26,27 @@ func HasErrors(ps []Problem) bool {
 	return false
 }
 
+// Options selects optional, additive rule packs. The zero value reproduces
+// Validate exactly, so existing callers keep their current diagnostics.
+type Options struct {
+	// CloudCompat runs the advisory Confluence Cloud compatibility rule pack
+	// (see cloudcompat.go). Its findings are always warnings, so enabling it
+	// can never change HasErrors, the push gate, or a command's exit status.
+	CloudCompat bool
+}
+
 // Validate checks a CSF body. It always runs well-formedness (errors); when the
 // body parses it also runs non-blocking sanity checks (warnings). Diagnostics
 // carry 1-based line/col into the original bytes.
 func Validate(raw []byte) []Problem {
+	return ValidateWithOptions(raw, Options{})
+}
+
+// ValidateWithOptions is Validate plus the opt-in rule packs selected by opts.
+// Optional findings are appended after the default diagnostics in document
+// order; a body that is not well-formed short-circuits before any rule pack
+// runs, because the rules need a DOM.
+func ValidateWithOptions(raw []byte, opts Options) []Problem {
 	if p, ok := wellFormed(raw); !ok {
 		return []Problem{p}
 	}
@@ -38,7 +55,11 @@ func Validate(raw []byte) []Problem {
 		// Should not happen if wellFormed passed, but be safe.
 		return []Problem{{Severity: "error", Rule: "well-formedness", Message: err.Error()}}
 	}
-	return append(sanity(root), invisibles(raw)...)
+	ps := append(sanity(root), invisibles(raw)...)
+	if opts.CloudCompat {
+		ps = append(ps, cloudCompat(raw, root)...)
+	}
+	return ps
 }
 
 // invisibles reports advisory warnings for character classes that render

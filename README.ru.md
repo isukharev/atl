@@ -368,6 +368,12 @@ $EDITOR mirror/DOCS/acme-adr/acme-adr.csf
 # Валидация перед публикацией (блокирует при невалидном XML, предупреждает о проблемах)
 atl conf validate mirror/DOCS/acme-adr/acme-adr.csf
 
+# Опциональная справочная проверка совместимости с Confluence Cloud (только warning, не блокирует).
+# Добавляет находки cloud-compat/* и cloud_compat.rule_pack / source_date; не предсказывает
+# результат миграции и не делает выводов о неуказанных marketplace-, пользовательских
+# или неизвестных макросах.
+atl conf validate mirror/DOCS/acme-adr/acme-adr.csf --cloud-compat
+
 # Офлайн-проверка изменений native baseline → candidate (по умолчанию JSON)
 ATL_READ_ONLY=1 atl conf diff mirror/DOCS/acme-adr/acme-adr.csf -o text
 # Text использует пути относительно корня и явные метки semantic/byte-only/none;
@@ -451,6 +457,7 @@ atl conf comment add  --id 123456 --from-file comment.csf
 | Защита | Поведение |
 |--------|-----------|
 | `atl conf validate` | Блокирует при невалидном XML (с указанием строки/колонки); предупреждает о структурных проблемах |
+| `atl conf validate --cloud-compat` | Опциональная справочная проверка совместимости с Cloud (предупреждения `cloud-compat/*`, версионированный rule pack); не блокирует и не предсказывает результат миграции |
 | `atl conf plan create/preview/apply` | Фиксирует набор страниц; полный read-only preview, точный hash + подтверждение, без force/replay |
 | `atl conf push --dry-run` | Показывает все последствия без записи |
 | Version gate | `push` завершается с кодом **5**, если удалённая версия опередила последнюю синхронизацию |

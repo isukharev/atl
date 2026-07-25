@@ -1580,6 +1580,14 @@ Well-formedness errors (severity `"error"`) block a push. Sanity problems
 atl conf validate mirror/DOCS/guide/guide.csf
 ```
 
+`<file.csf>` is the required local file to validate.
+
+Flags:
+
+| flag | description |
+|---|---|
+| `--cloud-compat` | also report advisory Confluence Cloud compatibility findings (`cloud-compat/*` warnings; never blocks) |
+
 Output (JSON):
 
 ```json
@@ -1605,6 +1613,83 @@ defeat exact-string editing — non-breaking spaces (`U+00A0`), zero-width
 characters, soft hyphens — one warning per class with the occurrence count and
 first position. They never block a push; use `atl conf edit` (tolerant
 matching) when they are present.
+
+#### `--cloud-compat` — advisory Cloud compatibility inventory
+
+Opt-in. Without the flag nothing changes: the default diagnostics and the
+default JSON object (`{file, ok, problems}`) are exactly as before. With the
+flag, `conf validate` appends `cloud-compat/*` findings to `problems[]` in
+document order after the default diagnostics, and adds one `cloud_compat`
+object that identifies the rule pack:
+
+```json
+{
+  "cloud_compat": {
+    "rule_pack": "v1",
+    "source_date": "2026-07-25"
+  },
+  "file": "mirror/DOCS/guide/guide.csf",
+  "ok": true,
+  "problems": [
+    {
+      "severity": "warning",
+      "line": 1,
+      "col": 4,
+      "rule": "cloud-compat/macro-not-insertable",
+      "message": "macro \"info\" cannot be inserted in the Confluence Cloud editor; Atlassian documents a Cloud editor migration or conversion path for existing content"
+    },
+    {
+      "severity": "warning",
+      "line": 2,
+      "col": 23,
+      "rule": "cloud-compat/nested-table",
+      "message": "table nested inside another table; the Confluence Cloud editor does not support nested tables"
+    }
+  ]
+}
+```
+
+Every `cloud-compat/*` finding has severity `"warning"`, so the flag can never
+change `ok`, the push gate, or the exit status of an otherwise valid page.
+
+The `v1` rule pack is closed — these five stable rule names and no others:
+
+| rule | what it reports |
+|---|---|
+| `cloud-compat/macro-not-insertable` | a listed macro that cannot be inserted in the Cloud editor; Atlassian documents how existing content migrates or converts |
+| `cloud-compat/macro-view-only` | a listed macro removed from both Cloud editors; existing instances stay visible but cannot be inserted or edited |
+| `cloud-compat/macro-removed` | a listed macro removed from Confluence Cloud |
+| `cloud-compat/nested-bodied-macro` | a macro carrying a body nested inside another macro, which the Cloud editor does not natively support |
+| `cloud-compat/nested-table` | a table nested inside another table, which the Cloud editor does not support |
+
+The macro category is carried by `rule`, never by the message prose, so tooling
+can branch on the rule name without parsing text. Findings are anchored with
+1-based `line`/`col` into the original bytes.
+
+`rule_pack` and `source_date` are part of the output because Atlassian's
+support pages change over time: `source_date` records when the pack was last
+reconciled against the official documentation on
+[what migrates with the Confluence Cloud Migration Assistant](https://support.atlassian.com/migration/docs/what-migrates-with-the-confluence-cloud-migration-assistant/),
+[which macros are being removed](https://support.atlassian.com/confluence-cloud/docs/learn-which-macros-are-being-removed/),
+and [legacy editor vs. Cloud editor differences](https://support.atlassian.com/confluence-cloud/docs/differences-using-confluence-legacy-editor-and-cloud-editor/).
+Record both values alongside any finding you keep.
+
+The pack is deliberately conservative. Read its output as an inventory, not a
+verdict:
+
+- It does not predict or guarantee migration success or failure. A clean run is
+  not a promise that the page migrates intact, and a finding is not a claim that
+  migration will fail.
+- Only macro keys named explicitly on Atlassian's official compatibility list
+  are classified. An unlisted marketplace app, user, or unknown macro is never
+  guessed at, so an absent finding says nothing about it.
+- It converts nothing. There is no CSF-to-ADF conversion, no Cloud or Data
+  Center API call, no migration execution, and no file is written — validation
+  stays offline and read-only.
+- A body that is not well-formed short-circuits before the pack runs, because
+  the rules need a parsed document. The result still carries `cloud_compat` and
+  the well-formedness error, but no `cloud-compat/*` finding — and their absence
+  is not a clean bill of health. Fix the XML error, then re-run with the flag.
 
 ### `atl conf edit`
 

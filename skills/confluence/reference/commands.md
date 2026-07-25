@@ -163,6 +163,7 @@ ATL_READ_ONLY=1 atl conf diff <page.csf|DIR>       # offline native semantic dif
 ATL_READ_ONLY=1 atl conf plan create <file|DIR> --out <private.json>
 ATL_READ_ONLY=1 atl conf plan preview <private.json> # complete GET-only preview
 atl conf validate <page.csf>
+atl conf validate <page.csf> --cloud-compat # advisory warnings only
 ```
 
 Remote status makes one request per page. Omit `--remote` for local-only state.
@@ -194,7 +195,7 @@ identifier per line.
 | `conf plan apply` | Exact gated execution after preview | plan; required `--expected-proposal-hash`, `--confirm APPLY` |
 | `conf apply` | Merge Markdown to CSF | page md, `--dry-run`, `--allow-fragment-loss`, `--into` |
 | `conf edit` | Tolerant local byte splice | `--old/--new`, file variants, `--all`, `--dry-run` |
-| `conf validate` | Validate CSF | file |
+| `conf validate` | Validate CSF; optional advisory Cloud compatibility inventory | file, `--cloud-compat` |
 | `conf push` | Version-gated write | file/dir, `--dry-run`, `--force`, `--into` |
 | `conf comment list|add` | Comment reads/writes | page id, CSF file |
 | `conf attachment list|get|upload|delete` | Attachments; `list` is qualified (`complete`/`partial_reason`) | page/id/name/version/file/into, `list --expected-version` |
