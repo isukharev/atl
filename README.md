@@ -202,6 +202,8 @@ atl capabilities --task knowledge/search -o text
 It returns only a small ordered set of real command paths plus their access,
 output, completeness, and focused skill-reference contracts. It loads no
 config/credentials and makes no network request.
+For `jira/evidence`, broad discovery starts with `jira issue search` before
+exact per-issue field qualification and bounded expansion.
 The `jira/structure-planning` route distinguishes hierarchy discovery,
 explicit Structure row-value projection, and transient issue export; the value
 projection is read-only even though Tempo transports its query payload by POST.

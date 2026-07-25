@@ -69,6 +69,7 @@ type capabilityRouting struct {
 // output facts are derived from the Cobra command tree below, so CI catches
 // drift between this routing layer and the executable contract.
 var capabilityDefinitions = []capabilityDefinition{
+	{ID: "jira.issue.search", TaskClass: "jira/evidence", Service: "jira", Role: "discover", Priority: 5, Summary: "Search Jira for candidate issues before exact evidence expansion", Command: "jira issue search", Evidence: "snapshot", Completeness: "explicit", Skill: "jira", Reference: "reference/evidence-workflow.md"},
 	{ID: "jira.issue.fields", TaskClass: "jira/evidence", Service: "jira", Role: "discover", Priority: 10, Summary: "Discover non-empty issue fields with names and compact values", Command: "jira issue fields", Evidence: "qualified", Completeness: "explicit", Skill: "jira", Reference: "reference/evidence-workflow.md"},
 	{ID: "jira.epic.digest", TaskClass: "jira/evidence", Service: "jira", Role: "primary", Priority: 20, Summary: "Collect bounded multi-source evidence for one epic and period", Command: "jira epic digest", Evidence: "qualified", Completeness: "per-source", Skill: "jira", Reference: "reference/evidence-workflow.md"},
 	{ID: "jira.issue.field.get", TaskClass: "jira/evidence", Service: "jira", Role: "expand", Priority: 30, Summary: "Expand one exact clipped field with a hard byte bound", Command: "jira issue field get", Evidence: "qualified", Completeness: "explicit", Skill: "jira", Reference: "reference/evidence-workflow.md"},
