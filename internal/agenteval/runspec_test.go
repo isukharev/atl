@@ -1370,6 +1370,114 @@ func TestRunSpecValidatesExactMCPInvocations(t *testing.T) {
 	}
 }
 
+// TestRunSpecValidatesOrderInsensitiveMCPInvocations binds the diagnostic
+// separation the order-insensitive kind exists for: it must accept a reordered
+// but otherwise identical route while the ordered kind rejects it, and it must
+// still reject a missing, extra, repeated, or differently-argued call.
+func TestRunSpecValidatesOrderInsensitiveMCPInvocations(t *testing.T) {
+	expected := json.RawMessage(`[
+		{"tool":"jira_issue_search","arguments":{"jql":"project = DEMO","columns":["key","status"],"limit":10}},
+		{"tool":"confluence_page_section","arguments":{"reference":"42","heading":"Decision","occurrence":1,"max_bytes":32768}},
+		{"tool":"confluence_page_section","arguments":{"reference":"42","heading":"Decision","occurrence":2,"max_bytes":32768}}
+	]`)
+	valid := validRunSpec()
+	valid.ToolTransport = "mcp"
+	valid.Surface = SurfaceATLMCP
+	valid.AllowedTools = nil
+	valid.AllowedATLCommands = nil
+	valid.AllowedMCPTools = []string{"jira_issue_search", "confluence_page_section"}
+	valid.Checks = append(valid.Checks,
+		RunCheck{Name: "route_arguments", Kind: "mcp_invocations_multiset_equal", Expected: expected},
+		RunCheck{Name: "route_exact_order", Kind: "mcp_invocations_equal", Expected: expected},
+	)
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if runCheckClass("mcp_invocations_multiset_equal") != "mechanical" ||
+		!privateActivationSafetyCheckKind("mcp_invocations_multiset_equal") {
+		t.Fatal("mcp_invocations_multiset_equal is not classified as a mechanical safety check")
+	}
+
+	observed, ok := expectedMCPInvocations(expected)
+	if !ok {
+		t.Fatal("valid invocation expectation did not decode")
+	}
+	routeChecks := valid.Checks[len(valid.Checks)-2:]
+	evaluate := func(invocations []MCPInvocation, invocationsObserved bool) map[string]bool {
+		t.Helper()
+		checks, err := evaluateRunChecksWithMCPInvocations(
+			routeChecks, []byte(`{}`), "", len(invocations), 0, 0, 0,
+			nil, 0, 0, map[string]int{"GET": 3}, true, nil, nil, true, nil,
+			invocations, invocationsObserved,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return checks
+	}
+
+	if checks := evaluate(observed, true); !checks["route_arguments"] || !checks["route_exact_order"] {
+		t.Fatalf("conforming route rejected: %v", checks)
+	}
+	reordered := []MCPInvocation{observed[2], observed[0], observed[1]}
+	if checks := evaluate(reordered, true); !checks["route_arguments"] || checks["route_exact_order"] {
+		t.Fatalf("ordered and order-insensitive oracles did not separate: %v", checks)
+	}
+	if checks := evaluate(observed, false); checks["route_arguments"] {
+		t.Fatalf("unobserved invocation telemetry passed: %v", checks)
+	}
+
+	withoutOrderedCompanion := valid
+	withoutOrderedCompanion.Checks = slices.Clone(valid.Checks[:len(valid.Checks)-1])
+	if err := withoutOrderedCompanion.Validate(); err == nil ||
+		!strings.Contains(err.Error(), "requires a mcp_invocations_equal companion") {
+		t.Fatalf("multiset route without ordered companion err=%v", err)
+	}
+	differentOrderedCompanion := valid
+	differentOrderedCompanion.Checks = slices.Clone(valid.Checks)
+	var differentExpected []json.RawMessage
+	if err := json.Unmarshal(expected, &differentExpected); err != nil {
+		t.Fatal(err)
+	}
+	differentExpected[0], differentExpected[1] = differentExpected[1], differentExpected[0]
+	differentExpectedRaw, err := json.Marshal(differentExpected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	differentOrderedCompanion.Checks[len(differentOrderedCompanion.Checks)-1].Expected = differentExpectedRaw
+	if err := differentOrderedCompanion.Validate(); err == nil ||
+		!strings.Contains(err.Error(), "requires a mcp_invocations_equal companion") {
+		t.Fatalf("multiset route with different ordered companion err=%v", err)
+	}
+
+	changed := slices.Clone(observed)
+	changed[2].Arguments = json.RawMessage(`{"heading":"Decision","max_bytes":16384,"occurrence":2,"reference":"42"}`)
+	for name, invocations := range map[string][]MCPInvocation{
+		"missing":   {observed[0], observed[1]},
+		"extra":     {observed[0], observed[1], observed[2], observed[2]},
+		"duplicate": {observed[0], observed[1], observed[1]},
+		"arguments": changed,
+	} {
+		if checks := evaluate(invocations, true); checks["route_arguments"] {
+			t.Fatalf("%s route passed the order-insensitive oracle", name)
+		}
+	}
+
+	for _, invalid := range []json.RawMessage{
+		nil,
+		json.RawMessage(`[]`),
+		json.RawMessage(`[{"tool":"jira_issue_search","arguments":[]}]`),
+		json.RawMessage(`[{"tool":"not_allowed","arguments":{}}]`),
+	} {
+		spec := valid
+		spec.Checks = slices.Clone(valid.Checks)
+		spec.Checks[len(spec.Checks)-2].Expected = invalid
+		if err := spec.Validate(); err == nil {
+			t.Fatalf("invalid order-insensitive oracle passed: %s", invalid)
+		}
+	}
+}
+
 func TestRunSpecValidatesExactMCPRouteAlternatives(t *testing.T) {
 	expected := json.RawMessage(`[
 		{

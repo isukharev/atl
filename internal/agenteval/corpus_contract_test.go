@@ -614,7 +614,7 @@ func TestRepositorySingleCallMCPCellsAttestExactArguments(t *testing.T) {
 func repositoryMCPInvocationCheck(t *testing.T, spec RunSpec) RunCheck {
 	t.Helper()
 	for _, check := range spec.Checks {
-		if check.Kind == "mcp_invocations_equal" {
+		if exactMCPInvocationCheckKind(check.Kind) {
 			return check
 		}
 	}
@@ -2040,10 +2040,11 @@ func corpusOutlineDerivedSections(invocations []MCPInvocation) (derived int, ung
 }
 
 // TestCorpusExactRoutesBindOutlineDerivedSectionsToPageVersions keeps the
-// strict mcp_invocations_equal oracles from accepting the older ungated
-// section read. It covers exact routes only: mcp_route_one_of binds a set of
-// accepted alternatives rather than one exact call sequence, and its
-// outline-derived sections are not gated by this invariant.
+// strict exact-invocation oracles from accepting the older ungated section
+// read. Both exact kinds are covered: an order-insensitive route still binds
+// every argument, so it carries the same page-version obligation. Only
+// mcp_route_one_of is outside the invariant, because it binds a set of accepted
+// alternatives rather than one exact call list.
 func TestCorpusExactRoutesBindOutlineDerivedSectionsToPageVersions(t *testing.T) {
 	outline, outlineOK := newMCPInvocation("confluence_page_outline", map[string]any{"reference": "4242"})
 	gated, gatedOK := newMCPInvocation("confluence_page_section", map[string]any{
@@ -2090,7 +2091,7 @@ func TestCorpusExactRoutesBindOutlineDerivedSectionsToPageVersions(t *testing.T)
 		}
 		spec := loadRepositoryRunSpec(t, path)
 		for _, check := range spec.Checks {
-			if check.Kind != "mcp_invocations_equal" {
+			if !exactMCPInvocationCheckKind(check.Kind) {
 				continue
 			}
 			invocations, ok := expectedMCPInvocations(check.Expected)

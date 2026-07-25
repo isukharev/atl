@@ -264,8 +264,8 @@ func corpusScenarioHasToken(scenarioID, token string) bool {
 func corpusExactMCPTools(spec RunSpec) map[string]bool {
 	result := map[string]bool{}
 	for _, check := range spec.Checks {
-		switch check.Kind {
-		case "mcp_invocations_equal":
+		switch {
+		case exactMCPInvocationCheckKind(check.Kind):
 			invocations, ok := expectedMCPInvocations(check.Expected)
 			if !ok {
 				continue
@@ -273,7 +273,7 @@ func corpusExactMCPTools(spec RunSpec) map[string]bool {
 			for _, invocation := range invocations {
 				result[invocation.Tool] = true
 			}
-		case "mcp_route_one_of":
+		case check.Kind == "mcp_route_one_of":
 			alternatives, ok := expectedMCPRouteAlternatives(check.Expected)
 			if !ok || len(alternatives) == 0 {
 				continue

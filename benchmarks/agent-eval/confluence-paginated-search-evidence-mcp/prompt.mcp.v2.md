@@ -17,7 +17,9 @@ current control record.
 Keep model-visible source evidence bounded. Process selected current pages in
 ascending numeric id order. For each one, inspect its heading inventory and
 then immediately request only the `Current control` section projection before
-moving to the next page. In every section call, pass the stable numeric page id
+moving to the next page. Once you call an outline, the very next interface call
+must be the matching section call for that same page; two outline calls may
+never be consecutive. In every section call, pass the stable numeric page id
 as `reference`, the exact heading title as `heading`, its one-based outline
 occurrence as `occurrence` (including `1` for a unique heading),
 `max_bytes=32768`, and `expected_page_version` copied exactly from the

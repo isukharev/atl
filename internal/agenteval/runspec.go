@@ -568,7 +568,7 @@ func (s RunSpec) Validate() error {
 			if _, ok := expectedCapabilitySequence(check.Expected); check.Minimum != 0 || check.Maximum != 0 || check.Pointer != "" || !ok {
 				return fmt.Errorf("capability_sequence_equal check %q requires a bounded ordered family array", check.Name)
 			}
-		case "mcp_invocations_equal":
+		case "mcp_invocations_equal", "mcp_invocations_multiset_equal":
 			expected, ok := expectedMCPInvocations(check.Expected)
 			if s.EffectiveSurface() != SurfaceATLMCP ||
 				check.Minimum != 0 ||
@@ -576,7 +576,7 @@ func (s RunSpec) Validate() error {
 				check.Pointer != "" ||
 				!ok ||
 				!invocationToolsAllowed(expected, s.AllowedMCPTools) {
-				return fmt.Errorf("mcp_invocations_equal check %q requires an exact bounded ATL MCP tool-and-arguments array", check.Name)
+				return fmt.Errorf("%s check %q requires an exact bounded ATL MCP tool-and-arguments array", check.Kind, check.Name)
 			}
 		case "mcp_route_one_of":
 			alternatives, ok := expectedMCPRouteAlternatives(check.Expected)
@@ -595,6 +595,26 @@ func (s RunSpec) Validate() error {
 			}
 		default:
 			return fmt.Errorf("unsupported run check kind %q", check.Kind)
+		}
+	}
+	for _, check := range s.Checks {
+		if check.Kind != "mcp_invocations_multiset_equal" {
+			continue
+		}
+		expected, _ := expectedMCPInvocations(check.Expected)
+		hasOrderedCompanion := false
+		for _, candidate := range s.Checks {
+			if candidate.Kind != "mcp_invocations_equal" {
+				continue
+			}
+			candidateExpected, _ := expectedMCPInvocations(candidate.Expected)
+			if equalMCPInvocations(expected, candidateExpected) {
+				hasOrderedCompanion = true
+				break
+			}
+		}
+		if !hasOrderedCompanion {
+			return fmt.Errorf("mcp_invocations_multiset_equal check %q requires a mcp_invocations_equal companion with the same exact route", check.Name)
 		}
 	}
 	if requiresSkillInvocation && (transport != "cli" || !containsRunString(s.AllowedTools, "Skill") || s.Provider != "claude-code" && !isCodexConfinedCLI(s)) {
@@ -952,6 +972,9 @@ func evaluateRunChecksWithMCPInvocations(
 		case "mcp_invocations_equal":
 			expected, _ := expectedMCPInvocations(check.Expected)
 			results[check.Name] = mcpInvocationsObserved && equalMCPInvocations(expected, mcpInvocations)
+		case "mcp_invocations_multiset_equal":
+			expected, _ := expectedMCPInvocations(check.Expected)
+			results[check.Name] = mcpInvocationsObserved && equalMCPInvocationMultisets(expected, mcpInvocations)
 		case "mcp_route_one_of":
 			alternatives, _ := expectedMCPRouteAlternatives(check.Expected)
 			results[check.Name] = httpMethodsObserved &&

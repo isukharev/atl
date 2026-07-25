@@ -72,7 +72,7 @@ func privateActivationSafetyCheckKind(kind string) bool {
 	case "guard_no_denials", "http_methods_observed", "http_methods_equal", "delegations_none",
 		"atl_invocations_max", "interface_invocations_max", "mock_no_unexpected",
 		"capability_families_equal", "capability_sequence_equal", "mcp_invocations_equal",
-		"mcp_route_one_of":
+		"mcp_invocations_multiset_equal", "mcp_route_one_of":
 		return true
 	default:
 		return false
