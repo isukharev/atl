@@ -124,7 +124,7 @@ Run the typed read-only agent tool surface over MCP stdio:
 atl mcp serve
 ```
 
-The process registers fifteen explicit Jira/Confluence evidence tools and no
+The process registers sixteen explicit Jira/Confluence evidence tools and no
 mutation, shell, arbitrary-file, mirror-write, or raw-REST tool. Two no-argument
 tools inspect only an explicit valid `ATL_MIRROR_ROOT`, offline, and return
 content-free mirror health counts. Stdout is

@@ -44,8 +44,8 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		"confluence_mirror_snapshot",
 		"confluence_page_outline", "confluence_page_resolve", "confluence_page_section", "confluence_search",
 		"confluence_table_extract", "confluence_table_summary",
-		"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_search",
-		"jira_mirror_snapshot", "jira_structure_get", "jira_structure_view",
+		"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_history",
+		"jira_issue_search", "jira_mirror_snapshot", "jira_structure_get", "jira_structure_view",
 	}
 	got := make([]string, 0, len(listed.Tools))
 	for _, tool := range listed.Tools {
@@ -90,6 +90,32 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 				!projectionExists || !strings.Contains(projectionDescription, "compatibility alias for columns") {
 				t.Errorf("tool %s field selection guidance is ambiguous: description=%q columns=%#v fields=%#v projection=%#v",
 					tool.Name, tool.Description, columns, fields, projection)
+			}
+		}
+		if tool.Name == "jira_issue_history" {
+			properties, _ := input["properties"].(map[string]any)
+			for _, forbidden := range []string{"history", "projection", "summary_only", "raw", "limit"} {
+				if _, exists := properties[forbidden]; exists {
+					t.Errorf("tool %s must not expose a %s selector: %#v", tool.Name, forbidden, tool.InputSchema)
+				}
+			}
+			for _, expected := range []string{"key", "fields", "since", "until", "max_bytes"} {
+				if _, exists := properties[expected]; !exists {
+					t.Errorf("tool %s input must expose %s: %#v", tool.Name, expected, tool.InputSchema)
+				}
+			}
+			if !schemaRequired(input, "key") {
+				t.Errorf("tool %s must require key: %#v", tool.Name, tool.InputSchema)
+			}
+			output, _ := tool.OutputSchema.(map[string]any)
+			outputProperties, _ := output["properties"].(map[string]any)
+			if _, exists := outputProperties["history"]; exists {
+				t.Errorf("tool %s output must not carry raw history rows: %#v", tool.Name, tool.OutputSchema)
+			}
+			for _, required := range []string{"key", "complete", "source", "total", "fetched", "count", "filters", "summary"} {
+				if !schemaRequired(output, required) {
+					t.Errorf("tool %s output must require %s: %#v", tool.Name, required, tool.OutputSchema)
+				}
 			}
 		}
 		if tool.Name == "confluence_page_section" {
@@ -190,6 +216,9 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 	for index, tool := range inventory.MCPTools {
 		covered[index] = tool.Tool
 	}
+	// Every advertised read-only tool must carry exact model-in-the-loop
+	// benchmark coverage, and a benchmark that names an unregistered tool must
+	// fail: the two sets are compared for equality with no exceptions.
 	if !slices.Equal(covered, want) {
 		t.Fatalf("advertised tools lack exact benchmark coverage: covered=%v want=%v", covered, want)
 	}
@@ -1175,6 +1204,156 @@ func TestJiraIssueSearchProjectionAliasesTreatEmptyArraysAsOmitted(t *testing.T)
 
 }
 
+func TestJiraIssueHistoryForwardsExactOptionsAndReturnsSummaryOnly(t *testing.T) {
+	reader := &recordingJiraReader{}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Jira: func() (JiraReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+
+	result := callToolOK(t, client, "jira_issue_history", map[string]any{
+		"key": "PROJ-1", "fields": []string{"customfield_10001", "status"},
+		"since": "2026-03-01", "until": "2026-03-31", "max_bytes": 4096,
+	})
+
+	if reader.historyKey != "PROJ-1" || reader.historyOpts.Since != "2026-03-01" || reader.historyOpts.Until != "2026-03-31" ||
+		!slices.Equal(reader.historyOpts.Fields, []string{"customfield_10001", "status"}) {
+		t.Fatalf("history key=%q opts=%+v", reader.historyKey, reader.historyOpts)
+	}
+
+	content, ok := result.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("content=%#v", result.StructuredContent)
+	}
+	if _, exists := content["history"]; exists {
+		t.Fatalf("summary projection exposed raw history rows: %#v", content)
+	}
+	summary, summaryOK := content["summary"].(map[string]any)
+	if !summaryOK || summary["history_count"] != float64(1) || summary["count_matches_history"] != true {
+		t.Fatalf("summary=%#v", content["summary"])
+	}
+	if content["key"] != "PROJ-1" || content["complete"] != true || content["source"] != "paginated" ||
+		content["total"] != float64(2) || content["fetched"] != float64(2) || content["count"] != float64(1) {
+		t.Fatalf("provenance=%#v", content)
+	}
+	filters, filtersOK := content["filters"].(map[string]any)
+	if !filtersOK || filters["since"] != "2026-03-01" || filters["until"] != "2026-03-31" {
+		t.Fatalf("filters=%#v", content["filters"])
+	}
+	changes, changesOK := content["last_changes"].([]any)
+	if !changesOK || len(changes) != 1 {
+		t.Fatalf("last_changes=%#v", content["last_changes"])
+	}
+	change, changeOK := changes[0].(map[string]any)
+	if !changeOK || change["field_id"] != "customfield_10001" || change["history_id"] != "101" {
+		t.Fatalf("last change=%#v", changes[0])
+	}
+
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte(historyRawRowMarker)) {
+		t.Fatalf("MCP result leaked a raw changelog row: %s", encoded)
+	}
+}
+
+func TestJiraIssueHistoryOmitsLastChangesWithoutSelectedFields(t *testing.T) {
+	reader := &recordingJiraReader{}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Jira: func() (JiraReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+
+	result := callToolOK(t, client, "jira_issue_history", map[string]any{"key": "PROJ-1"})
+	if reader.historyOpts.Fields != nil || reader.historyOpts.Since != "" || reader.historyOpts.Until != "" {
+		t.Fatalf("unselected history opts=%+v", reader.historyOpts)
+	}
+	content, ok := result.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("content=%#v", result.StructuredContent)
+	}
+	if _, exists := content["history"]; exists {
+		t.Fatalf("summary projection exposed raw history rows: %#v", content)
+	}
+	if _, exists := content["last_changes"]; exists {
+		t.Fatalf("last_changes present without an explicit field selection: %#v", content)
+	}
+}
+
+func TestJiraIssueHistorySentinelsKeepStableClassification(t *testing.T) {
+	tests := []struct {
+		name, kind, remediation, message string
+		err                              error
+	}{
+		{name: "not found", kind: "not_found", remediation: "verify_identifier_or_access", message: "Jira issue history was not found", err: fmt.Errorf("%w: private issue marker", domain.ErrNotFound)},
+		{name: "forbidden", kind: "forbidden", remediation: "request_access", message: "Jira issue history access is forbidden", err: fmt.Errorf("%w: private changelog marker", domain.ErrForbidden)},
+		{name: "check failed", kind: "check_failed", remediation: "review_failed_check", message: "Jira issue history summary failed validation", err: fmt.Errorf("%w: private history id and timestamp", domain.ErrCheckFailed)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &recordingJiraReader{historyErr: test.err}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Jira: func() (JiraReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+				Name: "jira_issue_history", Arguments: map[string]any{"key": "PROJ-1"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || result.StructuredContent != nil {
+				t.Fatalf("result=%+v", result)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content=%T", result.Content[0])
+			}
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil {
+				t.Fatalf("error content=%q: %v", text.Text, err)
+			}
+			if got.Kind != test.kind || got.Remediation != test.remediation || got.Message != test.message ||
+				strings.Contains(got.Message, "private") {
+				t.Fatalf("classified error=%+v", got)
+			}
+		})
+	}
+}
+
+func TestJiraIssueHistoryCancellationPropagatesToApplicationContext(t *testing.T) {
+	reader := &cancellingJiraReader{started: make(chan struct{}), canceled: make(chan struct{})}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Jira: func() (JiraReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = client.CallTool(ctx, &mcp.CallToolParams{Name: "jira_issue_history", Arguments: map[string]any{"key": "PROJ-1"}})
+	}()
+	select {
+	case <-reader.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("history tool handler did not start")
+	}
+	cancel()
+	select {
+	case <-reader.canceled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("history application context was not canceled")
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("history client call did not return after cancellation")
+	}
+}
+
 func TestJiraStructureViewSupportsFullAndExactFolderSelections(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -1725,6 +1904,9 @@ func TestToolBoundsFailBeforeBackendResolution(t *testing.T) {
 			"jql": "project=PROJ", "columns": []string{"key"}, "fields": []string{"summary"}, "projection": []string{"status"},
 		}},
 		{name: "jira_issue_field_get", args: map[string]any{"key": "PROJ-1", "field": "Delivery Notes", "max_bytes": 128}},
+		{name: "jira_issue_history", args: map[string]any{"key": "   "}},
+		{name: "jira_issue_history", args: map[string]any{"key": "PROJ-1", "max_bytes": 1023}},
+		{name: "jira_issue_history", args: map[string]any{"key": "PROJ-1", "max_bytes": 1048577}},
 		{name: "jira_board_view", args: map[string]any{"board_id": 1, "limit": 1001}},
 		{name: "jira_board_view", args: map[string]any{"board_id": 1, "max_bytes": 1023}},
 		{name: "jira_board_view", args: map[string]any{"board_id": 1, "max_bytes": 1048577}},
@@ -1791,6 +1973,9 @@ func TestJiraEvidenceOutputBoundsFailWithoutLeakingContent(t *testing.T) {
 	}{
 		{name: "jira_fields", args: map[string]any{"max_bytes": 1024}},
 		{name: "jira_issue_search", args: map[string]any{"jql": "project=PROJ", "max_bytes": 1024}},
+		{name: "jira_issue_history", args: map[string]any{
+			"key": "PROJ-1", "fields": []string{"Delivery Notes"}, "max_bytes": 1024,
+		}},
 		{name: "jira_epic_digest", args: map[string]any{
 			"key": "PROJ-1", "include": []string{"identity"}, "projection": "full", "max_bytes": 1024,
 		}},
@@ -2590,6 +2775,9 @@ type recordingJiraReader struct {
 	searchJQL, searchView, searchCursor string
 	searchColumns                       []string
 	searchLimit                         int
+	historyKey                          string
+	historyOpts                         app.JiraHistoryOpts
+	historyErr                          error
 	digestKey                           string
 	digestOpts                          app.JiraEpicDigestOpts
 	boardID                             int
@@ -2643,6 +2831,19 @@ func (r *oversizedJiraReader) SearchIssueListView(_ context.Context, _ string, _
 	}, nil
 }
 
+func (r *oversizedJiraReader) HistoryFiltered(_ context.Context, key string, opts app.JiraHistoryOpts) (*app.JiraHistoryResult, error) {
+	r.historyKey, r.historyOpts = key, opts
+	return &app.JiraHistoryResult{
+		Key: key, Complete: true, Source: "paginated", Total: 1, Fetched: 1, Count: 1,
+		History: []domain.ChangelogEntry{{ID: "101", Items: []domain.ChangelogItem{{Field: "Delivery Notes", To: historyRawRowMarker}}}},
+		Summary: app.JiraHistorySummary{HistoryCount: 1, Fields: []app.JiraHistoryFieldSummary{}},
+		LastChanges: []app.JiraFieldLastChange{{
+			FieldID: "customfield_10001", Field: "Delivery Notes", Created: "2026-03-08T10:00:00Z",
+			HistoryID: "101", To: r.payload,
+		}},
+	}, nil
+}
+
 func (r *oversizedJiraReader) EpicDigest(_ context.Context, _ string, _ app.JiraEpicDigestOpts) (*app.JiraEpicDigestResult, error) {
 	return &app.JiraEpicDigestResult{
 		SchemaVersion: 1, Includes: []string{"identity"},
@@ -2674,6 +2875,37 @@ func (r *recordingJiraReader) FieldCatalog(_ context.Context, opts app.JiraField
 	return &app.JiraFieldCatalogResult{
 		SchemaVersion: 1, Projection: "full", Source: "test", Complete: true, Fields: []domain.FieldDef{},
 	}, nil
+}
+
+// historyRawRowMarker only ever appears inside the raw History array the
+// summary projection must drop, so any test that finds it in an MCP payload has
+// found a raw-changelog leak.
+const historyRawRowMarker = "RAW-HISTORY-ROW-MARKER"
+
+func (r *recordingJiraReader) HistoryFiltered(_ context.Context, key string, opts app.JiraHistoryOpts) (*app.JiraHistoryResult, error) {
+	r.historyKey, r.historyOpts = key, opts
+	if r.historyErr != nil {
+		return nil, r.historyErr
+	}
+	result := &app.JiraHistoryResult{
+		Key: key, Complete: true, Source: "paginated", Total: 2, Fetched: 2, Count: 1,
+		Filters: app.JiraHistoryFilters{Since: opts.Since, Until: opts.Until},
+		History: []domain.ChangelogEntry{{
+			ID: "101", Author: "synthetic", Created: "2026-03-08T10:00:00Z",
+			Items: []domain.ChangelogItem{{Field: "Delivery Notes", From: historyRawRowMarker, To: historyRawRowMarker}},
+		}},
+		Summary: app.JiraHistorySummary{
+			HistoryCount: 1, HistoryIDNonemptyCount: 1, HistoryIDsUnique: true, HistoryNonemptyIDsUnique: true,
+			CountMatchesHistory: true, Fields: []app.JiraHistoryFieldSummary{},
+		},
+	}
+	if len(opts.Fields) > 0 {
+		result.LastChanges = []app.JiraFieldLastChange{{
+			FieldID: "customfield_10001", Field: "Delivery Notes",
+			Created: "2026-03-08T10:00:00Z", HistoryID: "101", To: "current",
+		}}
+	}
+	return result, nil
 }
 
 func (r *recordingJiraReader) SearchIssueListView(_ context.Context, jql string, columns []string, view string, limit int, cursor string) (*app.IssueList, error) {
@@ -2872,6 +3104,13 @@ func (r *cancellingJiraReader) FieldCatalog(ctx context.Context, _ app.JiraField
 
 func (*cancellingJiraReader) IssueFieldEvidence(context.Context, string, app.JiraIssueFieldEvidenceOpts) (*app.JiraIssueFieldEvidenceResult, error) {
 	panic("unexpected call")
+}
+
+func (r *cancellingJiraReader) HistoryFiltered(ctx context.Context, _ string, _ app.JiraHistoryOpts) (*app.JiraHistoryResult, error) {
+	close(r.started)
+	<-ctx.Done()
+	close(r.canceled)
+	return nil, ctx.Err()
 }
 
 func (*cancellingJiraReader) SearchIssueListView(context.Context, string, []string, string, int, string) (*app.IssueList, error) {

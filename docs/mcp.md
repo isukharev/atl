@@ -19,6 +19,7 @@ The v1 surface is an explicit allowlist:
 | `jira_fields` | Discover field ids or request a content-free catalog summary | explicit completeness/reconciled counts; `summary_only`; default 256 KiB, maximum 1 MiB encoded result |
 | `jira_issue_search` | Read one compact IssueList page | default 50/maximum 1000 rows; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_issue_field_get` | Expand one exact compact field with issue/update provenance | default 16 KiB, maximum 128 KiB encoded value |
+| `jira_issue_history` | Summarize one issue's changelog without raw history rows | summary projection only; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_epic_digest` | Aggregate selected qualified epic evidence | `projection:compact`; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_board_view` | Freeze one board/backlog membership snapshot | default 200/maximum 1000 rows per scope; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_structure_get` | Read compact metadata for one exact Structure id | accepts a positive integer or canonical decimal string id; 32 KiB result cap; omits owner, permissions, saved views, and raw forest data |
@@ -48,11 +49,36 @@ the partition counts, so `custom_count + system_count == count`. Treat an empty
 match as evidence of absence only when `complete:true`; a successful tool call
 or non-empty match is not itself a completeness signal.
 
-`jira_fields`, `jira_issue_search`, `jira_epic_digest`, and `jira_board_view`
-also enforce the final encoded result through `max_bytes` (default 256 KiB,
-minimum 1 KiB, maximum 1 MiB). They fail explicitly instead of clipping field
-definitions, rows, digest evidence, or board membership. Narrow filters,
-columns, included sources, or rows before raising the byte bound.
+`jira_issue_history` answers changelog questions without shipping the changelog.
+It requires `key` and returns only the deterministic summary projection: the
+issue key, `complete`, `source`, `total`, `fetched`, `count`, an optional
+`partial_reason`, the resolved `filters`, the `summary` cardinality and
+consistency facts, and `last_changes`. The raw `history` array is absent by
+construction, so the model reads counts and reconciliation facts instead of
+redoing changelog arithmetic. `complete:false` always carries a reason and
+never proves that an omitted change did not happen; a true
+`summary.fetched_matches_total` alone is not a completeness signal. Pass
+repeatable exact `fields` (technical ids after one `jira_fields` lookup, or
+unambiguous display names) to also receive the newest matching change per
+selected field in `last_changes`; without a field selection that member is
+absent. Use a task-supplied technical field id directly; otherwise qualify an
+unambiguous selector once with `jira_fields`. Technical ids are resolved
+locally; a display-name selector makes one Jira field-catalog request inside
+the history call before reading the changelog. Optional inclusive
+`since`/`until` boundaries accept a date in the Jira user calendar or an
+explicit timestamp and are applied locally. Civil dates may first make one
+current-user request to resolve the Jira user's timezone; explicit timestamps
+need no calendar lookup. A display-name selector and a civil date can therefore
+add both metadata requests. There is no raw-history selector and no projection
+mode: when individual changes are themselves the required evidence, use
+`atl jira issue history` in the CLI.
+
+`jira_fields`, `jira_issue_search`, `jira_issue_history`, `jira_epic_digest`,
+and `jira_board_view` also enforce the final encoded result through `max_bytes`
+(default 256 KiB, minimum 1 KiB, maximum 1 MiB). They fail explicitly instead of
+clipping field definitions, rows, summary facts, digest evidence, or board
+membership. Narrow filters, columns, selected fields, time boundaries, included
+sources, or rows before raising the byte bound.
 
 For `jira_issue_search`, select ordered returned fields with `columns`.
 `fields` and `projection` are compatibility aliases for the same selector
@@ -219,6 +245,7 @@ enabled_tools = [
   "jira_fields",
   "jira_issue_search",
   "jira_issue_field_get",
+  "jira_issue_history",
   "jira_epic_digest",
   "jira_board_view",
   "jira_structure_get",
@@ -302,5 +329,6 @@ The forms are JSON-Schema-equivalent, but the object form keeps the complete
 tool catalog usable in clients that reject boolean property schemas.
 
 The surface intentionally excludes write tools, raw REST, arbitrary files,
-full-page bodies by default, pull, identity-bearing mirror status/diff, raw
-Structure forest/values, and Structure pull/export. Those remain CLI workflows.
+full-page bodies by default, raw changelog rows, pull, identity-bearing mirror
+status/diff, raw Structure forest/values, and Structure pull/export. Those
+remain CLI workflows.

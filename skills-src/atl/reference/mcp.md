@@ -6,7 +6,8 @@ Confluence, local mirrors, auth, or config.
 
 The exact tools are:
 
-- `jira_fields`, `jira_issue_search`, `jira_issue_field_get`, `jira_epic_digest`,
+- `jira_fields`, `jira_issue_search`, `jira_issue_field_get`,
+  `jira_issue_history`, `jira_epic_digest`,
   `jira_board_view`, `jira_structure_get`, `jira_structure_view`,
   `jira_mirror_snapshot`;
 - `confluence_search`, `confluence_page_resolve`, `confluence_page_outline`,
@@ -19,7 +20,8 @@ fields or exact sections. `jira_fields` explicitly qualifies the catalog; an
 empty match is absence only when `complete:true`. Use `summary_only:true` for
 compact qualification and reconciled custom/system counts without field
 definitions. `jira_fields`,
-`jira_issue_search`, `jira_epic_digest`, and `jira_board_view` default to a
+`jira_issue_search`, `jira_issue_history`, `jira_epic_digest`, and
+`jira_board_view` default to a
 256 KiB encoded-result bound and permit 1 KiB through 1 MiB. Narrow selection
 before raising `max_bytes`; an oversize failure never contains a clipped
 result. For `jira_issue_search`, prefer `columns`; `fields` is an equivalent
@@ -27,6 +29,19 @@ compatibility alias, as is `projection`. Supply at most one non-empty selector;
 empty arrays are omitted. The returned IssueList carries normalized
 `projection` metadata independently. Use technical Jira field ids after one
 qualified lookup.
+`jira_issue_history` takes one exact issue `key` and always returns the summary
+projection: provenance, `complete` and any `partial_reason`, resolved
+`filters`, deterministic `summary` facts, and `last_changes`. The raw history
+array is never returned and there is no raw or projection selector. Add
+repeated exact `fields` for per-field recency, and optional inclusive
+`since`/`until` boundaries as a Jira-user-calendar date or explicit timestamp.
+Use a task-supplied technical field id directly; otherwise qualify it once.
+Technical ids need no catalog lookup, while a display-name selector adds one
+Jira field-catalog request inside the history call. Civil dates add one
+current-user timezone request, while explicit timestamps need no calendar
+lookup; display-name and civil-date metadata requests are independent. Use the
+returned counts instead of recomputing changelog arithmetic, and fall back to
+the CLI when individual changes are themselves the required evidence.
 `jira_epic_digest` requires an explicit non-empty `include`; select only
 sources absent from the authoritative snapshot and set `projection:"compact"`
 for synthesis. Inspect its omitted/clipped paths and request `full` only for a
@@ -77,7 +92,8 @@ Confluence section. A numeric Confluence search-result id is already stable;
 do not resolve it again. Search results contain candidate metadata, not page
 bodies.
 
-Use the CLI instead when the task needs raw Structure forest/values, Structure
+Use the CLI instead when the task needs raw changelog rows, raw Structure
+forest/values, Structure
 pull/export, durable pull/mirror files, mirror content/status/diff, exports,
 offline diff/plan, attachments, or any write. MCP v1 has no write tool; do not
 attempt to recreate one with shell or raw HTTP.

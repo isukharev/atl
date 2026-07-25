@@ -103,7 +103,7 @@ not themselves grant write authority.
 
 `atl mcp serve` is a separate stdio protocol transport, so global CLI output
 flags and process exit envelopes do not apply to individual tool calls. Each of
-the fifteen registered tools has inferred input/output JSON Schema and returns
+the sixteen registered tools has inferred input/output JSON Schema and returns
 typed `structuredContent`; compatible clients may also expose the SDK's text
 projection. Tool failures set the MCP error result and contain a JSON text
 object with stable `kind`, `remediation`, and diagnostic `message` fields.
@@ -135,11 +135,27 @@ Structure absence and unrelated validation failures retain their ordinary
 remediation and generic safe messages. CLI diagnostics and exits, successful
 Structure schemas, and read/write authority are unchanged.
 
-`jira_fields`, `jira_issue_search`, `jira_epic_digest`, and `jira_board_view`
-reject a final encoded result larger than `max_bytes` (default 256 KiB,
-minimum 1 KiB, maximum 1 MiB). Row/source limits and compact projections remain
-independent semantic bounds; exceeding the byte bound is an explicit
-`check_failed` result and never silently clips the typed output.
+`jira_fields`, `jira_issue_search`, `jira_issue_history`, `jira_epic_digest`,
+and `jira_board_view` reject a final encoded result larger than `max_bytes`
+(default 256 KiB, minimum 1 KiB, maximum 1 MiB). Row/source limits and compact
+projections remain independent semantic bounds; exceeding the byte bound is an
+explicit `check_failed` result and never silently clips the typed output.
+
+`jira_issue_history` requires `key` and returns exactly the summary projection
+described for `atl jira issue history --summary-only`:
+`{key,complete,source,total,fetched,count,partial_reason?,filters,summary,
+last_changes?}`. The top-level `history` member is absent by construction, and
+the tool exposes no raw-changelog selector or projection mode. Optional
+repeated `fields` and inclusive `since`/`until` boundaries are forwarded
+unchanged to the same application read, so the MCP result carries the identical
+resolved `filters`, deterministic `summary`, and selected-field `last_changes`
+as the CLI projection. Technical field ids are resolved locally, while any
+display-name selector adds one Jira field-catalog request before the changelog
+read. Explicit timestamp boundaries need no metadata lookup; one or more civil
+dates add one current-user timezone request. These two metadata requests are
+independent. The byte bound is applied to the projected result, so a rejected
+oversize result never contains raw history rows. CLI flags, exits, and the full
+raw-history contract are unchanged.
 
 `jira_issue_search` selects ordered returned fields with `columns` (preferred),
 `fields`, or `projection`; the latter two are compatibility aliases. At most
@@ -1647,7 +1663,8 @@ renderer contains deterministic facts and field buckets plus bounded
 Omitting the flag preserves the full JSON and text output byte contract.
 An explicitly supplied false value, including a later duplicate override, is
 rejected with exit 2 before backend access; callers must omit the flag to
-request the full raw-history contract.
+request the full raw-history contract. Typed MCP `jira_issue_history` returns
+this same summary projection unconditionally.
 
 `jira epic digest` exposes the same fields under `period`. A quarter is resolved
 once in the Jira current-user calendar and the resulting zone is passed into
