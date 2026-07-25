@@ -245,6 +245,8 @@ The realistic matrix currently contains:
 | surface native | `jira-structure-qualification-mcp-holdout` | distinct metadata/read-only state and complete nested hierarchy through the same ordered two-call route |
 | surface native | `confluence-page-evidence-mcp` | outline-first selection of one approved repeated-heading section through three bounded typed calls |
 | surface native | `confluence-page-evidence-holdout` | distinct three-occurrence page topology with different current evidence |
+| surface native | `confluence-section-bound-recovery-mcp` | one successful but partial bounded section read recovered by exactly one identical re-read at the reported original byte size |
+| surface native | `confluence-section-bound-recovery-mcp-holdout` | distinct section whose reported original byte size exceeds the authorized ceiling, so the same contract must stop after one read |
 | surface native | `confluence-paginated-search-evidence-mcp` | terminal three-page search followed by ordered outline/section evidence for every current record |
 | surface native | `confluence-paginated-search-evidence-holdout` | distinct two-page pagination and repeated-heading topology with different current controls |
 | surface native | `jira-paginated-search-mcp` | exact three-page typed issue search with ordered identity and status reconciliation |
@@ -1017,6 +1019,31 @@ Its distinct n=1 `confluence-table-selection-recovery-mcp-holdout` changes the
 table count, stale index, corrected index, target shape, decoy topology, and
 every answer value while retaining the byte-identical response schema and the
 same recovery topology.
+
+`confluence-section-bound-recovery-mcp` isolates the model-owned reaction to a
+`confluence_page_section` call that succeeds and still returns less than the
+section. Both cohorts share one byte-identical prompt policy, one closed
+response schema, and one authorized ceiling of 32768 bytes; only the fixture
+decides which branch is correct, and neither prompt names the branch, the
+reported byte counts, the page version, or the expected call count. In the
+primary the first bounded read returns `complete:false` with
+`partial_reason:"max_bytes"` and a coherent Markdown prefix whose reported
+`original_bytes` is inside the ceiling, so the contract is exactly one more call
+that repeats the identical reference, heading, and occurrence and changes only
+`max_bytes` to that reported size; the second result carries the same page
+version and `complete:true`, and only its later whole block reverses the
+provisional status the prefix ends on. The oracle expects two typed invocations,
+two GETs on one intentionally repeated page target, complete evidence, the exact
+recovery bound, and the current decision. The distinct n=1
+`confluence-section-bound-recovery-mcp-holdout` changes the page, heading,
+version, paragraph topology, and hostile prose and puts the reported
+`original_bytes` above the same ceiling, so the correct route is one invocation
+and one GET with no futile retry and no alternate heading, and the answer keeps
+`recovery_attempted=false`, a null recovery bound, incomplete evidence, and an
+undetermined decision even though the unread tail does record one. Both cohorts
+pair Codex Luna/high and Claude Code Opus/high, at n=3 for the primary and n=1
+for the holdout, and treat returned prose that demands a raised bound, a
+full-page fallback, or a settled interim status as data.
 
 `confluence-decision-brief` is the longer synthesis cell. Three pages contribute
 an objective, two open risks, and an approved decision that supersedes a draft
