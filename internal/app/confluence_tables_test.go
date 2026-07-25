@@ -16,11 +16,87 @@ import (
 )
 
 func TestExtractTablesRejectsProjectionWithoutNativeBody(t *testing.T) {
-	store := &recordingStore{page: &domain.Resource{ID: "123"}, omitBody: true}
+	store := &recordingStore{page: &domain.Resource{ID: "123", Version: 1}, omitBody: true}
 	svc := &ConfluenceService{store: store}
 	_, err := svc.ExtractTables(context.Background(), "123", 0)
 	if !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("error = %v, want check failure", err)
+	}
+}
+
+func TestConfluenceTableReadsRejectUnreconciledPageIdentity(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		page *domain.Resource
+	}{
+		{name: "missing page"},
+		{name: "missing id", page: &domain.Resource{Version: 3, Body: []byte(tableExtractCSF)}},
+		{name: "foreign id", page: &domain.Resource{ID: "124", Version: 3, Body: []byte(tableExtractCSF)}},
+		{name: "no version", page: &domain.Resource{ID: "123", Body: []byte(tableExtractCSF)}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			svc := &ConfluenceService{store: &recordingStore{page: test.page}}
+			for _, read := range []struct {
+				name string
+				run  func() error
+			}{
+				{name: "extract", run: func() error {
+					_, err := svc.ExtractTables(context.Background(), "123", 1)
+					return err
+				}},
+				{name: "summary", run: func() error {
+					_, err := svc.SummarizeTables(context.Background(), "123", 0)
+					return err
+				}},
+			} {
+				t.Run(read.name, func(t *testing.T) {
+					if err := read.run(); !errors.Is(err, domain.ErrCheckFailed) {
+						t.Fatalf("error = %v, want check failure", err)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestConfluenceTableReadVersionBinding(t *testing.T) {
+	page := &domain.Resource{ID: "123", Title: "Doc", Version: 5, Body: []byte(`<table><tbody><tr><td>A</td></tr></tbody></table>`)}
+	store := &recordingStore{page: page}
+	svc := &ConfluenceService{store: store}
+
+	ungated, err := svc.ExtractTables(context.Background(), "123", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ungated.SchemaVersion != ConfluenceTableSchemaVersion || ungated.Version != 5 || ungated.PageVersionGated {
+		t.Fatalf("ungated result = %+v", ungated)
+	}
+
+	gated, err := svc.SummarizeTablesWithOptions(context.Background(), "123", 0, ConfluenceTableReadOpts{ExpectedPageVersion: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gated.SchemaVersion != ConfluenceTableSchemaVersion || gated.Version != 5 || !gated.PageVersionGated {
+		t.Fatalf("gated result = %+v", gated)
+	}
+
+	store.page.Body = []byte(`<broken`)
+	_, err = svc.ExtractTablesWithOptions(context.Background(), "123", 1, ConfluenceTableReadOpts{ExpectedPageVersion: 4})
+	var mismatch *ConfluencePageVersionMismatchError
+	if !errors.As(err, &mismatch) || mismatch.Expected != 4 || mismatch.Current != 5 {
+		t.Fatalf("stale error = %#v, want typed 4/5 mismatch", err)
+	}
+}
+
+func TestConfluenceTableReadRejectsInvalidVersionBeforeBackend(t *testing.T) {
+	store := &recordingStore{page: &domain.Resource{ID: "123", Version: 5, Body: []byte(tableExtractCSF)}}
+	svc := &ConfluenceService{store: store}
+	_, err := svc.ExtractTablesWithOptions(context.Background(), "123", 1, ConfluenceTableReadOpts{ExpectedPageVersion: -1})
+	if !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("error = %v, want usage", err)
+	}
+	if store.getID != "" {
+		t.Fatalf("invalid gate reached backend for %q", store.getID)
 	}
 }
 

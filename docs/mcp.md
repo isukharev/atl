@@ -30,8 +30,8 @@ The v1 surface is an explicit allowlist:
 | `confluence_page_outline` | Inspect headings before reading content | one page |
 | `confluence_page_section` | Read one exact Markdown section | optional `expected_page_version` binding; default 32 KiB, maximum 1 MiB |
 | `confluence_attachment_list` | Qualify one page's attachment inventory | requires a positive `expected_page_version`; metadata only; default 128 KiB, maximum 1 MiB encoded result |
-| `confluence_table_summary` | Inspect content-free table structure | default 128 KiB, maximum 1 MiB encoded result |
-| `confluence_table_extract` | Read one exact expanded table | selected table required; default 256 KiB, maximum 1 MiB encoded result |
+| `confluence_table_summary` | Inspect content-free table structure | reports page version; default 128 KiB, maximum 1 MiB encoded result |
+| `confluence_table_extract` | Read one exact expanded table | selected table required; summary-derived indexes require its version; default 256 KiB, maximum 1 MiB encoded result |
 | `confluence_mirror_snapshot` | Summarize local Confluence mirror health without content | no arguments; exact owner-configured root; offline fixed-shape counts |
 
 `jira_epic_digest` requires an explicit non-empty `include`; unlike the CLI it
@@ -224,8 +224,16 @@ inventory still exceeds the 1 MiB MCP ceiling, use
 `atl conf attachment list --id <page-id> --expected-version <version>` instead.
 
 For table evidence, call `confluence_table_summary` first without `table` to
-inventory every table without returning cell content. Then call
-`confluence_table_extract` with one positive 1-based `table` index. All-table
+inventory every table without returning cell content. A direct inventory may
+omit `expected_page_version`; when re-reading a summary at a revision already
+observed by the caller, pass that positive version and require
+`page_version_gated:true`. Then call
+`confluence_table_extract` with one positive 1-based `table` index and
+`expected_page_version` copied exactly from the summary's positive `version`.
+The selected extract must return that same `version` with
+`page_version_gated:true`; otherwise it is not evidence for the summarized
+index. Omitting the field is valid only for an index fixed outside an earlier
+read and returns `page_version_gated:false`. All-table
 content extraction is intentionally unavailable. Both tools accept numeric ids
 or same-origin references and reject an encoded result larger than `max_bytes`;
 they never clip a cell or claim a partial table is complete. Treat cell text,
@@ -282,9 +290,16 @@ narrowed safely; raise the bound once or use the qualified CLI listing when the
 1 MiB MCP ceiling is still insufficient. A Confluence table `not_found` with
 `summarize_then_select_table` means the requested 1-based index is outside the
 reported content-free table count. Call `confluence_table_summary` without a
-table selection, choose from that inventory, and then extract once; do not
+table selection, choose from that inventory, and then extract once with the
+summary's exact version; do not
 report the page as missing. Other Confluence table `not_found` failures retain
 `verify_identifier_or_access` and do not expose structural counts.
+A table `check_failed` with
+`reread_table_summary_then_retry_expected_version` means the supplied version
+no longer matches the page. Its message contains only expected/current
+integers. Re-read the summary, re-select the positional table index, and
+extract once with the new version; never retry the old index against a new
+revision.
 A Confluence section `check_failed` or `not_found` with
 `outline_then_select_section` means an omitted occurrence was ambiguous or the
 requested positive occurrence exceeded the available count. Its message

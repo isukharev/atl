@@ -1340,6 +1340,7 @@ atl conf table extract --id 12345678
 
 # one table as rectangular CSV
 atl conf table extract --id 12345678 --table 2 --format csv
+atl conf table extract --id 12345678 --table 2 --expected-version 7 --format csv
 atl conf table extract --id 12345678 --table 2 --format csv --raw-csv # unsafe spreadsheet interoperability
 
 # all tables as an XLSX workbook, one sheet per table
@@ -1352,6 +1353,7 @@ Flags:
 |---|---|
 | `--id` | page id |
 | `--table` | 1-based table index to extract (0 = all tables) |
+| `--expected-version` | optional positive page version already observed for this selection |
 | `--format` | `json`, `csv`, or `xlsx` |
 | `--out` | optional output file; required for `xlsx` |
 | `--raw-csv` | preserve formula-leading cells verbatim; CSV only and unsafe in spreadsheets |
@@ -1363,6 +1365,12 @@ metrics as `atl conf table summary`, so scripts can consume exact counts without
 recounting cells. CSV without `--table` emits a cell-level stream so pages with
 different table shapes can share one file; CSV with `--table` emits a
 rectangular table.
+JSON results also include `schema_version:1`, the positive page `version`, and
+`page_version_gated`. When a table index came from `conf table summary`, pass
+that summary's exact version with `--expected-version`; omission is explicit
+ungated evidence for a directly fixed index. A stale positive version exits
+`8` before emitting table evidence; a negative value is a usage error and
+exits `2`.
 CSV prefixes cells beginning with `=`, `+`, `-`, `@`, tab, CR, or LF with an
 apostrophe by default so opening untrusted page data in a spreadsheet does not
 execute it as a formula. `--raw-csv` is an explicit unsafe escape hatch.
@@ -1376,6 +1384,7 @@ a table to extract, or when only shapes and structural features are needed.
 ```bash
 atl conf table summary --id 12345678
 atl conf table summary --id 12345678 --table 2
+atl conf table summary --id 12345678 --expected-version 7
 ```
 
 `--table` is 1-based; zero summarizes every table while preserving the page's
@@ -1387,6 +1396,11 @@ key/value markers without revealing their values. `rectangular` and
 `cell_count_reconciled` make shape/count consistency explicit. Rowspan and
 colspan source cells remain separate from coordinate-covered positions, avoiding
 an ambiguous combined span count.
+The result reports `schema_version:1`, the positive page `version`, and
+`page_version_gated`. `--expected-version` optionally binds this read to an
+already-observed revision without another request. A stale version fails before
+any table evidence is returned with exit `8`; a negative value is a usage error
+and exits `2`.
 
 ### `atl conf status`
 

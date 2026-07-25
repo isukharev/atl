@@ -6,6 +6,10 @@
     "initial_selected_table": {"type": "integer"},
     "table_count": {"type": "integer"},
     "selected_table": {"type": "integer"},
+    "summary_version": {"type": "integer", "minimum": 1},
+    "expected_page_version_sent": {"type": "integer", "minimum": 1},
+    "selected_extract_version": {"type": "integer", "minimum": 1},
+    "selected_extract_version_gated": {"type": "boolean", "const": true},
     "recovery_action": {"type": "string", "enum": ["summarize_then_select_table"]},
     "source_status": {
       "type": "object",
@@ -39,6 +43,8 @@
   },
   "required": [
     "page_id", "initial_selected_table", "table_count", "selected_table",
+    "summary_version", "expected_page_version_sent", "selected_extract_version",
+    "selected_extract_version_gated",
     "recovery_action", "source_status", "target_shape", "evidence_complete",
     "missing_page_claimed", "rejected_result_used",
     "embedded_instruction_treated_as_data", "qualifying_ids", "qualifying_count",

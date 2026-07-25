@@ -19,24 +19,39 @@ import (
 	"github.com/isukharev/atl/internal/mirror"
 )
 
+const ConfluenceTableSchemaVersion = 1
+
 // ConfluenceTableExtract is a structured, read-only view of tables on a page.
 type ConfluenceTableExtract struct {
-	PageID     string            `json:"page_id"`
-	Title      string            `json:"title,omitempty"`
-	TableCount int               `json:"table_count"`
-	Table      int               `json:"selected_table,omitempty"`
-	Tables     []ConfluenceTable `json:"tables"`
+	SchemaVersion    int               `json:"schema_version"`
+	PageID           string            `json:"page_id"`
+	Title            string            `json:"title,omitempty"`
+	Version          int               `json:"version"`
+	PageVersionGated bool              `json:"page_version_gated"`
+	TableCount       int               `json:"table_count"`
+	Table            int               `json:"selected_table,omitempty"`
+	Tables           []ConfluenceTable `json:"tables"`
 }
 
 // ConfluenceTableSummary is a bounded, content-free structural inventory of
 // tables on a page. It deliberately excludes page and cell content.
 type ConfluenceTableSummary struct {
+	SchemaVersion       int                            `json:"schema_version"`
 	PageID              string                         `json:"page_id"`
+	Version             int                            `json:"version"`
+	PageVersionGated    bool                           `json:"page_version_gated"`
 	TableCount          int                            `json:"table_count"`
 	Table               int                            `json:"selected_table,omitempty"`
 	ReturnedTableCount  int                            `json:"returned_table_count"`
 	SelectionReconciled bool                           `json:"selection_reconciled"`
 	Tables              []ConfluenceTableSummaryRecord `json:"tables"`
+}
+
+// ConfluenceTableReadOpts optionally binds a table read to a page revision the
+// caller already observed. Zero leaves a direct externally fixed selection
+// explicitly ungated; a positive value refuses a read after the page moves.
+type ConfluenceTableReadOpts struct {
+	ExpectedPageVersion int
 }
 
 // ConfluenceTableSummaryRecord describes one expanded table without exposing
@@ -139,8 +154,17 @@ func (e *ConfluenceTableSelectionError) Unwrap() error { return domain.ErrNotFou
 // ExtractTables fetches a page's native CSF and extracts table data. table is
 // 1-based; table <= 0 returns all tables.
 func (s *ConfluenceService) ExtractTables(ctx context.Context, id string, table int) (*ConfluenceTableExtract, error) {
+	return s.ExtractTablesWithOptions(ctx, id, table, ConfluenceTableReadOpts{})
+}
+
+// ExtractTablesWithOptions fetches a page's native CSF and extracts table data
+// while optionally binding the positional selection to an observed revision.
+func (s *ConfluenceService) ExtractTablesWithOptions(ctx context.Context, id string, table int, opts ConfluenceTableReadOpts) (*ConfluenceTableExtract, error) {
 	if strings.TrimSpace(id) == "" {
 		return nil, fmt.Errorf("%w: --id is required", domain.ErrUsage)
+	}
+	if opts.ExpectedPageVersion < 0 {
+		return nil, fmt.Errorf("%w: --expected-version must be >= 1 when set", domain.ErrUsage)
 	}
 	resolved, err := s.ResolvePageReference(ctx, id)
 	if err != nil {
@@ -151,16 +175,35 @@ func (s *ConfluenceService) ExtractTables(ctx context.Context, id string, table 
 	if err != nil {
 		return nil, err
 	}
-	if err := requireConfluenceNativeBody(page, id, "table extraction"); err != nil {
+	if page == nil || strings.TrimSpace(page.ID) == "" || page.ID != resolved.ID || page.Version < 1 {
+		return nil, fmt.Errorf("%w: Confluence page %s identity is not reconciled for table extraction", domain.ErrCheckFailed, resolved.ID)
+	}
+	if opts.ExpectedPageVersion > 0 && opts.ExpectedPageVersion != page.Version {
+		return nil, &ConfluencePageVersionMismatchError{Expected: opts.ExpectedPageVersion, Current: page.Version}
+	}
+	if err := requireConfluenceNativeBody(page, resolved.ID, "table extraction"); err != nil {
 		return nil, err
 	}
-	return ExtractTablesFromCSF(page.ID, page.Title, page.Body, table)
+	extract, err := ExtractTablesFromCSF(page.ID, page.Title, page.Body, table)
+	if err != nil {
+		return nil, err
+	}
+	extract.SchemaVersion = ConfluenceTableSchemaVersion
+	extract.Version = page.Version
+	extract.PageVersionGated = opts.ExpectedPageVersion > 0
+	return extract, nil
 }
 
 // SummarizeTables fetches a page's native CSF and returns only bounded table
 // structure. table is 1-based; table <= 0 summarizes all tables.
 func (s *ConfluenceService) SummarizeTables(ctx context.Context, id string, table int) (*ConfluenceTableSummary, error) {
-	extract, err := s.ExtractTables(ctx, id, table)
+	return s.SummarizeTablesWithOptions(ctx, id, table, ConfluenceTableReadOpts{})
+}
+
+// SummarizeTablesWithOptions returns content-free structure from the same
+// optionally version-bound table read contract as extraction.
+func (s *ConfluenceService) SummarizeTablesWithOptions(ctx context.Context, id string, table int, opts ConfluenceTableReadOpts) (*ConfluenceTableSummary, error) {
+	extract, err := s.ExtractTablesWithOptions(ctx, id, table, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +217,10 @@ func SummarizeConfluenceTables(extract *ConfluenceTableExtract) *ConfluenceTable
 		return nil
 	}
 	res := &ConfluenceTableSummary{
+		SchemaVersion:      extract.SchemaVersion,
 		PageID:             extract.PageID,
+		Version:            extract.Version,
+		PageVersionGated:   extract.PageVersionGated,
 		TableCount:         extract.TableCount,
 		Table:              extract.Table,
 		ReturnedTableCount: len(extract.Tables),

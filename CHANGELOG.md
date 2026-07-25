@@ -38,6 +38,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `conf table summary` and `conf table extract` now report
+  `schema_version:1`, the exact positive page `version`, and the always-present
+  `page_version_gated` state. Both commands accept optional
+  `--expected-version`; the typed read-only MCP table tools expose the matching
+  `expected_page_version`. A summary-selected positional table index should be
+  extracted with that summary's version: a match is gated, while a stale
+  revision fails closed with exit `8` — or the static MCP remediation
+  `reread_table_summary_then_retry_expected_version` carrying only the expected
+  and current integers — before table content is returned. Omission and `0`
+  remain explicitly ungated for externally fixed selections, negative values
+  are usage errors, and the gate reuses the page response already fetched, so
+  it adds no request or write capability.
+
 - `conf page section` accepts an optional `--expected-version`, and the typed
   read-only MCP `confluence_page_section` accepts the matching optional
   `expected_page_version`, so a heading selection can be bound to the exact page

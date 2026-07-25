@@ -54,7 +54,9 @@ summary for classification, identifier-quality, and value-type aggregates
 instead of recounting the returned field array.
 For `confluence/table-analytics`, prefer the content-free `conf table summary`
 discovery route before extracting a selected table. Its exact structural and
-style cardinalities remove the need to recount content-bearing raw cells.
+style cardinalities remove the need to recount content-bearing raw cells. Bind
+an index selected from that summary to the same page revision with
+`--expected-version`.
 For durable Confluence mirror health, prefer the content-free `conf snapshot`
 route before expanding individual pages with `conf diff`; use its reconciled
 cardinalities instead of manually joining status, validation, and render rows.
@@ -160,6 +162,12 @@ For Confluence table tools, `not_found` /
 `summarize_then_select_table` means the selected 1-based index is outside the
 content-free table count. Summarize without a table selection, choose from that
 inventory, then extract once; do not report the page as missing.
+For `confluence_table_extract`, `check_failed` /
+`reread_table_summary_then_retry_expected_version` means the page changed after
+the table index was selected. Re-read the content-free table summary, select
+the table again from that revision, and extract it once with the new exact
+`expected_page_version`; do not retry the old positional selection against the
+new revision.
 For `confluence_page_section`, `check_failed` or `not_found` /
 `outline_then_select_section` means the occurrence selection is ambiguous or
 stale. Refresh the content-free outline, choose the exact heading occurrence,
