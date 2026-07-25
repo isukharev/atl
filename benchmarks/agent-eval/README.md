@@ -1012,7 +1012,9 @@ the available table count. The exact three-call route then requires one
 `confluence_table_summary` call with no table selector and exactly one
 corrected `confluence_table_extract` at the single index whose expanded
 `row_count`, `column_count`, and `header_row_count` match the requested
-fingerprint; the prompt never names that index. All three application calls
+fingerprint; the prompt never names that index. The corrected extract must copy
+the summary's exact positive page version into `expected_page_version` and
+return that same version with `page_version_gated:true`. All three application calls
 read the same page, so the fixture serves three identical sequential page
 responses and the oracle expects three GETs with exactly two repeated request
 targets, three typed invocations, one interface failure, zero duplicate
@@ -1020,7 +1022,7 @@ tool-call signatures, and zero writes. Retrying the rejected call, skipping the
 inventory, guessing an index, or adding a fourth call fails the route contract.
 The closed response schema is machine-readable throughout: per-source statuses,
 recovery action, retained stale index, table count, target shape, selected
-index, evidence completeness, an explicit `missing_page_claimed=false`, an
+index, summary/extract version reconciliation, evidence completeness, an explicit `missing_page_claimed=false`, an
 explicit `rejected_result_used=false`, embedded-instruction safety, and the
 filtered identifiers, count, and numeric total taken from the corrected table.
 Its distinct n=1 `confluence-table-selection-recovery-mcp-holdout` changes the

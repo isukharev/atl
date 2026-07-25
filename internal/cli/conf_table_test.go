@@ -34,8 +34,11 @@ func TestConfTableExtractCLIJSON(t *testing.T) {
 		t.Fatalf("conf table extract: exit %d, want 0 (stdout=%q)", code, out)
 	}
 	var res struct {
-		TableCount int `json:"table_count"`
-		Tables     []struct {
+		SchemaVersion    int  `json:"schema_version"`
+		Version          int  `json:"version"`
+		PageVersionGated bool `json:"page_version_gated"`
+		TableCount       int  `json:"table_count"`
+		Tables           []struct {
 			Index int `json:"index"`
 			Rows  []struct {
 				Cells []struct {
@@ -51,7 +54,7 @@ func TestConfTableExtractCLIJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("decode output: %v\n%s", err, out)
 	}
-	if res.TableCount != 2 || len(res.Tables) != 2 {
+	if res.SchemaVersion != 1 || res.Version != 3 || res.PageVersionGated || res.TableCount != 2 || len(res.Tables) != 2 {
 		t.Fatalf("res = %+v, want two tables", res)
 	}
 	if !res.Tables[0].Rows[2].Cells[0].Repeated || res.Tables[0].Rows[2].Cells[0].Text != "Shared note" {
@@ -71,12 +74,15 @@ func TestConfTableSummaryCLIJSON(t *testing.T) {
 		t.Fatalf("conf table summary: exit %d, want 0 (stdout=%q)", code, out)
 	}
 	var res struct {
-		PageID     string `json:"page_id"`
-		TableCount int    `json:"table_count"`
-		Selected   int    `json:"selected_table"`
-		Returned   int    `json:"returned_table_count"`
-		Reconciled bool   `json:"selection_reconciled"`
-		Tables     []struct {
+		SchemaVersion int    `json:"schema_version"`
+		PageID        string `json:"page_id"`
+		Version       int    `json:"version"`
+		Gated         bool   `json:"page_version_gated"`
+		TableCount    int    `json:"table_count"`
+		Selected      int    `json:"selected_table"`
+		Returned      int    `json:"returned_table_count"`
+		Reconciled    bool   `json:"selection_reconciled"`
+		Tables        []struct {
 			Index                   int  `json:"index"`
 			RowCount                int  `json:"row_count"`
 			ColumnCount             int  `json:"column_count"`
@@ -93,7 +99,8 @@ func TestConfTableSummaryCLIJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("decode output: %v\n%s", err, out)
 	}
-	if res.PageID != "12345" || res.TableCount != 2 || res.Selected != 1 || res.Returned != 1 || !res.Reconciled || len(res.Tables) != 1 {
+	if res.SchemaVersion != 1 || res.PageID != "12345" || res.Version != 3 || res.Gated ||
+		res.TableCount != 2 || res.Selected != 1 || res.Returned != 1 || !res.Reconciled || len(res.Tables) != 1 {
 		t.Fatalf("summary metadata = %+v", res)
 	}
 	first := res.Tables[0]
@@ -104,6 +111,29 @@ func TestConfTableSummaryCLIJSON(t *testing.T) {
 		if strings.Contains(out, forbidden) {
 			t.Fatalf("content-bearing %q leaked in %s", forbidden, out)
 		}
+	}
+}
+
+func TestConfTableVersionGate(t *testing.T) {
+	cs := newConfServer(t)
+	cs.page = pageJSON("12345", "Doc", 3, confTableCSF)
+
+	out, code := runCLI(t, confEnv(cs.srv), "conf", "table", "summary", "--id", "12345", "--expected-version", "3")
+	if code != exitOK {
+		t.Fatalf("matching gate exit = %d, output=%q", code, out)
+	}
+	var summary struct {
+		Version int  `json:"version"`
+		Gated   bool `json:"page_version_gated"`
+	}
+	if err := json.Unmarshal([]byte(out), &summary); err != nil || summary.Version != 3 || !summary.Gated {
+		t.Fatalf("matching gate output = %q, decoded=%+v, err=%v", out, summary, err)
+	}
+	if _, code := runCLI(t, confEnv(cs.srv), "conf", "table", "extract", "--id", "12345", "--table", "1", "--expected-version", "2"); code != exitCheckFailed {
+		t.Fatalf("stale gate exit = %d, want %d", code, exitCheckFailed)
+	}
+	if _, code := runCLI(t, confEnv(cs.srv), "conf", "table", "summary", "--id", "12345", "--expected-version", "-1"); code != exitUsage {
+		t.Fatalf("negative gate exit = %d, want %d", code, exitUsage)
 	}
 }
 
@@ -168,6 +198,14 @@ func TestConfTableExtractCLIXLSXRequiresOutAndWritesWorkbook(t *testing.T) {
 	out, code := runCLI(t, confEnv(cs.srv), "conf", "table", "extract", "--id", "12345", "--format", "xlsx", "--out", outPath)
 	if code != exitOK {
 		t.Fatalf("conf table extract xlsx: exit %d, want 0 (stdout=%q)", code, out)
+	}
+	var acknowledgement struct {
+		Version int  `json:"version"`
+		Gated   bool `json:"page_version_gated"`
+	}
+	if err := json.Unmarshal([]byte(out), &acknowledgement); err != nil ||
+		acknowledgement.Version != 3 || acknowledgement.Gated {
+		t.Fatalf("xlsx acknowledgement=%q decoded=%+v err=%v", out, acknowledgement, err)
 	}
 	if _, err := os.Stat(outPath); err != nil {
 		t.Fatalf("xlsx not written: %v", err)

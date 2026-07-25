@@ -56,9 +56,17 @@ counts, and latest child timestamps instead of regrouping raw rows. The rollup
 is derived from the same bounded snapshot and causes no additional backend
 request.
 For tabular evidence, call `confluence_table_summary` without a table selection,
-then `confluence_table_extract` for one positive 1-based table index. Never use
-table extraction as a full-page read. Honor `max_bytes`; an oversize error means
-narrow the selection, not that partial cells were returned.
+then `confluence_table_extract` for one positive 1-based table index and copy
+the summary result's exact positive `version` into
+`confluence_table_extract.expected_page_version`. A match returns
+`page_version_gated:true`; a stale version fails closed with `check_failed` /
+`reread_table_summary_then_retry_expected_version` before any selected table is
+returned. Re-read the content-free summary, re-select the index, and extract
+once with its new exact version; never reuse the old positional index. Omit the
+gate only when the table index is fixed externally rather than selected from a
+summary; that result is explicitly ungated. Never use table extraction as a
+full-page read. Honor `max_bytes`; an oversize error means narrow the selection,
+not that partial cells were returned.
 Each extracted table includes the same reconciled, content-free `summary`
 record as the summary tool. Use it for shape, span, style, link, and non-empty
 cell counts instead of deriving those totals locally.
@@ -182,7 +190,7 @@ Example table route:
 
 ```text
 confluence_table_summary
-  -> confluence_table_extract (one selected table)
+  -> confluence_table_extract (one selected table + that summary's version)
 ```
 
 Example Structure route:

@@ -240,6 +240,10 @@ caps, and the required empty object for pathless offline snapshots are
 mechanical oracles rather than prompt-only guidance. An extra argument, changed
 selector or cap, reordered field projection, or non-empty mirror argument
 therefore fails even when the returned answer happens to match.
+The three-call table-selection recovery additionally binds the corrected
+extract to the exact positive version returned by its content-free summary.
+Omitting or changing `expected_page_version` fails the route oracle even when
+the positional index and filtered answer still match.
 
 The current provider-paired Jira quarter-portfolio cell extends that exact
 argument oracle across a longer cross-service workflow. The primary cohort

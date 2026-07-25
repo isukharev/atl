@@ -741,7 +741,7 @@ func confRenderCmd() *cobra.Command {
 func confTableCmd() *cobra.Command {
 	c := &cobra.Command{Use: "table", Short: "Extract Confluence tables from native storage"}
 	var id, format, out string
-	var table int
+	var table, expectedVersion int
 	var rawCSV bool
 	extract := &cobra.Command{
 		Use:   "extract",
@@ -759,6 +759,9 @@ func confTableCmd() *cobra.Command {
 			if table < 0 {
 				return usageErr("--table must be >= 1")
 			}
+			if expectedVersion < 0 {
+				return usageErr("--expected-version must be >= 1 when set")
+			}
 			if rawCSV && format != "csv" {
 				return usageErr("--raw-csv requires --format csv")
 			}
@@ -766,7 +769,9 @@ func confTableCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			res, err := svc.ExtractTables(cmd.Context(), id, table)
+			res, err := svc.ExtractTablesWithOptions(cmd.Context(), id, table, app.ConfluenceTableReadOpts{
+				ExpectedPageVersion: expectedVersion,
+			})
 			if err != nil {
 				return err
 			}
@@ -781,7 +786,7 @@ func confTableCmd() *cobra.Command {
 					if err := os.WriteFile(out, data, 0o644); err != nil {
 						return err
 					}
-					return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount}, func() string {
+					return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount, "version": res.Version, "page_version_gated": res.PageVersionGated}, func() string {
 						return fmt.Sprintf("%s\tformat=%s\ttables=%d", out, format, res.TableCount)
 					})
 				}
@@ -797,7 +802,7 @@ func confTableCmd() *cobra.Command {
 					if err := os.WriteFile(out, data, 0o644); err != nil {
 						return err
 					}
-					return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount}, func() string {
+					return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount, "version": res.Version, "page_version_gated": res.PageVersionGated}, func() string {
 						return fmt.Sprintf("%s\tformat=%s\ttables=%d", out, format, res.TableCount)
 					})
 				}
@@ -810,7 +815,7 @@ func confTableCmd() *cobra.Command {
 				if err := app.WriteConfluenceTableXLSX(out, res); err != nil {
 					return err
 				}
-				return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount}, func() string {
+				return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount, "version": res.Version, "page_version_gated": res.PageVersionGated}, func() string {
 					return fmt.Sprintf("%s\tformat=%s\ttables=%d", out, format, res.TableCount)
 				})
 			default:
@@ -820,12 +825,13 @@ func confTableCmd() *cobra.Command {
 	}
 	extract.Flags().StringVar(&id, "id", "", "page id or supported same-origin URL")
 	extract.Flags().IntVar(&table, "table", 0, "1-based table index to extract (0 = all tables)")
+	extract.Flags().IntVar(&expectedVersion, "expected-version", 0, "optional positive page version already observed for this table selection")
 	extract.Flags().StringVar(&format, "format", "json", "json|csv|xlsx")
 	extract.Flags().StringVar(&out, "out", "", "optional output file (required for xlsx)")
 	extract.Flags().BoolVar(&rawCSV, "raw-csv", false, "write formula-leading CSV cells verbatim (unsafe in spreadsheets)")
 	_ = extract.RegisterFlagCompletionFunc("format", fixedComp("json", "csv", "xlsx"))
 	var summaryID string
-	var summaryTable int
+	var summaryTable, summaryExpectedVersion int
 	summary := &cobra.Command{
 		Use:   "summary",
 		Short: "Summarize page table structure without exposing cell content",
@@ -837,11 +843,16 @@ func confTableCmd() *cobra.Command {
 			if summaryTable < 0 {
 				return usageErr("--table must be >= 1")
 			}
+			if summaryExpectedVersion < 0 {
+				return usageErr("--expected-version must be >= 1 when set")
+			}
 			svc, err := confService()
 			if err != nil {
 				return err
 			}
-			res, err := svc.SummarizeTables(cmd.Context(), summaryID, summaryTable)
+			res, err := svc.SummarizeTablesWithOptions(cmd.Context(), summaryID, summaryTable, app.ConfluenceTableReadOpts{
+				ExpectedPageVersion: summaryExpectedVersion,
+			})
 			if err != nil {
 				return err
 			}
@@ -852,6 +863,7 @@ func confTableCmd() *cobra.Command {
 	}
 	summary.Flags().StringVar(&summaryID, "id", "", "page id or supported same-origin URL")
 	summary.Flags().IntVar(&summaryTable, "table", 0, "1-based table index to summarize (0 = all tables)")
+	summary.Flags().IntVar(&summaryExpectedVersion, "expected-version", 0, "optional positive page version already observed for this table read")
 	c.AddCommand(extract, summary)
 	return c
 }

@@ -1772,6 +1772,7 @@ func TestRepositoryTableAnalyticsMCPV3HoldoutFixtureMatchesOracle(t *testing.T) 
 type repositoryFixturePage struct {
 	ID      string
 	Title   string
+	Version int
 	Storage string
 }
 
@@ -2486,7 +2487,8 @@ func TestRepositoryConfluenceTableSelectionRecoveryRoutesThroughProductionMCPSer
 			corrected, err := client.CallTool(context.Background(), &mcp.CallToolParams{
 				Name: "confluence_table_extract",
 				Arguments: map[string]any{
-					"reference": cohort.pageID, "table": selected, "max_bytes": 98304,
+					"reference": cohort.pageID, "table": selected,
+					"expected_page_version": summary.Version, "max_bytes": 98304,
 				},
 			})
 			if err != nil {
@@ -2498,6 +2500,7 @@ func TestRepositoryConfluenceTableSelectionRecoveryRoutesThroughProductionMCPSer
 			var extract app.ConfluenceTableExtract
 			decodeRepositoryStructuredContent(t, corrected.StructuredContent, &extract)
 			if extract.PageID != cohort.pageID || extract.Table != selected ||
+				extract.Version != summary.Version || !extract.PageVersionGated ||
 				extract.TableCount != summary.TableCount || len(extract.Tables) != 1 ||
 				extract.Tables[0].Index != selected {
 				t.Fatalf("corrected extract metadata drifted: %+v", extract)
@@ -2510,7 +2513,7 @@ func TestRepositoryConfluenceTableSelectionRecoveryRoutesThroughProductionMCPSer
 
 			ids, total := confluenceTableSelectionRecoveryAnswer(t, extract.Tables[0], cohort)
 			final := confluenceTableSelectionRecoveryFinal(t, cohort, &summary, selected, matching, ids, total)
-			invocations := confluenceTableSelectionRecoveryInvocations(t, cohort, selected)
+			invocations := confluenceTableSelectionRecoveryInvocations(t, cohort, selected, summary.Version)
 			families := []CapabilityFamilyMetric{
 				{Family: "confluence.table.extract", Invocations: 2, Successes: 1, Failures: 1, OutputBytes: 1},
 				{Family: "confluence.table.summary", Invocations: 1, Successes: 1, OutputBytes: 1},
@@ -2725,9 +2728,12 @@ func confluenceTableSelectionRecoveryPage(t *testing.T, cohort confluenceTableSe
 		t.Fatalf("fixture must define one sequential page route: %+v", fixture.Routes)
 	}
 	var page struct {
-		ID    string `json:"id"`
-		Title string `json:"title"`
-		Body  struct {
+		ID      string `json:"id"`
+		Title   string `json:"title"`
+		Version struct {
+			Number int `json:"number"`
+		} `json:"version"`
+		Body struct {
 			Storage struct {
 				Value string `json:"value"`
 			} `json:"storage"`
@@ -2739,7 +2745,10 @@ func confluenceTableSelectionRecoveryPage(t *testing.T, cohort confluenceTableSe
 	if page.ID != cohort.pageID {
 		t.Fatalf("fixture page id=%q want=%q", page.ID, cohort.pageID)
 	}
-	return repositoryFixturePage{ID: page.ID, Title: page.Title, Storage: page.Body.Storage.Value}
+	if page.Version.Number < 1 {
+		t.Fatalf("fixture page version=%d, want positive", page.Version.Number)
+	}
+	return repositoryFixturePage{ID: page.ID, Title: page.Title, Version: page.Version.Number, Storage: page.Body.Storage.Value}
 }
 
 // confluenceTableSelectionRecoveryInventory returns the content-free inventory
@@ -2755,6 +2764,8 @@ func confluenceTableSelectionRecoveryInventory(
 	if err != nil {
 		t.Fatal(err)
 	}
+	extract.SchemaVersion = app.ConfluenceTableSchemaVersion
+	extract.Version = page.Version
 	summary := app.SummarizeConfluenceTables(extract)
 	selected, matching := 0, 0
 	for _, record := range summary.Tables {
@@ -2781,6 +2792,8 @@ func confluenceTableSelectionRecoveryExtract(
 	if err != nil {
 		t.Fatal(err)
 	}
+	extract.SchemaVersion = app.ConfluenceTableSchemaVersion
+	extract.Version = page.Version
 	return extract
 }
 
@@ -2875,11 +2888,15 @@ func confluenceTableSelectionRecoveryFinal(
 ) []byte {
 	t.Helper()
 	final, err := json.Marshal(map[string]any{
-		"page_id":                summary.PageID,
-		"initial_selected_table": cohort.staleTable,
-		"table_count":            summary.TableCount,
-		"selected_table":         selected,
-		"recovery_action":        "summarize_then_select_table",
+		"page_id":                        summary.PageID,
+		"initial_selected_table":         cohort.staleTable,
+		"table_count":                    summary.TableCount,
+		"selected_table":                 selected,
+		"summary_version":                summary.Version,
+		"expected_page_version_sent":     summary.Version,
+		"selected_extract_version":       summary.Version,
+		"selected_extract_version_gated": true,
+		"recovery_action":                "summarize_then_select_table",
 		"source_status": map[string]any{
 			"initial_table_extract":  "table_index_out_of_range",
 			"table_summary":          "complete",
@@ -2907,7 +2924,7 @@ func confluenceTableSelectionRecoveryFinal(
 func confluenceTableSelectionRecoveryInvocations(
 	t *testing.T,
 	cohort confluenceTableSelectionRecoveryCohort,
-	selected int,
+	selected, version int,
 ) []MCPInvocation {
 	t.Helper()
 	return []MCPInvocation{
@@ -2918,7 +2935,8 @@ func confluenceTableSelectionRecoveryInvocations(
 			"reference": cohort.pageID, "max_bytes": 65536,
 		}),
 		mustMCPInvocation(t, "confluence_table_extract", map[string]any{
-			"reference": cohort.pageID, "table": selected, "max_bytes": 98304,
+			"reference": cohort.pageID, "table": selected,
+			"expected_page_version": version, "max_bytes": 98304,
 		}),
 	}
 }
@@ -2982,7 +3000,12 @@ func assertConfluenceTableSelectionRecoveryMutationsFail(
 
 	wrongIndex := slices.Clone(invocations)
 	wrongIndex[2] = mustMCPInvocation(t, "confluence_table_extract", map[string]any{
-		"reference": cohort.pageID, "table": selected + 1, "max_bytes": 98304,
+		"reference": cohort.pageID, "table": selected + 1,
+		"expected_page_version": confluenceTableSelectionRecoveryPage(t, cohort).Version, "max_bytes": 98304,
+	})
+	ungated := slices.Clone(invocations)
+	ungated[2] = mustMCPInvocation(t, "confluence_table_extract", map[string]any{
+		"reference": cohort.pageID, "table": selected, "max_bytes": 98304,
 	})
 	retried := []MCPInvocation{invocations[0], invocations[0], invocations[1], invocations[2]}
 	skipped := []MCPInvocation{invocations[0], invocations[2]}
@@ -3000,6 +3023,11 @@ func assertConfluenceTableSelectionRecoveryMutationsFail(
 	}{
 		{
 			name: "wrong selected index", invocations: wrongIndex, atlInvocations: 3, failures: 1,
+			methods: methods, families: families, sequence: sequence,
+			mustFail: []string{"route_arguments"},
+		},
+		{
+			name: "ungated corrected extract", invocations: ungated, atlInvocations: 3, failures: 1,
 			methods: methods, families: families, sequence: sequence,
 			mustFail: []string{"route_arguments"},
 		},
@@ -3097,6 +3125,16 @@ func assertConfluenceTableSelectionRecoveryMutationsFail(
 				answer["target_shape"].(map[string]any)["matching_table_count"] = 2
 			},
 			mustFail: []string{"selected_table_correct", "target_shape_correct"},
+		},
+		{
+			name: "wrong version provenance",
+			mutate: func(answer map[string]any) {
+				answer["summary_version"] = 1
+				answer["expected_page_version_sent"] = 2
+				answer["selected_extract_version"] = 3
+				answer["selected_extract_version_gated"] = false
+			},
+			mustFail: []string{"summary_version_exact", "expected_version_exact", "selected_version_exact", "selected_gate_exact"},
 		},
 		{
 			name: "wrong filtered answer",

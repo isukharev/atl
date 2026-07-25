@@ -47,6 +47,14 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 			t.Fatalf("initialize instructions omit section-gate guidance %q: %q", guidance, initialized.Instructions)
 		}
 	}
+	for _, guidance := range []string{
+		"table index came from confluence_table_summary", "expected_page_version",
+		"externally fixed index",
+	} {
+		if !strings.Contains(initialized.Instructions, guidance) {
+			t.Fatalf("initialize instructions omit table-gate guidance %q: %q", guidance, initialized.Instructions)
+		}
+	}
 	listed, err := client.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -235,6 +243,22 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		if tool.Name == "confluence_table_extract" && (!schemaRequired(input, "reference") || !schemaRequired(input, "table")) {
 			t.Errorf("tool %s must require reference and selected table: %#v", tool.Name, tool.InputSchema)
 		}
+		if tool.Name == "confluence_table_extract" || tool.Name == "confluence_table_summary" {
+			properties, _ := input["properties"].(map[string]any)
+			expected, _ := properties["expected_page_version"].(map[string]any)
+			expectedDescription, _ := expected["description"].(string)
+			if expected == nil || schemaRequired(input, "expected_page_version") ||
+				!strings.Contains(expectedDescription, "exact positive") ||
+				!strings.Contains(expectedDescription, "omit") {
+				t.Errorf("tool %s must advertise a provenance-conditional expected_page_version: %#v", tool.Name, tool.InputSchema)
+			}
+			output, _ := tool.OutputSchema.(map[string]any)
+			for _, required := range []string{"schema_version", "version", "page_version_gated"} {
+				if !schemaRequired(output, required) {
+					t.Errorf("tool %s output must require %s: %#v", tool.Name, required, tool.OutputSchema)
+				}
+			}
+		}
 		if tool.Name == "confluence_table_extract" {
 			encoded, marshalErr := json.Marshal(tool.OutputSchema)
 			if marshalErr != nil {
@@ -247,8 +271,15 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 				t.Errorf("tool %s output schema lacks cell or summary semantics: %s", tool.Name, encoded)
 			}
 		}
-		if tool.Name == "confluence_table_summary" && !schemaRequired(input, "reference") {
-			t.Errorf("tool %s must require reference: %#v", tool.Name, tool.InputSchema)
+		if tool.Name == "confluence_table_summary" {
+			if !schemaRequired(input, "reference") {
+				t.Errorf("tool %s must require reference: %#v", tool.Name, tool.InputSchema)
+			}
+			for _, guidance := range []string{"exact page version", "confluence_table_extract.expected_page_version", "page_version_gated:false"} {
+				if !strings.Contains(tool.Description, guidance) {
+					t.Errorf("tool %s description omits %q: %q", tool.Name, guidance, tool.Description)
+				}
+			}
 		}
 		if (tool.Name == "jira_structure_get" || tool.Name == "jira_structure_view") && !schemaRequired(input, "structure_id") {
 			t.Errorf("tool %s must require structure_id: %#v", tool.Name, tool.InputSchema)
@@ -1221,12 +1252,16 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	})
 	summary := callToolOK(t, client, "confluence_table_summary", map[string]any{"reference": "42", "table": 2})
 	summaryContent, ok := summary.StructuredContent.(map[string]any)
-	if !ok || summaryContent["selection_reconciled"] != true {
+	if !ok || summaryContent["schema_version"] != float64(1) || summaryContent["version"] != float64(3) ||
+		summaryContent["page_version_gated"] != false || summaryContent["selection_reconciled"] != true {
 		t.Fatalf("table summary=%#v", summary.StructuredContent)
 	}
-	extract := callToolOK(t, client, "confluence_table_extract", map[string]any{"reference": "42", "table": 2, "max_bytes": 4096})
+	extract := callToolOK(t, client, "confluence_table_extract", map[string]any{
+		"reference": "42", "table": 2, "expected_page_version": 3, "max_bytes": 4096,
+	})
 	extractContent, ok := extract.StructuredContent.(map[string]any)
-	if !ok || extractContent["selected_table"] != float64(2) {
+	if !ok || extractContent["schema_version"] != float64(1) || extractContent["version"] != float64(3) ||
+		extractContent["page_version_gated"] != true || extractContent["selected_table"] != float64(2) {
 		t.Fatalf("table extract=%#v", extract.StructuredContent)
 	}
 	extractTables, ok := extractContent["tables"].([]any)
@@ -2366,9 +2401,19 @@ func TestConfluenceTableToolsRejectUnreconciledApplicationResults(t *testing.T) 
 		{name: "summary selection", tool: "confluence_table_summary", args: map[string]any{"reference": "42"}, mode: "summary-selection"},
 		{name: "summary rectangular", tool: "confluence_table_summary", args: map[string]any{"reference": "42"}, mode: "summary-rectangular"},
 		{name: "summary cell count", tool: "confluence_table_summary", args: map[string]any{"reference": "42"}, mode: "summary-cell-count"},
+		{name: "summary schema", tool: "confluence_table_summary", args: map[string]any{"reference": "42"}, mode: "summary-schema"},
+		{name: "summary version", tool: "confluence_table_summary", args: map[string]any{"reference": "42"}, mode: "summary-version"},
+		{name: "summary gate", tool: "confluence_table_summary", args: map[string]any{"reference": "42"}, mode: "summary-gate"},
+		{name: "bound summary ungated", tool: "confluence_table_summary", args: map[string]any{"reference": "42", "expected_page_version": 7}, mode: "summary-bound-ungated"},
+		{name: "bound summary wrong version", tool: "confluence_table_summary", args: map[string]any{"reference": "42", "expected_page_version": 7}, mode: "summary-bound-wrong-version"},
 		{name: "extract selection", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract"},
 		{name: "extract dimensions", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-dimensions"},
 		{name: "extract summary", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-summary"},
+		{name: "extract schema", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-schema"},
+		{name: "extract version", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-version"},
+		{name: "extract gate", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-gate"},
+		{name: "bound extract ungated", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1, "expected_page_version": 7}, mode: "extract-bound-ungated"},
+		{name: "bound extract wrong version", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1, "expected_page_version": 7}, mode: "extract-bound-wrong-version"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			reader := &invalidConfluenceTableReader{recordingConfluenceReader: &recordingConfluenceReader{}, mode: test.mode}
@@ -2440,6 +2485,79 @@ func TestConfluenceTableSelectionErrorIsDistinctAndContentFree(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestConfluenceTableVersionGateIsForwardedAndMismatchIsContentFree(t *testing.T) {
+	reader := &recordingConfluenceReader{}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Confluence: func() (ConfluenceReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+
+	callToolOK(t, client, "confluence_table_summary", map[string]any{
+		"reference": "42", "expected_page_version": 7,
+	})
+	callToolOK(t, client, "confluence_table_extract", map[string]any{
+		"reference": "42", "table": 1, "expected_page_version": 7,
+	})
+	if reader.tableSummaryOpts.ExpectedPageVersion != 7 || reader.tableExtractOpts.ExpectedPageVersion != 7 {
+		t.Fatalf("summary opts=%+v extract opts=%+v", reader.tableSummaryOpts, reader.tableExtractOpts)
+	}
+
+	const marker = "SYNTHETIC-TABLE-VERSION-SECRET"
+	reader.tableErr = fmt.Errorf("wrapped %s: %w", marker, &app.ConfluencePageVersionMismatchError{Expected: 7, Current: 8})
+	for _, tool := range []string{"confluence_table_summary", "confluence_table_extract"} {
+		args := map[string]any{"reference": "42", "expected_page_version": 7}
+		if tool == "confluence_table_extract" {
+			args["table"] = 1
+		}
+		result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: tool, Arguments: args})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+			t.Fatalf("%s result=%+v", tool, result)
+		}
+		text, _ := result.Content[0].(*mcp.TextContent)
+		var got toolError
+		if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+			got.Kind != "check_failed" ||
+			got.Remediation != "reread_table_summary_then_retry_expected_version" ||
+			got.Message != "expected Confluence page version 7 does not match the current page version 8" {
+			t.Fatalf("%s error=%+v decode=%v", tool, got, err)
+		}
+		encoded, err := json.Marshal(result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(encoded, []byte(marker)) {
+			t.Fatalf("%s leaked wrapped content: %s", tool, encoded)
+		}
+	}
+}
+
+func TestConfluenceTableVersionGateRejectsNegativeBeforeReader(t *testing.T) {
+	reader := &recordingConfluenceReader{}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Confluence: func() (ConfluenceReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+	for _, tool := range []string{"confluence_table_summary", "confluence_table_extract"} {
+		args := map[string]any{"reference": "42", "expected_page_version": -1}
+		if tool == "confluence_table_extract" {
+			args["table"] = 1
+		}
+		result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: tool, Arguments: args})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.IsError {
+			t.Fatalf("%s accepted a negative version: %+v", tool, result)
+		}
+	}
+	if reader.tableSummaryReference != "" || reader.tableExtractReference != "" {
+		t.Fatalf("invalid versions reached reader: summary=%q extract=%q", reader.tableSummaryReference, reader.tableExtractReference)
 	}
 }
 
@@ -4091,6 +4209,7 @@ type recordingConfluenceReader struct {
 	sectionOpts                                          app.ConfluencePageSectionOpts
 	tableSummaryReference, tableExtractReference         string
 	tableSummaryIndex, tableExtractIndex                 int
+	tableSummaryOpts, tableExtractOpts                   app.ConfluenceTableReadOpts
 	tableText                                            string
 	tableErr                                             error
 	sectionErr                                           error
@@ -4196,22 +4315,27 @@ func (r *recordingConfluenceReader) AttachmentInventory(_ context.Context, refer
 	}, nil
 }
 
-func (r *recordingConfluenceReader) SummarizeTables(_ context.Context, reference string, table int) (*app.ConfluenceTableSummary, error) {
-	r.tableSummaryReference, r.tableSummaryIndex = reference, table
+func (r *recordingConfluenceReader) SummarizeTablesWithOptions(_ context.Context, reference string, table int, opts app.ConfluenceTableReadOpts) (*app.ConfluenceTableSummary, error) {
+	r.tableSummaryReference, r.tableSummaryIndex, r.tableSummaryOpts = reference, table, opts
 	if r.tableErr != nil {
 		return nil, r.tableErr
+	}
+	version := opts.ExpectedPageVersion
+	if version == 0 {
+		version = 3
 	}
 	tables := []app.ConfluenceTableSummaryRecord{{Index: table, RowCount: 1, ColumnCount: 1, Rectangular: true, CellCountReconciled: true}}
 	if table == 0 {
 		tables = []app.ConfluenceTableSummaryRecord{{Index: 1, RowCount: 1, ColumnCount: 1, Rectangular: true, CellCountReconciled: true},
 			{Index: 2, RowCount: 1, ColumnCount: 1, Rectangular: true, CellCountReconciled: true}}
 	}
-	return &app.ConfluenceTableSummary{PageID: "42", TableCount: 2, Table: table, ReturnedTableCount: len(tables),
+	return &app.ConfluenceTableSummary{SchemaVersion: app.ConfluenceTableSchemaVersion, PageID: "42",
+		Version: version, PageVersionGated: opts.ExpectedPageVersion > 0, TableCount: 2, Table: table, ReturnedTableCount: len(tables),
 		SelectionReconciled: true, Tables: tables}, nil
 }
 
-func (r *invalidConfluenceTableReader) SummarizeTables(ctx context.Context, reference string, table int) (*app.ConfluenceTableSummary, error) {
-	result, err := r.recordingConfluenceReader.SummarizeTables(ctx, reference, table)
+func (r *invalidConfluenceTableReader) SummarizeTablesWithOptions(ctx context.Context, reference string, table int, opts app.ConfluenceTableReadOpts) (*app.ConfluenceTableSummary, error) {
+	result, err := r.recordingConfluenceReader.SummarizeTablesWithOptions(ctx, reference, table, opts)
 	switch r.mode {
 	case "summary-selection":
 		result.SelectionReconciled = false
@@ -4219,12 +4343,22 @@ func (r *invalidConfluenceTableReader) SummarizeTables(ctx context.Context, refe
 		result.Tables[0].Rectangular = false
 	case "summary-cell-count":
 		result.Tables[0].CellCountReconciled = false
+	case "summary-schema":
+		result.SchemaVersion++
+	case "summary-version":
+		result.Version = 0
+	case "summary-gate":
+		result.PageVersionGated = true
+	case "summary-bound-ungated":
+		result.PageVersionGated = false
+	case "summary-bound-wrong-version":
+		result.Version++
 	}
 	return result, err
 }
 
-func (r *invalidConfluenceTableReader) ExtractTables(ctx context.Context, reference string, table int) (*app.ConfluenceTableExtract, error) {
-	result, err := r.recordingConfluenceReader.ExtractTables(ctx, reference, table)
+func (r *invalidConfluenceTableReader) ExtractTablesWithOptions(ctx context.Context, reference string, table int, opts app.ConfluenceTableReadOpts) (*app.ConfluenceTableExtract, error) {
+	result, err := r.recordingConfluenceReader.ExtractTablesWithOptions(ctx, reference, table, opts)
 	switch r.mode {
 	case "extract":
 		result.Tables = append(result.Tables, result.Tables[0])
@@ -4232,18 +4366,33 @@ func (r *invalidConfluenceTableReader) ExtractTables(ctx context.Context, refere
 		result.Tables[0].RowCount++
 	case "extract-summary":
 		result.Tables[0].Summary.ExpandedCellCount++
+	case "extract-schema":
+		result.SchemaVersion++
+	case "extract-version":
+		result.Version = 0
+	case "extract-gate":
+		result.PageVersionGated = true
+	case "extract-bound-ungated":
+		result.PageVersionGated = false
+	case "extract-bound-wrong-version":
+		result.Version++
 	}
 	return result, err
 }
 
-func (r *recordingConfluenceReader) ExtractTables(_ context.Context, reference string, table int) (*app.ConfluenceTableExtract, error) {
-	r.tableExtractReference, r.tableExtractIndex = reference, table
+func (r *recordingConfluenceReader) ExtractTablesWithOptions(_ context.Context, reference string, table int, opts app.ConfluenceTableReadOpts) (*app.ConfluenceTableExtract, error) {
+	r.tableExtractReference, r.tableExtractIndex, r.tableExtractOpts = reference, table, opts
 	if r.tableErr != nil {
 		return nil, r.tableErr
 	}
-	result := &app.ConfluenceTableExtract{PageID: "42", TableCount: 2, Table: table, Tables: []app.ConfluenceTable{{Index: table,
-		RowCount: 1, ColumnCount: 1, Rows: []app.ConfluenceTableRow{{Index: 1,
-			Cells: []app.ConfluenceTableCell{{Row: 1, Column: 1, Text: r.tableText}}}}}}}
+	version := opts.ExpectedPageVersion
+	if version == 0 {
+		version = 3
+	}
+	result := &app.ConfluenceTableExtract{SchemaVersion: app.ConfluenceTableSchemaVersion, PageID: "42",
+		Version: version, PageVersionGated: opts.ExpectedPageVersion > 0, TableCount: 2, Table: table, Tables: []app.ConfluenceTable{{Index: table,
+			RowCount: 1, ColumnCount: 1, Rows: []app.ConfluenceTableRow{{Index: 1,
+				Cells: []app.ConfluenceTableCell{{Row: 1, Column: 1, Text: r.tableText}}}}}}}
 	summary := app.SummarizeConfluenceTables(result)
 	result.Tables[0].Summary = summary.Tables[0]
 	return result, nil
@@ -4287,7 +4436,7 @@ func (*cancellingJiraReader) StructureSnapshot(context.Context, int64, app.Struc
 	panic("unexpected call")
 }
 
-func (r *cancellingConfluenceReader) SummarizeTables(ctx context.Context, _ string, _ int) (*app.ConfluenceTableSummary, error) {
+func (r *cancellingConfluenceReader) SummarizeTablesWithOptions(ctx context.Context, _ string, _ int, _ app.ConfluenceTableReadOpts) (*app.ConfluenceTableSummary, error) {
 	close(r.started)
 	<-ctx.Done()
 	close(r.canceled)
@@ -4310,7 +4459,7 @@ func (*cancellingConfluenceReader) PageSection(context.Context, string, app.Conf
 	panic("unexpected call")
 }
 
-func (*cancellingConfluenceReader) ExtractTables(context.Context, string, int) (*app.ConfluenceTableExtract, error) {
+func (*cancellingConfluenceReader) ExtractTablesWithOptions(context.Context, string, int, app.ConfluenceTableReadOpts) (*app.ConfluenceTableExtract, error) {
 	panic("unexpected call")
 }
 

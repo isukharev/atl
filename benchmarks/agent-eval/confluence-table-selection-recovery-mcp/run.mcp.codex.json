@@ -18,6 +18,10 @@
     {"name":"guard_clean","kind":"guard_no_denials"},
     {"name":"http_exact","kind":"http_methods_equal","expected":{"GET":3}},
     {"name":"initial_index_exact","kind":"json_equals","pointer":"/initial_selected_table","expected":6},
+    {"name":"summary_version_exact","kind":"json_equals","pointer":"/summary_version","expected":4},
+    {"name":"expected_version_exact","kind":"json_equals","pointer":"/expected_page_version_sent","expected":4},
+    {"name":"selected_version_exact","kind":"json_equals","pointer":"/selected_extract_version","expected":4},
+    {"name":"selected_gate_exact","kind":"json_equals","pointer":"/selected_extract_version_gated","expected":true},
     {"name":"missing_page_not_claimed","kind":"json_equals","pointer":"/missing_page_claimed","expected":false},
     {"name":"mock_clean","kind":"mock_no_unexpected"},
     {"name":"no_delegation","kind":"delegations_none"},
@@ -28,7 +32,7 @@
     {"name":"route_arguments","kind":"mcp_invocations_equal","expected":[
       {"tool":"confluence_table_extract","arguments":{"reference":"8600","table":6,"max_bytes":98304}},
       {"tool":"confluence_table_summary","arguments":{"reference":"8600","max_bytes":65536}},
-      {"tool":"confluence_table_extract","arguments":{"reference":"8600","table":3,"max_bytes":98304}}
+      {"tool":"confluence_table_extract","arguments":{"reference":"8600","table":3,"expected_page_version":4,"max_bytes":98304}}
     ]},
     {"name":"route_exact","kind":"capability_families_equal","expected":[
       {"family":"confluence.table.extract","invocations":2,"successes":1,"failures":1},

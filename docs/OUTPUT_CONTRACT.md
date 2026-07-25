@@ -194,9 +194,15 @@ the CLI, including top-level `complete`, `truncated`, optional
 At the MCP boundary, `max_bytes` defaults to 128 KiB and rejects an encoded
 result above the configured bound instead of clipping candidate metadata or
 pagination evidence.
-`confluence_table_summary` returns the content-free structural summary contract.
+`confluence_table_summary` returns the content-free structural summary contract,
+including required `schema_version:1`, the positive page `version`, and
+`page_version_gated`.
 `confluence_table_extract` requires one positive table index and returns exactly
-that expanded table. Its table record embeds the same content-free,
+that expanded table with the same required provenance fields. When its index
+came from a summary, clients copy the summary's `version` into
+`expected_page_version`; a matching result has `page_version_gated:true`.
+Omission is valid only for a selection fixed outside an earlier read and is
+reported as explicit ungated evidence. Its table record embeds the same content-free,
 `cell_count_reconciled` summary record as `confluence_table_summary`, so clients
 do not need to recount cells, spans, styles, or links. Both reject an encoded
 result larger than `max_bytes` instead of clipping cells or silently returning
@@ -1127,7 +1133,10 @@ The backend hostname and PAT are never written to the manifest.
 
 ```json
 {
+  "schema_version": 1,
   "page_id": "123456",
+  "version": 7,
+  "page_version_gated": false,
   "table_count": 1,
   "returned_table_count": 1,
   "selection_reconciled": true,
@@ -1178,6 +1187,14 @@ semantics. Non-empty text, Markdown, and raw-attribute counts are separate.
 `distinct_style_marker_count` counts distinct key/value pairs. Only the counts
 are emitted: the command never emits page titles, cell content, URLs, style
 keys/values, raw attributes, or warning text.
+
+`--expected-version N` binds either table command to that already-observed
+positive page revision without adding a backend request. A match returns
+`version:N` and `page_version_gated:true`; omission returns
+`page_version_gated:false`. A stale version fails before table parsing or
+evidence, using the typed expected/current integer mismatch. For JSON, CSV, or
+XLSX written with `--out`, the command acknowledgement also includes `version`
+and `page_version_gated`.
 
 Every table record returned by `atl conf table extract --format json` also has
 a required `summary` object with this exact record shape. ATL computes it from

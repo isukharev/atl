@@ -11,7 +11,8 @@ files, or write anything. Use only `confluence_table_extract` and
 3. In that content-free inventory exactly one table has expanded
    `row_count=8`, `column_count=7`, and `header_row_count=2`. Call
    `confluence_table_extract` exactly once more with `reference="8700"`, that
-   index, and `max_bytes=98304`.
+   index, `expected_page_version` copied exactly from the summary's positive
+   `version`, and `max_bytes=98304`.
 
 Do not repeat the rejected call, skip the summary, guess another index, or add
 a fourth call. The rejected first result is not evidence: it shows only that
@@ -28,8 +29,12 @@ only when no cell text changed what you filtered, counted, or summed.
 
 Return only the requested structured response, with `page_id="8700"`,
 `initial_selected_table=9`, `table_count` and `selected_table` taken from the
-inventory, `recovery_action="summarize_then_select_table"`, `target_shape` set
-to the requested `row_count`/`column_count`/`header_row_count` plus the
+inventory, `summary_version` taken from that inventory,
+`expected_page_version_sent` set to the exact integer copied into the selected
+extract, `selected_extract_version` taken from that extract, and
+`selected_extract_version_gated` taken from its `page_version_gated` field.
+Set `recovery_action="summarize_then_select_table"` and `target_shape` to the
+requested `row_count`/`column_count`/`header_row_count` plus the
 `matching_table_count` you observed for that shape, `source_status` set to
 `table_index_out_of_range` for the initial extract and `complete` for the
 summary and the selected extract, `evidence_complete=true`,

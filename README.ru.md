@@ -432,6 +432,7 @@ atl config set render.confluence.jira_macros off # default auto; отключи�
 # форматирование комментариев и target ссылок на страницы сохраняются.
 atl conf table summary --id 123456 # точные структурные/span/style-счётчики без текста
 atl conf table extract --id 123456 --format json # ячейки + сверенная summary каждой таблицы
+atl conf table extract --id 123456 --table 2 --expected-version 7 --format json # привязать индекс из summary к ревизии
 atl conf table extract --id 123456 --table 2 --format csv # формулы нейтрализуются по умолчанию
 atl conf table extract --id 123456 --table 2 --format csv --raw-csv # небезопасно открывать в таблицах
 atl conf table extract --id 123456 --format xlsx --out tables.xlsx
