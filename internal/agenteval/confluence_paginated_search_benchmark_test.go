@@ -374,6 +374,7 @@ func TestRepositoryConfluencePaginatedSearchSamplingPairIdentity(t *testing.T) {
 			"as `occurrence` (including `1` for a unique heading)",
 			"`max_bytes=32768`",
 			"`expected_page_version` copied exactly from the `version` that page's own outline returned",
+			"the very next interface call must be the matching section call for that same page; two outline calls may never be consecutive",
 			"Record every requested control value verbatim as the section states it, with no added label, field name, unit, qualifier, annotation, or punctuation, and no reformatting",
 		} {
 			if !strings.Contains(normalizedPrompt, fragment) {
@@ -556,19 +557,79 @@ func assertConfluencePaginatedSearchRouteMutationsFail(
 	if results["route_exact"] || results["route_ordered"] {
 		t.Fatalf("mutated route passed: exact=%v ordered=%v", results["route_exact"], results["route_ordered"])
 	}
+	// route_arguments is the content diagnostic: the same calls in a different
+	// order still carry the same arguments. The exact invocation companion and
+	// family sequence remain load-bearing order gates.
+	grouped := confluencePaginatedSearchGroupedRoute(t, mcpInvocations)
+	if equalMCPInvocations(grouped, mcpInvocations) {
+		t.Fatal("grouped route is not a reordering of the exact route")
+	}
+	if !equalMCPInvocationMultisets(grouped, mcpInvocations) {
+		t.Fatal("grouped route is not a permutation of the exact route")
+	}
+	groupedResults, err := evaluateRunChecksWithMCPInvocations(
+		spec.Checks, final, "", len(capabilitySequence), 0, 0, 0,
+		nil, 0, 0, methods, true, nil, capabilityFamilies, true,
+		confluencePaginatedSearchCapabilitySequence(t, grouped),
+		grouped, true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !groupedResults["route_arguments"] || !groupedResults["route_exact"] {
+		t.Fatalf("reordered identical route failed a content oracle: arguments=%v exact=%v",
+			groupedResults["route_arguments"], groupedResults["route_exact"])
+	}
+	if groupedResults["route_invocations_ordered"] || groupedResults["route_ordered"] {
+		t.Fatalf("reordered route passed an order oracle: invocations=%v families=%v",
+			groupedResults["route_invocations_ordered"], groupedResults["route_ordered"])
+	}
+
+	// Reordering calls within one tool family does not change the family
+	// sequence, so the exact invocation companion must independently reject it.
+	sameToolReordered := slices.Clone(mcpInvocations)
+	sameToolReordered[0], sameToolReordered[1] = sameToolReordered[1], sameToolReordered[0]
+	sameToolResults, err := evaluateRunChecksWithMCPInvocations(
+		spec.Checks, final, "", len(capabilitySequence), 0, 0, 0,
+		nil, 0, 0, methods, true, nil, capabilityFamilies, true,
+		capabilitySequence, sameToolReordered, true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameToolResults["route_arguments"] || !sameToolResults["route_ordered"] {
+		t.Fatalf("same-tool reorder changed content or family order diagnostics: %+v", sameToolResults)
+	}
+	if sameToolResults["route_invocations_ordered"] {
+		t.Fatal("same-tool reorder passed route_invocations_ordered")
+	}
+
 	for _, test := range []struct {
 		name   string
-		mutate func([]MCPInvocation)
+		mutate func([]MCPInvocation) []MCPInvocation
 	}{
-		{name: "cursor", mutate: func(values []MCPInvocation) {
+		{name: "missing", mutate: func(values []MCPInvocation) []MCPInvocation {
+			return values[:len(values)-1]
+		}},
+		{name: "extra", mutate: func(values []MCPInvocation) []MCPInvocation {
+			return append(values, values[len(values)-1])
+		}},
+		{name: "duplicate", mutate: func(values []MCPInvocation) []MCPInvocation {
+			// Same length and same tool multiset, but one required call is
+			// replaced by a repeat of another.
+			values[len(values)-1] = values[len(values)-3]
+			return values
+		}},
+		{name: "cursor", mutate: func(values []MCPInvocation) []MCPInvocation {
 			var arguments map[string]any
 			if err := json.Unmarshal(values[1].Arguments, &arguments); err != nil {
 				t.Fatal(err)
 			}
 			arguments["cursor"] = "wrong"
 			values[1] = mustMCPInvocation(t, values[1].Tool, arguments)
+			return values
 		}},
-		{name: "selector", mutate: func(values []MCPInvocation) {
+		{name: "selector", mutate: func(values []MCPInvocation) []MCPInvocation {
 			last := len(values) - 1
 			var arguments map[string]any
 			if err := json.Unmarshal(values[last].Arguments, &arguments); err != nil {
@@ -580,8 +641,9 @@ func assertConfluencePaginatedSearchRouteMutationsFail(
 			}
 			arguments["occurrence"] = occurrence + 1
 			values[last] = mustMCPInvocation(t, values[last].Tool, arguments)
+			return values
 		}},
-		{name: "cap", mutate: func(values []MCPInvocation) {
+		{name: "cap", mutate: func(values []MCPInvocation) []MCPInvocation {
 			last := len(values) - 1
 			var arguments map[string]any
 			if err := json.Unmarshal(values[last].Arguments, &arguments); err != nil {
@@ -589,8 +651,9 @@ func assertConfluencePaginatedSearchRouteMutationsFail(
 			}
 			arguments["max_bytes"] = 16384
 			values[last] = mustMCPInvocation(t, values[last].Tool, arguments)
+			return values
 		}},
-		{name: "ungated", mutate: func(values []MCPInvocation) {
+		{name: "ungated", mutate: func(values []MCPInvocation) []MCPInvocation {
 			last := len(values) - 1
 			var arguments map[string]any
 			if err := json.Unmarshal(values[last].Arguments, &arguments); err != nil {
@@ -598,8 +661,9 @@ func assertConfluencePaginatedSearchRouteMutationsFail(
 			}
 			delete(arguments, "expected_page_version")
 			values[last] = mustMCPInvocation(t, values[last].Tool, arguments)
+			return values
 		}},
-		{name: "stale-version", mutate: func(values []MCPInvocation) {
+		{name: "stale-version", mutate: func(values []MCPInvocation) []MCPInvocation {
 			last := len(values) - 1
 			var arguments map[string]any
 			if err := json.Unmarshal(values[last].Arguments, &arguments); err != nil {
@@ -611,14 +675,11 @@ func assertConfluencePaginatedSearchRouteMutationsFail(
 			}
 			arguments["expected_page_version"] = version - 1
 			values[last] = mustMCPInvocation(t, values[last].Tool, arguments)
-		}},
-		{name: "order", mutate: func(values []MCPInvocation) {
-			values[0], values[1] = values[1], values[0]
+			return values
 		}},
 	} {
 		t.Run("route-arguments-"+test.name, func(t *testing.T) {
-			mutated := slices.Clone(mcpInvocations)
-			test.mutate(mutated)
+			mutated := test.mutate(slices.Clone(mcpInvocations))
 			results, err := evaluateRunChecksWithMCPInvocations(
 				spec.Checks, final, "", len(capabilitySequence), 0, 0, 0,
 				nil, 0, 0, methods, true, nil, capabilityFamilies, true, capabilitySequence,
@@ -632,6 +693,50 @@ func assertConfluencePaginatedSearchRouteMutationsFail(
 			}
 		})
 	}
+}
+
+// confluencePaginatedSearchGroupedRoute reproduces the observed trajectory that
+// keeps every required call and argument but groups all outline reads before
+// all section reads instead of pairing them per selected page.
+func confluencePaginatedSearchGroupedRoute(t *testing.T, invocations []MCPInvocation) []MCPInvocation {
+	t.Helper()
+	grouped := make([]MCPInvocation, 0, len(invocations))
+	for _, tool := range []string{
+		"confluence_search",
+		"confluence_page_outline",
+		"confluence_page_section",
+	} {
+		for _, invocation := range invocations {
+			if invocation.Tool == tool {
+				grouped = append(grouped, invocation)
+			}
+		}
+	}
+	if len(grouped) != len(invocations) {
+		t.Fatalf("grouped route dropped an unmapped typed tool: %+v", invocations)
+	}
+	return grouped
+}
+
+// confluencePaginatedSearchCapabilitySequence derives the ordered capability
+// families a trajectory reports, so a reordered route is evaluated against the
+// sequence oracle it would actually produce rather than the conforming one.
+func confluencePaginatedSearchCapabilitySequence(t *testing.T, invocations []MCPInvocation) []string {
+	t.Helper()
+	families := map[string]string{
+		"confluence_search":       "confluence.search",
+		"confluence_page_outline": "confluence.page.outline",
+		"confluence_page_section": "confluence.page.section",
+	}
+	sequence := make([]string, 0, len(invocations))
+	for _, invocation := range invocations {
+		family, ok := families[invocation.Tool]
+		if !ok {
+			t.Fatalf("unmapped typed tool %q", invocation.Tool)
+		}
+		sequence = append(sequence, family)
+	}
+	return sequence
 }
 
 func confluencePaginatedSearchMCPInvocations(

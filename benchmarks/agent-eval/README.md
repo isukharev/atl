@@ -188,8 +188,9 @@ specs/repetitions and stable provider entries. Provider entries distinguish
 `n3_plus_specs`, all `n1_specs`, and the subset whose distinct scenario id is a
 holdout. `exact_invocation_specs`, `exact_n3_plus_specs`, and
 `exact_distinct_holdout_specs` count only contracts whose exact invocation
-oracle actually exercises that tool. This includes a single
-`mcp_invocations_equal` route or a tool present in every allowed
+oracle actually exercises that tool. This includes a single exact invocation
+route, ordered (`mcp_invocations_equal`) or order-insensitive
+(`mcp_invocations_multiset_equal`), or a tool present in every allowed
 `mcp_route_one_of` alternative; merely granting a tool does not prove coverage.
 `exact_primary_scenarios` and `exact_holdout_scenarios` count unique scenario
 ids, with `holdout` recognized as a complete dot, dash, or underscore-delimited
@@ -863,7 +864,12 @@ then outline and bounded-section calls for the three selected current records
 in ascending id order. Exact capability-family and sequence oracles require
 nine successful typed calls, nine GETs, three intentional repeated page
 targets, and zero writes. An exact invocation oracle also binds every query,
-limit, continuation cursor, page identity, heading occurrence, and byte cap.
+limit, continuation cursor, page identity, heading occurrence, positive page
+version, and byte cap as an order-insensitive multiset. A required ordered
+invocation companion preserves the full exact call order, including same-tool
+cursor and page order, while the family sequence adds a compact trajectory
+diagnostic. This separates argument and ordering findings without weakening
+either requirement.
 Its distinct n=1 holdout changes the query, facts, candidate identities,
 pagination from three pages to two, selected-source count, and repeated-heading
 structure while preserving the same closed response schema and

@@ -265,15 +265,25 @@ GET-only transport, and zero writes. Their exact invocation oracle binds every
 query, page limit, continuation cursor, selected page, repeated-heading
 occurrence, byte cap, and the exact positive page version each selected
 outline reported. Every requested control value is recorded verbatim, without
-an added label, unit, qualifier, annotation, or punctuation. The bounded
-page-evidence primary/holdout pair applies the same oracle to its resolve,
-outline, and section chain. Observed arguments are evaluated in memory and
-omitted from stored observations and results. This supplements rather than
-replaces the historical neutral CLI/MCP comparison.
+an added label, unit, qualifier, annotation, or punctuation. Because a run can
+read exactly the right evidence in the wrong order, this cohort splits the two
+diagnostics: its `route_arguments` check is
+`mcp_invocations_multiset_equal`, so it reports only content and multiplicity
+drift, while `route_ordered` remains the exact `capability_sequence_equal`
+trajectory diagnostic. The required `route_invocations_ordered`
+`mcp_invocations_equal` companion remains the full exact-order gate, including
+same-tool cursor and page order. All three must pass, so grouping all outline
+reads before all section reads keeps `route_arguments` true while both order
+diagnostics fail. The bounded
+page-evidence primary/holdout pair applies the ordered
+`mcp_invocations_equal` oracle to its resolve, outline, and section chain.
+Observed arguments are evaluated in memory and omitted from stored observations
+and results. This supplements rather than replaces the historical neutral
+CLI/MCP comparison.
 
-A corpus invariant keeps that gate from regressing: in any exact
-`mcp_invocations_equal` route, a `confluence_page_section` expectation whose
-page was already read by `confluence_page_outline` must carry a positive
+A corpus invariant keeps that gate from regressing: in any exact invocation
+route, ordered or order-insensitive, a `confluence_page_section` expectation
+whose page was already read by `confluence_page_outline` must carry a positive
 integer `expected_page_version`, because occurrence and structural path are
 positional and mean nothing away from the observed revision. Sections whose
 reference, heading, and occurrence are fixed by the task text rather than by an
@@ -521,6 +531,20 @@ results, unknown tools, non-ATL Codex servers, and missing or unknown Codex
 completion statuses; either route oracle then fails closed. Use both with
 interface, HTTP, guard, and fixture oracles when an allowlist alone cannot
 prove that every required bounded read occurred in the required order.
+
+Typed MCP routes have two exact invocation oracles over the same expected value:
+a non-empty bounded array of allowed tool names with canonical argument objects.
+`mcp_invocations_equal` compares the observed list positionally, so content,
+multiplicity, and order all fail through one check. `mcp_invocations_multiset_equal`
+compares the same list as an order-insensitive multiset: exact tool names, exact
+canonical arguments, and exact duplicate multiplicity must match, while sequence
+does not affect it. Validation requires every multiset check to have an
+`mcp_invocations_equal` companion with the same exact route, so the diagnostic
+cannot weaken same-tool or cross-tool ordering. Both fail closed without
+complete invocation telemetry, both keep arguments in memory only, and neither
+replaces `capability_sequence_equal`. Add the multiset diagnostic when a failure
+should distinguish reading the wrong things from reading the right things in
+the wrong order; keep the positional companion as the full trajectory gate.
 
 Synthetic CLI runs inherit `ATL_READ_ONLY=1` by default. A Codex synthetic CLI
 spec with exact structured `allowed_cli_commands` opts into the executable

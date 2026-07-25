@@ -75,6 +75,47 @@ func equalMCPInvocations(expected, observed []MCPInvocation) bool {
 	})
 }
 
+// equalMCPInvocationMultisets compares exact tool names, exact canonical
+// argument objects, and exact duplicate multiplicity while ignoring call order.
+// It isolates route content from route ordering: a missing, extra, repeated, or
+// differently-argued call still fails, while a reordered but otherwise
+// identical route passes and leaves ordering to the separate exact sequence
+// oracle. Diagnosing the two separately is the point — a single ordered oracle
+// cannot say whether a run read the wrong thing or read the right things in the
+// wrong order.
+func equalMCPInvocationMultisets(expected, observed []MCPInvocation) bool {
+	if len(expected) != len(observed) {
+		return false
+	}
+	remaining := make(map[string]int, len(expected))
+	for _, invocation := range expected {
+		remaining[mcpInvocationKey(invocation)]++
+	}
+	for _, invocation := range observed {
+		key := mcpInvocationKey(invocation)
+		remaining[key]--
+		if remaining[key] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// mcpInvocationKey joins a validated tool name with its canonical argument
+// object using a byte that neither can contain, so two distinct invocations
+// never collide into one multiset entry.
+func mcpInvocationKey(invocation MCPInvocation) string {
+	return invocation.Tool + "\x00" + string(invocation.Arguments)
+}
+
+// exactMCPInvocationCheckKind reports whether a run-check kind binds the
+// complete exact invocation list. Both kinds bind identical tool-and-argument
+// content and duplicate multiplicity; they differ only in whether call order is
+// part of the comparison.
+func exactMCPInvocationCheckKind(kind string) bool {
+	return kind == "mcp_invocations_equal" || kind == "mcp_invocations_multiset_equal"
+}
+
 func invocationToolsAllowed(invocations []MCPInvocation, allowed []string) bool {
 	for _, invocation := range invocations {
 		if !slices.Contains(allowed, invocation.Tool) {

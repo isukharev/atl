@@ -15,7 +15,9 @@ explicitly superseded candidates while retaining every current control record.
 Keep source evidence bounded. Process selected current pages in ascending
 numeric id order. For each one, inspect its heading inventory and then
 immediately request only the authoritative bounded section before moving to the
-next page. The retry-control record has two leaf headings named `Approval`, one
+next page. Once you call an outline, the very next interface call must be the
+matching section call for that same page; two outline calls may never be
+consecutive. The retry-control record has two leaf headings named `Approval`, one
 under the archived policy and one under the current policy. From the outline,
 select the exact `Approval` occurrence whose structural path identifies the
 current policy, then request only that leaf section. Do not request its parent
