@@ -315,6 +315,10 @@ difference in the paired MCP contracts.
 The one-call typed-MCP provider-level `max_tool_calls` budget is two: one ATL MCP
 call plus a bounded schema-output call on providers that expose structured
 response formation as a tool. Their `max_interface_invocations` remains one.
+When retained provider evidence shows a bounded second schema-output formation
+event, a cell may add one total client-event allowance only while keeping its
+interface count, route, arguments, HTTP traffic, retries, and writes
+independently exact; that allowance never permits another ATL invocation.
 The metadata-first Structure qualification cells instead set
 `max_tool_calls=3` and `max_interface_invocations=2`. Table cells retain an
 exact one-GET oracle; Structure view cells retain the exact
@@ -1060,7 +1064,11 @@ policy must ignore those decoys, send the outline-reported version, and answer
 only from the gated complete section. Both cohorts use repeated headings with
 distinct structural paths, a closed response schema, exact invocation and HTTP
 oracles, zero write authority, and paired Codex Luna/high and Claude Code
-Opus/high run specs. The primary runs at n=3 and the holdout at n=1.
+Opus/high run specs. The total client-event budget permits the exact two-call
+MCP route plus at most two provider-local structured-output formation events;
+interface count, arguments, order, HTTP traffic, retries, and writes remain
+independently exact, and a fifth client event fails the budget. The primary runs
+at n=3 and the holdout at n=1.
 
 `confluence-decision-brief` is the longer synthesis cell. Three pages contribute
 an objective, two open risks, and an approved decision that supersedes a draft

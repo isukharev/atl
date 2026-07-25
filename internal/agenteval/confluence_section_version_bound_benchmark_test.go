@@ -129,10 +129,10 @@ const (
 	confluenceSectionVersionBoundSection         = "confluence_page_section"
 	confluenceSectionVersionBoundOutlineF        = "confluence.page.outline"
 	confluenceSectionVersionBoundSectionF        = "confluence.page.section"
-	// Claude Code reports its schema-constrained final response as one
-	// additional generic tool event. The exact MCP route stays the derived
-	// number of interface invocations for both providers.
-	confluenceSectionVersionBoundExtraToolEvents = 1
+	// Claude Code may use up to two provider-local StructuredOutput events while
+	// forming one schema-constrained final response. The exact MCP route stays
+	// the derived number of interface invocations for both providers.
+	confluenceSectionVersionBoundExtraToolEvents = 2
 )
 
 func confluenceSectionVersionBoundRoot(cohort confluenceSectionVersionBoundCohort) string {
@@ -1188,7 +1188,7 @@ func assertConfluenceSectionVersionBoundBudgetsHold(
 	evidence confluenceSectionVersionBoundEvidence,
 ) {
 	t.Helper()
-	observe := func(scenario Scenario, duplicates int, methods map[string]int) Result {
+	observe := func(scenario Scenario, duplicates int, methods map[string]int, toolCalls int) Result {
 		t.Helper()
 		coverage := make(map[string]bool, len(scenario.RequiredMetrics)+1)
 		for _, metric := range scenario.RequiredMetrics {
@@ -1202,7 +1202,7 @@ func assertConfluenceSectionVersionBoundBudgetsHold(
 			Runtime: Runtime{Provider: "deterministic", ATLVersion: "test"},
 			Metrics: InputMetrics{
 				AgentTurns:               2 + confluenceSectionVersionBoundExtraToolEvents,
-				ToolCalls:                2 + confluenceSectionVersionBoundExtraToolEvents,
+				ToolCalls:                toolCalls,
 				InterfaceInvocations:     len(evidence.invocations),
 				DuplicateBackendRequests: duplicates, OutputBytes: int64(len(evidence.final)),
 				InputTokens: 1, OutputTokens: 1, MainThreadInputTokens: 1,
@@ -1217,7 +1217,8 @@ func assertConfluenceSectionVersionBoundBudgetsHold(
 		return result
 	}
 
-	result := observe(scenario, evidence.duplicates, evidence.methods)
+	observedToolCalls := 2 + confluenceSectionVersionBoundExtraToolEvents
+	result := observe(scenario, evidence.duplicates, evidence.methods, observedToolCalls)
 	if result.Status != "pass" ||
 		result.Metrics.BackendRequests != 2 ||
 		result.Metrics.RemoteWrites != 0 ||
@@ -1243,7 +1244,7 @@ func assertConfluenceSectionVersionBoundBudgetsHold(
 		},
 		{
 			name:    "underdeclared-tool-calls",
-			shrink:  func(b *Budgets) { b.MaxToolCalls = 2 },
+			shrink:  func(b *Budgets) { b.MaxToolCalls = observedToolCalls - 1 },
 			subject: "tool_calls",
 		},
 		{
@@ -1261,7 +1262,7 @@ func assertConfluenceSectionVersionBoundBudgetsHold(
 			shrunk := scenario
 			shrunk.Budgets = scenario.Budgets
 			test.shrink(&shrunk.Budgets)
-			result := observe(shrunk, evidence.duplicates, evidence.methods)
+			result := observe(shrunk, evidence.duplicates, evidence.methods, observedToolCalls)
 			if result.Status == "pass" || !containsViolation(result.Violations, "budget_exceeded", test.subject) {
 				t.Fatalf("underdeclared %s budget still passed: %+v", test.subject, result)
 			}
@@ -1271,11 +1272,21 @@ func assertConfluenceSectionVersionBoundBudgetsHold(
 	// One more read of the same page target must exceed both the declared
 	// duplicate allowance and the declared request budget.
 	t.Run(spec.Provider+"/one-more-duplicate-read", func(t *testing.T) {
-		result := observe(scenario, 2, map[string]int{"GET": 3})
+		result := observe(scenario, 2, map[string]int{"GET": 3}, observedToolCalls)
 		if result.Status == "pass" ||
 			!containsViolation(result.Violations, "budget_exceeded", "duplicate_backend_requests") ||
 			!containsViolation(result.Violations, "budget_exceeded", "backend_requests") {
 			t.Fatalf("one more duplicate read still passed the declared budgets: %+v", result)
+		}
+	})
+
+	// A second provider-local schema-output attempt is allowed, but another
+	// client event still fails without changing the exact two-call MCP route.
+	t.Run(spec.Provider+"/one-more-client-tool-event", func(t *testing.T) {
+		result := observe(scenario, evidence.duplicates, evidence.methods, observedToolCalls+1)
+		if result.Status == "pass" ||
+			!containsViolation(result.Violations, "budget_exceeded", "tool_calls") {
+			t.Fatalf("a fifth client tool event passed the declared budget: %+v", result)
 		}
 	})
 }
