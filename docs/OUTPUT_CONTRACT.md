@@ -2115,6 +2115,7 @@ and add bounded warnings.
     "signature": 55,
     "version": 7
   },
+  "forest_version_gated": false,
   "rows": [
     {
       "row_id": 100,
@@ -2131,6 +2132,10 @@ For non-root rows, `parent_row_id` is present. `-o id` prints Structure row ids
 one per line. `--root` emits the first matching row plus descendants; matching is
 by row metadata first and then by Structure values fetched through
 `--root-fields` (default `key,summary`).
+
+`forest_version_gated` is always present and is `true` only when the caller
+supplied the exact expected forest pair described under `structure view`; the
+existing `version` member still reports the forest the rows were parsed from.
 
 Rows/view/pull-issues/export also accept one mutually exclusive exact selector:
 `--folder-id`, `--folder-row`, or `--folder-path`. Exact selectors verify a
@@ -2189,21 +2194,27 @@ Every successful snapshot keeps `schema_version:1` and always carries
 `forest_version_gated`. `forest_version_gated:true` means the caller supplied
 that exact pair through the paired `--expected-forest-signature` and
 `--expected-forest-version` flags, and the snapshot's `forest_version` then
-equals it. Omitting both flags is an explicitly ungated view. If either is
-supplied both are required, the signature must be non-zero, and the version must
-be positive; an unpaired or invalid pair is a usage error and exits `2` before
-any backend request. A supplied pair that does not match exits `8`: the
-comparison runs on the initial forest read, before Structure Value or Jira issue
-expansion, and the diagnostic carries only the expected and current
-signature/version integers. There is no second forest request and no final
-re-read. A returned pair with either member zero is non-bindable: do not pass it
-as an expected pair, and treat a later selection as explicitly ungated. Copy
-both non-zero members of a returned `forest_version` into a later call
+equals it. `view`, `rows`, `pull-issues`, and `export` accept the same paired
+flags; `get`, `forest`, `folders`, and `values` accept none. Omitting both flags
+is an explicitly ungated read. If either is supplied both are required, the
+signature must be non-zero, and the version must be positive; an unpaired,
+zero, or non-positive pair is a usage error and exits `2` before any backend
+request. A supplied pair that does not match exits `8`: the comparison runs on
+the initial forest read, before stored-folder labels, Structure Value or Jira
+issue expansion, export rendering, and before any `--out` file is created, so a
+stale gate leaves no partial local artifact. The diagnostic carries only the
+expected and current signature/version integers. There is no second forest
+request and no final re-read. A returned pair with either member zero is
+non-bindable: do not pass it as an expected pair, and treat a later selection as
+explicitly ungated. Copy
+both non-zero members of a returned `forest_version` (`version` on `rows` and
+`pull-issues`) into a later call
 whenever its `--folder-id`, `--folder-row`, or `--folder-path` selector came
-from an earlier `view` or `folders` result; a selector fixed outside any earlier
-read may omit them and is then explicitly ungated evidence. The forest version
-qualifies the hierarchy and the selection only — Jira issue fields and stored
-folder labels are separately timed and are not covered by it. The `-o text`
+from an earlier `view`, `folders`, or `rows` result; a selector fixed outside
+any earlier read may omit them and is then explicitly ungated evidence. The
+forest version qualifies the hierarchy and the selection only — Jira issue
+fields and stored folder labels are separately timed and are not covered by it,
+so a gated result is not one atomic versioned value snapshot. The `-o text`
 header states the signature, version, and gated facts alongside the projection
 and row count.
 
@@ -2241,12 +2252,19 @@ issue keys and item ids remain the durable correlation keys.
 {
   "structure_id": 123,
   "version": {"signature": 55, "version": 7},
+  "forest_version_gated": false,
   "rows": [],
   "issue_ids": ["10001"],
   "issues": [{"key": "PROJ-1", "id": "10001", "fields": {}}],
   "count": 1
 }
 ```
+
+`forest_version_gated` is always present. When it is `true`, the stale-pair
+check already ran on the initial forest read, so the Jira issue search and any
+`--out` snapshot file happen only after the hierarchy matched the expected
+forest. The pair still says nothing about the separately timed Jira fields
+collected afterwards.
 
 `atl jira structure export <ID> --out FILE --format json|jsonl|csv|md` writes the
 artifact and returns a small result object:
@@ -2256,22 +2274,31 @@ artifact and returns a small result object:
   "path": "structure.json",
   "format": "json",
   "structure_id": 123,
+  "forest_version": {"signature": 55, "version": 7},
+  "forest_version_gated": true,
   "row_count": 1,
   "issue_count": 1
 }
 ```
 
-JSON and Markdown contain the same normalized snapshot as `structure view`.
-`export` adds no expected-version flags, so its snapshots are always
-`forest_version_gated:false`; Markdown states that signature, version, and gated
-value in its header note. JSONL has one self-contained record per row, including
-schema, structure id, `forest_version`, `forest_version_gated`, projection, and
+`forest_version` and `forest_version_gated` are always present in the command
+result, so an export is auditable without reopening the artifact. JSON and
+Markdown contain the same normalized snapshot as `structure view`; Markdown
+states that signature, version, and gated value in its header note. JSONL has
+one self-contained record per row, including schema, structure id,
+`forest_version`, `forest_version_gated`, projection, and
 row, which makes line-oriented filtering safe. CSV
 contains row metadata (`row_id`, `depth`, `relative_depth`, `parent_row_id`, `position`,
-`item_type`, `item_id`, `accessible`) plus selected Structure attributes. CSV cells use the
+`item_type`, `item_id`, `accessible`) plus selected Structure attributes. CSV headers and
+cells are unchanged by the gate, so a CSV export carries this provenance only in
+the command result above. CSV cells use the
 same default formula neutralization as `jira export`; `--raw-csv` disables it
 only for CSV and is unsafe for spreadsheet use. Use `pull-issues` separately
 when raw Jira issue snapshots are required.
+
+With `-o text`, the command-result line reports `format`, `forest_signature`,
+`forest_version`, `gated`, `rows`, and `issues` after the output path, so CSV
+provenance remains visible in either output mode.
 
 `atl manifest create --root DIR` writes a backend-identity-hashed local manifest and returns
 the written path plus the manifest body:

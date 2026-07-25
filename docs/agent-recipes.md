@@ -297,21 +297,28 @@ atl jira structure view 123 --folder-id 100 \
   --expected-forest-signature 55 --expected-forest-version 7
 atl jira structure export 123 \
   --folder-id 100 --fields key,summary,status,assignee \
-  --format jsonl --out structure.jsonl
+  --format jsonl --out structure.jsonl \
+  --expected-forest-signature 55 --expected-forest-version 7
 ```
 
 Structure browser saved-view columns are not reproduced. Select fields or a
 named view explicitly. Treat `complete:false`, inaccessible rows, truncation,
 and warnings as partial results rather than an empty plan.
 
-When a folder selector came from an earlier `structure view` or `structure
-folders` result, copy both members of that result's `forest_version` into the
-next `view` call. The two flags are paired and optional: omitting both is an
-explicitly ungated view, an unpaired or invalid pair exits `2`, and a pair that
-does not match the current forest exits `8` before any Jira issue expansion.
-Read `forest_version` and `forest_version_gated` from the result: they qualify
+When a folder selector came from an earlier `structure view`, `structure
+folders`, or `structure rows` result, copy both members of that result's forest
+version into the next call. `view`, `rows`, `pull-issues`, and `export` all
+accept the same pair; `get`, `forest`, `folders`, and `values` accept none. The
+two flags are paired and optional: omitting both is an explicitly ungated read,
+an unpaired, zero, or non-positive pair exits `2` before any request, and a pair
+that does not match the current forest exits `8` on the initial forest read —
+before folder labels, Structure Value reads, Jira issue expansion, export
+rendering, or any `--out` file, so a stale gate leaves no partial artifact.
+Read `forest_version_gated` from every result, together with `forest_version`
+on `view` and `export` or `version` on `rows` and `pull-issues`: they qualify
 the hierarchy and the selection, while Jira issue fields and stored folder
-labels stay separately timed.
+labels stay separately timed. A CSV export reports that provenance only in the
+command result, because its headers and cells are unchanged.
 If either returned version member is zero, the pair is non-bindable: omit both
 expected flags and report the later selection as explicitly ungated instead of
 claiming version-bound evidence.

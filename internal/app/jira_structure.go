@@ -17,6 +17,9 @@ import (
 type StructureRowsOpts struct {
 	Root       string
 	RootFields []string
+	// ExpectedForestVersion binds the parsed rows to one exact forest version
+	// pair. See StructureSnapshotOpts.ExpectedForestVersion; nil means ungated.
+	ExpectedForestVersion *domain.StructureVersion
 	StructureFolderSelector
 }
 
@@ -24,10 +27,13 @@ type StructureRowsOpts struct {
 type StructureRowsResult struct {
 	StructureID int64                    `json:"structure_id"`
 	Version     *domain.StructureVersion `json:"version,omitempty"`
-	Rows        []domain.StructureRow    `json:"rows"`
-	Selection   *StructureSelection      `json:"selection,omitempty"`
-	Complete    bool                     `json:"complete"`
-	Warnings    []string                 `json:"warnings"`
+	// ForestVersionGated reports whether the caller supplied an exact expected
+	// forest version pair that this row set was checked against.
+	ForestVersionGated bool                  `json:"forest_version_gated"`
+	Rows               []domain.StructureRow `json:"rows"`
+	Selection          *StructureSelection   `json:"selection,omitempty"`
+	Complete           bool                  `json:"complete"`
+	Warnings           []string              `json:"warnings"`
 }
 
 // StructureIssuePullOpts controls Structure issue collection.
@@ -39,22 +45,29 @@ type StructureIssuePullOpts struct {
 	Limit      int
 	Out        string
 	View       string
+	// ExpectedForestVersion binds the pulled hierarchy to one exact forest
+	// version pair, checked before any Jira read or output file. It says
+	// nothing about the separately timed Jira fields collected afterwards.
+	ExpectedForestVersion *domain.StructureVersion
 	StructureFolderSelector
 }
 
 // StructureIssuePullResult contains issue snapshots referenced by a Structure.
 type StructureIssuePullResult struct {
-	StructureID      int64                    `json:"structure_id"`
-	Version          *domain.StructureVersion `json:"version,omitempty"`
-	Rows             []domain.StructureRow    `json:"rows"`
-	IssueIDs         []string                 `json:"issue_ids"`
-	Issues           []JiraIssueSnapshot      `json:"issues"`
-	Count            int                      `json:"count"`
-	InaccessibleRows []int64                  `json:"inaccessible_rows,omitempty"`
-	Path             string                   `json:"path,omitempty"`
-	Selection        *StructureSelection      `json:"selection,omitempty"`
-	Complete         bool                     `json:"complete"`
-	Warnings         []string                 `json:"warnings"`
+	StructureID int64                    `json:"structure_id"`
+	Version     *domain.StructureVersion `json:"version,omitempty"`
+	// ForestVersionGated reports whether the caller supplied an exact expected
+	// forest version pair that this hierarchy was checked against.
+	ForestVersionGated bool                  `json:"forest_version_gated"`
+	Rows               []domain.StructureRow `json:"rows"`
+	IssueIDs           []string              `json:"issue_ids"`
+	Issues             []JiraIssueSnapshot   `json:"issues"`
+	Count              int                   `json:"count"`
+	InaccessibleRows   []int64               `json:"inaccessible_rows,omitempty"`
+	Path               string                `json:"path,omitempty"`
+	Selection          *StructureSelection   `json:"selection,omitempty"`
+	Complete           bool                  `json:"complete"`
+	Warnings           []string              `json:"warnings"`
 }
 
 // StructureExportOpts controls Structure offline exports.
@@ -66,6 +79,9 @@ type StructureExportOpts struct {
 	Out       string
 	RawCSV    bool
 	View      string
+	// ExpectedForestVersion binds the exported hierarchy to one exact forest
+	// version pair, checked before rendering or creating the output file.
+	ExpectedForestVersion *domain.StructureVersion
 	StructureFolderSelector
 }
 
@@ -74,8 +90,13 @@ type StructureExportResult struct {
 	Path        string `json:"path"`
 	Format      string `json:"format"`
 	StructureID int64  `json:"structure_id"`
-	RowCount    int    `json:"row_count"`
-	IssueCount  int    `json:"issue_count"`
+	// ForestVersion and ForestVersionGated make the command result auditable
+	// without reopening the export; the CSV cell contract is unchanged, so a
+	// CSV export carries this provenance only here.
+	ForestVersion      domain.StructureVersion `json:"forest_version"`
+	ForestVersionGated bool                    `json:"forest_version_gated"`
+	RowCount           int                     `json:"row_count"`
+	IssueCount         int                     `json:"issue_count"`
 }
 
 // StructureSnapshotOpts controls the normalized, agent-facing Structure view.
@@ -114,6 +135,15 @@ func (e *StructureForestVersionMismatchError) Unwrap() error { return domain.Err
 
 func newStructureForestVersionMismatch(expected, current domain.StructureVersion) *StructureForestVersionMismatchError {
 	return &StructureForestVersionMismatchError{Expected: expected, Current: current}
+}
+
+// validateExpectedForestVersion rejects a half-supplied or non-positive pair
+// before any backend read; both halves identify one forest snapshot.
+func validateExpectedForestVersion(expected *domain.StructureVersion) error {
+	if expected != nil && (expected.Signature == 0 || expected.Version <= 0) {
+		return fmt.Errorf("%w: expected forest version needs a nonzero signature and a positive version", domain.ErrUsage)
+	}
+	return nil
 }
 
 // StructureProjection makes it explicit that atl selected Jira fields; it is
@@ -196,11 +226,16 @@ func (s *JiraService) StructureForest(ctx context.Context, id int64) (*domain.St
 	return s.structure.StructureForest(ctx, id)
 }
 
-// StructureRows parses the latest forest formula into row records.
-func (s *JiraService) StructureRows(ctx context.Context, id int64) ([]domain.StructureRow, *domain.StructureVersion, error) {
+// structureForestRows reads the latest forest and, when the caller bound the
+// read to one exact version pair, fails closed on a stale expectation before
+// any folder-label, Structure Value, or Jira read the parsed rows would drive.
+func (s *JiraService) structureForestRows(ctx context.Context, id int64, expected *domain.StructureVersion) ([]domain.StructureRow, *domain.StructureVersion, error) {
 	forest, err := s.StructureForest(ctx, id)
 	if err != nil {
 		return nil, nil, err
+	}
+	if expected != nil && forest.Version != *expected {
+		return nil, nil, newStructureForestVersionMismatch(*expected, forest.Version)
 	}
 	rows, err := ParseStructureRows(forest)
 	if err != nil {
@@ -211,14 +246,24 @@ func (s *JiraService) StructureRows(ctx context.Context, id int64) ([]domain.Str
 
 // StructureRowsWithOptions parses Structure rows and optionally keeps one subtree.
 func (s *JiraService) StructureRowsWithOptions(ctx context.Context, id int64, opts StructureRowsOpts) (*StructureRowsResult, error) {
+	if err := validateExpectedForestVersion(opts.ExpectedForestVersion); err != nil {
+		return nil, err
+	}
 	if err := validateStructureSelector(opts.Root, opts.StructureFolderSelector); err != nil {
 		return nil, err
 	}
-	rows, version, err := s.StructureRows(ctx, id)
+	rows, version, err := s.structureForestRows(ctx, id, opts.ExpectedForestVersion)
 	if err != nil {
 		return nil, err
 	}
-	result := &StructureRowsResult{StructureID: id, Version: version, Rows: rows, Complete: true, Warnings: []string{}}
+	result := &StructureRowsResult{
+		StructureID:        id,
+		Version:            version,
+		ForestVersionGated: opts.ExpectedForestVersion != nil,
+		Rows:               rows,
+		Complete:           true,
+		Warnings:           []string{},
+	}
 	if selectorCount(opts.StructureFolderSelector) > 0 {
 		labels, complete, warnings := s.structureFolderLabelsChecked(ctx, id, rows)
 		selected, selection, selectErr := selectStructureFolder(rows, buildStructureFolders(rows, labels), complete, opts.StructureFolderSelector)
@@ -263,8 +308,8 @@ func (s *JiraService) StructureSnapshot(ctx context.Context, id int64, opts Stru
 	if opts.MaxScanRows < 0 {
 		return nil, fmt.Errorf("%w: max scan rows must be positive", domain.ErrUsage)
 	}
-	if expected := opts.ExpectedForestVersion; expected != nil && (expected.Signature == 0 || expected.Version <= 0) {
-		return nil, fmt.Errorf("%w: expected forest version needs a nonzero signature and a positive version", domain.ErrUsage)
+	if err := validateExpectedForestVersion(opts.ExpectedForestVersion); err != nil {
+		return nil, err
 	}
 	if err := validateStructureSelector(opts.Root, opts.StructureFolderSelector); err != nil {
 		return nil, err
@@ -544,6 +589,9 @@ func mapSlice(v any) []map[string]any {
 
 // StructurePullIssues fetches Jira issue snapshots referenced by Structure issue rows.
 func (s *JiraService) StructurePullIssues(ctx context.Context, id int64, opts StructureIssuePullOpts) (*StructureIssuePullResult, error) {
+	if err := validateExpectedForestVersion(opts.ExpectedForestVersion); err != nil {
+		return nil, err
+	}
 	selectedFields, _, err := s.resolveListColumns(config.JiraListSourceStructure, opts.View, opts.Fields)
 	if err != nil {
 		return nil, err
@@ -552,20 +600,28 @@ func (s *JiraService) StructurePullIssues(ctx context.Context, id int64, opts St
 		return nil, err
 	}
 	opts.Fields = selectedFields
-	rowResult, err := s.StructureRowsWithOptions(ctx, id, StructureRowsOpts{Root: opts.Root, RootFields: opts.RootFields, StructureFolderSelector: opts.StructureFolderSelector})
+	// The forest gate lives in the row read, so a stale expectation fails
+	// before the Jira search below and before any --out file is created.
+	rowResult, err := s.StructureRowsWithOptions(ctx, id, StructureRowsOpts{
+		Root:                    opts.Root,
+		RootFields:              opts.RootFields,
+		ExpectedForestVersion:   opts.ExpectedForestVersion,
+		StructureFolderSelector: opts.StructureFolderSelector,
+	})
 	if err != nil {
 		return nil, err
 	}
 	ids := structureIssueIDs(rowResult.Rows)
 	result := &StructureIssuePullResult{
-		StructureID: id,
-		Version:     rowResult.Version,
-		Rows:        rowResult.Rows,
-		IssueIDs:    ids,
-		Issues:      []JiraIssueSnapshot{},
-		Selection:   rowResult.Selection,
-		Complete:    rowResult.Complete,
-		Warnings:    rowResult.Warnings,
+		StructureID:        id,
+		Version:            rowResult.Version,
+		ForestVersionGated: rowResult.ForestVersionGated,
+		Rows:               rowResult.Rows,
+		IssueIDs:           ids,
+		Issues:             []JiraIssueSnapshot{},
+		Selection:          rowResult.Selection,
+		Complete:           rowResult.Complete,
+		Warnings:           rowResult.Warnings,
 	}
 	if len(ids) > 0 {
 		queries := batchedJQL("id", ids, normalizeBatchSize(opts.BatchSize), false)
@@ -610,11 +666,14 @@ func (s *JiraService) StructureExport(ctx context.Context, id int64, opts Struct
 	if opts.RawCSV && format != "csv" {
 		return nil, fmt.Errorf("%w: --raw-csv requires --format csv", domain.ErrUsage)
 	}
+	// The snapshot enforces the forest gate, so a stale expectation fails
+	// before rendering and before the output file is created.
 	snapshot, err := s.StructureSnapshot(ctx, id, StructureSnapshotOpts{
 		Root:                    opts.Root,
 		Attributes:              opts.Fields,
 		BatchSize:               opts.BatchSize,
 		View:                    opts.View,
+		ExpectedForestVersion:   opts.ExpectedForestVersion,
 		StructureFolderSelector: opts.StructureFolderSelector,
 	})
 	if err != nil {
@@ -628,11 +687,13 @@ func (s *JiraService) StructureExport(ctx context.Context, id int64, opts Struct
 		return nil, err
 	}
 	return &StructureExportResult{
-		Path:        opts.Out,
-		Format:      format,
-		StructureID: id,
-		RowCount:    snapshot.RowCount,
-		IssueCount:  snapshot.IssueCount,
+		Path:               opts.Out,
+		Format:             format,
+		StructureID:        id,
+		ForestVersion:      snapshot.ForestVersion,
+		ForestVersionGated: snapshot.ForestVersionGated,
+		RowCount:           snapshot.RowCount,
+		IssueCount:         snapshot.IssueCount,
 	}, nil
 }
 

@@ -30,9 +30,19 @@ ids:
 
 ```sh
 export ATL_READ_ONLY=1
-atl jira structure rows <structure-id> --folder-id <stable-folder-id>
+atl jira structure rows <structure-id> --folder-id <stable-folder-id> \
+  --expected-forest-signature <signature> --expected-forest-version <version>
 atl jira structure values <structure-id> --rows <row-id,row-id,...> --fields <field-id,field-id,...>
 ```
+
+When the folder id came from an earlier `view`, `folders`, or `rows` result,
+copy both members of that result's forest version into the paired
+`--expected-forest-signature` and `--expected-forest-version` on this `rows`
+call and require `forest_version_gated:true`. Omitting both is an explicitly
+ungated read for an externally fixed selector; an unpaired, zero, or
+non-positive pair exits 2, and a stale pair exits 8 on the initial forest read.
+`values` accepts no expected-version flags and is a separately timed read, so
+the row ids it is given are only as fresh as the `rows` call that produced them.
 
 Preserve row order and associate each attribute's `values` array by position
 with the response `rows` array. Keep repeated issue rows distinct. Report

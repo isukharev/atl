@@ -47,8 +47,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   report the always-present `forest_version_gated` state, while Jira fields and
   stored-folder labels remain explicitly separately timed. Structure JSON and
   JSONL exports carry the same gated state, and Markdown export headers report
-  the forest signature, version, and gate status; exports remain ungated
-  because they accept no expected-version flags.
+  the forest signature, version, and gate status.
+
+- `jira structure rows`, `jira structure pull-issues`, and `jira structure
+  export` now accept the same paired optional `--expected-forest-signature` and
+  `--expected-forest-version` flags as `jira structure view`, so a folder
+  selector derived from an earlier `view`, `folders`, or `rows` result can be
+  bound to that exact forest on every consumer rather than only on `view`. A
+  partial, zero, or non-positive pair is a usage error (exit `2`) before any
+  backend request, and a stale pair fails closed with exit `8` on the initial
+  forest read — before stored-folder labels, Structure Value reads, Jira field
+  expansion, rendering, or any `--out` file. `rows` and `pull-issues` keep their
+  existing `version` member and add the always-present `forest_version_gated`
+  state; the `export` command result adds always-present `forest_version` and
+  `forest_version_gated`, which is where a CSV export carries that provenance
+  because CSV headers and cells are unchanged; `-o text` reports the same pair
+  and gate state. `get`, `forest`, `folders`, and `values` take no
+  expected-version flags. The forest pair still qualifies the hierarchy and
+  the selection only.
 
 - Added typed read-only MCP `jira_issue_refs` for bounded, reconciled reference
   summaries over one exact issue or a JQL selection capped at 25 issues. Its

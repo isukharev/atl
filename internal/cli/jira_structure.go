@@ -94,13 +94,17 @@ func jiraStructureCmd() *cobra.Command {
 	}
 
 	var rowsRoot, rowsRootFields, rowsFolderID, rowsFolderPath string
-	var rowsFolderRow int64
+	var rowsFolderRow, rowsExpectedSignature, rowsExpectedVersion int64
 	rows := &cobra.Command{
 		Use:   "rows <STRUCTURE-ID>",
 		Short: "Parse the latest Structure forest into rows",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			selector, err := structureFolderSelector(cmd, rowsFolderID, rowsFolderRow, rowsFolderPath)
+			if err != nil {
+				return err
+			}
+			expected, err := structureExpectedForestVersion(cmd, rowsExpectedSignature, rowsExpectedVersion)
 			if err != nil {
 				return err
 			}
@@ -115,6 +119,7 @@ func jiraStructureCmd() *cobra.Command {
 			res, err := svc.StructureRowsWithOptions(cmd.Context(), id, app.StructureRowsOpts{
 				Root:                    rowsRoot,
 				RootFields:              splitFields(rowsRootFields),
+				ExpectedForestVersion:   expected,
 				StructureFolderSelector: selector,
 			})
 			if err != nil {
@@ -131,6 +136,7 @@ func jiraStructureCmd() *cobra.Command {
 	}
 	rows.Flags().StringVar(&rowsRoot, "root", "", "optional root row/id/text; emits the first matching row subtree")
 	rows.Flags().StringVar(&rowsRootFields, "root-fields", "key,summary", "comma-separated Structure attributes used when matching --root")
+	addStructureForestGateFlags(rows, &rowsExpectedSignature, &rowsExpectedVersion, "rows")
 	addStructureFolderSelectorFlags(rows, &rowsFolderID, &rowsFolderRow, &rowsFolderPath)
 
 	folders := &cobra.Command{
@@ -240,19 +246,22 @@ func jiraStructureCmd() *cobra.Command {
 	view.Flags().StringVar(&viewFields, "fields", "", "comma-separated Jira fields (default: key,summary,status,assignee)")
 	view.Flags().StringVar(&viewPreset, "view", "", "named Jira list view from config (default: default; explicit --fields wins)")
 	view.Flags().IntVar(&viewBatchSize, "batch-size", 100, "issue id batch size for generated JQL")
-	view.Flags().Int64Var(&viewExpectedSignature, "expected-forest-signature", 0, "bind the view to this exact forest signature (requires --expected-forest-version)")
-	view.Flags().Int64Var(&viewExpectedVersion, "expected-forest-version", 0, "bind the view to this exact forest version (requires --expected-forest-signature)")
+	addStructureForestGateFlags(view, &viewExpectedSignature, &viewExpectedVersion, "view")
 	addStructureFolderSelectorFlags(view, &viewFolderID, &viewFolderRow, &viewFolderPath)
 
 	var pullRoot, pullRootFields, pullFields, pullView, pullOut, pullFolderID, pullFolderPath string
 	var pullBatchSize, pullLimit int
-	var pullFolderRow int64
+	var pullFolderRow, pullExpectedSignature, pullExpectedVersion int64
 	pullIssues := &cobra.Command{
 		Use:   "pull-issues <STRUCTURE-ID>",
 		Short: "Fetch Jira issue snapshots referenced by Structure rows",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			selector, err := structureFolderSelector(cmd, pullFolderID, pullFolderRow, pullFolderPath)
+			if err != nil {
+				return err
+			}
+			expected, err := structureExpectedForestVersion(cmd, pullExpectedSignature, pullExpectedVersion)
 			if err != nil {
 				return err
 			}
@@ -272,6 +281,7 @@ func jiraStructureCmd() *cobra.Command {
 				Limit:                   pullLimit,
 				Out:                     pullOut,
 				View:                    pullView,
+				ExpectedForestVersion:   expected,
 				StructureFolderSelector: selector,
 			})
 			if err != nil {
@@ -289,11 +299,12 @@ func jiraStructureCmd() *cobra.Command {
 	pullIssues.Flags().IntVar(&pullBatchSize, "batch-size", 100, "issue id batch size for generated JQL")
 	pullIssues.Flags().IntVar(&pullLimit, "limit", 0, "maximum Jira issues to fetch (0 means no limit)")
 	pullIssues.Flags().StringVar(&pullOut, "out", "", "optional JSON file path for the pulled snapshot")
+	addStructureForestGateFlags(pullIssues, &pullExpectedSignature, &pullExpectedVersion, "pulled hierarchy")
 	addStructureFolderSelectorFlags(pullIssues, &pullFolderID, &pullFolderRow, &pullFolderPath)
 
 	var exportRoot, exportFields, exportView, exportFormat, exportOut, exportFolderID, exportFolderPath string
 	var exportBatchSize int
-	var exportFolderRow int64
+	var exportFolderRow, exportExpectedSignature, exportExpectedVersion int64
 	var exportRawCSV bool
 	exportCmd := &cobra.Command{
 		Use:   "export <STRUCTURE-ID>",
@@ -301,6 +312,10 @@ func jiraStructureCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			selector, err := structureFolderSelector(cmd, exportFolderID, exportFolderRow, exportFolderPath)
+			if err != nil {
+				return err
+			}
+			expected, err := structureExpectedForestVersion(cmd, exportExpectedSignature, exportExpectedVersion)
 			if err != nil {
 				return err
 			}
@@ -320,13 +335,16 @@ func jiraStructureCmd() *cobra.Command {
 				Out:                     exportOut,
 				RawCSV:                  exportRawCSV,
 				View:                    exportView,
+				ExpectedForestVersion:   expected,
 				StructureFolderSelector: selector,
 			})
 			if err != nil {
 				return err
 			}
 			return emit(cmd, res, func() string {
-				return fmt.Sprintf("%s\tformat=%s\trows=%d\tissues=%d", res.Path, res.Format, res.RowCount, res.IssueCount)
+				return fmt.Sprintf("%s\tformat=%s\tforest_signature=%d\tforest_version=%d\tgated=%t\trows=%d\tissues=%d",
+					res.Path, res.Format, res.ForestVersion.Signature, res.ForestVersion.Version,
+					res.ForestVersionGated, res.RowCount, res.IssueCount)
 			})
 		},
 	}
@@ -337,6 +355,7 @@ func jiraStructureCmd() *cobra.Command {
 	exportCmd.Flags().StringVar(&exportFormat, "format", "json", "export format: json, jsonl, csv, or md")
 	exportCmd.Flags().StringVar(&exportOut, "out", "", "required output file path")
 	exportCmd.Flags().BoolVar(&exportRawCSV, "raw-csv", false, "write formula-leading CSV cells verbatim (unsafe in spreadsheets)")
+	addStructureForestGateFlags(exportCmd, &exportExpectedSignature, &exportExpectedVersion, "export")
 	addStructureFolderSelectorFlags(exportCmd, &exportFolderID, &exportFolderRow, &exportFolderPath)
 
 	c.AddCommand(get, view, forest, rows, folders, values, pullIssues, exportCmd)
@@ -347,6 +366,15 @@ func addStructureFolderSelectorFlags(cmd *cobra.Command, folderID *string, folde
 	cmd.Flags().StringVar(folderID, "folder-id", "", "exact stable stored-folder item id")
 	cmd.Flags().Int64Var(folderRow, "folder-row", 0, "exact stored-folder row id in the current forest snapshot")
 	cmd.Flags().StringVar(folderPath, "folder-path", "", "exact slash-separated stored-folder path")
+}
+
+// addStructureForestGateFlags registers the optional paired forest gate shared
+// by every Structure read that resolves a selector or root against a forest.
+func addStructureForestGateFlags(cmd *cobra.Command, signature, version *int64, subject string) {
+	cmd.Flags().Int64Var(signature, "expected-forest-signature", 0,
+		fmt.Sprintf("bind the %s to this exact forest signature (requires --expected-forest-version)", subject))
+	cmd.Flags().Int64Var(version, "expected-forest-version", 0,
+		fmt.Sprintf("bind the %s to this exact forest version (requires --expected-forest-signature)", subject))
 }
 
 func structureFolderSelector(cmd *cobra.Command, folderID string, folderRow int64, folderPath string) (app.StructureFolderSelector, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -189,6 +190,224 @@ func TestStructureSnapshotRejectsIncompleteExpectedForestVersionBeforeBackendAcc
 		if !errors.Is(err, domain.ErrUsage) {
 			t.Fatalf("expected=%+v error=%v, want usage before any backend read", expected, err)
 		}
+	}
+}
+
+func TestStructureRowsWithOptionsBindsExactForestVersion(t *testing.T) {
+	svc, _, forestCalls, valuesCalls := newForestVersionService(domain.StructureVersion{Signature: 55, Version: 7})
+
+	gated, err := svc.StructureRowsWithOptions(t.Context(), 1, StructureRowsOpts{
+		ExpectedForestVersion:   &domain.StructureVersion{Signature: 55, Version: 7},
+		StructureFolderSelector: StructureFolderSelector{FolderID: "f-root"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gated.ForestVersionGated || gated.Version == nil || *gated.Version != (domain.StructureVersion{Signature: 55, Version: 7}) {
+		t.Fatalf("gated rows=%+v, want the observed pair reported as gated", gated)
+	}
+	if len(gated.Rows) != 2 || gated.Selection == nil || *valuesCalls != 1 {
+		t.Fatalf("rows=%d selection=%+v value calls=%d, want the matching pair to permit folder selection", len(gated.Rows), gated.Selection, *valuesCalls)
+	}
+
+	ungated, err := svc.StructureRowsWithOptions(t.Context(), 1, StructureRowsOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ungated.ForestVersionGated || len(ungated.Rows) != 2 {
+		t.Fatalf("ungated rows=%+v, want backward-compatible ungated output", ungated)
+	}
+	if *forestCalls != 2 {
+		t.Fatalf("forest reads = %d, want one read per call", *forestCalls)
+	}
+}
+
+func TestStructureRowsWithOptionsRejectsStaleForestVersionBeforeSelectorWork(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		opts StructureRowsOpts
+	}{
+		{name: "folder selector", opts: StructureRowsOpts{StructureFolderSelector: StructureFolderSelector{FolderID: "f-root"}}},
+		{name: "root filter", opts: StructureRowsOpts{Root: "Folder", RootFields: []string{"key", "summary"}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			svc, tracker, forestCalls, valuesCalls := newForestVersionService(domain.StructureVersion{Signature: 55, Version: 7})
+			opts := test.opts
+			opts.ExpectedForestVersion = &domain.StructureVersion{Signature: 55, Version: 6}
+
+			got, err := svc.StructureRowsWithOptions(t.Context(), 1, opts)
+			var mismatch *StructureForestVersionMismatchError
+			if got != nil || !errors.As(err, &mismatch) || !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("rows=%v err=%v, want a typed check failure and no rows", got, err)
+			}
+			if mismatch.Expected != (domain.StructureVersion{Signature: 55, Version: 6}) ||
+				mismatch.Current != (domain.StructureVersion{Signature: 55, Version: 7}) {
+				t.Fatalf("mismatch=%+v, want the supplied and observed pairs", mismatch)
+			}
+			if *forestCalls != 1 || *valuesCalls != 0 || tracker.searchCalls != 0 {
+				t.Fatalf("forest=%d value=%d search=%d, want only the initial forest read", *forestCalls, *valuesCalls, tracker.searchCalls)
+			}
+		})
+	}
+}
+
+func TestStructurePullIssuesGatesForestBeforeJiraReadsAndOutput(t *testing.T) {
+	stalePath := t.TempDir() + "/stale.json"
+	svc, tracker, _, valuesCalls := newForestVersionService(domain.StructureVersion{Signature: 55, Version: 7})
+
+	got, err := svc.StructurePullIssues(t.Context(), 1, StructureIssuePullOpts{
+		Fields:                []string{"summary"},
+		Out:                   stalePath,
+		ExpectedForestVersion: &domain.StructureVersion{Signature: 55, Version: 6},
+	})
+	var mismatch *StructureForestVersionMismatchError
+	if got != nil || !errors.As(err, &mismatch) || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("pull=%v err=%v, want a typed check failure and no result", got, err)
+	}
+	if tracker.searchCalls != 0 || *valuesCalls != 0 {
+		t.Fatalf("search=%d value=%d, want no Jira or value reads on a stale expectation", tracker.searchCalls, *valuesCalls)
+	}
+	if _, statErr := os.Stat(stalePath); !os.IsNotExist(statErr) {
+		t.Fatalf("stale pull created %q (stat err=%v)", stalePath, statErr)
+	}
+
+	livePath := t.TempDir() + "/pull.json"
+	live, err := svc.StructurePullIssues(t.Context(), 1, StructureIssuePullOpts{
+		Fields:                []string{"summary"},
+		Out:                   livePath,
+		ExpectedForestVersion: &domain.StructureVersion{Signature: 55, Version: 7},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !live.ForestVersionGated || live.Version == nil || *live.Version != (domain.StructureVersion{Signature: 55, Version: 7}) ||
+		live.Path != livePath || tracker.searchCalls != 1 {
+		t.Fatalf("gated pull=%+v search=%d, want gated provenance and one issue read", live, tracker.searchCalls)
+	}
+	liveData, err := os.ReadFile(livePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(liveData), `"forest_version_gated": true`) {
+		t.Fatalf("pulled snapshot lost forest provenance: %s", liveData)
+	}
+
+	ungated, err := svc.StructurePullIssues(t.Context(), 1, StructureIssuePullOpts{Fields: []string{"summary"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ungated.ForestVersionGated || ungated.Version == nil {
+		t.Fatalf("ungated pull=%+v, want backward-compatible ungated output that keeps version", ungated)
+	}
+}
+
+func TestStructureExportGatesForestBeforeRenderingAndFileCreation(t *testing.T) {
+	stalePath := t.TempDir() + "/stale.json"
+	svc, tracker, _, _ := newForestVersionService(domain.StructureVersion{Signature: 55, Version: 7})
+
+	_, err := svc.StructureExport(t.Context(), 1, StructureExportOpts{
+		Format:                "json",
+		Out:                   stalePath,
+		Fields:                []string{"key", "summary"},
+		ExpectedForestVersion: &domain.StructureVersion{Signature: 55, Version: 6},
+	})
+	var mismatch *StructureForestVersionMismatchError
+	if !errors.As(err, &mismatch) || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("export err=%v, want a typed check failure", err)
+	}
+	if _, statErr := os.Stat(stalePath); !os.IsNotExist(statErr) {
+		t.Fatalf("stale export created %q (stat err=%v)", stalePath, statErr)
+	}
+	if tracker.searchCalls != 0 {
+		t.Fatalf("search calls = %d, want none on a stale expectation", tracker.searchCalls)
+	}
+
+	livePath := t.TempDir() + "/export.json"
+	live, err := svc.StructureExport(t.Context(), 1, StructureExportOpts{
+		Format:                "json",
+		Out:                   livePath,
+		Fields:                []string{"key", "summary"},
+		ExpectedForestVersion: &domain.StructureVersion{Signature: 55, Version: 7},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !live.ForestVersionGated || live.ForestVersion != (domain.StructureVersion{Signature: 55, Version: 7}) || live.RowCount != 2 {
+		t.Fatalf("export result=%+v, want auditable gated provenance", live)
+	}
+	data, err := os.ReadFile(livePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"forest_version_gated": true`) {
+		t.Fatalf("exported JSON lost snapshot provenance: %s", data)
+	}
+
+	csvPath := t.TempDir() + "/export.csv"
+	csvResult, err := svc.StructureExport(t.Context(), 1, StructureExportOpts{
+		Format:                "csv",
+		Out:                   csvPath,
+		Fields:                []string{"key", "summary"},
+		ExpectedForestVersion: &domain.StructureVersion{Signature: 55, Version: 7},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	csvData, err := os.ReadFile(csvPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !csvResult.ForestVersionGated || csvResult.ForestVersion != (domain.StructureVersion{Signature: 55, Version: 7}) {
+		t.Fatalf("csv export result=%+v, want the gate reported on the command result", csvResult)
+	}
+	if !strings.HasPrefix(string(csvData), "row_id,depth,relative_depth,parent_row_id,position,item_type,item_id,accessible,key,summary\n") ||
+		strings.Contains(string(csvData), "forest_version") {
+		t.Fatalf("csv cell contract changed: %s", csvData)
+	}
+
+	ungatedPath := t.TempDir() + "/ungated.json"
+	ungated, err := svc.StructureExport(t.Context(), 1, StructureExportOpts{Format: "json", Out: ungatedPath, Fields: []string{"key"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ungated.ForestVersionGated || ungated.ForestVersion != (domain.StructureVersion{Signature: 55, Version: 7}) {
+		t.Fatalf("ungated export=%+v, want the observed forest reported without a gate", ungated)
+	}
+}
+
+func TestStructureSelectorConsumersRejectIncompleteExpectedForestVersionBeforeBackendAccess(t *testing.T) {
+	for _, consumer := range []struct {
+		name string
+		run  func(svc *JiraService, expected *domain.StructureVersion, out string) error
+	}{
+		{name: "rows", run: func(svc *JiraService, expected *domain.StructureVersion, _ string) error {
+			_, err := svc.StructureRowsWithOptions(t.Context(), 1, StructureRowsOpts{ExpectedForestVersion: expected})
+			return err
+		}},
+		{name: "pull-issues", run: func(svc *JiraService, expected *domain.StructureVersion, out string) error {
+			_, err := svc.StructurePullIssues(t.Context(), 1, StructureIssuePullOpts{Fields: []string{"summary"}, Out: out, ExpectedForestVersion: expected})
+			return err
+		}},
+		{name: "export", run: func(svc *JiraService, expected *domain.StructureVersion, out string) error {
+			_, err := svc.StructureExport(t.Context(), 1, StructureExportOpts{Format: "json", Out: out, ExpectedForestVersion: expected})
+			return err
+		}},
+	} {
+		t.Run(consumer.name, func(t *testing.T) {
+			for _, expected := range []domain.StructureVersion{
+				{Signature: 0, Version: 7},
+				{Signature: 55, Version: 0},
+				{Signature: 55, Version: -1},
+			} {
+				out := t.TempDir() + "/out.json"
+				if err := consumer.run(&JiraService{}, &expected, out); !errors.Is(err, domain.ErrUsage) {
+					t.Fatalf("expected=%+v error=%v, want usage before any backend read", expected, err)
+				}
+				if _, statErr := os.Stat(out); !os.IsNotExist(statErr) {
+					t.Fatalf("expected=%+v created %q (stat err=%v)", expected, out, statErr)
+				}
+			}
+		})
 	}
 }
 

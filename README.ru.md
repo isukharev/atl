@@ -508,6 +508,7 @@ atl jira structure get 123                     # метаданные одног
 atl jira structure folders 123                 # точные поддеревья; пустые labels остаются явными
 atl jira structure view 123 --folder-id 100 -o text
 atl jira structure view 123 --folder-id 100 --expected-forest-signature 55 --expected-forest-version 7 # привязать селектор из view к одной версии forest
+atl jira structure export 123 --folder-id 100 --format md --out plan.md --expected-forest-signature 55 --expected-forest-version 7 # ту же пару принимают rows, pull-issues и export; устаревшая пара — выход 8 до создания файла
 atl jira planning report --jql 'project = PROJ' --limit 100
 atl jira quality-report --jql 'project = PROJ' # compatibility alias
 atl jira issue link suggest --csv links.csv     # read-only анализ кандидатов

@@ -3799,9 +3799,15 @@ atl jira structure view 123 --folder-id 100        # exact stable folder selecto
 atl jira structure view 123 --folder-path 'Plans / Quarter' -o text
 atl jira structure view 123 --folder-id 100 \
   --expected-forest-signature 55 --expected-forest-version 7 # bind a selector to one forest version
+atl jira structure rows 123 --folder-id 100 \
+  --expected-forest-signature 55 --expected-forest-version 7
 atl jira structure values 123 --rows 100,101 --fields key,summary,status
 atl jira structure pull-issues 123 --fields summary,status
+atl jira structure pull-issues 123 --folder-id 100 \
+  --expected-forest-signature 55 --expected-forest-version 7 --out issues.json
 atl jira structure export 123 --root "release train" --fields key,summary,status --format jsonl --out structure.jsonl
+atl jira structure export 123 --folder-id 100 --format md --out structure.md \
+  --expected-forest-signature 55 --expected-forest-version 7 # fails before the file is created if stale
 atl jira structure export 123 --fields summary --format csv --out raw.csv --raw-csv # unsafe in spreadsheets
 ```
 
@@ -3860,31 +3866,36 @@ case-insensitive and collapses whitespace per segment; use folder id/row when a
 folder name contains `/`. Completeness is scoped to emitted rows, so missing
 labels in an unrelated branch do not mark a selected subtree partial.
 
-`view` additionally accepts the paired optional flags
-`--expected-forest-signature` and `--expected-forest-version`, which bind one
-view to exactly one forest version. Omitting both is an explicitly ungated
-view. If either is supplied both are required, the signature must be non-zero,
-and the version must be positive; an unpaired or invalid pair is a usage error
-(exit `2`) decided before any backend request. When a `--folder-id`,
-`--folder-row`, or `--folder-path` selector came from an earlier `view` or
-`folders` result, copy both members of that result's `forest_version` into the
-later call. A selector fixed outside any earlier read may omit both and must
-then be read as ungated evidence. A stale pair fails with exit `8` after the
-first forest read and before any Structure Value or Jira issue expansion, so a
-caller that already lost the race does no projection work; the diagnostic
-carries only the expected and current signature/version integers.
+`view`, `rows`, `pull-issues`, and `export` additionally accept the same paired
+optional flags `--expected-forest-signature` and `--expected-forest-version`,
+which bind one read to exactly one forest version. Omitting both is an
+explicitly ungated read. If either is supplied both are required, the signature
+must be non-zero, and the version must be positive; an unpaired, zero, or
+non-positive pair is a usage error (exit `2`) decided before any backend
+request. When a `--folder-id`, `--folder-row`, or `--folder-path` selector came
+from an earlier `view`, `folders`, or `rows` result, copy both members of that
+result's forest version into the later call. A selector fixed outside any
+earlier read may omit both and must then be read as ungated evidence. A stale
+pair fails with exit `8` after the initial forest read and before any
+stored-folder label lookup, Structure Value request, Jira issue expansion,
+export rendering, or local output file, so a caller that already lost the race
+does no projection work and leaves no partial artifact; the diagnostic carries
+only the expected and current signature/version integers. `get`, `forest`,
+`folders`, and `values` accept no expected-version flags.
 
-The gate is a single comparison against the forest the snapshot is built from;
-no additional forest request is made, and there is no final re-read after
-projection. Every successful snapshot therefore reports the `forest_version` it
-was assembled from plus `forest_version_gated` — true only when the caller
-supplied the exact pair. A returned pair with either member zero is
-non-bindable: do not pass it back through the expected-version flags, and keep
-the later selection explicitly ungated. The forest version qualifies the
-hierarchy and the selection only: Jira issue fields and stored-folder labels
-are read at separate times and are not covered by it. `export` has no
-expected-version flags, so its snapshots are always
-`forest_version_gated:false`.
+The gate is a single comparison against the forest the read is built from; no
+additional forest request is made, and there is no final re-read after
+projection. Every successful `view` snapshot therefore reports the
+`forest_version` it was assembled from plus `forest_version_gated` — true only
+when the caller supplied the exact pair. `rows` and `pull-issues` keep their
+existing `version` member and add the same always-present
+`forest_version_gated`; the `export` command result adds always-present
+`forest_version` and `forest_version_gated`. A returned pair with either member
+zero is non-bindable: do not pass it back through the expected-version flags,
+and keep the later selection explicitly ungated. The forest version qualifies
+the hierarchy and the selection only: Jira issue fields and stored-folder labels
+are read at separate times and are not covered by it, so a gated result is not
+one atomic versioned value snapshot.
 
 `rows` parses Structure's forest formula into a stable row list. `--root`
 matches the first row by row id, item id/type/semantic, or by selected Structure
@@ -3898,6 +3909,7 @@ row plus its descendants:
     "signature": 55,
     "version": 7
   },
+  "forest_version_gated": false,
   "rows": [
     {
       "row_id": 100,
@@ -3923,6 +3935,11 @@ named projection or explicit `--fields` to override it. It emits:
 ```json
 {
   "structure_id": 123,
+  "version": {
+    "signature": 55,
+    "version": 7
+  },
+  "forest_version_gated": false,
   "issue_ids": ["10001"],
   "issues": [
     {
@@ -3945,6 +3962,31 @@ indentation, key, and summary into a duplicated `Tree` cell.
 `json`, `jsonl`, `csv`, and `md`; `--out` is required. JSONL emits one
 self-contained hierarchy row for line-oriented tools, CSV includes row metadata
 plus requested issue fields, and Markdown renders a compact hierarchy table.
+The command result reports the exported artifact plus the forest it was built
+from:
+
+```json
+{
+  "path": "structure.jsonl",
+  "format": "jsonl",
+  "structure_id": 123,
+  "forest_version": {
+    "signature": 55,
+    "version": 7
+  },
+  "forest_version_gated": true,
+  "row_count": 1,
+  "issue_count": 1
+}
+```
+
+The JSON and Markdown artifacts carry the same normalized snapshot as `view`,
+JSONL repeats `forest_version` and `forest_version_gated` on every record, and
+the Markdown header note states the signature, version, and gate status. CSV
+headers and cells are unchanged, so a CSV export carries that provenance only in
+this command result — record it alongside the file if the CSV must stay
+auditable. With `-o text`, the result line includes `forest_signature`,
+`forest_version`, and `gated` alongside the format and counts.
 The reported unique-issue count follows the emitted root/subtree. CSV formula-leading
 cells are apostrophe-prefixed by default. `--raw-csv`
 preserves them verbatim only with `--format csv` and produces an artifact that is
