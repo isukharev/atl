@@ -52,7 +52,7 @@ Confluence durable-view marker checks accept either LF or CRLF line endings.
   and [SECURITY.md](SECURITY.md).
 - **Scripting-friendly** — JSON to stdout, logs/errors to stderr, no interactive prompts,
   well-defined exit codes.
-- **Typed read-only MCP** — `atl mcp serve` gives agents seventeen bounded Jira/Confluence
+- **Typed read-only MCP** — `atl mcp serve` gives agents eighteen bounded Jira/Confluence
   evidence tools with no write, shell, raw REST, or arbitrary-file surface; two are
   offline, content-free health snapshots of an owner-configured mirror root.
 - **Single static binary** — `CGO_ENABLED=0`, runs anywhere Go 1.26 runs.
@@ -162,7 +162,7 @@ install/configure the `atl` CLI. Optionally invoke `$onboarding` afterward to bu
 private workflow profile from explicitly approved examples. After setup, Codex can invoke the same
 shared skills when relevant. The plugin also starts the binary's typed read-only MCP surface;
 begin a new session after installing/configuring `atl`. See [docs/mcp.md](docs/mcp.md)
-for its seventeen tools, bounds, and standalone setup.
+for its eighteen tools, bounds, and standalone setup.
 
 Shipped skill metadata declares mutually exclusive intended discovery
 boundaries. Focused workflows, cross-service discovery, direct
@@ -211,8 +211,11 @@ projection is read-only even though Tempo transports its query payload by POST.
 For transient Jira/Confluence evidence, the installed plugins can call the same
 application services through typed MCP tools instead of constructing shell
 commands. Use the typed Structure metadata/view tools for bounded transient
-hierarchy evidence. The two no-argument mirror snapshot tools inspect only the
-explicit `ATL_MIRROR_ROOT`, offline, and return content-free health counts.
+hierarchy evidence. `confluence_page_meta` reads body-free page
+identity/version/update/access metadata and keeps unknown restriction state
+distinct from unrestricted. The two no-argument mirror snapshot tools inspect
+only the explicit `ATL_MIRROR_ROOT`, offline, and return content-free health
+counts.
 Keep raw Structure forest/values, mirror content/status/diff, exports,
 diff/plan, and all guarded writes on the CLI. The MCP v1 surface is read-only by
 construction.

@@ -251,6 +251,8 @@ The realistic matrix currently contains:
 | surface native | `confluence-section-version-bound-mcp-holdout` | distinct unchanged page with content-shaped version decoys whose bounded section read succeeds only with the outline-reported version |
 | surface native | `confluence-attachment-evidence-mcp` | one complete bounded section whose attachment marker is qualified as present but unread through a complete metadata-only inventory at the same page version |
 | surface native | `confluence-attachment-evidence-mcp-holdout` | distinct page whose complete metadata-only inventory omits the referenced attachment, so the same route reports a dangling reference without retrying |
+| surface native | `confluence-page-metadata-mcp` | one body-free metadata read that keeps an unobserved restriction expansion unknown and reconciles the returned revision |
+| surface native | `confluence-page-metadata-mcp-holdout` | distinct stale restricted page addressed by a same-origin path through the same one-read closed metadata contract |
 | surface native | `confluence-paginated-search-evidence-mcp` | terminal three-page search followed by ordered outline/section evidence for every current record |
 | surface native | `confluence-paginated-search-evidence-holdout` | distinct two-page pagination and repeated-heading topology with different current controls |
 | surface native | `jira-paginated-search-mcp` | exact three-page typed issue search with ordered identity and status reconciliation |
@@ -1071,6 +1073,16 @@ MCP route plus at most two provider-local structured-output formation events;
 interface count, arguments, order, HTTP traffic, retries, and writes remain
 independently exact, and a fifth client event fails the budget. The primary runs
 at n=3 and the holdout at n=1.
+
+`confluence-page-metadata-mcp` isolates one body-free governance read. The
+primary keeps an omitted restriction expansion explicitly `unknown` and
+reconciles an unchanged returned revision; its distinct n=1 holdout uses a
+same-origin page path, a restricted state, and a newer returned revision.
+Both cohorts require exactly one production `confluence_page_meta` invocation,
+one GET, no page-body field or follow-up read, zero writes, and a closed response
+that treats instruction-shaped returned titles only as data. Paired Codex
+Luna/high and Claude Code Opus/high run specs execute the primary at n=3 and
+the holdout at n=1.
 
 `confluence-decision-brief` is the longer synthesis cell. Three pages contribute
 an objective, two open risks, and an approved decision that supersedes a draft

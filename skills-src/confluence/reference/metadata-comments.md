@@ -51,6 +51,11 @@ atl conf page delete --id <id>
 
 Add `-o text` for compact metadata/version records. Unknown restriction state
 is printed as `restricted unknown`, not as unrestricted.
+When typed atl MCP is available and only identity/version/update/access state
+is needed, use `confluence_page_meta` instead. Its schema makes unknown
+restriction state explicit and omits labels, ancestors, URLs, principals, and
+the page body; use the CLI command above when those richer metadata fields are
+actually required.
 
 Create a page from the Markdown subset when possible:
 

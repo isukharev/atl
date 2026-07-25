@@ -27,6 +27,7 @@ The v1 surface is an explicit allowlist:
 | `jira_mirror_snapshot` | Summarize local Jira mirror health without content | no arguments; exact owner-configured root; offline fixed-shape counts |
 | `confluence_search` | Search one qualified bounded CQL candidate page | default 25/maximum 100 rows; default 128 KiB/maximum 1 MiB encoded result |
 | `confluence_page_resolve` | Resolve an id or same-origin URL/path | exact resolution only |
+| `confluence_page_meta` | Read body-free page governance metadata | fixed 32 KiB result cap; explicit tri-state restriction state; no URL, labels, ancestors, principals, or body |
 | `confluence_page_outline` | Inspect headings before reading content | one page |
 | `confluence_page_section` | Read one exact Markdown section | optional `expected_page_version` binding; default 32 KiB, maximum 1 MiB |
 | `confluence_attachment_list` | Qualify one page's attachment inventory | requires a positive `expected_page_version`; metadata only; default 128 KiB, maximum 1 MiB encoded result |
@@ -126,6 +127,26 @@ limit before raising the byte bound. Reuse a returned numeric id directly with
 Pass `confluence_page_section.heading` as the exact `title` returned by the
 outline, without a Markdown `#` prefix; use `occurrence` when that title
 repeats.
+
+Use `confluence_page_meta` when the question needs page governance facts but no
+page content. It resolves the supplied reference through the same exact
+application path as the CLI metadata command, then performs a non-body metadata
+read. The schema-v1 result contains only `id`, `title`, `space`, a positive
+`version`, optional `updated`, and `restriction_state`.
+`restriction_state` is exactly `restricted`, `unrestricted`, or `unknown`;
+when the backend omits restriction evidence the result says `unknown` and must
+not be treated as unrestricted. The fixed 32 KiB cap rejects the entire result
+rather than clipping it; `use_cli_conf_page_meta` is the only wider-surface
+remediation. URLs, labels, ancestors, restriction principals, page bodies, and
+arbitrary backend expansion fields never reach the MCP result. All
+metadata-tool errors, including API and transport failures, use static
+content-free messages.
+
+The metadata result describes one separately timed read. Reusing its `version`
+as an optional gate for a later section, table, or attachment operation does
+not make the reads atomic. Re-read metadata when freshness itself is the
+question; do not fetch an outline merely to confirm access state, because an
+outline has no restriction field and requires the native page body.
 
 `confluence_page_section` also takes an optional `expected_page_version`, and
 every section result carries the resulting `page_version_gated`. Whether to
@@ -371,6 +392,7 @@ enabled_tools = [
   "jira_mirror_snapshot",
   "confluence_search",
   "confluence_page_resolve",
+  "confluence_page_meta",
   "confluence_page_outline",
   "confluence_page_section",
   "confluence_attachment_list",

@@ -53,7 +53,7 @@ Help и shell completion остаются доступны в read-only режи
   и [SECURITY.md](SECURITY.md).
 - **Удобен для скриптов** — JSON в stdout, логи и ошибки в stderr, без интерактивных
   запросов, чёткие коды выхода.
-- **Типизированный read-only MCP** — `atl mcp serve` предоставляет агентам семнадцать
+- **Типизированный read-only MCP** — `atl mcp serve` предоставляет агентам восемнадцать
   ограниченных Jira/Confluence evidence-tools без записи, shell, raw REST и произвольных файлов;
   два из них офлайн возвращают content-free health snapshot заданного владельцем зеркала.
 - **Один статический бинарник** — `CGO_ENABLED=0`, запускается везде, где работает Go 1.26.
@@ -165,7 +165,7 @@ codex plugin add atl@atl
 проверяемый приватный профиль только по явно разрешённым примерам. После setup Codex сможет
 использовать те же встроенные скиллы по мере необходимости. Плагин также запускает
 типизированную read-only MCP-поверхность бинарника; после установки и настройки `atl`
-начните новую сессию. Семнадцать tools, их лимиты и standalone setup описаны в
+начните новую сессию. Восемнадцать tools, их лимиты и standalone setup описаны в
 [docs/mcp.md](docs/mcp.md).
 
 Метаданные скиллов декларируют взаимоисключающие discovery-границы: для
@@ -218,7 +218,10 @@ atl capabilities --task knowledge/search -o text
 те же application services через типизированные MCP tools без конструирования
 shell-команд. Для bounded transient-анализа Structure используйте typed tools
 metadata/view. Два no-argument mirror snapshot tools офлайн читают только явно
-заданный `ATL_MIRROR_ROOT` и возвращают content-free health counts. Raw
+заданный `ATL_MIRROR_ROOT` и возвращают content-free health counts.
+`confluence_page_meta` читает без body идентичность, версию, время обновления и
+состояние доступа страницы, не смешивая неизвестное состояние ограничений с
+отсутствием ограничений. Raw
 forest/values Structure, содержимое/status/diff зеркала, export, diff/plan и все
 guarded writes остаются в CLI. MCP v1 по конструкции допускает только read-only
 операции.

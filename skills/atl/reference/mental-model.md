@@ -22,7 +22,7 @@ treat all three routes as complementary:
   Structure export, offline diff/plan, attachments, scripts, and every guarded
   write.
 - Use atl MCP for one real-time bounded read or one no-argument offline mirror
-  snapshot when its seventeen typed tools cover the task. The snapshot reads only
+  snapshot when its eighteen typed tools cover the task. The snapshot reads only
   an owner-configured `ATL_MIRROR_ROOT` and exposes no paths or content.
 - Use an independently configured Atlassian/Rovo MCP when its OAuth scope or a
   capability absent from atl is specifically required.
