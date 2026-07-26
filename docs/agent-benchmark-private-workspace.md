@@ -676,12 +676,12 @@ restored for retries. If the upstream may have committed but the response or
 audit completion fails, the attempt is terminal and ambiguous: reconcile it
 read-only outside that plan and do not replay the write.
 
-Every gateway outcome is answered only after its audit record is durable. A
-denied request whose audit record cannot be persisted — at policy preflight or
-after forwarding — returns the same static audit-unavailable response as an
-unrecorded allow instead of an ordinary denial, so no status is committed off
-the record. The child can distinguish audit failure from an audited denial
-without learning which off-record outcome occurred.
+Every gateway allow or denial outcome is answered only after its audit record
+is durable. A denied request whose audit record cannot be persisted — at policy
+preflight or after forwarding — returns the same static audit-unavailable
+response as an unrecorded allow instead of an ordinary denial, so no status is
+committed off the record. The child can distinguish audit failure from an
+audited denial without learning which off-record outcome occurred.
 That failure latches gateway audit health, so the run's close and evidence
 ingestion fail closed and the attempt yields no apparently complete audit
 evidence; treat it as terminal and reconcile the series offline. Audited
