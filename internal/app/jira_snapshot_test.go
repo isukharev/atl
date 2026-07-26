@@ -190,6 +190,20 @@ func TestJiraMirrorSnapshotBaselineMismatchIsQualified(t *testing.T) {
 	}
 }
 
+func TestJiraMirrorSnapshotCountsMissingCanonicalBaseline(t *testing.T) {
+	_, _, root, _ := setupPulled(t, "base")
+	if err := os.Remove(filepath.Join(root, ".atl", "base", "PROJ-1.wiki")); err != nil {
+		t.Fatal(err)
+	}
+
+	result, snapshotErr := SnapshotJiraMirror(root)
+	if snapshotErr != nil || result == nil || !result.Complete || !result.Reconciled ||
+		result.Native.MissingBaseline != 1 || result.Native.BaselineMissing != 1 ||
+		result.Native.Unchanged != 0 || result.Native.Modified != 0 || result.Remote.Eligible != 0 {
+		t.Fatalf("err=%v snapshot=%+v", snapshotErr, result)
+	}
+}
+
 func TestJiraMirrorSnapshotDistinguishesUnreadableBaseline(t *testing.T) {
 	_, _, root, _ := setupPulled(t, "base")
 	basePath := filepath.Join(root, ".atl", "base", "PROJ-1.wiki")
@@ -376,8 +390,9 @@ func TestJiraMirrorRemoteSnapshotUsesOneSingleAttemptProbe(t *testing.T) {
 		localBody  string
 		remoteBody string
 	}{
-		"baseline":      {remoteBody: "base"},
-		"dirty current": {localBody: "local edit", remoteBody: "local edit"},
+		"baseline":                  {remoteBody: "base"},
+		"baseline after local edit": {localBody: "local edit", remoteBody: "base"},
+		"dirty current":             {localBody: "local edit", remoteBody: "local edit"},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
