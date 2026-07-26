@@ -15,8 +15,8 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 )
 
-// errWriter fails every write, standing in for stdout that a caller closed or
-// that ran out of space midway through a result.
+// errWriter fails every write, standing in for stdout that ran out of space or
+// otherwise could not accept a complete result.
 type errWriter struct{ cause error }
 
 func (w errWriter) Write([]byte) (int, error) { return 0, w.cause }

@@ -56,7 +56,8 @@ preflights locally, then performs at most one single-attempt GET per eligible
 canonical issue. Stop on exit `8`, `complete:false`, `reconciled:false`, or any
 unavailable probe; use `jira status` only to identify entries for repair. A
 failed write of the aggregate is reported with the inspection failure and keeps
-the inspection exit code, so never read a missing aggregate as clean.
+the inspection exit code; after an otherwise clean inspection, it returns the
+write failure alone. Never read a missing aggregate as clean.
 
 `--assets` streams image attachments into the issue asset directory and links
 them from `.md`; failures are counted/warned and do not expose local paths in

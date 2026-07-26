@@ -691,7 +691,8 @@ evidence preserves the qualified stdout contract and exit `8`. Any incomplete
 local evidence stops before remote configuration, credential resolution, or the
 first probe. If that qualified aggregate cannot be written to stdout, the write
 failure is reported together with the inspection failure and the exit code
-stays the inspection classification.
+stays the inspection classification. If inspection otherwise succeeds, the
+write failure is returned on its own with generic exit `1`.
 
 `atl conf diff [file.csf|DIR]` is an offline, lock-free comparison with
 `schema_version:1`. Its top-level contract is
@@ -831,7 +832,8 @@ and local `present = attempted + not_attempted`; unavailable never means in-sync
 and makes `complete:false`. No form of this command mutates the mirror or backend.
 If the aggregate cannot be written to stdout, the write failure is reported
 together with the inspection failure and the exit code stays the inspection
-classification.
+classification. If inspection otherwise succeeds, the write failure is
+returned on its own with generic exit `1`.
 
 `atl jira push <file.wiki|DIR> [--apply] [--force] [--into ROOT]` emits `{ "items": [ ... ] }`, one
 item per file: `{ "path", "key", "pushed", "dry_run"?, "skipped"?, "remote_drifted"?,

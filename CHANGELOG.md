@@ -17,7 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   write); that cause is now joined with the inspection cause, so `errors.Is`
   still finds both and the exit code remains the inspection classification (for
   example `8` for corrupt baseline evidence). Successful JSON/text bytes, the
-  snapshot schema, and remote probing are unchanged.
+  snapshot schema, and remote probing are unchanged. If inspection succeeds but
+  result emission fails, the write failure is returned on its own with generic
+  exit `1`.
 - Unified `atl conf table extract --out` persistence for JSON, CSV, and XLSX
   behind one atomic application writer (temp file then rename), so no partial or
   truncated artifact is ever observable and the CLI no longer writes table

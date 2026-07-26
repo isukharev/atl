@@ -1486,7 +1486,8 @@ reconciliation. Any incomplete local evidence stops before remote setup or
 probing. A corrupt baseline still emits the qualified snapshot and returns exit
 `8`, even when `--remote` was requested. If writing that snapshot to stdout
 fails, the write failure is reported together with the inspection failure and
-the exit code stays the inspection code.
+the exit code stays the inspection code. If inspection otherwise succeeds, the
+write failure is returned on its own with generic exit `1`.
 
 `--remote` starts one metadata probe per eligible canonical tracked page and
 disables the transport's automatic replay-safe retries for it. Redirect
@@ -3403,7 +3404,8 @@ record, active pending transaction, or unreadable source returns the qualified
 snapshot with exit `8`. Missing optional/legacy evidence remains an explicit
 count rather than silently reading as present. If writing that snapshot to
 stdout fails, the write failure is reported together with the inspection
-failure and the exit code stays the inspection code.
+failure and the exit code stays the inspection code. If inspection otherwise
+succeeds, the write failure is returned on its own with generic exit `1`.
 
 `--remote` first completes that local preflight before loading backend config or
 credentials. A failed preflight makes zero requests. Otherwise each eligible

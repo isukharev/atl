@@ -33,8 +33,9 @@ The default is offline and content-free. Require top-level and nested
 arithmetic failure. A qualified exit 8 for corrupt baseline evidence remains
 actionable stdout and must not be retried. If the aggregate cannot be written,
 the command reports that write failure with the inspection failure and keeps
-the inspection exit code, so never read a missing aggregate as clean. Use
-`conf diff` only to expand exact page-level change evidence.
+the inspection exit code; after an otherwise clean inspection, it returns the
+write failure alone. Never read a missing aggregate as clean. Use `conf diff`
+only to expand exact page-level change evidence.
 
 ## Complete historical bootstrap
 
