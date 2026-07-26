@@ -82,7 +82,9 @@ filename, id, version, size, and comment. After an ambiguous response, list
 again and compare against that baseline; only a new id/version with the expected
 attributes can support a committed outcome. If either listing errors, reports
 `complete:false`, or cannot distinguish prior state, report `unknown` and do
-not retry. Never blindly replay.
+not retry. Never blindly replay. Caller size faults are exit `2`; malformed or
+empty successful backend upload responses are exit `8` and must not be treated
+as proof that the upload was not committed.
 
 Use `conf pull --assets` when diagrams or images are needed for understanding a
 page; exact-revision renders land in the page's `.assets/` directory. Attachment

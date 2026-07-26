@@ -2367,6 +2367,9 @@ current version integers; `0` (the default) disables the gate.
 
 Uploads stream the selected file without buffering it and send the exact multipart
 `Content-Length`, preserving compatibility with intermediaries that reject chunked uploads.
+A caller size fault (a negative size or a multipart body that would overflow the
+length) exits `2`; a successful backend response that is malformed JSON or carries
+no attachment exits `8`.
 
 ### `atl conf me`
 
@@ -2942,6 +2945,9 @@ Flags:
 | `--id` | attachment id or filename (`get`, required) |
 | `--into` | output directory (`get`, default `.`) |
 | `--file` | local file path (`upload`, required) |
+
+An `upload` whose successful backend response is malformed JSON or carries no
+attachment exits `8`.
 
 ### `atl jira issue images`
 

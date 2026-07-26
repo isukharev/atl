@@ -3,6 +3,7 @@ package confluence
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"mime"
@@ -13,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/isukharev/atl/internal/domain"
 )
 
 type failingAttachmentReader struct{}
@@ -135,13 +138,61 @@ func TestUploadAttachmentEmptyResponseError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty results, got nil")
 	}
+	// An empty but successful backend response is an invalid result, not a usage
+	// fault: it must classify as a check failure (exit 8).
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("empty response error = %v, want ErrCheckFailed", err)
+	}
+}
+
+func TestUploadAttachmentMalformedResponseIsCheckFailed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results": [`)) // truncated JSON
+	}))
+	defer srv.Close()
+
+	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+	_, err := cf.UploadAttachment(context.Background(), "pg1", "f.txt", io.NopCloser(strings.NewReader("x")), 1, "")
+	if err == nil {
+		t.Fatal("expected error for malformed response, got nil")
+	}
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("malformed response error = %v, want ErrCheckFailed", err)
+	}
+	// The JSON decode cause is preserved with %w for diagnostics.
+	var syntaxErr *json.SyntaxError
+	if !errors.As(err, &syntaxErr) {
+		t.Fatalf("malformed response error = %v, want a wrapped json cause", err)
+	}
+}
+
+func TestUploadAttachmentOverflowIsUsageAndClosesSource(t *testing.T) {
+	reader := &trackedAttachmentReader{}
+	cf := &Confluence{c: newTestClient("http://127.0.0.1"), base: "http://127.0.0.1"}
+	// A size within an int64 of the max overflows once multipart framing is added.
+	_, err := cf.UploadAttachment(context.Background(), "pg1", "f.txt", reader, int64(1<<63-1), "")
+	if err == nil {
+		t.Fatal("multipart length overflow was accepted")
+	}
+	if !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("overflow error = %v, want ErrUsage", err)
+	}
+	if !reader.closed {
+		t.Fatal("overflow refusal did not close source")
+	}
 }
 
 func TestUploadAttachmentRejectsNegativeSizeAndClosesSource(t *testing.T) {
 	reader := &trackedAttachmentReader{}
 	cf := &Confluence{c: newTestClient("http://127.0.0.1"), base: "http://127.0.0.1"}
-	if _, err := cf.UploadAttachment(context.Background(), "pg1", "f.txt", reader, -1, ""); err == nil {
+	_, err := cf.UploadAttachment(context.Background(), "pg1", "f.txt", reader, -1, "")
+	if err == nil {
 		t.Fatal("negative size was accepted")
+	}
+	// A caller-supplied bad size is a usage fault (exit 2).
+	if !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("negative-size error = %v, want ErrUsage", err)
 	}
 	if !reader.closed {
 		t.Fatal("negative-size refusal did not close source")

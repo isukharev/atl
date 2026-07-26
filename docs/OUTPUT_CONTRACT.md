@@ -1532,6 +1532,11 @@ and returns the uploaded attachment metadata:
 }
 ```
 
+For Confluence attachment `upload`, a caller-supplied negative size or a
+multipart body that would overflow its length exits `2`. For both Confluence
+and Jira, a successful backend response that is malformed JSON or carries no
+attachment exits `8` — distinct from a transport failure (exit `1`).
+
 `atl jira issue tree --jql ... --epic-field ...` returns a normalized
 epic-to-child tree:
 

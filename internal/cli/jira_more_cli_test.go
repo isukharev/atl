@@ -494,6 +494,20 @@ func TestJiraIssueAttachmentUpload_RequiresFileBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestJiraIssueAttachmentUpload_MalformedResponseExitCheckFailed(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodPost, "/rest/api/2/issue/ENG-1/attachments", http.StatusOK, `[{"id":`)
+	filePath := filepath.Join(t.TempDir(), "upload.txt")
+	if err := os.WriteFile(filePath, []byte("payload"), 0o600); err != nil {
+		t.Fatalf("write upload fixture: %v", err)
+	}
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "attachment", "upload", "ENG-1", "--file", filePath)
+	if code != exitCheckFailed || out != "" {
+		t.Fatalf("malformed upload response: exit=%d stdout=%q, want exit %d and empty stdout", code, out, exitCheckFailed)
+	}
+}
+
 func TestJiraIssuePlanApplyDryRunAndConfirmGuard(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/api/2/issue/", http.StatusOK,

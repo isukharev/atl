@@ -16,6 +16,7 @@
 | `jira push` exit 8 | Description/pending field drift | Pull, compare, and explicitly rebase fields; `--force` never overrides field drift |
 | `jira push` exit 2 | No mirror baseline | Pull before mirror edit/apply/push |
 | `jira apply` exit 8 | Stale view, lossy/unconvertible edit, read-only section, or diverged wiki | Migrate stale markers before editing; otherwise follow the named recovery and use `--allow-loss` only intentionally |
+| `attachment upload` exit 8 after a successful response | Backend response was malformed or carried no attachment | Treat the write outcome as unknown, inspect attachments, and do not retry blindly |
 
 Legacy `comment <KEY>` and `link <KEY>` forms were restructured; use
 `comment add|list` and `link add|list`. Structure exit 4/6 means the plugin,
