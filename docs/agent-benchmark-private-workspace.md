@@ -168,22 +168,23 @@ the cause-preserving pattern used by plan execution, the live gateway, the daily
 checkpoint, the workspace migration, retention prune, and compact baselines: a
 concrete filesystem, manifest-decoding, Git-command, traversal, or dependency
 failure is now attached to the returned error instead of being discarded, so
-tooling can inspect it with the standard Go `errors.Is` and `errors.As` helpers
-while messages and logs stay free of configured private locations, workspace
-content, and dependency text. A rejection decided by validation or comparison
-alone — refusing to adopt an already-populated root, an observed permission
-mode, a symlinked root, a resume whose settings or manifest filename differ, a
-conflicting pair of manifests, a workspace that is the repository itself, or an
-ignore-status or tracked-listing result — attaches nothing. Missing candidates
-during multi-manifest discovery are normal absence and are not attached; if the
-selected manifest path later fails to read, that concrete read failure is
-retained. A manifest contract classification raised by the decoder remains
-inspectable under the unchanged outer code; manifest validation errors
-themselves remain a separate family. No workspace operation code is added or
-renamed. Manifest bytes and contracts, root adoption, Git-boundary semantics,
-file and directory permissions, layout ordering, health reports, and fail-closed
-behavior are unchanged. Remaining lifecycle subsystems migrate to this pattern
-incrementally.
+tooling can traverse the standard Go unwrap tree and use `errors.Is` or
+`errors.As` for typed or sentinel-bearing causes while messages and logs stay
+free of configured private locations, workspace content, and dependency text. A
+rejection decided by validation or comparison alone — refusing to adopt an
+already-populated root, an observed permission mode, a symlinked root, a resume
+whose settings or manifest filename differ, a conflicting pair of manifests, a
+repository root that is not a directory, a workspace that is the repository
+itself, or an ignore-status or tracked-listing result — attaches nothing.
+Missing candidates during multi-manifest discovery are normal absence and are
+not attached; if the selected manifest path later fails to read, that concrete
+read failure is retained. A manifest contract classification raised by the
+decoder remains in the unwrap tree under the unchanged outer code; manifest
+validation errors themselves remain a separate family. No workspace operation
+code is added or renamed. Manifest bytes and contracts, root adoption,
+Git-boundary semantics, file and directory permissions, layout ordering, health
+reports, and fail-closed behavior are unchanged. Remaining lifecycle subsystems
+migrate to this pattern incrementally.
 
 ### Migrate a schema-v3 workspace
 

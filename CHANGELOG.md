@@ -26,11 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cause-preserving coded error the plan-execution, live-gateway, checkpoint,
   workspace-migration, retention-prune, and compact-baseline paths already use:
   the message is still only the stable sentinel plus its existing short code,
-  while `errors.Is` and `errors.As` reach every retained cause, including a
-  manifest contract classification raised by the decoder. A rejection decided by
-  validation or comparison alone — an adopted-root refusal, an observed
-  permission mode, a settings or filename comparison, a conflicting manifest
-  layout, or an ignore-status or tracked-listing result — still carries no
+  while callers can traverse the standard Go unwrap tree and use `errors.Is` or
+  `errors.As` for typed or sentinel-bearing causes. A manifest contract
+  classification raised by the decoder remains in that tree under the outer
+  operation code. A rejection decided by validation or comparison alone — an
+  adopted-root refusal, an observed permission mode, a settings or filename
+  comparison, a conflicting manifest layout, a repository root that is not a
+  directory, or an ignore-status or tracked-listing result — still carries no
   cause. Missing candidates during multi-manifest discovery are normal absence
   and are not attached; a concrete failure to read the selected manifest path is
   retained. No workspace operation code is added or renamed, and manifest
