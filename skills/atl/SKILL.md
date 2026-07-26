@@ -59,7 +59,8 @@ style cardinalities remove the need to recount content-bearing raw cells. Bind
 an index selected from that summary to the same page revision with
 `--expected-version`. On extraction, use `returned_table_count` and
 `selection_reconciled` for selected-result cardinality; `table_count` remains
-page-wide.
+page-wide. Treat `cell_count_reconciled:false` as a hard evidence failure: the
+source placement/span ledger did not agree with the expanded grid.
 For durable Confluence mirror health, prefer the content-free `conf snapshot`
 route before expanding individual pages with `conf diff`; use its reconciled
 cardinalities instead of manually joining status, validation, and render rows.

@@ -201,6 +201,9 @@ when the summary already contains the requested metric. If that summary
 supplies the index for a later CLI extraction, copy its page `version` into
 `--expected-version`. A stale positive version exits 8 with only the expected
 and current integers; a negative value is a usage error and exits 2.
+Treat `cell_count_reconciled:false` as a hard evidence failure: source-cell
+placement or declared span coverage did not independently agree with the
+expanded grid.
 
 For an offline directory review, start with:
 

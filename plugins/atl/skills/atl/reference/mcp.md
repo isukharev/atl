@@ -76,7 +76,10 @@ full-page read. Honor `max_bytes`; an oversize error means narrow the selection,
 not that partial cells were returned.
 Each extracted table includes the same reconciled, content-free `summary`
 record as the summary tool. Use it for shape, span, style, link, and non-empty
-cell counts instead of deriving those totals locally.
+cell counts instead of deriving those totals locally. Schema v2 makes
+origin/repeated/padding provenance durable through source coordinates; require
+`cell_count_reconciled:true` because it also covers an independent source span
+ledger.
 For exact values, filters, and plain-text answers, use each extracted cell's
 whitespace-normalized `text`. Use the also whitespace-normalized `markdown`
 only when inline formatting is explicitly requested. Treat both

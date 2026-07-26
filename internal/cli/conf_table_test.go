@@ -44,9 +44,11 @@ func TestConfTableExtractCLIJSON(t *testing.T) {
 			Index int `json:"index"`
 			Rows  []struct {
 				Cells []struct {
-					Text     string `json:"text"`
-					Repeated bool   `json:"repeated"`
-					Links    []struct {
+					Text         string `json:"text"`
+					Repeated     bool   `json:"repeated"`
+					SourceRow    int    `json:"source_row"`
+					SourceColumn int    `json:"source_column"`
+					Links        []struct {
 						URL string `json:"url"`
 					} `json:"links"`
 				} `json:"cells"`
@@ -56,12 +58,16 @@ func TestConfTableExtractCLIJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("decode output: %v\n%s", err, out)
 	}
-	if res.SchemaVersion != 1 || res.Version != 3 || res.PageVersionGated || res.TableCount != 2 ||
+	if res.SchemaVersion != 2 || res.Version != 3 || res.PageVersionGated || res.TableCount != 2 ||
 		res.ReturnedTableCount != 2 || !res.SelectionReconciled || len(res.Tables) != 2 {
 		t.Fatalf("res = %+v, want two tables", res)
 	}
 	if !res.Tables[0].Rows[2].Cells[0].Repeated || res.Tables[0].Rows[2].Cells[0].Text != "Shared note" {
 		t.Fatalf("rowspan cell = %+v", res.Tables[0].Rows[2].Cells[0])
+	}
+	origin := res.Tables[0].Rows[0].Cells[1]
+	if origin.Repeated || origin.SourceRow != 1 || origin.SourceColumn != 2 {
+		t.Fatalf("origin cell = %+v, want self-naming source coordinates", origin)
 	}
 	if got := res.Tables[1].Rows[1].Cells[1].Links[0].URL; got != "https://example.test/product" {
 		t.Fatalf("link url = %q", got)
@@ -120,7 +126,7 @@ func TestConfTableSummaryCLIJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("decode output: %v\n%s", err, out)
 	}
-	if res.SchemaVersion != 1 || res.PageID != "12345" || res.Version != 3 || res.Gated ||
+	if res.SchemaVersion != 2 || res.PageID != "12345" || res.Version != 3 || res.Gated ||
 		res.TableCount != 2 || res.Selected != 1 || res.Returned != 1 || !res.Reconciled || len(res.Tables) != 1 {
 		t.Fatalf("summary metadata = %+v", res)
 	}
