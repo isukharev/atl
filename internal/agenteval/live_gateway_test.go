@@ -1103,6 +1103,91 @@ func TestLiveGatewayAuditCapFailsCloseAndEvidenceIngestion(t *testing.T) {
 	}
 }
 
+func TestLiveGatewayPreflightDenialAuditFailureIsFatal(t *testing.T) {
+	var upstreamCalls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		upstreamCalls.Add(1)
+		_, _ = io.WriteString(response, `{}`)
+	}))
+	defer upstream.Close()
+	gateway, auditPath := startTestLiveGateway(t, upstream.URL, 2, 1024, 1024)
+	endpoint := gateway.Endpoints()["jira"]
+	target := endpoint.BaseURL + "/rest/api/2/field"
+
+	status, body := liveGatewayProbe(t, target, "Bearer not-the-capability")
+	if status != http.StatusUnauthorized || !strings.Contains(body, gatewayDeniedMessage) {
+		t.Fatalf("audited denial status=%d body=%q", status, body)
+	}
+
+	if err := gateway.state.audit.Close(); err != nil {
+		t.Fatal(err)
+	}
+	status, body = liveGatewayProbe(t, target, "Bearer not-the-capability")
+	if status != http.StatusBadGateway || !strings.Contains(body, gatewayAuditUnavailableMessage) || strings.Contains(body, gatewayDeniedMessage) {
+		t.Fatalf("unaudited denial status=%d body=%q", status, body)
+	}
+	if upstreamCalls.Load() != 0 {
+		t.Fatalf("upstream calls=%d, want none", upstreamCalls.Load())
+	}
+	if _, _, _, err := closeAndReadLiveGatewayRecords(gateway); !errors.Is(err, errLiveGatewayAuditUnavailable) {
+		t.Fatalf("evidence ingestion error=%v, want latched audit failure", err)
+	}
+	data, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := decodeLiveGatewayAudit(t, data)
+	if len(records) != 1 || records[0].Phase != "preflight" || records[0].Decision != "deny" || records[0].Reason != "ingress_auth" {
+		t.Fatalf("audit records=%+v, want only the audited denial", records)
+	}
+}
+
+func TestLiveGatewayCompletionDenialAuditFailureIsFatal(t *testing.T) {
+	var gateway *LiveGateway
+	var upstreamCalls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		// The preflight forward record is already durable when the upstream is
+		// reached, so closing the audit here makes the completion record the
+		// first failing write of the second request.
+		if upstreamCalls.Add(1) == 2 {
+			if err := gateway.state.audit.Close(); err != nil {
+				t.Error(err)
+			}
+		}
+		response.Header().Set("Location", "/rest/api/2/other")
+		response.WriteHeader(http.StatusFound)
+	}))
+	defer upstream.Close()
+	gateway, auditPath := startTestLiveGateway(t, upstream.URL, 2, 1024, 1024)
+	endpoint := gateway.Endpoints()["jira"]
+	target := endpoint.BaseURL + "/rest/api/2/field"
+
+	status, body := liveGatewayProbe(t, target, "Bearer "+endpoint.Token)
+	if status != http.StatusBadGateway || !strings.Contains(body, gatewayUpstreamFailedMessage) {
+		t.Fatalf("audited upstream denial status=%d body=%q", status, body)
+	}
+
+	status, body = liveGatewayProbe(t, target, "Bearer "+endpoint.Token)
+	if status != http.StatusBadGateway || !strings.Contains(body, gatewayAuditUnavailableMessage) || strings.Contains(body, gatewayUpstreamFailedMessage) {
+		t.Fatalf("unaudited upstream denial status=%d body=%q", status, body)
+	}
+	if upstreamCalls.Load() != 2 {
+		t.Fatalf("upstream calls=%d, want 2", upstreamCalls.Load())
+	}
+	if _, _, _, err := closeAndReadLiveGatewayRecords(gateway); !errors.Is(err, errLiveGatewayAuditUnavailable) {
+		t.Fatalf("evidence ingestion error=%v, want latched audit failure", err)
+	}
+	data, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := decodeLiveGatewayAudit(t, data)
+	if len(records) != 3 || records[1].Phase != "complete" || records[1].Decision != "deny" ||
+		records[2].Phase != "preflight" || records[2].Decision != "forward" {
+		t.Fatalf("audit records=%+v, want a forwarded request with no completion record", records)
+	}
+}
+
 func TestLiveGatewayMissingAuditPathFailsClosed(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(response, `{}`)
@@ -1260,6 +1345,25 @@ func startTestLiveGateway(t *testing.T, upstream string, maxRequests int, maxRes
 		t.Fatal(err)
 	}
 	return gateway, auditPath
+}
+
+func liveGatewayProbe(t *testing.T, target, authorization string) (int, string) {
+	t.Helper()
+	request, err := http.NewRequest(http.MethodGet, target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", authorization)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 4096))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response.StatusCode, string(body)
 }
 
 func decodeLiveGatewayAudit(t *testing.T, data []byte) []LiveGatewayAuditRecord {

@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Failed persistence of a private agent-evaluation live-gateway denial audit is
+  now immediately fatal at the request boundary. A policy denial at preflight or
+  a denial after forwarding previously answered with its ordinary denial status
+  even when the audit record could not be written; both phases now return the
+  existing static audit-unavailable response (`502`) instead, so no outcome is
+  committed before the audit result is known. Audit health stays sticky, so
+  gateway close and evidence ingestion still fail closed and no apparently
+  complete audit evidence can be read. Successfully audited denials keep their
+  existing statuses and records; the audit schema, routes, and budgets are
+  unchanged.
 - Preserved `atl conf snapshot` and `atl jira snapshot` result-emission
   failures instead of dropping them when inspection had already failed.
   Writing the qualified aggregate to stdout can fail (for example after a short
