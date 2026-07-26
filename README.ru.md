@@ -433,7 +433,7 @@ atl config set render.confluence.page_fields '[{"id":"title"},{"id":"updated","f
 atl config set render.confluence.jira_macros off # default auto; отключить JQL со страниц глобально
 # View v4 разделяет # Metadata / # Content / Jira-запросы / # Comments; нативное
 # форматирование комментариев и target ссылок на страницы сохраняются.
-atl conf table summary --id 123456 # точные структурные/span/style-счётчики без текста
+atl conf table summary --id 123456 # точные счётчики без текста + независимая сверка span
 atl conf table extract --id 123456 --format json # ячейки + явные returned/reconciled-счётчики
 atl conf table extract --id 123456 --table 2 --expected-version 7 --format json # привязать индекс из summary к ревизии
 atl conf table extract --id 123456 --table 2 --format csv # формулы нейтрализуются по умолчанию

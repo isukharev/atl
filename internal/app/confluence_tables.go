@@ -19,7 +19,16 @@ import (
 	"github.com/isukharev/atl/internal/mirror"
 )
 
-const ConfluenceTableSchemaVersion = 1
+// ConfluenceTableSchemaVersion gates the table extract/summary JSON shape. It
+// moves to 2 for the source-placement reconciliation work: an origin cell now
+// emits source_row/source_column naming itself, so every cell states its kind
+// durably (see ConfluenceTableCell) instead of leaving origin and synthetic
+// padding indistinguishable once the in-process marker is gone. The value of
+// cell_count_reconciled also got stricter — a table whose source spans overlap
+// or run past the source rows reports false where the pure count check said
+// true. Version 1 payloads predate the cell contract, so they are never eligible
+// for reconciliation on the deserialized path.
+const ConfluenceTableSchemaVersion = 2
 
 // ConfluenceTableExtract is a structured, read-only view of tables on a page.
 type ConfluenceTableExtract struct {
@@ -87,6 +96,13 @@ type ConfluenceTableSummaryRecord struct {
 }
 
 // ConfluenceTable is one expanded table. Index is 1-based in document order.
+//
+// sourcePlacementChecked/sourcePlacementReconciled carry the verdict of the
+// independent DOM source-placement ledger (see reconcileConfluenceTableSource).
+// They are unexported on purpose: they are in-process provenance that compares
+// the emitted grid against markup no consumer receives. A deserialized table has
+// neither; it is reconciled from the durable cell contract instead (see
+// reconcileConfluenceTableCells), cross-checked against Summary.
 type ConfluenceTable struct {
 	Index       int                          `json:"index"`
 	RowCount    int                          `json:"row_count"`
@@ -96,6 +112,9 @@ type ConfluenceTable struct {
 	Rows        []ConfluenceTableRow         `json:"rows"`
 	Warnings    []string                     `json:"warnings,omitempty"`
 	Metadata    map[string]map[string]any    `json:"metadata,omitempty"`
+
+	sourcePlacementChecked    bool
+	sourcePlacementReconciled bool
 }
 
 // ConfluenceTableRow is one expanded row.
@@ -105,8 +124,20 @@ type ConfluenceTableRow struct {
 	Cells  []ConfluenceTableCell `json:"cells"`
 }
 
-// ConfluenceTableCell is one expanded cell. Repeated cells come from a
-// rowspan/colspan-covered source cell and keep SourceRow/SourceColumn set.
+// ConfluenceTableCell is one expanded cell. Its kind is durable and explicit;
+// classifyConfluenceTableCell is the closed reading of the field combination:
+//
+//   - origin — the cell the markup actually declares: Repeated false and
+//     SourceRow/SourceColumn naming its own coordinate.
+//   - repeated — a coordinate covered by a rowspan/colspan: Repeated true and
+//     SourceRow/SourceColumn naming the covering origin, never the cell's own
+//     coordinate and never one after it in the grid.
+//   - synthetic padding — a coordinate the markup left unfilled: Repeated false,
+//     zero source coordinates, and no content, metadata, or spans.
+//
+// Every other combination is invalid and can never reconcile. Because the kind
+// survives serialization, a deserialized cell carries the same provenance a
+// freshly extracted one does.
 type ConfluenceTableCell struct {
 	Row          int                   `json:"row"`
 	Column       int                   `json:"column"`
@@ -121,7 +152,53 @@ type ConfluenceTableCell struct {
 	SourceRow    int                   `json:"source_row,omitempty"`
 	SourceColumn int                   `json:"source_column,omitempty"`
 	Raw          map[string]string     `json:"raw,omitempty"`
-	origin       bool
+}
+
+// confluenceTableCellKind is the closed set of cell kinds.
+type confluenceTableCellKind int
+
+const (
+	confluenceTableInvalidCell confluenceTableCellKind = iota
+	confluenceTableOriginCell
+	confluenceTableRepeatedCell
+	confluenceTableSyntheticCell
+)
+
+// classifyConfluenceTableCell reads a cell's kind from the durable contract
+// documented on ConfluenceTableCell, validating the whole field combination
+// rather than trusting one flag. Anything that does not match a kind exactly is
+// confluenceTableInvalidCell, which lands in no summary bucket and therefore
+// breaks the cell accounting instead of silently passing as some other kind.
+func classifyConfluenceTableCell(cell ConfluenceTableCell) confluenceTableCellKind {
+	if cell.Row < 1 || cell.Column < 1 || cell.SourceRow < 0 || cell.SourceColumn < 0 ||
+		cell.Rowspan < 0 || cell.Colspan < 0 {
+		return confluenceTableInvalidCell
+	}
+	own := cell.SourceRow == cell.Row && cell.SourceColumn == cell.Column
+	switch {
+	case cell.Repeated:
+		if own || cell.SourceRow < 1 || cell.SourceColumn < 1 ||
+			cell.SourceRow > cell.Row || cell.SourceColumn > cell.Column {
+			return confluenceTableInvalidCell
+		}
+		return confluenceTableRepeatedCell
+	case own:
+		return confluenceTableOriginCell
+	case cell.SourceRow == 0 && cell.SourceColumn == 0 && confluenceTableCellIsBare(cell):
+		return confluenceTableSyntheticCell
+	}
+	return confluenceTableInvalidCell
+}
+
+// confluenceTableCellIsBare reports whether a cell carries nothing but its
+// coordinate, as emptyTableCell emits it. Synthetic padding stands for markup
+// that is absent, so a padding cell holding content or span metadata is a
+// contradiction — and, without this, a legacy origin cell that lost its source
+// coordinates would read as padding.
+func confluenceTableCellIsBare(cell ConfluenceTableCell) bool {
+	return cell.Text == "" && cell.Markdown == "" && !cell.Header &&
+		cell.Rowspan == 0 && cell.Colspan == 0 &&
+		len(cell.Links) == 0 && len(cell.Styles) == 0 && len(cell.Raw) == 0
 }
 
 // ConfluenceTableLink preserves ordinary table-cell links.
@@ -230,83 +307,186 @@ func SummarizeConfluenceTables(extract *ConfluenceTableExtract) *ConfluenceTable
 	}
 	res.SelectionReconciled = confluenceTableSelectionReconciled(extract.Table, extract.TableCount, extract.Tables)
 	for _, table := range extract.Tables {
-		record := ConfluenceTableSummaryRecord{
-			Index:        table.Index,
-			RowCount:     table.RowCount,
-			ColumnCount:  table.ColumnCount,
-			Rectangular:  table.RowCount == len(table.Rows),
-			WarningCount: len(table.Warnings),
-		}
-		styleMarkers := map[[2]string]struct{}{}
-		for _, row := range table.Rows {
-			if len(row.Cells) != table.ColumnCount {
-				record.Rectangular = false
-			}
-			if row.Header {
-				record.HeaderRowCount++
-			}
-			for _, cell := range row.Cells {
-				record.ExpandedCellCount++
-				switch {
-				case cell.origin:
-					record.OriginCellCount++
-				case cell.Repeated:
-					record.RepeatedCellCount++
-				default:
-					record.SyntheticEmptyCellCount++
-				}
-				if cell.Header {
-					record.HeaderCellCount++
-				}
-				if cell.Repeated {
-					if cell.Row != cell.SourceRow {
-						record.RowspanCoveredCellCount++
-					}
-					if cell.Column != cell.SourceColumn {
-						record.ColspanCoveredCellCount++
-					}
-				} else {
-					if cell.Rowspan > 1 {
-						record.RowspanSourceCellCount++
-					}
-					if cell.Colspan > 1 {
-						record.ColspanSourceCellCount++
-					}
-				}
-				if cell.Rowspan > 1 {
-					record.RowspanMetadataCellCount++
-				}
-				if cell.Colspan > 1 {
-					record.ColspanMetadataCellCount++
-				}
-				if cell.Text != "" {
-					record.NonemptyTextCellCount++
-				}
-				if cell.Markdown != "" {
-					record.NonemptyMarkdownCellCount++
-				}
-				if len(cell.Raw) > 0 {
-					record.NonemptyRawCellCount++
-				}
-				if len(cell.Styles) > 0 {
-					record.StyledCellCount++
-				}
-				record.StyleEntryCount += len(cell.Styles)
-				for key, value := range cell.Styles {
-					styleMarkers[[2]string{key, value}] = struct{}{}
-				}
-				if len(cell.Links) > 0 {
-					record.LinkedCellCount++
-				}
-			}
-		}
-		record.DistinctStyleMarkerCount = len(styleMarkers)
-		record.CellCountReconciled = record.Rectangular &&
-			record.ExpandedCellCount == record.RowCount*record.ColumnCount &&
-			record.ExpandedCellCount == record.OriginCellCount+record.RepeatedCellCount+record.SyntheticEmptyCellCount
-		res.Tables = append(res.Tables, record)
+		res.Tables = append(res.Tables, summarizeConfluenceTable(table, extract.SchemaVersion))
 	}
 	return res
+}
+
+// summarizeConfluenceTable counts one table's content-free structure.
+//
+// Every metric, buckets included, is recomputed from serialized fields alone, so
+// it is identical before and after a JSON round trip: the cell contract makes
+// the origin/repeated/synthetic split durable. CellCountReconciled is likewise
+// recomputed — never read off a serialized boolean — from the cell accounting
+// plus the durable span ledger, and then confirmed by whichever independent
+// witness this table has:
+//
+//   - live extraction (sourcePlacementChecked): the DOM placement ledger, which
+//     shares no state with the expansion, must also agree.
+//   - deserialized: the attached Summary must equal the recomputation exactly,
+//     and the payload must carry the current schema version, so neither a forged
+//     summary nor a pre-contract payload can upgrade itself.
+func summarizeConfluenceTable(table ConfluenceTable, schemaVersion int) ConfluenceTableSummaryRecord {
+	record := ConfluenceTableSummaryRecord{
+		Index:        table.Index,
+		RowCount:     table.RowCount,
+		ColumnCount:  table.ColumnCount,
+		Rectangular:  table.RowCount == len(table.Rows),
+		WarningCount: len(table.Warnings),
+	}
+	styleMarkers := map[[2]string]struct{}{}
+	for _, row := range table.Rows {
+		if len(row.Cells) != table.ColumnCount {
+			record.Rectangular = false
+		}
+		if row.Header {
+			record.HeaderRowCount++
+		}
+		for _, cell := range row.Cells {
+			record.ExpandedCellCount++
+			switch classifyConfluenceTableCell(cell) {
+			case confluenceTableOriginCell:
+				record.OriginCellCount++
+			case confluenceTableRepeatedCell:
+				record.RepeatedCellCount++
+			case confluenceTableSyntheticCell:
+				record.SyntheticEmptyCellCount++
+			}
+			if cell.Header {
+				record.HeaderCellCount++
+			}
+			if cell.Repeated {
+				if cell.Row != cell.SourceRow {
+					record.RowspanCoveredCellCount++
+				}
+				if cell.Column != cell.SourceColumn {
+					record.ColspanCoveredCellCount++
+				}
+			} else {
+				if cell.Rowspan > 1 {
+					record.RowspanSourceCellCount++
+				}
+				if cell.Colspan > 1 {
+					record.ColspanSourceCellCount++
+				}
+			}
+			if cell.Rowspan > 1 {
+				record.RowspanMetadataCellCount++
+			}
+			if cell.Colspan > 1 {
+				record.ColspanMetadataCellCount++
+			}
+			if cell.Text != "" {
+				record.NonemptyTextCellCount++
+			}
+			if cell.Markdown != "" {
+				record.NonemptyMarkdownCellCount++
+			}
+			if len(cell.Raw) > 0 {
+				record.NonemptyRawCellCount++
+			}
+			if len(cell.Styles) > 0 {
+				record.StyledCellCount++
+			}
+			record.StyleEntryCount += len(cell.Styles)
+			for key, value := range cell.Styles {
+				styleMarkers[[2]string{key, value}] = struct{}{}
+			}
+			if len(cell.Links) > 0 {
+				record.LinkedCellCount++
+			}
+		}
+	}
+	record.DistinctStyleMarkerCount = len(styleMarkers)
+	record.CellCountReconciled = confluenceTableCountsAccounted(record) && reconcileConfluenceTableCells(table)
+	if table.sourcePlacementChecked {
+		record.CellCountReconciled = record.CellCountReconciled && table.sourcePlacementReconciled
+	} else if record.CellCountReconciled &&
+		(schemaVersion != ConfluenceTableSchemaVersion || table.Summary != record) {
+		record.CellCountReconciled = false
+	}
+	return record
+}
+
+// confluenceTableCountsAccounted is the rectangular grid/accounting half of
+// reconciliation: the emitted grid fills exactly RowCount x ColumnCount and every
+// emitted cell lands in exactly one bucket.
+func confluenceTableCountsAccounted(record ConfluenceTableSummaryRecord) bool {
+	return record.Rectangular &&
+		record.ExpandedCellCount == record.RowCount*record.ColumnCount &&
+		record.ExpandedCellCount == record.OriginCellCount+record.RepeatedCellCount+record.SyntheticEmptyCellCount
+}
+
+// reconcileConfluenceTableCells rebuilds the span ledger from the durable cell
+// contract alone — no markup, no in-process marker, no serialized verdict — so a
+// deserialized table is reconciled by recomputation rather than by trust.
+//
+// Every origin claims its declared rowspan x colspan rectangle; the claims must
+// stay inside the emitted grid and never collide. The grid must then realize
+// exactly those claims: an origin owns its own coordinate, every other claimed
+// coordinate holds a repeated cell naming the origin that actually claims it and
+// echoing its spans, and every unclaimed coordinate holds synthetic padding.
+func reconcileConfluenceTableCells(table ConfluenceTable) bool {
+	type coord = [2]int
+	if table.RowCount < 1 || table.ColumnCount < 1 || table.RowCount != len(table.Rows) {
+		return false
+	}
+	claims := make(map[coord]coord)
+	origins := make(map[coord]ConfluenceTableCell)
+	for r, row := range table.Rows {
+		if row.Index != r+1 || len(row.Cells) != table.ColumnCount {
+			return false
+		}
+		for c, cell := range row.Cells {
+			if cell.Row != r+1 || cell.Column != c+1 {
+				return false
+			}
+			if classifyConfluenceTableCell(cell) != confluenceTableOriginCell {
+				continue
+			}
+			at := coord{cell.Row, cell.Column}
+			origins[at] = cell
+			rowspan, colspan := max(1, cell.Rowspan), max(1, cell.Colspan)
+			if cell.Row+rowspan-1 > table.RowCount || cell.Column+colspan-1 > table.ColumnCount {
+				return false
+			}
+			for dr := 0; dr < rowspan; dr++ {
+				for dc := 0; dc < colspan; dc++ {
+					to := coord{cell.Row + dr, cell.Column + dc}
+					if _, taken := claims[to]; taken {
+						return false
+					}
+					claims[to] = at
+				}
+			}
+		}
+	}
+	for _, row := range table.Rows {
+		for _, cell := range row.Cells {
+			at := coord{cell.Row, cell.Column}
+			owner, claimed := claims[at]
+			switch classifyConfluenceTableCell(cell) {
+			case confluenceTableOriginCell:
+				if owner != at {
+					return false
+				}
+			case confluenceTableRepeatedCell:
+				src := coord{cell.SourceRow, cell.SourceColumn}
+				origin, exists := origins[src]
+				if !claimed || owner != src || !exists ||
+					cell.Rowspan != origin.Rowspan || cell.Colspan != origin.Colspan {
+					return false
+				}
+			case confluenceTableSyntheticCell:
+				if claimed {
+					return false
+				}
+			default:
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // ExtractTablesFromCSF extracts all or one table from a CSF body.
@@ -324,10 +504,11 @@ func ExtractTablesFromCSF(pageID, title string, body []byte, table int) (*Conflu
 		all = append(all, extractTable(i+1, node))
 	}
 	res := &ConfluenceTableExtract{
-		PageID:     pageID,
-		Title:      title,
-		TableCount: len(all),
-		Tables:     all,
+		SchemaVersion: ConfluenceTableSchemaVersion,
+		PageID:        pageID,
+		Title:         title,
+		TableCount:    len(all),
+		Tables:        all,
 	}
 	if table > 0 {
 		if table > len(all) {
@@ -449,7 +630,97 @@ func extractTable(index int, table *csf.Node) ConfluenceTable {
 			out.Headers[i] = cell.Text
 		}
 	}
+	out.sourcePlacementChecked = true
+	out.sourcePlacementReconciled = reconcileConfluenceTableSource(rows, out)
 	return out
+}
+
+// reconcileConfluenceTableSource independently reconstructs where every source
+// cell lands, straight from the DOM, and then checks the emitted grid against
+// that ledger. It shares no state with the expansion above, so an expansion bug
+// shows up as a disagreement instead of being reproduced.
+//
+// Invariants, all of which must hold for a table to reconcile:
+//
+//   - Placement: a source cell occupies the first column of its own source row
+//     not already claimed by an earlier cell's span rectangle.
+//   - Claims: a source cell claims every coordinate of its declared
+//     rowspan x colspan rectangle, and no coordinate is ever claimed twice.
+//   - Domain: no claim falls outside the source row domain — a rowspan may not
+//     run past the last source row, and a colspan may not run past the emitted
+//     column count.
+//   - Agreement: the emitted grid matches the ledger cell for cell. An origin
+//     cell owns its own coordinate, a repeated cell names the coordinate of the
+//     source cell that actually claims it, a synthetic pad cell sits on an
+//     unclaimed coordinate, and every claim is realized by exactly one cell.
+//
+// Iteration is clamped to the row/column domain so a hostile span attribute
+// cannot make the ledger allocate beyond the size of the document; exceeding the
+// domain is itself a failure, so clamping never hides one.
+func reconcileConfluenceTableSource(rows []*csf.Node, grid ConfluenceTable) bool {
+	type coord = [2]int
+	claims := make(map[coord]coord)
+	ok := true
+	for r, tr := range rows {
+		col := 0
+		for _, node := range rowCells(tr) {
+			for {
+				if _, taken := claims[coord{r + 1, col + 1}]; !taken {
+					break
+				}
+				col++
+			}
+			rowspan, colspan := spanOf(node, "rowspan"), spanOf(node, "colspan")
+			origin := coord{r + 1, col + 1}
+			rowReach, colReach := rowspan, colspan
+			if over := origin[0] + rowspan - 1 - len(rows); over > 0 {
+				ok = false
+				rowReach -= over
+			}
+			if over := origin[1] + colspan - 1 - grid.ColumnCount; over > 0 {
+				ok = false
+				colReach -= over
+			}
+			for dr := 0; dr < rowReach; dr++ {
+				for dc := 0; dc < colReach; dc++ {
+					at := coord{origin[0] + dr, origin[1] + dc}
+					if _, taken := claims[at]; taken {
+						ok = false
+						continue
+					}
+					claims[at] = origin
+				}
+			}
+			col += colspan
+		}
+	}
+	realized := 0
+	for _, row := range grid.Rows {
+		for _, cell := range row.Cells {
+			at := coord{cell.Row, cell.Column}
+			owner, claimed := claims[at]
+			if claimed {
+				realized++
+			}
+			switch classifyConfluenceTableCell(cell) {
+			case confluenceTableOriginCell:
+				if owner != at {
+					ok = false
+				}
+			case confluenceTableRepeatedCell:
+				if owner != (coord{cell.SourceRow, cell.SourceColumn}) || !claimed {
+					ok = false
+				}
+			case confluenceTableSyntheticCell:
+				if claimed {
+					ok = false
+				}
+			default:
+				ok = false
+			}
+		}
+	}
+	return ok && realized == len(claims)
 }
 
 func tableCell(row, col int, header bool, n *csf.Node) ConfluenceTableCell {
@@ -458,16 +729,17 @@ func tableCell(row, col int, header bool, n *csf.Node) ConfluenceTableCell {
 	links := cellLinks(n)
 	styles := cellStyles(n)
 	cell := ConfluenceTableCell{
-		Row:      row + 1,
-		Column:   col + 1,
-		Text:     normalizeCellText(csf.TextContent(n)),
-		Markdown: normalizeCellText(cellMarkdown(n)),
-		Links:    links,
-		Styles:   styles,
-		Header:   header,
-		Rowspan:  omitOne(rowspan),
-		Colspan:  omitOne(colspan),
-		origin:   true,
+		Row:          row + 1,
+		Column:       col + 1,
+		Text:         normalizeCellText(csf.TextContent(n)),
+		Markdown:     normalizeCellText(cellMarkdown(n)),
+		Links:        links,
+		Styles:       styles,
+		Header:       header,
+		Rowspan:      omitOne(rowspan),
+		Colspan:      omitOne(colspan),
+		SourceRow:    row + 1,
+		SourceColumn: col + 1,
 	}
 	if raw := cellRaw(n); len(raw) > 0 {
 		cell.Raw = raw
@@ -486,7 +758,6 @@ func repeatedCell(src ConfluenceTableCell, row, col int) ConfluenceTableCell {
 	c.Repeated = true
 	c.SourceRow = src.Row
 	c.SourceColumn = src.Column
-	c.origin = false
 	return c
 }
 

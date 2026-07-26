@@ -38,6 +38,12 @@ distinct-marker counts, and selection/cell reconciliation. Use these fields
 instead of recounting raw extraction cells. It exposes no page title, cell text,
 URLs, style keys/values, raw attributes, or warning text.
 
+Table schema v2 gives every native origin its own `source_row` and
+`source_column`, while repeated cells name their covering origin and synthetic
+padding has neither coordinate. `cell_count_reconciled:true` means an
+independent source-placement/span ledger also agrees with that durable grid;
+false is a hard evidence failure, not a count to repair client-side.
+
 `--table` is 1-based; zero selects all tables. XLSX requires `--out`. CSV
 neutralizes cells starting with spreadsheet formula characters. Keep the safe
 default for files humans may open; `--raw-csv` is only for a trusted

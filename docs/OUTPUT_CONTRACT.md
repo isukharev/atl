@@ -229,7 +229,7 @@ At the MCP boundary, `max_bytes` defaults to 128 KiB and rejects an encoded
 result above the configured bound instead of clipping candidate metadata or
 pagination evidence.
 `confluence_table_summary` returns the content-free structural summary contract,
-including required `schema_version:1`, the positive page `version`, and
+including required `schema_version:2`, the positive page `version`, and
 `page_version_gated`.
 `confluence_table_extract` requires one positive table index and returns exactly
 that expanded table with the same required provenance fields. When its index
@@ -1183,7 +1183,7 @@ The backend hostname and PAT are never written to the manifest.
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "page_id": "123456",
   "version": 7,
   "page_version_gated": false,
@@ -1226,8 +1226,12 @@ entry, and keeps the page-wide `table_count`; `returned_table_count` and
 the expanded representation. `origin_cell_count` counts native `th`/`td`
 origins, `repeated_cell_count` counts span-covered copies, and
 `synthetic_empty_cell_count` counts rectangular padding. A true
-`cell_count_reconciled` proves those three counts equal `expanded_cell_count`
-and the reported row/column shape.
+`cell_count_reconciled` proves more than those three counts equalling
+`expanded_cell_count` and the reported row/column shape. ATL independently
+reconstructs every source-cell placement and declared rowspan/colspan rectangle
+from the source DOM, rejects overlapping claims or coverage outside the source
+row domain, and requires that ledger to agree cell-for-cell with the expanded
+grid.
 
 Direct `rowspan_metadata_cell_count` / `colspan_metadata_cell_count` count every
 expanded cell carrying that span metadata, including covered copies; the
@@ -1255,6 +1259,18 @@ therefore use identical origin/repeat/padding and span semantics; clients that
 need both content and counts should use the embedded record instead of
 recounting cells. The field is additive to the extraction contract and does
 not affect CSV or XLSX rendering.
+
+Table schema v2 makes the cell kind durable. Every native `th`/`td` origin has
+`source_row` and `source_column` equal to its own `row` and `column`; every
+span-covered copy has `repeated:true` and names that origin; synthetic padding
+has no source coordinates and carries no content or span metadata. Any other
+combination is invalid. After serialization ATL recomputes the span ledger from
+these fields and requires the attached `summary` to match exactly, so legacy or
+forged payloads cannot upgrade themselves to `cell_count_reconciled:true`.
+All-table CSV already includes the source-coordinate columns; under schema v2
+native origin rows now contain their self coordinates there. CSV/XLSX exports
+are terminal exports rather than replayable mirror views, so they have no
+separate migration marker.
 
 The extraction's top-level `table_count` remains page-wide.
 `returned_table_count` equals the actual `tables` array length, and
