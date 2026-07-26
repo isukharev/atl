@@ -31,6 +31,12 @@ import (
 const (
 	maxLiveGatewayAuditBytes = 4 << 20
 	gatewayOriginRootPrefix  = "/.atl-agent-eval-origin"
+	// gatewayAuditUnavailableMessage is the single static response for any
+	// request whose audit record could not be persisted, so an off-the-record
+	// outcome is never reported as an ordinary allow or denial.
+	gatewayAuditUnavailableMessage = "evaluation gateway audit unavailable"
+	gatewayDeniedMessage           = "evaluation gateway denied request"
+	gatewayUpstreamFailedMessage   = "evaluation gateway upstream request failed"
 )
 
 var errLiveGatewayAuditUnavailable = errors.New("live gateway audit unavailable")
@@ -307,11 +313,10 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 	started := time.Now()
 	identity := s.state.requestIdentity(s.name, request.Method, request.URL.RequestURI(), nil)
 	reject := func(status int, route, reason string) {
-		_ = s.state.writeAudit(LiveGatewayAuditRecord{
+		s.denyAudited(response, LiveGatewayAuditRecord{
 			Phase: "preflight", Service: s.name, Route: route, Method: request.Method,
 			RequestHMAC: identity, Decision: "deny", Reason: reason,
-		})
-		http.Error(response, "evaluation gateway denied request", status)
+		}, status, gatewayDeniedMessage)
 	}
 	if !validGatewayAuthorization(request.Header.Get("Authorization"), s.capability) {
 		reject(http.StatusUnauthorized, "", "ingress_auth")
@@ -366,7 +371,7 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 		Phase: "preflight", Service: s.name, Route: route.Name, Method: request.Method,
 		RequestHMAC: identity, RequestBytes: int64(len(requestBody)), Decision: "forward",
 	}); err != nil {
-		http.Error(response, "evaluation gateway audit unavailable", http.StatusBadGateway)
+		http.Error(response, gatewayAuditUnavailableMessage, http.StatusBadGateway)
 		return
 	}
 	target := gatewayUpstreamURL(s.base, reviewedURL, originRoot)
@@ -415,7 +420,7 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 		RequestBytes: int64(len(requestBody)), ResponseBytes: int64(len(responseBody)), DurationMS: time.Since(started).Milliseconds(),
 	}
 	if err := s.state.writeAudit(record); err != nil {
-		http.Error(response, "evaluation gateway audit unavailable", http.StatusBadGateway)
+		http.Error(response, gatewayAuditUnavailableMessage, http.StatusBadGateway)
 		return
 	}
 	if responseContentType != "" {
@@ -606,12 +611,25 @@ func reviewedGatewayAtlassianToken(service string, values []string) string {
 }
 
 func (s *liveGatewayService) completeDenied(response http.ResponseWriter, request *http.Request, route, identity string, requestBytes int64, started time.Time, reason string) {
-	_ = s.state.writeAudit(LiveGatewayAuditRecord{
+	s.denyAudited(response, LiveGatewayAuditRecord{
 		Phase: "complete", Service: s.name, Route: route, Method: request.Method,
 		RequestHMAC: identity, RequestBytes: requestBytes, Decision: "deny", Reason: reason,
 		DurationMS: time.Since(started).Milliseconds(),
-	})
-	http.Error(response, "evaluation gateway upstream request failed", http.StatusBadGateway)
+	}, http.StatusBadGateway, gatewayUpstreamFailedMessage)
+}
+
+// denyAudited answers a denied request only after its audit record is durably
+// persisted. A failed audit write is fatal at the request boundary: the caller
+// receives the static audit-unavailable response instead of an ordinary denial,
+// so no denial status is committed before the audit result is known and no
+// child can mistake an unrecorded denial for a recorded one. The audit
+// health latch stays sticky, so Close and evidence ingestion still fail closed.
+func (s *liveGatewayService) denyAudited(response http.ResponseWriter, record LiveGatewayAuditRecord, status int, message string) {
+	if err := s.state.writeAudit(record); err != nil {
+		http.Error(response, gatewayAuditUnavailableMessage, http.StatusBadGateway)
+		return
+	}
+	http.Error(response, message, status)
 }
 
 func validateLiveGatewayConfig(config LiveGatewayConfig) error {
