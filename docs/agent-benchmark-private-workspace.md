@@ -178,13 +178,13 @@ repository root that is not a directory, a workspace that is the repository
 itself, or an ignore-status or tracked-listing result — attaches nothing.
 Missing candidates during multi-manifest discovery are normal absence and are
 not attached; if the selected manifest path later fails to read, that concrete
-read failure is retained. A manifest contract classification raised by the
-decoder remains in the unwrap tree under the unchanged outer code; manifest
-validation errors themselves remain a separate family. No workspace operation
-code is added or renamed. Manifest bytes and contracts, root adoption,
-Git-boundary semantics, file and directory permissions, layout ordering, health
-reports, and fail-closed behavior are unchanged. Remaining lifecycle subsystems
-migrate to this pattern incrementally.
+read failure is retained. A manifest contract classification raised during
+decoding, validation, or encoding remains in the unwrap tree under the unchanged
+outer code; manifest validation errors themselves remain a separate family. No
+workspace operation code is added or renamed. Manifest bytes and contracts,
+root adoption, Git-boundary semantics, file and directory permissions, layout
+ordering, health reports, and fail-closed behavior are unchanged. Remaining
+lifecycle subsystems migrate to this pattern incrementally.
 
 ### Migrate a schema-v3 workspace
 
