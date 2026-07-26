@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -793,7 +792,7 @@ func confTableCmd() *cobra.Command {
 						return err
 					}
 					data = append(data, '\n')
-					if err := os.WriteFile(out, data, 0o644); err != nil {
+					if err := app.WriteConfluenceTableArtifact(out, data); err != nil {
 						return err
 					}
 					return emit(cmd, acknowledgement(), textAcknowledgement)
@@ -807,7 +806,7 @@ func confTableCmd() *cobra.Command {
 					return err
 				}
 				if out != "" {
-					if err := os.WriteFile(out, data, 0o644); err != nil {
+					if err := app.WriteConfluenceTableArtifact(out, data); err != nil {
 						return err
 					}
 					return emit(cmd, acknowledgement(), textAcknowledgement)

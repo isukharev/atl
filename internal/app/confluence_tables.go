@@ -9,7 +9,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"html"
-	"os"
+	"io"
 	"regexp"
 	"strconv"
 	"strings"
@@ -1061,18 +1061,44 @@ func nonEmptyHeader(header []string) bool {
 	return false
 }
 
+// WriteConfluenceTableArtifact atomically persists an already-rendered small
+// table artifact — the JSON or CSV bytes — to path through the shared
+// application user-file writer, so every table --out format lands on disk via
+// the same atomic temp-file-then-rename boundary. A blank path is a usage
+// error; any persistence failure wraps domain.ErrCheckFailed while preserving
+// the underlying cause for errors.Is / errors.As inspection.
+func WriteConfluenceTableArtifact(path string, data []byte) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("%w: --out is required to persist a table artifact", domain.ErrUsage)
+	}
+	if err := writeUserFile(path, data); err != nil {
+		return fmt.Errorf("%w: persist Confluence table artifact %q: %w", domain.ErrCheckFailed, path, err)
+	}
+	return nil
+}
+
 // WriteConfluenceTableXLSX writes a minimal XLSX workbook with one worksheet per
 // extracted table. It uses inline strings so no shared string table is needed.
+// The workbook streams through the same atomic user-file writer as the JSON and
+// CSV artifacts; a blank path is a usage error and any persistence failure wraps
+// domain.ErrCheckFailed while preserving the underlying cause.
 func WriteConfluenceTableXLSX(path string, res *ConfluenceTableExtract) error {
 	if strings.TrimSpace(path) == "" {
 		return fmt.Errorf("%w: --out is required for --format xlsx", domain.ErrUsage)
 	}
-	f, err := os.Create(path)
-	if err != nil {
-		return err
+	if err := writeUserFileStream(path, func(w io.Writer) error {
+		return streamConfluenceTableXLSX(w, res)
+	}); err != nil {
+		return fmt.Errorf("%w: persist Confluence table workbook %q: %w", domain.ErrCheckFailed, path, err)
 	}
-	defer f.Close()
-	zw := zip.NewWriter(f)
+	return nil
+}
+
+// streamConfluenceTableXLSX writes the workbook parts into w. It performs no
+// persistence of its own so the atomic temp-file boundary stays owned by
+// writeUserFileStream.
+func streamConfluenceTableXLSX(w io.Writer, res *ConfluenceTableExtract) error {
+	zw := zip.NewWriter(w)
 	if err := writeXLSXFile(zw, "[Content_Types].xml", xlsxContentTypes(len(res.Tables))); err != nil {
 		return err
 	}

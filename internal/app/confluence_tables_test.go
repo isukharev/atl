@@ -8,8 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/isukharev/atl/internal/csf"
@@ -823,6 +826,95 @@ func TestRenderConfluenceTableCSVNeutralizesFormulasUnlessRaw(t *testing.T) {
 	records, _ = csv.NewReader(bytes.NewReader(raw)).ReadAll()
 	if records[0][0] != "=Header" || records[1][0] != "+cmd" {
 		t.Fatalf("raw records = %#v", records)
+	}
+}
+
+func TestWriteConfluenceTableArtifactWritesBytesAtomically(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"tables.json", "tables.csv"} {
+		path := filepath.Join(dir, name)
+		payload := []byte("row,column\n1,1\n")
+		if err := WriteConfluenceTableArtifact(path, payload); err != nil {
+			t.Fatalf("WriteConfluenceTableArtifact(%s): %v", name, err)
+		}
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if !bytes.Equal(got, payload) {
+			t.Fatalf("%s content = %q, want %q", name, got, payload)
+		}
+	}
+	// The atomic writer renames its temp file into place, so no scratch file
+	// survives a successful write.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("directory holds %d entries, want 2 (leftover temp file?): %v", len(entries), entries)
+	}
+}
+
+func TestWriteConfluenceTableArtifactBlankPathIsUsage(t *testing.T) {
+	err := WriteConfluenceTableArtifact("  ", []byte("x"))
+	if !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("blank path error = %v, want ErrUsage", err)
+	}
+	if errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("blank path must be a usage error, not a check failure: %v", err)
+	}
+}
+
+func TestWriteConfluenceTableArtifactWrapsFilesystemFailure(t *testing.T) {
+	// A regular file standing where a parent directory is expected makes the
+	// atomic writer's MkdirAll fail deterministically with ENOTDIR.
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatalf("seed blocker: %v", err)
+	}
+	target := filepath.Join(blocker, "tables.json")
+	err := WriteConfluenceTableArtifact(target, []byte("payload"))
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("filesystem failure error = %v, want ErrCheckFailed", err)
+	}
+	if !errors.Is(err, syscall.ENOTDIR) {
+		t.Fatalf("underlying cause not preserved: %v", err)
+	}
+	if _, statErr := os.Stat(target); statErr == nil {
+		t.Fatalf("no artifact must remain after a failed write")
+	}
+}
+
+func TestWriteConfluenceTableXLSXBlankPathIsUsage(t *testing.T) {
+	err := WriteConfluenceTableXLSX("", &ConfluenceTableExtract{})
+	if !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("blank xlsx path error = %v, want ErrUsage", err)
+	}
+	if errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("blank xlsx path must be a usage error: %v", err)
+	}
+}
+
+func TestWriteConfluenceTableXLSXWrapsFilesystemFailure(t *testing.T) {
+	res, err := ExtractTablesFromCSF("123", "Doc", []byte(tableExtractCSF), 0)
+	if err != nil {
+		t.Fatalf("ExtractTablesFromCSF: %v", err)
+	}
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatalf("seed blocker: %v", err)
+	}
+	target := filepath.Join(blocker, "tables.xlsx")
+	err = WriteConfluenceTableXLSX(target, res)
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("xlsx filesystem failure error = %v, want ErrCheckFailed", err)
+	}
+	if !errors.Is(err, syscall.ENOTDIR) {
+		t.Fatalf("xlsx underlying cause not preserved: %v", err)
+	}
+	if _, statErr := os.Stat(target); statErr == nil {
+		t.Fatalf("no workbook must remain after a failed write")
 	}
 }
 

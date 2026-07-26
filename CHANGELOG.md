@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Unified `atl conf table extract --out` persistence for JSON, CSV, and XLSX
+  behind one atomic application writer (temp file then rename), so no partial or
+  truncated artifact is ever observable and the CLI no longer writes table
+  output through a direct `os.WriteFile`. A persistence failure for any of the
+  three formats now exits `8` (check failure), preserving the underlying cause,
+  and writes nothing to stdout; a missing XLSX `--out` remains a usage error
+  (exit `2`). Successful acknowledgement JSON/text and the stdout streaming
+  modes are unchanged.
 - Classified attachment `upload` contract failures by exit code instead of
   collapsing them to a generic error. A caller-supplied negative size or
   multipart length overflow now exits `2` in the Confluence adapter. A

@@ -51,6 +51,12 @@ neutralizes cells starting with spreadsheet formula characters. Keep the safe
 default for files humans may open; `--raw-csv` is only for a trusted
 non-spreadsheet consumer.
 
+Every `--out` format (JSON, CSV, XLSX) is written atomically through one
+temp-file-then-rename path, so a partial file never lands. A persistence
+failure exits `8` and writes nothing to stdout; a missing XLSX `--out` is still
+a usage error (exit `2`). On success the acknowledgement JSON/text shape is
+unchanged; without `--out`, JSON and CSV still stream to stdout.
+
 ## Attachments
 
 ```bash
