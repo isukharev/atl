@@ -1316,7 +1316,7 @@ func jiraSnapshotCmd() *cobra.Command {
 				result, snapshotErr = app.SnapshotJiraMirror(dir)
 			}
 			if result != nil {
-				emitErr := emit(cmd, result, func() string {
+				emitErr := emitSnapshot(cmd, result, func() string {
 					return fmt.Sprintf(
 						"complete=%t reconciled=%t total=%d present=%d edited=%d baseline_mismatch=%d snapshot_invalid=%d pending_unbound=%d render_unsupported=%d remote_drifted=%d remote_unavailable=%d",
 						result.Complete, result.Reconciled, result.Native.Total, result.Local.Present, result.Local.LocallyEdited,

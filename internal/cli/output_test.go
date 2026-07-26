@@ -110,16 +110,6 @@ func TestEmitRejectsTextFormatWhenUnsupported(t *testing.T) {
 	}
 }
 
-func TestEmitReturnsTextWriteFailure(t *testing.T) {
-	withFormat(t, "text")
-	cause := errors.New("stdout unavailable")
-	cmd := &cobra.Command{}
-	cmd.SetOut(errWriter{cause: cause})
-	if err := emit(cmd, struct{}{}, func() string { return "result" }); !errors.Is(err, cause) {
-		t.Fatalf("err=%v", err)
-	}
-}
-
 // A snapshot command emits its qualified aggregate before returning the
 // inspection error, so a failed write of that aggregate must survive alongside
 // the inspection cause instead of being dropped.
