@@ -221,12 +221,39 @@ func (cf *Confluence) CurrentUserTimeZone(ctx context.Context) (string, error) {
 	return u.TimeZone, nil
 }
 
-// History returns version records, newest first. It pages until the listing is
-// exhausted (previously it returned only the first 50 versions).
+// History returns version records, newest first. It is the compatibility
+// surface: it delegates to HistoryQualified and intentionally drops the
+// qualification, so a listing cut short by a safety cap is indistinguishable
+// from an exhausted one. New evidence-facing callers that must not mistake a
+// capped listing for a complete one use HistoryQualified instead.
 func (cf *Confluence) History(ctx context.Context, id string) ([]domain.Version, error) {
+	inventory, err := cf.HistoryQualified(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return inventory.Versions, nil
+}
+
+// HistoryQualified returns a page's version records (newest first) with
+// explicit completeness. It follows _links.next until the server stops
+// signaling more (complete) and otherwise reports the exact limiter that
+// stopped it: the page cap, the item cap, or a page that advertised more while
+// making no progress. A terminal page that signals no next cursor is exhaustion
+// even when it is empty; a page that advertises more while returning nothing is
+// stalled, not exhausted. The item cap is enforced per version, so the returned
+// slice never exceeds it silently.
+func (cf *Confluence) HistoryQualified(ctx context.Context, id string) (domain.VersionInventory, error) {
 	start := 0
 	out := []domain.Version{}
-	for page := 0; page < maxPages && len(out) < maxItems; page++ {
+	partial := func(reason string) (domain.VersionInventory, error) {
+		return domain.VersionInventory{Versions: out, PartialReason: reason}, nil
+	}
+	for page := 0; page < maxPages; page++ {
+		// Reaching a later iteration means the previous page both advertised more
+		// and made progress, so a filled collection is provably a prefix.
+		if len(out) >= maxItems {
+			return partial(domain.HistoryPartialItemLimit)
+		}
 		var resp struct {
 			Results []struct {
 				Number  int    `json:"number"`
@@ -247,17 +274,29 @@ func (cf *Confluence) History(ctx context.Context, id string) ([]domain.Version,
 		// /rest/experimental; the Cloud-style /rest/api/content/{id}/version path
 		// 404s on DC.
 		if err := cf.c.GetJSON(ctx, "/rest/experimental/content/"+url.PathEscape(id)+"/version?"+q.Encode(), &resp); err != nil {
-			return nil, err
+			return domain.VersionInventory{}, err
 		}
 		for _, v := range resp.Results {
+			if len(out) >= maxItems {
+				// One response carried more rows than the cap allows; stop exactly at
+				// the cap instead of silently exceeding it.
+				return partial(domain.HistoryPartialItemLimit)
+			}
 			out = append(out, domain.Version{Number: v.Number, When: v.When, By: v.By.DisplayName, Message: v.Message})
 		}
-		if resp.Links.Next == "" || len(resp.Results) == 0 {
-			break
+		if resp.Links.Next == "" {
+			return domain.VersionInventory{Versions: out, Complete: true}, nil // server exhausted at or under the caps
+		}
+		if len(resp.Results) == 0 {
+			// The server still advertises more but returned nothing, so paging cannot
+			// progress. Reporting exhaustion here would fabricate completeness.
+			return partial(domain.HistoryPartialPaginationStalled)
 		}
 		start += len(resp.Results)
 	}
-	return out, nil
+	// The loop only reaches here by exhausting the page cap; every natural exit
+	// returns above, so the last page still signaled _links.next.
+	return partial(domain.HistoryPartialPageLimit)
 }
 
 // UpdatePage pushes a new body under the optimistic version gate. We PUT with

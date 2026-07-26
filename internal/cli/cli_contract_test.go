@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -289,6 +290,103 @@ func TestConfAttachmentListRejectsNegativeExpectedVersion(t *testing.T) {
 	out, code := runCLI(t, confEnv(srv), "conf", "attachment", "list", "--id", "12345", "--expected-version", "-1")
 	if code != exitUsage {
 		t.Fatalf("negative expected version: exit %d, want %d (stdout=%q)", code, exitUsage, out)
+	}
+}
+
+// historyServer routes the single version-listing request `conf page history`
+// makes for a numeric id (which resolves without a metadata round-trip).
+func historyServer(t *testing.T, versions string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(versions))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// The qualified history JSON is an explicit contract: schema version, resolved
+// page id, count, completeness, and the full version rows. A terminal page with
+// no next cursor is exhaustion, so this listing is complete.
+func TestConfPageHistoryPopulatedGolden(t *testing.T) {
+	srv := historyServer(t, `{"results":[
+		{"number":3,"when":"2026-01-03","message":"third","by":{"displayName":"Carol"}},
+		{"number":2,"when":"2026-01-02","by":{"displayName":"Bob"}},
+		{"number":1,"when":"2026-01-01","by":{"displayName":"Alice"}}
+	],"_links":{}}`)
+
+	out, code := runCLI(t, confEnv(srv), "conf", "page", "history", "--id", "12345")
+	if code != exitOK {
+		t.Fatalf("conf page history: exit %d, want %d (stdout=%q)", code, exitOK, out)
+	}
+	assertGolden(t, "conf_page_history.json", []byte(out))
+}
+
+// An exhausted empty listing is proven absence: a non-null array with
+// complete:true and no partial reason.
+func TestConfPageHistoryEmptyIsCompleteNonNull(t *testing.T) {
+	srv := historyServer(t, `{"results":[],"_links":{}}`)
+
+	out, code := runCLI(t, confEnv(srv), "conf", "page", "history", "--id", "12345")
+	if code != exitOK {
+		t.Fatalf("conf page history: exit %d (stdout=%q)", code, out)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	versions, ok := got["versions"].([]any)
+	if !ok {
+		t.Fatalf("versions is not a JSON array: %s", out)
+	}
+	if len(versions) != 0 || got["complete"] != true || got["count"] != float64(0) {
+		t.Fatalf("empty history not proven complete: %s", out)
+	}
+	if _, exists := got["partial_reason"]; exists {
+		t.Fatalf("complete history must not carry a partial_reason: %s", out)
+	}
+}
+
+// A capped listing must surface as partial rather than as a complete history.
+func TestConfPageHistoryReportsPartialListing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Always advertise another page so the adapter's page cap is what stops it,
+		// with a strictly descending version number per page.
+		start := 0
+		_, _ = fmt.Sscanf(r.URL.Query().Get("start"), "%d", &start)
+		_, _ = fmt.Fprintf(w, `{"results":[{"number":%d,"when":"2026-01-01","by":{"displayName":"Ada"}}],
+			"_links":{"next":"/rest/experimental/content/12345/version?start=%d"}}`, 1_000_000-start, start+1)
+	}))
+	t.Cleanup(srv.Close)
+
+	out, code := runCLI(t, confEnv(srv), "conf", "page", "history", "--id", "12345")
+	if code != exitOK {
+		t.Fatalf("conf page history: exit %d (stdout=%q)", code, out)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["complete"] != false || got["partial_reason"] != "page_limit" {
+		t.Fatalf("capped history reported as complete: %s", out)
+	}
+}
+
+// -o text is unchanged: one number<TAB>when<TAB>by[<TAB>message] row per version
+// and nothing about completeness.
+func TestConfPageHistoryTextOutputIsUnchanged(t *testing.T) {
+	srv := historyServer(t, `{"results":[
+		{"number":3,"when":"2026-01-03","message":"third","by":{"displayName":"Carol"}},
+		{"number":2,"when":"2026-01-02","by":{"displayName":"Bob"}}
+	],"_links":{}}`)
+
+	out, code := runCLI(t, confEnv(srv), "-o", "text", "conf", "page", "history", "--id", "12345")
+	if code != exitOK {
+		t.Fatalf("conf page history -o text: exit %d (stdout=%q)", code, out)
+	}
+	if out != "3\t2026-01-03\tCarol\tthird\n2\t2026-01-02\tBob\n" {
+		t.Fatalf("-o text output = %q", out)
 	}
 }
 

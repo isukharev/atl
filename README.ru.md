@@ -418,7 +418,7 @@ atl conf page view 123456 --jira-macros off -o text # только placeholders;
 atl conf page get     --id 123456
 atl conf page get     --id 123456 --format csf
 atl conf page meta    --id 123456  # если restricted отсутствует, состояние неизвестно
-atl conf page history --id 123456
+atl conf page history --id 123456 # полнота: complete + partial_reason; пустой успех: "versions":[]
 atl conf attachment list --id 123456 # qualified: complete + partial_reason; пустой успех: "attachments":[]
 atl conf attachment list --id 123456 --expected-version 7 # отказ, если страница уже не на v7
 # Guarded-обновление title: значение берётся из файла/stdin, а не argv

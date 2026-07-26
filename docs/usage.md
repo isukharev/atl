@@ -2173,7 +2173,16 @@ Flags:
 
 ### `atl conf page history`
 
-List up to 50 version records for a page, newest first.
+List a page's version records, newest first, with explicit completeness. The
+JSON is the qualified result
+`{schema_version:1,page_id,count,complete,partial_reason?,versions:[...]}`.
+`versions` is always a JSON array; a page with no recorded versions emits
+`"versions":[]`, never `null`. `complete:true` means the backend version
+listing was exhausted, so an empty array is proven absence; `complete:false`
+always carries a static `partial_reason` from the closed set `page_limit`,
+`item_limit`, `pagination_stalled`, or `legacy_unqualified`, and never proves a
+version is missing. `-o text` is unchanged: one
+`number<TAB>when<TAB>by[<TAB>message]` row per version.
 
 ```
 atl conf page history --id 12345678

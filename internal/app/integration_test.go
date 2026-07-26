@@ -118,15 +118,20 @@ func TestIntegrationConfluenceHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	vs, err := svc.History(context.Background(), testPageID(t))
+	result, err := svc.History(context.Background(), testPageID(t))
 	if err != nil {
 		t.Fatalf("history: %v", err)
 	}
-	if len(vs) == 0 {
+	// The live adapter implements the qualified capability, so a real page's
+	// history must be an exhausted, non-nil listing with no partial reason.
+	if !result.Complete || result.PartialReason != "" {
+		t.Fatalf("live history not proven complete: complete=%v reason=%q", result.Complete, result.PartialReason)
+	}
+	if result.Count == 0 || len(result.Versions) == 0 {
 		t.Fatal("expected at least one version record")
 	}
-	if vs[0].Number < 1 {
-		t.Errorf("unexpected newest version number %d", vs[0].Number)
+	if result.Versions[0].Number < 1 {
+		t.Errorf("unexpected newest version number %d", result.Versions[0].Number)
 	}
 }
 

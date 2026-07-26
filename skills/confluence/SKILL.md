@@ -158,8 +158,9 @@ write command after explicit approval.
   [editing.md](reference/editing.md).
 - Search/pull/render/status shapes, caps, command inventory, Jira macro views,
   and table export: [commands.md](reference/commands.md).
-- Title/move/create/copy/delete, labels, metadata/history, blog posts, comments,
-  and dedupe: [metadata-comments.md](reference/metadata-comments.md).
+- Title/move/create/copy/delete, labels, qualified metadata/history (judge an
+  empty history only when `complete:true`), blog posts, comments, and dedupe:
+  [metadata-comments.md](reference/metadata-comments.md).
 - Attachments and table workflows: [tables-attachments.md](reference/tables-attachments.md).
 - Direct CSF editing, fragments, and assets: [csf.md](reference/csf.md).
 - New native CSF constructs: [csf-authoring.md](reference/csf-authoring.md).

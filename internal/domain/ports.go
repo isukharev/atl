@@ -154,6 +154,52 @@ type Version struct {
 	Message string `json:"message,omitempty"`
 }
 
+// Page-history inventories name their limiter through this closed set of static
+// identifiers, mirroring the attachment set above. Each value is a compile-time
+// literal that never interpolates a page id, title, version message, author,
+// URL, or backend text, so a client can branch on the machine-readable cause
+// without any page content crossing the boundary.
+// HistoryPartialLegacyUnqualified is reserved for a document backend that
+// implements only the compatibility History listing and therefore cannot prove
+// exhaustion at all.
+const (
+	HistoryPartialPageLimit         = "page_limit"
+	HistoryPartialItemLimit         = "item_limit"
+	HistoryPartialPaginationStalled = "pagination_stalled"
+	HistoryPartialLegacyUnqualified = "legacy_unqualified"
+)
+
+// ValidHistoryPartialReason reports whether reason is a member of the closed
+// static set above. Callers validate before emitting so a future adapter cannot
+// smuggle backend text through the reason field.
+func ValidHistoryPartialReason(reason string) bool {
+	switch reason {
+	case HistoryPartialPageLimit, HistoryPartialItemLimit,
+		HistoryPartialPaginationStalled, HistoryPartialLegacyUnqualified:
+		return true
+	}
+	return false
+}
+
+// VersionInventory qualifies one page history listing. Versions is always
+// non-nil, so an empty inventory is proven-empty evidence rather than an absent
+// read. Complete is true only when the adapter observed the backend stop
+// signaling more pages; every false value carries a static PartialReason from
+// the closed set above.
+type VersionInventory struct {
+	Versions      []Version
+	Complete      bool
+	PartialReason string
+}
+
+// QualifiedHistoryReader is the optional document-backend capability used when
+// a caller must distinguish a complete version listing from one that a safety
+// cap or inconsistent pagination cut short. DocStore.History stays the
+// compatibility surface for workflows that only need the slice.
+type QualifiedHistoryReader interface {
+	HistoryQualified(ctx context.Context, id string) (VersionInventory, error)
+}
+
 // Issue is a Jira issue (export-mostly: read locally, write via commands).
 type Issue struct {
 	ID        string            `json:"id,omitempty"`

@@ -52,6 +52,14 @@ atl conf page delete --id <id>
 
 Add `-o text` for compact metadata/version records. Unknown restriction state
 is printed as `restricted unknown`, not as unrestricted.
+
+`page history` returns the qualified version listing `{schema_version, page_id,
+count, complete, partial_reason?, versions:[...]}`. `versions` is always a JSON
+array, so an empty `complete:true` result is proven absence, never `null`. A
+`complete:false` listing names its limiter with a static `partial_reason`
+(`page_limit`, `item_limit`, `pagination_stalled`, `legacy_unqualified`) and
+never proves a version is missing — judge absence only on `complete:true`. The
+`-o text` rows (`number<TAB>when<TAB>by[<TAB>message]`) are unchanged.
 When typed atl MCP is available and only identity/version/update/access state
 is needed, use `confluence_page_meta` instead. Its schema makes unknown
 restriction state explicit and omits labels, ancestors, URLs, principals, and
