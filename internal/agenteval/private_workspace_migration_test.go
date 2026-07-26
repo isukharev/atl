@@ -772,11 +772,12 @@ func TestPrivateWorkspaceMigrationApplyAttachesTransactionCauses(t *testing.T) {
 		{"candidate durability", "candidate_durability", func(t *testing.T, _ string, failure error) {
 			failSyncCall(t, 1, failure)
 		}},
-		{"source archive write", "source_archive", func(t *testing.T, root string, failure error) {
+		{"source archive write", "source_archive", func(t *testing.T, _ string, failure error) {
 			original := privateWorkspaceMigrationWrite
-			archivePath := filepath.Join(root, "reports", privateWorkspaceMigrationArchiveName)
+			calls := 0
 			privateWorkspaceMigrationWrite = func(writeRoot, target string, data []byte, mode os.FileMode) error {
-				if target == archivePath {
+				calls++
+				if calls == 2 {
 					return failure
 				}
 				return original(writeRoot, target, data, mode)
