@@ -325,14 +325,16 @@ Tool failures retain the same stable classification as CLI JSON errors:
 {
   "kind": "not_found",
   "remediation": "verify_identifier_or_access",
-  "message": "not found: page is unavailable"
+  "message": "Confluence page was not found"
 }
 ```
 
 Branch on `kind`, not `message`. A remediation is guidance, never authorization
-to weaken policy or retry a write. Transport/API failures use a coarse safe
-message; backend paths, query strings, and response bodies are not repeated in
-MCP error content. An exhausted HTTP 429 is `rate_limited` with
+to weaken policy or retry a write. Explicitly typed and tool-specific failures
+may use a fixed content-free message; all other failure details use a coarse
+static message. Backend hostnames, URLs, paths, query strings, and response
+bodies are not repeated in MCP error content. An exhausted HTTP 429 is
+`rate_limited` with
 `wait_before_retry`; do not amplify the server-side limit by immediately
 repeating the tool call. A valid result rejected by caller-selected
 `max_bytes` is `output_limit_exceeded` with `narrow_or_raise_bound`; treat it as

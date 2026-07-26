@@ -2048,6 +2048,9 @@ func safeToolMessage(err error) string {
 	if config.IsSecureURLError(err) {
 		return "backend URL is not approved for authenticated reads"
 	}
+	if errors.Is(err, domain.ErrOutputLimit) {
+		return "tool result exceeds max_bytes"
+	}
 	var apiErr *httpx.APIError
 	if errors.As(err, &apiErr) {
 		return fmt.Sprintf("backend returned HTTP %d", apiErr.Status)
@@ -2056,5 +2059,9 @@ func safeToolMessage(err error) string {
 	if errors.As(err, &transportErr) {
 		return fmt.Sprintf("backend transport failed (%s)", transportErr.Category)
 	}
-	return err.Error()
+	// MCP responses cross a privacy boundary. Unknown errors may contain a
+	// backend hostname, a server-supplied URL, a path, or response content, so
+	// only explicitly typed and privacy-safe errors above may contribute dynamic
+	// text. The original error remains available to local callers and logs.
+	return "tool request failed"
 }

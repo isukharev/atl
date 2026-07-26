@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -2201,8 +2202,94 @@ func TestToolErrorsRedactSecureURLConfigurationDetails(t *testing.T) {
 
 	safeUsage := classified(fmt.Errorf("%w: max_rows must be at least 1", domain.ErrUsage))
 	got = toolError{}
-	if !errors.As(safeUsage, &got) || got.Message != "usage error: max_rows must be at least 1" {
-		t.Fatalf("safe usage guidance was not preserved: %v", safeUsage)
+	if !errors.As(safeUsage, &got) || got.Message != "tool request failed" {
+		t.Fatalf("untyped usage detail was not redacted: %v", safeUsage)
+	}
+}
+
+func TestToolClassifiersRedactRequestPolicyDetails(t *testing.T) {
+	const (
+		configuredHost = "configured-policy.invalid"
+		foreignHost    = "foreign-policy.invalid"
+		foreignPath    = "/private-attachment-path"
+		downgradePath  = "/private-downgrade-path"
+		requestPath    = "/private-request-path"
+	)
+	directClient := httpx.New("https://"+configuredHost, "synthetic-token", "test")
+	_, directErr := directClient.Do(context.Background(), http.MethodGet, "https://"+foreignHost+foreignPath, nil, nil)
+	if directErr == nil || !strings.Contains(directErr.Error(), foreignHost) {
+		t.Fatalf("direct policy error = %v, want valid foreign-host refusal", directErr)
+	}
+	_, downgradeErr := directClient.Do(context.Background(), http.MethodGet, "http://"+configuredHost+downgradePath, nil, nil)
+	if downgradeErr == nil || !strings.Contains(downgradeErr.Error(), configuredHost) {
+		t.Fatalf("downgrade policy error = %v, want valid scheme-downgrade refusal", downgradeErr)
+	}
+	for name, policyErr := range map[string]error{"direct": directErr, "downgrade": downgradeErr} {
+		var transportErr *httpx.TransportError
+		var apiErr *httpx.APIError
+		if errors.As(policyErr, &transportErr) || errors.As(policyErr, &apiErr) {
+			t.Fatalf("%s policy error reached transport: %T %v", name, policyErr, policyErr)
+		}
+	}
+
+	foreignHit := make(chan struct{}, 1)
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		foreignHit <- struct{}{}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer foreign.Close()
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", foreign.URL+foreignPath)
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer backend.Close()
+
+	redirectClient := httpx.New(backend.URL, "synthetic-token", "test")
+	_, redirectErr := redirectClient.Do(context.Background(), http.MethodGet, requestPath, nil, nil)
+	if redirectErr == nil || !strings.Contains(redirectErr.Error(), requestPath) {
+		t.Fatalf("redirect policy error = %v, want valid cross-host redirect refusal", redirectErr)
+	}
+	select {
+	case <-foreignHit:
+		t.Fatal("cross-host redirect target was contacted")
+	default:
+	}
+
+	classifiers := map[string]func(error) error{
+		"generic":              classified,
+		"outline":              classifiedOutlineRead,
+		"page_metadata":        classifiedConfluencePageMetadataRead,
+		"jira_history":         classifiedJiraHistoryRead,
+		"jira_issue_refs":      classifiedJiraIssueRefsRead,
+		"table":                classifiedTableRead,
+		"section":              classifiedSectionRead,
+		"attachment_inventory": classifiedAttachmentInventoryRead,
+		"structure":            classifiedStructureRead,
+		"mirror":               classifiedMirrorRead,
+	}
+	policyErrors := map[string]error{
+		"direct":    directErr,
+		"downgrade": downgradeErr,
+		"redirect":  redirectErr,
+	}
+	for policyName, policyErr := range policyErrors {
+		for classifierName, classify := range classifiers {
+			t.Run(policyName+"/"+classifierName, func(t *testing.T) {
+				classifiedErr := classify(policyErr)
+				var got toolError
+				if !errors.As(classifiedErr, &got) {
+					t.Fatalf("error=%T %v", classifiedErr, classifiedErr)
+				}
+				encoded := got.Error()
+				for _, privateDetail := range []string{
+					configuredHost, foreignHost, foreignPath, downgradePath, requestPath, "http://", "https://",
+				} {
+					if strings.Contains(encoded, privateDetail) {
+						t.Fatalf("classified request-policy error leaked %q: %s", privateDetail, encoded)
+					}
+				}
+			})
+		}
 	}
 }
 
