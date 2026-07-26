@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -718,6 +719,485 @@ func TestPrivateWorkspaceDoctorDetectsStaleCredentialScratch(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPrivateWorkspaceOperationErrorKeepsCausesInspectableAndOutOfTheMessage(t *testing.T) {
+	privateRoot := filepath.Join("private", "evaluations", "private-workspace.v4.json")
+	statCause := &fs.PathError{Op: "lstat", Path: privateRoot, Err: fs.ErrPermission}
+	decodeCause := privateWorkspaceContractError("decode")
+
+	err := privateWorkspaceOperationError("manifest_stat", statCause, nil, decodeCause)
+	assertPrivateWorkspaceOperationCode(t, err, "manifest_stat")
+	if strings.Contains(err.Error(), privateRoot) || strings.Contains(err.Error(), decodeCause.Error()) {
+		t.Fatalf("message leaked a cause: %q", err.Error())
+	}
+	if !errors.Is(err, fs.ErrPermission) || !errors.Is(err, decodeCause) {
+		t.Fatalf("error %v lost a cause", err)
+	}
+	var typed *fs.PathError
+	if !errors.As(err, &typed) || typed.Path != statCause.Path {
+		t.Fatalf("error %v does not expose the concrete stat failure", err)
+	}
+	causes := privateWorkspaceOperationErrorCauses(t, err)
+	if len(causes) != 2 || causes[0] != error(statCause) || causes[1] != decodeCause {
+		t.Fatalf("causes=%v, want both non-nil causes retained in order", causes)
+	}
+	var classified interface{ Code() string }
+	if !errors.As(err, &classified) || classified.Code() != "manifest_stat" {
+		t.Fatalf("error %v does not expose its stable code", err)
+	}
+
+	// A rejection with nothing to attach classifies exactly as it did before.
+	assertPrivateWorkspaceOperationCode(t, privateWorkspaceOperationError("git_boundary"), "git_boundary")
+	if causes := privateWorkspaceOperationErrorCauses(t, privateWorkspaceOperationError("git_boundary", nil, nil)); len(causes) != 0 {
+		t.Fatalf("causes=%v, want nil causes dropped", causes)
+	}
+}
+
+func TestPrivateWorkspaceLocationsAttachOnlyRejectingFailures(t *testing.T) {
+	t.Run("missing root", func(t *testing.T) {
+		_, _, err := privateWorkspaceLocations(filepath.Join(t.TempDir(), "absent"), t.TempDir(), false)
+		assertPrivateWorkspaceOperationCode(t, err, "root")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete resolution failure", err)
+		}
+	})
+	t.Run("symlinked root", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("symlink creation needs elevated privileges on Windows")
+		}
+		root := filepath.Join(t.TempDir(), "private")
+		if err := os.Symlink(t.TempDir(), root); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := privateWorkspaceLocations(root, t.TempDir(), false)
+		assertPrivateWorkspaceOperationCode(t, err, "root_symlink")
+		// The stat succeeded, so the symlink itself is the only rejection.
+		if causes := privateWorkspaceOperationErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a mode-only rejection", causes)
+		}
+	})
+	t.Run("missing repository", func(t *testing.T) {
+		_, _, err := privateWorkspaceLocations(t.TempDir(), filepath.Join(t.TempDir(), "absent"), false)
+		assertPrivateWorkspaceOperationCode(t, err, "repository_root")
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete resolution failure", err)
+		}
+	})
+	t.Run("repository is a file", func(t *testing.T) {
+		repository := filepath.Join(t.TempDir(), "repository")
+		if err := os.WriteFile(repository, []byte("not a repository\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := privateWorkspaceLocations(t.TempDir(), repository, false)
+		assertPrivateWorkspaceOperationCode(t, err, "repository_root")
+		// The stat succeeded; only the file type rejects the repository root.
+		if causes := privateWorkspaceOperationErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a type-only rejection", causes)
+		}
+	})
+}
+
+func TestPrivateWorkspaceManifestOperationsAttachIOAndDecodeCauses(t *testing.T) {
+	newWorkspace := func(t *testing.T) (string, string) {
+		t.Helper()
+		repository, root := t.TempDir(), filepath.Join(t.TempDir(), "private")
+		if _, err := InitPrivateWorkspace(root, repository, DefaultPrivateWorkspaceManifest()); err != nil {
+			t.Fatal(err)
+		}
+		return root, repository
+	}
+
+	t.Run("absent manifest", func(t *testing.T) {
+		root, _ := newWorkspace(t)
+		if err := os.Remove(filepath.Join(root, PrivateWorkspaceManifestName)); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := loadPrivateWorkspaceManifest(root)
+		assertPrivateWorkspaceOperationCode(t, err, "manifest_read")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete read failure", err)
+		}
+		if strings.Contains(err.Error(), root) {
+			t.Fatalf("message leaked the workspace root: %q", err.Error())
+		}
+	})
+
+	t.Run("undecodable manifest", func(t *testing.T) {
+		root, _ := newWorkspace(t)
+		privateMarker := "PRIVATE_MANIFEST_CAUSE_MARKER"
+		if err := os.WriteFile(filepath.Join(root, PrivateWorkspaceManifestName),
+			[]byte(`{"schema_version":4,"`+privateMarker+`":true}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := loadPrivateWorkspaceManifest(root)
+		assertPrivateWorkspaceOperationCode(t, err, "manifest_mismatch")
+		causes := privateWorkspaceOperationErrorCauses(t, err)
+		// The decoder classifies the failure under the separate manifest
+		// contract family, and that classification stays reachable below the
+		// unchanged operation code.
+		if len(causes) != 1 || causes[0].Error() != privateWorkspaceContractError("decode").Error() {
+			t.Fatalf("causes=%v, want the manifest contract classification", causes)
+		}
+		if strings.Contains(err.Error(), privateMarker) || strings.Contains(err.Error(), root) {
+			t.Fatalf("message leaked private manifest content: %q", err.Error())
+		}
+	})
+
+	t.Run("schema filename mismatch", func(t *testing.T) {
+		root, _ := newWorkspace(t)
+		legacy := DefaultPrivateWorkspaceManifest()
+		legacy.SchemaVersion = LegacyPrivateWorkspaceSchemaVersion
+		data, err := EncodePrivateWorkspaceManifest(legacy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, PrivateWorkspaceManifestName), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = loadPrivateWorkspaceManifest(root)
+		assertPrivateWorkspaceOperationCode(t, err, "manifest_mismatch")
+		// A manifest that decodes cleanly under the wrong filename is rejected
+		// by comparison alone.
+		if causes := privateWorkspaceOperationErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a comparison-only rejection", causes)
+		}
+	})
+
+	t.Run("unreadable manifest candidates", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("path-type stat failures differ on Windows")
+		}
+		root := filepath.Join(t.TempDir(), "private")
+		if err := os.WriteFile(root, []byte("not a workspace\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := privateWorkspaceManifestPath(root)
+		assertPrivateWorkspaceOperationCode(t, err, "manifest_stat")
+		causes := privateWorkspaceOperationErrorCauses(t, err)
+		if len(causes) != 4 {
+			t.Fatalf("causes=%v, want one cause per probed manifest candidate", causes)
+		}
+		for index, name := range []string{PrivateWorkspaceManifestName, LegacyCalibratedWorkspaceManifestName,
+			LegacyActivationWorkspaceManifestName, LegacyPrivateWorkspaceManifestName} {
+			var pathErr *fs.PathError
+			if !errors.As(causes[index], &pathErr) || filepath.Base(pathErr.Path) != name {
+				t.Fatalf("cause %d = %v, want the %s stat failure in probe order", index, causes[index], name)
+			}
+			// An ordinary absence is expected here and must never be reported
+			// as the cause of the rejection.
+			if errors.Is(causes[index], fs.ErrNotExist) {
+				t.Fatalf("cause %d = %v, want a real stat failure", index, causes[index])
+			}
+		}
+	})
+
+	t.Run("absent manifest candidates", func(t *testing.T) {
+		root := t.TempDir()
+		path, err := privateWorkspaceManifestPath(root)
+		if err != nil || path != filepath.Join(root, PrivateWorkspaceManifestName) {
+			t.Fatalf("path=%q err=%v, want an ordinary absence to resolve to the current manifest", path, err)
+		}
+	})
+
+	t.Run("ambiguous manifests", func(t *testing.T) {
+		root, _ := newWorkspace(t)
+		legacy := DefaultPrivateWorkspaceManifest()
+		legacy.SchemaVersion = LegacyPrivateWorkspaceSchemaVersion
+		data, err := EncodePrivateWorkspaceManifest(legacy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, LegacyPrivateWorkspaceManifestName), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err = privateWorkspaceManifestPath(root)
+		assertPrivateWorkspaceOperationCode(t, err, "manifest_ambiguous")
+		// Both stats succeeded; the conflicting layout is the whole rejection.
+		if causes := privateWorkspaceOperationErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a layout conflict", causes)
+		}
+	})
+}
+
+func TestInitPrivateWorkspaceAttachesOperationCauses(t *testing.T) {
+	t.Run("invalid manifest", func(t *testing.T) {
+		manifest := DefaultPrivateWorkspaceManifest()
+		manifest.Retention.MaxCandidateAgeDays = 0
+		_, err := InitPrivateWorkspace(filepath.Join(t.TempDir(), "private"), t.TempDir(), manifest)
+		assertPrivateWorkspaceOperationCode(t, err, "manifest_invalid")
+		causes := privateWorkspaceOperationErrorCauses(t, err)
+		if len(causes) != 1 || causes[0].Error() != privateWorkspaceContractError("retention").Error() {
+			t.Fatalf("causes=%v, want the manifest contract classification", causes)
+		}
+	})
+
+	t.Run("uninitialized root", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "private")
+		if err := os.Mkdir(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "existing"), []byte("private"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := InitPrivateWorkspace(root, t.TempDir(), DefaultPrivateWorkspaceManifest())
+		assertPrivateWorkspaceOperationCode(t, err, "root_marker")
+		if causes := privateWorkspaceOperationErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the root preparation failure retained", causes)
+		}
+		if strings.Contains(err.Error(), root) {
+			t.Fatalf("message leaked the workspace root: %q", err.Error())
+		}
+	})
+
+	t.Run("marked root with foreign entries", func(t *testing.T) {
+		repository, root := t.TempDir(), filepath.Join(t.TempDir(), "private")
+		if _, err := InitPrivateWorkspace(root, repository, DefaultPrivateWorkspaceManifest()); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(filepath.Join(root, PrivateWorkspaceManifestName)); err != nil {
+			t.Fatal(err)
+		}
+		_, err := InitPrivateWorkspace(root, repository, DefaultPrivateWorkspaceManifest())
+		assertPrivateWorkspaceOperationCode(t, err, "unmarked_nonempty_root")
+		// Refusing to adopt the root follows from the directory listing alone.
+		if causes := privateWorkspaceOperationErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for an adoption refusal", causes)
+		}
+	})
+
+	t.Run("mismatched resume settings", func(t *testing.T) {
+		repository, root := t.TempDir(), filepath.Join(t.TempDir(), "private")
+		manifest := DefaultPrivateWorkspaceManifest()
+		if _, err := InitPrivateWorkspace(root, repository, manifest); err != nil {
+			t.Fatal(err)
+		}
+		manifest.Retention.MaxCandidateAgeDays++
+		_, err := InitPrivateWorkspace(root, repository, manifest)
+		assertPrivateWorkspaceOperationCode(t, err, "manifest_mismatch")
+		// Both the decode and the close succeeded; only the comparison rejects.
+		if causes := privateWorkspaceOperationErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a settings comparison", causes)
+		}
+	})
+
+	t.Run("unreadable manifest", func(t *testing.T) {
+		if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+			t.Skip("owner-only read denial is not observable here")
+		}
+		repository, root := t.TempDir(), filepath.Join(t.TempDir(), "private")
+		if _, err := InitPrivateWorkspace(root, repository, DefaultPrivateWorkspaceManifest()); err != nil {
+			t.Fatal(err)
+		}
+		// Write-only is still owner-only, so the manifest passes the mode gate
+		// and fails in the read instead.
+		if err := os.Chmod(filepath.Join(root, PrivateWorkspaceManifestName), 0o200); err != nil {
+			t.Fatal(err)
+		}
+		_, err := InitPrivateWorkspace(root, repository, DefaultPrivateWorkspaceManifest())
+		assertPrivateWorkspaceOperationCode(t, err, "manifest_read")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrPermission) {
+			t.Fatalf("error %v does not expose the concrete open failure", err)
+		}
+	})
+
+	t.Run("group-readable manifest", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Unix permission controls")
+		}
+		repository, root := t.TempDir(), filepath.Join(t.TempDir(), "private")
+		if _, err := InitPrivateWorkspace(root, repository, DefaultPrivateWorkspaceManifest()); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(filepath.Join(root, PrivateWorkspaceManifestName), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := InitPrivateWorkspace(root, repository, DefaultPrivateWorkspaceManifest())
+		assertPrivateWorkspaceOperationCode(t, err, "manifest_mode")
+		// The stat succeeded; the observed mode is the whole rejection.
+		if causes := privateWorkspaceOperationErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a mode-only rejection", causes)
+		}
+	})
+}
+
+func TestPrivateWorkspaceGitBoundaryAttachesCommandAndTraversalCauses(t *testing.T) {
+	newIgnoredWorkspace := func(t *testing.T) (string, string) {
+		t.Helper()
+		repository := newPrivateWorkspaceGitRepository(t)
+		if err := os.WriteFile(filepath.Join(repository, ".gitignore"), []byte("private/\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		root := filepath.Join(repository, "private")
+		if _, err := InitPrivateWorkspace(root, repository, DefaultPrivateWorkspaceManifest()); err != nil {
+			t.Fatal(err)
+		}
+		absRoot, absRepository, err := privateWorkspaceLocations(root, repository, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return absRoot, absRepository
+	}
+
+	t.Run("failed git command", func(t *testing.T) {
+		root, repository := newIgnoredWorkspace(t)
+		// A corrupt index leaves ignore resolution working while the tracked
+		// listing fails, so the command failure is what rejects the boundary.
+		if err := os.WriteFile(filepath.Join(repository, ".git", "index"), []byte("corrupt"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		err := privateWorkspaceGitBoundary(root, repository, false)
+		assertPrivateWorkspaceOperationCode(t, err, "git_boundary")
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("error %v does not expose the concrete command failure", err)
+		}
+		if strings.Contains(err.Error(), root) || strings.Contains(err.Error(), repository) {
+			t.Fatalf("message leaked configured locations: %q", err.Error())
+		}
+	})
+
+	t.Run("unreadable subtree", func(t *testing.T) {
+		if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+			t.Skip("owner-only read denial is not observable here")
+		}
+		root, repository := newIgnoredWorkspace(t)
+		cases := filepath.Join(root, "cases")
+		if err := os.Chmod(cases, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(cases, 0o700) })
+		err := privateWorkspaceGitBoundary(root, repository, true)
+		assertPrivateWorkspaceOperationCode(t, err, "git_boundary")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrPermission) {
+			t.Fatalf("error %v does not expose the concrete traversal failure", err)
+		}
+	})
+
+	t.Run("workspace is the repository", func(t *testing.T) {
+		repository := newPrivateWorkspaceGitRepository(t)
+		absRepository, err := filepath.EvalSymlinks(repository)
+		if err != nil {
+			t.Fatal(err)
+		}
+		boundaryErr := privateWorkspaceGitBoundary(absRepository, absRepository, false)
+		assertPrivateWorkspaceOperationCode(t, boundaryErr, "git_boundary")
+		if causes := privateWorkspaceOperationErrorCauses(t, boundaryErr); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a comparison-only rejection", causes)
+		}
+	})
+
+	t.Run("unignored workspace", func(t *testing.T) {
+		repository := newPrivateWorkspaceGitRepository(t)
+		absRepository, err := filepath.EvalSymlinks(repository)
+		if err != nil {
+			t.Fatal(err)
+		}
+		root := filepath.Join(absRepository, "private")
+		if err := os.Mkdir(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		boundaryErr := privateWorkspaceGitBoundary(root, absRepository, false)
+		assertPrivateWorkspaceOperationCode(t, boundaryErr, "git_boundary")
+		// Ignore status is reported as a boolean, so nothing is retained.
+		if causes := privateWorkspaceOperationErrorCauses(t, boundaryErr); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for an ignore-status rejection", causes)
+		}
+	})
+
+	t.Run("tracked workspace file", func(t *testing.T) {
+		root, repository := newIgnoredWorkspace(t)
+		tracked := filepath.Join(root, "cases", "tracked.json")
+		if err := os.WriteFile(tracked, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if output, err := exec.Command("git", "-C", repository, "add", "-f", "private/cases/tracked.json").CombinedOutput(); err != nil {
+			t.Fatalf("git add: %v: %s", err, output)
+		}
+		err := privateWorkspaceGitBoundary(root, repository, false)
+		assertPrivateWorkspaceOperationCode(t, err, "git_boundary")
+		// The listing succeeded; its output is what rejects the boundary.
+		if causes := privateWorkspaceOperationErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a successful tracked listing", causes)
+		}
+	})
+}
+
+func TestEnsurePrivateWorkspaceDirectoriesAttachesLayoutCauses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission controls")
+	}
+	t.Run("mode", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.Mkdir(filepath.Join(root, privateWorkspaceFixedDirectories[0]), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		err := ensurePrivateWorkspaceDirectories(root)
+		assertPrivateWorkspaceOperationCode(t, err, "layout_mode")
+		// The stat succeeded; the observed mode is the whole rejection.
+		if causes := privateWorkspaceOperationErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a mode-only rejection", causes)
+		}
+	})
+	t.Run("create", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("owner-only write denial is not observable here")
+		}
+		root := t.TempDir()
+		if err := os.Chmod(root, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(root, 0o700) })
+		err := ensurePrivateWorkspaceDirectories(root)
+		assertPrivateWorkspaceOperationCode(t, err, "layout_create")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrPermission) {
+			t.Fatalf("error %v does not expose the concrete create failure", err)
+		}
+	})
+	t.Run("stat", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("owner-only traversal denial is not observable here")
+		}
+		root := t.TempDir()
+		if err := os.Chmod(root, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(root, 0o700) })
+		err := ensurePrivateWorkspaceDirectories(root)
+		assertPrivateWorkspaceOperationCode(t, err, "layout_stat")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrPermission) {
+			t.Fatalf("error %v does not expose the concrete stat failure", err)
+		}
+	})
+}
+
+func assertPrivateWorkspaceOperationCode(t *testing.T, err error, code string) {
+	t.Helper()
+	if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) {
+		t.Fatalf("err=%v, want the workspace sentinel", err)
+	}
+	if got, want := err.Error(), ErrPrivateWorkspaceUnhealthy.Error()+": "+code; got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+}
+
+func privateWorkspaceOperationErrorCauses(t *testing.T, err error) []error {
+	t.Helper()
+	multi, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		t.Fatalf("%T does not unwrap to multiple errors", err)
+	}
+	tree := multi.Unwrap()
+	if len(tree) == 0 || !errors.Is(tree[0], ErrPrivateWorkspaceUnhealthy) {
+		t.Fatalf("unwrap tree=%v, want the sentinel first", tree)
+	}
+	return tree[1:]
 }
 
 func newPrivateWorkspaceGitRepository(t *testing.T) string {

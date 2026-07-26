@@ -18,6 +18,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserved the underlying causes of private agent-evaluation workspace
+  operation rejections. Workspace setup, manifest loading, root and repository
+  resolution, Git-boundary checks, workspace traversal, and fixed-layout
+  creation previously dropped the concrete filesystem, decoding, command, or
+  dependency failure behind their classification code. They now report the same
+  cause-preserving coded error the plan-execution, live-gateway, checkpoint,
+  workspace-migration, retention-prune, and compact-baseline paths already use:
+  the message is still only the stable sentinel plus its existing short code,
+  while callers can traverse the standard Go unwrap tree and use `errors.Is` or
+  `errors.As` for typed or sentinel-bearing causes. A manifest contract
+  classification raised during decoding, validation, or encoding remains in
+  that tree under the outer operation code. A rejection decided by validation
+  or comparison alone — an adopted-root refusal, an observed permission mode, a
+  settings or filename comparison, a conflicting manifest layout, a repository
+  root that is not a directory, or an ignore-status or tracked-listing result —
+  still carries no cause. Missing candidates during multi-manifest discovery are
+  normal absence and are not attached; a concrete failure to read the selected
+  manifest path is retained. No workspace operation code is added or renamed,
+  and manifest validation errors remain a separate family. Manifest bytes and
+  contracts, root adoption, Git-boundary semantics, file and directory
+  permissions, layout ordering, exit codes, and fail-closed behavior are
+  unchanged.
 - Preserved the underlying causes of private agent-evaluation compact-baseline
   rejections. Baseline promotion, surface compaction, assessment binding, audit
   sanitization, baseline loading, and offline comparison previously dropped the
