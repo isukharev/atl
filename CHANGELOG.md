@@ -18,6 +18,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserved the underlying causes of private agent-evaluation compact-baseline
+  rejections. Baseline promotion, surface compaction, assessment binding, audit
+  sanitization, baseline loading, and offline comparison previously dropped the
+  concrete workspace, lock, plan, staging, artifact, audit, codec, tree, or
+  filesystem failure behind their classification code. They now report the same
+  cause-preserving coded error the plan-execution, live-gateway, checkpoint,
+  workspace-migration, and retention-prune paths already use: the message is
+  still only the stable sentinel plus its existing short code, while
+  `errors.Is` and `errors.As` reach every retained cause, including a
+  classification raised deeper in the promotion. A directly returned rejection
+  with no failure or nested classification in hand still carries no cause. No
+  baseline code is added or renamed. Promoted baseline, pointer, and manifest
+  bytes and digests, permissions, surface ordering, pointer recovery,
+  comparison compatibility rules, audit sanitization, exit codes, and
+  fail-closed behavior are unchanged.
 - Preserved the underlying causes of private agent-evaluation retention-prune
   rejections. Prune preview, apply, inventory selection, candidate-tree hashing,
   and transaction recovery previously dropped the concrete workspace, lock,
