@@ -2181,7 +2181,9 @@ JSON is the qualified result
 listing was exhausted, so an empty array is proven absence; `complete:false`
 always carries a static `partial_reason` from the closed set `page_limit`,
 `item_limit`, `pagination_stalled`, or `legacy_unqualified`, and never proves a
-version is missing. `-o text` is unchanged: one
+version is missing. Non-positive, duplicate, or non-descending version records
+fail as a check error (exit 8) rather than being emitted as qualified evidence.
+`-o text` is unchanged: one
 `number<TAB>when<TAB>by[<TAB>message]` row per version.
 
 ```

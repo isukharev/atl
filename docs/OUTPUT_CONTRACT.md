@@ -615,7 +615,9 @@ always carries a static `partial_reason` from the closed set `page_limit`,
 `item_limit`, `pagination_stalled`, or `legacy_unqualified`, and never proves
 that an omitted version does not exist. Version records preserve `number`,
 `when`, `by`, and (when present) `message`, and are validated to be strictly
-newest-first before emission. `-o text` still emits
+newest-first with positive version numbers before emission. Invalid or
+duplicate version records fail as a check error (exit 8) instead of weakening
+the completeness claim. `-o text` still emits
 `number<TAB>when<TAB>by[<TAB>message]` per line and is unchanged.
 
 `atl conf attachment list --id <ID>` emits the qualified inventory
