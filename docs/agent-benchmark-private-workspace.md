@@ -162,6 +162,27 @@ editor validation, and the
 shows a comparison without backend-specific values. The Go decoder remains the
 authoritative strict validator.
 
+A rejected setup, health, or location operation still reports only the stable
+workspace sentinel and its existing short code. The workspace paths have joined
+the cause-preserving pattern used by plan execution, the live gateway, the daily
+checkpoint, the workspace migration, retention prune, and compact baselines: a
+concrete filesystem, manifest-decoding, Git-command, traversal, or dependency
+failure is now attached to the returned error instead of being discarded, so
+tooling can inspect it with the standard Go `errors.Is` and `errors.As` helpers
+while messages and logs stay free of configured private locations, workspace
+content, and dependency text. A rejection decided by validation or comparison
+alone — refusing to adopt an already-populated root, an observed permission
+mode, a symlinked root, a resume whose settings or manifest filename differ, a
+conflicting pair of manifests, a workspace that is the repository itself, or an
+ignore-status or tracked-listing result — attaches nothing, and an ordinary
+missing manifest is never reported as a cause. A manifest contract
+classification raised by the decoder remains inspectable under the unchanged
+outer code; manifest validation errors themselves remain a separate family. No
+workspace operation code is added or renamed. Manifest bytes and contracts, root
+adoption, Git-boundary semantics, file and directory permissions, layout
+ordering, health reports, and fail-closed behavior are unchanged. Remaining
+lifecycle subsystems migrate to this pattern incrementally.
+
 ### Migrate a schema-v3 workspace
 
 A healthy schema-v3 workspace remains readable, but it cannot create a new

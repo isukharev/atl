@@ -572,11 +572,13 @@ func loadPrivateWorkspaceManifest(root string) (PrivateWorkspaceManifest, string
 	}
 	data, err := safepath.ReadFileWithinLimit(root, path, maxPrivateWorkspaceManifestBytes)
 	if err != nil {
-		return PrivateWorkspaceManifest{}, "", privateWorkspaceOperationError("manifest_read")
+		return PrivateWorkspaceManifest{}, "", privateWorkspaceOperationError("manifest_read", err)
 	}
 	manifest, err := DecodePrivateWorkspaceManifest(bytes.NewReader(data))
 	if err != nil || !privateWorkspaceManifestSchemaMatchesPath(path, manifest.SchemaVersion) {
-		return PrivateWorkspaceManifest{}, "", privateWorkspaceOperationError("manifest_mismatch")
+		// A manifest that decodes cleanly under the wrong filename has no
+		// failure to attach; the nil cause is dropped.
+		return PrivateWorkspaceManifest{}, "", privateWorkspaceOperationError("manifest_mismatch", err)
 	}
 	return manifest, path, nil
 }
@@ -597,6 +599,8 @@ func privateWorkspaceManifestPath(root string) (string, error) {
 		}
 	}
 	if present > 1 {
+		// Several readable manifests are a layout conflict reported by
+		// successful stats, so there is no failure to attach.
 		return "", privateWorkspaceOperationError("manifest_ambiguous")
 	}
 	if currentErr == nil {
@@ -612,7 +616,16 @@ func privateWorkspaceManifestPath(root string) (string, error) {
 		return legacy, nil
 	}
 	if !os.IsNotExist(currentErr) || !os.IsNotExist(legacyCalibratedErr) || !os.IsNotExist(legacyActivationErr) || !os.IsNotExist(legacyErr) {
-		return "", privateWorkspaceOperationError("manifest_stat")
+		// Every candidate stat failed here, so an ordinary absence is expected
+		// and is not what caused the rejection: retain only the unreadable
+		// candidates, in the fixed order they are probed.
+		causes := make([]error, 0, 4)
+		for _, statErr := range []error{currentErr, legacyCalibratedErr, legacyActivationErr, legacyErr} {
+			if !os.IsNotExist(statErr) {
+				causes = append(causes, statErr)
+			}
+		}
+		return "", privateWorkspaceOperationError("manifest_stat", causes...)
 	}
 	return current, nil
 }
@@ -660,7 +673,7 @@ func EncodePrivateWorkspaceManifest(manifest PrivateWorkspaceManifest) ([]byte, 
 // workspace. Existing non-empty roots without a valid marker are never adopted.
 func InitPrivateWorkspace(root, repositoryRoot string, manifest PrivateWorkspaceManifest) (PrivateWorkspaceReport, error) {
 	if err := manifest.Validate(); err != nil {
-		return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("manifest_invalid")
+		return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("manifest_invalid", err)
 	}
 	absRoot, absRepository, err := privateWorkspaceLocations(root, repositoryRoot, true)
 	if err != nil {
@@ -670,7 +683,7 @@ func InitPrivateWorkspace(root, repositoryRoot string, manifest PrivateWorkspace
 		return emptyPrivateWorkspaceReport(), err
 	}
 	if err := prepareMarkedPrivateRoot(absRoot); err != nil {
-		return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("root_marker")
+		return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("root_marker", err)
 	}
 
 	markerPath, pathErr := privateWorkspaceManifestPath(absRoot)
@@ -682,33 +695,37 @@ func InitPrivateWorkspace(root, repositoryRoot string, manifest PrivateWorkspace
 		markerPath = privateWorkspaceManifestPathForSchema(absRoot, manifest.SchemaVersion)
 		entries, err := os.ReadDir(absRoot)
 		if err != nil {
-			return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("root_read")
+			return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("root_read", err)
 		}
 		if len(entries) != 1 || entries[0].Name() != privateOutputRootMarker {
+			// Refusing to adopt a foreign root follows from the listing alone.
 			return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("unmarked_nonempty_root")
 		}
 		data, err := EncodePrivateWorkspaceManifest(manifest)
 		if err != nil {
-			return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("manifest_invalid")
+			return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("manifest_invalid", err)
 		}
 		if err := safepath.WriteFileExclusiveWithin(absRoot, markerPath, data, 0o600); err != nil {
-			return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("manifest_create")
+			return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("manifest_create", err)
 		}
 	} else if markerErr != nil {
-		return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("manifest_stat")
+		return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("manifest_stat", markerErr)
 	} else {
 		if markerInfo.Mode()&os.ModeSymlink != 0 || !markerInfo.Mode().IsRegular() || !privateWorkspaceFileMode(markerInfo.Mode()) {
+			// The stat succeeded; only the observed mode rejects the manifest.
 			return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("manifest_mode")
 		}
 		file, err := os.Open(markerPath)
 		if err != nil {
-			return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("manifest_read")
+			return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("manifest_read", err)
 		}
 		existing, decodeErr := DecodePrivateWorkspaceManifest(file)
 		closeErr := file.Close()
 		if decodeErr != nil || closeErr != nil || !privateWorkspaceManifestSchemaMatchesPath(markerPath, existing.SchemaVersion) ||
 			(existing.SchemaVersion == PrivateWorkspaceSchemaVersion && !reflect.DeepEqual(existing, manifest)) {
-			return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("manifest_mismatch")
+			// A resume that differs only in settings or filename schema has no
+			// failure in hand; both nil causes are dropped.
+			return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("manifest_mismatch", decodeErr, closeErr)
 		}
 	}
 
@@ -854,24 +871,27 @@ func DoctorPrivateWorkspace(root, repositoryRoot string) (PrivateWorkspaceReport
 func privateWorkspaceLocations(root, repositoryRoot string, allowMissingRoot bool) (string, string, error) {
 	absRepository, err := filepath.Abs(repositoryRoot)
 	if err != nil {
-		return "", "", privateWorkspaceOperationError("repository_root")
+		return "", "", privateWorkspaceOperationError("repository_root", err)
 	}
 	absRepository, err = filepath.EvalSymlinks(absRepository)
 	if err != nil {
-		return "", "", privateWorkspaceOperationError("repository_root")
+		return "", "", privateWorkspaceOperationError("repository_root", err)
 	}
 	repositoryInfo, err := os.Stat(absRepository)
 	if err != nil || !repositoryInfo.IsDir() {
-		return "", "", privateWorkspaceOperationError("repository_root")
+		// A repository root that stats cleanly but is not a directory has no
+		// failure to attach.
+		return "", "", privateWorkspaceOperationError("repository_root", err)
 	}
 	absInput, err := filepath.Abs(root)
 	if err != nil {
-		return "", "", privateWorkspaceOperationError("root")
+		return "", "", privateWorkspaceOperationError("root", err)
 	}
 	if info, lstatErr := os.Lstat(absInput); lstatErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		// The stat succeeded; the symlinked root itself is the rejection.
 		return "", "", privateWorkspaceOperationError("root_symlink")
 	} else if lstatErr != nil && !os.IsNotExist(lstatErr) {
-		return "", "", privateWorkspaceOperationError("root")
+		return "", "", privateWorkspaceOperationError("root", lstatErr)
 	}
 	var absRoot string
 	if allowMissingRoot {
@@ -880,7 +900,7 @@ func privateWorkspaceLocations(root, repositoryRoot string, allowMissingRoot boo
 		absRoot, err = filepath.EvalSymlinks(absInput)
 	}
 	if err != nil {
-		return "", "", privateWorkspaceOperationError("root")
+		return "", "", privateWorkspaceOperationError("root", err)
 	}
 	return absRoot, absRepository, nil
 }
@@ -888,25 +908,29 @@ func privateWorkspaceLocations(root, repositoryRoot string, allowMissingRoot boo
 func privateWorkspaceGitBoundary(root, repository string, inspectTree bool) error {
 	inside, err := pathWithin(repository, root)
 	if err != nil {
-		return privateWorkspaceOperationError("git_boundary")
+		return privateWorkspaceOperationError("git_boundary", err)
 	}
 	if !inside {
 		return nil
 	}
 	if root == repository {
+		// A workspace that is the repository itself is rejected by comparison.
 		return privateWorkspaceOperationError("git_boundary")
 	}
 	relative, err := filepath.Rel(repository, root)
 	if err != nil {
-		return privateWorkspaceOperationError("git_boundary")
+		return privateWorkspaceOperationError("git_boundary", err)
 	}
 	if !gitPathIgnored(repository, relative) {
+		// Ignore status is reported as a boolean, so nothing concrete is left
+		// to attach here.
 		return privateWorkspaceOperationError("git_boundary")
 	}
 	tracked := exec.Command("git", "-C", repository, "ls-files", "--cached", "--", relative)
 	trackedOutput, err := tracked.Output()
 	if err != nil || len(bytes.TrimSpace(trackedOutput)) != 0 {
-		return privateWorkspaceOperationError("git_boundary")
+		// A successful listing that reports tracked content attaches nothing.
+		return privateWorkspaceOperationError("git_boundary", err)
 	}
 	if !inspectTree {
 		return nil
@@ -928,13 +952,13 @@ func privateWorkspaceGitBoundary(root, repository string, inspectTree bool) erro
 		return nil
 	})
 	if walkErr != nil {
-		return privateWorkspaceOperationError("git_boundary")
+		return privateWorkspaceOperationError("git_boundary", walkErr)
 	}
 	command := exec.Command("git", "-C", repository, "check-ignore", "--no-index", "--stdin", "-z")
 	command.Stdin = &ignoredInput
 	output, err := command.Output()
 	if err != nil {
-		return privateWorkspaceOperationError("git_boundary")
+		return privateWorkspaceOperationError("git_boundary", err)
 	}
 	for _, item := range bytes.Split(output, []byte{0}) {
 		if len(item) == 0 {
@@ -942,6 +966,7 @@ func privateWorkspaceGitBoundary(root, repository string, inspectTree bool) erro
 		}
 		path := filepath.ToSlash(string(item))
 		if _, exists := expected[path]; !exists {
+			// The command succeeded; the reported set itself is the rejection.
 			return privateWorkspaceOperationError("git_boundary")
 		}
 		delete(expected, path)
@@ -968,11 +993,12 @@ func ensurePrivateWorkspaceDirectories(root string) error {
 		switch {
 		case os.IsNotExist(err):
 			if err := os.Mkdir(path, 0o700); err != nil {
-				return privateWorkspaceOperationError("layout_create")
+				return privateWorkspaceOperationError("layout_create", err)
 			}
 		case err != nil:
-			return privateWorkspaceOperationError("layout_stat")
+			return privateWorkspaceOperationError("layout_stat", err)
 		case info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || !privateWorkspaceDirectoryMode(info.Mode()):
+			// The stat succeeded; only the observed mode rejects the directory.
 			return privateWorkspaceOperationError("layout_mode")
 		}
 	}
@@ -1124,8 +1150,13 @@ func privateWorkspaceContractError(code string) error {
 	return fmt.Errorf("private workspace manifest is invalid: %s", code)
 }
 
-func privateWorkspaceOperationError(code string) error {
-	return fmt.Errorf("%w: %s", ErrPrivateWorkspaceUnhealthy, code)
+// privateWorkspaceOperationError classifies a workspace setup, inspection,
+// location, Git-boundary, or fixed-layout rejection under the unchanged
+// sentinel and short code while retaining the causes already in hand. The
+// rendered message stays sentinel plus code, so a configured private path or a
+// dependency detail never reaches a log line.
+func privateWorkspaceOperationError(code string, causes ...error) error {
+	return codedError(ErrPrivateWorkspaceUnhealthy, code, causes...)
 }
 
 func emptyPrivateWorkspaceReport() PrivateWorkspaceReport {
