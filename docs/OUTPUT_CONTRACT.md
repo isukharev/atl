@@ -229,8 +229,9 @@ At the MCP boundary, `max_bytes` defaults to 128 KiB and rejects an encoded
 result above the configured bound instead of clipping candidate metadata or
 pagination evidence.
 `confluence_table_summary` returns the content-free structural summary contract,
-including required `schema_version:2`, the positive page `version`, and
-`page_version_gated`.
+including required `schema_version:3`,
+`cell_contract:"confluence-table-cells/compact-v3"`, the positive page
+`version`, and `page_version_gated`.
 `confluence_table_extract` requires one positive table index and returns exactly
 that expanded table with the same required provenance fields. When its index
 came from a summary, clients copy the summary's `version` into
@@ -1183,7 +1184,8 @@ The backend hostname and PAT are never written to the manifest.
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
+  "cell_contract": "confluence-table-cells/compact-v3",
   "page_id": "123456",
   "version": 7,
   "page_version_gated": false,
@@ -1260,17 +1262,20 @@ need both content and counts should use the embedded record instead of
 recounting cells. The field is additive to the extraction contract and does
 not affect CSV or XLSX rendering.
 
-Table schema v2 makes the cell kind durable. Every native `th`/`td` origin has
-`source_row` and `source_column` equal to its own `row` and `column`; every
-span-covered copy has `repeated:true` and names that origin; synthetic padding
-has no source coordinates and carries no content or span metadata. Any other
-combination is invalid. After serialization ATL recomputes the span ledger from
-these fields and requires the attached `summary` to match exactly, so legacy or
+Table schema v3 makes the compact cell kind durable and requires the exact
+top-level `cell_contract:"confluence-table-cells/compact-v3"` marker on both
+summary and extraction envelopes. A native `th`/`td` origin is the unmarked
+default and has no source coordinates. Every span-covered copy has
+`repeated:true` plus `source_row` and `source_column` naming its covering
+origin. Rectangular padding has `synthetic:true`, no source coordinates, and no
+content or span metadata. Any other combination is invalid. After
+serialization ATL recomputes the span ledger from these fields and requires the
+attached `summary` to match exactly, so legacy, schema-only relabelled, or
 forged payloads cannot upgrade themselves to `cell_count_reconciled:true`.
-All-table CSV already includes the source-coordinate columns; under schema v2
-native origin rows now contain their self coordinates there. CSV/XLSX exports
-are terminal exports rather than replayable mirror views, so they have no
-separate migration marker.
+All-table CSV keeps its existing source-coordinate columns and derives a native
+origin's self coordinates from the compact cell kind; synthetic rows leave
+them blank. CSV/XLSX exports are terminal exports rather than replayable mirror
+views, so they have no separate migration marker.
 
 The extraction's top-level `table_count` remains page-wide.
 `returned_table_count` equals the actual `tables` array length, and

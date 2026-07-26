@@ -1373,10 +1373,11 @@ Flags:
 | `--out` | optional output file; required for `xlsx` |
 | `--raw-csv` | preserve formula-leading cells verbatim; CSV only and unsafe in spreadsheets |
 
-JSON preserves the expanded cells, durable source coordinates, ordinary links,
-and visible inline color markers. In schema v2 a native cell names its own
-row/column, a span repeat names its covering origin, and synthetic rectangular
-padding has no source coordinates. Every JSON table
+JSON preserves the expanded cells, durable compact provenance, ordinary links,
+and visible inline color markers. In schema v3 a native cell is the unmarked
+default with no source coordinates, a span repeat has `repeated:true` and names
+its covering origin, and rectangular padding has `synthetic:true` with no
+source coordinates. Every JSON table
 also includes a required `summary` record with the same reconciled structural
 metrics as `atl conf table summary`, so scripts can consume exact counts without
 recounting cells. Top-level `returned_table_count` is the actual length of
@@ -1385,8 +1386,9 @@ exactly that table or that an unselected read returned the full page-wide
 `table_count`. CSV without `--table` emits a cell-level stream so pages with
 different table shapes can share one file; CSV with `--table` emits a
 rectangular table.
-JSON results also include `schema_version:2`, the positive page `version`, and
-`page_version_gated`. When a table index came from `conf table summary`, pass
+JSON results also include `schema_version:3`, the exact
+`cell_contract:"confluence-table-cells/compact-v3"` marker, the positive page
+`version`, and `page_version_gated`. When a table index came from `conf table summary`, pass
 that summary's exact version with `--expected-version`; omission is explicit
 ungated evidence for a directly fixed index. A stale positive version exits
 `8` before emitting table evidence; a negative value is a usage error and
@@ -1418,8 +1420,9 @@ source-placement ledger: declared span rectangles may not overlap or leave the
 source row domain, and every claim must agree with the expanded grid. Rowspan and
 colspan source cells remain separate from coordinate-covered positions, avoiding
 an ambiguous combined span count.
-The result reports `schema_version:2`, the positive page `version`, and
-`page_version_gated`. `--expected-version` optionally binds this read to an
+The result reports `schema_version:3`, the exact
+`cell_contract:"confluence-table-cells/compact-v3"` marker, the positive page
+`version`, and `page_version_gated`. `--expected-version` optionally binds this read to an
 already-observed revision without another request. A stale version fails before
 any table evidence is returned with exit `8`; a negative value is a usage error
 and exits `2`.

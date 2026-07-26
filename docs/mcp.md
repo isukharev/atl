@@ -295,10 +295,13 @@ Table errors use coarse messages and never repeat CSF parser text or malformed
 cell content. Each extracted table includes a reconciled `summary` record using
 the same content-free metrics as `confluence_table_summary`; use those counts
 instead of deriving shape, span, style, link, or non-empty-cell totals locally.
-Table schema v2 names every native origin with its own source coordinates,
-names every repeated cell's covering origin, and leaves synthetic padding
-without source coordinates. Require `cell_count_reconciled:true`: it includes
-an independent source-placement/span check, not only rectangular cell counts.
+Table schema v3 requires
+`cell_contract:"confluence-table-cells/compact-v3"`. Native origins are the
+unmarked default with no source coordinates; repeated cells have
+`repeated:true` and name their covering origin; synthetic padding has
+`synthetic:true` and no source coordinates. Require
+`cell_count_reconciled:true`: it includes an independent source-placement/span
+check, not only rectangular cell counts.
 
 In a selected-table result, each cell's `text` field is whitespace-normalized
 plain text. Use it for exact values, filters, and plain-text answers. The

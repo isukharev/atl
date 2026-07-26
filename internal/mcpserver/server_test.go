@@ -1443,7 +1443,8 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	})
 	summary := callToolOK(t, client, "confluence_table_summary", map[string]any{"reference": "42", "table": 2})
 	summaryContent, ok := summary.StructuredContent.(map[string]any)
-	if !ok || summaryContent["schema_version"] != float64(app.ConfluenceTableSchemaVersion) || summaryContent["version"] != float64(3) ||
+	if !ok || summaryContent["schema_version"] != float64(app.ConfluenceTableSchemaVersion) ||
+		summaryContent["cell_contract"] != app.ConfluenceTableCellContract || summaryContent["version"] != float64(3) ||
 		summaryContent["page_version_gated"] != false || summaryContent["selection_reconciled"] != true {
 		t.Fatalf("table summary=%#v", summary.StructuredContent)
 	}
@@ -1451,7 +1452,8 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 		"reference": "42", "table": 2, "expected_page_version": 3, "max_bytes": 4096,
 	})
 	extractContent, ok := extract.StructuredContent.(map[string]any)
-	if !ok || extractContent["schema_version"] != float64(app.ConfluenceTableSchemaVersion) || extractContent["version"] != float64(3) ||
+	if !ok || extractContent["schema_version"] != float64(app.ConfluenceTableSchemaVersion) ||
+		extractContent["cell_contract"] != app.ConfluenceTableCellContract || extractContent["version"] != float64(3) ||
 		extractContent["page_version_gated"] != true || extractContent["selected_table"] != float64(2) ||
 		extractContent["returned_table_count"] != float64(1) || extractContent["selection_reconciled"] != true {
 		t.Fatalf("table extract=%#v", extract.StructuredContent)
@@ -2989,6 +2991,7 @@ func TestConfluenceTableToolsRejectUnreconciledApplicationResults(t *testing.T) 
 		{name: "summary rectangular", tool: "confluence_table_summary", args: map[string]any{"reference": "42"}, mode: "summary-rectangular"},
 		{name: "summary cell count", tool: "confluence_table_summary", args: map[string]any{"reference": "42"}, mode: "summary-cell-count"},
 		{name: "summary schema", tool: "confluence_table_summary", args: map[string]any{"reference": "42"}, mode: "summary-schema"},
+		{name: "summary cell contract", tool: "confluence_table_summary", args: map[string]any{"reference": "42"}, mode: "summary-cell-contract"},
 		{name: "summary version", tool: "confluence_table_summary", args: map[string]any{"reference": "42"}, mode: "summary-version"},
 		{name: "summary gate", tool: "confluence_table_summary", args: map[string]any{"reference": "42"}, mode: "summary-gate"},
 		{name: "bound summary ungated", tool: "confluence_table_summary", args: map[string]any{"reference": "42", "expected_page_version": 7}, mode: "summary-bound-ungated"},
@@ -2999,6 +3002,7 @@ func TestConfluenceTableToolsRejectUnreconciledApplicationResults(t *testing.T) 
 		{name: "extract dimensions", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-dimensions"},
 		{name: "extract summary", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-summary"},
 		{name: "extract schema", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-schema"},
+		{name: "extract cell contract", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-cell-contract"},
 		{name: "extract version", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-version"},
 		{name: "extract gate", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-gate"},
 		{name: "bound extract ungated", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1, "expected_page_version": 7}, mode: "extract-bound-ungated"},
@@ -5304,7 +5308,7 @@ func (r *recordingConfluenceReader) SummarizeTablesWithOptions(_ context.Context
 			{Index: 2, RowCount: 1, ColumnCount: 1, Rectangular: true,
 				ExpandedCellCount: 1, OriginCellCount: 1, CellCountReconciled: true}}
 	}
-	return &app.ConfluenceTableSummary{SchemaVersion: app.ConfluenceTableSchemaVersion, PageID: "42",
+	return &app.ConfluenceTableSummary{SchemaVersion: app.ConfluenceTableSchemaVersion, CellContract: app.ConfluenceTableCellContract, PageID: "42",
 		Version: version, PageVersionGated: opts.ExpectedPageVersion > 0, TableCount: 2, Table: table, ReturnedTableCount: len(tables),
 		SelectionReconciled: true, Tables: tables}, nil
 }
@@ -5320,6 +5324,8 @@ func (r *invalidConfluenceTableReader) SummarizeTablesWithOptions(ctx context.Co
 		result.Tables[0].CellCountReconciled = false
 	case "summary-schema":
 		result.SchemaVersion++
+	case "summary-cell-contract":
+		result.CellContract = ""
 	case "summary-version":
 		result.Version = 0
 	case "summary-gate":
@@ -5347,6 +5353,8 @@ func (r *invalidConfluenceTableReader) ExtractTablesWithOptions(ctx context.Cont
 		result.Tables[0].Summary.ExpandedCellCount++
 	case "extract-schema":
 		result.SchemaVersion++
+	case "extract-cell-contract":
+		result.CellContract = ""
 	case "extract-version":
 		result.Version = 0
 	case "extract-gate":
@@ -5368,12 +5376,11 @@ func (r *recordingConfluenceReader) ExtractTablesWithOptions(_ context.Context, 
 	if version == 0 {
 		version = 3
 	}
-	result := &app.ConfluenceTableExtract{SchemaVersion: app.ConfluenceTableSchemaVersion, PageID: "42",
+	result := &app.ConfluenceTableExtract{SchemaVersion: app.ConfluenceTableSchemaVersion, CellContract: app.ConfluenceTableCellContract, PageID: "42",
 		Version: version, PageVersionGated: opts.ExpectedPageVersion > 0, TableCount: 2, Table: table,
 		ReturnedTableCount: 1, SelectionReconciled: true, Tables: []app.ConfluenceTable{{Index: table,
 			RowCount: 1, ColumnCount: 1, Rows: []app.ConfluenceTableRow{{Index: 1,
-				Cells: []app.ConfluenceTableCell{{Row: 1, Column: 1, Text: r.tableText,
-					SourceRow: 1, SourceColumn: 1}}}}}}}
+				Cells: []app.ConfluenceTableCell{{Row: 1, Column: 1, Text: r.tableText}}}}}}}
 	summary := app.SummarizeConfluenceTables(result)
 	record := summary.Tables[0]
 	record.CellCountReconciled = true

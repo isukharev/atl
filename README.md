@@ -444,6 +444,11 @@ atl conf comment list --id 123456
 atl conf comment add  --id 123456 --from-file comment.csf
 ```
 
+Table JSON schema v3 uses compact durable provenance: native origins are
+unmarked, span repeats name their source coordinates, and rectangular padding
+has `synthetic:true`. Summary and extraction results carry the exact
+`cell_contract:"confluence-table-cells/compact-v3"` marker.
+
 ---
 
 ## Edit model & safety
