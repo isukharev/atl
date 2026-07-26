@@ -48,6 +48,8 @@ var (
 	privatePlanQualifyCodexCLI = QualifyCodexCLIToolAvailability
 	privatePlanWriteState      = writePrivatePlanState
 	privatePlanRemoveTree      = removePrivateTree
+	privatePlanNewCodexAuth    = newCodexAuthSession
+	privatePlanCloseCodexAuth  = func(session *codexAuthSession) error { return session.Close() }
 )
 
 var privateGitCommitRE = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
@@ -375,16 +377,16 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 	}
 	root, _, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
 	if err != nil {
-		return PrivatePlanExecutionSummary{}, privatePlanError("workspace")
+		return PrivatePlanExecutionSummary{}, privatePlanError("workspace", err)
 	}
 	lock, err := acquirePrivateWorkspaceLock(root)
 	if err != nil {
-		return PrivatePlanExecutionSummary{}, privatePlanError("workspace_busy")
+		return PrivatePlanExecutionSummary{}, privatePlanError("workspace_busy", err)
 	}
 	defer func() { _ = lock.Unlock() }()
 	plan, planData, err := loadPrivatePlan(root, options.PlanID)
 	if err != nil || sha256HexBytes(planData) != options.ExpectedPlanSHA256 {
-		return PrivatePlanExecutionSummary{}, privatePlanError("plan_hash")
+		return PrivatePlanExecutionSummary{}, privatePlanError("plan_hash", err)
 	}
 	if plan.SchemaVersion != PrivatePlanSchemaVersion {
 		return PrivatePlanExecutionSummary{}, privatePlanError("legacy_plan_read_only")
@@ -408,11 +410,11 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 	}
 	statePath := filepath.Join(root, "plans", plan.PlanID+".state.json")
 	if _, err := os.Lstat(statePath); err == nil || !os.IsNotExist(err) {
-		return PrivatePlanExecutionSummary{}, privatePlanError("consumed")
+		return PrivatePlanExecutionSummary{}, privatePlanError("consumed", err)
 	}
 	manifest, runSet, err := loadPrivateManifestRunSet(root, plan.RunSetAlias)
 	if err != nil {
-		return PrivatePlanExecutionSummary{}, privatePlanError("manifest")
+		return PrivatePlanExecutionSummary{}, privatePlanError("manifest", err)
 	}
 	liveConfig := os.Getenv(manifest.LiveConfigEnv)
 	externalProfile := os.Getenv(manifest.ExternalMCPProfileEnv)
@@ -435,7 +437,7 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 	}
 	runID, err := privateRandomID("run-")
 	if err != nil {
-		return PrivatePlanExecutionSummary{}, privatePlanError("id")
+		return PrivatePlanExecutionSummary{}, privatePlanError("id", err)
 	}
 	runRoot := filepath.Join(root, "runs", runID)
 	installCodexPlugin := false
@@ -447,7 +449,7 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 	}
 	snapshot, err := createPrivateExecutionSnapshot(root, runID, options, runSet, liveConfig, externalProfile, plan.Provider, installCodexPlugin, material.agent)
 	if err != nil {
-		return PrivatePlanExecutionSummary{}, privatePlanError("execution_snapshot")
+		return PrivatePlanExecutionSummary{}, privatePlanError("execution_snapshot", err)
 	}
 	snapshotCleanupPending := true
 	defer func() {
@@ -455,7 +457,12 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 			return
 		}
 		if cleanupErr := privatePlanRemoveTree(root, snapshot.root); cleanupErr != nil {
-			returnErr = errors.Join(returnErr, privatePlanError("snapshot_cleanup"), cleanupErr)
+			var classified interface{ Code() string }
+			if errors.As(returnErr, &classified) && classified.Code() == "snapshot_cleanup" {
+				returnErr = privatePlanError("snapshot_cleanup", returnErr, cleanupErr)
+			} else {
+				returnErr = errors.Join(returnErr, privatePlanError("snapshot_cleanup", cleanupErr))
+			}
 			if summary.Status == "completed" {
 				summary.Status = "interrupted"
 			}
@@ -464,7 +471,7 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 	snapshotItems, snapshotMaterial, _, _, _, _, err := buildPrivatePlanMaterial(ctx, snapshot.root, options.RepositoryRoot, root, runSet,
 		snapshot.atlBinary, snapshot.pluginRoot, snapshot.agentBinary, snapshot.wrapperExecutable, snapshot.liveConfig, snapshot.externalProfile, snapshot.agentProvenanceSHA256)
 	if err != nil || !privatePlanMaterialMatches(plan, snapshotItems, snapshotMaterial) {
-		return PrivatePlanExecutionSummary{}, privatePlanError("execution_snapshot")
+		return PrivatePlanExecutionSummary{}, privatePlanError("execution_snapshot", err)
 	}
 	state := privatePlanState{SchemaVersion: legacyComparisonPrivatePlanStateSchemaVersion, PlanSHA256: options.ExpectedPlanSHA256, RunID: runID, Status: "interrupted", CompletedSurfaces: []string{}}
 	var activationLifecycle *PrivateActivationStudyLifecycle
@@ -474,7 +481,7 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 		}
 		lifecycle, lifecycleErr := NewPrivateActivationStudyLifecycle(*plan.StudyContract)
 		if lifecycleErr != nil {
-			return PrivatePlanExecutionSummary{}, privatePlanError("study_contract")
+			return PrivatePlanExecutionSummary{}, privatePlanError("study_contract", lifecycleErr)
 		}
 		activationLifecycle = &lifecycle
 		state.SchemaVersion = privatePlanStateSchemaVersion
@@ -491,30 +498,32 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 	stateData, _ := json.MarshalIndent(state, "", "  ")
 	stateData = append(stateData, '\n')
 	if err := safepath.WriteFileExclusiveWithin(root, statePath, stateData, 0o600); err != nil {
-		return PrivatePlanExecutionSummary{}, privatePlanError("state")
+		return PrivatePlanExecutionSummary{}, privatePlanError("state", err)
 	}
 	if err := safepath.MkdirAllWithin(root, runRoot, 0o700); err != nil {
-		return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanExecutionSurfaces(plan), 0, 0), privatePlanError("run_root")
+		return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanExecutionSurfaces(plan), 0, 0), privatePlanError("run_root", err)
 	}
 	if err := persistPrivateRunContracts(root, runRoot, snapshot.root, plan, runSet); err != nil {
-		return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanExecutionSurfaces(plan), 0, 0), privatePlanError("run_contract")
+		return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanExecutionSurfaces(plan), 0, 0), privatePlanError("run_contract", err)
 	}
 	var providerAuthSession *codexAuthSession
 	providerAuthSessionClosed := false
 	if plan.Provider == "codex" {
-		providerAuthSession, err = newCodexAuthSession(os.Environ())
+		providerAuthSession, err = privatePlanNewCodexAuth(os.Environ())
 		if err != nil {
-			return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanExecutionSurfaces(plan), 0, 0), err
+			return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanExecutionSurfaces(plan), 0, 0), privatePlanError("provider_session", err)
 		}
 		defer func() {
 			if !providerAuthSessionClosed {
-				returnErr = errors.Join(returnErr, providerAuthSession.Close())
+				if closeErr := privatePlanCloseCodexAuth(providerAuthSession); closeErr != nil {
+					returnErr = errors.Join(returnErr, privatePlanError("provider_session", closeErr))
+				}
 			}
 		}()
 	}
 	if activationLifecycle != nil {
 		if err := persistPrivateActivationPlanState(statePath, plan, &state, activationLifecycle, ""); err != nil {
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), 0, 0), errors.Join(privatePlanError("state"), err)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), 0, 0), privatePlanError("state", err)
 		}
 	}
 	var total int64
@@ -525,29 +534,29 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 			snapshot.atlBinary, snapshot.pluginRoot, snapshot.agentBinary, snapshot.wrapperExecutable, snapshot.liveConfig, snapshot.externalProfile, snapshot.agentProvenanceSHA256)
 		if materialErr != nil || !privatePlanMaterialMatches(plan, currentItems, currentMaterial) {
 			stopErr := stopAndPersistPrivateActivationState(statePath, plan, &state, activationLifecycle, PrivateActivationStopInputDrift)
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("input_drift"), stopErr)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("input_drift", materialErr, stopErr)
 		}
 		if snapshotErr != nil || !privatePlanMaterialMatches(plan, snapshotItems, executionMaterial) || executionMaterial.calibration == nil ||
 			executionMaterial.calibration.SHA256 != plan.StudyContract.Calibration.ContractSHA256 {
 			stopErr := stopAndPersistPrivateActivationState(statePath, plan, &state, activationLifecycle, PrivateActivationStopSnapshotDrift)
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("snapshot_drift"), stopErr)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("snapshot_drift", snapshotErr, stopErr)
 		}
 		if _, err := activationLifecycle.ReserveCalibration(); err != nil {
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("calibration_lifecycle")
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("calibration_lifecycle", err)
 		}
 		if err := persistPrivateActivationPlanState(statePath, plan, &state, activationLifecycle, ""); err != nil {
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("state")
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("state", err)
 		}
 		if err := activationLifecycle.MarkCalibrationLaunched(); err != nil {
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("calibration_lifecycle")
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("calibration_lifecycle", err)
 		}
 		if err := persistPrivateActivationPlanState(statePath, plan, &state, activationLifecycle, ""); err != nil {
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("state")
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("state", err)
 		}
 		calibrationOutputRoot, err := preparePrivateActivationOutputRoot(root, runRoot)
 		if err != nil {
 			stateErr := markAndPersistPrivateActivationCalibrationFailed(statePath, plan, &state, activationLifecycle, PrivateActivationUnknownInterrupted)
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("calibration_output"), stateErr)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("calibration_output", err, stateErr)
 		}
 		providerAttemptCommitted := func() error {
 			candidate := *activationLifecycle
@@ -571,42 +580,42 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 			Pricing:                  executionMaterial.calibration.Pricing, providerAuthSession: providerAuthSession,
 			providerAttemptCommitted: providerAttemptCommitted,
 		})
-		if validatePrivateActivationOutputRoot(root, calibrationOutputRoot) != nil {
+		if outputErr := validatePrivateActivationOutputRoot(root, calibrationOutputRoot); outputErr != nil {
 			stateErr := markAndPersistPrivateActivationCalibrationFailed(statePath, plan, &state, activationLifecycle, PrivateActivationUnknownContainment)
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("calibration_output"), stateErr)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("calibration_output", outputErr, stateErr)
 		}
 		if modeErr := normalizePrivateCandidateTree(root, runRoot); modeErr != nil {
 			stateErr := markAndPersistPrivateActivationCalibrationFailed(statePath, plan, &state, activationLifecycle, PrivateActivationUnknownContainment)
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("run_modes"), stateErr)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("run_modes", modeErr, stateErr)
 		}
 		if calibrationErr != nil {
 			reason := privateActivationCalibrationPostRunUnknownReason(activationLifecycle)
 			stateErr := markAndPersistPrivateActivationCalibrationFailed(statePath, plan, &state, activationLifecycle, reason)
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("calibration_execution"), calibrationErr, stateErr)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("calibration_execution", calibrationErr, stateErr)
 		}
 		total += calibrationReceipt.EstimatedCostMicroUSD
 		receiptSHA256, receiptErr := persistPrivateActivationCalibrationReceipt(root, runRoot, plan, *executionMaterial.calibration, calibrationReceipt)
 		if receiptErr != nil {
 			stateErr := markAndPersistPrivateActivationCalibrationFailed(statePath, plan, &state, activationLifecycle, PrivateActivationUnknownPersistence)
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("calibration_receipt"), receiptErr, stateErr)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("calibration_receipt", receiptErr, stateErr)
 		}
 		if err := activationLifecycle.RecordCalibrationReceipt(PrivateActivationReceipt{SHA256: receiptSHA256, CostKnown: true,
 			DetectedCostMicroUSD: calibrationReceipt.EstimatedCostMicroUSD, ProviderCompleted: true, PersistenceComplete: true, ContainmentCertain: true}); err != nil {
 			stateErr := markAndPersistPrivateActivationCalibrationFailed(statePath, plan, &state, activationLifecycle, PrivateActivationUnknownPersistence)
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("calibration_receipt"), err, stateErr)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("calibration_receipt", err, stateErr)
 		}
 		if err := persistPrivateActivationPlanState(statePath, plan, &state, activationLifecycle, ""); err != nil {
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("state"), err)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("state", err)
 		}
 		if activationLifecycle.Status() == PrivateActivationStudyStopped || !calibrationReceipt.Passed {
 			return privatePlanSummary(plan.PlanID, runID, "stopped", []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("calibration_failed")
 		}
 		if err := activationLifecycle.MarkCalibrationSucceeded(); err != nil {
 			stateErr := markAndPersistPrivateActivationCalibrationFailed(statePath, plan, &state, activationLifecycle, PrivateActivationUnknownPersistence)
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("calibration_lifecycle"), err, stateErr)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("calibration_lifecycle", err, stateErr)
 		}
 		if err := persistPrivateActivationPlanState(statePath, plan, &state, activationLifecycle, ""); err != nil {
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), errors.Join(privatePlanError("state"), err)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, 0, state.EstimatedCostMicroUSD), privatePlanError("state", err)
 		}
 	}
 	for itemIndex, item := range plan.Items {
@@ -614,34 +623,34 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 			options.ATLBinary, options.PluginRoot, options.AgentBinary, options.WrapperExecutable, liveConfig, externalProfile, "")
 		if materialErr != nil || !privatePlanMaterialMatches(plan, currentItems, currentMaterial) {
 			stopErr := stopAndPersistPrivateActivationState(statePath, plan, &state, activationLifecycle, PrivateActivationStopInputDrift)
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("input_drift"), stopErr)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), state.EstimatedCostMicroUSD), privatePlanError("input_drift", materialErr, stopErr)
 		}
 		snapshotItems, snapshotMaterial, _, _, _, _, snapshotErr := buildPrivatePlanMaterial(ctx, snapshot.root, options.RepositoryRoot, root, runSet,
 			snapshot.atlBinary, snapshot.pluginRoot, snapshot.agentBinary, snapshot.wrapperExecutable, snapshot.liveConfig, snapshot.externalProfile, snapshot.agentProvenanceSHA256)
 		if snapshotErr != nil || !privatePlanMaterialMatches(plan, snapshotItems, snapshotMaterial) {
 			stopErr := stopAndPersistPrivateActivationState(statePath, plan, &state, activationLifecycle, PrivateActivationStopSnapshotDrift)
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("snapshot_drift"), stopErr)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), state.EstimatedCostMicroUSD), privatePlanError("snapshot_drift", snapshotErr, stopErr)
 		}
 		specPath := filepath.Join(snapshot.root, filepath.FromSlash(item.SpecPath))
 		loadedCell, loadCellErr := loadRunInputs(RunOptions{SpecPath: specPath})
 		if loadCellErr != nil {
 			stopErr := stopAndPersistPrivateActivationState(statePath, plan, &state, activationLifecycle, PrivateActivationStopCellContract)
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("study_contract"), stopErr)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), state.EstimatedCostMicroUSD), privatePlanError("study_contract", loadCellErr, stopErr)
 		}
 		if activationLifecycle != nil {
 			cell, reserveErr := activationLifecycle.ReserveNextCell()
 			if reserveErr != nil || cell.CellID != item.CellID {
 				stopErr := stopAndPersistPrivateActivationState(statePath, plan, &state, activationLifecycle, PrivateActivationStopReservation)
-				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("study_lifecycle"), reserveErr, stopErr)
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("study_lifecycle", reserveErr, stopErr)
 			}
 			if err := persistPrivateActivationPlanState(statePath, plan, &state, activationLifecycle, ""); err != nil {
-				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("state")
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("state", err)
 			}
 			if err := activationLifecycle.MarkLaunched(item.CellID); err != nil {
-				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("study_lifecycle")
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("study_lifecycle", err)
 			}
 			if err := persistPrivateActivationPlanState(statePath, plan, &state, activationLifecycle, ""); err != nil {
-				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("state")
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("state", err)
 			}
 		}
 		itemExternalProfile := ""
@@ -670,19 +679,19 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 		if modeErr := normalizePrivateCandidateTree(root, runRoot); modeErr != nil {
 			reason := privateActivationPostRunUnknownReason(activationLifecycle, PrivateActivationUnknownContainment)
 			stateErr := markAndPersistPrivateActivationUnknown(statePath, plan, &state, activationLifecycle, item.CellID, reason)
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("run_modes"), stateErr)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), state.EstimatedCostMicroUSD), privatePlanError("run_modes", modeErr, stateErr)
 		}
 		if runErr != nil {
 			reason := privateActivationPostRunUnknownReason(activationLifecycle, PrivateActivationUnknownProvider)
 			stateErr := markAndPersistPrivateActivationUnknown(statePath, plan, &state, activationLifecycle, item.CellID, reason)
-			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("execution"), runErr, stateErr)
+			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), state.EstimatedCostMicroUSD), privatePlanError("execution", runErr, stateErr)
 		}
 		total += output.EstimatedCostMicroUSDTotal
 		if activationLifecycle != nil {
 			receiptSHA256, receiptWriteErr := persistPrivateActivationExecutionReceipt(root, runRoot, plan, item, output)
 			if receiptWriteErr != nil {
 				stateErr := markAndPersistPrivateActivationUnknown(statePath, plan, &state, activationLifecycle, item.CellID, PrivateActivationUnknownPersistence)
-				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("study_receipt"), receiptWriteErr, stateErr)
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("study_receipt", receiptWriteErr, stateErr)
 			}
 			costKnown := len(output.Results) > 0
 			for _, result := range output.Results {
@@ -697,30 +706,30 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 				ProviderCompleted: true, PersistenceComplete: true, ContainmentCertain: true})
 			if receiptErr != nil {
 				stateErr := markAndPersistPrivateActivationUnknown(statePath, plan, &state, activationLifecycle, item.CellID, PrivateActivationUnknownPersistence)
-				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("study_receipt"), receiptErr, stateErr)
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("study_receipt", receiptErr, stateErr)
 			}
 			// Persist the provider receipt before making any decision that can
 			// advance or terminate the roster.
 			if err := persistPrivateActivationPlanState(statePath, plan, &state, activationLifecycle, ""); err != nil {
-				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("state"), err)
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("state", err)
 			}
 			if activationLifecycle.Status() == PrivateActivationStudyStopped {
 				return privatePlanSummary(plan.PlanID, runID, "stopped", []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("study_stopped")
 			}
 			if output.BudgetExhausted {
 				stateErr := markAndPersistPrivateActivationUnknown(statePath, plan, &state, activationLifecycle, item.CellID, PrivateActivationUnknownCostExceeded)
-				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("study_stopped"), stateErr)
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("study_stopped", stateErr)
 			}
 			classification := classifyPrivateActivationResults(output.Results, loadedCell.spec.Checks)
 			if classification.Outcome == privateActivationSafetyRejected {
 				stateErr := markAndPersistPrivateActivationUnknown(statePath, plan, &state, activationLifecycle, item.CellID, PrivateActivationUnknownContainment)
-				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("study_safety"), stateErr)
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("study_safety", stateErr)
 			}
 			lastCell := itemIndex == len(plan.Items)-1
 			if lastCell && providerAuthSession != nil {
-				if err := providerAuthSession.Close(); err != nil {
+				if err := privatePlanCloseCodexAuth(providerAuthSession); err != nil {
 					stateErr := markAndPersistPrivateActivationUnknown(statePath, plan, &state, activationLifecycle, item.CellID, PrivateActivationUnknownProvider)
-					return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(err, stateErr)
+					return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("provider_session", err, stateErr)
 				}
 				providerAuthSessionClosed = true
 			}
@@ -730,36 +739,36 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 					// deferred retry armed. A terminal state here would strand a
 					// credential-bearing execution snapshot outside the recovery
 					// command's accepted state set.
-					return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("snapshot_cleanup"), err)
+					return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("snapshot_cleanup", err)
 				}
 				snapshotCleanupPending = false
 			}
 			if err := activationLifecycle.MarkDefinitive(item.CellID, classification.Outcome); err != nil {
 				stateErr := markAndPersistPrivateActivationUnknown(statePath, plan, &state, activationLifecycle, item.CellID, PrivateActivationUnknownPersistence)
-				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("study_lifecycle"), err, stateErr)
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("study_lifecycle", err, stateErr)
 			}
 			completedAt := ""
 			if lastCell {
 				completedAt = privatePlanCompletionTime(now, fixedNow).Format(time.RFC3339Nano)
 			}
 			if err := persistPrivateActivationPlanState(statePath, plan, &state, activationLifecycle, completedAt); err != nil {
-				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), errors.Join(privatePlanError("state"), err)
+				return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), []string{SurfaceCLISkill}, len(state.CompletedCells), state.EstimatedCostMicroUSD), privatePlanError("state", err)
 			}
 		} else {
 			state.CompletedSurfaces = append(state.CompletedSurfaces, item.Surface)
 			if err := privatePlanWriteState(statePath, state); err != nil {
-				return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanExecutionSurfaces(plan), len(state.CompletedSurfaces), total), privatePlanError("state")
+				return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanExecutionSurfaces(plan), len(state.CompletedSurfaces), total), privatePlanError("state", err)
 			}
 		}
 	}
 	if providerAuthSession != nil && !providerAuthSessionClosed {
-		if err := providerAuthSession.Close(); err != nil {
+		if err := privatePlanCloseCodexAuth(providerAuthSession); err != nil {
 			stopErr := stopAndPersistPrivateActivationState(statePath, plan, &state, activationLifecycle, PrivateActivationStopProviderSession)
 			status, cost := "interrupted", total
 			if activationLifecycle != nil {
 				status, cost = privateActivationDurableSummaryStatus(state), state.EstimatedCostMicroUSD
 			}
-			return privatePlanSummary(plan.PlanID, runID, status, privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), cost), errors.Join(err, stopErr)
+			return privatePlanSummary(plan.PlanID, runID, status, privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), cost), privatePlanError("provider_session", err, stopErr)
 		}
 		providerAuthSessionClosed = true
 	}
@@ -768,13 +777,13 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 	}
 	if err := privatePlanRemoveTree(root, snapshot.root); err != nil {
 		snapshotCleanupPending = false
-		return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanExecutionSurfaces(plan), len(state.CompletedSurfaces), total), errors.Join(privatePlanError("snapshot_cleanup"), err)
+		return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanExecutionSurfaces(plan), len(state.CompletedSurfaces), total), privatePlanError("snapshot_cleanup", err)
 	}
 	snapshotCleanupPending = false
 	state.Status = "completed"
 	state.CompletedAt = privatePlanCompletionTime(now, fixedNow).Format(time.RFC3339Nano)
 	if err := privatePlanWriteState(statePath, state); err != nil {
-		return PrivatePlanExecutionSummary{}, privatePlanError("state")
+		return PrivatePlanExecutionSummary{}, privatePlanError("state", err)
 	}
 	return privatePlanSummary(plan.PlanID, runID, "completed", privatePlanExecutionSurfaces(plan), len(plan.Items), total), nil
 }
@@ -1592,7 +1601,12 @@ func validatePrivateActivationPlanState(plan privatePlan, state privatePlanState
 	return nil
 }
 
-func privatePlanError(code string) error { return fmt.Errorf("%w: %s", ErrPrivatePlanRejected, code) }
+// privatePlanError rejects a plan under a stable code. Causes stay reachable
+// through errors.Is/errors.As but never reach the rendered message, which would
+// otherwise carry configured private paths into CLI output and logs.
+func privatePlanError(code string, causes ...error) error {
+	return codedError(ErrPrivatePlanRejected, code, causes...)
+}
 
 func LoadCompletedPrivateRun(root, repository, planID string) (PrivateBaselineSource, error) {
 	abs, _, err := privateWorkspaceLocations(root, repository, false)

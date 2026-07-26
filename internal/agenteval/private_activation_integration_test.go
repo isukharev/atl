@@ -933,21 +933,25 @@ func TestPrivateActivationStateWriteFailuresReportLastDurableProjection(t *testi
 			installPrivateActivationRunStub(t)
 			preview := fixture.createPlan(t)
 			originalWrite := privatePlanWriteState
+			statePath := filepath.Join(fixture.root, "plans", preview.PlanID+".state.json")
+			writeFailure := errors.New("injected state write failure at " + statePath)
 			calls := 0
 			privatePlanWriteState = func(path string, state privatePlanState) error {
 				calls++
 				if calls == failAt {
-					return errors.New("injected state write failure")
+					return writeFailure
 				}
 				return originalWrite(path, state)
 			}
 			t.Cleanup(func() { privatePlanWriteState = originalWrite })
 
 			summary, err := ExecutePrivatePlan(context.Background(), fixture.executeOptions(preview))
-			if err == nil {
+			if err == nil || !errors.Is(err, writeFailure) {
 				t.Fatalf("summary=%+v err=%v", summary, err)
 			}
-			statePath := filepath.Join(fixture.root, "plans", preview.PlanID+".state.json")
+			if strings.Contains(err.Error(), statePath) {
+				t.Fatalf("state-write error leaked its configured path: %v", err)
+			}
 			data, readErr := os.ReadFile(statePath)
 			if readErr != nil {
 				t.Fatal(readErr)
@@ -1119,6 +1123,9 @@ func TestPrivateActivationCleanupFailureRemainsRecoverable(t *testing.T) {
 	if !errors.Is(err, cleanupFailure) || summary.Status != "running" || summary.Completed != 3 || summary.CostKnown == nil || !*summary.CostKnown ||
 		!reflect.DeepEqual(summary.Surfaces, []string{SurfaceCLISkill}) {
 		t.Fatalf("summary=%+v err=%v", summary, err)
+	}
+	if got, want := err.Error(), ErrPrivatePlanRejected.Error()+": snapshot_cleanup"; got != want {
+		t.Fatalf("cleanup error=%q, want one stable classification %q", got, want)
 	}
 	plan, _, err := loadPrivatePlan(fixture.root, preview.PlanID)
 	if err != nil {

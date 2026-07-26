@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1070,6 +1071,76 @@ func (fixture privatePlanTestFixture) executeOptions(preview PrivatePlanPreview)
 	return PrivatePlanExecuteOptions{Root: fixture.root, RepositoryRoot: fixture.repository, PlanID: preview.PlanID,
 		ExpectedPlanSHA256: preview.PlanSHA256, Confirm: PrivatePlanConfirmation, ATLBinary: fixture.atl,
 		PluginRoot: fixture.pluginRoot, AgentBinary: fixture.agent, WrapperExecutable: fixture.wrapper, Now: fixture.now}
+}
+
+func TestPrivatePlanErrorKeepsCausesInspectableAndOutOfTheMessage(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "plan.state.json")
+	writeCause := &fs.PathError{Op: "open", Path: statePath, Err: fs.ErrPermission}
+	stopCause := errors.New("stop transition not persisted at " + statePath)
+
+	err := privatePlanError("state", writeCause, nil, stopCause)
+	assertPrivatePlanError(t, err, "state")
+	if got, want := err.Error(), ErrPrivatePlanRejected.Error()+": state"; got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+	if strings.Contains(err.Error(), statePath) {
+		t.Fatalf("message leaked a configured path: %q", err.Error())
+	}
+	if !errors.Is(err, stopCause) || !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("error %v lost a cause", err)
+	}
+	var typed *fs.PathError
+	if !errors.As(err, &typed) || typed.Path != statePath {
+		t.Fatalf("error %v does not expose the concrete path error", err)
+	}
+
+	// A rejection with nothing to attach still classifies exactly as before.
+	if got, want := privatePlanError("approval").Error(), ErrPrivatePlanRejected.Error()+": approval"; got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+	if !errors.Is(privatePlanError("approval", nil), ErrPrivatePlanRejected) {
+		t.Fatal("nil-only causes broke sentinel classification")
+	}
+}
+
+func TestExecutePrivatePlanClassifiesProviderSessionSetupFailure(t *testing.T) {
+	fixture := newPrivatePlanTestFixture(t, false, false)
+	preview := fixture.createPlan(t)
+	setupFailure := errors.New("synthetic provider session setup failed at " + fixture.root)
+	original := privatePlanNewCodexAuth
+	privatePlanNewCodexAuth = func([]string) (*codexAuthSession, error) { return nil, setupFailure }
+	t.Cleanup(func() { privatePlanNewCodexAuth = original })
+
+	summary, err := ExecutePrivatePlan(context.Background(), fixture.executeOptions(preview))
+	assertPrivatePlanError(t, err, "provider_session")
+	if !errors.Is(err, setupFailure) || summary.Status != "interrupted" {
+		t.Fatalf("summary=%+v error=%v, want the provider-session cause", summary, err)
+	}
+	assertPrivatePlanTextSafe(t, err.Error(), fixture)
+}
+
+func TestExecutePrivatePlanClassifiesProviderSessionCloseFailure(t *testing.T) {
+	fixture := newPrivatePlanTestFixture(t, false, false)
+	preview := fixture.createPlan(t)
+	closeFailure := errors.New("synthetic provider session close failed at " + fixture.root)
+	original := privatePlanCloseCodexAuth
+	calls := 0
+	privatePlanCloseCodexAuth = func(session *codexAuthSession) error {
+		calls++
+		err := original(session)
+		if calls == 1 {
+			return closeFailure
+		}
+		return err
+	}
+	t.Cleanup(func() { privatePlanCloseCodexAuth = original })
+
+	summary, err := ExecutePrivatePlan(context.Background(), fixture.executeOptions(preview))
+	assertPrivatePlanError(t, err, "provider_session")
+	if !errors.Is(err, closeFailure) || summary.Status != "interrupted" || calls != 2 {
+		t.Fatalf("summary=%+v calls=%d error=%v, want one failed close and a deferred retry", summary, calls, err)
+	}
+	assertPrivatePlanTextSafe(t, err.Error(), fixture)
 }
 
 func assertPrivatePlanError(t *testing.T, err error, code string) {
