@@ -83,6 +83,20 @@ func jiraEnv(srv *httptest.Server) map[string]string {
 	}
 }
 
+func TestConfluenceAttachmentUploadMalformedResponseExitCheckFailed(t *testing.T) {
+	srv := jsonServer(t, http.StatusOK, `{"results": [`)
+	defer srv.Close()
+
+	filePath := filepath.Join(t.TempDir(), "upload.txt")
+	if err := os.WriteFile(filePath, []byte("payload"), 0o600); err != nil {
+		t.Fatalf("write upload fixture: %v", err)
+	}
+	out, code := runCLI(t, confEnv(srv), "conf", "attachment", "upload", "--id", "12345", "--file", filePath)
+	if code != exitCheckFailed || out != "" {
+		t.Fatalf("malformed upload response: exit=%d stdout=%q, want exit %d and empty stdout", code, out, exitCheckFailed)
+	}
+}
+
 // jsonServer returns an httptest server that replies with status + body for
 // every request (path-agnostic), which matches the canned-JSON style the
 // adapters' own tests use.

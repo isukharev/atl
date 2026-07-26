@@ -77,7 +77,9 @@ atl jira issue images PROJ-1 --into /tmp/proj1-images
 ```
 
 Use `attachment get` for any file type, `attachment upload` to add a file, and
-`images` when visual inspection needs only image attachments.
+`images` when visual inspection needs only image attachments. A malformed or
+empty successful backend upload response is exit `8`; because the mutation may
+have committed, inspect the attachment list and do not retry blindly.
 
 ## Planning quality reports
 

@@ -268,10 +268,10 @@ func (j *Jira) UploadAttachment(ctx context.Context, key, filename string, data 
 		return nil, err
 	}
 	if err := json.Unmarshal(raw, &resp); err != nil {
-		return nil, fmt.Errorf("upload attachment: decode response: %w", err)
+		return nil, fmt.Errorf("%w: upload attachment: decode response: %w", domain.ErrCheckFailed, err)
 	}
 	if len(resp) == 0 {
-		return nil, fmt.Errorf("upload attachment: empty response")
+		return nil, fmt.Errorf("%w: upload attachment: empty response", domain.ErrCheckFailed)
 	}
 	a := resp[0]
 	return &domain.Attachment{

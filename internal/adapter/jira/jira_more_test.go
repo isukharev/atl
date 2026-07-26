@@ -1335,6 +1335,48 @@ func TestUploadAttachmentRequestBuildErrorDoesNotDeadlock(t *testing.T) {
 	}
 }
 
+func TestUploadAttachmentEmptyResponseIsCheckFailed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `[]`)
+	}))
+	defer srv.Close()
+
+	j := newTestJira(srv)
+	_, err := j.UploadAttachment(context.Background(), "ABC-1", "f.txt", strings.NewReader("x"), 1)
+	if err == nil {
+		t.Fatal("expected error for empty response, got nil")
+	}
+	// An empty but successful backend response is an invalid result (exit 8).
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("empty response error = %v, want ErrCheckFailed", err)
+	}
+}
+
+func TestUploadAttachmentMalformedResponseIsCheckFailed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `[{"id":`) // truncated JSON
+	}))
+	defer srv.Close()
+
+	j := newTestJira(srv)
+	_, err := j.UploadAttachment(context.Background(), "ABC-1", "f.txt", strings.NewReader("x"), 1)
+	if err == nil {
+		t.Fatal("expected error for malformed response, got nil")
+	}
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("malformed response error = %v, want ErrCheckFailed", err)
+	}
+	// The JSON decode cause is preserved with %w for diagnostics.
+	var syntaxErr *json.SyntaxError
+	if !errors.As(err, &syntaxErr) {
+		t.Fatalf("malformed response error = %v, want a wrapped json cause", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------

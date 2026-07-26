@@ -217,7 +217,7 @@ func (cf *Confluence) DownloadAttachment(ctx context.Context, pageID, filename s
 func (cf *Confluence) UploadAttachment(ctx context.Context, pageID, filename string, data io.ReadCloser, size int64, comment string) (*domain.Attachment, error) {
 	if size < 0 {
 		_ = data.Close()
-		return nil, fmt.Errorf("upload attachment: size must be non-negative")
+		return nil, fmt.Errorf("%w: upload attachment: size must be non-negative", domain.ErrUsage)
 	}
 	var framing bytes.Buffer
 	w := multipart.NewWriter(&framing)
@@ -247,7 +247,7 @@ func (cf *Confluence) UploadAttachment(ctx context.Context, pageID, filename str
 	const maxInt64 = int64(1<<63 - 1)
 	if size > maxInt64-framingSize {
 		_ = data.Close()
-		return nil, fmt.Errorf("upload attachment: multipart body is too large")
+		return nil, fmt.Errorf("%w: upload attachment: multipart body is too large", domain.ErrUsage)
 	}
 	body := &multipartReadCloser{
 		Reader: io.MultiReader(bytes.NewReader(prefix), data, bytes.NewReader(suffix)),
@@ -281,10 +281,10 @@ func (cf *Confluence) UploadAttachment(ctx context.Context, pageID, filename str
 		return nil, err
 	}
 	if err := json.Unmarshal(raw, &resp); err != nil {
-		return nil, fmt.Errorf("upload attachment: decode response: %w", err)
+		return nil, fmt.Errorf("%w: upload attachment: decode response: %w", domain.ErrCheckFailed, err)
 	}
 	if len(resp.Results) == 0 {
-		return nil, fmt.Errorf("upload attachment: empty response")
+		return nil, fmt.Errorf("%w: upload attachment: empty response", domain.ErrCheckFailed)
 	}
 	r := resp.Results[0]
 	return &domain.Attachment{
