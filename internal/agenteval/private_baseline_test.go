@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -789,6 +790,395 @@ func TestPrivatePruneUsesValidatedPlanInventoryByDefault(t *testing.T) {
 	if preview.EligibleRunSets != 0 || preview.EligibleFiles != 0 || preview.EligibleBytes != 0 || !validSHA256(preview.InventorySHA256) {
 		t.Fatalf("preview=%+v", preview)
 	}
+}
+
+func TestPrivatePruneErrorKeepsCausesInspectableAndOutOfTheMessage(t *testing.T) {
+	runPath := filepath.Join(t.TempDir(), "runs", "run-11111111111111111111111111111111")
+	treeCause := &fs.PathError{Op: "lstat", Path: runPath, Err: fs.ErrPermission}
+	stateCause := errors.New("staged tree still present at " + runPath)
+
+	err := privatePruneError("run_tree", treeCause, nil, stateCause)
+	assertPrivatePruneCode(t, err, "run_tree")
+	if strings.Contains(err.Error(), runPath) {
+		t.Fatalf("message leaked a configured path: %q", err.Error())
+	}
+	if !errors.Is(err, stateCause) || !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("error %v lost a cause", err)
+	}
+	var typed *fs.PathError
+	if !errors.As(err, &typed) || typed.Path != runPath {
+		t.Fatalf("error %v does not expose the concrete path error", err)
+	}
+	causes := privatePruneErrorCauses(t, err)
+	if len(causes) != 2 || causes[0] != error(treeCause) || causes[1] != stateCause {
+		t.Fatalf("causes=%v, want both non-nil causes retained in order", causes)
+	}
+
+	// A rejection with nothing to attach classifies exactly as it did before.
+	assertPrivatePruneCode(t, privatePruneError("confirmation"), "confirmation")
+	if causes := privatePruneErrorCauses(t, privatePruneError("confirmation", nil, nil)); len(causes) != 0 {
+		t.Fatalf("causes=%v, want nil causes dropped", causes)
+	}
+}
+
+func TestPrivatePruneAttachesWorkspaceLockAndInventoryCauses(t *testing.T) {
+	completed := func(fixture privateBaselineFixture, runID string, order int64) PrivateRunLifecycle {
+		return PrivateRunLifecycle{RunID: runID, RunSetAlias: "case-01", PlanID: fixture.source.PlanID,
+			State: "completed", CompletedOrder: order}
+	}
+	confirmed := func(options PrivatePruneOptions) PrivatePruneOptions {
+		options.Confirm = PrivatePruneConfirmation
+		options.ExpectedInventorySHA256 = strings.Repeat("a", 64)
+		return options
+	}
+
+	t.Run("root symlink", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("symlink creation needs elevated privileges on Windows")
+		}
+		fixture := newPrivateBaselineFixture(t, 1)
+		linked := filepath.Join(t.TempDir(), "private-link")
+		if err := os.Symlink(fixture.root, linked); err != nil {
+			t.Fatal(err)
+		}
+		options := PrivatePruneOptions{Root: linked, RepositoryRoot: fixture.repository,
+			Inventory: func(string) (PrivatePruneInventory, error) { return PrivatePruneInventory{}, nil }}
+		_, err := PreviewPrivatePrune(options)
+		assertPrivatePruneCode(t, err, "workspace")
+		if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) {
+			t.Fatalf("error %v lost the workspace-location cause", err)
+		}
+		_, err = ApplyPrivatePrune(confirmed(options))
+		assertPrivatePruneCode(t, err, "workspace")
+		if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) {
+			t.Fatalf("error %v lost the workspace-location cause", err)
+		}
+	})
+
+	t.Run("workspace busy", func(t *testing.T) {
+		fixture := newPrivateBaselineFixture(t, 1)
+		options := PrivatePruneOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
+			Inventory: func(string) (PrivatePruneInventory, error) { return PrivatePruneInventory{}, nil }}
+		lock, acquired, err := safepath.TryLockFileWithin(fixture.root, filepath.Join(fixture.root, privateWorkspaceLockPath), 0o600)
+		if err != nil || !acquired {
+			t.Fatalf("lock acquired=%v err=%v", acquired, err)
+		}
+		defer func() { _ = lock.Unlock() }()
+		_, err = PreviewPrivatePrune(options)
+		assertPrivatePruneCode(t, err, "workspace_busy")
+		if !errors.Is(err, ErrPrivateBaselineRejected) {
+			t.Fatalf("error %v lost the lock cause", err)
+		}
+		_, err = ApplyPrivatePrune(confirmed(options))
+		assertPrivatePruneCode(t, err, "workspace_busy")
+		if !errors.Is(err, ErrPrivateBaselineRejected) {
+			t.Fatalf("error %v lost the lock cause", err)
+		}
+	})
+
+	t.Run("manifest read", func(t *testing.T) {
+		fixture := newPrivateBaselineFixture(t, 1)
+		if err := os.Remove(filepath.Join(fixture.root, PrivateWorkspaceManifestName)); err != nil {
+			t.Fatal(err)
+		}
+		_, err := PreviewPrivatePrune(PrivatePruneOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
+			Inventory: func(string) (PrivatePruneInventory, error) { return PrivatePruneInventory{}, nil }})
+		assertPrivatePruneCode(t, err, "manifest")
+		// The workspace manifest loader still classifies its own read failure,
+		// so the retained cause is that classification rather than the raw
+		// filesystem error; either way the prune message stays redacted.
+		if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) {
+			t.Fatalf("error %v lost the manifest cause", err)
+		}
+		if causes := privatePruneErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want exactly the manifest failure", causes)
+		}
+	})
+
+	t.Run("inventory", func(t *testing.T) {
+		fixture := newPrivateBaselineFixture(t, 1)
+		failure := errors.New("synthetic lifecycle failure under " + fixture.root)
+		_, err := PreviewPrivatePrune(PrivatePruneOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
+			Inventory: func(string) (PrivatePruneInventory, error) { return PrivatePruneInventory{}, failure }})
+		assertPrivatePruneCode(t, err, "inventory")
+		if !errors.Is(err, failure) {
+			t.Fatalf("error %v lost the inventory cause", err)
+		}
+		if causes := privatePruneErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want exactly the loader failure", causes)
+		}
+	})
+
+	t.Run("run tree", func(t *testing.T) {
+		fixture := newPrivateBaselineFixture(t, 1)
+		// The newest run set of the alias exists; the older one is missing, so
+		// the rejection carries the concrete stat failure for its tree.
+		newest := completed(fixture, "run-22222222222222222222222222222222", 2)
+		mustPrivateMkdirAll(t, filepath.Join(fixture.root, "runs", newest.RunID))
+		runs := []PrivateRunLifecycle{completed(fixture, "run-11111111111111111111111111111111", 1), newest}
+		_, err := PreviewPrivatePrune(PrivatePruneOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
+			Inventory: func(string) (PrivatePruneInventory, error) { return PrivatePruneInventory{Runs: runs}, nil }})
+		assertPrivatePruneCode(t, err, "run_tree")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) {
+			t.Fatalf("error %v does not expose the concrete run-tree failure", err)
+		}
+		if strings.Contains(err.Error(), fixture.root) || strings.Contains(err.Error(), runs[0].RunID) {
+			t.Fatalf("message leaked private locations: %q", err.Error())
+		}
+	})
+}
+
+func TestPrivatePruneTreeHashClassifiesRawFilesystemFailures(t *testing.T) {
+	t.Run("absent target", func(t *testing.T) {
+		fixture := newPrivateBaselineFixture(t, 1)
+		missing := filepath.Join(fixture.root, "runs", "run-11111111111111111111111111111111")
+		_, _, _, err := hashPrivatePruneTree(fixture.root, missing)
+		assertPrivatePruneCode(t, err, "tree_walk")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) {
+			t.Fatalf("error %v does not expose the concrete walk failure", err)
+		}
+		if strings.Contains(err.Error(), missing) {
+			t.Fatalf("message leaked the walked path: %q", err.Error())
+		}
+	})
+
+	t.Run("unreadable file", func(t *testing.T) {
+		if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+			t.Skip("owner-only read denial is not observable here")
+		}
+		fixture := newPrivateBaselineFixture(t, 1)
+		runPath := filepath.Join(fixture.root, "runs", "run-11111111111111111111111111111111")
+		mustPrivateMkdirAll(t, runPath)
+		// Write-only is still owner-only, so the tree passes the mode gate and
+		// fails in the read instead.
+		if err := os.WriteFile(filepath.Join(runPath, "result.json"), []byte("{}\n"), 0o200); err != nil {
+			t.Fatal(err)
+		}
+		_, _, _, err := hashPrivatePruneTree(fixture.root, runPath)
+		assertPrivatePruneCode(t, err, "tree_read")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) {
+			t.Fatalf("error %v does not expose the concrete read failure", err)
+		}
+	})
+
+	t.Run("walk classification kept", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("symlink creation needs elevated privileges on Windows")
+		}
+		fixture := newPrivateBaselineFixture(t, 1)
+		runPath := filepath.Join(fixture.root, "runs", "run-11111111111111111111111111111111")
+		mustPrivateMkdirAll(t, runPath)
+		if err := os.Symlink(filepath.Join(t.TempDir(), "outside"), filepath.Join(runPath, "escape")); err != nil {
+			t.Fatal(err)
+		}
+		_, _, _, err := hashPrivatePruneTree(fixture.root, runPath)
+		// The callback raised its own classification; it is returned as-is
+		// rather than collapsing into the raw-walk code.
+		assertPrivatePruneCode(t, err, "symlink")
+		if causes := privatePruneErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a symlink rejection", causes)
+		}
+	})
+
+	t.Run("containment", func(t *testing.T) {
+		fixture := newPrivateBaselineFixture(t, 1)
+		_, _, _, err := hashPrivatePruneTree(fixture.root, filepath.Join(fixture.root, "baselines"))
+		assertPrivatePruneCode(t, err, "containment")
+		if causes := privatePruneErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a containment rejection", causes)
+		}
+	})
+}
+
+func TestPrivatePruneApplyRedactsRecoveryAndRemovalCauses(t *testing.T) {
+	newFixture := func(t *testing.T) (privateBaselineFixture, PrivatePruneOptions) {
+		t.Helper()
+		fixture := newPrivateBaselineFixture(t, 1)
+		runs := []PrivateRunLifecycle{
+			{RunID: "run-11111111111111111111111111111111", RunSetAlias: "case-01", PlanID: fixture.source.PlanID, State: "completed", CompletedOrder: 1},
+			{RunID: "run-22222222222222222222222222222222", RunSetAlias: "case-01", PlanID: fixture.source.PlanID, State: "completed", CompletedOrder: 2},
+		}
+		for _, run := range runs {
+			directory := filepath.Join(fixture.root, "runs", run.RunID)
+			mustPrivateMkdirAll(t, directory)
+			writeTestFile(t, filepath.Join(directory, "result.json"), run.RunID+"\n", 0o600)
+		}
+		return fixture, PrivatePruneOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
+			Inventory: func(string) (PrivatePruneInventory, error) {
+				return PrivatePruneInventory{Runs: append([]PrivateRunLifecycle(nil), runs...)}, nil
+			}}
+	}
+	intentName := "prune-run-11111111111111111111111111111111.intent.json"
+
+	t.Run("unknown scratch", func(t *testing.T) {
+		fixture, options := newFixture(t)
+		writeTestFile(t, filepath.Join(fixture.root, ".ephemeral", "leftover.json"), "{}\n", 0o600)
+		options.Confirm = PrivatePruneConfirmation
+		options.ExpectedInventorySHA256 = strings.Repeat("a", 64)
+		_, err := ApplyPrivatePrune(options)
+		assertPrivatePruneCode(t, err, "recovery")
+		causes := privatePruneErrorCauses(t, err)
+		if len(causes) != 1 {
+			t.Fatalf("causes=%v, want exactly the recovery rejection", causes)
+		}
+		// The recovery classification stays reachable under the outer code.
+		var classified interface{ Code() string }
+		if !errors.As(causes[0], &classified) || classified.Code() != "unknown_scratch" {
+			t.Fatalf("cause=%v, want the recovery's own classification", causes[0])
+		}
+		if nested := privatePruneErrorCauses(t, causes[0]); len(nested) != 0 {
+			t.Fatalf("nested causes=%v, want none for a scratch-name rejection", nested)
+		}
+	})
+
+	t.Run("undecodable intent", func(t *testing.T) {
+		fixture, options := newFixture(t)
+		writeTestFile(t, filepath.Join(fixture.root, ".ephemeral", intentName), "{\n", 0o600)
+		options.Confirm = PrivatePruneConfirmation
+		options.ExpectedInventorySHA256 = strings.Repeat("a", 64)
+		_, err := ApplyPrivatePrune(options)
+		assertPrivatePruneCode(t, err, "recovery")
+		causes := privatePruneErrorCauses(t, err)
+		if len(causes) != 1 {
+			t.Fatalf("causes=%v, want exactly the recovery rejection", causes)
+		}
+		var classified interface{ Code() string }
+		if !errors.As(causes[0], &classified) || classified.Code() != "intent" {
+			t.Fatalf("cause=%v, want the intent classification", causes[0])
+		}
+		if nested := privatePruneErrorCauses(t, causes[0]); len(nested) != 1 {
+			t.Fatalf("nested causes=%v, want the decoder rejection retained", nested)
+		}
+	})
+
+	t.Run("intent read", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("owner-only file modes are not enforced on Windows")
+		}
+		fixture, options := newFixture(t)
+		writeTestFile(t, filepath.Join(fixture.root, ".ephemeral", intentName), "{}\n", 0o644)
+		options.Confirm = PrivatePruneConfirmation
+		options.ExpectedInventorySHA256 = strings.Repeat("a", 64)
+		_, err := ApplyPrivatePrune(options)
+		assertPrivatePruneCode(t, err, "recovery")
+		// A dependency rejection raised outside the prune family is retained
+		// too, instead of being flattened into the recovery code.
+		if !errors.Is(err, ErrPrivatePlanRejected) {
+			t.Fatalf("error %v lost the lifecycle read cause", err)
+		}
+	})
+
+	t.Run("removal", func(t *testing.T) {
+		if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+			t.Skip("owner-only write denial is not observable here")
+		}
+		fixture, options := newFixture(t)
+		preview, err := PreviewPrivatePrune(options)
+		if err != nil || preview.EligibleRunSets != 1 {
+			t.Fatalf("preview=%+v err=%v", preview, err)
+		}
+		runsPath := filepath.Join(fixture.root, "runs")
+		if err := os.Chmod(runsPath, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(runsPath, 0o700) })
+		options.Confirm = PrivatePruneConfirmation
+		options.ExpectedInventorySHA256 = preview.InventorySHA256
+		_, err = ApplyPrivatePrune(options)
+		assertPrivatePruneCode(t, err, "remove")
+		var linkErr *os.LinkError
+		if !errors.Is(err, fs.ErrPermission) || !errors.As(err, &linkErr) {
+			t.Fatalf("error %v does not expose the concrete staging failure", err)
+		}
+		if strings.Contains(err.Error(), fixture.root) {
+			t.Fatalf("message leaked the workspace root: %q", err.Error())
+		}
+		if _, err := os.Stat(filepath.Join(runsPath, "run-11111111111111111111111111111111", "result.json")); err != nil {
+			t.Fatalf("candidate artifacts were removed after a failed stage: %v", err)
+		}
+	})
+}
+
+func TestPrivatePruneValidationOnlyRejectionsCarryNoCause(t *testing.T) {
+	fixtureOptions := func(t *testing.T, runs []PrivateRunLifecycle) PrivatePruneOptions {
+		t.Helper()
+		fixture := newPrivateBaselineFixture(t, 1)
+		for _, run := range runs {
+			if privateRunIDRE.MatchString(run.RunID) {
+				mustPrivateMkdirAll(t, filepath.Join(fixture.root, "runs", run.RunID))
+			}
+		}
+		return PrivatePruneOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
+			Inventory: func(string) (PrivatePruneInventory, error) { return PrivatePruneInventory{Runs: runs}, nil }}
+	}
+	assertNoCause := func(t *testing.T, err error, code string) {
+		t.Helper()
+		assertPrivatePruneCode(t, err, code)
+		if causes := privatePruneErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a rejection with no failure in hand", causes)
+		}
+	}
+
+	t.Run("confirmation", func(t *testing.T) {
+		options := fixtureOptions(t, nil)
+		_, err := ApplyPrivatePrune(options)
+		assertNoCause(t, err, "confirmation")
+	})
+
+	t.Run("stale plan", func(t *testing.T) {
+		options := fixtureOptions(t, nil)
+		wrong := strings.Repeat("a", 64)
+		preview, err := PreviewPrivatePrune(options)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if preview.InventorySHA256 == wrong {
+			wrong = strings.Repeat("b", 64)
+		}
+		options.Confirm = PrivatePruneConfirmation
+		options.ExpectedInventorySHA256 = wrong
+		_, err = ApplyPrivatePrune(options)
+		assertNoCause(t, err, "stale_plan")
+	})
+
+	t.Run("inventory record", func(t *testing.T) {
+		options := fixtureOptions(t, []PrivateRunLifecycle{{RunID: "run-not-an-id", RunSetAlias: "case-01",
+			PlanID: "pln-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: "completed", CompletedOrder: 1}})
+		_, err := PreviewPrivatePrune(options)
+		assertNoCause(t, err, "inventory_record")
+	})
+
+	t.Run("inventory bound", func(t *testing.T) {
+		options := fixtureOptions(t, make([]PrivateRunLifecycle, maxPrivateWorkspaceTreeEntries+1))
+		_, err := PreviewPrivatePrune(options)
+		assertNoCause(t, err, "inventory_bound")
+	})
+}
+
+func assertPrivatePruneCode(t *testing.T, err error, code string) {
+	t.Helper()
+	if !errors.Is(err, ErrPrivatePruneRejected) {
+		t.Fatalf("err=%v, want the prune sentinel", err)
+	}
+	if got, want := err.Error(), ErrPrivatePruneRejected.Error()+": "+code; got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+}
+
+func privatePruneErrorCauses(t *testing.T, err error) []error {
+	t.Helper()
+	multi, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		t.Fatalf("%T does not unwrap to multiple errors", err)
+	}
+	tree := multi.Unwrap()
+	if len(tree) == 0 || !errors.Is(tree[0], ErrPrivatePruneRejected) {
+		t.Fatalf("unwrap tree=%v, want the sentinel first", tree)
+	}
+	return tree[1:]
 }
 
 type privateBaselineFixture struct {

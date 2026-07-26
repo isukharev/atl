@@ -779,7 +779,7 @@ func encodePrivateAuditLines[T any](values []T) ([]byte, error) {
 func PreviewPrivatePrune(options PrivatePruneOptions) (PrivatePrunePreview, error) {
 	root, _, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
 	if err != nil {
-		return PrivatePrunePreview{}, privatePruneError("workspace")
+		return PrivatePrunePreview{}, privatePruneError("workspace", err)
 	}
 	loader := options.Inventory
 	if loader == nil {
@@ -787,7 +787,7 @@ func PreviewPrivatePrune(options PrivatePruneOptions) (PrivatePrunePreview, erro
 	}
 	lock, err := acquirePrivateWorkspaceLock(root)
 	if err != nil {
-		return PrivatePrunePreview{}, privatePruneError("workspace_busy")
+		return PrivatePrunePreview{}, privatePruneError("workspace_busy", err)
 	}
 	defer func() { _ = lock.Unlock() }()
 	return buildPrivatePrunePreview(root, loader, privatePruneNow(options.Now))
@@ -799,7 +799,7 @@ func ApplyPrivatePrune(options PrivatePruneOptions) (PrivatePruneSummary, error)
 	}
 	root, _, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
 	if err != nil {
-		return PrivatePruneSummary{}, privatePruneError("workspace")
+		return PrivatePruneSummary{}, privatePruneError("workspace", err)
 	}
 	loader := options.Inventory
 	if loader == nil {
@@ -807,11 +807,13 @@ func ApplyPrivatePrune(options PrivatePruneOptions) (PrivatePruneSummary, error)
 	}
 	lock, err := acquirePrivateWorkspaceLock(root)
 	if err != nil {
-		return PrivatePruneSummary{}, privatePruneError("workspace_busy")
+		return PrivatePruneSummary{}, privatePruneError("workspace_busy", err)
 	}
 	defer func() { _ = lock.Unlock() }()
 	if err := recoverPrivatePruneTransactions(root); err != nil {
-		return PrivatePruneSummary{}, privatePruneError("recovery")
+		// Recovery reports either its own classification or a raw transaction
+		// failure; the envelope keeps the message redacted either way.
+		return PrivatePruneSummary{}, privatePruneError("recovery", err)
 	}
 	preview, candidates, err := privatePruneInventory(root, loader, privatePruneNow(options.Now))
 	if err != nil {
@@ -822,7 +824,9 @@ func ApplyPrivatePrune(options PrivatePruneOptions) (PrivatePruneSummary, error)
 	}
 	for _, candidate := range candidates {
 		if err := compactPrivatePrunedRun(root, candidate, preview.InventorySHA256); err != nil {
-			return PrivatePruneSummary{}, privatePruneError("remove")
+			// Same envelope for the destructive step: the stage/tombstone/remove
+			// failure stays inspectable but never renders a workspace path.
+			return PrivatePruneSummary{}, privatePruneError("remove", err)
 		}
 	}
 	return PrivatePruneSummary{SchemaVersion: 1, PrunedRunSets: len(candidates), RemovedFiles: preview.EligibleFiles, RemovedBytes: preview.EligibleBytes}, nil
@@ -851,15 +855,15 @@ func buildPrivatePrunePreview(root string, loader PrivatePruneInventoryLoader, n
 func privatePruneInventory(root string, loader PrivatePruneInventoryLoader, now time.Time) (PrivatePrunePreview, []privatePruneCandidate, error) {
 	manifest, manifestPath, err := loadPrivateWorkspaceManifest(root)
 	if err != nil {
-		return PrivatePrunePreview{}, nil, privatePruneError("manifest")
+		return PrivatePrunePreview{}, nil, privatePruneError("manifest", err)
 	}
 	manifestData, err := safepath.ReadFileWithinLimit(root, manifestPath, maxPrivateWorkspaceManifestBytes)
 	if err != nil {
-		return PrivatePrunePreview{}, nil, privatePruneError("manifest")
+		return PrivatePrunePreview{}, nil, privatePruneError("manifest", err)
 	}
 	inventory, err := loader(root)
 	if err != nil {
-		return PrivatePrunePreview{}, nil, privatePruneError("inventory")
+		return PrivatePrunePreview{}, nil, privatePruneError("inventory", err)
 	}
 	if len(inventory.Runs) > maxPrivateWorkspaceTreeEntries {
 		return PrivatePrunePreview{}, nil, privatePruneError("inventory_bound")
@@ -898,7 +902,7 @@ func privatePruneInventory(root string, loader PrivatePruneInventoryLoader, now 
 			path := filepath.Join(root, "runs", run.RunID)
 			info, err := os.Lstat(path)
 			if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !privateWorkspaceDirectoryMode(info.Mode()) {
-				return PrivatePrunePreview{}, nil, privatePruneError("run_tree")
+				return PrivatePrunePreview{}, nil, privatePruneError("run_tree", err)
 			}
 			hash, files, size, err := hashPrivatePruneTree(root, path)
 			if err != nil {
@@ -1052,9 +1056,10 @@ func recoverPrivatePruneTransactions(root string) error {
 			return err
 		}
 		var intent privatePruneIntent
-		if decodePrivateLifecycleJSON(data, &intent) != nil || intent.SchemaVersion != 1 || intent.RunID != runID ||
+		decodeErr := decodePrivateLifecycleJSON(data, &intent)
+		if decodeErr != nil || intent.SchemaVersion != 1 || intent.RunID != runID ||
 			!privatePlanIDRE.MatchString(intent.PlanID) || !validSHA256(intent.OriginalTreeSHA256) || !validSHA256(intent.InventorySHA256) {
-			return privatePruneError("intent")
+			return privatePruneError("intent", decodeErr)
 		}
 		if err := finishPrivatePruneTransaction(root, intent); err != nil {
 			return err
@@ -1073,17 +1078,17 @@ func finishPrivatePruneTransaction(root string, intent privatePruneIntent) error
 		}
 		hash, _, _, err := hashPrivatePruneTree(root, runPath)
 		if err != nil || hash != intent.OriginalTreeSHA256 {
-			return privatePruneError("recovery_drift")
+			return privatePruneError("recovery_drift", err)
 		}
 		if err := safepath.RenameWithin(root, runPath, stagePath); err != nil {
 			return err
 		}
 	} else if stageErr != nil || !stageInfo.IsDir() || stageInfo.Mode()&os.ModeSymlink != 0 {
-		return privatePruneError("stage")
+		return privatePruneError("stage", stageErr)
 	}
 	stageHash, _, _, err := hashPrivatePruneTree(root, stagePath)
 	if err != nil || stageHash != intent.OriginalTreeSHA256 {
-		return privatePruneError("stage_drift")
+		return privatePruneError("stage_drift", err)
 	}
 	if _, err := os.Lstat(runPath); os.IsNotExist(err) {
 		if err := safepath.MkdirAllWithin(root, runPath, 0o700); err != nil {
@@ -1095,7 +1100,7 @@ func finishPrivatePruneTransaction(root string, intent privatePruneIntent) error
 	} else if err != nil {
 		return err
 	} else if pruned, inspectErr := inspectPrivatePrunedRun(root, intent.RunID, intent.PlanID); inspectErr != nil || !pruned {
-		return privatePruneError("replacement")
+		return privatePruneError("replacement", inspectErr)
 	}
 	if err := removePrivateTree(root, stagePath); err != nil {
 		return err
@@ -1144,17 +1149,17 @@ func hashPrivatePruneTree(root, target string) (string, int, int64, error) {
 		if entry.IsDir() {
 			info, err := entry.Info()
 			if err != nil || !privateWorkspaceDirectoryMode(info.Mode()) {
-				return privatePruneError("mode")
+				return privatePruneError("mode", err)
 			}
 			return nil
 		}
 		info, err := entry.Info()
 		if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
-			return privatePruneError("mode")
+			return privatePruneError("mode", err)
 		}
 		relative, err := filepath.Rel(target, path)
 		if err != nil {
-			return err
+			return privatePruneError("tree_walk", err)
 		}
 		paths = append(paths, filepath.ToSlash(relative))
 		size += info.Size()
@@ -1164,6 +1169,13 @@ func hashPrivatePruneTree(root, target string) (string, int, int64, error) {
 		return nil
 	})
 	if err != nil {
+		// A classification raised by the callback above keeps its own code; a
+		// raw traversal failure renders the walked path, so it is classified
+		// here and retained only as an inspectable cause. Without this the raw
+		// error reached the exported preview path unredacted.
+		if !errors.Is(err, ErrPrivatePruneRejected) {
+			err = privatePruneError("tree_walk", err)
+		}
 		return "", 0, 0, err
 	}
 	sort.Strings(paths)
@@ -1171,7 +1183,7 @@ func hashPrivatePruneTree(root, target string) (string, int, int64, error) {
 	for _, relative := range paths {
 		data, err := safepath.ReadFileWithinLimit(root, filepath.Join(target, filepath.FromSlash(relative)), 512<<20)
 		if err != nil {
-			return "", 0, 0, privatePruneError("tree_read")
+			return "", 0, 0, privatePruneError("tree_read", err)
 		}
 		_, _ = hash.Write([]byte(relative))
 		_, _ = hash.Write([]byte{0})
@@ -1543,6 +1555,15 @@ func privateBaselineError(code string) error {
 	return fmt.Errorf("%w: %s", ErrPrivateBaselineRejected, code)
 }
 
-func privatePruneError(code string) error {
-	return fmt.Errorf("%w: %s", ErrPrivatePruneRejected, code)
+// privatePruneError classifies a retention-prune rejection under the stable
+// sentinel and code while retaining the concrete causes already in hand. The
+// rendered message stays exactly the sentinel plus the code, so a configured
+// workspace path, a run identifier, or a dependency failure never reaches a log
+// line; errors.Is and errors.As still reach every attached cause, including a
+// classification raised deeper in the prune transaction. Nil causes are
+// dropped, so a branch that rejects on either a failure or a comparison can
+// pass its error unguarded, and a rejection that follows from validation alone
+// carries nothing.
+func privatePruneError(code string, causes ...error) error {
+	return codedError(ErrPrivatePruneRejected, code, causes...)
 }
