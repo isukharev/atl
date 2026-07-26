@@ -23,14 +23,16 @@ const ConfluenceTableSchemaVersion = 1
 
 // ConfluenceTableExtract is a structured, read-only view of tables on a page.
 type ConfluenceTableExtract struct {
-	SchemaVersion    int               `json:"schema_version"`
-	PageID           string            `json:"page_id"`
-	Title            string            `json:"title,omitempty"`
-	Version          int               `json:"version"`
-	PageVersionGated bool              `json:"page_version_gated"`
-	TableCount       int               `json:"table_count"`
-	Table            int               `json:"selected_table,omitempty"`
-	Tables           []ConfluenceTable `json:"tables"`
+	SchemaVersion       int               `json:"schema_version"`
+	PageID              string            `json:"page_id"`
+	Title               string            `json:"title,omitempty"`
+	Version             int               `json:"version"`
+	PageVersionGated    bool              `json:"page_version_gated"`
+	TableCount          int               `json:"table_count"`
+	Table               int               `json:"selected_table,omitempty"`
+	ReturnedTableCount  int               `json:"returned_table_count"`
+	SelectionReconciled bool              `json:"selection_reconciled"`
+	Tables              []ConfluenceTable `json:"tables"`
 }
 
 // ConfluenceTableSummary is a bounded, content-free structural inventory of
@@ -226,8 +228,7 @@ func SummarizeConfluenceTables(extract *ConfluenceTableExtract) *ConfluenceTable
 		ReturnedTableCount: len(extract.Tables),
 		Tables:             make([]ConfluenceTableSummaryRecord, 0, len(extract.Tables)),
 	}
-	res.SelectionReconciled = (extract.Table == 0 && len(extract.Tables) == extract.TableCount) ||
-		(extract.Table > 0 && len(extract.Tables) == 1 && extract.Tables[0].Index == extract.Table && extract.Table <= extract.TableCount)
+	res.SelectionReconciled = confluenceTableSelectionReconciled(extract.Table, extract.TableCount, extract.Tables)
 	for _, table := range extract.Tables {
 		record := ConfluenceTableSummaryRecord{
 			Index:        table.Index,
@@ -335,10 +336,17 @@ func ExtractTablesFromCSF(pageID, title string, body []byte, table int) (*Conflu
 		res.Table = table
 		res.Tables = []ConfluenceTable{all[table-1]}
 	}
+	res.ReturnedTableCount = len(res.Tables)
+	res.SelectionReconciled = confluenceTableSelectionReconciled(res.Table, res.TableCount, res.Tables)
 	if err := attachConfluenceTableSummaries(res); err != nil {
 		return nil, err
 	}
 	return res, nil
+}
+
+func confluenceTableSelectionReconciled(table, tableCount int, tables []ConfluenceTable) bool {
+	return (table == 0 && len(tables) == tableCount) ||
+		(table > 0 && len(tables) == 1 && tables[0].Index == table && table <= tableCount)
 }
 
 func attachConfluenceTableSummaries(extract *ConfluenceTableExtract) error {

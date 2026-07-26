@@ -335,7 +335,7 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 				t.Errorf("tool %s must advertise a provenance-conditional expected_page_version: %#v", tool.Name, tool.InputSchema)
 			}
 			output, _ := tool.OutputSchema.(map[string]any)
-			for _, required := range []string{"schema_version", "version", "page_version_gated"} {
+			for _, required := range []string{"schema_version", "version", "page_version_gated", "returned_table_count", "selection_reconciled"} {
 				if !schemaRequired(output, required) {
 					t.Errorf("tool %s output must require %s: %#v", tool.Name, required, tool.OutputSchema)
 				}
@@ -1451,7 +1451,8 @@ func TestToolInputsMapToBoundedApplicationCalls(t *testing.T) {
 	})
 	extractContent, ok := extract.StructuredContent.(map[string]any)
 	if !ok || extractContent["schema_version"] != float64(1) || extractContent["version"] != float64(3) ||
-		extractContent["page_version_gated"] != true || extractContent["selected_table"] != float64(2) {
+		extractContent["page_version_gated"] != true || extractContent["selected_table"] != float64(2) ||
+		extractContent["returned_table_count"] != float64(1) || extractContent["selection_reconciled"] != true {
 		t.Fatalf("table extract=%#v", extract.StructuredContent)
 	}
 	extractTables, ok := extractContent["tables"].([]any)
@@ -2906,6 +2907,8 @@ func TestConfluenceTableToolsRejectUnreconciledApplicationResults(t *testing.T) 
 		{name: "bound summary ungated", tool: "confluence_table_summary", args: map[string]any{"reference": "42", "expected_page_version": 7}, mode: "summary-bound-ungated"},
 		{name: "bound summary wrong version", tool: "confluence_table_summary", args: map[string]any{"reference": "42", "expected_page_version": 7}, mode: "summary-bound-wrong-version"},
 		{name: "extract selection", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract"},
+		{name: "extract returned count", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-returned-count"},
+		{name: "extract reconciliation", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-reconciliation"},
 		{name: "extract dimensions", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-dimensions"},
 		{name: "extract summary", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-summary"},
 		{name: "extract schema", tool: "confluence_table_extract", args: map[string]any{"reference": "42", "table": 1}, mode: "extract-schema"},
@@ -5244,6 +5247,10 @@ func (r *invalidConfluenceTableReader) ExtractTablesWithOptions(ctx context.Cont
 	switch r.mode {
 	case "extract":
 		result.Tables = append(result.Tables, result.Tables[0])
+	case "extract-returned-count":
+		result.ReturnedTableCount++
+	case "extract-reconciliation":
+		result.SelectionReconciled = false
 	case "extract-dimensions":
 		result.Tables[0].RowCount++
 	case "extract-summary":
@@ -5272,7 +5279,8 @@ func (r *recordingConfluenceReader) ExtractTablesWithOptions(_ context.Context, 
 		version = 3
 	}
 	result := &app.ConfluenceTableExtract{SchemaVersion: app.ConfluenceTableSchemaVersion, PageID: "42",
-		Version: version, PageVersionGated: opts.ExpectedPageVersion > 0, TableCount: 2, Table: table, Tables: []app.ConfluenceTable{{Index: table,
+		Version: version, PageVersionGated: opts.ExpectedPageVersion > 0, TableCount: 2, Table: table,
+		ReturnedTableCount: 1, SelectionReconciled: true, Tables: []app.ConfluenceTable{{Index: table,
 			RowCount: 1, ColumnCount: 1, Rows: []app.ConfluenceTableRow{{Index: 1,
 				Cells: []app.ConfluenceTableCell{{Row: 1, Column: 1, Text: r.tableText}}}}}}}
 	summary := app.SummarizeConfluenceTables(result)

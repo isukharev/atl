@@ -1377,7 +1377,10 @@ JSON preserves the expanded cells, source coordinates for rowspan/colspan
 repeats, ordinary links, and visible inline color markers. Every JSON table
 also includes a required `summary` record with the same reconciled structural
 metrics as `atl conf table summary`, so scripts can consume exact counts without
-recounting cells. CSV without `--table` emits a cell-level stream so pages with
+recounting cells. Top-level `returned_table_count` is the actual length of
+`tables`, while `selection_reconciled` confirms that a selected index returned
+exactly that table or that an unselected read returned the full page-wide
+`table_count`. CSV without `--table` emits a cell-level stream so pages with
 different table shapes can share one file; CSV with `--table` emits a
 rectangular table.
 JSON results also include `schema_version:1`, the positive page `version`, and

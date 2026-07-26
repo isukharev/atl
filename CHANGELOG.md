@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added explicit `returned_table_count` and `selection_reconciled` fields to
+  Confluence table-extract JSON and artifact acknowledgements, so selected
+  result cardinality no longer has to be inferred from the page-wide count.
+
 - `jira structure view` now accepts the paired
   `--expected-forest-signature` and `--expected-forest-version` flags, and the
   read-only `jira_structure_view` MCP tool exposes the matching optional
