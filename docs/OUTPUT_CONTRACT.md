@@ -1243,8 +1243,10 @@ positive page revision without adding a backend request. A match returns
 `version:N` and `page_version_gated:true`; omission returns
 `page_version_gated:false`. A stale version fails before table parsing or
 evidence, using the typed expected/current integer mismatch. For JSON, CSV, or
-XLSX written with `--out`, the command acknowledgement also includes `version`
-and `page_version_gated`.
+XLSX written with `--out`, the extraction acknowledgement also includes
+`returned_table_count`, `selection_reconciled`, `version`, and
+`page_version_gated`. Its text form reports the returned count rather than the
+page-wide count.
 
 Every table record returned by `atl conf table extract --format json` also has
 a required `summary` object with this exact record shape. ATL computes it from
@@ -1253,6 +1255,13 @@ therefore use identical origin/repeat/padding and span semantics; clients that
 need both content and counts should use the embedded record instead of
 recounting cells. The field is additive to the extraction contract and does
 not affect CSV or XLSX rendering.
+
+The extraction's top-level `table_count` remains page-wide.
+`returned_table_count` equals the actual `tables` array length, and
+`selection_reconciled` is true only when an unselected extraction returned all
+page tables or a selected extraction returned exactly the requested table.
+These additive fields remove the need for clients to infer selected-result
+cardinality from the page-wide count.
 
 `atl jira export diff OLD NEW` reads JSONL/JSON/CSV compact exports and reports issue identifiers:
 

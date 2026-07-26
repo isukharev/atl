@@ -57,7 +57,9 @@ For `confluence/table-analytics`, prefer the content-free `conf table summary`
 discovery route before extracting a selected table. Its exact structural and
 style cardinalities remove the need to recount content-bearing raw cells. Bind
 an index selected from that summary to the same page revision with
-`--expected-version`.
+`--expected-version`. On extraction, use `returned_table_count` and
+`selection_reconciled` for selected-result cardinality; `table_count` remains
+page-wide.
 For durable Confluence mirror health, prefer the content-free `conf snapshot`
 route before expanding individual pages with `conf diff`; use its reconciled
 cardinalities instead of manually joining status, validation, and render rows.

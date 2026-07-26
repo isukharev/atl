@@ -775,6 +775,16 @@ func confTableCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			acknowledgement := func() map[string]any {
+				return map[string]any{
+					"path": out, "format": format, "table_count": res.TableCount,
+					"returned_table_count": res.ReturnedTableCount, "selection_reconciled": res.SelectionReconciled,
+					"version": res.Version, "page_version_gated": res.PageVersionGated,
+				}
+			}
+			textAcknowledgement := func() string {
+				return fmt.Sprintf("%s\tformat=%s\ttables=%d", out, format, res.ReturnedTableCount)
+			}
 			switch format {
 			case "json":
 				if out != "" {
@@ -786,12 +796,10 @@ func confTableCmd() *cobra.Command {
 					if err := os.WriteFile(out, data, 0o644); err != nil {
 						return err
 					}
-					return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount, "version": res.Version, "page_version_gated": res.PageVersionGated}, func() string {
-						return fmt.Sprintf("%s\tformat=%s\ttables=%d", out, format, res.TableCount)
-					})
+					return emit(cmd, acknowledgement(), textAcknowledgement)
 				}
 				return emit(cmd, res, func() string {
-					return fmt.Sprintf("%d table(s)", res.TableCount)
+					return fmt.Sprintf("%d table(s)", res.ReturnedTableCount)
 				})
 			case "csv":
 				data, err := app.RenderConfluenceTableCSVWithOptions(res, rawCSV)
@@ -802,9 +810,7 @@ func confTableCmd() *cobra.Command {
 					if err := os.WriteFile(out, data, 0o644); err != nil {
 						return err
 					}
-					return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount, "version": res.Version, "page_version_gated": res.PageVersionGated}, func() string {
-						return fmt.Sprintf("%s\tformat=%s\ttables=%d", out, format, res.TableCount)
-					})
+					return emit(cmd, acknowledgement(), textAcknowledgement)
 				}
 				_, err = cmd.OutOrStdout().Write(data)
 				return err
@@ -815,9 +821,7 @@ func confTableCmd() *cobra.Command {
 				if err := app.WriteConfluenceTableXLSX(out, res); err != nil {
 					return err
 				}
-				return emit(cmd, map[string]any{"path": out, "format": format, "table_count": res.TableCount, "version": res.Version, "page_version_gated": res.PageVersionGated}, func() string {
-					return fmt.Sprintf("%s\tformat=%s\ttables=%d", out, format, res.TableCount)
-				})
+				return emit(cmd, acknowledgement(), textAcknowledgement)
 			default:
 				return nil
 			}

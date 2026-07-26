@@ -125,7 +125,7 @@ func TestExtractTablesFromCSFMultipleTablesAndCellMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExtractTablesFromCSF: %v", err)
 	}
-	if res.TableCount != 2 || len(res.Tables) != 2 {
+	if res.TableCount != 2 || res.ReturnedTableCount != 2 || !res.SelectionReconciled || len(res.Tables) != 2 {
 		t.Fatalf("tables = %d/%d, want two", res.TableCount, len(res.Tables))
 	}
 	summary := SummarizeConfluenceTables(res)
@@ -183,7 +183,7 @@ func TestExtractTablesFromCSFSelectsOneTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExtractTablesFromCSF: %v", err)
 	}
-	if res.Table != 2 || res.TableCount != 2 || len(res.Tables) != 1 || res.Tables[0].Index != 2 {
+	if res.Table != 2 || res.TableCount != 2 || res.ReturnedTableCount != 1 || !res.SelectionReconciled || len(res.Tables) != 1 || res.Tables[0].Index != 2 {
 		t.Fatalf("selection = %+v", res)
 	}
 	if res.Tables[0].Summary.Index != 2 || !res.Tables[0].Summary.CellCountReconciled {

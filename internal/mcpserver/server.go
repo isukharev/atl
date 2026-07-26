@@ -1404,6 +1404,7 @@ func validateSelectedTableExtract(extract *app.ConfluenceTableExtract, table, ex
 		extract.PageVersionGated != (expectedPageVersion > 0) ||
 		(expectedPageVersion > 0 && extract.Version != expectedPageVersion) ||
 		extract.Table != table || extract.TableCount < table ||
+		extract.ReturnedTableCount != len(extract.Tables) || !extract.SelectionReconciled ||
 		len(extract.Tables) != 1 || extract.Tables[0].Index != table {
 		return fmt.Errorf("%w: selected table extract is not reconciled", domain.ErrCheckFailed)
 	}

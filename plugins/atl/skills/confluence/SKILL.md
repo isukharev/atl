@@ -50,7 +50,10 @@ write command after explicit approval.
   `confluence_table_extract` for one selected 1-based table index. These tools
   cannot write or create mirror artifacts. Copy the summary's exact positive
   `version` into the selected extract's `expected_page_version`; a match returns
-  `page_version_gated:true`. Omit it only for an index fixed outside an earlier
+  `page_version_gated:true`. Use the extract's explicit
+  `returned_table_count` and `selection_reconciled` instead of confusing its
+  page-wide `table_count` with the selected result count. Omit the version only
+  for an index fixed outside an earlier
   read, which returns explicit ungated evidence. Pass the section `heading` as the
   exact outline `title`, without Markdown `#` prefixes, plus `occurrence` when
   repeated. Bound `confluence_search` with `max_bytes` as well as `limit`; an
