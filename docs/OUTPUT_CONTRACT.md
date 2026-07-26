@@ -1294,7 +1294,8 @@ views, so they have no separate migration marker.
 
 When `--out` is given, JSON, CSV, and XLSX all persist through one atomic
 application writer (temp file then rename), so no partial artifact is ever
-observable. The success acknowledgement byte shape (`path`, `format`,
+observable; missing parent directories are created as needed. The success
+acknowledgement byte shape (`path`, `format`,
 `table_count`, `returned_table_count`, `selection_reconciled`, `version`,
 `page_version_gated`) is unchanged. A persistence failure is a check failure:
 it exits `8`, emits nothing to stdout, and leaves any existing file untouched.

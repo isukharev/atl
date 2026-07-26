@@ -854,6 +854,13 @@ func TestWriteConfluenceTableArtifactWritesBytesAtomically(t *testing.T) {
 	if len(entries) != 2 {
 		t.Fatalf("directory holds %d entries, want 2 (leftover temp file?): %v", len(entries), entries)
 	}
+	nested := filepath.Join(dir, "nested", "tables.json")
+	if err := WriteConfluenceTableArtifact(nested, []byte("{}\n")); err != nil {
+		t.Fatalf("write artifact with missing parent: %v", err)
+	}
+	if got, err := os.ReadFile(nested); err != nil || string(got) != "{}\n" {
+		t.Fatalf("nested artifact = %q, error = %v", got, err)
+	}
 }
 
 func TestWriteConfluenceTableArtifactBlankPathIsUsage(t *testing.T) {

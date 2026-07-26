@@ -1398,11 +1398,11 @@ apostrophe by default so opening untrusted page data in a spreadsheet does not
 execute it as a formula. `--raw-csv` is an explicit unsafe escape hatch.
 
 With `--out`, all three formats persist through one atomic writer (temp file
-then rename), so a partial or truncated artifact never lands. A persistence
-failure exits `8` and writes nothing to stdout, leaving any prior file in place;
-a missing `--out` for `xlsx` is still a usage error (exit `2`). The success
-acknowledgement JSON/text is unchanged, and JSON and CSV without `--out` still
-stream to stdout.
+then rename), so a partial or truncated artifact never lands; missing parent
+directories are created as needed. A persistence failure exits `8` and writes
+nothing to stdout, leaving any prior file in place; a missing `--out` for
+`xlsx` is still a usage error (exit `2`). The success acknowledgement JSON/text
+is unchanged, and JSON and CSV without `--out` still stream to stdout.
 
 ### `atl conf table summary`
 
