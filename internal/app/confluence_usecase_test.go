@@ -188,8 +188,14 @@ func TestConfluenceWrappersPassThrough(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if st.historyID != "9" || len(got) != 1 || got[0].Number != 2 {
+		// A recordingStore implements only the compatibility port, so the result is
+		// a proven non-nil array that is explicitly legacy-unqualified rather than
+		// complete evidence.
+		if st.historyID != "9" || got.Count != 1 || len(got.Versions) != 1 || got.Versions[0].Number != 2 {
 			t.Errorf("history mismatch: id=%q ret=%+v", st.historyID, got)
+		}
+		if got.Complete || got.PartialReason != domain.HistoryPartialLegacyUnqualified {
+			t.Errorf("legacy history must stay partial: %+v", got)
 		}
 	})
 

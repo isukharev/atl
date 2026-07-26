@@ -113,15 +113,6 @@ func (s *ConfluenceService) Meta(ctx context.Context, id string) (*domain.PageMe
 	return s.store.GetMeta(ctx, id)
 }
 
-func (s *ConfluenceService) History(ctx context.Context, id string) ([]domain.Version, error) {
-	resolved, err := s.ResolvePageReference(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	id = resolved.ID
-	return s.store.History(ctx, id)
-}
-
 func (s *ConfluenceService) Tree(ctx context.Context, space string, depth int) ([]domain.PageRef, bool, error) {
 	return s.store.Tree(ctx, space, depth)
 }

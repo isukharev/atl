@@ -321,11 +321,11 @@ func confPageCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			vs, err := svc.History(cmd.Context(), histID)
+			result, err := svc.History(cmd.Context(), histID)
 			if err != nil {
 				return err
 			}
-			return emit(cmd, map[string]any{"versions": vs}, func() string { return confluenceVersionsText(vs) })
+			return emit(cmd, result, func() string { return confluenceVersionsText(result.Versions) })
 		},
 	}
 	hist.Flags().StringVar(&histID, "id", "", "page id or supported same-origin URL")

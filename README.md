@@ -412,7 +412,7 @@ atl conf page view 123456 --jira-macros off -o text # placeholders only; no Jira
 atl conf page get     --id 123456
 atl conf page get     --id 123456 --format csf
 atl conf page meta    --id 123456  # omitted restricted = unknown, not false
-atl conf page history --id 123456
+atl conf page history --id 123456 # qualified: complete + partial_reason; empty success is "versions":[]
 atl conf attachment list --id 123456 # qualified: complete + partial_reason; empty success is "attachments":[]
 atl conf attachment list --id 123456 --expected-version 7 # refuse unless the page is still at v7
 # Guarded title update: title stays in a bounded file/stdin, not argv

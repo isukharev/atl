@@ -605,6 +605,21 @@ surface. Optional comments are fetched only when selected by the effective
 render settings; truncation is warned on stderr. A fresh pull is required before
 editing.
 
+`atl conf page history --id <ID>` emits the qualified version listing
+`{schema_version:1,page_id,count,complete,partial_reason?,versions:[...]}`.
+`page_id` is the resolved content id the versions belong to. A successful
+listing always uses a JSON array; a page with no recorded versions emits
+`"versions":[]`, never `null`. `complete:true` means the backend version
+listing was exhausted, so an empty array is proven absence. `complete:false`
+always carries a static `partial_reason` from the closed set `page_limit`,
+`item_limit`, `pagination_stalled`, or `legacy_unqualified`, and never proves
+that an omitted version does not exist. Version records preserve `number`,
+`when`, `by`, and (when present) `message`, and are validated to be strictly
+newest-first with positive version numbers before emission. Invalid or
+duplicate version records fail as a check error (exit 8) instead of weakening
+the completeness claim. `-o text` still emits
+`number<TAB>when<TAB>by[<TAB>message]` per line and is unchanged.
+
 `atl conf attachment list --id <ID>` emits the qualified inventory
 `{schema_version:1,page_id,page_version,count,complete,partial_reason?,
 attachments:[...]}`. `page_id` is the resolved content id and `page_version` is

@@ -184,7 +184,7 @@ identifier per line.
 |---|---|---|
 | `conf search` | Find a qualified bounded page (`complete`/`truncated`) | `--cql` or convenience filters, `--limit`, `--cursor` |
 | `conf space tree` | Space hierarchy | `--space`, `--depth` |
-| `conf page resolve|outline|section|list|get|view|meta|history|open` | Reference resolution and page reads | outline before long reads; section uses exact heading/occurrence/byte cap and `--expected-version` for outline-derived or recovery reads; view supports `--jira-view`, `--jira-macros` |
+| `conf page resolve|outline|section|list|get|view|meta|history|open` | Reference resolution and page reads; `history` is qualified (`complete`/`partial_reason`) | outline before long reads; section uses exact heading/occurrence/byte cap and `--expected-version` for outline-derived or recovery reads; view supports `--jira-view`, `--jira-macros`; judge history absence only on `complete:true` |
 | `conf page labels list <ID>` | Complete page-label read | no write; inspect `complete` |
 | `conf page labels add\|remove <ID> <LABEL>...` | Guarded label preview/apply | `--apply`, `--expected-proposal-hash` |
 | `conf page title set <ID>` | Guarded title preview/apply | `--from-file`, `--apply`, expected gates |

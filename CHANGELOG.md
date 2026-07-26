@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Qualified Confluence page history so a capped or stalled version prefix can no
+  longer read as exhaustive. `atl conf page history` now emits
+  `{schema_version:1,page_id,count,complete,partial_reason?,versions}` with an
+  always-present array; `complete:true` proves the version listing was
+  exhausted, and every partial result carries a static `partial_reason`
+  (`page_limit`, `item_limit`, `pagination_stalled`, `legacy_unqualified`) that
+  never embeds backend text. The adapter distinguishes normal exhaustion
+  (including a terminal empty page) from advertised-more empty or stalled
+  progress and stops exactly at the item cap. `-o text` output is unchanged.
 - Reconciled Confluence table cells against an independent source-placement and
   rowspan/colspan ledger, rejecting overlapping claims, coverage outside the
   source row domain, and disagreements with the expanded grid. Compact table
