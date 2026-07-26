@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -436,6 +437,289 @@ func TestPrivateCheckpointFailsClosedOnStateDigestAndPathControls(t *testing.T) 
 			applyPrivateCheckpointMustReject(t, fixture)
 		})
 	}
+}
+
+func TestPrivateCheckpointErrorKeepsCausesInspectableAndOutOfTheMessage(t *testing.T) {
+	checkpointPath := filepath.Join(t.TempDir(), "reports", "checkpoints", "2026-07-22.json")
+	writeCause := &fs.PathError{Op: "open", Path: checkpointPath, Err: fs.ErrPermission}
+	stateCause := errors.New("checkpoint not stored at " + checkpointPath)
+
+	err := privateCheckpointError("checkpoint_write", writeCause, nil, stateCause)
+	assertPrivateCheckpointCode(t, err, "checkpoint_write")
+	if strings.Contains(err.Error(), checkpointPath) {
+		t.Fatalf("message leaked a configured path: %q", err.Error())
+	}
+	if !errors.Is(err, stateCause) || !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("error %v lost a cause", err)
+	}
+	var typed *fs.PathError
+	if !errors.As(err, &typed) || typed.Path != checkpointPath {
+		t.Fatalf("error %v does not expose the concrete path error", err)
+	}
+	if causes := privateCheckpointErrorCauses(t, err); len(causes) != 2 {
+		t.Fatalf("causes=%v, want both non-nil causes retained in order", causes)
+	}
+
+	// A rejection with nothing to attach classifies exactly as it did before.
+	assertPrivateCheckpointCode(t, privateCheckpointError("confirmation"), "confirmation")
+	if causes := privateCheckpointErrorCauses(t, privateCheckpointError("confirmation", nil, nil)); len(causes) != 0 {
+		t.Fatalf("causes=%v, want nil causes dropped", causes)
+	}
+}
+
+func TestPrivateCheckpointPreviewAttachesDependencyCauses(t *testing.T) {
+	for _, test := range []struct {
+		name, code string
+		mutate     func(*privateCheckpointDependencies, error)
+	}{
+		{"workspace state", "workspace_state", func(dependencies *privateCheckpointDependencies, failure error) {
+			dependencies.doctor = func(string, string) (PrivateWorkspaceReport, error) {
+				return PrivateWorkspaceReport{}, failure
+			}
+		}},
+		{"finding scorecard", "scorecard", func(dependencies *privateCheckpointDependencies, failure error) {
+			dependencies.scorecard = func(PrivateFindingScorecardOptions) (PrivateFindingScorecard, error) {
+				return PrivateFindingScorecard{}, failure
+			}
+		}},
+		{"coverage scorecard", "coverage", func(dependencies *privateCheckpointDependencies, failure error) {
+			dependencies.coverage = func(PrivateCoverageScorecardOptions) (PrivateCoverageScorecard, error) {
+				return PrivateCoverageScorecard{}, failure
+			}
+		}},
+		{"repository identity", "repository", func(dependencies *privateCheckpointDependencies, failure error) {
+			dependencies.repository = func(string) (string, bool, error) { return "", false, failure }
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newPrivateCheckpointFixture(t)
+			// The cause text carries the configured root, so the exact-message
+			// assertion also proves the root cannot reach a log line.
+			failure := errors.New("synthetic dependency failure under " + fixture.root)
+			dependencies := fixture.dependencies()
+			test.mutate(&dependencies, failure)
+
+			_, err := previewPrivateCheckpoint(fixture.options(), dependencies)
+			assertPrivateCheckpointCode(t, err, test.code)
+			if !errors.Is(err, failure) {
+				t.Fatalf("error %v lost the dependency cause", err)
+			}
+			if causes := privateCheckpointErrorCauses(t, err); len(causes) != 1 {
+				t.Fatalf("causes=%v, want exactly the dependency failure", causes)
+			}
+		})
+	}
+}
+
+func TestPrivateCheckpointValidationOnlyRejectionsCarryNoCause(t *testing.T) {
+	for _, test := range []struct {
+		name, code string
+		mutate     func(*privateCheckpointFixture)
+	}{
+		{"active run", "workspace_state", func(fixture *privateCheckpointFixture) {
+			fixture.report.Counts.ActiveRuns = 1
+		}},
+		{"unreconciled scorecard", "scorecard", func(fixture *privateCheckpointFixture) {
+			fixture.scorecard.Reconciled = false
+		}},
+		{"unreconciled coverage", "coverage", func(fixture *privateCheckpointFixture) {
+			fixture.coverage.Reconciled = false
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newPrivateCheckpointFixture(t)
+			test.mutate(&fixture)
+
+			_, err := previewPrivateCheckpoint(fixture.options(), fixture.dependencies())
+			assertPrivateCheckpointCode(t, err, test.code)
+			if causes := privateCheckpointErrorCauses(t, err); len(causes) != 0 {
+				t.Fatalf("causes=%v, want none for a rejection with no failure in hand", causes)
+			}
+		})
+	}
+	t.Run("malformed commit", func(t *testing.T) {
+		fixture := newPrivateCheckpointFixture(t)
+		dependencies := fixture.dependencies()
+		dependencies.repository = func(string) (string, bool, error) { return "not-a-commit", false, nil }
+
+		_, err := previewPrivateCheckpoint(fixture.options(), dependencies)
+		assertPrivateCheckpointCode(t, err, "repository")
+		if causes := privateCheckpointErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a rejection with no failure in hand", causes)
+		}
+	})
+}
+
+func TestPrivateCheckpointEncodeAttachesDateAndContractCauses(t *testing.T) {
+	fixture := newPrivateCheckpointFixture(t)
+	preview, err := previewPrivateCheckpoint(fixture.options(), fixture.dependencies())
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint := preview.Checkpoint
+	checkpoint.UTCDate = "2026-02-30"
+	_, err = encodePrivateCheckpoint(checkpoint)
+	assertPrivateCheckpointCode(t, err, "date")
+	var parseErr *time.ParseError
+	if !errors.As(err, &parseErr) {
+		t.Fatalf("error %v does not expose the concrete date parse failure", err)
+	}
+
+	// A checkpoint the encoder rejects reaches the caller as a contract
+	// rejection that still carries the encoder's own classified error.
+	fixture.report.Counts.ValidSpecs = fixture.report.Counts.SpecReferences + 1
+	_, err = previewPrivateCheckpoint(fixture.options(), fixture.dependencies())
+	assertPrivateCheckpointCode(t, err, "contract")
+	causes := privateCheckpointErrorCauses(t, err)
+	if len(causes) != 1 {
+		t.Fatalf("causes=%v, want the encoder rejection retained", causes)
+	}
+	var classified interface{ Code() string }
+	if !errors.As(causes[0], &classified) || classified.Code() != "contract" {
+		t.Fatalf("cause=%v, want the encoder's own contract classification", causes[0])
+	}
+}
+
+func TestPrivateCheckpointApplyAttachesLockDriftAndFilesystemCauses(t *testing.T) {
+	t.Run("workspace busy", func(t *testing.T) {
+		fixture := newPrivateCheckpointFixture(t)
+		lock, err := acquirePrivateWorkspaceLock(fixture.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = lock.Unlock() }()
+		options := fixture.options()
+		options.ExpectedCheckpointSHA256, options.Confirm = strings.Repeat("a", 64), PrivateCheckpointConfirmation
+
+		_, err = applyPrivateCheckpoint(options, fixture.dependencies())
+		assertPrivateCheckpointCode(t, err, "workspace_busy")
+		if !errors.Is(err, ErrPrivateBaselineRejected) {
+			t.Fatalf("error %v lost the lock cause", err)
+		}
+	})
+	t.Run("checkpoint drift", func(t *testing.T) {
+		fixture := newPrivateCheckpointFixture(t)
+		failure := errors.New("synthetic dependency failure under " + fixture.root)
+		dependencies := fixture.dependencies()
+		dependencies.coverage = func(PrivateCoverageScorecardOptions) (PrivateCoverageScorecard, error) {
+			return PrivateCoverageScorecard{}, failure
+		}
+		options := fixture.options()
+		options.ExpectedCheckpointSHA256, options.Confirm = strings.Repeat("a", 64), PrivateCheckpointConfirmation
+
+		_, err := applyPrivateCheckpoint(options, dependencies)
+		assertPrivateCheckpointCode(t, err, "checkpoint_drift")
+		if !errors.Is(err, failure) {
+			t.Fatalf("error %v lost the preview cause", err)
+		}
+	})
+	t.Run("digest mismatch", func(t *testing.T) {
+		fixture := newPrivateCheckpointFixture(t)
+		options := fixture.options()
+		options.ExpectedCheckpointSHA256, options.Confirm = strings.Repeat("f", 64), PrivateCheckpointConfirmation
+
+		_, err := applyPrivateCheckpoint(options, fixture.dependencies())
+		assertPrivateCheckpointCode(t, err, "checkpoint_drift")
+		if causes := privateCheckpointErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none when only the expected digest differs", causes)
+		}
+	})
+	t.Run("checkpoint directory", func(t *testing.T) {
+		fixture := newPrivateCheckpointFixture(t)
+		options := fixture.options()
+		preview, err := previewPrivateCheckpoint(options, fixture.dependencies())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(fixture.root, "reports", "checkpoints"), []byte("not a directory\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		options.ExpectedCheckpointSHA256, options.Confirm = preview.CheckpointSHA256, PrivateCheckpointConfirmation
+
+		_, err = applyPrivateCheckpoint(options, fixture.dependencies())
+		assertPrivateCheckpointCode(t, err, "directory")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) {
+			t.Fatalf("error %v does not expose the concrete directory failure", err)
+		}
+	})
+	t.Run("checkpoint read", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("reading a directory as a file is a Unix-specific failure")
+		}
+		fixture := newPrivateCheckpointFixture(t)
+		options := fixture.options()
+		preview, err := previewPrivateCheckpoint(options, fixture.dependencies())
+		if err != nil {
+			t.Fatal(err)
+		}
+		directory := filepath.Join(fixture.root, "reports", "checkpoints")
+		if err := os.Mkdir(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(filepath.Join(directory, "2026-07-22.json"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		options.ExpectedCheckpointSHA256, options.Confirm = preview.CheckpointSHA256, PrivateCheckpointConfirmation
+
+		_, err = applyPrivateCheckpoint(options, fixture.dependencies())
+		assertPrivateCheckpointCode(t, err, "checkpoint_read")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) {
+			t.Fatalf("error %v does not expose the concrete read failure", err)
+		}
+	})
+}
+
+func TestPrivateCheckpointRejectsSymlinkedRootWithWorkspaceCause(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs elevated privileges on Windows")
+	}
+	fixture := newPrivateCheckpointFixture(t)
+	linked := filepath.Join(t.TempDir(), "private-link")
+	if err := os.Symlink(fixture.root, linked); err != nil {
+		t.Fatal(err)
+	}
+	options := fixture.options()
+	options.Root = linked
+
+	_, err := previewPrivateCheckpoint(options, fixture.dependencies())
+	assertPrivateCheckpointCode(t, err, "workspace")
+	if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) {
+		t.Fatalf("error %v lost the workspace-location cause", err)
+	}
+	options.ExpectedCheckpointSHA256, options.Confirm = strings.Repeat("a", 64), PrivateCheckpointConfirmation
+	_, err = applyPrivateCheckpoint(options, fixture.dependencies())
+	assertPrivateCheckpointCode(t, err, "workspace")
+	if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) {
+		t.Fatalf("error %v lost the workspace-location cause", err)
+	}
+}
+
+func assertPrivateCheckpointCode(t *testing.T, err error, code string) {
+	t.Helper()
+	if !errors.Is(err, ErrPrivateCheckpointRejected) {
+		t.Fatalf("err=%v, want the checkpoint sentinel", err)
+	}
+	if got, want := err.Error(), ErrPrivateCheckpointRejected.Error()+": "+code; got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+}
+
+func privateCheckpointErrorCauses(t *testing.T, err error) []error {
+	t.Helper()
+	multi, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		t.Fatalf("%T does not unwrap to multiple errors", err)
+	}
+	tree := multi.Unwrap()
+	if len(tree) == 0 || !errors.Is(tree[0], ErrPrivateCheckpointRejected) {
+		t.Fatalf("unwrap tree=%v, want the sentinel first", tree)
+	}
+	return tree[1:]
 }
 
 type privateCheckpointFixture struct {
