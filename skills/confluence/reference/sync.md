@@ -32,8 +32,10 @@ atl conf snapshot <absolute-root>
 The default is offline and content-free. Require top-level and nested
 `reconciled:true`; treat `complete:false` as unavailable evidence, not as an
 arithmetic failure. A qualified exit 8 for corrupt baseline evidence remains
-actionable stdout and must not be retried. Use `conf diff` only to expand exact
-page-level change evidence.
+actionable stdout and must not be retried. If the aggregate cannot be written,
+the command reports that write failure with the inspection failure and keeps
+the inspection exit code, so never read a missing aggregate as clean. Use
+`conf diff` only to expand exact page-level change evidence.
 
 ## Complete historical bootstrap
 

@@ -965,9 +965,7 @@ func confSnapshotCmd() *cobra.Command {
 						result.Render.Unsupported, result.Remote.Drifted, result.Remote.Unavailable,
 					)
 				})
-				if snapshotErr == nil {
-					return emitErr
-				}
+				return snapshotResultErr(snapshotErr, emitErr)
 			}
 			return snapshotErr
 		},

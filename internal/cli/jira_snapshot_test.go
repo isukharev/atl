@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
 )
 
@@ -85,6 +87,30 @@ func TestJiraSnapshotIncompleteRemotePreflightNeedsNoBackendConfig(t *testing.T)
 	for _, private := range []string{"PROJ-1", root} {
 		if strings.Contains(renderedError.String(), private) {
 			t.Fatalf("rendered snapshot error leaked %q: %s", private, renderedError.String())
+		}
+	}
+}
+
+func TestJiraSnapshotKeepsResultWriteFailureUnderInspectionError(t *testing.T) {
+	root := t.TempDir()
+	scaffoldJiraSnapshotMirror(t, root, "base")
+	if err := os.WriteFile(filepath.Join(root, ".atl", "base", "PROJ-1.wiki"), []byte("wrong"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cause := errors.New("stdout unavailable")
+	err := runCLIWithFailingStdout(t, cause, "--read-only", "jira", "snapshot", root)
+	if err == nil {
+		t.Fatal("unwritten snapshot result reported success")
+	}
+	if !errors.Is(err, domain.ErrCheckFailed) || !errors.Is(err, cause) {
+		t.Fatalf("err=%v", err)
+	}
+	if code := codeFor(err); code != exitCheckFailed {
+		t.Fatalf("code=%d err=%v", code, err)
+	}
+	for _, private := range []string{"PROJ-1", root} {
+		if strings.Contains(err.Error(), private) {
+			t.Fatalf("snapshot write failure leaked %q: %s", private, err)
 		}
 	}
 }

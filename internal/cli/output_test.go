@@ -2,7 +2,10 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -11,6 +14,28 @@ import (
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/domain"
 )
+
+// errWriter fails every write, standing in for stdout that a caller closed or
+// that ran out of space midway through a result.
+type errWriter struct{ cause error }
+
+func (w errWriter) Write([]byte) (int, error) { return 0, w.cause }
+
+// runCLIWithFailingStdout runs the root command in-process with the same env
+// isolation as runCLIFull but with a stdout writer that always fails, and
+// returns the command's error for exit-code and cause assertions.
+func runCLIWithFailingStdout(t *testing.T, cause error, args ...string) error {
+	t.Helper()
+	t.Setenv("ATL_NO_UPDATE", "1")
+	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+	t.Setenv("ATL_MIRROR_ROOT", "")
+	t.Setenv("ATL_READ_ONLY", "")
+	root := newRoot()
+	root.SetArgs(args)
+	root.SetOut(errWriter{cause: cause})
+	root.SetErr(io.Discard)
+	return root.ExecuteContext(context.Background())
+}
 
 // withFormat sets the package-level output format for the duration of a test.
 // Not safe with t.Parallel (mutates a package var) — intentionally serial.
@@ -77,6 +102,30 @@ func TestEmitRejectsTextFormatWhenUnsupported(t *testing.T) {
 	}
 	if buf.Len() != 0 {
 		t.Fatalf("unsupported text emitted output: %q", buf.String())
+	}
+}
+
+// A snapshot command emits its qualified aggregate before returning the
+// inspection error, so a failed write of that aggregate must survive alongside
+// the inspection cause instead of being dropped.
+func TestSnapshotResultErrKeepsBothCauses(t *testing.T) {
+	if got := snapshotResultErr(nil, nil); got != nil {
+		t.Fatalf("no failure: got %v", got)
+	}
+	emitErr := errors.New("stdout unavailable")
+	if got := snapshotResultErr(nil, emitErr); got != emitErr {
+		t.Fatalf("emit-only: got %v", got)
+	}
+	snapshotErr := fmt.Errorf("%w: baseline mismatch", domain.ErrCheckFailed)
+	if got := snapshotResultErr(snapshotErr, nil); got != snapshotErr {
+		t.Fatalf("snapshot-only: got %v", got)
+	}
+	both := snapshotResultErr(snapshotErr, emitErr)
+	if !errors.Is(both, domain.ErrCheckFailed) || !errors.Is(both, emitErr) {
+		t.Fatalf("both: %v", both)
+	}
+	if code := codeFor(both); code != exitCheckFailed {
+		t.Fatalf("both: code=%d err=%v", code, both)
 	}
 }
 

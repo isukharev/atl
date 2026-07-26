@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserved `atl conf snapshot` and `atl jira snapshot` result-emission
+  failures instead of dropping them when inspection had already failed.
+  Writing the qualified aggregate to stdout can fail (closed pipe, short
+  write); that cause is now joined with the inspection cause, so `errors.Is`
+  still finds both and the exit code remains the inspection classification (for
+  example `8` for corrupt baseline evidence). Successful JSON/text bytes, the
+  snapshot schema, and remote probing are unchanged.
 - Unified `atl conf table extract --out` persistence for JSON, CSV, and XLSX
   behind one atomic application writer (temp file then rename), so no partial or
   truncated artifact is ever observable and the CLI no longer writes table

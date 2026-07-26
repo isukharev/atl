@@ -1484,7 +1484,9 @@ usable (for example malformed or corrupt native state, an unreadable derived
 view, or a failed requested remote probe); it is separate from arithmetic
 reconciliation. Any incomplete local evidence stops before remote setup or
 probing. A corrupt baseline still emits the qualified snapshot and returns exit
-`8`, even when `--remote` was requested.
+`8`, even when `--remote` was requested. If writing that snapshot to stdout
+fails, the write failure is reported together with the inspection failure and
+the exit code stays the inspection code.
 
 `--remote` starts one metadata probe per eligible canonical tracked page and
 disables the transport's automatic replay-safe retries for it. Redirect
@@ -3399,7 +3401,9 @@ is clean. `reconciled` means every documented partition adds up exactly. A
 baseline mismatch, malformed/misbound raw snapshot, invalid/unbound pending
 record, active pending transaction, or unreadable source returns the qualified
 snapshot with exit `8`. Missing optional/legacy evidence remains an explicit
-count rather than silently reading as present.
+count rather than silently reading as present. If writing that snapshot to
+stdout fails, the write failure is reported together with the inspection
+failure and the exit code stays the inspection code.
 
 `--remote` first completes that local preflight before loading backend config or
 credentials. A failed preflight makes zero requests. Otherwise each eligible
