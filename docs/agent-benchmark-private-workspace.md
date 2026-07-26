@@ -174,14 +174,16 @@ content, and dependency text. A rejection decided by validation or comparison
 alone — refusing to adopt an already-populated root, an observed permission
 mode, a symlinked root, a resume whose settings or manifest filename differ, a
 conflicting pair of manifests, a workspace that is the repository itself, or an
-ignore-status or tracked-listing result — attaches nothing, and an ordinary
-missing manifest is never reported as a cause. A manifest contract
-classification raised by the decoder remains inspectable under the unchanged
-outer code; manifest validation errors themselves remain a separate family. No
-workspace operation code is added or renamed. Manifest bytes and contracts, root
-adoption, Git-boundary semantics, file and directory permissions, layout
-ordering, health reports, and fail-closed behavior are unchanged. Remaining
-lifecycle subsystems migrate to this pattern incrementally.
+ignore-status or tracked-listing result — attaches nothing. Missing candidates
+during multi-manifest discovery are normal absence and are not attached; if the
+selected manifest path later fails to read, that concrete read failure is
+retained. A manifest contract classification raised by the decoder remains
+inspectable under the unchanged outer code; manifest validation errors
+themselves remain a separate family. No workspace operation code is added or
+renamed. Manifest bytes and contracts, root adoption, Git-boundary semantics,
+file and directory permissions, layout ordering, health reports, and fail-closed
+behavior are unchanged. Remaining lifecycle subsystems migrate to this pattern
+incrementally.
 
 ### Migrate a schema-v3 workspace
 

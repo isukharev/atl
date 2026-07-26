@@ -31,11 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   validation or comparison alone — an adopted-root refusal, an observed
   permission mode, a settings or filename comparison, a conflicting manifest
   layout, or an ignore-status or tracked-listing result — still carries no
-  cause, and an ordinary missing manifest is never reported as one. No workspace
-  operation code is added or renamed, and manifest validation errors remain a
-  separate family. Manifest bytes and contracts, root adoption, Git-boundary
-  semantics, file and directory permissions, layout ordering, exit codes, and
-  fail-closed behavior are unchanged.
+  cause. Missing candidates during multi-manifest discovery are normal absence
+  and are not attached; a concrete failure to read the selected manifest path is
+  retained. No workspace operation code is added or renamed, and manifest
+  validation errors remain a separate family. Manifest bytes and contracts,
+  root adoption, Git-boundary semantics, file and directory permissions, layout
+  ordering, exit codes, and fail-closed behavior are unchanged.
 - Preserved the underlying causes of private agent-evaluation compact-baseline
   rejections. Baseline promotion, surface compaction, assessment binding, audit
   sanitization, baseline loading, and offline comparison previously dropped the
