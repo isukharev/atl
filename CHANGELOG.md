@@ -12,12 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Classified attachment `upload` contract failures by exit code instead of
-  collapsing them to a generic error. A caller size fault — a negative size, or
-  a multipart body that would overflow its length (Confluence) — now exits `2`,
-  and a successful backend response that is malformed JSON or carries no
-  attachment exits `8` in both the Confluence and Jira adapters, preserving the
-  JSON decode cause. Transport, request-build, and streaming failures are
-  unchanged.
+  collapsing them to a generic error. A caller-supplied negative size or
+  multipart length overflow now exits `2` in the Confluence adapter. A
+  successful backend response that is malformed JSON or carries no attachment
+  exits `8` in both the Confluence and Jira adapters, preserving the JSON decode
+  cause. Transport, request-build, and streaming failures are unchanged.
 - Qualified Confluence page history so a capped or stalled version prefix can no
   longer read as exhaustive. `atl conf page history` now emits
   `{schema_version:1,page_id,count,complete,partial_reason?,versions}` with an
