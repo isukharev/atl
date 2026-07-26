@@ -1376,6 +1376,24 @@ then normally returns a stale-plan result because the recovered inventory has
 changed. Run doctor and a fresh prune preview afterward. Never hand-delete a
 transaction intent or staged tree from `.ephemeral/`.
 
+A classified prune preview or apply rejection still reports only the stable
+prune sentinel and its existing short code. The prune paths have joined the
+cause-preserving pattern used by plan execution, the live gateway, the daily
+checkpoint, and the workspace migration: a concrete workspace, lock, inventory,
+run-tree, transaction, or recovery failure is now attached to the returned
+error instead of being discarded, so tooling can inspect it with the standard
+Go `errors.Is` and `errors.As` helpers while messages and logs stay free of
+configured private locations. A raw filesystem failure raised while walking a
+candidate tree is now classified under the new redacted `tree_walk` code before
+it leaves the preview path, so it can no longer surface an unredacted workspace
+path. A rejection that follows from validation alone — for example, a missing
+confirmation, a mismatched reviewed inventory hash, an invalid lifecycle
+record, an out-of-bounds inventory, an uncontained tree, or a symlink inside a
+candidate — attaches nothing. Retention selection, the reviewed inventory
+digest, recovery and staging order, tombstone bytes and modes, permissions, the
+confirmation gate, and fail-closed behavior are unchanged. Remaining lifecycle
+subsystems migrate to this pattern incrementally.
+
 ## Publication boundary
 
 There is deliberately no `private publish` command. A maintainer may publish

@@ -18,6 +18,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserved the underlying causes of private agent-evaluation retention-prune
+  rejections. Prune preview, apply, inventory selection, candidate-tree hashing,
+  and transaction recovery previously dropped the concrete workspace, lock,
+  inventory, run-tree, filesystem, transaction, or recovery failure behind their
+  classification code, and a raw traversal failure could still reach the
+  exported preview path unredacted. They now report the same cause-preserving
+  coded error the plan-execution, live-gateway, checkpoint, and
+  workspace-migration paths already use: the message is still only the stable
+  sentinel plus its existing short code, while `errors.Is` and `errors.As` reach
+  every retained cause, including a classification raised deeper in the prune
+  transaction. A rejection that follows from validation alone still carries no
+  cause. Existing prune codes are unchanged; raw traversal failures now use the
+  new redacted `tree_walk` code. Retention selection, the reviewed inventory
+  digest, recovery and staging order, tombstone bytes and modes, permissions,
+  the confirmation gate, exit codes, and fail-closed behavior are unchanged.
 - Preserved the underlying causes of private agent-evaluation workspace-migration
   rejections. Migration preview, apply, manifest inspection, revalidation, and
   the protected-tree snapshot previously dropped the concrete workspace, lock,
