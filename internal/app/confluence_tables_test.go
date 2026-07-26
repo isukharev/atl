@@ -251,13 +251,21 @@ func TestExtractTablesEmitsDurableCellKindWithoutInternalMarker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.SchemaVersion != ConfluenceTableSchemaVersion {
-		t.Fatalf("schema version = %d, want %d", res.SchemaVersion, ConfluenceTableSchemaVersion)
+	if res.SchemaVersion != ConfluenceTableSchemaVersion || res.CellContract != ConfluenceTableCellContract {
+		t.Fatalf("schema/contract = %d/%q, want %d/%q", res.SchemaVersion, res.CellContract, ConfluenceTableSchemaVersion, ConfluenceTableCellContract)
 	}
-	origin := res.Tables[0].Rows[0].Cells[0]
-	if origin.Repeated || origin.SourceRow != origin.Row || origin.SourceColumn != origin.Column ||
+	if ConfluenceTableCellContract == "" {
+		t.Fatal("cell contract marker must be a stable, non-empty value")
+	}
+	origin := res.Tables[0].Rows[0].Cells[1] // native origin B at (1,2)
+	if origin.Repeated || origin.Synthetic || origin.SourceRow != 0 || origin.SourceColumn != 0 ||
 		classifyConfluenceTableCell(origin) != confluenceTableOriginCell {
-		t.Fatalf("origin cell = %+v, want self-naming source coordinates", origin)
+		t.Fatalf("origin cell = %+v, want a compact origin with zero source coordinates", origin)
+	}
+	repeated := res.Tables[0].Rows[1].Cells[0] // rowspan cover of A at (2,1)
+	if !repeated.Repeated || repeated.SourceRow != 1 || repeated.SourceColumn != 1 ||
+		classifyConfluenceTableCell(repeated) != confluenceTableRepeatedCell {
+		t.Fatalf("repeated cell = %+v, want covering-origin source coordinates", repeated)
 	}
 	data, err := json.Marshal(res)
 	if err != nil {
@@ -266,8 +274,16 @@ func TestExtractTablesEmitsDurableCellKindWithoutInternalMarker(t *testing.T) {
 	if bytes.Contains(data, []byte(`"origin"`)) {
 		t.Fatalf("internal origin marker leaked into extraction JSON: %s", data)
 	}
-	if !bytes.Contains(data, []byte(`"text":"B","markdown":"B","source_row":1,"source_column":2`)) {
-		t.Fatalf("origin source coordinates missing from extraction JSON: %s", data)
+	if !bytes.Contains(data, []byte(`"cell_contract":"`+ConfluenceTableCellContract+`"`)) {
+		t.Fatalf("top-level cell contract marker missing from extraction JSON: %s", data)
+	}
+	// The compact native origin spends no bytes on source coordinates; only the
+	// repeated cell carries them, naming its covering origin.
+	if !bytes.Contains(data, []byte(`"text":"B","markdown":"B"}`)) {
+		t.Fatalf("compact origin B unexpectedly carries extra members: %s", data)
+	}
+	if !bytes.Contains(data, []byte(`"repeated":true,"source_row":1,"source_column":1`)) {
+		t.Fatalf("repeated cell source coordinates missing from extraction JSON: %s", data)
 	}
 }
 
@@ -277,17 +293,20 @@ func TestClassifyConfluenceTableCellRejectsWrongFieldCombinations(t *testing.T) 
 		cell ConfluenceTableCell
 		want confluenceTableCellKind
 	}{
-		{name: "origin", cell: ConfluenceTableCell{Row: 2, Column: 3, SourceRow: 2, SourceColumn: 3, Text: "A"}, want: confluenceTableOriginCell},
+		{name: "compact origin with content", cell: ConfluenceTableCell{Row: 2, Column: 3, Text: "A"}, want: confluenceTableOriginCell},
+		{name: "empty native origin", cell: ConfluenceTableCell{Row: 2, Column: 3}, want: confluenceTableOriginCell},
+		{name: "origin with a span", cell: ConfluenceTableCell{Row: 2, Column: 3, Rowspan: 2}, want: confluenceTableOriginCell},
 		{name: "repeated", cell: ConfluenceTableCell{Row: 2, Column: 3, Repeated: true, SourceRow: 1, SourceColumn: 3}, want: confluenceTableRepeatedCell},
-		{name: "synthetic padding", cell: ConfluenceTableCell{Row: 2, Column: 3}, want: confluenceTableSyntheticCell},
-		{name: "origin without source coordinates", cell: ConfluenceTableCell{Row: 2, Column: 3, Text: "A"}},
+		{name: "synthetic padding", cell: ConfluenceTableCell{Row: 2, Column: 3, Synthetic: true}, want: confluenceTableSyntheticCell},
+		{name: "origin carrying schema-2 self coordinates", cell: ConfluenceTableCell{Row: 2, Column: 3, SourceRow: 2, SourceColumn: 3, Text: "A"}},
 		{name: "origin naming another cell", cell: ConfluenceTableCell{Row: 2, Column: 3, SourceRow: 1, SourceColumn: 3}},
 		{name: "repeated without source coordinates", cell: ConfluenceTableCell{Row: 2, Column: 3, Repeated: true}},
 		{name: "repeated naming itself", cell: ConfluenceTableCell{Row: 2, Column: 3, Repeated: true, SourceRow: 2, SourceColumn: 3}},
 		{name: "repeated naming a later cell", cell: ConfluenceTableCell{Row: 2, Column: 3, Repeated: true, SourceRow: 3, SourceColumn: 3}},
-		{name: "padding carrying content", cell: ConfluenceTableCell{Row: 2, Column: 3, Text: "A"}},
-		{name: "padding carrying a span", cell: ConfluenceTableCell{Row: 2, Column: 3, Rowspan: 2}},
-		{name: "padding claiming header", cell: ConfluenceTableCell{Row: 2, Column: 3, Header: true}},
+		{name: "repeated and synthetic at once", cell: ConfluenceTableCell{Row: 2, Column: 3, Repeated: true, Synthetic: true, SourceRow: 1, SourceColumn: 3}},
+		{name: "synthetic carrying content", cell: ConfluenceTableCell{Row: 2, Column: 3, Synthetic: true, Text: "A"}},
+		{name: "synthetic carrying a span", cell: ConfluenceTableCell{Row: 2, Column: 3, Synthetic: true, Rowspan: 2}},
+		{name: "synthetic carrying source coordinates", cell: ConfluenceTableCell{Row: 2, Column: 3, Synthetic: true, SourceRow: 1, SourceColumn: 1}},
 		{name: "unplaced cell", cell: ConfluenceTableCell{SourceRow: 1, SourceColumn: 1}},
 		{name: "negative source", cell: ConfluenceTableCell{Row: 2, Column: 3, SourceRow: -2, SourceColumn: -3}},
 	} {
@@ -387,8 +406,8 @@ func TestReconcileConfluenceTableSourceDetectsEmittedGridDisagreement(t *testing
 		}},
 		{name: "covered coordinate claims to be an origin", corrupt: func(g *ConfluenceTable) {
 			g.Rows[1].Cells[0].Repeated = false
-			g.Rows[1].Cells[0].SourceRow = g.Rows[1].Cells[0].Row
-			g.Rows[1].Cells[0].SourceColumn = g.Rows[1].Cells[0].Column
+			g.Rows[1].Cells[0].SourceRow = 0
+			g.Rows[1].Cells[0].SourceColumn = 0
 		}},
 		{name: "claimed coordinate emitted as synthetic padding", corrupt: func(g *ConfluenceTable) {
 			g.Rows[1].Cells[0] = emptyTableCell(1, 0)
@@ -428,12 +447,12 @@ func TestSummarizeConfluenceTablesKeepsDOMLedgerAsAnIndependentWitness(t *testin
 	covered := &grid.Rows[1].Cells[0]
 	covered.Repeated = false
 	covered.Rowspan = 0
-	covered.SourceRow, covered.SourceColumn = covered.Row, covered.Column
+	covered.SourceRow, covered.SourceColumn = 0, 0
 	if !reconcileConfluenceTableCells(grid) {
 		t.Fatalf("durable cell ledger rejected the grid, so the DOM ledger would be untested")
 	}
 	grid.sourcePlacementReconciled = reconcileConfluenceTableSource(tableRows(node), grid)
-	if got := summarizeConfluenceTable(grid, ConfluenceTableSchemaVersion); got.CellCountReconciled {
+	if got := summarizeConfluenceTable(grid, ConfluenceTableSchemaVersion, ConfluenceTableCellContract); got.CellCountReconciled {
 		t.Fatalf("grid disagreeing with its own markup reconciled: %+v", got)
 	}
 }
@@ -560,42 +579,62 @@ func forgeReconciledConfluenceTableSummaries(extract *ConfluenceTableExtract) {
 }
 
 func TestSummarizeConfluenceTablesRefusesForgedSummaryOverLegacyCells(t *testing.T) {
-	// A pre-contract payload carries no source coordinates on its origin cells.
-	// A content-bearing one is refused by the cell contract itself; an all-empty
-	// one is genuinely indistinguishable from synthetic padding, so the schema
-	// version is what refuses it. Neither may be upgraded by attaching a summary
-	// that claims reconciliation.
+	// A payload cannot buy reconciliation by attaching a summary that simply
+	// claims it: the deserialized path recomputes the span ledger and additionally
+	// demands the current schema version and the exact cell contract marker.
+	// Schema-2 origins named themselves, a shape the compact classifier reads as an
+	// invalid cell, so relabelling such a payload cannot upgrade it either. Every
+	// case below carries a forged reconciled summary, so the forge alone can never
+	// explain the refusal.
+	const body = `<table><tbody><tr><td rowspan="2">A</td><td>B</td></tr><tr><td>C</td></tr></tbody></table>`
 	for _, test := range []struct {
-		name          string
-		body          string
-		schemaVersion int
+		name   string
+		tamper func(*ConfluenceTableExtract)
 	}{
-		{
-			name:          "content-bearing legacy cells",
-			body:          `<table><tbody><tr><td rowspan="2">A</td><td>B</td></tr><tr><td>C</td></tr></tbody></table>`,
-			schemaVersion: ConfluenceTableSchemaVersion,
-		},
-		{
-			name:          "empty legacy cells on the previous schema version",
-			body:          `<table><tbody><tr><td></td><td></td></tr></tbody></table>`,
-			schemaVersion: ConfluenceTableSchemaVersion - 1,
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			decoded := roundTripConfluenceTableExtract(t, test.body)
-			decoded.SchemaVersion = test.schemaVersion
-			for _, row := range decoded.Tables[0].Rows {
+		{name: "schema-2 self-coordinate origins relabelled to the current schema", tamper: func(e *ConfluenceTableExtract) {
+			for _, row := range e.Tables[0].Rows {
 				for i := range row.Cells {
-					if cell := &row.Cells[i]; !cell.Repeated {
-						cell.SourceRow, cell.SourceColumn = 0, 0
+					if cell := &row.Cells[i]; !cell.Repeated && !cell.Synthetic {
+						cell.SourceRow, cell.SourceColumn = cell.Row, cell.Column
 					}
 				}
 			}
+		}},
+		{name: "current grid on a stale schema version", tamper: func(e *ConfluenceTableExtract) {
+			e.SchemaVersion = ConfluenceTableSchemaVersion - 1
+		}},
+		{name: "current grid without the contract marker", tamper: func(e *ConfluenceTableExtract) {
+			e.CellContract = ""
+		}},
+		{name: "current grid with a foreign contract marker", tamper: func(e *ConfluenceTableExtract) {
+			e.CellContract = ConfluenceTableCellContract + "-tampered"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			decoded := roundTripConfluenceTableExtract(t, body)
+			test.tamper(decoded)
 			forgeReconciledConfluenceTableSummaries(decoded)
 			if got := SummarizeConfluenceTables(decoded).Tables[0]; got.CellCountReconciled {
-				t.Fatalf("legacy cells reconciled behind a forged summary: %+v", got)
+				t.Fatalf("payload reconciled behind a forged summary: %+v", got)
 			}
 		})
+	}
+}
+
+// TestSummarizeConfluenceTablesReconcilesValidEmptyNativeCells pins the semantics
+// the compact contract must preserve: an empty native cell is a valid origin,
+// distinct from synthetic padding, and a decoded grid of them still reconciles.
+func TestSummarizeConfluenceTablesReconcilesValidEmptyNativeCells(t *testing.T) {
+	decoded := roundTripConfluenceTableExtract(t, `<table><tbody><tr><td></td><td></td></tr></tbody></table>`)
+	for _, cell := range decoded.Tables[0].Rows[0].Cells {
+		if cell.Synthetic || cell.Repeated || cell.SourceRow != 0 || cell.SourceColumn != 0 ||
+			classifyConfluenceTableCell(cell) != confluenceTableOriginCell {
+			t.Fatalf("empty native cell = %+v, want a valid origin", cell)
+		}
+	}
+	got := SummarizeConfluenceTables(decoded).Tables[0]
+	if got.OriginCellCount != 2 || got.SyntheticEmptyCellCount != 0 || !got.CellCountReconciled {
+		t.Fatalf("empty native summary = %+v, want two reconciled origins", got)
 	}
 }
 
@@ -615,8 +654,8 @@ func TestSummarizeConfluenceTablesRecomputesSpanClaimsFromDurableCells(t *testin
 		name   string
 		tamper func(*ConfluenceTable)
 	}{
-		{name: "origin loses its source coordinates", tamper: func(tbl *ConfluenceTable) {
-			tbl.Rows[0].Cells[0].SourceRow, tbl.Rows[0].Cells[0].SourceColumn = 0, 0
+		{name: "origin carries stray schema-2 self coordinates", tamper: func(tbl *ConfluenceTable) {
+			tbl.Rows[0].Cells[0].SourceRow, tbl.Rows[0].Cells[0].SourceColumn = 1, 1
 		}},
 		{name: "origin names another cell", tamper: func(tbl *ConfluenceTable) {
 			tbl.Rows[0].Cells[0].SourceColumn = 2
@@ -691,9 +730,9 @@ func TestSummarizeConfluenceTablesDistinguishesOriginsAndSyntheticPadding(t *tes
 func TestSummarizeConfluenceTablesCountsStyleEntriesAndDistinctMarkers(t *testing.T) {
 	extract := &ConfluenceTableExtract{TableCount: 1, Tables: []ConfluenceTable{{
 		Index: 1, RowCount: 1, ColumnCount: 3, Rows: []ConfluenceTableRow{{Cells: []ConfluenceTableCell{
-			{Row: 1, Column: 1, SourceRow: 1, SourceColumn: 1, Styles: map[string]string{"color": "red", "background": "blue"}},
-			{Row: 1, Column: 2, SourceRow: 1, SourceColumn: 2, Styles: map[string]string{"color": "red"}},
-			{Row: 1, Column: 3, SourceRow: 1, SourceColumn: 3, Styles: map[string]string{"color": "green"}},
+			{Row: 1, Column: 1, Styles: map[string]string{"color": "red", "background": "blue"}},
+			{Row: 1, Column: 2, Styles: map[string]string{"color": "red"}},
+			{Row: 1, Column: 3, Styles: map[string]string{"color": "green"}},
 		}}},
 	}}}
 	got := SummarizeConfluenceTables(extract).Tables[0]
@@ -706,10 +745,10 @@ func TestSummarizeConfluenceTablesDetectsRaggedInputAndSelectionMismatch(t *test
 	extract := &ConfluenceTableExtract{TableCount: 2, Table: 2, Tables: []ConfluenceTable{{
 		Index: 1, RowCount: 2, ColumnCount: 2, Rows: []ConfluenceTableRow{
 			{Cells: []ConfluenceTableCell{
-				{Row: 1, Column: 1, SourceRow: 1, SourceColumn: 1},
-				{Row: 1, Column: 2, SourceRow: 1, SourceColumn: 2},
+				{Row: 1, Column: 1},
+				{Row: 1, Column: 2},
 			}},
-			{Cells: []ConfluenceTableCell{{Row: 2, Column: 1, SourceRow: 2, SourceColumn: 1}}},
+			{Cells: []ConfluenceTableCell{{Row: 2, Column: 1}}},
 		},
 	}}}
 	got := SummarizeConfluenceTables(extract)
@@ -750,7 +789,8 @@ func TestRenderConfluenceTableCSV(t *testing.T) {
 	if len(records) < 3 || strings.Join(records[0], ",") != "table,row,column,text,markdown,links,styles,repeated,source_row,source_column" {
 		t.Fatalf("all-table csv missing cell metadata:\n%s", data)
 	}
-	// Schema v2 makes native origins self-naming in the durable source columns.
+	// The compact JSON leaves an origin's source coordinates implicit, but the
+	// flat CSV resolves them from the cell kind: an origin states its own placement.
 	if records[1][7] != "false" || records[1][8] != "1" || records[1][9] != "1" {
 		t.Fatalf("all-table csv origin provenance = %#v", records[1])
 	}
@@ -818,5 +858,86 @@ func TestWriteConfluenceTableXLSX(t *testing.T) {
 	}
 	if !foundWorkbook || !foundSecondSheet {
 		t.Fatalf("xlsx missing workbook/sheet2 content")
+	}
+}
+
+func TestExtractTablesCompactOriginJSONScalesSourceCoordinatesWithRepeatedCells(t *testing.T) {
+	// A dense all-origin grid is the case the compact contract is for: the JSON
+	// spends no source_row/source_column pair on any cell, so a schema-2
+	// self-naming payload of the identical grid is materially larger.
+	const rows, cols = 12, 12
+	var b strings.Builder
+	b.WriteString("<table><tbody>")
+	for r := 0; r < rows; r++ {
+		b.WriteString("<tr>")
+		for c := 0; c < cols; c++ {
+			b.WriteString("<td>x</td>")
+		}
+		b.WriteString("</tr>")
+	}
+	b.WriteString("</tbody></table>")
+
+	compact, err := ExtractTablesFromCSF("123", "Doc", []byte(b.String()), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary := SummarizeConfluenceTables(compact).Tables[0]
+	if summary.OriginCellCount != rows*cols || summary.RepeatedCellCount != 0 ||
+		summary.SyntheticEmptyCellCount != 0 || !summary.CellCountReconciled {
+		t.Fatalf("dense grid summary = %+v, want %d reconciled origins", summary, rows*cols)
+	}
+	compactJSON, err := json.Marshal(compact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Source-coordinate members scale only with repeated cells — here, none.
+	if n := bytes.Count(compactJSON, []byte(`"source_row":`)); n != summary.RepeatedCellCount {
+		t.Fatalf("compact JSON carries %d source_row members, want %d (one per repeated cell)", n, summary.RepeatedCellCount)
+	}
+
+	// Reconstruct the schema-2 shape deterministically: every origin names itself.
+	legacy, err := ExtractTablesFromCSF("123", "Doc", []byte(b.String()), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for ti := range legacy.Tables {
+		for ri := range legacy.Tables[ti].Rows {
+			for ci := range legacy.Tables[ti].Rows[ri].Cells {
+				cell := &legacy.Tables[ti].Rows[ri].Cells[ci]
+				if classifyConfluenceTableCell(*cell) == confluenceTableOriginCell {
+					cell.SourceRow, cell.SourceColumn = cell.Row, cell.Column
+				}
+			}
+		}
+	}
+	legacyJSON, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := bytes.Count(legacyJSON, []byte(`"source_row":`)); n != rows*cols {
+		t.Fatalf("schema-2 JSON carries %d source_row members, want %d", n, rows*cols)
+	}
+	// Each origin the compact form drops would cost at least
+	// `,"source_row":N,"source_column":N` (>= 30 bytes) under schema-2 self coords.
+	if len(compactJSON) >= len(legacyJSON) || len(legacyJSON)-len(compactJSON) < rows*cols*30 {
+		t.Fatalf("compact JSON = %d bytes, schema-2 self-coordinate JSON = %d bytes; want a material reduction", len(compactJSON), len(legacyJSON))
+	}
+
+	// The same invariant with real repeated cells: a rowspan of 3 covers exactly
+	// two coordinates, so exactly two source_row members appear.
+	spanned, err := ExtractTablesFromCSF("123", "Doc", []byte(`<table><tbody><tr><td rowspan="3">A</td><td>B</td></tr><tr><td>C</td></tr><tr><td>D</td></tr></tbody></table>`), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spannedSummary := SummarizeConfluenceTables(spanned).Tables[0]
+	if spannedSummary.RepeatedCellCount != 2 {
+		t.Fatalf("rowspan-3 repeated count = %d, want 2", spannedSummary.RepeatedCellCount)
+	}
+	spannedJSON, err := json.Marshal(spanned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := bytes.Count(spannedJSON, []byte(`"source_row":`)); n != spannedSummary.RepeatedCellCount {
+		t.Fatalf("spanned JSON carries %d source_row members, want %d", n, spannedSummary.RepeatedCellCount)
 	}
 }

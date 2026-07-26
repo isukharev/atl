@@ -13,9 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Reconciled Confluence table cells against an independent source-placement and
   rowspan/colspan ledger, rejecting overlapping claims, coverage outside the
-  source row domain, and disagreements with the expanded grid. Table schema v2
-  gives native origins self-naming source coordinates so cell kind and span
-  reconciliation survive serialization without trusting a verdict flag.
+  source row domain, and disagreements with the expanded grid. Compact table
+  schema v3 leaves native origins unmarked, records coordinates only for span
+  repeats, marks synthetic padding explicitly, and binds the cell contract with
+  a required top-level marker so reconciliation survives serialization without
+  trusting a verdict flag or inflating origin-heavy results.
 - Redacted untyped read-only MCP failure details so request-policy refusals
   cannot expose backend or server-supplied URL details to tool clients.
 - Aligned the Jira history primary and holdout execution variants so the

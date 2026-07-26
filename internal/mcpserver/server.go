@@ -1373,6 +1373,7 @@ func boundedStructureMetadataOutput(value *app.StructureMetadataResult) error {
 
 func validateTableSummary(summary *app.ConfluenceTableSummary, table, expectedPageVersion int) error {
 	if summary == nil || summary.SchemaVersion != app.ConfluenceTableSchemaVersion ||
+		summary.CellContract != app.ConfluenceTableCellContract ||
 		strings.TrimSpace(summary.PageID) == "" || summary.Version < 1 ||
 		summary.PageVersionGated != (expectedPageVersion > 0) ||
 		(expectedPageVersion > 0 && summary.Version != expectedPageVersion) ||
@@ -1400,6 +1401,7 @@ func validateTableSummary(summary *app.ConfluenceTableSummary, table, expectedPa
 
 func validateSelectedTableExtract(extract *app.ConfluenceTableExtract, table, expectedPageVersion int) error {
 	if extract == nil || extract.SchemaVersion != app.ConfluenceTableSchemaVersion ||
+		extract.CellContract != app.ConfluenceTableCellContract ||
 		strings.TrimSpace(extract.PageID) == "" || extract.Version < 1 ||
 		extract.PageVersionGated != (expectedPageVersion > 0) ||
 		(expectedPageVersion > 0 && extract.Version != expectedPageVersion) ||

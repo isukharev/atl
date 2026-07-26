@@ -20,19 +20,29 @@ import (
 )
 
 // ConfluenceTableSchemaVersion gates the table extract/summary JSON shape. It
-// moves to 2 for the source-placement reconciliation work: an origin cell now
-// emits source_row/source_column naming itself, so every cell states its kind
-// durably (see ConfluenceTableCell) instead of leaving origin and synthetic
-// padding indistinguishable once the in-process marker is gone. The value of
-// cell_count_reconciled also got stricter — a table whose source spans overlap
-// or run past the source rows reports false where the pure count check said
-// true. Version 1 payloads predate the cell contract, so they are never eligible
-// for reconciliation on the deserialized path.
-const ConfluenceTableSchemaVersion = 2
+// moves to 3 for the compact cell contract: a native origin is now the unmarked
+// default and carries no source coordinates at all, so origin-heavy tables — the
+// common case — no longer pay a source_row/source_column pair on every cell.
+// Provenance stays durable because the two non-default kinds mark themselves: a
+// repeated cell keeps repeated:true plus the covering origin's coordinates, and a
+// synthetic pad cell emits synthetic:true (see ConfluenceTableCell). Schema 2
+// origins named themselves (source_row == row) and schema 1 predates the cell
+// contract entirely; both read as invalid cells under the compact classifier, so
+// neither is eligible for reconciliation on the deserialized path even if its
+// schema_version field is relabelled.
+const ConfluenceTableSchemaVersion = 3
+
+// ConfluenceTableCellContract is the stable, non-empty marker for the compact
+// cell-kind contract. Every extract stamps it at top level; deserialized
+// reconciliation requires it to match exactly, so a payload cannot claim the
+// current contract by only relabelling schema_version. Its value must never
+// change without a schema bump.
+const ConfluenceTableCellContract = "confluence-table-cells/compact-v3"
 
 // ConfluenceTableExtract is a structured, read-only view of tables on a page.
 type ConfluenceTableExtract struct {
 	SchemaVersion       int               `json:"schema_version"`
+	CellContract        string            `json:"cell_contract"`
 	PageID              string            `json:"page_id"`
 	Title               string            `json:"title,omitempty"`
 	Version             int               `json:"version"`
@@ -48,6 +58,7 @@ type ConfluenceTableExtract struct {
 // tables on a page. It deliberately excludes page and cell content.
 type ConfluenceTableSummary struct {
 	SchemaVersion       int                            `json:"schema_version"`
+	CellContract        string                         `json:"cell_contract"`
 	PageID              string                         `json:"page_id"`
 	Version             int                            `json:"version"`
 	PageVersionGated    bool                           `json:"page_version_gated"`
@@ -127,17 +138,21 @@ type ConfluenceTableRow struct {
 // ConfluenceTableCell is one expanded cell. Its kind is durable and explicit;
 // classifyConfluenceTableCell is the closed reading of the field combination:
 //
-//   - origin — the cell the markup actually declares: Repeated false and
-//     SourceRow/SourceColumn naming its own coordinate.
-//   - repeated — a coordinate covered by a rowspan/colspan: Repeated true and
-//     SourceRow/SourceColumn naming the covering origin, never the cell's own
-//     coordinate and never one after it in the grid.
-//   - synthetic padding — a coordinate the markup left unfilled: Repeated false,
-//     zero source coordinates, and no content, metadata, or spans.
+//   - origin — the cell the markup actually declares, and the compact default:
+//     Repeated false, Synthetic false, and zero source coordinates. It may carry
+//     content, spans, or nothing at all (a valid empty native cell).
+//   - repeated — a coordinate covered by a rowspan/colspan: Repeated true,
+//     Synthetic false, and SourceRow/SourceColumn naming the covering origin,
+//     never the cell's own coordinate and never one after it in the grid.
+//   - synthetic padding — a coordinate the markup left unfilled: Synthetic true,
+//     Repeated false, zero source coordinates, and no content, metadata, or spans.
 //
-// Every other combination is invalid and can never reconcile. Because the kind
-// survives serialization, a deserialized cell carries the same provenance a
-// freshly extracted one does.
+// Every other combination — a marked cell that also carries source coordinates, a
+// native origin that names a coordinate (the schema-2 self-naming shape), or both
+// markers at once — is invalid and can never reconcile. Because the kind survives
+// serialization, a deserialized cell carries the same provenance a freshly
+// extracted one does; the compact form simply spends bytes only on the two kinds
+// that are not the default.
 type ConfluenceTableCell struct {
 	Row          int                   `json:"row"`
 	Column       int                   `json:"column"`
@@ -149,6 +164,7 @@ type ConfluenceTableCell struct {
 	Rowspan      int                   `json:"rowspan,omitempty"`
 	Colspan      int                   `json:"colspan,omitempty"`
 	Repeated     bool                  `json:"repeated,omitempty"`
+	Synthetic    bool                  `json:"synthetic,omitempty"`
 	SourceRow    int                   `json:"source_row,omitempty"`
 	SourceColumn int                   `json:"source_column,omitempty"`
 	Raw          map[string]string     `json:"raw,omitempty"`
@@ -174,6 +190,9 @@ func classifyConfluenceTableCell(cell ConfluenceTableCell) confluenceTableCellKi
 		cell.Rowspan < 0 || cell.Colspan < 0 {
 		return confluenceTableInvalidCell
 	}
+	if cell.Repeated && cell.Synthetic {
+		return confluenceTableInvalidCell
+	}
 	own := cell.SourceRow == cell.Row && cell.SourceColumn == cell.Column
 	switch {
 	case cell.Repeated:
@@ -182,19 +201,26 @@ func classifyConfluenceTableCell(cell ConfluenceTableCell) confluenceTableCellKi
 			return confluenceTableInvalidCell
 		}
 		return confluenceTableRepeatedCell
-	case own:
-		return confluenceTableOriginCell
-	case cell.SourceRow == 0 && cell.SourceColumn == 0 && confluenceTableCellIsBare(cell):
+	case cell.Synthetic:
+		if cell.SourceRow != 0 || cell.SourceColumn != 0 || !confluenceTableCellIsBare(cell) {
+			return confluenceTableInvalidCell
+		}
 		return confluenceTableSyntheticCell
+	default:
+		// Compact native origin: unmarked and carrying no source coordinates. A
+		// stray coordinate here is the schema-2 self-naming shape (or worse), which
+		// is no longer the origin contract and must not pass as one.
+		if cell.SourceRow != 0 || cell.SourceColumn != 0 {
+			return confluenceTableInvalidCell
+		}
+		return confluenceTableOriginCell
 	}
-	return confluenceTableInvalidCell
 }
 
 // confluenceTableCellIsBare reports whether a cell carries nothing but its
-// coordinate, as emptyTableCell emits it. Synthetic padding stands for markup
-// that is absent, so a padding cell holding content or span metadata is a
-// contradiction — and, without this, a legacy origin cell that lost its source
-// coordinates would read as padding.
+// coordinate and synthetic marker, as emptyTableCell emits it. Synthetic padding
+// stands for markup that is absent, so a padding cell holding content or span
+// metadata is a contradiction.
 func confluenceTableCellIsBare(cell ConfluenceTableCell) bool {
 	return cell.Text == "" && cell.Markdown == "" && !cell.Header &&
 		cell.Rowspan == 0 && cell.Colspan == 0 &&
@@ -268,6 +294,7 @@ func (s *ConfluenceService) ExtractTablesWithOptions(ctx context.Context, id str
 		return nil, err
 	}
 	extract.SchemaVersion = ConfluenceTableSchemaVersion
+	extract.CellContract = ConfluenceTableCellContract
 	extract.Version = page.Version
 	extract.PageVersionGated = opts.ExpectedPageVersion > 0
 	return extract, nil
@@ -297,6 +324,7 @@ func SummarizeConfluenceTables(extract *ConfluenceTableExtract) *ConfluenceTable
 	}
 	res := &ConfluenceTableSummary{
 		SchemaVersion:      extract.SchemaVersion,
+		CellContract:       extract.CellContract,
 		PageID:             extract.PageID,
 		Version:            extract.Version,
 		PageVersionGated:   extract.PageVersionGated,
@@ -307,7 +335,7 @@ func SummarizeConfluenceTables(extract *ConfluenceTableExtract) *ConfluenceTable
 	}
 	res.SelectionReconciled = confluenceTableSelectionReconciled(extract.Table, extract.TableCount, extract.Tables)
 	for _, table := range extract.Tables {
-		res.Tables = append(res.Tables, summarizeConfluenceTable(table, extract.SchemaVersion))
+		res.Tables = append(res.Tables, summarizeConfluenceTable(table, extract.SchemaVersion, extract.CellContract))
 	}
 	return res
 }
@@ -324,9 +352,10 @@ func SummarizeConfluenceTables(extract *ConfluenceTableExtract) *ConfluenceTable
 //   - live extraction (sourcePlacementChecked): the DOM placement ledger, which
 //     shares no state with the expansion, must also agree.
 //   - deserialized: the attached Summary must equal the recomputation exactly,
-//     and the payload must carry the current schema version, so neither a forged
-//     summary nor a pre-contract payload can upgrade itself.
-func summarizeConfluenceTable(table ConfluenceTable, schemaVersion int) ConfluenceTableSummaryRecord {
+//     and the payload must carry both the current schema version and the exact
+//     cell contract marker, so neither a forged summary nor a schema-relabelled
+//     pre-contract payload can upgrade itself.
+func summarizeConfluenceTable(table ConfluenceTable, schemaVersion int, cellContract string) ConfluenceTableSummaryRecord {
 	record := ConfluenceTableSummaryRecord{
 		Index:        table.Index,
 		RowCount:     table.RowCount,
@@ -402,7 +431,8 @@ func summarizeConfluenceTable(table ConfluenceTable, schemaVersion int) Confluen
 	if table.sourcePlacementChecked {
 		record.CellCountReconciled = record.CellCountReconciled && table.sourcePlacementReconciled
 	} else if record.CellCountReconciled &&
-		(schemaVersion != ConfluenceTableSchemaVersion || table.Summary != record) {
+		(schemaVersion != ConfluenceTableSchemaVersion || cellContract != ConfluenceTableCellContract ||
+			table.Summary != record) {
 		record.CellCountReconciled = false
 	}
 	return record
@@ -505,6 +535,7 @@ func ExtractTablesFromCSF(pageID, title string, body []byte, table int) (*Conflu
 	}
 	res := &ConfluenceTableExtract{
 		SchemaVersion: ConfluenceTableSchemaVersion,
+		CellContract:  ConfluenceTableCellContract,
 		PageID:        pageID,
 		Title:         title,
 		TableCount:    len(all),
@@ -729,17 +760,17 @@ func tableCell(row, col int, header bool, n *csf.Node) ConfluenceTableCell {
 	links := cellLinks(n)
 	styles := cellStyles(n)
 	cell := ConfluenceTableCell{
-		Row:          row + 1,
-		Column:       col + 1,
-		Text:         normalizeCellText(csf.TextContent(n)),
-		Markdown:     normalizeCellText(cellMarkdown(n)),
-		Links:        links,
-		Styles:       styles,
-		Header:       header,
-		Rowspan:      omitOne(rowspan),
-		Colspan:      omitOne(colspan),
-		SourceRow:    row + 1,
-		SourceColumn: col + 1,
+		Row:      row + 1,
+		Column:   col + 1,
+		Text:     normalizeCellText(csf.TextContent(n)),
+		Markdown: normalizeCellText(cellMarkdown(n)),
+		Links:    links,
+		Styles:   styles,
+		Header:   header,
+		Rowspan:  omitOne(rowspan),
+		Colspan:  omitOne(colspan),
+		// A native origin is the compact default: no marker, no source
+		// coordinates. classifyConfluenceTableCell reads its kind from that.
 	}
 	if raw := cellRaw(n); len(raw) > 0 {
 		cell.Raw = raw
@@ -748,7 +779,7 @@ func tableCell(row, col int, header bool, n *csf.Node) ConfluenceTableCell {
 }
 
 func emptyTableCell(row, col int) ConfluenceTableCell {
-	return ConfluenceTableCell{Row: row + 1, Column: col + 1}
+	return ConfluenceTableCell{Row: row + 1, Column: col + 1, Synthetic: true}
 }
 
 func repeatedCell(src ConfluenceTableCell, row, col int) ConfluenceTableCell {
@@ -998,10 +1029,17 @@ func renderAllTablesCellCSV(tables []ConfluenceTable, rawCSV bool) ([]byte, erro
 					"",
 					"",
 				}
-				if cell.SourceRow > 0 {
+				// The compact JSON leaves a native origin's source coordinates
+				// implicit, but the flat CSV states every origin's self placement
+				// explicitly. Derive the pair from the durable kind so origins and
+				// repeated cells both resolve to a real coordinate and synthetic
+				// padding stays blank.
+				switch classifyConfluenceTableCell(cell) {
+				case confluenceTableOriginCell:
+					record[8] = strconv.Itoa(cell.Row)
+					record[9] = strconv.Itoa(cell.Column)
+				case confluenceTableRepeatedCell:
 					record[8] = strconv.Itoa(cell.SourceRow)
-				}
-				if cell.SourceColumn > 0 {
 					record[9] = strconv.Itoa(cell.SourceColumn)
 				}
 				if err := w.Write(spreadsheetRecord(record, rawCSV)); err != nil {

@@ -450,6 +450,11 @@ atl conf comment list --id 123456
 atl conf comment add  --id 123456 --from-file comment.csf
 ```
 
+В JSON-схеме таблиц v3 используется компактный устойчивый provenance: исходные
+ячейки не имеют маркера, повторения span указывают координаты источника, а
+прямоугольное заполнение имеет `synthetic:true`. Результаты summary и extract
+содержат точный marker `cell_contract:"confluence-table-cells/compact-v3"`.
+
 ---
 
 ## Модель редактирования и защитные механизмы
