@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Redacted untyped read-only MCP failure details so request-policy refusals
+  cannot expose backend or server-supplied URL details to tool clients.
 - Aligned the Jira history primary and holdout execution variants so the
   attested sampling lifecycle can accept their distinct n=3-plus-holdout
   evidence without weakening compatibility checks.
