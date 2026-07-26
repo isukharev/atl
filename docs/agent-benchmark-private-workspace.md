@@ -204,6 +204,21 @@ untouched and rejected. Cases, plans, runs, baselines, existing reports,
 ordering, and all v3 manifest fields remain unchanged. Schema v1/v2 and
 already-current v4 workspaces are never rewritten.
 
+A rejected preview or apply reports the stable migration sentinel and a short
+classification code, and nothing else — the same messages and codes as before.
+The migration paths have joined the cause-preserving pattern used by plan
+execution, the live gateway, and the daily checkpoint: a concrete workspace,
+lock, manifest-decoding, filesystem, or durability failure is now attached to
+the returned error instead of being discarded, so tooling can inspect it with
+the standard Go `errors.Is` and `errors.As` helpers while messages and logs stay
+free of configured private locations. A rejection that follows from validation
+alone — a missing confirmation, a mismatched reviewed digest, a layout-only
+unsupported recovery state, a wrong source schema version, or a non-owner-only
+manifest mode — attaches nothing. Migration bytes, digest binding,
+transactional ordering, staged recovery, durability checks, permissions, the
+confirmation gate, and fail-closed behavior are unchanged. Remaining lifecycle
+subsystems migrate to this pattern incrementally.
+
 Preview is available on Windows, but apply fails closed there because the
 current implementation cannot prove durable directory-entry ordering with
 Windows handles. Perform the reviewed migration on a supported POSIX host; do

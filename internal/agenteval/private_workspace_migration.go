@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -104,11 +103,11 @@ type privateWorkspaceMigrationTreeEntry struct {
 func PreviewPrivateWorkspaceMigration(root, repositoryRoot string) (PrivateWorkspaceMigrationPreview, error) {
 	absRoot, absRepository, err := privateWorkspaceLocations(root, repositoryRoot, false)
 	if err != nil {
-		return PrivateWorkspaceMigrationPreview{}, privateWorkspaceMigrationError("workspace")
+		return PrivateWorkspaceMigrationPreview{}, privateWorkspaceMigrationError("workspace", err)
 	}
 	lock, err := acquirePrivateWorkspaceLock(absRoot)
 	if err != nil {
-		return PrivateWorkspaceMigrationPreview{}, privateWorkspaceMigrationError("workspace_busy")
+		return PrivateWorkspaceMigrationPreview{}, privateWorkspaceMigrationError("workspace_busy", err)
 	}
 	defer func() { _ = lock.Unlock() }()
 	material, err := loadPrivateWorkspaceMigration(absRoot, absRepository, false)
@@ -127,11 +126,11 @@ func ApplyPrivateWorkspaceMigration(options PrivateWorkspaceMigrationOptions) (P
 	}
 	absRoot, absRepository, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
 	if err != nil {
-		return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("workspace")
+		return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("workspace", err)
 	}
 	lock, err := acquirePrivateWorkspaceLock(absRoot)
 	if err != nil {
-		return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("workspace_busy")
+		return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("workspace_busy", err)
 	}
 	defer func() { _ = lock.Unlock() }()
 	material, err := loadPrivateWorkspaceMigration(absRoot, absRepository, true)
@@ -147,43 +146,43 @@ func ApplyPrivateWorkspaceMigration(options PrivateWorkspaceMigrationOptions) (P
 	}
 	if !material.recoverable {
 		if err := privateWorkspaceMigrationWrite(material.root, material.currentPath, material.candidateData, 0o600); err != nil {
-			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("candidate_write")
+			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("candidate_write", err)
 		}
 		candidateInfo, err := os.Lstat(material.currentPath)
 		if err != nil {
-			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("candidate_verify")
+			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("candidate_verify", err)
 		}
 		material.candidateInfo = candidateInfo
 		material.recoverable = true
 	}
 	if err := privateWorkspaceMigrationSync(material.root, material.root); err != nil {
-		return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("candidate_durability")
+		return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("candidate_durability", err)
 	}
 	if err := revalidatePrivateWorkspaceMigration(material, absRepository); err != nil {
 		return PrivateWorkspaceMigrationSummary{}, err
 	}
 	if !material.archived {
 		if err := privateWorkspaceMigrationWrite(material.root, material.archivePath, material.sourceData, 0o600); err != nil {
-			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_archive")
+			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_archive", err)
 		}
 		material.archived = true
 	}
 	if err := privateWorkspaceMigrationSync(material.root, filepath.Dir(material.archivePath)); err != nil {
-		return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_archive_durability")
+		return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_archive_durability", err)
 	}
 	archiveData, err := safepath.ReadFileWithinLimit(material.root, material.archivePath, maxPrivateWorkspaceManifestBytes)
 	if err != nil || !bytes.Equal(archiveData, material.sourceData) {
-		return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_archive_changed")
+		return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_archive_changed", err)
 	}
 	if err := revalidatePrivateWorkspaceMigration(material, absRepository); err != nil {
 		return PrivateWorkspaceMigrationSummary{}, err
 	}
 	if material.duplicateLegacy {
 		if err := privateWorkspaceMigrationRemove(material.root, material.legacyPath); err != nil {
-			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_stage")
+			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_stage", err)
 		}
 		if err := privateWorkspaceMigrationSync(material.root, material.root); err != nil {
-			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_stage_durability")
+			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_stage_durability", err)
 		}
 		material.duplicateLegacy = false
 		if err := revalidatePrivateWorkspaceMigration(material, absRepository); err != nil {
@@ -193,16 +192,16 @@ func ApplyPrivateWorkspaceMigration(options PrivateWorkspaceMigrationOptions) (P
 	if material.sourceLegacy {
 		before, err := os.Lstat(material.legacyPath)
 		if err != nil || !os.SameFile(before, material.sourceInfo) {
-			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_changed")
+			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_changed", err)
 		}
 		if err := privateWorkspaceMigrationRename(material.root, material.legacyPath, material.stagePath); err != nil {
-			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_stage")
+			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_stage", err)
 		}
 		if err := privateWorkspaceMigrationSync(material.root, filepath.Dir(material.stagePath)); err != nil {
-			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_stage_durability")
+			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_stage_durability", err)
 		}
 		if err := privateWorkspaceMigrationSync(material.root, material.root); err != nil {
-			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_stage_durability")
+			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_stage_durability", err)
 		}
 		material.sourcePath = material.stagePath
 		material.sourceLegacy = false
@@ -213,15 +212,15 @@ func ApplyPrivateWorkspaceMigration(options PrivateWorkspaceMigrationOptions) (P
 	}
 	if material.staged {
 		if err := privateWorkspaceMigrationRemove(material.root, material.stagePath); err != nil {
-			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_remove")
+			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_remove", err)
 		}
 		if err := privateWorkspaceMigrationSync(material.root, filepath.Dir(material.stagePath)); err != nil {
-			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_remove_durability")
+			return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_remove_durability", err)
 		}
 	}
 	archiveInfo, err := os.Lstat(material.archivePath)
 	if err != nil {
-		return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_archive_changed")
+		return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_archive_changed", err)
 	}
 	material.sourcePath = material.archivePath
 	material.sourceInfo = archiveInfo
@@ -246,7 +245,7 @@ func ApplyPrivateWorkspaceMigration(options PrivateWorkspaceMigrationOptions) (P
 func loadPrivateWorkspaceMigration(root, repository string, allowRecoverable bool) (privateWorkspaceMigrationMaterial, error) {
 	rootInfo, err := os.Lstat(root)
 	if err != nil {
-		return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("workspace")
+		return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("workspace", err)
 	}
 	legacyPath := filepath.Join(root, LegacyCalibratedWorkspaceManifestName)
 	currentPath := filepath.Join(root, PrivateWorkspaceManifestName)
@@ -294,44 +293,44 @@ func loadPrivateWorkspaceMigration(root, repository string, allowRecoverable boo
 	}
 	sourceInfo, err := os.Lstat(sourcePath)
 	if err != nil {
-		return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("source_read")
+		return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("source_read", err)
 	}
 	sourceData, err := safepath.ReadFileWithinLimit(root, sourcePath, maxPrivateWorkspaceManifestBytes)
 	if err != nil {
-		return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("source_read")
+		return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("source_read", err)
 	}
 	manifest, err := DecodePrivateWorkspaceManifest(bytes.NewReader(sourceData))
 	if err != nil || manifest.SchemaVersion != LegacyCalibratedWorkspaceSchemaVersion {
-		return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("source_invalid")
+		return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("source_invalid", err)
 	}
 	if duplicateStageRecovery {
 		legacyInfo, statErr := os.Lstat(legacyPath)
 		legacyData, readErr := safepath.ReadFileWithinLimit(root, legacyPath, maxPrivateWorkspaceManifestBytes)
 		if statErr != nil || readErr != nil || !os.SameFile(legacyInfo, sourceInfo) || !bytes.Equal(legacyData, sourceData) {
-			return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("unsupported_state")
+			return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("unsupported_state", statErr, readErr)
 		}
 	}
 	candidate := manifest
 	candidate.SchemaVersion = PrivateWorkspaceSchemaVersion
 	candidateData, err := EncodePrivateWorkspaceManifest(candidate)
 	if err != nil {
-		return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("candidate_invalid")
+		return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("candidate_invalid", err)
 	}
 	if currentExists {
 		currentData, readErr := safepath.ReadFileWithinLimit(root, currentPath, maxPrivateWorkspaceManifestBytes)
 		if readErr != nil || !bytes.Equal(currentData, candidateData) {
-			return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("ambiguous_candidate")
+			return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("ambiguous_candidate", readErr)
 		}
 		current, decodeErr := DecodePrivateWorkspaceManifest(bytes.NewReader(currentData))
 		if decodeErr != nil || current.SchemaVersion != PrivateWorkspaceSchemaVersion {
-			return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("ambiguous_candidate")
+			return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("ambiguous_candidate", decodeErr)
 		}
 	}
 	var candidateInfo os.FileInfo
 	if currentExists {
 		candidateInfo, err = os.Lstat(currentPath)
 		if err != nil {
-			return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("ambiguous_candidate")
+			return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("ambiguous_candidate", err)
 		}
 	}
 	counts, err := validatePrivateWorkspaceMigrationHealth(root, repository, manifest, stageExists)
@@ -348,7 +347,7 @@ func loadPrivateWorkspaceMigration(root, repository string, allowRecoverable boo
 		SourceSHA256: sha256HexBytes(sourceData), CandidateSHA256: sha256HexBytes(candidateData)}
 	contractData, err := json.Marshal(contract)
 	if err != nil {
-		return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("contract")
+		return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("contract", err)
 	}
 	status := "ready"
 	if currentExists {
@@ -369,8 +368,13 @@ func loadPrivateWorkspaceMigration(root, repository string, allowRecoverable boo
 func validatePrivateWorkspaceMigrationHealth(root, repository string, manifest PrivateWorkspaceManifest, allowStage bool) (PrivateWorkspaceCounts, error) {
 	rootInfo, err := os.Lstat(root)
 	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 || !privateWorkspaceDirectoryMode(rootInfo.Mode()) ||
-		!privateWorkspaceRootMarkerOK(root) || privateWorkspaceGitBoundary(root, repository, true) != nil || !privateWorkspaceLayoutOK(root) {
-		return PrivateWorkspaceCounts{}, privateWorkspaceMigrationError("workspace_unhealthy")
+		!privateWorkspaceRootMarkerOK(root) {
+		return PrivateWorkspaceCounts{}, privateWorkspaceMigrationError("workspace_unhealthy", err)
+	}
+	// Split out purely to keep the git-boundary failure attachable; the
+	// short-circuit order and the resulting code are the same as before.
+	if boundaryErr := privateWorkspaceGitBoundary(root, repository, true); boundaryErr != nil || !privateWorkspaceLayoutOK(root) {
+		return PrivateWorkspaceCounts{}, privateWorkspaceMigrationError("workspace_unhealthy", boundaryErr)
 	}
 	modeOK, symlinkOK := inspectPrivateWorkspaceTree(root)
 	contained, specsOK, validSpecs := inspectPrivateWorkspaceSpecs(root, manifest)
@@ -379,7 +383,7 @@ func validatePrivateWorkspaceMigrationHealth(root, repository string, manifest P
 	}
 	lifecycle, err := inspectPrivatePlanLifecycleAtRoot(root)
 	if err != nil {
-		return PrivateWorkspaceCounts{}, privateWorkspaceMigrationError("lifecycle")
+		return PrivateWorkspaceCounts{}, privateWorkspaceMigrationError("lifecycle", err)
 	}
 	if lifecycle.pendingPlans != 0 || lifecycle.activeRuns != 0 {
 		return PrivateWorkspaceCounts{}, privateWorkspaceMigrationError("lifecycle_busy")
@@ -399,43 +403,43 @@ func validatePrivateWorkspaceMigrationHealth(root, repository string, manifest P
 func revalidatePrivateWorkspaceMigration(material privateWorkspaceMigrationMaterial, repository string) error {
 	rootInfo, err := os.Lstat(material.root)
 	if err != nil || !os.SameFile(rootInfo, material.rootInfo) || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 {
-		return privateWorkspaceMigrationError("workspace_changed")
+		return privateWorkspaceMigrationError("workspace_changed", err)
 	}
 	sourceInfo, err := os.Lstat(material.sourcePath)
 	if err != nil || !os.SameFile(sourceInfo, material.sourceInfo) || sourceInfo.Mode()&os.ModeSymlink != 0 ||
 		!sourceInfo.Mode().IsRegular() || !privateWorkspaceFileMode(sourceInfo.Mode()) {
-		return privateWorkspaceMigrationError("source_changed")
+		return privateWorkspaceMigrationError("source_changed", err)
 	}
 	sourceData, err := safepath.ReadFileWithinLimit(material.root, material.sourcePath, maxPrivateWorkspaceManifestBytes)
 	if err != nil || !bytes.Equal(sourceData, material.sourceData) {
-		return privateWorkspaceMigrationError("source_changed")
+		return privateWorkspaceMigrationError("source_changed", err)
 	}
 	candidateInfo, err := os.Lstat(material.currentPath)
 	if err != nil || material.candidateInfo == nil || !os.SameFile(candidateInfo, material.candidateInfo) ||
 		candidateInfo.Mode()&os.ModeSymlink != 0 || !candidateInfo.Mode().IsRegular() ||
 		!privateWorkspaceFileMode(candidateInfo.Mode()) {
-		return privateWorkspaceMigrationError("candidate_changed")
+		return privateWorkspaceMigrationError("candidate_changed", err)
 	}
 	candidateData, err := safepath.ReadFileWithinLimit(material.root, material.currentPath, maxPrivateWorkspaceManifestBytes)
 	if err != nil || !bytes.Equal(candidateData, material.candidateData) {
-		return privateWorkspaceMigrationError("candidate_changed")
+		return privateWorkspaceMigrationError("candidate_changed", err)
 	}
 	legacyExists, err := privateWorkspaceMigrationRegularFile(material.legacyPath)
 	if err != nil || legacyExists != (material.sourceLegacy || material.duplicateLegacy) {
-		return privateWorkspaceMigrationError("source_changed")
+		return privateWorkspaceMigrationError("source_changed", err)
 	}
 	stageExists, err := privateWorkspaceMigrationRegularFile(material.stagePath)
 	if err != nil || stageExists != material.staged {
-		return privateWorkspaceMigrationError("source_changed")
+		return privateWorkspaceMigrationError("source_changed", err)
 	}
 	archiveExists, err := privateWorkspaceMigrationRegularFile(material.archivePath)
 	if err != nil || archiveExists != material.archived {
-		return privateWorkspaceMigrationError("source_archive_changed")
+		return privateWorkspaceMigrationError("source_archive_changed", err)
 	}
 	if archiveExists {
 		archiveData, readErr := safepath.ReadFileWithinLimit(material.root, material.archivePath, maxPrivateWorkspaceManifestBytes)
 		if readErr != nil || !bytes.Equal(archiveData, material.sourceData) {
-			return privateWorkspaceMigrationError("source_archive_changed")
+			return privateWorkspaceMigrationError("source_archive_changed", readErr)
 		}
 	}
 	if _, err := validatePrivateWorkspaceMigrationHealth(material.root, repository, material.manifest, material.staged); err != nil {
@@ -443,7 +447,7 @@ func revalidatePrivateWorkspaceMigration(material privateWorkspaceMigrationMater
 	}
 	currentTree, err := snapshotPrivateWorkspaceMigrationTree(material.root)
 	if err != nil || !equalPrivateWorkspaceMigrationTrees(material.protectedTree, currentTree) {
-		return privateWorkspaceMigrationError("workspace_changed")
+		return privateWorkspaceMigrationError("workspace_changed", err)
 	}
 	return nil
 }
@@ -451,7 +455,7 @@ func revalidatePrivateWorkspaceMigration(material privateWorkspaceMigrationMater
 func snapshotPrivateWorkspaceMigrationTree(root string) (map[string]privateWorkspaceMigrationTreeEntry, error) {
 	handle, err := os.OpenRoot(root)
 	if err != nil {
-		return nil, privateWorkspaceMigrationError("workspace_changed")
+		return nil, privateWorkspaceMigrationError("workspace_changed", err)
 	}
 	defer func() { _ = handle.Close() }()
 	result := make(map[string]privateWorkspaceMigrationTreeEntry)
@@ -476,7 +480,7 @@ func snapshotPrivateWorkspaceMigrationTree(root string) (map[string]privateWorks
 		}
 		info, err := entry.Info()
 		if err != nil || (!info.IsDir() && !info.Mode().IsRegular()) {
-			return privateWorkspaceMigrationError("workspace_changed")
+			return privateWorkspaceMigrationError("workspace_changed", err)
 		}
 		snapshot := privateWorkspaceMigrationTreeEntry{info: info}
 		if info.Mode().IsRegular() {
@@ -486,7 +490,7 @@ func snapshotPrivateWorkspaceMigrationTree(root string) (map[string]privateWorks
 			totalBytes += info.Size()
 			file, err := handle.Open(filepath.FromSlash(relative))
 			if err != nil {
-				return privateWorkspaceMigrationError("workspace_changed")
+				return privateWorkspaceMigrationError("workspace_changed", err)
 			}
 			hash := sha256.New()
 			read, copyErr := io.Copy(hash, io.LimitReader(file, info.Size()+1))
@@ -494,7 +498,7 @@ func snapshotPrivateWorkspaceMigrationTree(root string) (map[string]privateWorks
 			closeErr := file.Close()
 			if copyErr != nil || statErr != nil || closeErr != nil || read != info.Size() ||
 				!os.SameFile(info, after) || info.Mode() != after.Mode() || info.Size() != after.Size() {
-				return privateWorkspaceMigrationError("workspace_changed")
+				return privateWorkspaceMigrationError("workspace_changed", copyErr, statErr, closeErr)
 			}
 			snapshot.digest = hex.EncodeToString(hash.Sum(nil))
 		}
@@ -502,7 +506,9 @@ func snapshotPrivateWorkspaceMigrationTree(root string) (map[string]privateWorks
 		return nil
 	})
 	if err != nil {
-		return nil, privateWorkspaceMigrationError("workspace_changed")
+		// The walk error is either a raw filesystem failure or a classification
+		// raised by the callback above; either way it stays inspectable.
+		return nil, privateWorkspaceMigrationError("workspace_changed", err)
 	}
 	return result, nil
 }
@@ -561,11 +567,20 @@ func privateWorkspaceMigrationRegularFile(path string) (bool, error) {
 		return false, nil
 	}
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
-		return false, privateWorkspaceMigrationError("manifest_mode")
+		return false, privateWorkspaceMigrationError("manifest_mode", err)
 	}
 	return true, nil
 }
 
-func privateWorkspaceMigrationError(code string) error {
-	return fmt.Errorf("%w: %s", ErrPrivateWorkspaceMigrationRejected, code)
+// privateWorkspaceMigrationError classifies a migration rejection under the
+// stable sentinel and code while retaining the concrete causes already in hand.
+// The rendered message stays exactly the sentinel plus the code, so a configured
+// workspace path, a manifest detail, or a dependency failure never reaches a log
+// line; errors.Is and errors.As still reach every attached cause, including a
+// nested classification raised deeper in the migration. Nil causes are dropped,
+// so a branch that rejects on either a failure or a comparison can pass its
+// error unguarded, and a rejection that follows from validation alone carries
+// nothing.
+func privateWorkspaceMigrationError(code string, causes ...error) error {
+	return codedError(ErrPrivateWorkspaceMigrationRejected, code, causes...)
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -603,6 +604,377 @@ func TestPrivateWorkspaceMigrationPreservesNonzeroRunRecordCount(t *testing.T) {
 	if preview.PreservedRunRecords != 1 {
 		t.Fatalf("preview=%+v", preview)
 	}
+}
+
+func TestPrivateWorkspaceMigrationErrorKeepsCausesInspectableAndOutOfTheMessage(t *testing.T) {
+	archivePath := filepath.Join(t.TempDir(), "reports", privateWorkspaceMigrationArchiveName)
+	archiveCause := &fs.PathError{Op: "rename", Path: archivePath, Err: fs.ErrPermission}
+	stateCause := errors.New("staged source still present at " + archivePath)
+
+	err := privateWorkspaceMigrationError("source_archive", archiveCause, nil, stateCause)
+	assertPrivateWorkspaceMigrationCode(t, err, "source_archive")
+	if strings.Contains(err.Error(), archivePath) {
+		t.Fatalf("message leaked a configured path: %q", err.Error())
+	}
+	if !errors.Is(err, stateCause) || !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("error %v lost a cause", err)
+	}
+	var typed *fs.PathError
+	if !errors.As(err, &typed) || typed.Path != archivePath {
+		t.Fatalf("error %v does not expose the concrete path error", err)
+	}
+	causes := privateWorkspaceMigrationErrorCauses(t, err)
+	if len(causes) != 2 || causes[0] != error(archiveCause) || causes[1] != stateCause {
+		t.Fatalf("causes=%v, want both non-nil causes retained in order", causes)
+	}
+
+	// A rejection with nothing to attach classifies exactly as it did before.
+	assertPrivateWorkspaceMigrationCode(t, privateWorkspaceMigrationError("confirmation"), "confirmation")
+	if causes := privateWorkspaceMigrationErrorCauses(t, privateWorkspaceMigrationError("confirmation", nil, nil)); len(causes) != 0 {
+		t.Fatalf("causes=%v, want nil causes dropped", causes)
+	}
+}
+
+func TestPrivateWorkspaceMigrationAttachesWorkspaceLockAndBoundaryCauses(t *testing.T) {
+	t.Run("root symlink", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("symlink creation needs elevated privileges on Windows")
+		}
+		root, repository, _ := newPrivateWorkspaceMigrationFixture(t)
+		linked := filepath.Join(t.TempDir(), "private-link")
+		if err := os.Symlink(root, linked); err != nil {
+			t.Fatal(err)
+		}
+		_, err := PreviewPrivateWorkspaceMigration(linked, repository)
+		assertPrivateWorkspaceMigrationCode(t, err, "workspace")
+		if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) {
+			t.Fatalf("error %v lost the workspace-location cause", err)
+		}
+		_, err = ApplyPrivateWorkspaceMigration(PrivateWorkspaceMigrationOptions{Root: linked, RepositoryRoot: repository,
+			ExpectedMigrationSHA256: strings.Repeat("a", 64), Confirm: PrivateWorkspaceMigrationConfirmation})
+		assertPrivateWorkspaceMigrationCode(t, err, "workspace")
+		if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) {
+			t.Fatalf("error %v lost the workspace-location cause", err)
+		}
+	})
+	t.Run("workspace busy", func(t *testing.T) {
+		root, repository, _ := newPrivateWorkspaceMigrationFixture(t)
+		lock, err := acquirePrivateWorkspaceLock(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = lock.Unlock() }()
+		_, err = PreviewPrivateWorkspaceMigration(root, repository)
+		assertPrivateWorkspaceMigrationCode(t, err, "workspace_busy")
+		if !errors.Is(err, ErrPrivateBaselineRejected) {
+			t.Fatalf("error %v lost the lock cause", err)
+		}
+		_, err = ApplyPrivateWorkspaceMigration(PrivateWorkspaceMigrationOptions{Root: root, RepositoryRoot: repository,
+			ExpectedMigrationSHA256: strings.Repeat("a", 64), Confirm: PrivateWorkspaceMigrationConfirmation})
+		assertPrivateWorkspaceMigrationCode(t, err, "workspace_busy")
+		if !errors.Is(err, ErrPrivateBaselineRejected) {
+			t.Fatalf("error %v lost the lock cause", err)
+		}
+	})
+	t.Run("git boundary", func(t *testing.T) {
+		root, _, _ := newPrivateWorkspaceMigrationFixture(t)
+		// A workspace inside the repository tree is rejected by the git
+		// boundary check rather than by any of the mode/marker predicates.
+		_, err := PreviewPrivateWorkspaceMigration(root, filepath.Dir(root))
+		assertPrivateWorkspaceMigrationCode(t, err, "workspace_unhealthy")
+		if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) {
+			t.Fatalf("error %v lost the git-boundary cause", err)
+		}
+		if causes := privateWorkspaceMigrationErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want exactly the boundary failure", causes)
+		}
+	})
+}
+
+func TestPrivateWorkspaceMigrationAttachesManifestCauses(t *testing.T) {
+	legacyName := LegacyCalibratedWorkspaceManifestName
+	t.Run("source read limit", func(t *testing.T) {
+		root, repository, _ := newPrivateWorkspaceMigrationFixture(t)
+		if err := writePrivateFile(filepath.Join(root, legacyName),
+			bytes.Repeat([]byte("a"), maxPrivateWorkspaceManifestBytes+1)); err != nil {
+			t.Fatal(err)
+		}
+		_, err := PreviewPrivateWorkspaceMigration(root, repository)
+		assertPrivateWorkspaceMigrationCode(t, err, "source_read")
+		if causes := privateWorkspaceMigrationErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the read-limit failure retained", causes)
+		}
+	})
+	t.Run("source decode", func(t *testing.T) {
+		root, repository, _ := newPrivateWorkspaceMigrationFixture(t)
+		broken := []byte(`{"schema_version":3,`)
+		if err := writePrivateFile(filepath.Join(root, legacyName), broken); err != nil {
+			t.Fatal(err)
+		}
+		_, want := DecodePrivateWorkspaceManifest(bytes.NewReader(broken))
+		if want == nil {
+			t.Fatal("fixture bytes decoded cleanly")
+		}
+		_, err := PreviewPrivateWorkspaceMigration(root, repository)
+		assertPrivateWorkspaceMigrationCode(t, err, "source_invalid")
+		causes := privateWorkspaceMigrationErrorCauses(t, err)
+		if len(causes) != 1 || causes[0].Error() != want.Error() {
+			t.Fatalf("causes=%v, want the decoder rejection %v", causes, want)
+		}
+	})
+	t.Run("archive parent is not a directory", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("opening a path under a regular file is a Unix-specific failure")
+		}
+		root, repository, _ := newPrivateWorkspaceMigrationFixture(t)
+		reports := filepath.Join(root, "reports")
+		if err := os.RemoveAll(reports); err != nil {
+			t.Fatal(err)
+		}
+		if err := writePrivateFile(reports, []byte("not a directory\n")); err != nil {
+			t.Fatal(err)
+		}
+		_, err := PreviewPrivateWorkspaceMigration(root, repository)
+		assertPrivateWorkspaceMigrationCode(t, err, "manifest_mode")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) {
+			t.Fatalf("error %v does not expose the concrete stat failure", err)
+		}
+	})
+}
+
+func TestPrivateWorkspaceMigrationApplyAttachesTransactionCauses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("migration apply requires durable directory sync")
+	}
+	failSyncCall := func(t *testing.T, at int, failure error) {
+		t.Helper()
+		original := privateWorkspaceMigrationSync
+		calls := 0
+		privateWorkspaceMigrationSync = func(syncRoot, target string) error {
+			calls++
+			if calls == at {
+				return failure
+			}
+			return original(syncRoot, target)
+		}
+		t.Cleanup(func() { privateWorkspaceMigrationSync = original })
+	}
+	for _, test := range []struct {
+		name, code string
+		hook       func(t *testing.T, root string, failure error)
+	}{
+		{"candidate write", "candidate_write", func(t *testing.T, _ string, failure error) {
+			original := privateWorkspaceMigrationWrite
+			privateWorkspaceMigrationWrite = func(string, string, []byte, os.FileMode) error { return failure }
+			t.Cleanup(func() { privateWorkspaceMigrationWrite = original })
+		}},
+		{"candidate durability", "candidate_durability", func(t *testing.T, _ string, failure error) {
+			failSyncCall(t, 1, failure)
+		}},
+		{"source archive write", "source_archive", func(t *testing.T, root string, failure error) {
+			original := privateWorkspaceMigrationWrite
+			archivePath := filepath.Join(root, "reports", privateWorkspaceMigrationArchiveName)
+			privateWorkspaceMigrationWrite = func(writeRoot, target string, data []byte, mode os.FileMode) error {
+				if target == archivePath {
+					return failure
+				}
+				return original(writeRoot, target, data, mode)
+			}
+			t.Cleanup(func() { privateWorkspaceMigrationWrite = original })
+		}},
+		{"source archive durability", "source_archive_durability", func(t *testing.T, _ string, failure error) {
+			failSyncCall(t, 2, failure)
+		}},
+		{"source stage rename", "source_stage", func(t *testing.T, _ string, failure error) {
+			original := privateWorkspaceMigrationRename
+			privateWorkspaceMigrationRename = func(string, string, string) error { return failure }
+			t.Cleanup(func() { privateWorkspaceMigrationRename = original })
+		}},
+		{"source stage durability", "source_stage_durability", func(t *testing.T, _ string, failure error) {
+			failSyncCall(t, 3, failure)
+		}},
+		{"source stage root durability", "source_stage_durability", func(t *testing.T, _ string, failure error) {
+			failSyncCall(t, 4, failure)
+		}},
+		{"source remove", "source_remove", func(t *testing.T, _ string, failure error) {
+			original := privateWorkspaceMigrationRemove
+			privateWorkspaceMigrationRemove = func(string, string) error { return failure }
+			t.Cleanup(func() { privateWorkspaceMigrationRemove = original })
+		}},
+		{"source remove durability", "source_remove_durability", func(t *testing.T, _ string, failure error) {
+			failSyncCall(t, 5, failure)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root, repository, _ := newPrivateWorkspaceMigrationFixture(t)
+			preview, err := PreviewPrivateWorkspaceMigration(root, repository)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The cause text carries the configured root, so the exact-message
+			// assertion also proves the root cannot reach a log line.
+			failure := errors.New("synthetic transaction failure under " + root)
+			test.hook(t, root, failure)
+
+			_, err = ApplyPrivateWorkspaceMigration(PrivateWorkspaceMigrationOptions{Root: root, RepositoryRoot: repository,
+				ExpectedMigrationSHA256: preview.MigrationSHA256, Confirm: PrivateWorkspaceMigrationConfirmation})
+			assertPrivateWorkspaceMigrationCode(t, err, test.code)
+			if !errors.Is(err, failure) {
+				t.Fatalf("error %v lost the transaction cause", err)
+			}
+			if causes := privateWorkspaceMigrationErrorCauses(t, err); len(causes) != 1 {
+				t.Fatalf("causes=%v, want exactly the injected failure", causes)
+			}
+		})
+	}
+}
+
+func TestPrivateWorkspaceMigrationTreeSnapshotKeepsNestedClassification(t *testing.T) {
+	t.Run("unopenable root", func(t *testing.T) {
+		_, err := snapshotPrivateWorkspaceMigrationTree(filepath.Join(t.TempDir(), "absent"))
+		assertPrivateWorkspaceMigrationCode(t, err, "workspace_changed")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) {
+			t.Fatalf("error %v does not expose the concrete open failure", err)
+		}
+	})
+	t.Run("symlinked entry", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("symlink creation needs elevated privileges on Windows")
+		}
+		root := t.TempDir()
+		writeTestFile(t, filepath.Join(root, "kept.txt"), "kept\n", 0o600)
+		if err := os.Symlink(filepath.Join(root, "kept.txt"), filepath.Join(root, "linked.txt")); err != nil {
+			t.Fatal(err)
+		}
+		_, err := snapshotPrivateWorkspaceMigrationTree(root)
+		assertPrivateWorkspaceMigrationCode(t, err, "workspace_changed")
+		causes := privateWorkspaceMigrationErrorCauses(t, err)
+		if len(causes) != 1 {
+			t.Fatalf("causes=%v, want the walk rejection retained", causes)
+		}
+		// The walk raised its own classification; it stays reachable instead of
+		// collapsing into the outer code.
+		var classified interface{ Code() string }
+		if !errors.As(causes[0], &classified) || classified.Code() != "workspace_changed" {
+			t.Fatalf("cause=%v, want the walk's own classification", causes[0])
+		}
+		if nested := privateWorkspaceMigrationErrorCauses(t, causes[0]); len(nested) != 0 {
+			t.Fatalf("nested causes=%v, want none for a symlink rejection", nested)
+		}
+	})
+}
+
+func TestPrivateWorkspaceMigrationValidationOnlyRejectionsCarryNoCause(t *testing.T) {
+	t.Run("confirmation", func(t *testing.T) {
+		root, repository, _ := newPrivateWorkspaceMigrationFixture(t)
+		_, err := ApplyPrivateWorkspaceMigration(PrivateWorkspaceMigrationOptions{Root: root, RepositoryRoot: repository,
+			ExpectedMigrationSHA256: strings.Repeat("a", 64)})
+		assertPrivateWorkspaceMigrationCode(t, err, "confirmation")
+		if causes := privateWorkspaceMigrationErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a rejection with no failure in hand", causes)
+		}
+	})
+	t.Run("platform durability", func(t *testing.T) {
+		original := privateWorkspaceMigrationGOOS
+		privateWorkspaceMigrationGOOS = "windows"
+		t.Cleanup(func() { privateWorkspaceMigrationGOOS = original })
+		_, err := ApplyPrivateWorkspaceMigration(PrivateWorkspaceMigrationOptions{Root: t.TempDir(), RepositoryRoot: t.TempDir(),
+			ExpectedMigrationSHA256: strings.Repeat("a", 64), Confirm: PrivateWorkspaceMigrationConfirmation})
+		assertPrivateWorkspaceMigrationCode(t, err, "platform_durability")
+		if causes := privateWorkspaceMigrationErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a rejection with no failure in hand", causes)
+		}
+	})
+	t.Run("reviewed digest", func(t *testing.T) {
+		root, repository, _ := newPrivateWorkspaceMigrationFixture(t)
+		preview, err := PreviewPrivateWorkspaceMigration(root, repository)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wrong := strings.Repeat("a", 64)
+		if wrong == preview.MigrationSHA256 {
+			wrong = strings.Repeat("b", 64)
+		}
+		_, err = ApplyPrivateWorkspaceMigration(PrivateWorkspaceMigrationOptions{Root: root, RepositoryRoot: repository,
+			ExpectedMigrationSHA256: wrong, Confirm: PrivateWorkspaceMigrationConfirmation})
+		assertPrivateWorkspaceMigrationCode(t, err, "reviewed_digest")
+		if causes := privateWorkspaceMigrationErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none when only the reviewed digest differs", causes)
+		}
+	})
+	t.Run("unsupported state", func(t *testing.T) {
+		root, repository, manifest := newPrivateWorkspaceMigrationFixture(t)
+		candidate := manifest
+		candidate.SchemaVersion = PrivateWorkspaceSchemaVersion
+		candidateData, err := EncodePrivateWorkspaceManifest(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(root, PrivateWorkspaceManifestName), candidateData, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err = PreviewPrivateWorkspaceMigration(root, repository)
+		assertPrivateWorkspaceMigrationCode(t, err, "unsupported_state")
+		if causes := privateWorkspaceMigrationErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a rejection with no failure in hand", causes)
+		}
+	})
+	t.Run("source schema version", func(t *testing.T) {
+		root, repository, manifest := newPrivateWorkspaceMigrationFixture(t)
+		current := manifest
+		current.SchemaVersion = PrivateWorkspaceSchemaVersion
+		currentData, err := EncodePrivateWorkspaceManifest(current)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := writePrivateFile(filepath.Join(root, LegacyCalibratedWorkspaceManifestName), currentData); err != nil {
+			t.Fatal(err)
+		}
+		_, err = PreviewPrivateWorkspaceMigration(root, repository)
+		assertPrivateWorkspaceMigrationCode(t, err, "source_invalid")
+		if causes := privateWorkspaceMigrationErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none when the source decodes but is the wrong schema", causes)
+		}
+	})
+	t.Run("source mode", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("owner-only mode is not enforced on Windows")
+		}
+		root, repository, _ := newPrivateWorkspaceMigrationFixture(t)
+		if err := os.Chmod(filepath.Join(root, LegacyCalibratedWorkspaceManifestName), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := PreviewPrivateWorkspaceMigration(root, repository)
+		assertPrivateWorkspaceMigrationCode(t, err, "manifest_mode")
+		if causes := privateWorkspaceMigrationErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none when only the mode is wrong", causes)
+		}
+	})
+}
+
+func assertPrivateWorkspaceMigrationCode(t *testing.T, err error, code string) {
+	t.Helper()
+	if !errors.Is(err, ErrPrivateWorkspaceMigrationRejected) {
+		t.Fatalf("err=%v, want the migration sentinel", err)
+	}
+	if got, want := err.Error(), ErrPrivateWorkspaceMigrationRejected.Error()+": "+code; got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+}
+
+func privateWorkspaceMigrationErrorCauses(t *testing.T, err error) []error {
+	t.Helper()
+	multi, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		t.Fatalf("%T does not unwrap to multiple errors", err)
+	}
+	tree := multi.Unwrap()
+	if len(tree) == 0 || !errors.Is(tree[0], ErrPrivateWorkspaceMigrationRejected) {
+		t.Fatalf("unwrap tree=%v, want the sentinel first", tree)
+	}
+	return tree[1:]
 }
 
 func downgradePrivateWorkspaceFixture(t *testing.T, fixture privatePlanTestFixture) {
