@@ -219,8 +219,8 @@ func emit(cmd *cobra.Command, v any, text func() string) error {
 	switch outputFormat {
 	case "text":
 		if text != nil {
-			fmt.Fprintln(w, text())
-			return nil
+			_, err := fmt.Fprintln(w, text())
+			return err
 		}
 		return usageErr("-o text is not supported for this command; use -o json")
 	case "id":

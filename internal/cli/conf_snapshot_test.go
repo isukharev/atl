@@ -115,20 +115,24 @@ func TestConfSnapshotKeepsResultWriteFailureUnderInspectionError(t *testing.T) {
 		t.Fatal(err)
 	}
 	cause := errors.New("stdout unavailable")
-	err := runCLIWithFailingStdout(t, cause, "--read-only", "conf", "snapshot", root)
-	if err == nil {
-		t.Fatal("unwritten snapshot result reported success")
-	}
-	if !errors.Is(err, domain.ErrCheckFailed) || !errors.Is(err, cause) {
-		t.Fatalf("err=%v", err)
-	}
-	if code := codeFor(err); code != exitCheckFailed {
-		t.Fatalf("code=%d err=%v", code, err)
-	}
-	for _, private := range []string{"902", "Blocked", root} {
-		if strings.Contains(err.Error(), private) {
-			t.Fatalf("snapshot write failure leaked %q: %s", private, err)
-		}
+	for _, format := range []string{"json", "text"} {
+		t.Run(format, func(t *testing.T) {
+			err := runCLIWithFailingStdout(t, cause, "--read-only", "-o", format, "conf", "snapshot", root)
+			if err == nil {
+				t.Fatal("unwritten snapshot result reported success")
+			}
+			if !errors.Is(err, domain.ErrCheckFailed) || !errors.Is(err, cause) {
+				t.Fatalf("err=%v", err)
+			}
+			if code := codeFor(err); code != exitCheckFailed {
+				t.Fatalf("code=%d err=%v", code, err)
+			}
+			for _, private := range []string{"902", "Blocked", root} {
+				if strings.Contains(err.Error(), private) {
+					t.Fatalf("snapshot write failure leaked %q: %s", private, err)
+				}
+			}
+		})
 	}
 }
 
