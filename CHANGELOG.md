@@ -18,6 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserved the underlying causes of private agent-evaluation daily-checkpoint
+  rejections. Checkpoint preview, apply, and contract encoding previously
+  dropped the concrete workspace, scorecard, coverage, repository, contract,
+  lock, or filesystem failure behind their classification code, leaving nothing
+  for tooling to inspect. They now report the same cause-preserving coded error
+  the plan-execution and live-gateway paths already use: the message is still
+  only the stable sentinel plus its existing short code, while `errors.Is` and
+  `errors.As` reach every retained cause. A rejection that follows from
+  validation alone still carries no cause. Checkpoint codes, stored bytes,
+  digests, permissions, idempotency, the confirmation gate, exit codes, and
+  fail-closed behavior are unchanged.
 - Preserved the underlying causes retained by migrated private
   agent-evaluation plan-execution branches and live-gateway audit setup/writes.
   These paths previously either dropped the concrete filesystem or validation

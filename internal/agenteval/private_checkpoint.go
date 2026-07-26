@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -110,26 +109,26 @@ func PreviewPrivateCheckpoint(options PrivateCheckpointOptions) (PrivateCheckpoi
 func previewPrivateCheckpoint(options PrivateCheckpointOptions, dependencies privateCheckpointDependencies) (PrivateCheckpointPreview, error) {
 	root, repository, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
 	if err != nil {
-		return PrivateCheckpointPreview{}, privateCheckpointError("workspace")
+		return PrivateCheckpointPreview{}, privateCheckpointError("workspace", err)
 	}
 	report, err := dependencies.doctor(root, repository)
 	if err != nil || !report.Healthy || report.SchemaVersion != 1 || report.Counts.ActiveRuns != 0 {
-		return PrivateCheckpointPreview{}, privateCheckpointError("workspace_state")
+		return PrivateCheckpointPreview{}, privateCheckpointError("workspace_state", err)
 	}
 	scorecard, err := dependencies.scorecard(PrivateFindingScorecardOptions{Root: root, RepositoryRoot: repository})
 	if err != nil || !scorecard.Reconciled || scorecard.SchemaVersion != PrivateFindingScorecardSchemaVersion || !validSHA256(scorecard.SourceSHA256) {
-		return PrivateCheckpointPreview{}, privateCheckpointError("scorecard")
+		return PrivateCheckpointPreview{}, privateCheckpointError("scorecard", err)
 	}
 	coverage, err := dependencies.coverage(PrivateCoverageScorecardOptions{Root: root, RepositoryRoot: repository})
 	if err != nil || !coverage.Reconciled || coverage.SchemaVersion != PrivateCoverageScorecardSchemaVersion ||
 		(coverage.IndexSchemaVersion != PrivateCoverageIndexSchemaVersion &&
 			coverage.IndexSchemaVersion != PrivateCoverageIndexV2SchemaVersion) ||
 		!validSHA256(coverage.SourceSHA256) {
-		return PrivateCheckpointPreview{}, privateCheckpointError("coverage")
+		return PrivateCheckpointPreview{}, privateCheckpointError("coverage", err)
 	}
 	commit, dirty, err := dependencies.repository(repository)
 	if err != nil || !privateGitCommitRE.MatchString(commit) {
-		return PrivateCheckpointPreview{}, privateCheckpointError("repository")
+		return PrivateCheckpointPreview{}, privateCheckpointError("repository", err)
 	}
 	now := options.Now.UTC()
 	if options.Now.IsZero() {
@@ -154,7 +153,7 @@ func previewPrivateCheckpoint(options PrivateCheckpointOptions, dependencies pri
 	}
 	data, err := encodePrivateCheckpoint(checkpoint)
 	if err != nil {
-		return PrivateCheckpointPreview{}, privateCheckpointError("contract")
+		return PrivateCheckpointPreview{}, privateCheckpointError("contract", err)
 	}
 	digest := sha256HexBytes(append([]byte("atl-private-daily-checkpoint-v2\x00"), data...))
 	return PrivateCheckpointPreview{SchemaVersion: PrivateCheckpointSchemaVersion, CheckpointSHA256: digest, Checkpoint: checkpoint}, nil
@@ -170,42 +169,42 @@ func applyPrivateCheckpoint(options PrivateCheckpointOptions, dependencies priva
 	}
 	root, _, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
 	if err != nil {
-		return PrivateCheckpointSummary{}, privateCheckpointError("workspace")
+		return PrivateCheckpointSummary{}, privateCheckpointError("workspace", err)
 	}
 	lock, err := acquirePrivateWorkspaceLock(root)
 	if err != nil {
-		return PrivateCheckpointSummary{}, privateCheckpointError("workspace_busy")
+		return PrivateCheckpointSummary{}, privateCheckpointError("workspace_busy", err)
 	}
 	defer func() { _ = lock.Unlock() }()
 	preview, err := previewPrivateCheckpoint(options, dependencies)
 	if err != nil || preview.CheckpointSHA256 != options.ExpectedCheckpointSHA256 {
-		return PrivateCheckpointSummary{}, privateCheckpointError("checkpoint_drift")
+		return PrivateCheckpointSummary{}, privateCheckpointError("checkpoint_drift", err)
 	}
 	data, err := encodePrivateCheckpoint(preview.Checkpoint)
 	if err != nil {
-		return PrivateCheckpointSummary{}, privateCheckpointError("contract")
+		return PrivateCheckpointSummary{}, privateCheckpointError("contract", err)
 	}
 	directory := filepath.Join(root, "reports", "checkpoints")
 	if err := safepath.MkdirAllWithin(root, directory, 0o700); err != nil {
-		return PrivateCheckpointSummary{}, privateCheckpointError("directory")
+		return PrivateCheckpointSummary{}, privateCheckpointError("directory", err)
 	}
 	if info, statErr := safepath.StatWithin(root, directory); statErr != nil || !info.IsDir() ||
 		(runtime.GOOS != "windows" && info.Mode().Perm() != 0o700) {
-		return PrivateCheckpointSummary{}, privateCheckpointError("directory_mode")
+		return PrivateCheckpointSummary{}, privateCheckpointError("directory_mode", statErr)
 	}
 	path := filepath.Join(directory, preview.Checkpoint.UTCDate+".json")
 	if existing, readErr := safepath.ReadFileWithinLimit(root, path, privateFindingLedgerMaxBytes); readErr == nil {
 		info, statErr := safepath.StatWithin(root, path)
 		if statErr != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) || !bytes.Equal(existing, data) {
-			return PrivateCheckpointSummary{}, privateCheckpointError("checkpoint_exists")
+			return PrivateCheckpointSummary{}, privateCheckpointError("checkpoint_exists", statErr)
 		}
 		return PrivateCheckpointSummary{SchemaVersion: PrivateCheckpointSchemaVersion, UTCDate: preview.Checkpoint.UTCDate,
 			CheckpointSHA256: preview.CheckpointSHA256, Stored: false}, nil
 	} else if !os.IsNotExist(readErr) {
-		return PrivateCheckpointSummary{}, privateCheckpointError("checkpoint_read")
+		return PrivateCheckpointSummary{}, privateCheckpointError("checkpoint_read", readErr)
 	}
 	if err := safepath.WriteFileExclusiveWithin(root, path, data, 0o600); err != nil {
-		return PrivateCheckpointSummary{}, privateCheckpointError("checkpoint_write")
+		return PrivateCheckpointSummary{}, privateCheckpointError("checkpoint_write", err)
 	}
 	return PrivateCheckpointSummary{SchemaVersion: PrivateCheckpointSchemaVersion, UTCDate: preview.Checkpoint.UTCDate,
 		CheckpointSHA256: preview.CheckpointSHA256, Stored: true}, nil
@@ -233,11 +232,11 @@ func encodePrivateCheckpoint(checkpoint PrivateDailyCheckpoint) ([]byte, error) 
 	}
 	parsed, err := time.Parse(time.DateOnly, checkpoint.UTCDate)
 	if err != nil || parsed.Format(time.DateOnly) != checkpoint.UTCDate {
-		return nil, privateCheckpointError("date")
+		return nil, privateCheckpointError("date", err)
 	}
 	data, err := json.MarshalIndent(checkpoint, "", "  ")
 	if err != nil {
-		return nil, err
+		return nil, privateCheckpointError("contract", err)
 	}
 	return append(data, '\n'), nil
 }
@@ -270,6 +269,12 @@ func validPrivateCheckpointWorkspace(workspace PrivateCheckpointWorkspace) bool 
 		counts.ValidSpecs <= counts.SpecReferences
 }
 
-func privateCheckpointError(code string) error {
-	return fmt.Errorf("%w: %s", ErrPrivateCheckpointRejected, code)
+// privateCheckpointError classifies a checkpoint rejection under the stable
+// sentinel and code while retaining the concrete causes already in hand. The
+// rendered message stays exactly the sentinel plus the code, so a configured
+// workspace path never reaches a log line; errors.Is and errors.As still reach
+// every attached cause. Nil causes are dropped, so a branch that rejects on
+// either a failure or a validation result can pass its error unguarded.
+func privateCheckpointError(code string, causes ...error) error {
+	return codedError(ErrPrivateCheckpointRejected, code, causes...)
 }

@@ -1289,6 +1289,18 @@ The checkpoint is written owner-only at
 different checkpoint for the same day is never overwritten. This is durable
 private operating state, not a publishable benchmark result.
 
+A rejected preview or apply reports the stable checkpoint sentinel and a short
+classification code, and nothing else — the same messages and codes as before.
+The checkpoint paths have joined the cause-preserving pattern used by plan
+execution and the live gateway: a concrete workspace, scorecard, coverage,
+repository, contract, lock, or filesystem failure is now attached to the
+returned error instead of being discarded, so tooling can inspect it with the
+standard Go `errors.Is` and `errors.As` helpers while messages and logs stay
+free of configured private locations. A rejection that follows from validation
+alone attaches nothing. Stored bytes, digests, permissions, idempotency, the
+confirmation gate, and fail-closed behavior are unchanged. Remaining lifecycle
+subsystems migrate to this pattern incrementally.
+
 Current manifests use schema v4, run specs use schema v7, observations use
 schema v5, results use schema v8, aggregates use schema v7, private plans use
 schema v8, finding scorecards use schema v3, coverage indexes use legacy schema
