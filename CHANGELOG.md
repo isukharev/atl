@@ -29,10 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `errors.Is` and `errors.As` reach every retained cause, including a
   classification raised deeper in the promotion. A directly returned rejection
   with no failure or nested classification in hand still carries no cause. No
-  baseline code is added or renamed. Promoted baseline, pointer, and manifest bytes and digests,
-  permissions, surface ordering, pointer recovery, comparison compatibility
-  rules, audit sanitization, exit codes, and fail-closed behavior are
-  unchanged.
+  baseline code is added or renamed. Promoted baseline, pointer, and manifest
+  bytes and digests, permissions, surface ordering, pointer recovery,
+  comparison compatibility rules, audit sanitization, exit codes, and
+  fail-closed behavior are unchanged.
 - Preserved the underlying causes of private agent-evaluation retention-prune
   rejections. Prune preview, apply, inventory selection, candidate-tree hashing,
   and transaction recovery previously dropped the concrete workspace, lock,
