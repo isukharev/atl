@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Reused each valid Jira mirror baseline digest between local validation and
+  optional remote drift evidence instead of hashing the same bytes twice.
+  Snapshot schemas, counts, errors, output, and remote request behavior are
+  unchanged.
+
 ### Fixed
 
 - Preserved `atl conf snapshot` and `atl jira snapshot` result-emission

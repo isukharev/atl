@@ -297,6 +297,10 @@ func inspectJiraMirrorUnlocked(dir string) (*JiraMirrorSnapshot, []*jiraMirrorLo
 		}
 		if canonical {
 			base, present, baseErr := m.ReadBaseBodyExt(local.Key, wikiExt)
+			baselineSHA256 := ""
+			if baseErr == nil && present {
+				baselineSHA256 = mirror.Hash(base)
+			}
 			switch {
 			case baseErr != nil:
 				result.Native.Unreadable++
@@ -306,14 +310,14 @@ func inspectJiraMirrorUnlocked(dir string) (*JiraMirrorSnapshot, []*jiraMirrorLo
 			case !present:
 				result.Native.MissingBaseline++
 				result.Native.BaselineMissing++
-			case mirror.Hash(base) != local.Synced.Hash:
+			case baselineSHA256 != local.Synced.Hash:
 				result.Native.BaselineMismatch++
 				result.Native.BaselinePresent++
 				result.Native.BaselineInvalid++
 				result.Complete = false
 				snapshotErr = moreSevereErr(snapshotErr, fmt.Errorf("%w: one or more Jira mirror baselines do not match tracked state", domain.ErrCheckFailed))
 			default:
-				item.baselineSHA256 = mirror.Hash(base)
+				item.baselineSHA256 = baselineSHA256
 				item.eligible = true
 				result.Remote.Eligible++
 				result.Native.BaselinePresent++
