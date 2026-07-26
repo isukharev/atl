@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -214,7 +213,7 @@ func SetPrivateBaseline(options PrivateBaselineSetOptions) (PrivateBaselineSumma
 	}
 	root, _, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
 	if err != nil {
-		return PrivateBaselineSummary{}, privateBaselineError("workspace")
+		return PrivateBaselineSummary{}, privateBaselineError("workspace", err)
 	}
 	if options.Confirm != PrivateBaselineConfirmation {
 		return PrivateBaselineSummary{}, privateBaselineError("confirmation")
@@ -232,20 +231,21 @@ func SetPrivateBaseline(options PrivateBaselineSetOptions) (PrivateBaselineSumma
 	}
 	workspaceManifest, _, err := loadPrivateWorkspaceManifest(root)
 	if err != nil {
-		return PrivateBaselineSummary{}, privateBaselineError("manifest")
+		return PrivateBaselineSummary{}, privateBaselineError("manifest", err)
 	}
 
 	planData, err := readPrivatePlanLifecycleFile(root, options.Source.PlanPath, 1<<20)
 	if err != nil || sha256HexBytes(planData) != options.Source.PlanSHA256 {
-		return PrivateBaselineSummary{}, privateBaselineError("plan_drift")
+		// A hash mismatch has no failure to attach; the nil cause is dropped.
+		return PrivateBaselineSummary{}, privateBaselineError("plan_drift", err)
 	}
 	stagingName, err := privateRandomID("baseline-stage-")
 	if err != nil {
-		return PrivateBaselineSummary{}, privateBaselineError("staging")
+		return PrivateBaselineSummary{}, privateBaselineError("staging", err)
 	}
 	staging := filepath.Join(root, ".ephemeral", stagingName)
 	if err := safepath.MkdirAllWithin(root, staging, 0o700); err != nil {
-		return PrivateBaselineSummary{}, privateBaselineError("staging")
+		return PrivateBaselineSummary{}, privateBaselineError("staging", err)
 	}
 	committed := false
 	defer func() {
@@ -254,7 +254,7 @@ func SetPrivateBaseline(options PrivateBaselineSetOptions) (PrivateBaselineSumma
 		}
 	}()
 	if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(staging, "plan.json"), planData, 0o600); err != nil {
-		return PrivateBaselineSummary{}, privateBaselineError("plan_copy")
+		return PrivateBaselineSummary{}, privateBaselineError("plan_copy", err)
 	}
 
 	surfaces := append([]PrivateBaselineSurfaceSource(nil), options.Source.Surfaces...)
@@ -273,20 +273,20 @@ func SetPrivateBaseline(options PrivateBaselineSetOptions) (PrivateBaselineSumma
 	}
 	treeHash, files, size, err := hashPrivateTree(staging, "")
 	if err != nil {
-		return PrivateBaselineSummary{}, privateBaselineError("tree_hash")
+		return PrivateBaselineSummary{}, privateBaselineError("tree_hash", err)
 	}
 	manifest.TreeSHA256 = treeHash
 	manifestData, err := encodePrivateBaselineManifest(manifest)
 	if err != nil {
-		return PrivateBaselineSummary{}, privateBaselineError("manifest")
+		return PrivateBaselineSummary{}, privateBaselineError("manifest", err)
 	}
 	if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(staging, "baseline.v1.json"), manifestData, 0o600); err != nil {
-		return PrivateBaselineSummary{}, privateBaselineError("manifest_write")
+		return PrivateBaselineSummary{}, privateBaselineError("manifest_write", err)
 	}
 
 	contractDirectory := filepath.Join(root, "baselines", options.Source.ContractSHA256)
 	if err := safepath.MkdirAllWithin(root, contractDirectory, 0o700); err != nil {
-		return PrivateBaselineSummary{}, privateBaselineError("baseline_parent")
+		return PrivateBaselineSummary{}, privateBaselineError("baseline_parent", err)
 	}
 	destination := filepath.Join(contractDirectory, options.Baseline)
 	pointer := privateBaselinePointer{
@@ -295,7 +295,7 @@ func SetPrivateBaseline(options PrivateBaselineSetOptions) (PrivateBaselineSumma
 	}
 	pointerData, err := encodePrivateBaselinePointer(pointer)
 	if err != nil {
-		return PrivateBaselineSummary{}, privateBaselineError("current_pointer")
+		return PrivateBaselineSummary{}, privateBaselineError("current_pointer", err)
 	}
 	surfaceNames := make([]string, 0, len(surfaces))
 	for _, surface := range surfaces {
@@ -303,22 +303,26 @@ func SetPrivateBaseline(options PrivateBaselineSetOptions) (PrivateBaselineSumma
 	}
 	if _, err := os.Lstat(destination); err == nil {
 		if _, pointerErr := os.Lstat(filepath.Join(contractDirectory, "current.json")); pointerErr == nil || !os.IsNotExist(pointerErr) {
-			return PrivateBaselineSummary{}, privateBaselineError("baseline_exists")
+			// An already-published pointer is a plain conflict with no failure
+			// to attach; an unreadable one carries its stat error.
+			return PrivateBaselineSummary{}, privateBaselineError("baseline_exists", pointerErr)
 		}
 		if !recoverPrivateBaselinePointer(root, destination, manifest, pointerData, filepath.Join(contractDirectory, "current.json")) {
+			// Pointer recovery reports success only as a boolean, so there is
+			// nothing concrete to attach here.
 			return PrivateBaselineSummary{}, privateBaselineError("baseline_exists")
 		}
 		return PrivateBaselineSummary{SchemaVersion: 1, Stored: true, Surfaces: surfaceNames,
 			ArtifactFiles: files, ArtifactBytes: size, TreeSHA256: treeHash}, nil
 	} else if !os.IsNotExist(err) {
-		return PrivateBaselineSummary{}, privateBaselineError("baseline_exists")
+		return PrivateBaselineSummary{}, privateBaselineError("baseline_exists", err)
 	}
 	if err := safepath.RenameWithin(root, staging, destination); err != nil {
-		return PrivateBaselineSummary{}, privateBaselineError("baseline_commit")
+		return PrivateBaselineSummary{}, privateBaselineError("baseline_commit", err)
 	}
 	committed = true
-	if safepath.WriteFileWithin(root, filepath.Join(contractDirectory, "current.json"), pointerData, 0o600) != nil {
-		return PrivateBaselineSummary{}, privateBaselineError("current_pointer")
+	if err := safepath.WriteFileWithin(root, filepath.Join(contractDirectory, "current.json"), pointerData, 0o600); err != nil {
+		return PrivateBaselineSummary{}, privateBaselineError("current_pointer", err)
 	}
 	return PrivateBaselineSummary{
 		SchemaVersion: 1, Stored: true, Surfaces: surfaceNames,
@@ -406,11 +410,12 @@ func compactPrivateSurface(root, staging string, source PrivateBaselineSurfaceSo
 	resultPath := filepath.Join(source.RunDirectory, "result.json")
 	resultData, err := safepath.ReadFileWithinLimit(root, resultPath, maxContractBytes)
 	if err != nil {
-		return privateBaselineSurface{}, privateBaselineError("result_missing")
+		return privateBaselineSurface{}, privateBaselineError("result_missing", err)
 	}
 	result, err := DecodeResult(bytes.NewReader(resultData))
 	if err != nil || result.DataClass != "private-local" || result.EffectiveSurface() != source.Surface {
-		return privateBaselineSurface{}, privateBaselineError("result_invalid")
+		// A well-formed result with the wrong class or surface attaches nothing.
+		return privateBaselineSurface{}, privateBaselineError("result_invalid", err)
 	}
 	assessedPath, assessedData, assessed, err := findPrivateAssessedResult(root, source.RunDirectory)
 	if err != nil {
@@ -418,9 +423,14 @@ func compactPrivateSurface(root, staging string, source PrivateBaselineSurfaceSo
 	}
 	effectiveResult, effectiveData, effectiveName := result, resultData, "result.json"
 	if assessedPath != "" {
-		if !samePrivateResultIdentity(result, assessed) || !hasPrivateQualitativeAssessment(assessed) ||
-			validatePrivateAssessmentBinding(root, source, resultData, assessed) != nil {
+		if !samePrivateResultIdentity(result, assessed) || !hasPrivateQualitativeAssessment(assessed) {
 			return privateBaselineSurface{}, privateBaselineError("assessment_invalid")
+		}
+		// Split out of the identity checks above so the binding recheck keeps
+		// its original short-circuit position while its rejection stays
+		// inspectable under the unchanged code.
+		if bindingErr := validatePrivateAssessmentBinding(root, source, resultData, assessed); bindingErr != nil {
+			return privateBaselineSurface{}, privateBaselineError("assessment_invalid", bindingErr)
 		}
 		if assessed.QualitativeReviewSet != nil && assessed.QualitativeReviewSet.Status == "disagreement" {
 			return privateBaselineSurface{}, privateBaselineError("assessment_disagreement")
@@ -438,14 +448,14 @@ func compactPrivateSurface(root, staging string, source PrivateBaselineSurfaceSo
 	}
 	destinationRoot := filepath.Join(staging, "surfaces", source.Surface)
 	if err := safepath.MkdirAllWithin(root, destinationRoot, 0o700); err != nil {
-		return privateBaselineSurface{}, privateBaselineError("surface_directory")
+		return privateBaselineSurface{}, privateBaselineError("surface_directory", err)
 	}
 	if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(destinationRoot, "result.json"), resultData, 0o600); err != nil {
-		return privateBaselineSurface{}, privateBaselineError("result_copy")
+		return privateBaselineSurface{}, privateBaselineError("result_copy", err)
 	}
 	if assessedPath != "" {
 		if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(destinationRoot, "reviewed-result.json"), assessedData, 0o600); err != nil {
-			return privateBaselineSurface{}, privateBaselineError("assessment_copy")
+			return privateBaselineSurface{}, privateBaselineError("assessment_copy", err)
 		}
 	}
 	for _, artifact := range []struct {
@@ -462,7 +472,8 @@ func compactPrivateSurface(root, staging string, source PrivateBaselineSurfaceSo
 		if !artifact.retain {
 			data, err := safepath.ReadFileWithinLimit(root, filepath.Join(source.RunDirectory, artifact.name), artifact.limit)
 			if err != nil || artifact.nonempty && len(data) == 0 {
-				return privateBaselineSurface{}, privateBaselineError("artifact_read")
+				// A readable but empty required artifact attaches nothing.
+				return privateBaselineSurface{}, privateBaselineError("artifact_read", err)
 			}
 			continue
 		}
@@ -470,7 +481,7 @@ func compactPrivateSurface(root, staging string, source PrivateBaselineSurfaceSo
 			if artifact.optional && os.IsNotExist(err) {
 				continue
 			}
-			return privateBaselineSurface{}, privateBaselineError("artifact_copy")
+			return privateBaselineSurface{}, privateBaselineError("artifact_copy", err)
 		}
 		if artifact.nonempty {
 			path := filepath.Join(destinationRoot, artifact.name)
@@ -479,7 +490,7 @@ func compactPrivateSurface(root, staging string, source PrivateBaselineSurfaceSo
 				if artifact.optional && os.IsNotExist(err) {
 					continue
 				}
-				return privateBaselineSurface{}, privateBaselineError("artifact_stat")
+				return privateBaselineSurface{}, privateBaselineError("artifact_stat", err)
 			}
 			if info.Size() == 0 {
 				if artifact.optional {
@@ -508,7 +519,8 @@ func findPrivateAssessedResult(root, runDirectory string) (string, []byte, Resul
 			continue
 		}
 		if err != nil || !info.Mode().IsRegular() {
-			return "", nil, Result{}, privateBaselineError("assessment_stat")
+			// A stat that succeeded on a non-regular entry attaches nothing.
+			return "", nil, Result{}, privateBaselineError("assessment_stat", err)
 		}
 		if found != "" {
 			return "", nil, Result{}, privateBaselineError("assessment_ambiguous")
@@ -520,11 +532,11 @@ func findPrivateAssessedResult(root, runDirectory string) (string, []byte, Resul
 	}
 	data, err := safepath.ReadFileWithinLimit(root, found, maxContractBytes)
 	if err != nil {
-		return "", nil, Result{}, privateBaselineError("assessment_read")
+		return "", nil, Result{}, privateBaselineError("assessment_read", err)
 	}
 	result, err := DecodeResult(bytes.NewReader(data))
 	if err != nil {
-		return "", nil, Result{}, privateBaselineError("assessment_invalid")
+		return "", nil, Result{}, privateBaselineError("assessment_invalid", err)
 	}
 	return found, data, result, nil
 }
@@ -542,19 +554,20 @@ func validatePrivateAssessmentBinding(root string, source PrivateBaselineSurface
 	}
 	finalData, err := safepath.ReadFileWithinLimit(root, filepath.Join(source.RunDirectory, "final.json"), 16<<20)
 	if err != nil {
-		return privateBaselineError("assessment_binding")
+		return privateBaselineError("assessment_binding", err)
 	}
 	rubricData, err := safepath.ReadFileWithinLimit(root, source.RubricPath, maxReviewBytes)
 	if err != nil {
-		return privateBaselineError("assessment_binding")
+		return privateBaselineError("assessment_binding", err)
 	}
 	rubric, err := DecodeRubric(bytes.NewReader(rubricData))
 	if err != nil || rubricSHA256(rubric) != source.RubricSHA256 {
-		return privateBaselineError("assessment_binding")
+		// A decodable rubric that simply hashes differently attaches nothing.
+		return privateBaselineError("assessment_binding", err)
 	}
 	original, err := DecodeResult(bytes.NewReader(resultData))
 	if err != nil {
-		return privateBaselineError("assessment_binding")
+		return privateBaselineError("assessment_binding", err)
 	}
 	var recomputed Result
 	if assessed.Qualitative != nil {
@@ -572,11 +585,12 @@ func validatePrivateAssessmentBinding(root string, source PrivateBaselineSurface
 		}
 		contract, _, policy, loadErr := loadPrivatePanelReviewContract(root, source)
 		if loadErr != nil || policy != set.Policy || len(contract.Reviewers) != len(set.Members) {
-			return privateBaselineError("assessment_binding")
+			// A loaded contract that merely disagrees attaches nothing.
+			return privateBaselineError("assessment_binding", loadErr)
 		}
 		expectedContract, contractErr := QualitativeReviewSetContractSHA256(policy, contract.Reviewers)
 		if contractErr != nil || set.ContractSHA256 != expectedContract || set.AssignmentDigest != contract.BlindAssignmentSHA256 || set.Blinded != (contract.BlindAssignmentSHA256 != "") {
-			return privateBaselineError("assessment_binding")
+			return privateBaselineError("assessment_binding", contractErr)
 		}
 		expectedReviewers := append([]Reviewer(nil), contract.Reviewers...)
 		sort.Slice(expectedReviewers, func(i, j int) bool { return expectedReviewers[i].ID < expectedReviewers[j].ID })
@@ -595,7 +609,8 @@ func validatePrivateAssessmentBinding(root string, source PrivateBaselineSurface
 		recomputed, err = AssessQualitativeReviewSet(original, resultData, finalData, rubric, policy, reviews)
 	}
 	if err != nil || !equalPrivateResultJSON(recomputed, assessed) {
-		return privateBaselineError("assessment_binding")
+		// A clean recomputation that simply differs attaches nothing.
+		return privateBaselineError("assessment_binding", err)
 	}
 	return nil
 }
@@ -651,23 +666,25 @@ func copyPrivateAudits(root, runDirectory, destinationRoot string) error {
 			continue
 		}
 		if err != nil {
-			return privateBaselineError("audit_read")
+			return privateBaselineError("audit_read", err)
 		}
 		if len(bytes.TrimSpace(data)) == 0 {
 			continue
 		}
 		sanitized, err := sanitizePrivateAudit(name, source, data)
 		if err != nil {
-			return privateBaselineError("audit_invalid")
+			// The sanitizer reports either its own classification or a reader
+			// failure; the envelope keeps the message redacted either way.
+			return privateBaselineError("audit_invalid", err)
 		}
 		if !written {
 			if err := safepath.MkdirAllWithin(root, auditDestination, 0o700); err != nil {
-				return privateBaselineError("audit_directory")
+				return privateBaselineError("audit_directory", err)
 			}
 			written = true
 		}
 		if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(auditDestination, name), sanitized, 0o600); err != nil {
-			return privateBaselineError("audit_copy")
+			return privateBaselineError("audit_copy", err)
 		}
 	}
 	return nil
@@ -746,8 +763,14 @@ func normalizePrivateJSONLines[Input any, Output any](data []byte, normalize fun
 		var input Input
 		decoder := json.NewDecoder(bytes.NewReader(line))
 		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&input); err != nil || decoder.Decode(new(any)) != io.EOF {
-			return nil, privateBaselineError("audit_decode")
+		if err := decoder.Decode(&input); err != nil {
+			return nil, privateBaselineError("audit_decode", err)
+		}
+		// Split from the first decode so malformed trailing content keeps its
+		// concrete parse failure. A clean second value is still rejected with no
+		// cause, exactly like the former compound condition.
+		if err := decoder.Decode(new(any)); err != io.EOF {
+			return nil, privateBaselineError("audit_decode", err)
 		}
 		value, ok := normalize(input)
 		if !ok {
@@ -755,7 +778,7 @@ func normalizePrivateJSONLines[Input any, Output any](data []byte, normalize fun
 		}
 		encoded, err := json.Marshal(value)
 		if err != nil {
-			return nil, privateBaselineError("audit_encode")
+			return nil, privateBaselineError("audit_encode", err)
 		}
 		output.Write(encoded)
 		output.WriteByte('\n')
@@ -1199,7 +1222,8 @@ func ComparePrivateBaseline(options PrivateCompareOptions) (PrivateComparison, e
 	}
 	root, _, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
 	if err != nil || !privateWorkspaceAliasRE.MatchString(options.Baseline) || !validPrivateBaselineSource(root, options.Candidate) {
-		return PrivateComparison{}, privateBaselineError("compare_input")
+		// A resolvable workspace rejected by validation alone attaches nothing.
+		return PrivateComparison{}, privateBaselineError("compare_input", err)
 	}
 	manifest, baselineRoot, err := loadPrivateBaseline(root, options.Candidate.ContractSHA256, options.Baseline)
 	if err != nil {
@@ -1217,11 +1241,12 @@ func ComparePrivateBaseline(options PrivateCompareOptions) (PrivateComparison, e
 		path := filepath.Join(baselineRoot, filepath.FromSlash(surface.ResultPath))
 		data, err := safepath.ReadFileWithinLimit(root, path, maxContractBytes)
 		if err != nil || sha256HexBytes(data) != surface.ResultSHA256 {
-			return PrivateComparison{}, privateBaselineError("baseline_result")
+			// A readable result that simply hashes differently attaches nothing.
+			return PrivateComparison{}, privateBaselineError("baseline_result", err)
 		}
 		result, err := DecodeResult(bytes.NewReader(data))
 		if err != nil || result.EffectiveSurface() != surface.Surface {
-			return PrivateComparison{}, privateBaselineError("baseline_result")
+			return PrivateComparison{}, privateBaselineError("baseline_result", err)
 		}
 		baselineResults[surface.Surface] = result
 	}
@@ -1335,20 +1360,26 @@ func effectivePrivateSourceResults(root string, source PrivateBaselineSource) (m
 	for _, surface := range source.Surfaces {
 		resultData, err := safepath.ReadFileWithinLimit(root, filepath.Join(surface.RunDirectory, "result.json"), maxContractBytes)
 		if err != nil {
-			return nil, privateBaselineError("candidate_result")
+			return nil, privateBaselineError("candidate_result", err)
 		}
 		result, err := DecodeResult(bytes.NewReader(resultData))
 		if err != nil || result.DataClass != "private-local" || result.EffectiveSurface() != surface.Surface {
-			return nil, privateBaselineError("candidate_result")
+			// A well-formed result with the wrong class or surface attaches nothing.
+			return nil, privateBaselineError("candidate_result", err)
 		}
 		_, _, assessed, err := findPrivateAssessedResult(root, surface.RunDirectory)
 		if err != nil {
 			return nil, err
 		}
 		if assessed.SchemaVersion != 0 {
-			if !samePrivateResultIdentity(result, assessed) || !hasPrivateQualitativeAssessment(assessed) ||
-				validatePrivateAssessmentBinding(root, surface, resultData, assessed) != nil {
+			if !samePrivateResultIdentity(result, assessed) || !hasPrivateQualitativeAssessment(assessed) {
 				return nil, privateBaselineError("candidate_assessment")
+			}
+			// Split out of the identity checks above so the binding recheck
+			// keeps its original short-circuit position while its rejection
+			// stays inspectable under the unchanged code.
+			if bindingErr := validatePrivateAssessmentBinding(root, surface, resultData, assessed); bindingErr != nil {
+				return nil, privateBaselineError("candidate_assessment", bindingErr)
 			}
 			result = assessed
 		}
@@ -1369,11 +1400,12 @@ func loadPrivateBaseline(root, contract, baseline string) (privateBaselineManife
 	if baseline == "current" {
 		pointerData, err := safepath.ReadFileWithinLimit(root, filepath.Join(contractRoot, "current.json"), maxContractBytes)
 		if err != nil {
-			return privateBaselineManifest{}, "", privateBaselineError("current_missing")
+			return privateBaselineManifest{}, "", privateBaselineError("current_missing", err)
 		}
 		pointer, err := decodePrivateBaselinePointer(pointerData)
 		if err != nil || pointer.ContractSHA256 != contract {
-			return privateBaselineManifest{}, "", privateBaselineError("current_invalid")
+			// A decodable pointer for another contract attaches nothing.
+			return privateBaselineManifest{}, "", privateBaselineError("current_invalid", err)
 		}
 		baseline = pointer.Baseline
 		pointerTreeSHA256 = pointer.TreeSHA256
@@ -1384,16 +1416,18 @@ func loadPrivateBaseline(root, contract, baseline string) (privateBaselineManife
 	baselineRoot := filepath.Join(contractRoot, baseline)
 	data, err := safepath.ReadFileWithinLimit(root, filepath.Join(baselineRoot, "baseline.v1.json"), maxContractBytes)
 	if err != nil {
-		return privateBaselineManifest{}, "", privateBaselineError("baseline_missing")
+		return privateBaselineManifest{}, "", privateBaselineError("baseline_missing", err)
 	}
 	manifest, err := decodePrivateBaselineManifest(data)
 	if err != nil || manifest.Baseline != baseline || manifest.ContractSHA256 != contract ||
 		(pointerTreeSHA256 != "" && manifest.TreeSHA256 != pointerTreeSHA256) {
-		return privateBaselineManifest{}, "", privateBaselineError("baseline_invalid")
+		// A decodable manifest that simply disagrees attaches nothing.
+		return privateBaselineManifest{}, "", privateBaselineError("baseline_invalid", err)
 	}
 	treeHash, _, _, err := hashPrivateTree(baselineRoot, "baseline.v1.json")
 	if err != nil || treeHash != manifest.TreeSHA256 {
-		return privateBaselineManifest{}, "", privateBaselineError("baseline_drift")
+		// A clean rehash that simply differs attaches nothing.
+		return privateBaselineManifest{}, "", privateBaselineError("baseline_drift", err)
 	}
 	return manifest, baselineRoot, nil
 }
@@ -1443,13 +1477,24 @@ func decodePrivateBaselinePointer(data []byte) (privateBaselinePointer, error) {
 }
 
 func decodePrivateBaselineJSON(data []byte, target any) error {
-	if len(data) > maxContractBytes || validateJSONNoDuplicateKeys(data) != nil {
+	if len(data) > maxContractBytes {
 		return privateBaselineError("decode")
+	}
+	// Split from the size bound above so the duplicate-key rejection keeps its
+	// original short-circuit position while staying inspectable.
+	if err := validateJSONNoDuplicateKeys(data); err != nil {
+		return privateBaselineError("decode", err)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil || decoder.Decode(new(any)) != io.EOF {
-		return privateBaselineError("decode")
+	if err := decoder.Decode(target); err != nil {
+		return privateBaselineError("decode", err)
+	}
+	// Split from the first decode so malformed trailing content keeps its
+	// concrete parse failure. A clean second value is still rejected with no
+	// cause, exactly like the former compound condition.
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return privateBaselineError("decode", err)
 	}
 	return nil
 }
@@ -1457,7 +1502,8 @@ func decodePrivateBaselineJSON(data []byte, target any) error {
 func acquirePrivateWorkspaceLock(root string) (*safepath.FileLock, error) {
 	lock, acquired, err := safepath.TryLockFileWithin(root, filepath.Join(root, privateWorkspaceLockPath), 0o600)
 	if err != nil || !acquired {
-		return nil, privateBaselineError("workspace_busy")
+		// A lock held by another holder reports contention with no failure.
+		return nil, privateBaselineError("workspace_busy", err)
 	}
 	return lock, nil
 }
@@ -1488,7 +1534,9 @@ func hashPrivateTree(root, excluded string) (string, int, int64, error) {
 		}
 		info, err := entry.Info()
 		if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
-			return privateBaselineError("tree_file")
+			// A stat that succeeded on a group-readable or irregular entry
+			// attaches nothing.
+			return privateBaselineError("tree_file", err)
 		}
 		total += info.Size()
 		if len(paths) >= privateBaselineMaxFiles || total > privateBaselineMaxBytes {
@@ -1551,8 +1599,17 @@ func sha256HexBytes(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func privateBaselineError(code string) error {
-	return fmt.Errorf("%w: %s", ErrPrivateBaselineRejected, code)
+// privateBaselineError classifies a baseline promotion or comparison rejection
+// under the stable sentinel and code while retaining the concrete causes
+// already in hand. The rendered message stays exactly the sentinel plus the
+// code, so a configured workspace path, a plan or run identifier, or a
+// dependency failure never reaches a log line; errors.Is and errors.As still
+// reach every attached cause, including a classification raised deeper in the
+// promotion. Nil causes are dropped, so a branch that rejects on either a
+// failure or a comparison can pass its error unguarded, and a rejection that
+// follows from validation alone carries nothing.
+func privateBaselineError(code string, causes ...error) error {
+	return codedError(ErrPrivateBaselineRejected, code, causes...)
 }
 
 // privatePruneError classifies a retention-prune rejection under the stable

@@ -1014,6 +1014,26 @@ pooled even when every other rubric and runtime field matches. The digest is an
 internal grouping key and is omitted from aggregate JSON because a short answer
 mapping may be dictionary-guessable.
 
+A classified baseline promotion or comparison rejection still reports only the
+stable baseline sentinel and its existing short code. The baseline paths have
+joined the cause-preserving pattern used by plan execution, the live gateway,
+the daily checkpoint, the workspace migration, and retention prune: a concrete
+workspace, lock, plan, staging, artifact, audit, codec, tree, or filesystem
+failure is now attached to the returned error instead of being discarded, so
+tooling can inspect it with the standard Go `errors.Is` and `errors.As` helpers
+while messages and logs stay free of configured private locations, plan and run
+identifiers, and dependency text. A rejection that follows from validation
+alone — for example, a missing confirmation, an invalid source, an
+activation-study source used as a reference, an already-published baseline, an
+ambiguous assessment pair, an incompatible result set, or an invalid baseline
+alias — attaches nothing. A validation classification raised deeper in the
+operation remains inspectable when the outer baseline code retains it as a
+cause. No baseline code is added or renamed. Promoted
+baseline, pointer, and manifest bytes and digests, file and directory
+permissions, surface ordering, pointer recovery, comparison compatibility
+rules, audit sanitization, and fail-closed behavior are unchanged. Remaining
+lifecycle subsystems migrate to this pattern incrementally.
+
 ## Finding ledger and scorecard
 
 Keep exactly one machine-readable finding ledger: the legacy

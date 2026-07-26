@@ -1181,6 +1181,407 @@ func privatePruneErrorCauses(t *testing.T, err error) []error {
 	return tree[1:]
 }
 
+func TestPrivateBaselineErrorKeepsCausesInspectableAndOutOfTheMessage(t *testing.T) {
+	baselineRoot := filepath.Join(t.TempDir(), "baselines", strings.Repeat("c", 64), "baseline-01")
+	readCause := &fs.PathError{Op: "open", Path: filepath.Join(baselineRoot, "baseline.v1.json"), Err: fs.ErrPermission}
+	driftCause := errors.New("retained tree changed under " + baselineRoot)
+
+	err := privateBaselineError("baseline_drift", readCause, nil, driftCause)
+	assertPrivateBaselineCode(t, err, "baseline_drift")
+	if strings.Contains(err.Error(), baselineRoot) {
+		t.Fatalf("message leaked a configured path: %q", err.Error())
+	}
+	if !errors.Is(err, driftCause) || !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("error %v lost a cause", err)
+	}
+	var typed *fs.PathError
+	if !errors.As(err, &typed) || typed.Path != readCause.Path {
+		t.Fatalf("error %v does not expose the concrete path error", err)
+	}
+	causes := privateBaselineErrorCauses(t, err)
+	if len(causes) != 2 || causes[0] != error(readCause) || causes[1] != driftCause {
+		t.Fatalf("causes=%v, want both non-nil causes retained in order", causes)
+	}
+
+	// A rejection with nothing to attach classifies exactly as it did before.
+	assertPrivateBaselineCode(t, privateBaselineError("confirmation"), "confirmation")
+	if causes := privateBaselineErrorCauses(t, privateBaselineError("confirmation", nil, nil)); len(causes) != 0 {
+		t.Fatalf("causes=%v, want nil causes dropped", causes)
+	}
+}
+
+func TestSetPrivateBaselineAttachesPromotionCauses(t *testing.T) {
+	promote := func(fixture privateBaselineFixture, root, baseline string) error {
+		_, err := SetPrivateBaseline(PrivateBaselineSetOptions{Root: root, RepositoryRoot: fixture.repository,
+			Baseline: baseline, Confirm: PrivateBaselineConfirmation, Source: fixture.source})
+		return err
+	}
+
+	t.Run("root symlink", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("symlink creation needs elevated privileges on Windows")
+		}
+		fixture := newPrivateBaselineFixture(t, 1)
+		writePrivateBaselineRunArtifacts(t, fixture, "private-workspace-cause-canary")
+		linked := filepath.Join(t.TempDir(), "private-link")
+		if err := os.Symlink(fixture.root, linked); err != nil {
+			t.Fatal(err)
+		}
+		err := promote(fixture, linked, "baseline-01")
+		assertPrivateBaselineCode(t, err, "workspace")
+		if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) {
+			t.Fatalf("error %v lost the workspace-location cause", err)
+		}
+		if causes := privateBaselineErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want exactly the location failure", causes)
+		}
+	})
+
+	t.Run("workspace manifest", func(t *testing.T) {
+		fixture := newPrivateBaselineFixture(t, 1)
+		writePrivateBaselineRunArtifacts(t, fixture, "private-manifest-cause-canary")
+		if err := os.Remove(filepath.Join(fixture.root, PrivateWorkspaceManifestName)); err != nil {
+			t.Fatal(err)
+		}
+		err := promote(fixture, fixture.root, "baseline-01")
+		assertPrivateBaselineCode(t, err, "manifest")
+		// The workspace manifest loader classifies its own read failure, so the
+		// retained cause is that classification rather than the raw filesystem
+		// error; either way the promotion message stays redacted.
+		if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) {
+			t.Fatalf("error %v lost the manifest cause", err)
+		}
+		if causes := privateBaselineErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want exactly the manifest failure", causes)
+		}
+	})
+
+	t.Run("plan drift", func(t *testing.T) {
+		fixture := newPrivateBaselineFixture(t, 1)
+		writePrivateBaselineRunArtifacts(t, fixture, "private-plan-cause-canary")
+		if err := os.Remove(fixture.source.PlanPath); err != nil {
+			t.Fatal(err)
+		}
+		err := promote(fixture, fixture.root, "baseline-01")
+		assertPrivateBaselineCode(t, err, "plan_drift")
+		// A dependency rejection raised outside the baseline family is retained
+		// instead of being flattened into the drift code.
+		if !errors.Is(err, ErrPrivatePlanRejected) {
+			t.Fatalf("error %v lost the plan read cause", err)
+		}
+		if strings.Contains(err.Error(), fixture.root) || strings.Contains(err.Error(), fixture.source.PlanID) {
+			t.Fatalf("message leaked private locations: %q", err.Error())
+		}
+	})
+
+	t.Run("missing surface result", func(t *testing.T) {
+		fixture := newPrivateBaselineFixture(t, 1)
+		// The plan and manifest are intact; only the surface artifacts are
+		// absent, so the rejection carries the concrete read failure.
+		err := promote(fixture, fixture.root, "baseline-01")
+		assertPrivateBaselineCode(t, err, "result_missing")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete read failure", err)
+		}
+		if strings.Contains(err.Error(), fixture.root) || strings.Contains(err.Error(), fixture.source.RunID) {
+			t.Fatalf("message leaked private locations: %q", err.Error())
+		}
+	})
+
+	t.Run("assessment binding", func(t *testing.T) {
+		fixture := newPrivateBaselineFixture(t, 1)
+		writePrivateBaselineRunArtifacts(t, fixture, "private-binding-cause-canary")
+		writePrivateBaselineAssessment(t, &fixture)
+		if err := os.Remove(fixture.source.Surfaces[0].RubricPath); err != nil {
+			t.Fatal(err)
+		}
+		err := promote(fixture, fixture.root, "baseline-01")
+		assertPrivateBaselineCode(t, err, "assessment_invalid")
+		causes := privateBaselineErrorCauses(t, err)
+		if len(causes) != 1 {
+			t.Fatalf("causes=%v, want exactly the binding rejection", causes)
+		}
+		// The binding recheck keeps its own classification under the unchanged
+		// outer code, and its concrete read failure stays reachable below it.
+		var classified interface{ Code() string }
+		if !errors.As(causes[0], &classified) || classified.Code() != "assessment_binding" {
+			t.Fatalf("cause=%v, want the binding classification", causes[0])
+		}
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete rubric read failure", err)
+		}
+	})
+
+	t.Run("audit read", func(t *testing.T) {
+		if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+			t.Skip("owner-only read denial is not observable here")
+		}
+		fixture := newPrivateBaselineFixture(t, 1)
+		writePrivateBaselineRunArtifacts(t, fixture, "private-audit-cause-canary")
+		// Write-only is still owner-only, so the audit passes the mode gate and
+		// fails in the read instead.
+		if err := os.Chmod(filepath.Join(fixture.surfaceDirectory, ".atl-eval", "guard-decisions.jsonl"), 0o200); err != nil {
+			t.Fatal(err)
+		}
+		err := promote(fixture, fixture.root, "baseline-01")
+		assertPrivateBaselineCode(t, err, "audit_read")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrPermission) {
+			t.Fatalf("error %v does not expose the concrete audit read failure", err)
+		}
+		if strings.Contains(err.Error(), fixture.root) {
+			t.Fatalf("message leaked the workspace root: %q", err.Error())
+		}
+	})
+}
+
+func TestPrivateBaselineLoadAndCompareAttachCauses(t *testing.T) {
+	promoted := func(t *testing.T) privateBaselineFixture {
+		t.Helper()
+		fixture := newPrivateBaselineFixture(t, 1)
+		writePrivateBaselineRunArtifacts(t, fixture, "private-load-cause-canary")
+		if _, err := SetPrivateBaseline(PrivateBaselineSetOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
+			Baseline: "baseline-01", Confirm: PrivateBaselineConfirmation, Source: fixture.source}); err != nil {
+			t.Fatal(err)
+		}
+		return fixture
+	}
+
+	t.Run("current pointer missing", func(t *testing.T) {
+		fixture := newPrivateBaselineFixture(t, 1)
+		_, _, err := loadPrivateBaseline(fixture.root, fixture.source.ContractSHA256, "current")
+		assertPrivateBaselineCode(t, err, "current_missing")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete pointer read failure", err)
+		}
+		if strings.Contains(err.Error(), fixture.root) || strings.Contains(err.Error(), fixture.source.ContractSHA256) {
+			t.Fatalf("message leaked private locations: %q", err.Error())
+		}
+	})
+
+	t.Run("manifest decode", func(t *testing.T) {
+		fixture := promoted(t)
+		manifestPath := filepath.Join(fixture.root, "baselines", fixture.source.ContractSHA256, "baseline-01", "baseline.v1.json")
+		// A duplicate key is rejected before the JSON decoder runs, so this
+		// exercises the split duplicate-key branch rather than the decoder.
+		writeTestFile(t, manifestPath, "{\"baseline\":\"baseline-01\",\"baseline\":\"baseline-01\"}\n", 0o600)
+		_, _, err := loadPrivateBaseline(fixture.root, fixture.source.ContractSHA256, "baseline-01")
+		assertPrivateBaselineCode(t, err, "baseline_invalid")
+		causes := privateBaselineErrorCauses(t, err)
+		if len(causes) != 1 {
+			t.Fatalf("causes=%v, want exactly the decode rejection", causes)
+		}
+		var classified interface{ Code() string }
+		if !errors.As(causes[0], &classified) || classified.Code() != "decode" {
+			t.Fatalf("cause=%v, want the decode classification", causes[0])
+		}
+		if nested := privateBaselineErrorCauses(t, causes[0]); len(nested) != 1 {
+			t.Fatalf("nested causes=%v, want the duplicate-key rejection retained", nested)
+		}
+	})
+
+	t.Run("tree drift carries no cause", func(t *testing.T) {
+		fixture := promoted(t)
+		baselineRoot := filepath.Join(fixture.root, "baselines", fixture.source.ContractSHA256, "baseline-01")
+		// Hashing still succeeds; only the digest disagrees, so there is no
+		// failure to attach.
+		writeTestFile(t, filepath.Join(baselineRoot, "stray.json"), "{}\n", 0o600)
+		_, _, err := loadPrivateBaseline(fixture.root, fixture.source.ContractSHA256, "baseline-01")
+		assertPrivateBaselineCode(t, err, "baseline_drift")
+		if causes := privateBaselineErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a clean rehash that simply differs", causes)
+		}
+	})
+
+	t.Run("tree read", func(t *testing.T) {
+		if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+			t.Skip("owner-only read denial is not observable here")
+		}
+		fixture := promoted(t)
+		baselineRoot := filepath.Join(fixture.root, "baselines", fixture.source.ContractSHA256, "baseline-01")
+		path := filepath.Join(baselineRoot, "surfaces", SurfaceCLISkill, "final.json")
+		if err := os.Chmod(path, 0o200); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := loadPrivateBaseline(fixture.root, fixture.source.ContractSHA256, "baseline-01")
+		assertPrivateBaselineCode(t, err, "baseline_drift")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrPermission) {
+			t.Fatalf("error %v does not expose the concrete tree read failure", err)
+		}
+		if strings.Contains(err.Error(), baselineRoot) {
+			t.Fatalf("message leaked the baseline path: %q", err.Error())
+		}
+	})
+
+	t.Run("malformed trailing JSON", func(t *testing.T) {
+		var decoded map[string]any
+		err := decodePrivateBaselineJSON([]byte("{\"value\":1} {"), &decoded)
+		assertPrivateBaselineCode(t, err, "decode")
+		if causes := privateBaselineErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the trailing syntax failure", causes)
+		}
+
+		_, err = normalizePrivateJSONLines[map[string]any, map[string]any](
+			[]byte("{\"value\":1} {\n"), func(value map[string]any) (map[string]any, bool) { return value, true })
+		assertPrivateBaselineCode(t, err, "audit_decode")
+		if causes := privateBaselineErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the trailing audit syntax failure", causes)
+		}
+	})
+
+	t.Run("compare workspace", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("symlink creation needs elevated privileges on Windows")
+		}
+		fixture := promoted(t)
+		linked := filepath.Join(t.TempDir(), "private-link")
+		if err := os.Symlink(fixture.root, linked); err != nil {
+			t.Fatal(err)
+		}
+		_, err := ComparePrivateBaseline(PrivateCompareOptions{Root: linked, RepositoryRoot: fixture.repository,
+			Baseline: "baseline-01", Candidate: fixture.source})
+		assertPrivateBaselineCode(t, err, "compare_input")
+		if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) {
+			t.Fatalf("error %v lost the workspace-location cause", err)
+		}
+	})
+
+	t.Run("compare candidate result", func(t *testing.T) {
+		fixture := promoted(t)
+		if err := os.Remove(filepath.Join(fixture.surfaceDirectory, "result.json")); err != nil {
+			t.Fatal(err)
+		}
+		_, err := ComparePrivateBaseline(PrivateCompareOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
+			Baseline: "current", Candidate: fixture.source})
+		assertPrivateBaselineCode(t, err, "candidate_result")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete candidate read failure", err)
+		}
+		if strings.Contains(err.Error(), fixture.root) {
+			t.Fatalf("message leaked the workspace root: %q", err.Error())
+		}
+	})
+}
+
+func TestPrivateBaselineValidationOnlyRejectionsCarryNoCause(t *testing.T) {
+	assertNoCause := func(t *testing.T, err error, code string) {
+		t.Helper()
+		assertPrivateBaselineCode(t, err, code)
+		if causes := privateBaselineErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a rejection with no failure in hand", causes)
+		}
+	}
+
+	t.Run("activation study reference", func(t *testing.T) {
+		fixture := newPrivateBaselineFixture(t, 1)
+		source := fixture.source
+		source.Kind = PrivateRunSetKindActivationStudy
+		_, err := SetPrivateBaseline(PrivateBaselineSetOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
+			Baseline: "baseline-01", Confirm: PrivateBaselineConfirmation, Source: source})
+		assertNoCause(t, err, "activation_study_requires_reference")
+		_, err = ComparePrivateBaseline(PrivateCompareOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
+			Baseline: "baseline-01", Candidate: source})
+		assertNoCause(t, err, "activation_study_requires_reference")
+	})
+
+	t.Run("confirmation and source", func(t *testing.T) {
+		fixture := newPrivateBaselineFixture(t, 1)
+		writePrivateBaselineRunArtifacts(t, fixture, "private-validation-canary")
+		_, err := SetPrivateBaseline(PrivateBaselineSetOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
+			Baseline: "baseline-01", Source: fixture.source})
+		assertNoCause(t, err, "confirmation")
+		_, err = SetPrivateBaseline(PrivateBaselineSetOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
+			Baseline: "current", Confirm: PrivateBaselineConfirmation, Source: fixture.source})
+		assertNoCause(t, err, "source")
+	})
+
+	t.Run("existing baseline", func(t *testing.T) {
+		fixture := newPrivateBaselineFixture(t, 1)
+		writePrivateBaselineRunArtifacts(t, fixture, "private-immutability-canary")
+		options := PrivateBaselineSetOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
+			Baseline: "baseline-01", Confirm: PrivateBaselineConfirmation, Source: fixture.source}
+		if _, err := SetPrivateBaseline(options); err != nil {
+			t.Fatal(err)
+		}
+		// The published pointer stats cleanly; the conflict itself is the
+		// rejection, so the nil stat error is dropped.
+		_, err := SetPrivateBaseline(options)
+		assertNoCause(t, err, "baseline_exists")
+	})
+
+	t.Run("ambiguous assessment", func(t *testing.T) {
+		fixture := newPrivateBaselineFixture(t, 1)
+		writePrivateBaselineRunArtifacts(t, fixture, "private-ambiguity-canary")
+		for _, name := range []string{"reviewed-result.json", "assessed-result.json"} {
+			writePrivateBaselineResult(t, filepath.Join(fixture.surfaceDirectory, name), privateBaselineResult(t, SurfaceCLISkill))
+		}
+		_, _, _, err := findPrivateAssessedResult(fixture.root, fixture.surfaceDirectory)
+		assertNoCause(t, err, "assessment_ambiguous")
+	})
+
+	t.Run("encoded schemas", func(t *testing.T) {
+		_, err := encodePrivateBaselineManifest(privateBaselineManifest{})
+		assertNoCause(t, err, "manifest")
+		_, err = encodePrivateBaselinePointer(privateBaselinePointer{})
+		assertNoCause(t, err, "pointer")
+		_, err = sanitizePrivateAudit("unexpected-audit.jsonl", filepath.Join(t.TempDir(), "unexpected-audit.jsonl"), []byte("{}\n"))
+		assertNoCause(t, err, "audit_name")
+		_, err = normalizePrivateJSONLines[map[string]any, map[string]any](
+			[]byte("{\"value\":1} {\"value\":2}\n"), func(value map[string]any) (map[string]any, bool) { return value, true })
+		assertNoCause(t, err, "audit_decode")
+	})
+
+	t.Run("baseline name and containment", func(t *testing.T) {
+		fixture := newPrivateBaselineFixture(t, 1)
+		_, _, err := loadPrivateBaseline(fixture.root, fixture.source.ContractSHA256, "Not An Alias")
+		assertNoCause(t, err, "baseline_name")
+		assertNoCause(t, removePrivateTree(fixture.root, fixture.root), "remove_containment")
+	})
+
+	t.Run("tree symlink", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("symlink creation needs elevated privileges on Windows")
+		}
+		staging := filepath.Join(t.TempDir(), "staging")
+		if err := os.MkdirAll(staging, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(t.TempDir(), "outside"), filepath.Join(staging, "escape")); err != nil {
+			t.Fatal(err)
+		}
+		_, _, _, err := hashPrivateTree(staging, "")
+		assertNoCause(t, err, "tree_symlink")
+	})
+}
+
+func assertPrivateBaselineCode(t *testing.T, err error, code string) {
+	t.Helper()
+	if !errors.Is(err, ErrPrivateBaselineRejected) {
+		t.Fatalf("err=%v, want the baseline sentinel", err)
+	}
+	if got, want := err.Error(), ErrPrivateBaselineRejected.Error()+": "+code; got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+}
+
+func privateBaselineErrorCauses(t *testing.T, err error) []error {
+	t.Helper()
+	multi, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		t.Fatalf("%T does not unwrap to multiple errors", err)
+	}
+	tree := multi.Unwrap()
+	if len(tree) == 0 || !errors.Is(tree[0], ErrPrivateBaselineRejected) {
+		t.Fatalf("unwrap tree=%v, want the sentinel first", tree)
+	}
+	return tree[1:]
+}
+
 type privateBaselineFixture struct {
 	root             string
 	repository       string
