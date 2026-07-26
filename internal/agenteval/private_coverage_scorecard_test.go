@@ -511,6 +511,71 @@ func TestPrivateCoverageScorecardAttachesWorkspaceAndAssessmentCauses(t *testing
 	})
 }
 
+func TestPrivateCoverageScorecardAttachesDriftCauses(t *testing.T) {
+	t.Run("index reload failure", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := addPrivateLiveCoverageAssessment(t, fixture, 10, "jira.issue.refs")
+		writePrivateCoverageIndexV2(t, fixture.root, []PrivateCoverageIndexV2Entry{{
+			AssessmentSource: PrivateFindingAcceptanceSourcePrivateLive,
+			AssessmentSHA256: digest,
+		}})
+		indexPath := filepath.Join(fixture.root, filepath.FromSlash(PrivateCoverageIndexV2RelativePath))
+		calls := 0
+		load := func(_, _, planID string) (PrivateBaselineSource, error) {
+			calls++
+			if calls == 4 {
+				if err := os.Remove(indexPath); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return fixture.sources[planID], nil
+		}
+		_, err := buildPrivateCoverageScorecard(PrivateCoverageScorecardOptions{
+			Root: fixture.root, RepositoryRoot: fixture.repository,
+		}, load)
+		assertPrivateCoverageCode(t, err, "index_drift")
+		causes := privateCoverageErrorCauses(t, err)
+		if len(causes) != 1 {
+			t.Fatalf("causes=%v, want the failed index reload retained", causes)
+		}
+		var classified interface{ Code() string }
+		if !errors.As(causes[0], &classified) || classified.Code() != "index_file" {
+			t.Fatalf("cause=%v, want the nested index-file classification", causes[0])
+		}
+	})
+
+	t.Run("evidence reload failure", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := addPrivateLiveCoverageAssessment(t, fixture, 10, "jira.issue.refs")
+		writePrivateCoverageIndexV2(t, fixture.root, []PrivateCoverageIndexV2Entry{{
+			AssessmentSource: PrivateFindingAcceptanceSourcePrivateLive,
+			AssessmentSHA256: digest,
+		}})
+		loadFailure := errors.New("synthetic evidence reload failure")
+		calls := 0
+		load := func(_, _, planID string) (PrivateBaselineSource, error) {
+			calls++
+			if calls > 4 {
+				return PrivateBaselineSource{}, loadFailure
+			}
+			return fixture.sources[planID], nil
+		}
+		_, err := buildPrivateCoverageScorecard(PrivateCoverageScorecardOptions{
+			Root: fixture.root, RepositoryRoot: fixture.repository,
+		}, load)
+		assertPrivateCoverageCode(t, err, "evidence_drift")
+		if !errors.Is(err, ErrPrivateSamplingRejected) {
+			t.Fatalf("error %v does not expose the sampling reload classification", err)
+		}
+		if causes := privateCoverageErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the failed evidence reload retained", causes)
+		}
+		if strings.Contains(err.Error(), loadFailure.Error()) {
+			t.Fatalf("message leaked the dependency failure: %q", err.Error())
+		}
+	})
+}
+
 func TestPrivateCoverageIndexLoadAttachesOnlyRejectingFailures(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("index permission and symlink rejections differ on Windows")

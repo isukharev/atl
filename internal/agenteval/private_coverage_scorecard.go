@@ -371,7 +371,7 @@ func loadPrivateCoverageAssessment(root, repository, source, digest string, load
 		assessment, primary, holdout, err := loadPrivateSyntheticSamplingAssessment(root, digest)
 		return assessment, primary, holdout, err
 	default:
-		// An unrecognised source is decided by the label alone, with no load
+		// An unrecognized source is decided by the label alone, with no load
 		// attempted and therefore no failure to attach.
 		return nil, nil, nil, privateCoverageError("assessment_source")
 	}

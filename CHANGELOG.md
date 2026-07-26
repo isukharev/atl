@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   validation or comparison alone — an ambiguous or absent index pair, an
   observed directory permission or file type, an index-identity comparison, a
   decodable but non-canonical index, a duplicate cohort, index or evidence drift
-  seen by a clean re-read, an unrecognised assessment source, an unaccepted
+  seen by a clean re-read, an unrecognized assessment source, an unaccepted
   assessment, an unexpected result, a cohort mismatch, an unknown runtime class,
   or an unusable capability-family set — still carries no cause. No coverage
   code is added or renamed. Index and scorecard schemas, canonical bytes, source

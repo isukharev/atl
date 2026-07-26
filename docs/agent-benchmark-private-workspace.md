@@ -1326,7 +1326,7 @@ the unchanged outer coverage code. A rejection
 decided by validation or comparison alone — an ambiguous or absent index pair,
 an observed directory permission or file type, an index-identity comparison, a
 decodable but non-canonical index, a duplicate cohort, index or evidence drift
-seen by a clean re-read, an unrecognised assessment source, an unaccepted
+seen by a clean re-read, an unrecognized assessment source, an unaccepted
 assessment, an unexpected result, a cohort mismatch, an unknown runtime class,
 or an unusable capability-family set — attaches nothing. No coverage code is
 added or renamed. Index and scorecard schemas, canonical bytes, source digests,
