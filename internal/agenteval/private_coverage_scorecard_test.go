@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -427,6 +428,305 @@ func TestPrivateCoverageScorecardFailsClosedOnIndexAndAssessmentContracts(t *tes
 			t.Fatalf("err=%v", err)
 		}
 	})
+}
+
+func TestPrivateCoverageErrorKeepsCausesInspectableAndOutOfTheMessage(t *testing.T) {
+	privatePath := filepath.Join("private", "reports", "sampling-coverage.v2.json")
+	statCause := &fs.PathError{Op: "statat", Path: privatePath, Err: fs.ErrPermission}
+	nestedCause := privateSamplingError("assessment_file")
+
+	err := privateCoverageError("index_file", statCause, nil, nestedCause)
+	assertPrivateCoverageCode(t, err, "index_file")
+	if strings.Contains(err.Error(), privatePath) || strings.Contains(err.Error(), "assessment_file") {
+		t.Fatalf("message leaked a cause: %q", err.Error())
+	}
+	if !errors.Is(err, fs.ErrPermission) || !errors.Is(err, ErrPrivateSamplingRejected) {
+		t.Fatalf("error %v lost a cause", err)
+	}
+	var typed *fs.PathError
+	if !errors.As(err, &typed) || typed.Path != statCause.Path {
+		t.Fatalf("error %v does not expose the concrete stat failure", err)
+	}
+	// The two-candidate recheck passes its legacy and current failures in a
+	// fixed order, which is the ordering pinned here: the recheck itself cannot
+	// be driven into that state without racing the reader.
+	causes := privateCoverageErrorCauses(t, err)
+	if len(causes) != 2 || causes[0] != error(statCause) || causes[1] != nestedCause {
+		t.Fatalf("causes=%v, want both non-nil causes retained in order", causes)
+	}
+	var classified interface{ Code() string }
+	if !errors.As(err, &classified) || classified.Code() != "index_file" {
+		t.Fatalf("error %v does not expose its stable code", err)
+	}
+
+	// A rejection with nothing in hand classifies exactly as it did before.
+	assertPrivateCoverageCode(t, privateCoverageError("duplicate_cohort"), "duplicate_cohort")
+	if causes := privateCoverageErrorCauses(t, privateCoverageError("index_contract", nil, nil)); len(causes) != 0 {
+		t.Fatalf("causes=%v, want nil causes dropped", causes)
+	}
+}
+
+func TestPrivateCoverageScorecardAttachesWorkspaceAndAssessmentCauses(t *testing.T) {
+	t.Run("unresolvable workspace", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "absent")
+		_, err := BuildPrivateCoverageScorecard(PrivateCoverageScorecardOptions{
+			Root: root, RepositoryRoot: t.TempDir(),
+		})
+		assertPrivateCoverageCode(t, err, "workspace")
+		// The workspace layer classifies the failure under its own sentinel,
+		// and that classification stays reachable below the unchanged outer
+		// coverage code.
+		if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete resolution failure", err)
+		}
+		if causes := privateCoverageErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the workspace classification retained", causes)
+		}
+		var classified interface{ Code() string }
+		if !errors.As(err, &classified) || classified.Code() != "workspace" {
+			t.Fatalf("error %v does not report the outer coverage code", err)
+		}
+		if strings.Contains(err.Error(), root) {
+			t.Fatalf("message leaked the workspace root: %q", err.Error())
+		}
+	})
+
+	t.Run("unresolvable assessment", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := strings.Repeat("1", 64)
+		writePrivateCoverageIndex(t, fixture.root, []string{digest})
+		_, err := BuildPrivateCoverageScorecard(PrivateCoverageScorecardOptions{
+			Root: fixture.root, RepositoryRoot: fixture.repository,
+		})
+		assertPrivateCoverageCode(t, err, "assessment")
+		if !errors.Is(err, ErrPrivateSamplingRejected) {
+			t.Fatalf("error %v does not expose the evidence loader failure", err)
+		}
+		if causes := privateCoverageErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the loader classification retained", causes)
+		}
+		if strings.Contains(err.Error(), fixture.root) || strings.Contains(err.Error(), digest) {
+			t.Fatalf("message leaked private evidence references: %q", err.Error())
+		}
+	})
+}
+
+func TestPrivateCoverageIndexLoadAttachesOnlyRejectingFailures(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("index permission and symlink rejections differ on Windows")
+	}
+	legacyName := filepath.Base(PrivateCoverageIndexRelativePath)
+
+	t.Run("absent reports directory", func(t *testing.T) {
+		root := newPrivateCoverageIndexRoot(t)
+		if err := os.Remove(filepath.Join(root, "reports")); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := loadPrivateCoverageIndex(root)
+		assertPrivateCoverageCode(t, err, "index_directory")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete stat failure", err)
+		}
+		if strings.Contains(err.Error(), root) {
+			t.Fatalf("message leaked the workspace root: %q", err.Error())
+		}
+	})
+
+	t.Run("loose reports directory", func(t *testing.T) {
+		root := newPrivateCoverageIndexRoot(t)
+		if err := os.Chmod(filepath.Join(root, "reports"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := loadPrivateCoverageIndex(root)
+		assertPrivateCoverageCode(t, err, "index_directory")
+		// The stat succeeded; only the observed permission mode rejects it.
+		if causes := privateCoverageErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a mode-only rejection", causes)
+		}
+	})
+
+	t.Run("unstattable index", func(t *testing.T) {
+		root := newPrivateCoverageIndexRoot(t)
+		if err := os.Symlink(filepath.Join(root, "reports", "elsewhere.json"),
+			filepath.Join(root, "reports", legacyName)); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := loadPrivateCoverageIndex(root)
+		assertPrivateCoverageCode(t, err, "index_file")
+		if causes := privateCoverageErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the refused stat retained", causes)
+		}
+	})
+
+	t.Run("index is not a regular file", func(t *testing.T) {
+		root := newPrivateCoverageIndexRoot(t)
+		if err := os.Mkdir(filepath.Join(root, "reports", legacyName), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := loadPrivateCoverageIndex(root)
+		assertPrivateCoverageCode(t, err, "index_file")
+		// The stat succeeded; only the observed file type rejects it.
+		if causes := privateCoverageErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a type-only rejection", causes)
+		}
+	})
+
+	t.Run("no index present", func(t *testing.T) {
+		_, _, err := loadPrivateCoverageIndex(newPrivateCoverageIndexRoot(t))
+		assertPrivateCoverageCode(t, err, "index_file")
+		// Both probes reported ordinary absence, which is not a failure.
+		if causes := privateCoverageErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for an ordinary absence", causes)
+		}
+	})
+
+	t.Run("unreadable index", func(t *testing.T) {
+		root := newPrivateCoverageIndexRoot(t)
+		oversized := bytes.Repeat([]byte("0"), privateFindingLedgerMaxBytes+1)
+		if err := os.WriteFile(filepath.Join(root, "reports", legacyName), oversized, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := loadPrivateCoverageIndex(root)
+		assertPrivateCoverageCode(t, err, "index_read")
+		if causes := privateCoverageErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the read failure retained", causes)
+		}
+	})
+}
+
+func TestPrivateCoverageIndexContractAttachesOnlyDecodeFailures(t *testing.T) {
+	digest := strings.Repeat("1", 64)
+	for _, testCase := range []struct {
+		name     string
+		relative string
+		data     []byte
+		decoded  bool
+	}{
+		{
+			name: "undecodable v1", relative: PrivateCoverageIndexRelativePath,
+			data: []byte("{\"schema_version\":\"1\",\"entries\":[]}\n"),
+		},
+		{
+			name: "undecodable v2", relative: PrivateCoverageIndexV2RelativePath,
+			data: []byte("{\"schema_version\":\"2\",\"entries\":[]}\n"),
+		},
+		{
+			name: "noncanonical v1", relative: PrivateCoverageIndexRelativePath, decoded: true,
+			data: []byte("{\"schema_version\":1,\"entries\":[{\"assessment_sha256\":\"" + digest + "\"}]}"),
+		},
+		{
+			name: "noncanonical v2", relative: PrivateCoverageIndexV2RelativePath, decoded: true,
+			data: []byte("{\"schema_version\":2,\"entries\":[{\"assessment_source\":\"synthetic-root\"," +
+				"\"assessment_sha256\":\"" + digest + "\"}]}"),
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			root := newPrivateCoverageIndexRoot(t)
+			path := filepath.Join(root, filepath.FromSlash(testCase.relative))
+			if err := os.WriteFile(path, testCase.data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, _, err := loadPrivateCoverageIndex(root)
+			assertPrivateCoverageCode(t, err, "index_contract")
+			causes := privateCoverageErrorCauses(t, err)
+			if testCase.decoded {
+				// The index decodes and validates; only the byte comparison
+				// against the canonical encoding rejects it.
+				if len(causes) != 0 {
+					t.Fatalf("causes=%v, want none for a comparison-only rejection", causes)
+				}
+				return
+			}
+			if len(causes) != 1 {
+				t.Fatalf("causes=%v, want the decode failure retained", causes)
+			}
+			var typeErr *json.UnmarshalTypeError
+			if !errors.As(err, &typeErr) {
+				t.Fatalf("error %v does not expose the concrete decode failure", err)
+			}
+			if strings.Contains(err.Error(), digest) || strings.Contains(err.Error(), causes[0].Error()) {
+				t.Fatalf("message leaked index content: %q", err.Error())
+			}
+		})
+	}
+}
+
+func TestPrivateCoverageValidationRejectionsCarryNoCauses(t *testing.T) {
+	fixture := newPrivateSamplingFixture(t)
+	digest := addPrivateCoverageAssessment(t, fixture, "selected", "jira.primary",
+		"jira.holdout", "jira.issue.refs", "1")
+	assessment, primary, holdout, err := loadPrivateSyntheticSamplingAssessment(fixture.root, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("cohort mismatch", func(t *testing.T) {
+		drifted := append([]Result{}, primary...)
+		drifted[0].TaskClass = "confluence/evidence"
+		_, err := validatePrivateCoverageAssessment(
+			PrivateFindingAcceptanceSourceSyntheticRoot, assessment, drifted, holdout)
+		assertPrivateCoverageCode(t, err, "assessment_cohort")
+		if causes := privateCoverageErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a comparison-only rejection", causes)
+		}
+	})
+
+	t.Run("unexpected data class", func(t *testing.T) {
+		drifted := append([]Result{}, primary...)
+		drifted[0].DataClass = "private-local"
+		_, err := validatePrivateCoverageAssessment(
+			PrivateFindingAcceptanceSourceSyntheticRoot, assessment, drifted, holdout)
+		assertPrivateCoverageCode(t, err, "assessment_result")
+		if causes := privateCoverageErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a validation-only rejection", causes)
+		}
+	})
+
+	t.Run("unknown assessment source", func(t *testing.T) {
+		_, _, _, err := loadPrivateCoverageAssessment(fixture.root, fixture.repository,
+			"future-source", digest, LoadCompletedPrivateRun)
+		assertPrivateCoverageCode(t, err, "assessment_source")
+		if causes := privateCoverageErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a label-only rejection", causes)
+		}
+	})
+}
+
+func newPrivateCoverageIndexRoot(t *testing.T) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "private")
+	reports := filepath.Join(root, "reports")
+	if err := os.MkdirAll(reports, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(reports, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func assertPrivateCoverageCode(t *testing.T, err error, code string) {
+	t.Helper()
+	if !errors.Is(err, ErrPrivateCoverageIndexRejected) {
+		t.Fatalf("err=%v, want the coverage sentinel", err)
+	}
+	if got, want := err.Error(), ErrPrivateCoverageIndexRejected.Error()+": "+code; got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+}
+
+func privateCoverageErrorCauses(t *testing.T, err error) []error {
+	t.Helper()
+	multi, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		t.Fatalf("%T does not unwrap to multiple errors", err)
+	}
+	tree := multi.Unwrap()
+	if len(tree) == 0 || !errors.Is(tree[0], ErrPrivateCoverageIndexRejected) {
+		t.Fatalf("unwrap tree=%v, want the sentinel first", tree)
+	}
+	return tree[1:]
 }
 
 func addPrivateCoverageAssessment(

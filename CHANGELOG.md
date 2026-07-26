@@ -18,6 +18,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserved the underlying causes of private agent-evaluation coverage-index
+  rejections. Workspace resolution, evidence loading, index directory and file
+  probing, index reading, and index decoding previously dropped the concrete
+  filesystem, decoding, or dependency failure behind their classification code.
+  They now report the same cause-preserving coded error the plan-execution,
+  live-gateway, checkpoint, workspace-migration, retention-prune,
+  compact-baseline, and workspace-operation paths already use: the message is
+  still only the stable sentinel plus its existing short code, while callers can
+  traverse the standard Go unwrap tree and use `errors.Is` or `errors.As` for
+  typed or sentinel-bearing causes. An attached cause without a useful exported
+  match target remains reachable by traversing the unwrap tree. A workspace or
+  evidence classification raised deeper in the load remains in that tree under
+  the outer coverage code. A rejection decided by
+  validation or comparison alone — an ambiguous or absent index pair, an
+  observed directory permission or file type, an index-identity comparison, a
+  decodable but non-canonical index, a duplicate cohort, index or evidence drift
+  seen by a clean re-read, an unrecognised assessment source, an unaccepted
+  assessment, an unexpected result, a cohort mismatch, an unknown runtime class,
+  or an unusable capability-family set — still carries no cause. No coverage
+  code is added or renamed. Index and scorecard schemas, canonical bytes, source
+  digests, group ordering, reconciliation, report content, exit codes, and
+  fail-closed behavior are unchanged.
 - Preserved the underlying causes of private agent-evaluation workspace
   operation rejections. Workspace setup, manifest loading, root and repository
   resolution, Git-boundary checks, workspace traversal, and fixed-layout
