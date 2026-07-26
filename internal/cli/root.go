@@ -232,6 +232,37 @@ func emit(cmd *cobra.Command, v any, text func() string) error {
 	return enc.Encode(v)
 }
 
+// emitSnapshot renders a snapshot aggregate while preserving text write
+// failures. Snapshot commands may return an inspection error after emitting a
+// qualified aggregate, so they need the write cause to remain distinguishable
+// from the inspection cause in every supported output format.
+func emitSnapshot(cmd *cobra.Command, v any, text func() string) error {
+	if outputFormat == "text" && text != nil {
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), text())
+		return err
+	}
+	return emit(cmd, v, text)
+}
+
+// snapshotResultErr combines a snapshot inspection failure with a failure to
+// write the qualified result that accompanies it. A snapshot command emits its
+// aggregate even when inspection reports a problem, so returning only the
+// inspection error would hide a result that never reached stdout (for example,
+// after a short write) and let the caller read a truncated aggregate as complete.
+// Joining keeps both causes discoverable with errors.Is — the inspection
+// sentinel still drives codeFor's exit code — and the emit cause is wrapped with
+// static context only, so the message stays content-free.
+func snapshotResultErr(snapshotErr, emitErr error) error {
+	switch {
+	case emitErr == nil:
+		return snapshotErr
+	case snapshotErr == nil:
+		return emitErr
+	default:
+		return errors.Join(snapshotErr, fmt.Errorf("write snapshot result: %w", emitErr))
+	}
+}
+
 // emitID is emit plus an `-o id` projection: when the output format is `id` it
 // prints just the primary identifier(s), one per line, for safe piping
 // (`atl jira issue search --jql … -o id | xargs …`). For json/text it defers to
