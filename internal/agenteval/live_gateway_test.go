@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -1100,6 +1101,56 @@ func TestLiveGatewayAuditCapFailsCloseAndEvidenceIngestion(t *testing.T) {
 	}
 	if err := gateway.state.writeAudit(LiveGatewayAuditRecord{}); !errors.Is(err, errLiveGatewayAuditUnavailable) {
 		t.Fatalf("subsequent audit error=%v, want latched failure", err)
+	}
+}
+
+func TestLiveGatewayAuditWriteFailureKeepsCauseOutOfTextAndResponse(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(response, `{}`)
+	}))
+	defer upstream.Close()
+	gateway, auditPath := startTestLiveGateway(t, upstream.URL, 1, 1024, 1024)
+	endpoint := gateway.Endpoints()["jira"]
+	if err := gateway.state.audit.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	err := gateway.state.writeAudit(LiveGatewayAuditRecord{Phase: "preflight", Service: "jira", Method: http.MethodGet, Decision: "forward"})
+	if !errors.Is(err, errLiveGatewayAuditUnavailable) {
+		t.Fatalf("audit write error=%v, want the audit sentinel", err)
+	}
+	if !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("audit write error=%v lost its filesystem cause", err)
+	}
+	var pathErr *fs.PathError
+	if !errors.As(err, &pathErr) || pathErr.Op != "write" || pathErr.Path != auditPath {
+		t.Fatalf("audit write error=%v does not expose the concrete path error", err)
+	}
+	if got, want := err.Error(), errLiveGatewayAuditUnavailable.Error()+": write"; got != want {
+		t.Fatalf("audit write text=%q, want %q", got, want)
+	}
+	for _, forbidden := range []string{auditPath, filepath.Dir(auditPath)} {
+		if strings.Contains(err.Error(), forbidden) {
+			t.Fatalf("audit write text leaked %q: %q", forbidden, err.Error())
+		}
+	}
+
+	// The latch is now set, so the next write reports the latch rather than a
+	// fresh filesystem cause, and the request still gets the static body.
+	latched := gateway.state.writeAudit(LiveGatewayAuditRecord{})
+	if !errors.Is(latched, errLiveGatewayAuditUnavailable) || errors.Is(latched, os.ErrClosed) {
+		t.Fatalf("latched audit error=%v, want the sentinel without a filesystem cause", latched)
+	}
+	if got, want := latched.Error(), errLiveGatewayAuditUnavailable.Error()+": latched"; got != want {
+		t.Fatalf("latched audit text=%q, want %q", got, want)
+	}
+
+	status, body := liveGatewayProbe(t, endpoint.BaseURL+"/rest/api/2/field", "Bearer "+endpoint.Token)
+	if status != http.StatusBadGateway || body != gatewayAuditUnavailableMessage+"\n" {
+		t.Fatalf("unaudited request status=%d body=%q", status, body)
+	}
+	if _, _, _, err := closeAndReadLiveGatewayRecords(gateway); !errors.Is(err, errLiveGatewayAuditUnavailable) {
+		t.Fatalf("evidence ingestion error=%v, want latched audit failure", err)
 	}
 }
 

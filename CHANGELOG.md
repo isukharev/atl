@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserved the underlying causes retained by migrated private
+  agent-evaluation plan-execution branches and live-gateway audit setup/writes.
+  These paths previously either dropped the concrete filesystem or validation
+  failure behind a classification code, or exposed it through unstable joined
+  error text that could repeat a configured workspace path. They now report one
+  cause-preserving coded error: the message is only the stable sentinel plus its
+  short code, while `errors.Is` and `errors.As` reach every retained cause.
+  Audit setup/write and provider-session failures also gained stable codes,
+  while all existing codes remain unchanged. Exit codes, fail-closed behavior,
+  and the static gateway audit-unavailable response body (`502`) are unchanged.
 - Failed persistence of a private agent-evaluation live-gateway denial audit is
   now immediately fatal at the request boundary. A policy denial at preflight or
   a denial after forwarding previously answered with its ordinary denial status

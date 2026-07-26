@@ -687,6 +687,16 @@ ingestion fail closed and the attempt yields no apparently complete audit
 evidence; treat it as terminal and reconcile the series offline. Audited
 denials keep their existing statuses and records.
 
+The migrated plan-execution branches and live-gateway audit setup/write paths
+report a stable sentinel and a short classification code, and nothing else. A
+concrete filesystem or validation cause retained by those branches is attached
+to the returned error rather than formatted into it, so tooling can inspect it
+with the standard Go `errors.Is` and `errors.As` helpers while messages, logs,
+and gateway responses stay free of private locations. Existing plan codes and
+exit codes remain unchanged; audit setup/write and provider-session failures now
+have their own stable codes. The static audit-unavailable response body is
+unchanged. Other lifecycle subsystems migrate to this pattern incrementally.
+
 If execution crashes after its state is persisted, the same series remains
 blocked. First establish outside atl that the provider process and any children
 have stopped. Then inspect the owner-private artifacts, review the original

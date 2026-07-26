@@ -41,6 +41,14 @@ const (
 
 var errLiveGatewayAuditUnavailable = errors.New("live gateway audit unavailable")
 
+// liveGatewayAuditError classifies an audit-persistence failure under a stable
+// code while retaining the cause in hand. The rendered text stays sentinel plus
+// code because these causes carry the configured audit path; the static
+// gatewayAuditUnavailableMessage remains the only thing a request ever sees.
+func liveGatewayAuditError(code string, causes ...error) error {
+	return codedError(errLiveGatewayAuditUnavailable, code, causes...)
+}
+
 // LiveGatewayConfig describes an evaluation-only credential boundary. The
 // upstream tokens must remain in the parent runner; Endpoints returns only
 // disposable ingress capabilities and loopback URLs for child atl processes.
@@ -139,11 +147,11 @@ func StartLiveGateway(config LiveGatewayConfig) (*LiveGateway, error) {
 		return nil, err
 	}
 	if err := requireOwnerOnly("live gateway audit directory", filepath.Dir(config.AuditPath), true); err != nil {
-		return nil, errLiveGatewayAuditUnavailable
+		return nil, liveGatewayAuditError("directory", err)
 	}
 	audit, err := os.OpenFile(config.AuditPath, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
 	if err != nil {
-		return nil, errLiveGatewayAuditUnavailable
+		return nil, liveGatewayAuditError("open", err)
 	}
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
@@ -798,28 +806,31 @@ func (s *liveGatewayState) writeAudit(record LiveGatewayAuditRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.auditUnhealthy {
-		return errLiveGatewayAuditUnavailable
+		return liveGatewayAuditError("latched")
 	}
 	nextSequence := s.sequence + 1
 	record.Sequence = nextSequence
 	data, err := json.Marshal(record)
 	if err != nil {
 		s.auditUnhealthy = true
-		return errLiveGatewayAuditUnavailable
+		return liveGatewayAuditError("encode", err)
 	}
 	data = append(data, '\n')
 	if s.auditBytes+int64(len(data)) > maxLiveGatewayAuditBytes {
 		s.auditUnhealthy = true
-		return errLiveGatewayAuditUnavailable
+		return liveGatewayAuditError("cap")
 	}
 	written, err := s.audit.Write(data)
 	if err != nil || written != len(data) {
 		s.auditUnhealthy = true
-		return errLiveGatewayAuditUnavailable
+		if err == nil {
+			err = io.ErrShortWrite
+		}
+		return liveGatewayAuditError("write", err)
 	}
 	if err := s.audit.Sync(); err != nil {
 		s.auditUnhealthy = true
-		return errLiveGatewayAuditUnavailable
+		return liveGatewayAuditError("sync", err)
 	}
 	s.auditExpected = append(s.auditExpected, data...)
 	s.sequence = nextSequence
