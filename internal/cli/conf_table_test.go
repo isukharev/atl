@@ -2,6 +2,7 @@ package cli
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/csv"
 	"encoding/json"
 	"os"
@@ -253,5 +254,74 @@ func TestConfTableExtractCLIXLSXRequiresOutAndWritesWorkbook(t *testing.T) {
 	defer zr.Close()
 	if len(zr.File) == 0 {
 		t.Fatal("xlsx zip is empty")
+	}
+}
+
+func TestConfTableExtractCLIJSONAndCSVOutWriteArtifacts(t *testing.T) {
+	for _, format := range []string{"json", "csv"} {
+		t.Run(format, func(t *testing.T) {
+			cs := newConfServer(t)
+			cs.page = pageJSON("12345", "Design Doc", 3, confTableCSF)
+			outPath := filepath.Join(t.TempDir(), "tables."+format)
+
+			out, code := runCLI(t, confEnv(cs.srv), "conf", "table", "extract", "--id", "12345", "--table", "2", "--format", format, "--out", outPath)
+			if code != exitOK {
+				t.Fatalf("%s --out exit = %d, want 0 (stdout=%q)", format, code, out)
+			}
+			var acknowledgement struct {
+				Path                string `json:"path"`
+				Format              string `json:"format"`
+				TableCount          int    `json:"table_count"`
+				ReturnedTableCount  int    `json:"returned_table_count"`
+				SelectionReconciled bool   `json:"selection_reconciled"`
+				Version             int    `json:"version"`
+			}
+			if err := json.Unmarshal([]byte(out), &acknowledgement); err != nil ||
+				acknowledgement.Path != outPath || acknowledgement.Format != format ||
+				acknowledgement.TableCount != 2 || acknowledgement.ReturnedTableCount != 1 ||
+				!acknowledgement.SelectionReconciled || acknowledgement.Version != 3 {
+				t.Fatalf("%s acknowledgement=%q decoded=%+v err=%v", format, out, acknowledgement, err)
+			}
+			artifact, err := os.ReadFile(outPath)
+			if err != nil {
+				t.Fatalf("read %s artifact: %v", format, err)
+			}
+			switch format {
+			case "json":
+				if !json.Valid(artifact) || !bytes.Contains(artifact, []byte(`"selection_reconciled": true`)) {
+					t.Fatalf("invalid JSON artifact: %q", artifact)
+				}
+			case "csv":
+				if !bytes.Contains(artifact, []byte("Name,URL")) || !bytes.Contains(artifact, []byte("Product,[Link](https://example.test/product)")) {
+					t.Fatalf("unexpected CSV artifact: %q", artifact)
+				}
+			}
+		})
+	}
+}
+
+// TestConfTableExtractCLIOutWriteFailureExitsCheckFailed proves every --out
+// format routes persistence through the application writer: a filesystem
+// failure surfaces as exit 8 with no stdout for JSON, CSV, and XLSX alike.
+func TestConfTableExtractCLIOutWriteFailureExitsCheckFailed(t *testing.T) {
+	for _, format := range []string{"json", "csv", "xlsx"} {
+		t.Run(format, func(t *testing.T) {
+			cs := newConfServer(t)
+			cs.page = pageJSON("12345", "Design Doc", 3, confTableCSF)
+			// A regular file where a parent directory is expected forces the
+			// atomic writer to fail deterministically.
+			blocker := filepath.Join(t.TempDir(), "not-a-dir")
+			if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+				t.Fatalf("seed blocker: %v", err)
+			}
+			outPath := filepath.Join(blocker, "tables."+format)
+			out, code := runCLI(t, confEnv(cs.srv), "conf", "table", "extract", "--id", "12345", "--format", format, "--out", outPath)
+			if code != exitCheckFailed {
+				t.Fatalf("%s out write failure exit = %d, want %d (stdout=%q)", format, code, exitCheckFailed, out)
+			}
+			if out != "" {
+				t.Fatalf("%s out write failure wrote stdout: %q", format, out)
+			}
+		})
 	}
 }

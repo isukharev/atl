@@ -1292,6 +1292,15 @@ origin's self coordinates from the compact cell kind; synthetic rows leave
 them blank. CSV/XLSX exports are terminal exports rather than replayable mirror
 views, so they have no separate migration marker.
 
+When `--out` is given, JSON, CSV, and XLSX all persist through one atomic
+application writer (temp file then rename), so no partial artifact is ever
+observable; missing parent directories are created as needed. The success
+acknowledgement byte shape (`path`, `format`,
+`table_count`, `returned_table_count`, `selection_reconciled`, `version`,
+`page_version_gated`) is unchanged. A persistence failure is a check failure:
+it exits `8`, emits nothing to stdout, and leaves any existing file untouched.
+A missing XLSX `--out` remains a usage error (exit `2`).
+
 The extraction's top-level `table_count` remains page-wide.
 `returned_table_count` equals the actual `tables` array length, and
 `selection_reconciled` is true only when an unselected extraction returned all
