@@ -462,6 +462,10 @@ func loadPrivateSamplingAssessment(root, repository, digest string, load private
 		spec.Holdout = append(spec.Holdout, binding.Reference)
 	}
 	specData, err := encodePrivateSamplingSpec(spec)
+	// The stored envelope has already passed the same reference validation, so
+	// err is nil for today's representation. Keep it attached defensively if
+	// encoding gains another fallible step; codedError drops it on the ordinary
+	// digest-comparison rejection.
 	if err != nil || sha256HexBytes(specData) != stored.SourceSHA256 {
 		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_source", err)
 	}

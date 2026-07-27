@@ -908,6 +908,9 @@ func TestPrivateSamplingSpecReadAttachesOnlyRejectingFailures(t *testing.T) {
 	})
 
 	t.Run("directory removed during read", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("renaming an open directory is not portable to Windows")
+		}
 		fixture := newPrivateSamplingFixture(t)
 		fixture.writeSpec(t, PrivateSamplingSpec{SchemaVersion: 1, Tier: PrivateSamplingTierCalibration,
 			Primary: []PrivateFindingRunRef{fixture.addResult(t, 1, "primary-01",
@@ -932,6 +935,9 @@ func TestPrivateSamplingSpecReadAttachesOnlyRejectingFailures(t *testing.T) {
 	})
 
 	t.Run("directory replaced during read", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("renaming an open directory is not portable to Windows")
+		}
 		fixture := newPrivateSamplingFixture(t)
 		fixture.writeSpec(t, PrivateSamplingSpec{SchemaVersion: 1, Tier: PrivateSamplingTierCalibration,
 			Primary: []PrivateFindingRunRef{fixture.addResult(t, 1, "primary-01",
@@ -1382,6 +1388,34 @@ func TestPrivateSamplingValidationOnlyRejectionsCarryNoCause(t *testing.T) {
 		assertPrivateSamplingCode(t, err, "holdout_incompatible")
 		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
 			t.Fatalf("causes=%v, want a compatibility-only rejection", causes)
+		}
+	})
+
+	t.Run("unrecognized run identity", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		primary := fixture.addPrimary(t, 1, true)
+		source := fixture.sources[primary[0].PlanID]
+		source.RunID = "not a run id"
+		fixture.sources[primary[0].PlanID] = source
+		fixture.writeSpec(t, PrivateSamplingSpec{SchemaVersion: 1, Tier: PrivateSamplingTierCalibration, Primary: primary})
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "run_identity")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want an identity-only rejection", causes)
+		}
+	})
+
+	t.Run("unrecognized task class", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		result := privateSamplingResult(t, "unknown.task", true)
+		result.TaskClass = "unknown/evidence"
+		primary := fixture.addResult(t, 1, "primary-01", result, strings.Repeat("1", 64))
+		fixture.writeSpec(t, PrivateSamplingSpec{SchemaVersion: 1, Tier: PrivateSamplingTierCalibration,
+			Primary: []PrivateFindingRunRef{primary}})
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "task_class")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a set-membership-only rejection", causes)
 		}
 	})
 
