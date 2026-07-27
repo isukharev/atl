@@ -1259,6 +1259,35 @@ regression remains historical evidence rather than an n=3 claim.
 `regression_accepted` is an all-pass regression gate, not a statistical
 significance or comparative-reliability claim.
 
+A rejected sampling preview or apply still reports only the stable sampling
+sentinel and its existing short code. The shared classification constructor and
+the shared spec-reader frames have joined the cause-preserving pattern used by
+plan execution, the live gateway, the daily checkpoint, the workspace
+migration, retention prune, compact baselines, the workspace operations, and
+the coverage index: a concrete workspace-resolution, lock, directory or file
+stat, open, bounded-read, decoding, write, or evidence-loading failure is now
+attached to the returned error instead of being discarded, so tooling can
+traverse the standard Go unwrap tree and use `errors.Is` or `errors.As` for
+typed or sentinel-bearing causes while messages and logs stay free of
+configured private locations, selected digests, and spec or assessment content.
+An attached cause without a useful exported match target remains reachable by
+traversing the unwrap tree. A workspace, lock, baseline, or evidence
+classification raised deeper in the read remains in that tree under the
+unchanged outer sampling code. A rejection decided by validation or comparison
+alone — an ambiguous or absent spec pair, an observed directory permission or
+file type, a spec or directory identity comparison, a decodable but
+non-canonical spec or assessment, decodable trailing data, an unreviewed
+confirmation or digest, a duplicate observation, an unrecognized run identity
+or task class, an incompatible primary or holdout, an already-stored differing
+assessment, or an in-frame envelope validation — attaches nothing. No sampling
+code is added or renamed. Spec and assessment schemas, canonical bytes,
+domain-separated digests, stored paths and modes, group ordering, locking,
+idempotency, never-overwrite behavior, command output, exit codes, and
+fail-closed behavior are unchanged. The schema-v2 synthetic-root call sites
+deliberately still classify without causes and migrate in the next slice; the
+shared frames they call already attach, and the shared apply frame retains
+whatever the schema-v2 preview returns.
+
 ## Accepted coverage scorecard
 
 The finding ledger remains a failure-to-decision lifecycle. Do not add a

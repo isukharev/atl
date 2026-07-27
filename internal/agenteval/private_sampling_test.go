@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -267,6 +268,12 @@ func TestPrivateSamplingSpecReadRejectsConcurrentVersionCreation(t *testing.T) {
 	})
 	if !errors.Is(err, ErrPrivateSamplingRejected) {
 		t.Fatalf("concurrent second version err=%v", err)
+	}
+	// The recheck compares the re-observed entries against the ones the read
+	// was bound to, so it decides without a probe failure in hand.
+	assertPrivateSamplingCode(t, err, "spec_file")
+	if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+		t.Fatalf("causes=%v, want an identity-only rejection", causes)
 	}
 }
 
@@ -668,6 +675,784 @@ func TestPrivateSamplingRejectsUnsafeSpecAndAssessmentPaths(t *testing.T) {
 	}
 }
 
+func TestPrivateSamplingErrorKeepsCausesInspectableAndOutOfTheMessage(t *testing.T) {
+	privatePath := filepath.Join("private", "cases", "sampling", "sample-set.v1.json")
+	statCause := &fs.PathError{Op: "statat", Path: privatePath, Err: fs.ErrPermission}
+	closeCause := errors.New("synthetic close failure")
+
+	err := privateSamplingError("spec_file", statCause, nil, closeCause)
+	assertPrivateSamplingCode(t, err, "spec_file")
+	if strings.Contains(err.Error(), privatePath) || strings.Contains(err.Error(), closeCause.Error()) {
+		t.Fatalf("message leaked a cause: %q", err.Error())
+	}
+	if !errors.Is(err, fs.ErrPermission) || !errors.Is(err, closeCause) {
+		t.Fatalf("error %v lost a cause", err)
+	}
+	var typed *fs.PathError
+	if !errors.As(err, &typed) || typed.Path != statCause.Path {
+		t.Fatalf("error %v does not expose the concrete stat failure", err)
+	}
+	// The spec recheck passes its final-stat and close failures in a fixed
+	// order, which is the ordering pinned here: that branch cannot be driven
+	// into a both-failed state without racing the reader.
+	causes := privateSamplingErrorCauses(t, err)
+	if len(causes) != 2 || causes[0] != error(statCause) || causes[1] != closeCause {
+		t.Fatalf("causes=%v, want both non-nil causes retained in order", causes)
+	}
+
+	// A rejection with nothing in hand classifies exactly as it did before.
+	assertPrivateSamplingCode(t, privateSamplingError("spec_ambiguous"), "spec_ambiguous")
+	if causes := privateSamplingErrorCauses(t, privateSamplingError("confirmation", nil, nil)); len(causes) != 0 {
+		t.Fatalf("causes=%v, want nil causes dropped", causes)
+	}
+
+	// A sampling classification raised deeper stays reachable below the
+	// unchanged outer code.
+	nested := privateSamplingError("assessment_file")
+	outer := privateSamplingError("assessment_evidence", nested)
+	assertPrivateSamplingCode(t, outer, "assessment_evidence")
+	var classified interface{ Code() string }
+	if !errors.As(outer, &classified) || classified.Code() != "assessment_evidence" {
+		t.Fatalf("error %v does not report the outer sampling code", outer)
+	}
+	if inner := privateSamplingErrorCauses(t, outer); len(inner) != 1 || inner[0] != nested {
+		t.Fatalf("causes=%v, want the nested classification retained", inner)
+	}
+}
+
+func TestPrivateSamplingPreviewAttachesWorkspaceAndSpecDirectoryCauses(t *testing.T) {
+	t.Run("unresolvable workspace", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		options := fixture.options()
+		options.Root = filepath.Join(t.TempDir(), "absent")
+		_, _, err := previewPrivateSampling(options, fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "workspace")
+		// The workspace layer classifies the failure under its own sentinel,
+		// and that classification stays reachable below the sampling code.
+		if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete resolution failure", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the workspace classification retained", causes)
+		}
+		if strings.Contains(err.Error(), options.Root) {
+			t.Fatalf("message leaked the workspace root: %q", err.Error())
+		}
+	})
+
+	t.Run("rejected spec alias", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		options := fixture.options()
+		options.Spec = "../escape"
+		_, _, err := previewPrivateSampling(options, fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "workspace")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want an alias-only rejection", causes)
+		}
+	})
+
+	t.Run("doctor failure", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		doctorFailure := errors.New("synthetic doctor failure")
+		dependencies := fixture.dependencies()
+		dependencies.doctor = func(_, _ string) (PrivateWorkspaceReport, error) {
+			return PrivateWorkspaceReport{}, doctorFailure
+		}
+		_, _, err := previewPrivateSampling(fixture.options(), dependencies)
+		assertPrivateSamplingCode(t, err, "workspace_state")
+		if !errors.Is(err, doctorFailure) {
+			t.Fatalf("error %v does not expose the doctor failure", err)
+		}
+		if strings.Contains(err.Error(), doctorFailure.Error()) {
+			t.Fatalf("message leaked the dependency failure: %q", err.Error())
+		}
+	})
+
+	t.Run("unhealthy report", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		dependencies := fixture.dependencies()
+		dependencies.doctor = func(_, _ string) (PrivateWorkspaceReport, error) {
+			return PrivateWorkspaceReport{SchemaVersion: 1, State: "unhealthy"}, nil
+		}
+		_, _, err := previewPrivateSampling(fixture.options(), dependencies)
+		assertPrivateSamplingCode(t, err, "workspace_state")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a report-only rejection", causes)
+		}
+	})
+
+	t.Run("absent spec directory", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		if err := os.RemoveAll(filepath.Join(fixture.root, "cases", "sampling")); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "spec_directory")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete stat failure", err)
+		}
+	})
+
+	t.Run("loose spec directory", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("owner-only directory modes are not observable on Windows")
+		}
+		fixture := newPrivateSamplingFixture(t)
+		if err := os.Chmod(filepath.Join(fixture.root, "cases", "sampling"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "spec_directory")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a mode-only rejection", causes)
+		}
+	})
+}
+
+// TestPrivateSamplingSpecReadAttachesOnlyRejectingFailures covers the shared
+// spec-reader frames both schema versions enter. The OpenRoot, opened-directory
+// stat, entry stat, per-file open, final-stat, and close failures have no
+// deterministic seam: reaching them requires the directory or the file to
+// change identity between the reader's own probes, which cannot be arranged
+// from a test without racing the reader or adding a production hook, so they
+// are left to the direct constructor test.
+func TestPrivateSamplingSpecReadAttachesOnlyRejectingFailures(t *testing.T) {
+	specDirectory := func(fixture *privateSamplingFixture) string {
+		return filepath.Join(fixture.root, "cases", "sampling")
+	}
+
+	t.Run("absent directory", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		_, _, err := readPrivateSamplingSpec(fixture.root, filepath.Join(fixture.root, "cases", "absent"), "sample-set")
+		assertPrivateSamplingCode(t, err, "spec_directory")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete stat failure", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the failed stat", causes)
+		}
+	})
+
+	t.Run("oversized spec", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		if err := os.WriteFile(fixture.specPath(), bytes.Repeat([]byte{' '}, privateSamplingMaxBytes+1), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := readPrivateSamplingSpec(fixture.root, specDirectory(fixture), "sample-set")
+		assertPrivateSamplingCode(t, err, "spec_read")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the failed bounded read retained", causes)
+		}
+	})
+
+	t.Run("absent spec pair", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		_, _, err := readPrivateSamplingSpec(fixture.root, specDirectory(fixture), "sample-set")
+		assertPrivateSamplingCode(t, err, "spec_file")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want an absence-only rejection", causes)
+		}
+	})
+
+	t.Run("ambiguous spec pair", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		for _, path := range []string{fixture.specPath(), fixture.syntheticSpecPath()} {
+			if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		_, _, err := readPrivateSamplingSpec(fixture.root, specDirectory(fixture), "sample-set")
+		assertPrivateSamplingCode(t, err, "spec_ambiguous")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a pair-only rejection", causes)
+		}
+	})
+
+	t.Run("loose spec mode", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("owner-only file modes are not observable on Windows")
+		}
+		fixture := newPrivateSamplingFixture(t)
+		if err := os.WriteFile(fixture.specPath(), []byte("{}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(fixture.specPath(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := readPrivateSamplingSpec(fixture.root, specDirectory(fixture), "sample-set")
+		assertPrivateSamplingCode(t, err, "spec_file")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a mode-only rejection", causes)
+		}
+	})
+
+	t.Run("spec symlink", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("symlinked specs are refused differently on Windows")
+		}
+		fixture := newPrivateSamplingFixture(t)
+		target := filepath.Join(t.TempDir(), "spec.json")
+		if err := os.WriteFile(target, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, fixture.specPath()); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := readPrivateSamplingSpec(fixture.root, specDirectory(fixture), "sample-set")
+		assertPrivateSamplingCode(t, err, "spec_file")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a file-type-only rejection", causes)
+		}
+	})
+
+	t.Run("directory removed during read", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("renaming an open directory is not portable to Windows")
+		}
+		fixture := newPrivateSamplingFixture(t)
+		fixture.writeSpec(t, PrivateSamplingSpec{SchemaVersion: 1, Tier: PrivateSamplingTierCalibration,
+			Primary: []PrivateFindingRunRef{fixture.addResult(t, 1, "primary-01",
+				privateSamplingResult(t, "jira.primary-evidence", true), strings.Repeat("1", 64))}})
+		directory := specDirectory(fixture)
+		_, _, err := readPrivateSamplingSpecWithHook(fixture.root, directory, "sample-set", func() {
+			if renameErr := os.Rename(directory, filepath.Join(fixture.root, "cases", "moved")); renameErr != nil {
+				t.Fatal(renameErr)
+			}
+		})
+		assertPrivateSamplingCode(t, err, "spec_directory")
+		// The held handle still stats cleanly here, so only the ambient probe
+		// fails and the nil first cause is dropped rather than recorded.
+		causes := privateSamplingErrorCauses(t, err)
+		if len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the failed ambient stat", causes)
+		}
+		var pathErr *fs.PathError
+		if !errors.As(causes[0], &pathErr) || !errors.Is(causes[0], fs.ErrNotExist) {
+			t.Fatalf("cause=%v, want the concrete ambient stat failure", causes[0])
+		}
+	})
+
+	t.Run("directory replaced during read", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("renaming an open directory is not portable to Windows")
+		}
+		fixture := newPrivateSamplingFixture(t)
+		fixture.writeSpec(t, PrivateSamplingSpec{SchemaVersion: 1, Tier: PrivateSamplingTierCalibration,
+			Primary: []PrivateFindingRunRef{fixture.addResult(t, 1, "primary-01",
+				privateSamplingResult(t, "jira.primary-evidence", true), strings.Repeat("1", 64))}})
+		directory := specDirectory(fixture)
+		_, _, err := readPrivateSamplingSpecWithHook(fixture.root, directory, "sample-set", func() {
+			if renameErr := os.Rename(directory, filepath.Join(fixture.root, "cases", "moved")); renameErr != nil {
+				t.Fatal(renameErr)
+			}
+			if mkdirErr := os.Mkdir(directory, 0o700); mkdirErr != nil {
+				t.Fatal(mkdirErr)
+			}
+		})
+		assertPrivateSamplingCode(t, err, "spec_directory")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want an identity-only rejection", causes)
+		}
+	})
+}
+
+func TestPrivateSamplingContractRejectionsSeparateDecodingFromCanonicalBytes(t *testing.T) {
+	regressionSpec := func(fixture *privateSamplingFixture) PrivateSamplingSpec {
+		return PrivateSamplingSpec{SchemaVersion: 1, Tier: PrivateSamplingTierRegression,
+			Primary: fixture.addPrimary(t, 3, true), Holdout: fixture.addHoldout(t, 4, true)}
+	}
+
+	t.Run("undecodable spec", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		if err := os.WriteFile(fixture.specPath(), []byte("{\"schema_version\": nope}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "spec_contract")
+		var syntaxErr *json.SyntaxError
+		if !errors.As(err, &syntaxErr) {
+			t.Fatalf("error %v does not expose the concrete decoding failure", err)
+		}
+	})
+
+	t.Run("non-canonical spec", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		fixture.writeSpec(t, regressionSpec(fixture))
+		data, err := os.ReadFile(fixture.specPath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fixture.specPath(), bytes.TrimSpace(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, previewErr := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, previewErr, "spec_contract")
+		if causes := privateSamplingErrorCauses(t, previewErr); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a byte-comparison-only rejection", causes)
+		}
+	})
+
+	t.Run("undecodable assessment", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.storeAssessment(t, regressionSpec(fixture))
+		fixture.rewriteAssessment(t, digest, []byte("{\"schema_version\": nope}\n"))
+		_, _, _, err := loadPrivateSamplingAssessment(fixture.root, fixture.repository, digest, fixture.dependencies().load)
+		assertPrivateSamplingCode(t, err, "assessment_decode")
+		var syntaxErr *json.SyntaxError
+		if !errors.As(err, &syntaxErr) {
+			t.Fatalf("error %v does not expose the concrete decoding failure", err)
+		}
+	})
+
+	t.Run("trailing assessment value", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.storeAssessment(t, regressionSpec(fixture))
+		fixture.rewriteAssessment(t, digest, append(fixture.readAssessment(t, digest), []byte("{}\n")...))
+		_, _, _, err := loadPrivateSamplingAssessment(fixture.root, fixture.repository, digest, fixture.dependencies().load)
+		assertPrivateSamplingCode(t, err, "assessment_decode")
+		// A decoded trailing value produces no error at all, and the clean
+		// end-of-input signal is never attached as a cause.
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a trailing-value-only rejection", causes)
+		}
+	})
+
+	t.Run("invalid trailing assessment data", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.storeAssessment(t, regressionSpec(fixture))
+		fixture.rewriteAssessment(t, digest, append(fixture.readAssessment(t, digest), []byte("nope\n")...))
+		_, _, _, err := loadPrivateSamplingAssessment(fixture.root, fixture.repository, digest, fixture.dependencies().load)
+		assertPrivateSamplingCode(t, err, "assessment_decode")
+		var syntaxErr *json.SyntaxError
+		if !errors.As(err, &syntaxErr) {
+			t.Fatalf("error %v does not expose the trailing decoding failure", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the trailing decoding failure", causes)
+		}
+	})
+
+	t.Run("non-canonical assessment", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.storeAssessment(t, regressionSpec(fixture))
+		fixture.rewriteAssessment(t, digest, append(fixture.readAssessment(t, digest), '\n'))
+		_, _, _, err := loadPrivateSamplingAssessment(fixture.root, fixture.repository, digest, fixture.dependencies().load)
+		assertPrivateSamplingCode(t, err, "assessment_contract")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a byte-comparison-only rejection", causes)
+		}
+	})
+
+	t.Run("uncanonicalizable assessment", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.storeAssessment(t, regressionSpec(fixture))
+		var stored privateSamplingAssessment
+		if err := json.Unmarshal(fixture.readAssessment(t, digest), &stored); err != nil {
+			t.Fatal(err)
+		}
+		stored.EvidenceReady = false
+		data, err := json.MarshalIndent(stored, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixture.rewriteAssessment(t, digest, append(data, '\n'))
+		_, _, _, loadErr := loadPrivateSamplingAssessment(fixture.root, fixture.repository, digest, fixture.dependencies().load)
+		assertPrivateSamplingCode(t, loadErr, "assessment_contract")
+		causes := privateSamplingErrorCauses(t, loadErr)
+		if len(causes) != 1 || !errors.Is(causes[0], ErrPrivateSamplingRejected) {
+			t.Fatalf("causes=%v, want the encoder classification retained", causes)
+		}
+	})
+}
+
+func TestPrivateSamplingApplyAttachesStoreCauses(t *testing.T) {
+	regressionSpec := func(fixture *privateSamplingFixture) PrivateSamplingSpec {
+		return PrivateSamplingSpec{SchemaVersion: 1, Tier: PrivateSamplingTierRegression,
+			Primary: fixture.addPrimary(t, 3, true), Holdout: fixture.addHoldout(t, 4, true)}
+	}
+	reviewed := func(fixture *privateSamplingFixture, digest string) PrivateSamplingOptions {
+		options := fixture.options()
+		options.ExpectedAssessmentSHA256, options.Confirm = digest, PrivateSamplingConfirmation
+		return options
+	}
+
+	t.Run("unconfirmed apply", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		_, err := applyPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "confirmation")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want an input-only rejection", causes)
+		}
+	})
+
+	t.Run("unresolvable workspace", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		options := reviewed(fixture, strings.Repeat("a", 64))
+		options.Root = filepath.Join(t.TempDir(), "absent")
+		_, err := applyPrivateSampling(options, fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "workspace")
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete resolution failure", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the workspace classification retained", causes)
+		}
+	})
+
+	t.Run("held workspace lock", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		fixture.writeSpec(t, regressionSpec(fixture))
+		lock, err := acquirePrivateWorkspaceLock(fixture.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = lock.Unlock() }()
+		_, applyErr := applyPrivateSampling(reviewed(fixture, strings.Repeat("a", 64)), fixture.dependencies())
+		assertPrivateSamplingCode(t, applyErr, "workspace_busy")
+		if !errors.Is(applyErr, ErrPrivateBaselineRejected) {
+			t.Fatalf("error %v does not expose the lock classification", applyErr)
+		}
+		if causes := privateSamplingErrorCauses(t, applyErr); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the lock classification retained", causes)
+		}
+	})
+
+	t.Run("preview failure during apply", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.previewDigest(t, regressionSpec(fixture))
+		if err := os.Remove(fixture.specPath()); err != nil {
+			t.Fatal(err)
+		}
+		_, err := applyPrivateSampling(reviewed(fixture, digest), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "assessment_drift")
+		causes := privateSamplingErrorCauses(t, err)
+		var classified interface{ Code() string }
+		if len(causes) != 1 || !errors.As(causes[0], &classified) || classified.Code() != "spec_file" {
+			t.Fatalf("causes=%v, want the nested preview classification", causes)
+		}
+	})
+
+	t.Run("digest mismatch", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		fixture.writeSpec(t, regressionSpec(fixture))
+		_, err := applyPrivateSampling(reviewed(fixture, strings.Repeat("a", 64)), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "assessment_drift")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a digest-comparison-only rejection", causes)
+		}
+	})
+
+	t.Run("unmakeable report directory", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.previewDigest(t, regressionSpec(fixture))
+		if err := os.WriteFile(filepath.Join(fixture.root, "reports", "sampling"), []byte("occupied\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := applyPrivateSampling(reviewed(fixture, digest), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "directory")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the failed directory creation retained", causes)
+		}
+	})
+
+	t.Run("loose report directory", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("owner-only directory modes are not observable on Windows")
+		}
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.previewDigest(t, regressionSpec(fixture))
+		directory := filepath.Join(fixture.root, "reports", "sampling")
+		if err := os.Mkdir(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		_, err := applyPrivateSampling(reviewed(fixture, digest), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "directory_mode")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a mode-only rejection", causes)
+		}
+	})
+
+	t.Run("unreadable existing assessment", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.previewDigest(t, regressionSpec(fixture))
+		if err := os.MkdirAll(filepath.Join(fixture.root, "reports", "sampling", digest+".json"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		_, err := applyPrivateSampling(reviewed(fixture, digest), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "assessment_read")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the failed read retained", causes)
+		}
+	})
+
+	t.Run("conflicting existing assessment", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.previewDigest(t, regressionSpec(fixture))
+		directory := filepath.Join(fixture.root, "reports", "sampling")
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, digest+".json"), []byte("conflict\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := applyPrivateSampling(reviewed(fixture, digest), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "assessment_exists")
+		// The stored bytes stat cleanly and simply differ, so the
+		// never-overwrite rejection has nothing to attach.
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a byte-comparison-only rejection", causes)
+		}
+	})
+
+	t.Run("synthetic preview failure during apply", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		primary := fixture.addSyntheticRoot(t, "primary-synthetic-runs", "jira.synthetic-primary", 1, true,
+			strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64))
+		fixture.writeSyntheticSpec(t, PrivateSyntheticSamplingSpec{
+			SchemaVersion: PrivateSyntheticSamplingSchemaVersion, Tier: PrivateSamplingTierCalibration, Primary: primary,
+		})
+		preview, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		if err != nil {
+			t.Fatal(err)
+		}
+		marker := filepath.Join(fixture.root, "reports", privateSyntheticRootDirectory, primary.Root, privateOutputRootMarker)
+		if err := os.WriteFile(marker, []byte("changed\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, applyErr := applyPrivateSampling(reviewed(fixture, preview.AssessmentSHA256), fixture.dependencies())
+		assertPrivateSamplingCode(t, applyErr, "assessment_drift")
+		// The shared apply frame retains whatever the schema-v2 preview
+		// returns, including causes that path attaches in a later slice.
+		if causes := privateSamplingErrorCauses(t, applyErr); len(causes) != 1 ||
+			!errors.Is(causes[0], ErrPrivateSamplingRejected) {
+			t.Fatalf("causes=%v, want the nested synthetic classification", causes)
+		}
+	})
+}
+
+func TestPrivateSamplingEvidenceRejectionsRetainNestedCauses(t *testing.T) {
+	t.Run("absent assessment directory", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		_, _, _, err := loadPrivateSamplingAssessment(fixture.root, fixture.repository, strings.Repeat("a", 64), fixture.dependencies().load)
+		assertPrivateSamplingCode(t, err, "assessment_directory")
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete directory stat failure", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the directory stat failure", causes)
+		}
+	})
+
+	t.Run("absent assessment file", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		if err := os.Mkdir(filepath.Join(fixture.root, "reports", "sampling"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		_, _, _, err := loadPrivateSamplingAssessment(fixture.root, fixture.repository, strings.Repeat("a", 64), fixture.dependencies().load)
+		assertPrivateSamplingCode(t, err, "assessment_file")
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete file stat failure", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the file stat failure", causes)
+		}
+	})
+
+	t.Run("oversized assessment", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := strings.Repeat("a", 64)
+		directory := filepath.Join(fixture.root, "reports", "sampling")
+		if err := os.Mkdir(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, digest+".json"), bytes.Repeat([]byte{' '}, privateSamplingMaxBytes+1), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, _, err := loadPrivateSamplingAssessment(fixture.root, fixture.repository, digest, fixture.dependencies().load)
+		assertPrivateSamplingCode(t, err, "assessment_read")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the failed bounded read", causes)
+		}
+	})
+
+	t.Run("source loader failure", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		fixture.writeSpec(t, PrivateSamplingSpec{SchemaVersion: 1, Tier: PrivateSamplingTierRegression,
+			Primary: fixture.addPrimary(t, 3, true), Holdout: fixture.addHoldout(t, 4, true)})
+		loadFailure := errors.New("synthetic source failure")
+		dependencies := fixture.dependencies()
+		dependencies.load = func(_, _, _ string) (PrivateBaselineSource, error) {
+			return PrivateBaselineSource{}, loadFailure
+		}
+		_, _, err := previewPrivateSampling(fixture.options(), dependencies)
+		assertPrivateSamplingCode(t, err, "source")
+		if !errors.Is(err, loadFailure) {
+			t.Fatalf("error %v does not expose the loader failure", err)
+		}
+		if strings.Contains(err.Error(), loadFailure.Error()) {
+			t.Fatalf("message leaked the dependency failure: %q", err.Error())
+		}
+	})
+
+	t.Run("unusable baseline", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		primary := fixture.addPrimary(t, 3, true)
+		source := fixture.sources[primary[0].PlanID]
+		source.Immutable = false
+		fixture.sources[primary[0].PlanID] = source
+		fixture.writeSpec(t, PrivateSamplingSpec{SchemaVersion: 1, Tier: PrivateSamplingTierRegression,
+			Primary: primary, Holdout: fixture.addHoldout(t, 4, true)})
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "baseline")
+		if !errors.Is(err, ErrPrivateFindingLedgerRejected) {
+			t.Fatalf("error %v does not expose the finding classification", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the finding classification retained", causes)
+		}
+	})
+
+	t.Run("evidence rebuild failure", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.storeAssessment(t, PrivateSamplingSpec{SchemaVersion: 1, Tier: PrivateSamplingTierRegression,
+			Primary: fixture.addPrimary(t, 3, true), Holdout: fixture.addHoldout(t, 4, true)})
+		loadFailure := errors.New("synthetic evidence reload failure")
+		_, _, _, err := loadPrivateSamplingAssessment(fixture.root, fixture.repository, digest,
+			func(_, _, _ string) (PrivateBaselineSource, error) { return PrivateBaselineSource{}, loadFailure })
+		assertPrivateSamplingCode(t, err, "assessment_evidence")
+		causes := privateSamplingErrorCauses(t, err)
+		var classified interface{ Code() string }
+		if len(causes) != 1 || !errors.As(causes[0], &classified) || classified.Code() != "source" {
+			t.Fatalf("causes=%v, want the nested source classification", causes)
+		}
+		if !errors.Is(err, loadFailure) {
+			t.Fatalf("error %v does not expose the loader failure", err)
+		}
+	})
+
+	t.Run("invalid requested digest", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		_, _, _, err := loadPrivateSamplingAssessment(fixture.root, fixture.repository, "not-a-digest", fixture.dependencies().load)
+		assertPrivateSamplingCode(t, err, "assessment_digest")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want an input-only rejection", causes)
+		}
+	})
+}
+
+func TestPrivateSamplingValidationOnlyRejectionsCarryNoCause(t *testing.T) {
+	t.Run("incompatible primary", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		primary := fixture.addPrimary(t, 2, true)
+		changed := privateSamplingResult(t, "jira.primary-evidence", true)
+		primary = append(primary, fixture.addResult(t, 3, "primary-03", changed, strings.Repeat("3", 64)))
+		fixture.writeSpec(t, PrivateSamplingSpec{SchemaVersion: 1, Tier: PrivateSamplingTierRegression,
+			Primary: primary, Holdout: fixture.addHoldout(t, 4, true)})
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "primary_incompatible")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a comparison-only rejection", causes)
+		}
+	})
+
+	t.Run("duplicate observation", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		primary := fixture.addPrimary(t, 3, true)
+		first := fixture.sources[primary[0].PlanID]
+		second := fixture.sources[primary[1].PlanID]
+		second.PlanSHA256 = first.PlanSHA256
+		fixture.sources[primary[1].PlanID] = second
+		fixture.rewriteManifestPlanSHA(t, primary[1], second)
+		fixture.writeSpec(t, PrivateSamplingSpec{SchemaVersion: 1, Tier: PrivateSamplingTierRegression,
+			Primary: primary, Holdout: fixture.addHoldout(t, 4, true)})
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "duplicate_observation")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a dedup-only rejection", causes)
+		}
+	})
+
+	t.Run("incompatible holdout", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		primary := fixture.addPrimary(t, 3, true)
+		holdout := fixture.addResult(t, 4, "holdout-01",
+			privateSamplingResult(t, "jira.primary-evidence", true), strings.Repeat("2", 64))
+		fixture.writeSpec(t, PrivateSamplingSpec{SchemaVersion: 1, Tier: PrivateSamplingTierRegression,
+			Primary: primary, Holdout: []PrivateFindingRunRef{holdout}})
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "holdout_incompatible")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a compatibility-only rejection", causes)
+		}
+	})
+
+	t.Run("unrecognized run identity", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		primary := fixture.addPrimary(t, 1, true)
+		source := fixture.sources[primary[0].PlanID]
+		source.RunID = "not a run id"
+		fixture.sources[primary[0].PlanID] = source
+		fixture.writeSpec(t, PrivateSamplingSpec{SchemaVersion: 1, Tier: PrivateSamplingTierCalibration, Primary: primary})
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "run_identity")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want an identity-only rejection", causes)
+		}
+	})
+
+	t.Run("unrecognized task class", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		result := privateSamplingResult(t, "unknown.task", true)
+		result.TaskClass = "unknown/evidence"
+		primary := fixture.addResult(t, 1, "primary-01", result, strings.Repeat("1", 64))
+		fixture.writeSpec(t, PrivateSamplingSpec{SchemaVersion: 1, Tier: PrivateSamplingTierCalibration,
+			Primary: []PrivateFindingRunRef{primary}})
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "task_class")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a set-membership-only rejection", causes)
+		}
+	})
+
+	t.Run("uncanonicalizable assessment envelope", func(t *testing.T) {
+		// The encoder rejects on in-frame validation alone, so the coded
+		// error it hands its callers carries nothing itself.
+		_, err := encodePrivateSamplingAssessment(privateSamplingAssessment{})
+		assertPrivateSamplingCode(t, err, "assessment_contract")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a validation-only rejection", causes)
+		}
+	})
+}
+
+func assertPrivateSamplingCode(t *testing.T, err error, code string) {
+	t.Helper()
+	if !errors.Is(err, ErrPrivateSamplingRejected) {
+		t.Fatalf("err=%v, want the sampling sentinel", err)
+	}
+	if got, want := err.Error(), ErrPrivateSamplingRejected.Error()+": "+code; got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+}
+
+func privateSamplingErrorCauses(t *testing.T, err error) []error {
+	t.Helper()
+	multi, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		t.Fatalf("%T does not unwrap to multiple errors", err)
+	}
+	tree := multi.Unwrap()
+	if len(tree) == 0 || tree[0] != ErrPrivateSamplingRejected {
+		t.Fatalf("unwrap tree=%v, want the sentinel first", tree)
+	}
+	return tree[1:]
+}
+
 type privateSamplingFixture struct {
 	root, repository string
 	sources          map[string]PrivateBaselineSource
@@ -721,6 +1506,39 @@ func (fixture *privateSamplingFixture) storeSyntheticAssessment(t *testing.T, sp
 		t.Fatalf("summary=%+v err=%v", summary, err)
 	}
 	return preview.AssessmentSHA256
+}
+
+func (fixture *privateSamplingFixture) previewDigest(t *testing.T, spec PrivateSamplingSpec) string {
+	t.Helper()
+	fixture.writeSpec(t, spec)
+	preview, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return preview.AssessmentSHA256
+}
+
+func (fixture *privateSamplingFixture) assessmentPath(digest string) string {
+	return filepath.Join(fixture.root, "reports", "sampling", digest+".json")
+}
+
+func (fixture *privateSamplingFixture) readAssessment(t *testing.T, digest string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(fixture.assessmentPath(digest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func (fixture *privateSamplingFixture) rewriteAssessment(t *testing.T, digest string, data []byte) {
+	t.Helper()
+	if err := os.WriteFile(fixture.assessmentPath(digest), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(fixture.assessmentPath(digest), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (fixture *privateSamplingFixture) dependencies() privateSamplingDependencies {
