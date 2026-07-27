@@ -1171,3 +1171,48 @@ func TestUnknownMCPToolSuppressesCapabilityAttribution(t *testing.T) {
 		t.Fatalf("leaked attribution: %s", encoded)
 	}
 }
+
+func TestGatewayBackedInternalMCPDropsUpstreamEnvironmentNames(t *testing.T) {
+	_, spec, _ := privateLiveQueryOnlyPair()
+	if len(gatewayMCPEnvironmentNames) != len(gatewayMCPEnvironmentAllowlist) {
+		t.Fatalf("gateway MCP environment sources drifted: names=%v allowlist=%v", gatewayMCPEnvironmentNames, gatewayMCPEnvironmentAllowlist)
+	}
+	for _, name := range gatewayMCPEnvironmentNames {
+		if _, ok := gatewayMCPEnvironmentAllowlist[name]; !ok {
+			t.Fatalf("provider MCP environment name %q is absent from runner allowlist", name)
+		}
+	}
+	spec.Provider = "codex"
+	spec.Reasoning = "high"
+	confinement := privateMCPHookConfinement("atl", spec.AllowedMCPTools...)
+	command, err := BuildProviderCommand(spec, "codex", "/atl", "/guard", "/workspace", "/schema", "/final", "", "", "/mcp.json", confinement, []byte(`{"type":"object"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(command.Args, " ")
+	if !strings.Contains(joined, `mcp_servers.atl.env_vars=`+quotedStringList(gatewayMCPEnvironmentNames)) {
+		t.Fatalf("gateway-backed MCP env allowlist missing: %s", joined)
+	}
+	for _, forbidden := range []string{"ATL_JIRA_URL", "ATL_CONFLUENCE_URL", "ATL_JIRA_PAT", "ATL_CONFLUENCE_PAT", "ATL_ALLOW_INSECURE", "ATL_EVAL_HTTP_GUARD_FILE"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("gateway-backed MCP command inherits %s: %s", forbidden, joined)
+		}
+	}
+
+	guarded := spec
+	guarded.AllowedGatewayRoutes = nil
+	guarded.GatewayMaxResponseBytes = 0
+	guarded.GatewayMaxTotalBytes = 0
+	guarded.GatewayMaxRequestBytes = 0
+	guarded.GatewayMaxTotalRequestBytes = 0
+	guarded.Checks = slices.DeleteFunc(append([]RunCheck(nil), guarded.Checks...), func(check RunCheck) bool {
+		return check.Kind == "http_methods_equal"
+	})
+	guardedCommand, err := BuildProviderCommand(guarded, "codex", "/atl", "/guard", "/workspace", "/schema", "/final", "", "", "/mcp.json", confinement, []byte(`{"type":"object"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(guardedCommand.Args, " "), "ATL_EVAL_HTTP_GUARD_FILE") {
+		t.Fatal("guarded internal MCP lost its HTTP guard channel")
+	}
+}

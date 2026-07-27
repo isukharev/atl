@@ -605,8 +605,11 @@ bodies, and allow no mutation route. Generic telemetry remains deliberately
 conservative: it counts those non-safe transport methods as `remote_writes`
 and the shared endpoint as one duplicate request. The v2 scenario therefore
 budgets exactly two transport writes while retaining a zero-content-mutation
-oracle. Ordinary private-live and all private-live MCP runs remain GET/HEAD-only.
-Reviewed private-live mutations are CLI-only and use the stricter boundary below.
+oracle. Ordinary private-live runs remain GET/HEAD-only. A private-live run —
+CLI skill or internal MCP — may additionally declare the explicit query-only
+POST exception described below for a configured read API that accepts a bounded
+JSON query payload; that exception grants no mutation authority. Reviewed
+private-live mutations remain CLI-only and use the stricter boundary below.
 
 ### Guarded Jira field mutation
 
@@ -1514,9 +1517,10 @@ go build -o /tmp/agent-eval ./scripts/agent-eval
   --live-config-dir "$HOME/.config/atl-private"
 ```
 
-For MCP, the runner copies only `config.json` and `credentials.json` into an
-ephemeral owner-only directory used by the MCP child and removes that copy
-after the session. The model-facing process has no general native tool capable
+For internal MCP without gateway routes, the runner copies only `config.json`
+and `credentials.json` into an ephemeral owner-only directory used by the MCP
+child, removes that copy after the session, and audits the transport with the
+GET/HEAD HTTP guard. The model-facing process has no general native tool capable
 of reading it, and the confined skill readers cannot resolve paths outside the
 generated workspace/public skill roots. CLI runs do not copy source
 credentials at all: the parent reads them, starts the gateway, and writes a
@@ -1525,9 +1529,23 @@ Code uses parent-loopback ingress. For Codex, the child config and gateway stay
 parent-side behind a command broker; the model receives neither the upstream
 origin/PAT nor the disposable gateway credential.
 
+An internal MCP run that declares explicit gateway routes uses that same
+credential boundary instead of the copy: the parent reads the source
+credentials, the child receives only the disposable loopback config, and no
+HTTP guard file is injected because the gateway audit is the transport record.
+That MCP child is built from a fixed environment allowlist — read-only,
+no-update, config dir, mirror root, and loopback `NO_PROXY` — so it cannot
+inherit the upstream URL or PAT variable names, the insecure-transport
+override, or the HTTP guard file. Internal MCP runs without routes keep the
+existing copy-and-guard behaviour unchanged. Gateway-backed internal MCP
+concurrency is bounded by the scenario's interface-invocation budget and a hard
+cap of four; CLI gateway traffic remains serialized by the command broker.
+
 By default, `ATL_READ_ONLY=1` blocks mutations at the CLI policy, the MCP
 inventory contains only explicit read tools, and the HTTP transport guard rejects
-every method except GET/HEAD before network I/O. A reviewed-write CLI child still
+every method except GET/HEAD before network I/O; the only read-only exception is
+the explicit query-only POST route described below, which the gateway — not the
+guard — bounds. A reviewed-write CLI child still
 inherits `ATL_READ_ONLY=1`; only the literal
 `env -u ATL_READ_ONLY atl ...` form can request write intent from the broker.
 The broker revalidates exact argv and the gateway independently binds exact
@@ -1608,8 +1626,31 @@ the private arguments.
 The route policy is evaluated after ingress authentication and before any
 upstream request. Read-only routes accept only GET/HEAD without a body. Mutating
 routes require exact paths, explicit methods, positive per-route request/body
-budgets, and a positive global write budget. The gateway forwards only the
-reviewed body, a safe content type, and the exact Atlassian no-check header;
+budgets, and a positive global write budget.
+
+Some configured read APIs answer only to a POST query payload. A read-only run
+may reach one with the explicit `"query_only": true` route exception, whose
+shape is exact: one exact path, exactly the single method `POST`, a positive
+per-route request count, and a positive per-route body budget. A query-only
+route forwards a non-empty, syntactically valid JSON body and nothing else —
+multipart uploads, bodyless posts, malformed JSON, and every other content type
+are denied before any upstream request —
+and it never carries the Atlassian no-check header. It keeps every other
+control: ingress capability, method-override rejection, path and query
+validation, body-byte and total-byte budgets, redirect rejection, and the
+fail-closed audit. The request still consumes the global write budget and is
+still reported as a `remote_writes` metric, because that metric is deliberately
+a conservative transport-level count of non-safe HTTP methods; it is not a
+claim of content mutation, and a query-only run holds no mutation authority.
+The scenario must bind the exception exactly: `allowed_http_methods` limited to
+GET/HEAD/POST and consistent with the routes, `max_remote_writes` equal to the
+summed query-only request count, all route budgets fitting
+`max_backend_requests`, request-body budgets present exactly when query-only
+routes exist, and an `http_methods_equal` oracle pinning the observed map. A
+run with `allow_live_writes` may not declare query-only routes, and an
+activation study rejects them outright. The gateway forwards only the
+reviewed body, a safe content type, and — for mutating routes — the exact
+Atlassian no-check header;
 ambient cookies and other headers are stripped. The upstream origin is pinned,
 redirects are rejected, and per-response plus total byte budgets are enforced.
 Separate routes may share one exact path only when their method sets are

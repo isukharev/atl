@@ -15,7 +15,12 @@ type liveGatewayInputs struct {
 	credentials map[string]string
 }
 
-func startPrivateCLIGateway(sourceDir, childDir, auditPath string, spec RunSpec, scenario Scenario) (*LiveGateway, error) {
+// startPrivateLiveGateway builds the disposable loopback credential boundary
+// for any private-live surface bound to explicit gateway routes — the CLI skill
+// and gateway-backed internal ATL MCP. The parent keeps the source config and
+// upstream credentials; the child directory receives only loopback URLs and
+// single-run ingress capabilities.
+func startPrivateLiveGateway(sourceDir, childDir, auditPath string, spec RunSpec, scenario Scenario) (*LiveGateway, error) {
 	inputs, err := loadLiveGatewayInputs(sourceDir)
 	if err != nil {
 		return nil, err
@@ -37,9 +42,17 @@ func startPrivateCLIGateway(sourceDir, childDir, auditPath string, spec RunSpec,
 	if timeout > 2*time.Minute {
 		timeout = 2 * time.Minute
 	}
+	maxConcurrent := 1
+	if gatewayBackedInternalMCP(spec) {
+		// One internal MCP tool may issue sequential backend requests, while the
+		// MCP transport may execute independent tool calls concurrently. Bound
+		// that concurrency by the reviewed interface budget and a small hard cap;
+		// CLI remains serialized by its command broker.
+		maxConcurrent = min(scenario.Budgets.EffectiveMaxInterfaceInvocations(), 4)
+	}
 	gateway, err := StartLiveGateway(LiveGatewayConfig{
 		AuditPath: auditPath, Services: services,
-		MaxRequests: scenario.Budgets.MaxBackendRequests, MaxConcurrent: 1,
+		MaxRequests: scenario.Budgets.MaxBackendRequests, MaxConcurrent: maxConcurrent,
 		MaxResponseBytes: spec.GatewayMaxResponseBytes, MaxTotalResponseBytes: spec.GatewayMaxTotalBytes,
 		MaxRequestBytes: spec.GatewayMaxRequestBytes, MaxTotalRequestBytes: spec.GatewayMaxTotalRequestBytes,
 		MaxWrites:      scenario.Budgets.MaxRemoteWrites,

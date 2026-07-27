@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -406,23 +407,6 @@ func (s RunSpec) Validate() error {
 			if !containsRunString(s.AllowedTools, "Bash(atl *)") {
 				return fmt.Errorf("private-live cli transport requires Bash(atl *)")
 			}
-			if s.EffectiveBackendMode() == BackendModePrivateLive {
-				if err := validateLiveGatewayRoutePolicy(s.AllowedGatewayRoutes); err != nil {
-					return fmt.Errorf("allowed_gateway_routes: %w", err)
-				}
-				if s.GatewayMaxResponseBytes < 1 || s.GatewayMaxResponseBytes > 64<<20 || s.GatewayMaxTotalBytes < s.GatewayMaxResponseBytes || s.GatewayMaxTotalBytes > 256<<20 {
-					return fmt.Errorf("private-live cli gateway response budgets are invalid")
-				}
-				if s.AllowLiveWrites {
-					if s.GatewayMaxRequestBytes < 1 || s.GatewayMaxRequestBytes > 16<<20 || s.GatewayMaxTotalRequestBytes < s.GatewayMaxRequestBytes || s.GatewayMaxTotalRequestBytes > 64<<20 {
-						return fmt.Errorf("private-live cli gateway request budgets are invalid")
-					}
-				} else if s.GatewayMaxRequestBytes != 0 || s.GatewayMaxTotalRequestBytes != 0 {
-					return fmt.Errorf("read-only private-live runs forbid gateway request-body budgets")
-				}
-			} else if len(s.AllowedGatewayRoutes) != 0 || s.GatewayMaxResponseBytes != 0 || s.GatewayMaxTotalBytes != 0 || s.GatewayMaxRequestBytes != 0 || s.GatewayMaxTotalRequestBytes != 0 {
-				return fmt.Errorf("provider-calibration forbids a backend gateway policy")
-			}
 		}
 	}
 	if transport == "mcp" && (len(s.AllowedATLCommands) != 0 || len(s.AllowedCLICommands) != 0) {
@@ -444,8 +428,8 @@ func (s RunSpec) Validate() error {
 	if transport == "cli" && len(s.AllowedMCPTools) != 0 {
 		return fmt.Errorf("allowed_mcp_tools must be empty for cli transport")
 	}
-	if (s.EffectiveBackendMode() != BackendModePrivateLive || transport != "cli") && (len(s.AllowedGatewayRoutes) != 0 || s.GatewayMaxResponseBytes != 0 || s.GatewayMaxTotalBytes != 0 || s.GatewayMaxRequestBytes != 0 || s.GatewayMaxTotalRequestBytes != 0) {
-		return fmt.Errorf("gateway policy is only valid for private-live cli transport")
+	if err := validateRunSpecGatewayPolicy(s); err != nil {
+		return err
 	}
 	seenMCPTools := map[string]struct{}{}
 	for _, tool := range s.AllowedMCPTools {
@@ -659,6 +643,142 @@ func containsRunString(values []string, candidate string) bool {
 	return false
 }
 
+// gatewayBackedInternalMCP reports whether an internal ATL MCP private-live run
+// is bound to the disposable loopback gateway. Internal MCP opts in by
+// declaring explicit routes; without them it keeps the copied-config guarded
+// transport that admits only GET and HEAD.
+func gatewayBackedInternalMCP(s RunSpec) bool {
+	return s.EffectiveBackendMode() == BackendModePrivateLive && s.EffectiveToolTransport() == "mcp" &&
+		s.EffectiveSurface() == SurfaceATLMCP && len(s.AllowedGatewayRoutes) != 0
+}
+
+// runSpecQueryOnlyRequests is the reviewed transport-write budget: the total
+// number of bounded query-only POST requests the routes may forward. It is the
+// only source for the durable plan's query-only budget.
+func runSpecQueryOnlyRequests(services map[string][]LiveGatewayRoute) int {
+	total := 0
+	for _, routes := range services {
+		for _, route := range routes {
+			if route.QueryOnly {
+				total += route.MaxRequests
+			}
+		}
+	}
+	return total
+}
+
+// validateRunSpecGatewayPolicy binds the disposable loopback gateway policy to
+// the surfaces that may use it. The private-live CLI skill always runs behind
+// the gateway; internal ATL MCP may opt in with explicit routes. Every other
+// surface — external MCP, synthetic, and provider calibration — forbids it.
+func validateRunSpecGatewayPolicy(s RunSpec) error {
+	privateLive := s.EffectiveBackendMode() == BackendModePrivateLive
+	transport := s.EffectiveToolTransport()
+	required := privateLive && transport == "cli" && s.EffectiveSurface() == SurfaceCLISkill
+	optional := privateLive && transport == "mcp" && s.EffectiveSurface() == SurfaceATLMCP
+	budgets := s.GatewayMaxResponseBytes != 0 || s.GatewayMaxTotalBytes != 0 ||
+		s.GatewayMaxRequestBytes != 0 || s.GatewayMaxTotalRequestBytes != 0
+	if !required && !optional {
+		if len(s.AllowedGatewayRoutes) != 0 || budgets {
+			return fmt.Errorf("gateway policy is only valid for private-live cli-skill or internal MCP runs")
+		}
+		return nil
+	}
+	if optional && len(s.AllowedGatewayRoutes) == 0 {
+		if budgets {
+			return fmt.Errorf("internal MCP gateway budgets require explicit allowed_gateway_routes")
+		}
+		return nil
+	}
+	if err := validateLiveGatewayRoutePolicy(s.AllowedGatewayRoutes); err != nil {
+		return fmt.Errorf("allowed_gateway_routes: %w", err)
+	}
+	if s.GatewayMaxResponseBytes < 1 || s.GatewayMaxResponseBytes > 64<<20 || s.GatewayMaxTotalBytes < s.GatewayMaxResponseBytes || s.GatewayMaxTotalBytes > 256<<20 {
+		return fmt.Errorf("private-live gateway response budgets are invalid")
+	}
+	queryOnly := runSpecQueryOnlyRequests(s.AllowedGatewayRoutes)
+	if queryOnly != 0 && s.SchemaVersion != RunSpecSchemaVersion {
+		return fmt.Errorf("query-only gateway routes require current run spec schema")
+	}
+	if s.AllowLiveWrites && queryOnly != 0 {
+		return fmt.Errorf("live-write private runs forbid query-only gateway routes")
+	}
+	if !s.AllowLiveWrites {
+		for _, routes := range s.AllowedGatewayRoutes {
+			for _, route := range routes {
+				if routeHasMutatingMethod(route) && !route.QueryOnly {
+					return fmt.Errorf("read-only private-live gateway routes may contain only GET, HEAD, and reviewed query-only POST")
+				}
+			}
+		}
+	}
+	if s.AllowLiveWrites || queryOnly > 0 {
+		if s.GatewayMaxRequestBytes < 1 || s.GatewayMaxRequestBytes > 16<<20 || s.GatewayMaxTotalRequestBytes < s.GatewayMaxRequestBytes || s.GatewayMaxTotalRequestBytes > 64<<20 {
+			return fmt.Errorf("private-live gateway request budgets are invalid")
+		}
+		var queryOnlyCapacity int64
+		for _, routes := range s.AllowedGatewayRoutes {
+			for _, route := range routes {
+				if route.MaxRequestBytes > s.GatewayMaxRequestBytes {
+					return fmt.Errorf("private-live route request budget exceeds the gateway request budget")
+				}
+				if route.QueryOnly {
+					queryOnlyCapacity += int64(route.MaxRequests) * route.MaxRequestBytes
+				}
+			}
+		}
+		if queryOnlyCapacity > s.GatewayMaxTotalRequestBytes {
+			return fmt.Errorf("private-live query-only route capacity exceeds the gateway total request budget")
+		}
+	} else if s.GatewayMaxRequestBytes != 0 || s.GatewayMaxTotalRequestBytes != 0 {
+		return fmt.Errorf("read-only private-live runs forbid gateway request-body budgets")
+	}
+	return nil
+}
+
+// validateQueryOnlyGatewayPolicy binds a reviewed query-only route set to its
+// scenario. Query-only POST grants no mutation authority, but the benchmark
+// keeps counting every non-safe method as a transport-level remote write, so
+// the scenario's write budget must equal the reviewed query-only request count
+// exactly — nothing may be forwarded that the scenario did not authorize.
+func validateQueryOnlyGatewayPolicy(services map[string][]LiveGatewayRoute, budgets Budgets) error {
+	allowedMethods := make(map[string]struct{}, len(budgets.AllowedHTTPMethods))
+	for _, method := range budgets.AllowedHTTPMethods {
+		if method != http.MethodGet && method != http.MethodHead && method != http.MethodPost {
+			return fmt.Errorf("query-only private-live allowed_http_methods may contain only GET, HEAD, and POST")
+		}
+		allowedMethods[method] = struct{}{}
+	}
+	totalRequests := 0
+	totalQueries := 0
+	for _, routes := range services {
+		for _, route := range routes {
+			if route.MaxRequests < 1 {
+				return fmt.Errorf("query-only private-live gateway routes require explicit request budgets")
+			}
+			for _, method := range effectiveRouteMethods(route) {
+				if _, ok := allowedMethods[method]; !ok {
+					return fmt.Errorf("private-live gateway method %s is outside the scenario allowlist", method)
+				}
+			}
+			totalRequests += route.MaxRequests
+			if route.QueryOnly {
+				totalQueries += route.MaxRequests
+			}
+		}
+	}
+	if _, ok := allowedMethods[http.MethodPost]; ok != (totalQueries > 0) {
+		return fmt.Errorf("POST is allowed only for reviewed query-only private-live routes")
+	}
+	if totalRequests > budgets.MaxBackendRequests {
+		return fmt.Errorf("query-only gateway route budgets exceed max_backend_requests")
+	}
+	if totalQueries != budgets.MaxRemoteWrites {
+		return fmt.Errorf("query-only gateway request budgets must equal max_remote_writes")
+	}
+	return nil
+}
+
 func validateLiveWriteGatewayPolicy(services map[string][]LiveGatewayRoute, budgets Budgets) error {
 	allowedMethods := make(map[string]struct{}, len(budgets.AllowedHTTPMethods))
 	for _, method := range budgets.AllowedHTTPMethods {
@@ -723,11 +843,16 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 		if scenario.DataClass != "private-local" {
 			return fmt.Errorf("private-live runs require scenario data_class=private-local")
 		}
+		queryOnlyRequests := runSpecQueryOnlyRequests(s.AllowedGatewayRoutes)
 		if s.AllowLiveWrites {
 			if scenario.Budgets.MaxRemoteWrites < 1 {
 				return fmt.Errorf("live-write private runs require a positive max_remote_writes")
 			}
 			if err := validateLiveWriteGatewayPolicy(s.AllowedGatewayRoutes, scenario.Budgets); err != nil {
+				return err
+			}
+		} else if queryOnlyRequests > 0 {
+			if err := validateQueryOnlyGatewayPolicy(s.AllowedGatewayRoutes, scenario.Budgets); err != nil {
 				return err
 			}
 		} else if scenario.Budgets.MaxRemoteWrites != 0 {
@@ -752,14 +877,17 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 		if !s.AllowLiveWrites {
 			for _, routes := range s.AllowedGatewayRoutes {
 				for _, route := range routes {
-					if routeHasMutatingMethod(route) {
-						return fmt.Errorf("read-only private-live gateway routes may contain only GET and HEAD")
+					if routeHasMutatingMethod(route) && !route.QueryOnly {
+						return fmt.Errorf("read-only private-live gateway routes may contain only GET, HEAD, and reviewed query-only POST")
 					}
 				}
 			}
 			for _, method := range scenario.Budgets.AllowedHTTPMethods {
+				if method == "POST" && queryOnlyRequests > 0 {
+					continue
+				}
 				if method != "GET" && method != "HEAD" {
-					return fmt.Errorf("read-only private-live allowed_http_methods may contain only GET and HEAD")
+					return fmt.Errorf("read-only private-live allowed_http_methods may contain only GET, HEAD, and reviewed query-only POST")
 				}
 			}
 		}
@@ -839,13 +967,16 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 				return fmt.Errorf("private-live runs require a %s check", kind)
 			}
 		}
-		if s.AllowLiveWrites {
+		// A run that may forward a non-safe method — reviewed mutation or bounded
+		// query-only POST — must pin the exact observed method map, so a POST that
+		// was never authorized cannot pass as an ordinary read.
+		if s.AllowLiveWrites || queryOnlyRequests > 0 {
 			hasExactMethods := false
 			for _, check := range s.Checks {
 				hasExactMethods = hasExactMethods || check.Kind == "http_methods_equal"
 			}
 			if !hasExactMethods {
-				return fmt.Errorf("live-write private runs require a http_methods_equal check")
+				return fmt.Errorf("private runs with non-safe gateway methods require a http_methods_equal check")
 			}
 		}
 	}

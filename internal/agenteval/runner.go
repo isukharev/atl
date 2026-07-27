@@ -592,6 +592,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	codexBrokerCLI := codexPrivateCLI || codexSyntheticBrokerCLI
 	brokerCLI := privateCLI || codexSyntheticBrokerCLI
 	claudePrivateCLI := loaded.spec.Provider == "claude-code" && privateCLI
+	gatewayBackedMCP := gatewayBackedInternalMCP(loaded.spec)
 	var err error
 	if err := validatePathComponentID("scenario id", loaded.scenario.ID); err != nil {
 		return Result{}, err
@@ -784,7 +785,17 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		defer func() { _ = os.RemoveAll(atlConfigDir) }()
 		if loaded.spec.ToolTransport == "cli" {
 			httpGuardPath = filepath.Join(evalDir, "gateway-audit.jsonl")
-			liveGateway, err = startPrivateCLIGateway(options.LiveConfigDir, atlConfigDir, httpGuardPath, loaded.spec, loaded.scenario)
+			liveGateway, err = startPrivateLiveGateway(options.LiveConfigDir, atlConfigDir, httpGuardPath, loaded.spec, loaded.scenario)
+			if err != nil {
+				return Result{}, err
+			}
+			defer func() { _ = liveGateway.Close(context.Background()) }()
+		} else if gatewayBackedMCP {
+			// Gateway-backed internal MCP uses the same credential boundary as the
+			// private CLI: no source config or credential copy, and no HTTP guard
+			// file, because the gateway itself is the audited transport.
+			httpGuardPath = filepath.Join(evalDir, "gateway-audit.jsonl")
+			liveGateway, err = startPrivateLiveGateway(options.LiveConfigDir, atlConfigDir, httpGuardPath, loaded.spec, loaded.scenario)
 			if err != nil {
 				return Result{}, err
 			}
@@ -878,8 +889,19 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			"ATL_CONFIG_DIR":  atlConfigDir,
 			"ATL_MIRROR_ROOT": mirrorRoot,
 		}
-		for name, value := range backendEnvironment {
-			mcpEnvironment[name] = value
+		if gatewayBackedMCP {
+			// The MCP child must reach only the disposable loopback gateway, so it
+			// receives a fixed allowlist instead of the ambient backend environment:
+			// no upstream URL or PAT name, no insecure-transport switch, and no HTTP
+			// guard file. NO_PROXY keeps the loopback ingress off any ambient proxy.
+			mcpEnvironment = gatewayMCPEnvironment(atlConfigDir, mirrorRoot)
+			if err := validateGatewayMCPEnvironment(mcpEnvironment); err != nil {
+				return Result{}, err
+			}
+		} else {
+			for name, value := range backendEnvironment {
+				mcpEnvironment[name] = value
+			}
 		}
 		if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
 			if err := writeClaudeExternalMCPConfig(mcpConfigPath, loaded.spec.mcpServerURL, backendEnvironment["ATL_EVAL_EXTERNAL_MCP_TOKEN"]); err != nil {
@@ -1038,7 +1060,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP && loaded.spec.Provider == "codex" {
 		environment["ATL_EVAL_EXTERNAL_MCP_TOKEN"] = backendEnvironment["ATL_EVAL_EXTERNAL_MCP_TOKEN"]
 	}
-	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP || gatewayBackedMCP {
 		environment["NO_PROXY"] = "127.0.0.1,localhost"
 		environment["no_proxy"] = "127.0.0.1,localhost"
 	}
@@ -2164,6 +2186,44 @@ func syntheticMCPMirrorRoot(workspace, fallback string) (string, error) {
 		return "", fmt.Errorf("synthetic MCP fixture mirror has no real .atl directory")
 	}
 	return candidateReal, nil
+}
+
+// gatewayMCPEnvironmentAllowlist bounds what a gateway-backed internal MCP
+// child may inherit. Upstream URL and PAT names, the insecure-transport
+// override, and the HTTP guard file are deliberately absent: that child talks
+// only to the disposable loopback gateway, which owns the real credential.
+var gatewayMCPEnvironmentNames = []string{
+	"ATL_READ_ONLY", "ATL_NO_UPDATE", "ATL_CONFIG_DIR", "ATL_MIRROR_ROOT", "NO_PROXY", "no_proxy",
+}
+
+var gatewayMCPEnvironmentAllowlist = func() map[string]struct{} {
+	allowed := make(map[string]struct{}, len(gatewayMCPEnvironmentNames))
+	for _, name := range gatewayMCPEnvironmentNames {
+		allowed[name] = struct{}{}
+	}
+	return allowed
+}()
+
+func gatewayMCPEnvironment(atlConfigDir, mirrorRoot string) map[string]string {
+	values := map[string]string{
+		"ATL_READ_ONLY": "1", "ATL_NO_UPDATE": "1",
+		"ATL_CONFIG_DIR": atlConfigDir, "ATL_MIRROR_ROOT": mirrorRoot,
+		"NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost",
+	}
+	environment := make(map[string]string, len(gatewayMCPEnvironmentNames))
+	for _, name := range gatewayMCPEnvironmentNames {
+		environment[name] = values[name]
+	}
+	return environment
+}
+
+func validateGatewayMCPEnvironment(environment map[string]string) error {
+	for name := range environment {
+		if _, ok := gatewayMCPEnvironmentAllowlist[name]; !ok {
+			return fmt.Errorf("gateway-backed MCP environment has an unsupported variable")
+		}
+	}
+	return nil
 }
 
 func writeClaudeMCPConfig(path, atlBinary string, environment map[string]string) error {

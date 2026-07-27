@@ -1443,3 +1443,221 @@ func cloneGatewayServices(source map[string]LiveGatewayServiceConfig) map[string
 	}
 	return out
 }
+
+func TestLiveGatewayQueryOnlyRouteShapeIsExact(t *testing.T) {
+	valid := LiveGatewayRoute{Name: "value_query", PathPrefix: "/rest/structure/2.0/value", Exact: true,
+		Methods: []string{http.MethodPost}, QueryOnly: true, MaxRequests: 2, MaxRequestBytes: 4096}
+	if err := validateLiveGatewayRoutes([]LiveGatewayRoute{valid}); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*LiveGatewayRoute){
+		"prefix path":      func(route *LiveGatewayRoute) { route.Exact = false },
+		"default methods":  func(route *LiveGatewayRoute) { route.Methods = nil },
+		"extra method":     func(route *LiveGatewayRoute) { route.Methods = []string{http.MethodPost, http.MethodGet} },
+		"mutating method":  func(route *LiveGatewayRoute) { route.Methods = []string{http.MethodPut} },
+		"read method":      func(route *LiveGatewayRoute) { route.Methods = []string{http.MethodGet} },
+		"zero count":       func(route *LiveGatewayRoute) { route.MaxRequests = 0 },
+		"zero body budget": func(route *LiveGatewayRoute) { route.MaxRequestBytes = 0 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := valid
+			mutate(&candidate)
+			if err := validateLiveGatewayRoutes([]LiveGatewayRoute{candidate}); err == nil {
+				t.Fatal("invalid query-only route accepted")
+			}
+		})
+	}
+}
+
+func TestLiveGatewayQueryOnlyPOSTIsBoundedAndAudited(t *testing.T) {
+	var upstreamCalls atomic.Int64
+	var upstreamAtlassianToken, upstreamBody string
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		upstreamCalls.Add(1)
+		upstreamAtlassianToken = request.Header.Get("X-Atlassian-Token")
+		body, _ := io.ReadAll(io.LimitReader(request.Body, 4096))
+		upstreamBody = string(body)
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"rows":[]}`)
+	}))
+	defer upstream.Close()
+
+	auditDir := t.TempDir()
+	if err := os.Chmod(auditDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	auditPath := filepath.Join(auditDir, "audit.jsonl")
+	const queryPath = "/rest/structure/2.0/value"
+	const queryBody = `{"rows":[1],"values":["summary"]}`
+	gateway, err := StartLiveGateway(LiveGatewayConfig{
+		AuditPath: auditPath, MaxRequests: 8, MaxConcurrent: 1,
+		MaxResponseBytes: 1024, MaxTotalResponseBytes: 4096,
+		MaxRequestBytes: 256, MaxTotalRequestBytes: 512, MaxWrites: 1,
+		RequestTimeout: 5 * time.Second,
+		Services: map[string]LiveGatewayServiceConfig{"jira": {BaseURL: upstream.URL + "/jira", Token: "upstream-secret", Routes: []LiveGatewayRoute{
+			{Name: "reads", PathPrefix: "/rest/api/2", MaxRequests: 2},
+			// Two reviewed requests are allowed by the route, so a second denial can
+			// only come from the global write budget.
+			{Name: "value_query", PathPrefix: queryPath, Exact: true, Methods: []string{http.MethodPost},
+				QueryOnly: true, MaxRequests: 2, MaxRequestBytes: 256},
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := gateway.Endpoints()["jira"]
+	send := func(method, path, contentType, body string, mutate func(*http.Request)) int {
+		t.Helper()
+		var reader io.Reader
+		if body != "" {
+			reader = strings.NewReader(body)
+		}
+		request, err := http.NewRequest(method, endpoint.BaseURL+path, reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+endpoint.Token)
+		if contentType != "" {
+			request.Header.Set("Content-Type", contentType)
+		}
+		request.Header.Set("X-Atlassian-Token", "no-check")
+		if mutate != nil {
+			mutate(request)
+		}
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+		_ = response.Body.Close()
+		return response.StatusCode
+	}
+
+	for name, probe := range map[string]func() int{
+		"wrong method": func() int {
+			return send(http.MethodPut, queryPath, "application/json", queryBody, nil)
+		},
+		"method override": func() int {
+			return send(http.MethodPost, queryPath, "application/json", queryBody, func(request *http.Request) {
+				request.Header.Set("X-HTTP-Method-Override", "DELETE")
+			})
+		},
+		"oversize body": func() int {
+			return send(http.MethodPost, queryPath, "application/json", `{"rows":["`+strings.Repeat("a", 400)+`"]}`, nil)
+		},
+		"multipart body": func() int {
+			return send(http.MethodPost, queryPath, `multipart/form-data; boundary=abc`, queryBody, nil)
+		},
+		"missing content type": func() int {
+			return send(http.MethodPost, queryPath, "", queryBody, nil)
+		},
+		"empty json body": func() int {
+			return send(http.MethodPost, queryPath, "application/json", "", nil)
+		},
+		"invalid json body": func() int {
+			return send(http.MethodPost, queryPath, "application/json", "not-json", nil)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if status := probe(); status < 400 || status > 499 {
+				t.Fatalf("status=%d", status)
+			}
+			if upstreamCalls.Load() != 0 {
+				t.Fatalf("denied query-only request reached upstream: calls=%d", upstreamCalls.Load())
+			}
+		})
+	}
+
+	if status := send(http.MethodPost, queryPath, "application/json", queryBody, nil); status != http.StatusOK {
+		t.Fatalf("reviewed query-only POST status=%d", status)
+	}
+	if upstreamCalls.Load() != 1 || upstreamBody != queryBody || upstreamAtlassianToken != "" {
+		t.Fatalf("calls=%d body=%q atlassian-token=%q", upstreamCalls.Load(), upstreamBody, upstreamAtlassianToken)
+	}
+	if status := send(http.MethodPost, queryPath, "application/json", queryBody, nil); status != http.StatusTooManyRequests {
+		t.Fatalf("second query-only POST status=%d", status)
+	}
+	if upstreamCalls.Load() != 1 {
+		t.Fatalf("write budget did not bound query-only POST: calls=%d", upstreamCalls.Load())
+	}
+
+	if err := gateway.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{queryPath, "rows", "summary", "upstream-secret", endpoint.Token, "no-check"} {
+		if bytes.Contains(data, []byte(forbidden)) {
+			t.Fatalf("audit retained %q: %s", forbidden, data)
+		}
+	}
+	records := decodeLiveGatewayAudit(t, data)
+	writes, budgetDenials := 0, 0
+	for _, record := range records {
+		if len(record.RequestHMAC) != 64 {
+			t.Fatalf("record without a bounded request identity: %+v", record)
+		}
+		if record.Method == http.MethodPost && record.Decision == "allow" {
+			writes++
+			if record.Route != "value_query" || record.RequestBytes != int64(len(queryBody)) {
+				t.Fatalf("record=%+v", record)
+			}
+		}
+		if record.Decision == "deny" && record.Reason == "write_budget" {
+			budgetDenials++
+		}
+	}
+	if writes != 1 || budgetDenials != 1 {
+		t.Fatalf("writes=%d budget denials=%d records=%+v", writes, budgetDenials, records)
+	}
+}
+
+func TestLiveGatewayQueryOnlyPOSTFailsClosedWhenAuditIsUnavailable(t *testing.T) {
+	var upstreamCalls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		upstreamCalls.Add(1)
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"rows":[]}`)
+	}))
+	defer upstream.Close()
+	auditDir := t.TempDir()
+	if err := os.Chmod(auditDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	gateway, err := StartLiveGateway(LiveGatewayConfig{
+		AuditPath: filepath.Join(auditDir, "audit.jsonl"), MaxRequests: 4, MaxConcurrent: 1,
+		MaxResponseBytes: 1024, MaxTotalResponseBytes: 4096,
+		MaxRequestBytes: 256, MaxTotalRequestBytes: 512, MaxWrites: 1,
+		RequestTimeout: 5 * time.Second,
+		Services: map[string]LiveGatewayServiceConfig{"jira": {BaseURL: upstream.URL + "/jira", Token: "upstream-secret", Routes: []LiveGatewayRoute{
+			{Name: "value_query", PathPrefix: "/rest/structure/2.0/value", Exact: true, Methods: []string{http.MethodPost},
+				QueryOnly: true, MaxRequests: 1, MaxRequestBytes: 256},
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = gateway.Close(context.Background()) }()
+	gateway.state.markAuditUnhealthy()
+	endpoint := gateway.Endpoints()["jira"]
+	request, err := http.NewRequest(http.MethodPost, endpoint.BaseURL+"/rest/structure/2.0/value", strings.NewReader(`{"rows":[1]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+endpoint.Token)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusBadGateway || !strings.Contains(string(body), gatewayAuditUnavailableMessage) {
+		t.Fatalf("status=%d body=%s", response.StatusCode, body)
+	}
+	if upstreamCalls.Load() != 0 {
+		t.Fatalf("off-the-record query-only POST reached upstream: calls=%d", upstreamCalls.Load())
+	}
+}

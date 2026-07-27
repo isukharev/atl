@@ -71,11 +71,17 @@ type LiveGatewayServiceConfig struct {
 	Routes  []LiveGatewayRoute
 }
 
+// LiveGatewayRoute is one reviewed upstream target. QueryOnly marks the narrow
+// exception for a configured read API that accepts a bounded JSON POST query:
+// the request still consumes the global write budget and is still reported as a
+// conservative transport-level remote write, but it carries no mutation
+// authority and is accepted only in the exact shape validated below.
 type LiveGatewayRoute struct {
 	Name            string   `json:"name"`
 	PathPrefix      string   `json:"path_prefix"`
 	Exact           bool     `json:"exact,omitempty"`
 	Methods         []string `json:"methods,omitempty"`
+	QueryOnly       bool     `json:"query_only,omitempty"`
 	MaxRequests     int      `json:"max_requests,omitempty"`
 	MaxRequestBytes int64    `json:"max_request_bytes,omitempty"`
 }
@@ -358,7 +364,10 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 		return
 	}
 	contentType, ok := reviewedGatewayContentType(request.Header.Get("Content-Type"), len(requestBody))
-	if !ok {
+	// A query-only route forwards a JSON query and nothing else: multipart
+	// uploads and bodyless posts are never a read query, so they are denied
+	// before any upstream request or budget reservation.
+	if !ok || route.QueryOnly && (len(requestBody) == 0 || !json.Valid(requestBody) || !isGatewayJSONMediaType(contentType)) {
 		reject(http.StatusBadRequest, route.Name, "content_type")
 		return
 	}
@@ -398,8 +407,12 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 	if contentType != "" {
 		upstreamRequest.Header.Set("Content-Type", contentType)
 	}
-	if token := reviewedGatewayAtlassianToken(s.name, request.Header.Values("X-Atlassian-Token")); token != "" {
-		upstreamRequest.Header.Set("X-Atlassian-Token", token)
+	// The no-check header exists for reviewed multipart mutations. A query-only
+	// route never needs it, so it is not forwarded there at all.
+	if !route.QueryOnly {
+		if token := reviewedGatewayAtlassianToken(s.name, request.Header.Values("X-Atlassian-Token")); token != "" {
+			upstreamRequest.Header.Set("X-Atlassian-Token", token)
+		}
 	}
 	upstreamResponse, err := s.state.upstreamHTTP.Do(upstreamRequest) //nolint:gosec // request origin is pinned above
 	if err != nil {
@@ -756,6 +769,13 @@ func validateLiveGatewayRoutes(routes []LiveGatewayRoute) error {
 		if !mutating && route.MaxRequestBytes != 0 {
 			return fmt.Errorf("read-only live gateway routes forbid request bodies")
 		}
+		// A query-only route is the single non-safe method the read-only side of
+		// the gateway may carry, so its shape is exact: one POST method, one exact
+		// path, and explicit per-route request and body budgets.
+		if route.QueryOnly && (!route.Exact || len(route.Methods) != 1 || route.Methods[0] != http.MethodPost ||
+			route.MaxRequests < 1 || route.MaxRequestBytes < 1) {
+			return fmt.Errorf("query-only live gateway routes require an exact POST path with positive request and body budgets")
+		}
 	}
 	return nil
 }
@@ -995,6 +1015,11 @@ func reviewedGatewayContentType(header string, bodyBytes int) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func isGatewayJSONMediaType(header string) bool {
+	mediaType, _, err := mime.ParseMediaType(header)
+	return err == nil && strings.EqualFold(mediaType, "application/json")
 }
 
 func hasGatewayMethodOverride(request *http.Request) bool {

@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added an audited query-only POST policy for private live agent evaluations
+  whose read APIs require bounded JSON request bodies. The policy is limited to
+  exact paths on the internal ATL MCP and CLI surfaces, binds per-route and
+  aggregate request budgets into the reviewed plan, isolates upstream
+  credentials behind the disposable loopback gateway, and continues to count
+  each POST conservatively as a remote write without granting mutation
+  authority.
+
 - Bound write-authorized private agent-evaluation refusals to the CLI's own
   typed error classification instead of a bare exit code. A new
   `cli_error_contracts_equal` run check takes an exact ordered array of closed
