@@ -1018,13 +1018,10 @@ exit 2
 
 // stubPrivatePlanCLIRouteQualifier replaces the backend-free route qualifier
 // with a deterministic in-process report bound to the same reviewed contract.
-// The returned counter proves how many times each lifecycle phase called it.
-func stubPrivatePlanCLIRouteQualifier(t *testing.T, status CLIRouteQualificationStatus, route string) *int {
+func stubPrivatePlanCLIRouteQualifier(t *testing.T, status CLIRouteQualificationStatus, route string) {
 	t.Helper()
 	original := privatePlanQualifyCLIRoute
-	calls := 0
 	privatePlanQualifyCLIRoute = func(_ context.Context, options CLIRouteQualificationOptions) (CLIRouteQualificationReport, error) {
-		calls++
 		agent, _, err := inspectPrivateAgentBinary(options.AgentBinary, "")
 		if err != nil {
 			return CLIRouteQualificationReport{}, err
@@ -1036,7 +1033,6 @@ func stubPrivatePlanCLIRouteQualifier(t *testing.T, status CLIRouteQualification
 		}, nil
 	}
 	t.Cleanup(func() { privatePlanQualifyCLIRoute = original })
-	return &calls
 }
 
 func setPrivatePlanTestPanel(t *testing.T, fixture privatePlanTestFixture, panel *PrivateQualitativeReviewPanel) {

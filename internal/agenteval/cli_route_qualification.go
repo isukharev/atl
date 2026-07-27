@@ -226,13 +226,22 @@ func QualifyCLIRoute(parent context.Context, options CLIRouteQualificationOption
 	handler := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if route.auxiliary(request) {
 			mu.Lock()
-			admitted := len(observations) == 0 && auxiliary < maxCLIRouteAuxiliaryRequests
+			captured := len(observations) != 0
+			admitted := !captured && auxiliary < maxCLIRouteAuxiliaryRequests
 			if admitted {
 				auxiliary++
-			} else {
+			} else if !captured {
 				unexpected = true
 			}
 			mu.Unlock()
+			// Once the model request is captured, termination is already in
+			// progress. A concurrently arriving connectivity HEAD is incidental
+			// client bookkeeping, not a second model route and not qualification
+			// drift; refuse it without changing the closed observation.
+			if captured {
+				http.Error(w, "cli route probe complete", http.StatusBadRequest)
+				return
+			}
 			if !admitted {
 				http.Error(w, "cli route probe rejected request", http.StatusBadRequest)
 				cancel()
@@ -257,7 +266,10 @@ func QualifyCLIRoute(parent context.Context, options CLIRouteQualificationOption
 		mu.Unlock()
 		// Never fabricate a model response. The reviewed route has already been
 		// observed, so the only correct next step is to end the child.
-		w.WriteHeader(http.StatusServiceUnavailable)
+		// A non-retryable client error closes the HTTP exchange while process
+		// cancellation closes the child. Do not invite a provider SDK retry in
+		// the small interval before CommandContext delivers termination.
+		w.WriteHeader(http.StatusBadRequest)
 		cancel()
 	})
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 5 * time.Second}
@@ -285,10 +297,21 @@ func QualifyCLIRoute(parent context.Context, options CLIRouteQualificationOption
 	}
 	mu.Lock()
 	captured := append([]cliRouteProbeObservation(nil), observations...)
-	base.AuxiliaryRequests = auxiliary
+	observedAuxiliary := auxiliary
 	rejected := unexpected
 	mu.Unlock()
-	if shutdownErr != nil || rejected || stdout.overflow || stderr.overflow || len(captured) == 0 {
+	return finalizeCLIRouteProbe(base, captured, observedAuxiliary,
+		shutdownErr != nil || rejected || stdout.overflow || stderr.overflow)
+}
+
+// finalizeCLIRouteProbe reduces the bounded in-memory observations to the
+// closed report. Keeping this decision separate from process scheduling makes
+// the repeated-request refusal deterministic to test: in a real run the first
+// observation normally kills the child before its retry can reach loopback,
+// while any second request that did arrive still fails closed.
+func finalizeCLIRouteProbe(base CLIRouteQualificationReport, captured []cliRouteProbeObservation, auxiliary int, processFailed bool) (CLIRouteQualificationReport, error) {
+	base.AuxiliaryRequests = auxiliary
+	if processFailed || len(captured) == 0 {
 		base.Status = CLIRouteQualificationProcessFailed
 		return base, nil
 	}
@@ -456,8 +479,9 @@ func validClaudeShellToolSchema(data json.RawMessage) bool {
 
 func cliRouteProbeArgs(options CLIRouteQualificationOptions, workspace, baseURL string) []string {
 	if options.Provider == "codex" {
-		// Reuse the reviewed Codex probe launch verbatim so the inventory this
-		// qualification observes is the same one the measured run would see.
+		// Reuse the reviewed route-determining Codex flags. Other measured-run
+		// artifacts are independently bound by digest rather than loaded into
+		// this backend-free qualifier.
 		return codexToolProbeArgs(CodexCLIToolAvailabilityOptions{
 			Model: options.Model, Reasoning: options.Reasoning, TimeoutSeconds: options.TimeoutSeconds,
 		}, workspace, baseURL)

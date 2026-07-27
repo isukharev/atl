@@ -19,19 +19,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `route_inventory_missing`, `route_inventory_ambiguous`,
   `request_schema_failed`, `process_failed`), the provider-scoped route alias
   (`exec_command`/`shell_command`/`exec` for Codex, `bash` for Claude Code), and
-  zero-authority counters. The probe derives its launch from the reviewed
-  provider flags, captures and validates only the first exact model-facing
+  zero-authority counters. The probe shares the reviewed route-determining
+  provider flags, binds remaining launch artifacts by digest, and captures and
+  validates only the first exact model-facing
   request on a nonce-scoped loopback endpoint, then deliberately terminates the
-  child instead of fabricating a model response or retrying; a repeated model
-  request, an unexpected route, a malformed request, or a missing/ambiguous
-  inventory all fail closed. Claude Code runs with `ANTHROPIC_BASE_URL` and a
+  child with a non-retryable response instead of fabricating a model answer; a
+  repeated model request, an unexpected route, a malformed request, or a
+  missing/ambiguous inventory all fail closed. Claude Code runs with
+  `ANTHROPIC_BASE_URL` and a
   fixed synthetic key inside an environment allowlist so no ambient credential,
   configuration directory, or proxy setting crosses into the probe, and only one
   bounded connectivity `HEAD` may precede capture. Plan creation binds the
-  supported report; execution re-proves an identical report against the
-  execution snapshot's own agent binary and plugin/settings inputs before
+  supported report; execution re-proves the same route identity and outcome
+  against the execution snapshot's own agent binary and plugin/settings inputs before
   provider authentication, calibration, or any benchmark invocation, and refuses
-  on drift without consuming the plan. No prompt, request, header, tool-schema,
+  on route or contract drift without consuming the plan. The optional 0/1
+  connectivity-HEAD observation is descriptive and does not create false drift.
+  No prompt, request, header, tool-schema,
   path, or credential content is retained, and the run makes zero provider,
   backend, or remote-write requests. Private plans advance to schema 9; schema 8
   becomes explicitly legacy — readable exactly as written, never rewritten, and

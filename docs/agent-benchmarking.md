@@ -1339,21 +1339,24 @@ A private-live comparison set that contains a `cli-skill` item is qualified by
 the same principle, for both `codex` and `claude-code`, before its plan is
 persisted and again before that plan is consumed. A comparison holds at most one
 CLI surface, so the plan binds one optional content-free route report. The
-qualifier derives its launch from the reviewed provider flags, captures only the
+qualifier shares the reviewed route-determining provider flags and binds the
+remaining launch artifacts by digest. It captures only the
 first exact model-facing request on a nonce-scoped loopback endpoint, and then
 deliberately terminates the child rather than fabricating a model response or
 retrying; a second model request fails closed. Claude Code is launched with a
 fixed synthetic key in an environment allowlist, so ambient provider
 credentials, configuration directories, and proxy settings never cross into the
-probe, and only one connectivity `HEAD` to `/` or `/api/hello` may precede
-capture. The report carries scalars only — provider, surface, binary identity,
+probe, and only one connectivity `HEAD` to the loopback origin or nonce-scoped
+base may precede capture. The report carries scalars only — provider, surface,
+binary identity,
 qualification-contract digest, a closed status, the provider-scoped route alias
 (`exec_command`/`shell_command`/`exec` for Codex, `bash` for Claude Code), and
 zero-authority counters — and never prompt, request, header, tool-schema, path,
 or credential content. The execution-time repeat runs against the execution
 snapshot's own binary and plugin/settings inputs and must reproduce the bound
-report exactly; drift refuses before authentication, calibration, or any
-benchmark invocation. Activation studies keep their existing tool-availability
+route identity and outcome; the descriptive 0/1 connectivity-HEAD count is not
+route drift. Route or contract drift refuses before authentication, calibration,
+or any benchmark invocation. Activation studies keep their existing tool-availability
 result and carry no route report; MCP-only comparisons carry none either.
 
 After that gate, one backend-free provider calibration makes a real Codex tool

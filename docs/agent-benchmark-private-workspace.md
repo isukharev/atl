@@ -465,24 +465,27 @@ before persisting a plan, and execution repeats it before consuming that plan.
 A private-live **comparison** set that contains a `cli-skill` item is qualified
 separately, for both `codex` and `claude-code`. A comparison holds at most one
 such surface, so the plan carries one optional route report rather than a map.
-The qualifier launches the reviewed agent binary through the same route flags
-the measured run would use, points it at a nonce-scoped loopback endpoint, and
+The qualifier launches the reviewed agent binary with the same
+route-determining flags the measured run uses, binds the remaining launch
+artifacts by digest, points it at a nonce-scoped loopback endpoint, and
 captures only the first exact model-facing request. It then deliberately ends
 the child: it never fabricates a model response and never retries, so a second
 model request is a failure rather than a second chance. Claude Code runs with
 `ANTHROPIC_BASE_URL` and a fixed synthetic key inside an environment allowlist,
 so no ambient provider credential, configuration directory, or proxy setting can
-cross into the probe; one connectivity `HEAD` to `/` or `/api/hello` may precede
-capture and nothing else may. The report is content-free and scalar only:
+cross into the probe; one connectivity `HEAD` to the loopback origin or
+nonce-scoped base may precede capture and nothing else may. The report is
+content-free and scalar only:
 provider, surface, binary identity, qualification-contract digest, a closed
 status (`supported`, `route_inventory_missing`, `route_inventory_ambiguous`,
 `request_schema_failed`, `process_failed`), the provider-scoped route alias
 (`exec_command`/`shell_command`/`exec` for Codex, `bash` for Claude Code), and
 zero-authority counters. A comparison set without a CLI item carries no report.
 Plan creation captures and binds the supported report, and execution re-proves
-an identical report against the execution snapshot's own agent binary and
-plugin/settings inputs before provider authentication, calibration, or any
-benchmark invocation; any drift refuses without consuming the plan.
+the same route identity and outcome against the execution snapshot's own agent
+binary and plugin/settings inputs before provider authentication, calibration, or any
+benchmark invocation. The descriptive 0/1 connectivity-HEAD count is not route
+drift; route or contract drift refuses without consuming the plan.
 
 ## Review, run, and assess
 

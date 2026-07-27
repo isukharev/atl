@@ -993,6 +993,12 @@ func (m *privatePlanMaterial) bindCLIRouteQualificationResult(report CLIRouteQua
 }
 
 func sameCLIRouteQualificationReport(left, right CLIRouteQualificationReport) bool {
+	// Connectivity HEAD presence is incidental client startup behavior rather
+	// than reviewed route identity. Both reports are validated before this
+	// comparison; require every bound field and authority counter to match, but
+	// do not turn a 0/1 auxiliary timing difference into false route drift.
+	left.AuxiliaryRequests = 0
+	right.AuxiliaryRequests = 0
 	return left == right
 }
 

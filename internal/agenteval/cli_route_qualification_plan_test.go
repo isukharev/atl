@@ -46,6 +46,24 @@ func supportedPrivatePlanCLIRouteReport(route string) func(CLIRouteQualification
 	}
 }
 
+func TestSameCLIRouteQualificationReportIgnoresOnlyAuxiliaryTiming(t *testing.T) {
+	base := CLIRouteQualificationReport{
+		SchemaVersion: CLIRouteQualificationSchemaVersion, Provider: "claude-code", Surface: SurfaceCLISkill,
+		AgentIdentity: "binary-sha256:" + strings.Repeat("a", 64), ContractSHA256: strings.Repeat("b", 64),
+		Status: CLIRouteQualificationSupported, Route: "bash", RequestObserved: true, SyntheticRequests: 1,
+	}
+	withAuxiliary := base
+	withAuxiliary.AuxiliaryRequests = 1
+	if !sameCLIRouteQualificationReport(base, withAuxiliary) {
+		t.Fatal("incidental connectivity HEAD was treated as route drift")
+	}
+	withAuthority := base
+	withAuthority.ProviderRequests = 1
+	if sameCLIRouteQualificationReport(base, withAuthority) {
+		t.Fatal("provider authority drift was ignored")
+	}
+}
+
 // countPrivatePlanExecutionSideEffects makes provider authentication,
 // calibration, and benchmark execution observable so a refusal can be proven to
 // happen before any of them.

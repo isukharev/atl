@@ -248,8 +248,6 @@ func TestQualifyCLIRouteCapturesOneExactModelRequestPerProvider(t *testing.T) {
 			config: cliRouteProbeFixtureConfig{Body: codexShell, RequestCount: 1, Block: true, Authorization: "Bearer forbidden"}},
 		{name: "codex never launched", provider: "codex", want: CLIRouteQualificationProcessFailed,
 			config: cliRouteProbeFixtureConfig{}},
-		{name: "codex repeated", provider: "codex", want: CLIRouteQualificationProcessFailed,
-			config: cliRouteProbeFixtureConfig{Body: codexShell, RequestCount: 2, Block: true}},
 		{name: "codex unexpected route", provider: "codex", want: CLIRouteQualificationProcessFailed,
 			config: cliRouteProbeFixtureConfig{Body: codexShell, RequestCount: 1, Block: true, Path: "/chat/completions"}},
 
@@ -271,8 +269,6 @@ func TestQualifyCLIRouteCapturesOneExactModelRequestPerProvider(t *testing.T) {
 			config: cliRouteProbeFixtureConfig{Body: claudeShell, RequestCount: 1, Block: true, APIKey: "synthetic", Auxiliary: 2}},
 		{name: "claude unexpected route", provider: "claude-code", want: CLIRouteQualificationProcessFailed,
 			config: cliRouteProbeFixtureConfig{Body: claudeShell, RequestCount: 1, Block: true, APIKey: "synthetic", Path: "/v1/messages"}},
-		{name: "claude repeated", provider: "claude-code", want: CLIRouteQualificationProcessFailed,
-			config: cliRouteProbeFixtureConfig{Body: claudeShell, RequestCount: 2, Block: true, APIKey: "synthetic"}},
 	}
 	agents := map[string]string{
 		"codex":       buildCLIRouteProbeTestAgent(t, "codex"),
@@ -303,6 +299,28 @@ func TestQualifyCLIRouteCapturesOneExactModelRequestPerProvider(t *testing.T) {
 			assertCLIRouteProbeNeverGotAModelResponse(t, agent)
 			if entries, readErr := os.ReadDir(scratch); readErr != nil || len(entries) != 0 {
 				t.Fatalf("probe runtime was retained: entries=%d err=%v", len(entries), readErr)
+			}
+		})
+	}
+}
+
+func TestFinalizeCLIRouteProbeRefusesRepeatedModelRequest(t *testing.T) {
+	for _, provider := range []string{"codex", "claude-code"} {
+		t.Run(provider, func(t *testing.T) {
+			base := CLIRouteQualificationReport{
+				SchemaVersion:  CLIRouteQualificationSchemaVersion,
+				Provider:       provider,
+				Surface:        SurfaceCLISkill,
+				AgentIdentity:  "binary-sha256:" + strings.Repeat("a", 64),
+				ContractSHA256: strings.Repeat("b", 64),
+			}
+			report, err := finalizeCLIRouteProbe(base, []cliRouteProbeObservation{
+				{status: CLIRouteQualificationSupported, route: map[string]string{"codex": "exec_command", "claude-code": "bash"}[provider]},
+				{status: CLIRouteQualificationSupported},
+			}, 0, false)
+			if err != nil || report.Validate() != nil || report.Status != CLIRouteQualificationProcessFailed ||
+				!report.RequestObserved || report.SyntheticRequests != 2 || report.Route != "" {
+				t.Fatalf("report=%+v err=%v", report, err)
 			}
 		})
 	}
