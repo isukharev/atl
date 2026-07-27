@@ -45,6 +45,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Expanded the bounded owner-private agent-evaluation workspace inventory from
+  64 to 128 run sets. Runtime validation and the public JSON Schema share the
+  same exact boundary; manifest size, tree-entry, per-set, path, alias,
+  duplicate, retention, and cost controls are unchanged.
+
 - Reused each valid Jira mirror baseline digest between local validation and
   optional remote drift evidence instead of hashing the same bytes twice.
   Snapshot schemas, counts, errors, output, and remote request behavior are

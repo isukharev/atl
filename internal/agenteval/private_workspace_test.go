@@ -54,9 +54,11 @@ func TestPrivateWorkspaceRunSetCapacityBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := DecodePrivateWorkspaceManifest(bytes.NewReader(data)); err == nil {
+	_, err = DecodePrivateWorkspaceManifest(bytes.NewReader(data))
+	if err == nil {
 		t.Fatal("run-set inventory above the maximum was accepted")
 	}
+	assertPrivateWorkspaceContractCode(t, err, "run_sets")
 }
 
 func TestPrivateWorkspaceRunSetCapacityMatchesPublicSchema(t *testing.T) {
