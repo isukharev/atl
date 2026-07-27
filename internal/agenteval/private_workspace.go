@@ -29,7 +29,7 @@ const (
 	LegacyPrivateWorkspaceManifestName     = "private-workspace.v1.json"
 
 	maxPrivateWorkspaceManifestBytes = 1 << 20
-	maxPrivateWorkspaceRunSets       = 64
+	maxPrivateWorkspaceRunSets       = 128
 	maxPrivateWorkspaceSpecsPerSet   = 4
 	maxPrivateWorkspaceTreeEntries   = 100_000
 )

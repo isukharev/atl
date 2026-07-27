@@ -67,7 +67,7 @@
     },
     "run_sets": {
       "type": "array",
-      "maxItems": 64,
+      "maxItems": 128,
       "items": {
         "type": "object",
         "additionalProperties": false,

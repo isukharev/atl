@@ -152,7 +152,8 @@ Edit the generated private manifest locally. Current schema v4 gives each run se
 `kind`: `comparison` accepts one to three unique surfaces, while
 `activation-study` requires exactly four otherwise-identical Codex
 `private-live` `cli-skill` v7 specs carrying `implicit`, `explicit`, `developer`,
-and `combined` once each. An omitted kind is the legacy comparison form. Runtime
+and `combined` once each. The inventory is bounded to 128 run sets. An omitted
+kind is the legacy comparison form. Runtime
 bindings are environment-variable names, never literal paths or credentials.
 Keep provider-specific profiles outside the repository as required by the
 existing private-live transport. The public
