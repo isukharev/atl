@@ -1080,6 +1080,14 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			environment[name] = value
 		}
 	}
+	if loaded.spec.Provider == "claude-code" && loaded.spec.EffectiveBackendMode() == BackendModeSynthetic &&
+		loaded.spec.EffectiveToolTransport() == "cli" && loaded.spec.AllowSyntheticWrites {
+		// Ordinary Claude synthetic-write prompts use the same plain `atl ...`
+		// form as their reviewed prefix policy. The proxy still requires the
+		// explicit write authority below and verifies both backend URLs are
+		// disposable loopback endpoints before it will forward a mutation.
+		delete(environment, "ATL_READ_ONLY")
+	}
 	command.Env = flattenEnvironment(environment)
 	started := time.Now()
 	var guardAborted atomic.Bool

@@ -120,6 +120,9 @@ if [ "$1" = "-p" ]; then
     printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":0.00014,"usage":{"input_tokens":100,"output_tokens":20},"structured_output":{"answer":"ok"}}'
     exit 0
   fi
+  if [ "$ATL_READ_ONLY" != "1" ] || [ -n "$ATL_EVAL_ALLOW_SYNTHETIC_WRITES" ]; then
+    exit 32
+  fi
   atl version >/dev/null
   printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}'
   printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":0.00014,"usage":{"input_tokens":100,"output_tokens":20},"structured_output":{"answer":"ok"}}'
@@ -581,6 +584,126 @@ func TestBenchmarkInstructionSurfacesExcludeSyntheticTypedMCP(t *testing.T) {
 				t.Fatalf("Claude plugin=%q want present=%v", got, test.wantClaudePlugin)
 			}
 		})
+	}
+}
+
+func TestClaudeSyntheticWriteRunUsesPlainATLWithLoopbackAuthority(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable scripts are Unix-only")
+	}
+	useSyntheticCodexHome(t)
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := exec.Command("git", "-C", root, "init", "-q").Run(); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(root, ".gitignore"), "private/\n", 0o600)
+	caseDir := filepath.Join(root, "case")
+	workspace := filepath.Join(caseDir, "workspace")
+	if err := os.MkdirAll(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(workspace, "body.txt"), "synthetic body\n", 0o600)
+
+	scenario := validScenario()
+	scenario.ID = "jira.synthetic-plain-write"
+	scenario.TaskClass = "jira/synthetic-write"
+	scenario.Description = "Create one exact issue in a disposable synthetic backend."
+	scenario.RequiredCapabilities = nil
+	scenario.RequiredChecks = []string{"answer", "atl_succeeded", "guard_clean", "mock_clean", "used_atl", "methods"}
+	scenario.RequiredSemanticChecks = []string{"answer"}
+	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests", "remote_writes"}
+	scenario.Budgets = Budgets{
+		MaxAgentTurns: 2, MaxToolCalls: 2, MaxATLInvocations: 1, MaxInterfaceInvocations: 1,
+		MaxBackendRequests: 1, MaxRemoteWrites: 1, MaxOutputBytes: 1 << 20,
+		MaxInputTokens: 1000, MaxOutputTokens: 1000, MaxMainThreadInputTokens: 1000,
+		MaxMainThreadOutputTokens: 1000, MaxEstimatedCostMicroUSD: 10_000_000,
+		MaxDurationMillis: 30_000, AllowedHTTPMethods: []string{"POST"},
+	}
+	writeJSONTestFile(t, filepath.Join(caseDir, "scenario.json"), scenario)
+	fixture := MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{{
+			Method: "POST", Path: "/jira/rest/api/2/issue",
+			RequestBody: json.RawMessage(`{"fields":{"project":{"key":"TEST"},"issuetype":{"name":"Task"},"summary":"reviewed synthetic fixture","description":"synthetic body\n"}}`),
+			Status:      http.StatusCreated, Body: json.RawMessage(`{"key":"TEST-1"}`),
+		}},
+	}
+	writeJSONTestFile(t, filepath.Join(caseDir, "fixture.json"), fixture)
+	writeTestFile(t, filepath.Join(caseDir, "prompt.md"), "Create the exact reviewed synthetic fixture with plain atl.\n", 0o600)
+	writeTestFile(t, filepath.Join(caseDir, "response.json"), `{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}`, 0o600)
+	writeJSONTestFile(t, filepath.Join(caseDir, "rubric.json"), Rubric{
+		SchemaVersion: 1, ID: "synthetic-plain-write", ScenarioID: scenario.ID, MinimumScoreBPS: 5000,
+		Criteria:          []RubricCriterion{{ID: "grounded", Description: "Grounded.", Maximum: 4, Minimum: 2, Weight: 1}},
+		AllowedFindingIDs: []string{"missing"},
+	})
+	spec := RunSpec{
+		SchemaVersion: RunSpecSchemaVersion, ScenarioFile: "scenario.json", Provider: "claude-code",
+		Variant: "plain-write", Model: "test-model", PromptFile: "prompt.md", ResponseSchemaFile: "response.json",
+		QualitativeRubricFile: "rubric.json", WorkspaceTemplate: "workspace", FixtureFile: "fixture.json",
+		Repetitions: 1, TimeoutSeconds: 30, MaxEstimatedCostMicroUSD: 10_000_000, ToolTransport: "cli",
+		AllowedTools: []string{"Bash(atl *)"}, AllowSyntheticWrites: true,
+		AllowedATLCommands: []string{"atl jira issue create --project TEST --type Task --summary 'reviewed synthetic fixture' --from-file body.txt"},
+		Checks: []RunCheck{
+			{Name: "answer", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`"ok"`)},
+			{Name: "atl_succeeded", Kind: "interface_all_succeeded"},
+			{Name: "guard_clean", Kind: "guard_no_denials"},
+			{Name: "mock_clean", Kind: "mock_no_unexpected"},
+			{Name: "used_atl", Kind: "interface_invocations_min", Minimum: 1},
+			{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"POST":1}`)},
+		},
+	}
+	specPath := filepath.Join(caseDir, "run.json")
+	writeJSONTestFile(t, specPath, spec)
+
+	pluginRoot := filepath.Join(root, "plugin")
+	writeTestPluginTrees(t, pluginRoot, "test", "Synthetic skill.")
+	fakeAgent := filepath.Join(root, "fake-claude")
+	writeTestFile(t, fakeAgent, `#!/bin/sh
+if [ "$1" = "--version" ]; then echo fake-claude-1; exit 0; fi
+[ -z "$ATL_READ_ONLY" ] || exit 31
+[ "$ATL_EVAL_ALLOW_SYNTHETIC_WRITES" = "1" ] || exit 32
+case "$ATL_JIRA_URL" in http://127.0.0.1:*/jira) ;; *) exit 33;; esac
+case "$ATL_CONFLUENCE_URL" in http://127.0.0.1:*/wiki) ;; *) exit 34;; esac
+[ "$ATL_JIRA_PAT" = "synthetic-jira-token" ] || exit 35
+[ "$ATL_CONFLUENCE_PAT" = "synthetic-confluence-token" ] || exit 36
+[ "$ATL_ALLOW_INSECURE" = "1" ] || exit 37
+atl jira issue create --project TEST --type Task --summary 'reviewed synthetic fixture' --from-file body.txt >/dev/null || exit 38
+printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}'
+printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":0.0001,"usage":{"input_tokens":100,"output_tokens":20},"structured_output":{"answer":"ok"}}'
+`, 0o700)
+	wrapper := filepath.Join(root, "agent-eval")
+	buildWrapper := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
+	buildWrapper.Dir = repositoryRoot
+	buildWrapper.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
+	if output, err := buildWrapper.CombinedOutput(); err != nil {
+		t.Fatalf("build wrapper: %v\n%s", err, output)
+	}
+	atlBinary := filepath.Join(root, "atl")
+	buildATL := exec.Command("go", "build", "-buildvcs=false", "-o", atlBinary, "./cmd/atl")
+	buildATL.Dir = repositoryRoot
+	buildATL.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
+	if output, err := buildATL.CombinedOutput(); err != nil {
+		t.Fatalf("build atl: %v\n%s", err, output)
+	}
+
+	output, err := RunHeadless(context.Background(), RunOptions{
+		SpecPath: specPath, OutputRoot: filepath.Join(root, "private", "runs"), RepositoryRoot: root,
+		AgentBinary: fakeAgent, ATLBinary: atlBinary, PluginRoot: pluginRoot, WrapperExecutable: wrapper,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(output.Results) != 1 || output.Results[0].Status != "pass" {
+		t.Fatalf("output=%+v", output)
+	}
+	result := output.Results[0]
+	if result.Metrics.ATLInvocations != 0 || result.Metrics.InterfaceInvocations != 1 || result.Metrics.BackendRequests != 1 || result.Metrics.RemoteWrites != 1 ||
+		result.Metrics.DuplicateBackendRequests != 0 || len(result.HTTPMethods) != 1 || result.HTTPMethods[http.MethodPost] != 1 {
+		t.Fatalf("result=%+v", result)
 	}
 }
 

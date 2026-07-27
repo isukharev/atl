@@ -21,9 +21,11 @@ type MockFixture struct {
 	JiraContext       string      `json:"jira_context"`
 	ConfluenceContext string      `json:"confluence_context"`
 	Routes            []MockRoute `json:"routes"`
+	RequestSequence   []string    `json:"request_sequence,omitempty"`
 }
 
 type MockRoute struct {
+	Name          string            `json:"name,omitempty"`
 	Method        string            `json:"method"`
 	Path          string            `json:"path"`
 	QueryContains map[string]string `json:"query_contains,omitempty"`
@@ -51,6 +53,7 @@ type MockBackend struct {
 	methods      map[string]int
 	routeHits    map[string]int
 	sequenceHits map[string]int
+	requestIndex int
 	unexpected   int
 	routes       map[string][]MockRoute
 	fixture      MockFixture
@@ -83,12 +86,24 @@ func (f MockFixture) Validate() error {
 		return fmt.Errorf("mock routes must contain 1..2048 entries")
 	}
 	seen := map[string]struct{}{}
+	seenNames := map[string]struct{}{}
 	type routeDiscriminator struct {
 		query bool
 		body  bool
 	}
 	seenPaths := map[string]routeDiscriminator{}
 	for _, route := range f.Routes {
+		if route.Name != "" {
+			if !identifierRE.MatchString(route.Name) {
+				return fmt.Errorf("invalid mock route name")
+			}
+			if _, duplicate := seenNames[route.Name]; duplicate {
+				return fmt.Errorf("duplicate mock route name %q", route.Name)
+			}
+			seenNames[route.Name] = struct{}{}
+		} else if len(f.RequestSequence) > 0 {
+			return fmt.Errorf("all mock routes must be named when request_sequence is configured")
+		}
 		if !methodRE.MatchString(route.Method) || !strings.HasPrefix(route.Path, "/") || strings.ContainsAny(route.Path, "?#\r\n\x00") || len(route.Path) > 512 {
 			return fmt.Errorf("invalid mock route")
 		}
@@ -146,6 +161,14 @@ func (f MockFixture) Validate() error {
 		}
 		seen[key] = struct{}{}
 	}
+	if len(f.RequestSequence) > 4096 {
+		return fmt.Errorf("mock request_sequence exceeds 4096 entries")
+	}
+	for _, name := range f.RequestSequence {
+		if _, ok := seenNames[name]; !ok {
+			return fmt.Errorf("mock request_sequence references unknown route %q", name)
+		}
+	}
 	return nil
 }
 
@@ -198,6 +221,14 @@ func (b *MockBackend) Summary() (map[string]int, int, int) {
 	return methods, b.unexpected, duplicates
 }
 
+// RequestSequenceComplete reports whether every configured ordered request was
+// accepted. Fixtures without an ordered sequence are complete by definition.
+func (b *MockBackend) RequestSequenceComplete() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.requestIndex == len(b.fixture.RequestSequence)
+}
+
 func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
 	routeKey := r.Method + " " + r.URL.Path
 	candidates := b.routes[routeKey]
@@ -228,6 +259,9 @@ func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
 	b.methods[r.Method]++
 	requestKey := r.Method + " " + r.URL.RequestURI()
 	b.routeHits[requestKey]++
+	if ok && len(b.fixture.RequestSequence) > 0 && (b.requestIndex >= len(b.fixture.RequestSequence) || route.Name != b.fixture.RequestSequence[b.requestIndex]) {
+		ok = false
+	}
 	if ok && len(route.Responses) > 0 {
 		sequenceKey := mockRouteSelectorKey(route)
 		index := b.sequenceHits[sequenceKey]
@@ -236,10 +270,16 @@ func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
 		} else {
 			route.Status = route.Responses[index].Status
 			route.Body = route.Responses[index].Body
-			b.sequenceHits[sequenceKey]++
 		}
 	}
-	if !ok {
+	if ok {
+		if len(route.Responses) > 0 {
+			b.sequenceHits[mockRouteSelectorKey(route)]++
+		}
+		if len(b.fixture.RequestSequence) > 0 {
+			b.requestIndex++
+		}
+	} else {
 		b.unexpected++
 	}
 	b.mu.Unlock()

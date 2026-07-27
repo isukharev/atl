@@ -33,6 +33,40 @@ func TestRunRejectsMissingAndUnknownCommands(t *testing.T) {
 	}
 }
 
+func TestAllowedATLArgsMatchesReviewedShellTokens(t *testing.T) {
+	allowed, err := json.Marshal([]string{
+		"atl jira issue create --project TEST --type Task --summary 'reviewed synthetic fixture' --from-file body.txt --",
+		`atl conf search --cql 'space = "ARCHIVE" AND type = page' --limit 25 --`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"jira", "issue", "create", "--project", "TEST", "--type", "Task", "--summary", "reviewed synthetic fixture", "--from-file", "body.txt", "--"},
+		{"conf", "search", "--cql", `space = "ARCHIVE" AND type = page`, "--limit", "25", "--"},
+	} {
+		if !allowedATLArgs(args, string(allowed)) {
+			t.Fatalf("reviewed argv rejected: %q", args)
+		}
+	}
+	for _, args := range [][]string{
+		{"jira", "issue", "create", "--project", "TEST", "--type", "Task", "--summary", "different fixture", "--from-file", "body.txt", "--"},
+		{"jira", "issue", "create", "--project", "TEST", "--type", "Task", "--summary", "reviewed synthetic fixture", "--from-file", "body.txt"},
+	} {
+		if allowedATLArgs(args, string(allowed)) {
+			t.Fatalf("unreviewed argv admitted: %q", args)
+		}
+	}
+	for _, malformed := range []string{
+		`["atl jira issue create --summary 'unterminated"]`,
+		`["atl jira issue create --summary \\"$VALUE\\""]`,
+	} {
+		if allowedATLArgs([]string{"jira", "issue", "create", "--summary", "unterminated"}, malformed) {
+			t.Fatalf("malformed reviewed command admitted: %s", malformed)
+		}
+	}
+}
+
 func TestRunAggregateRootEmitsCompleteSyntheticEnvelope(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("aggregate-root fails closed until owner-only ACLs can be verified")

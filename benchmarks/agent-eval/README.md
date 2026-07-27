@@ -289,6 +289,8 @@ The realistic matrix currently contains:
 | surface native | `jira-status-report-workflow-holdout` | distinct source topology whose risk slice remains partial without becoming an absence or green claim |
 | surface native | `jira-sprint-dashboard-workflow` | named workflow skill over active-sprint membership with two-page order and deterministic status, attention, and load rollups |
 | surface native | `jira-sprint-dashboard-workflow-holdout` | distinct successful first page plus forbidden continuation, preserving observed-only partial rollups without retry or writes |
+| surface native | `jira-spec-to-backlog-workflow` | explicitly approved synthetic spec conversion with Epic-first creation and immediate sequential child linking |
+| surface native | `jira-spec-to-backlog-workflow-holdout` | distinct approved spec whose first Epic link is forbidden, proving fail-fast stop before the second child |
 | surface native | `jira-board-pagination-mcp` | one typed complete Scrum board/backlog read with internal pagination, overlap, rank, membership, and unmapped status reconciliation |
 | surface native | `jira-board-pagination-mcp-holdout` | distinct board/backlog pagination topology with two overlaps through the same closed membership contract |
 | surface native | `jira-board-incomplete-mcp` | intentionally capped board/backlog evidence with observed-only membership and explicit incomplete qualification |
@@ -476,6 +478,19 @@ retry or write replay fails the mock oracle.
 This permits write-path model evaluation without granting any route to a real
 backend. Private-live remains read-only by default; its separately reviewed
 CLI-only write mode is described below.
+
+The paired `jira-spec-to-backlog-workflow` cases exercise the shipped
+cross-service workflow skill against synthetic loopback backends only. Both
+start with one exact Confluence source read and an explicit pre-reviewed
+approval, then create the Epic before any child and link each created child
+immediately. The primary completes two children; the distinct holdout receives
+one definitive forbidden response while linking the first child and must stop
+without creating the second. Exact request bodies bind all three reviewed
+workspace files, `link-epic` retains its production field-discovery GET before
+each PUT, and hostile source prose remains inert data. Codex prompts bind the
+logical `$spec-to-backlog` skill while the mechanical oracle observes a generic
+Skill event; Claude Code additionally requires the exact
+`atl:spec-to-backlog` Skill event.
 
 `jira-field-mutation` uses that boundary for one generic custom field. Its
 preview-only variant exercises the dedicated GET-only `jira issue field
