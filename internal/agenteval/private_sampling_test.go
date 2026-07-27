@@ -1227,10 +1227,14 @@ func TestPrivateSamplingApplyAttachesStoreCauses(t *testing.T) {
 		_, applyErr := applyPrivateSampling(reviewed(fixture, preview.AssessmentSHA256), fixture.dependencies())
 		assertPrivateSamplingCode(t, applyErr, "assessment_drift")
 		// The shared apply frame retains whatever the schema-v2 preview
-		// returns, including causes that path attaches in a later slice.
-		if causes := privateSamplingErrorCauses(t, applyErr); len(causes) != 1 ||
-			!errors.Is(causes[0], ErrPrivateSamplingRejected) {
+		// returns, including the causes that path now attaches itself.
+		causes := privateSamplingErrorCauses(t, applyErr)
+		var classified interface{ Code() string }
+		if len(causes) != 1 || !errors.As(causes[0], &classified) || classified.Code() != "synthetic_root" {
 			t.Fatalf("causes=%v, want the nested synthetic classification", causes)
+		}
+		if inner := privateSamplingErrorCauses(t, causes[0]); len(inner) != 1 {
+			t.Fatalf("causes=%v, want the failed evidence load below the synthetic code", inner)
 		}
 	})
 }
@@ -1423,6 +1427,618 @@ func TestPrivateSamplingValidationOnlyRejectionsCarryNoCause(t *testing.T) {
 		// The encoder rejects on in-frame validation alone, so the coded
 		// error it hands its callers carries nothing itself.
 		_, err := encodePrivateSamplingAssessment(privateSamplingAssessment{})
+		assertPrivateSamplingCode(t, err, "assessment_contract")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a validation-only rejection", causes)
+		}
+	})
+}
+
+// TestPrivateSyntheticSamplingRootCauseOrderIsFixed pins the multi-cause
+// ordering of the schema-v2 root probe. That branch attaches its evidence-load
+// failure and both recheck probes in the order its own condition evaluates
+// them, but neither recheck probe can be driven into a failed state from a test
+// without racing the resolver or adding a production hook, so the ordering is
+// pinned through the constructor instead.
+func TestPrivateSyntheticSamplingRootCauseOrderIsFixed(t *testing.T) {
+	privatePath := filepath.Join("private", "reports", privateSyntheticRootDirectory, "primary-synthetic-runs")
+	loadCause := errors.New("synthetic root evidence failure")
+	containedCause := &fs.PathError{Op: "statat", Path: privatePath, Err: fs.ErrNotExist}
+	parentCause := &fs.PathError{Op: "statat", Path: filepath.Dir(privatePath), Err: fs.ErrPermission}
+
+	err := privateSamplingError("synthetic_root", loadCause, containedCause, parentCause)
+	assertPrivateSamplingCode(t, err, "synthetic_root")
+	if strings.Contains(err.Error(), privatePath) || strings.Contains(err.Error(), loadCause.Error()) {
+		t.Fatalf("message leaked a cause: %q", err.Error())
+	}
+	causes := privateSamplingErrorCauses(t, err)
+	if len(causes) != 3 || causes[0] != loadCause || causes[1] != error(containedCause) || causes[2] != error(parentCause) {
+		t.Fatalf("causes=%v, want the evidence load then both recheck probes in order", causes)
+	}
+	if !errors.Is(err, loadCause) || !errors.Is(err, fs.ErrNotExist) || !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("error %v lost a cause", err)
+	}
+
+	// A partially failed branch drops the nil probes and keeps the order.
+	partial := privateSamplingError("synthetic_root", nil, containedCause, nil)
+	if causes := privateSamplingErrorCauses(t, partial); len(causes) != 1 || causes[0] != error(containedCause) {
+		t.Fatalf("causes=%v, want only the failed contained probe", causes)
+	}
+}
+
+func TestPrivateSyntheticSamplingContractRejectionsSeparateDecodingFromCanonicalBytes(t *testing.T) {
+	t.Run("undecodable synthetic spec", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		if err := os.WriteFile(fixture.syntheticSpecPath(), []byte("{\"schema_version\": nope}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "spec_contract")
+		var syntaxErr *json.SyntaxError
+		if !errors.As(err, &syntaxErr) {
+			t.Fatalf("error %v does not expose the concrete decoding failure", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the failed decode", causes)
+		}
+	})
+
+	t.Run("rejected synthetic envelope", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		if err := os.WriteFile(fixture.syntheticSpecPath(), []byte("{\"schema_version\": 2}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "spec_contract")
+		causes := privateSamplingErrorCauses(t, err)
+		if len(causes) != 1 {
+			t.Fatalf("causes=%v, want the envelope validation retained", causes)
+		}
+		if strings.Contains(err.Error(), causes[0].Error()) {
+			t.Fatalf("message leaked the validation failure: %q", err.Error())
+		}
+	})
+
+	t.Run("non-canonical synthetic spec", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		primary := fixture.addSyntheticRoot(t, "primary-synthetic-runs", "jira.synthetic-primary", 1, true,
+			strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64))
+		fixture.writeSyntheticSpec(t, PrivateSyntheticSamplingSpec{
+			SchemaVersion: PrivateSyntheticSamplingSchemaVersion, Tier: PrivateSamplingTierCalibration, Primary: primary,
+		})
+		data, err := os.ReadFile(fixture.syntheticSpecPath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fixture.syntheticSpecPath(), bytes.TrimSpace(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, previewErr := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, previewErr, "spec_contract")
+		if causes := privateSamplingErrorCauses(t, previewErr); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a byte-comparison-only rejection", causes)
+		}
+	})
+}
+
+// TestPrivateSyntheticSamplingRootRejectionsAttachOnlyRejectingFailures covers
+// the schema-v2 root resolver. The cohort-equality rejection is unreachable
+// from a test: a root that resolves at all has exactly one attested cohort, and
+// every field that comparison inspects is part of that cohort identity, so it
+// stays a defensive, cause-free branch.
+func TestPrivateSyntheticSamplingRootRejectionsAttachOnlyRejectingFailures(t *testing.T) {
+	unattested := func(root string) PrivateSyntheticSamplingSpec {
+		return PrivateSyntheticSamplingSpec{
+			SchemaVersion: PrivateSyntheticSamplingSchemaVersion, Tier: PrivateSamplingTierCalibration,
+			Primary: PrivateSyntheticSamplingRootRef{Root: root, SourceSHA256: strings.Repeat("1", 64)},
+		}
+	}
+	parentDirectory := func(fixture *privateSamplingFixture) string {
+		return filepath.Join(fixture.root, "reports", privateSyntheticRootDirectory)
+	}
+
+	t.Run("absent root parent", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		fixture.writeSyntheticSpec(t, unattested("primary-synthetic-runs"))
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "synthetic_root_directory")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete stat failure", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the failed parent stat", causes)
+		}
+		if strings.Contains(err.Error(), fixture.root) {
+			t.Fatalf("message leaked the workspace root: %q", err.Error())
+		}
+	})
+
+	t.Run("loose root parent", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("owner-only directory modes are not observable on Windows")
+		}
+		fixture := newPrivateSamplingFixture(t)
+		fixture.writeSyntheticSpec(t, unattested("primary-synthetic-runs"))
+		if err := os.MkdirAll(parentDirectory(fixture), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(parentDirectory(fixture), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "synthetic_root_directory")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a mode-only rejection", causes)
+		}
+	})
+
+	t.Run("absent root", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		fixture.writeSyntheticSpec(t, unattested("primary-synthetic-runs"))
+		if err := os.MkdirAll(parentDirectory(fixture), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "synthetic_root")
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete stat failure", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the failed contained stat", causes)
+		}
+	})
+
+	t.Run("rejected root evidence", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		primary := fixture.addSyntheticRoot(t, "primary-synthetic-runs", "jira.synthetic-primary", 1, true,
+			strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64))
+		fixture.writeSyntheticSpec(t, PrivateSyntheticSamplingSpec{
+			SchemaVersion: PrivateSyntheticSamplingSchemaVersion, Tier: PrivateSamplingTierCalibration, Primary: primary,
+		})
+		marker := filepath.Join(parentDirectory(fixture), primary.Root, privateOutputRootMarker)
+		if err := os.WriteFile(marker, []byte("changed\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "synthetic_root")
+		causes := privateSamplingErrorCauses(t, err)
+		if len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the failed evidence load", causes)
+		}
+		// The aggregate layer has no exported sentinel, so the cause is reached
+		// by traversing the unwrap tree rather than by errors.Is.
+		if strings.Contains(err.Error(), causes[0].Error()) {
+			t.Fatalf("message leaked the evidence failure: %q", err.Error())
+		}
+	})
+
+	t.Run("unattested root digest", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		primary := fixture.addSyntheticRoot(t, "primary-synthetic-runs", "jira.synthetic-primary", 1, true,
+			strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64))
+		primary.SourceSHA256 = strings.Repeat("9", 64)
+		fixture.writeSyntheticSpec(t, PrivateSyntheticSamplingSpec{
+			SchemaVersion: PrivateSyntheticSamplingSchemaVersion, Tier: PrivateSamplingTierCalibration, Primary: primary,
+		})
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "synthetic_root")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a digest-comparison-only rejection", causes)
+		}
+	})
+
+	t.Run("rejected cohort contract", func(t *testing.T) {
+		// The run receipt and the aggregate already enforce every field the
+		// sampling cohort contract re-checks — the reviewed provider set, the
+		// public task class, a non-empty prompt contract, and each attested
+		// digest — so a root that loads at all cannot reach this rejection. The
+		// retained classification is pinned directly instead.
+		cohort := privateSyntheticSamplingCohort{
+			ScenarioID: "jira.synthetic-primary", TaskClass: "jira/evidence",
+			DataClass: "synthetic", Category: BenchmarkCategoryRouteFixed,
+			Variant: "summary-v1", Surface: SurfaceCLISkill,
+			Runtime: Runtime{
+				Provider: "codex", AgentVersion: "agent-v1", Model: "model-v1", Reasoning: "high",
+				ATLVersion: "atl-v1", PluginVersion: "plugin-v1", SkillDigest: strings.Repeat("1", 64),
+				PromptContractSHA256: strings.Repeat("2", 64),
+			},
+			TaskContractSHA256: strings.Repeat("3", 64), ExecutionContractSHA256: strings.Repeat("4", 64),
+			AgentExecutableSHA256: strings.Repeat("5", 64), ATLExecutableSHA256: strings.Repeat("6", 64),
+			WrapperExecutableSHA256: strings.Repeat("7", 64),
+		}
+		if err := cohort.validate(); err != nil {
+			t.Fatalf("cohort contract rejected an attested cohort: %v", err)
+		}
+		cohort.Runtime.Provider = "gemini"
+		validationErr := cohort.validate()
+		if validationErr == nil {
+			t.Fatal("cohort contract accepted an unreviewed provider")
+		}
+		err := privateSamplingError("synthetic_cohort", validationErr)
+		assertPrivateSamplingCode(t, err, "synthetic_cohort")
+		causes := privateSamplingErrorCauses(t, err)
+		if len(causes) != 1 || causes[0] != validationErr {
+			t.Fatalf("causes=%v, want the cohort validation retained", causes)
+		}
+		if strings.Contains(err.Error(), validationErr.Error()) {
+			t.Fatalf("message leaked the cohort validation failure: %q", err.Error())
+		}
+	})
+}
+
+// TestPrivateSyntheticSamplingRevalidationRetainsResolveCauses covers the
+// re-read that closes the collection window. Drift found by comparing the
+// re-read binding, results, or observation counts against the bound ones is
+// unreachable while the attested source digest covers every byte the resolver
+// reads: any change that would alter them fails the re-resolution first, so
+// those comparisons stay defensive, cause-free branches.
+func TestPrivateSyntheticSamplingRevalidationRetainsResolveCauses(t *testing.T) {
+	for _, testCase := range []struct{ name, changed string }{
+		{"primary root changed during collection", "primary-synthetic-runs"},
+		{"holdout root changed during collection", "holdout-synthetic-runs"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newPrivateSamplingFixture(t)
+			primary := fixture.addSyntheticRoot(t, "primary-synthetic-runs", "jira.synthetic-primary", 3, true,
+				strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64))
+			holdout := fixture.addSyntheticRoot(t, "holdout-synthetic-runs", "jira.synthetic-holdout", 1, true,
+				strings.Repeat("4", 64), strings.Repeat("5", 64), strings.Repeat("6", 64))
+			spec := PrivateSyntheticSamplingSpec{
+				SchemaVersion: PrivateSyntheticSamplingSchemaVersion, Tier: PrivateSamplingTierRegression,
+				Primary: primary, Holdout: []PrivateSyntheticSamplingRootRef{holdout},
+			}
+			specData, err := encodePrivateSyntheticSamplingSpec(spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			marker := filepath.Join(fixture.root, "reports", privateSyntheticRootDirectory, testCase.changed, privateOutputRootMarker)
+			_, _, _, buildErr := buildPrivateSyntheticSamplingAssessmentWithHook(fixture.root, spec, sha256HexBytes(specData),
+				func() {
+					if writeErr := os.WriteFile(marker, []byte("changed\n"), 0o600); writeErr != nil {
+						t.Fatal(writeErr)
+					}
+				})
+			assertPrivateSamplingCode(t, buildErr, "synthetic_root_drift")
+			causes := privateSamplingErrorCauses(t, buildErr)
+			var classified interface{ Code() string }
+			if len(causes) != 1 || !errors.As(causes[0], &classified) || classified.Code() != "synthetic_root" {
+				t.Fatalf("causes=%v, want the nested root classification", causes)
+			}
+		})
+	}
+}
+
+// TestPrivateSyntheticSamplingAssessmentLoadRejectionsAttachOnlyRejectingFailures
+// covers the stored schema-v2 assessment reader. The encoding failures guarded
+// alongside the drift and source comparisons are defensive: both envelopes have
+// already passed the same canonical encoding in this frame, so only the
+// comparisons are reachable and they leave nothing to attach.
+func TestPrivateSyntheticSamplingAssessmentLoadRejectionsAttachOnlyRejectingFailures(t *testing.T) {
+	calibrationSpec := func(t *testing.T, fixture *privateSamplingFixture) PrivateSyntheticSamplingSpec {
+		t.Helper()
+		return PrivateSyntheticSamplingSpec{
+			SchemaVersion: PrivateSyntheticSamplingSchemaVersion, Tier: PrivateSamplingTierCalibration,
+			Primary: fixture.addSyntheticRoot(t, "primary-synthetic-runs", "jira.synthetic-primary", 1, true,
+				strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64)),
+		}
+	}
+	// storeTampered re-canonicalizes a mutated assessment and stores it under
+	// its own domain-separated digest, so the reader reaches the branch under
+	// test rather than the contract gate.
+	storeTampered := func(t *testing.T, fixture *privateSamplingFixture, assessment privateSyntheticSamplingAssessment) string {
+		t.Helper()
+		data, err := encodePrivateSyntheticSamplingAssessment(assessment)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256HexBytes(append([]byte("atl-private-sampling-assessment-v2\x00"), data...))
+		fixture.rewriteAssessment(t, digest, data)
+		return digest
+	}
+	storedAssessment := func(t *testing.T, fixture *privateSamplingFixture, digest string) privateSyntheticSamplingAssessment {
+		t.Helper()
+		var stored privateSyntheticSamplingAssessment
+		if err := json.Unmarshal(fixture.readAssessment(t, digest), &stored); err != nil {
+			t.Fatal(err)
+		}
+		return stored
+	}
+
+	t.Run("invalid requested digest", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		_, _, _, err := loadPrivateSyntheticSamplingAssessment(fixture.root, "not-a-digest")
+		assertPrivateSamplingCode(t, err, "assessment_digest")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want an input-only rejection", causes)
+		}
+	})
+
+	t.Run("absent assessment directory", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		_, _, _, err := loadPrivateSyntheticSamplingAssessment(fixture.root, strings.Repeat("a", 64))
+		assertPrivateSamplingCode(t, err, "assessment_directory")
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete directory stat failure", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the directory stat failure", causes)
+		}
+	})
+
+	t.Run("loose assessment directory", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("owner-only directory modes are not observable on Windows")
+		}
+		fixture := newPrivateSamplingFixture(t)
+		directory := filepath.Join(fixture.root, "reports", "sampling")
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		_, _, _, err := loadPrivateSyntheticSamplingAssessment(fixture.root, strings.Repeat("a", 64))
+		assertPrivateSamplingCode(t, err, "assessment_directory")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a mode-only rejection", causes)
+		}
+	})
+
+	t.Run("absent assessment file", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		if err := os.Mkdir(filepath.Join(fixture.root, "reports", "sampling"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		_, _, _, err := loadPrivateSyntheticSamplingAssessment(fixture.root, strings.Repeat("a", 64))
+		assertPrivateSamplingCode(t, err, "assessment_file")
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete file stat failure", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the file stat failure", causes)
+		}
+	})
+
+	t.Run("loose assessment file", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("owner-only file modes are not observable on Windows")
+		}
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.storeSyntheticAssessment(t, calibrationSpec(t, fixture))
+		if err := os.Chmod(fixture.assessmentPath(digest), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, _, _, err := loadPrivateSyntheticSamplingAssessment(fixture.root, digest)
+		assertPrivateSamplingCode(t, err, "assessment_file")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a mode-only rejection", causes)
+		}
+	})
+
+	t.Run("oversized assessment", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := strings.Repeat("a", 64)
+		directory := filepath.Join(fixture.root, "reports", "sampling")
+		if err := os.Mkdir(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		fixture.rewriteAssessment(t, digest, bytes.Repeat([]byte{' '}, privateSamplingMaxBytes+1))
+		_, _, _, err := loadPrivateSyntheticSamplingAssessment(fixture.root, digest)
+		assertPrivateSamplingCode(t, err, "assessment_read")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the failed bounded read", causes)
+		}
+	})
+
+	t.Run("undecodable assessment", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.storeSyntheticAssessment(t, calibrationSpec(t, fixture))
+		fixture.rewriteAssessment(t, digest, []byte("{\"schema_version\": nope}\n"))
+		_, _, _, err := loadPrivateSyntheticSamplingAssessment(fixture.root, digest)
+		assertPrivateSamplingCode(t, err, "assessment_decode")
+		var syntaxErr *json.SyntaxError
+		if !errors.As(err, &syntaxErr) {
+			t.Fatalf("error %v does not expose the concrete decoding failure", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the failed decode", causes)
+		}
+	})
+
+	t.Run("trailing assessment value", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.storeSyntheticAssessment(t, calibrationSpec(t, fixture))
+		fixture.rewriteAssessment(t, digest, append(fixture.readAssessment(t, digest), []byte("{}\n")...))
+		_, _, _, err := loadPrivateSyntheticSamplingAssessment(fixture.root, digest)
+		assertPrivateSamplingCode(t, err, "assessment_decode")
+		// A decoded trailing value produces no error at all, and the clean
+		// end-of-input signal is never attached as a cause.
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a trailing-value-only rejection", causes)
+		}
+	})
+
+	t.Run("invalid trailing assessment data", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.storeSyntheticAssessment(t, calibrationSpec(t, fixture))
+		fixture.rewriteAssessment(t, digest, append(fixture.readAssessment(t, digest), []byte("nope\n")...))
+		_, _, _, err := loadPrivateSyntheticSamplingAssessment(fixture.root, digest)
+		assertPrivateSamplingCode(t, err, "assessment_decode")
+		var syntaxErr *json.SyntaxError
+		if !errors.As(err, &syntaxErr) {
+			t.Fatalf("error %v does not expose the trailing decoding failure", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the trailing decoding failure", causes)
+		}
+	})
+
+	t.Run("non-canonical assessment", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.storeSyntheticAssessment(t, calibrationSpec(t, fixture))
+		fixture.rewriteAssessment(t, digest, append(fixture.readAssessment(t, digest), '\n'))
+		_, _, _, err := loadPrivateSyntheticSamplingAssessment(fixture.root, digest)
+		assertPrivateSamplingCode(t, err, "assessment_contract")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a byte-comparison-only rejection", causes)
+		}
+	})
+
+	t.Run("uncanonicalizable assessment", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.storeSyntheticAssessment(t, calibrationSpec(t, fixture))
+		stored := storedAssessment(t, fixture, digest)
+		stored.EvidenceReady = false
+		data, err := json.MarshalIndent(stored, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixture.rewriteAssessment(t, digest, append(data, '\n'))
+		_, _, _, loadErr := loadPrivateSyntheticSamplingAssessment(fixture.root, digest)
+		assertPrivateSamplingCode(t, loadErr, "assessment_contract")
+		causes := privateSamplingErrorCauses(t, loadErr)
+		var classified interface{ Code() string }
+		if len(causes) != 1 || !errors.As(causes[0], &classified) || classified.Code() != "assessment_contract" {
+			t.Fatalf("causes=%v, want the encoder classification retained", causes)
+		}
+	})
+
+	t.Run("unattested assessment source", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.storeSyntheticAssessment(t, calibrationSpec(t, fixture))
+		stored := storedAssessment(t, fixture, digest)
+		stored.SourceSHA256 = strings.Repeat("9", 64)
+		_, _, _, err := loadPrivateSyntheticSamplingAssessment(fixture.root, storeTampered(t, fixture, stored))
+		assertPrivateSamplingCode(t, err, "assessment_source")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a digest-comparison-only rejection", causes)
+		}
+	})
+
+	t.Run("unrebuildable assessment evidence", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		spec := calibrationSpec(t, fixture)
+		digest := fixture.storeSyntheticAssessment(t, spec)
+		marker := filepath.Join(fixture.root, "reports", privateSyntheticRootDirectory, spec.Primary.Root, privateOutputRootMarker)
+		if err := os.WriteFile(marker, []byte("changed\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, _, err := loadPrivateSyntheticSamplingAssessment(fixture.root, digest)
+		assertPrivateSamplingCode(t, err, "assessment_evidence")
+		causes := privateSamplingErrorCauses(t, err)
+		var classified interface{ Code() string }
+		if len(causes) != 1 || !errors.As(causes[0], &classified) || classified.Code() != "synthetic_root" {
+			t.Fatalf("causes=%v, want the nested root classification", causes)
+		}
+	})
+
+	t.Run("assessment drift", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.storeSyntheticAssessment(t, calibrationSpec(t, fixture))
+		stored := storedAssessment(t, fixture, digest)
+		stored.PrimaryOutcome.Statuses.Pass, stored.PrimaryOutcome.Statuses.Fail = 0, stored.PrimaryOutcome.Observed
+		_, _, _, err := loadPrivateSyntheticSamplingAssessment(fixture.root, storeTampered(t, fixture, stored))
+		assertPrivateSamplingCode(t, err, "assessment_drift")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a byte-comparison-only rejection", causes)
+		}
+	})
+}
+
+// TestPrivateSyntheticSamplingValidationOnlyRejectionsCarryNoCause pins the
+// schema-v2 rejections decided by comparing attested evidence against itself or
+// against the reviewed tier. The observation-accounting drift branch belongs to
+// the same group but is unreachable: the offsets it compares are derived from
+// the same bindings the loop walks.
+func TestPrivateSyntheticSamplingValidationOnlyRejectionsCarryNoCause(t *testing.T) {
+	t.Run("incompatible holdout", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		primary := fixture.addSyntheticRoot(t, "primary-synthetic-runs", "jira.synthetic-primary", 3, true,
+			strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64))
+		holdout := fixture.addSyntheticRoot(t, "holdout-synthetic-runs", "jira.synthetic-holdout", 1, true,
+			strings.Repeat("1", 64), strings.Repeat("5", 64), strings.Repeat("6", 64))
+		fixture.writeSyntheticSpec(t, PrivateSyntheticSamplingSpec{
+			SchemaVersion: PrivateSyntheticSamplingSchemaVersion, Tier: PrivateSamplingTierRegression,
+			Primary: primary, Holdout: []PrivateSyntheticSamplingRootRef{holdout},
+		})
+		_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "holdout_incompatible")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a compatibility-only rejection", causes)
+		}
+	})
+
+	for _, testCase := range []struct{ name, scenario, task string }{
+		{"duplicate holdout scenario", "jira.synthetic-holdout", strings.Repeat("7", 64)},
+		{"duplicate holdout task contract", "jira.synthetic-holdout-b", strings.Repeat("4", 64)},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newPrivateSamplingFixture(t)
+			primary := fixture.addSyntheticRoot(t, "primary-synthetic-runs", "jira.synthetic-primary", 3, true,
+				strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64))
+			first := fixture.addSyntheticRoot(t, "holdout-a-synthetic-runs", "jira.synthetic-holdout", 1, true,
+				strings.Repeat("4", 64), strings.Repeat("5", 64), strings.Repeat("6", 64))
+			second := fixture.addSyntheticRoot(t, "holdout-b-synthetic-runs", testCase.scenario, 1, true,
+				testCase.task, strings.Repeat("8", 64), strings.Repeat("9", 64))
+			fixture.writeSyntheticSpec(t, PrivateSyntheticSamplingSpec{
+				SchemaVersion: PrivateSyntheticSamplingSchemaVersion, Tier: PrivateSamplingTierRegression,
+				Primary: primary, Holdout: []PrivateSyntheticSamplingRootRef{first, second},
+			})
+			_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+			assertPrivateSamplingCode(t, err, "duplicate_observation")
+			if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+				t.Fatalf("causes=%v, want a dedup-only rejection", causes)
+			}
+		})
+	}
+
+	for _, testCase := range []struct {
+		name, tier, code string
+		repetitions      int
+		holdout          bool
+	}{
+		{"calibration cardinality", PrivateSamplingTierCalibration, "calibration_cardinality", 2, false},
+		{"regression cardinality", PrivateSamplingTierRegression, "regression_cardinality", 2, true},
+		{"decision cardinality", PrivateSamplingTierDecision, "decision_cardinality", 3, true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newPrivateSamplingFixture(t)
+			spec := PrivateSyntheticSamplingSpec{
+				SchemaVersion: PrivateSyntheticSamplingSchemaVersion, Tier: testCase.tier,
+				Primary: fixture.addSyntheticRoot(t, "primary-synthetic-runs", "jira.synthetic-primary", testCase.repetitions, true,
+					strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64)),
+			}
+			if testCase.holdout {
+				spec.Holdout = []PrivateSyntheticSamplingRootRef{
+					fixture.addSyntheticRoot(t, "holdout-synthetic-runs", "jira.synthetic-holdout", 1, true,
+						strings.Repeat("4", 64), strings.Repeat("5", 64), strings.Repeat("6", 64)),
+				}
+			}
+			fixture.writeSyntheticSpec(t, spec)
+			_, _, err := previewPrivateSampling(fixture.options(), fixture.dependencies())
+			assertPrivateSamplingCode(t, err, testCase.code)
+			if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+				t.Fatalf("causes=%v, want a cardinality-only rejection", causes)
+			}
+		})
+	}
+
+	t.Run("unreviewed sampling tier", func(t *testing.T) {
+		// The envelope contract rejects an unreviewed tier before collection, so
+		// this counter is reached only through its own contract.
+		err := validatePrivateSyntheticSamplingCardinality("unreviewed", 1, 0)
+		assertPrivateSamplingCode(t, err, "sampling_tier")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a tier-only rejection", causes)
+		}
+	})
+
+	t.Run("uncanonicalizable assessment envelope", func(t *testing.T) {
+		// The encoder rejects on in-frame validation alone, so the coded error
+		// it hands its callers carries nothing itself.
+		_, err := encodePrivateSyntheticSamplingAssessment(privateSyntheticSamplingAssessment{})
 		assertPrivateSamplingCode(t, err, "assessment_contract")
 		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
 			t.Fatalf("causes=%v, want a validation-only rejection", causes)

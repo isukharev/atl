@@ -19,7 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Preserved the underlying causes of private agent-evaluation sampling
-  rejections. The shared classification constructor and the shared spec-reader
+  rejections, now including the synthetic-root evidence path, which completes
+  this slice. The shared classification constructor and the shared spec-reader
   frames — workspace resolution and health, workspace locking, spec directory
   and file probing, bounded spec reading, spec and assessment decoding,
   assessment directory/file probing, reading, storing, and evidence rebuilding —
@@ -33,20 +34,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   attached cause without a useful exported match target remains reachable by
   traversing the unwrap tree. A workspace, lock, baseline, or evidence
   classification raised deeper in the read remains in that tree under the outer
-  sampling code. A rejection decided by validation or comparison alone — an
-  ambiguous or absent spec pair, an observed directory permission or file type,
-  a spec or directory identity comparison, a decodable but non-canonical spec or
-  assessment, decodable trailing data, an unreviewed confirmation or digest, a
-  duplicate observation, an unrecognized run identity or task class, an
-  incompatible primary or holdout, an already-stored differing assessment, or an
-  in-frame envelope validation — still carries no cause. The schema-v2
-  synthetic-root call sites deliberately still classify without causes and
-  migrate in the next slice; the shared frames they call already attach, and the
-  shared apply frame retains whatever the schema-v2 preview returns. No sampling
-  code is added or renamed. Spec and assessment schemas, canonical bytes,
-  domain-separated digests, stored paths and modes, group ordering, locking,
-  idempotency, never-overwrite behavior, output, exit codes, and fail-closed
-  behavior are unchanged.
+  sampling code. The synthetic-root evidence path attaches on the same terms:
+  its spec decoding and envelope validation, stored assessment directory and
+  file probing, bounded reading, initial and trailing decoding, canonical
+  encoding, evidence rebuilding, the root-parent and root probes, the root
+  evidence load together with both of its recheck probes in a fixed order, and
+  the re-read that closes the collection window all retain what they hold, and a
+  rejection raised deeper stays reachable below the unchanged outer code. A
+  rejection decided by validation or comparison alone — an ambiguous or absent
+  spec pair, an observed directory permission or file type, a spec or directory
+  identity comparison, a decodable but non-canonical spec or assessment,
+  decodable trailing data, an unreviewed confirmation or digest, a duplicate
+  observation, an unrecognized run identity or task class, an incompatible
+  primary or holdout, an already-stored differing assessment, an unattested root
+  or assessment source digest, an observation-count or tier cardinality check, an
+  observation-accounting or cohort-equality comparison, or an in-frame envelope
+  validation — still carries no cause, and a clean end-of-input signal is never
+  attached. No sampling code is added or renamed. Spec and assessment schemas,
+  canonical bytes, domain-separated digests, stored paths and modes, group and
+  cohort ordering, cardinality, locking, idempotency, never-overwrite behavior,
+  output, exit codes, and fail-closed behavior are unchanged.
 - Preserved the underlying causes of private agent-evaluation coverage-index
   rejections. Workspace resolution, evidence loading, index directory and file
   probing, index reading, and index decoding previously dropped the concrete
