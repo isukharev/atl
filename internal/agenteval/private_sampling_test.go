@@ -811,11 +811,12 @@ func TestPrivateSamplingPreviewAttachesWorkspaceAndSpecDirectoryCauses(t *testin
 }
 
 // TestPrivateSamplingSpecReadAttachesOnlyRejectingFailures covers the shared
-// spec-reader frames both schema versions enter. The OpenRoot, per-file open,
-// final-stat, and close failures have no deterministic seam: reaching them
-// requires the directory or the file to change identity between the reader's
-// own probes, which cannot be arranged from a test without racing the reader
-// or adding a production hook, so they are left to the direct constructor test.
+// spec-reader frames both schema versions enter. The OpenRoot, opened-directory
+// stat, entry stat, per-file open, final-stat, and close failures have no
+// deterministic seam: reaching them requires the directory or the file to
+// change identity between the reader's own probes, which cannot be arranged
+// from a test without racing the reader or adding a production hook, so they
+// are left to the direct constructor test.
 func TestPrivateSamplingSpecReadAttachesOnlyRejectingFailures(t *testing.T) {
 	specDirectory := func(fixture *privateSamplingFixture) string {
 		return filepath.Join(fixture.root, "cases", "sampling")
@@ -1253,6 +1254,23 @@ func TestPrivateSamplingEvidenceRejectionsRetainNestedCauses(t *testing.T) {
 		}
 		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
 			t.Fatalf("causes=%v, want only the file stat failure", causes)
+		}
+	})
+
+	t.Run("oversized assessment", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := strings.Repeat("a", 64)
+		directory := filepath.Join(fixture.root, "reports", "sampling")
+		if err := os.Mkdir(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, digest+".json"), bytes.Repeat([]byte{' '}, privateSamplingMaxBytes+1), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, _, err := loadPrivateSamplingAssessment(fixture.root, fixture.repository, digest, fixture.dependencies().load)
+		assertPrivateSamplingCode(t, err, "assessment_read")
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the failed bounded read", causes)
 		}
 	})
 
