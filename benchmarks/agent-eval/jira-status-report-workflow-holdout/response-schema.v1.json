@@ -1,0 +1,12 @@
+{
+  "type":"object","additionalProperties":false,
+  "properties":{
+    "scope":{"type":"string"},"period":{"type":"string"},
+    "sources":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"complete":{"type":"boolean"},"truncated":{"type":"boolean"},"next_cursor":{"type":"string"},"observed_count":{"type":"integer"}},"required":["id","complete","truncated","next_cursor","observed_count"]}},
+    "metrics":{"type":"object","additionalProperties":false,"properties":{"done_observed":{"type":"integer"},"in_flight_observed":{"type":"integer"},"high_risk_observed":{"type":"integer"},"unassigned_observed":{"type":"integer"}},"required":["done_observed","in_flight_observed","high_risk_observed","unassigned_observed"]},
+    "observed_facts":{"type":"array","items":{"type":"string"}},
+    "interpretation":{"type":"object","additionalProperties":false,"properties":{"rag":{"type":"string"},"qualification":{"type":"string"},"risks":{"type":"array","items":{"type":"string"}}},"required":["rag","qualification","risks"]},
+    "evidence_quality":{"type":"string","enum":["complete","partial"]},"not_published":{"type":"boolean"}
+  },
+  "required":["scope","period","sources","metrics","observed_facts","interpretation","evidence_quality","not_published"]
+}

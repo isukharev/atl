@@ -175,6 +175,21 @@ one execution variant while retaining distinct scenario, prompt, fixture, and
 task-contract identities, so attested n=3-plus-holdout sampling can compare
 like with like.
 
+The Jira status-report and sprint-dashboard workflow families exercise their
+named shipped skills end to end on the CLI surface. Each pairs frozen Codex
+Luna/high and Claude Code Opus/high runs at primary `n=3` with a distinct
+holdout at `n=1`. Status-report reconciles three bounded read-only sources,
+keeps observed facts separate from interpretation, and qualifies an unseen
+continuation without exposing a publishing route. Sprint-dashboard preserves
+membership order, deterministic status/attention/load rollups, and either a
+complete two-page snapshot or a successful first page followed by one
+forbidden continuation. Both treat hostile issue prose as data, admit only
+exact GET-backed commands, forbid delegation, and set the remote-write budget
+to zero. Claude run specs require the exact named Skill event. Synthetic Codex
+cannot report a named Skill event through the current run-spec contract, so its
+strongest valid oracle combines one Skill event with an exact named-workflow
+prompt/static contract check.
+
 Validate and inventory the complete corpus before spending model budget:
 
 ```sh
@@ -266,6 +281,10 @@ The realistic matrix currently contains:
 | surface native | `jira-history-summary-mcp-holdout` | distinct unfiltered incomplete changelog with non-comparable ordering and id-first buckets through the same one-call contract |
 | surface native | `jira-reference-summary-mcp` | one bounded typed issue-reference summary with exact source qualification, kind buckets, reconciliation, and no raw URLs or narrative |
 | surface native | `jira-reference-summary-mcp-holdout` | distinct capped JQL selection with cross-issue counts and the same one-call closed projection |
+| surface native | `jira-status-report-workflow` | named workflow skill synthesis across three bounded sources with fact/interpretation separation and partial-evidence qualification |
+| surface native | `jira-status-report-workflow-holdout` | distinct source topology whose risk slice remains partial without becoming an absence or green claim |
+| surface native | `jira-sprint-dashboard-workflow` | named workflow skill over active-sprint membership with two-page order and deterministic status, attention, and load rollups |
+| surface native | `jira-sprint-dashboard-workflow-holdout` | distinct successful first page plus forbidden continuation, preserving observed-only partial rollups without retry or writes |
 | surface native | `jira-board-pagination-mcp` | one typed complete Scrum board/backlog read with internal pagination, overlap, rank, membership, and unmapped status reconciliation |
 | surface native | `jira-board-pagination-mcp-holdout` | distinct board/backlog pagination topology with two overlaps through the same closed membership contract |
 | surface native | `jira-board-incomplete-mcp` | intentionally capped board/backlog evidence with observed-only membership and explicit incomplete qualification |
