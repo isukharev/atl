@@ -3,11 +3,70 @@ package agenteval
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 )
+
+func TestMockFixtureRouteLimit(t *testing.T) {
+	validRoute := func(index int) MockRoute {
+		return MockRoute{
+			Method: "GET", Path: fmt.Sprintf("/wiki/rest/api/content/%d", index),
+			Status: http.StatusOK, Body: []byte(`{}`),
+		}
+	}
+	fixture := MockFixture{SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki"}
+
+	t.Run("rejects zero", func(t *testing.T) {
+		if err := fixture.Validate(); err == nil {
+			t.Fatal("empty route set passed")
+		}
+	})
+	t.Run("accepts 2048", func(t *testing.T) {
+		fixture.Routes = make([]MockRoute, 2048)
+		for index := range fixture.Routes {
+			fixture.Routes[index] = validRoute(index)
+		}
+		if err := fixture.Validate(); err != nil {
+			t.Fatalf("2048 bounded routes rejected: %v", err)
+		}
+	})
+	t.Run("rejects 2049", func(t *testing.T) {
+		fixture.Routes = make([]MockRoute, 2049)
+		for index := range fixture.Routes {
+			fixture.Routes[index] = validRoute(index)
+		}
+		if err := fixture.Validate(); err == nil {
+			t.Fatal("2049 routes passed")
+		}
+	})
+	t.Run("rejects duplicate", func(t *testing.T) {
+		route := validRoute(1)
+		fixture.Routes = []MockRoute{route, route}
+		if err := fixture.Validate(); err == nil {
+			t.Fatal("duplicate route passed")
+		}
+	})
+	t.Run("rejects ambiguous", func(t *testing.T) {
+		route := validRoute(1)
+		route.QueryContains = map[string]string{"start": "0"}
+		route.QueryEquals = map[string]string{"start": "0"}
+		fixture.Routes = []MockRoute{route}
+		if err := fixture.Validate(); err == nil {
+			t.Fatal("ambiguous query selector passed")
+		}
+	})
+	t.Run("rejects unmatched context", func(t *testing.T) {
+		route := validRoute(1)
+		route.Path = "/outside/rest/api/content/1"
+		fixture.Routes = []MockRoute{route}
+		if err := fixture.Validate(); err == nil {
+			t.Fatal("route outside configured contexts passed")
+		}
+	})
+}
 
 func TestMockBackendRecordsMethodsWithoutExposingPaths(t *testing.T) {
 	fixture := MockFixture{

@@ -79,8 +79,8 @@ func (f MockFixture) Validate() error {
 	if f.JiraContext == f.ConfluenceContext {
 		return fmt.Errorf("mock backend contexts must differ")
 	}
-	if len(f.Routes) == 0 || len(f.Routes) > 256 {
-		return fmt.Errorf("mock routes must contain 1..256 entries")
+	if len(f.Routes) == 0 || len(f.Routes) > 2048 {
+		return fmt.Errorf("mock routes must contain 1..2048 entries")
 	}
 	seen := map[string]struct{}{}
 	type routeDiscriminator struct {

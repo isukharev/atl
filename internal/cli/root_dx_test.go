@@ -206,6 +206,51 @@ func TestWarnIfTruncated(t *testing.T) {
 	}
 }
 
+func TestConfluenceSelectionCompletenessFixtureWarning(t *testing.T) {
+	fixturePath := filepath.Join("..", "..", "benchmarks", "agent-eval", "confluence-selection-completeness", "fixture.json")
+	file, err := os.Open(fixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture, decodeErr := agenteval.DecodeMockFixture(file)
+	closeErr := file.Close()
+	if decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	backend, err := agenteval.StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+
+	const query = `space = "DEMO" AND type = page ORDER BY title ASC`
+	into := filepath.Join(t.TempDir(), "selection-mirror")
+	stdout, stderr, code := runCLIFull(t, backend.Environment(),
+		"conf", "pull", "--cql", query, "--into", into,
+	)
+	if code != exitOK {
+		t.Fatalf("fixture pull exit=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	var result app.PullResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("decode fixture pull stdout: %v\n%s", err, stdout)
+	}
+	if len(result.Pages) != 1000 || !result.Truncated || result.TruncatedAt != 1000 {
+		t.Fatalf("fixture pull result pages=%d truncated=%t truncated_at=%d", len(result.Pages), result.Truncated, result.TruncatedAt)
+	}
+	const expectedWarning = "warning: selection truncated at 1000 pages (safety cap) — the rest was NOT mirrored; narrow the query or pull subsets\n"
+	if stderr != expectedWarning {
+		t.Fatalf("fixture pull stderr=%q want exact truncation warning %q", stderr, expectedWarning)
+	}
+	methods, unexpected, duplicates := backend.Summary()
+	if len(methods) != 1 || methods["GET"] != 1011 || unexpected != 0 || duplicates != 0 {
+		t.Fatalf("fixture pull methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+	}
+}
+
 // TestCorruptCredentialsExitGeneric pins the review decision that a corrupt
 // credentials file is a genuine error (exit 1), NOT "not configured" (exit 7):
 // only an absent token maps to 7. The URL is set and https, so the failure comes

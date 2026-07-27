@@ -1,0 +1,623 @@
+package agenteval
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/config"
+)
+
+const (
+	confluenceSelectionPrimaryDirectory = "confluence-selection-completeness"
+	confluenceSelectionHoldoutDirectory = "confluence-selection-completeness-holdout"
+	confluenceSelectionPrimaryQuery     = `space = "DEMO" AND type = page ORDER BY title ASC`
+	confluenceSelectionHoldoutQuery     = `space = "ARCHIVE" AND type = page`
+	confluenceSelectionCapReason        = "selection truncated at 1000 pages by the safety cap"
+	confluenceSelectionHoldoutReason    = "backend reported 5 total matches but only 2 were reachable"
+)
+
+func TestRepositoryConfluenceSelectionCompletenessFixturesDriveProviderOracles(t *testing.T) {
+	t.Run("safety capped pull", func(t *testing.T) {
+		root := confluenceSelectionBenchmarkRoot(confluenceSelectionPrimaryDirectory)
+		fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
+		assertConfluenceSelectionPrimaryTopology(t, fixture)
+
+		backend, service := startConfluenceSelectionBackend(t, fixture)
+		result, err := service.Pull(context.Background(), app.PullOpts{
+			CQL: confluenceSelectionPrimaryQuery, Into: filepath.Join(t.TempDir(), "selection-mirror"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Pages) != 1000 || !result.Truncated || result.TruncatedAt != 1000 {
+			t.Fatalf("pull result did not preserve the cap: pages=%d truncated=%t truncated_at=%d", len(result.Pages), result.Truncated, result.TruncatedAt)
+		}
+		warningObserved := result.Truncated && result.TruncatedAt == 1000
+		if !warningObserved {
+			t.Fatalf("pull result does not require the CLI truncation warning: %+v", result)
+		}
+		methods, unexpected, duplicates := backend.Summary()
+		if !equalHTTPMethods(methods, map[string]int{"GET": 1011}) || unexpected != 0 || duplicates != 0 {
+			t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+		}
+		final := confluenceSelectionBenchmarkFinal(t, confluenceSelectionFinalInput{
+			operation: "pull", query: confluenceSelectionPrimaryQuery, observedCount: len(result.Pages),
+			complete: !result.Truncated, truncated: result.Truncated, truncatedAt: result.TruncatedAt,
+			partialReason: confluenceSelectionCapReason, warningObserved: warningObserved,
+			recommendedAction: "narrow-or-partition", localMirrorWritten: len(result.Pages) > 0,
+		})
+		assertConfluenceSelectionProviderOracles(t, root, final, methods, unexpected)
+	})
+
+	t.Run("unreachable backend total", func(t *testing.T) {
+		root := confluenceSelectionBenchmarkRoot(confluenceSelectionHoldoutDirectory)
+		fixtureBytes, err := os.ReadFile(filepath.Join(root, "fixture.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !json.Valid(fixtureBytes) {
+			t.Fatal("holdout fixture is not syntactically valid JSON")
+		}
+		fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
+		if len(fixture.Routes) != 1 {
+			t.Fatalf("holdout routes=%d want=1", len(fixture.Routes))
+		}
+		backend, service := startConfluenceSelectionBackend(t, fixture)
+		result, err := service.SearchQualified(context.Background(), confluenceSelectionHoldoutQuery, 25, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Query != confluenceSelectionHoldoutQuery || result.Count != 2 || result.Complete ||
+			!result.Truncated || result.NextCursor != nil || result.PartialReason != confluenceSelectionHoldoutReason {
+			t.Fatalf("qualified holdout result drifted: %+v", result)
+		}
+		methods, unexpected, duplicates := backend.Summary()
+		if !equalHTTPMethods(methods, map[string]int{"GET": 1}) || unexpected != 0 || duplicates != 0 {
+			t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+		}
+		final := confluenceSelectionBenchmarkFinal(t, confluenceSelectionFinalInput{
+			operation: "search", query: result.Query, observedCount: result.Count,
+			complete: result.Complete, truncated: result.Truncated, partialReason: result.PartialReason,
+			recommendedAction: "refine-or-investigate",
+		})
+		assertConfluenceSelectionProviderOracles(t, root, final, methods, unexpected)
+	})
+}
+
+func TestRepositoryConfluenceSelectionCompletenessFixtureMutationsFailClosed(t *testing.T) {
+	t.Run("empty cap probe", func(t *testing.T) {
+		root := confluenceSelectionBenchmarkRoot(confluenceSelectionPrimaryDirectory)
+		fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
+		probeFound := false
+		for index := range fixture.Routes {
+			route := &fixture.Routes[index]
+			if route.Path == "/wiki/rest/api/search" && route.QueryEquals["start"] == "1000" && route.QueryEquals["limit"] == "1" {
+				route.Body = json.RawMessage(`{"results":[],"size":0,"_links":{}}`)
+				probeFound = true
+			}
+		}
+		if !probeFound {
+			t.Fatal("primary fixture probe route not found")
+		}
+		backend, service := startConfluenceSelectionBackend(t, fixture)
+		result, err := service.Pull(context.Background(), app.PullOpts{
+			CQL: confluenceSelectionPrimaryQuery, Into: filepath.Join(t.TempDir(), "selection-mirror"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Pages) != 1000 || result.Truncated || result.TruncatedAt != 0 {
+			t.Fatalf("empty terminal probe did not clear cap/warning: pages=%d result=%+v", len(result.Pages), result)
+		}
+		methods, unexpected, duplicates := backend.Summary()
+		if !equalHTTPMethods(methods, map[string]int{"GET": 1011}) || unexpected != 0 || duplicates != 0 {
+			t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+		}
+		final := confluenceSelectionBenchmarkFinal(t, confluenceSelectionFinalInput{
+			operation: "pull", query: confluenceSelectionPrimaryQuery, observedCount: len(result.Pages),
+			complete: true, recommendedAction: "none", localMirrorWritten: true,
+		})
+		for _, provider := range []string{"codex", "claude"} {
+			spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli."+provider+".json"))
+			checks := confluenceSelectionEvaluate(t, spec, final, methods, unexpected, 1)
+			for _, name := range []string{
+				"complete_correct", "truncated_correct", "truncated_at_correct", "partial_reason_correct",
+				"warning_observed", "absence_claim_rejected", "unobserved_possible", "remediation_correct",
+			} {
+				if checks[name] {
+					t.Fatalf("%s empty-probe mutation passed %q", provider, name)
+				}
+			}
+		}
+	})
+
+	t.Run("reported total becomes reachable", func(t *testing.T) {
+		root := confluenceSelectionBenchmarkRoot(confluenceSelectionHoldoutDirectory)
+		fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
+		var body map[string]any
+		if err := decodeHistoryBenchmarkJSON(fixture.Routes[0].Body, &body); err != nil {
+			t.Fatal(err)
+		}
+		body["totalCount"] = json.Number("2")
+		mutated, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixture.Routes[0].Body = mutated
+		backend, service := startConfluenceSelectionBackend(t, fixture)
+		result, err := service.SearchQualified(context.Background(), confluenceSelectionHoldoutQuery, 25, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Complete || result.Truncated || result.PartialReason != "" || result.NextCursor != nil {
+			t.Fatalf("reachable-total mutation did not become complete: %+v", result)
+		}
+		methods, unexpected, duplicates := backend.Summary()
+		if !equalHTTPMethods(methods, map[string]int{"GET": 1}) || unexpected != 0 || duplicates != 0 {
+			t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+		}
+		final := confluenceSelectionBenchmarkFinal(t, confluenceSelectionFinalInput{
+			operation: "search", query: result.Query, observedCount: result.Count,
+			complete: true, recommendedAction: "none",
+		})
+		for _, provider := range []string{"codex", "claude"} {
+			spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli."+provider+".json"))
+			checks := confluenceSelectionEvaluate(t, spec, final, methods, unexpected, 1)
+			for _, name := range []string{"complete_correct", "truncated_correct", "partial_reason_correct", "absence_claim_rejected", "unobserved_possible", "remediation_correct"} {
+				if checks[name] {
+					t.Fatalf("%s reachable-total mutation passed %q", provider, name)
+				}
+			}
+		}
+	})
+}
+
+func TestRepositoryConfluenceSelectionCompletenessSamplingAndRouteIdentity(t *testing.T) {
+	primaryRoot := confluenceSelectionBenchmarkRoot(confluenceSelectionPrimaryDirectory)
+	holdoutRoot := confluenceSelectionBenchmarkRoot(confluenceSelectionHoldoutDirectory)
+	primaryScenario := loadRepositoryScenario(t, filepath.Join(primaryRoot, "scenario.v1.json"))
+	holdoutScenario := loadRepositoryScenario(t, filepath.Join(holdoutRoot, "scenario.v1.json"))
+	if primaryScenario.ID == holdoutScenario.ID || primaryScenario.TaskClass != "confluence/selection-completeness" ||
+		holdoutScenario.TaskClass != primaryScenario.TaskClass || primaryScenario.DataClass != holdoutScenario.DataClass {
+		t.Fatalf("primary/holdout scenario identity drifted: primary=%+v holdout=%+v", primaryScenario, holdoutScenario)
+	}
+	primarySchema, err := os.ReadFile(filepath.Join(primaryRoot, "response-schema.v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	holdoutSchema, err := os.ReadFile(filepath.Join(holdoutRoot, "response-schema.v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(primarySchema, holdoutSchema) {
+		t.Fatal("primary and holdout response schemas are not byte-identical")
+	}
+	primaryFixture, err := os.ReadFile(filepath.Join(primaryRoot, "fixture.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	holdoutFixture, err := os.ReadFile(filepath.Join(holdoutRoot, "fixture.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(primaryFixture, holdoutFixture) {
+		t.Fatal("holdout fixture is not distinct from the primary fixture")
+	}
+
+	for _, provider := range []string{"codex", "claude"} {
+		primary := loadRepositoryRunSpec(t, filepath.Join(primaryRoot, "run.cli."+provider+".json"))
+		holdout := loadRepositoryRunSpec(t, filepath.Join(holdoutRoot, "run.cli."+provider+".json"))
+		wantProvider, wantModel := "codex", "gpt-5.6-luna"
+		if provider == "claude" {
+			wantProvider, wantModel = "claude-code", "claude-opus-4-8"
+		}
+		if primary.Provider != wantProvider || primary.Model != wantModel || primary.Reasoning != "high" || primary.Repetitions != 3 ||
+			holdout.Provider != wantProvider || holdout.Model != wantModel || holdout.Reasoning != "high" || holdout.Repetitions != 1 ||
+			primary.Variant != "confluence-selection-completeness-v1" || holdout.Variant != primary.Variant ||
+			primary.EffectiveCategory() != BenchmarkCategorySurfaceNative || holdout.EffectiveCategory() != primary.EffectiveCategory() ||
+			primary.EffectiveSurface() != SurfaceCLISkill || holdout.EffectiveSurface() != primary.EffectiveSurface() {
+			t.Fatalf("%s exact paired cohort drifted: primary=%+v holdout=%+v", provider, primary, holdout)
+		}
+		primaryPrompt, err := os.ReadFile(filepath.Join(primaryRoot, primary.PromptFile))
+		if err != nil {
+			t.Fatal(err)
+		}
+		holdoutPrompt, err := os.ReadFile(filepath.Join(holdoutRoot, holdout.PromptFile))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Equal(primaryPrompt, holdoutPrompt) {
+			t.Fatalf("%s holdout prompt is not distinct", provider)
+		}
+		for name, prompt := range map[string][]byte{"primary": primaryPrompt, "holdout": holdoutPrompt} {
+			if !bytes.Contains(prompt, []byte("`atl:confluence` skill")) {
+				t.Fatalf("%s %s prompt does not bind the exact named skill", provider, name)
+			}
+		}
+		assertConfluenceSelectionCommandPolicy(t, primaryRoot, primary, confluenceSelectionPrimaryQuery, "pull")
+		assertConfluenceSelectionCommandPolicy(t, holdoutRoot, holdout, confluenceSelectionHoldoutQuery, "search")
+		for _, test := range []struct {
+			root string
+			spec RunSpec
+		}{{primaryRoot, primary}, {holdoutRoot, holdout}} {
+			checks := confluenceSelectionEvaluate(t, test.spec, []byte(`{}`), map[string]int{}, 0, 2)
+			if checks["used_atl_once"] {
+				t.Fatalf("%s second CLI invocation passed used_atl_once", test.spec.Provider)
+			}
+		}
+		if primary.Provider == "claude-code" {
+			checks := confluenceSelectionEvaluateWithSkillMap(
+				t, primary, []byte(`{}`), map[string]int{}, 0, 1,
+				map[string]int{"atl:jira": 1},
+			)
+			if checks["used_skill"] {
+				t.Fatal("Claude wrong named Skill event passed used_skill")
+			}
+		}
+	}
+}
+
+type confluenceSelectionFinalInput struct {
+	operation          string
+	query              string
+	observedCount      int
+	complete           bool
+	truncated          bool
+	truncatedAt        int
+	partialReason      string
+	warningObserved    bool
+	recommendedAction  string
+	localMirrorWritten bool
+	remoteWrites       bool
+}
+
+func confluenceSelectionBenchmarkFinal(t *testing.T, input confluenceSelectionFinalInput) []byte {
+	t.Helper()
+	var truncatedAt any
+	if input.truncatedAt != 0 {
+		truncatedAt = input.truncatedAt
+	}
+	final := map[string]any{
+		"operation": input.operation, "query": input.query, "observed_count": input.observedCount,
+		"complete": input.complete, "truncated": input.truncated, "truncated_at": truncatedAt,
+		"continuation_cursor": nil, "partial_reason": input.partialReason,
+		"warning_observed": input.warningObserved, "absence_claim_supported": input.complete,
+		"unobserved_matches_possible": !input.complete, "recommended_action": input.recommendedAction,
+		"local_mirror_written": input.localMirrorWritten, "remote_writes_performed": input.remoteWrites,
+		"selection_only": true,
+	}
+	encoded, err := json.Marshal(final)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
+}
+
+func confluenceSelectionBenchmarkRoot(directory string) string {
+	return filepath.Join("..", "..", "benchmarks", "agent-eval", directory)
+}
+
+func startConfluenceSelectionBackend(t *testing.T, fixture MockFixture) (*MockBackend, *app.ConfluenceService) {
+	t.Helper()
+	backend, err := StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(backend.Close)
+	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+	t.Setenv("ATL_CONFLUENCE_PAT", "synthetic-token")
+	service, err := app.NewConfluence(&config.Config{ConfluenceURL: backend.Environment()["ATL_CONFLUENCE_URL"]}, "benchmark-contract")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return backend, service
+}
+
+func assertConfluenceSelectionProviderOracles(t *testing.T, root string, final []byte, methods map[string]int, unexpected int) {
+	t.Helper()
+	for _, provider := range []string{"codex", "claude"} {
+		spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli."+provider+".json"))
+		assertConfluenceSelectionSchemaMatchesFinal(t, root, spec, final)
+		checks := confluenceSelectionEvaluate(t, spec, final, methods, unexpected, 1)
+		for name, passed := range checks {
+			if !passed {
+				t.Fatalf("%s fixture-derived final failed %q", spec.Provider, name)
+			}
+		}
+		assertConfluenceSelectionAnswerMutationsFail(t, spec, final, methods, unexpected)
+	}
+}
+
+func confluenceSelectionEvaluate(t *testing.T, spec RunSpec, final []byte, methods map[string]int, unexpected, invocations int) map[string]bool {
+	t.Helper()
+	return confluenceSelectionEvaluateWithSkillMap(
+		t, spec, final, methods, unexpected, invocations,
+		map[string]int{"atl:confluence": 1},
+	)
+}
+
+func confluenceSelectionEvaluateWithSkillMap(t *testing.T, spec RunSpec, final []byte, methods map[string]int, unexpected, invocations int, skillInvocationsByName map[string]int) map[string]bool {
+	t.Helper()
+	exitCodes := make([]int, invocations)
+	checks, err := evaluateRunChecks(
+		spec.Checks, final, "", invocations, 0, unexpected, 1,
+		skillInvocationsByName, 0, 0, methods, true, exitCodes,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return checks
+}
+
+func assertConfluenceSelectionAnswerMutationsFail(t *testing.T, spec RunSpec, final []byte, methods map[string]int, unexpected int) {
+	t.Helper()
+	mutations := []struct {
+		field string
+		value any
+		check string
+	}{
+		{"complete", true, "complete_correct"},
+		{"truncated", false, "truncated_correct"},
+		{"truncated_at", nil, "truncated_at_correct"},
+		{"partial_reason", "different reason", "partial_reason_correct"},
+		{"absence_claim_supported", true, "absence_claim_rejected"},
+		{"unobserved_matches_possible", false, "unobserved_possible"},
+		{"recommended_action", "none", "remediation_correct"},
+		{"remote_writes_performed", true, "no_remote_writes"},
+		{"selection_only", false, "selection_only"},
+	}
+	for _, mutation := range mutations {
+		t.Run(spec.Provider+"/"+mutation.field, func(t *testing.T) {
+			var document map[string]any
+			if err := json.Unmarshal(final, &document); err != nil {
+				t.Fatal(err)
+			}
+			current := document[mutation.field]
+			value := mutation.value
+			if mutation.field == "truncated_at" && current == nil {
+				value = float64(999)
+			} else if current == value {
+				value = nil
+			}
+			document[mutation.field] = value
+			mutated, err := json.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			checks := confluenceSelectionEvaluate(t, spec, mutated, methods, unexpected, 1)
+			if checks[mutation.check] {
+				t.Fatalf("independent answer mutation %q passed %q", mutation.field, mutation.check)
+			}
+		})
+	}
+}
+
+func assertConfluenceSelectionSchemaMatchesFinal(t *testing.T, root string, spec RunSpec, final []byte) {
+	t.Helper()
+	schema, err := os.ReadFile(filepath.Join(root, spec.ResponseSchemaFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := providerResponseSchema(spec, schema)
+	if err != nil {
+		t.Fatalf("%s provider schema conversion failed: %v", spec.Provider, err)
+	}
+	for name, candidate := range map[string][]byte{"retained": schema, "provider": provider} {
+		if err := validateHistoryBenchmarkSchemaInstance(candidate, final); err != nil {
+			t.Fatalf("%s %s schema rejected fixture-derived final: %v", spec.Provider, name, err)
+		}
+	}
+	var rootSchema struct {
+		AdditionalProperties *bool                      `json:"additionalProperties"`
+		Properties           map[string]json.RawMessage `json:"properties"`
+		Required             []string                   `json:"required"`
+	}
+	if err := json.Unmarshal(schema, &rootSchema); err != nil {
+		t.Fatal(err)
+	}
+	propertyNames := make([]string, 0, len(rootSchema.Properties))
+	for name := range rootSchema.Properties {
+		propertyNames = append(propertyNames, name)
+	}
+	required := slices.Clone(rootSchema.Required)
+	slices.Sort(propertyNames)
+	slices.Sort(required)
+	if rootSchema.AdditionalProperties == nil || *rootSchema.AdditionalProperties || !slices.Equal(propertyNames, required) {
+		t.Fatalf("response schema is not a closed all-required object: properties=%v required=%v", propertyNames, required)
+	}
+}
+
+func assertConfluenceSelectionCommandPolicy(t *testing.T, root string, spec RunSpec, query, operation string) {
+	t.Helper()
+	prompt, err := os.ReadFile(filepath.Join(root, spec.PromptFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalizedPrompt := strings.Join(strings.Fields(string(prompt)), " ")
+	if strings.Contains(normalizedPrompt, "atl capabilities") || !strings.Contains(normalizedPrompt, "`atl conf "+operation) {
+		t.Fatalf("%s prompt does not retain the one-command route", spec.Provider)
+	}
+	if !strings.Contains(normalizedPrompt, "Do not run a second command") {
+		t.Fatalf("%s prompt does not reject a second CLI invocation", spec.Provider)
+	}
+	var args []string
+	switch operation {
+	case "pull":
+		args = []string{"conf", "pull", "--cql", query, "--into", "selection-mirror"}
+	case "search":
+		args = []string{"conf", "search", "--cql", query, "--limit", "25"}
+	default:
+		t.Fatalf("unsupported operation %q", operation)
+	}
+	switch spec.Provider {
+	case "codex":
+		policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: spec.AllowedCLICommands}
+		if _, err := policy.Match(args); err != nil {
+			t.Fatalf("exact %s command rejected: %v", operation, err)
+		}
+		wrongQuery := slices.Clone(args)
+		wrongQuery[3] = query + " AND label = wrong"
+		if _, err := policy.Match(wrongQuery); err == nil {
+			t.Fatal("wrong query passed Codex policy")
+		}
+		if _, err := policy.Match(append(slices.Clone(args), "--verbose")); err == nil {
+			t.Fatal("extra flag passed Codex policy")
+		}
+	case "claude-code":
+		if len(spec.AllowedATLCommands) != 1 || !strings.HasSuffix(spec.AllowedATLCommands[0], " --") ||
+			!strings.Contains(spec.AllowedATLCommands[0], query) {
+			t.Fatalf("Claude exact terminated prefix drifted: %v", spec.AllowedATLCommands)
+		}
+		wrongQuery := strings.Replace(spec.AllowedATLCommands[0], query, query+" AND label = wrong", 1)
+		extraFlag := strings.TrimSuffix(spec.AllowedATLCommands[0], " --") + " --verbose --"
+		if slices.Contains(spec.AllowedATLCommands, wrongQuery) || slices.Contains(spec.AllowedATLCommands, extraFlag) {
+			t.Fatalf("Claude policy admits a wrong query or extra flag: %v", spec.AllowedATLCommands)
+		}
+	default:
+		t.Fatalf("unexpected provider %q", spec.Provider)
+	}
+}
+
+func assertConfluenceSelectionPrimaryTopology(t *testing.T, fixture MockFixture) {
+	t.Helper()
+	if len(fixture.Routes) != 1011 {
+		t.Fatalf("primary routes=%d want=1011", len(fixture.Routes))
+	}
+	wantSearchQuery := map[string]string{
+		"cql": confluenceSelectionPrimaryQuery, "expand": "content.version,content.space",
+	}
+	pageIDs := map[string]struct{}{}
+	contentIDs := map[string]struct{}{}
+	responseIDs := map[string]struct{}{}
+	searchStarts := map[int]struct{}{}
+	probeID := ""
+	searchRoutes, contentRoutes := 0, 0
+	for _, route := range fixture.Routes {
+		if route.Method != "GET" || route.Status != 200 || len(route.QueryContains) != 0 || len(route.RequestBody) != 0 || len(route.Responses) != 0 {
+			t.Fatalf("primary route is not one exact stateless GET: %+v", route)
+		}
+		switch {
+		case route.Path == "/wiki/rest/api/search":
+			searchRoutes++
+			if route.QueryEquals["cql"] != wantSearchQuery["cql"] || route.QueryEquals["expand"] != wantSearchQuery["expand"] || len(route.QueryEquals) != 4 {
+				t.Fatalf("search selector drifted: %+v", route.QueryEquals)
+			}
+			start, err := strconv.Atoi(route.QueryEquals["start"])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, duplicate := searchStarts[start]; duplicate {
+				t.Fatalf("duplicate search start %d", start)
+			}
+			searchStarts[start] = struct{}{}
+			var body struct {
+				Results []struct {
+					Content struct {
+						ID string `json:"id"`
+					} `json:"content"`
+				} `json:"results"`
+				Size  int `json:"size"`
+				Links struct {
+					Next string `json:"next"`
+				} `json:"_links"`
+			}
+			if err := json.Unmarshal(route.Body, &body); err != nil {
+				t.Fatal(err)
+			}
+			if start == 1000 {
+				if route.QueryEquals["limit"] != "1" || len(body.Results) != 1 || body.Size != 1 {
+					t.Fatalf("probe route drifted: selector=%v body=%s", route.QueryEquals, route.Body)
+				}
+				probeID = body.Results[0].Content.ID
+				continue
+			}
+			if start < 0 || start > 900 || start%100 != 0 || route.QueryEquals["limit"] != "100" ||
+				len(body.Results) != 100 || body.Size != 100 || body.Links.Next == "" {
+				t.Fatalf("search page start=%d drifted: selector=%v size=%d results=%d next=%q", start, route.QueryEquals, body.Size, len(body.Results), body.Links.Next)
+			}
+			for _, result := range body.Results {
+				if result.Content.ID == "" {
+					t.Fatal("search page contains an empty id")
+				}
+				if _, duplicate := pageIDs[result.Content.ID]; duplicate {
+					t.Fatalf("search pages repeat id %q", result.Content.ID)
+				}
+				pageIDs[result.Content.ID] = struct{}{}
+			}
+		case strings.HasPrefix(route.Path, "/wiki/rest/api/content/"):
+			contentRoutes++
+			if len(route.QueryEquals) != 1 || route.QueryEquals["expand"] != "body.storage,version,space,ancestors,metadata.labels" {
+				t.Fatalf("content selector drifted: %+v", route)
+			}
+			id := strings.TrimPrefix(route.Path, "/wiki/rest/api/content/")
+			if id == "" {
+				t.Fatal("content route has empty id")
+			}
+			if _, duplicate := contentIDs[id]; duplicate {
+				t.Fatalf("content routes repeat id %q", id)
+			}
+			contentIDs[id] = struct{}{}
+			var body struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+				Space struct {
+					Key string `json:"key"`
+				} `json:"space"`
+				Version struct {
+					Number int `json:"number"`
+				} `json:"version"`
+				Body struct {
+					Storage struct {
+						Value *string `json:"value"`
+					} `json:"storage"`
+				} `json:"body"`
+			}
+			if err := json.Unmarshal(route.Body, &body); err != nil {
+				t.Fatal(err)
+			}
+			if body.ID != id || body.Title == "" || body.Space.Key == "" || body.Version.Number < 1 ||
+				body.Body.Storage.Value == nil || *body.Body.Storage.Value == "" {
+				t.Fatalf("content response does not minimally and exactly project path id %q: %+v", id, body)
+			}
+			if _, duplicate := responseIDs[body.ID]; duplicate {
+				t.Fatalf("content responses repeat id %q", body.ID)
+			}
+			responseIDs[body.ID] = struct{}{}
+		default:
+			t.Fatalf("unexpected primary route path %q", route.Path)
+		}
+	}
+	if searchRoutes != 11 || contentRoutes != 1000 || len(pageIDs) != 1000 || len(contentIDs) != 1000 || len(responseIDs) != 1000 || len(searchStarts) != 11 || probeID == "" {
+		t.Fatalf("topology search=%d content=%d page_ids=%d content_ids=%d response_ids=%d starts=%d probe=%q", searchRoutes, contentRoutes, len(pageIDs), len(contentIDs), len(responseIDs), len(searchStarts), probeID)
+	}
+	for start := 0; start <= 1000; start += 100 {
+		if _, ok := searchStarts[start]; !ok {
+			t.Fatalf("missing exact search start %d", start)
+		}
+	}
+	for id := range pageIDs {
+		if _, ok := contentIDs[id]; !ok {
+			t.Fatalf("search id %q has no exact content route", id)
+		}
+		if _, ok := responseIDs[id]; !ok {
+			t.Fatalf("search id %q has no matching content response identity", id)
+		}
+	}
+	if _, repeated := pageIDs[probeID]; repeated {
+		t.Fatalf("probe id %q repeats a selected id", probeID)
+	}
+	if _, fetched := contentIDs[probeID]; fetched {
+		t.Fatalf("probe page %q has a content route and could be fetched", probeID)
+	}
+	if _, fetched := responseIDs[probeID]; fetched {
+		t.Fatalf("probe page %q appears in a content response", probeID)
+	}
+}
