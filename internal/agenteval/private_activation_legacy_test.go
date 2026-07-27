@@ -146,6 +146,202 @@ func TestLegacyPrivateActivationPlanStateValidatesForInspectionOnly(t *testing.T
 	}
 }
 
+func TestLegacyPrivateActivationProjectionAttachesPlanRejectionButNotDigestMismatch(t *testing.T) {
+	valid := legacyPrivateActivationTestPlan()
+	digest, err := legacyPrivateActivationStudyPlanSHA256(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("invalid plan", func(t *testing.T) {
+		broken := valid
+		broken.Cells = append([]PrivateActivationStudyCell(nil), valid.Cells...)
+		broken.Cells[0].SkillActivation = SkillActivationExplicit
+		_, err := projectLegacyPrivateActivationLifecycle(broken, digest, nil)
+		assertPrivateActivationLifecycleCode(t, err, "legacy_plan_hash")
+		causes := privateActivationLifecycleErrorCauses(t, err)
+		if len(causes) != 1 {
+			t.Fatalf("causes=%v, want the classified schema-v1 plan rejection retained", causes)
+		}
+		var nested interface{ Code() string }
+		if !errors.As(causes[0], &nested) || nested.Code() != "legacy_unbalanced_roster" {
+			t.Fatalf("cause %v is not the nested schema-v1 plan verdict", causes[0])
+		}
+	})
+
+	t.Run("digest mismatch only", func(t *testing.T) {
+		_, err := projectLegacyPrivateActivationLifecycle(valid, differentValidSHA256(t, digest), nil)
+		assertPrivateActivationLifecycleCode(t, err, "legacy_plan_hash")
+		if causes := privateActivationLifecycleErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a digest-only mismatch", causes)
+		}
+	})
+}
+
+func TestLegacyPrivateActivationEventHashMismatchStaysCauseFree(t *testing.T) {
+	plan := legacyPrivateActivationTestPlan()
+	digest, err := legacyPrivateActivationStudyPlanSHA256(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := completeLegacyPrivateActivationTestEvents(t, plan, digest)
+
+	tampered := append([]PrivateActivationStudyEvent(nil), events...)
+	// A syntactically valid digest clears the chain gate, so the recomputed-hash
+	// comparison is what rejects this event.
+	tampered[0].EventSHA256 = differentValidSHA256(t, events[0].EventSHA256)
+	_, hashErr := projectLegacyPrivateActivationLifecycle(plan, digest, tampered)
+	assertPrivateActivationLifecycleCode(t, hashErr, "legacy_event_hash")
+	if causes := privateActivationLifecycleErrorCauses(t, hashErr); len(causes) != 0 {
+		t.Fatalf("causes=%v, want none for a recomputed-digest mismatch", causes)
+	}
+
+	chained := append([]PrivateActivationStudyEvent(nil), events...)
+	chained[0].EventSHA256 = "not-a-digest"
+	_, chainErr := projectLegacyPrivateActivationLifecycle(plan, digest, chained)
+	assertPrivateActivationLifecycleCode(t, chainErr, "legacy_event_chain")
+	if causes := privateActivationLifecycleErrorCauses(t, chainErr); len(causes) != 0 {
+		t.Fatalf("causes=%v, want none for a chain verdict", causes)
+	}
+}
+
+func TestLegacyPrivateActivationRejectedIdentifiersStayOutOfTheCauseTree(t *testing.T) {
+	const rejected = "../private-escape"
+	valid := legacyPrivateActivationTestPlan()
+	tests := map[string]struct {
+		code   string
+		mutate func(*PrivateActivationStudyPlan)
+	}{
+		"study id": {"legacy_plan", func(plan *PrivateActivationStudyPlan) { plan.StudyID = rejected }},
+		"cell id":  {"legacy_cell", func(plan *PrivateActivationStudyPlan) { plan.Cells[0].CellID = rejected }},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			plan := valid
+			plan.Cells = append([]PrivateActivationStudyCell(nil), valid.Cells...)
+			test.mutate(&plan)
+			err := validateLegacyPrivateActivationStudyPlan(plan)
+			assertPrivateActivationLifecycleCode(t, err, test.code)
+			// The identifier gate renders the rejected private name, so its
+			// error is deliberately dropped instead of attached.
+			if causes := privateActivationLifecycleErrorCauses(t, err); len(causes) != 0 {
+				t.Fatalf("causes=%v, want the rejected identifier kept out of the unwrap tree", causes)
+			}
+			if strings.Contains(err.Error(), rejected) {
+				t.Fatalf("message leaked the rejected identifier: %q", err.Error())
+			}
+		})
+	}
+}
+
+func TestLegacyPrivateActivationPlanStateNestsLifecycleRejectionsOnly(t *testing.T) {
+	study := legacyPrivateActivationTestPlan()
+	digest, err := legacyPrivateActivationStudyPlanSHA256(study)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := completeLegacyPrivateActivationTestEvents(t, study, digest)
+	items := make([]privatePlanItem, 0, len(study.Cells))
+	for _, cell := range study.Cells {
+		items = append(items, privatePlanItem{CellID: cell.CellID})
+	}
+	validPlan := privatePlan{Kind: PrivateRunSetKindActivationStudy, StudyContract: &study, Items: items}
+	validState := privatePlanState{
+		SchemaVersion: 2, Status: "completed", CompletedCells: privateActivationCellIDsFromRoster(study.Cells),
+		EstimatedCostMicroUSD: 12, CompletedAt: "2026-07-19T12:00:00Z", Events: events,
+	}
+	if err := validateLegacyPrivateActivationPlanState(validPlan, validState); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("plan hash rejection", func(t *testing.T) {
+		broken := study
+		broken.Cells = append([]PrivateActivationStudyCell(nil), study.Cells...)
+		broken.Cells[0].SkillActivation = SkillActivationExplicit
+		plan := validPlan
+		plan.StudyContract = &broken
+		err := validateLegacyPrivateActivationPlanState(plan, validState)
+		assertLegacyPrivateActivationPlanStateCode(t, err)
+		causes := legacyPrivateActivationPlanStateCauses(t, err)
+		if len(causes) != 1 || !errors.Is(causes[0], ErrPrivateActivationLifecycle) {
+			t.Fatalf("causes=%v, want the classified lifecycle rejection retained", causes)
+		}
+		var nested interface{ Code() string }
+		if !errors.As(causes[0], &nested) || nested.Code() != "legacy_unbalanced_roster" {
+			t.Fatalf("cause %v is not the nested lifecycle verdict", causes[0])
+		}
+	})
+
+	t.Run("projection rejection", func(t *testing.T) {
+		state := validState
+		state.Events = append([]PrivateActivationStudyEvent(nil), validState.Events...)
+		state.Events[0].EventSHA256 = differentValidSHA256(t, validState.Events[0].EventSHA256)
+		err := validateLegacyPrivateActivationPlanState(validPlan, state)
+		assertLegacyPrivateActivationPlanStateCode(t, err)
+		causes := legacyPrivateActivationPlanStateCauses(t, err)
+		if len(causes) != 1 || !errors.Is(causes[0], ErrPrivateActivationLifecycle) {
+			t.Fatalf("causes=%v, want the classified lifecycle rejection retained", causes)
+		}
+		var nested interface{ Code() string }
+		if !errors.As(causes[0], &nested) || nested.Code() != "legacy_event_hash" {
+			t.Fatalf("cause %v is not the nested lifecycle verdict", causes[0])
+		}
+		// The outer plan-state classification keeps precedence.
+		var outer interface{ Code() string }
+		if !errors.As(err, &outer) || outer.Code() != "legacy_study_state" {
+			t.Fatalf("error %v lost its outer code", err)
+		}
+	})
+
+	// Each rejection below is decided by comparing the accepted projection with
+	// the recorded state, so none of them carries a cause.
+	cleanTests := map[string]func(*privatePlan, *privatePlanState){
+		"schema verdict":      func(_ *privatePlan, state *privatePlanState) { state.SchemaVersion = 3 },
+		"cost comparison":     func(_ *privatePlan, state *privatePlanState) { state.EstimatedCostMicroUSD = 11 },
+		"cell comparison":     func(_ *privatePlan, state *privatePlanState) { state.CompletedCells = nil },
+		"stop comparison":     func(_ *privatePlan, state *privatePlanState) { state.StopReason = PrivateActivationStopReservation },
+		"interrupted verdict": func(_ *privatePlan, state *privatePlanState) { state.Status = "interrupted" },
+		"running verdict":     func(_ *privatePlan, state *privatePlanState) { state.Status = "running" },
+		"stopped verdict":     func(_ *privatePlan, state *privatePlanState) { state.Status = "stopped" },
+		"unknown status":      func(_ *privatePlan, state *privatePlanState) { state.Status = "archived" },
+		"completion stamp":    func(_ *privatePlan, state *privatePlanState) { state.CompletedAt = "" },
+	}
+	for name, mutate := range cleanTests {
+		t.Run(name, func(t *testing.T) {
+			plan, state := validPlan, validState
+			mutate(&plan, &state)
+			err := validateLegacyPrivateActivationPlanState(plan, state)
+			assertLegacyPrivateActivationPlanStateCode(t, err)
+			if causes := legacyPrivateActivationPlanStateCauses(t, err); len(causes) != 0 {
+				t.Fatalf("causes=%v, want none for a state comparison", causes)
+			}
+		})
+	}
+}
+
+func assertLegacyPrivateActivationPlanStateCode(t *testing.T, err error) {
+	t.Helper()
+	if !errors.Is(err, ErrPrivatePlanRejected) {
+		t.Fatalf("err=%v, want the private plan sentinel", err)
+	}
+	if got, want := err.Error(), ErrPrivatePlanRejected.Error()+": legacy_study_state"; got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+}
+
+func legacyPrivateActivationPlanStateCauses(t *testing.T, err error) []error {
+	t.Helper()
+	multi, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		t.Fatalf("%T does not unwrap to multiple errors", err)
+	}
+	tree := multi.Unwrap()
+	if len(tree) == 0 || !errors.Is(tree[0], ErrPrivatePlanRejected) {
+		t.Fatalf("unwrap tree=%v, want the sentinel first", tree)
+	}
+	return tree[1:]
+}
+
 func legacyPrivateActivationTestPlan() PrivateActivationStudyPlan {
 	return PrivateActivationStudyPlan{
 		SchemaVersion: legacyPrivateActivationStudyPlanSchemaVersion,

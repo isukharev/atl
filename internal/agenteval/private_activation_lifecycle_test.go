@@ -517,6 +517,192 @@ func TestPrivateActivationLifecycleJSONRoundTripPreservesChain(t *testing.T) {
 	}
 }
 
+func TestPrivateActivationLifecycleErrorKeepsCausesInspectableAndOutOfTheMessage(t *testing.T) {
+	// The three encode sites are defensive: the plan and the event envelope are
+	// plain structs of JSON-encodable scalars that validation has already
+	// accepted, so json.Marshal cannot fail on them today. Their cause handling
+	// is therefore pinned on the classification constructor rather than on an
+	// unreachable end-to-end path.
+	encodeCause := &json.UnsupportedTypeError{Type: reflect.TypeOf(func() {})}
+	secondary := errors.New("private activation encoder detail")
+
+	for _, code := range []string{"plan_encode", "event_encode", "legacy_plan_encode"} {
+		t.Run(code, func(t *testing.T) {
+			err := privateActivationLifecycleError(code, encodeCause, nil, secondary)
+			// The rendered text is byte-for-byte what this family produced
+			// before it routed through the shared coded error.
+			if got, want := err.Error(), "private activation lifecycle rejected: "+code; got != want {
+				t.Fatalf("message=%q, want %q", got, want)
+			}
+			if !errors.Is(err, ErrPrivateActivationLifecycle) {
+				t.Fatalf("err=%v, want the activation lifecycle sentinel", err)
+			}
+			if strings.Contains(err.Error(), encodeCause.Error()) || strings.Contains(err.Error(), secondary.Error()) {
+				t.Fatalf("message leaked a cause: %q", err.Error())
+			}
+			var encodeErr *json.UnsupportedTypeError
+			if !errors.As(err, &encodeErr) || encodeErr != encodeCause {
+				t.Fatalf("error %v does not expose the concrete encode failure", err)
+			}
+			if !errors.Is(err, secondary) {
+				t.Fatalf("error %v does not expose the secondary failure", err)
+			}
+			var classified interface{ Code() string }
+			if !errors.As(err, &classified) || classified.Code() != code {
+				t.Fatalf("error %v does not expose its stable code", err)
+			}
+			causes := privateActivationLifecycleErrorCauses(t, err)
+			if len(causes) != 2 || causes[0] != error(encodeCause) || causes[1] != secondary {
+				t.Fatalf("causes=%v, want both non-nil causes retained in order", causes)
+			}
+		})
+	}
+
+	// A verdict with nothing in hand classifies exactly as it did before, and a
+	// nil passed unguarded is dropped rather than retained.
+	clean := privateActivationLifecycleError("event_chain")
+	if got, want := clean.Error(), "private activation lifecycle rejected: event_chain"; got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+	if causes := privateActivationLifecycleErrorCauses(t, clean); len(causes) != 0 {
+		t.Fatalf("causes=%v, want none for a verdict with nothing in hand", causes)
+	}
+	if causes := privateActivationLifecycleErrorCauses(t, privateActivationLifecycleError("plan_hash", nil, nil)); len(causes) != 0 {
+		t.Fatalf("causes=%v, want nil causes dropped", causes)
+	}
+}
+
+func TestPrivateActivationProjectionAttachesPlanRejectionButNotDigestMismatch(t *testing.T) {
+	lifecycle := privateActivationTestLifecycle(t, 10, 2)
+
+	t.Run("invalid plan", func(t *testing.T) {
+		broken := lifecycle
+		broken.Plan.Cells = append([]PrivateActivationStudyCell(nil), lifecycle.Plan.Cells...)
+		broken.Plan.Cost.Preventive = true
+		err := broken.Validate()
+		assertPrivateActivationLifecycleCode(t, err, "plan_hash")
+		causes := privateActivationLifecycleErrorCauses(t, err)
+		if len(causes) != 1 {
+			t.Fatalf("causes=%v, want the classified plan rejection retained", causes)
+		}
+		var nested interface{ Code() string }
+		if !errors.As(causes[0], &nested) || nested.Code() != "plan" {
+			t.Fatalf("cause %v is not the nested plan verdict", causes[0])
+		}
+		// The outer classification keeps precedence over the nested one.
+		var outer interface{ Code() string }
+		if !errors.As(err, &outer) || outer.Code() != "plan_hash" {
+			t.Fatalf("error %v lost its outer code", err)
+		}
+	})
+
+	t.Run("digest mismatch only", func(t *testing.T) {
+		mismatched := lifecycle
+		mismatched.PlanSHA256 = differentValidSHA256(t, lifecycle.PlanSHA256)
+		err := mismatched.Validate()
+		assertPrivateActivationLifecycleCode(t, err, "plan_hash")
+		// A plan that hashes cleanly to a different digest is refused by the
+		// comparison alone.
+		if causes := privateActivationLifecycleErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a digest-only mismatch", causes)
+		}
+	})
+}
+
+func TestPrivateActivationEventHashMismatchStaysCauseFree(t *testing.T) {
+	lifecycle := privateActivationTestLifecycle(t, 10, 2)
+	tampered := lifecycle
+	tampered.Events = append([]PrivateActivationStudyEvent(nil), lifecycle.Events...)
+	// A syntactically valid digest clears the chain gate, so the recomputed-hash
+	// comparison is what rejects this event.
+	tampered.Events[0].EventSHA256 = differentValidSHA256(t, lifecycle.Events[0].EventSHA256)
+	err := tampered.Validate()
+	assertPrivateActivationLifecycleCode(t, err, "event_hash")
+	if causes := privateActivationLifecycleErrorCauses(t, err); len(causes) != 0 {
+		t.Fatalf("causes=%v, want none for a recomputed-digest mismatch", causes)
+	}
+
+	chained := lifecycle
+	chained.Events = append([]PrivateActivationStudyEvent(nil), lifecycle.Events...)
+	chained.Events[0].EventSHA256 = "not-a-digest"
+	chainErr := chained.Validate()
+	assertPrivateActivationLifecycleCode(t, chainErr, "event_chain")
+	if causes := privateActivationLifecycleErrorCauses(t, chainErr); len(causes) != 0 {
+		t.Fatalf("causes=%v, want none for a chain verdict", causes)
+	}
+}
+
+func TestPrivateActivationRejectedIdentifiersStayOutOfTheCauseTree(t *testing.T) {
+	const rejected = "../private-escape"
+	valid, err := NewPrivateActivationStudyPlan(PrivateActivationStudyPlanInput{
+		StudyID: "study-identity", TotalAuthorizedMicroUSD: 47, ReviewerReserveMicroUSD: 5,
+		Calibration: privateActivationTestCalibration(2), OrderedBalancedRoster: privateActivationTestRoster(10),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := map[string]struct {
+		code   string
+		mutate func(*PrivateActivationStudyPlan)
+	}{
+		"study id": {"plan", func(plan *PrivateActivationStudyPlan) { plan.StudyID = rejected }},
+		"cell id":  {"cell", func(plan *PrivateActivationStudyPlan) { plan.Cells[0].CellID = rejected }},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			plan := valid
+			plan.Cells = append([]PrivateActivationStudyCell(nil), valid.Cells...)
+			test.mutate(&plan)
+			err := plan.Validate()
+			assertPrivateActivationLifecycleCode(t, err, test.code)
+			// The identifier gate renders the rejected private name, so its
+			// error is deliberately dropped instead of attached.
+			if causes := privateActivationLifecycleErrorCauses(t, err); len(causes) != 0 {
+				t.Fatalf("causes=%v, want the rejected identifier kept out of the unwrap tree", causes)
+			}
+			if strings.Contains(err.Error(), rejected) {
+				t.Fatalf("message leaked the rejected identifier: %q", err.Error())
+			}
+		})
+	}
+}
+
+func assertPrivateActivationLifecycleCode(t *testing.T, err error, code string) {
+	t.Helper()
+	if !errors.Is(err, ErrPrivateActivationLifecycle) {
+		t.Fatalf("err=%v, want the activation lifecycle sentinel", err)
+	}
+	if got, want := err.Error(), ErrPrivateActivationLifecycle.Error()+": "+code; got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+}
+
+func privateActivationLifecycleErrorCauses(t *testing.T, err error) []error {
+	t.Helper()
+	multi, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		t.Fatalf("%T does not unwrap to multiple errors", err)
+	}
+	tree := multi.Unwrap()
+	if len(tree) == 0 || !errors.Is(tree[0], ErrPrivateActivationLifecycle) {
+		t.Fatalf("unwrap tree=%v, want the sentinel first", tree)
+	}
+	return tree[1:]
+}
+
+func differentValidSHA256(t *testing.T, digest string) string {
+	t.Helper()
+	if !validSHA256(digest) {
+		t.Fatalf("digest=%q, want a valid SHA-256", digest)
+	}
+	replacement := byte('0')
+	if digest[0] == replacement {
+		replacement = '1'
+	}
+	return string(replacement) + digest[1:]
+}
+
 func privateActivationTestRoster(cap int64) []PrivateActivationStudyCell {
 	activations := []string{SkillActivationCombined, SkillActivationImplicit, SkillActivationDeveloper, SkillActivationExplicit}
 	cells := make([]PrivateActivationStudyCell, 0, len(activations))
