@@ -64,17 +64,23 @@ type privateSyntheticSamplingAssessment struct {
 }
 
 func previewPrivateSyntheticSampling(root string, data []byte) (PrivateSamplingPreview, []byte, error) {
+	// Mixed: a decodable but non-canonical spec is rejected by byte comparison
+	// alone and leaves nil here. The in-hand error is passed unguarded because
+	// codedError drops a nil cause.
 	spec, canonical, err := decodePrivateSyntheticSamplingSpec(data)
 	if err != nil || !bytes.Equal(data, canonical) {
-		return PrivateSamplingPreview{}, nil, privateSamplingError("spec_contract")
+		return PrivateSamplingPreview{}, nil, privateSamplingError("spec_contract", err)
 	}
 	assessment, _, _, err := buildPrivateSyntheticSamplingAssessment(root, spec, sha256HexBytes(canonical))
 	if err != nil {
 		return PrivateSamplingPreview{}, nil, err
 	}
+	// The assessment was just built from evidence the builder already validated,
+	// so this encoding is defensive today. Its classification is retained rather
+	// than replaced if the encoder ever gains a rejection the builder misses.
 	assessmentData, err := encodePrivateSyntheticSamplingAssessment(assessment)
 	if err != nil {
-		return PrivateSamplingPreview{}, nil, privateSamplingError("assessment_contract")
+		return PrivateSamplingPreview{}, nil, privateSamplingError("assessment_contract", err)
 	}
 	digest := sha256HexBytes(append([]byte("atl-private-sampling-assessment-v2\x00"), assessmentData...))
 	preview := PrivateSamplingPreview{
@@ -176,6 +182,8 @@ func buildPrivateSyntheticSamplingAssessmentWithHook(root string, spec PrivateSy
 		if resolveErr != nil {
 			return privateSyntheticSamplingAssessment{}, nil, nil, resolveErr
 		}
+		// The rejections below compare resolved cohorts against each other, so
+		// none of them has a cause to retain.
 		if !compatiblePrivateSyntheticSamplingHoldout(primaryBinding.Cohort, binding.Cohort) {
 			return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("holdout_incompatible")
 		}
@@ -216,9 +224,11 @@ func buildPrivateSyntheticSamplingAssessmentWithHook(root string, spec PrivateSy
 func revalidatePrivateSyntheticSamplingRoots(root string, spec PrivateSyntheticSamplingSpec,
 	primaryBinding privateSyntheticSamplingBinding, primaryResults []Result,
 	holdoutBindings []privateSyntheticSamplingBinding, holdoutResults []Result) error {
+	// Mixed: a failed re-resolution is a cause, while drift found by comparing
+	// the re-read binding or results against the bound ones has nothing in hand.
 	verifiedPrimary, verifiedPrimaryResults, err := resolvePrivateSyntheticSamplingRoot(root, spec.Primary)
 	if err != nil || verifiedPrimary != primaryBinding || !reflect.DeepEqual(verifiedPrimaryResults, primaryResults) {
-		return privateSamplingError("synthetic_root_drift")
+		return privateSamplingError("synthetic_root_drift", err)
 	}
 	offset := 0
 	for index, ref := range spec.Holdout {
@@ -226,10 +236,11 @@ func revalidatePrivateSyntheticSamplingRoots(root string, spec PrivateSyntheticS
 		count := holdoutBindings[index].Observations
 		if resolveErr != nil || verified != holdoutBindings[index] || offset+count > len(holdoutResults) ||
 			!reflect.DeepEqual(results, holdoutResults[offset:offset+count]) {
-			return privateSamplingError("synthetic_root_drift")
+			return privateSamplingError("synthetic_root_drift", resolveErr)
 		}
 		offset += count
 	}
+	// The observation accounting is compared against itself.
 	if offset != len(holdoutResults) {
 		return privateSamplingError("synthetic_root_drift")
 	}
@@ -237,37 +248,41 @@ func revalidatePrivateSyntheticSamplingRoots(root string, spec PrivateSyntheticS
 }
 
 func loadPrivateSyntheticSamplingAssessment(root, digest string) (privateSyntheticSamplingAssessment, []Result, []Result, error) {
+	// The requested digest is validated on its own, with no probe in hand.
 	if !validSHA256(digest) {
 		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_digest")
 	}
 	directory := filepath.Join(root, "reports", "sampling")
 	info, err := safepath.StatWithin(root, directory)
 	if err != nil || !info.IsDir() || runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
-		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_directory")
+		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_directory", err)
 	}
 	path := filepath.Join(directory, digest+".json")
 	info, err = safepath.StatWithin(root, path)
 	if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
-		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_file")
+		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_file", err)
 	}
 	data, err := safepath.ReadFileWithinLimit(root, path, privateSamplingMaxBytes)
 	if err != nil {
-		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_read")
+		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_read", err)
 	}
 	var stored privateSyntheticSamplingAssessment
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&stored); err != nil {
-		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_decode")
+		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_decode", err)
 	}
+	// io.EOF is this probe's success signal, so only a real trailing-decode
+	// failure is a cause; decodable trailing data rejects with none.
 	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_decode")
+	trailingErr := decoder.Decode(&extra)
+	if trailingErr != io.EOF {
+		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_decode", trailingErr)
 	}
 	canonical, err := encodePrivateSyntheticSamplingAssessment(stored)
 	if err != nil || !bytes.Equal(data, canonical) ||
 		sha256HexBytes(append([]byte("atl-private-sampling-assessment-v2\x00"), canonical...)) != digest {
-		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_contract")
+		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_contract", err)
 	}
 	spec := PrivateSyntheticSamplingSpec{
 		SchemaVersion: stored.SchemaVersion, Tier: stored.Tier, Primary: stored.Primary.Reference,
@@ -277,16 +292,23 @@ func loadPrivateSyntheticSamplingAssessment(root, digest string) (privateSynthet
 		spec.Holdout = append(spec.Holdout, binding.Reference)
 	}
 	specData, err := encodePrivateSyntheticSamplingSpec(spec)
+	// The canonical encoding above already validated this exact envelope, so err
+	// is nil for today's representation. Keep it attached defensively if
+	// encoding gains another fallible step; codedError drops it on the ordinary
+	// digest-comparison rejection.
 	if err != nil || sha256HexBytes(specData) != stored.SourceSHA256 {
-		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_source")
+		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_source", err)
 	}
 	rebuilt, primary, holdout, err := buildPrivateSyntheticSamplingAssessment(root, spec, stored.SourceSHA256)
 	if err != nil {
-		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_evidence")
+		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_evidence", err)
 	}
+	// The rebuilt assessment comes from evidence the builder validated, so this
+	// encoding is defensive; the reachable rejection is the byte comparison,
+	// which leaves nil.
 	rebuiltData, err := encodePrivateSyntheticSamplingAssessment(rebuilt)
 	if err != nil || !bytes.Equal(canonical, rebuiltData) {
-		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_drift")
+		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_drift", err)
 	}
 	return stored, primary, holdout, nil
 }
@@ -295,13 +317,16 @@ func resolvePrivateSyntheticSamplingRoot(root string, ref PrivateSyntheticSampli
 	parent := filepath.Join(root, "reports", privateSyntheticRootDirectory)
 	parentBefore, err := safepath.StatWithin(root, parent)
 	if err != nil || !parentBefore.IsDir() || runtime.GOOS != "windows" && parentBefore.Mode().Perm() != 0o700 {
-		return privateSyntheticSamplingBinding{}, nil, privateSamplingError("synthetic_root_directory")
+		return privateSyntheticSamplingBinding{}, nil, privateSamplingError("synthetic_root_directory", err)
 	}
 	rootPath := filepath.Join(parent, ref.Root)
 	containedBefore, err := safepath.StatWithin(root, rootPath)
 	if err != nil || !containedBefore.IsDir() {
-		return privateSyntheticSamplingBinding{}, nil, privateSamplingError("synthetic_root")
+		return privateSyntheticSamplingBinding{}, nil, privateSamplingError("synthetic_root", err)
 	}
+	// The evidence load and both recheck probes can each fail, so all three are
+	// attached in the branch's own condition order; the attested-digest,
+	// cardinality, and identity comparisons in the same branch leave nil.
 	aggregate, loaded, err := loadSyntheticOutputRootEvidence(rootPath)
 	containedAfter, containedErr := safepath.StatWithin(root, rootPath)
 	parentAfter, parentErr := safepath.StatWithin(root, parent)
@@ -313,7 +338,7 @@ func resolvePrivateSyntheticSamplingRoot(root string, ref PrivateSyntheticSampli
 		!sameSyntheticRootInfo(containedBefore, loaded.root) || !sameSyntheticRootInfo(containedAfter, loaded.root) ||
 		parentErr != nil || !parentAfter.IsDir() || !os.SameFile(parentBefore, parentAfter) ||
 		!sameSyntheticRootInfo(parentBefore, parentAfter) {
-		return privateSyntheticSamplingBinding{}, nil, privateSamplingError("synthetic_root")
+		return privateSyntheticSamplingBinding{}, nil, privateSamplingError("synthetic_root", err, containedErr, parentErr)
 	}
 	first := loaded.observations[0]
 	cohort := privateSyntheticSamplingCohort{
@@ -326,10 +351,12 @@ func resolvePrivateSyntheticSamplingRoot(root string, ref PrivateSyntheticSampli
 		WrapperExecutableSHA256: first.Receipt.WrapperExecutableSHA256,
 	}
 	if err := cohort.validate(); err != nil {
-		return privateSyntheticSamplingBinding{}, nil, privateSamplingError("synthetic_cohort")
+		return privateSyntheticSamplingBinding{}, nil, privateSamplingError("synthetic_cohort", err)
 	}
 	results := make([]Result, 0, len(loaded.observations))
 	for _, observation := range loaded.observations {
+		// A single-cohort root already binds every observation to this identity,
+		// so this comparison is defensive and has nothing to attach.
 		if !samePrivateSyntheticSamplingCohort(cohort, observation) {
 			return privateSyntheticSamplingBinding{}, nil, privateSamplingError("synthetic_cohort")
 		}
@@ -399,6 +426,9 @@ func compatiblePrivateSyntheticSamplingHoldout(primary, holdout privateSynthetic
 		primary.WrapperExecutableSHA256 == holdout.WrapperExecutableSHA256
 }
 
+// validatePrivateSyntheticSamplingCardinality counts observations against the
+// reviewed tier, so every classification it returns is cause-free; callers
+// return it unchanged rather than reclassifying it.
 func validatePrivateSyntheticSamplingCardinality(tier string, primary, holdout int) error {
 	switch tier {
 	case PrivateSamplingTierCalibration:
@@ -419,6 +449,9 @@ func validatePrivateSyntheticSamplingCardinality(tier string, primary, holdout i
 	return nil
 }
 
+// encodePrivateSyntheticSamplingAssessment rejects on in-frame validation only,
+// so every classification it returns is cause-free; callers attach it as their
+// cause.
 func encodePrivateSyntheticSamplingAssessment(assessment privateSyntheticSamplingAssessment) ([]byte, error) {
 	if assessment.SchemaVersion != PrivateSyntheticSamplingSchemaVersion ||
 		!validSHA256(assessment.SourceSHA256) || !assessment.EvidenceReady ||
