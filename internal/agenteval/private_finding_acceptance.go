@@ -79,9 +79,12 @@ func loadPrivateFindingAcceptanceForEntries(root string, ledgerEntries []private
 	var canonical []byte
 	switch version {
 	case PrivateFindingAcceptanceSchemaVersion:
+		// Mixed: decodable but non-canonical bytes are rejected by the byte
+		// comparison alone and leave nil here. The decode or envelope-validation
+		// failure is passed unguarded because codedError drops a nil cause.
 		index, encoded, decodeErr := decodePrivateFindingAcceptance(data)
 		if decodeErr != nil || !bytes.Equal(data, encoded) {
-			return nil, nil, privateFindingError("acceptance_contract")
+			return nil, nil, privateFindingError("acceptance_contract", decodeErr)
 		}
 		canonical = encoded
 		entries = make([]PrivateFindingAcceptanceV2Entry, 0, len(index.Entries))
@@ -92,13 +95,16 @@ func loadPrivateFindingAcceptanceForEntries(root string, ledgerEntries []private
 			})
 		}
 	case PrivateFindingAcceptanceV2SchemaVersion:
+		// Same mixed branch on the schema-v2 side.
 		index, encoded, decodeErr := decodePrivateFindingAcceptanceV2(data)
 		if decodeErr != nil || !bytes.Equal(data, encoded) {
-			return nil, nil, privateFindingError("acceptance_contract")
+			return nil, nil, privateFindingError("acceptance_contract", decodeErr)
 		}
 		canonical = encoded
 		entries = index.Entries
 	default:
+		// The reader only reports the two known schema versions, so this stays a
+		// defensive classification with nothing in hand.
 		return nil, nil, privateFindingError("acceptance_contract")
 	}
 	if len(entries) != len(fixed) {
@@ -132,20 +138,24 @@ func readPrivateFindingAcceptance(root string) (int, []byte, error) {
 
 func readPrivateFindingAcceptanceWithHook(root string, afterInventory func()) (int, []byte, error) {
 	directory := filepath.Join(root, "reports")
+	// Mixed: an observed directory type or permission rejects on its own and
+	// leaves nil, while a failed probe keeps the failure it holds.
 	directoryInfo, err := safepath.StatWithin(root, directory)
 	if err != nil || !directoryInfo.IsDir() ||
 		(runtime.GOOS != "windows" && directoryInfo.Mode().Perm() != 0o700) {
-		return 0, nil, privateFindingError("acceptance_directory")
+		return 0, nil, privateFindingError("acceptance_directory", err)
 	}
 	handle, err := os.OpenRoot(directory)
 	if err != nil {
-		return 0, nil, privateFindingError("acceptance_directory")
+		return 0, nil, privateFindingError("acceptance_directory", err)
 	}
 	defer func() { _ = handle.Close() }()
+	// Mixed again: only the stat can fail, and the directory-identity
+	// comparisons beside it have nothing to attach.
 	openedDirectory, err := handle.Stat(".")
 	if err != nil || !openedDirectory.IsDir() || !os.SameFile(directoryInfo, openedDirectory) ||
 		!sameSyntheticRootInfo(directoryInfo, openedDirectory) {
-		return 0, nil, privateFindingError("acceptance_directory")
+		return 0, nil, privateFindingError("acceptance_directory", err)
 	}
 	legacyName := filepath.Base(PrivateFindingAcceptanceRelativePath)
 	currentName := filepath.Base(PrivateFindingAcceptanceV2RelativePath)
@@ -158,18 +168,31 @@ func readPrivateFindingAcceptanceWithHook(root string, afterInventory func()) (i
 		return 0, nil, err
 	}
 	if legacyExists && currentExists {
+		// Both candidates probed cleanly; the pair itself is the rejection.
 		return 0, nil, privateFindingError("acceptance_ambiguous")
 	}
 	if afterInventory != nil {
 		afterInventory()
 	}
 	if !legacyExists && !currentExists {
+		// Both candidate probes are still evaluated before the rejection below,
+		// so the observation order over the no-index window is unchanged. Only
+		// the two probe failures are retained; a candidate that appeared, or an
+		// info returned beside a false existence verdict, rejects on its own.
 		legacyAfter, legacyStillExists, legacyErr := privateFindingAcceptanceEntry(handle, legacyName)
 		currentAfter, currentStillExists, currentErr := privateFindingAcceptanceEntry(handle, currentName)
 		if legacyErr != nil || currentErr != nil || legacyStillExists || currentStillExists ||
-			legacyAfter != nil || currentAfter != nil ||
-			!privateFindingAcceptanceDirectoryStable(root, directory, handle, openedDirectory) {
-			return 0, nil, privateFindingError("acceptance_file")
+			legacyAfter != nil || currentAfter != nil {
+			return 0, nil, privateFindingError("acceptance_file", legacyErr, currentErr)
+		}
+		// The directory recheck stays behind the original short-circuit: it runs
+		// only once both probes report no failure and every existence and info
+		// comparison above passes. Its two probe failures are retained in
+		// final-then-ambient order beneath the same outer code.
+		directoryStable, finalDirectoryErr, ambientDirectoryErr :=
+			privateFindingAcceptanceDirectoryStable(root, directory, handle, openedDirectory)
+		if !directoryStable {
+			return 0, nil, privateFindingError("acceptance_file", finalDirectoryErr, ambientDirectoryErr)
 		}
 		return 0, nil, nil
 	}
@@ -179,23 +202,27 @@ func readPrivateFindingAcceptanceWithHook(root string, afterInventory func()) (i
 	}
 	file, err := handle.Open(name)
 	if err != nil {
-		return 0, nil, privateFindingError("acceptance_read")
+		return 0, nil, privateFindingError("acceptance_read", err)
 	}
+	// Mixed: the opened file's type and the identity comparison against the
+	// inventoried candidate reject on their own; only the stat has a cause.
 	opened, statErr := file.Stat()
 	if statErr != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) ||
 		!sameSyntheticRootInfo(before, opened) {
 		_ = file.Close()
-		return 0, nil, privateFindingError("acceptance_file")
+		return 0, nil, privateFindingError("acceptance_file", statErr)
 	}
 	data, readErr := ioReadAllLimit(file, privateFindingLedgerMaxBytes)
 	final, finalErr := file.Stat()
 	closeErr := file.Close()
 	if readErr != nil {
-		return 0, nil, privateFindingError("acceptance_read")
+		return 0, nil, privateFindingError("acceptance_read", readErr)
 	}
+	// The final stat and the close each hold a failure and are attached in that
+	// fixed order; the identity and size comparisons beside them attach nothing.
 	if finalErr != nil || closeErr != nil || !os.SameFile(opened, final) ||
 		!sameSyntheticRootInfo(opened, final) || final.Size() != int64(len(data)) {
-		return 0, nil, privateFindingError("acceptance_file")
+		return 0, nil, privateFindingError("acceptance_file", finalErr, closeErr)
 	}
 	legacyAfter, legacyStillExists, err := privateFindingAcceptanceEntry(handle, legacyName)
 	if err != nil {
@@ -205,32 +232,50 @@ func readPrivateFindingAcceptanceWithHook(root string, afterInventory func()) (i
 	if err != nil {
 		return 0, nil, err
 	}
+	// The entry-inventory comparisons still run before the directory recheck,
+	// preserving the original observation order. They have nothing to attach.
 	if legacyExists != legacyStillExists || currentExists != currentStillExists ||
 		legacyExists && (!os.SameFile(legacyBefore, legacyAfter) || !sameSyntheticRootInfo(legacyBefore, legacyAfter)) ||
 		currentExists && (!os.SameFile(currentBefore, currentAfter) || !sameSyntheticRootInfo(currentBefore, currentAfter)) {
 		return 0, nil, privateFindingError("acceptance_file")
 	}
-	if !privateFindingAcceptanceDirectoryStable(root, directory, handle, openedDirectory) {
-		return 0, nil, privateFindingError("acceptance_directory")
+	// The directory recheck observes the retained handle and then the ambient
+	// path in the same order as before. Its two probe failures are retained
+	// under the unchanged directory code.
+	directoryStable, finalDirectoryErr, ambientDirectoryErr :=
+		privateFindingAcceptanceDirectoryStable(root, directory, handle, openedDirectory)
+	if !directoryStable {
+		return 0, nil, privateFindingError("acceptance_directory", finalDirectoryErr, ambientDirectoryErr)
 	}
 	return version, data, nil
 }
 
-func privateFindingAcceptanceDirectoryStable(root, directory string, handle *os.Root, opened os.FileInfo) bool {
+// privateFindingAcceptanceDirectoryStable rechecks that the reports directory
+// read through the retained handle is still the same directory the ambient path
+// resolves to. It reports its final-handle and ambient probe failures beside the
+// verdict so the caller can retain them under its own classification; the
+// identity rules that decide stability are unchanged.
+func privateFindingAcceptanceDirectoryStable(
+	root, directory string, handle *os.Root, opened os.FileInfo,
+) (bool, error, error) {
 	final, err := handle.Stat(".")
 	ambient, ambientErr := safepath.StatWithin(root, directory)
-	return err == nil && ambientErr == nil &&
+	stable := err == nil && ambientErr == nil &&
 		os.SameFile(opened, final) && sameSyntheticRootInfo(opened, final) &&
 		os.SameFile(opened, ambient) && sameSyntheticRootInfo(opened, ambient)
+	return stable, err, ambientErr
 }
 
 func privateFindingAcceptanceEntry(root *os.Root, name string) (os.FileInfo, bool, error) {
 	info, err := root.Lstat(name)
+	// An absent candidate is ordinary absence, not a failure to classify.
 	if os.IsNotExist(err) {
 		return nil, false, nil
 	}
+	// Mixed: an observed file type or mode rejects on its own and leaves nil,
+	// while any other probe failure keeps its cause.
 	if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
-		return nil, false, privateFindingError("acceptance_file")
+		return nil, false, privateFindingError("acceptance_file", err)
 	}
 	return info, true, nil
 }

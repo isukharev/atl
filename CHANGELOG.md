@@ -18,6 +18,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserved the underlying causes of private agent-evaluation
+  finding-acceptance loading rejections, which completes the finding slice
+  apart from the scorecard call sites. The acceptance loading path — the
+  reports-directory probe, the directory open and its opened handle stat, each
+  candidate probe that fails for a reason other than ordinary absence, the
+  selected index's open, opened-handle stat, bounded read, final stat and
+  close, the legacy and schema-v2 decode and envelope validation, and both
+  directory rechecks that close the read window, including the one behind the
+  legitimate no-index window — previously dropped the concrete filesystem or
+  decoding failure behind its classification code. They now report the same
+  cause-preserving coded error the finding-ledger, plan-execution,
+  live-gateway, checkpoint, workspace-migration, retention-prune,
+  compact-baseline, workspace-operation, coverage-index, and sampling paths
+  already use: the message is still only the stable sentinel plus its existing
+  short code, while callers can traverse the standard Go unwrap tree and use
+  `errors.Is` or `errors.As` for typed causes. A candidate-probe classification
+  raised deeper stays reachable below the unchanged outer code. Where a branch
+  can hold two failures it attaches them in a fixed order: final stat before
+  close for the index file, final handle before ambient path for a directory
+  recheck, and the legacy probe before the current probe when the no-index
+  window reprobes both candidates. A rejection decided by validation or
+  comparison alone still carries no cause — an ambiguous acceptance pair, a
+  missing index for a fixed finding, unexpected acceptance for a ledger with no
+  fixed finding, an observed directory permission or file type, an observed
+  candidate file type or mode returned directly, a file or directory identity
+  comparison, an inventory or candidate set that changed during the read, a
+  size comparison, decodable but non-canonical bytes, an unknown schema
+  version, an entry count that does not match the fixed findings, a dangling
+  finding, a reused assessment, and a missing binding. A candidate type or mode
+  observed during the no-index reprobe still has no raw filesystem cause, but
+  the outer file classification retains that already-raised inner
+  classification. The scorecard call sites deliberately
+  still classify without causes and migrate in a later slice; the acceptance
+  frames they call already attach, and whatever the loader returns is retained
+  unchanged. No acceptance code is added or renamed. Acceptance schemas,
+  canonical bytes, legacy/schema-v2 selection, the no-index result, file and
+  directory modes, file identity gates, output, exit codes, and fail-closed
+  behavior are unchanged.
 - Preserved the underlying causes of private agent-evaluation finding-ledger
   loading rejections. The shared classification constructor and the ledger
   loading path — the reports-directory probe, the directory open and its opened
@@ -42,9 +80,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   type, an observed candidate file type or mode, a file or directory identity
   comparison, an inventory that changed during the read, a size comparison, and
   decodable but non-canonical bytes. The finding-acceptance and scorecard call
-  sites deliberately still classify without causes and migrate in later slices;
-  the ledger frames they call already attach, and whatever the loader returns is
-  retained unchanged. No ledger code is added or renamed. Ledger schemas,
+  sites deliberately still classify without causes at the time of this entry and
+  migrate in later slices; the ledger frames they call already attach, and
+  whatever the loader returns is retained unchanged. No ledger code is added or
+  renamed. Ledger schemas,
   canonical bytes, legacy/schema-v2 selection, file and directory modes, file
   identity gates, output, exit codes, and fail-closed behavior are unchanged.
 - Preserved the underlying causes of private agent-evaluation sampling
