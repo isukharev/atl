@@ -1310,6 +1310,30 @@ backend, answer, and fixture identities are omitted. Runtime labels are
 fail-closed to the public paired cohorts `codex`/`gpt-5.6-luna`/`high` and
 `claude-code`/`claude-opus-4-8`/`high`.
 
+A rejected coverage scorecard still reports only the stable coverage-index
+sentinel and its existing short code. The coverage paths have joined the
+cause-preserving pattern used by plan execution, the live gateway, the daily
+checkpoint, the workspace migration, retention prune, compact baselines, and the
+workspace operations: a concrete workspace-resolution, evidence-loading,
+directory or file stat, read, or index-decoding failure is now attached to the
+returned error instead of being discarded, so tooling can traverse the standard
+Go unwrap tree and use `errors.Is` or `errors.As` for typed or sentinel-bearing
+causes while messages and logs stay free of configured private locations,
+selected digests, and index content. An attached cause without a useful exported
+match target remains reachable by traversing the unwrap tree. A workspace or
+evidence classification raised deeper in the load remains in that tree under
+the unchanged outer coverage code. A rejection
+decided by validation or comparison alone — an ambiguous or absent index pair,
+an observed directory permission or file type, an index-identity comparison, a
+decodable but non-canonical index, a duplicate cohort, index or evidence drift
+seen by a clean re-read, an unrecognized assessment source, an unaccepted
+assessment, an unexpected result, a cohort mismatch, an unknown runtime class,
+or an unusable capability-family set — attaches nothing. No coverage code is
+added or renamed. Index and scorecard schemas, canonical bytes, source digests,
+group ordering, reconciliation, report content, exit codes, and fail-closed
+behavior are unchanged. Remaining lifecycle subsystems migrate to this pattern
+incrementally.
+
 ## Daily checkpoints
 
 Generate a daily checkpoint preview after a stable issue or PR boundary. The

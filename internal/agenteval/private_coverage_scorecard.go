@@ -137,7 +137,7 @@ func BuildPrivateCoverageScorecard(options PrivateCoverageScorecardOptions) (Pri
 func buildPrivateCoverageScorecard(options PrivateCoverageScorecardOptions, load privateFindingSourceLoader) (PrivateCoverageScorecard, error) {
 	root, repository, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
 	if err != nil {
-		return PrivateCoverageScorecard{}, privateCoverageError("workspace")
+		return PrivateCoverageScorecard{}, privateCoverageError("workspace", err)
 	}
 	index, canonical, err := loadPrivateCoverageIndex(root)
 	if err != nil {
@@ -150,13 +150,15 @@ func buildPrivateCoverageScorecard(options PrivateCoverageScorecardOptions, load
 			root, repository, entry.AssessmentSource, entry.AssessmentSHA256, load,
 		)
 		if loadErr != nil {
-			return PrivateCoverageScorecard{}, privateCoverageError("assessment")
+			return PrivateCoverageScorecard{}, privateCoverageError("assessment", loadErr)
 		}
 		key, keyErr := validatePrivateCoverageAssessment(entry.AssessmentSource, assessment, primary, holdout)
 		if keyErr != nil {
 			return PrivateCoverageScorecard{}, keyErr
 		}
 		if _, exists := seenGroups[key]; exists {
+			// Two accepted assessments describing the same cohort is a
+			// comparison result, so there is no failure to attach.
 			return PrivateCoverageScorecard{}, privateCoverageError("duplicate_cohort")
 		}
 		seenGroups[key] = struct{}{}
@@ -167,7 +169,9 @@ func buildPrivateCoverageScorecard(options PrivateCoverageScorecardOptions, load
 	}
 	finalIndex, finalCanonical, err := loadPrivateCoverageIndex(root)
 	if err != nil || !reflect.DeepEqual(index, finalIndex) || !bytes.Equal(canonical, finalCanonical) {
-		return PrivateCoverageScorecard{}, privateCoverageError("index_drift")
+		// A re-read that succeeds but no longer matches has nothing to attach;
+		// the nil cause is dropped.
+		return PrivateCoverageScorecard{}, privateCoverageError("index_drift", err)
 	}
 	for _, item := range resolved {
 		assessment, primary, holdout, loadErr := loadPrivateCoverageAssessment(
@@ -175,7 +179,9 @@ func buildPrivateCoverageScorecard(options PrivateCoverageScorecardOptions, load
 		)
 		if loadErr != nil || !reflect.DeepEqual(assessment, item.assessment) ||
 			!reflect.DeepEqual(primary, item.primary) || !reflect.DeepEqual(holdout, item.holdout) {
-			return PrivateCoverageScorecard{}, privateCoverageError("evidence_drift")
+			// Evidence that reloads cleanly but differs is a comparison
+			// rejection; the nil cause is dropped.
+			return PrivateCoverageScorecard{}, privateCoverageError("evidence_drift", loadErr)
 		}
 	}
 	return aggregatePrivateCoverageScorecard(index.SchemaVersion, canonical, resolved), nil
@@ -190,7 +196,9 @@ func loadPrivateCoverageIndex(root string) (privateCoverageSelectedIndex, []byte
 	directory := filepath.Join(root, "reports")
 	info, err := safepath.StatWithin(root, directory)
 	if err != nil || !info.IsDir() || runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
-		return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_directory")
+		// A directory that stats cleanly but has the wrong type or permission
+		// mode is rejected by observation alone; the nil cause is dropped.
+		return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_directory", err)
 	}
 	legacyPath := filepath.Join(root, filepath.FromSlash(PrivateCoverageIndexRelativePath))
 	currentPath := filepath.Join(root, filepath.FromSlash(PrivateCoverageIndexV2RelativePath))
@@ -203,6 +211,8 @@ func loadPrivateCoverageIndex(root string) (privateCoverageSelectedIndex, []byte
 		return privateCoverageSelectedIndex{}, nil, err
 	}
 	if legacyExists == currentExists {
+		// Both probes succeeded: either two indexes are present or neither is.
+		// Ordinary absence is not a failure, so nothing is attached.
 		code := "index_file"
 		if legacyExists {
 			code = "index_ambiguous"
@@ -215,7 +225,7 @@ func loadPrivateCoverageIndex(root string) (privateCoverageSelectedIndex, []byte
 	}
 	data, err := safepath.ReadFileWithinLimit(root, path, privateFindingLedgerMaxBytes)
 	if err != nil {
-		return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_read")
+		return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_read", err)
 	}
 	legacyFinal, legacyStillExists, legacyErr := privateCoverageIndexEntry(root, legacyPath)
 	currentFinal, currentStillExists, currentErr := privateCoverageIndexEntry(root, currentPath)
@@ -223,19 +233,25 @@ func loadPrivateCoverageIndex(root string) (privateCoverageSelectedIndex, []byte
 		legacyExists != legacyStillExists || currentExists != currentStillExists ||
 		legacyExists && (!os.SameFile(legacyInfo, legacyFinal) || !sameSyntheticRootInfo(legacyInfo, legacyFinal)) ||
 		currentExists && (!os.SameFile(currentInfo, currentFinal) || !sameSyntheticRootInfo(currentInfo, currentFinal)) {
-		return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_file")
+		// Retain whichever recheck actually failed, in the fixed order the two
+		// candidates are probed; an identity or existence change observed by a
+		// successful recheck contributes no cause and its nil is dropped.
+		return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_file", legacyErr, currentErr)
 	}
 	finalInfo := legacyFinal
 	if currentExists {
 		finalInfo = currentFinal
 	}
 	if !os.SameFile(selectedInfo, finalInfo) || !sameSyntheticRootInfo(selectedInfo, finalInfo) {
+		// Both stats succeeded; only the identity comparison rejects the file.
 		return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_file")
 	}
 	if version == PrivateCoverageIndexSchemaVersion {
 		index, canonical, decodeErr := decodePrivateCoverageIndex(data)
 		if decodeErr != nil || !bytes.Equal(data, canonical) {
-			return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_contract")
+			// An index that decodes but is not byte-canonical is rejected by
+			// comparison; the nil cause is dropped.
+			return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_contract", decodeErr)
 		}
 		entries := make([]PrivateCoverageIndexV2Entry, 0, len(index.Entries))
 		for _, entry := range index.Entries {
@@ -248,7 +264,9 @@ func loadPrivateCoverageIndex(root string) (privateCoverageSelectedIndex, []byte
 	}
 	index, canonical, decodeErr := decodePrivateCoverageIndexV2(data)
 	if decodeErr != nil || !bytes.Equal(data, canonical) {
-		return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_contract")
+		// Same contract check for the current schema: a non-canonical but
+		// decodable index attaches nothing.
+		return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_contract", decodeErr)
 	}
 	return privateCoverageSelectedIndex{SchemaVersion: version, Entries: index.Entries}, canonical, nil
 }
@@ -259,7 +277,10 @@ func privateCoverageIndexEntry(root, path string) (os.FileInfo, bool, error) {
 		return nil, false, nil
 	}
 	if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
-		return nil, false, privateCoverageError("index_file")
+		// An ordinary absence already returned above, so a remaining stat
+		// failure is real and is retained; a file rejected only by its observed
+		// type or permission mode drops the nil cause.
+		return nil, false, privateCoverageError("index_file", err)
 	}
 	return info, true, nil
 }
@@ -350,10 +371,15 @@ func loadPrivateCoverageAssessment(root, repository, source, digest string, load
 		assessment, primary, holdout, err := loadPrivateSyntheticSamplingAssessment(root, digest)
 		return assessment, primary, holdout, err
 	default:
+		// An unrecognized source is decided by the label alone, with no load
+		// attempted and therefore no failure to attach.
 		return nil, nil, nil, privateCoverageError("assessment_source")
 	}
 }
 
+// validatePrivateCoverageAssessment inspects evidence that already loaded, so
+// every rejection below follows from validation or comparison alone and none of
+// them carries a cause.
 func validatePrivateCoverageAssessment(
 	source string,
 	assessment any,
@@ -423,6 +449,7 @@ func validatePrivateCoverageAssessment(
 	}
 	families, ok := privateCoverageCapabilityFamilies(all)
 	if !ok {
+		// The helper reports a boolean, so nothing concrete reaches this branch.
 		return privateCoverageGroupKey{}, privateCoverageError("capability_families")
 	}
 	return privateCoverageGroupKey{
@@ -571,6 +598,16 @@ func privateCoverageOutcome(results []Result) PrivateCoverageOutcome {
 	return outcome
 }
 
-func privateCoverageError(code string) error {
-	return fmt.Errorf("%w: %s", ErrPrivateCoverageIndexRejected, code)
+// privateCoverageError classifies a coverage-index rejection under the stable
+// sentinel and code while retaining the concrete causes already in hand. The
+// rendered message stays exactly the sentinel plus the code, so a configured
+// workspace path, an index or assessment digest, or a dependency failure never
+// reaches a log line. Callers can traverse every attached cause through the
+// standard unwrap tree and use errors.Is or errors.As for typed or sentinel-
+// bearing causes, including a classification raised deeper in the load. Nil
+// causes are dropped, so a branch that rejects on either a failure or a
+// comparison can pass its error unguarded, and a rejection that follows from
+// validation or comparison alone carries nothing.
+func privateCoverageError(code string, causes ...error) error {
+	return codedError(ErrPrivateCoverageIndexRejected, code, causes...)
 }
