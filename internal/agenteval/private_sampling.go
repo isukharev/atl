@@ -99,18 +99,21 @@ func PreviewPrivateSampling(options PrivateSamplingOptions) (PrivateSamplingPrev
 }
 
 func previewPrivateSampling(options PrivateSamplingOptions, dependencies privateSamplingDependencies) (PrivateSamplingPreview, []byte, error) {
+	// The rejections below are mixed: the branch also fires on an alias, report,
+	// or mode the caller merely disagrees with. The in-hand error is passed
+	// unguarded because codedError drops a nil cause.
 	root, repository, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
 	if err != nil || !privateWorkspaceAliasRE.MatchString(options.Spec) {
-		return PrivateSamplingPreview{}, nil, privateSamplingError("workspace")
+		return PrivateSamplingPreview{}, nil, privateSamplingError("workspace", err)
 	}
 	report, err := dependencies.doctor(root, repository)
 	if err != nil || !report.Healthy || report.SchemaVersion != 1 || report.Counts.ActiveRuns != 0 || report.State == "run_in_progress" {
-		return PrivateSamplingPreview{}, nil, privateSamplingError("workspace_state")
+		return PrivateSamplingPreview{}, nil, privateSamplingError("workspace_state", err)
 	}
 	specDirectory := filepath.Join(root, "cases", "sampling")
 	if info, statErr := safepath.StatWithin(root, specDirectory); statErr != nil || !info.IsDir() ||
 		(runtime.GOOS != "windows" && info.Mode().Perm() != 0o700) {
-		return PrivateSamplingPreview{}, nil, privateSamplingError("spec_directory")
+		return PrivateSamplingPreview{}, nil, privateSamplingError("spec_directory", statErr)
 	}
 	specVersion, data, err := readPrivateSamplingSpec(root, specDirectory, options.Spec)
 	if err != nil {
@@ -121,7 +124,9 @@ func previewPrivateSampling(options PrivateSamplingOptions, dependencies private
 	}
 	spec, canonical, err := decodePrivateSamplingSpec(data)
 	if err != nil || !bytes.Equal(data, canonical) {
-		return PrivateSamplingPreview{}, nil, privateSamplingError("spec_contract")
+		// Mixed again: a decodable but non-canonical spec is rejected by byte
+		// comparison alone and leaves nil here.
+		return PrivateSamplingPreview{}, nil, privateSamplingError("spec_contract", err)
 	}
 	assessment, err := buildPrivateSamplingAssessment(root, repository, spec, sha256HexBytes(canonical), dependencies.load)
 	if err != nil {
@@ -129,7 +134,7 @@ func previewPrivateSampling(options PrivateSamplingOptions, dependencies private
 	}
 	assessmentData, err := encodePrivateSamplingAssessment(assessment)
 	if err != nil {
-		return PrivateSamplingPreview{}, nil, privateSamplingError("assessment_contract")
+		return PrivateSamplingPreview{}, nil, privateSamplingError("assessment_contract", err)
 	}
 	digest := sha256HexBytes(append([]byte("atl-private-sampling-assessment-v1\x00"), assessmentData...))
 	preview := PrivateSamplingPreview{SchemaVersion: PrivateSamplingSchemaVersion, Tier: assessment.Tier,
@@ -146,17 +151,17 @@ func readPrivateSamplingSpecWithHook(root, directory, alias string, afterRead fu
 	directoryInfo, err := safepath.StatWithin(root, directory)
 	if err != nil || !directoryInfo.IsDir() ||
 		(runtime.GOOS != "windows" && directoryInfo.Mode().Perm() != 0o700) {
-		return 0, nil, privateSamplingError("spec_directory")
+		return 0, nil, privateSamplingError("spec_directory", err)
 	}
 	handle, err := os.OpenRoot(directory)
 	if err != nil {
-		return 0, nil, privateSamplingError("spec_directory")
+		return 0, nil, privateSamplingError("spec_directory", err)
 	}
 	defer func() { _ = handle.Close() }()
 	openedDirectory, err := handle.Stat(".")
 	if err != nil || !openedDirectory.IsDir() || !os.SameFile(directoryInfo, openedDirectory) ||
 		!sameSyntheticRootInfo(directoryInfo, openedDirectory) {
-		return 0, nil, privateSamplingError("spec_directory")
+		return 0, nil, privateSamplingError("spec_directory", err)
 	}
 	legacyName, syntheticName := alias+".v1.json", alias+".v2.json"
 	legacyBefore, legacyExists, err := privateSamplingSpecEntry(handle, legacyName)
@@ -167,6 +172,8 @@ func readPrivateSamplingSpecWithHook(root, directory, alias string, afterRead fu
 	if err != nil {
 		return 0, nil, err
 	}
+	// Which version to read is decided by the observed pair alone, so an
+	// ambiguous or absent pair carries no cause.
 	if legacyExists == syntheticExists {
 		if legacyExists {
 			return 0, nil, privateSamplingError("spec_ambiguous")
@@ -179,23 +186,25 @@ func readPrivateSamplingSpecWithHook(root, directory, alias string, afterRead fu
 	}
 	file, err := handle.Open(name)
 	if err != nil {
-		return 0, nil, privateSamplingError("spec_read")
+		return 0, nil, privateSamplingError("spec_read", err)
 	}
 	opened, statErr := file.Stat()
 	if statErr != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) ||
 		!sameSyntheticRootInfo(before, opened) {
 		_ = file.Close()
-		return 0, nil, privateSamplingError("spec_file")
+		return 0, nil, privateSamplingError("spec_file", statErr)
 	}
 	data, readErr := ioReadAllLimit(file, privateSamplingMaxBytes)
 	final, finalErr := file.Stat()
 	closeErr := file.Close()
 	if readErr != nil {
-		return 0, nil, privateSamplingError("spec_read")
+		return 0, nil, privateSamplingError("spec_read", readErr)
 	}
+	// The recheck can fail on either probe, so both are attached in a fixed
+	// order; the read failure above stays a separate classification.
 	if finalErr != nil || closeErr != nil || !os.SameFile(opened, final) ||
 		!sameSyntheticRootInfo(opened, final) || final.Size() != int64(len(data)) {
-		return 0, nil, privateSamplingError("spec_file")
+		return 0, nil, privateSamplingError("spec_file", finalErr, closeErr)
 	}
 	if afterRead != nil {
 		afterRead()
@@ -208,6 +217,8 @@ func readPrivateSamplingSpecWithHook(root, directory, alias string, afterRead fu
 	if err != nil {
 		return 0, nil, err
 	}
+	// This branch compares the re-observed entries against the entries the read
+	// was bound to; a probe failure is already reported by the entry helper.
 	if legacyExists != legacyStillExists || syntheticExists != syntheticStillExists ||
 		legacyExists && (!os.SameFile(legacyBefore, legacyAfter) || !sameSyntheticRootInfo(legacyBefore, legacyAfter)) ||
 		syntheticExists && (!os.SameFile(syntheticBefore, syntheticAfter) || !sameSyntheticRootInfo(syntheticBefore, syntheticAfter)) {
@@ -218,7 +229,7 @@ func readPrivateSamplingSpecWithHook(root, directory, alias string, afterRead fu
 	if err != nil || ambientErr != nil ||
 		!os.SameFile(openedDirectory, finalDirectory) || !sameSyntheticRootInfo(openedDirectory, finalDirectory) ||
 		!os.SameFile(openedDirectory, ambientDirectory) || !sameSyntheticRootInfo(openedDirectory, ambientDirectory) {
-		return 0, nil, privateSamplingError("spec_directory")
+		return 0, nil, privateSamplingError("spec_directory", err, ambientErr)
 	}
 	return version, data, nil
 }
@@ -229,7 +240,7 @@ func privateSamplingSpecEntry(root *os.Root, name string) (os.FileInfo, bool, er
 		return nil, false, nil
 	}
 	if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
-		return nil, false, privateSamplingError("spec_file")
+		return nil, false, privateSamplingError("spec_file", err)
 	}
 	return info, true, nil
 }
@@ -239,42 +250,44 @@ func ApplyPrivateSampling(options PrivateSamplingOptions) (PrivateSamplingSummar
 }
 
 func applyPrivateSampling(options PrivateSamplingOptions, dependencies privateSamplingDependencies) (PrivateSamplingSummary, error) {
+	// The reviewed confirmation and digest are checked against the caller's own
+	// input, so this rejection has nothing in hand to attach.
 	if options.Confirm != PrivateSamplingConfirmation || !validSHA256(options.ExpectedAssessmentSHA256) {
 		return PrivateSamplingSummary{}, privateSamplingError("confirmation")
 	}
 	root, _, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
 	if err != nil {
-		return PrivateSamplingSummary{}, privateSamplingError("workspace")
+		return PrivateSamplingSummary{}, privateSamplingError("workspace", err)
 	}
 	lock, err := acquirePrivateWorkspaceLock(root)
 	if err != nil {
-		return PrivateSamplingSummary{}, privateSamplingError("workspace_busy")
+		return PrivateSamplingSummary{}, privateSamplingError("workspace_busy", err)
 	}
 	defer func() { _ = lock.Unlock() }()
 	preview, data, err := previewPrivateSampling(options, dependencies)
 	if err != nil || preview.AssessmentSHA256 != options.ExpectedAssessmentSHA256 {
-		return PrivateSamplingSummary{}, privateSamplingError("assessment_drift")
+		return PrivateSamplingSummary{}, privateSamplingError("assessment_drift", err)
 	}
 	directory := filepath.Join(root, "reports", "sampling")
 	if err := safepath.MkdirAllWithin(root, directory, 0o700); err != nil {
-		return PrivateSamplingSummary{}, privateSamplingError("directory")
+		return PrivateSamplingSummary{}, privateSamplingError("directory", err)
 	}
 	if info, statErr := safepath.StatWithin(root, directory); statErr != nil || !info.IsDir() ||
 		(runtime.GOOS != "windows" && info.Mode().Perm() != 0o700) {
-		return PrivateSamplingSummary{}, privateSamplingError("directory_mode")
+		return PrivateSamplingSummary{}, privateSamplingError("directory_mode", statErr)
 	}
 	path := filepath.Join(directory, preview.AssessmentSHA256+".json")
 	if existing, readErr := safepath.ReadFileWithinLimit(root, path, privateSamplingMaxBytes); readErr == nil {
 		info, statErr := safepath.StatWithin(root, path)
 		if statErr != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) || !bytes.Equal(existing, data) {
-			return PrivateSamplingSummary{}, privateSamplingError("assessment_exists")
+			return PrivateSamplingSummary{}, privateSamplingError("assessment_exists", statErr)
 		}
 		return PrivateSamplingSummary{PrivateSamplingPreview: preview, Stored: false}, nil
 	} else if !os.IsNotExist(readErr) {
-		return PrivateSamplingSummary{}, privateSamplingError("assessment_read")
+		return PrivateSamplingSummary{}, privateSamplingError("assessment_read", readErr)
 	}
 	if err := safepath.WriteFileExclusiveWithin(root, path, data, 0o600); err != nil {
-		return PrivateSamplingSummary{}, privateSamplingError("assessment_write")
+		return PrivateSamplingSummary{}, privateSamplingError("assessment_write", err)
 	}
 	return PrivateSamplingSummary{PrivateSamplingPreview: preview, Stored: true}, nil
 }
@@ -358,6 +371,8 @@ func buildPrivateSamplingAssessmentEvidence(root, repository string, spec Privat
 	if err != nil {
 		return privateSamplingAssessment{}, nil, nil, err
 	}
+	// Every rejection below is decided by comparing the resolved evidence to
+	// itself, so none of them has a cause to retain.
 	for index := 1; index < len(primaryResults); index++ {
 		if !compatiblePrivateSamplingPrimary(primaryResults[0], primaryResults[index]) ||
 			primaryBindings[0].ContractSHA256 != primaryBindings[index].ContractSHA256 {
@@ -402,37 +417,41 @@ func buildPrivateSamplingAssessmentEvidence(root, repository string, spec Privat
 }
 
 func loadPrivateSamplingAssessment(root, repository, digest string, load privateFindingSourceLoader) (privateSamplingAssessment, []Result, []Result, error) {
+	// The requested digest is validated on its own, with no probe in hand.
 	if !validSHA256(digest) {
 		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_digest")
 	}
 	directory := filepath.Join(root, "reports", "sampling")
 	info, err := safepath.StatWithin(root, directory)
 	if err != nil || !info.IsDir() || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o700) {
-		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_directory")
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_directory", err)
 	}
 	path := filepath.Join(directory, digest+".json")
 	info, err = safepath.StatWithin(root, path)
 	if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
-		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_file")
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_file", err)
 	}
 	data, err := safepath.ReadFileWithinLimit(root, path, privateSamplingMaxBytes)
 	if err != nil {
-		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_read")
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_read", err)
 	}
 	var stored privateSamplingAssessment
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&stored); err != nil {
-		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_decode")
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_decode", err)
 	}
+	// io.EOF is this probe's success signal, so only a real trailing-decode
+	// failure is a cause; decodable trailing data rejects with none.
 	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_decode")
+	trailingErr := decoder.Decode(&extra)
+	if trailingErr != io.EOF {
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_decode", trailingErr)
 	}
 	canonical, err := encodePrivateSamplingAssessment(stored)
 	if err != nil || !bytes.Equal(data, canonical) ||
 		sha256HexBytes(append([]byte("atl-private-sampling-assessment-v1\x00"), canonical...)) != digest {
-		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_contract")
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_contract", err)
 	}
 	spec := PrivateSamplingSpec{SchemaVersion: PrivateSamplingSchemaVersion, Tier: stored.Tier,
 		Primary: make([]PrivateFindingRunRef, 0, len(stored.Primary)), Holdout: make([]PrivateFindingRunRef, 0, len(stored.Holdout))}
@@ -444,15 +463,15 @@ func loadPrivateSamplingAssessment(root, repository, digest string, load private
 	}
 	specData, err := encodePrivateSamplingSpec(spec)
 	if err != nil || sha256HexBytes(specData) != stored.SourceSHA256 {
-		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_source")
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_source", err)
 	}
 	rebuilt, primary, holdout, err := buildPrivateSamplingAssessmentEvidence(root, repository, spec, stored.SourceSHA256, load)
 	if err != nil {
-		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_evidence")
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_evidence", err)
 	}
 	rebuiltData, err := encodePrivateSamplingAssessment(rebuilt)
 	if err != nil || !bytes.Equal(canonical, rebuiltData) {
-		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_drift")
+		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_drift", err)
 	}
 	return stored, primary, holdout, nil
 }
@@ -469,12 +488,13 @@ func resolvePrivateSamplingRefs(root, repository string, refs []PrivateFindingRu
 	for _, ref := range refs {
 		source, err := load(root, repository, ref.PlanID)
 		if err != nil {
-			return nil, nil, privateSamplingError("source")
+			return nil, nil, privateSamplingError("source", err)
 		}
 		result, resultSHA256, err := privateFindingBaselineResult(root, source, ref)
 		if err != nil {
-			return nil, nil, privateSamplingError("baseline")
+			return nil, nil, privateSamplingError("baseline", err)
 		}
+		// The task class is decided by set membership alone.
 		if _, allowed := publicCorpusTaskClasses[result.TaskClass]; !allowed {
 			return nil, nil, privateSamplingError("task_class")
 		}
@@ -528,6 +548,8 @@ func privateSamplingAllPass(outcome PrivateSamplingOutcome) bool {
 	return outcome.Observed > 0 && outcome.Statuses.Pass == outcome.Observed && outcome.Eligibility.Supported == outcome.Observed
 }
 
+// encodePrivateSamplingAssessment rejects on in-frame validation only, so every
+// classification it returns is cause-free; callers attach it as their cause.
 func encodePrivateSamplingAssessment(assessment privateSamplingAssessment) ([]byte, error) {
 	if assessment.SchemaVersion != PrivateSamplingSchemaVersion || !validSHA256(assessment.SourceSHA256) || !assessment.EvidenceReady ||
 		len(assessment.Primary) == 0 || assessment.PrimaryOutcome.Observed != len(assessment.Primary) ||
@@ -589,6 +611,11 @@ func validPrivateSamplingOutcome(outcome PrivateSamplingOutcome) bool {
 		outcome.Eligibility.InvalidatedBackendDrift >= 0 && statuses == outcome.Observed && eligibility == outcome.Observed
 }
 
-func privateSamplingError(code string) error {
-	return fmt.Errorf("%w: %s", ErrPrivateSamplingRejected, code)
+// privateSamplingError classifies a sampling rejection under the shared
+// sentinel and its stable short code while retaining the causes already in
+// hand. The rendered message stays sentinel plus code, so a configured private
+// path, a selected digest, or spec content cannot reach a log line through the
+// error string.
+func privateSamplingError(code string, causes ...error) error {
+	return codedError(ErrPrivateSamplingRejected, code, causes...)
 }

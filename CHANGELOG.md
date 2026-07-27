@@ -18,6 +18,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserved the underlying causes of private agent-evaluation sampling
+  rejections. The shared classification constructor and the shared spec-reader
+  frames — workspace resolution and health, workspace locking, spec directory
+  and file probing, bounded spec reading, spec and assessment decoding,
+  assessment directory/file probing, reading, storing, and evidence rebuilding —
+  previously dropped the concrete filesystem, decoding, or dependency failure
+  behind their classification code. They now report the same cause-preserving
+  coded error the plan-execution, live-gateway, checkpoint, workspace-migration,
+  retention-prune, compact-baseline, workspace-operation, and coverage-index
+  paths already use: the message is still only the stable sentinel plus its
+  existing short code, while callers can traverse the standard Go unwrap tree
+  and use `errors.Is` or `errors.As` for typed or sentinel-bearing causes. An
+  attached cause without a useful exported match target remains reachable by
+  traversing the unwrap tree. A workspace, lock, baseline, or evidence
+  classification raised deeper in the read remains in that tree under the outer
+  sampling code. A rejection decided by validation or comparison alone — an
+  ambiguous or absent spec pair, an observed directory permission or file type,
+  a spec or directory identity comparison, a decodable but non-canonical spec or
+  assessment, decodable trailing data, an unreviewed confirmation or digest, a
+  duplicate observation, an unrecognized run identity or task class, an
+  incompatible primary or holdout, an already-stored differing assessment, or an
+  in-frame envelope validation — still carries no cause. The schema-v2
+  synthetic-root call sites deliberately still classify without causes and
+  migrate in the next slice; the shared frames they call already attach, and the
+  shared apply frame retains whatever the schema-v2 preview returns. No sampling
+  code is added or renamed. Spec and assessment schemas, canonical bytes,
+  domain-separated digests, stored paths and modes, group ordering, locking,
+  idempotency, never-overwrite behavior, output, exit codes, and fail-closed
+  behavior are unchanged.
 - Preserved the underlying causes of private agent-evaluation coverage-index
   rejections. Workspace resolution, evidence loading, index directory and file
   probing, index reading, and index decoding previously dropped the concrete
