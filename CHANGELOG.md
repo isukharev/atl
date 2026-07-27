@@ -38,11 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its spec decoding and envelope validation, stored assessment directory and
   file probing, bounded reading, initial and trailing decoding, canonical
   encoding, evidence rebuilding, the root-parent and root probes, the root
-  evidence load together with both of its recheck probes in a fixed order, and
-  the re-read that closes the collection window, and synthetic cohort contract
-  validation all retain what they hold, and a rejection raised deeper stays
-  reachable below the unchanged outer code. A
-  rejection decided by validation or comparison alone — an ambiguous or absent
+  evidence load and both of its recheck probes in a fixed order, the re-read
+  that closes the collection window, and synthetic cohort contract validation
+  all retain what they hold. A rejection raised deeper stays reachable below
+  the unchanged outer code. A rejection decided by validation or comparison
+  alone — an ambiguous or absent
   spec pair, an observed directory permission or file type, a spec or directory
   identity comparison, a decodable but non-canonical spec or assessment,
   decodable trailing data, an unreviewed confirmation or digest, a duplicate

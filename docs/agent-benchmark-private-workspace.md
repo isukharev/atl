@@ -1278,11 +1278,10 @@ remains in that tree under the unchanged outer sampling code.
 The synthetic-root evidence path attaches on the same terms. Its spec decoding
 and envelope validation, stored assessment directory and file probing, bounded
 reading, initial and trailing decoding, canonical encoding, evidence
-rebuilding, the root-parent and root probes, the root evidence load together
-with both of its recheck probes in a fixed order, and the re-read that closes
-the collection window, and synthetic cohort contract validation all retain the
-failure they hold, and a rejection raised deeper stays reachable below the
-unchanged outer code.
+rebuilding, the root-parent and root probes, the root evidence load and both of
+its recheck probes in a fixed order, the re-read that closes the collection
+window, and synthetic cohort contract validation all retain the failure they
+hold. A rejection raised deeper stays reachable below the unchanged outer code.
 
 A rejection decided by validation or comparison alone — an ambiguous or absent
 spec pair, an observed directory permission or file type, a spec or directory
