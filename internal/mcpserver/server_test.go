@@ -21,6 +21,7 @@ import (
 	"github.com/isukharev/atl/internal/agenteval"
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/config"
+	"github.com/isukharev/atl/internal/diagnostic"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
 	"github.com/isukharev/atl/internal/mirror"
@@ -5813,4 +5814,482 @@ func TestFixedBoundOutputHelpersPinNilAndOversizeBehavior(t *testing.T) {
 			t.Fatalf("oversize err=%v", err)
 		}
 	})
+}
+
+// classifierCategoryFixture pins one diagnostic category together with an error
+// fixture that carries a private marker, so the classifier matrix doubles as
+// redaction coverage for every category.
+type classifierCategoryFixture struct {
+	kind        string
+	remediation string
+	err         error
+}
+
+const classifierMatrixMarker = "SYNTHETIC-CLASSIFIER-MATRIX-SECRET"
+
+func classifierCategoryFixtures() []classifierCategoryFixture {
+	const marker = classifierMatrixMarker
+	apiError := func(status int) error {
+		return fmt.Errorf("read %s: %w", marker, &httpx.APIError{
+			Status: status, Method: http.MethodGet,
+			Path: "/private/" + marker, Body: "body " + marker,
+		})
+	}
+	return []classifierCategoryFixture{
+		{"usage_error", "fix_request", fmt.Errorf("%w: bad request %s", domain.ErrUsage, marker)},
+		{"configuration_error", "complete_configuration", fmt.Errorf("%w: missing config %s", domain.ErrConfig, marker)},
+		{"authentication_failed", "reauthenticate", fmt.Errorf("%w: token rejected %s", domain.ErrAuth, marker)},
+		{"forbidden", "request_access", fmt.Errorf("%w: denied %s", domain.ErrForbidden, marker)},
+		{"not_found", "verify_identifier_or_access", fmt.Errorf("%w: missing %s", domain.ErrNotFound, marker)},
+		{"version_conflict", "refresh_and_reapply", fmt.Errorf("%w: stale %s", domain.ErrVersionConflict, marker)},
+		{"check_failed", "review_failed_check", fmt.Errorf("%w: unreconciled %s", domain.ErrCheckFailed, marker)},
+		{"output_limit_exceeded", "narrow_or_raise_bound", fmt.Errorf("%w: too big %s", domain.ErrOutputLimit, marker)},
+		{"rate_limited", "wait_before_retry", apiError(http.StatusTooManyRequests)},
+		{"api_error", "inspect_backend_error", apiError(http.StatusServiceUnavailable)},
+		{"transport_error", "inspect_network_before_retry", fmt.Errorf("read %s: %w", marker, &httpx.TransportError{Method: http.MethodGet, Category: "timeout"})},
+		{"unexpected_error", "inspect_error", errors.New("unexpected " + marker)},
+	}
+}
+
+// classifierExpectation is the exact tool error one classifier must produce for
+// one category. An empty remediation means the category's own remediation,
+// which classifierCategoryFixtures pins against diagnostic.Classify.
+type classifierExpectation struct {
+	message     string
+	remediation string
+}
+
+// TestToolErrorClassifierMatrixIsExact pins every classifier/category pair:
+// the message, any remediation override, and the fact that no fixture prose or
+// backend request detail survives classification. Entries are positional and
+// follow classifierCategoryFixtures order.
+func TestToolErrorClassifierMatrixIsExact(t *testing.T) {
+	categories := classifierCategoryFixtures()
+	for _, category := range categories {
+		kind, remediation := diagnostic.Classify(category.err)
+		if kind != category.kind || remediation != category.remediation {
+			t.Fatalf("fixture %q classifies as %q/%q", category.kind, kind, remediation)
+		}
+	}
+
+	matrix := []struct {
+		name     string
+		classify func(error) error
+		want     []classifierExpectation
+	}{
+		{
+			name: "generic", classify: classified,
+			want: []classifierExpectation{
+				{message: "tool request failed"},
+				{message: "tool request failed"},
+				{message: "tool request failed"},
+				{message: "tool request failed"},
+				{message: "tool request failed"},
+				{message: "tool request failed"},
+				{message: "tool request failed"},
+				{message: "tool result exceeds max_bytes"},
+				{message: "backend returned HTTP 429"},
+				{message: "backend returned HTTP 503"},
+				{message: "backend transport failed (timeout)"},
+				{message: "tool request failed"},
+			},
+		},
+		{
+			name: "outline", classify: classifiedOutlineRead,
+			want: []classifierExpectation{
+				{message: "invalid Confluence page outline request"},
+				{message: "Confluence page outline service is not configured"},
+				{message: "Confluence page outline authentication failed"},
+				{message: "Confluence page outline access is forbidden"},
+				{message: "Confluence page was not found"},
+				{message: "Confluence page outline read failed"},
+				{message: "Confluence page outline result failed validation"},
+				{message: "Confluence page outline result exceeds its output bound"},
+				{message: "Confluence page outline read failed"},
+				{message: "backend returned HTTP 503"},
+				{message: "backend transport failed (timeout)"},
+				{message: "Confluence page outline read failed"},
+			},
+		},
+		{
+			name: "page_metadata", classify: classifiedConfluencePageMetadataRead,
+			want: []classifierExpectation{
+				{message: "invalid Confluence page metadata request"},
+				{message: "Confluence page metadata service is not configured"},
+				{message: "Confluence page metadata authentication failed"},
+				{message: "Confluence page metadata access is forbidden"},
+				{message: "Confluence page was not found"},
+				{message: "Confluence page metadata read failed"},
+				{message: "Confluence page metadata failed validation"},
+				{message: "Confluence page metadata exceeds its output bound", remediation: "use_cli_conf_page_meta"},
+				{message: "Confluence page metadata rate limit was exhausted"},
+				{message: "Confluence page metadata API request failed"},
+				{message: "Confluence page metadata transport failed"},
+				{message: "Confluence page metadata read failed"},
+			},
+		},
+		{
+			name: "jira_history", classify: classifiedJiraHistoryRead,
+			want: []classifierExpectation{
+				{message: "invalid Jira issue history request"},
+				{message: "Jira issue history service is not configured"},
+				{message: "Jira issue history authentication failed"},
+				{message: "Jira issue history access is forbidden"},
+				{message: "Jira issue history was not found"},
+				{message: "Jira issue history read failed"},
+				{message: "Jira issue history summary failed validation"},
+				{message: "Jira issue history result exceeds max_bytes"},
+				{message: "Jira issue history read failed"},
+				{message: "backend returned HTTP 503"},
+				{message: "backend transport failed (timeout)"},
+				{message: "Jira issue history read failed"},
+			},
+		},
+		{
+			name: "jira_issue_refs", classify: classifiedJiraIssueRefsRead,
+			want: []classifierExpectation{
+				{message: "invalid Jira issue reference summary request"},
+				{message: "Jira issue reference summary service is not configured"},
+				{message: "Jira issue reference summary authentication failed"},
+				{message: "Jira issue reference summary access is forbidden"},
+				{message: "Jira issue reference source was not found"},
+				{message: "Jira issue reference summary read failed"},
+				{message: "Jira issue reference summary failed validation"},
+				{message: "Jira issue reference summary exceeds max_bytes"},
+				{message: "Jira issue reference summary rate limit was exhausted"},
+				{message: "Jira issue reference summary API request failed"},
+				{message: "Jira issue reference summary transport failed"},
+				{message: "Jira issue reference summary read failed"},
+			},
+		},
+		{
+			name: "table", classify: classifiedTableRead,
+			want: []classifierExpectation{
+				{message: "invalid Confluence table request"},
+				{message: "Confluence table service is not configured"},
+				{message: "Confluence table authentication failed"},
+				{message: "Confluence table access is forbidden"},
+				{message: "Confluence page or table was not found"},
+				{message: "Confluence table read failed"},
+				{message: "Confluence table result failed validation"},
+				{message: "Confluence table result exceeds the selected output bound"},
+				{message: "Confluence table read failed"},
+				{message: "backend returned HTTP 503"},
+				{message: "backend transport failed (timeout)"},
+				{message: "Confluence table read failed"},
+			},
+		},
+		{
+			name: "section", classify: classifiedSectionRead,
+			want: []classifierExpectation{
+				{message: "invalid Confluence page section request"},
+				{message: "Confluence page section service is not configured"},
+				{message: "Confluence page section authentication failed"},
+				{message: "Confluence page section access is forbidden"},
+				{message: "Confluence page, section, or heading was not found"},
+				{message: "Confluence page section read failed"},
+				{message: "Confluence page section result failed validation"},
+				{message: "Confluence page section result exceeds the selected output bound"},
+				{message: "Confluence page section read failed"},
+				{message: "backend returned HTTP 503"},
+				{message: "backend transport failed (timeout)"},
+				{message: "Confluence page section read failed"},
+			},
+		},
+		{
+			name: "attachment_inventory", classify: classifiedAttachmentInventoryRead,
+			want: []classifierExpectation{
+				{message: "invalid Confluence attachment inventory request"},
+				{message: "Confluence attachment inventory service is not configured"},
+				{message: "Confluence attachment inventory authentication failed"},
+				{message: "Confluence attachment inventory access is forbidden"},
+				{message: "Confluence page was not found"},
+				{message: "Confluence attachment inventory read failed"},
+				{message: "Confluence attachment inventory failed validation"},
+				{message: "Confluence attachment inventory exceeds the selected output bound", remediation: "raise_bound_or_use_cli_attachment_list"},
+				{message: "Confluence attachment inventory read failed"},
+				{message: "Confluence attachment inventory read failed"},
+				{message: "Confluence attachment inventory read failed"},
+				{message: "Confluence attachment inventory read failed"},
+			},
+		},
+		{
+			name: "structure", classify: classifiedStructureRead,
+			want: []classifierExpectation{
+				{message: "invalid Jira Structure request"},
+				{message: "Jira Structure service is not configured"},
+				{message: "Jira Structure authentication failed"},
+				{message: "Jira Structure access is forbidden"},
+				{message: "Jira Structure or subtree was not found"},
+				{message: "Jira Structure read failed"},
+				{message: "Jira Structure result failed validation"},
+				{message: "Jira Structure result exceeds the selected output bound"},
+				{message: "Jira Structure read failed"},
+				{message: "backend returned HTTP 503"},
+				{message: "backend transport failed (timeout)"},
+				{message: "Jira Structure read failed"},
+			},
+		},
+		{
+			name: "mirror", classify: classifiedMirrorRead,
+			want: []classifierExpectation{
+				{message: "local mirror snapshot failed"},
+				{message: "local mirror root is not configured or is invalid"},
+				{message: "local mirror snapshot failed"},
+				{message: "local mirror snapshot failed"},
+				{message: "local mirror snapshot failed"},
+				{message: "local mirror snapshot failed"},
+				{message: "local mirror snapshot could not be completed"},
+				{message: "local mirror snapshot failed"},
+				{message: "local mirror snapshot failed"},
+				{message: "local mirror snapshot failed"},
+				{message: "local mirror snapshot failed"},
+				{message: "local mirror snapshot failed"},
+			},
+		},
+	}
+	if len(matrix) != 10 {
+		t.Fatalf("classifier matrix has %d rows, want 10 current families", len(matrix))
+	}
+
+	for _, entry := range matrix {
+		if len(entry.want) != len(categories) {
+			t.Fatalf("%s expectation count=%d, want %d", entry.name, len(entry.want), len(categories))
+		}
+		for i, category := range categories {
+			t.Run(entry.name+"/"+category.kind, func(t *testing.T) {
+				if entry.classify(nil) != nil {
+					t.Fatal("nil error must classify as nil")
+				}
+				want := entry.want[i]
+				wantRemediation := category.remediation
+				if want.remediation != "" {
+					wantRemediation = want.remediation
+				}
+				var got toolError
+				if !errors.As(entry.classify(category.err), &got) {
+					t.Fatalf("classified error is not a toolError")
+				}
+				if got.Kind != category.kind || got.Remediation != wantRemediation || got.Message != want.message {
+					t.Fatalf("got %+v, want kind=%q remediation=%q message=%q",
+						got, category.kind, wantRemediation, want.message)
+				}
+				for _, forbidden := range []string{
+					classifierMatrixMarker, "/private/", "body ",
+				} {
+					if strings.Contains(got.Error(), forbidden) {
+						t.Fatalf("classified error leaked %q: %s", forbidden, got.Error())
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestToolErrorPoliciesAlwaysHaveClientMessages(t *testing.T) {
+	policies := []struct {
+		name   string
+		policy toolErrorPolicy
+	}{
+		{name: "generic", policy: genericToolPolicy},
+		{name: "outline", policy: confluenceOutlineReadPolicy},
+		{name: "page_metadata", policy: confluencePageMetadataReadPolicy},
+		{name: "jira_history", policy: jiraHistoryReadPolicy},
+		{name: "jira_issue_refs", policy: jiraIssueRefsReadPolicy},
+		{name: "table", policy: confluenceTableReadPolicy},
+		{name: "section", policy: confluenceSectionReadPolicy},
+		{name: "attachment_inventory", policy: confluenceAttachmentInventoryReadPolicy},
+		{name: "structure", policy: jiraStructureReadPolicy},
+		{name: "mirror", policy: mirrorReadPolicy},
+	}
+	valid := func(rule toolErrorRule) bool { return rule.message != "" || rule.safeMessage }
+	for _, entry := range policies {
+		t.Run(entry.name, func(t *testing.T) {
+			if !valid(entry.policy.fallback) {
+				t.Fatal("fallback has no static or redacted client message")
+			}
+			for kind, rule := range entry.policy.kinds {
+				if !valid(rule) {
+					t.Fatalf("category %q has no static or redacted client message", kind)
+				}
+			}
+		})
+	}
+}
+
+// TestToolErrorClassifierCompositePrecedence pins the two deliberately opposite
+// composite orderings: a section version mismatch outranks a section selection
+// error, while a Structure folder selection error outranks a forest version
+// mismatch. errors.Join makes both typed errors reachable at once.
+func TestToolErrorClassifierCompositePrecedence(t *testing.T) {
+	const marker = "SYNTHETIC-COMPOSITE-PRECEDENCE-SECRET"
+	for _, test := range []struct {
+		name, kind, remediation, message string
+		classify                         func(error) error
+		err                              error
+	}{
+		{
+			name:     "section version mismatch outranks selection",
+			classify: classifiedSectionRead,
+			err: fmt.Errorf("%s: %w", marker, errors.Join(
+				&app.ConfluenceSectionSelectionError{Requested: 0, Available: 3},
+				&app.ConfluencePageVersionMismatchError{Expected: 4, Current: 5},
+			)),
+			kind:        "check_failed",
+			remediation: "reread_outline_then_retry_expected_version",
+			message:     "expected Confluence page version 4 does not match the current page version 5",
+		},
+		{
+			name:     "section selection alone stays recoverable",
+			classify: classifiedSectionRead,
+			err: fmt.Errorf("%s: %w", marker,
+				&app.ConfluenceSectionSelectionError{Requested: 0, Available: 3}),
+			kind:        "check_failed",
+			remediation: "outline_then_select_section",
+			message:     "Confluence heading selection is ambiguous; available occurrence count is 3, so select an occurrence from 1 to 3",
+		},
+		{
+			name:     "structure folder selection outranks forest version mismatch",
+			classify: classifiedStructureRead,
+			err: fmt.Errorf("%s: %w", marker, errors.Join(
+				&app.StructureForestVersionMismatchError{
+					Expected: domain.StructureVersion{Signature: -55, Version: 7},
+					Current:  domain.StructureVersion{Signature: 66, Version: 8},
+				},
+				&app.StructureFolderSelectionError{
+					Reason: app.StructureFolderSelectionAmbiguous, Matches: 2, Available: 4,
+				},
+			)),
+			kind:        "check_failed",
+			remediation: "view_then_select_subtree",
+			message:     "Jira Structure folder selector is ambiguous; matching stored-folder count is 2 and available stored-folder count is 4",
+		},
+		{
+			name:     "structure forest version mismatch alone stays recoverable",
+			classify: classifiedStructureRead,
+			err: fmt.Errorf("%s: %w", marker, &app.StructureForestVersionMismatchError{
+				Expected: domain.StructureVersion{Signature: -55, Version: 7},
+				Current:  domain.StructureVersion{Signature: 66, Version: 8},
+			}),
+			kind:        "check_failed",
+			remediation: "reread_structure_view_then_retry_expected_forest_version",
+			message:     "expected Jira Structure forest signature -55 version 7 does not match current signature 66 version 8",
+		},
+		{
+			name:     "table version mismatch keeps its own remediation",
+			classify: classifiedTableRead,
+			err: fmt.Errorf("%s: %w", marker,
+				&app.ConfluencePageVersionMismatchError{Expected: 2, Current: 9}),
+			kind:        "check_failed",
+			remediation: "reread_table_summary_then_retry_expected_version",
+			message:     "expected Confluence page version 2 does not match the current page version 9",
+		},
+		{
+			name:     "attachment inventory version mismatch keeps its own remediation",
+			classify: classifiedAttachmentInventoryRead,
+			err: fmt.Errorf("%s: %w", marker,
+				&app.ConfluencePageVersionMismatchError{Expected: 2, Current: 9}),
+			kind:        "check_failed",
+			remediation: "reread_page_then_retry_expected_version",
+			message:     "expected Confluence page version 2 does not match the current page version 9",
+		},
+		{
+			name:     "table selection is out of range",
+			classify: classifiedTableRead,
+			err: fmt.Errorf("%s: %w", marker,
+				&app.ConfluenceTableSelectionError{Requested: 7, Available: 3}),
+			kind:        "not_found",
+			remediation: "summarize_then_select_table",
+			message:     "selected Confluence table index 7 is out of range; available table count is 3",
+		},
+		{
+			name:     "section occurrence is out of range",
+			classify: classifiedSectionRead,
+			err: fmt.Errorf("%s: %w", marker,
+				&app.ConfluenceSectionSelectionError{Requested: 7, Available: 3}),
+			kind:        "not_found",
+			remediation: "outline_then_select_section",
+			message:     "selected Confluence heading occurrence 7 is out of range; available occurrence count is 3",
+		},
+		{
+			name:     "structure folder selector is stale",
+			classify: classifiedStructureRead,
+			err: structureSelectionFixture(domain.ErrNotFound,
+				&app.StructureFolderSelectionError{Reason: app.StructureFolderSelectionNotFound, Available: 4},
+				"folder "+marker+" was not found"),
+			kind:        "not_found",
+			remediation: "view_then_select_subtree",
+			message:     "selected Jira Structure folder was not found; available stored-folder count is 4",
+		},
+		{
+			name:     "structure folder labels are incomplete",
+			classify: classifiedStructureRead,
+			err: structureSelectionFixture(domain.ErrCheckFailed,
+				&app.StructureFolderSelectionError{Reason: app.StructureFolderSelectionLabelsIncomplete, Available: 4},
+				"folder path "+marker+" cannot be validated"),
+			kind:        "check_failed",
+			remediation: "view_then_select_subtree",
+			message:     "Jira Structure folder path cannot be validated because folder labels are incomplete; available stored-folder count is 4",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var got toolError
+			if !errors.As(test.classify(test.err), &got) {
+				t.Fatalf("classified error is not a toolError")
+			}
+			if got.Kind != test.kind || got.Remediation != test.remediation || got.Message != test.message {
+				t.Fatalf("got %+v, want kind=%q remediation=%q message=%q",
+					got, test.kind, test.remediation, test.message)
+			}
+			if strings.Contains(got.Error(), marker) {
+				t.Fatalf("composite classification leaked backend prose: %s", got.Error())
+			}
+		})
+	}
+}
+
+// TestToolErrorClassifiersIgnoreUntypedSelectionProse keeps the recoverable
+// remediations bound to typed application errors: prose that merely reads like
+// a selection or version failure must stay on the static path.
+func TestToolErrorClassifiersIgnoreUntypedSelectionProse(t *testing.T) {
+	for _, test := range []struct {
+		name, remediation, message string
+		classify                   func(error) error
+		err                        error
+	}{
+		{
+			name: "section", classify: classifiedSectionRead,
+			err:         fmt.Errorf("%w: heading occurrence 7 is out of range; expected version 4 got 5", domain.ErrCheckFailed),
+			remediation: "review_failed_check",
+			message:     "Confluence page section result failed validation",
+		},
+		{
+			name: "structure", classify: classifiedStructureRead,
+			err:         fmt.Errorf("%w: folder selector is ambiguous; forest signature -55 version 7", domain.ErrCheckFailed),
+			remediation: "review_failed_check",
+			message:     "Jira Structure result failed validation",
+		},
+		{
+			name: "table", classify: classifiedTableRead,
+			err:         fmt.Errorf("%w: table index 7 is out of range", domain.ErrNotFound),
+			remediation: "verify_identifier_or_access",
+			message:     "Confluence page or table was not found",
+		},
+		{
+			name: "attachment_inventory", classify: classifiedAttachmentInventoryRead,
+			err:         fmt.Errorf("%w: expected page version 2 does not match 9", domain.ErrCheckFailed),
+			remediation: "review_failed_check",
+			message:     "Confluence attachment inventory failed validation",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var got toolError
+			if !errors.As(test.classify(test.err), &got) {
+				t.Fatalf("classified error is not a toolError")
+			}
+			if got.Remediation != test.remediation || got.Message != test.message {
+				t.Fatalf("got %+v, want remediation=%q message=%q", got, test.remediation, test.message)
+			}
+		})
+	}
 }
