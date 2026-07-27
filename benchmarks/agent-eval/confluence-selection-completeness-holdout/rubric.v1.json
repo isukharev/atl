@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "confluence-synthetic-selection-completeness-holdout-v1-answer",
+  "scenario_id": "confluence.synthetic-selection-completeness-holdout-v1",
+  "minimum_score_bps": 8500,
+  "criteria": [
+    {"id":"completeness","description":"The backend-total mismatch is treated as exact evidence that the search is incomplete.","maximum":4,"minimum":4,"weight":40},
+    {"id":"absence_safety","description":"The response rejects absence claims and preserves the possibility of unobserved matching pages.","maximum":4,"minimum":4,"weight":30},
+    {"id":"grounding","description":"The exact operation, query, observed count, partial reason, and read-only effects are retained without content claims.","maximum":4,"minimum":3,"weight":20},
+    {"id":"remediation","description":"The response recommends refining or investigating the unreachable selection.","maximum":4,"minimum":3,"weight":10}
+  ],
+  "allowed_finding_ids": ["ambiguous_count", "incomplete_answer", "missing_qualification", "poor_structure", "unsupported_claim", "verbose"]
+}

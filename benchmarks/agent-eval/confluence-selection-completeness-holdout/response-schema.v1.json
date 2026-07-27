@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "operation": {"type": "string"},
+    "query": {"type": "string"},
+    "observed_count": {"type": "integer"},
+    "complete": {"type": "boolean"},
+    "truncated": {"type": "boolean"},
+    "truncated_at": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+    "continuation_cursor": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+    "partial_reason": {"type": "string"},
+    "warning_observed": {"type": "boolean"},
+    "absence_claim_supported": {"type": "boolean"},
+    "unobserved_matches_possible": {"type": "boolean"},
+    "recommended_action": {"type": "string"},
+    "local_mirror_written": {"type": "boolean"},
+    "remote_writes_performed": {"type": "boolean"},
+    "selection_only": {"type": "boolean"}
+  },
+  "required": [
+    "operation", "query", "observed_count", "complete", "truncated", "truncated_at",
+    "continuation_cursor", "partial_reason", "warning_observed", "absence_claim_supported",
+    "unobserved_matches_possible", "recommended_action", "local_mirror_written",
+    "remote_writes_performed", "selection_only"
+  ]
+}

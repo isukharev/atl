@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/search",
+      "query_equals": {
+        "cql": "space = \"ARCHIVE\" AND type = page",
+        "limit": "25",
+        "start": "0",
+        "expand": "content.version,content.space"
+      },
+      "status": 200,
+      "body": {
+        "results": [
+          {
+            "content": {"id": "archive-201", "title": "Archive Page 201", "space": {"key": "ARCHIVE"}, "version": {"number": 2, "when": "2026-07-01T09:00:00Z"}},
+            "title": "Archive Page 201",
+            "excerpt": "Observed synthetic result one"
+          },
+          {
+            "content": {"id": "archive-202", "title": "Archive Page 202", "space": {"key": "ARCHIVE"}, "version": {"number": 3, "when": "2026-07-02T09:00:00Z"}},
+            "title": "Archive Page 202",
+            "excerpt": "Observed synthetic result two"
+          }
+        ],
+        "size": 2,
+        "totalCount": 5,
+        "_links": {}
+      }
+    }
+  ]
+}

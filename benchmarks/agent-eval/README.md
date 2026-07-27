@@ -271,6 +271,8 @@ The realistic matrix currently contains:
 | surface native | `confluence-page-metadata-mcp-holdout` | distinct stale restricted page addressed by a same-origin path through the same one-read closed metadata contract |
 | surface native | `confluence-paginated-search-evidence-mcp` | terminal three-page search followed by ordered outline/section evidence for every current record |
 | surface native | `confluence-paginated-search-evidence-holdout` | distinct two-page pagination and repeated-heading topology with different current controls |
+| surface native | `confluence-selection-completeness` | one CQL pull whose exact overflow probe proves that the 1000-page local mirror is an incomplete selection |
+| surface native | `confluence-selection-completeness-holdout` | one CQL search whose terminal-looking page conflicts with the backend-reported total and remains incomplete |
 | surface native | `jira-paginated-search-mcp` | exact three-page typed issue search with ordered identity and status reconciliation |
 | surface native | `jira-paginated-search-mcp-holdout` | distinct two-page Jira search topology through the same terminal-completeness contract |
 | surface native | `jira-search-zero-progress-mcp` | advancing Jira search cursor with a successful page that contributes no new stable identity |
@@ -893,6 +895,20 @@ Its distinct n=1 holdout changes the query, facts, candidate identities,
 pagination from three pages to two, selected-source count, and repeated-heading
 structure while preserving the same closed response schema and
 completeness/safety semantics.
+
+`confluence-selection-completeness` pairs the CLI skill surface for Codex
+Luna/high and Claude Code Opus/high at n=3. One exact CQL pull traverses ten
+100-row search pages, probes one distinct overflow match, and mirrors exactly
+the observed 1000 pages through GET-only routes. The answer preserves the
+actual pull count, cap marker, and stderr warning while rejecting absence claims
+and recommending a narrowed or partitioned selection. Its distinct n=1 holdout
+uses one exact qualified CQL search: two returned rows and no continuation look
+terminal, but a backend total of five proves that matching rows remain
+unreachable. Both cases share one byte-identical closed response schema, admit
+one CLI invocation, forbid delegation and remote writes, and report only
+selection completeness rather than page-content claims. Codex binds the exact
+`atl:confluence` skill in the prompt and requires an observed generic Skill
+invocation; Claude Code additionally requires the exact named Skill event.
 
 `jira-paginated-search-mcp` pairs Codex Luna/high and Claude Code Opus/high
 at n=3. It requires three ordered `jira_issue_search` calls, advances only with
