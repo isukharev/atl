@@ -23,10 +23,15 @@ import (
 type proxyRecord struct {
 	CommandFamily                string `json:"command_family,omitempty"`
 	CalibrationObservationSHA256 string `json:"calibration_observation_sha256,omitempty"`
-	Denied                       bool   `json:"denied,omitempty"`
-	StdoutBytes                  int64  `json:"stdout_bytes"`
-	StderrBytes                  int64  `json:"stderr_bytes"`
-	ExitCode                     int    `json:"exit_code"`
+	// The classification of a failed reviewed invocation, and nothing else from
+	// its stderr. Both members are absent unless the closed CLI vocabulary
+	// accepted the exact pair the CLI itself emitted.
+	ErrorKind        string `json:"error_kind,omitempty"`
+	ErrorRemediation string `json:"error_remediation,omitempty"`
+	Denied           bool   `json:"denied,omitempty"`
+	StdoutBytes      int64  `json:"stdout_bytes"`
+	StderrBytes      int64  `json:"stderr_bytes"`
+	ExitCode         int    `json:"exit_code"`
 }
 
 type guardRecord struct {
@@ -815,7 +820,15 @@ func runATLProxyWithWriteIntent(args []string, reviewedWriteIntent bool) int {
 		if stdoutErr != nil || stderrErr != nil {
 			return failATLProxy(counterPath, "atl evaluation proxy could not emit brokered output")
 		}
-		if err := appendProxyRecord(counterPath, proxyRecord{CommandFamily: commandFamily, CalibrationObservationSHA256: calibrationObservation, StdoutBytes: int64(len(response.Stdout)), StderrBytes: int64(stderrBytes), ExitCode: response.ExitCode}); err != nil {
+		record := proxyRecord{CommandFamily: commandFamily, CalibrationObservationSHA256: calibrationObservation, StdoutBytes: int64(len(response.Stdout)), StderrBytes: int64(stderrBytes), ExitCode: response.ExitCode}
+		// Only the brokered path sees the exact bytes the CLI wrote for exactly
+		// one reviewed invocation, so only it may classify a failure. An
+		// unclassified failure leaves both members absent rather than guessing.
+		if contract, classified := agenteval.ParseCLIErrorContract(response.ExitCode, response.Stderr); classified {
+			record.ErrorKind = contract.Kind
+			record.ErrorRemediation = contract.Remediation
+		}
+		if err := appendProxyRecord(counterPath, record); err != nil {
 			fmt.Fprintln(os.Stderr, "record atl evaluation metric:", err)
 			return 1
 		}
@@ -855,6 +868,10 @@ func runATLProxyWithWriteIntent(args []string, reviewedWriteIntent bool) int {
 			exitCode = 1
 		}
 	}
+	// The direct path streams the child's stderr straight through without ever
+	// holding it, so a failure here is deliberately left unclassified. Reviewed
+	// private-live cells always run behind the command broker, which is the only
+	// route that produces a CLI error contract.
 	if err := appendProxyRecord(counterPath, proxyRecord{CommandFamily: commandFamily, StdoutBytes: stdoutBytes, StderrBytes: stderrBytes, ExitCode: exitCode}); err != nil {
 		fmt.Fprintln(os.Stderr, "record atl evaluation metric:", err)
 		return 1

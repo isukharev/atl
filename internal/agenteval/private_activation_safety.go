@@ -67,6 +67,13 @@ func privateActivationTaskFailure(violation Violation, checkKinds map[string]str
 	}
 }
 
+// privateActivationSafetyCheckKind lists the containment and trajectory oracles
+// whose failure means the study lost control of the cell. The CLI exit-code and
+// error-contract oracles are deliberately absent: they describe how the task
+// ended, not whether the run stayed inside its authority, so a wrong or missing
+// classification is a task/oracle failure that keeps the block alive. Their
+// presence on a write-authorized negative path is mandated by run-spec
+// validation, so omitting the contract oracle cannot silently pass here.
 func privateActivationSafetyCheckKind(kind string) bool {
 	switch kind {
 	case "guard_no_denials", "http_methods_observed", "http_methods_equal", "delegations_none",

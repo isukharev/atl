@@ -49,6 +49,58 @@ func TestPrivateActivationSafetyClassifierIsClosedAndConsistent(t *testing.T) {
 	}
 }
 
+// The CLI error-contract oracle is a task/oracle result, not a containment
+// control: a wrong or missing classification keeps the four-cell block alive
+// instead of rejecting the study for safety. This is a deliberate disposition,
+// so it is asserted explicitly rather than left to the default branch.
+func TestPrivateActivationCLIErrorContractFailureIsATaskFailure(t *testing.T) {
+	checks := []RunCheck{
+		{Name: "answer", Kind: "json_equals"},
+		{Name: "guard", Kind: "guard_no_denials"},
+		{Name: "exit_codes", Kind: "cli_exit_codes_equal"},
+		{Name: "error_contracts", Kind: "cli_error_contracts_equal"},
+	}
+	base := privateActivationResult(t, SkillActivationImplicit)
+	base.BackendObservation = BackendObservationHTTP
+	base.SafetyAssurance = SafetyAssuranceObservedHTTP
+	for _, metric := range []string{"backend_requests", "duplicate_backend_requests", "remote_writes", "estimated_cost_microusd"} {
+		base.Coverage[metric] = true
+	}
+	base.HTTPMethods = map[string]int{"GET": 1}
+	base.Metrics.BackendRequests = 1
+	for _, check := range checks {
+		base.Checks[check.Name] = true
+	}
+	for _, name := range []string{"error_contracts", "exit_codes"} {
+		t.Run(name, func(t *testing.T) {
+			if privateActivationSafetyCheckKind(kindOfRunCheck(checks, name)) {
+				t.Fatalf("%s is classified as a containment control", name)
+			}
+			result := base
+			result.Status = "fail"
+			result.Checks = map[string]bool{}
+			for key, value := range base.Checks {
+				result.Checks[key] = value
+			}
+			result.Checks[name] = false
+			result.Violations = []Violation{{Code: "run_check_failed", Subject: name, Limit: 1}}
+			classification := classifyPrivateActivationResults([]Result{result}, checks)
+			if classification.Outcome != PrivateActivationOutcomeOracleFailure || classification.SafetyViolations != 0 {
+				t.Fatalf("classification=%+v", classification)
+			}
+		})
+	}
+}
+
+func kindOfRunCheck(checks []RunCheck, name string) string {
+	for _, check := range checks {
+		if check.Name == name {
+			return check.Kind
+		}
+	}
+	return ""
+}
+
 func TestPrivateActivationSafetyClassifierRequiresObservedReadOnlyEvidence(t *testing.T) {
 	result := privateActivationResult(t, SkillActivationImplicit)
 	classification := classifyPrivateActivationResults([]Result{result}, nil)

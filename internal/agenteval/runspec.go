@@ -536,6 +536,11 @@ func (s RunSpec) Validate() error {
 			if _, ok := expectedCLIExitCodes(check.Expected); transport != "cli" || check.Minimum != 0 || check.Pointer != "" || !ok {
 				return fmt.Errorf("cli_exit_codes_equal check %q requires CLI transport and an exact exit-code array", check.Name)
 			}
+		case "cli_error_contracts_equal":
+			if _, ok := expectedCLIErrorContracts(check.Expected); transport != "cli" || check.Minimum != 0 ||
+				check.Maximum != 0 || check.Pointer != "" || !ok {
+				return fmt.Errorf("cli_error_contracts_equal check %q requires CLI transport and an exact ordered error-contract array", check.Name)
+			}
 		case "mock_no_unexpected":
 			if check.Minimum != 0 || check.Pointer != "" || len(check.Expected) != 0 {
 				return fmt.Errorf("mock_no_unexpected check %q is invalid", check.Name)
@@ -761,6 +766,8 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 		requiredSuccess := false
 		requiredInvocation := false
 		var expectedExitCodes []int
+		var expectedErrorContracts []CLIErrorContract
+		errorContractChecks := 0
 		expectedFailures := -1
 		requiredKinds := map[string]bool{"guard_no_denials": false, "delegations_none": false}
 		if s.EffectiveSurface() != SurfaceExternalMCP {
@@ -782,6 +789,10 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 			if check.Kind == "cli_exit_codes_equal" {
 				expectedExitCodes, _ = expectedCLIExitCodes(check.Expected)
 			}
+			if check.Kind == "cli_error_contracts_equal" {
+				expectedErrorContracts, _ = expectedCLIErrorContracts(check.Expected)
+				errorContractChecks++
+			}
 			if check.Kind == "atl_failures_equals" || check.Kind == "interface_failures_equals" {
 				expectedFailures, _ = expectedATLFailureCount(check.Expected)
 			}
@@ -798,6 +809,26 @@ func (s RunSpec) ValidateAgainstScenario(scenario Scenario) error {
 			}
 			if len(expectedExitCodes) == 0 || nonzero == 0 || expectedFailures != nonzero {
 				return fmt.Errorf("private-live negative paths require exact non-zero CLI exit codes and a matching failure count")
+			}
+			// A write-authorized negative path is the one case where a refusal is
+			// the reviewed result of holding live mutation authority, so the exit
+			// code alone is not evidence: exactly one contract oracle must bind
+			// every expected failure to a typed CLI classification. Read-only
+			// negative paths keep the exit-code contract only.
+			if s.AllowLiveWrites {
+				expectedFailureExitCodes := make([]int, 0, nonzero)
+				for _, code := range expectedExitCodes {
+					if code != 0 {
+						expectedFailureExitCodes = append(expectedFailureExitCodes, code)
+					}
+				}
+				contractExitCodes := make([]int, 0, len(expectedErrorContracts))
+				for _, contract := range expectedErrorContracts {
+					contractExitCodes = append(contractExitCodes, contract.ExitCode)
+				}
+				if errorContractChecks != 1 || !slices.Equal(contractExitCodes, expectedFailureExitCodes) {
+					return fmt.Errorf("live-write private negative paths require one cli_error_contracts_equal check matching every expected failure")
+				}
 			}
 		}
 		if !requiredInvocation {
@@ -924,6 +955,36 @@ func evaluateRunChecksWithMCPInvocations(
 	mcpInvocations []MCPInvocation,
 	mcpInvocationsObserved bool,
 ) (map[string]bool, error) {
+	return evaluateRunChecksWithCLIErrorContracts(
+		checks, final, workspace, atlInvocations, failedATL, unexpectedRequests,
+		skillInvocations, skillInvocationsByName, delegations, guardDenials,
+		httpMethods, httpMethodsObserved, cliExitCodes, capabilityFamilies,
+		capabilityFamiliesObserved, capabilitySequence, mcpInvocations,
+		mcpInvocationsObserved, nil,
+	)
+}
+
+// evaluateRunChecksWithCLIErrorContracts is the single evaluation body. The
+// narrower entry points above stay source-compatible and pass no CLI error
+// contracts, so only the runner — which revalidates its audit first — can make
+// a cli_error_contracts_equal oracle pass.
+func evaluateRunChecksWithCLIErrorContracts(
+	checks []RunCheck,
+	final []byte,
+	workspace string,
+	atlInvocations, failedATL, unexpectedRequests, skillInvocations int,
+	skillInvocationsByName map[string]int,
+	delegations, guardDenials int,
+	httpMethods map[string]int,
+	httpMethodsObserved bool,
+	cliExitCodes []int,
+	capabilityFamilies []CapabilityFamilyMetric,
+	capabilityFamiliesObserved bool,
+	capabilitySequence []string,
+	mcpInvocations []MCPInvocation,
+	mcpInvocationsObserved bool,
+	cliErrorContracts []CLIErrorContract,
+) (map[string]bool, error) {
 	var document any
 	if err := json.Unmarshal(final, &document); err != nil {
 		return nil, fmt.Errorf("decode structured final response: %w", err)
@@ -950,6 +1011,9 @@ func evaluateRunChecksWithMCPInvocations(
 		case "cli_exit_codes_equal":
 			expected, _ := expectedCLIExitCodes(check.Expected)
 			results[check.Name] = slices.Equal(cliExitCodes, expected)
+		case "cli_error_contracts_equal":
+			expected, _ := expectedCLIErrorContracts(check.Expected)
+			results[check.Name] = slices.Equal(cliErrorContracts, expected)
 		case "mock_no_unexpected":
 			results[check.Name] = unexpectedRequests == 0
 		case "delegations_min":
@@ -1244,6 +1308,29 @@ func expectedATLFailureCount(raw json.RawMessage) (int, bool) {
 	var expected int
 	if err := json.Unmarshal(raw, &expected); err != nil || expected < 0 {
 		return 0, false
+	}
+	return expected, true
+}
+
+// expectedCLIErrorContracts accepts a bounded ordered array of exact CLI error
+// contracts. Every entry must be a complete closed-vocabulary classification
+// with a non-zero exit code, so a spec cannot declare a partial expectation or
+// smuggle free text into an oracle.
+func expectedCLIErrorContracts(raw json.RawMessage) ([]CLIErrorContract, bool) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var expected []CLIErrorContract
+	if decoder.Decode(&expected) != nil || decoder.Decode(new(any)) != io.EOF ||
+		len(expected) == 0 || len(expected) > maxContractListEntries {
+		return nil, false
+	}
+	for _, contract := range expected {
+		if _, ok := ValidateCLIErrorContract(contract.ExitCode, contract.Kind, contract.Remediation); !ok {
+			return nil, false
+		}
 	}
 	return expected, true
 }

@@ -520,19 +520,58 @@ func TestPrivateLiveWritesRequireExactReviewedBoundaries(t *testing.T) {
 	negative.Checks = append(negative.Checks,
 		RunCheck{Name: "expected_failure", Kind: "interface_failures_equals", Expected: json.RawMessage(`1`)},
 		RunCheck{Name: "exit_codes", Kind: "cli_exit_codes_equal", Expected: json.RawMessage(`[8]`)},
+		RunCheck{Name: "error_contracts", Kind: "cli_error_contracts_equal",
+			Expected: json.RawMessage(`[{"exit_code":8,"kind":"check_failed","remediation":"review_failed_check"}]`)},
 	)
 	negativeScenario.RequiredChecks = slices.DeleteFunc(negativeScenario.RequiredChecks, func(name string) bool { return name == "atl_succeeded" })
-	negativeScenario.RequiredChecks = append(negativeScenario.RequiredChecks, "expected_failure", "exit_codes")
+	negativeScenario.RequiredChecks = append(negativeScenario.RequiredChecks, "expected_failure", "exit_codes", "error_contracts")
 	if err := negative.Validate(); err != nil {
 		t.Fatalf("negative-path run spec: %v", err)
 	}
 	if err := negative.ValidateAgainstScenario(negativeScenario); err != nil {
 		t.Fatalf("negative-path run spec against scenario: %v", err)
 	}
+	setNegativeExpected := func(s *RunSpec, name string, expected string) {
+		for index := range s.Checks {
+			if s.Checks[index].Name == name {
+				s.Checks[index].Expected = json.RawMessage(expected)
+				return
+			}
+		}
+	}
+	dropNegativeCheck := func(s *RunSpec, name string) {
+		s.Checks = slices.DeleteFunc(s.Checks, func(check RunCheck) bool { return check.Name == name })
+	}
 	for name, mutate := range map[string]func(*RunSpec){
-		"zero only":           func(s *RunSpec) { s.Checks[len(s.Checks)-1].Expected = json.RawMessage(`[0]`) },
-		"wrong failure count": func(s *RunSpec) { s.Checks[len(s.Checks)-2].Expected = json.RawMessage(`2`) },
-		"missing exit oracle": func(s *RunSpec) { s.Checks = s.Checks[:len(s.Checks)-1] },
+		"zero only":           func(s *RunSpec) { setNegativeExpected(s, "exit_codes", `[0]`) },
+		"wrong failure count": func(s *RunSpec) { setNegativeExpected(s, "expected_failure", `2`) },
+		"missing exit oracle": func(s *RunSpec) { dropNegativeCheck(s, "exit_codes") },
+		"missing error contract oracle": func(s *RunSpec) {
+			dropNegativeCheck(s, "error_contracts")
+		},
+		"short error contract oracle": func(s *RunSpec) {
+			setNegativeExpected(s, "exit_codes", `[8,8]`)
+			setNegativeExpected(s, "expected_failure", `2`)
+		},
+		"mismatched error contract exit": func(s *RunSpec) {
+			setNegativeExpected(s, "error_contracts", `[{"exit_code":5,"kind":"version_conflict","remediation":"refresh_and_reapply"}]`)
+		},
+		"duplicate error contract oracle": func(s *RunSpec) {
+			s.Checks = append(s.Checks, RunCheck{Name: "error_contracts_again", Kind: "cli_error_contracts_equal",
+				Expected: json.RawMessage(`[{"exit_code":8,"kind":"check_failed","remediation":"review_failed_check"}]`)})
+		},
+		"unknown contract kind": func(s *RunSpec) {
+			setNegativeExpected(s, "error_contracts", `[{"exit_code":8,"kind":"backend_said_no","remediation":"review_failed_check"}]`)
+		},
+		"mismatched contract remediation": func(s *RunSpec) {
+			setNegativeExpected(s, "error_contracts", `[{"exit_code":8,"kind":"check_failed","remediation":"reauthenticate"}]`)
+		},
+		"successful contract exit code": func(s *RunSpec) {
+			setNegativeExpected(s, "error_contracts", `[{"exit_code":0,"kind":"check_failed","remediation":"review_failed_check"}]`)
+		},
+		"free-text contract member": func(s *RunSpec) {
+			setNegativeExpected(s, "error_contracts", `[{"exit_code":8,"kind":"check_failed","remediation":"review_failed_check","error":"backend prose"}]`)
+		},
 	} {
 		t.Run("negative "+name, func(t *testing.T) {
 			candidate := negative
@@ -574,6 +613,62 @@ func TestPrivateLiveWritesRequireExactReviewedBoundaries(t *testing.T) {
 				t.Fatal("unsafe private live-write spec passed")
 			}
 		})
+	}
+}
+
+// The mandatory error-contract oracle is bound to write authority. A read-only
+// private-live negative path keeps the exit-code contract it always had and
+// must not be forced to declare a typed classification it never authorized.
+func TestReadOnlyPrivateLiveNegativePathKeepsExitCodeContractOnly(t *testing.T) {
+	scenario := validScenario()
+	scenario.DataClass = "private-local"
+	scenario.RequiredChecks = []string{"answer_correct", "used_atl", "http_observed", "guard_clean", "no_delegation", "expected_failure", "exit_codes"}
+	scenario.Budgets.MaxRemoteWrites = 0
+	scenario.Budgets.MaxDelegations = 0
+	scenario.Budgets.MaxEstimatedCostMicroUSD = 10_000_000
+	scenario.Budgets.AllowedHTTPMethods = []string{"GET", "HEAD"}
+	spec := validRunSpec()
+	spec.BackendMode = BackendModePrivateLive
+	spec.FixtureFile = ""
+	spec.Repetitions = 1
+	spec.ToolTransport = "cli"
+	spec.SkillActivation = SkillActivationImplicit
+	spec.AllowedTools = []string{"Bash(atl *)", "Read"}
+	spec.AllowedATLCommands = nil
+	spec.AllowedCLICommands = validCLICommandPolicy().Rules
+	spec.AllowedGatewayRoutes = map[string][]LiveGatewayRoute{"jira": {{Name: "jira_api", PathPrefix: "/rest/api/2"}}}
+	spec.GatewayMaxResponseBytes = 1 << 20
+	spec.GatewayMaxTotalBytes = 4 << 20
+	spec.MaxEstimatedCostMicroUSD = scenario.Budgets.MaxEstimatedCostMicroUSD
+	spec.Checks = append(spec.Checks,
+		RunCheck{Name: "http_observed", Kind: "http_methods_observed"},
+		RunCheck{Name: "guard_clean", Kind: "guard_no_denials"},
+		RunCheck{Name: "no_delegation", Kind: "delegations_none"},
+		RunCheck{Name: "expected_failure", Kind: "interface_failures_equals", Expected: json.RawMessage(`1`)},
+		RunCheck{Name: "exit_codes", Kind: "cli_exit_codes_equal", Expected: json.RawMessage(`[4]`)},
+	)
+	if err := spec.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := spec.ValidateAgainstScenario(scenario); err != nil {
+		t.Fatalf("read-only negative path without an error-contract oracle: %v", err)
+	}
+	// The same run may still declare one, and the exit-code rule keeps applying.
+	optional := spec
+	optional.Checks = append(append([]RunCheck(nil), spec.Checks...), RunCheck{
+		Name: "error_contracts", Kind: "cli_error_contracts_equal",
+		Expected: json.RawMessage(`[{"exit_code":4,"kind":"not_found","remediation":"verify_identifier_or_access"}]`)})
+	if err := optional.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := optional.ValidateAgainstScenario(scenario); err != nil {
+		t.Fatalf("read-only negative path with an error-contract oracle: %v", err)
+	}
+	zeroed := spec
+	zeroed.Checks = append([]RunCheck(nil), spec.Checks...)
+	zeroed.Checks[len(zeroed.Checks)-1].Expected = json.RawMessage(`[0]`)
+	if zeroed.Validate() == nil && zeroed.ValidateAgainstScenario(scenario) == nil {
+		t.Fatal("read-only negative path accepted a successful exit-code contract")
 	}
 }
 

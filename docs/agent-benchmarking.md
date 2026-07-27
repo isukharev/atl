@@ -1148,6 +1148,16 @@ non-zero codes and the declared failure count. This does not relax the required
 semantic result, guard, interface-use, or HTTP-method checks; MCP surfaces
 cannot claim CLI exit-code evidence.
 
+A write-authorized negative path must additionally declare exactly one
+`cli_error_contracts_equal` check. Its ordered array contains one closed
+`exit_code`/`kind`/`remediation` record for each non-zero expected exit, in the
+same order. The confined proxy admits only the CLI's reviewed machine-readable
+classification for one brokered failure and never retains its error text,
+command, arguments, or backend prose. Missing, malformed, text-mode,
+unrecognized, successful, or direct non-brokered output remains unclassified,
+so the contract check fails closed. Read-only negative paths keep the existing
+exit-code rule and may omit this additional oracle.
+
 This contract is run-spec schema v7. Schema-v6 specs remain readable but cannot
 use the reviewed-write fields or enter a current activation study; v5 remains
 readable but lacks the calibrated evidence contract and cannot enter a current

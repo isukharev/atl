@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isukharev/atl/internal/agenteval"
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
@@ -46,30 +47,51 @@ func TestWriteErrorJSON(t *testing.T) {
 func TestErrorKindAndRemediationMatrix(t *testing.T) {
 	tests := []struct {
 		name, kind, remediation string
+		exitCode                int
 		err                     error
 	}{
-		{"generic", "unexpected_error", "inspect_error", errors.New("boom")},
-		{"usage", "usage_error", "fix_request", domain.ErrUsage},
-		{"auth", "authentication_failed", "reauthenticate", domain.ErrAuth},
-		{"not_found", "not_found", "verify_identifier_or_access", domain.ErrNotFound},
-		{"version", "version_conflict", "refresh_and_reapply", domain.ErrVersionConflict},
-		{"forbidden", "forbidden", "request_access", domain.ErrForbidden},
-		{"config", "configuration_error", "complete_configuration", domain.ErrConfig},
-		{"output_limit", "output_limit_exceeded", "narrow_or_raise_bound", fmt.Errorf("%w: %w", domain.ErrCheckFailed, domain.ErrOutputLimit)},
-		{"check", "check_failed", "review_failed_check", domain.ErrCheckFailed},
-		{"internal", "internal_error", "report_bug", &accessPolicyInvariantError{Command: "atl future"}},
-		{"read_only", "read_only_policy", "request_human_approval", &readOnlyPolicyError{Command: "atl jira push"}},
-		{"transport", "transport_error", "inspect_network_before_retry", &httpx.TransportError{Method: "GET", Category: "dns"}},
-		{"rate_limited", "rate_limited", "wait_before_retry", &httpx.APIError{Status: 429, Method: "GET", Path: "/safe", Body: "slow down"}},
-		{"api", "api_error", "inspect_backend_error", &httpx.APIError{Status: 500, Method: "GET", Path: "/safe", Body: "failure"}},
+		{"generic", "unexpected_error", "inspect_error", exitGeneric, errors.New("boom")},
+		{"usage", "usage_error", "fix_request", exitUsage, domain.ErrUsage},
+		{"auth", "authentication_failed", "reauthenticate", exitAuth, domain.ErrAuth},
+		{"not_found", "not_found", "verify_identifier_or_access", exitNotFound, domain.ErrNotFound},
+		{"version", "version_conflict", "refresh_and_reapply", exitVersionConfl, domain.ErrVersionConflict},
+		{"forbidden", "forbidden", "request_access", exitForbidden, domain.ErrForbidden},
+		{"config", "configuration_error", "complete_configuration", exitConfig, domain.ErrConfig},
+		{"output_limit_generic", "output_limit_exceeded", "narrow_or_raise_bound", exitGeneric, domain.ErrOutputLimit},
+		{"output_limit_check", "output_limit_exceeded", "narrow_or_raise_bound", exitCheckFailed, fmt.Errorf("%w: %w", domain.ErrCheckFailed, domain.ErrOutputLimit)},
+		{"check", "check_failed", "review_failed_check", exitCheckFailed, domain.ErrCheckFailed},
+		{"internal", "internal_error", "report_bug", exitCheckFailed, &accessPolicyInvariantError{Command: "atl future"}},
+		{"read_only", "read_only_policy", "request_human_approval", exitCheckFailed, &readOnlyPolicyError{Command: "atl jira push"}},
+		{"transport", "transport_error", "inspect_network_before_retry", exitGeneric, &httpx.TransportError{Method: "GET", Category: "dns"}},
+		{"rate_limited", "rate_limited", "wait_before_retry", exitGeneric, &httpx.APIError{Status: 429, Method: "GET", Path: "/safe", Body: "slow down"}},
+		{"api", "api_error", "inspect_backend_error", exitGeneric, &httpx.APIError{Status: 500, Method: "GET", Path: "/safe", Body: "failure"}},
 	}
+	covered := map[agenteval.CLIErrorContract]struct{}{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			kind, remediation := classifyError(tt.err)
 			if kind != tt.kind || remediation != tt.remediation {
 				t.Fatalf("got %q/%q, want %q/%q", kind, remediation, tt.kind, tt.remediation)
 			}
+			code := codeFor(tt.err)
+			if code != tt.exitCode {
+				t.Fatalf("code=%d, want %d", code, tt.exitCode)
+			}
+			contract, ok := agenteval.ValidateCLIErrorContract(code, kind, remediation)
+			if !ok {
+				t.Fatalf("reachable CLI triplet %d/%q/%q is absent from the harness vocabulary", code, kind, remediation)
+			}
+			covered[contract] = struct{}{}
 		})
+	}
+	known := agenteval.KnownCLIErrorContracts()
+	if len(covered) != len(known) {
+		t.Fatalf("runtime matrix covers %d triplets, harness accepts %d", len(covered), len(known))
+	}
+	for _, contract := range known {
+		if _, exists := covered[contract]; !exists {
+			t.Fatalf("harness triplet %+v has no reachable CLI runtime example", contract)
+		}
 	}
 }
 
