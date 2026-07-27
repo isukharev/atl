@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"testing/iotest"
 )
 
 func TestPrivateWorkspacePublicExampleMatchesStrictManifestContract(t *testing.T) {
@@ -1175,6 +1177,389 @@ func TestEnsurePrivateWorkspaceDirectoriesAttachesLayoutCauses(t *testing.T) {
 			t.Fatalf("error %v does not expose the concrete stat failure", err)
 		}
 	})
+}
+
+func TestPrivateWorkspaceContractErrorKeepsCausesInspectableAndOutOfTheMessage(t *testing.T) {
+	manifestPath := filepath.Join("private", "evaluations", "private-workspace.v4.json")
+	readCause := &fs.PathError{Op: "read", Path: manifestPath, Err: fs.ErrPermission}
+	var syntaxCause *json.SyntaxError
+	if !errors.As(json.Unmarshal([]byte(`{"live_config_env":x}`), new(any)), &syntaxCause) {
+		t.Fatal("fixture did not produce a JSON syntax failure")
+	}
+
+	err := privateWorkspaceContractError("decode", readCause, nil, syntaxCause)
+	// The rendered text is byte-for-byte what this family produced before the
+	// sentinel existed.
+	if got, want := err.Error(), "private workspace manifest is invalid: decode"; got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+	if !errors.Is(err, ErrPrivateWorkspaceManifestInvalid) {
+		t.Fatalf("err=%v, want the manifest contract sentinel", err)
+	}
+	if errors.Is(err, ErrPrivateWorkspaceUnhealthy) {
+		t.Fatalf("err=%v, want a distinct family from the workspace health sentinel", err)
+	}
+	if strings.Contains(err.Error(), manifestPath) || strings.Contains(err.Error(), readCause.Error()) ||
+		strings.Contains(err.Error(), syntaxCause.Error()) {
+		t.Fatalf("message leaked a cause: %q", err.Error())
+	}
+	var pathErr *fs.PathError
+	if !errors.As(err, &pathErr) || pathErr.Path != manifestPath {
+		t.Fatalf("error %v does not expose the concrete read failure", err)
+	}
+	var syntaxErr *json.SyntaxError
+	if !errors.As(err, &syntaxErr) || syntaxErr != syntaxCause {
+		t.Fatalf("error %v does not expose the concrete JSON failure", err)
+	}
+	var classified interface{ Code() string }
+	if !errors.As(err, &classified) || classified.Code() != "decode" {
+		t.Fatalf("error %v does not expose its stable code", err)
+	}
+	causes := privateWorkspaceContractErrorCauses(t, err)
+	if len(causes) != 2 || causes[0] != error(readCause) || causes[1] != error(syntaxCause) {
+		t.Fatalf("causes=%v, want both non-nil causes retained in order", causes)
+	}
+
+	// A verdict with nothing in hand classifies exactly as it did before, and a
+	// nil passed unguarded is dropped rather than retained.
+	cleanErr := privateWorkspaceContractError("retention")
+	if got, want := cleanErr.Error(), "private workspace manifest is invalid: retention"; got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+	if causes := privateWorkspaceContractErrorCauses(t, privateWorkspaceContractError("trailing_data", nil, nil)); len(causes) != 0 {
+		t.Fatalf("causes=%v, want nil causes dropped", causes)
+	}
+}
+
+func TestDecodePrivateWorkspaceManifestAttachesReaderAndJSONCauses(t *testing.T) {
+	base := privateWorkspaceContractManifest(t)
+
+	t.Run("reader failure", func(t *testing.T) {
+		readErr := errors.New("private manifest reader failed")
+		_, err := DecodePrivateWorkspaceManifest(iotest.ErrReader(readErr))
+		assertPrivateWorkspaceContractCode(t, err, "decode")
+		if !errors.Is(err, readErr) {
+			t.Fatalf("error %v does not expose the concrete reader failure", err)
+		}
+	})
+
+	t.Run("oversize manifest", func(t *testing.T) {
+		_, err := DecodePrivateWorkspaceManifest(bytes.NewReader(
+			bytes.Repeat([]byte{' '}, maxPrivateWorkspaceManifestBytes+1)))
+		assertPrivateWorkspaceContractCode(t, err, "size")
+		// The length comparison is the whole rejection.
+		if causes := privateWorkspaceContractErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want none for a size-only rejection", causes)
+		}
+	})
+
+	t.Run("duplicate key", func(t *testing.T) {
+		opened := bytes.TrimSuffix(bytes.TrimRight(base, "\n"), []byte("}"))
+		duplicated := append(append([]byte(nil), opened...), []byte(`,"schema_version":4}`)...)
+		_, err := DecodePrivateWorkspaceManifest(bytes.NewReader(duplicated))
+		assertPrivateWorkspaceContractCode(t, err, "decode")
+		if causes := privateWorkspaceContractErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the duplicate-key failure retained", causes)
+		}
+	})
+
+	t.Run("malformed syntax", func(t *testing.T) {
+		malformed := bytes.Replace(base, []byte(`"schema_version": 4,`), []byte(`"schema_version": 4x,`), 1)
+		if bytes.Equal(malformed, base) {
+			t.Fatal("fixture did not contain the expected schema field")
+		}
+		_, err := DecodePrivateWorkspaceManifest(bytes.NewReader(malformed))
+		assertPrivateWorkspaceContractCode(t, err, "decode")
+		var syntaxErr *json.SyntaxError
+		if !errors.As(err, &syntaxErr) {
+			t.Fatalf("error %v does not expose the concrete JSON syntax failure", err)
+		}
+		if strings.Contains(err.Error(), syntaxErr.Error()) {
+			t.Fatalf("message leaked the decoder failure: %q", err.Error())
+		}
+	})
+
+	t.Run("truncated input", func(t *testing.T) {
+		_, err := DecodePrivateWorkspaceManifest(bytes.NewReader(base[:len(base)/2]))
+		assertPrivateWorkspaceContractCode(t, err, "decode")
+		if !errors.Is(err, io.ErrUnexpectedEOF) {
+			t.Fatalf("error %v does not expose the concrete truncation failure", err)
+		}
+	})
+
+	t.Run("presence scalar overflow", func(t *testing.T) {
+		// The duplicate-key pass deliberately uses json.Number, so this value is
+		// syntactically valid there but fails when the presence pass decodes it
+		// into an ordinary interface value.
+		_, err := DecodePrivateWorkspaceManifest(strings.NewReader("1e999"))
+		assertPrivateWorkspaceContractCode(t, err, "decode")
+		var typeErr *json.UnmarshalTypeError
+		if !errors.As(err, &typeErr) {
+			t.Fatalf("error %v does not expose the presence-pass type failure", err)
+		}
+	})
+
+	t.Run("root document is not an object", func(t *testing.T) {
+		_, err := DecodePrivateWorkspaceManifest(strings.NewReader("[]"))
+		assertPrivateWorkspaceContractCode(t, err, "decode")
+		var typeErr *json.UnmarshalTypeError
+		if !errors.As(err, &typeErr) {
+			t.Fatalf("error %v does not expose the root-object type failure", err)
+		}
+	})
+
+	// Each tier below decodes one nested fragment of the manifest, so a wrongly
+	// typed value there must surface that decoder failure under the same code.
+	typeTests := map[string]struct {
+		code   string
+		mutate func(map[string]any)
+	}{
+		"root scalar tier": {"decode", func(root map[string]any) {
+			root["schema_version"] = "4"
+		}},
+		"strict manifest tier": {"decode", func(root map[string]any) {
+			// The presence pass intentionally treats this field as opaque; the
+			// strict manifest decoder owns its concrete type failure.
+			root["live_config_env"] = float64(5)
+		}},
+		"execution tier": {"decode", func(root map[string]any) {
+			root["execution"] = float64(1)
+		}},
+		"retention tier": {"decode", func(root map[string]any) {
+			root["retention"] = []any{}
+		}},
+		"run-set tier": {"decode", func(root map[string]any) {
+			root["run_sets"] = map[string]any{}
+		}},
+		"panel tier": {"decode", func(root map[string]any) {
+			root["run_sets"].([]any)[0].(map[string]any)["qualitative_review_panel"] = "panel"
+		}},
+		"reviewer tier": {"decode", func(root map[string]any) {
+			privateWorkspaceContractPanel(root)["reviewers"] = map[string]any{}
+		}},
+		"execution roster tier": {"decode", func(root map[string]any) {
+			privateWorkspaceContractPanel(root)["executions"] = "roster"
+		}},
+		"pricing tier": {"decode", func(root map[string]any) {
+			privateWorkspaceContractPanel(root)["executions"].([]any)[0].(map[string]any)["pricing"] = float64(1)
+		}},
+		"external profile env tier": {"external_mcp_profile_env", func(root map[string]any) {
+			root["external_mcp_profile_env"] = float64(1)
+		}},
+		"run-set kind tier": {"run_set_kind", func(root map[string]any) {
+			root["run_sets"].([]any)[0].(map[string]any)["kind"] = float64(1)
+		}},
+	}
+	for name, test := range typeTests {
+		t.Run(name, func(t *testing.T) {
+			_, err := DecodePrivateWorkspaceManifest(bytes.NewReader(
+				privateWorkspaceContractMutation(t, base, test.mutate)))
+			assertPrivateWorkspaceContractCode(t, err, test.code)
+			var typeErr *json.UnmarshalTypeError
+			if !errors.As(err, &typeErr) {
+				t.Fatalf("error %v does not expose the concrete JSON type failure", err)
+			}
+			if strings.Contains(err.Error(), typeErr.Error()) {
+				t.Fatalf("message leaked the decoder failure: %q", err.Error())
+			}
+		})
+	}
+
+	// Every rejection below is decided by the decoded document itself, so none of
+	// them may acquire a cause.
+	cleanTests := map[string]struct {
+		code   string
+		mutate func(map[string]any)
+	}{
+		"null value": {"decode", func(root map[string]any) {
+			root["retention"].(map[string]any)["retain_baseline_transcripts"] = nil
+		}},
+		"unknown root key": {"decode", func(root map[string]any) {
+			root["unknown_key"] = true
+		}},
+		"missing root key": {"decode", func(root map[string]any) {
+			delete(root, "live_config_env")
+		}},
+		"unknown reviewer key": {"decode", func(root map[string]any) {
+			privateWorkspaceContractPanel(root)["reviewers"].([]any)[0].(map[string]any)["unknown_key"] = true
+		}},
+		"unknown pricing key": {"decode", func(root map[string]any) {
+			privateWorkspaceContractPanel(root)["executions"].([]any)[0].(map[string]any)["pricing"].(map[string]any)["unknown_key"] = true
+		}},
+		// The required-key gate rejects both booleans before the dedicated
+		// presence codes can fire, so retention_presence and
+		// qualitative_review_presence stay defensive and cause-free.
+		"missing retention boolean": {"decode", func(root map[string]any) {
+			delete(root["retention"].(map[string]any), "retain_baseline_transcripts")
+		}},
+		"missing qualitative boolean": {"decode", func(root map[string]any) {
+			delete(root["run_sets"].([]any)[0].(map[string]any), "qualitative_review_required")
+		}},
+		"empty external profile env": {"external_mcp_profile_env", func(root map[string]any) {
+			root["external_mcp_profile_env"] = ""
+		}},
+		"empty run-set kind": {"run_set_kind", func(root map[string]any) {
+			root["run_sets"].([]any)[0].(map[string]any)["kind"] = ""
+		}},
+		"empty execution roster": {"reviewer_execution", func(root map[string]any) {
+			privateWorkspaceContractPanel(root)["executions"] = []any{}
+		}},
+		"out-of-range retention": {"retention", func(root map[string]any) {
+			root["retention"].(map[string]any)["max_candidate_age_days"] = float64(0)
+		}},
+		"unsupported schema version": {"schema_version", func(root map[string]any) {
+			// The panel and its reserve are tied to the current schema, so they are
+			// dropped to reach the version verdict itself.
+			runSet := root["run_sets"].([]any)[0].(map[string]any)
+			delete(runSet, "qualitative_review_panel")
+			delete(runSet, "reviewer_reserve_microusd")
+			root["schema_version"] = float64(99)
+		}},
+		"duplicate spec path": {"spec_path", func(root map[string]any) {
+			paths := root["run_sets"].([]any)[0].(map[string]any)["spec_paths"].([]any)
+			paths[1] = paths[0]
+		}},
+		"invalid panel range": {"qualitative_review_panel", func(root map[string]any) {
+			privateWorkspaceContractPanel(root)["max_criterion_range_bps"] = float64(0)
+		}},
+		"invalid reviewer reasoning": {"reviewer_execution", func(root map[string]any) {
+			privateWorkspaceContractPanel(root)["executions"].([]any)[0].(map[string]any)["reasoning"] = "max"
+		}},
+	}
+	for name, test := range cleanTests {
+		t.Run(name, func(t *testing.T) {
+			_, err := DecodePrivateWorkspaceManifest(bytes.NewReader(
+				privateWorkspaceContractMutation(t, base, test.mutate)))
+			assertPrivateWorkspaceContractCode(t, err, test.code)
+			if causes := privateWorkspaceContractErrorCauses(t, err); len(causes) != 0 {
+				t.Fatalf("causes=%v, want none for a document-only verdict", causes)
+			}
+		})
+	}
+
+	t.Run("trailing data is rejected before the trailing gate", func(t *testing.T) {
+		trailing := append(append([]byte(nil), base...), []byte("{}\n")...)
+		_, err := DecodePrivateWorkspaceManifest(bytes.NewReader(trailing))
+		// The duplicate-key pass already refuses a second document, so the
+		// trailing_data code stays defensive. Its cause handling is pinned on the
+		// constructor instead.
+		assertPrivateWorkspaceContractCode(t, err, "decode")
+		if causes := privateWorkspaceContractErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the trailing-document failure retained", causes)
+		}
+	})
+}
+
+func TestEncodePrivateWorkspaceManifestReportsContractVerdictsWithoutCauses(t *testing.T) {
+	manifest := DefaultPrivateWorkspaceManifest()
+	manifest.Execution.MaxEstimatedCostMicroUSD = 0
+	// Validation runs before the marshal, so an invalid manifest never reaches
+	// the defensive encode branch and its verdict stays cause-free.
+	_, err := EncodePrivateWorkspaceManifest(manifest)
+	assertPrivateWorkspaceContractCode(t, err, "execution")
+	if causes := privateWorkspaceContractErrorCauses(t, err); len(causes) != 0 {
+		t.Fatalf("causes=%v, want none for a range verdict", causes)
+	}
+	if _, err := EncodePrivateWorkspaceManifest(DefaultPrivateWorkspaceManifest()); err != nil {
+		t.Fatalf("valid manifest rejected: %v", err)
+	}
+}
+
+func TestPrivateWorkspaceManifestContractCausesTraverseNestedOperationErrors(t *testing.T) {
+	repository, root := t.TempDir(), filepath.Join(t.TempDir(), "private")
+	if _, err := InitPrivateWorkspace(root, repository, DefaultPrivateWorkspaceManifest()); err != nil {
+		t.Fatal(err)
+	}
+	privateMarker := "PRIVATE_WORKSPACE_TRAVERSAL_MARKER"
+	if err := os.WriteFile(filepath.Join(root, PrivateWorkspaceManifestName),
+		[]byte(`{"schema_version":4,"live_config_env":"`+privateMarker+`"x}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := loadPrivateWorkspaceManifest(root)
+	assertPrivateWorkspaceOperationCode(t, err, "manifest_mismatch")
+	// The contract classification and the decoder failure it retained both stay
+	// reachable below the unchanged operation code.
+	if !errors.Is(err, ErrPrivateWorkspaceManifestInvalid) {
+		t.Fatalf("error %v does not expose the nested manifest contract sentinel", err)
+	}
+	var syntaxErr *json.SyntaxError
+	if !errors.As(err, &syntaxErr) {
+		t.Fatalf("error %v does not expose the concrete JSON syntax failure", err)
+	}
+	if strings.Contains(err.Error(), privateMarker) || strings.Contains(err.Error(), root) ||
+		strings.Contains(err.Error(), syntaxErr.Error()) {
+		t.Fatalf("message leaked private manifest content: %q", err.Error())
+	}
+	var classified interface{ Code() string }
+	if !errors.As(err, &classified) || classified.Code() != "manifest_mismatch" {
+		t.Fatalf("error %v does not expose the outer operation code", err)
+	}
+}
+
+// privateWorkspaceContractManifest builds a valid current-schema manifest whose
+// run set carries a full executable review panel, so mutations can reach every
+// nested decoding tier.
+func privateWorkspaceContractManifest(t *testing.T) []byte {
+	t.Helper()
+	manifest := DefaultPrivateWorkspaceManifest()
+	panel := privateReviewTestPanel()
+	for _, reviewer := range panel.Reviewers {
+		panel.Executions = append(panel.Executions, PrivateReviewerExecution{ReviewerID: reviewer.ID,
+			Reasoning: "high", TimeoutSeconds: 60, MaxEstimatedCostMicroUSD: 10,
+			Pricing: Pricing{InputMicroUSDPerMillionTokens: 1, OutputMicroUSDPerMillionTokens: 2}})
+	}
+	manifest.RunSets = []PrivateWorkspaceRunSet{{Alias: "comparison",
+		SpecPaths:              []string{"cases/comparison/cli.json", "cases/comparison/mcp.json"},
+		QualitativeReviewPanel: &panel, ReviewerReserveMicroUSD: 60}}
+	data, err := EncodePrivateWorkspaceManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodePrivateWorkspaceManifest(bytes.NewReader(data)); err != nil {
+		t.Fatalf("contract fixture is not a valid manifest: %v", err)
+	}
+	return data
+}
+
+func privateWorkspaceContractPanel(root map[string]any) map[string]any {
+	return root["run_sets"].([]any)[0].(map[string]any)["qualitative_review_panel"].(map[string]any)
+}
+
+func privateWorkspaceContractMutation(t *testing.T, base []byte, mutate func(map[string]any)) []byte {
+	t.Helper()
+	var root map[string]any
+	if err := json.Unmarshal(base, &root); err != nil {
+		t.Fatal(err)
+	}
+	mutate(root)
+	data, err := json.Marshal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func assertPrivateWorkspaceContractCode(t *testing.T, err error, code string) {
+	t.Helper()
+	if !errors.Is(err, ErrPrivateWorkspaceManifestInvalid) {
+		t.Fatalf("err=%v, want the manifest contract sentinel", err)
+	}
+	if got, want := err.Error(), ErrPrivateWorkspaceManifestInvalid.Error()+": "+code; got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+}
+
+func privateWorkspaceContractErrorCauses(t *testing.T, err error) []error {
+	t.Helper()
+	multi, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		t.Fatalf("%T does not unwrap to multiple errors", err)
+	}
+	tree := multi.Unwrap()
+	if len(tree) == 0 || !errors.Is(tree[0], ErrPrivateWorkspaceManifestInvalid) {
+		t.Fatalf("unwrap tree=%v, want the sentinel first", tree)
+	}
+	return tree[1:]
 }
 
 func assertPrivateWorkspaceOperationCode(t *testing.T, err error, code string) {

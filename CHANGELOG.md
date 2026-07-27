@@ -18,6 +18,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Classified private agent-evaluation workspace manifest contract rejections
+  under a matchable sentinel and preserved their underlying causes. The family
+  previously rendered an ad-hoc string with no sentinel, so a nested caller
+  could only recognize it by comparing text. Its message is now produced by the
+  same cause-preserving coded error the workspace-operation, plan-execution,
+  live-gateway, checkpoint, workspace-migration, retention-prune,
+  compact-baseline, coverage-index, sampling, finding-ledger,
+  finding-acceptance, and finding-scorecard paths already use, and the exported
+  sentinel's text is exactly the prefix these rejections already rendered — so
+  every message stays byte-for-byte what it was while `errors.Is` now matches
+  the family and `errors.As` reaches typed causes and the stable code. The
+  family classifies at sixty-four call sites across twenty-two codes, and both
+  totals are unchanged. Twenty sites can hold a concrete failure and now attach
+  it: the bounded manifest read, the duplicate-key and structural JSON pass, the
+  strict struct decode, the trailing-document gate, the presence pass's decodes
+  of the root document, the execution and retention objects, the run-set list, a
+  review panel, its reviewer roster, its execution roster and each execution's
+  pricing object, the typed re-read of the root document, the optional
+  external-profile environment value, the run-set kind, the execution roster
+  cardinality check, and the defensive manifest encode. The remaining forty-four
+  sites are decided by the decoded document alone — a size cap, a null anywhere
+  in the document, a missing or unknown key at any tier, a presence, cardinality,
+  or identity check, a schema version, an environment-name or spec-path pattern,
+  a range or reserve comparison, a duplicate alias or spec path, an
+  activation-study rule, and every qualitative panel and reviewer verdict — and
+  still carry no cause. A key-set verdict already carries this same
+  classification and is reported directly rather than nested below an identical
+  one, and qualitative panel validation details are deliberately not attached.
+  On a compound condition only the raw decoder failure is attached, never the
+  clean verdict beside it. The trailing-document gate, the `retention_presence`
+  and `qualitative_review_presence` codes, the execution roster's decoder
+  failure, and the manifest encode are pre-empted by earlier passes or by
+  validation and remain defensive; they are kept and their cause handling is
+  pinned on the classification constructor. The two later review-panel
+  re-decodes are likewise pre-empted by the first panel decode over the same
+  retained bytes. No manifest contract code is added or renamed. Manifest
+  schemas, serialized bytes, validation and short-circuit order, health reports,
+  output, exit codes, and fail-closed behavior are unchanged, and the activation
+  lifecycle remains a separate evidence gate.
 - Preserved the underlying causes of private agent-evaluation finding-scorecard
   reconciliation and immutable-result loading rejections, which completes the
   finding slice. The reconciliation classifies at forty-two call sites: sixteen

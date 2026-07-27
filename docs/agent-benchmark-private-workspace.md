@@ -186,6 +186,45 @@ root adoption, Git-boundary semantics, file and directory permissions, layout
 ordering, health reports, and fail-closed behavior are unchanged. Remaining
 lifecycle subsystems migrate to this pattern incrementally.
 
+That separate manifest contract family is now matchable. A rejected manifest
+still renders exactly its previous text — the words `private workspace
+manifest is invalid`, a colon, and its existing short code — but that prefix
+is now an exported sentinel, so callers can use `errors.Is` instead of
+comparing strings. The family classifies at sixty-four call sites across
+twenty-two codes, and both totals are unchanged. Twenty of those sites can hold
+a concrete failure and now attach it: the bounded manifest read, the
+duplicate-key and structural JSON
+pass, the strict struct decode, the trailing-document gate, each nested
+presence-pass decode of the root document, the execution and retention objects,
+the run-set list, a review panel, its reviewer roster, its execution roster and
+each execution's pricing object, the typed re-read of the root document, the
+optional external-profile environment value, the run-set kind, the execution
+roster cardinality check, and the defensive manifest encode. The remaining
+forty-four sites are decided by the decoded document alone — a size cap, a
+null anywhere in the document, a missing or unknown key at any tier, a
+presence, cardinality, or identity check, a schema version, an
+environment-name or
+spec-path pattern, a range or reserve comparison, a duplicate alias or spec
+path, an activation-study rule, and every qualitative panel and reviewer
+verdict — and still carry no cause. A key-set verdict already carries this
+same classification, so it is reported directly rather than nested below an
+identical one, and qualitative panel details are deliberately not attached. On
+a compound condition only the raw decoder failure is attached, never the clean
+verdict beside it, and the existing short-circuit and validation order is
+unchanged. Several paths are defensive today: the trailing-document gate is
+pre-empted by the earlier structural pass, which already refuses a second
+document; the `retention_presence` and `qualitative_review_presence` codes are
+pre-empted by the required-key gate; the execution roster's decoder failure is
+pre-empted by the earlier roster decode, leaving only its cardinality verdict
+reachable; the two later review-panel re-decodes are pre-empted by the first
+panel decode over the same retained bytes; and the manifest encode runs only
+after validation has accepted a plain JSON-encodable struct. All of them are
+kept, and their cause handling is pinned on the classification constructor
+rather than on an unreachable end-to-end path. Manifest schemas, serialized
+bytes, decoding order, health reports, output, exit codes, and fail-closed
+behavior are unchanged, and the activation lifecycle remains a separate
+evidence gate.
+
 ### Migrate a schema-v3 workspace
 
 A healthy schema-v3 workspace remains readable, but it cannot create a new
