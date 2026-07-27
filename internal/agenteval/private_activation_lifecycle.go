@@ -3,7 +3,6 @@ package agenteval
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 )
 
 const (
@@ -141,6 +140,12 @@ func NewPrivateActivationStudyPlan(input PrivateActivationStudyPlanInput) (Priva
 	return plan, nil
 }
 
+// Validate reports plan contract verdicts. Every rejection below is decided by
+// the plan in front of it, so none of them carries a cause. In particular the
+// study-identifier and cell-identifier gates deliberately drop the rejection
+// they receive: it renders the rejected identifier, which is a configured
+// private name that must not reach the unwrap tree, and it is a bare formatted
+// error with no sentinel or type for a caller to match on.
 func (p PrivateActivationStudyPlan) Validate() error {
 	if p.SchemaVersion != PrivateActivationStudyPlanSchemaVersion || validatePathComponentID("activation study id", p.StudyID) != nil || p.Provider != "codex" ||
 		p.Cost.Assurance != PrivateActivationCostAssuranceDetectionOnly || p.Cost.Preventive ||
@@ -190,9 +195,12 @@ func (p PrivateActivationStudyPlan) SHA256() (string, error) {
 	if err := p.Validate(); err != nil {
 		return "", err
 	}
+	// Validate has just accepted a plain struct of JSON-encodable fields, so
+	// this encoding is defensive. Its failure is retained rather than dropped
+	// if the contract ever gains a fallible marshaler.
 	data, err := json.Marshal(p)
 	if err != nil {
-		return "", privateActivationLifecycleError("plan_encode")
+		return "", privateActivationLifecycleError("plan_encode", err)
 	}
 	return sha256HexBytes(data), nil
 }
@@ -527,19 +535,28 @@ type privateActivationProjection struct {
 
 func (l PrivateActivationStudyLifecycle) project() (privateActivationProjection, error) {
 	projection := privateActivationProjection{status: PrivateActivationStudyPending}
+	// Mixed branch: a rejected plan arrives already classified and is retained,
+	// while a plan that hashes cleanly to a different digest is refused by the
+	// comparison alone and leaves nil here. The nil is passed unguarded because
+	// codedError drops it, so a digest mismatch stays cause-free.
 	digest, err := l.Plan.SHA256()
 	if err != nil || digest != l.PlanSHA256 {
-		return projection, privateActivationLifecycleError("plan_hash")
+		return projection, privateActivationLifecycleError("plan_hash", err)
 	}
 	previous := ""
 	for index, event := range l.Events {
+		// The chain gate compares schema, sequence, links, and digest shape
+		// against the event in hand, so it has nothing to attach.
 		if event.SchemaVersion != PrivateActivationStudyEventSchemaVersion || event.Sequence != index+1 || event.PreviousSHA256 != previous ||
 			event.PlanSHA256 != l.PlanSHA256 || !validSHA256(event.EventSHA256) {
 			return projection, privateActivationLifecycleError("event_chain")
 		}
+		// Mixed branch again: only the defensive encode failure is retained, and
+		// a tampered event whose recomputed digest simply differs stays
+		// cause-free.
 		computed, hashErr := privateActivationEventSHA256(event)
 		if hashErr != nil || computed != event.EventSHA256 {
-			return projection, privateActivationLifecycleError("event_hash")
+			return projection, privateActivationLifecycleError("event_hash", hashErr)
 		}
 		if err := applyPrivateActivationEvent(&projection, l.Plan, event); err != nil {
 			return projection, err
@@ -717,9 +734,12 @@ func (l *PrivateActivationStudyLifecycle) appendEvent(event PrivateActivationStu
 
 func privateActivationEventSHA256(event PrivateActivationStudyEvent) (string, error) {
 	event.EventSHA256 = ""
+	// The event envelope is a fixed struct of scalars, so this encoding is
+	// defensive in the same way the plan encode is; its failure is retained
+	// rather than dropped.
 	data, err := json.Marshal(event)
 	if err != nil {
-		return "", privateActivationLifecycleError("event_encode")
+		return "", privateActivationLifecycleError("event_encode", err)
 	}
 	return sha256HexBytes(data), nil
 }
@@ -799,6 +819,14 @@ func emptyPrivateActivationEventPayload(event PrivateActivationStudyEvent) bool 
 		event.Outcome == "" && event.Reason == ""
 }
 
-func privateActivationLifecycleError(code string) error {
-	return fmt.Errorf("%w: %s", ErrPrivateActivationLifecycle, code)
+// privateActivationLifecycleError classifies an activation lifecycle rejection
+// under the lifecycle sentinel and its unchanged short code while retaining any
+// concrete failure already in hand. The rendered message stays sentinel plus
+// code, so a study or cell identifier, a plan body, or an encoder detail never
+// reaches a CLI message, a log line, or a persisted artifact through an error
+// string. State-machine, transition, schema, range, identity, and comparison
+// verdicts are decided by the plan or event in front of them, have nothing to
+// attach, and stay cause-free.
+func privateActivationLifecycleError(code string, causes ...error) error {
+	return codedError(ErrPrivateActivationLifecycle, code, causes...)
 }

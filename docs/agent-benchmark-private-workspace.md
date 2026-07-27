@@ -225,6 +225,45 @@ bytes, decoding order, health reports, output, exit codes, and fail-closed
 behavior are unchanged, and the activation lifecycle remains a separate
 evidence gate.
 
+That activation lifecycle gate now keeps its causes too. A rejected lifecycle
+still renders exactly its previous text — the words `private activation
+lifecycle rejected`, a colon, and its existing short code — but the
+classification is now built by the same cause-preserving coded error, so
+`errors.Is` keeps matching the sentinel while `errors.As` reaches typed causes
+and the stable code that the hand-built error could not expose. The family
+classifies at seventy-two call sites across seventy-one codes, and both totals
+are unchanged. Seven of those sites can hold a concrete failure and now attach
+it: the current plan encode, the plan-hash reconciliation, the event-hash
+reconciliation, and the event encode, plus the schema-v1 plan encode,
+plan-hash reconciliation, and event-hash reconciliation. Each reconciliation is
+a mixed branch and passes its error unguarded: a plan that is itself rejected
+keeps its classified cause under the outer hash code, while a plan or event
+that encodes cleanly and simply hashes to a different digest leaves nil, which
+the constructor drops, so a digest mismatch stays cause-free. The two direct
+legacy plan-state frames — the schema-v1 plan hash and the schema-v1
+projection — nest the classified lifecycle rejection they receive beneath the
+unchanged `legacy_study_state` code, and the outer code keeps precedence; the
+other six frames of that wrapper are decided by a kind, schema, or state
+comparison and stay cause-free.
+
+The remaining sixty-five lifecycle sites carry no cause. Four of them are the
+plan and cell identifier gates on both the current and the schema-v1 contract.
+Their rejection is dropped deliberately: it renders the rejected identifier,
+which is a configured private name that must not reach the unwrap tree, and it
+is a bare formatted error with no sentinel or type for a caller to match on.
+The other sixty-one are state-machine, transition, schema, range, cardinality,
+identity, budget, and comparison verdicts decided by the plan or event in front
+of them, with nothing to attach. Three paths are defensive today: the plan
+encode, the event encode, and the schema-v1 plan encode all marshal plain
+structs of JSON-encodable scalars that validation has just accepted, and the
+two event-hash causes are reachable only through those encodes. All of them are
+kept, and their cause handling is pinned on the classification constructor
+rather than on an unreachable end-to-end path. No lifecycle code is added or
+renamed. Plan and event schemas, serialized bytes, hash chains, validation and
+short-circuit order, reservation and terminal semantics, append
+validate-then-commit, legacy read-only inspection, output, exit codes, and
+fail-closed transitions are unchanged.
+
 ### Migrate a schema-v3 workspace
 
 A healthy schema-v3 workspace remains readable, but it cannot create a new

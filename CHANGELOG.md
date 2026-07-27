@@ -18,6 +18,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserved the underlying causes of private agent-evaluation activation
+  lifecycle rejections and of the two legacy plan-state frames that wrap them.
+  The family already had a stable sentinel and stable short codes, but it built
+  its error by hand, so it could not expose its code through `errors.As` and it
+  discarded every cause it held. It now routes through the same
+  cause-preserving coded error the workspace-manifest, workspace-operation,
+  plan-execution, live-gateway, checkpoint, workspace-migration,
+  retention-prune, compact-baseline, coverage-index, sampling, finding-ledger,
+  finding-acceptance, and finding-scorecard paths already use, so every
+  rendered message stays byte-for-byte `private activation lifecycle rejected`,
+  a colon, and its existing code while `errors.Is` keeps matching the sentinel
+  and `errors.As` now reaches typed causes and the stable code. The family
+  classifies at seventy-two call sites across seventy-one codes, and both
+  totals are unchanged. Seven sites can hold a concrete failure and now attach
+  it: the current plan encode, the plan-hash reconciliation, the event-hash
+  reconciliation, and the event encode, plus the schema-v1 plan encode,
+  plan-hash reconciliation, and event-hash reconciliation. On each mixed branch
+  the error is passed unguarded, so a plan that is itself rejected keeps its
+  classified cause while a plan or event that hashes cleanly to a different
+  digest leaves nil and stays cause-free. The two direct legacy plan-state
+  frames — the schema-v1 plan hash and the schema-v1 projection — now nest the
+  classified lifecycle rejection they receive beneath the unchanged
+  `legacy_study_state` code, and the outer code keeps precedence; the other six
+  frames of that wrapper are decided by a kind, schema, or state comparison and
+  stay cause-free. The remaining sixty-five lifecycle sites carry no cause. Four
+  of them are the plan and cell identifier gates on both the current and the
+  schema-v1 contract: their rejection renders the rejected identifier, which is
+  a configured private name that must not enter the unwrap tree, and it is a
+  bare formatted error with no sentinel or type to match on. The other
+  sixty-one are state-machine, transition, schema, range, cardinality,
+  identity, budget, and comparison verdicts with nothing to attach. The three
+  encode sites are defensive — the plan, the event envelope, and the historical
+  envelope are plain structs of JSON-encodable scalars that validation has
+  already accepted — and the two event-hash causes are reachable only through
+  them; all of them are kept, and their cause handling is pinned on the
+  classification constructor rather than on an unreachable end-to-end path. No
+  lifecycle code is added or renamed. Plan and event schemas, serialized bytes,
+  hash chains, validation and short-circuit order, reservation and terminal
+  semantics, append validate-then-commit, legacy read-only behavior, output,
+  and exit codes are unchanged.
 - Classified private agent-evaluation workspace manifest contract rejections
   under a matchable sentinel and preserved their underlying causes. The family
   previously rendered an ad-hoc string with no sentinel, so a nested caller

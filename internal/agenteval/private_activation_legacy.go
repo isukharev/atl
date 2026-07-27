@@ -76,6 +76,11 @@ type legacyPrivateActivationProjection struct {
 	receiptSafe          bool
 }
 
+// validateLegacyPrivateActivationStudyPlan reports schema-v1 plan verdicts.
+// As in the current contract, every rejection is decided by the plan in front
+// of it and stays cause-free; the study-identifier and cell-identifier gates
+// deliberately drop the rejection they receive because it renders the rejected
+// private identifier and offers no sentinel or type to match on.
 func validateLegacyPrivateActivationStudyPlan(plan PrivateActivationStudyPlan) error {
 	if plan.SchemaVersion != legacyPrivateActivationStudyPlanSchemaVersion ||
 		plan.Cost.CalibrationAllocatedMicroUSD != 0 ||
@@ -137,8 +142,11 @@ func legacyPrivateActivationStudyPlanSHA256(plan PrivateActivationStudyPlan) (st
 		},
 		Cells: plan.Cells,
 	})
+	// The historical envelope is a plain struct of JSON-encodable fields that
+	// the validation above has just accepted, so this encoding is defensive; its
+	// failure is retained rather than dropped.
 	if err != nil {
-		return "", privateActivationLifecycleError("legacy_plan_encode")
+		return "", privateActivationLifecycleError("legacy_plan_encode", err)
 	}
 	return sha256HexBytes(encoded), nil
 }
@@ -148,19 +156,27 @@ func legacyPrivateActivationStudyPlanSHA256(plan PrivateActivationStudyPlan) (st
 // upgrade, synthesize calibration evidence, or expose mutation operations.
 func projectLegacyPrivateActivationLifecycle(plan PrivateActivationStudyPlan, planSHA256 string, events []PrivateActivationStudyEvent) (legacyPrivateActivationProjection, error) {
 	projection := legacyPrivateActivationProjection{status: PrivateActivationStudyPending}
+	// Mixed branch, exactly as in the current projection: a rejected schema-v1
+	// plan arrives already classified and is retained, while a plan that hashes
+	// cleanly to a different digest is refused by the comparison alone and
+	// leaves nil, which codedError drops.
 	digest, err := legacyPrivateActivationStudyPlanSHA256(plan)
 	if err != nil || digest != planSHA256 {
-		return projection, privateActivationLifecycleError("legacy_plan_hash")
+		return projection, privateActivationLifecycleError("legacy_plan_hash", err)
 	}
 	previous := ""
 	for index, event := range events {
+		// The chain gate compares the event in hand against the contract, so it
+		// has nothing to attach.
 		if event.SchemaVersion != legacyPrivateActivationStudyEventSchemaVersion || event.Sequence != index+1 || event.PreviousSHA256 != previous ||
 			event.PlanSHA256 != planSHA256 || !validSHA256(event.EventSHA256) {
 			return projection, privateActivationLifecycleError("legacy_event_chain")
 		}
+		// Only the defensive encode failure is retained here; a tampered event
+		// whose recomputed digest simply differs stays cause-free.
 		computed, hashErr := privateActivationEventSHA256(event)
 		if hashErr != nil || computed != event.EventSHA256 {
-			return projection, privateActivationLifecycleError("legacy_event_hash")
+			return projection, privateActivationLifecycleError("legacy_event_hash", hashErr)
 		}
 		if err := applyLegacyPrivateActivationEvent(&projection, plan, event); err != nil {
 			return projection, err
@@ -185,19 +201,28 @@ func projectLegacyPrivateActivationLifecycle(plan PrivateActivationStudyPlan, pl
 // paths; execution, recovery, reference capture, and promotion require the
 // current calibrated contract.
 func validateLegacyPrivateActivationPlanState(plan privatePlan, state privatePlanState) error {
+	// A kind, contract-presence, and schema comparison decides this rejection on
+	// its own.
 	if plan.Kind != PrivateRunSetKindActivationStudy || plan.StudyContract == nil ||
 		plan.StudyContract.SchemaVersion != legacyPrivateActivationStudyPlanSchemaVersion || state.SchemaVersion != 2 {
 		return privatePlanError("legacy_study_state")
 	}
+	// The classified lifecycle rejection is preserved beneath the plan-state
+	// code rather than discarded; the outer code keeps precedence.
 	planSHA256, err := legacyPrivateActivationStudyPlanSHA256(*plan.StudyContract)
 	if err != nil {
-		return privatePlanError("legacy_study_state")
+		return privatePlanError("legacy_study_state", err)
 	}
+	// Mixed branch: a lifecycle rejection is retained, while a projection that
+	// succeeds and then disagrees with the recorded cells, cost, or stop reason
+	// leaves nil, so a state comparison stays cause-free.
 	projection, err := projectLegacyPrivateActivationLifecycle(*plan.StudyContract, planSHA256, state.Events)
 	if err != nil || !equalStrings(state.CompletedCells, projection.completedCells) ||
 		state.EstimatedCostMicroUSD != projection.detectedCostMicroUSD || state.StopReason != projection.stopReason {
-		return privatePlanError("legacy_study_state")
+		return privatePlanError("legacy_study_state", err)
 	}
+	// Every status verdict below compares the accepted projection against the
+	// recorded state, so all of them stay cause-free.
 	switch state.Status {
 	case "interrupted":
 		if projection.status != PrivateActivationStudyPending || len(state.Events) != 0 || len(state.CompletedCells) != 0 ||
