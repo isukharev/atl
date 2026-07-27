@@ -71,10 +71,28 @@ type RunOutput struct {
 type atlProxyRecord struct {
 	CommandFamily                string `json:"command_family,omitempty"`
 	CalibrationObservationSHA256 string `json:"calibration_observation_sha256,omitempty"`
+	ErrorKind                    string `json:"error_kind,omitempty"`
+	ErrorRemediation             string `json:"error_remediation,omitempty"`
 	Denied                       bool   `json:"denied,omitempty"`
 	StdoutBytes                  int64  `json:"stdout_bytes"`
 	StderrBytes                  int64  `json:"stderr_bytes"`
 	ExitCode                     int    `json:"exit_code"`
+}
+
+// errorContract revalidates a recorded classification against this record's own
+// audited exit code and the closed CLI vocabulary before it can reach an
+// oracle. An absent classification is ordinary: a successful, denied, or
+// unclassified invocation simply contributes nothing. A present but
+// inconsistent one is a corrupt audit and fails the run closed.
+func (r atlProxyRecord) errorContract() (CLIErrorContract, bool, error) {
+	if r.ErrorKind == "" && r.ErrorRemediation == "" {
+		return CLIErrorContract{}, false, nil
+	}
+	contract, ok := ValidateCLIErrorContract(r.ExitCode, r.ErrorKind, r.ErrorRemediation)
+	if !ok || r.Denied {
+		return CLIErrorContract{}, false, fmt.Errorf("atl proxy record carries an invalid CLI error contract")
+	}
+	return contract, true, nil
 }
 
 type guardDecisionRecord struct {
@@ -1210,10 +1228,18 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	var failedATL int
 	cliExitCodes := make([]int, 0, len(proxyRecords))
+	cliErrorContracts := make([]CLIErrorContract, 0, len(proxyRecords))
 	for _, record := range proxyRecords {
 		cliExitCodes = append(cliExitCodes, record.ExitCode)
 		if record.ExitCode != 0 {
 			failedATL++
+		}
+		contract, classified, err := record.errorContract()
+		if err != nil {
+			return Result{}, err
+		}
+		if classified {
+			cliErrorContracts = append(cliErrorContracts, contract)
 		}
 	}
 	guardSummary, err := readGuardDecisionSummary(guardCounterPath)
@@ -1229,6 +1255,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		guardDenials += externalDenials
 		proxyRecords = nil
 		cliExitCodes = nil
+		cliErrorContracts = nil
 		providerMetrics.MCPToolCalls = externalCalls
 		providerMetrics.FailedMCPToolCalls = externalFailures
 	}
@@ -1304,13 +1331,13 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if !familyCoverage {
 		capabilityFamilies = nil
 	}
-	checks, err := evaluateRunChecksWithMCPInvocations(
+	checks, err := evaluateRunChecksWithCLIErrorContracts(
 		loaded.spec.Checks, final, workspace, atlInvocations, failedATL, unexpected,
 		providerMetrics.SkillToolCalls+guardSummary.SkillReadAdmissions,
 		providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, guardDenials,
 		methods, httpMethodsObserved, cliExitCodes, capabilityFamilies, familyCoverage,
 		capabilitySequence, providerMetrics.MCPInvocations,
-		familyCoverage && providerMetrics.MCPInvocationCoverage,
+		familyCoverage && providerMetrics.MCPInvocationCoverage, cliErrorContracts,
 	)
 	if err != nil {
 		return Result{}, err

@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Bound write-authorized private agent-evaluation refusals to the CLI's own
+  typed error classification instead of a bare exit code. A new
+  `cli_error_contracts_equal` run check takes an exact ordered array of closed
+  three-member records — `exit_code`, `kind`, and `remediation` — and evaluates
+  false for an absent, reordered, extra, or differently classified refusal. It
+  is CLI-only and accepts no pointer, minimum, or maximum. A private-live run
+  with `allow_live_writes` and no success oracle must now declare exactly one
+  such check covering every expected failure, on top of the exact non-zero exit
+  codes and matching failure count it already required; read-only negative paths
+  are unchanged. The classification is parsed from one failed brokered
+  invocation's last non-empty stderr line by a single shared validator used by
+  both the confined proxy and the runner, and only when that line is one valid
+  JSON object whose code equals the audited exit code and whose kind and
+  remediation are the reviewed pair. Error text, command, arguments, and backend
+  prose are never retained; successful, text-mode, truncated, unknown-member,
+  unknown-pair, and direct non-brokered invocations record nothing. The proxy
+  and runner audit records gained only the two omitted-when-absent classification
+  fields, the runner revalidates them against each record's own exit code before
+  evaluation and fails closed on an inconsistent pair, and audit sanitization
+  keeps dropping them from the published baseline. Both CLI run-check kinds are
+  now registered as mechanical for private comparison sets, and a failed
+  contract oracle is deliberately a task/oracle failure rather than a safety
+  violation. No run-spec schema bump, no CLI output change.
+
 ### Changed
 
 - Reused each valid Jira mirror baseline digest between local validation and
