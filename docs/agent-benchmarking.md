@@ -1346,10 +1346,12 @@ deliberately terminates the child rather than fabricating a model response or
 retrying; a second model request fails closed. Claude Code is launched with a
 fixed synthetic key in an environment allowlist, so ambient provider
 credentials, configuration directories, and proxy settings never cross into the
-probe, and only one connectivity `HEAD` to the loopback origin or nonce-scoped
-base may precede capture. The report carries scalars only — provider, surface,
-binary identity,
-qualification-contract digest, a closed status, the provider-scoped route alias
+probe, and only one connectivity `HEAD` to the loopback origin root or
+`/api/hello`, or to the nonce-scoped base root or its `/api/hello` path, may
+precede capture. A concurrent `HEAD` after the model request starts is refused
+without changing its qualification. The report carries scalars only — provider,
+surface, binary identity, qualification-contract digest, a closed status, the
+provider-scoped route alias
 (`exec_command`/`shell_command`/`exec` for Codex, `bash` for Claude Code), and
 zero-authority counters — and never prompt, request, header, tool-schema, path,
 or credential content. The execution-time repeat runs against the execution

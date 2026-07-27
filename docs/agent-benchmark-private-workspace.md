@@ -473,8 +473,10 @@ the child: it never fabricates a model response and never retries, so a second
 model request is a failure rather than a second chance. Claude Code runs with
 `ANTHROPIC_BASE_URL` and a fixed synthetic key inside an environment allowlist,
 so no ambient provider credential, configuration directory, or proxy setting can
-cross into the probe; one connectivity `HEAD` to the loopback origin or
-nonce-scoped base may precede capture and nothing else may. The report is
+cross into the probe; one connectivity `HEAD` to the loopback origin root or
+`/api/hello`, or to the nonce-scoped base root or its `/api/hello` path, may
+precede capture and nothing else may. A concurrent `HEAD` after the model
+request starts is refused without changing its qualification. The report is
 content-free and scalar only:
 provider, surface, binary identity, qualification-contract digest, a closed
 status (`supported`, `route_inventory_missing`, `route_inventory_ambiguous`,

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -213,7 +215,6 @@ type cliRouteProbeFixtureConfig struct {
 	Body          string `json:"body"`
 	RequestCount  int    `json:"request_count"`
 	Auxiliary     int    `json:"auxiliary"`
-	AuxiliaryPath string `json:"auxiliary_path"`
 	Path          string `json:"path"`
 	APIKey        string `json:"api_key"`
 	Authorization string `json:"authorization"`
@@ -321,6 +322,49 @@ func TestFinalizeCLIRouteProbeRefusesRepeatedModelRequest(t *testing.T) {
 			if err != nil || report.Validate() != nil || report.Status != CLIRouteQualificationProcessFailed ||
 				!report.RequestObserved || report.SyntheticRequests != 2 || report.Route != "" {
 				t.Fatalf("report=%+v err=%v", report, err)
+			}
+		})
+	}
+}
+
+func TestClaudeRouteProbeAuxiliaryContract(t *testing.T) {
+	if cliRouteProbeTerminationStatus != http.StatusBadRequest {
+		t.Fatalf("termination status=%d want=%d", cliRouteProbeTerminationStatus, http.StatusBadRequest)
+	}
+	binding := cliRouteProbeEndpoint("claude-code", "127.0.0.1:1", "nonce")
+	for _, path := range []string{"/", "/api/hello", "/nonce", "/nonce/", "/nonce/api/hello"} {
+		request := httptest.NewRequest(http.MethodHead, path, nil)
+		if !binding.auxiliary(request) {
+			t.Errorf("expected auxiliary route %q to be admitted", path)
+		}
+	}
+	for _, test := range []struct {
+		method, path string
+	}{
+		{method: http.MethodGet, path: "/"},
+		{method: http.MethodPost, path: "/api/hello"},
+		{method: http.MethodHead, path: "/other"},
+		{method: http.MethodHead, path: "/nonce/api/hello?retry=1"},
+	} {
+		request := httptest.NewRequest(test.method, test.path, nil)
+		if binding.auxiliary(request) {
+			t.Errorf("unexpected auxiliary route %s %q", test.method, test.path)
+		}
+	}
+	for _, test := range []struct {
+		name                   string
+		modelStarted, admitted bool
+		auxiliary              int
+		ignored                bool
+	}{
+		{name: "first before model", admitted: true},
+		{name: "second before model", auxiliary: 1},
+		{name: "after model starts", modelStarted: true, ignored: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			admitted, ignored := classifyCLIRouteAuxiliary(test.modelStarted, test.auxiliary)
+			if admitted != test.admitted || ignored != test.ignored {
+				t.Fatalf("admitted=%t ignored=%t", admitted, ignored)
 			}
 		})
 	}
@@ -509,7 +553,7 @@ func buildCLIRouteProbeTestAgent(t *testing.T, provider string) string {
 	}
 	program := fmt.Sprintf(`package main
 
-import ("bytes"; "encoding/json"; "io"; "net"; "net/http"; "net/url"; "os"; "path/filepath"; "strconv"; "strings")
+import ("bytes"; "encoding/json"; "io"; "net/http"; "os"; "path/filepath"; "strconv"; "strings")
 
 const configPath = %q
 const eventsPath = %q
@@ -520,7 +564,6 @@ type config struct {
 	Body          string `+"`json:\"body\"`"+`
 	RequestCount  int    `+"`json:\"request_count\"`"+`
 	Auxiliary     int    `+"`json:\"auxiliary\"`"+`
-	AuxiliaryPath string `+"`json:\"auxiliary_path\"`"+`
 	Path          string `+"`json:\"path\"`"+`
 	APIKey        string `+"`json:\"api_key\"`"+`
 	Authorization string `+"`json:\"authorization\"`"+`
@@ -545,41 +588,6 @@ func codexBaseURL() string {
 	return ""
 }
 
-// repeat delivers two model requests without letting the first one finish
-// first: the first request's body is held back until the second request has
-// been written in full, so both always reach the endpoint.
-func repeat(base, modelPath string, settings config) {
-	target, err := url.Parse(base + modelPath)
-	if err != nil { os.Exit(76) }
-	headers := "Host: " + target.Host + "\r\nContent-Type: application/json\r\nConnection: close\r\n"
-	if provider == "claude-code" {
-		switch settings.APIKey {
-		case "":
-		case "synthetic":
-			headers += "X-Api-Key: " + os.Getenv("ANTHROPIC_API_KEY") + "\r\n"
-		default:
-			headers += "X-Api-Key: " + settings.APIKey + "\r\n"
-		}
-	}
-	if settings.Authorization != "" { headers += "Authorization: " + settings.Authorization + "\r\n" }
-	head := "POST " + target.RequestURI() + " HTTP/1.1\r\n" + headers +
-		"Content-Length: " + strconv.Itoa(len(settings.Body)) + "\r\n\r\n"
-	connections := make([]net.Conn, 0, 2)
-	for index := 0; index < 2; index++ {
-		connection, err := net.Dial("tcp", target.Host)
-		if err != nil { os.Exit(77) }
-		connections = append(connections, connection)
-	}
-	_, _ = connections[0].Write([]byte(head))
-	_, _ = connections[1].Write([]byte(head + settings.Body))
-	_, _ = connections[0].Write([]byte(settings.Body))
-	for _, connection := range connections {
-		response, _ := io.ReadAll(io.LimitReader(connection, 1<<16))
-		_ = connection.Close()
-		event("raw " + strings.ReplaceAll(strings.TrimSpace(string(response)), "\n", " "))
-	}
-}
-
 func main() {
 	executable, _ := os.Executable()
 	if !strings.HasPrefix(filepath.Base(filepath.Dir(executable)), "cli-route-qualification-") { os.Exit(6) }
@@ -597,10 +605,8 @@ func main() {
 	base := %s
 	if base == "" { os.Exit(72) }
 
-	auxiliaryPath := settings.AuxiliaryPath
-	if auxiliaryPath == "" { auxiliaryPath = "/api/hello" }
 	for index := 0; index < settings.Auxiliary; index++ {
-		request, err := http.NewRequest(http.MethodHead, base+auxiliaryPath, nil)
+		request, err := http.NewRequest(http.MethodHead, base+"/api/hello", nil)
 		if err != nil { os.Exit(73) }
 		response, err := http.DefaultClient.Do(request)
 		if err != nil { break }
@@ -633,8 +639,6 @@ func main() {
 	}
 	if settings.RequestCount == 1 {
 		post()
-	} else if settings.RequestCount > 1 {
-		repeat(base, modelPath, settings)
 	}
 	if settings.Block { select {} }
 }

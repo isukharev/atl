@@ -29,6 +29,7 @@ const (
 	maxCLIRouteProbeOutputBytes        = 4 << 20
 	maxCLIRouteProbeTimeout            = 60
 	defaultCLIRouteProbeTimeout        = 30
+	cliRouteProbeTerminationStatus     = http.StatusBadRequest
 	// maxCLIRouteAuxiliaryRequests bounds the Claude Code connectivity probe
 	// that precedes its first model request. It is deliberately tiny: it never
 	// admits a second one, never admits one after capture, and never admits a
@@ -223,22 +224,23 @@ func QualifyCLIRoute(parent context.Context, options CLIRouteQualificationOption
 	observations := make([]cliRouteProbeObservation, 0, 1)
 	auxiliary := 0
 	unexpected := false
+	modelRequestStarted := false
 	handler := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if route.auxiliary(request) {
 			mu.Lock()
-			captured := len(observations) != 0
-			admitted := !captured && auxiliary < maxCLIRouteAuxiliaryRequests
+			modelStarted := modelRequestStarted
+			admitted, ignored := classifyCLIRouteAuxiliary(modelStarted, auxiliary)
 			if admitted {
 				auxiliary++
-			} else if !captured {
+			} else if !ignored {
 				unexpected = true
 			}
 			mu.Unlock()
-			// Once the model request is captured, termination is already in
-			// progress. A concurrently arriving connectivity HEAD is incidental
-			// client bookkeeping, not a second model route and not qualification
-			// drift; refuse it without changing the closed observation.
-			if captured {
+			// Once an exact model request starts, a concurrently arriving
+			// connectivity HEAD is incidental client bookkeeping, not a second
+			// model route and not qualification drift. Refuse it without changing
+			// the closed observation, even while the POST body is still being read.
+			if modelStarted {
 				http.Error(w, "cli route probe complete", http.StatusBadRequest)
 				return
 			}
@@ -258,6 +260,9 @@ func QualifyCLIRoute(parent context.Context, options CLIRouteQualificationOption
 			cancel()
 			return
 		}
+		mu.Lock()
+		modelRequestStarted = true
+		mu.Unlock()
 		observation := observeCLIRouteProbeRequest(w, request, options.Provider, options.Model)
 		mu.Lock()
 		if len(observations) < 2 {
@@ -269,7 +274,7 @@ func QualifyCLIRoute(parent context.Context, options CLIRouteQualificationOption
 		// A non-retryable client error closes the HTTP exchange while process
 		// cancellation closes the child. Do not invite a provider SDK retry in
 		// the small interval before CommandContext delivers termination.
-		w.WriteHeader(http.StatusBadRequest)
+		w.WriteHeader(cliRouteProbeTerminationStatus)
 		cancel()
 	})
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 5 * time.Second}
@@ -329,6 +334,13 @@ func finalizeCLIRouteProbe(base CLIRouteQualificationReport, captured []cliRoute
 		return CLIRouteQualificationReport{}, err
 	}
 	return base, nil
+}
+
+func classifyCLIRouteAuxiliary(modelRequestStarted bool, auxiliaryRequests int) (admitted, ignored bool) {
+	if modelRequestStarted {
+		return false, true
+	}
+	return auxiliaryRequests < maxCLIRouteAuxiliaryRequests, false
 }
 
 type cliRouteProbeEndpointBinding struct {
