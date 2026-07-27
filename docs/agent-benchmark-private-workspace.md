@@ -399,8 +399,9 @@ Reviewer ids are terminal-visible filesystem slot names. Keep them generic
 (`reviewer-01`, not a person, team, provider account, or backend identity); they
 are restricted to one lowercase path component. Schema v1 manifests remain
 readable as legacy comparisons. Workspace-manifest v2 activation studies,
-outer private-plan v5/v4 artifacts, outer execution-state v2 artifacts, and
-their nested lifecycle plan/event v1 records remain inspectable, but cannot
+outer private-plan v8/v7/v6/v5/v4 artifacts, outer execution-state v2
+artifacts, and their nested lifecycle plan/event v1 records remain
+inspectable, but cannot
 execute, recover, become references, or be promoted. Plan v8 predates the bound
 CLI-route qualification; v5 predates the bound tool-availability result; v4 also
 predates calibration and attempt evidence.

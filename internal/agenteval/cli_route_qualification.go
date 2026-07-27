@@ -274,8 +274,7 @@ func QualifyCLIRoute(parent context.Context, options CLIRouteQualificationOption
 		// A non-retryable client error closes the HTTP exchange while process
 		// cancellation closes the child. Do not invite a provider SDK retry in
 		// the small interval before CommandContext delivers termination.
-		w.WriteHeader(cliRouteProbeTerminationStatus)
-		cancel()
+		terminateCLIRouteProbe(w, cancel)
 	})
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 5 * time.Second}
 	serveDone := make(chan error, 1)
@@ -307,6 +306,11 @@ func QualifyCLIRoute(parent context.Context, options CLIRouteQualificationOption
 	mu.Unlock()
 	return finalizeCLIRouteProbe(base, captured, observedAuxiliary,
 		shutdownErr != nil || rejected || stdout.overflow || stderr.overflow)
+}
+
+func terminateCLIRouteProbe(w http.ResponseWriter, cancel context.CancelFunc) {
+	w.WriteHeader(cliRouteProbeTerminationStatus)
+	cancel()
 }
 
 // finalizeCLIRouteProbe reduces the bounded in-memory observations to the

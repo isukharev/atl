@@ -213,7 +213,7 @@ func TestQualifyCLIRouteRejectsUnboundOptions(t *testing.T) {
 
 type cliRouteProbeFixtureConfig struct {
 	Body          string `json:"body"`
-	RequestCount  int    `json:"request_count"`
+	Launch        bool   `json:"launch"`
 	Auxiliary     int    `json:"auxiliary"`
 	Path          string `json:"path"`
 	APIKey        string `json:"api_key"`
@@ -236,40 +236,40 @@ func TestQualifyCLIRouteCapturesOneExactModelRequestPerProvider(t *testing.T) {
 		wantAux   int
 	}{
 		{name: "codex supported", provider: "codex", want: CLIRouteQualificationSupported, wantRoute: "exec_command",
-			config: cliRouteProbeFixtureConfig{Body: codexShell, RequestCount: 1, Block: true}},
+			config: cliRouteProbeFixtureConfig{Body: codexShell, Launch: true, Block: true}},
 		{name: "codex missing", provider: "codex", want: CLIRouteQualificationRouteMissing,
-			config: cliRouteProbeFixtureConfig{Body: `{"model":"synthetic-model","stream":true,"tools":[]}`, RequestCount: 1, Block: true}},
+			config: cliRouteProbeFixtureConfig{Body: `{"model":"synthetic-model","stream":true,"tools":[]}`, Launch: true, Block: true}},
 		{name: "codex ambiguous", provider: "codex", want: CLIRouteQualificationAmbiguous,
-			config: cliRouteProbeFixtureConfig{Body: `{"model":"synthetic-model","stream":true,"tools":[{"type":"custom","name":"exec_command","parameters":{}}]}`, RequestCount: 1, Block: true}},
+			config: cliRouteProbeFixtureConfig{Body: `{"model":"synthetic-model","stream":true,"tools":[{"type":"custom","name":"exec_command","parameters":{}}]}`, Launch: true, Block: true}},
 		{name: "codex malformed", provider: "codex", want: CLIRouteQualificationSchemaFailed,
-			config: cliRouteProbeFixtureConfig{Body: `{"model":"synthetic-model","stream":true,"tools":`, RequestCount: 1, Block: true}},
+			config: cliRouteProbeFixtureConfig{Body: `{"model":"synthetic-model","stream":true,"tools":`, Launch: true, Block: true}},
 		{name: "codex wrong model", provider: "codex", want: CLIRouteQualificationSchemaFailed,
-			config: cliRouteProbeFixtureConfig{Body: `{"model":"other-model","stream":true,"tools":[]}`, RequestCount: 1, Block: true}},
+			config: cliRouteProbeFixtureConfig{Body: `{"model":"other-model","stream":true,"tools":[]}`, Launch: true, Block: true}},
 		{name: "codex credential", provider: "codex", want: CLIRouteQualificationSchemaFailed,
-			config: cliRouteProbeFixtureConfig{Body: codexShell, RequestCount: 1, Block: true, Authorization: "Bearer forbidden"}},
+			config: cliRouteProbeFixtureConfig{Body: codexShell, Launch: true, Block: true, Authorization: "Bearer forbidden"}},
 		{name: "codex never launched", provider: "codex", want: CLIRouteQualificationProcessFailed,
 			config: cliRouteProbeFixtureConfig{}},
 		{name: "codex unexpected route", provider: "codex", want: CLIRouteQualificationProcessFailed,
-			config: cliRouteProbeFixtureConfig{Body: codexShell, RequestCount: 1, Block: true, Path: "/chat/completions"}},
+			config: cliRouteProbeFixtureConfig{Body: codexShell, Launch: true, Block: true, Path: "/chat/completions"}},
 
 		{name: "claude supported", provider: "claude-code", want: CLIRouteQualificationSupported, wantRoute: "bash",
-			config: cliRouteProbeFixtureConfig{Body: claudeShell, RequestCount: 1, Block: true, APIKey: "synthetic"}},
+			config: cliRouteProbeFixtureConfig{Body: claudeShell, Launch: true, Block: true, APIKey: "synthetic"}},
 		{name: "claude auxiliary probe", provider: "claude-code", want: CLIRouteQualificationSupported, wantRoute: "bash", wantAux: 1,
-			config: cliRouteProbeFixtureConfig{Body: claudeShell, RequestCount: 1, Block: true, APIKey: "synthetic", Auxiliary: 1}},
+			config: cliRouteProbeFixtureConfig{Body: claudeShell, Launch: true, Block: true, APIKey: "synthetic", Auxiliary: 1}},
 		{name: "claude missing", provider: "claude-code", want: CLIRouteQualificationRouteMissing,
-			config: cliRouteProbeFixtureConfig{Body: `{"model":"synthetic-model","stream":true,"messages":[{"role":"user"}],"tools":[]}`, RequestCount: 1, Block: true, APIKey: "synthetic"}},
+			config: cliRouteProbeFixtureConfig{Body: `{"model":"synthetic-model","stream":true,"messages":[{"role":"user"}],"tools":[]}`, Launch: true, Block: true, APIKey: "synthetic"}},
 		{name: "claude ambiguous", provider: "claude-code", want: CLIRouteQualificationAmbiguous,
-			config: cliRouteProbeFixtureConfig{Body: `{"model":"synthetic-model","stream":true,"messages":[{"role":"user"}],"tools":[` + claudeRouteProbeBashTool + `,` + claudeRouteProbeBashTool + `]}`, RequestCount: 1, Block: true, APIKey: "synthetic"}},
+			config: cliRouteProbeFixtureConfig{Body: `{"model":"synthetic-model","stream":true,"messages":[{"role":"user"}],"tools":[` + claudeRouteProbeBashTool + `,` + claudeRouteProbeBashTool + `]}`, Launch: true, Block: true, APIKey: "synthetic"}},
 		{name: "claude malformed", provider: "claude-code", want: CLIRouteQualificationSchemaFailed,
-			config: cliRouteProbeFixtureConfig{Body: `{"model":"synthetic-model",`, RequestCount: 1, Block: true, APIKey: "synthetic"}},
+			config: cliRouteProbeFixtureConfig{Body: `{"model":"synthetic-model",`, Launch: true, Block: true, APIKey: "synthetic"}},
 		{name: "claude wrong model", provider: "claude-code", want: CLIRouteQualificationSchemaFailed,
-			config: cliRouteProbeFixtureConfig{Body: `{"model":"other-model","stream":true,"messages":[{"role":"user"}],"tools":[]}`, RequestCount: 1, Block: true, APIKey: "synthetic"}},
+			config: cliRouteProbeFixtureConfig{Body: `{"model":"other-model","stream":true,"messages":[{"role":"user"}],"tools":[]}`, Launch: true, Block: true, APIKey: "synthetic"}},
 		{name: "claude no key", provider: "claude-code", want: CLIRouteQualificationSchemaFailed,
-			config: cliRouteProbeFixtureConfig{Body: claudeShell, RequestCount: 1, Block: true}},
+			config: cliRouteProbeFixtureConfig{Body: claudeShell, Launch: true, Block: true}},
 		{name: "claude second auxiliary", provider: "claude-code", want: CLIRouteQualificationProcessFailed, wantAux: 1,
-			config: cliRouteProbeFixtureConfig{Body: claudeShell, RequestCount: 1, Block: true, APIKey: "synthetic", Auxiliary: 2}},
+			config: cliRouteProbeFixtureConfig{Body: claudeShell, Launch: true, Block: true, APIKey: "synthetic", Auxiliary: 2}},
 		{name: "claude unexpected route", provider: "claude-code", want: CLIRouteQualificationProcessFailed,
-			config: cliRouteProbeFixtureConfig{Body: claudeShell, RequestCount: 1, Block: true, APIKey: "synthetic", Path: "/v1/messages"}},
+			config: cliRouteProbeFixtureConfig{Body: claudeShell, Launch: true, Block: true, APIKey: "synthetic", Path: "/v1/messages"}},
 	}
 	agents := map[string]string{
 		"codex":       buildCLIRouteProbeTestAgent(t, "codex"),
@@ -351,6 +351,15 @@ func TestClaudeRouteProbeAuxiliaryContract(t *testing.T) {
 			t.Errorf("unexpected auxiliary route %s %q", test.method, test.path)
 		}
 	}
+	withBody := httptest.NewRequest(http.MethodHead, "/", strings.NewReader("x"))
+	if binding.auxiliary(withBody) {
+		t.Error("auxiliary HEAD with a body was admitted")
+	}
+	withTransferEncoding := httptest.NewRequest(http.MethodHead, "/", nil)
+	withTransferEncoding.TransferEncoding = []string{"chunked"}
+	if binding.auxiliary(withTransferEncoding) {
+		t.Error("auxiliary HEAD with transfer encoding was admitted")
+	}
 	for _, test := range []struct {
 		name                   string
 		modelStarted, admitted bool
@@ -368,6 +377,12 @@ func TestClaudeRouteProbeAuxiliaryContract(t *testing.T) {
 			}
 		})
 	}
+	recorder := httptest.NewRecorder()
+	canceled := false
+	terminateCLIRouteProbe(recorder, func() { canceled = true })
+	if recorder.Code != http.StatusBadRequest || !canceled {
+		t.Fatalf("termination status=%d canceled=%t", recorder.Code, canceled)
+	}
 }
 
 func TestQualifyCLIRouteTerminatesTheChildAfterCapture(t *testing.T) {
@@ -376,7 +391,7 @@ func TestQualifyCLIRouteTerminatesTheChildAfterCapture(t *testing.T) {
 	}
 	agent := buildCLIRouteProbeTestAgent(t, "claude-code")
 	body := `{"model":"synthetic-model","stream":true,"messages":[{"role":"user","content":"x"}],"tools":[` + claudeRouteProbeBashTool + `]}`
-	writeCLIRouteProbeFixtureConfig(t, agent, cliRouteProbeFixtureConfig{Body: body, RequestCount: 1, APIKey: "synthetic", Block: true})
+	writeCLIRouteProbeFixtureConfig(t, agent, cliRouteProbeFixtureConfig{Body: body, Launch: true, APIKey: "synthetic", Block: true})
 	scratch := t.TempDir()
 	if err := os.Chmod(scratch, 0o700); err != nil {
 		t.Fatal(err)
@@ -436,13 +451,13 @@ func TestQualifyCLIRouteKeepsAmbientClaudeCredentialsOutOfTheProbe(t *testing.T)
 		want   CLIRouteQualificationStatus
 	}{
 		{name: "allowlisted key", want: CLIRouteQualificationSupported,
-			config: cliRouteProbeFixtureConfig{Body: body, RequestCount: 1, Block: true, APIKey: "synthetic"}},
+			config: cliRouteProbeFixtureConfig{Body: body, Launch: true, Block: true, APIKey: "synthetic"}},
 		// The body stays exactly the one the supported case uses, so only the
 		// credential control can reject it.
 		{name: "ambient key forwarded", want: CLIRouteQualificationSchemaFailed,
-			config: cliRouteProbeFixtureConfig{Body: body, RequestCount: 1, Block: true, APIKey: ambient}},
+			config: cliRouteProbeFixtureConfig{Body: body, Launch: true, Block: true, APIKey: ambient}},
 		{name: "ambient bearer forwarded", want: CLIRouteQualificationSchemaFailed,
-			config: cliRouteProbeFixtureConfig{Body: body, RequestCount: 1, Block: true, APIKey: "synthetic", Authorization: "Bearer " + ambient}},
+			config: cliRouteProbeFixtureConfig{Body: body, Launch: true, Block: true, APIKey: "synthetic", Authorization: "Bearer " + ambient}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -562,7 +577,7 @@ const defaultModelPath = %q
 
 type config struct {
 	Body          string `+"`json:\"body\"`"+`
-	RequestCount  int    `+"`json:\"request_count\"`"+`
+	Launch        bool   `+"`json:\"launch\"`"+`
 	Auxiliary     int    `+"`json:\"auxiliary\"`"+`
 	Path          string `+"`json:\"path\"`"+`
 	APIKey        string `+"`json:\"api_key\"`"+`
@@ -637,7 +652,7 @@ func main() {
 		_ = response.Body.Close()
 		event("model " + strconv.Itoa(response.StatusCode) + " " + strings.ReplaceAll(strings.TrimSpace(string(body)), "\n", " "))
 	}
-	if settings.RequestCount == 1 {
+	if settings.Launch {
 		post()
 	}
 	if settings.Block { select {} }
