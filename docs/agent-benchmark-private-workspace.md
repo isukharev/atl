@@ -1296,6 +1296,8 @@ attached. No sampling code is added or renamed. Spec and assessment schemas,
 canonical bytes, domain-separated digests, stored paths and modes, group and
 cohort ordering, cardinality, locking, idempotency, never-overwrite behavior,
 command output, exit codes, and fail-closed behavior are unchanged.
+The shared apply frame continues to retain the nested schema-v2 preview
+classification and its causes beneath the unchanged assessment-drift code.
 
 ## Accepted coverage scorecard
 

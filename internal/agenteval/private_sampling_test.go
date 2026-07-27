@@ -1434,13 +1434,14 @@ func TestPrivateSamplingValidationOnlyRejectionsCarryNoCause(t *testing.T) {
 	})
 }
 
-// TestPrivateSyntheticSamplingRootCauseOrderIsFixed pins the multi-cause
-// ordering of the schema-v2 root probe. That branch attaches its evidence-load
-// failure and both recheck probes in the order its own condition evaluates
-// them, but neither recheck probe can be driven into a failed state from a test
-// without racing the resolver or adding a production hook, so the ordering is
-// pinned through the constructor instead.
-func TestPrivateSyntheticSamplingRootCauseOrderIsFixed(t *testing.T) {
+// TestPrivateSyntheticSamplingRootCauseOrderContract pins the constructor
+// contract used by the schema-v2 root probe. The resolver passes its evidence
+// load and both recheck failures in the order its own condition evaluates them,
+// but neither recheck probe can be driven into a failed state from a test
+// without racing the resolver or adding a production hook. The call-site order
+// is therefore verified by inspection rather than claimed as end-to-end test
+// coverage.
+func TestPrivateSyntheticSamplingRootCauseOrderContract(t *testing.T) {
 	privatePath := filepath.Join("private", "reports", privateSyntheticRootDirectory, "primary-synthetic-runs")
 	loadCause := errors.New("synthetic root evidence failure")
 	containedCause := &fs.PathError{Op: "statat", Path: privatePath, Err: fs.ErrNotExist}
