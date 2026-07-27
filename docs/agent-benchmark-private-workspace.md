@@ -1280,8 +1280,9 @@ and envelope validation, stored assessment directory and file probing, bounded
 reading, initial and trailing decoding, canonical encoding, evidence
 rebuilding, the root-parent and root probes, the root evidence load together
 with both of its recheck probes in a fixed order, and the re-read that closes
-the collection window all retain the failure they hold, and a rejection raised
-deeper stays reachable below the unchanged outer code.
+the collection window, and synthetic cohort contract validation all retain the
+failure they hold, and a rejection raised deeper stays reachable below the
+unchanged outer code.
 
 A rejection decided by validation or comparison alone — an ambiguous or absent
 spec pair, an observed directory permission or file type, a spec or directory

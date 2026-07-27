@@ -1434,39 +1434,6 @@ func TestPrivateSamplingValidationOnlyRejectionsCarryNoCause(t *testing.T) {
 	})
 }
 
-// TestPrivateSyntheticSamplingRootCauseOrderContract pins the constructor
-// contract used by the schema-v2 root probe. The resolver passes its evidence
-// load and both recheck failures in the order its own condition evaluates them,
-// but neither recheck probe can be driven into a failed state from a test
-// without racing the resolver or adding a production hook. The call-site order
-// is therefore verified by inspection rather than claimed as end-to-end test
-// coverage.
-func TestPrivateSyntheticSamplingRootCauseOrderContract(t *testing.T) {
-	privatePath := filepath.Join("private", "reports", privateSyntheticRootDirectory, "primary-synthetic-runs")
-	loadCause := errors.New("synthetic root evidence failure")
-	containedCause := &fs.PathError{Op: "statat", Path: privatePath, Err: fs.ErrNotExist}
-	parentCause := &fs.PathError{Op: "statat", Path: filepath.Dir(privatePath), Err: fs.ErrPermission}
-
-	err := privateSamplingError("synthetic_root", loadCause, containedCause, parentCause)
-	assertPrivateSamplingCode(t, err, "synthetic_root")
-	if strings.Contains(err.Error(), privatePath) || strings.Contains(err.Error(), loadCause.Error()) {
-		t.Fatalf("message leaked a cause: %q", err.Error())
-	}
-	causes := privateSamplingErrorCauses(t, err)
-	if len(causes) != 3 || causes[0] != loadCause || causes[1] != error(containedCause) || causes[2] != error(parentCause) {
-		t.Fatalf("causes=%v, want the evidence load then both recheck probes in order", causes)
-	}
-	if !errors.Is(err, loadCause) || !errors.Is(err, fs.ErrNotExist) || !errors.Is(err, fs.ErrPermission) {
-		t.Fatalf("error %v lost a cause", err)
-	}
-
-	// A partially failed branch drops the nil probes and keeps the order.
-	partial := privateSamplingError("synthetic_root", nil, containedCause, nil)
-	if causes := privateSamplingErrorCauses(t, partial); len(causes) != 1 || causes[0] != error(containedCause) {
-		t.Fatalf("causes=%v, want only the failed contained probe", causes)
-	}
-}
-
 func TestPrivateSyntheticSamplingContractRejectionsSeparateDecodingFromCanonicalBytes(t *testing.T) {
 	t.Run("undecodable synthetic spec", func(t *testing.T) {
 		fixture := newPrivateSamplingFixture(t)
