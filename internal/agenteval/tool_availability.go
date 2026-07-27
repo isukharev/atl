@@ -145,20 +145,8 @@ func QualifyCodexCLIToolAvailability(parent context.Context, options CodexCLIToo
 		return report, err
 	}
 	defer func() { returnErr = errors.Join(returnErr, runtime.Close()) }()
-	probeAgentName := privateAgentSnapshotName(agent.canonicalPath)
-	probeAgentPath := filepath.Join(runtime.root, probeAgentName)
-	if agent.resourceRelativePath != "" {
-		probeBinRoot := filepath.Join(runtime.root, "bin")
-		if err := safepath.MkdirAllWithin(runtime.scratch, probeBinRoot, 0o700); err != nil {
-			return report, fmt.Errorf("prepare codex cli tool availability runtime")
-		}
-		probeAgentPath = filepath.Join(probeBinRoot, probeAgentName)
-	}
-	if err := copyReviewedPrivateAgent(runtime.scratch, runtime.root, agent, probeAgentPath); err != nil {
-		return report, fmt.Errorf("prepare codex cli tool availability runtime")
-	}
-	probeAgent, _, err := inspectPrivateAgentBinary(probeAgentPath, agent.provenanceSHA256)
-	if err != nil || probeAgent.identity != agent.identity || verifyPrivateAgentResourceSnapshot(probeAgentPath, agent) != nil {
+	probeAgent, err := preparePrivateProbeAgent(runtime.scratch, runtime.root, agent)
+	if err != nil {
 		return report, fmt.Errorf("prepare codex cli tool availability runtime")
 	}
 
@@ -468,11 +456,10 @@ func codexToolProbeArgs(options CodexCLIToolAvailabilityOptions, workspace, base
 		"exec", "--json", "--ephemeral", "--strict-config", "--skip-git-repo-check", "--ignore-user-config",
 		"--model", options.Model,
 	}
-	for _, feature := range []string{"apps", "browser_use", "computer_use", "image_generation", "remote_plugin"} {
-		args = append(args, "--disable", feature)
-	}
+	args = append(args, codexDisabledProviderFeatureArgs()...)
+	args = append(args, codexLocalExecutionRouteArgs()...)
 	args = append(args,
-		"--enable", "shell_tool", "--enable", "unified_exec", "--sandbox", "read-only", "-C", workspace,
+		"--sandbox", "read-only", "-C", workspace,
 		"-c", `model_provider="atl_tool_probe"`,
 		"-c", `model_providers.atl_tool_probe.name="ATL tool inventory probe"`,
 		"-c", `model_providers.atl_tool_probe.base_url=`+strconv.Quote(baseURL),
@@ -515,10 +502,38 @@ func codexToolAvailabilityContractSHA256(agentIdentity string, options CodexCLIT
 }
 
 func newCodexToolProbeRuntime(scratchRoot string) (*codexToolProbeRuntime, error) {
+	return newCodexIsolatedProbeRuntime(scratchRoot, "codex-tool-availability-")
+}
+
+// preparePrivateProbeAgent copies the reviewed native agent, and any declared
+// adjacent sandbox helper, into an owner-only probe runtime and revalidates the
+// copy. Every backend-free probe therefore executes the exact reviewed bytes
+// rather than whatever is installed at the operator's path.
+func preparePrivateProbeAgent(scratchRoot, runtimeRoot string, agent privateAgentBinaryContract) (privateAgentBinaryContract, error) {
+	probeAgentName := privateAgentSnapshotName(agent.canonicalPath)
+	probeAgentPath := filepath.Join(runtimeRoot, probeAgentName)
+	if agent.resourceRelativePath != "" {
+		probeBinRoot := filepath.Join(runtimeRoot, "bin")
+		if err := safepath.MkdirAllWithin(scratchRoot, probeBinRoot, 0o700); err != nil {
+			return privateAgentBinaryContract{}, fmt.Errorf("prepare private probe agent")
+		}
+		probeAgentPath = filepath.Join(probeBinRoot, probeAgentName)
+	}
+	if err := copyReviewedPrivateAgent(scratchRoot, runtimeRoot, agent, probeAgentPath); err != nil {
+		return privateAgentBinaryContract{}, fmt.Errorf("prepare private probe agent")
+	}
+	probeAgent, _, err := inspectPrivateAgentBinary(probeAgentPath, agent.provenanceSHA256)
+	if err != nil || probeAgent.identity != agent.identity || verifyPrivateAgentResourceSnapshot(probeAgentPath, agent) != nil {
+		return privateAgentBinaryContract{}, fmt.Errorf("prepare private probe agent")
+	}
+	return probeAgent, nil
+}
+
+func newCodexIsolatedProbeRuntime(scratchRoot, prefix string) (*codexToolProbeRuntime, error) {
 	if err := requirePrivateDirectory("codex tool probe scratch root", scratchRoot); err != nil {
 		return nil, fmt.Errorf("prepare codex cli tool availability runtime")
 	}
-	root, err := os.MkdirTemp(scratchRoot, "codex-tool-availability-")
+	root, err := os.MkdirTemp(scratchRoot, prefix)
 	if err != nil {
 		return nil, fmt.Errorf("prepare codex cli tool availability runtime")
 	}

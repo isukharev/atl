@@ -22,7 +22,8 @@ import (
 )
 
 const (
-	PrivatePlanSchemaVersion                         = 8
+	PrivatePlanSchemaVersion                         = 9
+	LegacyLiveWritePrivatePlanSchemaVersion          = 8
 	LegacyExecutableReviewPrivatePlanSchemaVersion   = 7
 	LegacyToolQualifiedPrivatePlanSchemaVersion      = 6
 	LegacyCalibratedPrivatePlanSchemaVersion         = 5
@@ -46,6 +47,7 @@ var (
 	privatePlanRunHeadless     = RunHeadless
 	privatePlanRunCalibration  = RunCodexCLICalibration
 	privatePlanQualifyCodexCLI = QualifyCodexCLIToolAvailability
+	privatePlanQualifyCLIRoute = QualifyCLIRoute
 	privatePlanWriteState      = writePrivatePlanState
 	privatePlanRemoveTree      = removePrivateTree
 	privatePlanNewCodexAuth    = newCodexAuthSession
@@ -138,7 +140,11 @@ type privatePlan struct {
 	QualitativeRequired                 bool                                   `json:"qualitative_required"`
 	QualitativeReviewPanel              *privateQualitativeReviewPanelContract `json:"qualitative_review_panel,omitempty"`
 	ToolAvailability                    *CodexCLIToolAvailabilityReport        `json:"tool_availability,omitempty"`
-	Items                               []privatePlanItem                      `json:"items"`
+	// CLIRouteQualification is the comparison-plan counterpart of
+	// ToolAvailability. A comparison set holds at most one cli-skill surface, so
+	// this is one optional report rather than a per-surface map.
+	CLIRouteQualification *CLIRouteQualificationReport `json:"cli_route_qualification,omitempty"`
+	Items                 []privatePlanItem            `json:"items"`
 }
 
 type privateQualitativeReviewPanelContract struct {
@@ -258,6 +264,15 @@ func CreatePrivatePlan(ctx context.Context, options PrivatePlanCreateOptions) (P
 		material.bindToolAvailabilityResult(report)
 		toolAvailability = &report
 	}
+	var cliRouteQualification *CLIRouteQualificationReport
+	if material.cliRoute != nil {
+		report, err := qualifyPrivateCLIRoute(ctx, root, material)
+		if err != nil {
+			return PrivatePlanPreview{}, err
+		}
+		material.bindCLIRouteQualificationResult(report)
+		cliRouteQualification = &report
+	}
 	planID, err := privateRandomID("pln-")
 	if err != nil {
 		return PrivatePlanPreview{}, privatePlanError("id")
@@ -345,7 +360,8 @@ func CreatePrivatePlan(ctx context.Context, options PrivatePlanCreateOptions) (P
 		MaxEstimatedCostMicroUSD: totalAuthorized, ReviewerReserveMicroUSD: runSet.ReviewerReserveMicroUSD,
 		CalibrationMaxEstimatedCostMicroUSD: runSet.CalibrationMaxEstimatedCostMicroUSD,
 		QualitativeRequired:                 runSet.QualitativeReviewRequired || runSet.QualitativeReviewPanel != nil,
-		QualitativeReviewPanel:              material.qualitativePanel, ToolAvailability: toolAvailability, Items: items}
+		QualitativeReviewPanel:              material.qualitativePanel, ToolAvailability: toolAvailability,
+		CLIRouteQualification: cliRouteQualification, Items: items}
 	if kind == PrivateRunSetKindActivationStudy {
 		plan.CostAssurance = PrivateActivationCostAssuranceDetectionOnly
 		plan.StudySeriesSHA256 = studySeriesSHA256
@@ -481,6 +497,18 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 		snapshot.atlBinary, snapshot.pluginRoot, snapshot.agentBinary, snapshot.wrapperExecutable, snapshot.liveConfig, snapshot.externalProfile, snapshot.agentProvenanceSHA256)
 	if err != nil || !privatePlanMaterialMatches(plan, snapshotItems, snapshotMaterial) {
 		return PrivatePlanExecutionSummary{}, privatePlanError("execution_snapshot", err)
+	}
+	// Re-prove the reviewed model-facing CLI route against the execution
+	// snapshot's own agent binary and plugin/settings inputs, before provider
+	// authentication, calibration, or any benchmark invocation.
+	if plan.CLIRouteQualification != nil || snapshotMaterial.cliRoute != nil {
+		report, qualifyErr := qualifyPrivateCLIRoute(ctx, root, snapshotMaterial)
+		if qualifyErr != nil {
+			return PrivatePlanExecutionSummary{}, qualifyErr
+		}
+		if plan.CLIRouteQualification == nil || !sameCLIRouteQualificationReport(report, *plan.CLIRouteQualification) {
+			return PrivatePlanExecutionSummary{}, privatePlanError("cli_route_drift")
+		}
 	}
 	state := privatePlanState{SchemaVersion: legacyComparisonPrivatePlanStateSchemaVersion, PlanSHA256: options.ExpectedPlanSHA256, RunID: runID, Status: "interrupted", CompletedSurfaces: []string{}}
 	var activationLifecycle *PrivateActivationStudyLifecycle
@@ -896,6 +924,8 @@ type privatePlanMaterial struct {
 	qualitativePanel               *privateQualitativeReviewPanelContract
 	calibration                    *CodexCLICalibrationContract
 	toolAvailabilityContractSHA256 string
+	cliRoute                       *CLIRouteQualificationOptions
+	cliRouteContractSHA256         string
 }
 
 func qualifyPrivateActivationAgent(ctx context.Context, root string, material privatePlanMaterial) (CodexCLIToolAvailabilityReport, error) {
@@ -933,6 +963,48 @@ func sameCodexToolAvailabilityReport(left, right CodexCLIToolAvailabilityReport)
 	return left == right
 }
 
+// qualifyPrivateCLIRoute proves the exact reviewed model-facing CLI route of
+// one comparison plan without provider authentication, model execution, or any
+// backend request. It runs the qualifier exactly once and never retries.
+func qualifyPrivateCLIRoute(ctx context.Context, root string, material privatePlanMaterial) (CLIRouteQualificationReport, error) {
+	if material.cliRoute == nil || material.agent.canonicalPath == "" || !validSHA256(material.cliRouteContractSHA256) {
+		return CLIRouteQualificationReport{}, privatePlanError("cli_route_contract")
+	}
+	options := *material.cliRoute
+	options.AgentBinary = material.agent.canonicalPath
+	options.ScratchRoot = filepath.Join(root, ".ephemeral")
+	report, err := privatePlanQualifyCLIRoute(ctx, options)
+	if err != nil {
+		return CLIRouteQualificationReport{}, privatePlanError("cli_route_execution")
+	}
+	if report.Validate() != nil || report.Provider != options.Provider || report.Surface != options.Surface ||
+		report.AgentIdentity != material.agent.identity ||
+		!constantTimeStringEqual(report.ContractSHA256, material.cliRouteContractSHA256) {
+		return CLIRouteQualificationReport{}, privatePlanError("cli_route_report")
+	}
+	if report.Status != CLIRouteQualificationSupported {
+		return CLIRouteQualificationReport{}, privatePlanError("cli_route_" + string(report.Status))
+	}
+	return report, nil
+}
+
+func (m *privatePlanMaterial) bindCLIRouteQualificationResult(report CLIRouteQualificationReport) {
+	m.contract = append(m.contract, "cli-route-result:"+report.ContractSHA256+":"+report.Route)
+}
+
+func sameCLIRouteQualificationReport(left, right CLIRouteQualificationReport) bool {
+	return left == right
+}
+
+func privatePlanHasCLISkillItem(items []privatePlanItem) bool {
+	for _, item := range items {
+		if item.Surface == SurfaceCLISkill {
+			return true
+		}
+	}
+	return false
+}
+
 func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorkspaceRoot string, runSet PrivateWorkspaceRunSet,
 	atlBinary, pluginRoot, agentBinary, wrapper, liveConfig, externalProfile, agentProvenanceSHA256 string,
 ) ([]privatePlanItem, privatePlanMaterial, string, string, int64, bool, error) {
@@ -944,6 +1016,8 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 	external := false
 	neutral := false
 	var activationSpec *RunSpec
+	var cliRouteSpec *RunSpec
+	cliRouteResponseSchemaSHA256, cliRoutePromptContractSHA256 := "", ""
 	for _, rel := range runSet.SpecPaths {
 		path := filepath.Join(root, filepath.FromSlash(rel))
 		paths = append(paths, path)
@@ -955,6 +1029,17 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 		if runSet.EffectiveKind() == PrivateRunSetKindActivationStudy && activationSpec == nil {
 			copySpec := spec
 			activationSpec = &copySpec
+		}
+		// A comparison set holds at most one cli-skill surface, so its reviewed
+		// model-facing route is a single binding rather than a per-surface map.
+		if runSet.EffectiveKind() != PrivateRunSetKindActivationStudy && spec.EffectiveSurface() == SurfaceCLISkill {
+			if cliRouteSpec != nil {
+				return nil, material, "", "", 0, false, privatePlanError("comparison")
+			}
+			copySpec := spec
+			cliRouteSpec = &copySpec
+			cliRouteResponseSchemaSHA256 = sha256HexBytes(loaded.responseSchema)
+			cliRoutePromptContractSHA256 = loaded.promptContractSHA256
 		}
 		neutral = neutral || scenario.EffectiveCategory() == BenchmarkCategoryNeutralCommon
 		if spec.EffectiveBackendMode() != BackendModePrivateLive {
@@ -1047,6 +1132,7 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 			material.series = append(material.series, "blind-assignment:"+sha256HexBytes(assignment))
 		}
 	}
+	wrapperDigest := ""
 	for _, executable := range []struct{ name, path string }{
 		{name: "atl", path: atlBinary},
 		{name: "wrapper", path: wrapper},
@@ -1054,6 +1140,9 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 		d, err := privateFileDigest(executable.path)
 		if err != nil {
 			return nil, material, "", "", 0, false, privatePlanError(executable.name + "_binary")
+		}
+		if executable.name == "wrapper" {
+			wrapperDigest = d
 		}
 		material.inputs = append(material.inputs, executable.name+":"+d)
 	}
@@ -1112,6 +1201,24 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 			return nil, material, "", "", 0, false, privatePlanError("plugin_marketplace")
 		}
 		material.inputs = append(material.inputs, "plugin-marketplace:"+marketplaceDigest)
+	}
+	if cliRouteSpec != nil {
+		// The guard executable is what the generated Claude settings configure,
+		// so its digest is the reviewed settings identity. None of these values
+		// is a path, a credential, or backend content.
+		options := CLIRouteQualificationOptions{
+			Provider: cliRouteSpec.Provider, Surface: SurfaceCLISkill,
+			Model: cliRouteSpec.Model, Reasoning: cliRouteSpec.Reasoning,
+			AllowedTools:         append([]string(nil), cliRouteSpec.AllowedTools...),
+			PluginSHA256:         pluginDigest,
+			PluginManifestSHA256: pluginManifestDigest,
+			SettingsSHA256:       wrapperDigest,
+			ResponseSchemaSHA256: cliRouteResponseSchemaSHA256,
+			PromptContractSHA256: cliRoutePromptContractSHA256,
+		}
+		material.cliRoute = &options
+		material.cliRouteContractSHA256 = cliRouteQualificationContractSHA256(agent.identity, options)
+		material.contract = append(material.contract, "cli-route-qualification:"+material.cliRouteContractSHA256)
 	}
 	configDigest, err := privateFileDigest(filepath.Join(liveConfig, "config.json"))
 	if err != nil {
@@ -1494,6 +1601,13 @@ func privatePlanMaterialMatches(plan privatePlan, items []privatePlanItem, mater
 			return false
 		}
 		material.bindToolAvailabilityResult(*plan.ToolAvailability)
+	}
+	if privatePlanHasCLIRouteShape(plan.SchemaVersion) && plan.Kind != PrivateRunSetKindActivationStudy &&
+		privatePlanHasCLISkillItem(plan.Items) {
+		if plan.CLIRouteQualification == nil || !plan.CLIRouteQualification.Supported() {
+			return false
+		}
+		material.bindCLIRouteQualificationResult(*plan.CLIRouteQualification)
 	}
 	seriesMatches := true
 	if plan.Kind == PrivateRunSetKindActivationStudy {
@@ -1998,22 +2112,32 @@ func privatePlanHasActivationShape(schemaVersion int) bool {
 }
 
 // privatePlanHasExecutableReviewShape covers the schemas that carry reviewer
-// executions and per-item cost, and privatePlanHasLiveWriteShape the schemas
-// that may carry mutation authority. Query-only transport is newer than both,
-// so only the current schema may declare it; a legacy plan stays readable
-// exactly as it was written and simply cannot express the new field.
+// executions and per-item cost, privatePlanHasLiveWriteShape the schemas that
+// may carry mutation authority, and privatePlanHasQueryOnlyShape the schemas
+// that may declare bounded query-only transport. Each helper keeps every
+// schema that could legitimately express its field, so a legacy plan stays
+// readable exactly as it was written. The bound CLI route qualification is
+// newer than all of them, so only the current schema may declare it.
 func privatePlanHasExecutableReviewShape(schemaVersion int) bool {
 	return privatePlanHasLiveWriteShape(schemaVersion) || schemaVersion == LegacyExecutableReviewPrivatePlanSchemaVersion
 }
 
 func privatePlanHasLiveWriteShape(schemaVersion int) bool {
+	return schemaVersion == PrivatePlanSchemaVersion || schemaVersion == LegacyLiveWritePrivatePlanSchemaVersion
+}
+
+func privatePlanHasQueryOnlyShape(schemaVersion int) bool {
+	return privatePlanHasLiveWriteShape(schemaVersion)
+}
+
+func privatePlanHasCLIRouteShape(schemaVersion int) bool {
 	return schemaVersion == PrivatePlanSchemaVersion
 }
 
 func validatePrivatePlan(plan privatePlan, expectedID string) error {
 	created, createdErr := time.Parse(time.RFC3339Nano, plan.CreatedAt)
 	expires, expiryErr := time.Parse(time.RFC3339, plan.Consent.ExpiresAt)
-	if (plan.SchemaVersion != PrivatePlanSchemaVersion && plan.SchemaVersion != LegacyExecutableReviewPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyToolQualifiedPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyCalibratedPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyActivationStudyPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyCompleteActivationPrivatePlanSchemaVersion &&
+	if (plan.SchemaVersion != PrivatePlanSchemaVersion && plan.SchemaVersion != LegacyLiveWritePrivatePlanSchemaVersion && plan.SchemaVersion != LegacyExecutableReviewPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyToolQualifiedPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyCalibratedPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyActivationStudyPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyCompleteActivationPrivatePlanSchemaVersion &&
 		plan.SchemaVersion != LegacyPromptBoundPrivatePlanSchemaVersion && plan.SchemaVersion != LegacyPrivatePlanSchemaVersion) || plan.PlanID != expectedID || !privatePlanIDRE.MatchString(plan.PlanID) ||
 		!privateWorkspaceAliasRE.MatchString(plan.RunSetAlias) || !validSHA256(plan.ContractSHA256) || !validSHA256(plan.InputsSHA256) ||
 		createdErr != nil || expiryErr != nil || !expires.After(created) || expires.After(created.Add(7*24*time.Hour)) ||
@@ -2024,6 +2148,9 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 	}
 	activationShape := privatePlanHasActivationShape(plan.SchemaVersion)
 	if !privatePlanHasExecutableReviewShape(plan.SchemaVersion) && plan.SchemaVersion != LegacyToolQualifiedPrivatePlanSchemaVersion && plan.ToolAvailability != nil {
+		return privatePlanError("plan")
+	}
+	if !privatePlanHasCLIRouteShape(plan.SchemaVersion) && plan.CLIRouteQualification != nil {
 		return privatePlanError("plan")
 	}
 	if !activationShape {
@@ -2083,6 +2210,25 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 			return privatePlanError("plan")
 		}
 	}
+	// A current comparison plan with a cli-skill surface is executable only when
+	// it carries the exact supported route qualification for its own provider.
+	// An activation study keeps its own tool-availability result and carries no
+	// route report at all.
+	if study {
+		if plan.CLIRouteQualification != nil {
+			return privatePlanError("cli_route_contract")
+		}
+	} else if privatePlanHasCLIRouteShape(plan.SchemaVersion) {
+		if privatePlanHasCLISkillItem(plan.Items) {
+			if plan.CLIRouteQualification == nil || !plan.CLIRouteQualification.Supported() ||
+				plan.CLIRouteQualification.Provider != plan.Provider ||
+				plan.CLIRouteQualification.Surface != SurfaceCLISkill {
+				return privatePlanError("cli_route_contract")
+			}
+		} else if plan.CLIRouteQualification != nil {
+			return privatePlanError("cli_route_contract")
+		}
+	}
 	seenSurfaces := map[string]struct{}{}
 	seenCells := map[string]struct{}{}
 	for _, item := range plan.Items {
@@ -2102,7 +2248,7 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 		// Query-only transport is expressible only by the current schema, and
 		// never together with mutation authority: an item that holds live-write
 		// authority cannot also claim the read-query exception.
-		if plan.SchemaVersion != PrivatePlanSchemaVersion && item.MaxQueryOnlyRequests != 0 {
+		if !privatePlanHasQueryOnlyShape(plan.SchemaVersion) && item.MaxQueryOnlyRequests != 0 {
 			return privatePlanError("item")
 		}
 		if item.MaxQueryOnlyRequests < 0 || item.MaxQueryOnlyRequests > 1000 || item.LiveWrites && item.MaxQueryOnlyRequests != 0 {
