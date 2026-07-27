@@ -177,7 +177,9 @@ func BuildPrivateFindingScorecard(options PrivateFindingScorecardOptions) (Priva
 func buildPrivateFindingScorecard(options PrivateFindingScorecardOptions, load privateFindingSourceLoader) (PrivateFindingScorecard, error) {
 	root, repository, err := privateWorkspaceLocations(options.Root, options.RepositoryRoot, false)
 	if err != nil {
-		return PrivateFindingScorecard{}, privateFindingError("workspace")
+		// The location failure is already a classified workspace rejection, so it
+		// stays nested and inspectable below the unchanged scorecard code.
+		return PrivateFindingScorecard{}, privateFindingError("workspace", err)
 	}
 	ledger, err := loadPrivateFindingLedger(root)
 	if err != nil {
@@ -217,18 +219,26 @@ func buildPrivateFindingScorecard(options PrivateFindingScorecardOptions, load p
 		}
 		resolved = append(resolved, item)
 	}
+	// Mixed: a reload that succeeds but no longer matches the canonical bytes is
+	// rejected by the byte comparison alone and leaves nil here. The reload
+	// failure is passed unguarded because codedError drops a nil cause.
 	finalLedger, err := loadPrivateFindingLedger(root)
 	if err != nil || !bytes.Equal(ledger.Canonical, finalLedger.Canonical) {
-		return PrivateFindingScorecard{}, privateFindingError("ledger_drift")
+		return PrivateFindingScorecard{}, privateFindingError("ledger_drift", err)
 	}
+	// Same mixed branch on the acceptance side.
 	_, finalAcceptance, err := loadPrivateFindingAcceptanceForEntries(root, finalLedger.Entries)
 	if err != nil || !bytes.Equal(acceptanceCanonical, finalAcceptance) {
-		return PrivateFindingScorecard{}, privateFindingError("acceptance_drift")
+		return PrivateFindingScorecard{}, privateFindingError("acceptance_drift", err)
 	}
 	for _, item := range resolved {
 		for _, snapshot := range item.synthetic {
-			if !revalidatePrivateSyntheticFindingSnapshot(root, snapshot) {
-				return PrivateFindingScorecard{}, privateFindingError("synthetic_evidence_drift")
+			// Mixed again: a snapshot that reloads cleanly but no longer matches the
+			// evidence resolved earlier is rejected by the deep comparison alone and
+			// leaves nil, while a failed reload keeps the failure it holds.
+			revalidated, reloadErr := revalidatePrivateSyntheticFindingSnapshot(root, snapshot)
+			if !revalidated {
+				return PrivateFindingScorecard{}, privateFindingError("synthetic_evidence_drift", reloadErr)
 			}
 		}
 	}
@@ -243,11 +253,15 @@ func resolvePrivateLiveFinding(root, repository string, entry privateFindingLedg
 	failureRef := privateFindingRunRef(entry.Failure)
 	failureSource, err := load(root, repository, failureRef.PlanID)
 	if err != nil {
-		return privateFindingResolved{}, privateFindingError("failure_source")
+		return privateFindingResolved{}, privateFindingError("failure_source", err)
 	}
+	// Mixed: a result that loads cleanly but records a supported pass is rejected
+	// by the status comparison alone and leaves nil here. A load failure is
+	// already a classified baseline-result rejection and stays nested below the
+	// unchanged outer code.
 	failure, failureDigest, err := privateFindingBaselineResult(root, failureSource, failureRef)
 	if err != nil || failure.EffectiveEligibility() == EligibilitySupported && failure.Status == "pass" {
-		return privateFindingResolved{}, privateFindingError("failure_result")
+		return privateFindingResolved{}, privateFindingError("failure_result", err)
 	}
 	if _, allowed := publicCorpusTaskClasses[failure.TaskClass]; !allowed {
 		return privateFindingResolved{}, privateFindingError("task_class")
@@ -275,11 +289,13 @@ func resolvePrivateLiveFinding(root, repository string, entry privateFindingLedg
 		}
 		regressionSource, loadErr := load(root, repository, regressionRef.PlanID)
 		if loadErr != nil {
-			return privateFindingResolved{}, privateFindingError("regression_source")
+			return privateFindingResolved{}, privateFindingError("regression_source", loadErr)
 		}
+		// Mixed: two results that both load cleanly and simply disagree are
+		// rejected by the compatibility comparison alone and leave nil here.
 		regression, regressionDigest, resultErr := privateFindingBaselineResult(root, regressionSource, regressionRef)
 		if resultErr != nil || !compatiblePrivateResults(failure, regression) {
-			return privateFindingResolved{}, privateFindingError("regression_incompatible")
+			return privateFindingResolved{}, privateFindingError("regression_incompatible", resultErr)
 		}
 		if changedContract != "" && changedContract != regressionSource.ContractSHA256 {
 			return privateFindingResolved{}, privateFindingError("change_contract")
@@ -305,13 +321,17 @@ func resolvePrivateLiveFinding(root, repository string, entry privateFindingLedg
 	}
 	switch binding.AssessmentSource {
 	case PrivateFindingAcceptanceSourcePrivateLive:
+		// Mixed: an assessment that loads cleanly but reports the wrong tier,
+		// acceptance flag, or cardinality is rejected by those comparisons alone and
+		// leaves nil here. A load failure is already a classified sampling
+		// rejection and stays nested below the unchanged outer code.
 		assessment, primary, holdout, assessmentErr := loadPrivateSamplingAssessment(
 			root, repository, binding.AssessmentSHA256, load,
 		)
 		if assessmentErr != nil || assessment.Tier != PrivateSamplingTierRegression ||
 			assessment.RegressionAccepted == nil || !*assessment.RegressionAccepted ||
 			len(primary) != 3 || len(holdout) == 0 {
-			return privateFindingResolved{}, privateFindingError("fixed_assessment")
+			return privateFindingResolved{}, privateFindingError("fixed_assessment", assessmentErr)
 		}
 		regressionPresent := false
 		for _, candidate := range assessment.Primary {
@@ -327,13 +347,14 @@ func resolvePrivateLiveFinding(root, repository string, entry privateFindingLedg
 		}
 		item.samplingPrimary, item.samplingHoldout = primary, holdout
 	case PrivateFindingAcceptanceSourceSyntheticRoot:
+		// Same mixed branch on the synthetic-root side.
 		assessment, primary, holdout, assessmentErr := loadPrivateSyntheticSamplingAssessment(
 			root, binding.AssessmentSHA256,
 		)
 		if assessmentErr != nil || assessment.Tier != PrivateSamplingTierRegression ||
 			assessment.RegressionAccepted == nil || !*assessment.RegressionAccepted ||
 			len(primary) != 3 || len(holdout) == 0 {
-			return privateFindingResolved{}, privateFindingError("fixed_assessment")
+			return privateFindingResolved{}, privateFindingError("fixed_assessment", assessmentErr)
 		}
 		for _, result := range primary {
 			if len(item.regressions) != 1 || !compatiblePrivateSyntheticFindingEvidence(
@@ -356,12 +377,14 @@ func resolvePrivateLiveFinding(root, repository string, entry privateFindingLedg
 func resolvePrivateSyntheticFinding(root string, entry privateFindingLedgerEntry,
 	acceptance map[string]privateFindingAcceptanceBinding,
 ) (privateFindingResolved, error) {
+	// Mixed: an assessment that loads cleanly but reports the wrong tier or
+	// cardinality is rejected by those comparisons alone and leaves nil here.
 	failureAssessment, failurePrimary, failureHoldout, err := loadPrivateSyntheticSamplingAssessment(
 		root, entry.Failure.AssessmentSHA256,
 	)
 	if err != nil || failureAssessment.Tier != PrivateSamplingTierCalibration ||
 		len(failurePrimary) != 1 || len(failureHoldout) != 0 {
-		return privateFindingResolved{}, privateFindingError("failure_assessment")
+		return privateFindingResolved{}, privateFindingError("failure_assessment", err)
 	}
 	failure := failurePrimary[0]
 	if failure.DataClass != "synthetic" || failure.EffectiveEligibility() != EligibilitySupported ||
@@ -387,13 +410,14 @@ func resolvePrivateSyntheticFinding(root string, entry privateFindingLedgerEntry
 		}
 		return item, nil
 	}
+	// Same mixed branch for the regression assessment.
 	regressionAssessment, primary, holdout, err := loadPrivateSyntheticSamplingAssessment(
 		root, entry.Regression.AssessmentSHA256,
 	)
 	if err != nil || regressionAssessment.Tier != PrivateSamplingTierRegression ||
 		regressionAssessment.RegressionAccepted == nil || !*regressionAssessment.RegressionAccepted ||
 		len(primary) != 3 || len(holdout) == 0 {
-		return privateFindingResolved{}, privateFindingError("regression_assessment")
+		return privateFindingResolved{}, privateFindingError("regression_assessment", err)
 	}
 	if !disjointPrivateSyntheticAssessments(failureAssessment, regressionAssessment) ||
 		len(primary) != regressionAssessment.Primary.Observations {
@@ -561,10 +585,24 @@ func disjointPrivateSyntheticAssessments(
 	return true
 }
 
-func revalidatePrivateSyntheticFindingSnapshot(root string, expected privateSyntheticFindingSnapshot) bool {
+// revalidatePrivateSyntheticFindingSnapshot reloads one synthetic assessment
+// and reports whether it still matches the evidence resolved earlier, together
+// with the reload failure when the reload itself failed. Reporting the two
+// separately lets the caller keep a concrete cause for a failed reload without
+// inventing one for a clean deep-equality mismatch, which is a comparison
+// verdict and has nothing to attach. The reload behavior is otherwise
+// unchanged: exactly one load per snapshot, in the same order, and a mismatch
+// on any of the three comparisons is still a false verdict.
+func revalidatePrivateSyntheticFindingSnapshot(
+	root string, expected privateSyntheticFindingSnapshot,
+) (bool, error) {
 	assessment, primary, holdout, err := loadPrivateSyntheticSamplingAssessment(root, expected.digest)
-	return err == nil && reflect.DeepEqual(assessment, expected.assessment) &&
-		reflect.DeepEqual(primary, expected.primary) && reflect.DeepEqual(holdout, expected.holdout)
+	if err != nil {
+		return false, err
+	}
+	return reflect.DeepEqual(assessment, expected.assessment) &&
+		reflect.DeepEqual(primary, expected.primary) &&
+		reflect.DeepEqual(holdout, expected.holdout), nil
 }
 
 func compatiblePrivateSyntheticFindingEvidence(regression, synthetic Result, promptContractSHA256 string) bool {
@@ -682,9 +720,12 @@ func privateFindingBaselineResult(root string, source PrivateBaselineSource, ref
 		!validSHA256(source.PlanSHA256) || !validSHA256(source.ContractSHA256) {
 		return Result{}, "", privateFindingError("mutable_source")
 	}
+	// Mixed: a manifest that loads cleanly but binds another plan is rejected by
+	// the digest comparison alone and leaves nil here. A load failure is already
+	// a classified baseline rejection and stays nested below the unchanged code.
 	manifest, baselineRoot, err := loadPrivateBaseline(root, source.ContractSHA256, ref.Baseline)
 	if err != nil || manifest.PlanSHA256 != source.PlanSHA256 {
-		return Result{}, "", privateFindingError("baseline")
+		return Result{}, "", privateFindingError("baseline", err)
 	}
 	var selected *privateBaselineSurface
 	for index := range manifest.Surfaces {
@@ -704,8 +745,13 @@ func privateFindingBaselineResult(root string, source PrivateBaselineSource, ref
 	expectedReviewedPath := filepath.ToSlash(filepath.Join("surfaces", ref.Surface, "reviewed-result.json"))
 	reviewedInfo, reviewedErr := safepath.StatWithin(root, filepath.Join(baselineRoot, filepath.FromSlash(expectedReviewedPath)))
 	reviewedExists := reviewedErr == nil && reviewedInfo.Mode().IsRegular()
+	// An ordinary absence is normal here and is not a rejection at all. Of the
+	// two branches that do reject, only the first holds a failure; the second
+	// observed a non-regular entry through a probe that succeeded, so it leaves
+	// nil. The probe result is passed unguarded because codedError drops a nil
+	// cause.
 	if reviewedErr != nil && !os.IsNotExist(reviewedErr) || reviewedErr == nil && !reviewedInfo.Mode().IsRegular() {
-		return Result{}, "", privateFindingError("baseline_reviewed_result")
+		return Result{}, "", privateFindingError("baseline_reviewed_result", reviewedErr)
 	}
 	expectedSelectedPath := expectedResultPath
 	if reviewedExists {
@@ -714,13 +760,17 @@ func privateFindingBaselineResult(root string, source PrivateBaselineSource, ref
 	if selected.ResultPath != expectedSelectedPath {
 		return Result{}, "", privateFindingError("baseline_result_path")
 	}
+	// Mixed: bytes that read cleanly but hash to something else are rejected by
+	// the digest comparison alone and leave nil here.
 	resultData, err := safepath.ReadFileWithinLimit(root, filepath.Join(baselineRoot, filepath.FromSlash(selected.ResultPath)), maxContractBytes)
 	if err != nil || sha256HexBytes(resultData) != selected.ResultSHA256 {
-		return Result{}, "", privateFindingError("baseline_result")
+		return Result{}, "", privateFindingError("baseline_result", err)
 	}
+	// Mixed again: a result that decodes cleanly but records another data class
+	// or surface is rejected by those comparisons alone.
 	result, err := DecodeResult(bytes.NewReader(resultData))
 	if err != nil || result.DataClass != "private-local" || result.EffectiveSurface() != ref.Surface {
-		return Result{}, "", privateFindingError("result_contract")
+		return Result{}, "", privateFindingError("result_contract", err)
 	}
 	return result, sha256HexBytes([]byte(manifest.TreeSHA256 + "\x00" + selected.ResultSHA256)), nil
 }

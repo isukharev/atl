@@ -1651,3 +1651,632 @@ func privateFindingTestResult(t *testing.T, pass bool) Result {
 	}
 	return result
 }
+
+// TestPrivateFindingScorecardCodesStayStableAndCauseFreeInTheMessage pins every
+// classification code the finding reconciliation raises: the rendered message
+// stays the shared sentinel plus the code, retained causes never reach it, and
+// nil causes are dropped so a mixed branch can pass its probe result unguarded.
+func TestPrivateFindingScorecardCodesStayStableAndCauseFreeInTheMessage(t *testing.T) {
+	privatePath := filepath.Join("private", "baselines", "captured", "surfaces", "cli-skill", "result.json")
+	readCause := &fs.PathError{Op: "openat", Path: privatePath, Err: fs.ErrPermission}
+	secondCause := errors.New("synthetic reload failure")
+
+	for _, code := range []string{
+		"workspace", "duplicate_failure", "duplicate_regression", "ledger_drift", "acceptance_drift",
+		"synthetic_evidence_drift", "failure_source", "failure_result", "task_class", "failure_class",
+		"change_contract", "regression_identity", "regression_source", "regression_incompatible",
+		"fixed_regression", "fixed_contract", "fixed_acceptance", "fixed_assessment",
+		"fixed_assessment_contract", "fixed_assessment_regression", "failure_assessment",
+		"regression_assessment", "mutable_source", "baseline", "ambiguous_surface", "surface_missing",
+		"baseline_reviewed_result", "baseline_result_path", "baseline_result", "result_contract",
+	} {
+		err := privateFindingError(code, readCause, nil, secondCause)
+		assertPrivateFindingCode(t, err, code)
+		if strings.Contains(err.Error(), privatePath) || strings.Contains(err.Error(), secondCause.Error()) {
+			t.Fatalf("message leaked a cause: %q", err.Error())
+		}
+		if !errors.Is(err, fs.ErrPermission) || !errors.Is(err, secondCause) {
+			t.Fatalf("error %v lost a cause", err)
+		}
+		var typed *fs.PathError
+		if !errors.As(err, &typed) || typed.Path != readCause.Path {
+			t.Fatalf("error %v does not expose the concrete read failure", err)
+		}
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 2 ||
+			causes[0] != error(readCause) || causes[1] != secondCause {
+			t.Fatalf("causes=%v, want both non-nil causes retained in order", causes)
+		}
+		if bare := privateFindingErrorCauses(t, privateFindingError(code, nil, nil)); len(bare) != 0 {
+			t.Fatalf("causes=%v, want nil causes dropped", bare)
+		}
+	}
+
+	// Every loader the reconciliation calls classifies under its own sentinel and
+	// short code, so a nested code has to stay reachable below the outer one.
+	nested := privateFindingError("baseline")
+	outer := privateFindingError("failure_result", nested)
+	assertPrivateFindingCode(t, outer, "failure_result")
+	var classified interface{ Code() string }
+	if !errors.As(outer, &classified) || classified.Code() != "failure_result" {
+		t.Fatalf("error %v does not report the outer scorecard code", outer)
+	}
+	if inner := privateFindingErrorCauses(t, outer); len(inner) != 1 || inner[0] != nested {
+		t.Fatalf("causes=%v, want the nested classification retained", inner)
+	}
+}
+
+func TestPrivateFindingScorecardAttachesWorkspaceLocationCause(t *testing.T) {
+	fixture := newPrivateFindingFixture(t)
+	options := fixture.options()
+	options.RepositoryRoot = filepath.Join(fixture.repository, "absent-repository")
+	_, err := buildPrivateFindingScorecard(options, fixture.load)
+	assertPrivateFindingCode(t, err, "workspace")
+	if causes := privateFindingErrorCauses(t, err); len(causes) != 1 {
+		t.Fatalf("causes=%v, want the location failure retained", causes)
+	}
+	// The location failure is itself a classified workspace rejection, so both
+	// sentinels and the concrete path failure below it stay inspectable.
+	if !errors.Is(err, ErrPrivateFindingLedgerRejected) || !errors.Is(err, ErrPrivateWorkspaceUnhealthy) ||
+		!errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("error %v lost a sentinel or the concrete cause", err)
+	}
+	var typed *fs.PathError
+	if !errors.As(err, &typed) {
+		t.Fatalf("error %v does not expose a path failure", err)
+	}
+	if strings.Contains(err.Error(), fixture.root) || strings.Contains(err.Error(), options.RepositoryRoot) {
+		t.Fatalf("message leaked a configured location: %q", err.Error())
+	}
+}
+
+func TestPrivateFindingScorecardAttachesPrivateLiveResolutionCauses(t *testing.T) {
+	probeCause := &fs.PathError{Op: "open", Path: "plan", Err: fs.ErrPermission}
+
+	t.Run("failure source load", func(t *testing.T) {
+		fixture := newPrivateFindingLiveFixture(t, PrivateFindingDecisionAccepted)
+		fixture.errors[privateFindingLiveFailurePlan] = probeCause
+		_, err := buildPrivateFindingScorecard(fixture.options(), fixture.load)
+		assertPrivateFindingCode(t, err, "failure_source")
+		causes := privateFindingErrorCauses(t, err)
+		if len(causes) != 1 || causes[0] != error(probeCause) {
+			t.Fatalf("causes=%v, want the loader failure retained", causes)
+		}
+		if !errors.Is(err, fs.ErrPermission) {
+			t.Fatalf("error %v does not expose the concrete loader failure", err)
+		}
+	})
+
+	t.Run("regression source load", func(t *testing.T) {
+		fixture := newPrivateFindingLiveFixture(t, PrivateFindingDecisionAccepted)
+		fixture.errors[privateFindingLiveRegressionPlan] = probeCause
+		_, err := buildPrivateFindingScorecard(fixture.options(), fixture.load)
+		assertPrivateFindingCode(t, err, "regression_source")
+		causes := privateFindingErrorCauses(t, err)
+		if len(causes) != 1 || causes[0] != error(probeCause) {
+			t.Fatalf("causes=%v, want the loader failure retained", causes)
+		}
+	})
+
+	// Both result branches call the same baseline loader, so each keeps a nested
+	// baseline classification below its own unchanged outer code.
+	for _, test := range []struct {
+		name, plan, code string
+	}{
+		{"failure result load", privateFindingLiveFailurePlan, "failure_result"},
+		{"regression result load", privateFindingLiveRegressionPlan, "regression_incompatible"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newPrivateFindingLiveFixture(t, PrivateFindingDecisionAccepted)
+			manifest := filepath.Join(fixture.root, "baselines",
+				fixture.sources[test.plan].ContractSHA256, "captured", "baseline.v1.json")
+			if err := os.Remove(manifest); err != nil {
+				t.Fatal(err)
+			}
+			_, err := buildPrivateFindingScorecard(fixture.options(), fixture.load)
+			assertPrivateFindingCode(t, err, test.code)
+			causes := privateFindingErrorCauses(t, err)
+			if len(causes) != 1 {
+				t.Fatalf("causes=%v, want the baseline classification retained", causes)
+			}
+			var nested interface{ Code() string }
+			if !errors.As(causes[0], &nested) || nested.Code() != "baseline" {
+				t.Fatalf("causes=%v, want the nested baseline code reachable", causes)
+			}
+			if !errors.Is(err, ErrPrivateBaselineRejected) || !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("error %v lost the nested sentinel or the concrete cause", err)
+			}
+			if strings.Contains(err.Error(), fixture.root) {
+				t.Fatalf("message leaked the workspace root: %q", err.Error())
+			}
+		})
+	}
+
+	t.Run("fixed private-live sampling assessment load", func(t *testing.T) {
+		candidate := newPrivateFixedScorecardFixture(t, true)
+		candidate.writeLedger(t)
+		writePrivateFindingAcceptance(t, candidate.fixture.root, PrivateFindingAcceptanceIndex{
+			SchemaVersion: PrivateFindingAcceptanceSchemaVersion,
+			Entries: []PrivateFindingAcceptanceEntry{{
+				FindingID: candidate.ledger.Entries[0].FindingID, AssessmentSHA256: strings.Repeat("a", 64),
+			}},
+		})
+		_, err := buildPrivateFindingScorecard(PrivateFindingScorecardOptions{Root: candidate.fixture.root,
+			RepositoryRoot: candidate.fixture.repository}, candidate.fixture.dependencies().load)
+		assertPrivateFindingCode(t, err, "fixed_assessment")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the sampling classification retained", causes)
+		}
+		if !errors.Is(err, ErrPrivateSamplingRejected) || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v lost the nested sentinel or the concrete cause", err)
+		}
+	})
+
+	t.Run("fixed synthetic sampling assessment load", func(t *testing.T) {
+		candidate := newPrivateFixedScorecardFixture(t, true)
+		candidate.writeLedger(t)
+		writePrivateFindingAcceptanceV2(t, candidate.fixture.root, PrivateFindingAcceptanceV2Index{
+			SchemaVersion: PrivateFindingAcceptanceV2SchemaVersion,
+			Entries: []PrivateFindingAcceptanceV2Entry{{
+				FindingID:            candidate.ledger.Entries[0].FindingID,
+				AssessmentSHA256:     strings.Repeat("a", 64),
+				AssessmentSource:     PrivateFindingAcceptanceSourceSyntheticRoot,
+				PromptContractSHA256: strings.Repeat("6", 64),
+			}},
+		})
+		_, err := buildPrivateFindingScorecard(PrivateFindingScorecardOptions{Root: candidate.fixture.root,
+			RepositoryRoot: candidate.fixture.repository}, candidate.fixture.dependencies().load)
+		assertPrivateFindingCode(t, err, "fixed_assessment")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the synthetic sampling classification retained", causes)
+		}
+		if !errors.Is(err, ErrPrivateSamplingRejected) || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v lost the nested sentinel or the concrete cause", err)
+		}
+	})
+}
+
+// TestPrivateFindingScorecardResolutionRejectsWithoutCauses covers the other
+// half of each mixed branch: a step that loaded cleanly and was rejected by a
+// comparison has nothing to attach, and the identity and duplicate checks beside
+// them never had a probe in hand.
+func TestPrivateFindingScorecardResolutionRejectsWithoutCauses(t *testing.T) {
+	t.Run("duplicate failure reference", func(t *testing.T) {
+		fixture := newPrivateFindingLiveFixture(t, PrivateFindingDecisionAccepted)
+		failure := PrivateFindingRunRef{PlanID: privateFindingLiveFailurePlan, Surface: SurfaceCLISkill, Baseline: "captured"}
+		fixture.writeLedger(t, PrivateFindingLedger{SchemaVersion: PrivateFindingLedgerSchemaVersion,
+			Entries: []PrivateFindingEntry{
+				{FindingID: "finding-001", Failure: failure, FailureClass: PrivateFailureModel,
+					ProductIssue: 1, Decision: PrivateFindingDecisionInvestigate},
+				{FindingID: "finding-002", Failure: failure, FailureClass: PrivateFailureModel,
+					ProductIssue: 2, Decision: PrivateFindingDecisionInvestigate},
+			}})
+		_, err := buildPrivateFindingScorecard(fixture.options(), fixture.load)
+		assertPrivateFindingCode(t, err, "duplicate_failure")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a comparison-only rejection", causes)
+		}
+	})
+
+	t.Run("failure result records a supported pass", func(t *testing.T) {
+		fixture := newPrivateFindingFixture(t)
+		fixture.addSource(t, privateFindingLiveFailurePlan, "", privateFindingTestResult(t, true))
+		fixture.writeLedger(t, PrivateFindingLedger{SchemaVersion: PrivateFindingLedgerSchemaVersion,
+			Entries: []PrivateFindingEntry{{FindingID: "finding-001",
+				Failure:      PrivateFindingRunRef{PlanID: privateFindingLiveFailurePlan, Surface: SurfaceCLISkill, Baseline: "captured"},
+				FailureClass: PrivateFailureModel, ProductIssue: 1, Decision: PrivateFindingDecisionInvestigate}}})
+		_, err := buildPrivateFindingScorecard(fixture.options(), fixture.load)
+		assertPrivateFindingCode(t, err, "failure_result")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a status-comparison rejection", causes)
+		}
+	})
+
+	t.Run("regression loads cleanly and is incompatible", func(t *testing.T) {
+		fixture := newPrivateFindingFixture(t)
+		fixture.addSource(t, privateFindingLiveFailurePlan, "", privateFindingTestResult(t, false))
+		incompatible := privateFindingTestResult(t, true)
+		incompatible.Runtime.Model = "other-model"
+		fixture.addSource(t, privateFindingLiveRegressionPlan, "", incompatible)
+		regression := PrivateFindingRunRef{PlanID: privateFindingLiveRegressionPlan, Surface: SurfaceCLISkill, Baseline: "captured"}
+		fixture.writeLedger(t, PrivateFindingLedger{SchemaVersion: PrivateFindingLedgerSchemaVersion,
+			Entries: []PrivateFindingEntry{{FindingID: "finding-001",
+				Failure:      PrivateFindingRunRef{PlanID: privateFindingLiveFailurePlan, Surface: SurfaceCLISkill, Baseline: "captured"},
+				FailureClass: PrivateFailureModel, ProductIssue: 1,
+				Regression: &regression, Decision: PrivateFindingDecisionAccepted}}})
+		_, err := buildPrivateFindingScorecard(fixture.options(), fixture.load)
+		assertPrivateFindingCode(t, err, "regression_incompatible")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a compatibility-comparison rejection", causes)
+		}
+	})
+
+	t.Run("sampling assessment loads cleanly and is not accepted", func(t *testing.T) {
+		candidate := newPrivateFixedScorecardFixture(t, false)
+		candidate.write(t)
+		_, err := buildPrivateFindingScorecard(PrivateFindingScorecardOptions{Root: candidate.fixture.root,
+			RepositoryRoot: candidate.fixture.repository}, candidate.fixture.dependencies().load)
+		assertPrivateFindingCode(t, err, "fixed_assessment")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want an acceptance-comparison rejection", causes)
+		}
+	})
+}
+
+func TestPrivateFindingScorecardAttachesSyntheticResolutionCauses(t *testing.T) {
+	absent := strings.Repeat("a", 64)
+
+	for _, test := range []struct {
+		name, code string
+		mutate     func(*PrivateFindingLedgerV2)
+	}{
+		{"failure assessment load", "failure_assessment", func(ledger *PrivateFindingLedgerV2) {
+			ledger.Entries[0].Failure.AssessmentSHA256 = absent
+		}},
+		{"regression assessment load", "regression_assessment", func(ledger *PrivateFindingLedgerV2) {
+			ledger.Entries[0].Regression.AssessmentSHA256 = absent
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture, ledger, acceptance := newSyntheticOnlyFindingFixture(t)
+			test.mutate(&ledger)
+			writePrivateFindingLedgerV2(t, fixture.root, ledger)
+			writePrivateFindingAcceptanceV2(t, fixture.root, acceptance)
+			_, err := buildPrivateFindingScorecard(PrivateFindingScorecardOptions{Root: fixture.root,
+				RepositoryRoot: fixture.repository}, fixture.dependencies().load)
+			assertPrivateFindingCode(t, err, test.code)
+			if causes := privateFindingErrorCauses(t, err); len(causes) != 1 {
+				t.Fatalf("causes=%v, want the synthetic sampling classification retained", causes)
+			}
+			if !errors.Is(err, ErrPrivateSamplingRejected) || !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("error %v lost the nested sentinel or the concrete cause", err)
+			}
+			var typed *fs.PathError
+			if !errors.As(err, &typed) {
+				t.Fatalf("error %v does not expose a path failure", err)
+			}
+			if strings.Contains(err.Error(), fixture.root) || strings.Contains(err.Error(), absent) {
+				t.Fatalf("message leaked a private location or digest: %q", err.Error())
+			}
+		})
+	}
+}
+
+// TestPrivateFindingSyntheticSnapshotRevalidationSeparatesReloadFailureFromDrift
+// pins the split the revalidation reports: a reload that fails hands back the
+// concrete failure, while a reload that succeeds and no longer matches is a
+// comparison verdict with nothing to attach. The scorecard's own
+// synthetic_evidence_drift classification can only observe the second case
+// deterministically, because both loads happen inside one reconciliation.
+func TestPrivateFindingSyntheticSnapshotRevalidationSeparatesReloadFailureFromDrift(t *testing.T) {
+	fixture := newPrivateSamplingFixture(t)
+	observed := privateSamplingResult(t, "jira.primary-evidence", false)
+	observed.Runtime.Provider = "codex"
+	root := addSyntheticFindingRoot(t, fixture, "snapshot-finding-synthetic-runs", observed,
+		observed.ScenarioID, 1, strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64))
+	digest := fixture.storeSyntheticAssessment(t, PrivateSyntheticSamplingSpec{
+		SchemaVersion: PrivateSyntheticSamplingSchemaVersion,
+		Tier:          PrivateSamplingTierCalibration, Primary: root,
+	})
+	assessment, primary, holdout, err := loadPrivateSyntheticSamplingAssessment(fixture.root, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := privateSyntheticFindingSnapshot{
+		digest: digest, assessment: assessment, primary: primary, holdout: holdout,
+	}
+
+	t.Run("unchanged evidence revalidates", func(t *testing.T) {
+		revalidated, reloadErr := revalidatePrivateSyntheticFindingSnapshot(fixture.root, snapshot)
+		if !revalidated || reloadErr != nil {
+			t.Fatalf("revalidated=%t err=%v, want a clean verdict", revalidated, reloadErr)
+		}
+	})
+
+	t.Run("reload failure hands back the cause", func(t *testing.T) {
+		missing := snapshot
+		missing.digest = strings.Repeat("a", 64)
+		revalidated, reloadErr := revalidatePrivateSyntheticFindingSnapshot(fixture.root, missing)
+		if revalidated || reloadErr == nil {
+			t.Fatalf("revalidated=%t err=%v, want the reload failure", revalidated, reloadErr)
+		}
+		if !errors.Is(reloadErr, ErrPrivateSamplingRejected) || !errors.Is(reloadErr, fs.ErrNotExist) {
+			t.Fatalf("reload error %v is not the classified sampling failure", reloadErr)
+		}
+		classified := privateFindingError("synthetic_evidence_drift", reloadErr)
+		assertPrivateFindingCode(t, classified, "synthetic_evidence_drift")
+		if causes := privateFindingErrorCauses(t, classified); len(causes) != 1 || causes[0] != reloadErr {
+			t.Fatalf("causes=%v, want the reload failure retained", causes)
+		}
+	})
+
+	t.Run("clean reload that no longer matches is drift only", func(t *testing.T) {
+		drifted := snapshot
+		drifted.assessment.Tier = PrivateSamplingTierRegression
+		revalidated, reloadErr := revalidatePrivateSyntheticFindingSnapshot(fixture.root, drifted)
+		if revalidated || reloadErr != nil {
+			t.Fatalf("revalidated=%t err=%v, want a cause-free drift verdict", revalidated, reloadErr)
+		}
+		if causes := privateFindingErrorCauses(t,
+			privateFindingError("synthetic_evidence_drift", reloadErr)); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a comparison-only rejection", causes)
+		}
+	})
+}
+
+func TestPrivateFindingBaselineResultAttachesLoadCauses(t *testing.T) {
+	t.Run("baseline manifest", func(t *testing.T) {
+		fixture := newPrivateFindingBaselineFixture(t)
+		if err := os.Remove(filepath.Join(fixture.baselineRoot, "baseline.v1.json")); err != nil {
+			t.Fatal(err)
+		}
+		err := fixture.resolve()
+		assertPrivateFindingCode(t, err, "baseline")
+		causes := privateFindingErrorCauses(t, err)
+		if len(causes) != 1 {
+			t.Fatalf("causes=%v, want the baseline classification retained", causes)
+		}
+		var nested interface{ Code() string }
+		if !errors.As(causes[0], &nested) || nested.Code() != "baseline_missing" {
+			t.Fatalf("causes=%v, want the nested baseline code reachable", causes)
+		}
+		if !errors.Is(err, ErrPrivateBaselineRejected) || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v lost the nested sentinel or the concrete cause", err)
+		}
+	})
+
+	t.Run("selected result read", func(t *testing.T) {
+		fixture := newPrivateFindingBaselineFixture(t)
+		resultPath := filepath.Join(fixture.surfaceRoot, "result.json")
+		if err := os.Remove(resultPath); err != nil {
+			t.Fatal(err)
+		}
+		// A directory keeps the manifest's selected path bound and is skipped by
+		// the tree rehash, so the read itself is what fails.
+		if err := os.Mkdir(resultPath, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		refreshPrivateFindingBaselineManifest(t, fixture.baselineRoot, nil)
+		err := fixture.resolve()
+		assertPrivateFindingCode(t, err, "baseline_result")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the read failure retained", causes)
+		}
+		var typed *fs.PathError
+		if !errors.As(err, &typed) {
+			t.Fatalf("error %v does not expose a path failure", err)
+		}
+		if strings.Contains(err.Error(), fixture.root) {
+			t.Fatalf("message leaked the workspace root: %q", err.Error())
+		}
+	})
+
+	t.Run("reviewed result probe", func(t *testing.T) {
+		fixture := newPrivateFindingBaselineFixture(t)
+		if err := os.RemoveAll(fixture.surfaceRoot); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fixture.surfaceRoot, []byte("not a directory\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		// The baseline tree remains hashable, but probing the reviewed-result path
+		// below the regular-file surface component fails with ENOTDIR.
+		refreshPrivateFindingBaselineManifest(t, fixture.baselineRoot, nil)
+		err := fixture.resolve()
+		assertPrivateFindingCode(t, err, "baseline_reviewed_result")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the reviewed-result probe failure retained", causes)
+		}
+		var typed *fs.PathError
+		if !errors.As(err, &typed) {
+			t.Fatalf("error %v does not expose the concrete probe failure", err)
+		}
+		if strings.Contains(err.Error(), fixture.root) {
+			t.Fatalf("message leaked the workspace root: %q", err.Error())
+		}
+	})
+
+	t.Run("result decode", func(t *testing.T) {
+		fixture := newPrivateFindingBaselineFixture(t)
+		resultPath := filepath.Join(fixture.surfaceRoot, "result.json")
+		if err := os.WriteFile(resultPath, []byte("{\"schema_version\":\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		refreshPrivateFindingBaselineManifest(t, fixture.baselineRoot, func(manifest *privateBaselineManifest) {
+			manifest.Surfaces[0].ResultSHA256 = privateFindingResultFileSHA256(t, resultPath)
+		})
+		err := fixture.resolve()
+		assertPrivateFindingCode(t, err, "result_contract")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the decode failure retained", causes)
+		}
+	})
+}
+
+// TestPrivateFindingBaselineResultRejectsWithoutCauses covers the observation,
+// identity, and digest comparisons that reject on their own. An ordinary absent
+// reviewed result is not a rejection at all and is exercised by the other
+// baseline tests, which all resolve through the raw result path.
+func TestPrivateFindingBaselineResultRejectsWithoutCauses(t *testing.T) {
+	t.Run("mutable source", func(t *testing.T) {
+		fixture := newPrivateFindingBaselineFixture(t)
+		fixture.source.Immutable = false
+		err := fixture.resolve()
+		assertPrivateFindingCode(t, err, "mutable_source")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a source-observation rejection", causes)
+		}
+	})
+
+	t.Run("manifest binds another plan", func(t *testing.T) {
+		fixture := newPrivateFindingBaselineFixture(t)
+		refreshPrivateFindingBaselineManifest(t, fixture.baselineRoot, func(manifest *privateBaselineManifest) {
+			manifest.PlanSHA256 = strings.Repeat("d", 64)
+		})
+		err := fixture.resolve()
+		assertPrivateFindingCode(t, err, "baseline")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a plan-digest comparison rejection", causes)
+		}
+	})
+
+	t.Run("requested surface is missing", func(t *testing.T) {
+		fixture := newPrivateFindingBaselineFixture(t)
+		fixture.ref.Surface = SurfaceATLMCP
+		err := fixture.resolve()
+		assertPrivateFindingCode(t, err, "surface_missing")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a surface-comparison rejection", causes)
+		}
+	})
+
+	t.Run("reviewed result is observed as a directory", func(t *testing.T) {
+		fixture := newPrivateFindingBaselineFixture(t)
+		if err := os.Mkdir(filepath.Join(fixture.surfaceRoot, "reviewed-result.json"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		refreshPrivateFindingBaselineManifest(t, fixture.baselineRoot, nil)
+		err := fixture.resolve()
+		assertPrivateFindingCode(t, err, "baseline_reviewed_result")
+		// The probe succeeded; the observed entry type is the rejection.
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a file-type-observation rejection", causes)
+		}
+	})
+
+	t.Run("reviewed result rebinds the selected path", func(t *testing.T) {
+		fixture := newPrivateFindingBaselineFixture(t)
+		writePrivateBaselineResult(t, filepath.Join(fixture.surfaceRoot, "reviewed-result.json"),
+			privateFindingTestResult(t, false))
+		refreshPrivateFindingBaselineManifest(t, fixture.baselineRoot, nil)
+		err := fixture.resolve()
+		assertPrivateFindingCode(t, err, "baseline_result_path")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a selected-path comparison rejection", causes)
+		}
+	})
+
+	t.Run("selected result hash", func(t *testing.T) {
+		fixture := newPrivateFindingBaselineFixture(t)
+		writePrivateBaselineResult(t, filepath.Join(fixture.surfaceRoot, "result.json"),
+			privateFindingTestResult(t, true))
+		// The recorded result digest is deliberately left stale, so the bytes read
+		// cleanly and only the digest comparison rejects.
+		refreshPrivateFindingBaselineManifest(t, fixture.baselineRoot, nil)
+		err := fixture.resolve()
+		assertPrivateFindingCode(t, err, "baseline_result")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a digest-comparison rejection", causes)
+		}
+	})
+
+	t.Run("result surface", func(t *testing.T) {
+		fixture := newPrivateFindingBaselineFixture(t)
+		other := privateFindingTestResult(t, false)
+		other.Surface = SurfaceATLMCP
+		resultPath := filepath.Join(fixture.surfaceRoot, "result.json")
+		writePrivateBaselineResult(t, resultPath, other)
+		refreshPrivateFindingBaselineManifest(t, fixture.baselineRoot, func(manifest *privateBaselineManifest) {
+			manifest.Surfaces[0].ResultSHA256 = privateFindingResultFileSHA256(t, resultPath)
+		})
+		err := fixture.resolve()
+		assertPrivateFindingCode(t, err, "result_contract")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a surface-comparison rejection", causes)
+		}
+	})
+}
+
+const (
+	privateFindingLiveFailurePlan    = "pln-11111111111111111111111111111111"
+	privateFindingLiveRegressionPlan = "pln-22222222222222222222222222222222"
+)
+
+// newPrivateFindingLiveFixture builds one ledger entry whose failure and
+// regression both resolve through the private-live path, so a subtest only has
+// to break the single step it is about.
+func newPrivateFindingLiveFixture(t *testing.T, decision string) *privateFindingFixture {
+	t.Helper()
+	fixture := newPrivateFindingFixture(t)
+	fixture.addSource(t, privateFindingLiveFailurePlan, "", privateFindingTestResult(t, false))
+	fixture.addSource(t, privateFindingLiveRegressionPlan, "", privateFindingTestResult(t, true))
+	regression := PrivateFindingRunRef{
+		PlanID: privateFindingLiveRegressionPlan, Surface: SurfaceCLISkill, Baseline: "captured",
+	}
+	fixture.writeLedger(t, PrivateFindingLedger{
+		SchemaVersion: PrivateFindingLedgerSchemaVersion,
+		Entries: []PrivateFindingEntry{{
+			FindingID: "finding-001",
+			Failure: PrivateFindingRunRef{
+				PlanID: privateFindingLiveFailurePlan, Surface: SurfaceCLISkill, Baseline: "captured",
+			},
+			FailureClass: PrivateFailureModel, ProductIssue: 1,
+			Regression: &regression, Decision: decision,
+		}},
+	})
+	return fixture
+}
+
+// privateFindingBaselineFixture is one immutable completed source with a single
+// captured baseline: the smallest workspace privateFindingBaselineResult reads.
+type privateFindingBaselineFixture struct {
+	root         string
+	source       PrivateBaselineSource
+	ref          PrivateFindingRunRef
+	baselineRoot string
+	surfaceRoot  string
+}
+
+func newPrivateFindingBaselineFixture(t *testing.T) privateFindingBaselineFixture {
+	t.Helper()
+	fixture := newPrivateFindingFixture(t)
+	planID := "pln-44444444444444444444444444444444"
+	fixture.addSource(t, planID, "", privateFindingTestResult(t, false))
+	source := fixture.sources[planID]
+	baselineRoot := filepath.Join(fixture.root, "baselines", source.ContractSHA256, "captured")
+	return privateFindingBaselineFixture{
+		root: fixture.root, source: source,
+		ref:          PrivateFindingRunRef{PlanID: planID, Surface: SurfaceCLISkill, Baseline: "captured"},
+		baselineRoot: baselineRoot,
+		surfaceRoot:  filepath.Join(baselineRoot, "surfaces", SurfaceCLISkill),
+	}
+}
+
+func (f privateFindingBaselineFixture) resolve() error {
+	_, _, err := privateFindingBaselineResult(f.root, f.source, f.ref)
+	return err
+}
+
+// refreshPrivateFindingBaselineManifest rewrites the baseline manifest so its
+// recorded tree digest matches the current tree, after applying an optional
+// manifest edit. It lets a test mutate one file inside a baseline and still
+// reach the result gates under test instead of stopping at the tree rehash
+// loadPrivateBaseline performs first.
+func refreshPrivateFindingBaselineManifest(t *testing.T, baselineRoot string,
+	mutate func(*privateBaselineManifest),
+) {
+	t.Helper()
+	manifestPath := filepath.Join(baselineRoot, "baseline.v1.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := decodePrivateBaselineManifest(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mutate != nil {
+		mutate(&manifest)
+	}
+	treeSHA256, _, _, err := hashPrivateTree(baselineRoot, "baseline.v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.TreeSHA256 = treeSHA256
+	data, err = encodePrivateBaselineManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}

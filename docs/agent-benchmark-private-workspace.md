@@ -1203,9 +1203,8 @@ and are not covered by a deterministic test; they attach on the same terms as
 their neighbours. No ledger code is added or renamed. Ledger schemas, canonical
 bytes, legacy/schema-v2 selection, file and directory modes, file identity
 gates, command output, exit codes, and fail-closed behavior are unchanged. The
-scorecard call sites deliberately still classify without causes and migrate in a
-later slice; the ledger frames they call already attach, and whatever the loader
-returns is retained unchanged.
+scorecard call sites attach on the same terms; the ledger frames they call
+already attach, and whatever the loader returns is retained unchanged.
 
 A rejected acceptance load follows the same pattern under the same sentinel and
 its existing short codes. The reports-directory probe, the directory open and
@@ -1250,9 +1249,70 @@ order they rely on is pinned directly on the classification constructor. No
 acceptance code is added or renamed. Acceptance schemas, canonical bytes,
 legacy/schema-v2 selection, the no-index result, file and directory modes, file
 identity gates, command output, exit codes, and fail-closed behavior are
-unchanged. The scorecard call sites deliberately still classify without causes
-and migrate in a later slice; the acceptance frames they call already attach,
-and whatever the loader returns is retained unchanged.
+unchanged. The scorecard call sites attach on the same terms; the acceptance
+frames they call already attach, and whatever the loader returns is retained
+unchanged.
+
+Finding reconciliation and immutable-result loading close the same slice, again
+under the same sentinel and its existing short codes. The reconciliation
+classifies at forty-two call sites: sixteen can hold a concrete failure and
+attach it, and twenty-six are decided by validation, comparison, cardinality,
+identity, or duplicate detection alone and have nothing to attach. The
+cause-capable sites are the workspace location; the final ledger and acceptance
+reloads that close the read window; synthetic snapshot revalidation; the
+private-live failure source load and its baseline result; the regression source
+load and its baseline result compatibility check; the private-live and synthetic
+fixed sampling assessments; the synthetic failure and regression assessments;
+the baseline manifest load; the reviewed-result probe; the selected result read
+and digest check; and the result decode and contract check. When a neighbouring
+workspace, baseline, sampling, ledger, or acceptance loader already classifies
+a failure, that rejection stays nested and inspectable with its own sentinel and
+short code. Raw filesystem or decoding failures remain directly reachable with
+`errors.Is` and `errors.As` below the unchanged outer code. Messages stay free
+of the configured private
+location, plan and baseline names, assessment digests, and evidence content.
+
+Snapshot revalidation now reports a reload failure and an evidence mismatch
+separately. A reload that fails hands the classified sampling failure to the
+`synthetic_evidence_drift` classification; a reload that succeeds and no longer
+deep-equals the evidence resolved earlier is a comparison verdict and stays
+cause-free. The number, order, and timing of revalidation loads are unchanged —
+still exactly one per retained snapshot — and any of the three comparisons
+failing is still drift.
+
+A rejection decided by comparison alone attaches nothing: a duplicate failure or
+regression reference, a failure result that loaded cleanly and records a
+supported pass, a task class outside the public corpus, a failure class that
+does not match the observed result, a contract-transition or changed-contract
+mismatch, a regression that is the failure's own plan, two results that both
+loaded and are simply incompatible, a fixed finding without an accepted
+regression or without a distinct contract pair, a missing or mislabelled
+acceptance binding, an assessment that loaded cleanly but reports the wrong
+tier, acceptance flag, or cardinality, an assessment whose primary contract or
+regression membership disagrees, non-disjoint synthetic assessments, a mutable
+or activation-study source, a manifest that binds another plan, an ambiguous or
+missing surface, a reviewed result observed as a non-regular entry, a selected
+path that does not match the reviewed-or-raw selection, a result digest
+mismatch, and a decoded result whose data class or surface disagrees. An
+ordinary absent reviewed result is not a rejection at all and stays on the raw
+result path.
+
+Some paths here are reachable only by racing the reconciliation or are
+defensive: the ledger and acceptance reload failures and the snapshot reload
+failure at its call site all require the workspace to change between two loads
+inside a single read-only reconciliation, and the unknown-evidence-source branch
+cannot be reached at all because the ledger validator admits only the two known
+sources. They attach on the same terms as their neighbours, and the cause-free
+and cause-bearing verdicts they depend on are pinned directly on the
+revalidation helper and on the classification constructor. The reviewed-result
+probe is covered separately by a deterministic non-directory-parent failure.
+The plan loader this reconciliation is given
+still classifies its own workspace-contract and activation-study state
+rejections without causes; that is a separate deferred slice, and whatever the
+loader returns is retained here unchanged. No finding code is added or renamed.
+Ledger and acceptance schemas, scorecard schema and digest, aggregation,
+grouping, branch outcomes, decision counts, command output, exit codes, and
+fail-closed gates are unchanged.
 
 ## Sampling evidence and holdouts
 
