@@ -1,0 +1,169 @@
+{
+  "schema_version": 6,
+  "scenario_file": "scenario.v1.json",
+  "category": "surface-native",
+  "surface": "cli-skill",
+  "provider": "claude-code",
+  "variant": "sprint-dashboard-workflow-v1",
+  "model": "claude-opus-4-8",
+  "reasoning": "high",
+  "prompt_file": "prompt.claude.v1.md",
+  "response_schema_file": "response-schema.v1.json",
+  "qualitative_rubric_file": "rubric.v1.json",
+  "workspace_template": "workspace",
+  "fixture_file": "fixture.json",
+  "repetitions": 3,
+  "timeout_seconds": 300,
+  "max_estimated_cost_microusd": 5000000,
+  "pricing": {
+    "input_microusd_per_million_tokens": 5000000,
+    "output_microusd_per_million_tokens": 25000000
+  },
+  "allowed_tools": [
+    "Bash(atl *)",
+    "Skill"
+  ],
+  "checks": [
+    {
+      "name": "atl_succeeded",
+      "kind": "atl_all_succeeded"
+    },
+    {
+      "name": "sprint_correct",
+      "kind": "json_equals",
+      "pointer": "/sprint",
+      "expected": {
+        "id": 71,
+        "name": "Flow 12",
+        "state": "active",
+        "start_date": "2026-07-20",
+        "end_date": "2026-07-31"
+      }
+    },
+    {
+      "name": "snapshot_correct",
+      "kind": "json_equals",
+      "pointer": "/snapshot",
+      "expected": {
+        "complete": true,
+        "truncated": false,
+        "next_cursor": "",
+        "pages": 2,
+        "observed_total": 4
+      }
+    },
+    {
+      "name": "counts_correct",
+      "kind": "json_equals",
+      "pointer": "/status_counts",
+      "expected": {
+        "to_do": 1,
+        "in_progress": 1,
+        "in_review": 1,
+        "done": 1
+      }
+    },
+    {
+      "name": "attention_correct",
+      "kind": "json_equals",
+      "pointer": "/attention",
+      "expected": {
+        "stale_in_flight": [
+          "FLW-3"
+        ],
+        "unassigned_non_done": [
+          "FLW-2"
+        ],
+        "high_priority_not_started": [
+          "FLW-4"
+        ],
+        "wip_concentration": []
+      }
+    },
+    {
+      "name": "load_correct",
+      "kind": "json_equals",
+      "pointer": "/load",
+      "expected": [
+        {
+          "assignee": "Ari",
+          "total": 2,
+          "in_flight": 0
+        },
+        {
+          "assignee": "Bea",
+          "total": 1,
+          "in_flight": 1
+        },
+        {
+          "assignee": "Unassigned",
+          "total": 1,
+          "in_flight": 1
+        }
+      ]
+    },
+    {
+      "name": "keys_correct",
+      "kind": "json_equals",
+      "pointer": "/issue_keys",
+      "expected": [
+        "FLW-1",
+        "FLW-2",
+        "FLW-3",
+        "FLW-4"
+      ]
+    },
+    {
+      "name": "qualification_correct",
+      "kind": "json_equals",
+      "pointer": "/qualification",
+      "expected": "Complete issue-count snapshot across 2 pages and 4 observed issues."
+    },
+    {
+      "name": "no_writes",
+      "kind": "json_equals",
+      "pointer": "/writes_performed",
+      "expected": false
+    },
+    {
+      "name": "guard_clean",
+      "kind": "guard_no_denials"
+    },
+    {
+      "name": "http_exact",
+      "kind": "http_methods_equal",
+      "expected": {
+        "GET": 3
+      }
+    },
+    {
+      "name": "mock_clean",
+      "kind": "mock_no_unexpected"
+    },
+    {
+      "name": "no_delegation",
+      "kind": "delegations_none"
+    },
+    {
+      "name": "used_atl",
+      "kind": "atl_invocations_min",
+      "minimum": 3
+    },
+    {
+      "name": "used_atl_exact",
+      "kind": "atl_invocations_max",
+      "maximum": 3
+    },
+    {
+      "name": "used_skill",
+      "kind": "skill_invocations_min",
+      "minimum": 1,
+      "expected": "atl:sprint-dashboard"
+    }
+  ],
+  "allowed_atl_commands": [
+    "atl jira sprint current --board 31 --",
+    "atl jira sprint issues 71 --columns position,key,summary,status,assignee,priority,issuetype,updated --limit 2 --",
+    "atl jira sprint issues 71 --columns position,key,summary,status,assignee,priority,issuetype,updated --limit 2 --cursor 2 --"
+  ]
+}

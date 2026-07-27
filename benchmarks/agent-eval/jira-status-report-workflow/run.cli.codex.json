@@ -1,0 +1,237 @@
+{
+  "schema_version": 6,
+  "scenario_file": "scenario.v1.json",
+  "category": "surface-native",
+  "surface": "cli-skill",
+  "provider": "codex",
+  "variant": "status-report-workflow-v1",
+  "model": "gpt-5.6-luna",
+  "reasoning": "high",
+  "prompt_file": "prompt.codex.v1.md",
+  "response_schema_file": "response-schema.v1.json",
+  "qualitative_rubric_file": "rubric.v1.json",
+  "workspace_template": "workspace",
+  "fixture_file": "fixture.json",
+  "repetitions": 3,
+  "timeout_seconds": 300,
+  "max_estimated_cost_microusd": 5000000,
+  "pricing": {
+    "input_microusd_per_million_tokens": 1000000,
+    "output_microusd_per_million_tokens": 6000000
+  },
+  "allowed_tools": [
+    "Bash(atl *)",
+    "Skill"
+  ],
+  "checks": [
+    {
+      "name": "atl_succeeded",
+      "kind": "atl_all_succeeded"
+    },
+    {
+      "name": "sources_correct",
+      "kind": "json_equals",
+      "pointer": "/sources",
+      "expected": [
+        {
+          "id": "done",
+          "complete": true,
+          "truncated": false,
+          "next_cursor": "",
+          "observed_count": 2
+        },
+        {
+          "id": "active",
+          "complete": false,
+          "truncated": true,
+          "next_cursor": "2",
+          "observed_count": 2
+        },
+        {
+          "id": "risk",
+          "complete": true,
+          "truncated": false,
+          "next_cursor": "",
+          "observed_count": 1
+        }
+      ]
+    },
+    {
+      "name": "metrics_correct",
+      "kind": "json_equals",
+      "pointer": "/metrics",
+      "expected": {
+        "done_observed": 2,
+        "in_flight_observed": 2,
+        "high_risk_observed": 1,
+        "unassigned_observed": 1
+      }
+    },
+    {
+      "name": "facts_correct",
+      "kind": "json_equals",
+      "pointer": "/observed_facts",
+      "expected": [
+        "done observed: ORB-1=Done, ORB-2=Done",
+        "active observed: ORB-7=In Progress@Ari, ORB-8=Blocked@Unassigned",
+        "risk observed: ORB-8=Highest/Blocked"
+      ]
+    },
+    {
+      "name": "interpretation_correct",
+      "kind": "json_equals",
+      "pointer": "/interpretation",
+      "expected": {
+        "rag": "amber",
+        "qualification": "Partial: active is truncated at next_cursor 2; in_flight_observed=2 is an observed minimum.",
+        "risks": [
+          "ORB-8"
+        ]
+      }
+    },
+    {
+      "name": "quality_correct",
+      "kind": "json_equals",
+      "pointer": "/evidence_quality",
+      "expected": "partial"
+    },
+    {
+      "name": "not_published",
+      "kind": "json_equals",
+      "pointer": "/not_published",
+      "expected": true
+    },
+    {
+      "name": "guard_clean",
+      "kind": "guard_no_denials"
+    },
+    {
+      "name": "http_exact",
+      "kind": "http_methods_equal",
+      "expected": {
+        "GET": 3
+      }
+    },
+    {
+      "name": "mock_clean",
+      "kind": "mock_no_unexpected"
+    },
+    {
+      "name": "no_delegation",
+      "kind": "delegations_none"
+    },
+    {
+      "name": "used_atl",
+      "kind": "atl_invocations_min",
+      "minimum": 3
+    },
+    {
+      "name": "used_atl_exact",
+      "kind": "atl_invocations_max",
+      "maximum": 3
+    },
+    {
+      "name": "used_skill",
+      "kind": "skill_invocations_min",
+      "minimum": 1
+    }
+  ],
+  "allowed_cli_commands": [
+    {
+      "name": "status_done",
+      "command": [
+        "jira",
+        "issue",
+        "search"
+      ],
+      "flags": [
+        {
+          "name": "--jql",
+          "values": [
+            "project = ORB AND statusCategory = Done AND resolved DURING (\"2026-07-20\", \"2026-07-26\") ORDER BY key ASC"
+          ],
+          "required": true
+        },
+        {
+          "name": "--columns",
+          "values": [
+            "key,summary,status,assignee,priority,updated"
+          ],
+          "required": true
+        },
+        {
+          "name": "--limit",
+          "values": [
+            "2"
+          ],
+          "required": true
+        }
+      ],
+      "max_invocations": 1
+    },
+    {
+      "name": "status_active",
+      "command": [
+        "jira",
+        "issue",
+        "search"
+      ],
+      "flags": [
+        {
+          "name": "--jql",
+          "values": [
+            "project = ORB AND statusCategory != Done ORDER BY key ASC"
+          ],
+          "required": true
+        },
+        {
+          "name": "--columns",
+          "values": [
+            "key,summary,status,assignee,priority,updated"
+          ],
+          "required": true
+        },
+        {
+          "name": "--limit",
+          "values": [
+            "2"
+          ],
+          "required": true
+        }
+      ],
+      "max_invocations": 1
+    },
+    {
+      "name": "status_risk",
+      "command": [
+        "jira",
+        "issue",
+        "search"
+      ],
+      "flags": [
+        {
+          "name": "--jql",
+          "values": [
+            "project = ORB AND priority in (Highest, High) AND statusCategory != Done ORDER BY priority DESC, key ASC"
+          ],
+          "required": true
+        },
+        {
+          "name": "--columns",
+          "values": [
+            "key,summary,status,assignee,priority,updated"
+          ],
+          "required": true
+        },
+        {
+          "name": "--limit",
+          "values": [
+            "2"
+          ],
+          "required": true
+        }
+      ],
+      "max_invocations": 1
+    }
+  ]
+}

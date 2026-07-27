@@ -1,0 +1,13 @@
+{
+  "type":"object","additionalProperties":false,
+  "properties":{
+    "board_id":{"type":"integer"},
+    "sprint":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"integer"},"name":{"type":"string"},"state":{"type":"string"},"start_date":{"type":"string"},"end_date":{"type":"string"}},"required":["id","name","state","start_date","end_date"]},
+    "snapshot":{"type":"object","additionalProperties":false,"properties":{"complete":{"type":"boolean"},"truncated":{"type":"boolean"},"next_cursor":{"type":"string"},"pages":{"type":"integer"},"observed_total":{"type":"integer"}},"required":["complete","truncated","next_cursor","pages","observed_total"]},
+    "status_counts":{"type":"object","additionalProperties":false,"properties":{"to_do":{"type":"integer"},"in_progress":{"type":"integer"},"in_review":{"type":"integer"},"done":{"type":"integer"}},"required":["to_do","in_progress","in_review","done"]},
+    "attention":{"type":"object","additionalProperties":false,"properties":{"stale_in_flight":{"type":"array","items":{"type":"string"}},"unassigned_non_done":{"type":"array","items":{"type":"string"}},"high_priority_not_started":{"type":"array","items":{"type":"string"}},"wip_concentration":{"type":"array","items":{"type":"string"}}},"required":["stale_in_flight","unassigned_non_done","high_priority_not_started","wip_concentration"]},
+    "load":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"assignee":{"type":"string"},"total":{"type":"integer"},"in_flight":{"type":"integer"}},"required":["assignee","total","in_flight"]}},
+    "issue_keys":{"type":"array","items":{"type":"string"}},"qualification":{"type":"string"},"writes_performed":{"type":"boolean"}
+  },
+  "required":["board_id","sprint","snapshot","status_counts","attention","load","issue_keys","qualification","writes_performed"]
+}

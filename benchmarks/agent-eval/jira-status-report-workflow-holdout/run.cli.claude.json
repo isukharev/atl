@@ -1,0 +1,146 @@
+{
+  "schema_version": 6,
+  "scenario_file": "scenario.v1.json",
+  "category": "surface-native",
+  "surface": "cli-skill",
+  "provider": "claude-code",
+  "variant": "status-report-workflow-v1",
+  "model": "claude-opus-4-8",
+  "reasoning": "high",
+  "prompt_file": "prompt.claude.v1.md",
+  "response_schema_file": "response-schema.v1.json",
+  "qualitative_rubric_file": "rubric.v1.json",
+  "workspace_template": "workspace",
+  "fixture_file": "fixture.json",
+  "repetitions": 1,
+  "timeout_seconds": 300,
+  "max_estimated_cost_microusd": 5000000,
+  "pricing": {
+    "input_microusd_per_million_tokens": 5000000,
+    "output_microusd_per_million_tokens": 25000000
+  },
+  "allowed_tools": [
+    "Bash(atl *)",
+    "Skill"
+  ],
+  "checks": [
+    {
+      "name": "atl_succeeded",
+      "kind": "atl_all_succeeded"
+    },
+    {
+      "name": "sources_correct",
+      "kind": "json_equals",
+      "pointer": "/sources",
+      "expected": [
+        {
+          "id": "done",
+          "complete": true,
+          "truncated": false,
+          "next_cursor": "",
+          "observed_count": 1
+        },
+        {
+          "id": "active",
+          "complete": true,
+          "truncated": false,
+          "next_cursor": "",
+          "observed_count": 1
+        },
+        {
+          "id": "risk",
+          "complete": false,
+          "truncated": true,
+          "next_cursor": "2",
+          "observed_count": 2
+        }
+      ]
+    },
+    {
+      "name": "metrics_correct",
+      "kind": "json_equals",
+      "pointer": "/metrics",
+      "expected": {
+        "done_observed": 1,
+        "in_flight_observed": 1,
+        "high_risk_observed": 2,
+        "unassigned_observed": 1
+      }
+    },
+    {
+      "name": "facts_correct",
+      "kind": "json_equals",
+      "pointer": "/observed_facts",
+      "expected": [
+        "done observed: PINE-1=Done",
+        "active observed: PINE-4=In Review@Drew",
+        "risk observed: PINE-4=High/In Review, PINE-5=Highest/To Do"
+      ]
+    },
+    {
+      "name": "interpretation_correct",
+      "kind": "json_equals",
+      "pointer": "/interpretation",
+      "expected": {
+        "rag": "amber",
+        "qualification": "Partial: risk is truncated at next_cursor 2; high_risk_observed=2 is an observed minimum.",
+        "risks": [
+          "PINE-4",
+          "PINE-5"
+        ]
+      }
+    },
+    {
+      "name": "quality_correct",
+      "kind": "json_equals",
+      "pointer": "/evidence_quality",
+      "expected": "partial"
+    },
+    {
+      "name": "not_published",
+      "kind": "json_equals",
+      "pointer": "/not_published",
+      "expected": true
+    },
+    {
+      "name": "guard_clean",
+      "kind": "guard_no_denials"
+    },
+    {
+      "name": "http_exact",
+      "kind": "http_methods_equal",
+      "expected": {
+        "GET": 3
+      }
+    },
+    {
+      "name": "mock_clean",
+      "kind": "mock_no_unexpected"
+    },
+    {
+      "name": "no_delegation",
+      "kind": "delegations_none"
+    },
+    {
+      "name": "used_atl",
+      "kind": "atl_invocations_min",
+      "minimum": 3
+    },
+    {
+      "name": "used_atl_exact",
+      "kind": "atl_invocations_max",
+      "maximum": 3
+    },
+    {
+      "name": "used_skill",
+      "kind": "skill_invocations_min",
+      "minimum": 1,
+      "expected": "atl:status-report"
+    }
+  ],
+  "allowed_atl_commands": [
+    "atl jira issue search --jql 'project = PINE AND statusCategory = Done AND resolved DURING (\"2026-07-13\", \"2026-07-20\") ORDER BY key ASC' --columns key,summary,status,assignee,priority,updated --limit 2 --",
+    "atl jira issue search --jql 'project = PINE AND statusCategory != Done ORDER BY key ASC' --columns key,summary,status,assignee,priority,updated --limit 2 --",
+    "atl jira issue search --jql 'project = PINE AND priority in (Highest, High) AND statusCategory != Done ORDER BY priority DESC, key ASC' --columns key,summary,status,assignee,priority,updated --limit 2 --"
+  ]
+}
