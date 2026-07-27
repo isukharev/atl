@@ -1012,6 +1012,21 @@ func TestPrivateSamplingContractRejectionsSeparateDecodingFromCanonicalBytes(t *
 		}
 	})
 
+	t.Run("invalid trailing assessment data", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		digest := fixture.storeAssessment(t, regressionSpec(fixture))
+		fixture.rewriteAssessment(t, digest, append(fixture.readAssessment(t, digest), []byte("nope\n")...))
+		_, _, _, err := loadPrivateSamplingAssessment(fixture.root, fixture.repository, digest, fixture.dependencies().load)
+		assertPrivateSamplingCode(t, err, "assessment_decode")
+		var syntaxErr *json.SyntaxError
+		if !errors.As(err, &syntaxErr) {
+			t.Fatalf("error %v does not expose the trailing decoding failure", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the trailing decoding failure", causes)
+		}
+	})
+
 	t.Run("non-canonical assessment", func(t *testing.T) {
 		fixture := newPrivateSamplingFixture(t)
 		digest := fixture.storeAssessment(t, regressionSpec(fixture))
@@ -1062,6 +1077,20 @@ func TestPrivateSamplingApplyAttachesStoreCauses(t *testing.T) {
 		assertPrivateSamplingCode(t, err, "confirmation")
 		if causes := privateSamplingErrorCauses(t, err); len(causes) != 0 {
 			t.Fatalf("causes=%v, want an input-only rejection", causes)
+		}
+	})
+
+	t.Run("unresolvable workspace", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		options := reviewed(fixture, strings.Repeat("a", 64))
+		options.Root = filepath.Join(t.TempDir(), "absent")
+		_, err := applyPrivateSampling(options, fixture.dependencies())
+		assertPrivateSamplingCode(t, err, "workspace")
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete resolution failure", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the workspace classification retained", causes)
 		}
 	})
 
@@ -1200,6 +1229,33 @@ func TestPrivateSamplingApplyAttachesStoreCauses(t *testing.T) {
 }
 
 func TestPrivateSamplingEvidenceRejectionsRetainNestedCauses(t *testing.T) {
+	t.Run("absent assessment directory", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		_, _, _, err := loadPrivateSamplingAssessment(fixture.root, fixture.repository, strings.Repeat("a", 64), fixture.dependencies().load)
+		assertPrivateSamplingCode(t, err, "assessment_directory")
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete directory stat failure", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the directory stat failure", causes)
+		}
+	})
+
+	t.Run("absent assessment file", func(t *testing.T) {
+		fixture := newPrivateSamplingFixture(t)
+		if err := os.Mkdir(filepath.Join(fixture.root, "reports", "sampling"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		_, _, _, err := loadPrivateSamplingAssessment(fixture.root, fixture.repository, strings.Repeat("a", 64), fixture.dependencies().load)
+		assertPrivateSamplingCode(t, err, "assessment_file")
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete file stat failure", err)
+		}
+		if causes := privateSamplingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want only the file stat failure", causes)
+		}
+	})
+
 	t.Run("source loader failure", func(t *testing.T) {
 		fixture := newPrivateSamplingFixture(t)
 		fixture.writeSpec(t, PrivateSamplingSpec{SchemaVersion: 1, Tier: PrivateSamplingTierRegression,
