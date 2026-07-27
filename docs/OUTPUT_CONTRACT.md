@@ -1299,6 +1299,15 @@ origin's self coordinates from the compact cell kind; synthetic rows leave
 them blank. CSV/XLSX exports are terminal exports rather than replayable mirror
 views, so they have no separate migration marker.
 
+Selected-table CSV neutralizes every cell whose first byte is `=`, `+`, `-`,
+`@`, tab, carriage return, or newline by prefixing an apostrophe. This
+spreadsheet-safe behavior is the default; it applies to headers and data cells
+while leaving ordinary text, numbers, and already-apostrophe-prefixed values
+unchanged. `--raw-csv` is an explicit unsafe escape hatch that preserves those
+formula-leading values verbatim for trusted non-spreadsheet consumers. It does
+not change table selection, parsing, or backend access, and it never authorizes
+a remote write.
+
 When `--out` is given, JSON, CSV, and XLSX all persist through one atomic
 application writer (temp file then rename), so no partial artifact is ever
 observable; missing parent directories are created as needed. The success

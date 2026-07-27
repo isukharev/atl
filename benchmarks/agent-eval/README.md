@@ -273,6 +273,8 @@ The realistic matrix currently contains:
 | surface native | `confluence-paginated-search-evidence-holdout` | distinct two-page pagination and repeated-heading topology with different current controls |
 | surface native | `confluence-selection-completeness` | one CQL pull whose exact overflow probe proves that the 1000-page local mirror is an incomplete selection |
 | surface native | `confluence-selection-completeness-holdout` | one CQL search whose terminal-looking page conflicts with the backend-reported total and remains incomplete |
+| surface native | `confluence-csv-formula-safety` | one selected-table CSV extraction proving that the spreadsheet-safe default neutralizes all formula-leading cells while preserving controls |
+| surface native | `confluence-csv-formula-safety-holdout` | a distinct selected-table CSV extraction proving that explicit raw mode preserves formula-leading cells and reports the resulting spreadsheet risk |
 | surface native | `jira-paginated-search-mcp` | exact three-page typed issue search with ordered identity and status reconciliation |
 | surface native | `jira-paginated-search-mcp-holdout` | distinct two-page Jira search topology through the same terminal-completeness contract |
 | surface native | `jira-search-zero-progress-mcp` | advancing Jira search cursor with a successful page that contributes no new stable identity |
@@ -337,6 +339,14 @@ as one transport-level `remote_writes` metric. Both Codex and Claude Code have
 equivalent current fixtures, core prompts, response schemas, budgets, and
 semantic checks for these cells; provider-native pricing is the only expected
 difference in the paired MCP contracts.
+
+The paired Confluence CSV formula-safety cases exercise the terminal CSV export
+contract separately from raw structured-table analysis. The primary uses the
+spreadsheet-safe default and its distinct holdout explicitly requests
+`--raw-csv`; both select one table, permit one GET and one ATL invocation, treat
+instruction-shaped cell text only as data, and derive the semantic answer from
+ATL's actual CSV output. Raw mode remains an unsafe escape hatch for trusted
+non-spreadsheet consumers, not a spreadsheet-safe variant.
 
 The one-call typed-MCP provider-level `max_tool_calls` budget is two: one ATL MCP
 call plus a bounded schema-output call on providers that expose structured
